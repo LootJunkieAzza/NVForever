@@ -53,9 +53,23 @@ own rules are not known]:
   opened inside it; when none of that name is open it closes the innermost open element
   whatever its name; with nothing open it is dropped. Both MCM spots need this pair of
   rules to come out as MCM evidently works in the original (one needs each rule);
+- [hypothesis] an attributeless non-empty start tag `<T>` that is neither a tile/template
+  container, `include`, nor an operator closes an open trait of the same name `<T>` when
+  that trait already holds non-blank content and only operators (if any) are open inside
+  it (mending a forgotten `/` on closing tags such as `<height><copy .../><height>`, with
+  a warning);
+- [hypothesis] when an enclosing container end tag (a tile or `<template>`) or end-of-file
+  implicitly closes an unclosed trait or operator element that has non-blank content
+  before one or more contiguous trailing non-operator elements (sibling traits, tiles,
+  `include` or `template`), those trailing elements are hoisted onto the enclosing parent
+  so they are not dropped as unknown operators (explicitly closed traits keep unknown
+  inner tags inside the trait and still warn);
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
 - a start tag cut short by `<` ends there, open (its own end tag follows);
+- an element opened inside 256 open ones is left out with everything in it, up to its own
+  end tag [design: `xml::MAX_DEPTH`, NVForever's own guard against running out of stack on
+  a broken or crafted file, #3156; no vanilla file comes near it];
 - an unquoted attribute value runs to a space or `>`, stray quotes dropped;
 - `<!-- -->` comments, `<?…?>` and `<!…>` are skipped; `&amp;` `&lt;` `&gt;` `&quot;`
   `&apos;` `&#N;` are decoded; any other `&name;` is kept by name;
@@ -126,6 +140,16 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
 - `&hudmain;` 1, `&hudalt;` 2 [observed: private job hud_jip file_0032;
   hud_hardcore2 hc2-hc5; hud.md §14.8];
 - every other constant reads 0 as a number [hypothesis].
+
+Scripts can also write standalone entity tokens into a trait via `SetUIString` /
+`SetUIStringAlt` with or without a trailing semicolon (e.g. `"&false"`, `"&true"`,
+`"&center"`) [hypothesis: JIP UI scripts hide vanilla tiles by writing `"&false"` to
+`.../visible`, relying on the trait parser recognising `&name` constants the same as XML
+entities; observer check]. NVForever keeps the written `Value::Str` text verbatim for
+`GetUIString`, while evaluating standalone `&name` / `&name;` ASCII identifier strings
+(excluding `&-sName;` game-string placeholders and mixed prose) identically to
+`Value::Sym` for `truthy()`, `num()`, `eq`, `justify`, and suffix-`<copy>` lookup
+[design: `fnv_ui::value`].
 
 ### 2.4 Game setting strings
 
@@ -205,6 +229,22 @@ The tree records each name it read and whether it had text (`Ui::game_strings_re
 engine logs `ui: game strings: N read, M without text` at start for the menus it keeps
 loaded (with the vanilla files, `sModffects` of `item_stats_display.xml` is the one name
 without text there).
+
+**Unprefixed game-string entities (`&sName;` without `-`)** [observed: MCM 1.5's
+`Scale.xml` writes `<string> &sAccept; </string>` and `<string> &sCancel; </string>`,
+#2270]: mod menu files sometimes omit the leading `-` on game-setting string entities.
+Previously, `fnv_ui::expr::literal` turned any lone entity without `-` straight into
+`Value::Sym`, rendering raw `&saccept;` / `&scancel;`, and left unprefixed entities raw in
+compound text. [design: `fnv_ui::expr::literal_with`, `fnv_ui::tree::Ui::put_trait`] When
+an unprefixed entity is not a known numeric or menu-class constant (`sym_number`),
+NVForever checks `Source::game_string` (load-order GMSTs first, then `BUILT_IN`, without
+case) for both lone entities and compound text; when found, it expands to that text and
+records the read in `game_strings_read` (and `built_in_label` for lone built-in labels).
+When not found, it stays a named constant `Value::Sym` (or literal `&name;` in compound
+text) without recording a missing game-string read [hypothesis: whether the original reads
+an unknown unprefixed `&sName;` as empty or literal text has not been observed; keeping
+unmatched unprefixed entities as symbols preserves unknown UI constants such as `&center;`
+and `&scale;`].
 
 The names with no record in the vanilla masters, by spelling:
 
@@ -998,13 +1038,19 @@ this change.
    ```
 
    [observed: those lists] Both `:` and `::` separate include, target and optional
-   tile name. Targets are menu names in mixed case or `@Prefabs\...` paths. `;`
+   tile name. Targets are menu names in mixed case or `@...` paths relative to `menus\`
+   (`@Prefabs\...`, `@globals.xml`, etc.) [documented: UIO Nexus mod-author guide,
+   "Adding support for your mod"; no plugin DLL or source read]. `;`
    lines and blank lines separate groups. Conditions contain `true`, `?plugin`,
    `#path`, `!`, `&&`, and also `||` (the MCM alternative in supported.txt).
    [observed: Just Assorted Mods/Menus/Prefabs/JHM/JHM.xml;
    MCM Extender/Menus/Prefabs/MCMExtender/ListRect/text.xml;
    UI Improvements/menus/prefabs/UII/CharGenBox.xml] Include names resolve below
-   `menus\prefabs`. [observed: UI Improvements/menus/prefabs/UII/PerkBrowser.xml;
+   `menus\prefabs` with `.` and `..` segments collapsed so sibling paths under `menus\`
+   resolve identically in `<include>` and UIO lists [design]. `@` targets that are empty
+   or escape `menus\` via `..` are rejected as malformed (`unknown prefab target`), and
+   untargeted `@` patches on a menu file append inside its `<menu>` root while prefab
+   fragments and `globals.xml` append to top-level nodes [design]. [observed: UI Improvements/menus/prefabs/UII/PerkBrowser.xml;
    Pip-Boy UI Tweaks/UIO/Public/PipBoyUITweaks.txt] The `#UII\PerkBrowser.xml`
    operand names an existing file there. The advrecon/primaryneedshud/filmgrain
    operands of supported.txt have no matching files in the inspected mod folders.
@@ -1219,7 +1265,10 @@ Implemented consumers and remaining exclusions:
   scrolled how) are not known [hypothesis]. Textures are decoded
   only up to `repeat::MAX_TEXELS`, read from the file's header first, by these bakes and
   by `crate::repeat`'s (the tiled pictures, the compass strip), whose oversized textures
-  keep Bevy's drawing. An offset that changes alone re-bakes the kept image, or moves the
+  keep Bevy's drawing; when a source texture exceeds `repeat::MAX_TEXELS` (such as a
+  4096 x 4096 modded UI atlas), `crate::repeat` and `compass_strip` decode only the
+  requested sub-rectangle directly from level 0 when that region fits within
+  `repeat::MAX_TEXELS` [design]. An offset that changes alone re-bakes the kept image, or moves the
   compass strip on, in place (same nodes and handle), only when it is another texel
   shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to three
   largest images, the most one bake costs: its output and both textures decoded again, or

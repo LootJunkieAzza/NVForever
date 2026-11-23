@@ -49,7 +49,20 @@ impl Plugin for ScriptSwitchesPlugin {
         app.init_resource::<crate::script_cursor::CursorRequests>()
             .add_systems(PreUpdate, crate::script_cursor::refresh.before(bevy::input::InputSystems).before(crate::script_input::ScriptInputSet))
             .add_systems(PostUpdate, crate::script_cursor::guard);
+        #[cfg(not(target_os = "windows"))]
+        app.add_systems(PreUpdate, refresh_cursor.before(bevy::input::InputSystems).before(crate::script_input::ScriptInputSet));
     }
+}
+
+/// Non-Windows mirror of `script_cursor::refresh`: sync the primary window's size and
+/// cursor position into `Jip9State` before `PreUpdate` input callbacks and `Update`
+/// scripts run [design].
+#[cfg(not(target_os = "windows"))]
+fn refresh_cursor(mut script: Option<ResMut<ScriptState>>, windows: Query<&Window, With<PrimaryWindow>>) {
+    let Some(game) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) else { return };
+    let Ok(window) = windows.single() else { return };
+    game.other.jip9.window = Some((f64::from(window.width()), f64::from(window.height())));
+    game.other.jip9.cursor_px = window.cursor_position().map(|p| (f64::from(p.x), f64::from(p.y)));
 }
 
 /// The game's volume index (GetGameVolume's 1-5) of each sound category.
@@ -63,7 +76,9 @@ fn category_index(c: SoundCategory) -> usize {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+// On Windows the cursor parameters (commands, requests, page) make 8 arguments; elsewhere
+// 5. CI's clippy runs on Linux, so only a Windows build saw the lint.
+#[cfg_attr(target_os = "windows", allow(clippy::too_many_arguments))]
 pub(crate) fn sync(
     mut script: Option<ResMut<ScriptState>>,
     mut switches: ResMut<ScriptSwitches>,
@@ -142,7 +157,7 @@ pub(crate) fn sync(
     let size = (f64::from(window.width()), f64::from(window.height()));
     j.window = Some(size);
     let start_menu_warp = std::mem::take(&mut j.cursor_warp_start_menu);
-    if let Some((x, y, xml)) = j.cursor_warp.take() {
+    let warped = if let Some((x, y, xml)) = j.cursor_warp.take() {
         // XML units are the interface's 960-high frame (`crate::tiles::input::to_units`).
         let per = size.1.max(1.0) / 960.0;
         let (mut px, mut py) = if xml { (x * per, y * per) } else { (x, y) };
@@ -153,8 +168,18 @@ pub(crate) fn sync(
         }
         let at = Vec2::new(px.clamp(0.0, size.0) as f32, py.clamp(0.0, size.1) as f32);
         window.set_cursor_position(Some(at));
-    }
+        Some(window.cursor_position().unwrap_or(at))
+    } else {
+        None
+    };
     j.cursor_px = window.cursor_position().map(|p| (f64::from(p.x), f64::from(p.y)));
+    if let Some(applied) = warped {
+        rt.game.ui_pointer.at = Some(if start_menu_warp {
+            crate::tiles::input::to_menu_units(applied, Vec2::new(size.0 as f32, size.1 as f32), crate::interface::MIDDLE)
+        } else {
+            crate::tiles::input::to_units(applied, size.1 as f32)
+        });
+    }
     }
 }
 

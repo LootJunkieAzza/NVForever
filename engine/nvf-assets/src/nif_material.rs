@@ -392,6 +392,13 @@ pub fn depth_equal(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipe
 /// views that have the occlusion's bindings: engine/vendor/README.md).
 pub const AMBIENT_OCCLUSION_DEF: &str = "NVF_AMBIENT_OCCLUSION";
 
+/// The main pass's shader def of the alpha-tested parallax switch (crate::authored
+/// `parallax_mask`, a development aid, off by default): nif_material.wesl then tests the cut of
+/// an alpha-tested shape with a depth map at the unshifted coordinates, where the depth-only
+/// passes (nif_prepass.wesl, Bevy's prepass, the shadow passes) test it, instead of at the
+/// shifted ones the base colour is read at.
+pub const PARALLAX_MASK_DEF: &str = "NVF_PBR_PARALLAX_MASK";
+
 /// A pipeline that must not take the ambient occlusion although bevy_pbr's rule gives it the
 /// def: its surface is not the one the depth prepass holds (water, a refracting shape), so
 /// the texels under it are another surface's (the bed's, the wall's behind), or a material
@@ -433,7 +440,7 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
 /// binding 101, index 50 of the extension's index table at binding 100) and the textures
 /// to Bevy's shared texture arrays, so shapes of different materials are drawn in one
 /// batch. Without bindless the values are a uniform at binding 50 and the textures at 51
-/// to 53, Bevy's numbering for extensions.
+/// to 56, Bevy's numbering for extensions.
 ///
 /// A slab holds at most 512 resources (Bevy's own limit on desktop is 2,048): a slab is
 /// sent to the GPU whole when any material in it changes, and animated or hour-driven
@@ -442,7 +449,7 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
 /// the owner's settings (docs/design/streaming-hitches.md §3.1) [observed 2026-10-28].
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[data(50, NifSurfaceUniform, binding_array(101))]
-#[bindless(limit(512), index_table(range(50..55), binding(100)))]
+#[bindless(limit(512), index_table(range(50..58), binding(100)))]
 #[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
     /// Start angle, stop angle (cosines), start opacity, stop opacity; constant opacity 1
@@ -466,8 +473,9 @@ pub struct NifSurface {
     pub fire_period: f32,
     /// Unlit emissive rules: x 1 skips the image-space scale; y holds each light channel
     /// to that value on the soft path (0: no hold); z 1: the vertex colours are display
-    /// values, made linear per fragment (`nif_spawn::unlit_vertex_colors`); w 1: a lit
-    /// shape's glow map alone gives its light (nif_spawn.rs `glow_emits_alone`).
+    /// values, made linear per fragment (`nif_spawn::unlit_vertex_colors`); w 1 marks a lit
+    /// material shaded from an authored set (`crate::authored::AUTHORED_MARK`, #2981), 0
+    /// otherwise.
     /// Zero keeps the default [hypothesis, nif.md §6 "Unlit shapes that are pictures, and
     /// cut-out signs"].
     pub emissive_rule: Vec4,
@@ -526,7 +534,8 @@ pub struct NifSurface {
     /// Soft intersections (module notes, "Soft intersections"): x the distance in game
     /// units over which the shape fades out towards the opaque surface behind it, 0 for
     /// none; y 1: ground scorched by the grass fires' burn map ([`scorch_map`](Self::scorch_map),
-    /// nif_material.wesl "Scorch"; the landscape only); z, w unused.
+    /// nif_material.wesl "Scorch"; the landscape only); z 1: a lit shape's glow map alone
+    /// gives its light (nif_spawn.rs `glow_emits_alone`); w unused.
     pub soft: Vec4,
     /// The holes texture; `None` with no holes.
     #[texture(51)]
@@ -540,16 +549,57 @@ pub struct NifSurface {
     /// arrays hold filterable textures, and the offsets are Rgba16Float, which is.
     #[texture(53)]
     pub facegen_offset: Option<Handle<Image>>,
-    /// The grass fires' burn map (nvforever `grass::GrassBurn`, a byte per 64-unit patch,
-    /// read with `textureLoad`), on the landscape's materials only, with `soft.y` 1:
-    /// ground under grass that burnt is drawn scorched. `None` everywhere else.
-    #[texture(54)]
-    pub scorch_map: Option<Handle<Image>>,
     /// World units per texture repeat of a landscape material (module notes, "Landscape
     /// anti-tiling"; set by nvforever `terrain.rs` only); 0 on every other shape.
     pub terrain_repeat: f32,
     /// Landscape anti-tiling on (a landscape material only, with a repeat above 0).
     pub anti_tiling: bool,
+    /// An authored set's metal gain (#2981, `crate::authored::AuthoredSet::metal_gain`; set by
+    /// `crate::authored::apply`, 0 on every other material): in a view with a reflection
+    /// cube the base colour a metal is lit with is lifted by it (nif_material.wesl
+    /// `nvf_metal_base`). Reaches the shaders in the uniform's spare `terrain.y` lane.
+    pub metal_gain: f32,
+    /// The shape's material without an authored set (#2981, `crate::authored::LegacyLook`),
+    /// kept for shapes that may take one, so a change of diffuse can apply the new one's set
+    /// or go back; `None` for every other material. CPU only.
+    pub legacy: Option<crate::authored::LegacyLook>,
+    /// An authored height map (#2981 stage 4) is on the material: `crate::authored` put its
+    /// depth map and parallax settings over the legacy look's (`apply_height`), and takes
+    /// them off only while this is set. Tracked explicitly, not by comparing handles, so a
+    /// baseline depth map of the game's own (#2979) would never be mistaken for one. CPU only.
+    pub height_overlay: bool,
+    /// Environment map (`nif_spawn::shape_env`, `env_map::env_uniforms`;
+    /// docs/spec-notes/nif.md §6 "Window glass and environment maps", "Environment maps on
+    /// other shapes"): x the scale of the reflection (0: none), y how the mask is read
+    /// (`env_map::MaskMode`: 0 none, 1 [`env_mask`](Self::env_mask)'s red channel, 2 the
+    /// alpha of [`env_mask`](Self::env_mask), which then holds the game's own normal map),
+    /// z and w the camera distances over which it fades out (both 0:
+    /// no fade). The reflection, the cube read in the reflected view direction × the scale
+    /// × the mask × the fade, is added to the lit colour; on a premultiplied shape (a
+    /// blended window shape that reflects) after the colour is multiplied by its alpha, on
+    /// a blended one it is weighted by the alpha like the rest of the colour
+    /// [hypothesis, the notes above].
+    pub env: Vec4,
+    /// How the environment map is read (`env_map::env_uniforms`): x the cube orientation
+    /// (`env_map::Axes`, 0 #2669's lookup), y 1 when the reflection is scaled by the light
+    /// the fragment receives (a debug switch's stand-in), 2 by the scene light, z 1 for a
+    /// window shape (the Window_Environment_Mapping flag), w 1 on every shape with an
+    /// environment map (a premultiplied one is premultiplied by it even where the
+    /// reflection has faded out). All zero without an environment map.
+    pub env_how: Vec4,
+    /// The environment cube (texture-set slot 4), loaded as a cube map
+    /// (`texture::dds_cube_image`); `None` without an environment map.
+    #[texture(54, dimension = "cube")]
+    #[sampler(55)]
+    pub env_cube: Option<Handle<Image>>,
+    /// The environment mask (texture-set slot 5); `None` when the set has none.
+    #[texture(56)]
+    pub env_mask: Option<Handle<Image>>,
+    /// The grass fires' burn map (nvforever `grass::GrassBurn`, a byte per 64-unit patch,
+    /// read with `textureLoad`), on the landscape's materials only, with `soft.y` 1:
+    /// ground under grass that burnt is drawn scorched. `None` everywhere else.
+    #[texture(57)]
+    pub scorch_map: Option<Handle<Image>>,
 }
 
 /// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
@@ -569,9 +619,13 @@ pub struct NifSurfaceUniform {
     /// [`NifSurface::pipboy_a`], [`NifSurface::pipboy_b`].
     pub pipboy_a: Vec4,
     pub pipboy_b: Vec4,
-    /// x [`NifSurface::terrain_repeat`] (0 when it cannot place anti-tiled reads); y, z, w
-    /// unused.
+    /// x [`NifSurface::terrain_repeat`] (0 when it cannot place anti-tiled reads); y
+    /// [`NifSurface::metal_gain`] (#2981; read only by the opted-in main pass of a view with
+    /// a reflection cube, on authored materials); z, w unused.
     pub terrain: Vec4,
+    /// [`NifSurface::env`], [`NifSurface::env_how`].
+    pub env: Vec4,
+    pub env_how: Vec4,
 }
 
 /// Screen UV of shift per unit of refraction strength and of view-space tilt
@@ -583,7 +637,7 @@ pub const REFRACTION_SCREEN: f32 = 0.1;
 
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, 0.0, 0.0, 0.0) }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, s.metal_gain, 0.0, 0.0), env: s.env, env_how: s.env_how }
     }
 }
 
@@ -655,6 +709,13 @@ impl Default for NifSurface {
             scorch_map: None,
             terrain_repeat: 0.0,
             anti_tiling: false,
+            metal_gain: 0.0,
+            legacy: None,
+            height_overlay: false,
+            env: Vec4::ZERO,
+            env_how: Vec4::ZERO,
+            env_cube: None,
+            env_mask: None,
         }
     }
 }
@@ -765,6 +826,28 @@ impl MaterialExtension for NifSurface {
         // A first-person shape writes its own depth, a refracting one is in no prepass.
         if !key.bind_group_data.first_person && !key.bind_group_data.refract {
             depth_equal(descriptor, key.mesh_key);
+        }
+        // A channel view of the authored materials' inputs (crate::authored::PbrView; off
+        // unless NVF_PBR_VIEW is set at the start): the main pass's colour only.
+        // The metallic debug switch (crate::authored::metallic_debug; off unless
+        // NVF_PBR_METALLIC=1 at the start) likewise, except with reflections on, which retire
+        // its "keep the metal share" rule, and the alpha-tested parallax switch
+        // (crate::authored::parallax_mask; off unless NVF_PBR_PARALLAX_MASK=1): its main pass
+        // tests an alpha-tested height-mapped shape's cut at the unshifted coordinates, as the
+        // depth-only passes do, which need no def for it.
+        // Reflections (crate::reflection_cube; the run's Reflections on authored materials,
+        // fixed at the start): the opt-in to the view's environment map light, main pass only (nvforever
+        // lights/reflection_gate.rs compiles bevy_pbr's environment blocks under it), and the
+        // view-dependent metallic in nif_material.wesl.
+        let reflect = crate::reflection_cube::enabled();
+        let metallic_def: &[&str] = if crate::authored::metallic_debug() && !reflect { &["NVF_PBR_METALLIC"] } else { &[] };
+        let mask_def: &[&str] = if crate::authored::parallax_mask() { &[PARALLAX_MASK_DEF] } else { &[] };
+        let reflect_def: &[&str] = if reflect { &[crate::reflection_cube::REFLECT_DEF] } else { &[] };
+        let view_defs = crate::authored::view().shader_defs();
+        if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty() && reflect_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).chain(reflect_def).map(|d| ShaderDefVal::from(*d)));
+            }
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
         if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
@@ -1079,7 +1162,21 @@ impl Plugin for NifMaterialPlugin {
             .init_resource::<BlendedCutouts>()
             .add_systems(Startup, spawn_transmission_anchor)
             .add_systems(PostUpdate, (apply_blended_cutouts.in_set(BlendedCutoutSystems), see_through_casts_no_shadow.in_set(SeeThroughShadowSystems)));
+        // The authored materials' debug switches are read once, at the start, and the run's
+        // reflections state is fixed with them (nvforever main.rs sets it before this; off
+        // where nothing did, as in the viewer).
+        crate::authored::view();
+        crate::authored::metallic_debug();
+        crate::authored::parallax_layers();
+        crate::authored::parallax_method();
+        crate::authored::parallax_mask();
+        crate::authored::metal_gain_override();
+        crate::reflection_cube::enabled();
+        app.add_plugins(crate::reflection_cube::ReflectionCubePlugin);
+        app.add_systems(Last, crate::authored::report);
         crate::bc5_field::install(app);
+        crate::pbr_field::install(app);
+        crate::pbr_field::reflect::install(app);
     }
 }
 
@@ -1289,27 +1386,31 @@ mod tests {
         assert!(shadow.fragment.is_none());
     }
 
-    /// [design] The ordinary interface as on main (with #2551's `terrain` row): 50..54,
-    /// table 100, data 101, and nine 16-byte rows (144 bytes). No enabled-only resource may
-    /// enter this type.
+    /// [design] The ordinary interface (with #2551's `terrain` row and #2462's window
+    /// environment map: the `env` row after it, then #2841's `env_how` row, the cube, its
+    /// sampler and the mask at 54-56; the fork's burn map at 57): 50..58, table 100, data 101, and eleven 16-byte rows
+    /// (176 bytes). No
+    /// enabled-only resource may enter this type.
     #[test]
     fn ordinary_surface_gpu_interface_matches_main() {
         use bevy::render::render_resource::BindlessResourceType as R;
-        assert_eq!(NifSurfaceUniform::min_size().get(), 144);
-        assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).size().get(), 144);
+        assert_eq!(NifSurfaceUniform::min_size().get(), 176);
+        assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).size().get(), 176);
         let descriptor = NifSurface::bindless_descriptor().unwrap();
         assert_eq!(descriptor.index_tables.len(), 1);
         let table = &descriptor.index_tables[0];
-        assert_eq!((table.indices.start.0, table.indices.end.0, table.binding_number.0), (50, 55, 100));
-        assert_eq!(&descriptor.resources[50..], &[R::DataBuffer, R::Texture2d, R::SamplerFiltering, R::Texture2d, R::Texture2d]);
+        assert_eq!((table.indices.start.0, table.indices.end.0, table.binding_number.0), (50, 58, 100));
+        assert_eq!(&descriptor.resources[50..], &[R::DataBuffer, R::Texture2d, R::SamplerFiltering, R::Texture2d, R::TextureCube, R::SamplerFiltering, R::Texture2d, R::Texture2d]);
         assert_eq!(descriptor.buffers.len(), 1);
-        assert_eq!((descriptor.buffers[0].binding_number.0, descriptor.buffers[0].bindless_index.0, descriptor.buffers[0].size), (101, 50, Some(144)));
+        assert_eq!((descriptor.buffers[0].binding_number.0, descriptor.buffers[0].bindless_index.0, descriptor.buffers[0].size), (101, 50, Some(176)));
         // Non-bindless declarations are from this exact derived production type.
         let source = include_str!("nif_material.rs");
         let extension = source.split("pub struct NifSurface {").nth(1).unwrap().split("\n}").next().unwrap();
-        // 54: the grass fires' burn map (`scorch_map`), the landscape's only.
-        assert!(extension.contains("#[texture(51)]") && extension.contains("#[sampler(52)]") && extension.contains("#[texture(53)]") && extension.contains("#[texture(54)]"));
-        assert!(!extension.contains("mesh_terrain"));
+        assert!(extension.contains("#[texture(51)]") && extension.contains("#[sampler(52)]") && extension.contains("#[texture(53)]"));
+        assert!(extension.contains("#[texture(54, dimension = \"cube\")]") && extension.contains("#[sampler(55)]") && extension.contains("#[texture(56)]"));
+        // 57: the grass fires' burn map (`scorch_map`), the landscape's only (the fork's).
+        assert!(extension.contains("#[texture(57)]"));
+        assert!(!extension.contains("#[texture(58") && !extension.contains("mesh_terrain"));
     }
 
     /// A main-pass pipeline as Bevy hands it to `specialize`: one colour target, depth
@@ -1602,6 +1703,27 @@ mod tests {
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false });
     }
 
+    #[test]
+    fn shade_light_relight_takes_off_only_the_directional_shadows() {
+        // The relight in `with_shade_light` must differ from Bevy's lighting in the
+        // directional lights' shadows alone: clearing the receiver bit also dropped the lamps'
+        // shadows and changed the ambient occlusion's factor on lamps, and k multiplied that
+        // into a glow on first-person shapes [observed 2026-11-19].
+        let shader = include_str!("nif_material.wesl").replace("\r\n", "\n");
+        assert!(shader.contains("    unshadowed.flags |= NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT;\n"));
+        assert!(!shader.contains("unshadowed.flags &= ~MESH_FLAGS_SHADOW_RECEIVER_BIT"));
+        // The vendored bevy_pbr reads the bit in the directional loop only (its shadow-map,
+        // transmitted-lobe and contact-shadow conditions), never in the point or spot loops.
+        let pbr = include_str!("../../vendor/bevy_pbr/src/render/pbr_functions.wesl").replace("\r\n", "\n");
+        let directional = pbr.find("    // directional lights (direct)\n").expect("directional loop");
+        let end = directional + pbr[directional..].find("    // Ambient light (indirect)").expect("after the loop");
+        let at = |s: &str| pbr.match_indices(s).map(|(i, _)| i).collect::<Vec<_>>();
+        let reads = at("(in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u");
+        assert_eq!(reads.len(), 3);
+        assert!(reads.iter().all(|&i| directional < i && i < end));
+        assert!(include_str!("../../vendor/bevy_pbr/src/render/mesh_types.wesl").contains("const NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT: u32 = 1u << 26u;"));
+    }
+
     /// First-person depth (module notes): the squeeze keeps the near plane at 1, puts the
     /// far end at 1 − share, keeps the order, and is the shader's (same share).
     #[test]
@@ -1635,6 +1757,10 @@ mod tests {
         assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: 300.0, ..default() }).terrain, Vec4::new(300.0, 0.0, 0.0, 0.0));
         assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).terrain, Vec4::ZERO);
         assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: -1.0, anti_tiling: true, ..default() }).terrain, Vec4::ZERO);
+        // An authored set's metal gain rides in the spare y lane (#2981), beside the repeat.
+        assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: 300.0, metal_gain: 12.0, ..default() }).terrain, Vec4::new(300.0, 12.0, 0.0, 0.0));
+        assert_eq!(NifSurfaceUniform::from(&NifSurface { metal_gain: 1.0, ..default() }).terrain, Vec4::new(0.0, 1.0, 0.0, 0.0));
+        assert!(!NifSurfaceKey::from(&NifSurface { metal_gain: 12.0, ..default() }).terrain_layer, "a metal gain makes no landscape material");
         assert!(!NifSurfaceKey::from(&NifSurface::default()).pipboy_screen);
         assert!(include_str!("nif_material.wesl").contains("@if(PIPBOY_SCREEN)"));
         assert_eq!(FIRST_PERSON_DEPTH_SHARE, 0.015625);
@@ -1657,6 +1783,23 @@ mod tests {
         assert_eq!(bindings[pb..].find('}'), bindings[pb..].find("\n}").map(|i| i + 1), "pipboy_b is the struct's last field");
         let shader = include_str!("nif_material.wesl");
         assert!(shader.contains("surface.pipboy_a, surface.pipboy_b, in.position.xy"));
+    }
+
+    /// The metal gain lane (#2981): the uniform's `terrain.y` is read by the main pass's lift
+    /// only, under the reflections' opt-in in a view with a cube, on authored materials; the
+    /// prepass and anti-tiling read `terrain.x` alone, so the lane was spare.
+    #[test]
+    fn the_metal_gain_is_read_from_terrain_y_by_the_opted_in_lift_only() {
+        let shader = include_str!("nif_material.wesl");
+        let prepass = include_str!("nif_prepass.wesl");
+        let bindings = include_str!("nif_surface_bindings.wesl");
+        let lift: Vec<&str> = shader.lines().filter(|l| !l.trim_start().starts_with("//") && l.contains("terrain.y")).collect();
+        assert_eq!(lift.len(), 1, "one reader: {lift:?}");
+        assert!(lift[0].trim_start().starts_with("@if(NVF_PBR_REFLECT && ENVIRONMENT_MAP && !PREPASS_PIPELINE) if surface.emissive_rule.w > 0.5 && nvf_view_has_cube() {"), "{}", lift[0]);
+        assert!(lift[0].contains("nvf_metal_base(pbr_input.material.base_color.rgb, surface.terrain.y, pbr_input.material.metallic)"));
+        assert!(!prepass.contains("terrain.y") && !bindings.contains(".terrain.y"));
+        assert!(!shader.contains("NVF_PBR_METAL_LIFT"), "the experiment's defs are retired");
+        assert!(shader.contains("@if(NVF_PBR_REFLECT && ENVIRONMENT_MAP && !PREPASS_PIPELINE) fn nvf_metal_base("));
     }
 
     /// CPU mirror of the shaders' edge formula (nif_material.wesl, tree.wesl).

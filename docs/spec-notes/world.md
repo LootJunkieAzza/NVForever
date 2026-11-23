@@ -1432,6 +1432,29 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   shows only within Snell's window (refractive index 1.33) and the surface reflects the
   water body outside it. The under fog "amount" is unused. Unknown: the roles of ANAM
   opacity, sun power and the four unnamed leading DNAM floats.
+- **Planar-reflection camera visibility** [design]: for nearby water at the selected
+  plane in the main camera's view, count fragments that pass the opaque-depth check.
+  The one-in-16 sample grid rotates through all 16 offsets so it does not always miss
+  the same narrow strip. Reset the shared counter before drawing and read it back after
+  the draw with the probe generation, source frame and time. A change in world, plane
+  height or CPU view eligibility retires the previous probe. Late or out-of-order
+  results cannot qualify a new plane or make missing frames count as empty.
+  A recent positive sample starts the mirror; after two seconds with no result for the
+  probe the CPU view test can start it alone. While active, the mirror survives short
+  gaps in coverage. It shuts down after at least four seconds of consecutive zero
+  results spanning a full sample cycle, or one second out of the CPU view. No eligible
+  plane, hidden water, or a disabled mirror shuts it down immediately. The camera and
+  material switch in the same frame, and the mirror draws before the main view.
+  In the 2026-11-18 NVForever playtest near SewerMainlineExit and the Potomac, 15 camera
+  shutdowns were attributed to the sampled-pixel gate, and two to no nearby water.
+  That switches the selected plane between mirror and sky/screen-space reflections;
+  it does not establish the cause of individual-object flicker or coplanar artifacts.
+  SSR was enabled; the DLSS Quality request fell back to Off (missing runtime files).
+  CPU tests deliver authored completion packets to the scheduled observer, with the
+  actual water-plane/material producer and camera consumer. They do not execute the
+  shader, GPU copy or asynchronous map. Visual confirmation still requires the river
+  turnout replay with mirror on/off and SSR held fixed, separate object captures, and
+  controls for offscreen/occluded water and active DLSS.
 - **Depth falloff** (2026-10-24, ESM audit gap 27): DNAM "Depth Falloff Start" and
   "End", "where the alpha fadeoff begins (used for edges of the water, to blend it
   smoothly with the land)" and "where the alpha fadeoff ends" [documented: GECK wiki
@@ -1543,6 +1566,17 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   in 55 it is nearer than the fog's end (WinsResidence 1,800 against 3,300). As built:
   indoors the camera's far plane is the clip distance, 0 for none [hypothesis: 0 is no
   clip]; outdoors 400,000 units as before.
+- **Interior unset fog ranges** [observed, Fallout3.esm and FalloutNV.esm; #3038]: some
+  interiors store a fog range whose far is not beyond its clamped near
+  (`fog_far <= fog_near.max(0.0)`, most commonly `0..0` with black fog colour): 57 of 420
+  interiors in `Fallout3.esm` (48 without a lighting template, including `zGrandmaSparkle`,
+  and 9 whose `LTMP` also stores an unset range) and 9 of 388 in `FalloutNV.esm` (7 without
+  a template, 2 via `LTMP`). Cells such as `GermPoliceHQ01` store `0..0` in raw `XCLL` but
+  inherit a non-zero fog range (`64..6500`) from their `LTMP` (`NeoclassicalDefaultTemplateDC`).
+  Taken literally through `fog::falloff`'s `far.max(near + 1.0)` clamp, an opaque `0..0`
+  black fog would draw the room solid black past 1 game unit; matching exterior weathers
+  (*Unset fog ranges* above), `nvforever/src/sky.rs::apply_cell_fog` treats
+  `fog_far <= fog_near.max(0.0)` as no fog (`alpha = 0`, `NO_FOG_FAR`) [hypothesis].
 - **Fog power** (XCLL, LGTM, WTHR) varies (1.0 in 189 interiors, 0.5–2.0 in the rest;
   0.2–1.0 in the masters' 98 weathers, the Mojave's 0.6 by day and 0.5 by night, Dead
   Money's 0.21–0.5 [observed, `weather_dump.rs --fog`]). What curve it sets is not
@@ -1671,6 +1705,70 @@ Code: `engine/nvforever/src/underwater.rs` (`fog_bytes`, `DEEP_AT`).
   The Mojave fit's per-hour sun factors (0.9-1.2 at 07:36 against 0.5 at 09:06) lean that
   way but are noisy; not changed without a check against Mojave sunrise frames.
 
+### Live session `IMGS` traits, `SetCellImageSpace`, exterior `WTHR` fog, and GMSTs
+
+- **Image spaces (`SetImageSpaceTrait`, `SetCellImageSpace`)** [documented: GECK wiki
+  `GetImageSpaceTrait` / `SetImageSpaceTrait` traits `0..=32`, `SetCellImageSpace` notes;
+  hypothesis: live in-place refresh for `SetImageSpaceTrait`]:
+  - `fnv_world::imagespace::apply_image_space_traits` overlays session `SetImageSpaceTrait`
+    values onto an `IMGS` record's `Cinematic` grade: HDR (`0..=14`), Bloom (`15..=17`),
+    and Cinematic (`25..=32`, converting tint RGB traits `29..=31` from 0–255 to 0–1).
+    Traits `18..=24` (`GetHit` / `NightEye`) remain stored in `Game::traits` for script
+    readback (`GetImageSpaceTrait`) and have no rendered `Cinematic` field.
+  - `SetCellImageSpace` preserves the original game's documented next-load behaviour
+    [documented: GECK wiki `SetCellImageSpace`, notes]: `nvforever::world::cell_image_space`
+    binds an interior cell's active `IMGS` FormID (`SetCellImageSpace` override, else
+    authored `CELL XCIM`) only when the cell loads (on travel, cell entry, or when the
+    script runtime with a loaded save's changes becomes ready). Calling
+    `SetCellImageSpace` on the cell the player is already in does not switch the active
+    grade until the cell next loads.
+  - Live `SetImageSpaceTrait` refresh on the already-loaded active `IMGS` (interior bound
+    `IMGS` or exterior `WRLD INAM`) and live `SetWorldspaceImagespace` (`WRLD INAM/`,
+    following `WNAM` + `PNAM` Use Image Space Data inheritance) are keyed on
+    `(game_instance_id, image_space_revision)` from `Game::image_space_sync_token()` —
+    doing zero work on unchanged frames while refreshing `SkyState::interior_grade` and
+    `SkyState::image_space` in place without re-reading pending `SetCellImageSpace`
+    assignments [hypothesis: not yet independently verified by an original-game capture].
+    Outdoors, explicit `SetCellImageSpace` assignments on the current exterior cell bind
+    on cell load ahead of `SetWorldspaceImagespace` / `WRLD INAM` while leaving unmodded
+    exterior cells unchanged, and `worldspace::script_sky` preserves active worldspace /
+    exterior image-space overrides across same-worldspace climate rebuilds [design].
+- **Exterior weather fog (`SetWeatherTraitNumeric` traits `15..=20`)** [documented: GECK
+  wiki `GetWeatherTraitNumeric` / `SetWeatherTraitNumeric` traits `15..=20` (day/night
+  near, far, power); hypothesis: live in-place refresh on active weather]:
+  - `nvforever::sky::sync_weather_fog` syncs session fog overrides from `Game::traits`
+    into `SkyState::weather_fog_overrides` keyed on `(game_instance_id,
+    weather_fog_revision)` (zero work on unchanged frames) and calls `SkyState::refresh()`.
+  - `SkyState::fog()` and `SkyState::fog_power()` evaluate `Weather::fog_at_with` and
+    `Weather::fog_power_at_with` in place (zero per-frame allocations) across both the
+    current and fading-out weather. Explicit console/CLI `SkyState::fog_override` retains
+    precedence.
+- **Exterior weather colours, image-space adapters, and transition time
+  (`SetWeatherRGBColor`, `SetWeatherImageSpaceMod`, `SetWeatherTransitionTimeOverride`)**
+  [documented: GECK wiki `GetWeatherRGBColor` / `SetWeatherRGBColor` (`NAM0` colour types
+  `0..=9` and `PNAM` cloud layers `0..=3` across times `0..=5`), `GetWeatherImageSpaceMod`
+  / `SetWeatherImageSpaceMod` (`0IAD..5IAD`), and `SetWeatherTransitionTimeOverride`;
+  hypothesis: live in-place refresh on active weather]:
+  - `nvforever::sky::sync_weather_visuals` syncs session colour, cloud-colour, weather
+    `IMAD` adapter, and transition-time overrides from `Game` into
+    `SkyState::weather_visual_overrides` keyed on `(game_instance_id,
+    weather_visual_revision)` (`Game::weather_visual_sync_token()`), doing zero work on
+    unchanged frames and clearing cleanly on `Game` restore or runtime drop [design].
+  - `SkyState::color`, `SkyState::color_bytes`, `SkyState::cloud_color_for`,
+    `SkyState::cinematic`, `SkyState::sun_scale`, and `SkyState::advance_fade` apply
+    these overrides in place (zero per-frame allocations) across both current and
+    fading-out weathers, reaching `DistanceFog`, `GlobalAmbientLight`, `DirectionalLight`,
+    `ClearColor`, `SkyDome`, `CloudLayer`, `GetCurrentSkyColor`, and `ImageSpaceGrade`.
+    An explicit `SetWeatherImageSpaceMod weather time 0` clears that time slot's adapter
+    rather than falling back to the authored ESM record [design].
+- **Game settings (`SetNumericGameSetting`, `SetStringSetting`)**:
+  - Vanilla numeric (`f*`, `i*`) and string (`s*`) GMST edits write directly to
+    `fnv_sim::World::setting_changes` and are visible live to `World::setting_f32`,
+    `World::setting_value`, and script getters. Non-vanilla shader/injector settings
+    authored for third-party D3D9 hooks (such as New Vegas Reloaded) are not ESM `GMST`
+    records and remain outside NVForever's clean-room charter; `SetNumericGameSetting`
+    returns `0` cleanly for unknown names.
+
 ## 7. Distant LOD
 
 Pre-built LOD ships per worldspace [observed: `Fallout - Meshes.bsa`, `Fallout -
@@ -1753,6 +1851,26 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   the tower's legs as a lattice and trees on the hill, where drawing the block opaque gave
   a solid tower base and black boxes]; its cutoff is not known, the renderers use alpha
   above 128 (`engine/nvf-assets/src/nif_spawn.rs`, `shape_alpha_mode`).
+- **What goes into the object blocks** (#3014): the editor's Generate Objects makes LOD
+  "for all refs in the world that are marked visible when distant", from LOD meshes that
+  sit in the full mesh's folder and end in `_lod.nif`; a base's "Visible When Distant"
+  flag adds its references "if a corresponding LOD model exists" [documented: GECK wiki
+  "World LOD", LOD Object Generation; "Static", Flags]. The flag is header bit 15 (32768)
+  on the base record and on the reference (§2) [documented: GECK wiki "SetFlagsLow",
+  "GetReferenceFlag"]. Measured from the data in a read-only study, 2026-11-18, to be
+  measured again [observed]: all 692 base-game `*_lod.nif` sit beside their full models,
+  with low-resolution textures of their own, a median 219 triangles against 4,968 for the
+  full model; community LOD packs add about 650 more in the same naming, and one pack
+  names them `_lod_0.nif` / `_lod_1.nif` with no `_lod` sibling. In WastelandNV 15,333
+  references carry the reference flag, every one with a `_lod` model for its base; 1,716
+  more have a flagged base without the reference flag. A widely used LOD plugin flags 835
+  more base records, which puts about 74,600 unflagged references under a flagged base,
+  and the blocks it regenerates hold them. So whether a block may hold a reference
+  depends on the reference's flag and its base's, in any plugin's version of either, and
+  on the load order the blocks were made for. Unflagged STAT, SCOL and MSTT references
+  whose bound radius is at least 0.01 of their distance: about 1,200-2,000 (130-260
+  distinct models) in the cells 3 to 8 steps around Goodsprings, Primm and Novac,
+  1,900-2,700 out to 12 steps; at 0.004 about 2.5 to 3 times as many.
 - **Settings**: `lodsettings\<world>.dlodsettings`, 24 bytes. For WastelandNV:
   u32 4, u32 32, u32 128, i16 −64, i16 −64, i16 63, i16 63, u32 4 [observed], read as
   smallest and largest level, grid size in cells, south-west and north-east cells, and
@@ -1797,8 +1915,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   | `[LOD] fLODMultObjects`, `fLODMultTrees`, `fLODFadeOutPercent` | 5, 0.5, 0.6 | — |
   | `[Grass] fGrassStartFadeDistance` | 7,000 | 0 / 3,000 / 5,000 / 7,000 |
 
-  Readings [hypothesis]: fBlockLoadDistance is how far terrain chunks and object
-  blocks are drawn, fBlockLoadDistanceLow how far the finest (level 4) chunks reach,
+  Readings [hypothesis]: fBlockLoadDistance is how far object blocks are drawn (first
+  read as the terrain chunks' reach too; the original draws terrain farther, "Terrain
+  reach" below), fBlockLoadDistanceLow how far the finest (level 4) chunks reach,
   fSplitDistanceMult scales the distances at which coarser chunks give way to finer
   ones (at Very High and Low, fSplitDistanceMult × 8 cells × 4,096 = 49,152 and 24,576
   lands within 2% of fBlockLoadDistanceLow; at Medium and High it does not), and
@@ -1806,6 +1925,63 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   and uGridDistantTreeRange look like the older distant-land settings (cell counts) that
   the new terrain system replaces. Which INI file wins when both set a value is not
   known. What NVForever does with each: layer3.md "Distant LOD".
+- **Terrain reach**: at one pose, the hill above Goodsprings (-65347, 5770, z 13970,
+  heading 27°, night), the original shows a jagged mountain range along the whole
+  horizon toward Vegas; with terrain chunks cut off at 125,000 ours shows a flat, low
+  horizon there. Of the `--lod-distance` values tried (that sweep, before terrain got its
+  own reach, also moved the object blocks and the distant water), 150,000, 175,000 and
+  200,000 did not match the original's skyline and 250,000, the first one that did,
+  matched it along its whole width [observed: capture of the original over xNVSE and our
+  runs at the same pose, 2026-11-19, #3055]. So 250,000 is a default calibrated at that
+  pose, not a measured distance: how far the original actually draws terrain (whole
+  chunks reach past any cut-off, so a smaller reach of its own could give the same
+  skyline), and whether it is one fixed distance for every place and preset, is
+  [hypothesis]. No key in `[TerrainManager]` of `Fallout_default.ini` or the four
+  presets gives 250,000 [observed: the files]. NVForever takes one fixed terrain reach
+  independent of fBlockLoadDistance, which then bounds only the object blocks
+  [hypothesis]; nothing showed the object blocks' reach to be wrong.
+- **A chunk without its diffuse** (#3096): a player's report showed the distant hills
+  north and east of Goodsprings (about -67758, 2867) flat white at night, shaded only by
+  their slopes [observed: report R-ZXT6AC4J's screenshot; no log]; that they took on
+  their textures once the player came closer is the player's own account, not seen. In
+  the renderer a material whose diffuse is named but not yet in the image store is not
+  drawn at all, while one whose diffuse is missing (not named, or failed to load) draws
+  white [documented: Bevy's `AsBindGroup` derive, where a texture handle not in the
+  store retries and `None` takes the white fallback image; `nvf_assets::nif_spawn`
+  leaves the diffuse `None` when its file does not load, and the failure is cached, not
+  retried]. White at night fits a missing diffuse with the normal map still there: an
+  albedo of 1 under the moon and ambient, several times the terrain textures', shaded
+  by the model-space normal map; nothing in the chunk material differs at night
+  [hypothesis]. The stock archives hold 1,360 diffuse DDS files, all 256 × 256 DXT1 with
+  9 mips by a DDS inventory (`fnvtool dds list`, above), a format the loader takes; that
+  each one decodes was not checked file by file. So a file missing or unreadable in that
+  install is the likely cause; the report's cause is not confirmed [hypothesis: the
+  report carries no log]. The renderer's rules since then
+  [design]: a game chunk is spawned, and counts as covering the chunks it replaces, only
+  once no shape it draws (the ones with UVs whose triangles the loaded cells do not all
+  cut out) waits for its diffuse; until then the old chunks stay drawn. A shape whose
+  diffuse is missing is drawn with a neutral fallback colour instead of white, the
+  generated LOD's colour for a missing base texture (sRGB 0.45, 0.42, 0.38, as
+  terrain.rs draws one; `lodgen.rs`), its normal map kept; the chunk counts as covering
+  like any other and is logged once, when it is spawned ("terrain chunk level L xX yY
+  drawn with the fallback colour (shape i bound to base colour sRGB …, no base
+  texture): <path>: <error>", the colour read back from the material the entity is bound
+  to and the path the model named), which pins the cause if it happens again. Each
+  spawned shape gets its own copy of the material, owned by its entity alone and
+  released with it. A chunk
+  whose every textured triangle is cut out draws nothing and is not counted. The exit
+  log's "distant LOD terrain surfaces" line counts the chunks drawn with the fallback
+  colour and the shapes drawn while their diffuse was still loading (0 expected); smoke
+  scenarios `lod-night-diffuse` and `lod-missing-diffuse`. Handover between levels is
+  as before: an outgoing chunk stays drawn until every chosen chunk over its area is
+  spawned, and the replacements show as each is spawned, over it meanwhile (both sit
+  behind loaded terrain by the same depth bias). Known limit, as before #3096 [design]:
+  the gate asks the main world's image store (`engine/nvforever/src/lod.rs` `admit` in
+  `update_lod`, about line 1013; the outgoing chunk goes at about line 1034), not the
+  GPU; under the per-frame upload budget the renderer may put a texture's upload off to
+  a later frame (`engine/vendor/bevy_render/src/render_asset.rs`, about line 454), and
+  until it is up the replacement's material is skipped, so the area can show a hole for
+  a few frames after the outgoing chunk goes; never white.
 - How the game hides LOD under loaded cells, and exactly when it switches levels, is not
   known; the renderer's rules are [hypothesis] (layer3.md, `engine/nvforever/src/lod.rs`).
 
@@ -2013,7 +2189,13 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     sum is formed from the same lights, whose colours there hold display values; the
     surface gets diffuse colour × sum^2.2, held to 1 per channel. The lights' and the
     ambient light's highlights (specular) take their colours back as linear light;
-    taken as display values they put white sparkles on the floors of Jacobstown's lodge;
+    taken as display values they put white sparkles on the floors of Jacobstown's lodge.
+    On first-person shapes (`FIRST_PERSON_DEPTH`: arms, held weapon, Pip-Boy),
+    shadow-casting spot lights (the player flashlight, `flashlight.rs`) are scaled down in
+    both display diffuse (`0.15`) and specular (`0.10`) (`lights/display_shader.rs`)
+    [design, #3121] so aiming into the beam's inner core does not clip the weapon and hand
+    to white, while world geometry, third-person body/weapon (`BODY_LAYER`), and
+    non-shadow-casting world spot lamps (`LIGH` `SPOT`) stay at full strength;
   - shows the main view's colour clipped to 1 in the place of Tony McMapface (its curve
     in Bevy's tonemapping functions is swapped; the pass keeps running, and with it the
     eye adaptation's exposure, which Bevy applies there); the sky leaves out its inverse
@@ -2125,3 +2307,63 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
    21 and the REPCONN basement are still to capture (section 8).
 6. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
    or the parts.
+
+## Water surface ownership during streaming
+
+[design] Loaded exterior cells own their local water planes. Distant water fills
+eligible cells outside that loaded set, inside the configured LOD range. A cell
+must not retain both owners after stream reconciliation. Cell count alone does
+not identify that set: replacing one loaded cell with another can leave its size
+unchanged.
+
+[design] Distant-water invalidation includes camera cell, effective LOD radius
+(including off/interior) and the exact loaded-cell keys. Compare stable keys
+without allocating each frame; retain a copy only when coverage changes, and clear
+those keys alongside planes/surfaces on worldspace switches (`DistantWater::clear`).
+Then remove no-longer-eligible planes, create newly eligible planes and retain the
+same entities/materials for unaffected cells. Order `update_water_sky` and
+`update_ripples` after `world::stream` and `distant_water` so newly streamed water
+materials receive current sky, sun, water-effects, and ripple parameters on their
+first rendered frame rather than flashing placeholder defaults. Existing water type,
+depth, reflection, alpha, material and mesh policy is unchanged.
+
+[hypothesis] Coplanar retained distant/local planes are a causal renderer boundary
+to test for reported water flicker, not yet proof of every observed flicker.
+Controls must invoke the actual renderer producer with same-count replacements,
+steady coverage, LOD off/range changes and cell/world lifecycle; inspecting only
+an invalidation-key getter is insufficient. No original assets or GPU outcome is
+claimed by authored CPU fixtures.
+
+
+#### Current-camera underwater fog handoff
+
+[design: engine render scheduling] The water fog override is composed after the current
+camera transform propagates, before auxiliary world cameras copy that fog (the reflection
+camera in `reflection.rs`, the 3D scope lens fog sync in `scope_view.rs`, and JIP extra
+cameras in `extra_camera.rs`). Active `RemapWaterType` remaps (`WaterRemaps`) apply to
+underwater fog in both classic and enhanced water modes, matching `water::water_material`.
+The weather/interior composition is shared with the ordinary sky updater. Leaving water
+restores its current values in the same frame, including weather, lighting, HDR emissive
+and interior-fog preferences changed while submerged; it does not replay a pre-entry
+snapshot [hypothesis: that the original's fog returns in the frame the camera leaves the
+water; not observed in the original game]. The WATR under-water fog colour rule (§6
+"Under-water colour") is unchanged by this handoff. No HUD alpha, breath recovery,
+radiation, image modifier, or water shader policy is changed by this handoff.
+
+The prior Update override read the previous propagated camera and requested a
+later sky refresh on exit. This is a source-predicted temporal mismatch, not proof
+that it explains the entire reported persistent cyan tint. Controls must move the
+real camera Transform through enter/exit/re-entry, assert the extracted current
+fog, and cover current exterior/interior restoration. GPU/original-profile
+acceptance remains separate from CPU producer results.
+
+
+### CPU validation scope
+
+The water producer/camera-fog and live-IMAD grade controls exercise CPU consumers;
+revision-specific CI and failure history are recorded in PR #2861, with follow-on CPU
+controls covering nonfinite/f32-overflow guards, nonanimated HDR/fade/radial/DoF/motion
+traits, worldspace clearing, first-frame water sky sync, classic-mode `WaterRemaps`
+underwater fog, and auxiliary-camera fog handoff with HDR emissive restoration. The
+identical-fixture baseline comparisons, native behavior, original mod initialization and
+installed-profile/persistent-cyan/GPU/FPS outcomes are not established by those controls.

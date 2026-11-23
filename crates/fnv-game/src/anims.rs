@@ -182,8 +182,12 @@ impl ObjectAnims {
 }
 
 impl Game<'_> {
-    /// Queue `r` for the engine and trace it.
+    /// Queue `r` for the engine and trace it. Fires JIP's `SetOnPlayGroupEventHandler`
+    /// (`playgroup`) for real animation group codes unless a flag-0 request repeats the
+    /// group already playing (`ObjectAnims::playing`).
     pub fn ask_anim(&mut self, r: AnimRequest) {
+        let (on, group, start) = (r.on, r.group, r.start);
+        let already_playing = self.anims.playing(on) == Some(group);
         if self.anims.traced.insert(r.on, (r.group, r.start.flag())) != Some((r.group, r.start.flag())) {
             let group = r.name.clone().unwrap_or_else(|| format!("code {}", r.group));
             self.emit(EventKind::AnimAsked { on: r.on, group, flag: r.start.flag() });
@@ -205,6 +209,9 @@ impl Game<'_> {
             q.remove(0);
         }
         q.push(r);
+        if !(start == Start::Normal && already_playing) {
+            self.fire_play_group(on, group);
+        }
     }
 
     /// The spelling of animation group `code` in shipped source.
@@ -213,7 +220,7 @@ impl Game<'_> {
     }
 
     /// The code of the animation group spelt `name`, when the table has it.
-    fn anim_group_code(&self, name: &str) -> Option<u16> {
+    pub fn anim_group_code(&self, name: &str) -> Option<u16> {
         self.data.table.enums.get("anim_group")?.iter().find(|(_, n)| n.eq_ignore_ascii_case(name)).map(|(c, _)| *c)
     }
 

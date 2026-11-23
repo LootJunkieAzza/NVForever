@@ -621,6 +621,37 @@ fn a_controlled_target_is_walked_into_the_trigger_location_and_greeted_there() {
     assert!(s.game.player_lead.is_none());
 }
 
+/// #3464 (Harland in the REPCONN basement): after a conversation, a package taken up
+/// afresh (ResetAI, as a trigger on the way out does) does not walk the player back into
+/// the trigger location; the actor greets where the player stands. After
+/// `LEAD_AGAIN_SECONDS` it walks the player in again.
+#[test]
+fn after_a_conversation_the_player_is_not_walked_back_into_the_trigger_location() {
+    let f = fixture();
+    let mut s = sim(&f, R_HOLD, [750.0, 1050.0, 0.0]);
+    s.run(1.0);
+    let lead = s.game.player_lead.expect("the player is led");
+    s.player_to(lead.to);
+    s.run(1.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert!(s.game.end_dialogue());
+    s.run(0.5);
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::TalkOver { .. })), "{:?}", s.events());
+    // The player walks out of the box; a trigger there resets the actor's AI.
+    s.player_to([750.0, 1050.0, 0.0]);
+    s.game.run_source("HolderRef.ResetAI", Default::default()).unwrap();
+    s.run(1.0);
+    assert!(s.game.player_lead.is_none(), "not walked back: {:?}", s.events());
+    assert_eq!(s.talks(), 2, "greets where the player stands: {:?}", s.events());
+    assert!(s.game.end_dialogue());
+    s.run(0.5);
+    // Long after: walked in again.
+    s.run(fnv_ai::carry::LEAD_AGAIN_SECONDS);
+    s.game.run_source("HolderRef.ResetAI", Default::default()).unwrap();
+    s.run(1.0);
+    assert!(s.game.player_lead.is_some_and(|l| l.by == FormId(R_HOLD)), "{:?}", s.events());
+}
+
 /// The walk into the trigger location gets no nearer (something solid in the way, here a
 /// player the engine never moves): after `LEAD_STUCK_SECONDS` the lead ends and the
 /// actor greets where the player stands, so the keys are not set aside for good (review
@@ -1317,6 +1348,8 @@ fn a_spectator_runs_from_a_fight_that_comes_too_close() {
     let a = s.game.awareness.actors.entry(foe).or_default();
     a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
     a.settle(foe, now, &t, true);
+    // It stands in the room's corner (a foe with no place is near no one, #3223).
+    a.at = Some([0.0; 3]);
     assert!(s.game.awareness.hunted(FormId::PLAYER_REF));
     // Far off: it watches.
     let feet = s.agent(R_IDLE).walker.feet;

@@ -29,7 +29,8 @@ stops it with nothing written); the game uses DLSS from its next start.
 ## Getting the files from the settings: Download DLSS…
 
 [design: `settings.rs`, `nvf-dlss-files` `download/files.rs`] While any of the eight upscaling and frame
-generation files is missing, the Upscaler row (pause menu, **Settings > Graphics**) offers
+generation files is missing, the Upscaler row (pause menu, **Settings > Display**, Upscaling
+and Anti-Aliasing) offers
 **Download DLSS…** beside Off, FSR 3.1 and DLSS (Windows only, with the Vulkan renderer).
 Choosing it changes nothing in the row; it opens a dialog:
 
@@ -180,7 +181,8 @@ Streamline's Reflex (`sl.reflex.dll`) rather than its own calls; without them it
 
 ## Turning it on
 
-In the pause menu, **Settings > Graphics**, set **Upscaler** to **DLSS**, and
+In the pause menu, **Settings > Display** (Upscaling and Anti-Aliasing), set **Upscaler** to
+**DLSS**, and
 **Upscaling mode** to Native AA (DLSS at full resolution, also called DLAA), Quality,
 Balanced, Performance or Ultra Performance. Each mode shows the share of the screen's width and
 height the world is drawn at, for example Quality (67%): Native AA for full resolution with

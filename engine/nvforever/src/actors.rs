@@ -369,6 +369,11 @@ impl Anims {
         self.stances.lock().expect("stances").entry(key).or_insert(s).clone()
     }
 
+    /// Whether the stance `prefix` of `skeleton` is loaded (or known not to load).
+    pub fn stance_loaded(&self, skeleton: &str, prefix: &str) -> bool {
+        self.stances.lock().expect("stances").contains_key(&(fnv_vfs::normalize(skeleton), prefix.to_string()))
+    }
+
     /// Whether the standing set of `skeleton` and `body` and the stance `prefix` (if any)
     /// are loaded (or known not to load), and the stances of its body weapons `arms`.
     pub fn loaded(&self, skeleton: &str, body: Body, prefix: Option<&str>, arms: &[&str]) -> bool {
@@ -555,6 +560,24 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         for (i, t) in worn_skin.iter().enumerate() {
             if let Some(t) = t.filter(|t| part.shapes[i].base_texture().map(fnv_vfs::texture_path) != Some(fnv_vfs::texture_path(t))) {
                 materials[i] = ctx.material_with_texture(&p.model, &part, i, t);
+            }
+        }
+        // #2981: a shape whose role makes it skin (one of the race's skin textures) or the
+        // face (the head's texture targets), or the hair model's, takes no authored set, for
+        // good, from the moment the role is known here, whether or not a FaceGen tint follows
+        // (the actor may have no FaceGen data, or its offset may be missing). Skipped when no
+        // shape can take a set (the setting off, or no active set, authored or height only,
+        // in the mount): nothing to exclude, and no copies made.
+        if nvf_assets::authored::mount_has_sets(&ctx.models.data) {
+            let mut cache = world.facegen.lock().expect("facegen cache");
+            for (i, s) in part.shapes.iter().enumerate().filter(|(_, s)| !s.cap) {
+                let given = worn_skin[i].or(p.texture.as_deref().filter(|_| takes_texture[i]));
+                let race_skin = given.or_else(|| s.base_texture()).map(fnv_vfs::texture_path).is_some_and(|t| {
+                    [&a.body_texture, &a.hand_texture].into_iter().flatten().any(|k| fnv_vfs::texture_path(k) == t)
+                });
+                if race_skin || p.role == "hair" || (p.role == "head:head" && takes_texture[i]) {
+                    materials[i] = cache.role_legacy(&mut ctx.models.materials, &materials[i]);
+                }
             }
         }
         let mut meshes = vec![None; part.shapes.len()];

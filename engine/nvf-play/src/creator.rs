@@ -875,13 +875,16 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    mut font_revision: Local<u32>,
 ) {
     let view_w = windows.single().map_or(1707.0, view_width);
-    if !st.dirty && st.drawn_w == view_w {
+    let revision = crate::cjk_font::revision();
+    if !st.dirty && st.drawn_w == view_w && *font_revision == revision {
         return;
     }
     st.dirty = false;
     st.drawn_w = view_w;
+    *font_revision = revision;
     for e in &roots {
         commands.entity(e).despawn();
     }

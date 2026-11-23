@@ -147,6 +147,27 @@ impl MoveSpeeds {
     }
 }
 
+/// `SetPCToddler` state mirrored from scripts each frame, plus the active toddler walk
+/// clip's measured root speed when a player body rig has loaded one
+/// (`nvforever::player_body`, `docs/spec-notes/pc-toddler-young.md`).
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+pub struct PlayerToddler {
+    pub active: bool,
+    /// Unscaled ground speed (units/s) of the loaded toddler forward walk clip, if any.
+    pub clip_walk_speed: Option<f32>,
+}
+
+/// Effective movement speeds after applying `SetPCToddler`: normal `base` when inactive,
+/// or walking at the toddler clip's root speed (falling back to `base.walk`) for both
+/// walk and run when active [hypothesis: `docs/spec-notes/pc-toddler-young.md`].
+pub fn effective_speeds(base: MoveSpeeds, toddler: PlayerToddler) -> MoveSpeeds {
+    if !toddler.active {
+        return base;
+    }
+    let walk = toddler.clip_walk_speed.filter(|s| s.is_finite() && *s > 0.0).unwrap_or(base.walk);
+    MoveSpeeds { walk, run: walk }
+}
+
 /// What the player asks for this frame.
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 pub struct MoveIntent {
@@ -374,12 +395,13 @@ impl Plugin for PlayerPlugin {
             .init_resource::<PerkSpeed>()
             .init_resource::<StatSpeed>()
             .init_resource::<ReloadPace>()
+            .init_resource::<PlayerToddler>()
             .init_resource::<Lunge>()
             .add_systems(Update, take_knockbacks.after(PlaySet::Input).before(PlaySet::Physics))
             .init_resource::<crate::control::DetachedCamera>()
             .add_systems(
                 Update,
-                (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk, dialogue_lead_walks, crate::control::detach_camera).chain().after(PlaySet::Input).before(PlaySet::Physics),
+                (crate::control::enforce_locks, aiming_walks, encumbered_walks, toddler_walks, flinch_holds_walk, dialogue_lead_walks, crate::control::detach_camera).chain().after(PlaySet::Input).before(PlaySet::Physics),
             )
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
@@ -767,6 +789,23 @@ pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState
     }
 }
 
+/// While `SetPCToddler 1` is active (Fallout 3 / TTW childhood), mirror the flag into
+/// [`PlayerToddler`] and force walking pace so a toddler moves at toddler walk speed rather
+/// than running at adult run speed [hypothesis: `docs/spec-notes/pc-toddler-young.md`].
+pub fn toddler_walks(script: Option<Res<crate::script::ScriptState>>, mut toddler: ResMut<PlayerToddler>, mut intent: ResMut<MoveIntent>) {
+    let active = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.pc_toddler());
+    if active != toddler.active {
+        toddler.active = active;
+        if !active {
+            toddler.clip_walk_speed = None;
+        }
+        info!("toddler: {}", if active { "SetPCToddler on, moving at toddler walk pace" } else { "SetPCToddler off, normal movement again" });
+    }
+    if active && !intent.walk {
+        intent.walk = true;
+    }
+}
+
 /// While the player flinches from a staggering hit (`crate::combat`, crippled-limbs.md
 /// §3) they do not walk or jump: the hit's stagger holds them where they stand, as it
 /// holds NPCs and creatures (`nvforever` residents.rs) [design: owner's playtest list 7
@@ -853,8 +892,16 @@ impl Default for ReloadPace {
 }
 
 /// What slows or speeds the player's steps: crippled legs, a two-handed weapon's run, the
-/// Modify Run Speed perks, a reload, Speed Mult and body armour.
-type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>, Option<Res<'w, ReloadPace>>, Option<Res<'w, StatSpeed>>, Sprinting<'w>);
+/// Modify Run Speed perks, a reload, Speed Mult and body armour, and `SetPCToddler`.
+type Paces<'w> = (
+    Option<Res<'w, crate::combat::PlayerLimbs>>,
+    Option<Res<'w, RunPace>>,
+    Option<Res<'w, PerkSpeed>>,
+    Option<Res<'w, ReloadPace>>,
+    Option<Res<'w, StatSpeed>>,
+    Option<Res<'w, PlayerToddler>>,
+    Sprinting<'w>,
+);
 
 /// Sprint's share and speed (`crate::sprint`): from the gait's speed to a multiple of the run's.
 type Sprinting<'w> = (Option<Res<'w, crate::stance::StanceMotion>>, Option<Res<'w, crate::sprint::SprintTuning>>);
@@ -1380,7 +1427,7 @@ fn step(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
-    (limbs, pace, perk_pace, reload_pace, stat_pace, sprinting): Paces,
+    (limbs, pace, perk_pace, reload_pace, stat_pace, toddler, sprinting): Paces,
     (turbo, mut load, mut rate): Meters,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip, mut inertia): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>, ResMut<crate::inertia::MovementInertia>),
@@ -1565,14 +1612,15 @@ fn step(
                 }
                 _ => k,
             };
-            let [x, y] = velocity(&intent, player.heading, *speeds);
+            let move_speeds = effective_speeds(*speeds, toddler.as_deref().copied().unwrap_or_default());
+            let [x, y] = velocity(&intent, player.heading, move_speeds);
             let gait = if intent.walk { k } else { k * run_pace };
             let key = [x * gait, y * gait];
             // Sprint: from the gait's velocity to a multiple of the run's, all of the paces
             // above with it, by its eased share, walking or running (`crate::sprint`).
             let sprint = sprinting.0.as_deref().zip(sprinting.1.as_deref()).map_or((0.0, 1.0), |(s, t)| (s.sprint_share, t.speed));
             let key = if sprint.0 > 0.0 {
-                let [rx, ry] = velocity(&MoveIntent { walk: false, ..*intent }, player.heading, *speeds);
+                let [rx, ry] = velocity(&MoveIntent { walk: false, ..*intent }, player.heading, move_speeds);
                 let run = k * run_pace;
                 crate::sprint::sprint_velocity(key, [rx * run, ry * run], sprint.0, sprint.1)
             } else {
@@ -2216,5 +2264,33 @@ mod tests {
         };
         assert!(pressed_space(false));
         assert!(!pressed_space(true));
+    }
+
+    #[test]
+    fn toddler_effective_speeds_and_scaled_eye() {
+        let base = MoveSpeeds::OBSERVED;
+        // Inactive: exact passthrough (zero regression).
+        assert_eq!(effective_speeds(base, PlayerToddler::default()), base);
+        assert_eq!(effective_speeds(base, PlayerToddler { active: false, clip_walk_speed: Some(42.0) }), base);
+
+        // Active without a loaded toddler clip: walk speed caps both walk and run.
+        let fallback = effective_speeds(base, PlayerToddler { active: true, clip_walk_speed: None });
+        assert_eq!(fallback, MoveSpeeds { walk: base.walk, run: base.walk });
+        let run = MoveIntent { forward: 1.0, ..default() };
+        assert!((velocity(&run, 0.0, fallback)[1] - base.walk).abs() < 1e-3);
+
+        // Active with a loaded toddler clip root speed: uses the clip's speed.
+        let clip_driven = effective_speeds(base, PlayerToddler { active: true, clip_walk_speed: Some(62.5) });
+        assert_eq!(clip_driven, MoveSpeeds { walk: 62.5, run: 62.5 });
+        // At CG01 script scale 0.4, speed is 62.5 * 0.4 = 25 units/s (well below adult 138 units/s).
+        assert!((velocity(&run, 0.0, clip_driven)[1] * 0.4 - 25.0).abs() < 1e-3);
+
+        // Non-positive or non-finite clip speeds fall back safely to base.walk.
+        assert_eq!(effective_speeds(base, PlayerToddler { active: true, clip_walk_speed: Some(0.0) }).walk, base.walk);
+        assert_eq!(effective_speeds(base, PlayerToddler { active: true, clip_walk_speed: Some(f32::NAN) }).walk, base.walk);
+
+        // Fallback eye height scales cleanly with SetScale.
+        let p = Player { heading: 0.0, pitch: 0.0, eye_height: EYE_HEIGHT * 0.4, feet: [0.0, 0.0, 10.0], body_eye: None, body_view: None, placed: None };
+        assert!((p.eye()[2] - (10.0 + EYE_HEIGHT * 0.4)).abs() < 1e-3);
     }
 }

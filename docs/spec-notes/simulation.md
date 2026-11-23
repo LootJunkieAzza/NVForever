@@ -137,7 +137,17 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   entries carry nothing for them [observed by the owner in game, 2026-10-08]; non-item entries stay
   [hypothesis].
 - **CONT DATA**: flags u8 (bit 1 "Respawns"), weight f32 [documented: xEdit]. 3,417
-  container bases; 177 respawn; 845 have no CNTO [observed].
+  container bases; 177 respawn; 845 have no CNTO [observed]. Session-only
+  `SetContainerRespawns` / `GetContainerRespawns` (`World::set_container_respawns`,
+  `World::container_respawns`, `nvse_gaps.rs`) override a `CONT` base's Respawns
+  flag for the current session (non-containers are ignored; carried across a
+  same-run load via `WorldSession` / `World::take_session` / `World::put_session`,
+  not saved in `Snapshot`) [documented: GECK wiki `SetContainerRespawns` /
+  `GetContainerRespawns`, base-form flag toggle; observed: `gaps8`, value-first
+  returns 0 and reads back; hypothesis: session-only lifetime, like `base_edits`]
+  and are read by `World::reset_containers` (timed cell respawn and `ResetInterior`)
+  as well as `World::restocks` (merchant container restocking) [hypothesis: live
+  container-respawn consumers read the updated `CONT` Respawns flag].
 - **Respawn**: when a cell is loaded again after staying unloaded for at least the
   respawn delay, its containers whose base has the Respawns flag return to their
   authored state (new leveled roll, anything left inside lost; lock restored
@@ -147,20 +157,6 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   simulation uses that (`SimConfig.respawn_hours`, else the setting if a plugin defines
   it, else `DEFAULT_RESPAWN_HOURS` = 72). Other references are not reset yet. The engine
   reports unloading/loading (`detach_cell` / `attach_cell` ops).
-- **AddItem on a container nothing has read yet**: a placed container's inventory is
-  rolled from its CNTO the first time anything touches it, and an AddItem is such a
-  touch, so the item joins the authored contents and nothing rolls them again over it
-  later. Only a respawn (above) or a merchant restock (below) replaces them [design;
-  test `add_item_before_a_container_is_read_is_kept`]. Issue #3021 looked like a lost
-  AddItem and was not one: in Old World Blues the Basic Infiltration Test terminal
-  (OldWorldBlues.esm TERM 0x0100BB5A item 0) puts the X-13 Document in
-  `X13TestSafeREF`. When a test robot detects the player, the quest script
-  (SCPT 0x01010918) sets `bDetected` and activates `X13FAILREF`, whose
-  `NVDLC03X13FailureSwitchSCRIPT` (SCPT 0x01014FFC) does `X13TestSafeREF.RemoveItem` of
-  the document [observed: decompiled]. The quest pilot's run of 2026-11-19 was seen by
-  a robobrain 9 s after the AddItem ("Test failed. You have been spotted by a patrol.")
-  and that script then ran [observed: the pilot log, 02:34:07.84]. The empty safe was
-  the authored result of a failed test.
   **Captured as a scenario** [observed 2026-10-09, `L4.sim.trace.goodsprings_cell_respawn`,
   save `nvftest`, unattended: leaving = the console's `coc` to the gas station, time by
   GameHour]: the General Store fridge 0x00105824 (Respawns, leveled contents, not a
@@ -287,6 +283,20 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   the 72 h cell respawn (`iHoursToRespawnCell`) applies to containers with the Respawns
   flag, measured from leaving the cell, between 70 and 74 hours [observed]. Narrowed by
   the scenario above (2026-10-09): between 71.0 and 73.1 hours, hours not midnights.
+- **AddItem on a container nothing has read yet**: a placed container's inventory is
+  rolled from its CNTO the first time anything touches it, and an AddItem is such a
+  touch, so the item joins the authored contents and nothing rolls them again over it
+  later. Only a respawn or a merchant restock (both above) replaces them [design;
+  test `add_item_before_a_container_is_read_is_kept`]. Issue #3021 looked like a lost
+  AddItem and was not one: in Old World Blues the Basic Infiltration Test terminal
+  (OldWorldBlues.esm TERM 0x0100BB5A item 0) puts the X-13 Document in
+  `X13TestSafeREF`. When a test robot detects the player, the quest script
+  (SCPT 0x01010918) sets `bDetected` and activates `X13FAILREF`, whose
+  `NVDLC03X13FailureSwitchSCRIPT` (SCPT 0x01014FFC) does `X13TestSafeREF.RemoveItem` of
+  the document [observed: decompiled]. The quest pilot's run of 2026-11-19 was seen by
+  a robobrain 9 s after the AddItem ("Test failed. You have been spotted by a patrol.")
+  and that script then ran [observed: the pilot log, 02:34:07.84]. The empty safe was
+  the authored result of a failed test.
 - **Non-playable items**: ARMO BMDT general flag bit 6 is "Non-Playable" [documented:
   xEdit wbBMDT, `schemas/fnv/objects.json`]. `PipBoy` (Pip-Boy 3000, 0x00015038) and
   `PipBoyGlove` (Pip-Boy Glove, 0x00025B83) carry it [observed: `fnvtool esm decode`].
@@ -731,8 +741,97 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     whose render bounds (each mesh's box in its own space) the ray enters before the first
     collision hit of any kind, so walls and table tops hide what is behind them; a box the
     eye is inside does not count; ties go to the collision hit [hypothesis: many small
-    items have no collision, yet the game lets the player pick them up]. Collision on the
-    trigger layer (12) does not block the ray [hypothesis].
+    items have no collision, yet the game lets the player pick them up]. An actor's render
+    box is rough (a skinned mesh's bind-pose bounds, which do not follow a body lying on
+    the floor [hypothesis]): any other box the ray enters before the first collision hit
+    wins over it, nearer or not, so an item beside a body is taken rather than the body
+    searched; with no such box the body is picked by its box as before (#3125) [design].
+    **A bed yields to what lies in it**: when a box of a bed (furniture whose FURN marker
+    flags include Sleep, bit 31; furniture.md §1) holds, along the ray, the whole stretch
+    through another reference's precise box (not an actor's rough one) that the player
+    can activate and that the ray enters before the first collision hit as it met it, or
+    within the 2 units behind it that pick.rs's `SURFACE_SLACK` allows (#3333; not a door
+    found behind that hit), every box of that bed is set aside, and the rest is
+    picked by the nearest rule above. Full containment decides only this setting aside;
+    nothing else changes. A bed's box runs from the floor to the top of its headboard and
+    encloses what lies on the mattress, so the ray entered it before a suitcase lying
+    there and the bed won (#3323: the Suitcase 0x000AFA24 on BedQueenRight 0x000D72C7 in
+    BisonSteve02 [documented: FalloutNV.esm]) [design; reported: the player's issue says
+    the suitcase can be looted in the original, not captured]. The render boxes are each
+    drawn mesh's bounds, not the base's OBND (SuitCase02's OBND is all zeros
+    [documented: FalloutNV.esm]). When no bed box wholly holds the suitcase's stretch
+    (the suitcase hanging over the bed's edge), nothing is set aside and the nearest rule
+    decides, whichever box that is; the bed's collision hit before the suitcase's box, and
+    the bare mattress, pick the bed. Another bed's box sets nothing aside either. Chairs, benches and activators do not yield: a chair's back keeps
+    its prompt over a switch behind it. A wall before the suitcase still hides it, two
+    boxes over the same stretch both stay, and an actor's rough box sets nothing aside
+    (a sleeper's bed still yields to the sleeper, below). Beds are known from the script
+    runtime's records; without it nothing is set aside.
+    The console's click keeps the plain nearest rule. Collision on the trigger layer (12)
+    does not block the ray [hypothesis]. Nor does the Invisible Wall layer (27): "the
+    player can activate / loot objects through this layer" [documented: GECK wiki
+    "Collision layer", INVISIBLE WALL; #1602, docs/spec-notes/cells-refs.md].
+  - **Talking through bars** (#3233; `engine/nvf-play/src/activate/see_through.rs`): when
+    the ray's first hit is a reference's collision on a see-through layer, Transparent (3),
+    Transparent Small (26) or Transparent Small Anim (28), and nothing is offered (no
+    activatable collision hit, no render box entered before it), every hit along the ray
+    within reach is read in order, past the colliders on those layers; if the first other
+    thing is a living actor whose prompt is Talk, that actor is the target (by collision,
+    at its own distance; the log line says "through" and the bars' reference) [design].
+    A closed door hides what is behind it on any layer, a see-through one included; an
+    open one on those layers is passed [design]. E on such a target only opens the
+    conversation (`script::talk_by_hand`, `fnv_game::Game::start_dialogue`): it is not an
+    activation, so no OnActivate block, perks' choices (Cannibal, Mister Sandman),
+    companion wheel or default action runs, and an actor asleep is not woken through the
+    bars [design]. The Vault 3 captives stand behind JailCellDoorway01 (0x000EF3FA, a STAT
+    with one collision object on layer 3): three rays from the player's eye at the
+    report's spot toward Rick Lancer (V3Prisoner01Ref 0x000F47B0, placed at -2773, 4664,
+    5888) hit it 25.2 to 27.5 units out [observed: `fnvtool phys cell --cell Vault3b
+    --ray -2723,4553,6005,-50,110.7,-25,200` and the same with the direction's z -60 and
+    -10, FalloutNV.esm, 2026-11-21]; started again along the first ray at 26 and 30 units
+    it hit the same bars 6.4 and 2.4 units on, and at 35, 45 and 60 units it hit nothing
+    within its 200 units [observed: the same command with those five origins]. The
+    layers are the ones actors see through ("Actors can see through this layer type"
+    [documented: GECK wiki "Collision layer", TRANSPARENT, TRANSPARENT SMALL];
+    Transparent Small Anim by its name [hypothesis]); for the activation pick the wiki
+    says only that nothing but projectiles passes Transparent, so the original's
+    crosshair on these layers is an observer question (observer-checks.md #251). The
+    rule is kept narrow on purpose [design]: only Talk passes, so items, containers,
+    doors, a body to search and a pocket to pick behind bars, a fence or a window stay
+    out of reach (render-bounds picks still count only before the first collision hit,
+    and the activation ray itself still stops on the bars); anything else between the
+    bars and the actor (a wall, a closed door) hides the actor; GetCrosshairRef and
+    PlaceAtReticle's far ray keep the first collision hit. Shots (`layers::shot_ignores`)
+    and movement are not changed. Starting the conversation checks no line of sight or
+    distance (`fnv_game::Game::start_dialogue`; the walk-up distance is for force greets
+    only), so the bars do not refuse it.
+  - **A bed someone lies on yields to the sleeper**: when the target chosen above is a bed
+    an actor other than the player is on (a bed marker, IDs 1 to 9, at any stage of
+    getting on, sleeping or getting off; furniture.md §2) and that actor's body is within
+    the reach of the eye, the target is that actor, logged `by Occupant`, its distance
+    the body's: the nearest of its posed bones (the parts the renderer publishes for hit
+    volumes, which follow the lying body), else of its render boxes. No hit on the body
+    itself is asked for. A sleeper beyond the reach (the bed aimed at by its far end), or
+    one that cannot be activated now, leaves the bed the target. A free bed is the target
+    as before, and a bed in use offers the player nothing, being one user per reference
+    (furniture.md §5, item 3) [design, #3231: the bed's box encloses the mattress, so the
+    ray enters it before the sleeper's rough box, and the bed won; what the original
+    targets on a sleeper is not captured]. Chairs and benches are not included: a bench's
+    free seat stays usable beside a sitter. Scripts still see the bed: GetCrosshairRef
+    reports the raw collision hit.
+    - What activating the sleeper does: only one fully settled on the bed (GetSleeping 3,
+      `Game::asleep`) takes the wake-and-talk path (`ByHand::Woken`): it gets up and the
+      conversation starts once it is off the bed, or after `WAKE_TALK_SECONDS` (8 s of
+      game time) when the exit is slower, then with it still on the bed. One still
+      getting on or already getting off is talked to at once, as any actor, by the
+      ordinary dialogue [design].
+    - Squire Maxson (a child, TTW's CitadelBRing) was seen lying across the middle of a
+      wide bed rather than on one side (#3231's second report) [observed: the report's
+      screenshot]. Unresolved: whether the bed's entry marker and the clips' offsets put
+      him there as the original would, or the clip choice, which asks the IDLE tree for
+      an adult body (`child: false`, engine/nvforever/src/furniture.rs `user`), gives a
+      child an adult's bed clips [hypothesis; to settle by comparing the marker and the
+      pose with the original].
   - **What is offered**: references the simulation considers present (not taken, enabled)
     whose base is an item, container, door, actor or placed explosive with a weapon to
     give; activators and furniture only with a display name (FULL) [hypothesis: unnamed

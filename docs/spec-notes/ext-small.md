@@ -55,7 +55,87 @@ game, so nothing here is `[observed]`. Changes last for the session.
 | TTW_GetEquippedWeaponSkill `skill` | 1 when the equipped weapon's skill (DNAM, an actor value code) is that one [documented] |
 | TTW_GetPlugins | `[name, version, description]` per loaded plugin [documented]: the version is the TES4 HEDR version (as GetPluginHeaderVersion), the description "" [decision]. Until 2026-11-08 the version was 0, and TTW's start-up check (a plugin below 1.3 is an unconverted Fallout 3 mod) showed its "Fallout 3 mods installed" message for every load order |
 | TTW_ShowGeneProjector | opens the race menu (1036), NVForever's character creator, as ShowRaceMenu does [observed: TTW's scripts wait in `MenuMode 1036` after it; design: owner 2026-11-02] |
-| StewieGetValue `"key:section"` (StewVal) | the value in `Data\NVSE\Plugins\nvse_stewie_tweaks.ini`, a number when it reads as one; 0 without [documented; hypothesis: the file's name] |
+| StewieGetValue `"key:section"` (StewVal) | [documented: StewieGetValue] Reads a setting. [design] After handoff, the mapped [critical](stewie-stat-profile.md) and [inventory](#live-inventory-settings) keys read NVForever choices. Other keys and unbound games keep the layered `Data\NVSE\Plugins\nvse_stewie_tweaks.ini` lookup: a number when it reads as one, otherwise text, or 0 when absent. |
 | GetCellRegions `cell` | an exterior cell's regions (XCLR); none for an interior [documented] |
 | SetWorldspaceMapBounds `world nwX nwY seX seY` | the WRLD MNAM cells, read by every reader of the record (`Game::world_map_bounds`) [documented; follow-up: the engine's map reads its bounds once] |
-| ySIGetTrait / ySISetTrait `"tag"\|"icon" [value] [form]` | ySI's tag and icon, of the form else the calling reference's base; an icon set on a tagged form goes to every form of that tag [documented]; "" until set [decision: ySI's own files are not read] |
+| ySIGetTrait / ySISetTrait `"tag"\|"icon" [value] [form]` | ySI's sorting tag and icon texture path of the form, else the calling reference's base (uncloned), reading session `ySISetTrait` overrides first and falling back to the bounded `menus/ySI/*.json` rule snapshot (`ysi-filename.md`); an icon set on a tagged form (overridden or JSON-tagged) applies to every form of that tag [documented: `YSIGetTrait`, `YSISetTrait`]; "" when unset, cleared, or unmatched [design] |
+
+### Live inventory settings
+
+[documented: Stewie's Tweaks readme and generated `nvse_stewie_tweaks.ini` (see
+[tweaks](../design/tweaks.md#sources-and-clean-room)), `bHardcoreTweaks`, `bAmmoWeight`
+and `bIndividialItemStats`] Hardcore features can be chosen independently of the
+game's Hardcore mode; its ammo option selects whether ammunition has weight.
+Individual item figures show one item's weight and value for a stack.
+
+[design] After the engine hands its authoritative settings to the game,
+`StewieGetValue` and `StewVal` return the existing choices below as numeric 0 or 1.
+Both functions use the same read-only path; names ignore ASCII case and surrounding
+whitespace. The original INI never supplies NVForever defaults. No new settings are
+added. [hypothesis] The original plugin matches names the same way; not observed.
+
+| Query | Existing choice and consumer |
+|---|---|
+| `bHardcoreTweaks:Tweaks` | `Tweaks::hardcore_tweaks`; enables the separate Hardcore rules |
+| `bAmmoWeight:Hardcore Tweaks` | `Tweaks::hardcore_ammo_weight`; the inventory rules apply this only when the parent choice is enabled |
+| `bIndividialItemStats:Tweaks` | `Tweaks::single_item_figures`; the Pip-Boy item figures choose one item or the stack's count |
+| `bDisableStealthEffectInPipboy:Tweaks` | `Tweaks::no_stealth_shimmer_in_pipboy`; disables the stealth shimmer while the Pip-Boy is open |
+| `bKeepPipboyLightOnCellChange:Tweaks` | `1` when bound; NVForever already keeps the Pip-Boy light on across cell changes ([tweaks](../design/tweaks.md)) |
+| `bWeightlessWornArmor:Tweaks` | `Tweaks::weightless_worn_armor`; worn armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
+| `bWeightlessWornPowerArmor:Tweaks` | `Tweaks::weightless_worn_power_armor`; worn power armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
+
+[hypothesis] The ammo query retains the child choice while its parent is disabled,
+as the plugin's own file keeps both keys; not observed in the original game. Its answer
+does not claim that ammo currently weighs anything: the existing inventory
+consumer also considers the parent and the game's Hardcore mode. The original
+spelling `Individial` is preserved.
+
+Before the authoritative handoff, and for all other keys, the established INI
+fallback applies. Weightless-item parent and child switches remain on that path:
+the engine's per-kind mask does not store independent disabled-parent choices.
+These three mappings establish no provider version or complete mod compatibility.
+Original-game comparison and execution of the installed Item Cards and Pip-Boy UI
+Tweaks workloads remain separate acceptance work.
+
+Authored controls cover both aliases at the source boundary, explicit off versus a
+conflicting INI, unknown/string/malformed fallback, current changes and restore
+rebinding; actual ammunition totals across parent, child and Hardcore-mode choices;
+actual Pip-Boy stack weight/value; and settings/startup/restored caches through
+the existing handoff. The opt-in selector requires a dedicated
+`NVF_STEWIE_PROFILE_HOME`, `--ignored` and `--test-threads=1`; skipping it supplies
+no validation evidence.
+
+[implementation evidence: head `68a9c978`, 2026-11-17] The
+[natural hosted run](https://github.com/LootJunkieAzza/NVForever/actions/runs/44155882635)
+at checkout `2a932d9b`, parents `[13011912,68a9c978]`, passed all seven checks.
+Five owning core controls and the ordinary Pip-Boy control each passed once,
+including these two inventory core controls and the actual stack-figure consumer.
+Its three ignored opt-ins received no credit. On exact original `68a9c978`, a
+later Windows Cargo 1.99 QA runtime-only r2 passed all three opt-ins once in
+separate processes. The inventory case reset each source-cache sentinel to 9
+before Restart, NewGame and restored Restart/Load, then checked expected values
+individually, explicit off and retained-child behavior, and unchanged INI bytes.
+The other two opt-ins cover critical profiles ([profile note](stewie-stat-profile.md)).
+
+The first coordinated compile failed with E0624 at a private cross-crate
+inventory method. Its fixture now uses public `World::inventory_mut`, retaining
+the same inventory admission, `totals_with` consumer and every weight oracle.
+Revision326 later compiled five core controls: four passed and the all-off query
+failed at its first ammo-child read. It had used `Tweaks::default()`, which
+retains the child true under a disabled parent. Revision68 explicitly selects
+the intended three false inputs; production defaults, the zero oracle and all
+later assertions remain unchanged. Later assertions were not reached in that
+failed run. The earlier focused68 Windows query/ammo-total passes remain scoped
+to their own run and do not change that failure.
+
+The Windows compile used for the three profile opt-ins returned zero, but its
+controller failed descendant cleanup with unknown child identity; strict
+compile-controller and overall success remain false. Runtime-only r1 stopped with
+`KeyError` on missing `priorResult` metadata before any Job, discovery or test. Corrected r2
+reused the sealed source-bound image without a rebuild and qualified only its
+three actual runtime results. No failed attempt is relabelled as passed.
+
+Compiler, runtime, strict-lint and hosted checks on the corrected integration remain
+UNRUN. The historical six ordinary and three opt-in results do not qualify this
+candidate. Identical-fixture baselines, original-game and installed-workload
+comparisons, native profile semantics and full Stewie compatibility remain open.

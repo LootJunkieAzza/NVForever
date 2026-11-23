@@ -2241,3 +2241,183 @@ fn a_declarations_value_declares_inline_in_a_lambda() {
         assert_eq!(c.errors().count(), 0, "{body}: {:?}", c.errors().collect::<Vec<_>>());
     }
 }
+
+/// `SetOnPlayGroupEventHandler` parameter index 3 resolves bare known `anim_group` keywords
+/// to `XExpr::Enum`, while leaving quoted strings (including names outside `encodings.json`),
+/// runtime `string_var`s, numeric codes, globals, dotted quest variables, and function calls
+/// as ordinary `ParamEnc::Value` expressions.
+#[test]
+fn set_on_play_group_event_handler_anim_group_arg_forms() {
+    let (_, p) = build(
+        "ref fnH\nstring_var sGrp\nbegin GameMode\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF Idle\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF Equip\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF \"Equip\"\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF \"TurnRight\"\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF sGrp\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF 0\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF 24\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF TestGlobal\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF TestQuest.bDone\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF GetAnimAction\n\
+         end\n",
+    );
+    let fourth_args: Vec<String> = body(&p)
+        .iter()
+        .map(|s| match s {
+            Stmt::Eval { expr } => match expr {
+                XExpr::Call { call } => x(&call.args[3]),
+                other => panic!("expected call, got {other:?}"),
+            },
+            other => panic!("expected eval stmt, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(fourth_args[0], "#0", "bare keyword Idle");
+    assert_eq!(fourth_args[1], "#24", "bare keyword Equip");
+    assert_eq!(fourth_args[2], "\"Equip\"", "quoted string must stay XExpr::Str for runtime normalization");
+    assert_eq!(fourth_args[3], "\"TurnRight\"", "unknown quoted string must compile as XExpr::Str");
+    assert_eq!(fourth_args[4], "v2", "string_var stays a variable reference");
+    assert_eq!(fourth_args[5], "0", "numeric 0");
+    assert_eq!(fourth_args[6], "24", "numeric 24");
+    assert!(fourth_args[7].starts_with('g'), "global variable must stay global var, got {}", fourth_args[7]);
+    assert_eq!(fourth_args[8], "v1", "dotted quest variable must compile as variable, not unknown enum");
+    assert!(fourth_args[9].contains('('), "zero-arg function call must compile as call, got {}", fourth_args[9]);
+}
+
+#[test]
+fn aim_anim_group_names_have_documented_codes() {
+    // [documented: https://geckwiki.com/index.php?title=AnimGroups]: AimUp (18),
+    // AimDown (19), AimIS (20), AimISUp (21), AimISDown (22).
+    let t = table();
+    for (group, code) in [("AimUp", 18u16), ("AimDown", 19), ("AimIS", 20), ("AimISUp", 21), ("AimISDown", 22)] {
+        let play = compile(&format!("begin GameMode\nPlayGroup {group} 1\nend"), &t, &World, None);
+        assert_eq!(play.errors().count(), 0, "{group}: {:?}", play.diags);
+        assert!(play.bytes.windows(8).any(|w| w[..2] == 0x1013u16.to_le_bytes() && w[6..8] == code.to_le_bytes()), "{group}: {:02X?}", play.bytes);
+        let check = compile(&format!("begin GameMode\nif IsAnimPlaying {group}\nendif\nend"), &t, &World, None);
+        assert_eq!(check.errors().count(), 0, "{group}: {:?}", check.diags);
+        assert!(check.bytes.windows(8).any(|w| w[..2] == 0x1128u16.to_le_bytes() && w[6..8] == code.to_le_bytes()), "{group}: {:02X?}", check.bytes);
+        let (_, p) = build(&format!("ref fnH\nbegin GameMode\nSetOnPlayGroupEventHandler fnH 1 PlayerREF {group}\nend"));
+        let Stmt::Eval { expr: XExpr::Call { call } } = &body(&p)[0] else { panic!("{:?}", body(&p)[0]) };
+        assert_eq!(x(&call.args[3]), format!("#{code}"), "{group}");
+    }
+}
+
+#[test]
+fn plain_declaration_ignores_unseparated_trailing_words() {
+    // A plain declaration without `=` declares only its variable (and any comma-separated
+    // names); unseparated trailing words do not declare a function name as a local that
+    // shadows later calls.
+    let src = "SetEventHandlerAlt \"OwnedA\" (begin Function {}\n\
+               array_var aFirst ar_Construct \"array\"\n\
+               end)\n\
+               SetEventHandlerAlt \"OwnedB\" (begin Function {}\n\
+               array_var aSecond = ar_Construct array\n\
+               end)\n";
+    let c = fnv_script::compile::compile_mod_runtime(src, &table(), &World);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert!(c.variables.iter().any(|v| v.name == "aFirst"), "{:?}", c.variables);
+    assert!(c.variables.iter().any(|v| v.name == "aSecond"), "{:?}", c.variables);
+    assert!(!c.variables.iter().any(|v| v.name.eq_ignore_ascii_case("ar_construct")), "{:?}", c.variables);
+    assert!(warnings(&c, "variable_named_like_a_function").is_empty(), "{:?}", c.diags);
+    // Comma-separated plain declarations still declare every named variable.
+    let (c, _) = build("short iA, iB, iC\nbegin GameMode\nset iA to 1\nset iB to 2\nset iC to 3\nend");
+    assert_eq!(c.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["iA", "iB", "iC"]);
+}
+
+#[test]
+fn braced_argument_lists_pass_multiple_arguments() {
+    // Multiple space- or comma-separated arguments inside `{ ... }` (not followed by `=>`).
+    let (_, p) = mod_ok(
+        "ref fnH\nshort a\nshort b\nbegin Function {}\n\
+         SetFunctionValue (call fnH {a b})\n\
+         call fnH {a, b}\n\
+         call fnH {a + 1, b - 1}\n\
+         call fnH {a -1}\n\
+         call fnH {}\n\
+         end",
+    );
+    let b = body(&p);
+    assert_eq!(b.len(), 5, "{b:?}");
+    let Stmt::Eval { expr: XExpr::Call { call: sfv } } = &b[0] else { panic!("{:?}", b[0]) };
+    let XExpr::Call { call: nested } = &sfv.args[0] else { panic!("{:?}", sfv.args[0]) };
+    assert_eq!(nested.args.len(), 3, "fnH + 2 braced args: {:?}", nested.args);
+    let counts: Vec<usize> = b[1..].iter().map(|s| match s {
+        Stmt::Eval { expr: XExpr::Call { call } } => call.args.len(),
+        other => panic!("{other:?}"),
+    }).collect();
+    assert_eq!(counts, [3, 3, 3, 1]);
+    // Unclosed braced argument list still reports missing `}`.
+    let bad = compile("ref fnH\nshort a\nshort b\nbegin GameMode\ncall fnH {a b\nend", &table(), &World, None);
+    assert!(bad.errors().any(|d| d.kind == "syntax" && d.detail == "missing }"), "{:?}", bad.diags);
+    // Arrow lambda `{params} => expr` stays a lambda.
+    let (_, p) = build("short a\nshort b\nbegin GameMode\nCallWhen ({a, b} => a + b) ({} => 1)\nend");
+    let Stmt::Eval { expr: XExpr::Call { call } } = &body(&p)[0] else { panic!("{:?}", body(&p)[0]) };
+    assert!(matches!(call.args[0], XExpr::Lambda { .. }), "{:?}", call.args[0]);
+    // Unary `&` / `*` (leading, after comma without space, and space-separated) and nested
+    // arrow lambdas inside `{ ... }` keep compiling cleanly.
+    let (_, p) = mod_ok(
+        "ref fnH\nshort a\nshort x\narray_var b\nbegin GameMode\n\
+         call fnH {&a}\n\
+         call fnH {*b}\n\
+         call fnH {a,*b}\n\
+         call fnH {a *b}\n\
+         call fnH {a &b}\n\
+         call fnH {{x} => x + 1}\n\
+         call fnH {a, {x} => x + 1}\n\
+         end",
+    );
+    let b = body(&p);
+    assert_eq!(b.len(), 7, "{b:?}");
+    let arg_counts: Vec<usize> = b.iter().map(|s| match s {
+        Stmt::Eval { expr: XExpr::Call { call } } => call.args.len(),
+        other => panic!("{other:?}"),
+    }).collect();
+    assert_eq!(arg_counts, [2, 2, 3, 3, 3, 2, 3]);
+    let Stmt::Eval { expr: XExpr::Call { call: box_call } } = &b[0] else { panic!() };
+    assert!(matches!(box_call.args[1], XExpr::Unary { op: fnv_script::ir::XUnary::Box, .. }), "{:?}", box_call.args[1]);
+    let Stmt::Eval { expr: XExpr::Call { call: unbox_call } } = &b[1] else { panic!() };
+    assert!(matches!(unbox_call.args[1], XExpr::Unary { op: fnv_script::ir::XUnary::Unbox, .. }), "{:?}", unbox_call.args[1]);
+    let Stmt::Eval { expr: XExpr::Call { call: lam1 } } = &b[5] else { panic!() };
+    assert!(matches!(lam1.args[1], XExpr::Lambda { .. }), "{:?}", lam1.args[1]);
+    let Stmt::Eval { expr: XExpr::Call { call: lam2 } } = &b[6] else { panic!() };
+    assert!(matches!(lam2.args[2], XExpr::Lambda { .. }), "{:?}", lam2.args[2]);
+}
+
+#[test]
+fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
+    // `if TestExpr <type> <var> = <expr>` declares the local, strips its type word, and
+    // keeps the assignment inside `TestExpr` (no `assignment_to_a_value` warning).
+    let h = run(
+        "array_var aSrc\nint hit\nint miss\nint sized\nstring_var sOut\nfloat fInit\n\
+         begin GameMode\n\
+         let aSrc := ar_List 42, 99\n\
+         if TestExpr int iFirst = aSrc[0]\n\
+           let hit := iFirst\n\
+         endif\n\
+         if TestExpr int iMissing = aSrc[9]\n\
+           let miss := 1\n\
+         endif\n\
+         if (int iLen = ar_Size aSrc) == 2\n\
+           let sized := iLen\n\
+         endif\n\
+         eval 1 && let sOut := \"ok\"\n\
+         float fLocal := 3.5\n\
+         let fInit := fLocal\n\
+         end",
+    );
+    assert_eq!(h.0[&2], Value::Num(42.0), "hit");
+    assert_eq!(h.0.get(&3).copied().unwrap_or(Value::Num(0.0)), Value::Num(0.0), "miss");
+    assert_eq!(h.0[&4], Value::Num(2.0), "sized");
+    assert_eq!(h.text(5), "ok");
+    assert_eq!(h.0[&6], Value::Num(3.5), "fInit");
+    // Unparenthesized inline declaration inside a declaration initializer and known remote quest var.
+    let (c, _) = build(
+        "array_var aSrc\nbegin GameMode\n\
+         int ok = TestExpr int iElem = aSrc[0]\n\
+         Let TestQuest.bDone := ok\n\
+         end",
+    );
+    assert!(warnings(&c, "assignment_to_a_value").is_empty(), "{:?}", c.diags);
+    assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
+    assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
+}

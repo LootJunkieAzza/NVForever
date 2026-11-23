@@ -404,10 +404,17 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
         _ => {}
     }
     if let Some(forms) = forms {
-        let preview = script.as_mut().and_then(|s| s.rt.as_mut()).filter(|_| r.kind == Some(ItemKind::Aid)).map(|rt| crate::script::with_world(rt, sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, r.item)));
-        if let Some(lines) = preview {
+        let preview = script
+            .as_mut()
+            .and_then(|s| s.rt.as_mut())
+            .filter(|_| r.kind == Some(ItemKind::Aid))
+            .map(|rt| crate::script::with_world(rt, sim, |rt| (rt.game.aid_preview(FormId::PLAYER_REF, r.item), rt.game.aid_preview_names(FormId::PLAYER_REF, r.item))));
+        if let Some((lines, named)) = preview {
             let changes: Vec<super::stats::model::Change> = lines.into_iter().filter(|(_, amount)| amount.abs() >= 0.5).map(|(code, amount)| super::stats::model::Change { value: forms.short_name(code), amount: amount.abs(), detrimental: amount < 0.0 }).collect();
-            i.effects = (!changes.is_empty()).then(|| super::stats::model::changes_text(&changes));
+            // Script effects shown by name (Psycho's "Damage +25%", Cateye's "Low-Light
+            // Vision") after the values (#3119).
+            let text = super::stats::read::with_names(super::stats::model::changes_text(&changes), named.iter().map(|m| forms.text(m.0).name.clone()));
+            i.effects = (!text.is_empty()).then_some(text);
             return i;
         }
         // The player's tweak: a skill book says what it teaches [design: docs/design/tweaks.md]: the skill and the
@@ -586,6 +593,13 @@ fn on_row_click(
     }
 }
 
+/// Cached heading figures and hotkey-panel icons from the last draw of the ITEMS page.
+#[derive(Default)]
+pub struct DrawnState {
+    heading: Option<Heading>,
+    panel_icons: Option<super::hotkey_panel::PanelIcons>,
+}
+
 /// Fill the ITEMS page's body when it is new or the inventory changed.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
@@ -603,7 +617,7 @@ pub fn draw(
     play: Option<Res<crate::PlayWorld>>,
     mut forms: Local<Option<super::stats::read::Forms>>,
     (repair, modding, mut script): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>, Option<ResMut<crate::script::ScriptState>>),
-    (hold, hotkeys): (Res<HotkeyHold>, Res<Hotkeys>),
+    (hold, hotkeys, mut drawn): (Res<HotkeyHold>, Res<Hotkeys>, Local<DrawnState>),
     (pip, mut logged, mut drawn_with): (Res<PipBoy>, Local<String>, Local<Option<crate::pad::Labels>>),
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
@@ -612,7 +626,23 @@ pub fn draw(
     // The hints' set and keys follow the input device: a change of labels draws again.
     let labels = crate::pad::labels();
     let relabelled = drawn_with.replace(labels) != Some(labels);
-    if added.get(body).is_err() && !relabelled && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() {
+    // The heading's HP and DT, read every frame the page is up: an aid item used from the
+    // list heals a frame after the list changed (the scripts run before the menu), and a
+    // heal over time or a wear change touches no menu state, so the page draws again when
+    // they differ from what it drew (#3120), as the STATS page does with its snapshot.
+    let shown = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory) && modding.0.is_none() && repair.0.is_none();
+    let now = shown.then(|| heading(sim.bypass_change_detection(), script.as_mut().map(|s| s.bypass_change_detection()), combat.as_deref()));
+    let refigured = now.is_some() && drawn.heading != now;
+    let now_panel_icons = (shown && hold.slot.is_some()).then(|| {
+        let selected_now = active.0.as_ref().and_then(|m| m.list(Side::Player).rows.get(m.selected[Side::Player as usize]));
+        let script_ref = script.as_mut().map(|s| &*s.bypass_change_detection());
+        super::hotkey_panel::panel_icons(&hotkeys, &hold, selected_now, sim.bypass_change_detection(), combat.as_deref(), script_ref)
+    });
+    let reiconed = now_panel_icons.is_some() && drawn.panel_icons != now_panel_icons;
+    if now_panel_icons.is_none() {
+        drawn.panel_icons = None;
+    }
+    if added.get(body).is_err() && !relabelled && !refigured && !reiconed && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() {
         return;
     }
     if forms.is_none() {
@@ -647,13 +677,9 @@ pub fn draw(
     if let (Some(r), Some((_, i))) = (selected, &info) {
         info!("pipboy items: {} selected: {:?}", r.name, i);
     }
-    // The heading's HP and DT: the STATS page's health, and the damage threshold a hit on
-    // the player meets (worn armour at its condition and the DT actor value,
-    // `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
-    // screenshots; hypothesis: the figure is the one combat uses].
-    let hp = super::stats::read::player_hp(sim, script.as_deref_mut());
-    let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
-    let (hp, dt) = (hp_text(hp), dt_text(dt));
+    let (hp, dt) = now.unwrap_or_else(|| heading(sim, script.as_deref_mut(), combat.as_deref()));
+    drawn.heading = Some((hp.clone(), dt.clone()));
+    drawn.panel_icons = now_panel_icons;
     let offer = super::repair::current(&active, sim, script.as_deref());
     // The tab's hints for the selected row (the hotkey panel hides them).
     let tab = TABS[pip.tab().min(TABS.len() - 1)];
@@ -673,7 +699,7 @@ pub fn draw(
     // two lines taking more room (owner's playtest list 7 item 15).
     let heights = row_heights(&mut c, m);
     let first = if m.pointer_pick { m.scroll[Side::Player as usize].min(heights.len()) } else { first_shown(&heights, m.scroll[Side::Player as usize], m.selected[Side::Player as usize], LIST.height()) };
-    if active.is_changed() {
+    if active.is_changed() || refigured {
         info!("pipboy items: heading HP {hp}, DT {dt}; rows {first}.. of {} drawn", heights.len());
     }
     commands.entity(body).despawn_children().with_children(|p| {
@@ -688,7 +714,7 @@ pub fn draw(
         // The hotkey panel hides the picture, the badge and the hints (`IM_ButtonRect`).
         if let (true, Some(k)) = (panel, hold.slot) {
             info!("pipboy hotkeys: panel drawn, key {} chosen{}", k + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
-            super::hotkey_panel::draw(p, &mut c, &hotkeys, &hold, selected, sim, combat.as_deref());
+            super::hotkey_panel::draw(p, &mut c, &hotkeys, &hold, selected, sim, combat.as_deref(), script.as_deref());
         } else {
             // The selected item's own lines for its Repair and Mod hints.
             let (repair_row, mod_row) = hint_rows(labels);
@@ -813,6 +839,19 @@ fn item_info(p: &mut ChildSpawnerCommands, c: &mut Ctx, icon: Option<&str>, i: &
 /// The HP card's figure: health out of its whole, "--" unread.
 pub(crate) fn hp_text(hp: Option<(f64, f64)>) -> String {
     hp.map_or_else(|| "--".to_string(), |(v, max)| format!("{}/{}", super::stats::model::whole(v), super::stats::model::whole(max)))
+}
+
+/// The heading's HP and DT figures as drawn.
+type Heading = (String, String);
+
+/// The heading's HP and DT figures: the STATS page's health, and the damage threshold a hit
+/// on the player meets (worn armour at its condition and the DT actor value,
+/// `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
+/// screenshots; hypothesis: the figure is the one combat uses].
+pub(crate) fn heading(sim: &mut SimState, mut script: Option<&mut crate::script::ScriptState>, combat: Option<&crate::combat::Combat>) -> Heading {
+    let hp = super::stats::read::player_hp(sim, script.as_deref_mut());
+    let dt = combat.map(|c| crate::combat::target_armor(c, script, sim, FormId::PLAYER_REF).0);
+    (hp_text(hp), dt_text(dt))
 }
 
 /// The DT card's figure: one decimal, "--" unread.
@@ -994,6 +1033,30 @@ mod tests {
 
     fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
         Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false }
+    }
+
+    #[test]
+    fn stewie_single_item_query_matches_actual_pipboy_stack_figures() {
+        use fnv_script::vm::XVal;
+        let mut script = crate::script::ScriptState::over_no_plugins();
+        let mut sim = SimState::over_placed([]);
+        let mut r = row(Some(fnv_sim::forms::ItemKind::Misc));
+        r.count = 4;
+        r.weight = Some(2.5);
+        r.value = Some(7);
+        for (one, weight, value) in [(false, "10.00", "28"), (true, "2.50", "7"), (false, "10.00", "28")] {
+            {
+                let game = &mut script.rt.as_mut().unwrap().game;
+                let settings = fnv_game::tweaks::Tweaks { single_item_figures: one, ..Default::default() };
+                game.bind_stewie_stat_settings(&settings);
+                for name in ["StewVal", "StewieGetValue"] {
+                    assert_eq!(game.run_query(&format!("Begin Function {{}}\nSetFunctionValue ({name} \"bIndividialItemStats:Tweaks\")\nEnd\n"), Default::default()).unwrap(), XVal::Num(f64::from(u8::from(one))));
+                }
+            }
+            let info = info_of(&r, None, &mut sim, None, Some(&mut script));
+            assert_eq!(info.weight.as_deref(), Some(weight));
+            assert_eq!(info.value.as_deref(), Some(value));
+        }
     }
 
     fn shown(h: &[Hint]) -> Vec<(String, bool)> {

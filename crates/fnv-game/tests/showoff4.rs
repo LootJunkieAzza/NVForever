@@ -17,6 +17,7 @@ use serde_json::Value as Json;
 const STAT: u32 = 0x800;
 const LIST: u32 = 0x801;
 const FACT: u32 = 0x802;
+const WEAP: u32 = 0x803;
 const ROOM: u32 = 0x900;
 const PARENT: u32 = 0x910;
 const CHILD: u32 = 0x911;
@@ -39,12 +40,14 @@ fn fixture() -> Fixture {
     let stat = record(b"STAT", 0, STAT, &[sub(b"EDID", z("TestStatic"))]);
     let flst = record(b"FLST", 0, LIST, &[sub(b"EDID", z("TestList")), sub(b"LNAM", u32s(&[STAT]))]);
     let fact = record(b"FACT", 0, FACT, &[sub(b"EDID", z("TestFaction"))]);
+    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("TestWeapon")), sub(b"ICON", z("interface\\icons\\default_weap.dds"))]);
     let room = record(b"CELL", 0, ROOM, &[sub(b"EDID", z("TestRoom")), sub(b"DATA", vec![1])]);
     let refs = [placed(PARENT, "TestParentRef", STAT, None), placed(CHILD, "TestChildRef", STAT, Some(PARENT))].concat();
     let children = group(ROOM.to_le_bytes(), 6, &group(ROOM.to_le_bytes(), 9, &refs));
     let bytes = [
         tes4(),
         top(b"FACT", &fact),
+        top(b"WEAP", &weap),
         top(b"STAT", &stat),
         top(b"FLST", &flst),
         top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))])),
@@ -200,4 +203,33 @@ fn enable_parents_can_be_changed_and_ignored() {
     q(&mut g, "TestChildRef.SetEnableParent");
     assert!(on(&g, CHILD), "its own flag again");
     assert_eq!(n(&mut g, "TestChildRef.GetParentRef"), 0.0);
+}
+
+#[test]
+fn hotkey_icon_override_is_stored_read_back_and_cleared() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), None);
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon 1)"), "");
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon)"), "interface\\icons\\default_weap.dds");
+
+    q(&mut g, r#"SetItemHotkeyIconPath TestWeapon "interface\icons\custom_hotkey.dds""#);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), Some("interface\\icons\\custom_hotkey.dds"));
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon 1)"), "interface\\icons\\custom_hotkey.dds");
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon)"), "interface\\icons\\custom_hotkey.dds");
+
+    // Live update replaces the existing override.
+    q(&mut g, r#"SetItemHotkeyIconPath TestWeapon "Textures/Interface/Icons/updated.dds""#);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), Some("Textures/Interface/Icons/updated.dds"));
+
+    // Whitespace-only overrides are ignored by engine consumers.
+    q(&mut g, r#"SetItemHotkeyIconPath TestWeapon "   ""#);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), None);
+
+    // Empty string removes the override and restores the item's default ICON.
+    q(&mut g, r#"SetItemHotkeyIconPath TestWeapon """#);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), None);
+    assert!(!g.showoff.hotkey_icons.contains_key(&FormId(WEAP)));
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon 1)"), "");
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon)"), "interface\\icons\\default_weap.dds");
 }

@@ -18,7 +18,13 @@
 //!   casts none (owner 2026-10-22: aiming in third person the arms shaded the cone). The
 //!   first-person arms and weapon (`sky::ARMS_LAYER`), the seen third-person body and its
 //!   weapon (`sky::BODY_LAYER`) and the unseen body (`sky::SHADOW_LAYER`) are on layers
-//!   of their own. It still lights them: a light lights every view its layers meet.
+//!   of their own. It still lights them: a light lights every view its layers meet. On
+//!   first-person shapes (`FIRST_PERSON_DEPTH`, `lights/display_shader.rs`) shadow-casting
+//!   spot lights are scaled down (`FIRST_PERSON_FLASHLIGHT_DIFFUSE`,
+//!   `FIRST_PERSON_FLASHLIGHT_SPECULAR`) [design, #3121] so aiming down sights into the
+//!   beam's inner core does not wash the held weapon and hand out to white, while world
+//!   surfaces, third-person body/weapon (`BODY_LAYER`) and non-shadow-casting world spot
+//!   lamps (`LIGH` `SPOT`) keep full strength.
 //! - Detection does not count it (`detection.rs`).
 //! - Another co-op player's light ([`remote_spot`], `coop.rs`) is the same light on their
 //!   puppet. The puppet is drawn on the world's layer 0, so its head, arms and weapon
@@ -141,5 +147,107 @@ mod tests {
         assert!((at[2] - (120.0 - DOWN)).abs() < 1e-3);
         let dir = nvf_play::space::to_game(t.forward().as_vec3());
         assert!(dir[0] > 0.99, "{dir:?}");
+    }
+
+    /// CPU mirror of `nvf_spot_display` (`lights/display_shader.rs`) + `GAME_ATTENUATION`
+    /// (`lights.rs`) for `PlayerFlashlight` at `light`, illuminating a surface at `target`
+    /// (Bevy world space) facing `normal`.
+    fn spot_diffuse_display(
+        light: &Transform,
+        target: Vec3,
+        normal: Vec3,
+        first_person: bool,
+        casts_shadows: bool,
+    ) -> [f32; 3] {
+        let to_light = light.translation - target;
+        let d2 = to_light.length_squared();
+        let inv_range_sq = 1.0 / (RANGE * RANGE);
+        let attenuation = (1.0 - d2 * inv_range_sq).clamp(0.0, 1.0);
+        let dir_to_light = to_light * d2.max(0.0001).sqrt().recip();
+        let n_dot_l = normal.normalize().dot(dir_to_light).clamp(0.0, 1.0);
+        let spot_dir = light.forward().as_vec3();
+        let cd = (-spot_dir).dot(dir_to_light);
+        let cos_outer = OUTER_DEG.to_radians().cos();
+        let cos_inner = INNER_DEG.to_radians().cos();
+        let cone = ((cd - cos_outer) / (cos_inner - cos_outer)).clamp(0.0, 1.0);
+        let scale = crate::lights::spot_display_scale(first_person, casts_shadows);
+        let factor = BRIGHTNESS * attenuation * n_dot_l * cone * cone * scale;
+        COLOUR.map(|c| c * factor)
+    }
+
+    /// Final clipped linear diffuse colour (`lights/display_shader.rs` + `GAME_CLIP`).
+    fn lit_clipped_linear(albedo: f32, ambient: f32, direct: [f32; 3]) -> [f32; 3] {
+        direct.map(|d| (albedo * (ambient + d).max(0.0).powf(2.2)).min(1.0))
+    }
+
+    #[test]
+    fn aimed_in_first_person_weapons_and_hand_do_not_wash_out() {
+        // Player at origin facing north (+y game, -z Bevy), level, indoors with typical dim ambient.
+        let eye = [0.0, 0.0, 120.0];
+        let light = placement(eye, 0.0, 0.0);
+        let ambient = 0.25;
+        // Aimed-in weapon & gloved hand sit directly ahead of the flashlight inside its 14 deg
+        // inner core (25 units past the light), facing back toward the light.
+        let aimed_pos = light.translation + light.forward().as_vec3() * 25.0;
+        let facing_light = -light.forward().as_vec3();
+        // Lit world wall in the same beam 300 and 1200 units ahead.
+        let near_wall = light.translation + light.forward().as_vec3() * 300.0;
+        let far_wall = light.translation + light.forward().as_vec3() * 1200.0;
+
+        let unscaled_direct = spot_diffuse_display(&light, aimed_pos, facing_light, false, true);
+        let fp_direct = spot_diffuse_display(&light, aimed_pos, facing_light, true, true);
+        let wall_near_direct = spot_diffuse_display(&light, near_wall, facing_light, false, true);
+        let wall_far_direct = spot_diffuse_display(&light, far_wall, facing_light, false, true);
+
+        // Reproduce the #3121 failing boundary: without the first-person scale, a bright
+        // revolver (Ranger Sequoia silver, albedo 0.55) and gloved hand (0.35) blow out to white.
+        assert_eq!(lit_clipped_linear(0.55, ambient, unscaled_direct)[0], 1.0, "unscaled revolver clipped");
+        assert_eq!(lit_clipped_linear(0.35, ambient, unscaled_direct)[0], 1.0, "unscaled hand clipped");
+
+        // With the fix, aimed-in revolver (0.55), energy weapon (0.45), gloved hand (0.35),
+        // and rifle (0.25) all stay well below white clipping, receive gentle warm fill above
+        // flashlight-off, and remain strictly dimmer than the lit world wall ahead.
+        for (label, albedo) in [("revolver", 0.55), ("energy", 0.45), ("hand", 0.35), ("rifle", 0.25)] {
+            let off = lit_clipped_linear(albedo, ambient, [0.0; 3]);
+            let on = lit_clipped_linear(albedo, ambient, fp_direct);
+            let wall_near = lit_clipped_linear(albedo, ambient, wall_near_direct);
+            let wall_far = lit_clipped_linear(albedo, ambient, wall_far_direct);
+            for c in 0..3 {
+                assert!(on[c] < 0.75, "{label} channel {c} must not wash out: {on:?}");
+                assert!(on[c] > off[c], "{label} channel {c} keeps subtle warm fill over off: {on:?} vs {off:?}");
+                assert!(on[c] < wall_near[c] && on[c] < wall_far[c], "{label} channel {c} stays dimmer than lit world wall: {on:?} vs near {wall_near:?} / far {wall_far:?}");
+            }
+        }
+
+        // Specular on first-person shapes is attenuated as well to stop white highlights.
+        let fp_spec = crate::lights::spot_specular_scale(true, true);
+        assert_eq!(fp_spec, crate::lights::FIRST_PERSON_FLASHLIGHT_SPECULAR);
+        assert!(fp_spec < 0.25);
+    }
+
+    #[test]
+    fn non_aimed_third_person_world_and_world_spot_controls_hold() {
+        let eye = [0.0, 0.0, 120.0];
+        let light = placement(eye, 0.0, 0.0);
+        let facing_light = -light.forward().as_vec3();
+
+        // Non-aimed hip-held weapon sits off to the right and below the beam axis: weaker than aimed-in.
+        let aimed_pos = light.translation + light.forward().as_vec3() * 25.0;
+        let hip_pos = light.translation + light.forward().as_vec3() * 25.0 + light.right().as_vec3() * 11.0 - light.up().as_vec3() * 6.0;
+        let aimed = spot_diffuse_display(&light, aimed_pos, facing_light, true, true);
+        let hip = spot_diffuse_display(&light, hip_pos, facing_light, true, true);
+        assert!(hip[0] < aimed[0] && hip[0] >= 0.0, "hip {hip:?} weaker than aimed {aimed:?}");
+
+        // Third-person body/weapon (BODY_LAYER) and world surfaces (!FIRST_PERSON_DEPTH)
+        // keep full flashlight diffuse and specular strength.
+        assert_eq!(crate::lights::spot_display_scale(false, true), 1.0);
+        assert_eq!(crate::lights::spot_specular_scale(false, true), 1.0);
+        let world_wall = spot_diffuse_display(&light, light.translation + light.forward().as_vec3() * 200.0, facing_light, false, true);
+        assert!(world_wall[0] > BRIGHTNESS * 0.98, "world illumination unchanged: {world_wall:?}");
+
+        // Non-shadow-casting world spot lamps (LIGH SPOT records) still light first-person
+        // weapons and hands at full strength.
+        assert_eq!(crate::lights::spot_display_scale(true, false), 1.0);
+        assert_eq!(crate::lights::spot_specular_scale(true, false), 1.0);
     }
 }

@@ -93,6 +93,49 @@ why.
   file visible in `Data`, but the game loads archives by name. NVForever mounts exactly the
   listed names, taking each from the highest layer that has the file.
 
+## The profile's `settings.ini`
+
+[documented: `Profile::Profile`, `Profile::findProfileSettings`, `IPluginGame::ProfileSettings`;
+observed: MO2 2.5 profiles]
+
+- The profile's own QSettings INI. A key outside any group is stored under `[General]`.
+- `LocalSaves` (bool) — the profile's saves live in `<profile>/saves`, which MO2 maps over
+  the game's save folder; off means the player's own folder. NVForever reads this folder for
+  `--load` only and never writes into it (maintainer decision 2026-11-18). When MO2 creates the profile it
+  sets the key from its global `profile_local_saves`; an older profile without the key is
+  decided by `findProfileSettings`: a `saves` folder means on, a `_saves` folder means off
+  (MO2 renames between the two), else the global setting. MO2 also writes
+  `sLocalSavePath=__MO_Saves\` and `bUseMyGamesDirectory=1` into the game's `fallout.ini`
+  `[General]` and maps `<profile>/saves` to `<myGames>/__MO_Saves` [documented:
+  `GamebryoLocalSavegames::prepareProfile`, `mappings`] — the INI keys exist because the game
+  itself decides where to save; a program that owns its save folder does not need them.
+- `LocalSettings` (bool) — the profile keeps copies of the game's INI files. On creation MO2
+  copies them (`initializeProfile(..., CONFIGURATION)`); an absent key is decided by
+  `findProfileSettings`: a `<first ini>_` backup file means on, else the global
+  `profile_local_inis`.
+- `AutomaticArchiveInvalidation` is read by MO2 only (its BSA invalidation), not by NVForever.
+
+## The profile's INI files and `initweaks.ini`
+
+[documented: `Profile::absoluteIniFilePath`, `Profile::createTweakedIniFile`,
+`GameGamebryo::prepareIni`; observed: the owner's profiles]
+
+- The game's INI names come from the game plugin (`iniFiles()`): for the Gamebryo games
+  `Fallout.ini` then `FalloutPrefs.ini`. With local settings the game's copies are the
+  profile's; without, the files in `Documents\My Games\FalloutNV` are the game's and the
+  profile has none.
+- `initweaks.ini` is MO2's merged INI tweaks for the profile: written in the profile folder
+  each time MO2 saves the profile, from every **enabled** mod's INI tweaks in priority order
+  (a later mod's key replaces an earlier one), then the profile's own, then MO2's
+  `[Archive] bInvalidateOlderFiles=1`. MO1's launcher applied the result to the game's INI
+  files; MO2 keeps it in the profile [documented: issue #663 describes the same intent].
+- Reading order for the effective value of a key: `Fallout.ini` < `FalloutPrefs.ini` <
+  `initweaks.ini`, later winning. NVForever reads the three files, matched without case, as
+  text (lossy UTF-8: the originals are in the system code page) and lets the extender's INI
+  functions layer them, which is how `GameData::ini_texts` already treats several files.
+- NVForever does not write any of these files, and MO2 does not know it started the game, so
+  a hand edit of a profile INI while NVForever runs is not seen (the text is read at start).
+
 ## What usvfs merges, in order
 
 [documented: `OrganizerCore::fileMapping`, usvfs' mapping priorities]

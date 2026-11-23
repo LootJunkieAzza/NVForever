@@ -191,6 +191,53 @@ fn json_files() {
 }
 
 #[test]
+fn json_cache_utf8_bom_data_paths_and_showoff_cache_gating() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (game_dir, layer) = folders();
+    std::fs::create_dir_all(game_dir.join("Data").join("Config")).unwrap();
+    let bom_json = "\u{feff}{\"title\":\"caf\u{e9}\",\"nested\":{\"items\":[10,20]}}";
+    std::fs::write(game_dir.join("Data").join("Config").join("sup_utf8.json"), bom_json.as_bytes()).unwrap();
+
+    // Case-insensitive Data\ path + UTF-8 BOM + non-ASCII across SUP and ShowOff JSON.
+    assert_eq!(n(&mut g, r#"JSONIsFileValid "Data\Config\sup_utf8.json""#), 1.0);
+    assert_eq!(n(&mut g, r#"JSONIsFileValid "data/config/SUP_UTF8.JSON""#), 1.0);
+    assert_eq!(n(&mut g, r#"JSONCacheFile "Data\Config\sup_utf8.json" 1"#), 0.0);
+    assert_eq!(n(&mut g, r#"JSONIsFileCached "data/config/sup_utf8.json""#), 1.0);
+    assert_eq!(s(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "title" 1)[0]"#), "caf\u{e9}");
+    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "nested.items.1" 1)[0]"#), 20.0);
+
+    // Unified SUP JSON cache: cached writes via nvse_json are visible to JSONGetValue(iCached=1),
+    // while uncached JSONGetValue(iCached=0) still reads disk.
+    assert_eq!(n(&mut g, r#"JSONSetValueFloat "Data\Config\sup_utf8.json" "hp" 99 1"#), 1.0);
+    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "hp" 1)[0]"#), 99.0);
+    assert_eq!(n(&mut g, r#"ar_Size (JSONGetValue "Data\Config\sup_utf8.json" "hp" 0)"#), -1.0);
+    // JSONCacheFileFromString feeds JSONGetValue(iCached=1) through the same cache.
+    assert_eq!(n(&mut g, r#"JSONCacheFileFromString (JSONToString "Data\Config\sup_utf8.json") "mem.json""#), 0.0);
+    assert_eq!(n(&mut g, r#"(JSONGetValue "mem.json" "hp" 1)[0]"#), 99.0);
+    assert_eq!(n(&mut g, r#"JSONCloseFile "mem.json" 1"#), 0.0);
+    assert_eq!(n(&mut g, r#"JSONCloseFile "Data\Config\sup_utf8.json" 1"#), 0.0);
+    assert_eq!(n(&mut g, r#"JSONIsFileCached "Data\Config\sup_utf8.json""#), 0.0);
+
+    // ShowOff ReadFromJSON / WriteToJSON: UTF-8 BOM + non-ASCII + useCache gating + layer persistence.
+    assert_eq!(s(&mut g, r#"ReadFromJSON "Data\Config\sup_utf8.json" "/title" 0 1"#), "caf\u{e9}");
+    assert_eq!(n(&mut g, r#"ReadFromJSON "Data\Config\sup_utf8.json" "/nested/items/1" 0 1"#), 20.0);
+    // Cached write without saving stays in cache; uncached read still sees original disk file.
+    assert_eq!(n(&mut g, r#"WriteToJSON 55 "Data\Config\sup_utf8.json" "/nested/items/0" 0 1 0"#), 1.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "Data\Config\sup_utf8.json" "/nested/items/0" 0 1"#), 55.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "Data\Config\sup_utf8.json" "/nested/items/0" 0 0"#), 10.0);
+    // Uncached saved write persists to NVForever's GameRoot layer (never the game folder) and
+    // drops any stale ShowOff cache entry.
+    assert_eq!(n(&mut g, r#"WriteToJSON 77 "Data\Config\sup_utf8.json" "/nested/items/0" 0 0 1"#), 1.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "Data\Config\sup_utf8.json" "/nested/items/0" 0 0"#), 77.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "Data\Config\sup_utf8.json" "/nested/items/0" 0 1"#), 77.0);
+    assert!(layer.join("GameRoot").join("Data").join("Config").join("sup_utf8.json").exists());
+    assert_eq!(std::fs::read(game_dir.join("Data").join("Config").join("sup_utf8.json")).unwrap(), bom_json.as_bytes());
+    // Escaping path is refused even when saveFile is 0.
+    assert_eq!(n(&mut g, r#"WriteToJSON 1 "..\outside.json" "/a" 0 1 0"#), 0.0);
+}
+
+#[test]
 fn file_sizes_times_and_the_load_order() {
     let f = fixture();
     let mut g = game(&f);

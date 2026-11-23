@@ -143,7 +143,7 @@ const ENEMY_MIDDLE: f32 = ENEMY_BRACKET_AT.x + (ENEMY_MARKS.0 + ENEMY_MARKS.1) /
 /// picture to the end of the last one's, leaving out the empty room after the last letter
 /// that `Line::width` counts (and the room before the first) [design: #1826].
 fn centred_x(font: &Font, line: &fnv_font::Line, middle: f32) -> f32 {
-    let drawn = line.glyphs.iter().map(|p| (p, font.glyph(p.code))).filter(|(_, g)| g.drawn());
+    let drawn = line.glyphs.iter().map(|p| (p, font.bitmap_glyph(p))).filter(|(_, g)| g.drawn());
     let (left, right) = drawn.fold((f32::INFINITY, f32::NEG_INFINITY), |(l, r), (p, g)| (l.min(p.x + g.before), r.max(p.x + g.before + g.width)));
     if left > right {
         // Nothing drawn (stand-in font, spaces): its set width.
@@ -865,6 +865,7 @@ fn place_name(
     mut face_: Local<Option<Face>>,
     (mut shown, mut region): (Local<(Option<String>, Option<String>)>, Local<(Option<fnv_sim::FormId>, Option<String>)>),
     (text, mut rebuild): (Query<Entity, With<PlaceNameText>>, crate::interface::HudRebuild),
+    mut font_revision: Local<u32>,
 ) {
     let _hud = crate::interface::hud_units();
     // The HUD made again (`draw`): its new line is written from the next frame.
@@ -878,7 +879,8 @@ fn place_name(
         let (st, loc, player) = (markers.as_deref()?, location.as_deref().filter(|l| l.interior.is_none())?, player.as_deref()?);
         let heading = control.as_deref().map_or(player.heading, |c| c.view_heading(player.heading)).to_degrees();
         let range = crate::compass::place_range();
-        let list = st.named_markers_of(loc.world);
+        let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+        let list = st.named_markers_of(loc.world, game);
         let list = list.iter().filter(|m| sim.present(m.0)).map(|m| ([m.1[0], m.1[1]], m.2, m.3));
         place_ahead(list, [player.feet[0], player.feet[1]], heading, range, t.marker_name_angle, t.marker_name_hide_unfound, t.marker_name_units)
     })();
@@ -894,7 +896,9 @@ fn place_name(
         region.1.clone()
     })();
     let now = (region_words, words);
-    if *shown == now {
+    let revision = crate::cjk_font::revision();
+    let font_changed = std::mem::replace(&mut *font_revision, revision) != revision;
+    if *shown == now && !font_changed {
         return;
     }
     if now.0 != shown.0 {

@@ -161,12 +161,16 @@
    "text": "Stand-in for the trip and the photograph: the camera's shot lands on HeliosCamTarget01REF (OnHit; GetWeaponAnimType 4 and the camera equipped)."
   },
   {
+   "op": "note",
+   "text": "HeliosCamTarget01REF floats at z 7209 over no navmesh; HeliosCamTarget03REF (0x001206A6, lower, at the plaza) counts as the same HELIOS One photo [observed: round 13 triage]."
+  },
+  {
    "op": "move_player",
-   "to": "HeliosCamTarget01REF"
+   "to": "HeliosCamTarget03REF"
   },
   {
    "op": "hit",
-   "target": "HeliosCamTarget01REF",
+   "target": "HeliosCamTarget03REF",
    "weapon": "NVWeapMS22Camera",
    "label": "photo 50"
   },

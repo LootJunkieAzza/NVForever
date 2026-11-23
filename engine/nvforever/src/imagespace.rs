@@ -248,9 +248,65 @@ impl ScreenModifiers {
         self.hdr.map(|(_, g)| g)
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_hdr_for_test(&mut self, base: Hdr, graded: Hdr) {
+        self.hdr = Some((base, graded));
+    }
+
     fn record(&mut self, world: &WorldData, form: u32) -> Option<&ImageModifier> {
         self.records.entry(form).or_insert_with(|| image_modifier(world.lo, world.schema, form)).as_ref()
     }
+}
+
+/// Current assigned trait values for nonanimated records (image-modifiers.md).
+/// Keep the decoded record immutable: another session/lens must not inherit edits.
+fn live_modifier_effect(m: &ImageModifier, seconds: f32, game: Option<&fnv_game::Game<'_>>) -> ScreenEffect {
+    let mut effect = m.at(seconds);
+    let Some(game) = game.filter(|g| !m.animatable && !g.traits.values.is_empty()) else { return effect };
+    for trait_id in 1..=63 {
+        let Some(value) = game.traits.image_modifier_override(fnv_sim::FormId(m.form_id), trait_id) else { continue };
+        let value = value as f32;
+        if !value.is_finite() { continue; }
+        match trait_id {
+            1 => effect.radial.center[0] = value,
+            2 => effect.radial.center[1] = value,
+            3..=36 => {
+                let slot = ((trait_id - 3) / 2) as usize;
+                if (trait_id - 3) % 2 == 0 {
+                    effect.cinematic.hdr[slot].mult = value;
+                } else {
+                    effect.cinematic.hdr[slot].add = value;
+                }
+            }
+            37 => effect.cinematic.saturation.mult = value,
+            38 => effect.cinematic.saturation.add = value,
+            // Match the IMAD getter's IAD signatures and the record decoder's field order.
+            39 => effect.cinematic.contrast_avg_lum.mult = value,
+            40 => effect.cinematic.contrast_avg_lum.add = value,
+            41 => effect.cinematic.contrast.mult = value,
+            42 => effect.cinematic.contrast.add = value,
+            43 => effect.cinematic.brightness.mult = value,
+            44 => effect.cinematic.brightness.add = value,
+            45 => effect.blur_radius = value,
+            46 => effect.double_vision = value,
+            // Tint RGBA are all 0–255, alpha included (image-modifiers.md).
+            47..=50 => effect.tint[(trait_id - 47) as usize] = value / 255.0,
+            // Fade RGB are 0–255; alpha keeps the getter's normalized units (image-modifiers.md).
+            51..=53 => effect.fade[(trait_id - 51) as usize] = value / 255.0,
+            54 => effect.fade[3] = value,
+            55 => effect.radial.strength = value,
+            56 => effect.radial.ramp_up = value,
+            57 => effect.radial.start = value,
+            58 => effect.radial.ramp_down = value,
+            59 => effect.radial.down_start = value,
+            60 => effect.dof.strength = value,
+            61 => effect.dof.distance = value,
+            62 => effect.dof.range = value,
+            63 => effect.motion_blur = value,
+            _ => unreachable!(),
+        }
+    }
+    effect
 }
 
 /// `--imod <Editor ID or 0xFormID>[@seconds]`.
@@ -326,7 +382,7 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
         if m.finished(seconds) {
             continue;
         }
-        effects.push(m.at(seconds));
+        effects.push(live_modifier_effect(m, seconds, script.and_then(|s| s.rt.as_ref()).map(|rt| &rt.game)));
         forms.push(form);
     }
     // The strongest depth of field and motion blur are the ones shown (`combine`).
@@ -564,7 +620,7 @@ pub(crate) fn black_over(fade: [f32; 4], f: f32) -> [f32; 4] {
 
 /// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn update_grade(
+pub(crate) fn update_grade(
     time: Res<Time>,
     sky: Res<SkyState>,
     world: Option<Res<WorldData>>,
@@ -713,7 +769,8 @@ fn update_grade(
     // A 3D scope's lens: a neutral grade with only the lens's modifiers on it.
     let lens = match &world {
         Some(w) if !mods.lens_held.is_empty() => {
-            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| m.at(0.0))).collect();
+            let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| live_modifier_effect(m, 0.0, game))).collect();
             let e = combine(&effects);
             let c = graded(&fnv_world::imagespace::Cinematic::default(), &e);
             let r = &e.radial;
@@ -1090,3 +1147,7 @@ mod tests {
         assert!((a - 0.75).abs() < 1e-6 && (r - 1.0 / 3.0).abs() < 1e-6, "{r} {a}");
     }
 }
+
+#[cfg(test)]
+#[path = "imagespace_live_trait_tests.rs"]
+mod live_trait_tests;

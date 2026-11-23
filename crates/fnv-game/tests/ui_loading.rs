@@ -376,3 +376,198 @@ fn vfs_source_owns_strings_and_reads_files() {
     std::fs::remove_dir(dir.join("Menus")).unwrap();
     std::fs::remove_dir(dir).unwrap();
 }
+
+#[test]
+fn menu_search_bar_tiles_are_gated_by_b_menu_search_tweak() {
+    use fnv_game::{
+        game::{menus, RunCtx},
+        tweaks::Tweaks,
+        ui_search_bar,
+    };
+    use fnv_script::vm::XVal;
+
+    let f = fixture();
+    let src_with_container = || {
+        lifetime_files().with(
+            "menus/added/container.xml",
+            r#"<menu name="ContainerMenu"><class>&ContainerMenu;</class></menu>"#,
+        )
+    };
+
+    // Default / bMenuSearch=0: zero search-bar tiles injected on load or sync; vanilla tile counts stay unchanged.
+    let mut g_off = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    assert!(!ui_search_bar::menu_search_enabled(&g_off));
+    assert!(g_off.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", b"[Tweaks]\nbMenuSearch=0\n"));
+    assert!(!ui_search_bar::menu_search_enabled(&g_off));
+    let src = src_with_container();
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    let report_off = ui_loading::load(&mut g_off, Box::new(src), paths);
+    assert_eq!((report_off.menus, report_off.tiles), (6, 12));
+    for path in ["InventoryMenu\\IM_SearchBar", "StatsMenu\\SM_SearchBar", "MapMenu\\MM_SearchBar"] {
+        let loaded = g_off
+            .run_query(&format!("Begin Function {{ }}\nSetFunctionValue (IsComponentLoaded \"{path}\")\nEnd\n"), RunCtx::default())
+            .unwrap();
+        assert_eq!(loaded, XVal::Num(0.0), "{path} must not be injected when bMenuSearch=0");
+    }
+    g_off.menu = Some(menus::BARTER);
+    let barter_off = ui_loading::sync(&mut g_off, false, false);
+    assert_eq!(barter_off.changes, ["built BarterMenu (menus\\added\\trade.xml, 2 tiles)"]);
+    assert!(g_off.ui_tree.find_tile("Trade/BM_SearchBar").is_none());
+    g_off.menu = Some(1008);
+    ui_loading::sync(&mut g_off, false, false);
+    assert!(g_off.ui_tree.find_tile("ContainerMenu/CM_SearchBar").is_none());
+
+    // Unbound INI bMenuSearch=1 enables search-bar tile publication on both load and sync.
+    let mut g_ini = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    assert!(g_ini.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", b"[Tweaks]\nbMenuSearch=1\n"));
+    assert!(ui_search_bar::menu_search_enabled(&g_ini));
+    let src = src_with_container();
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    let report_ini = ui_loading::load(&mut g_ini, Box::new(src), paths);
+    assert_eq!((report_ini.menus, report_ini.tiles), (6, 15));
+    assert!(g_ini.ui_tree.find_tile("InventoryMenu/IM_SearchBar").is_some());
+    assert!(g_ini.ui_tree.find_tile("StatsMenu/SM_SearchBar").is_some());
+    assert!(g_ini.ui_tree.find_tile("MapMenu/MM_SearchBar").is_some());
+    g_ini.menu = Some(menus::BARTER);
+    let barter_on = ui_loading::sync(&mut g_ini, false, false);
+    assert_eq!(barter_on.changes, ["built BarterMenu (menus\\added\\trade.xml, 3 tiles)"]);
+    assert!(g_ini.ui_tree.find_tile("Trade/BM_SearchBar").is_some());
+
+    // Bound engine settings take authority over a stale INI file: menu_search=false suppresses injection,
+    // and menu_search=true enables it without needing an INI file.
+    let mut g_bound = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    assert!(g_bound.mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", b"[Tweaks]\nbMenuSearch=1\n"));
+    g_bound.bind_stewie_stat_settings(&Tweaks { menu_search: false, ..Default::default() });
+    assert!(!ui_search_bar::menu_search_enabled(&g_bound));
+    let src = src_with_container();
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    let report_bound_off = ui_loading::load(&mut g_bound, Box::new(src), paths);
+    assert_eq!((report_bound_off.menus, report_bound_off.tiles), (6, 12));
+    assert!(g_bound.ui_tree.find_tile("InventoryMenu/IM_SearchBar").is_none());
+
+    g_bound.bind_stewie_stat_settings(&Tweaks { menu_search: true, ..Default::default() });
+    assert!(ui_search_bar::menu_search_enabled(&g_bound));
+    let src = src_with_container();
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    let report_bound_on = ui_loading::load(&mut g_bound, Box::new(src), paths);
+    assert_eq!((report_bound_on.menus, report_bound_on.tiles), (6, 15));
+    assert!(g_bound.ui_tree.find_tile("InventoryMenu/IM_SearchBar").is_some());
+}
+
+#[test]
+fn menu_search_bar_tiles_publish_builtin_and_script_offset_copy() {
+    use fnv_game::{
+        game::{menus, RunCtx},
+        ui_search_bar,
+    };
+    use fnv_script::vm::XVal;
+
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    g.tweaks.menu_search = true;
+    let src = lifetime_files().with(
+        "menus/added/container.xml",
+        r#"<menu name="ContainerMenu"><class>&ContainerMenu;</class></menu>"#,
+    );
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+
+    // Keep Stewie plugin gate pinned at 941 while building #3183 search-bar tile publication.
+    let ver = g
+        .run_query("Begin Function { }\nSetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")\nEnd\n", RunCtx::default())
+        .unwrap();
+    assert_eq!(ver, XVal::Num(941.0));
+
+    // Persistent Pip-Boy search-bar tiles are published at load and script-addressable.
+    for path in ["InventoryMenu\\IM_SearchBar", "StatsMenu\\SM_SearchBar", "MapMenu\\MM_SearchBar"] {
+        let loaded = g
+            .run_query(&format!("Begin Function {{ }}\nSetFunctionValue (IsComponentLoaded \"{path}\")\nEnd\n"), RunCtx::default())
+            .unwrap();
+        assert_eq!(loaded, XVal::Num(1.0), "{path} should be loaded");
+    }
+
+    // Exercise the Pip-Boy UI Tweaks offset propagation pattern across IM/SM/MM_SearchBar.
+    g.run_query(
+        r#"Begin Function { }
+SetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetX" 24
+SetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetY" -8
+SetUIFloatAlt "StatsMenu\SM_SearchBar\_OffsetX" (GetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetX")
+SetUIFloatAlt "StatsMenu\SM_SearchBar\_OffsetY" (GetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetY")
+SetUIFloatAlt "MapMenu\MM_SearchBar\_OffsetX" (GetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetX")
+SetUIFloatAlt "MapMenu\MM_SearchBar\_OffsetY" (GetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetY")
+End"#,
+        RunCtx::default(),
+    )
+    .unwrap();
+    assert_eq!(ui_search_bar::read_offsets(&g.ui_tree, menus::INVENTORY), Some((24.0, -8.0)));
+    assert_eq!(ui_search_bar::read_offsets(&g.ui_tree, menus::STATS), Some((24.0, -8.0)));
+    assert_eq!(ui_search_bar::read_offsets(&g.ui_tree, menus::MAP), Some((24.0, -8.0)));
+
+    // Query text and visibility publish cleanly via write_query and read back via GetUIString/GetUIFloatAlt.
+    assert!(ui_search_bar::write_query(&mut g.ui_tree, menus::INVENTORY, true, "med-x"));
+    let text = g
+        .run_query("Begin Function { }\nstring_var s\nlet s := GetUIString \"InventoryMenu\\IM_SearchBar\\string\"\nSetFunctionValue s\nEnd\n", RunCtx::default())
+        .unwrap();
+    assert_eq!(text, XVal::Str("med-x".into()));
+
+    // Transient menus publish their search-bar tile on sync open and clean up on close.
+    g.menu = Some(1008);
+    ui_loading::sync(&mut g, false, false);
+    assert!(g.ui_tree.find_tile("ContainerMenu/CM_SearchBar").is_some());
+    assert!(ui_search_bar::write_query(&mut g.ui_tree, 1008, true, "scrap"));
+    assert_eq!(g.ui_tree.get_string("ContainerMenu/CM_SearchBar/string").as_deref(), Some("scrap"));
+    g.menu = None;
+    ui_loading::sync(&mut g, false, false);
+    assert!(g.ui_tree.find_tile("ContainerMenu/CM_SearchBar").is_none());
+}
+
+#[test]
+fn menu_search_bar_vfs_prefab_takes_precedence_and_preserves_siblings() {
+    use fnv_game::{
+        game::{menus, RunCtx},
+        ui_search_bar,
+    };
+
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    g.tweaks.menu_search = true;
+    let src = files().with(
+        "menus/prefabs/lStewieAl/MenuSearch/Inventory.xml",
+        r#"<text name="IM_SearchBar">
+            <_OffsetX><copy>12</copy><add>6</add></_OffsetX>
+            <_OffsetY>-4</_OffsetY>
+            <x>100</x>
+            <y>20</y>
+            <visible>0</visible>
+        </text>
+        <image name="SearchIcon">
+            <visible><copy src="sibling(IM_SearchBar)" trait="visible"/></visible>
+            <x><copy src="sibling(IM_SearchBar)" trait="x"/><sub src="me()" trait="width"/></x>
+            <width>16</width>
+        </image>"#,
+    );
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+
+    // Evaluated expression from the VFS prefab propagates through scripts to StatsMenu and MapMenu.
+    g.run_query(
+        r#"Begin Function { }
+SetUIFloatAlt "StatsMenu\SM_SearchBar\_OffsetX" (GetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetX")
+SetUIFloatAlt "StatsMenu\SM_SearchBar\_OffsetY" (GetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetY")
+SetUIFloatAlt "MapMenu\MM_SearchBar\_OffsetX" (GetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetX")
+SetUIFloatAlt "MapMenu\MM_SearchBar\_OffsetY" (GetUIFloatAlt "InventoryMenu\IM_SearchBar\_OffsetY")
+End"#,
+        RunCtx::default(),
+    )
+    .unwrap();
+    assert_eq!(ui_search_bar::read_offsets(&g.ui_tree, menus::INVENTORY), Some((18.0, -4.0)));
+    assert_eq!(ui_search_bar::read_offsets(&g.ui_tree, menus::STATS), Some((18.0, -4.0)));
+    assert_eq!(ui_search_bar::read_offsets(&g.ui_tree, menus::MAP), Some((18.0, -4.0)));
+
+    // Sibling icon tile from the VFS prefab reacts to write_query visibility updates.
+    assert_eq!(g.ui_tree.get_float("InventoryMenu/SearchIcon/visible"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("InventoryMenu/SearchIcon/x"), Some(84.0));
+    assert!(ui_search_bar::write_query(&mut g.ui_tree, menus::INVENTORY, true, "nuka"));
+    g.ui_tree.update();
+    assert_eq!(g.ui_tree.get_float("InventoryMenu/SearchIcon/visible"), Some(1.0));
+}

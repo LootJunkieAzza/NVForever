@@ -32,6 +32,7 @@
 
 pub mod outcome;
 pub mod pick;
+pub mod see_through;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -40,7 +41,6 @@ use crate::player::Player;
 use crate::sim::SimState;
 use crate::loading::TravelRequest;
 use crate::{space, OpenContainer, PlaySet, PlayState, PlayWorld, RefChanged, RefVisual, Travel};
-use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use fnv_phys::{layers, Filter, Owner};
 use fnv_sim::forms::{BaseData, ItemKind};
@@ -83,6 +83,9 @@ pub struct Targeted {
     /// A container to open, or a body to search, with nothing in it the menu would list:
     /// the prompt says "[Empty]" under the name ([`holds_nothing`]).
     pub empty: bool,
+    /// Picked through this reference's see-through collision (cell bars, a fence: #3233,
+    /// [`see_through`]): E only opens the conversation.
+    pub through: Option<u32>,
 }
 
 impl Targeted {
@@ -275,7 +278,8 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
 
 /// The collision ray under the crosshair (the player's capsule and trigger volumes
 /// ignored), or a door just behind what it hits (`pick::door_behind`), then the
-/// render-bounds fallback (`pick`). In first person it is the eye's
+/// render-bounds fallback (`pick`), then someone to talk to behind bars
+/// (`see_through`, #3233). In first person it is the eye's
 /// view ray; in third person the camera's, through the crosshair over the shoulder
 /// (`control::Crosshair`; playtest list 4, item 11).
 #[allow(clippy::too_many_arguments)]
@@ -284,13 +288,14 @@ pub(crate) fn find_target(
     phys: Option<ResMut<PhysState>>,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
-    visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
+    visuals: crate::PickVisuals,
     mut target: ResMut<Target>,
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
-    mut logged: Local<Option<(u32, Action, bool, bool)>>,
+    mut logged: Local<Option<(u32, Action, bool, bool, Option<u32>)>>,
     talk: Option<Res<crate::coop_talk::TalkGuard>>,
+    parts: Option<Res<crate::hitvol::ActorParts>>,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
@@ -301,6 +306,8 @@ pub(crate) fn find_target(
     // The node of what the far ray meets (GetReticleNode, `fnv_game::nvse_jip13`).
     let mut far_node = None;
     let mut behind = None;
+    // An actor behind bars or a fence the ray stops on (`see_through::actor_behind`).
+    let mut through = None;
     let hit = phys.and_then(|mut p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
         // Trigger volumes do not block the view [hypothesis].
@@ -317,11 +324,15 @@ pub(crate) fn find_target(
         });
         // Invisible walls do not take the crosshair: what stands behind one is activated
         // (#1602: the Gun Runners' kiosk, nv_gunrun_kiosk.nif, is one body on layer 27
-        // Invisible Wall, the Vendortron inside it) [hypothesis: by the layer's name, as
-        // sight (nvforever detection.rs) and blast cover (combat.rs) pass it too]. The far
+        // Invisible Wall, the Vendortron inside it) [documented: GECK wiki "Collision
+        // layer": "the player can activate / loot objects through this layer"]. The far
         // ray above (PlaceAtReticle) keeps stopping at them.
         filter.exclude_layers.insert(layers::INVISIBLE_WALL);
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
+        // A door, closed, hides what is behind it whatever its collision layer.
+        let s: &SimState = &sim;
+        let closed_door = |id: u32| s.base_of(id).and_then(|b| s.forms.get(b)).is_some_and(|f| matches!(f.data, BaseData::Door(_))) && s.world.peek(FormId(id)).is_none_or(|st| !st.open);
+        through = see_through::actor_behind(&mut p.world, eye, dir, REACH, &h, &filter, closed_door);
         let owner = |o: Owner| match o {
             // An actor's hit volume (combat C3) targets the actor.
             Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
@@ -350,8 +361,10 @@ pub(crate) fn find_target(
         if sc.distance(o) - sr > REACH {
             return None;
         }
-        Some((r.0, pick::ray_box(o, d, &t, c, h)?))
+        Some((r.0, pick::ray_box_span(o, d, &t, c, h)?))
     });
+    // An actor's box is rough (`pick::choose_precise_first`, #3125).
+    let bounds: Vec<(u32, f32, f32, bool)> = bounds.map(|(id, (d, out))| (id, d, out, sim.is_actor(id))).collect();
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
         if rt.game.other.jip13.reticle_node != far_node {
@@ -362,6 +375,30 @@ pub(crate) fn find_target(
         rt.game.set_crosshair_ref(now);
         rt.game.senses.crosshair_far = far_ref.map(FormId);
     }
+    // Beds an actor lies on among the candidates, and who (`pick::to_occupant`, #3231):
+    // the bed markers are IDs 1 to 9 (`fnv_game::functions::furniture`). Looked up only
+    // when furniture is under the crosshair.
+    let is_furniture = |id: u32| sim.base_of(id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Furniture));
+    let furniture_seen = hit.and_then(|h| h.form_id).into_iter().chain(bounds.iter().map(|b| b.0)).any(is_furniture);
+    // Beds among the boxes (FURN marker flags with Sleep, bit 31, furniture.md §1) may
+    // yield to what lies in them (`pick::set_aside_enclosing`, #3323).
+    let beds: std::collections::HashSet<u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
+        Some(rt) if furniture_seen => {
+            let bed = |id: u32| sim.base_of(id).and_then(|b| rt.game.data.furniture.get(&b)).is_some_and(|f| f & fnv_game::package::furniture::SLEEP != 0);
+            bounds.iter().map(|b| b.0).filter(|&id| bed(id)).collect()
+        }
+        _ => Default::default(),
+    };
+    let sleepers: HashMap<u32, u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
+        Some(rt) if furniture_seen => rt
+            .game
+            .extra
+            .iter()
+            .filter(|(a, _)| **a != FormId::PLAYER_REF)
+            .filter_map(|(a, e)| e.furniture.filter(|u| (1..=9).contains(&u.marker_id)).map(|u| (u.reference.0, a.0)))
+            .collect(),
+        _ => HashMap::new(),
+    };
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
     // A dead actor is searched rather than talked to (combat C5); a living one is talked
     // to only when it may be ([`actor_action`]). Actors are named by their template's
@@ -391,7 +428,9 @@ pub(crate) fn find_target(
                         (water_label(&n, h2o), Action::Drink)
                     }
                     Action::Talk => {
-                        let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
+                        // An actor's shown name, never its base's Editor ID (#3445): one with no
+                        // name in its template chain is prompted for without one.
+                        let name = sim.ref_shown_name(rt.as_deref().map(|rt| &rt.game), id).unwrap_or_default().to_string();
                         // The player's tweak marks someone not yet spoken to [design: docs/design/tweaks.md].
                         let unspoken = rt.as_deref().is_some_and(|rt| rt.game.tweaks.mark_unspoken && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
                         let name = if unspoken { format!("{name} *") } else { name };
@@ -423,14 +462,41 @@ pub(crate) fn find_target(
             })
             .clone()
     };
+    // A bed's box does not hide the suitcase lying in it (`pick::set_aside_enclosing`,
+    // #3323), cut off at the raw first hit, not a door promoted from behind it.
+    let kept = pick::set_aside_enclosing(hit, &bounds, REACH, |id| beds.contains(&id), |id| describe_once(id).is_some());
+    // `NVF_PLAY_TEST_PICK_LOG`: what the pick was made from, logged with each new target.
+    let note = pick_log().then(|| {
+        let aside: Vec<String> = bounds.iter().filter(|b| !kept.iter().any(|k| k.0 == b.0)).map(|b| format!("0x{:08X}", b.0)).collect();
+        let boxes: Vec<String> = bounds.iter().map(|b| format!("0x{:08X} {:.1}-{:.1}{}{}", b.0, b.1, b.2, if b.3 { " rough" } else { "" }, if beds.contains(&b.0) { " bed" } else { "" })).collect();
+        format!("pick: raw hit {:?}; boxes [{}]; set aside [{}]", hit.map(|h| (h.form_id.map(|id| format!("0x{id:08X}")), h.distance)), boxes.join(", "), aside.join(", "))
+    });
     let hit = pick::door_behind(hit, behind, |id| describe_once(id).is_some());
-    let picked = pick::choose(hit, bounds, REACH, |id| describe_once(id).is_some());
+    let picked = pick::choose_precise_first(hit, kept, REACH, |id| describe_once(id).is_some());
+    // How far the sleeper's body is from the eye: its posed bones (`crate::hitvol::ActorParts`,
+    // which follow the lying body), else its render boxes (rough: the bind pose).
+    let body_distance = |actor: u32| {
+        let posed = parts.as_deref().and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty());
+        if let Some(posed) = posed {
+            let e = Vec3::from_array(eye);
+            return posed.segments.iter().map(|s| pick::segment_distance(e, Vec3::from_array(s.a), Vec3::from_array(s.b))).reduce(f32::min);
+        }
+        visuals
+            .iter()
+            .filter(|(r, _, _, v)| r.0 == actor && v.get())
+            .filter_map(|(_, aabb, gt, _)| pick::box_distance(o, &gt.affine(), Vec3::from(aabb.center), Vec3::from(aabb.half_extents)))
+            .reduce(f32::min)
+    };
+    let picked = pick::to_occupant(picked, |id| sleepers.get(&id).and_then(|&a| Some((a, body_distance(a)?))), REACH, |id| describe_once(id).is_some());
+    // Nothing offered and the ray stopped on bars: talk to whoever stands behind them
+    // (#3233). Only Talk passes; GetCrosshairRef (above) stays the first collision hit.
+    let (picked, through) = see_through::talk_through(picked, through, REACH, |id| matches!(describe_once(id), Some((_, Action::Talk))));
     let chosen = picked.and_then(|p| describe_once(p.form_id).map(|d| (p, d)));
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let new = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
         let crime = owned_by_other(game, &sim, form_id, &action);
         let empty = holds_nothing(game, &mut sim, form_id, &action);
-        Targeted { form_id, name, action, distance, source, crime, empty }
+        Targeted { form_id, name, action, distance, source, crime, empty, through }
     });
     // GetCrosshairRef reads what the prompt targets when there is one: a body the ray
     // passes (a ragdoll found by its drawn bounds, `pick::choose`) is the reference under
@@ -438,25 +504,30 @@ pub(crate) fn find_target(
     // same reference; observed: JAM's loot menu, which reads GetCrosshairRef each frame,
     // stayed off over a jackal's body the prompt offered to search, owner's playtest
     // 2026-11-05].
-    if let (Some(t), Some(rt)) = (new.as_ref(), script.as_deref_mut().and_then(|s| s.rt.as_mut())) {
+    // Not a talker behind bars (`see_through`, #3233): that stays the first collision hit.
+    if let (Some(t), Some(rt)) = (new.as_ref().filter(|t| t.through.is_none()), script.as_deref_mut().and_then(|s| s.rt.as_mut())) {
         rt.game.senses.crosshair_ref = Some(FormId(t.form_id));
     }
-    // Logged when what this pick finds changes (the reference, its action, owned, empty),
-    // not whenever the target differs: co-op's social targeting takes back a stand-in
+    // Logged when what this pick finds changes (the reference, its action, owned, empty,
+    // seen through), not whenever the target differs: co-op's social targeting takes back a stand-in
     // this pick finds again every frame, which logged it every frame (queue item 95:
     // 7,786 lines in 2 minutes).
-    let key = new.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
+    let key = new.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty, t.through));
     if *logged != key {
         *logged = key;
+        if let Some(note) = note {
+            info!("{note}");
+        }
         match &new {
             Some(t) => info!(
-                "target 0x{:08X} {} ({}{}{}) by {:?} at {:.0}",
+                "target 0x{:08X} {} ({}{}{}) by {:?}{} at {:.0}",
                 t.form_id,
                 t.name,
                 t.action.label(),
                 if t.crime { ", owned" } else { "" },
                 if t.empty { ", empty" } else { "" },
                 t.source,
+                t.through.map_or_else(String::new, |b| format!(" through 0x{b:08X}")),
                 t.distance
             ),
             None => info!("target none"),
@@ -469,6 +540,14 @@ pub(crate) fn find_target(
 
 /// How far past a surface the ray behind it starts, game units.
 const NUDGE: f32 = 0.5;
+
+/// Whether `NVF_PLAY_TEST_PICK_LOG` is on: each new target logs the raw first collision
+/// hit, every render box the view ray enters (reference, entry and exit, rough, bed) and
+/// the boxes set aside (`pick::set_aside_enclosing`, #3323).
+fn pick_log() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_PICK_LOG").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "off" | "false")))
+}
 
 /// Seconds a creature's "has something to say" answer is kept before it is asked again.
 const TALKER_SECONDS: f64 = 2.0;
@@ -487,7 +566,8 @@ const REVIVE_NEEDS_STIMPAK: &str = "You need a Stimpak to revive them.";
 /// prompt and says nothing, as before]. Without the scripts: Talk.
 fn actor_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let Some(rt) = rt else { return Action::Talk };
-    let creature = sim.refs.get(FormId(id)).is_some_and(|p| &p.sig == b"ACRE");
+    // By the base for a reference made at run time, which has no placement (#3124).
+    let creature = sim.is_creature(id);
     crate::script::with_world(rt, sim, |rt| actor_action_in(&mut rt.game, creature, id, talkers))
 }
 
@@ -814,7 +894,7 @@ pub(crate) fn activate(
     let queued = next.and_then(|mut n| n.0.take()).map(|id| (id, "its lock was just opened")).or(again).and_then(|(id, why)| {
         let (name, action) = describe(&sim, play.index, id)?;
         info!("activate 0x{id:08X} {name}: {why}");
-        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false, empty: false })
+        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false, empty: false, through: None })
     });
     // A press held off because the target can be held (`crate::grab`): activated now
     // that E came up before the hold picked it up.
@@ -1035,7 +1115,22 @@ pub(crate) fn activate(
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
     // The player's Quick Use tweak: Shift held as an item is taken [design: docs/design/tweaks.md].
     let quick = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.quick_use) && input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
+    // Picked through bars or a fence (#3233, [`see_through`]): E only opens the
+    // conversation; no OnActivate block, perks' choices, companion wheel or waking.
+    if let Some(bars) = t.through {
+        match crate::script::talk_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
+            Ok(crate::script::ByHand::Talk) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): a conversation started", t.form_id, t.name),
+            Ok(crate::script::ByHand::Greeted) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): it said its greeting, no conversation", t.form_id, t.name),
+            Ok(_) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): no conversation", t.form_id, t.name),
+            Err(e) => {
+                info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): no conversation: {e}", t.form_id, t.name);
+                hud.show(format!("{} has nothing to say", t.name));
+            }
+        }
+        return;
+    }
+    let mut script = script.map(|s| s.into_inner());
+    let a = match crate::script::activate_by_hand(script.as_deref_mut(), &mut sim, t.form_id) {
         Ok(crate::script::ByHand::Default(a)) => {
             sounds.write(crate::world_sounds::Activated { reference: t.form_id });
             if t.action == Action::Drink {
@@ -1086,13 +1181,21 @@ pub(crate) fn activate(
     if let (true, Outcome::PickedUp { item, .. }) = (quick, &a.outcome) {
         let armour = sim.forms.item(*item).is_some_and(|i| i.kind == ItemKind::Armor && i.armor_dt.is_some_and(|dt| dt > 0.0));
         if !armour {
-            let r = crate::hotkeys::use_slot(&mut sim.world, Some(crate::hotkeys::Slot { item: item.0, mods: 0 }));
-            if let crate::hotkeys::Used::UsedUp(u) = r {
-                if let Some(m) = used.as_mut() {
-                    m.write(crate::ItemUsed { item: u.0, limb: None });
+            let allowed = match script.and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.has_pre_activate_inventory_handlers()) {
+                Some(rt) => crate::script::with_world(rt, &mut sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, *item, 0, true)),
+                None => true,
+            };
+            if allowed {
+                let r = crate::hotkeys::use_slot(&mut sim.world, Some(crate::hotkeys::Slot { item: item.0, mods: 0 }));
+                if let crate::hotkeys::Used::UsedUp(u) = r {
+                    if let Some(m) = used.as_mut() {
+                        m.write(crate::ItemUsed { item: u.0, limb: None });
+                    }
                 }
+                info!("activate 0x{:08X} {}: quick use: {} (tweak)", t.form_id, t.name, r.describe(&t.name));
+            } else {
+                info!("activate 0x{:08X} {}: quick use prevented by script", t.form_id, t.name);
             }
-            info!("activate 0x{:08X} {}: quick use: {} (tweak)", t.form_id, t.name, r.describe(&t.name));
         }
     }
     // Opened with the player's key: the lock's opening sound, as a picked lock's

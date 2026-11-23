@@ -31,7 +31,16 @@ pub type ComposedDeps = Vec<(String, Option<u64>)>;
 /// The file's first bytes, with what made its contents: a different composer may compose
 /// the same sources differently, so a file from another one is not used.
 const MAGIC: &[u8] = b"NVF composed shaders 1\n";
-const PRODUCER: &str = concat!("bevy_shader ", env!("CARGO_PKG_VERSION"), " wesl 0.6.0\n");
+/// The wesl version this crate composes with, as `Cargo.lock` has it (nvforever's
+/// `pipeline_disk_cache` tests compare the two, so a wesl update cannot keep old files).
+macro_rules! wesl_version {
+    () => {
+        "0.6.0"
+    };
+}
+/// The wesl version in [`PRODUCER`], for the check in nvforever.
+pub const WESL_VERSION: &str = wesl_version!();
+const PRODUCER: &str = concat!("bevy_shader ", env!("CARGO_PKG_VERSION"), " wesl ", wesl_version!(), "\n");
 /// Entries not used for this many runs are dropped at the next save.
 pub const UNUSED_RUNS: u64 = 30;
 /// The most bytes of WGSL kept; the entries used least recently go first.

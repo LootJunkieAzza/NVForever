@@ -72,6 +72,10 @@ impl Game<'_> {
         }
         let ammo = if crate::functions::items::equipped_weapon(self, source) == Some(weapon) { self.ammo_in_use(source) } else { None };
         self.gaps.projs.shots.insert(r, Shot { source, weapon, damage, speed_mult: 1.0, age: 0.0, travelled: 0.0, left: None, impact: None, ammo });
+        // NPC shots and scripted FireWeapon shots enter `fnv-game` here rather than
+        // through `Game::weapon_fired`; same-frame deduplication prevents double-firing
+        // after `weapon_fired` or across a shotgun's pellets.
+        self.fire_weapon_jip_event(source, weapon, true);
         Some(r)
     }
 

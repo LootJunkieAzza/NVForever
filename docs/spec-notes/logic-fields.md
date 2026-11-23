@@ -39,10 +39,7 @@ the ammo`.
 - **INFO Low / High Intelligence** (28 and 20 lines): applied since 2026-10-25 (dialogue.md §2: a dim player, Intelligence at or below `iDialogueDummySpeakThisIntOrBelow`). Was: only listed as INFO flags
   [documented: GECK wiki GetDialogueInfoFlags]; the threshold is not documented, and New
   Vegas gates intelligence lines with conditions.
-- **INFO speech challenge** (3 lines in the masters): the roll is not documented, but its
-  settings are in FalloutNV.esm: `fSpeechChallenge*`, `iSpeechChallengeDifficulty*`
-  (Average 55), `fSpeechAutoSuccessThreshold` (0.9) [observed: `fnvtool esm decode`]. The
-  lines always pass.
+- **INFO speech challenge** (3 lines in the masters, plus Fallout 3 / TTW): rolled since #3406 (dialogue.md §3.3) using the GECK wiki's Fallout 3 Speech Formula and the `FalloutNV.esm` settings `fSpeechChallenge*`, `iSpeechChallengeDifficulty*` (Very Easy 10, Easy 40, Average 55, Hard 70, Very Hard 80), `fSpeechAutoSuccessThreshold` (0.9) [observed: `fnvtool esm decode`], routing failures to `SpeechChallengeFailure`. (Was: unrolled, lines always passed.)
 - **INFO TPIC and DIAL INOM/INOA order**: file order matches the masters (it matters
   for mods only). INFO PNAM is used for lines a later plugin adds (dialogue.md §3.1).
 - **QUST CNAM log entries**: there is no journal page that shows them.

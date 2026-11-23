@@ -285,7 +285,27 @@ pub(crate) fn disable_ref(g: &mut Game, r: FormId) {
 
 pub fn get_destruction_stage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(Value::Num(destruction_stage(g, r) as f64))
+    Ok(Value::Num(script_destruction_stage(g, r) as f64))
+}
+
+/// What GetDestructionStage gives: the stage reached counted from 1 (DSTD index + 1), 0
+/// when damaged above every stage, −1 without destruction data or damage [documented −1:
+/// GECK wiki GetDestructionStage, "the current Damage Stage"; hypothesis for the counting,
+/// #3053: the masters' scripts compare it with values only a count from 1 reaches, Zeta's
+/// generator core (eight stages, index 0-7) disabling itself at 7, its Destroy stage, and
+/// testing 8; Point Lookout's Brain (seven stages) bursting at 7; DLC04DarMuckBubble (two
+/// stages) testing `>= 2`. The stage's own DSTD damage-stage field fits every case found too;
+/// observer check 247 tells them apart]. The rules' own stage numbers stay indices
+/// ([`destruction_stage`]), as OnDestructionStageChange's parameter is index + 1 already.
+pub fn script_destruction_stage(g: &Game, r: FormId) -> i32 {
+    let Some(def) = base_of(g, r).and_then(|b| g.destruction(b)) else { return -1 };
+    let Some(d) = g.extra.get(&r).and_then(|e| e.damage) else { return -1 };
+    let reached = if def.health <= 0 {
+        def.stages.iter().map(|s| i32::from(s.index)).max()
+    } else {
+        def.stages.iter().filter(|s| crate::combat::destruction_threshold_reached(d, def.health as f64, s.health_percent)).map(|s| i32::from(s.index)).max()
+    };
+    reached.map_or(0, |i| i + 1)
 }
 
 /// Health, stages and the destroyed state back to their defaults [documented: catalogue

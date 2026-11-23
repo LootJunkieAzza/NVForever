@@ -168,3 +168,42 @@ fn a_failing_condition_changes_nothing_and_is_not_listed() {
     assert_eq!(figure(g, PERCEPTION), (7.0, 5.0));
     assert_eq!(worn_changes(g), vec![(GLASSES, vec![(PERCEPTION, 2.0)])]);
 }
+
+/// #3119: an item's effect text is its values, then the names of effects shown by name;
+/// either alone stands by itself, and an empty name is left out.
+#[test]
+fn effect_text_puts_the_names_after_the_values() {
+    assert_eq!(with_names("STR +2".into(), ["Damage +25%".to_string()]), "STR +2, Damage +25%");
+    assert_eq!(with_names(String::new(), ["Damage +25%".to_string()]), "Damage +25%");
+    assert_eq!(with_names("HP +40".into(), Vec::<String>::new()), "HP +40");
+    assert_eq!(with_names(String::new(), ["".to_string(), "Low-Light Vision".to_string()]), "Low-Light Vision");
+    assert_eq!(with_names(String::new(), Vec::<String>::new()), "");
+}
+
+/// #3118: the Perks list shows a perk the player has unless it is Hidden; Playable (the
+/// level-up menu's) does not matter. Lord Death's DATA is 00 00 03 00 00 (3 ranks, not
+/// Playable, not Hidden) [observed: `fnvtool esm decode`]; Psycho's effect perk is Hidden;
+/// a 4-byte DATA (Ant Sight) has no Hidden byte.
+#[test]
+fn a_perk_is_listed_unless_hidden_playable_or_not() {
+    let lord_death = PerkData::of(&[0, 0, 3, 0, 0]);
+    assert!(lord_death.listed(), "not Playable, not Hidden: listed");
+    assert_eq!(lord_death.ranks, 3);
+    assert!(PerkData::of(&[0, 2, 10, 1, 0]).listed(), "Playable, not Hidden: listed as before");
+    assert!(!PerkData::of(&[0, 0, 1, 0, 1]).listed(), "Hidden: left out");
+    assert!(!PerkData::of(&[0, 0, 1, 1, 1]).listed(), "Playable and Hidden: left out");
+    assert!(PerkData::of(&[0, 0, 1, 0]).listed(), "4-byte DATA, not Playable: listed");
+    assert_eq!(PerkData::of(&[]).ranks, 1, "no DATA: one rank");
+}
+
+/// #3400: an actor value's short name (AVIF ANAM) is read in the load order's code page,
+/// as FULL is: on a Russian install Windows-1251's "Крас." (Charisma's abbreviation, say),
+/// not the Latin-1 letters "Êðàñ." the font has no glyphs for.
+#[test]
+fn a_short_name_is_read_in_the_code_page() {
+    use fnv_util::text::CodePage;
+    let anam = [0xCA, 0xF0, 0xE0, 0xF1, b'.', 0];
+    assert_eq!(zstring(&anam, CodePage::Windows1251), "Крас.");
+    assert_eq!(zstring(b"CHR\0junk", CodePage::Windows1252), "CHR", "stops at the first NUL");
+    assert_ne!(zstring(&anam, CodePage::Windows1252), "Крас.");
+}

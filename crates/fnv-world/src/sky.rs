@@ -550,27 +550,58 @@ pub fn keys_at(c: &Climate, hour: f32, six: bool) -> [(TimeOfDay, f32); 2] {
 impl Weather {
     /// A colour type at `hour`, linear RGB in 0..1 (bytes treated as sRGB).
     pub fn color(&self, c: &Climate, ty: ColorType, hour: f32) -> [f32; 3] {
-        blend(self.colors.get(ty as usize), c, hour)
+        self.color_with(c, ty, hour, None)
+    }
+
+    /// [`Self::color`] with optional JIP `SetWeatherRGBColor` session overrides
+    /// (`colors[type][time]`) applied in place without allocating.
+    pub fn color_with(
+        &self,
+        c: &Climate,
+        ty: ColorType,
+        hour: f32,
+        overrides: Option<&[[Option<[u8; 3]>; 6]; COLOR_TYPES]>,
+    ) -> [f32; 3] {
+        let slot_ov = overrides.map(|o| &o[ty as usize]);
+        blend_with(self.colors.get(ty as usize), slot_ov, c, hour)
     }
 
     /// A colour type at `hour` as stored, 0..255 per channel, the times of day blended on
     /// the bytes themselves (no sRGB decoding), as the original's light level at an actor
     /// follows them (docs/design/detection.md §3) [observed: o27_light, 2026-11-06].
     pub fn color_bytes(&self, c: &Climate, ty: ColorType, hour: f32) -> [f32; 3] {
-        let Some(set) = self.colors.get(ty as usize) else { return [0.0; 3] };
-        let mut out = [0.0; 3];
-        for (k, w) in keys_at(c, hour, set.len() >= 6) {
-            let col = set.get(k as usize).copied().unwrap_or([0; 3]);
-            for i in 0..3 {
-                out[i] += w * col[i] as f32;
-            }
-        }
-        out
+        self.color_bytes_with(c, ty, hour, None)
+    }
+
+    /// [`Self::color_bytes`] with optional JIP `SetWeatherRGBColor` session overrides
+    /// (`colors[type][time]`) applied in place without allocating.
+    pub fn color_bytes_with(
+        &self,
+        c: &Climate,
+        ty: ColorType,
+        hour: f32,
+        overrides: Option<&[[Option<[u8; 3]>; 6]; COLOR_TYPES]>,
+    ) -> [f32; 3] {
+        let slot_ov = overrides.map(|o| &o[ty as usize]);
+        blend_bytes_with(self.colors.get(ty as usize), slot_ov, c, hour)
     }
 
     /// Cloud layer `layer`'s colour at `hour`, linear RGB (same time model as [`Self::color`]).
     pub fn cloud_color(&self, c: &Climate, layer: usize, hour: f32) -> [f32; 3] {
-        blend(self.cloud_colors.get(layer), c, hour)
+        self.cloud_color_with(c, layer, hour, None)
+    }
+
+    /// [`Self::cloud_color`] with optional JIP `SetWeatherRGBColor` type-2 (`PNAM`)
+    /// session overrides (`cloud_colors[layer][time]`) applied in place without allocating.
+    pub fn cloud_color_with(
+        &self,
+        c: &Climate,
+        layer: usize,
+        hour: f32,
+        overrides: Option<&[[Option<[u8; 3]>; 6]; 4]>,
+    ) -> [f32; 3] {
+        let slot_ov = overrides.and_then(|o| o.get(layer));
+        blend_with(self.cloud_colors.get(layer), slot_ov, c, hour)
     }
 
     /// Fog near and far at `hour`, blending day and night values with [`day_factor`];
@@ -581,8 +612,16 @@ impl Weather {
     /// all-zero weathers have black fog colours, which taken literally would draw their
     /// worlds solid black. docs/spec-notes/world.md §6].
     pub fn fog_at(&self, c: &Climate, hour: f32) -> Option<(f32, f32)> {
+        self.fog_at_with(c, hour, None)
+    }
+
+    /// [`Self::fog_at`] with optional JIP `SetWeatherTraitNumeric` fog overrides
+    /// (`15..=20`: day near/far, night near/far, day/night power) applied in place
+    /// without allocating. Non-finite override values are ignored.
+    pub fn fog_at_with(&self, c: &Climate, hour: f32, overrides: Option<[Option<f32>; 6]>) -> Option<(f32, f32)> {
+        let fog = self.merged_fog(overrides);
         let range = |near: f32, far: f32| (far > near).then_some((near, far));
-        let (day, night) = match (range(self.fog[0], self.fog[1]), range(self.fog[2], self.fog[3])) {
+        let (day, night) = match (range(fog[0], fog[1]), range(fog[2], fog[3])) {
             (Some(day), Some(night)) => (day, night),
             (Some(r), None) | (None, Some(r)) => (r, r),
             (None, None) => return None,
@@ -597,15 +636,34 @@ impl Weather {
     /// near))^power [hypothesis, fitted to Dead Money's frames: docs/spec-notes/world.md
     /// §6 "Fog power"]. Stored powers: 0.2 to 1.0 in the masters' 98 weathers [observed].
     pub fn fog_power_at(&self, c: &Climate, hour: f32) -> f32 {
+        self.fog_power_at_with(c, hour, None)
+    }
+
+    /// [`Self::fog_power_at`] with optional JIP `SetWeatherTraitNumeric` fog overrides
+    /// (`15..=20`) applied in place without allocating. Non-finite values are ignored.
+    pub fn fog_power_at_with(&self, c: &Climate, hour: f32, overrides: Option<[Option<f32>; 6]>) -> f32 {
+        let fog = self.merged_fog(overrides);
         let set = |near: f32, far: f32| far > near;
         let p = |v: f32| if v > 0.0 { v } else { 1.0 };
-        let (day, night) = (p(self.fog[4]), p(self.fog[5]));
-        let (day, night) = match (set(self.fog[0], self.fog[1]), set(self.fog[2], self.fog[3])) {
+        let (day, night) = (p(fog[4]), p(fog[5]));
+        let (day, night) = match (set(fog[0], fog[1]), set(fog[2], fog[3])) {
             (true, false) => (day, day),
             (false, true) => (night, night),
             _ => (day, night),
         };
         night + (day - night) * day_factor(c, hour)
+    }
+
+    fn merged_fog(&self, overrides: Option<[Option<f32>; 6]>) -> [f32; 6] {
+        let mut fog = self.fog;
+        if let Some(ov) = overrides {
+            for (dst, val) in fog.iter_mut().zip(ov) {
+                if let Some(v) = val.filter(|v| v.is_finite()) {
+                    *dst = v;
+                }
+            }
+        }
+        fog
     }
 }
 
@@ -619,15 +677,32 @@ impl Weather {
 /// `WastelandClear` is one and goes black at noon in the original [observed], the others
 /// would too [hypothesis: only that one was looked at]. The Mojave's climate
 /// (`NVWastelandClear`, `NVWastelandClearNight`) has high-noon colours of its own.
-fn blend(set: Option<&Vec<[u8; 3]>>, c: &Climate, hour: f32) -> [f32; 3] {
-    let Some(set) = set else { return [0.0; 3] };
-    let mut bytes = [0.0f32; 3];
-    for (k, w) in keys_at(c, hour, set.len() >= 6) {
-        let col = set.get(k as usize).copied().unwrap_or([0; 3]);
+fn blend_bytes_with(set: Option<&Vec<[u8; 3]>>, overrides: Option<&[Option<[u8; 3]>; 6]>, c: &Climate, hour: f32) -> [f32; 3] {
+    let any_ov = overrides.is_some_and(|ov| ov.iter().any(Option::is_some));
+    if set.is_none() && !any_ov {
+        return [0.0; 3];
+    }
+    let six = set.is_some_and(|s| s.len() >= 6) || overrides.is_some_and(|ov| ov[4].is_some());
+    let mut out = [0.0f32; 3];
+    for (k, w) in keys_at(c, hour, six) {
+        let idx = k as usize;
+        let col = overrides
+            .and_then(|ov| ov.get(idx).copied().flatten())
+            .or_else(|| set.and_then(|s| s.get(idx).copied()))
+            .unwrap_or([0; 3]);
         for i in 0..3 {
-            bytes[i] += w * col[i] as f32;
+            out[i] += w * col[i] as f32;
         }
     }
+    out
+}
+
+fn blend_with(set: Option<&Vec<[u8; 3]>>, overrides: Option<&[Option<[u8; 3]>; 6]>, c: &Climate, hour: f32) -> [f32; 3] {
+    let any_ov = overrides.is_some_and(|ov| ov.iter().any(Option::is_some));
+    if set.is_none() && !any_ov {
+        return [0.0; 3];
+    }
+    let bytes = blend_bytes_with(set, overrides, c, hour);
     bytes.map(|v| {
         let s = (v / 255.0).clamp(0.0, 1.0);
         if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
@@ -1048,5 +1123,59 @@ mod tests {
         assert_eq!(region_at(&rs, 7, 50.0, 5.0).map(|r| r.form_id), None);
         assert_eq!(region_at(&rs, 8, 5.0, 5.0).map(|r| r.form_id), None);
         assert_eq!(region_at(&rs[..2], 7, 5.0, 5.0).map(|r| r.form_id), Some(2));
+    }
+
+    #[test]
+    fn fog_at_with_applies_session_overrides_and_ignores_non_finite() {
+        let c = Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() };
+        let w = Weather { fog: [1000.0, 100_000.0, 500.0, 50_000.0, 1.0, 1.0], ..Default::default() };
+        assert_eq!(w.fog_at(&c, 12.0), Some((1000.0, 100_000.0)));
+        assert_eq!(w.fog_at(&c, 0.0), Some((500.0, 50_000.0)));
+        let ov = [Some(250.0), Some(12_000.0), Some(100.0), Some(8_000.0), Some(0.6), Some(0.4)];
+        assert_eq!(w.fog_at_with(&c, 12.0, Some(ov)), Some((250.0, 12_000.0)));
+        assert_eq!(w.fog_at_with(&c, 0.0, Some(ov)), Some((100.0, 8_000.0)));
+        assert!((w.fog_power_at_with(&c, 12.0, Some(ov)) - 0.6).abs() < 1e-6);
+        assert!((w.fog_power_at_with(&c, 0.0, Some(ov)) - 0.4).abs() < 1e-6);
+        // Partial override leaves untouched slots at authored values; non-finite is ignored.
+        let partial = [Some(f32::NAN), Some(20_000.0), None, Some(f32::INFINITY), None, None];
+        assert_eq!(w.fog_at_with(&c, 12.0, Some(partial)), Some((1000.0, 20_000.0)));
+        assert_eq!(w.fog_at_with(&c, 0.0, Some(partial)), Some((500.0, 50_000.0)));
+    }
+
+    #[test]
+    fn weather_color_with_overlays_nam0_and_pnam_without_mutating_authored() {
+        let c = Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() };
+        let mut w = Weather {
+            colors: vec![vec![[10, 20, 30]; 4]; COLOR_TYPES],
+            cloud_colors: vec![vec![[40, 50, 60]; 4]; 4],
+            ..Default::default()
+        };
+        assert_eq!(w.color_with(&c, ColorType::Fog, 12.0, None), w.color(&c, ColorType::Fog, 12.0));
+        assert_eq!(w.color_bytes_with(&c, ColorType::Ambient, 12.0, None), [10.0, 20.0, 30.0]);
+        assert_eq!(w.cloud_color_with(&c, 0, 12.0, None), w.cloud_color(&c, 0, 12.0));
+
+        // Override Day Fog and HighNoon Ambient (activating 6-time HighNoon on a 4-time base).
+        let mut ov = [[None; 6]; COLOR_TYPES];
+        ov[ColorType::Fog as usize][TimeOfDay::Day as usize] = Some([200, 100, 50]);
+        ov[ColorType::Ambient as usize][TimeOfDay::HighNoon as usize] = Some([120, 140, 160]);
+        assert_eq!(w.color_bytes_with(&c, ColorType::Fog, 12.0, Some(&ov)), [200.0, 100.0, 50.0]);
+        assert_eq!(w.color_bytes_with(&c, ColorType::Ambient, 12.0, Some(&ov)), [120.0, 140.0, 160.0]);
+        // Untouched types and authored fields remain intact.
+        assert_eq!(w.color_bytes_with(&c, ColorType::Sunlight, 12.0, Some(&ov)), [10.0, 20.0, 30.0]);
+        assert_eq!(w.color_bytes(&c, ColorType::Fog, 12.0), [10.0, 20.0, 30.0]);
+
+        // PNAM lower cloud layer override stays scoped to the overridden layer.
+        let mut cloud_ov = [[None; 6]; 4];
+        cloud_ov[1][TimeOfDay::Day as usize] = Some([255, 128, 0]);
+        let lin = w.cloud_color_with(&c, 1, 12.0, Some(&cloud_ov));
+        assert!((lin[0] - 1.0).abs() < 1e-5 && lin[1] > 0.2 && lin[2] < 1e-5);
+        assert_eq!(w.cloud_color_with(&c, 0, 12.0, Some(&cloud_ov)), w.cloud_color(&c, 0, 12.0));
+
+        // Weather with empty authored color vectors still resolves explicit overrides.
+        w.colors.clear();
+        w.cloud_colors.clear();
+        assert_eq!(w.color_bytes_with(&c, ColorType::Fog, 12.0, None), [0.0, 0.0, 0.0]);
+        assert_eq!(w.color_bytes_with(&c, ColorType::Fog, 12.0, Some(&ov)), [200.0, 100.0, 50.0]);
+        assert!(w.cloud_color_with(&c, 1, 12.0, Some(&cloud_ov))[0] > 0.99);
     }
 }

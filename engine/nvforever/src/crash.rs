@@ -77,26 +77,52 @@ static COMMAND: OnceLock<String> = OnceLock::new();
 /// Where the camera is (updated every frame by [`note_place`]).
 static PLACE: Mutex<String> = Mutex::new(String::new());
 
-/// The player's home folder and what it is written as in logs: `USERPROFILE` on Windows,
-/// `HOME` elsewhere. Read once.
-fn home_folder() -> Option<&'static (String, &'static str)> {
-    static HOME: OnceLock<Option<(String, &'static str)>> = OnceLock::new();
-    HOME.get_or_init(|| {
-        let (var, shown) = if cfg!(windows) { ("USERPROFILE", "%USERPROFILE%") } else { ("HOME", "~") };
-        let home = std::env::var(var).ok()?;
-        let home = home.trim_end_matches(['\\', '/']);
-        // A root or drive ("/", "C:") would hide every path: not a home to hide.
-        (home.len() > 3).then(|| (home.to_string(), shown))
-    })
-    .as_ref()
+/// The folders that carry the player's account name, from the home folder: the home
+/// folder itself, and with `mounts` (off Windows) where the desktop mounts removable
+/// drives under that name, `/run/media/<user>` and `/media/<user>` (a game on such a
+/// drive names the player in every path). The one list behind [`redact`], the reports'
+/// redaction and the signal handler's (`native_crash_unix`), so the three hide the same
+/// (#3152). Empty for a home that is a root or a drive (`/`, `C:`): it would hide every
+/// path. The user name is the home folder's last part.
+pub(crate) fn name_folders(home: &str, mounts: bool) -> Vec<String> {
+    let home = home.trim_end_matches(['\\', '/']);
+    if home.len() <= 3 {
+        return Vec::new();
+    }
+    let mut v = vec![home.to_string()];
+    let user = home.rsplit('/').next().unwrap_or("");
+    if mounts && !user.is_empty() {
+        v.push(format!("/run/media/{user}"));
+        v.push(format!("/media/{user}"));
+    }
+    v
 }
 
-/// `text` with the player's home folder replaced (see the module's Privacy note).
+/// [`name_folders`] of this run's home (`USERPROFILE` on Windows, `HOME` elsewhere) and
+/// what they are written as in logs. Read once.
+fn hidden_folders() -> &'static (Vec<String>, &'static str) {
+    static HIDDEN: OnceLock<(Vec<String>, &'static str)> = OnceLock::new();
+    HIDDEN.get_or_init(|| {
+        let (var, shown) = if cfg!(windows) { ("USERPROFILE", "%USERPROFILE%") } else { ("HOME", "~") };
+        (std::env::var(var).map(|home| name_folders(&home, !cfg!(windows))).unwrap_or_default(), shown)
+    })
+}
+
+/// `text` with the player's home folder replaced (see the module's Privacy note), and off
+/// Windows the removable-drive mounts under the player's name.
 pub fn redact(text: &str) -> std::borrow::Cow<'_, str> {
-    match home_folder() {
-        Some((home, shown)) => redact_folder(text, home, shown),
-        None => std::borrow::Cow::Borrowed(text),
+    let (folders, shown) = hidden_folders();
+    redact_folders(text, folders, shown)
+}
+
+fn redact_folders<'a>(text: &'a str, folders: &[String], shown: &str) -> std::borrow::Cow<'a, str> {
+    let mut out = std::borrow::Cow::Borrowed(text);
+    for folder in folders {
+        if let std::borrow::Cow::Owned(changed) = redact_folder(&out, folder, shown) {
+            out = std::borrow::Cow::Owned(changed);
+        }
     }
+    out
 }
 
 /// `text` with every `folder` in it written as `shown`: letters in any case (Windows paths
@@ -1054,6 +1080,23 @@ mod tests {
         assert!(ended_abnormally("line\nINFO streaming cell -2,26\n"));
         assert_eq!(stop_reason(&format!("a\n{ERROR_EXIT} --load: x was made with other plugins\n")).as_deref(), Some("--load: x was made with other plugins"));
         assert_eq!(stop_reason("a\nb\n"), None);
+    }
+
+    /// The removable-drive mounts under the player's name are hidden with the home
+    /// folder, from one list (#3152).
+    #[test]
+    fn the_mounts_under_the_players_name_are_hidden() {
+        let folders = name_folders("/home/alex/", true);
+        assert_eq!(folders, ["/home/alex", "/run/media/alex", "/media/alex"]);
+        let r = |t: &'static str| redact_folders(t, &folders, "~").into_owned();
+        assert_eq!(r("panicked at /run/media/alex/USB/nvf/src/main.rs:3"), "panicked at ~/USB/nvf/src/main.rs:3");
+        assert_eq!(r("data /media/alex/Games/Data and /home/alex/x"), "data ~/Games/Data and ~/x");
+        // Another account, and a name that only starts the same, are left alone.
+        assert_eq!(r("/media/bob/x /run/media/alexandra/x"), "/media/bob/x /run/media/alexandra/x");
+        assert!(matches!(redact_folders("no paths here", &folders, "~"), std::borrow::Cow::Borrowed(_)));
+        // On Windows only the home folder; a root or a drive hides nothing.
+        assert_eq!(name_folders(r"C:\Users\Alex", false), [r"C:\Users\Alex"]);
+        assert!(name_folders("/", true).is_empty() && name_folders("C:", false).is_empty());
     }
 
     #[test]

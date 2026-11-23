@@ -90,8 +90,15 @@ fn switches() {
     q(&mut g, "ToggleCombatMusic 1");
     assert_eq!(n(&mut g, "IsCombatMusicEnabled"), 1.0);
     assert_eq!(n(&mut g, "IsLevelUpMenuEnabled"), 1.0);
+    assert!(g.level_up_menu_enabled());
+    g.player.xp = 250.0;
+    assert!(fnv_game::experience::level_up_due(&g));
     q(&mut g, "ToggleLevelUpMenu 0");
     assert_eq!(n(&mut g, "IsLevelUpMenuEnabled"), 0.0);
+    assert!(!g.level_up_menu_enabled());
+    assert!(!fnv_game::experience::level_up_due(&g), "ToggleLevelUpMenu 0 holds automatic level-up");
+    q(&mut g, "ToggleLevelUpMenu 1");
+    assert!(fnv_game::experience::level_up_due(&g), "ToggleLevelUpMenu 1 releases pending level-up");
     // [documented: Get/SetViewmodelClipDistance, 0 the default; Get/SetNiLODLevel].
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), 0.0);
     q(&mut g, "SetViewmodelClipDistance 2.5");
@@ -121,18 +128,26 @@ fn interface_settings() {
     let thing = fnv_sim::FormId(MISC);
     q(&mut g, "HideItemBarterEx TestThing 1 1");
     assert_eq!(g.barter_hide_flag(thing, None), 1);
+    assert_eq!(g.barter_hidden_for(fnv_sim::FormId(0x999)).get(&thing), Some(&1));
     assert_eq!(n(&mut g, "IsItemBarterHiddenEx TestThing"), 0.0);
     q(&mut g, "HideItemBarterEx TestThing 1");
     assert_eq!(g.barter_hide_flag(thing, None), 3);
+    // Vendor-specific override takes precedence over the global entry.
+    q(&mut g, "HideItemBarterEx TestThing 1 2 TestQuest");
+    assert_eq!(g.barter_hide_flag(thing, Some(fnv_sim::FormId(QUST))), 2);
+    assert_eq!(g.barter_hidden_for(fnv_sim::FormId(QUST)).get(&thing), Some(&2));
+    q(&mut g, "HideItemBarterEx TestThing 0 0 TestQuest");
     q(&mut g, "HideItemBarterEx TestThing 0");
     assert_eq!(g.barter_hide_flag(thing, None), 0);
+    assert!(g.barter_hidden_for(fnv_sim::FormId(QUST)).is_empty());
     // [documented: SetCustomReputationChangeIcon gives 1].
     assert_eq!(n(&mut g, "SetCustomReputationChangeIcon TestReputation 2 \"icons\\sad.dds\""), 1.0);
     assert_eq!(n(&mut g, "SetCustomReputationChangeIcon TestReputation 5 \"icons\\sad.dds\""), 0.0);
     q(&mut g, "SetUIUpdateSound TestSound 3");
-    assert_eq!(g.other.jg7.ui_sounds.get(&3).map(|f| f.0), Some(SOUN));
+    assert_eq!(g.ui_update_sound(3), Some(fnv_sim::FormId(SOUN)));
+    assert_eq!(g.ui_update_sound(2), None);
     q(&mut g, "PushUIQuestToTop TestQuest");
-    assert_eq!(g.other.jg7.top_quest.map(|f| f.0), Some(QUST));
+    assert_eq!(g.top_ui_quest(), Some(fnv_sim::FormId(QUST)));
     q(&mut g, "ToggleNthPipboyLight 1 1");
     assert_eq!(g.other.jg7.pipboy_lights, [false, true, false]);
     // [documented: QueueCinematicText's priority 2 clears the queue].
@@ -147,9 +162,13 @@ fn interface_settings() {
     q(&mut g, "StopVATSCam");
     assert_eq!(g.take_jg7_requests(), vec![Request::CameraShake(2.0, 3.0), Request::StopVatsCamera]);
     assert_eq!(n(&mut g, "RefAddr"), 0.0);
-    // [documented: SetCustomMapMarkerIcon / GetCustomMapMarkerIcon].
+    // [documented: SetCustomMapMarkerIcon / GetCustomMapMarkerIcon; empty string resets].
     q(&mut g, "SetCustomMapMarkerIcon PlayerREF \"icons/camp.dds\"");
     assert_eq!(s(&mut g, "SetFunctionValue (PlayerREF.GetCustomMapMarkerIcon)"), "icons/camp.dds");
+    assert_eq!(g.custom_map_marker_icon(fnv_sim::FormId::PLAYER_REF), Some("icons/camp.dds"));
+    q(&mut g, "SetCustomMapMarkerIcon PlayerREF \"\"");
+    assert_eq!(g.custom_map_marker_icon(fnv_sim::FormId::PLAYER_REF), None);
+    assert_eq!(s(&mut g, "SetFunctionValue (PlayerREF.GetCustomMapMarkerIcon)"), "");
     // [documented: GetLocationSpecificLoadScreensOnly; IsMenuPaused without Real Time
     // Menus; GetJohnnyPatch 1 always 1].
     assert_eq!(n(&mut g, "GetLocationSpecificLoadScreensOnly"), 0.0);

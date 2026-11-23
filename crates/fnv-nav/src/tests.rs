@@ -401,6 +401,35 @@ fn a_walker_stops_and_faces_a_load_door_before_going_through() {
     panic!("never reached the door");
 }
 
+/// A door on a one-triangle navmesh whose portal lands on the floor's edge, where the
+/// floor's own link leads elsewhere (Lonesome Road's silo lift, 0x0100A556): the floor's
+/// edge is linked back, and a path from the floor goes through the door.
+#[test]
+fn a_one_way_portal_is_linked_back_from_the_edge_it_lands_on() {
+    let inside = Space::Interior(0x77);
+    let mut a = grid(1, [0.0, 0.0], 2, 2, 100.0, &[], flat);
+    let mut b = grid(2, [5000.0, 5000.0], 3, 3, 100.0, &[], |_, _| 50.0);
+    // The patch east of a: one triangle on a's east edge at y 0..100.
+    let (at, ae, p0, p1) = edges_at(&a, 200.0).into_iter().find(|e| e.2[1].max(e.3[1]) <= 100.0).unwrap();
+    let mut patch = NavMeshRecord { form_id: 3, vertices: vec![p1, p0, [260.0, 50.0, 0.0]], triangles: vec![Triangle { v: [0, 1, 2], edges: [-1; 3], flags: 0, cover: 0 }], ..Default::default() };
+    link(&mut patch, 0, 0, 1, at, 0);
+    // a's edge there links, stale, to a triangle of b far off.
+    link(&mut a, at, ae, 2, 0, 0);
+    patch.door_links.push(DoorLink { door: 0xD1, triangle: 0 });
+    b.door_links.push(DoorLink { door: 0xD2, triangle: 0 });
+    let meshes = [(a, W), (patch, W), (b, inside)];
+    let input: Vec<_> = meshes.iter().map(|(m, s)| (m, Some(0), Some(*s))).collect();
+    let mut g = NavGraph::assemble(&input);
+    assert_eq!(g.stats.portals_joined_back, 1);
+    g.join_doors(&input, |door| match door {
+        0xD1 => Some((0xD2, [5050.0, 5030.0, 50.0], 0.5, inside)),
+        0xD2 => Some((0xD1, [240.0, 50.0, 0.0], 3.0, W)),
+        _ => None,
+    });
+    let p = g.find_path(Place { space: W, pos: [20.0, 180.0, 0.0] }, Place { space: inside, pos: [5250.0, 5250.0, 50.0] }, &PathParams::default()).unwrap();
+    assert_eq!(p.legs[0].door.map(|d| d.door), Some(0xD1));
+}
+
 #[test]
 fn routes_chain_interiors_and_worldspaces_and_respect_locks() {
     use crate::graph::DoorLock;

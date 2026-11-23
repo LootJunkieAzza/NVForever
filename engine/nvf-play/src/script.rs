@@ -298,6 +298,10 @@ pub struct Runtime {
     /// residents leave it alone, `Core::prepare` in `nvforever::residents`). A restore that
     /// fails installs no runtime ([`run_scripts`]), so `false` is always a new game.
     pub restored_from_save: bool,
+    /// Monotonic counter incremented only after a save restore commits (failed loads leave
+    /// this unchanged), so engine UI services can separate committed session epochs from
+    /// transient loading gates [design: docs/spec-notes/local-map-ui-service.md].
+    pub(crate) session_epoch: u64,
     /// `--new-game`: the opening starts on the first frame scripts run.
     opening_pending: bool,
     /// A run without a save: the Script Runner's new-game files (`gn_`, `ln_`) run on the
@@ -525,6 +529,20 @@ fn source_compile_mode(unattended: bool) {
     }
 }
 
+/// The game INI text the script VM's INI functions read (`fnv_game::nvse_settings`),
+/// lowest precedence first. `--mo2` sets the profile's own INIs and `initweaks.ini`
+/// (#1526 phase 2b); empty otherwise, so a setting reads as missing.
+static INI_TEXTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Give the script VM the game INI text to read (start-up, before the scripts load).
+pub fn set_ini_texts(texts: Vec<String>) {
+    *INI_TEXTS.lock().unwrap_or_else(|e| e.into_inner()) = texts;
+}
+
+fn ini_texts() -> Vec<String> {
+    INI_TEXTS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// Build the script data on its own thread (decoding every unit takes about a second;
 /// render streaming and physics start meanwhile).
 fn start_loading(d: PlayData, refs: &'static RefTable, voice_sets: Vec<fnv_game::player_voice::VoiceSet>) -> Receiver<Loaded> {
@@ -540,6 +558,8 @@ fn start_loading(d: PlayData, refs: &'static RefTable, voice_sets: Vec<fnv_game:
             let table = FunctionTable::load(&path).map_err(|e| e.to_string())?;
             info!("script build: function table: {:.0} ms", step.elapsed().as_secs_f64() * 1e3);
             let mut data = GameData::build(d.lo, d.schema, table, &json, refs);
+            // The game INI text the extender's INI functions read (`--mo2`'s profile).
+            data.ini_texts = ini_texts();
             // Voice sets' lines carried with their sound become lines of their own
             // (fnv_game::player_voice, docs/design/player-voices.md).
             let carried = fnv_game::player_voice::add_packed_lines(&mut data, &voice_sets);
@@ -668,13 +688,22 @@ fn inventory_sources(_data: &GameData, sim: &SimState, game: &Game<'_>) -> std::
 }
 
 impl Runtime {
-    fn new(data: &'static GameData, sim: &mut SimState, new_game: bool, packages: bool) -> Runtime {
+    fn new(
+        data: &'static GameData,
+        sim: &mut SimState,
+        new_game: bool,
+        packages: bool,
+        tweaks: Option<&fnv_game::tweaks::Tweaks>,
+    ) -> Runtime {
         // Message boxes are menus until the player closes them (the default,
         // `GameConfig::modal_message_boxes`). With actors living by their packages, the
         // packages' scripts and idles run from the first frame (the residents ask for the
         // same interval when they start).
         let cfg = GameConfig { frame_seconds: 1.0 / 60.0, package_interval: packages.then_some(PACKAGE_INTERVAL), ..GameConfig::default() };
-        let game = Game::new(data, World::new(sim.forms, sim.refs, sim.world.config()), cfg);
+        let mut game = Game::new(data, World::new(sim.forms, sim.refs, sim.world.config()), cfg);
+        if let Some(tweaks) = tweaks {
+            game.bind_stewie_stat_settings(tweaks);
+        }
         // The simulation's world is the one played (`with_world`): its placed actors carry
         // their template's items too (template flag "Inventory"), each picked at the
         // level it reads leveled lists at, as `Game::new` picks them (not level 1).
@@ -694,6 +723,7 @@ impl Runtime {
             skip: BTreeSet::new(),
             closing: None,
             restored_from_save: false,
+            session_epoch: 0,
             opening_pending: new_game,
             new_game_files: false,
             wake_talk: None,
@@ -741,13 +771,15 @@ impl Runtime {
         let changed: Vec<FormId> = s.sim.refs.keys().chain(s.fade_moves.keys()).copied().collect::<BTreeSet<_>>().into_iter().collect();
         let data = self.game.data;
         let cfg = self.game.cfg;
-        let session = self.game.take_session();
         // The game restores on the played world, so that what it does there stays (the
         // moves above), and hands it back for `sim`; it keeps a stand-in between turns
         // (`with_world`).
         let stand_in = World::new(sim.forms, sim.refs, world.config());
-        self.game = Game::restore(data, world, cfg, &s)?;
-        self.game.put_session(session);
+        // A refused snapshot must not drain the active game's session.
+        let mut restored = Game::restore(data, world, cfg, &s)?;
+        let session = self.game.take_session();
+        restored.put_session(session);
+        self.game = restored;
         // The engine's seats are not saved, so a load stands the player and every NPC up
         // (docs/design/save-load.md §3.4): `Game::restore` clears each saved furniture use,
         // or GetSitting and its kin go on reading the seat (#1573, #2797).
@@ -764,6 +796,7 @@ impl Runtime {
         self.new_game_files = false;
         self.player_cell = None;
         self.restored_from_save = true;
+        self.session_epoch = self.session_epoch.saturating_add(1);
         with_world(self, sim, |rt| {
             // `Game::restore` above reached only the stand-in, and the Script Runner's files
             // and the LoadGame events run ahead of the first tick.
@@ -1005,6 +1038,29 @@ impl Runtime {
         r
     }
 
+    /// The player talks to `actor` through bars or a fence (#3233,
+    /// `crate::activate::see_through`): only the conversation opens (`Game::start_dialogue`).
+    /// Not an activation: no OnActivate block, perks' choices, companion wheel or default
+    /// action; an actor asleep is not woken through the bars [design].
+    fn talk_only(&mut self, actor: FormId) -> Result<ByHand, String> {
+        if self.game.asleep(actor) {
+            info!("dialogue: {} is asleep behind the bars: not woken", self.game.data.name(actor));
+            return Ok(ByHand::Refused);
+        }
+        self.observe_inventory();
+        let g = &mut self.game;
+        let r = g.start_dialogue(actor, None).map(|info| {
+            if g.dialogue.is_some() {
+                info!("dialogue: the player talks to {} through the bars: its greeting is {}", g.data.name(actor), g.data.name(info));
+                ByHand::Talk
+            } else {
+                ByHand::Greeted
+            }
+        });
+        self.snapshot_inventory();
+        r
+    }
+
     /// The player's activations among the events from index `from` on whose default
     /// action is to talk (`Outcome::Talk`: a living actor): the conversation starts with
     /// the actor's greeting (`Game::start_dialogue`). An actor with nothing to say starts
@@ -1138,7 +1194,7 @@ impl Runtime {
     /// Something the player does to the game between ticks (a choice on the dialogue
     /// screen, a skipped response): inventory changes the menus made are seen first, and
     /// what the action's scripts change is the scripts' own.
-    pub(crate) fn player_action<R>(&mut self, f: impl FnOnce(&mut Game<'static>) -> R) -> R {
+    pub fn player_action<R>(&mut self, f: impl FnOnce(&mut Game<'static>) -> R) -> R {
         self.observe_inventory();
         let r = f(&mut self.game);
         self.snapshot_inventory();
@@ -1148,7 +1204,7 @@ impl Runtime {
     /// The player activates `r` as E does, wherever the crosshair is (test aids). Nobody
     /// else applies a default action's outcome here: its trace events become effects like
     /// a script's.
-    pub(crate) fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
+    pub fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
         let from = self.game.events.len();
         let done = self.by_hand(r)?;
         if !matches!(done, ByHand::Talk | ByHand::Greeted | ByHand::Wheel) {
@@ -1174,7 +1230,17 @@ impl Runtime {
                 let (r, m) = (resolve(g, r)?, resolve(g, m)?);
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: MOVE_TO, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
                 let args: Vec<ArgValue> = std::iter::once(ArgValue::Value(Value::Ref(m.0))).chain(off.iter().map(|v| ArgValue::Value(Value::Num(f64::from(*v))))).collect();
+                // A MoveTo the game refuses fails the aid, as a `call:` does (#2841: a
+                // scenario's forbid on failed steps must see it). Only the aid's own call
+                // counts: a script the move sets off (a destination's OnLoad) may fail a
+                // call of its own in the same frame.
+                let from = g.events.len();
                 g.call_function(&ctx, &args);
+                let opcode = format!("0x{MOVE_TO:04X}");
+                let own = |k: &EventKind| matches!(k, EventKind::CallFailed { unit, opcode: o, .. } if unit == "test aid" && *o == opcode);
+                if let Some(EventKind::CallFailed { error, .. }) = g.events[from..].iter().map(|e| &e.kind).find(|k| own(k)) {
+                    return Err(format!("MoveTo: {error}"));
+                }
             }
             ScriptAid::Stop(q) => {
                 let q = resolve(g, q)?;
@@ -1260,9 +1326,7 @@ impl Runtime {
                 let r = resolve(g, r)?;
                 let code = match group.parse::<u16>() {
                     Ok(c) => c,
-                    Err(_) => (0..=u16::from(u8::MAX))
-                        .find(|c| g.anim_group_name(*c).is_some_and(|n| n.eq_ignore_ascii_case(group)))
-                        .ok_or_else(|| format!("{group} is not an animation group"))?,
+                    Err(_) => g.anim_group_code(group).ok_or_else(|| format!("{group} is not an animation group"))?,
                 };
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: PLAY_GROUP, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
                 g.call_function(&ctx, &[ArgValue::Enum(code), ArgValue::Value(Value::Num(f64::from(*flag)))]);
@@ -1413,6 +1477,15 @@ pub enum ByHand {
 /// seconds].
 pub const WAKE_TALK_SECONDS: f64 = 8.0;
 
+/// The player talks to `target` through bars or a fence (`Runtime::talk_only`): only
+/// the conversation opens. Without the scripts there is none.
+pub fn talk_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
+    match script.and_then(|s| s.rt.as_mut()) {
+        Some(rt) => with_world(rt, sim, |rt| rt.talk_only(FormId(target))),
+        None => Err("the scripts are not running".into()),
+    }
+}
+
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
     let (rt, lit) = match script {
@@ -1503,10 +1576,10 @@ impl EffectCtx for PlayCtx<'_> {
         (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), self.game.message_seconds(message).map(|s| s as f32))
     }
 
-    fn skill_look(&self, code: u16) -> (String, Option<String>) {
+    fn skill_name(&self, code: u16) -> String {
         let info = self.data.actor_value_info(code);
         let name = info.map(|i| i.name.clone()).filter(|n| !n.trim().is_empty());
-        (name.unwrap_or_else(|| fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string()), info.and_then(|i| i.icon.clone()))
+        name.unwrap_or_else(|| fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string())
     }
 
     fn pops_in(&self, r: FormId) -> bool {
@@ -1807,7 +1880,17 @@ impl Plugin for ScriptPlugin {
             .init_resource::<PlayerTimeScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game, exit_to_main_menu_event, crate::query_job::exit_when_done).chain().in_set(PlaySet::Scripts))
-            .add_systems(Last, (crate::aid::report, crate::query_job::report, write_final));
+            .add_systems(
+                Last,
+                (
+                    crate::aid::report,
+                    crate::query_job::report,
+                    // After Bevy's window-closed exit (`ExitSystems` writes AppExit in Last):
+                    // closing the window runs `gx_` exit scripts and writes the final summary,
+                    // as Quit, `qqq`, and timed exits do (#2203).
+                    (run_exit_scripts, write_final).chain().after(bevy::window::ExitSystems),
+                ),
+            );
     }
 }
 
@@ -2023,8 +2106,9 @@ pub(crate) fn start_world_aids(
 }
 
 /// The run's furniture, terminal and door messages, a refused load, the save's engine part
-/// still to put back (`crate::save::PendingEngine`) and a co-op guest's join in progress
-/// (`crate::save::KeepSolo`: the triggers are not fired by a joining guest).
+/// still to put back (`crate::save::PendingEngine`), a co-op guest's join in progress
+/// (`crate::save::KeepSolo`: the triggers are not fired by a joining guest), and the
+/// application settings to bind before startup and restore scripts.
 type UsesAndLoads<'w> = (
     MessageWriter<'w, crate::furniture::UseFurniture>,
     MessageWriter<'w, crate::terminal::OpenTerminal>,
@@ -2032,6 +2116,7 @@ type UsesAndLoads<'w> = (
     MessageWriter<'w, crate::save::LoadRefused>,
     Option<Res<'w, crate::save::PendingEngine>>,
     Option<Res<'w, crate::save::KeepSolo>>,
+    Option<Res<'w, crate::tweaks::TweakSettings>>,
 );
 
 /// [`run_scripts`]'s loading screen, keys, menu files, the pause menu's page and the
@@ -2091,11 +2176,11 @@ pub(crate) fn run_scripts(
     mut hud: ResMut<ScriptHud>,
     mut corner: ResMut<crate::corner_messages::CornerMessages>,
     mut quest_lines: ResMut<crate::quest_messages::QuestMessages>,
-    (mut changed, mut fades, mut repose): (MessageWriter<RefChanged>, MessageWriter<crate::fade::RefFade>, MessageWriter<crate::RefRepose>),
+    (mut changed, mut fades, mut repose, mut script_sounds): (MessageWriter<RefChanged>, MessageWriter<crate::fade::RefFade>, MessageWriter<crate::RefRepose>, Option<ResMut<crate::sfx::ScriptSounds>>),
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     (mut used, mut anims): (MessageReader<ItemUsed>, ResMut<crate::ConsumeAnims>),
-    (mut sit, mut terminals, mut doors, mut refused, pending_engine, joining): UsesAndLoads,
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine, joining, tweak_settings): UsesAndLoads,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
@@ -2137,7 +2222,8 @@ pub(crate) fn run_scripts(
             }
             Some(Ok((data, secs))) => {
                 st.loader = None;
-                let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
+                let tweaks = tweak_settings.as_deref().map(|settings| &settings.game);
+                let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages, tweaks);
                 // A save loaded later keeps the game's configuration (`Runtime::restore_save`).
                 rt.game.cfg.answer_ok_boxes = st.no_messages;
                 rt.start = st.start.clone();
@@ -2164,6 +2250,9 @@ pub(crate) fn run_scripts(
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
                             restored = true;
+                            if let Some(tweaks) = tweaks {
+                                rt.game.bind_stewie_stat_settings(tweaks);
+                            }
                             // SUP's GetSaveName and GetLoadedSaveSize read the last save
                             // loaded (`fnv_game::nvse_sup4`).
                             let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -2639,6 +2728,11 @@ pub(crate) fn run_scripts(
             ScriptEffect::OpenContainer(c) => {
                 open.write(OpenContainer { container: c });
             }
+            ScriptEffect::ItemAddedSound(item) => {
+                if let Some(s) = script_sounds.as_deref_mut() {
+                    s.items_added.push(item);
+                }
+            }
             ScriptEffect::Notify(mut note) => {
                 // The player string codes (`&PCName;`) as they read now; ShowMessage's
                 // text has them already, MessageEx's and the notes' not (`fnv_game::text_codes`).
@@ -2837,6 +2931,48 @@ fn log_event(data: &GameData, e: &Event) {
     }
 }
 
+/// At exit: JIP's Script Runner `gx_` files (`fnv_game::script_runner::Moment::Exit`),
+/// run once in the played world before `write_final` and process teardown so cached mod
+/// INI and JSON writes flush synchronously to disk [design]. No-op when no `gx_` files
+/// exist or exit scripts have already run.
+fn run_exit_scripts(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>, mut sim: ResMut<SimState>) {
+    if exit.read().next().is_none() {
+        return;
+    }
+    let st = &mut *script;
+    let Some(rt) = st.rt.as_mut() else {
+        return;
+    };
+    let from = rt.game.events.len();
+    let runs = with_world(rt, &mut sim, |rt| rt.game.run_exit_scripts());
+    if runs.is_empty() {
+        return;
+    }
+    log_script_runner(runs, Moment::Exit);
+    let events = rt.game.events.split_off(from);
+    rt.stats.events += events.len() as u64;
+    if let Some(log) = st.mod_log.as_mut() {
+        crate::mod_log::frame(log, &mut rt.game, &events);
+    }
+    for e in &events {
+        log_event(rt.game.data, e);
+    }
+    if let Some(log) = st.trace.as_mut() {
+        let t = secs(rt.started);
+        let gt = rt.game.time;
+        for e in &events {
+            if let Ok(mut v) = serde_json::to_value(e) {
+                v["t"] = serde_json::json!(t);
+                v["gt"] = serde_json::json!(gt);
+                log.write(&v);
+            }
+        }
+        if !events.is_empty() {
+            let _ = log.out.flush();
+        }
+    }
+}
+
 /// At exit: the trace's final line and a summary in the log.
 fn write_final(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>) {
     if exit.read().next().is_none() {
@@ -2934,6 +3070,7 @@ impl ScriptState {
             skip: BTreeSet::new(),
             closing: None,
             restored_from_save: false,
+            session_epoch: 0,
             opening_pending: false,
             new_game_files: false,
             wake_talk: None,
@@ -3034,6 +3171,38 @@ mod restore_tests {
         assert!(!rt.restored_from_save);
     }
 
+    /// The session fields that `take_session` drains survive a `Game::restore` refusal.
+    #[test]
+    fn a_refused_restore_keeps_active_save_file_session_sentinels() {
+        use fnv_game::nvse_sup4::{SaveFile, SaveFiles};
+        let (mut rt, mut sim, good) = in_fade();
+        rt.game.save_files = SaveFiles {
+            saved: Some(SaveFile { name: "owned-active-save".into(), bytes: 41 }),
+            loaded: Some(SaveFile { name: "owned-active-load".into(), bytes: 73 }),
+        };
+        let before = rt.game.save_files.clone();
+        let played = sim.world.snapshot();
+        let stand_in = rt.game.world.snapshot();
+        let mut refused = good.clone();
+        refused.format = "fnv.game.state/unsupported-test".into();
+        // World restoration is valid: the refusal is in Game::restore, after the
+        // old ordering had already drained these active session fields.
+        fnv_sim::World::restore(sim.forms, sim.refs, &refused.sim).unwrap();
+        let error = rt.restore_save(&mut sim, refused).unwrap_err();
+        assert!(error.contains("unsupported snapshot format"), "{error}");
+        assert_eq!(rt.game.save_files, before, "a refused Game restore must not drain the active session");
+        assert_eq!(sim.world.snapshot(), played);
+        assert_eq!(rt.game.world.snapshot(), stand_in);
+        assert!(!rt.restored_from_save);
+        assert_eq!(rt.session_epoch, 0, "a refused restore must not advance the committed session epoch");
+        // The successful neighbor still transfers this same active session.
+        rt.restore_save(&mut sim, good).unwrap();
+        assert_eq!(rt.game.save_files, before);
+        assert!(rt.restored_from_save);
+        assert_eq!(rt.session_epoch, 1, "a committed restore advances the session epoch");
+        assert_eq!(sim.world.peek(ACTOR).unwrap().cell, Some(MARKER_CELL));
+    }
+
     #[test]
     fn a_loaded_game_rolls_at_the_players_level_before_any_tick() {
         let mut state = ScriptState::over_no_plugins();
@@ -3126,6 +3295,101 @@ mod runtime_start_tests {
         assert!(!runtime_waits(false, false), "the menu is open, paused, or was never asked for");
     }
 }
+
+#[cfg(test)]
+mod exit_script_tests {
+    use super::*;
+    use fnv_game::mod_files::{set_roots, Roots};
+
+    static ROOTS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn fresh_app() -> App {
+        let mut app = App::new();
+        let st = ScriptState::over_no_plugins();
+        let (forms, refs) = {
+            let rt = st.rt.as_ref().unwrap();
+            (rt.game.world.forms, rt.game.world.placed)
+        };
+        let sim = SimState { forms, refs, world: World::new(forms, refs, fnv_sim::SimConfig::default()) };
+        app.add_message::<AppExit>()
+            .insert_resource(st)
+            .insert_resource(sim)
+            .add_systems(Last, (run_exit_scripts, write_final).chain().after(bevy::window::ExitSystems));
+        app
+    }
+
+    #[test]
+    fn app_exit_runs_gx_scripts_once_and_flushes_cached_ini_to_disk() {
+        let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().join(format!("nvf-play-gx-exit-{}-{stamp}", std::process::id()));
+        let data = base.join("game/Data");
+        let layer = base.join("mods");
+        let scripts = data.join("NVSE/Plugins/Scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::create_dir_all(&layer).unwrap();
+        std::fs::write(
+            scripts.join("gx_flush.txt"),
+            "SaveCachedIni \"play_exit_test.ini\"\r\nCloseFileSO \"play_exit_test.ini\"\r\nPrintC \"play-gx-ran\"\r\n",
+        )
+        .unwrap();
+        set_roots(Roots { read: vec![layer.clone(), data], write: Some(layer.clone()), ..Roots::default() });
+
+        let mut app = fresh_app();
+        // Seed cached INI value in memory (not written to disk until gx_flush.txt runs).
+        {
+            let mut st = app.world_mut().resource_mut::<ScriptState>();
+            let rt = st.rt.as_mut().unwrap();
+            rt.game
+                .run_source("GetINIFloatOrCreate_Cached \"General:fPlayExit\" \"play_exit_test.ini\" 19.25\n", Default::default())
+                .unwrap();
+        }
+        let ini_path = layer.join("Config/play_exit_test.ini");
+
+        // An update without AppExit must not trigger exit scripts.
+        app.update();
+        assert!(!ini_path.is_file(), "gx_ script must not run before AppExit");
+
+        // AppExit triggers run_exit_scripts once and flushes cached INI to disk.
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert!(ini_path.is_file(), "AppExit must run gx_ script and flush cached INI");
+        let text = std::fs::read_to_string(&ini_path).unwrap();
+        assert!(text.contains("19.25"), "flushed INI text: {text:?}");
+        let events_after_first = app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events;
+        assert!(events_after_first >= 1, "gx_ PrintC event should be counted before write_final");
+
+        // Repeated AppExit is idempotent and does not re-execute gx_flush.txt.
+        std::fs::remove_file(&ini_path).unwrap();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert!(!ini_path.exists(), "repeated AppExit must not re-run gx_ scripts");
+        assert_eq!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events, events_after_first);
+
+        set_roots(Roots::default());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn app_exit_without_gx_scripts_is_a_vanilla_no_op() {
+        let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().join(format!("nvf-play-gx-empty-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        set_roots(Roots { read: vec![base.clone()], ..Roots::default() });
+
+        let mut app = fresh_app();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert_eq!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events, 0);
+
+        set_roots(Roots::default());
+        std::fs::remove_dir_all(&base).ok();
+    }
+}
+
+#[cfg(test)]
+mod stewie_profile_tests;
 
 #[cfg(test)]
 mod clearance_tests;

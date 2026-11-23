@@ -56,7 +56,6 @@ use fnv_collide::{Iso, Motion};
 use drawn::DrawnFloors;
 use fnv_phys::{Arrival, Character, CharacterParams, Filter, Owner, PhysParams, PhysWorld, RayHit, RefPose, Stepper, WaterArea};
 use fnv_sim::{FormId, World};
-use fnv_world::placed::placement;
 use fnv_world::reach::ReachIndex;
 use fnv_world::transform::{max_diff, ref_angles, ref_rotation};
 use fnv_world::{cell_of, Placement, WorldIndex, CELL_SIZE};
@@ -797,7 +796,7 @@ impl PhysState {
         }
         if let Some(pc) = ws.and_then(|w| w.persistent_cell).and_then(|c| d.index.cells.get(&c)) {
             for &r in &pc.refs {
-                if let Some(p) = placement(d.lo, d.schema, r) {
+                if let Some(p) = d.index.placement(d.lo, d.schema, r) {
                     self.persistent_by_grid.entry(cell_of(p.position[0], p.position[1])).or_default().push(r);
                 }
             }
@@ -1265,7 +1264,7 @@ impl PhysState {
         let src = self.source(ctx);
         let mut times = LoadTimes::default();
         let t = Instant::now();
-        let mut pl = placement(ctx.d.lo, ctx.d.schema, r).map(|pl| prepare::at_pose(pl, ctx.sim.moved_pose(r)));
+        let mut pl = ctx.d.index.placement(ctx.d.lo, ctx.d.schema, r).map(|pl| prepare::at_pose(pl, ctx.sim.moved_pose(r)));
         // A script's scale (SetScale) in place of the placement's; one too small to see
         // has no collision (`crate::sim::MIN_DRAWN_SCALE`).
         if let (Some(p), Some(s)) = (pl.as_mut(), ctx.sim.script_scale(r)) {

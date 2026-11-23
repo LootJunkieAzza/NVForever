@@ -211,7 +211,7 @@ const BEVY_APPLY_FOG: &str = "@if(DISTANCE_FOG)\nfn apply_fog(";
 const BEVY_FOG_CALL: &str = "        return package::render::fog::atmospheric_fog(fog_params, input_color, distance, scattering);";
 /// The call with the haze in the scattering argument (`view_to_world` and
 /// `view_world_position` are `apply_fog`'s own).
-const HAZE_FOG_CALL: &str = "        return package::render::fog::atmospheric_fog(fog_params, input_color, distance, nvf_haze(fog_params, view_to_world, view_world_position, distance, scattering));";
+pub(crate) const HAZE_FOG_CALL: &str = "        return package::render::fog::atmospheric_fog(fog_params, input_color, distance, nvf_haze(fog_params, view_to_world, view_world_position, distance, scattering));";
 
 /// `nvf_haze`, put before `apply_fog`. The `NVF_HAZE_*` words are the Rust constants above,
 /// written in by [`haze_function`].
@@ -279,7 +279,7 @@ fn haze_edits() -> [(&'static str, String); 2] {
 
 /// `source` with [`haze_edits`] made; `None` unless each anchor is there exactly once
 /// (Bevy changed).
-fn haze_patched(source: &str) -> Option<String> {
+pub(crate) fn haze_patched(source: &str) -> Option<String> {
     let edits = haze_edits();
     if edits.iter().any(|(from, _)| source.matches(from).count() != 1) {
         return None;
@@ -297,8 +297,19 @@ const PATCH_PENDING: u8 = 0;
 const PATCH_IN_PLACE: u8 = 1;
 const PATCH_FAILED: u8 = 2;
 
+/// Whether the haze's edits of `pbr_functions` are in place (the aerial perspective, aerial.rs,
+/// composes with its fog call).
+pub(crate) fn edits_in_place() -> bool {
+    PATCH.load(Ordering::Relaxed) == PATCH_IN_PLACE
+}
+
+/// Whether the haze's edits were tried and not made (Bevy changed).
+pub(crate) fn edits_failed() -> bool {
+    PATCH.load(Ordering::Relaxed) == PATCH_FAILED
+}
+
 #[derive(Resource)]
-struct HazeShader {
+pub(crate) struct HazeShader {
     handle: Handle<Shader>,
     patched: bool,
 }
@@ -307,7 +318,7 @@ struct HazeShader {
 /// the switch off the density is 0 and the call gives what it gave). Pipelines that already
 /// use it are rebuilt. Fails safe: Bevy's text not as expected leaves its shader alone and
 /// the haze off. No log line on success (the switch off keeps the log as it was).
-fn patch_haze(mut state: ResMut<HazeShader>, mut shaders: ResMut<Assets<Shader>>) {
+pub(crate) fn patch_haze(mut state: ResMut<HazeShader>, mut shaders: ResMut<Assets<Shader>>) {
     if state.patched {
         return;
     }
@@ -337,10 +348,14 @@ pub struct HazePlugin;
 impl Plugin for HazePlugin {
     fn build(&self, app: &mut App) {
         let handle: Handle<Shader> = app.world().resource::<AssetServer>().load(PBR_FUNCTIONS);
-        app.insert_resource(HazeShader { handle, patched: false })
-            .add_systems(PreUpdate, patch_haze)
-            .add_systems(Update, update_haze.after(crate::sky::update_sky));
+        app.insert_resource(HazeShader { handle, patched: false });
+        add_systems(app);
     }
+}
+
+/// The plugin's systems (apart from its shader handle, for the scheduling test in aerial.rs).
+pub(crate) fn add_systems(app: &mut App) {
+    app.add_systems(PreUpdate, patch_haze).add_systems(Update, update_haze.after(crate::sky::update_sky).in_set(crate::fog::FogWriters));
 }
 
 /// What the log last said of the haze.
@@ -812,6 +827,7 @@ mod tests {
     directional_light_exponent: f32,
     bi: vec3<f32>,
     mode: u32,
+    nvf_params: array<vec4<f32>, 3>,
 }
 struct DirectionalLight {
     color: vec4<f32>,

@@ -831,6 +831,7 @@ pub(crate) struct Drawn {
     /// pictures').
     target: Option<Target>,
     counts: (usize, usize),
+    font_revision: u32,
     /// The whole menu's start line is written (T12a).
     told: bool,
     pictures: Option<Pictures>,
@@ -1709,7 +1710,10 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
     super::runtime_images::present(&mut pieces, kit.runtime.as_deref(), ui);
     drawn.tex.frame();
     drawn.tex.prune(&pieces, ui);
-    if pieces == drawn.pieces && drawn.target == Some(target) {
+    let font_revision = crate::cjk_font::revision();
+    let font_changed = drawn.font_revision != font_revision;
+    drawn.font_revision = font_revision;
+    if !font_changed && pieces == drawn.pieces && drawn.target == Some(target) {
         return;
     }
     // Nothing drawn yet and nothing to draw (a menu switched off): no root node either.
@@ -1755,7 +1759,8 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
             commands.entity(slot.node).insert(ZIndex(i as i32));
             slot.order = i;
         }
-        let mut how = change(was, piece);
+        let font_changed = font_changed && matches!(piece.look, Look::Text { .. });
+        let mut how = if font_changed { Change::Spawn } else { change(was, piece) };
         // Only the offset changed: its image baked again in place, its nodes kept (#1833).
         if how == Change::Spawn && super::texmod::only_offset_differs(was, piece) {
             let strip = nodes.children.iter_descendants(slot.node).find(|e| nodes.strips.contains(*e));
@@ -1968,6 +1973,24 @@ pub(crate) fn scroll(hud: Option<Res<HudView>>, mut images: ResMut<Assets<Image>
 #[cfg(test)]
 #[path = "draw_layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[derive(Resource)]
+pub(super) struct TestPainted(pub Ui, pub TileId);
+
+#[cfg(test)]
+pub(super) fn paint_test_menu(
+    mut commands: Commands,
+    painted: Res<TestPainted>,
+    mut kit: FontKit,
+    mut nodes: Nodes,
+    glyphs: Res<crate::pad::PadGlyphs>,
+    mut drawn: Local<Drawn>,
+) {
+    let measure = |_: f64, _: &str, _: Option<f64>| (0.0, 0.0);
+    let (set, _) = pieces(&painted.0, painted.1, &measure, Select::Whole { kept: &[], strip: None }, true);
+    paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), Brightness::File, 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+}
 
 #[cfg(test)]
 mod tests {
@@ -2600,6 +2623,34 @@ mod tests {
         // A font-8 text's second line one font-8 pitch under its first.
         let lines = text_lines(&large, 8, "ab cd", Some(40.0), Alignment::Left, 40.0);
         assert_eq!(lines.iter().map(|(_, _, base)| *base).collect::<Vec<_>>(), [30.0, 30.0 + 52.0]);
+    }
+
+    #[test]
+    fn measured_and_drawn_cjk_tile_lines_use_the_same_advances() {
+        let mut font = plain_font(31.0, 15.0);
+        let glyph = fnv_font::Glyph {
+            width: 20.0,
+            ..default()
+        };
+        for c in "甲乙丙丁".chars() {
+            font.extra.insert(c, glyph);
+        }
+        crate::cjk_font::with_enabled_for_test(|| {
+            let text = "甲乙丙丁";
+            let wrap = Some(40.0);
+            assert_eq!(dimensions(&font, 1, text, wrap), (40.0, 62.0, 2.0));
+            let lines = text_lines(&font, 1, text, wrap, Alignment::Right, 50.0);
+            assert_eq!(
+                lines
+                    .iter()
+                    .map(|(line, x, base)| (line.text(), line.width, *x, *base))
+                    .collect::<Vec<_>>(),
+                [
+                    ("甲乙".to_string(), 40.0, 10.0, 20.0),
+                    ("丙丁".to_string(), 40.0, 10.0, 51.0)
+                ]
+            );
+        });
     }
 
     /// #979: a text with no `font` is font 1 ([`font_number`]), whose line stands 20 under

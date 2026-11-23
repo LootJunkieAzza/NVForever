@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Default)]
 pub struct Jip6State {
     /// Destruction data a setter changed, whole, by base form (`Game::destruction`).
+    /// Carried across same-run loads via `Game::take_session` / `put_session`, not saved.
     pub destruction: HashMap<FormId, DestructionDef>,
     /// A creature's model list with each model on or off (ToggleCreatureModel), by base.
     pub creature_models: HashMap<FormId, Vec<(String, bool)>>,
@@ -58,7 +59,7 @@ impl Game<'_> {
 
     /// The session copy of a base form's destruction data to change; `None` for a form
     /// without any.
-    fn destruction_mut(&mut self, base: FormId) -> Option<&mut DestructionDef> {
+    pub(crate) fn destruction_mut(&mut self, base: FormId) -> Option<&mut DestructionDef> {
         if !self.other.jip6.destruction.contains_key(&base) {
             let d = self.data.destructibles.get(&base)?.clone();
             self.other.jip6.destruction.insert(base, d);

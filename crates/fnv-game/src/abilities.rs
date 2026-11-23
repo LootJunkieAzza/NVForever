@@ -32,6 +32,9 @@ use fnv_sim::FormId;
 
 /// SPEL SPIT type "Ability" [documented: schema `combat.json` SPIT].
 pub const SPELL_ABILITY: i64 = 4;
+/// ENCH ENIT type "Weapon" [documented: schema `combat.json`; observed: all 59 WEAP EITM of
+/// FalloutNV.esm name one of this type].
+pub const ENCHANTMENT_WEAPON: u32 = 2;
 /// ENCH ENIT type "Apparel" [documented: schema `combat.json`; observed: all 186 ARMO EITM of
 /// FalloutNV.esm name one of this type, all 59 WEAP EITM one of type 2 Weapon].
 pub const ENCHANTMENT_APPAREL: u32 = 3;
@@ -68,7 +71,7 @@ impl Game<'_> {
     /// SporeCarrierPoisonResist read IsSpellTarget 1 and Poison Resistance base 20 + 100;
     /// docs/spec-notes/area-effects.md §3].
     fn abilities_of<'s>(&'s self, spells: &'s [FormId]) -> impl Iterator<Item = FormId> + 's {
-        spells.iter().copied().filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY))
+        spells.iter().copied().filter(|&s| self.spell_type(s) == Some(SPELL_ABILITY))
     }
 
     /// The abilities of the actor's record: the SPLO list of the record that supplies
@@ -129,7 +132,7 @@ impl Game<'_> {
 
     /// Whether an effect is an ability's (an effect of a listed spell of type Ability).
     pub fn is_ability_effect(&self, e: &crate::game::ActiveEffect) -> bool {
-        e.permanent && e.worn.is_none() && self.data.spell_types.get(&e.source) == Some(&SPELL_ABILITY)
+        e.permanent && e.worn.is_none() && self.spell_type(e.source) == Some(SPELL_ABILITY)
     }
 
     /// The abilities in an actor's spell list are active while it is loaded: each one
@@ -139,10 +142,9 @@ impl Game<'_> {
     /// same way, and a dispelled one comes back when the actor is loaded again].
     pub fn sync_abilities(&mut self, r: FormId) {
         if !self.effects_loaded(r) {
-            let data = self.data;
-            let ability = |e: &crate::game::ActiveEffect| e.permanent && e.worn.is_none() && data.spell_types.get(&e.source) == Some(&SPELL_ABILITY);
-            if self.effects.iter().any(|e| e.target == r && ability(e)) {
-                self.dispel(r, None, ability);
+            let ids: Vec<u32> = self.effects.iter().filter(|e| e.target == r && self.is_ability_effect(e)).map(|e| e.id).collect();
+            if !ids.is_empty() {
+                self.dispel(r, None, |e| ids.contains(&e.id));
             }
             if let Some(x) = self.extra.get_mut(&r) {
                 x.dispelled.clear();
@@ -154,12 +156,93 @@ impl Game<'_> {
             .spells
             .iter()
             .copied()
-            .filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY) && !x.dispelled.contains(s))
+            .filter(|&s| self.spell_type(s) == Some(SPELL_ABILITY) && !x.dispelled.contains(&s))
             .filter(|s| !self.effects.iter().any(|e| e.target == r && e.source == *s && e.permanent && e.worn.is_none()))
             .collect();
         for spell in missing {
             self.apply_magic_item(r, spell, None, true);
         }
+    }
+
+    /// Session `SetObjectEffect` override for `form` (or its `TempCloneForm` original):
+    /// `None` when untouched this session, `Some(None)` when explicitly cleared to 0,
+    /// `Some(Some(ench))` when overridden to an enchantment FormID.
+    pub fn object_effect_override(&self, form: FormId) -> Option<Option<FormId>> {
+        let key = "EITM/";
+        let val = self
+            .field_overrides
+            .get(&(form, key.to_string()))
+            .or_else(|| self.field_overrides.get(&(self.unclone(form), key.to_string())))?;
+        match val {
+            fnv_script::vm::XVal::Ref(0) => Some(None),
+            fnv_script::vm::XVal::Ref(id) => Some(Some(FormId(*id))),
+            _ => None,
+        }
+    }
+
+    /// Effective object effect (`EITM`) of a form (`ARMO`, `WEAP`, `EXPL`, …), preferring
+    /// a live `SetObjectEffect` session override on the form or its `TempCloneForm`
+    /// original before falling back to authored record data. Returns `None` when cleared
+    /// to 0 by `SetObjectEffect`.
+    pub fn object_effect(&self, form: FormId) -> Option<FormId> {
+        if let Some(override_effect) = self.object_effect_override(form) {
+            return override_effect;
+        }
+        let orig = self.unclone(form);
+        if let Some(&ench) = self.data.armor_enchantments.get(&orig) {
+            return Some(ench);
+        }
+        match self.data.record_field(orig, "EITM", "") {
+            Some(serde_json::Value::String(s)) if s.starts_with("0x") => {
+                u32::from_str_radix(&s[2..], 16).ok().filter(|&id| id != 0).map(FormId)
+            }
+            _ => None,
+        }
+    }
+
+    /// Snapshot `source`'s effective object effect (`EITM`) onto its `TempCloneForm`
+    /// `clone` so pre-clone overrides carry over while post-clone edits on `source` stay
+    /// isolated from `clone` (including clone-of-clone chains) [design].
+    pub(crate) fn snapshot_object_effect(&mut self, source: FormId, clone: FormId) {
+        let orig = self.unclone(source);
+        if !matches!(self.data.sig(orig).as_ref(), Some(b"ARMO" | b"WEAP" | b"EXPL")) {
+            return;
+        }
+        let eff = self.object_effect(source);
+        self.field_overrides.insert((clone, "EITM/".into()), fnv_script::vm::XVal::Ref(eff.map_or(0, |e| e.0)));
+    }
+
+    /// Apply a `SetObjectEffect` override for an `ARMO`, `WEAP`, or `EXPL` form (including
+    /// `TempCloneForm` clones) [documented: GECK wiki SetObjectEffect]. Refuses unsupported
+    /// base types or mismatched enchantment kinds without mutating state. For `ARMO`, clears
+    /// stale worn-dispel state on change and resyncs loaded actors' worn enchantments.
+    pub(crate) fn set_object_effect(&mut self, form: FormId, effect: Option<FormId>) -> bool {
+        let orig = self.unclone(form);
+        let want = match self.data.sig(orig).as_ref() {
+            Some(b"ARMO") => ENCHANTMENT_APPAREL,
+            Some(b"WEAP" | b"EXPL") => ENCHANTMENT_WEAPON,
+            _ => return false,
+        };
+        if !effect.is_none_or(|e| self.data.enchantment_types.get(&e) == Some(&want)) {
+            return false;
+        }
+        let previous = self.object_effect(form);
+        self.field_overrides.insert((form, "EITM/".into()), fnv_script::vm::XVal::Ref(effect.map_or(0, |e| e.0)));
+        if self.data.sig(orig) == Some(*b"ARMO") && previous != effect {
+            let clones: Vec<FormId> = self.extra.values().flat_map(|x| x.worn_dispelled.iter().copied()).collect();
+            let key = "EITM/".to_string();
+            let matching: std::collections::HashSet<FormId> = clones
+                .into_iter()
+                .filter(|&item| item == form || (self.unclone(item) == form && !self.field_overrides.contains_key(&(item, key.clone()))))
+                .collect();
+            if !matching.is_empty() {
+                for x in self.extra.values_mut() {
+                    x.worn_dispelled.retain(|item| !matching.contains(item));
+                }
+            }
+            self.sync_loaded_actor_effects();
+        }
+        true
     }
 
     /// The enchanted armour an actor wears: (item, its Apparel enchantment). Reads the
@@ -170,7 +253,10 @@ impl Game<'_> {
             .equipped()
             .into_iter()
             .filter_map(|item| {
-                let ench = *self.data.armor_enchantments.get(&item)?;
+                if self.data.sig(self.unclone(item)) != Some(*b"ARMO") {
+                    return None;
+                }
+                let ench = self.object_effect(item)?;
                 (self.data.enchantment_types.get(&ench) == Some(&ENCHANTMENT_APPAREL) && self.data.effect_items.contains_key(&ench)).then_some((item, ench))
             })
             .collect();

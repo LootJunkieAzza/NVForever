@@ -106,6 +106,26 @@ fn timers_package_choices_chatter_and_others_items_are_not_story() {
 }
 
 #[test]
+fn the_lines_begun_since_a_count_are_the_new_ones() {
+    let f = fixture();
+    let mut g = game(&f);
+    let line = |info| EventKind::LineStarted { speaker: FormId(1), target: None, topic: FormId(0x913), info: FormId(info), seconds: 1.0 };
+    g.emit(line(1));
+    let mark = g.softlock_seen.lines_begun;
+    assert_eq!(g.softlock_seen.lines_since(mark).count(), 0);
+    g.emit(line(2));
+    g.emit(line(3));
+    assert_eq!(g.softlock_seen.lines_since(mark).collect::<Vec<_>>(), [FormId(2), FormId(3)]);
+    // More lines than are kept: the count still tells the new from the old.
+    for i in 0..fnv_game::softlock::LINES_KEPT as u32 {
+        g.emit(line(100 + i));
+    }
+    let mark = g.softlock_seen.lines_begun;
+    g.emit(line(7));
+    assert_eq!(g.softlock_seen.lines_since(mark).collect::<Vec<_>>(), [FormId(7)]);
+}
+
+#[test]
 fn combat_and_detection_topics_and_hello_are_chatter() {
     let f = fixture();
     let g = game(&f);
@@ -113,4 +133,20 @@ fn combat_and_detection_topics_and_hello_are_chatter() {
     assert!(g.chatter_topic(FormId(0x911)), "a Detection topic");
     assert!(g.chatter_topic(FormId(0x912)), "HELLO");
     assert!(!g.chatter_topic(FormId(0x913)), "a Topic");
+}
+
+/// #3044: DisablePlayerControls keeps who called it (the unit's label) for the players'
+/// reports; enabling every group again forgets it, enabling some does not.
+#[test]
+fn the_caller_of_disable_player_controls_is_kept_until_all_groups_are_back() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.player.controls_disabled_by.is_none());
+    run(&mut g, "DisablePlayerControls");
+    let caller = g.player.controls_disabled_by.clone().expect("the caller is kept");
+    assert!(!caller.unit.is_empty(), "{caller:?}");
+    run(&mut g, "EnablePlayerControls 1 0 0 0 0 0 0");
+    assert!(g.player.controls_disabled_by.is_some(), "some groups still held");
+    run(&mut g, "EnablePlayerControls");
+    assert!(g.player.controls_disabled_by.is_none(), "all back: forgotten");
 }

@@ -348,13 +348,23 @@ itself turns exactly as the mouse says.
   inertia the climb is 60 % of the original's. The fire clip starts again
   at once at each shot and the arms ease across the step back to its start
   (`Animator::smooth_jump`, the loop seams' inertialization below): its kick shows whole,
-  with no snap between shots. At such a jump the offset keeps only the part of its rate
-  that takes it back towards nothing, never past it (`anim_blend::toward_rest`, the
-  overshoot clamp of David Bollo's inertialization, GDC 2018): handed the new clip's
-  whole speed, an offset of almost nothing was flung out and back, and the lever-action
-  Trail Carbine fired as fast as it cycles down its sights took the left hand 9.5 units
-  off the gun for a quarter of a second at each shot (the clip's own 4.6; a tester's
-  video and the trace `movement-inertia-trace-lever-sights`, 2026-11-17).
+  with no snap between shots. At such a jump the offsets take no rate: every node's dies
+  away on one curve (`anim_blend::jump_share`), so the eased pose is one blend of the old
+  pose and the new clip, as a cross-fade is, and the hands keep their places on the gun.
+  Handed the new clip's whole speed, an offset of almost nothing was flung out and back:
+  the lever-action Trail Carbine fired as fast as it cycles down its sights took the left
+  hand 9.5 units off the gun for a quarter of a second at each shot (the clip's own 4.6; a
+  tester's video and the trace `movement-inertia-trace-lever-sights`, 2026-11-17). Keeping
+  only the part of the rate that took each offset back towards nothing (Bollo's overshoot
+  clamp, GDC 2018) still gave each node its own curve, and the arms and the `Weapon` node
+  eased apart: a bolt or lever worked between quick shots took the right hand 16.7 units
+  off the Cowboy Repeater's grip (the clip's own 10.5) and the left hands of the Varmint
+  Rifle and the BB Gun 5.0 and 7.5 units off the gun (0.1 and 2.2) [observed: the owner's
+  video, 2026-11-19, "Right hand flies off the handle while firing"; the smoke traces
+  `sights-fire-hands-rapid` against `sights-fire-hands-rapid-original`, which measure
+  each hand in the gun's frame for one gun of every first-person sights fire clip; after
+  the change 11.8 and 0.2 / 2.2]. What is left of the right hand's 11.8 comes from the
+  loop seams (below) and later restarts during the action's own motion.
 - Reloads (eighth playtest: "try improving reloads with springs"): with movement inertia
   a reload's, a jam's and each round's clip starts at once and the arms ease across the
   step to it as across a loop seam (the clip's own motion untouched); at its end the arms

@@ -94,6 +94,17 @@ impl SimState {
         actor_ref(placed, created)
     }
 
+    /// Whether a reference is a creature: a placed ACRE, or a reference created at run time
+    /// (PlaceAtMe, PlaceLeveledActorAtMe) of a CREA or LVLC base, read as [`SimState::is_actor`]
+    /// reads it. A created creature has no placement, so its record type alone told it
+    /// from an NPC and it was offered Talk (#3124).
+    pub fn is_creature(&self, form_id: u32) -> bool {
+        let id = FormId(form_id);
+        let placed = self.refs.get(id).map(|p| p.sig);
+        let created = id.is_dynamic().then(|| self.world.peek(id).and_then(|s| self.forms.sig(s.base))).flatten();
+        creature_ref(placed, created)
+    }
+
     /// Whether a reference could pass [`SimState::is_actor`] now or later, whatever the
     /// simulation does: a placed ACHR or ACRE (a placed reference's record type never
     /// changes) or any id without a placement that is dynamic (a created reference's base
@@ -130,9 +141,32 @@ impl SimState {
             return Some(crate::poker_tables::NAME);
         }
         let base = self.base_of(form_id)?;
-        let shown = game.map_or(base, |g| g.display_base(base, FormId(form_id)));
+        let shown = self.shown_base(game, base, form_id);
         let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
         renamed.or_else(|| self.name(shown)).or_else(|| self.name(base))
+    }
+
+    /// [`SimState::ref_name`] for the screen: the name the data (or a script) gives, never
+    /// an Editor ID. `None` for a reference with no name anywhere in its chain, which is
+    /// then shown without one (#3445: a Lonesome Road deathclaw placed from the nameless
+    /// `NVDLC04DeathclawAmbusherLVL` was named by that Editor ID in VATS).
+    pub fn ref_shown_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
+        let base = self.base_of(form_id)?;
+        let shown = self.shown_base(game, base, form_id);
+        let full = |id: FormId| self.forms.get(id).and_then(|b| b.name.as_deref()).filter(|n| !n.is_empty());
+        let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
+        renamed.or_else(|| full(shown)).or_else(|| full(base))
+    }
+
+    /// The actor base whose name the reference `form_id` (placed with `base`) is shown
+    /// by: the "Base Data" source of its template chain, its leveled lists read with the
+    /// seed and at the level the drawn actor's are ([`SimState::pick`]). `base` itself
+    /// without the game data or a chain to follow.
+    fn shown_base(&self, game: Option<&fnv_game::Game<'_>>, base: FormId, form_id: u32) -> FormId {
+        game.map_or(base, |g| {
+            let (seed, at) = self.pick(g, FormId(form_id));
+            g.runtime_template_source(base, seed, at, |d| d.template_base).map_or(base, |(id, _)| id)
+        })
     }
 
     /// A placed reference's pose in the simulation (position, Euler angles in radians)
@@ -260,9 +294,65 @@ pub fn actor_ref(placed_sig: Option<[u8; 4]>, created_base_sig: Option<[u8; 4]>)
     }
 }
 
+/// Whether a reference is a creature, as [`actor_ref`] tells an actor: by its placed record
+/// type (ACRE), else by its created base's (CREA, or the LVLC it was made from).
+pub fn creature_ref(placed_sig: Option<[u8; 4]>, created_base_sig: Option<[u8; 4]>) -> bool {
+    match (placed_sig, created_base_sig) {
+        (Some(s), _) => &s == b"ACRE",
+        (None, Some(b)) => matches!(&b, b"CREA" | b"LVLC"),
+        (None, None) => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #3124: a created creature (PlaceAtMe of a CREA, PlaceLeveledActorAtMe of an LVLC) is a
+    /// creature as a placed ACRE is; a created NPC, a placed ACHR and an item are not.
+    #[test]
+    fn created_creatures_are_creatures_as_placed_ones_are() {
+        assert!(creature_ref(Some(*b"ACRE"), None));
+        assert!(!creature_ref(Some(*b"ACHR"), None) && !creature_ref(Some(*b"REFR"), None));
+        assert!(creature_ref(None, Some(*b"CREA")) && creature_ref(None, Some(*b"LVLC")));
+        assert!(!creature_ref(None, Some(*b"NPC_")) && !creature_ref(None, Some(*b"LVLN")) && !creature_ref(None, Some(*b"MISC")) && !creature_ref(None, None));
+
+        // Over a simulation: a creature and an NPC made at run time (bases known by their
+        // signatures alone, as hitvol's tests make them).
+        let mut forms = FormStore::default();
+        forms.sigs.insert(FormId(0x10), *b"CREA");
+        forms.sigs.insert(FormId(0x11), *b"NPC_");
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
+        let refs: &'static RefTable = Box::leak(Box::default());
+        let mut sim = SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) };
+        let creature = sim.world.place(FormId(0x10), None, [0.0; 3], [0.0; 3], 1).unwrap().0;
+        let npc = sim.world.place(FormId(0x11), None, [0.0; 3], [0.0; 3], 1).unwrap().0;
+        assert!(sim.is_creature(creature) && sim.is_actor(creature));
+        assert!(!sim.is_creature(npc) && sim.is_actor(npc));
+    }
+
+    /// #3445: the screen never shows an Editor ID as a reference's name.
+    #[test]
+    fn a_nameless_base_is_shown_without_a_name() {
+        use fnv_sim::forms::{ActorBase, BaseData, BaseForm};
+        let actor = |id: u32, name: Option<&str>| BaseForm {
+            id: FormId(id),
+            sig: *b"CREA",
+            edid: Some(format!("Edid{id:X}")),
+            name: name.map(str::to_string),
+            script: None,
+            prompt: None,
+            voice_filter: false,
+            data: BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None }),
+        };
+        let sim = test_world::sim(vec![actor(0x10, None), actor(0x11, Some("Deathclaw")), actor(0x12, Some(""))], vec![test_world::placed(0x20, 0x10), test_world::placed(0x21, 0x11), test_world::placed(0x22, 0x12)]);
+        // The log's name falls back on the Editor ID; the screen's does not.
+        assert_eq!(sim.ref_name(None, 0x20), Some("Edid10"));
+        assert_eq!(sim.ref_shown_name(None, 0x20), None);
+        assert_eq!(sim.ref_shown_name(None, 0x21), Some("Deathclaw"));
+        assert_eq!(sim.ref_shown_name(None, 0x22), None);
+        assert_eq!(sim.ref_shown_name(None, 0x99), None);
+    }
 
     #[test]
     fn created_actors_are_actors_as_placed_ones_are() {

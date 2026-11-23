@@ -122,10 +122,19 @@ fn groups(flags: [bool; 7]) -> Vec<&'static str> {
     flags.into_iter().zip(nvf_play::control::group::NAMES).filter_map(|(locked, name)| locked.then_some(name)).collect()
 }
 
-/// [design / file refs] Standard control flags store no caller (`Game::player`);
-/// Alt flags retain plugin names (`Game::other.alt_locks`). Do not infer a script.
-fn sources(standard: [bool; 7], alt: &std::collections::BTreeMap<String, [bool; 7]>) -> (Vec<Value>, usize) {
-    let standard = standard.iter().any(|x| *x).then(|| json!({ "by": "DisablePlayerControls", "script": null, "groups": groups(standard) }));
+/// [design / file refs] Standard control flags keep the last DisablePlayerControls call
+/// that holds a group (`PlayerState::controls_disabled_by`: its script unit, quest and
+/// reference, #3044); Alt flags retain plugin names (`Game::other.alt_locks`).
+fn sources(standard: [bool; 7], caller: Option<&fnv_game::game::ControlsCaller>, alt: &std::collections::BTreeMap<String, [bool; 7]>) -> (Vec<Value>, usize) {
+    let standard = standard.iter().any(|x| *x).then(|| {
+        json!({
+            "by": "DisablePlayerControls",
+            "script": caller.map(|c| cut(&c.unit)),
+            "quest": caller.and_then(|c| c.quest).map(|q| format!("{:08X}", q.0)),
+            "ref": caller.and_then(|c| c.reference).map(|r| format!("{:08X}", r.0)),
+            "groups": groups(standard),
+        })
+    });
     let all = standard.into_iter().chain(
         alt.iter()
             .filter(|(_, flags)| flags.iter().any(|x| *x))
@@ -143,10 +152,20 @@ fn sources(standard: [bool; 7], alt: &std::collections::BTreeMap<String, [bool; 
     (kept, omitted)
 }
 
-/// [design, #2403] FormID order makes the bounded selection deterministic. Include
-/// background quests too: a script holding controls need not belong to a shown quest.
-fn quest_stages<'a>(quests: impl Iterator<Item = (&'a fnv_sim::FormId, &'a fnv_game::quest::QuestState)>) -> Vec<Value> {
-    quests.filter(|(_, q)| q.running && !q.completed).take(anomaly::CONTROLS_LOCKED_QUESTS).map(|(id, q)| json!({ "quest": format!("{:08X}", id.0), "stage": q.stage() })).collect()
+/// [design, #2403, #3044] The quests that tell which scene holds the player: the lock's
+/// own quest (`owner`) and those whose stage changed since the hold began (`at_start`),
+/// running or not, in FormID order, bounded. Not every running quest: the list said
+/// nothing and made the row large.
+fn quest_stages<'a>(
+    quests: impl Iterator<Item = (&'a fnv_sim::FormId, &'a fnv_game::quest::QuestState)>,
+    owner: Option<fnv_sim::FormId>,
+    at_start: &std::collections::HashMap<fnv_sim::FormId, i32>,
+) -> Vec<Value> {
+    quests
+        .filter(|(id, q)| Some(**id) == owner || at_start.get(*id).is_none_or(|s| *s != q.stage()))
+        .take(anomaly::CONTROLS_LOCKED_QUESTS)
+        .map(|(id, q)| json!({ "quest": format!("{:08X}", id.0), "stage": q.stage(), "owns_lock": Some(*id) == owner }))
+        .collect()
 }
 
 /// [design, #2403] Fingerprint logical progress, excluding hover, countdowns and
@@ -383,6 +402,7 @@ pub(super) fn detect(
     menus: Menus,
     mut presses: Presses,
     mut c: ResMut<Collector>,
+    mut stages_at_start: Local<Option<std::collections::HashMap<fnv_sim::FormId, i32>>>,
 ) {
     let presses = presses.count();
     let now = real.elapsed_secs_f64();
@@ -394,11 +414,20 @@ pub(super) fn detect(
     if let Some(g) = g {
         runtime_screen(g, &mut hash);
     }
-    let held = menu.is_some() || dialogue.is_some() || flags.iter().any(|x| *x);
+    // The pause menu is the player's own and can always be left: nothing counts as held
+    // while it is up (#3044: most 0.8.0 events were a player in the pause menu).
+    let paused = menus.paused.as_ref().is_some_and(|p| p.0);
+    let held = !paused && (menu.is_some() || dialogue.is_some() || flags.iter().any(|x| *x));
     let progress = (held && !loading.as_ref().is_some_and(|l| l.active())).then_some(LockProgress { screen: hash.finish(), groups: flags });
+    // The quests' stages as a hold begins, to name those that move during it.
+    match (&progress, g) {
+        (None, _) => *stages_at_start = None,
+        (Some(_), Some(g)) if stages_at_start.is_none() => *stages_at_start = Some(g.quests.iter().map(|(id, q)| (*id, q.stage())).collect()),
+        _ => {}
+    }
     let c = &mut *c;
     let Some(held_s) = c.detectors.controls_locked.step(now, progress, presses) else { return };
-    let (sources, omitted) = g.map_or_else(|| (Vec::new(), 0), |g| sources(g.player.controls_disabled, &g.other.alt_locks));
+    let (sources, omitted) = g.map_or_else(|| (Vec::new(), 0), |g| sources(g.player.controls_disabled, g.player.controls_disabled_by.as_ref(), &g.other.alt_locks));
     let dialogue = dialogue.map(|d| {
         json!({
             "speaker": format!("{:08X}", d.actor.0),
@@ -409,7 +438,9 @@ pub(super) fn detect(
             "offered_topics": d.choices.iter().take(anomaly::CONTROLS_LOCKED_TOPICS).map(|c| format!("{:08X}", c.topic.0)).collect::<Vec<_>>(),
         })
     });
-    let quests = g.map(|g| quest_stages(g.quests.iter())).unwrap_or_default();
+    let owner = g.and_then(|g| g.player.controls_disabled_by.as_ref()).and_then(|c| c.quest);
+    let none = std::collections::HashMap::new();
+    let quests = g.map(|g| quest_stages(g.quests.iter(), owner, stages_at_start.as_ref().unwrap_or(&none))).unwrap_or_default();
     c.detectors.fire(
         &mut c.summary,
         &c.here,
@@ -906,18 +937,50 @@ mod tests {
         assert!(!key_press(&&event));
     }
 
+    /// #3044: only the lock's quest and the quests whose stage moved since the hold began,
+    /// bounded; quests that sat still are left out.
     #[test]
-    fn running_quest_stages_are_bounded() {
+    fn the_lock_s_quest_and_moved_quests_are_listed_bounded() {
         let mut quests = std::collections::BTreeMap::new();
-        for i in 0..20 {
-            let mut quest = fnv_game::quest::QuestState { running: i != 0, completed: i == 1, ..Default::default() };
-            quest.stages_done.insert(i as i32 * 10);
+        for i in 0..30 {
+            let mut quest = fnv_game::quest::QuestState { running: true, ..Default::default() };
+            quest.stages_done.insert(10);
             quests.insert(fnv_sim::FormId(i), quest);
         }
-        let stages = quest_stages(quests.iter());
-        assert_eq!(stages.len(), anomaly::CONTROLS_LOCKED_QUESTS);
-        assert_eq!(stages[0], json!({ "quest": "00000002", "stage": 20 }));
-        assert_eq!(stages.last().unwrap()["quest"], "0000000B");
+        let at_start: std::collections::HashMap<_, _> = quests.iter().map(|(id, q)| (*id, q.stage())).collect();
+        // Nothing moved, no lock quest: an empty list.
+        assert!(quest_stages(quests.iter(), None, &at_start).is_empty());
+        // Quest 3 moved; quest 7 holds the lock.
+        quests.get_mut(&fnv_sim::FormId(3)).unwrap().stages_done.insert(20);
+        let stages = quest_stages(quests.iter(), Some(fnv_sim::FormId(7)), &at_start);
+        assert_eq!(stages, vec![json!({ "quest": "00000003", "stage": 20, "owns_lock": false }), json!({ "quest": "00000007", "stage": 10, "owns_lock": true })]);
+        // Every quest moved: bounded.
+        for q in quests.values_mut() {
+            q.stages_done.insert(30);
+        }
+        assert_eq!(quest_stages(quests.iter(), None, &at_start).len(), anomaly::CONTROLS_LOCKED_QUESTS);
+    }
+
+    /// #3044: the DisablePlayerControls caller is named (its unit, quest and reference).
+    #[test]
+    fn the_lock_names_the_script_that_called_disable_player_controls() {
+        let caller = fnv_game::game::ControlsCaller { unit: "VCG01 stage 10".into(), quest: Some(fnv_sim::FormId(0x0010_4C1C)), reference: Some(fnv_sim::FormId(0x14)) };
+        let (sources, _) = sources([true, false, false, false, false, false, false], Some(&caller), &Default::default());
+        assert_eq!(sources[0]["script"], "VCG01 stage 10");
+        assert_eq!(sources[0]["quest"], "00104C1C");
+        assert_eq!(sources[0]["ref"], "00000014");
+    }
+
+    /// #3044: the pause menu is the player's own: a minute in it with key presses and the
+    /// controls held fires nothing; the same minute with it closed fires.
+    #[test]
+    fn the_pause_menu_does_not_count_as_a_lock() {
+        let mut app = detector_app();
+        app.insert_resource(nvf_play::pause::Paused(true)).init_resource::<nvf_play::pause::Page>();
+        sample(&mut app, 0.0, 0);
+        sample(&mut app, 59.0, 5);
+        sample(&mut app, 130.0, 5);
+        assert!(app.world().resource::<Collector>().summary.events.is_empty(), "paused: no controls_locked");
     }
 
     #[test]
@@ -935,7 +998,7 @@ mod tests {
         for i in 0..20 {
             alt.insert(format!("{i:02}{}", "x".repeat(200)), [true; 7]);
         }
-        let (sources, omitted) = sources([true, false, false, false, false, false, false], &alt);
+        let (sources, omitted) = sources([true, false, false, false, false, false, false], None, &alt);
         assert_eq!(sources.len(), anomaly::CONTROLS_LOCKED_SOURCES);
         assert_eq!(omitted, 11);
         assert_eq!(sources[0]["by"], "DisablePlayerControls");

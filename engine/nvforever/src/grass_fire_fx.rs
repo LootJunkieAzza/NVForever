@@ -282,6 +282,9 @@ fn sync(
                     FireLight { age: 0.0, out: None, full, phase: bits(4, 8) * std::f32::consts::TAU },
                     Transform::from_translation(Vec3::new(c[0], c[1], z + 48.0)),
                     ChildOf(world_root),
+                    // ALC shadows (`crate::light_shadows`); the flames and smoke
+                    // cast none (`crate::shot_fx::spawn_playing_itself`).
+                    crate::light_shadows::ShadowSource(crate::light_shadows::SourceKind::GrassFire),
                 ))
                 .id();
             fx.lights += 1;

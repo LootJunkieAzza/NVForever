@@ -2,6 +2,7 @@
   "format": "fnv.script.actions/1",
   "title": "Headless Things That Go Boom (VMS23): Volare! done, the Boomers' answer not yet asked: 'let me know' (VMS23 40)",
   "given": [
+    {"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}},
     {"kind": "quest", "quest": "VMQ01", "running": false, "completed": true, "stage": 100},
     {"kind": "quest", "quest": "VMQTops", "running": false, "completed": true, "stage": 100},
     {"kind": "global", "name": "VStoryEventVisitsLucky38", "value": 1},

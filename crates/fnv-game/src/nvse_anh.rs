@@ -24,29 +24,30 @@ fn num(args: &[XVal], k: usize) -> f64 {
 }
 
 impl Game<'_> {
-    /// An encounter zone's record (ECZN DATA) with SetZoneMinLevel's, SetZoneOwner's and
-    /// SetZoneFlag's (`nvse_lutana`) changes.
+    /// An encounter zone's record (ECZN DATA) with saved `SetZoneRespawns`
+    /// (`World::zone_respawns_override`) and session `SetZoneMinLevel`,
+    /// `SetZoneOwner`, and `SetZoneFlag` (`nvse_lutana`) changes.
     pub(crate) fn zone(&self, z: FormId) -> Option<fnv_sim::forms::ZoneDef> {
-        let mut d = *self.world.forms.zones.get(&z)?;
+        let mut d = self.world.effective_zone_def(z)?;
+        if let Some(respawns) = self.world.zone_respawns_override(z) {
+            d.never_resets = !respawns;
+        }
         if let Some(c) = self.other.zone_changes.get(&z) {
-            d.min_level = c.min_level.unwrap_or(d.min_level);
             if let Some(o) = c.owner {
                 d.owner = (o.0 != 0).then_some(o);
             }
             d.never_resets = c.never_resets.unwrap_or(d.never_resets);
-            d.match_pc_below_min = c.match_pc_below_min.unwrap_or(d.match_pc_below_min);
         }
         Some(d)
     }
 }
 
-/// SetZoneMinLevel's, SetZoneOwner's and SetZoneFlag's (`nvse_lutana`) changes to a zone.
+/// SetZoneOwner's and session SetZoneFlag bit-1 (`nvse_lutana`) changes to a zone
+/// (`min_level` and `match_pc_below_min` live on `fnv_sim::World` / `WorldSession`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ZoneChange {
-    pub min_level: Option<i8>,
     pub owner: Option<FormId>,
     pub never_resets: Option<bool>,
-    pub match_pc_below_min: Option<bool>,
 }
 
 /// The functions of this file; `None` for any other name.
@@ -73,15 +74,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getzonematchlevel" => XVal::Num(form(args, 0).and_then(|z| g.zone(z)).map_or(0.0, |d| f64::from(u8::from(d.match_pc_below_min)))),
         "getzoneowner" => XVal::Ref(form(args, 0).and_then(|z| g.zone(z)).and_then(|d| d.owner).map_or(0, |o| o.0)),
         // `zone level` and `zone owner` [documented: SetZoneMinLevel; SetZoneOwner]; for
-        // the session, read by the getters [hypothesis: a zone already entered keeps its
-        // level].
+        // the session, read by the getters and by `World::enter_zone` / `World::level_at`
+        // (a zone already entered keeps its level [hypothesis]).
         "setzoneminlevel" | "setzoneowner" => {
             if let Some(z) = form(args, 0).filter(|z| g.world.forms.zones.contains_key(z)) {
-                let c = g.other.zone_changes.entry(z).or_default();
                 if name == "setzoneminlevel" {
-                    c.min_level = Some(num(args, 1).clamp(f64::from(i8::MIN), f64::from(i8::MAX)) as i8);
+                    g.world.set_zone_min_level(z, num(args, 1).clamp(f64::from(i8::MIN), f64::from(i8::MAX)) as i8);
                 } else {
-                    c.owner = Some(form(args, 1).unwrap_or(FormId(0)));
+                    g.other.zone_changes.entry(z).or_default().owner = Some(form(args, 1).unwrap_or(FormId(0)));
                 }
             }
             zero

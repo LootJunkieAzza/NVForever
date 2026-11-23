@@ -82,6 +82,35 @@ fn synchronized_categories_keep_search_separate_from_category_counts() {
     assert_eq!(w.snapshot(), before);
 }
 
+#[test]
+fn synchronized_categories_stay_on_emptied_category_after_transfer() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // Container mode: transferring the sole weapon out of Weapons keeps both columns on Weapons
+    // (Stewie's Tweaks bPreventSwitchWhenEmptyingCategory).
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    m.sync_categories = true;
+    m.apply(&mut w, Command::SetCategory(Side::Player, Category::Weapons));
+    assert_eq!(m.category, [Category::Weapons; 2]);
+    assert_eq!(names(m.list(Side::Player)), [("Pistol", 1)]);
+    select(&mut m, Side::Player, "Pistol");
+    assert!(m.apply(&mut w, Command::One).changed);
+    assert!(m.list(Side::Player).rows.is_empty(), "player weapons category is now empty");
+    assert_eq!(m.category, [Category::Weapons; 2], "emptying a synchronized category must not switch back to All");
+    // Barter mode: offering and accepting the sole weapon out of Weapons keeps both columns on Weapons.
+    let mut wb = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut b = barter(&mut wb);
+    b.sync_categories = true;
+    b.apply(&mut wb, Command::SetCategory(Side::Player, Category::Weapons));
+    assert_eq!(b.category, [Category::Weapons; 2]);
+    assert_eq!(names(b.list(Side::Player)), [("Pistol", 1)]);
+    select(&mut b, Side::Player, "Pistol");
+    assert!(b.apply(&mut wb, Command::One).changed);
+    assert!(b.apply(&mut wb, Command::Accept).changed);
+    assert!(b.list(Side::Player).rows.is_empty(), "player weapons category is now empty");
+    assert_eq!(b.category, [Category::Weapons; 2], "emptying a synchronized barter category keeps Weapons");
+}
+
 fn search_in_app(app: &mut App, text: &str) {
     app.world_mut()
         .resource_scope(|world, mut active: bevy::prelude::Mut<crate::menu::ActiveMenu>| {

@@ -43,6 +43,10 @@
 //!   (`nvf_assets::material_anim`) [activators.md §6].
 //! - **Actors**: a request for an actor (a reference to an NPC or a creature) is handed
 //!   to `actor_groups.rs`.
+//! - **Sequence frequencies**: `SetAnimSequenceFrequency` overrides
+//!   (`fnv_game::Game::anim_frequency`, `docs/spec-notes/jip-last-14.md`) apply to drawn
+//!   object sequences both on sequence start and live mid-sequence; when no overrides
+//!   are active, unmodded vanilla playback is unchanged.
 //!
 //! A node track on the rig's root is not applied: the root carries the placement
 //! [design]. Log: `playgroup: <ref> plays <group> (once|loop, <s> s, flag n)`, and at
@@ -65,6 +69,11 @@ use std::sync::Arc;
 /// NIF cycle type "clamp": played once [documented: nif.xml CycleType].
 const CLAMP: i64 = 2;
 
+/// Maximum playback frequency applied to [`Playing::frequency`] from
+/// `SetAnimSequenceFrequency`, matching `nvf_assets::anim_play::MAX_FREQUENCY` so
+/// `Playing::time` stays finite [design].
+const MAX_PLAYBACK_FREQUENCY: f32 = 1e3;
+
 /// On the root of a drawn object whose model has named sequences.
 #[derive(Component)]
 pub struct GroupRig {
@@ -80,11 +89,25 @@ pub struct GroupRig {
     last: Option<(f32, i64)>,
     /// Drawn by `nvf_play::script_draw` (enabled at run time), not render streaming.
     run_time: bool,
+    /// Whether [`Playing::frequency`] on this rig was overridden by
+    /// `SetAnimSequenceFrequency`, so clearing overrides restores the clip's own
+    /// frequency while unmodded vanilla frames do zero per-rig work [design].
+    freq_overridden: bool,
 }
 
 impl GroupRig {
     pub fn new(form_id: u32, model: Arc<PreparedModel>, source: &str, nodes: HashMap<String, Entity>) -> GroupRig {
-        GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None, run_time: false }
+        GroupRig {
+            form_id,
+            model,
+            source: source.to_string(),
+            nodes,
+            current: None,
+            next: None,
+            last: None,
+            run_time: false,
+            freq_overridden: false,
+        }
     }
 
     /// The model file it was drawn from.
@@ -106,6 +129,14 @@ impl GroupRig {
         self.model.rig.as_ref()?.groups.get(i)
     }
 
+    /// The NIF clip's own base frequency for `name`, if present in the model's rig.
+    fn base_frequency(&self, name: &str) -> Option<f32> {
+        let rig = self.model.rig.as_ref()?;
+        rig.group(name)
+            .or_else(|| rig.idle.as_ref().filter(|c| c.name.eq_ignore_ascii_case(name)))
+            .map(|c| c.frequency)
+    }
+
     /// Its model's sequence names.
     pub fn sequence_names(&self) -> Vec<String> {
         self.model.rig.as_ref().map(|r| r.groups.iter().map(|c| c.name.clone()).collect()).unwrap_or_default()
@@ -114,6 +145,26 @@ impl GroupRig {
     fn find(&self, name: &str) -> Option<usize> {
         self.model.rig.as_ref()?.groups.iter().position(|c| c.name.eq_ignore_ascii_case(name))
     }
+}
+
+/// Resolve the effective playback frequency for `form_id`'s sequence `seq_name`:
+/// `(frequency, overridden)`. Returns `(base_frequency, false)` when no override is
+/// active so unmodded vanilla playback is bit-for-bit unchanged; otherwise returns the
+/// sanitized override clamped to `0.0..=MAX_PLAYBACK_FREQUENCY` [documented: GECK wiki
+/// SetAnimSequenceFrequency; hypothesis: replaces `NiControllerSequence`'s frequency
+/// and exact sequence overrides `"*"`; design: non-finite rejected, `< 0` clamped to
+/// `0.0`, capped at `MAX_PLAYBACK_FREQUENCY`].
+fn resolve_frequency(game: &fnv_game::Game<'_>, form_id: u32, seq_name: &str, base_frequency: f32) -> (f32, bool) {
+    match game.anim_frequency(FormId(form_id), seq_name) {
+        Some(f) if f.is_finite() => (f.clamp(0.0, MAX_PLAYBACK_FREQUENCY), true),
+        _ => (base_frequency, false),
+    }
+}
+
+/// Whether a clamped sequence has reached and holds its end. A paused zero-length
+/// sequence (`frequency == 0` at `start`) does not spuriously complete [design].
+fn clamped_ended(p: &Playing) -> bool {
+    p.cycle_type == CLAMP && p.time >= p.stop && (p.frequency > 0.0 || p.time > p.start)
 }
 
 /// A sound key a playing group passed: SOUN editor ID, where (game units).
@@ -166,14 +217,31 @@ enum StartAt {
 }
 
 /// Start clip `i` of `rig` on its root (replacing what played there).
-fn start(commands: &mut Commands, root: Entity, rig: &mut GroupRig, group: u16, i: usize, from: StartAt, mats: Option<&mut RigMaterials>) {
+#[allow(clippy::too_many_arguments)]
+fn start(
+    commands: &mut Commands,
+    root: Entity,
+    rig: &mut GroupRig,
+    group: u16,
+    i: usize,
+    from: StartAt,
+    mats: Option<&mut RigMaterials>,
+    game: &fnv_game::Game<'_>,
+) {
     let Some(clip) = rig.clip(i) else { return };
     let root_name = rig.model.rig.as_ref().and_then(|r| r.nodes.first()).and_then(|n| n.name.clone());
     let mut p = Playing::new(&rig.source, clip, |n| if Some(n) == root_name.as_deref() { None } else { rig.nodes.get(n).copied() });
+    let (freq, overridden) = resolve_frequency(game, rig.form_id, &clip.name, clip.frequency);
+    if overridden {
+        p.frequency = freq;
+    }
     match from {
         StartAt::Start => {}
         StartAt::End => p.time = clip.stop,
-        StartAt::After(s) => p.time = (clip.start + s.max(0.0)).min(clip.stop),
+        StartAt::After(s) => {
+            let elapsed = if overridden { s.max(0.0) * freq } else { s.max(0.0) };
+            p.time = (clip.start + elapsed).min(clip.stop);
+        }
     }
     let at_end = from == StartAt::End;
     if let Some(m) = mats {
@@ -182,6 +250,7 @@ fn start(commands: &mut Commands, root: Entity, rig: &mut GroupRig, group: u16, 
     }
     let clip_start = clip.start;
     commands.entity(root).insert(p);
+    rig.freq_overridden = overridden;
     rig.current = Some((group, i));
     rig.next = None;
     // From its start, keys at the start time included; shown at its end, none.
@@ -199,7 +268,7 @@ pub fn drive(
     mut commands: Commands,
     mut st: ResMut<ObjectAnims>,
     mut script: Option<ResMut<ScriptState>>,
-    mut rigs: Query<(Entity, &mut GroupRig, Option<&Playing>, Option<&mut RigMaterials>, &GlobalTransform)>,
+    mut rigs: Query<(Entity, &mut GroupRig, Option<&mut Playing>, Option<&mut RigMaterials>, &GlobalTransform)>,
     mut sounds: MessageWriter<ObjectSound>,
     actors: Query<&ActorRig>,
     sim: Option<Res<nvf_play::sim::SimState>>,
@@ -253,7 +322,7 @@ pub fn drive(
             };
             let once = rig.clip(i).is_some_and(|c| c.cycle_type == CLAMP);
             let from = if once { StartAt::End } else { StartAt::Start };
-            start(&mut commands, root, &mut rig, group, i, from, mats.map(|m| m.into_inner()));
+            start(&mut commands, root, &mut rig, group, i, from, mats.map(|m| m.into_inner()), game);
             started.insert(root);
             st.stats.restored += 1;
             if !once {
@@ -274,7 +343,7 @@ pub fn drive(
             (true, false) => StartAt::End,
             (true, true) => StartAt::After(now - asked),
         };
-        start(&mut commands, root, &mut rig, r.group, i, from, mats.map(|m| m.into_inner()));
+        start(&mut commands, root, &mut rig, r.group, i, from, mats.map(|m| m.into_inner()), game);
         started.insert(root);
         st.stats.shown_when_drawn += 1;
         if from == StartAt::End {
@@ -350,16 +419,16 @@ pub fn drive(
         }
         // Flag 0: what plays finishes first (a group played once that has not ended, or
         // any loop, the idle included).
-        let busy = playing.is_some_and(|p| !(p.cycle_type == CLAMP && p.time >= p.stop) && !p.held);
+        let busy = playing.as_deref().is_some_and(|p| !clamped_ended(p) && !p.held);
         if r.start == Start::Normal && busy {
             rig.next = Some((r.group, i));
             st.stats.queued += 1;
             if fresh {
-                info!("playgroup: {who} plays {desc}, flag 0: after {} ends its cycle", playing.map(|p| p.name.as_str()).unwrap_or("-"));
+                info!("playgroup: {who} plays {desc}, flag 0: after {} ends its cycle", playing.as_deref().map(|p| p.name.as_str()).unwrap_or("-"));
             }
             continue;
         }
-        start(&mut commands, root, &mut rig, r.group, i, StartAt::Start, mats.map(|m| m.into_inner()));
+        start(&mut commands, root, &mut rig, r.group, i, StartAt::Start, mats.map(|m| m.into_inner()), game);
         started.insert(root);
         st.stats.started += 1;
         if fresh {
@@ -367,18 +436,24 @@ pub fn drive(
         }
     }
 
-    // Ends, queued groups and sound keys.
+    let has_freq_overrides = game.has_anim_frequencies();
+
+    // Ends, queued groups, live frequency overrides, and sound keys.
     for (root, mut rig, playing, mats, at) in &mut rigs {
-        let Some(p) = playing.filter(|_| !started.contains(&root)) else { continue };
-        let cycles = cycle_count(p.time, p.start, p.stop, p.cycle_type);
-        let t = p.sequence_time();
-        let ended = p.cycle_type == CLAMP && p.time >= p.stop;
+        if started.contains(&root) {
+            continue;
+        }
+        let Some(p_ref) = playing.as_deref() else { continue };
+        let cycles = cycle_count(p_ref.time, p_ref.start, p_ref.stop, p_ref.cycle_type);
+        let t = p_ref.sequence_time();
+        let p_start = p_ref.start;
+        let ended = clamped_ended(p_ref);
         let wrapped = rig.last.is_some_and(|(_, c)| c != cycles);
         // Sound keys of the group playing, passed since last frame.
         if let (Some((_, i)), Some((t0, c0))) = (rig.current, rig.last) {
             if let Some(clip) = rig.clip(i) {
                 for (kt, k) in &clip.text_keys {
-                    if passed(*kt, (t0, c0), (t, cycles), p.start) {
+                    if passed(*kt, (t0, c0), (t, cycles), p_start) {
                         if let Some(key) = fnv_collide::anim::AnimSequence::sound_of(k) {
                             st.stats.sounds += 1;
                             let w = crate::world::bevy_to_game(at.translation()).to_array();
@@ -392,7 +467,7 @@ pub fn drive(
         rig.last = Some((t, cycles));
         if let Some((g, i)) = rig.next {
             if ended || wrapped {
-                start(&mut commands, root, &mut rig, g, i, StartAt::Start, mats.map(|m| m.into_inner()));
+                start(&mut commands, root, &mut rig, g, i, StartAt::Start, mats.map(|m| m.into_inner()), game);
                 st.stats.started += 1;
                 if let Some(c) = rig.clip(i) {
                     info!("playgroup: {} plays {}, its turn come", game.data.name(FormId(rig.form_id)), describe(c));
@@ -408,6 +483,19 @@ pub fn drive(
                     game.anims.set_playing(id, None);
                 }
                 debug!("playgroup: {} holds the end of its group", game.data.name(id));
+            }
+        }
+        if has_freq_overrides || rig.freq_overridden {
+            let base = rig.base_frequency(&p_ref.name).unwrap_or(p_ref.frequency);
+            let (freq, overridden) = resolve_frequency(game, rig.form_id, &p_ref.name, base);
+            let needs_write = p_ref.frequency.to_bits() != freq.to_bits();
+            if needs_write {
+                if let Some(mut p) = playing {
+                    p.frequency = freq;
+                }
+            }
+            if rig.freq_overridden != overridden {
+                rig.freq_overridden = overridden;
             }
         }
     }
@@ -455,10 +543,15 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
     );
 }
 
+/// A rig [`publish_poses`] reads: its clip, and the reference or scripted group it moves.
+type PosedRig = (&'static Playing, AnyOf<(&'static nvf_play::RefVisual, &'static GroupRig)>);
+
 /// The clip every drawn object plays and how far into it (seconds after its start), for
 /// the collision that follows it (`nvf_play::phys::ObjectPoses`, issue #1396): the rigs
 /// of scripted groups, idles, activators and containers alike.
-pub fn publish_poses(poses: Option<ResMut<nvf_play::phys::ObjectPoses>>, rigs: Query<(&Playing, AnyOf<(&nvf_play::RefVisual, &GroupRig)>)>) {
+/// The full-detail ring's draw-only rigs (`nvf_play::DrawOnly`) are not the game's: their
+/// poses are not published.
+pub fn publish_poses(poses: Option<ResMut<nvf_play::phys::ObjectPoses>>, rigs: Query<PosedRig, Without<nvf_play::DrawOnly>>) {
     let Some(mut poses) = poses else { return };
     let poses = &mut poses.playing;
     poses.clear();
@@ -540,5 +633,244 @@ mod tests {
         // A loop passes its keys again in its next cycle.
         assert_eq!(cycle_count(0.12, start, stop, 0), 1);
         assert!(passed(k, (0.09, 0), (0.04, 1), start));
+    }
+
+    fn make_clip(name: &str, start: f32, stop: f32, frequency: f32, cycle_type: i64) -> Clip {
+        let mut c = Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
+        c.name = name.to_string();
+        c.start = start;
+        c.stop = stop;
+        c.frequency = frequency;
+        c.cycle_type = cycle_type;
+        c
+    }
+
+    fn make_model(groups: Vec<Clip>, idle: Option<Clip>) -> Arc<PreparedModel> {
+        Arc::new(PreparedModel {
+            rig: Some(nvf_assets::model::Rig {
+                nodes: Vec::new(),
+                shapes: Vec::new(),
+                idle,
+                door: None,
+                groups,
+                effect: None,
+            }),
+            ..Default::default()
+        })
+    }
+
+    fn advance_test_animations(
+        time: Res<Time>,
+        playing: Query<&mut Playing>,
+        transforms: Query<&mut Transform>,
+        visibility: Query<&mut Visibility>,
+    ) {
+        nvf_assets::anim_play::advance_instances(time, playing, transforms, visibility);
+    }
+
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .init_resource::<ObjectAnims>()
+            .init_resource::<ActorGroups>()
+            .add_message::<ObjectSound>()
+            .insert_resource(ScriptState::over_plugins(&[]))
+            .add_systems(Update, (drive, advance_test_animations).chain());
+        app
+    }
+
+    fn step_app(app: &mut App, dt_secs: f32) {
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(dt_secs));
+        app.update();
+    }
+
+    fn run_script_on(app: &mut App, form_id: u32, body: &str) {
+        let mut script = app.world_mut().resource_mut::<ScriptState>();
+        let game = &mut script.rt.as_mut().unwrap().game;
+        let ctx = fnv_game::game::RunCtx { self_ref: Some(FormId(form_id)), ..Default::default() };
+        game.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx)
+            .unwrap_or_else(|e| panic!("{body}: {e}"));
+    }
+
+    fn queue_play_group(app: &mut App, form_id: u32, group: u16, name: &str) {
+        let mut script = app.world_mut().resource_mut::<ScriptState>();
+        let game = &mut script.rt.as_mut().unwrap().game;
+        game.anims.set_playing(FormId(form_id), Some(group));
+        game.anims.requests.push(AnimRequest {
+            on: FormId(form_id),
+            group,
+            name: Some(name.to_string()),
+            start: Start::Immediate,
+        });
+    }
+
+    #[test]
+    fn vanilla_without_override_keeps_clip_frequency_and_advances_normally() {
+        let mut app = test_app();
+        let ref_id = 0x0001_0001;
+        let forward = make_clip("Forward", 0.0, 1.0, 1.25, CLAMP);
+        let model = make_model(vec![forward], None);
+        let root = app
+            .world_mut()
+            .spawn((GroupRig::new(ref_id, model, "test.nif", HashMap::new()), GlobalTransform::default()))
+            .id();
+
+        queue_play_group(&mut app, ref_id, 2, "Forward");
+        step_app(&mut app, 0.4);
+        let p = app.world().get::<Playing>(root).expect("playing started");
+        assert_eq!(p.frequency, 1.25);
+        assert!((p.time - 0.5).abs() < 1e-4, "expected 0.5, got {}", p.time);
+        assert!(!app.world().get::<GroupRig>(root).unwrap().freq_overridden);
+
+        // Completes normally on next step and clears game.anims.playing.
+        step_app(&mut app, 0.5);
+        assert!(app.world().get::<Playing>(root).unwrap().time >= 1.0);
+        step_app(&mut app, 0.1);
+        let playing = app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.anims.playing(FormId(ref_id));
+        assert_eq!(playing, None);
+    }
+
+    #[test]
+    fn exact_case_insensitive_and_wildcard_precedence_play_at_override_speeds() {
+        let mut app = test_app();
+        let ref_id = 0x0001_0002;
+        let idle = make_clip("Idle", 0.0, 4.0, 1.0, 0);
+        let forward = make_clip("Forward", 0.0, 4.0, 1.0, CLAMP);
+        let model = make_model(vec![idle.clone(), forward], Some(idle.clone()));
+        let idle_playing = Playing::new("test.nif", &idle, |_| None);
+        let root = app
+            .world_mut()
+            .spawn((GroupRig::new(ref_id, model, "test.nif", HashMap::new()), idle_playing, GlobalTransform::default()))
+            .id();
+
+        // "*" at 1.5 speeds up Idle; exact "fOrWaRd" at 2.0 overrides "*" for Forward.
+        run_script_on(&mut app, ref_id, "SetAnimSequenceFrequency \"*\" 1.5\nSetAnimSequenceFrequency \"fOrWaRd\" 2.0");
+
+        step_app(&mut app, 0.5);
+        let p = app.world().get::<Playing>(root).unwrap();
+        assert_eq!(p.name, "Idle");
+        assert_eq!(p.frequency, 1.5);
+        assert!((p.time - 0.75).abs() < 1e-4, "Idle should advance at 1.5x, got {}", p.time);
+
+        // Start Forward: exact match (2.0) beats wildcard (1.5).
+        queue_play_group(&mut app, ref_id, 2, "Forward");
+        step_app(&mut app, 0.5);
+        let p = app.world().get::<Playing>(root).unwrap();
+        assert_eq!(p.name, "Forward");
+        assert_eq!(p.frequency, 2.0);
+        assert!((p.time - 1.0).abs() < 1e-4, "Forward should advance at 2.0x, got {}", p.time);
+    }
+
+    #[test]
+    fn zero_frequency_pauses_without_prematurely_completing() {
+        let mut app = test_app();
+        let ref_a = 0x0001_0003;
+        let ref_b = 0x0001_0004;
+        let normal = make_clip("Forward", 0.0, 1.0, 1.0, CLAMP);
+        let zero_len = make_clip("Forward", 0.0, 0.0, 1.0, CLAMP);
+        let root_a = app
+            .world_mut()
+            .spawn((GroupRig::new(ref_a, make_model(vec![normal], None), "a.nif", HashMap::new()), GlobalTransform::default()))
+            .id();
+        let root_b = app
+            .world_mut()
+            .spawn((GroupRig::new(ref_b, make_model(vec![zero_len], None), "b.nif", HashMap::new()), GlobalTransform::default()))
+            .id();
+
+        run_script_on(&mut app, ref_a, "SetAnimSequenceFrequency \"Forward\" 0.0");
+        run_script_on(&mut app, ref_b, "SetAnimSequenceFrequency \"Forward\" 0.0");
+        queue_play_group(&mut app, ref_a, 2, "Forward");
+        queue_play_group(&mut app, ref_b, 2, "Forward");
+
+        for _ in 0..4 {
+            step_app(&mut app, 0.5);
+            assert_eq!(app.world().get::<Playing>(root_a).unwrap().time, 0.0);
+            assert_eq!(app.world().get::<Playing>(root_b).unwrap().time, 0.0);
+            let game = &app.world().resource::<ScriptState>().rt.as_ref().unwrap().game;
+            assert_eq!(game.anims.playing(FormId(ref_a)), Some(2), "paused normal clip must not complete");
+            assert_eq!(game.anims.playing(FormId(ref_b)), Some(2), "paused zero-length clip must not complete");
+        }
+
+        // Unpausing at 2.0x resumes and finishes both cleanly.
+        run_script_on(&mut app, ref_a, "SetAnimSequenceFrequency \"Forward\" 2.0");
+        run_script_on(&mut app, ref_b, "SetAnimSequenceFrequency \"Forward\" 2.0");
+        step_app(&mut app, 0.6); // ref_a advances 1.2 >= 1.0, ref_b has frequency 2.0 > 0
+        step_app(&mut app, 0.1);
+        let game = &app.world().resource::<ScriptState>().rt.as_ref().unwrap().game;
+        assert_eq!(game.anims.playing(FormId(ref_a)), None);
+        assert_eq!(game.anims.playing(FormId(ref_b)), None);
+    }
+
+    #[test]
+    fn live_mid_sequence_frequency_update_and_clear_restores_base() {
+        let mut app = test_app();
+        let ref_id = 0x0001_0005;
+        let forward = make_clip("Forward", 0.0, 10.0, 1.5, CLAMP);
+        let root = app
+            .world_mut()
+            .spawn((GroupRig::new(ref_id, make_model(vec![forward], None), "test.nif", HashMap::new()), GlobalTransform::default()))
+            .id();
+
+        // Start at base NIF frequency 1.5.
+        queue_play_group(&mut app, ref_id, 2, "Forward");
+        step_app(&mut app, 0.4);
+        assert!((app.world().get::<Playing>(root).unwrap().time - 0.6).abs() < 1e-4);
+
+        // Live mid-sequence bump to 2.0x.
+        run_script_on(&mut app, ref_id, "SetAnimSequenceFrequency \"Forward\" 2.0");
+        step_app(&mut app, 0.5);
+        assert_eq!(app.world().get::<Playing>(root).unwrap().frequency, 2.0);
+        assert!((app.world().get::<Playing>(root).unwrap().time - 1.6).abs() < 1e-4);
+
+        // Live mid-sequence pause at 0.0.
+        run_script_on(&mut app, ref_id, "SetAnimSequenceFrequency \"Forward\" 0.0");
+        step_app(&mut app, 0.5);
+        assert_eq!(app.world().get::<Playing>(root).unwrap().frequency, 0.0);
+        assert!((app.world().get::<Playing>(root).unwrap().time - 1.6).abs() < 1e-4);
+
+        // Clearing overrides restores the clip's own base frequency (1.5).
+        app.world_mut().resource_mut::<ScriptState>().rt.as_mut().unwrap().game.other.jip14.anim_freq.clear();
+        step_app(&mut app, 0.4);
+        let p = app.world().get::<Playing>(root).unwrap();
+        assert_eq!(p.frequency, 1.5);
+        assert!((p.time - 2.2).abs() < 1e-4);
+        assert!(!app.world().get::<GroupRig>(root).unwrap().freq_overridden);
+    }
+
+    #[test]
+    fn non_finite_negative_and_extreme_frequencies_are_sanitized() {
+        let mut app = test_app();
+        let ref_id = 0x0001_0006;
+        let forward = make_clip("Forward", 0.0, 100.0, 1.0, CLAMP);
+        let root = app
+            .world_mut()
+            .spawn((GroupRig::new(ref_id, make_model(vec![forward], None), "test.nif", HashMap::new()), GlobalTransform::default()))
+            .id();
+
+        queue_play_group(&mut app, ref_id, 2, "Forward");
+        // Negative frequency clamps to 0.0 (paused).
+        run_script_on(&mut app, ref_id, "SetAnimSequenceFrequency \"Forward\" -5.0");
+        step_app(&mut app, 0.5);
+        assert_eq!(app.world().get::<Playing>(root).unwrap().frequency, 0.0);
+        assert_eq!(app.world().get::<Playing>(root).unwrap().time, 0.0);
+
+        // Direct non-finite map entries are ignored, falling back to base frequency (1.0).
+        {
+            let mut script = app.world_mut().resource_mut::<ScriptState>();
+            let anim_freq = &mut script.rt.as_mut().unwrap().game.other.jip14.anim_freq;
+            anim_freq.insert((FormId(ref_id), "forward".to_string()), f32::NAN);
+        }
+        step_app(&mut app, 0.25);
+        assert_eq!(app.world().get::<Playing>(root).unwrap().frequency, 1.0);
+        assert!((app.world().get::<Playing>(root).unwrap().time - 0.25).abs() < 1e-4);
+
+        // Extreme finite frequency is clamped to MAX_PLAYBACK_FREQUENCY so time stays finite.
+        run_script_on(&mut app, ref_id, "SetAnimSequenceFrequency \"Forward\" 999999");
+        step_app(&mut app, 0.01);
+        let p = app.world().get::<Playing>(root).unwrap();
+        assert_eq!(p.frequency, MAX_PLAYBACK_FREQUENCY);
+        assert!(p.time.is_finite());
     }
 }

@@ -229,6 +229,21 @@ the same. Out of reach the player still measures (the target is hidden,
 GetDetected 0) so that GetLineOfSight answers at any distance [observed: same capture
 det2, player.GetLineOfSight Ringo 1 and GetDetected 0 at 6,682 units outdoors]. `tdetect` and `NVF_PLAY_TEST_UNSEEN` do not stop it. The
 player's own measurements feed the two functions only: no detection state, no alarm.
+**Bodies** (#3232). Dying and dead actors are in no pair, so player.GetLineOfSight on a
+body read 0, and TTW's "Those!" never left stage 10: Fallout3.esm's MS04Script advances
+on `Player.GetLOS FredWilksRef == 1` [documented: Fallout3.esm, MS04Script's GameMode
+block as `fnvtool esm decode` reads the record, cited in the issue], and Fred Wilks lay
+dead in his house [observed: the player report's log and snapshot, body at rest 193
+units from the player, in view]. The player's camera now measures every drawn
+body: the same ±95° and wall check, from the camera to where the body lies (its
+ragdoll's trunk, else the middle of its hit volume as drawn) [documented: GECK wiki
+GetLineOfSight, on the player any object can be the target; the point aimed at:
+engineering choice]. The game keeps the bodies seen at the last measurement for 1 s
+(`Game::set_camera_sights`), read only while the body is still enabled and in a loaded
+cell [documented: same page, "Will not return true when checking if a disabled
+reference is in view"]. On a dead target that is the only answer: the pair measured
+while it lived (kept up to a second) is not read. Another actor's GetLineOfSight on a body still
+reads 0 [hypothesis: the page says only that its target must be an actor].
 Not built: player.GetLineOfSight on an object that is not an actor (the original allows
 it on the player).
 
@@ -277,7 +292,9 @@ to this case; every detector, NPCs too].
 Checks: `fnv_game::sight` tests (field of view, pairs far from the player, a ridge
 between two actors), `crates/fnv-game/tests/functions.rs`
 (`the_player_detects_and_far_pairs_fight`: player.GetDetected / GetLineOfSight from a
-measured pair; a Frenzied actor out of the player's reach goes to Combat, IsInCombat 1);
+measured pair; a Frenzied actor out of the player's reach goes to Combat, IsInCombat 1;
+`the_player_sees_a_body_in_the_cameras_view`: a dead target, #3232), `nvforever`
+detection.rs `the_camera_sees_bodies_in_view_and_clear`;
 smoke `detection-far-fight` (the NCR troopers and Cook-Cook's Fiends fight with the
 player about 5,700 units away) and `detection-game` (the player detects actors).
 

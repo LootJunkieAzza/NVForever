@@ -57,8 +57,13 @@ actors, `resolve_changed_at`), `engine/nvforever/src/zones.rs` (the engine's cop
 - The level is **fixed for the reference when its cell first loads**
   (`World::fix_level`, saved as `ref_levels`) [hypothesis: an actor made at a load stays
   the same actor after the player levels up, until its cell is reset]. Before that, the
-  rules give the level the load would fix (its zone's level, or the level the zone would
-  take now, or the player's level), so a query before the load agrees with it.
+  rules give the level the load would fix (its effective zone's level — including session
+  `SetRefEncounterZone`, `SetCellEncounterZone`, `SetWorldspaceEncounterZone`,
+  `SetZoneMinLevel`, and `SetZoneFlag` bit 2 overrides stored in `WorldSession` — or the
+  level that zone would take now, or the player's level), so a query before the load
+  agrees with it; `GetInZone` (`functions/refs.rs`) also reads `World::cell_zone_of`
+  [hypothesis: session-only overrides carried across same-run loads via
+  `WorldSession` / `Game::Session`, excluded from snapshots].
 - What reads it: the actor a placed leveled actor list (LVLN/LVLC) stands for, and every
   `TPLT` chain through a list (factions, packages, name, scripts, actor values, spells,
   `fnv_game::templates`; the drawn actor, `fnv_actor::resolve`; the same seed as before,
@@ -96,7 +101,16 @@ actors, `resolve_changed_at`), `engine/nvforever/src/zones.rs` (the engine's cop
   `Game::cell_entered`) [documented: GECK wiki SetZoneRespawns, "Creatures will no longer
   respawn in the Yao Gaui Den zone"; GECK wiki Reference, references "will respawn
   according to the Encounter Zone setting"]. The zone's own level never resets either way
-  (§2). SetZoneRespawns itself is not built (no opcode in the catalogue).
+  (§2). `SetZoneRespawns` (`0x11EA`, saved in `World::zone_respawns`), session
+  `SetZoneFlag` bit 1 (`nvse_lutana`), `GetZoneFlag`, `GetZoneRespawns`
+  (`nvse_showoff2`) and `Game::cell_never_resets` (`respawn.rs`, also
+  consulting `SetCellEncounterZone` / `SetWorldspaceEncounterZone`, and passed
+  to `World::attach_cell_with_never_resets` during `Game::cell_entered` so
+  respawning containers and actors obey the same effective flag) all read the
+  same effective `never_resets` state through `Game::zone`; calling
+  `SetZoneRespawns` supersedes any earlier session `SetZoneFlag` bit-1 override
+  [design; hypothesis: original-game interaction between `SetZoneRespawns` and
+  extender `SetZoneFlag` / `GetZoneRespawns`].
 
 ## 5. Engine
 

@@ -117,9 +117,8 @@ impl Ai {
         }
         // The hour may have moved on in the trip (a fast travel's hours): the package of
         // now, not of the last periodic choice.
-        let data = game.data;
         let package = game.update_package(actor)?;
-        if data.package_defs.get(&package).is_none_or(|d| placed_on_an_actor(game, actor, d)) {
+        if game.package_def(&package).is_none_or(|d| placed_on_an_actor(game, actor, d)) {
             return None;
         }
         let (mut walks, mut skipped) = (0, 0.0);

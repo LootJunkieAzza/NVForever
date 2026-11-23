@@ -55,6 +55,18 @@ A statement is one script function call, spelled as script source spells it:
   `<statement> >> ran`, then the compiler's warnings; a compile error is the reply instead.
   A local variable has no meaning there: name the owner (`set SunnyRef.var to …`).
 
+- `eval <expression>` explicitly prints the compiler's result rather than `ran`
+  [design: explicit `eval` syntax and `<expression> >> <value>` reply format].
+  It uses the selected receiver and handles numbers, forms, strings and a preview
+  of up to 16 array entries (nested arrays by ID) [design: 16-entry preview cap
+  and non-recursive array labeling]. A temporary array is formatted before the VM
+  sweeps it; empty or multi-line input is rejected [design]. Regular console
+  commands still use existing dispatch.
+  [documented: [Improved Console's public description](https://www.nexusmods.com/newvegas/mods/70801?tab=description)]
+  Expression results are one part of that provider's behavior; persistent console
+  locals and transparent result printing for all command spellings are not
+  implemented.
+
 Console commands of its own:
 
 | Command | What it does |

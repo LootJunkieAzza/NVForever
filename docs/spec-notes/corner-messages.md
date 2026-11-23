@@ -182,7 +182,15 @@ within a pixel in every one of these (§7).
   named for it [observed: SOUN editor IDs, only the holotape player's].
 - **Icons.** A message's icon is its Menu Icon's file, from the atlas if the index has
   its file name, else the file itself, stretched to 160 by 160. Without an icon, or if
-  the file cannot be read, the default icon.
+  the file cannot be read, the default icon (`glow_message_vaultboy_neutral.dds`,
+  127 × 127 in `InterfaceShared.tai`). Player critical-hit, challenge-completion, and
+  skill-book corner notices also use the default icon rather than 256 × 256 Pip-Boy
+  illustrations (`FalloutNV.esm`'s `sCriticalStrikeIcon` pointing at
+  `glow_Critical_Chance.dds` is [documented: GECK wiki Unused Game Settings] unused;
+  `perk_challenge.dds` and `AVIF` `ICON` textures are Pip-Boy art not in
+  `InterfaceShared.tai`, issue #3433) [hypothesis: exact Vault Boy mood face for critical
+  hits, challenge completions, and skill books in the unmodded original is not yet
+  observed].
 - **Colour.** The amber of the owner's screenshots (`message-menu.md` §3). The player's
   own HUD colour is not read.
 - **Without the game's files** the text is drawn in Bevy's font beside two plain lines,

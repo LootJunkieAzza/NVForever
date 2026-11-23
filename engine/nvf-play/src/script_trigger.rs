@@ -65,6 +65,9 @@ use std::collections::{BTreeSet, HashMap};
 
 #[derive(Default)]
 pub struct Triggers {
+    /// Actors that entered a trigger so far (each OnTriggerEnter), for the game digest test
+    /// aid (nvforever game_digest.rs).
+    pub entered: u64,
     /// The volumes of each candidate, once read (empty: no usable primitive or model
     /// trigger), with the pose they were built at: a reference a script moves, turns
     /// or rescales gets them built again at its new pose (#1091).
@@ -137,6 +140,11 @@ impl Triggers {
     /// view draws them, `crate::collision_view`).
     pub fn volumes(&self) -> impl Iterator<Item = &TriggerShape> {
         self.shapes.values().flat_map(|(_, v)| v.iter())
+    }
+
+    /// A trigger reference's volumes, once built.
+    pub fn shapes_of(&self, r: FormId) -> Option<&[TriggerShape]> {
+        self.shapes.get(&r).map(|(_, v)| v.as_slice())
     }
 
     /// The gas clouds' volumes built so far, by reference (`crate::gas_traps`); a
@@ -372,6 +380,7 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     let ch = trigger_changes(&rt.triggers.inside, &now);
     let g = &mut rt.game;
     let who = |g: &fnv_game::Game, a: FormId| if a == FormId::PLAYER_REF { "player".to_string() } else { g.data.name(a) };
+    rt.triggers.entered += ch.entered.len() as u64;
     for &(t, a) in &ch.entered {
         // Another player entering a co-op random encounter's trigger is the player there
         // (`fnv_game::coop::COOP_ENCOUNTERS`, item 131).

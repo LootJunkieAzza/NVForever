@@ -27,10 +27,8 @@ privately). Nothing here comes from the executable.
 - A `maxWinnings` of 0 means the casino's own (§2) [hypothesis: every script passes 0,
   and the casinos' records hold the caps the bans are known for].
 - It is a menu: the world and the game clock stand still (`PlayState::Menu`), menu code
-  1102 to scripts [hypothesis: the menu's `&BlackJackMenu;` class number is not in the
-  menu files; NVForever's own code, unused by any script, next to roulette's 1101. It was
-  1035 until 2026-10-18, which is the Pip-Boy's repair list (documented: GECK wiki
-  GetSelectedItemRef)].
+  1081 to scripts (`BlackJackMenu` in `fnv_ui::value::MENU_CLASSES`) [documented: GECK wiki
+  MenuMode].
 
 ## 2. The casino record (CSNO)
 
@@ -113,10 +111,20 @@ and GetCasinoWinningStage supplies the same value to dialogue conditions
 a 9.45 correction so No Casino Bans does not report the banned stage through
 GetCasinoWinningStage. That behavior is distinct from a provider version number.
 
-[hypothesis] With No Casino Bans enabled, the shared readers report the last reward
-stage (3) in place of the banned stage (4). The changelog above says the banned stage
-is not reported; the replacement number 3 is not documented and the original game's
-exact numeric replacement has not been captured.
+[observed: original FNV 1.4.0.525 + Stewie's Tweaks v1005 + JIP LN 57.3, two-pass
+capture toggling `bNoCasinoBans` under `[Tweaks]` between `0` and `1` (2026-11-22)]
+With `bNoCasinoBans = 0`, `GetCasinoWinningsLevel` (`0x125C`) returned `0 -> 0`,
+`1250 -> 2`, `2500 -> 4`, `3500 -> 4` at Vikki & Vance (`max_winnings = 2500`),
+`0 -> 0`, `5000 -> 4` at Atomic Wrangler (`max_winnings = 5000`), and `10000 -> 4`
+at The Tops (`max_winnings = 10000`). With `bNoCasinoBans = 1`, it returned
+`0 -> 0`, `625 -> 1`, `1250 -> 2`, `1875 -> 3`, `2499 -> 3`, `2500 -> 3`,
+`3500 -> 3` at Vikki & Vance, `5000 -> 3`, `6000 -> 3` at Atomic Wrangler, and
+`10000 -> 3` at The Tops — directly observing both the `4 -> 3` replacement and the
+quarter boundaries (`1/4`, `2/4`, `3/4`, `4/4` of `max_winnings`).
+`GetCasinoWinningStage` (`0x1262`) is a condition-only command in the original game
+(direct script calls crash `FalloutNV.exe`), so dialogue condition evaluation shares
+the same `4 -> 3` clamp (`[observed]` on `GetCasinoWinningsLevel` + `[documented]`
+Stewie's Tweaks 9.45 changelog for `GetCasinoWinningStage`).
 
 [design] Engine design choice: the replacement is a read view. Stored levels,
 earnings, earned chips and rewards remain unchanged. Turning the option off exposes
@@ -125,45 +133,37 @@ earnings and saved-level ban. Stages 0..3 retain their existing results. The opt
 is applied by the existing settings consumer after restore; this change does not add
 preference persistence.
 
-[hypothesis] Source-compiled reward/ban branches, the actual condition evaluator,
-table opening and save/restore controls exercise this shared view. Public source
-`c8221af1`, executed as merge `aeefed23` with the same tree, passed all seven
-selected controls exactly once. Hosted core tests passed 3,460 with five ignored;
-engine tests passed 3,409 with three ignored. Both strict Clippy checks and all
-seven required checks passed. The identical-fixture baseline `026ed`, which
-already includes the same setter, remains UNRUN; no paired outcome is inferred.
-This later documentation-only successor changes no executable/fixture bytes and
-has no additional runtime result. Native calibration, original startup/callback
-execution and complete Casino Rewards Fix compatibility remain separate open checks.
-
 [documented] `SetCasinoWinningsLevel casino level` sets a casino's winnings
 level, with an integer parameter in 0..4. Source:
 [GECK](https://geckwiki.com/index.php?title=SetCasinoWinningsLevel).
 
-[design] Engine design choice: source-name calls replace the existing saved
-per-casino level read by GetCasinoWinningsLevel and the casino opening/ban consumer,
-and return 0. Subsequent rounds retain the existing monotonic advancement rule.
-Other casinos and the no-casino-bans option retain their existing behavior.
+[observed: original FNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.3 + Stewie's Tweaks v1005,
+two-pass `bNoCasinoBans` 0 vs 1 live capture (2026-11-22, #3474)] On an untouched casino
+(Atomic Wrangler at `0` winnings, never entered in the player's casino list),
+`SetCasinoWinningsLevel` 1..4 is a no-op (both `GetCasinoWinnings` and
+`GetCasinoWinningsLevel` remain `0`). On an already-tracked casino (The Tops,
+`max_winnings = 10000`, after `SetCasinoWinnings 10000`), `SetCasinoWinningsLevel 2`
+sets net winnings to `5000` (`level * max_winnings / 4`) and level to `2`, and
+`SetCasinoWinningsLevel 4` sets net winnings to `10000` and level to `4` (read as `3`
+under `bNoCasinoBans = 1`).
 
-[hypothesis] The setter leaves net earnings unchanged, so lowering a level does not
-bypass an earnings-based ban. The documentation does not say whether the original
-setter touches earnings; this is unobserved.
-
-[design] Engine design choice: invalid casino forms, missing arguments, nonfinite
-numbers and nonintegral/out-of-range levels fail with an engine error without
-changing casino state. Native invalid-input behavior and interaction with the
-original game's quest scripts remain unobserved. Source-name admission does not
-admit native numeric encoding.
+[design] Engine design choice: source-name calls return `0`, treat an untouched casino
+as a no-op, and on a tracked casino update both saved standing and net earnings to
+`level * max_winnings / 4` (using the effective session max winnings). Subsequent rounds
+retain the existing monotonic advancement rule. Invalid casino forms, missing arguments,
+nonfinite numbers and nonintegral/out-of-range levels fail with an engine error without
+changing casino state. Native invalid-input behavior and interaction with the original
+game's quest scripts remain unobserved. Source-name admission does not admit native
+numeric encoding.
 
 - The player's earnings at each casino are kept with the game: the net chips won there
   over every round [documented: GECK wiki SetCasinoBan, GetCasinoWinnings].
 - A casino bans the player when the earnings reach its max winnings: the winnings level is
   then 4, and the menu does not open [documented: GECK wiki GetCasinoBan, SetCasinoBan,
   GetCasinoWinningsLevel (0–4)].
-- Levels 1 to 3 come at a quarter, a half and three quarters of the max winnings
-  [hypothesis: the casinos' scripts react to levels 1, 2 and 3 with the floor manager's
-  comps ("smallfry", "bigwinner", "whale") and 4 with the ban (decompiled 0x001607FE); where
-  the steps lie is not in the plugins].
+- Levels 1 to 3 come at a quarter, a half and three quarters of the max winnings, and
+  level 4 at max winnings [observed: 2026-11-22 live capture across Vikki & Vance
+  (625/1250/1875/2500), Atomic Wrangler (5000), and The Tops (5000/10000)].
 - A round that takes the earnings to the max ends the game: the menu closes after the round
   [hypothesis].
 
@@ -232,6 +232,6 @@ admit native numeric encoding.
   table, a win, a loss, a push and a bust would settle them).
 - Whether the dealer peeks for a natural, whether split aces get one card, which choices are
   hidden or dimmed.
-- Where the winnings levels 1–3 lie, and what happens at the table the moment the max is
-  reached.
+- What happens at the table the moment the max winnings threshold is reached (levels 1–3
+  at `1/4`, `2/4`, `3/4` of `max_winnings` and `4` at `max_winnings` are now observed in §4).
 - The bet steps of Increase/Decrease Bet.

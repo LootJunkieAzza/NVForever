@@ -23,6 +23,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
+use fnv_util::words::{tr, trf};
 use nvf_assets::GameData;
 
 const EDGE: f32 = 30.0;
@@ -86,7 +87,7 @@ fn hand_line(s: &Session) -> Option<String> {
     }
     let hand = s.table.hands.get(s.table.active).or(s.table.hands.last())?;
     let (n, soft) = hand.total();
-    Some(if soft && n <= 21 { format!("Your hand: {n} (soft)") } else { format!("Your hand: {n}") })
+    Some(if soft && n <= 21 { trf("Your hand: {n} (soft)", &[("n", &n)]) } else { trf("Your hand: {n}", &[("n", &n)]) })
 }
 
 /// The bet the box shows: the bet being set between rounds, the chips on the table in one.
@@ -162,7 +163,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
             // The information box.
-            let rows = [("Current Bet:".to_string(), shown_bet(s).to_string()), ("Chips:".into(), s.chips.to_string()), (s.earnings_title(), s.earnings.to_string())];
+            let rows = [(tr("Current Bet:").to_string(), shown_bet(s).to_string()), (tr("Chips:").into(), s.chips.to_string()), (s.earnings_title(), s.earnings.to_string())];
             let widths: Vec<(f32, f32)> = rows.iter().map(|(t, v)| (c.text_width(FontKind::Menu, t), c.text_width(FontKind::Menu, v))).collect();
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, VALUE_GAP, &widths);
             let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };

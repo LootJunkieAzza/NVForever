@@ -203,6 +203,12 @@ fn remove_all_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
+    if g.handled(crate::nvse_showoff::ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT)
+        && g.world.item_count(actor, item).unwrap_or(0) > 0
+        && !g.pre_activate_inventory_item_alt(actor, item, 0, true)
+    {
+        return none();
+    }
     if g.world.equip_lock(actor, item) == Some(EquipLock::NoEquip) {
         g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }
@@ -434,14 +440,16 @@ pub fn remove_all(g: &mut Game, from: FormId, how: &RemoveAll) -> Result<(), Str
         s.inventory.as_ref().map(|i| i.iter().collect()).unwrap_or_default()
     };
     for (item, n) in stacks {
-        let Some(it) = forms.item(item) else { continue };
-        if (it.non_playable_biped() && !how.unplayable) || except.contains(&item) {
+        if g.world.resolve_item(item).is_none() {
+            continue;
+        }
+        if (g.world.effective_non_playable_biped(item) && !how.unplayable) || except.contains(&item) {
             continue;
         }
         if from == FormId::PLAYER_REF && !how.quest_items && g.world.is_quest_item(item) {
             continue;
         }
-        if code != -1 && forms.sig(item).as_ref().and_then(form_type_code) != Some(code) {
+        if code != -1 && forms.sig(g.unclone(item)).as_ref().and_then(form_type_code) != Some(code) {
             continue;
         }
         let groups = fnv_sim::inventory::unequipped(g.world.inventory_mut(from).map_err(|e| e.to_string())?.take(item, n));

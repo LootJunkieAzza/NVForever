@@ -1,7 +1,7 @@
 {
  "format": "fnv.script.actions/1",
  "title": "Headless Ant Misbehavin', the power restored and the ants claimed dead (VNellisInfestation 22)",
- "given": [],
+ "given": [{"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}}],
  "actions": [
   {
    "op": "note",

@@ -14,7 +14,12 @@ What exists already and is reused, not rewritten:
   check at start for an earlier run that ended with no clean exit and no crash report (a
   native crash, a kill), crash reports for panics (`crash-<time>-<pid>.txt`: thread,
   message, location, backtrace, command line, cell and position), and `redact`, which
-  writes the player's home folder as `%USERPROFILE%` (#1710).
+  writes the player's home folder as `%USERPROFILE%` (#1710). Off Windows it also
+  hides the removable-drive mounts under the player's name (`/run/media/<user>`,
+  `/media/<user>`); one list (`crash::name_folders`) feeds it, the reports and the Linux
+  signal handler. A report also writes the Data, game and NVForever folders and, on a
+  Mod Organizer 2 run, the instance and its mods and overwrite folders as names
+  (`<Data>`, `<MO2 mods>`, ...) (#3152).
 - [documented: `docs/design/frame-telemetry.md`] Bounded frame telemetry (JSONL schema 1),
   a developer aid behind `NVF_PLAY_TEST_FRAME_TELEMETRY`. Its schema is a model for the
   performance part below, but it stays a developer aid; nothing below turns it on.
@@ -73,7 +78,7 @@ menu, on a player's start only (not with `--data`, `NVFOREVER_DATA`, a test aid 
 > NVForever can send a report after each session: the build, your PC's hardware and
 > settings, your mod list, how it ran, the game's log and any problems it noticed.
 > No personal details, no saves.
-> You can change this at any time in Settings → Gameplay → Reports.
+> You can change this at any time in Settings → Gameplay → Bug Reports.
 >
 > [ Send reports ]  [ Not now ]   *What is sent?* (opens §3 in the browser)
 
@@ -96,7 +101,8 @@ Endpoint=           ; empty = the project's server; set for a self-hosted one
 
 - `InstallId` is random, made at opt-in, not derived from hardware or account. Turning
   reports off and on again makes a new one (the old one is unlinked).
-- Settings → Gameplay → Reports (`engine/nvf-play/src/settings_layout.rs`): a toggle
+- Settings → Gameplay → Bug Reports (`crates/nvf-settings-layout/src/lib.rs` `SECTIONS`;
+  the launcher shows the same rows): a toggle
   (Send reports) and "Delete my reports" (§6); "Open reports folder" and the last sent
   time are designed but not built. The hand report (§3.3) is opened from the
   pause menu's "Report a bug", not from Settings.
@@ -320,7 +326,7 @@ per unchanged lock. The detectors are registered only while reports are enabled.
 | hitch | a frame > 250 ms outside a load |
 | slow load | a load > 20 s; it says where the time went: each wait's end, the longest frame, the files read and the time in the reads (docs/design/loading-screen.md §1 step 7, #2407) |
 | memory | RAM or VRAM within 10 % of the budget |
-| missing asset | the first failure of each path |
+| missing asset | the first failure of each path. For a model or an actor file that a plugin's record names, the event says the `plugin` (the winning record's; a mod's over the game's own when both name it). A file the base game's or an add-on's own record names and no archive has is not reported: it is the data's own dangling name (`meshes\creatures\ghoul\mmm_ghoulvariant_v1.nif`, in FalloutNV.esm creatures' model lists, 11 of 49 installs of build 0.8.0) [observed, #3045; `reports/asset_sources.rs`]. A file of the game's that is there and does not read is still reported. Textures and particles have no record of their own and are reported as before |
 | save trouble | a save that fails to write, or a load that falls back (#1360) |
 | audio | the device lost or a voice file missing for a spoken line |
 | soft lock | the player is held and nothing moves on to let them go: scripts hold the movement controls (or the player is restrained) for 30 s with no story event; a conversation with no line and no choice for 5 s; one response said for 120 s; a menu set under a conversation that never opens (`fnv_game::softlock`, #2365) |
@@ -515,7 +521,13 @@ login, allow-list).
   `reports\pending\` (oldest first, at most 5 per start), moves sent ones to
   `reports\sent\` (last 20 kept for the player to see), drops files older than 14 days.
   HTTP with `ureq` or `reqwest` (blocking, rustls), 10 s timeout, no retries in the same
-  run. Offline is normal and silent.
+  run. Offline is normal and silent. **As built** [documented:
+  `engine/nvforever/src/reports/upload.rs`, dependencies.md]: `ureq` 3 over the system's
+  TLS and certificates, on Windows (SChannel) and on Linux (the system's OpenSSL, #3144).
+  Until #3144 the Linux build had no HTTP client: Report a bug, Send reports and Delete
+  my reports never got an answer there and said the network was at fault. On Linux the
+  first-launch popup is still not shown (§2.1), so reports start off and are switched on
+  in Settings; an earlier run still going is told from `/proc/<pid>/exe`.
 - All files go through `fnv_install::guard_write` under the home; nothing is written to
   the game folder or `Documents\My Games\FalloutNV`.
 - **Developers do not send reports** [owner 2026-11-11]: a development build, a

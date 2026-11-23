@@ -31,6 +31,8 @@ use std::path::{Path, PathBuf};
 pub const MAGIC: &[u8; 8] = b"NVFSAVE\0";
 pub const CONTAINER_VERSION: u32 = 1;
 pub const HEADER_FORMAT: &str = "nvf.save.header/1";
+pub const BODY_FORMAT: &str = "nvf.save.body/1";
+pub const ENGINE_FORMAT: &str = "nvf.engine.state/1";
 pub const EXTENSION: &str = "nvfsave";
 /// The rolling slots' names.
 pub const QUICK_NAME: &str = "quicksave";
@@ -168,6 +170,71 @@ pub struct SaveFile {
     pub body: Vec<u8>,
 }
 
+/// The engine's part of one of players 2–4 (docs/design/coop-save.md): the fields of
+/// [`EngineSnapshot`] that belong to one player.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CoopEngine {
+    pub slot: u8,
+    #[serde(default)]
+    pub third_person: bool,
+    #[serde(default)]
+    pub distance: f32,
+    #[serde(default)]
+    pub sneak: bool,
+    #[serde(default)]
+    pub always_run: bool,
+    #[serde(default)]
+    pub flashlight: bool,
+    #[serde(default)]
+    pub magazine: Option<(u32, u32)>,
+}
+
+/// The engine's own part of a save (`nvf.engine.state/1`, docs/design/save-load.md §3.4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct EngineSnapshot {
+    pub format: String,
+    #[serde(default)]
+    pub third_person: bool,
+    #[serde(default)]
+    pub distance: f32,
+    #[serde(default)]
+    pub sneak: bool,
+    #[serde(default)]
+    pub always_run: bool,
+    #[serde(default)]
+    pub flashlight: bool,
+    #[serde(default)]
+    pub magazine: Option<(u32, u32)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub magazine_ammo: Option<u32>,
+    #[serde(default)]
+    pub active_quest: Option<u32>,
+    #[serde(default)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coop: Vec<CoopEngine>,
+}
+
+impl EngineSnapshot {
+    pub fn new() -> Self {
+        Self { format: ENGINE_FORMAT.into(), ..Self::default() }
+    }
+}
+
+/// A typed save body (`nvf.save.body/1`): the game snapshot paired with [`EngineSnapshot`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaveBody<G> {
+    pub format: String,
+    pub game: G,
+    pub engine: EngineSnapshot,
+}
+
+impl<G> SaveBody<G> {
+    pub fn new(game: G, engine: EngineSnapshot) -> Self {
+        Self { format: BODY_FORMAT.into(), game, engine }
+    }
+}
+
 /// Names Windows keeps for devices, whatever extension follows: a file `nul.nvfsave` is
 /// the NUL device, so a save "written" there is lost [documented: Microsoft, "Naming
 /// Files, Paths, and Namespaces"].
@@ -287,6 +354,13 @@ pub fn decode(path: &Path, b: &[u8], with_body: bool) -> Result<SaveFile, SaveEr
 pub fn read(path: &Path) -> Result<SaveFile, SaveError> {
     let b = fs::read(path).map_err(|e| SaveError::Io(path.to_path_buf(), e))?;
     decode(path, &b, true)
+}
+
+/// Read a save and deserialize its JSON body into `T`.
+pub fn read_body<T: serde::de::DeserializeOwned>(path: &Path) -> Result<(SaveHeader, Vec<u8>, T), SaveError> {
+    let f = read(path)?;
+    let body = serde_json::from_slice(&f.body).map_err(|e| SaveError::Json(path.to_path_buf(), e))?;
+    Ok((f.header, f.shot, body))
 }
 
 /// Read only the header and thumbnail (the body is not read from disk).
@@ -943,5 +1017,24 @@ mod tests {
         let before = body.clone();
         assert_eq!(remap_json(&mut body, &r), RemapReport::default());
         assert_eq!(body, before);
+    }
+
+    #[test]
+    fn typed_save_body_and_read_body_round_trip() {
+        let d = dir("typed-body");
+        let p = path_of(&d, "TypedBody").unwrap();
+        let mut engine = EngineSnapshot::new();
+        engine.active_quest = Some(0x0010_4C1C);
+        engine.extra.insert("sky".into(), serde_json::json!({"weather": "Clear"}));
+        let body = SaveBody::new(serde_json::json!({"format": "fnv.game.state/1"}), engine);
+        let bytes = serde_json::to_vec(&body).unwrap();
+        write(&p, &header(), b"png", &bytes, false).unwrap();
+        let (h, shot, back): (SaveHeader, Vec<u8>, SaveBody<serde_json::Value>) = read_body(&p).unwrap();
+        assert_eq!(h, header());
+        assert_eq!(shot, b"png");
+        assert_eq!(back, body);
+        assert_eq!(back.format, BODY_FORMAT);
+        assert_eq!(back.engine.format, ENGINE_FORMAT);
+        let _ = fs::remove_dir_all(&d);
     }
 }

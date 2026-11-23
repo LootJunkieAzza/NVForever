@@ -43,7 +43,7 @@ probes, 2026-11-08, for JIP's list getters; hypothesis: the same here].
 | GetBaseActorValueAlt `av [baseForm]` | the base value of the reference, or of the base form through its first placed reference, 0 for a base placed nowhere [hypothesis: NVForever computes base values on references] |
 | GetKillXP | the XP a kill gives (`Game::kill_xp`), before the perks' adjustment [documented] |
 | GetRadiationLevelAlt | rads a second after Rad Resistance: the player's as GetRadiationLevel, an NPC's from the radiation markers and zones at its place [documented: any NPC; hypothesis: no water for NPCs] |
-| GetFallTimeRemaining | 0 [decision: the time to the ground needs the ground below a falling actor, which only the engine's physics knows] |
+| GetFallTimeRemaining | direct engine value (`Game::set_fall_time_remaining`), else kinematic estimate while airborne (`gaps.air_times > 0`) from `ray::cast`, velocity and gravity, 0 grounded [documented; hypothesis: `docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md`] |
 | ResetFallTime | the engine measures the fall again from where the actor is (`nvf_play::falls`) [documented] |
 
 ## 3. Effects
@@ -64,9 +64,9 @@ probes, 2026-11-08, for JIP's list getters; hypothesis: the same here].
 | IsEquippedWeaponSilenced | 1 VNAM Sound Level "Silent", 2 a Silence or Suppressor mod attached, 0 [documented; hypothesis: "silenced by default" is the sound level] |
 | TestEquippedSlots `armor` | whether its BMDT biped slots overlap those of an armour the actor wears [documented] |
 | SetNoUnequip `flag` | on the inventory reference of an equipped item: the world's NoUnequip lock (saved with the world), or off [documented] |
-| GetArmorEffectiveDR, GetArmorEffectiveDT | DNAM DR or DT times `1 − (0.5 − condition) × penalty` below half condition (SetArmorConditionPenalty's penalty, else 1), of an inventory reference or a placed armour [documented: SetArmorConditionPenalty's formula] |
+| GetArmorEffectiveDR, GetArmorEffectiveDT | DNAM DR or DT times `1 − (0.5 − condition) × penalty` clamped at 0 below half condition (`Game::armor_condition_mult`: SetArmorConditionPenalty's penalty, else Stewie's `Tweaks::armor_condition_penalty`, default 1), of an inventory reference or a placed armour [documented: SetArmorConditionPenalty's formula; design: docs/design/tweaks.md] |
 | GetArmourPenetrated | whether the actor's last hit's damage before armour was above its DT; the engine tells it before the hit is dealt (`Game::note_armour_hit`), so OnHit reads this hit's [documented] |
-| SetConditionDamagePenalty `mult` | the weapon damage penalty below 75 % condition, `1 − (0.75 − condition) × mult` [documented]; the engine's damage rules take it (`Rules::condition_damage_penalty`) |
+| SetConditionDamagePenalty `mult` | the weapon damage penalty below 75 % condition, `1 − (0.75 − condition) × mult` [documented]; the engine's damage rules (`Rules::condition_damage_penalty`) and `Game::weapon_condition_mult` (also honoring Stewie's `no_condition_damage_penalty` and `no_condition_damage_buffer` tweaks [design: docs/design/tweaks.md]) take it |
 
 ## 5. Bases, the dead and hardcore
 
@@ -93,7 +93,7 @@ on the ground (-0.004, the original's own residue).
 ## 7. Follow-ups
 
 - GetInterruptPackage: package forms for NVForever's combat, dialogue and flight states.
-- GetFallTimeRemaining: the engine could pass the ground's distance and the fall speed.
+- GetFallTimeRemaining: wired core-side (`Game::fall_time_remaining`, `Game::set_fall_time_remaining`); engine physics can optionally push direct per-actor values when desired.
 - GetEquippedWeaponPoison: poisons on weapons.
 - GetActorMovementFlags: jumping, falling and sliding from the engine's character state.
 - RemoveNthEffect: the HUD still sees the record's list (the Nth-effect functions share

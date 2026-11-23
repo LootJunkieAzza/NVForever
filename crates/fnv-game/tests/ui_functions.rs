@@ -568,3 +568,311 @@ fn a_text_set_and_read_in_one_go_is_measured_then() {
     assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMainMenu/Row/_TextWidth")])), 184.0);
     assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMainMenu/Row/Name/height")])), 20.0);
 }
+
+#[test]
+fn keyboard_controller_selection_event_fires_on_key_navigation_not_pointer() {
+    use fnv_game::ui_input;
+    use fnv_ui::input::{no_measure, Input};
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\kbnav.xml",
+        r#"<menu name="InventoryMenu"> <class> &InventoryMenu; </class>
+           <_overs> 0 </_overs> <_kbMatch> 0 </_kbMatch> <_kbMenu> 0 </_kbMenu>
+           <_kbAny> 0 </_kbAny> <_kbOther> 0 </_kbOther>
+           <rect name="Main"> <x> 100 </x> <y> 100 </y>
+             <hotrect name="RowA"> <id> 29 </id> <target> &true; </target>
+               <x> 10 </x> <y> 10 </y> <width> 200 </width> <height> 40 </height>
+               <xdown> <ref src="sibling(RowB)" trait="mouseover"/> </xdown>
+             </hotrect>
+             <hotrect name="RowB"> <id> 29 </id> <target> &true; </target>
+               <x> 10 </x> <y> 60 </y> <width> 200 </width> <height> 40 </height>
+               <xup> <ref src="sibling(RowA)" trait="mouseover"/> </xup>
+               <xdown> <ref src="me()" trait="mouseover"/> </xdown>
+             </hotrect>
+           </rect> </menu>"#,
+    );
+    let menu = g.ui_tree.load_menu(&src, "menus\\kbnav.xml").unwrap();
+    g.ui_tree.update();
+    query(
+        &mut g,
+        r#"SetOnMouseoverChangeEventHandler (Begin Function {int m}
+ModUIFloat "InventoryMenu/_overs" 1
+End) 1 1002
+SetOnKBCTrlUIDeltaHandler 1 (Begin Function {int m}
+ModUIFloat "InventoryMenu/_kbMatch" 1
+SetUIFloat "InventoryMenu/_kbMenu" m
+End) 0 1002
+SetOnKBCTrlUIDeltaHandler 1 (Begin Function {int m}
+ModUIFloat "InventoryMenu/_kbAny" 1
+End) 0 0
+SetJohnnyOnKeyboardControllerSelectionChangeEventHandler 1 (Begin Function {int m}
+ModUIFloat "InventoryMenu/_kbOther" 1
+End) 0 1053"#,
+    );
+    let get = |g: &mut Game, t: &str| n(run(g, "GetUIFloat", &[s(&format!("InventoryMenu/{t}"))]));
+
+    // Pointer hover onto RowA fires SetOnMouseoverChangeEventHandler only.
+    ui_input::step(&mut g, &[menu], &pointer_at(150.0, 120.0), &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 1.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 0.0);
+    assert_eq!(get(&mut g, "_kbAny"), 0.0);
+    assert_eq!(get(&mut g, "_kbOther"), 0.0);
+
+    // Keyboard/controller xdown moves RowA -> RowB and fires matching 1002 + wildcard 0.
+    ui_input::step(&mut g, &[menu], &Input { pads: vec!["xdown".into()], ..pointer_at(150.0, 120.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 2.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 1.0);
+    assert_eq!(get(&mut g, "_kbMenu"), 1002.0);
+    assert_eq!(get(&mut g, "_kbAny"), 1.0);
+    assert_eq!(get(&mut g, "_kbOther"), 0.0);
+
+    // Self-referencing xdown on RowB does not change highlight and does not fire again.
+    ui_input::step(&mut g, &[menu], &Input { pads: vec!["xdown".into()], ..pointer_at(150.0, 120.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 2.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 1.0);
+    assert_eq!(get(&mut g, "_kbAny"), 1.0);
+
+    // Keyboard/controller xup moves RowB -> RowA and fires again.
+    ui_input::step(&mut g, &[menu], &Input { pads: vec!["xup".into()], ..pointer_at(150.0, 120.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 3.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 2.0);
+    assert_eq!(get(&mut g, "_kbAny"), 2.0);
+
+    // Pure pointer move onto RowB with a self-referencing xdown in the same frame must not
+    // falsely claim keyboard navigation.
+    ui_input::step(&mut g, &[menu], &Input { pads: vec!["xdown".into()], ..pointer_at(150.0, 175.0) }, &no_measure);
+    assert_eq!(get(&mut g, "_overs"), 4.0);
+    assert_eq!(get(&mut g, "_kbMatch"), 2.0);
+    assert_eq!(get(&mut g, "_kbAny"), 2.0);
+
+    // Game restore flushes session-only JohnnyGuitar handlers.
+    let saved = g.snapshot();
+    let restored = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default(), &saved).unwrap();
+    assert!(!restored.jg8_listening(fnv_game::nvse_jg8::Ev::KeyboardSelection));
+}
+
+#[test]
+fn set_ui_string_alt_xml_entity_strings_hide_tiles_and_match_expressions() {
+    use fnv_ui::input::{hit, no_measure};
+    use fnv_ui::Value;
+
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\barter_test.xml",
+        r#"<menu name="BarterTest">
+  <rect name="Panel">
+    <text name="Title">
+      <id>1</id>
+      <target>&true;</target>
+      <x>10</x>
+      <y>10</y>
+      <width>100</width>
+      <height>20</height>
+      <visible>&true;</visible>
+      <justify>&left;</justify>
+      <_flag>&true;</_flag>
+      <_pic_0>off.dds</_pic_0>
+      <_pic_1>on.dds</_pic_1>
+      <filename><copy src="me()" trait="_flag"/><copy src="me()" trait="_pic_"/></filename>
+      <_is_centered><copy>1</copy><onlyif><copy src="me()" trait="justify"/><eq>&center;</eq></onlyif></_is_centered>
+      <string>ALL ITEMS</string>
+    </text>
+  </rect>
+</menu>"#,
+    );
+    let menu = g.ui_tree.load_menu(&src, "menus\\barter_test.xml").unwrap();
+    g.ui_tree.update();
+    let tile = g.ui_tree.find_tile("BarterTest/Panel/Title").unwrap();
+
+    // Initially visible (x=10..110, y=10..30), left-justified, _flag = &true; -> on.dds.
+    assert!(g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy));
+    assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_some());
+    assert_eq!(g.ui_tree.get_string("BarterTest/Panel/Title/filename").as_deref(), Some("on.dds"));
+    assert_eq!(g.ui_tree.get_float("BarterTest/Panel/Title/_is_centered"), Some(0.0));
+
+    // SetUIStringAlt ".../visible" "&false" hides the tile (renderer truthy + hit test)
+    // while preserving the raw string for GetUIString.
+    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/visible"), s("&false")])), 1.0);
+    assert!(!g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy), "&false string must hide tile");
+    assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_none());
+    assert_eq!(n(run(&mut g, "GetUIFloatAlt", &[s("BarterTest/Panel/Title/visible")])), 0.0);
+    assert_eq!(run(&mut g, "GetUIString", &[s("BarterTest/Panel/Title/visible")]), s("&false"));
+
+    // SetUIStringAlt ".../visible" "&true" makes it visible again.
+    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/visible"), s("&true")])), 1.0);
+    assert!(g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy), "&true string must show tile");
+    assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_some());
+    assert_eq!(n(run(&mut g, "GetUIFloatAlt", &[s("BarterTest/Panel/Title/visible")])), 1.0);
+
+    // Entity strings also work in XML <eq>, suffix-<copy>, and text justification (x=10, w=100 -> -40..60).
+    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/justify"), s("&center")])), 1.0);
+    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/_flag"), s("&false")])), 1.0);
+    g.ui_tree.update();
+    assert_eq!(g.ui_tree.get_float("BarterTest/Panel/Title/_is_centered"), Some(1.0));
+    assert_eq!(g.ui_tree.get_string("BarterTest/Panel/Title/filename").as_deref(), Some("off.dds"));
+    assert!(hit(&g.ui_tree, &[menu], (-20.0, 20.0), &no_measure).is_some());
+    assert!(hit(&g.ui_tree, &[menu], (80.0, 20.0), &no_measure).is_none());
+}
+
+#[test]
+fn barter_and_container_menu_click_handlers_support_wildcards_indices_and_removal() {
+    use fnv_game::game::RunCtx;
+    use fnv_game::ui_input;
+    use fnv_ui::input::{no_measure, Input};
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Keep Stewie plugin gate pinned at 941 while building #3184 menu-click consumers.
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")\nEnd\n", RunCtx::default()).unwrap(),
+        XVal::Num(941.0),
+    );
+
+    let src = MemSource::default()
+        .with(
+            "menus\\barter_menu.xml",
+            r#"<menu name="BarterMenu">
+                <class> &BarterMenu; </class>
+                <_lastMenu> 0 </_lastMenu>
+                <_lastId> 0 </_lastId>
+                <_lastName> </_lastName>
+                <_wildHits> 0 </_wildHits>
+                <_idx1Hits> 0 </_idx1Hits>
+                <_prefixHits> 0 </_prefixHits>
+                <rect name="BarterCategories">
+                    <x> 0 </x> <y> 0 </y> <width> 300 </width> <height> 100 </height>
+                    <hotrect name="BC_Category">
+                        <id> 10 </id> <target> 1 </target>
+                        <x> 0 </x> <y> 0 </y> <width> 80 </width> <height> 40 </height>
+                    </hotrect>
+                    <hotrect name="BC_Category">
+                        <id> 11 </id> <target> 1 </target>
+                        <x> 100 </x> <y> 0 </y> <width> 80 </width> <height> 40 </height>
+                    </hotrect>
+                    <hotrect name="BC_Category">
+                        <id> 12 </id> <target> 1 </target>
+                        <x> 200 </x> <y> 0 </y> <width> 80 </width> <height> 40 </height>
+                    </hotrect>
+                </rect>
+            </menu>"#,
+        )
+        .with(
+            "menus\\container_menu.xml",
+            r#"<menu name="ContainerMenu">
+                <class> &ContainerMenu; </class>
+                <_hits> 0 </_hits>
+                <_menuId> 0 </_menuId>
+                <hotrect name="CM_TakeAll">
+                    <id> 20 </id> <target> 1 </target>
+                    <x> 10 </x> <y> 10 </y> <width> 80 </width> <height> 40 </height>
+                </hotrect>
+            </menu>"#,
+        );
+    let barter = g.ui_tree.load_menu(&src, "menus\\barter_menu.xml").unwrap();
+    let container = g.ui_tree.load_menu(&src, "menus\\container_menu.xml").unwrap();
+    g.ui_tree.update();
+
+    query(
+        &mut g,
+        r#"SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+SetUIFloat "BarterMenu/_lastMenu" m
+SetUIFloat "BarterMenu/_lastId" t
+SetUIString "BarterMenu/_lastName" sN
+ModUIFloat "BarterMenu/_wildHits" 1
+End) 1 "BarterMenu/*/BC_Category"
+SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "BarterMenu/_idx1Hits" 1
+End) 1 "BarterMenu/BarterCategories/BC_Category:1"
+SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "ContainerMenu/_hits" 1
+SetUIFloat "ContainerMenu/_menuId" m
+End) 1 "ContainerMenu#20""#,
+    );
+
+    // Register a UDF on a prefix path, then test slash/case-insensitive removal below.
+    query(
+        &mut g,
+        r#"ref f
+let f := (Begin Function {int m, int t, string_var sN}
+ModUIFloat "BarterMenu/_prefixHits" 1
+End)
+PlayerREF.AuxVarSetRef "bc_prefix_udf" f 0
+SetOnMenuClickEventHandler f 1 "BarterMenu/BarterCategories""#,
+    );
+
+    // Click sibling 0 (id 10): wildcard and prefix fire, index-1 handler does not; name is "bc_category:0".
+    ui_input::step(&mut g, &[barter], &Input { press: true, ..pointer_at(40.0, 20.0) }, &no_measure);
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_lastMenu"), Some(1053.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_lastId"), Some(10.0));
+    assert_eq!(g.ui_tree.get_string("BarterMenu/_lastName").as_deref(), Some("bc_category:0"));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_wildHits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_idx1Hits"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_prefixHits"), Some(1.0));
+
+    // Click sibling 1 (id 11): all three handlers fire; name is "bc_category:1".
+    ui_input::step(&mut g, &[barter], &Input { press: true, ..pointer_at(140.0, 20.0) }, &no_measure);
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_lastId"), Some(11.0));
+    assert_eq!(g.ui_tree.get_string("BarterMenu/_lastName").as_deref(), Some("bc_category:1"));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_wildHits"), Some(2.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_idx1Hits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_prefixHits"), Some(2.0));
+
+    // Remove the prefix handler using mixed case + backslash: sibling 2 click must NOT increment _prefixHits.
+    query(
+        &mut g,
+        r#"ref f
+let f := PlayerREF.AuxVarGetRef "bc_prefix_udf" 0
+SetOnMenuClickEventHandler f 0 "bartermenu\BARTERCATEGORIES""#,
+    );
+    ui_input::step(&mut g, &[barter], &Input { press: true, ..pointer_at(240.0, 20.0) }, &no_measure);
+    assert_eq!(g.ui_tree.get_string("BarterMenu/_lastName").as_deref(), Some("bc_category:2"));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_wildHits"), Some(3.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_idx1Hits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_prefixHits"), Some(2.0));
+
+    // ContainerMenu (1008) click via Menu#id.
+    ui_input::step(&mut g, &[container], &Input { press: true, ..pointer_at(40.0, 25.0) }, &no_measure);
+    assert_eq!(g.ui_tree.get_float("ContainerMenu/_hits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("ContainerMenu/_menuId"), Some(1008.0));
+}
+
+#[test]
+fn click_menu_tile_resolves_target_hotrect_child_and_fires_menu_click_event() {
+    use fnv_game::ui_input;
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\hotchild.xml",
+        r#"<menu name="ChildMenu"> <class> &QuantityMenu; </class>
+           <_hits> 0 </_hits> <_id> 0 </_id> <_name> "" </_name>
+           <rect name="Main">
+             <hotrect name="ActionBtn"> <id> 7 </id> <target> &true; </target>
+               <text name="Label"> <string> OK </string> </text>
+             </hotrect>
+             <image name="Plain"> <id> 8 </id> </image>
+           </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&src, "menus\\hotchild.xml").unwrap();
+    g.ui_tree.update();
+    query(
+        &mut g,
+        r#"SetOnMenuClickEventHandler (Begin Function {int m, int t, string_var sN}
+ModUIFloat "ChildMenu/_hits" 1
+SetUIFloat "ChildMenu/_id" t
+SetUIString "ChildMenu/_name" sN
+End) 1 "ChildMenu/Main/ActionBtn""#,
+    );
+    // Child inside a target <hotrect> resolves to the owning target <hotrect>.
+    assert_eq!(n(run(&mut g, "ClickMenuTile", &[s("ChildMenu/Main/ActionBtn/Label")])), 1.0);
+    assert_eq!(g.ui_tree.get_float("ChildMenu/Main/ActionBtn/clicked"), Some(1.0));
+    // Non-target tile outside any target <hotrect> still returns 0.
+    assert_eq!(n(run(&mut g, "ClickMenuTile", &[s("ChildMenu/Main/Plain")])), 0.0);
+    let report = ui_input::idle(&mut g).expect("queued script click is reported");
+    assert_eq!(report.clicks.len(), 1);
+    assert_eq!(g.ui_tree.get_float("ChildMenu/Main/ActionBtn/clicked"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("ChildMenu/_hits"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("ChildMenu/_id"), Some(7.0));
+    assert_eq!(g.ui_tree.get_string("ChildMenu/_name").as_deref(), Some("actionbtn"));
+}

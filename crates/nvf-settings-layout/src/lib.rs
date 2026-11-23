@@ -270,10 +270,10 @@ pub const SECTIONS: &[Section] = &[
     section("Graphics", Some("Quality"), &["quality"]),
     // Shadow resolution sizes the flashlight's maps too, so it needs no Sun shadows (no NEEDS
     // line) (#2843).
-    section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows", "terrain-shadows"]),
-    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "light-shafts", "heat-haze", "desert-haze", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
+    section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows", "terrain-shadows", "light-shadows"]),
+    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "light-shafts", "heat-haze", "desert-haze", "aerial-perspective", "night-sky-detail", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
     section("Graphics", Some("Water"), &["water-reflections", "water-mirror", "water-effects"]),
-    section("Graphics", Some("Detail and Distance"), &["distant-lod", "grass", "anisotropic", "terrain-height-blend", "terrain-anti-tiling", "mesh-terrain-blend", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance"]),
+    section("Graphics", Some("Detail and Distance"), &["distant-lod", "full-detail", "distant-objects", "grass", "anisotropic", "authored-materials", "authored-reflections", "terrain-height-blend", "terrain-anti-tiling", "terrain-parallax", "mesh-terrain-blend", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance", "tree-distance", "distant-lights"]),
     section("Graphics", Some("World and Animation"), &["head-tracking", "foot-ik", "sky-clock"]),
     // The owner's own layout of the movement work (tech/movement-inertia, 2026-11-15).
     section(NVF_FEATURES_TAB, Some("Advanced Movement"), &["advanced-movement", "movement-weight"]),
@@ -419,6 +419,7 @@ pub const SECTIONS: &[Section] = &[
             "tweak-power-armor-fall",
             "tweak-power-armor-limbs",
             "tweak-sleep-heal-min-hours",
+            "tweak-sleep-misc-stat-requires-duration",
         ],
     ),
     group_section(
@@ -441,10 +442,15 @@ pub const SECTIONS: &[Section] = &[
             "tweak-pickpocket-caught-detects",
             "tweak-force-spares-lock",
             "tweak-grabbing-is-theft",
+            "tweak-grabbing-is-theft-min-value",
             "tweak-hack-dud-when-full",
             "tweak-hack-spare-guessed",
             "tweak-hack-no-repeat-words",
             "tweak-hack-no-single-chars",
+            "tweak-hack-mark-guesses-as-duds",
+            "tweak-hack-keep-matching-chars",
+            "tweak-hack-compact-guesses",
+            "tweak-hack-replenish-bonus",
             "tweak-key-name",
             "tweak-no-grab-owned",
             "tweak-no-terminal-lockout",
@@ -513,6 +519,7 @@ pub const SECTIONS: &[Section] = &[
             "tweak-no-companion-item-damage",
             "tweak-revive-companions",
             "tweak-revive-down-seconds",
+            "tweak-revive-on-cell-change",
             "tweak-map-summon-companions",
             "tweak-summon-unconscious",
         ],
@@ -551,6 +558,7 @@ pub const SECTIONS: &[Section] = &[
             "tweak-npcs-disarm-player",
             "tweak-npc-melee-part-damage",
             "tweak-hold-release-throws",
+            "tweak-keep-chosen-ammo",
             "tweak-no-condition-damage-buffer",
             "tweak-no-condition-damage-penalty",
             "tweak-no-spin-up",
@@ -564,7 +572,14 @@ pub const SECTIONS: &[Section] = &[
     group_section(
         "Combat",
         "Companions and Blasts",
-        &["tweak-no-disarm-companions", "tweak-teammates-meltdown", "tweak-no-self-meltdown", "tweak-no-companion-kill-xp", "tweak-no-self-explosion-damage"],
+        &[
+            "tweak-no-disarm-companions",
+            "tweak-teammates-meltdown",
+            "tweak-no-self-meltdown",
+            "tweak-no-companion-kill-xp",
+            "tweak-no-self-explosion-damage",
+            "tweak-no-self-explosion-non-hostiles",
+        ],
     ),
     // Tweaks > Quality of Life.
     group_section(
@@ -1016,6 +1031,13 @@ pub const NEEDS: &[(&str, &str, &str)] = &[
     ("eye-adaptation", "glow", "Needs Light Glow (HDR)."),
     ("neon-glow", "glow", "Needs Light Glow (HDR)."),
     ("grass-distance", "grass", "Needs Grass."),
+    // #3322: the terrain parallax draws the authored height maps.
+    ("terrain-parallax", "authored-materials", "Needs Authored Materials."),
+    // #3014: the distant objects stand where the distant LOD's blocks leave gaps.
+    ("distant-objects", "distant-lod", "Needs Distant terrain and objects."),
+    ("tree-distance", "distant-lod", "Needs Distant terrain and objects."),
+    // #2981: the reflections act only on authored materials, so the row greys while they are off.
+    ("authored-reflections", "authored-materials", "Needs Authored materials."),
     ("fps-counter-fps", "fps-counter", "Needs the Frame Rate Counter."),
     ("fps-counter-graph", "fps-counter", "Needs the Frame Rate Counter."),
     ("fps-counter-split", "fps-counter", "Needs the Frame Rate Counter."),
@@ -1027,6 +1049,10 @@ pub const NEEDS: &[(&str, &str, &str)] = &[
     ("fps-counter-upscaling", "fps-counter", "Needs the Frame Rate Counter."),
     ("fps-counter-low", "fps-counter", "Needs the Frame Rate Counter."),
     ("fps-counter-low", "fps-counter-fps", "Needs Counter: Frame Rate."),
+    ("tweak-hack-keep-matching-chars", "tweak-hack-mark-guesses-as-duds", "Needs Hacking: Mark Guesses as Duds."),
+    ("tweak-revive-on-cell-change", "tweak-revive-companions", "Needs Revive Unconscious Companions."),
+    ("tweak-no-self-explosion-non-hostiles", "tweak-no-self-explosion-damage", "Needs Own Blasts Spare the Player."),
+    ("tweak-grabbing-is-theft-min-value", "tweak-grabbing-is-theft", "Needs Grabbing Is Stealing."),
 ];
 
 /// The Controls tab's rows that are shown only while the input device is a controller

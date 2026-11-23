@@ -25,7 +25,10 @@
 //! picture placement, since #2897 stage two the fallback (`NVF_PLAY_DEBUG_AO=post`, and what
 //! runs while the lighting hook is not in place).
 //!
-//! On the main camera only, while it carries [`AmbientOcclusion`].
+//! On the main camera only, while it carries [`AmbientOcclusion`], at the Ambient occlusion
+//! row's level ([`AoLevel`]: Performance marches one slice direction a pixel instead of
+//! Quality's two). Under multisampling the passes read the depth resolved once to one sample
+//! ([`resolve_depth`]), not the multisampled prepass.
 //!
 //! In the lighting (#2897 stage two, ssao_lighting.rs, docs/design/graphics-enhanced.md
 //! §3.1.2; the default placement, [`AoDebug`]): the factor is not multiplied into the picture
@@ -59,12 +62,14 @@ use bevy::render::extract_component::{ComponentUniforms, DynamicUniformIndex, Ex
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer};
 use bevy::render::render_resource::{
     BindGroupEntries, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BindingResource, BlendComponent, BlendFactor, BlendOperation,
-    BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, Extent3d, FilterMode, FragmentState, LoadOp, Operations, PipelineCache,
-    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
-    ShaderStages, ShaderType, StoreOp, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+    BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState, LoadOp,
+    Operations, PipelineCache, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
+    Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, StoreOp, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureSampleType, TextureUsages, TextureView,
 };
 use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::texture::{CachedTexture, TextureCache};
+use bevy::render::camera::ExtractedCamera;
 use bevy::render::view::{ExtractedView, ViewTarget};
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 
@@ -106,12 +111,45 @@ const LIGHTING_VARIANT: AoVariant = AoVariant { slices: None, steps: None, wide:
 /// to be traded once measured].
 const GTAO_SLICES: u32 = 2;
 const GTAO_STEPS: u32 = 4;
+/// Slice directions per pixel at Performance ([`AoLevel`]): one, its sixteen turns over the
+/// half circle across the denoise's 4 x 4 texels instead of Quality's thirty-two. Halves the
+/// horizon march, the pass's scattered depth reads (16 to 8 a half-resolution texel) and most
+/// of its arithmetic; the steps a side, the denoise and the remedies stay Quality's, so the
+/// look stays close: the same contact shadows, a little more grain where the 4 x 4 texels
+/// lie on different surfaces [engineering choice, from the shader's reads: ssao.wesl].
+const PERFORMANCE_SLICES: u32 = 1;
 /// Largest radius on the screen, in pixels (near things, e.g. the player's arms).
 const MAX_SCREEN_RADIUS: f32 = 80.0;
 /// The effect fades out between these distances (game units) [engineering choice: beyond
 /// them the radius is a pixel or two and the fog takes over].
 const FADE_START: f32 = 4000.0;
 const FADE_END: f32 = 7000.0;
+
+/// The Ambient occlusion row's choices, in the order the page and the INI keep them: an INI
+/// written while the row was an on/off switch (`1`/`0`, also true/false, on/off, yes/no)
+/// reads back as Quality or Off (settings.rs).
+pub const AO_CHOICES: [&str; 3] = ["Off", "Performance", "Quality"];
+
+/// How much the ambient occlusion costs while it is on: the Ambient occlusion row's
+/// Performance and Quality ([`AO_CHOICES`]; `--ambient-occlusion[=performance|quality]`).
+/// Quality is the estimate as it was before the row had levels; Performance the same pass
+/// with one slice direction a pixel ([`PERFORMANCE_SLICES`]).
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AoLevel {
+    Performance,
+    #[default]
+    Quality,
+}
+
+impl AoLevel {
+    /// The name the row shows and the INI keeps.
+    pub fn name(self) -> &'static str {
+        match self {
+            AoLevel::Performance => "Performance",
+            AoLevel::Quality => "Quality",
+        }
+    }
+}
 
 /// Ambient occlusion on a camera; the projection part is kept up to date by
 /// [`follow_projection`].
@@ -133,7 +171,8 @@ pub struct AmbientOcclusion {
     /// `upscaler/prep.rs` `prepare`; 0 otherwise (the extraction puts 0 back every frame).
     pub area: Vec4,
     /// x 1 for the old estimate, y 1 for the factor shown alone as grey, z 1 for the
-    /// occlusion asked for in the lighting ([`AoDebug`]).
+    /// occlusion asked for in the lighting ([`AoDebug`]), w 1 at Performance ([`AoLevel`];
+    /// not read by the shaders: the level reaches them through `variant`).
     pub mode: Vec4,
     /// The candidate remedy for the shimmer on plants ([`AoVariant::uniform`]); all 0 for
     /// the estimate as shipped.
@@ -142,21 +181,44 @@ pub struct AmbientOcclusion {
 
 impl Default for AmbientOcclusion {
     fn default() -> Self {
-        AmbientOcclusion::with_debug(*AO_DEBUG, AO_DEBUG.in_lighting_now())
+        AmbientOcclusion::at(AoLevel::Quality)
     }
 }
 
 impl AmbientOcclusion {
+    /// The occlusion at `level` (the row's Performance or Quality), with the debug aids.
+    pub fn at(level: AoLevel) -> Self {
+        AmbientOcclusion::with_debug_at(*AO_DEBUG, AO_DEBUG.in_lighting_now(), level)
+    }
+
     /// The settings for the debug aids `debug`, in the lighting placement or on the picture
-    /// (`lighting`: where the occlusion goes this frame, [`AoDebug::in_lighting_now`]).
+    /// (`lighting`: where the occlusion goes this frame, [`AoDebug::in_lighting_now`]), at
+    /// Quality.
+    #[cfg(test)]
     fn with_debug(debug: AoDebug, lighting: bool) -> Self {
+        AmbientOcclusion::with_debug_at(debug, lighting, AoLevel::Quality)
+    }
+
+    /// The same at `level`.
+    fn with_debug_at(debug: AoDebug, lighting: bool, level: AoLevel) -> Self {
+        let mut mode = debug.mode();
+        mode.w = if level == AoLevel::Performance { 1.0 } else { 0.0 };
         AmbientOcclusion {
             params: Vec4::new(RADIUS, debug.strength(lighting), 5.0, FADE_END),
             proj: Vec4::new(1.0, 1.0, MAX_SCREEN_RADIUS, FADE_START),
             render_scale: Vec4::ONE,
             area: Vec4::ZERO,
-            mode: debug.mode(),
-            variant: debug.variant_for(lighting).uniform(),
+            mode,
+            variant: debug.variant_at(lighting, level).uniform(),
+        }
+    }
+
+    /// The level this occlusion runs at.
+    pub(crate) fn level(&self) -> AoLevel {
+        if self.mode.w > 0.5 {
+            AoLevel::Performance
+        } else {
+            AoLevel::Quality
         }
     }
 
@@ -187,6 +249,13 @@ impl AmbientOcclusion {
 pub(crate) static AO_BEFORE_FSR: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| !std::env::var("NVF_AO_BEFORE_FSR").is_ok_and(|v| v.trim() == "0"));
 
+/// Whether a multisampled depth prepass is resolved once to one sample for the occlusion
+/// ([`resolve_depth`]); `NVF_AO_RESOLVE_DEPTH=0` reads the multisampled depth in every pass
+/// instead (the way of builds before 2026-11-19), for cost comparisons. The picture is the same
+/// either way.
+pub(crate) static AO_RESOLVE_DEPTH: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| !std::env::var("NVF_AO_RESOLVE_DEPTH").is_ok_and(|v| v.trim() == "0"));
+
 /// Debug switch `NVF_PLAY_DEBUG_AO` (read once at the start; a development aid for
 /// before/after pictures and cost runs, not a setting). Unset, empty, `0`, `off` or `false`:
 /// the ground-truth estimate on the ambient light and the lamps inside the lighting
@@ -212,6 +281,9 @@ pub(crate) static AO_BEFORE_FSR: std::sync::LazyLock<bool> =
 /// - `NVF_PLAY_DEBUG_AO_EXPONENT=<number>`, held to 0.1..2, the lighting only: the exponent
 ///   the factor is raised to before it scales the display-value sum (ssao_lighting.rs
 ///   `EXPONENT`).
+/// - `NVF_PLAY_DEBUG_AO_MULTIBOUNCE=0` (or `1`), the lighting only: the ambient's factor
+///   without (with) the multi-bounce fit by the surface's colour (ssao_lighting.rs
+///   `MULTIBOUNCE`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct AoDebug {
     /// The old estimate instead of ground-truth ambient occlusion (always on the picture).
@@ -227,6 +299,8 @@ pub(crate) struct AoDebug {
     lamps: Option<f32>,
     /// The exponent from `NVF_PLAY_DEBUG_AO_EXPONENT` (the lighting only).
     exponent: Option<f32>,
+    /// The multi-bounce fit from `NVF_PLAY_DEBUG_AO_MULTIBOUNCE` (the lighting only).
+    multibounce: Option<bool>,
     /// The candidate remedies from `NVF_PLAY_DEBUG_AO_VARIANT`; `None` when unset or empty
     /// (the placement's default).
     variant: Option<AoVariant>,
@@ -408,6 +482,16 @@ impl AoDebug {
         }
     }
 
+    /// The remedies and slice count at `level`: Performance takes [`PERFORMANCE_SLICES`]
+    /// unless the aid set a slice count; the old estimate has no slices.
+    fn variant_at(self, lighting: bool, level: AoLevel) -> AoVariant {
+        let variant = self.variant_for(lighting);
+        match level {
+            AoLevel::Performance if !self.old && variant.slices.is_none() => AoVariant { slices: Some(PERFORMANCE_SLICES), ..variant },
+            _ => variant,
+        }
+    }
+
     /// The lamps' weight in the lighting.
     fn lamps(self) -> f32 {
         self.lamps.unwrap_or(crate::ssao_lighting::LAMPS)
@@ -416,6 +500,23 @@ impl AoDebug {
     /// The exponent in the lighting.
     fn exponent(self) -> f32 {
         self.exponent.unwrap_or(crate::ssao_lighting::EXPONENT)
+    }
+
+    /// The multi-bounce fit in the lighting.
+    fn multibounce(self) -> bool {
+        self.multibounce.unwrap_or(crate::ssao_lighting::MULTIBOUNCE)
+    }
+
+    /// `NVF_PLAY_DEBUG_AO_MULTIBOUNCE`'s value: none when unset or empty, `0`/`off`/`false`
+    /// or `1`/`on`/`true`, `Err` with the value for anything else.
+    fn parse_switch(value: Option<&str>) -> Result<Option<bool>, String> {
+        let v = value.map(str::trim).unwrap_or("");
+        match v.to_ascii_lowercase().as_str() {
+            "" => Ok(None),
+            "0" | "off" | "false" => Ok(Some(false)),
+            "1" | "on" | "true" => Ok(Some(true)),
+            _ => Err(v.to_string()),
+        }
     }
 
     /// The uniform's `mode` (ssao.wesl `Ao.mode`).
@@ -428,12 +529,20 @@ impl AoDebug {
     /// exponent, its fade end and strength, the lamps' weight, the debug view with
     /// `view-lighting`.
     fn lighting_uniform(self, settings: &AmbientOcclusion) -> AmbientOcclusionLightingUniform {
-        AmbientOcclusionLightingUniform::new(self.exponent(), settings.params.w, settings.params.y, self.lamps(), self.view && self.lighting())
+        AmbientOcclusionLightingUniform::new(self.exponent(), settings.params.w, settings.params.y, self.lamps(), self.multibounce(), self.view && self.lighting())
     }
 
-    /// The log line for the placement that runs (`lighting`): the estimate, the remedies and
-    /// the strength actually used, and where it goes; an aid's value is named after it.
+    /// The log line for the placement that runs (`lighting`) at Quality, without the level.
+    #[cfg(test)]
     fn describe(self, lighting: bool) -> String {
+        self.describe_with(lighting, None)
+    }
+
+    /// The log line for the placement that runs (`lighting`) at `level`: the estimate, the
+    /// remedies and the strength actually used, where it goes, then the level (`level
+    /// Performance`; the old estimate has none); an aid's value is named after it. `None`:
+    /// Quality's line without the level.
+    fn describe_with(self, lighting: bool, level: Option<AoLevel>) -> String {
         let aid = |set: bool, name: &str| if set { format!(" ({name})") } else { String::new() };
         let estimate = if self.old {
             let variant = match self.variant {
@@ -443,8 +552,9 @@ impl AoDebug {
             format!("old estimate (12-sample spiral, NVF_PLAY_DEBUG_AO){variant}")
         } else {
             let variant = self.variant_for(lighting);
-            let slices = variant.slices.unwrap_or(GTAO_SLICES);
+            let slices = self.variant_at(lighting, level.unwrap_or_default()).slices.unwrap_or(GTAO_SLICES);
             let steps = variant.steps.unwrap_or(GTAO_STEPS);
+            let slice_word = if slices == 1 { "slice" } else { "slices" };
             let remedies = match (variant.is_set(), lighting) {
                 (true, _) => format!(", variant {}{}", variant.name(), aid(self.variant.is_some(), "NVF_PLAY_DEBUG_AO_VARIANT")),
                 // The plain estimate in the lighting only by the aid's `none`.
@@ -458,17 +568,19 @@ impl AoDebug {
                 (None, true) => format!(", strength {LIGHTING_STRENGTH}"),
                 (None, false) => String::new(),
             };
-            format!("ground-truth estimate (GTAO), {slices} slices x {steps} steps a side at half resolution, depth-aware denoise{remedies}{strength}")
+            format!("ground-truth estimate (GTAO), {slices} {slice_word} x {steps} steps a side at half resolution, depth-aware denoise{remedies}{strength}")
         };
         let placement = if lighting {
             let lamps = self.lamps();
             let reach = if lamps > 0.0 { format!("on the ambient light and on lamps without a shadow by {lamps}") } else { "on the ambient light alone".to_string() };
             let view = if self.view { ", the factor each surface took shown alone (NVF_PLAY_DEBUG_AO=view-lighting)" } else { "" };
+            let bounce = if self.multibounce() { ", multi-bounce by surface colour" } else { ", no multi-bounce" };
             format!(
-                ", in the lighting: {reach}{}, exponent {}{}{view}",
+                ", in the lighting: {reach}{}, exponent {}{}{bounce}{}{view}",
                 aid(self.lamps.is_some(), "NVF_PLAY_DEBUG_AO_LAMPS"),
                 self.exponent(),
-                aid(self.exponent.is_some(), "NVF_PLAY_DEBUG_AO_EXPONENT")
+                aid(self.exponent.is_some(), "NVF_PLAY_DEBUG_AO_EXPONENT"),
+                aid(self.multibounce.is_some(), "NVF_PLAY_DEBUG_AO_MULTIBOUNCE")
             )
         } else {
             let view = if self.view { ", factor shown alone as grey (NVF_PLAY_DEBUG_AO)" } else { "" };
@@ -479,7 +591,11 @@ impl AoDebug {
             };
             format!("{view}{post}{ignored}")
         };
-        format!("ambient occlusion: {estimate}{placement}")
+        let level = match level {
+            Some(level) if !self.old => format!(", level {}", level.name()),
+            _ => String::new(),
+        };
+        format!("ambient occlusion: {estimate}{placement}{level}")
     }
 }
 
@@ -509,6 +625,13 @@ static AO_DEBUG: std::sync::LazyLock<AoDebug> = std::sync::LazyLock::new(|| {
         Ok(e) => e,
         Err(v) => {
             warn!("debug switch NVF_PLAY_DEBUG_AO_EXPONENT={v}: expected a number from 0.1 to 2; exponent {}", crate::ssao_lighting::EXPONENT);
+            None
+        }
+    };
+    debug.multibounce = match AoDebug::parse_switch(std::env::var("NVF_PLAY_DEBUG_AO_MULTIBOUNCE").ok().as_deref()) {
+        Ok(m) => m,
+        Err(v) => {
+            warn!("debug switch NVF_PLAY_DEBUG_AO_MULTIBOUNCE={v}: expected 0 or 1; multi-bounce {}", crate::ssao_lighting::MULTIBOUNCE);
             None
         }
     };
@@ -557,7 +680,7 @@ fn follow_projection(mut cams: Query<(&Projection, &mut AmbientOcclusion), With<
         let x = y / p.aspect_ratio.max(1e-3);
         let params = Vec4::new(RADIUS, AO_DEBUG.strength(lighting), p.near, FADE_END);
         let projv = Vec4::new(x, y, MAX_SCREEN_RADIUS, FADE_START);
-        let variant = AO_DEBUG.variant_for(lighting).uniform();
+        let variant = AO_DEBUG.variant_at(lighting, ao.level()).uniform();
         if ao.params != params || ao.proj != projv || ao.variant != variant {
             ao.params = params;
             ao.proj = projv;
@@ -566,15 +689,15 @@ fn follow_projection(mut cams: Query<(&Projection, &mut AmbientOcclusion), With<
     }
 }
 
-/// Which estimate runs and where, said once each time the occlusion turns on on the main
-/// camera (for the placement asked for; the extraction says when it goes into the lighting,
-/// or that it stays on the picture).
-fn log_estimate(cams: Query<(), (With<AmbientOcclusion>, With<FlyCam>)>, mut was_on: Local<bool>) {
-    let on = !cams.is_empty();
-    if on && !*was_on {
-        info!("{}", AO_DEBUG.describe(AO_DEBUG.lighting()));
+/// Which estimate runs, where and at which level, said once each time the occlusion turns
+/// on on the main camera or changes level (for the placement asked for; the extraction says
+/// when it goes into the lighting, or that it stays on the picture).
+fn log_estimate(cams: Query<&AmbientOcclusion, With<FlyCam>>, mut was: Local<Option<AoLevel>>) {
+    let now = cams.iter().next().map(AmbientOcclusion::level);
+    if let Some(level) = now.filter(|l| *was != Some(*l)) {
+        info!("{}", AO_DEBUG.describe_with(AO_DEBUG.lighting(), Some(level)));
     }
-    *was_on = on;
+    *was = now;
 }
 
 #[derive(Resource)]
@@ -601,14 +724,26 @@ pub(crate) struct AoPipelines {
     denoise_layouts: [BindGroupLayoutDescriptor; 2],
     denoise_base: RenderPipelineDescriptor,
     denoise: HashMap<bool, CachedRenderPipelineId>,
+    /// Under multisampling: the resolve of the depth to one sample ([`resolve_depth`]), its
+    /// layout (the multisampled depth and the uniform) and pipeline (queued the first time a
+    /// view needs it).
+    resolve_layout: BindGroupLayoutDescriptor,
+    resolve_base: RenderPipelineDescriptor,
+    resolve: Option<CachedRenderPipelineId>,
 }
 
 /// A view's pipelines, whether its depth is multisampled, and its occlusion texture.
 #[derive(Component)]
 pub(crate) struct AoView {
+    /// The occlusion, apply and denoise pipelines read the depth the passes are given: the
+    /// single-sampled resolve while [`AoView::resolve`] is set, else the prepass's own.
     occlusion: CachedRenderPipelineId,
     apply: CachedRenderPipelineId,
+    /// The view's depth prepass is multisampled.
     multi: bool,
+    /// Under multisampling, the depth resolved once to one sample for the passes
+    /// ([`resolve_depth`]); `None` without multisampling or with `NVF_AO_RESOLVE_DEPTH=0`.
+    resolve: Option<AoResolve>,
     /// The picture's format the apply pipeline was built for.
     format: TextureFormat,
     texture: CachedTexture,
@@ -618,6 +753,20 @@ pub(crate) struct AoView {
     /// pipeline and the texture it writes, which the bindings point at; the post passes do
     /// nothing then.
     lighting: Option<AoLighting>,
+}
+
+/// A view's resolved depth ([`AoView::resolve`]): the pipeline and the single-sampled texture
+/// at the depth prepass's size.
+pub(crate) struct AoResolve {
+    pipeline: CachedRenderPipelineId,
+    texture: CachedTexture,
+}
+
+impl AoView {
+    /// The passes' pipelines read a multisampled depth: the prepass's, not resolved.
+    fn reads_multi(&self) -> bool {
+        self.multi && self.resolve.is_none()
+    }
 }
 
 /// A view's part of the occlusion in the lighting ([`AoView::lighting`]).
@@ -674,7 +823,10 @@ fn extract_lighting(
     for line in &plan.lines {
         match line {
             LightingLine::On | LightingLine::Off => info!("{}", line.text()),
-            LightingLine::HookFailed => warn!("{}: {}", line.text(), AO_DEBUG.describe(false).trim_start_matches("ambient occlusion: ")),
+            LightingLine::HookFailed => {
+                let level = cams.first().map_or(AoLevel::Quality, |(_, s)| s.level());
+                warn!("{}: {}", line.text(), AO_DEBUG.describe_with(false, Some(level)).trim_start_matches("ambient occlusion: "))
+            }
         }
     }
     for e in &plan.remove {
@@ -755,6 +907,11 @@ const BEFORE_FSR_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 /// How open a texel is, and its distance (the apply pass weighs texels by it).
 const OCCLUSION_FORMAT: TextureFormat = TextureFormat::Rg16Float;
 
+/// The resolved depth's format: the prepass's (Bevy's `CORE_3D_DEPTH_FORMAT`), so a sample
+/// is kept bit for bit and the single-sampled pipelines read it as they read an unsampled
+/// prepass.
+const RESOLVED_DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
+
 fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
     let occlusion_layout = |multi: bool| {
         let depth = if multi { texture_depth_2d_multisampled() } else { texture_depth_2d() };
@@ -795,6 +952,11 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
             ),
         )
     };
+    // Under multisampling: the resolve's (the multisampled depth and the uniform, ssao.wesl).
+    let resolve_layout = BindGroupLayoutDescriptor::new(
+        "ssao_resolve_layout",
+        &BindGroupLayoutEntries::sequential(ShaderStages::FRAGMENT, (texture_depth_2d_multisampled(), uniform_buffer::<AmbientOcclusion>(true))),
+    );
     let shader = assets.load("embedded://nvforever/ssao.wesl");
     let base = |label: &'static str, entry: &'static str| RenderPipelineDescriptor {
         label: Some(label.into()),
@@ -818,6 +980,19 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         };
         f.targets = vec![Some(ColorTargetState { format: BEFORE_FSR_FORMAT, blend: Some(blend), write_mask: ColorWrites::ALL })];
     }
+    // The resolve writes the depth itself: no colour, every pixel written (compare Always).
+    let mut resolve_base = base("ssao_resolve_depth_pipeline", "resolve_depth");
+    resolve_base.layout = vec![resolve_layout.clone()];
+    resolve_base.depth_stencil = Some(DepthStencilState {
+        format: RESOLVED_DEPTH_FORMAT,
+        depth_write_enabled: Some(true),
+        depth_compare: Some(CompareFunction::Always),
+        stencil: default(),
+        bias: default(),
+    });
+    if let Some(f) = resolve_base.fragment.as_mut() {
+        f.shader_defs.push("MULTISAMPLED".into());
+    }
     let sampler = device.create_sampler(&SamplerDescriptor { mag_filter: FilterMode::Linear, min_filter: FilterMode::Linear, ..default() });
     commands.insert_resource(AoPipelines {
         occlusion_layouts: [occlusion_layout(false), occlusion_layout(true)],
@@ -833,6 +1008,9 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
         denoise_layouts: [denoise_layout(false), denoise_layout(true)],
         denoise_base: base("ssao_denoise_pipeline", "denoise"),
         denoise: HashMap::default(),
+        resolve_layout,
+        resolve_base,
+        resolve: None,
     });
 }
 
@@ -857,11 +1035,12 @@ fn prepare(
     mut pipelines: ResMut<AoPipelines>,
     mut textures: ResMut<TextureCache>,
     (device, queue): (Res<RenderDevice>, Res<RenderQueue>),
-    mut views: Query<(Entity, &ExtractedView, &Msaa, &AmbientOcclusion, Option<&mut NvfAmbientOcclusionBindings>)>,
+    mut views: Query<(Entity, &ExtractedView, &Msaa, &AmbientOcclusion, Option<&mut NvfAmbientOcclusionBindings>, Option<&ExtractedCamera>)>,
     stale: Query<Entity, (With<AoView>, Without<AmbientOcclusion>)>,
     mut orphans: Query<&mut NvfAmbientOcclusionBindings, Without<AmbientOcclusion>>,
     mut gpu: ResMut<AoLightingGpu>,
     zero: Res<FallbackImageZero>,
+    mut resolving: Local<Option<bool>>,
 ) {
     // The row switched off while the game runs: the view's extracted settings go, but what
     // this system and the uniform plugin put on the view stays, and the passes would go on
@@ -877,34 +1056,65 @@ fn prepare(
             b.texture = zero.texture_view.clone();
         }
     }
-    for (entity, view, msaa, settings, bindings) in &mut views {
+    for (entity, view, msaa, settings, bindings, camera) in &mut views {
         let before_fsr = settings.runs_before_fsr();
         if before_fsr && pipelines.multiply.is_none() {
             pipelines.multiply = Some(cache.queue_render_pipeline(pipelines.multiply_base.clone()));
         }
         let multi = msaa.samples() > 1;
+        // Under multisampling the depth resolved once, at the prepass's size (Bevy's
+        // `prepare_prepass_textures`: the camera's physical target size), and the passes read
+        // that with their single-sampled pipelines.
+        let resolve = match camera.and_then(|c| c.physical_target_size) {
+            Some(target) if multi && *AO_RESOLVE_DEPTH => {
+                let pipeline = match pipelines.resolve {
+                    Some(id) => id,
+                    None => {
+                        let id = cache.queue_render_pipeline(pipelines.resolve_base.clone());
+                        pipelines.resolve = Some(id);
+                        id
+                    }
+                };
+                let texture = textures.get(
+                    &device,
+                    TextureDescriptor {
+                        label: Some("ssao_resolved_depth"),
+                        size: Extent3d { width: target.x, height: target.y, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: TextureDimension::D2,
+                        format: RESOLVED_DEPTH_FORMAT,
+                        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    },
+                );
+                Some(AoResolve { pipeline, texture })
+            }
+            _ => None,
+        };
+        let reads_multi = multi && resolve.is_none();
         let format = view.target_format;
-        let occlusion = match pipelines.occlusion.get(&multi) {
+        let occlusion = match pipelines.occlusion.get(&reads_multi) {
             Some(id) => *id,
             None => {
-                let id = cache.queue_render_pipeline(occlusion_format_pipeline(&pipelines.occlusion_base, &pipelines.occlusion_layouts[multi as usize], multi));
-                pipelines.occlusion.insert(multi, id);
+                let id = cache.queue_render_pipeline(occlusion_format_pipeline(&pipelines.occlusion_base, &pipelines.occlusion_layouts[reads_multi as usize], reads_multi));
+                pipelines.occlusion.insert(reads_multi, id);
                 id
             }
         };
-        let apply = match pipelines.apply.get(&(format, multi)) {
+        let apply = match pipelines.apply.get(&(format, reads_multi)) {
             Some(id) => *id,
             None => {
                 let mut d = pipelines.apply_base.clone();
-                d.layout = vec![pipelines.apply_layouts[multi as usize].clone()];
+                d.layout = vec![pipelines.apply_layouts[reads_multi as usize].clone()];
                 if let Some(f) = d.fragment.as_mut() {
                     f.targets = vec![Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })];
-                    if multi {
+                    if reads_multi {
                         f.shader_defs.push("MULTISAMPLED".into());
                     }
                 }
                 let id = cache.queue_render_pipeline(d);
-                pipelines.apply.insert((format, multi), id);
+                pipelines.apply.insert((format, reads_multi), id);
                 id
             }
         };
@@ -926,11 +1136,11 @@ fn prepare(
         // In the lighting: the denoised texture, bound for this frame's main pass (before
         // RenderSystems::PrepareBindGroups, as bevy_pbr allows), and the uniform.
         let lighting = bindings.map(|mut b| {
-            let denoise = match pipelines.denoise.get(&multi) {
+            let denoise = match pipelines.denoise.get(&reads_multi) {
                 Some(id) => *id,
                 None => {
-                    let id = cache.queue_render_pipeline(occlusion_format_pipeline(&pipelines.denoise_base, &pipelines.denoise_layouts[multi as usize], multi));
-                    pipelines.denoise.insert(multi, id);
+                    let id = cache.queue_render_pipeline(occlusion_format_pipeline(&pipelines.denoise_base, &pipelines.denoise_layouts[reads_multi as usize], reads_multi));
+                    pipelines.denoise.insert(reads_multi, id);
                     id
                 }
             };
@@ -951,7 +1161,17 @@ fn prepare(
             }
             AoLighting { denoise, denoised }
         });
-        commands.entity(entity).insert(AoView { occlusion, apply, multi, format, texture, before_fsr, lighting });
+        // Said once per change: whether the passes read the depth resolved to one sample.
+        if multi && *resolving != Some(resolve.is_some()) {
+            if resolve.is_some() {
+                info!("ambient occlusion: the multisampled depth resolved once to one sample for the passes");
+            } else {
+                let why = if *AO_RESOLVE_DEPTH { " (the view has no target size yet)" } else { " (NVF_AO_RESOLVE_DEPTH=0)" };
+                info!("ambient occlusion: the passes read the multisampled depth{why}");
+            }
+            *resolving = Some(resolve.is_some());
+        }
+        commands.entity(entity).insert(AoView { occlusion, apply, multi, resolve, format, texture, before_fsr, lighting });
     }
 }
 
@@ -969,6 +1189,52 @@ pub(crate) fn format_matches(target: &ViewTarget, format: TextureFormat) -> bool
 /// pass bound to the other kind of texture is a validation error that ends the run.
 pub(crate) fn depth_multisampled(prepass: &ViewPrepassTextures) -> Option<bool> {
     prepass.depth.as_ref().map(|d| d.texture.texture.sample_count() > 1)
+}
+
+/// The depth the passes read this frame, `None` when they cannot run: the prepass's own, or,
+/// while the view resolves it ([`AoView::resolve`]), the prepass's multisampled depth
+/// resolved here to one sample, sample 0 as every pass read it (ssao.wesl `resolve_depth`).
+/// The passes then read single-sampled texels close together in memory instead of sample 0
+/// of the multisampled texture at each of their 26 reads a half-resolution texel
+/// (docs/design/frame-rate-audit.md §9: 0.3 of AO's 0.6 ms at 1440p 4x) [engineering
+/// choice]. Checked against the prepass texture itself: in the frame the multisampling or
+/// the window's size changes the view's settings and its textures can disagree.
+#[allow(clippy::too_many_arguments)]
+fn resolve_depth<'a>(
+    ctx: &mut RenderContext,
+    device: &RenderDevice,
+    pipelines: &AoPipelines,
+    cache: &PipelineCache,
+    ao: &'a AoView,
+    prepass: &'a ViewPrepassTextures,
+    binding: BindingResource<'_>,
+    index: u32,
+) -> Option<&'a TextureView> {
+    let Some(resolve) = ao.resolve.as_ref() else {
+        return prepass.depth_only_view().filter(|_| depth_multisampled(prepass) == Some(ao.multi));
+    };
+    let source = prepass.depth.as_ref()?;
+    if source.texture.texture.sample_count() <= 1 || source.texture.texture.size() != resolve.texture.texture.size() {
+        return None;
+    }
+    let depth = prepass.depth_only_view()?;
+    let pipeline = cache.get_render_pipeline(resolve.pipeline)?;
+    let layout = cache.get_bind_group_layout(&pipelines.resolve_layout);
+    let bind_group = device.create_bind_group("ssao_resolve_bind_group", &layout, &BindGroupEntries::sequential((depth, binding)));
+    let ops = Operations { load: LoadOp::Clear(0.0), store: StoreOp::Store };
+    let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+        label: Some("ssao_resolve_depth_pass"),
+        color_attachments: &[],
+        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment { view: &resolve.texture.default_view, depth_ops: Some(ops), stencil_ops: None }),
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, &bind_group, &[index]);
+    pass.draw(0..3, 0..1);
+    drop(pass);
+    Some(&resolve.texture.default_view)
 }
 
 /// The occlusion into the view's texture.
@@ -1071,20 +1337,23 @@ pub(crate) fn ao_pass(
     if (ao.before_fsr && upscaled) || ao.lighting.is_some() {
         return;
     }
-    if depth_multisampled(prepass) != Some(ao.multi) || !format_matches(target, ao.format) {
+    if !format_matches(target, ao.format) {
         return;
     }
-    let Some(depth) = prepass.depth_only_view() else { return };
     let (Some(occlusion), Some(apply)) = (cache.get_render_pipeline(ao.occlusion), cache.get_render_pipeline(ao.apply)) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
     // GPU time of the pass (recorded with --log-frame-times, graphics.rs).
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_ambient_occlusion");
-    let layout = cache.get_bind_group_layout(&pipelines.occlusion_layouts[ao.multi as usize]);
+    let Some(depth) = resolve_depth(&mut ctx, &device, &pipelines, &cache, ao, prepass, binding.clone(), index.index()) else {
+        span.end(ctx.command_encoder());
+        return;
+    };
+    let layout = cache.get_bind_group_layout(&pipelines.occlusion_layouts[ao.reads_multi() as usize]);
     occlusion_pass(&mut ctx, &device, &layout, occlusion, depth, binding.clone(), index.index(), ao);
     let post = target.post_process_write();
-    let layout = cache.get_bind_group_layout(&pipelines.apply_layouts[ao.multi as usize]);
+    let layout = cache.get_bind_group_layout(&pipelines.apply_layouts[ao.reads_multi() as usize]);
     let bind_group = device.create_bind_group(
         "ssao_apply_bind_group",
         &layout,
@@ -1127,23 +1396,21 @@ pub(crate) fn ao_lighting_pass(
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_ambient_occlusion");
-    let ready = prepass.filter(|p| depth_multisampled(p) == Some(ao.multi)).and_then(|p| {
-        Some((
-            p.depth_only_view()?,
-            cache.get_render_pipeline(ao.occlusion)?,
-            cache.get_render_pipeline(lighting.denoise)?,
-            uniforms.uniforms().binding()?,
-            index?.index(),
-        ))
+    let ready = prepass.and_then(|p| {
+        Some((p, cache.get_render_pipeline(ao.occlusion)?, cache.get_render_pipeline(lighting.denoise)?, uniforms.uniforms().binding()?, index?.index()))
+    });
+    let ready = ready.and_then(|(p, occlusion, denoise, binding, index)| {
+        let depth = resolve_depth(&mut ctx, &device, &pipelines, &cache, ao, p, binding.clone(), index)?;
+        Some((depth, occlusion, denoise, binding, index))
     });
     let Some((depth, occlusion, denoise, binding, index)) = ready else {
         clear_open(&mut ctx, &lighting.denoised);
         span.end(ctx.command_encoder());
         return;
     };
-    let layout = cache.get_bind_group_layout(&pipelines.occlusion_layouts[ao.multi as usize]);
+    let layout = cache.get_bind_group_layout(&pipelines.occlusion_layouts[ao.reads_multi() as usize]);
     occlusion_pass(&mut ctx, &device, &layout, occlusion, depth, binding.clone(), index, ao);
-    let layout = cache.get_bind_group_layout(&pipelines.denoise_layouts[ao.multi as usize]);
+    let layout = cache.get_bind_group_layout(&pipelines.denoise_layouts[ao.reads_multi() as usize]);
     let bind_group = device.create_bind_group("ssao_denoise_bind_group", &layout, &BindGroupEntries::with_indices(((0, depth), (1, binding), (4, &ao.texture.default_view))));
     let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
         label: Some("ssao_denoise_pass"),
@@ -1220,7 +1487,7 @@ mod tests {
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::default())
                 .validate(&module)
                 .unwrap_or_else(|e| panic!("multisampled {multisampled}: {e:?}"));
-            for entry in ["occlusion", "apply", "multiply", "denoise"] {
+            for entry in ["occlusion", "apply", "multiply", "denoise", "resolve_depth"] {
                 assert!(module.entry_points.iter().any(|e| e.name == entry), "entry point {entry}");
             }
         }
@@ -1648,22 +1915,39 @@ mod tests {
     #[test]
     fn the_log_line_names_the_estimate_and_the_placement() {
         let start = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise";
-        assert_eq!(AoDebug::default().describe(true), format!("{start}, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1"));
+        assert_eq!(AoDebug::default().describe(true), format!("{start}, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour"));
         let post = AoDebug { post: true, ..AoDebug::default() };
         assert_eq!(post.describe(false), format!("{start}, on the picture (NVF_PLAY_DEBUG_AO=post)"));
         // The default asked for, on the picture while the hook is not in place: stage one's.
         assert_eq!(AoDebug::default().describe(false), start);
         assert_eq!(AoDebug { old: true, post: true, ..AoDebug::default() }.describe(false), "ambient occlusion: old estimate (12-sample spiral, NVF_PLAY_DEBUG_AO)");
         assert!(AoDebug { view: true, post: true, ..AoDebug::default() }.describe(false).ends_with("depth-aware denoise, factor shown alone as grey (NVF_PLAY_DEBUG_AO)"));
-        assert!(AoDebug { view: true, ..AoDebug::default() }.describe(true).ends_with(", exponent 1, the factor each surface took shown alone (NVF_PLAY_DEBUG_AO=view-lighting)"));
+        assert!(AoDebug { view: true, ..AoDebug::default() }
+            .describe(true)
+            .ends_with(", exponent 1, multi-bounce by surface colour, the factor each surface took shown alone (NVF_PLAY_DEBUG_AO=view-lighting)"));
         // The aids that were set are named.
-        let aids = AoDebug { lamps: Some(0.5), exponent: Some(0.5), gtao_strength: Some(0.4), ..AoDebug::default() };
+        let aids = AoDebug { lamps: Some(0.5), exponent: Some(0.5), gtao_strength: Some(0.4), multibounce: Some(false), ..AoDebug::default() };
         assert_eq!(
             aids.describe(true),
-            format!("{start}, variant soft+thin, strength 0.4 (NVF_PLAY_DEBUG_AO_STRENGTH), in the lighting: on the ambient light and on lamps without a shadow by 0.5 (NVF_PLAY_DEBUG_AO_LAMPS), exponent 0.5 (NVF_PLAY_DEBUG_AO_EXPONENT)")
+            format!("{start}, variant soft+thin, strength 0.4 (NVF_PLAY_DEBUG_AO_STRENGTH), in the lighting: on the ambient light and on lamps without a shadow by 0.5 (NVF_PLAY_DEBUG_AO_LAMPS), exponent 0.5 (NVF_PLAY_DEBUG_AO_EXPONENT), no multi-bounce (NVF_PLAY_DEBUG_AO_MULTIBOUNCE)")
         );
+        assert!(!post.describe(false).contains("bounce"), "the picture placement has no multi-bounce");
         assert!(AoDebug { lamps: Some(0.0), ..AoDebug::default() }.describe(true).contains("in the lighting: on the ambient light alone (NVF_PLAY_DEBUG_AO_LAMPS), exponent 1"));
         assert!(AoDebug { lamps: Some(1.0), ..post }.describe(false).ends_with(", lamps and exponent ignored on the picture (NVF_PLAY_DEBUG_AO_LAMPS, NVF_PLAY_DEBUG_AO_EXPONENT)"));
+    }
+
+    #[test]
+    fn the_multibounce_aid_reads_on_and_off_and_feeds_the_uniform() {
+        assert_eq!(AoDebug::parse_switch(None), Ok(None));
+        assert_eq!(AoDebug::parse_switch(Some(" ")), Ok(None));
+        assert_eq!(AoDebug::parse_switch(Some("0")), Ok(Some(false)));
+        assert_eq!(AoDebug::parse_switch(Some("OFF")), Ok(Some(false)));
+        assert_eq!(AoDebug::parse_switch(Some("1")), Ok(Some(true)));
+        assert_eq!(AoDebug::parse_switch(Some("maybe")), Err("maybe".to_string()));
+        assert!(AoDebug::default().multibounce(), "on by default");
+        let settings = AmbientOcclusion::default();
+        assert_eq!(AoDebug::default().lighting_uniform(&settings).extra.z, 1.0);
+        assert_eq!(AoDebug { multibounce: Some(false), ..AoDebug::default() }.lighting_uniform(&settings).extra.z, 0.0);
     }
 
     /// ssao.wesl `visible_arc`, the same formula: the integral of cos(t - g) |sin t| from 0 to h.
@@ -1706,5 +1990,49 @@ mod tests {
         let half = visible_arc(-FRAC_PI_2, 0.0) + visible_arc(0.0, 0.0);
         assert!((half - 0.5).abs() < 1e-6);
         assert!((1.0 - GTAO_STRENGTH * (1.0 - half) - 0.8).abs() < 1e-6, "the crease's factor GTAO_STRENGTH's comment gives");
+    }
+
+    /// Quality is the estimate as it was before the row had levels, uniform for uniform;
+    /// Performance differs only in its slice count (one), which the aid's own count still
+    /// overrides; the level rides in `mode.w` and the log line ends with it.
+    #[test]
+    fn the_level_sets_only_the_slice_count() {
+        for (debug, lighting) in [(AoDebug::default(), true), (AoDebug { post: true, ..AoDebug::default() }, false)] {
+            let quality = AmbientOcclusion::with_debug_at(debug, lighting, AoLevel::Quality);
+            let before = AmbientOcclusion::with_debug(debug, lighting);
+            assert_eq!((quality.params, quality.proj, quality.mode, quality.variant), (before.params, before.proj, before.mode, before.variant));
+            assert_eq!(quality.level(), AoLevel::Quality);
+            let performance = AmbientOcclusion::with_debug_at(debug, lighting, AoLevel::Performance);
+            assert_eq!(performance.level(), AoLevel::Performance);
+            assert_eq!(performance.variant, Vec4::new(PERFORMANCE_SLICES as f32, 0.0, quality.variant.z, 0.0), "only the slices differ");
+            assert_eq!((performance.params, performance.mode.truncate()), (quality.params, quality.mode.truncate()));
+        }
+        let slices4 = AoDebug { variant: Some(AoVariant::parse(Some("slices4")).unwrap()), ..AoDebug::default() };
+        assert_eq!(AmbientOcclusion::with_debug_at(slices4, true, AoLevel::Performance).variant.x, 4.0, "the aid's count wins");
+        let old = AoDebug { old: true, post: true, ..AoDebug::default() };
+        assert_eq!(AmbientOcclusion::with_debug_at(old, false, AoLevel::Performance).variant, Vec4::ZERO, "the old estimate has no slices");
+        let line = AoDebug::default().describe_with(true, Some(AoLevel::Performance));
+        assert_eq!(
+            line,
+            "ambient occlusion: ground-truth estimate (GTAO), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance"
+        );
+        assert_eq!(AoDebug::default().describe_with(true, Some(AoLevel::Quality)), format!("{}, level Quality", AoDebug::default().describe(true)));
+        // The aid's `none` at Performance: one slice, no remedies named.
+        let none = AoDebug { variant: Some(AoVariant::default()), ..AoDebug::default() };
+        assert!(none.describe_with(true, Some(AoLevel::Performance)).contains("1 slice x 4 steps a side at half resolution, depth-aware denoise, variant none (NVF_PLAY_DEBUG_AO_VARIANT), strength 0.8"));
+        assert!(!old.describe_with(false, Some(AoLevel::Performance)).contains("level"), "the old estimate has no level");
+        assert_eq!(AO_CHOICES, ["Off", AoLevel::Performance.name(), AoLevel::Quality.name()]);
+    }
+
+    /// The resolve returns sample 0 as it is (no unsqueeze: the passes unsqueeze what they
+    /// read), the nearest sample only for variant `nearest`, and writes the depth itself.
+    #[test]
+    fn the_resolve_keeps_sample_zero_as_it_is() {
+        let source = include_str!("ssao.wesl").replace("\r\n", "\n");
+        let at = source.find("fn resolve_depth(in: FullscreenVertexOutput) -> @builtin(frag_depth) f32 {").expect("resolve entry");
+        let body = &source[at..at + source[at..].find("\n}\n").expect("its end")];
+        assert!(body.contains("var raw = textureLoad(depth, p, 0);") && body.trim_end().ends_with("return raw;"));
+        assert!(body.contains("if (u32(ao.variant.z) & VARIANT_NEAREST) != 0u {"));
+        assert_eq!(RESOLVED_DEPTH_FORMAT, bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT, "the prepass's format, bit for bit");
     }
 }

@@ -29,6 +29,7 @@ use bevy::prelude::*;
 use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
 use fnv_game::slots::{self as rules, REELS};
+use fnv_util::words::{tr, trf};
 use nvf_assets::GameData;
 
 const EDGE: f32 = 30.0;
@@ -140,7 +141,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
         }
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
-            let rows = [("Current Bet:".to_string(), s.bet.to_string()), ("Chips:".into(), s.chips.to_string()), (format!("{} Earnings:", s.casino_name), s.earnings.to_string())];
+            let rows = [(tr("Current Bet:").to_string(), s.bet.to_string()), (tr("Chips:").into(), s.chips.to_string()), (trf("{casino} Earnings:", &[("casino", &s.casino_name)]), s.earnings.to_string())];
             let widths: Vec<(f32, f32)> = rows.iter().map(|(t, v)| (c.text_width(FontKind::Menu, t), c.text_width(FontKind::Menu, v))).collect();
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, 16.0, &widths);
             let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };
@@ -160,12 +161,12 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
             let h = |k: KeyCode| crate::pad::hint(&[k], crate::pad::at_menu(fnv_game::slots::MENU_CODE));
             let buttons = [
                 // Greyed while a win's sequence holds the next spin.
-                ("Spin", h(KeyCode::KeyW), SlotsInput::Spin, betting && !s.held(now) && s.chips >= s.bet && s.chips > 0),
-                ("Increase Bet", h(KeyCode::KeyE), SlotsInput::Increase, betting && s.bet < top),
-                ("Decrease Bet", h(KeyCode::KeyQ), SlotsInput::Decrease, betting && s.bet > s.limits.min_bet),
-                ("Payout List", h(KeyCode::KeyF), SlotsInput::Payouts, betting),
-                ("Bet Max", h(KeyCode::KeyS), SlotsInput::Max, betting && s.bet < top),
-                ("Exit", h(KeyCode::KeyR), SlotsInput::Exit, (betting || matches!(s.phase, super::Phase::Paid { .. })) && s.asked.is_none()),
+                (tr("Spin"), h(KeyCode::KeyW), SlotsInput::Spin, betting && !s.held(now) && s.chips >= s.bet && s.chips > 0),
+                (tr("Increase Bet"), h(KeyCode::KeyE), SlotsInput::Increase, betting && s.bet < top),
+                (tr("Decrease Bet"), h(KeyCode::KeyQ), SlotsInput::Decrease, betting && s.bet > s.limits.min_bet),
+                (tr("Payout List"), h(KeyCode::KeyF), SlotsInput::Payouts, betting),
+                (tr("Bet Max"), h(KeyCode::KeyS), SlotsInput::Max, betting && s.bet < top),
+                (tr("Exit"), h(KeyCode::KeyR), SlotsInput::Exit, (betting || matches!(s.phase, super::Phase::Paid { .. })) && s.asked.is_none()),
             ];
             let column = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(BUTTONS_TOP), width: u(0.0), height: u(6.0 * BUTTON_H), ..default() };
             m.spawn(column).with_children(|b| {
@@ -230,7 +231,7 @@ fn reels(r: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, now: f32, view_
     }
     // The bet under the reels while they stand.
     if s.phase == Phase::Betting {
-        let line = format!("Bet: {}", s.bet);
+        let line = trf("Bet: {bet}", &[("bet", &s.bet)]);
         c.text_in(r, FontKind::Menu, &line, left, REELS_TOP + 3.0 * SYMBOL.y + 20.0, false, b);
     }
 }
@@ -252,7 +253,7 @@ fn payouts(r: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, view_w: f32) 
             for (j, &sym) in symbols.iter().enumerate() {
                 c.image(p, picture(s, sym), at(30.0 + j as f32 * (PAY_SYMBOL.x + 6.0), y + (PAY_ROW - PAY_SYMBOL.y) / 2.0, PAY_SYMBOL.x, PAY_SYMBOL.y), Color::WHITE);
             }
-            c.text_in(p, FontKind::Menu, &format!("= BET x {pay}"), 340.0, y + 6.0, false, b);
+            c.text_in(p, FontKind::Menu, &trf("= BET x {pay}", &[("pay", &pay)]), 340.0, y + 6.0, false, b);
         }
     });
 }

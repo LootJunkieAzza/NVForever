@@ -89,13 +89,29 @@ impl Limits {
 }
 
 /// What `Game::emit` keeps for the watchdog. Not saved.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Seen {
     /// Story events so far.
     pub story: u64,
     /// The last quest stage set.
     pub stage: Option<(FormId, i32)>,
+    /// The last [`LINES_KEPT`] lines (INFO) anyone began to say, oldest first: for a
+    /// caller that waits for an actor to say one (the quest pilot).
+    pub lines: std::collections::VecDeque<FormId>,
+    /// How many lines were begun in all: a caller keeps the count to know which of
+    /// [`Seen::lines`] are new to it ([`Seen::lines_since`]).
+    pub lines_begun: u64,
 }
+
+impl Seen {
+    /// The lines begun since the count was `mark` (the kept ones of them).
+    pub fn lines_since(&self, mark: u64) -> impl Iterator<Item = FormId> + '_ {
+        let new = self.lines_begun.saturating_sub(mark).min(self.lines.len() as u64) as usize;
+        self.lines.iter().skip(self.lines.len() - new).copied()
+    }
+}
+
+pub const LINES_KEPT: usize = 4096;
 
 /// Whether an event says the scene goes on (module notes). `chatter`: the event is a
 /// line of a chatter topic ([`Game::chatter_topic`]).
@@ -228,6 +244,11 @@ fn hold(g: &Game, outside: Outside) -> Option<Hold> {
         // the script ends within the frame.
         (Some(c), None) if !c.choices.is_empty() => return None,
         (Some(_), None) => Kind::DialogueDeadEnd,
+        // A line that is not chatter still being said is the scene going on: a SayTo line
+        // counts once when it begins, and Honest Hearts' end slides narrate one of five
+        // responses, about 43 s, while the controls are held [observed: pilot run
+        // 2026-11-17, INFO 0x02010117]; the hold was found at 30 s, mid-line.
+        (None, None) if (locks[0] || restrained) && g.speech.iter().any(|s| s.remaining > 0.0 && !g.chatter_topic(s.topic)) => return None,
         (None, None) if locks[0] || restrained => Kind::ControlsHeld,
         (None, None) => return None,
     };

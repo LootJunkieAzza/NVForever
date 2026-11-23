@@ -16,8 +16,8 @@
 //! shader) pipelines and pipelines whose shader has no path of its own are not kept.
 //!
 //! **How a run uses it:** `PipelineCache` feeds the pipelines asked for in the last
-//! [`REBUILD_RUNS`] runs (at most [`MAX_REBUILT`]), in the order they were first asked for
-//! in the run that last asked for them, to a pool of its own (half the
+//! [`REBUILD_RUNS`] runs (at most [`MAX_REBUILT`]), the latest run's first, each run's in
+//! the order it first asked for them, to a pool of its own (half the
 //! compile pool's threads), as their shaders load; each builds its modules (shared with the
 //! game's pipelines through the shader cache) and creates the pipeline inside an error
 //! scope, so a stale entry (a shader that changed so the old descriptor no longer fits) is
@@ -294,8 +294,10 @@ impl Entry {
         matches!(*lock(&self.slot), Slot::Idle)
     }
 
-    fn order(&self) -> u32 {
-        lock(&self.meta).order
+    /// Its place in the list's queue: the latest run's first, then the order that run asked.
+    fn queue_key(&self) -> (core::cmp::Reverse<u32>, u32) {
+        let meta = lock(&self.meta);
+        (core::cmp::Reverse(meta.last_run), meta.order)
     }
 }
 
@@ -437,12 +439,12 @@ impl PipelineManifest {
         let n = loaded.len() as u32;
         self.listed.store(n, Relaxed);
         // Built ahead: those asked in the last REBUILD_RUNS runs, at most MAX_REBUILT, the
-        // latest run's first; then in the order they were asked.
+        // latest run's first, each run's in the order they were asked (`order` counts within
+        // one run, so sorting by it alone would interleave the runs).
         let last_run = |e: &Arc<Entry>| lock(&e.meta).last_run;
         loaded.retain(|e| this_run.saturating_sub(last_run(e)) <= REBUILD_RUNS);
-        loaded.sort_by_key(|e| (core::cmp::Reverse(last_run(e)), e.order()));
+        loaded.sort_by_key(|e| e.queue_key());
         loaded.truncate(MAX_REBUILT);
-        loaded.sort_by_key(|e| e.order());
         lock(&self.queue).todo.extend(loaded);
         self.loaded.store(true, Relaxed);
         n
@@ -573,7 +575,7 @@ impl PipelineManifest {
             let waiting = core::mem::take(&mut q.waiting);
             if !waiting.is_empty() {
                 q.todo.extend(waiting);
-                q.todo.make_contiguous().sort_by_key(|e| e.order());
+                q.todo.make_contiguous().sort_by_key(|e| e.queue_key());
             }
         }
         let mut scanned = 0;
@@ -738,6 +740,40 @@ mod tests {
         let second = PipelineManifest::new();
         assert_eq!(second.load(&first.to_bytes()), (MAX_REBUILT + 5) as u32);
         assert_eq!(second.queued(), MAX_REBUILT);
+    }
+
+    #[test]
+    fn the_latest_runs_pipelines_are_built_first_each_run_in_its_order() {
+        // A file of run 10: "old-0" and "old-1" asked first in run 8, "new-0" and "new-1"
+        // in run 10. Each run counts its order from 0, so order alone would interleave them.
+        let line = |label: &str, r: u32, o: u32| {
+            serde_json::to_string(&SavedRef { r, o, p: &recipe(label, &format!("s/{label}")) }).unwrap()
+        };
+        let bytes = format!(
+            "{MAGIC}\n{}\nrun 10\n{}\n{}\n{}\n{}\n",
+            producer(),
+            line("old-0", 8, 0),
+            line("new-1", 10, 1),
+            line("old-1", 8, 1),
+            line("new-0", 10, 0)
+        );
+        let m = PipelineManifest::new();
+        m.load(bytes.as_bytes());
+        let labels = |entries: Vec<Arc<Entry>>| -> Vec<String> {
+            entries
+                .iter()
+                .map(|e| match &e.recipe {
+                    Recipe::Compute { label, .. } => label.clone().unwrap(),
+                    _ => unreachable!(),
+                })
+                .collect()
+        };
+        assert_eq!(labels(m.next(10, 1, |p| p != "s/new-1")), ["new-0", "old-0", "old-1"]);
+        assert_eq!(
+            labels(m.next(10, 2, |_| true)),
+            ["new-1"],
+            "a waiting entry goes back in by the same order"
+        );
     }
 
     #[test]

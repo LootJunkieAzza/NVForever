@@ -152,9 +152,156 @@ impl Game<'_> {
         v
     }
 
-    /// A base effect's flags (MGEF DATA), SetBaseEffectFlag's change first.
+    /// A base effect's flags (MGEF DATA), SetBaseEffectFlag's change first; follows
+    /// `TempCloneForm` clones while keeping post-clone edits on the original isolated.
     pub fn base_effect_flags(&self, mgef: FormId) -> u32 {
-        self.other.jip8.base_effect_flags.get(&mgef).copied().unwrap_or_else(|| self.data.magic_effects.get(&mgef).map_or(0, |m| m.flags))
+        if let Some(&f) = self.other.jip8.base_effect_flags.get(&mgef) {
+            return f;
+        }
+        let base = self.unclone(mgef);
+        self.data.magic_effects.get(&base).map_or(0, |m| m.flags)
+    }
+
+    /// A script-type base effect's associated script (MGEF DATA), SetBaseEffectScript's
+    /// change first; `None` for non-script base effects or non-MGEF forms.
+    pub fn base_effect_script(&self, mgef: FormId) -> Option<FormId> {
+        let base = self.unclone(mgef);
+        let def = self.data.magic_effects.get(&base)?;
+        if def.archetype != crate::data::ARCHETYPE_SCRIPT {
+            return None;
+        }
+        if let Some(&s) = self.other.jip8.base_effect_scripts.get(&mgef) {
+            return Some(s);
+        }
+        def.script
+    }
+
+    /// Canonical session view of a base effect (MGEF), overlaying live
+    /// `SetBaseEffectFlag` and `SetBaseEffectScript` changes and `TempCloneForm` clones.
+    pub fn magic_effect_def(&self, mgef: FormId) -> Option<crate::data::MagicEffectDef> {
+        let base = self.unclone(mgef);
+        let mut def = self.data.magic_effects.get(&base)?.clone();
+        def.flags = self.base_effect_flags(mgef);
+        def.script = self.base_effect_script(mgef);
+        Some(def)
+    }
+
+    /// Canonical session view of an ingestible (ALCH), overlaying live `ENIT` flags
+    /// (`SetIngestibleFlag`, `SetEffectFlag`), `addiction_chance` (`SetAddictionChance`),
+    /// `withdrawal_effect` (`SetAddictionEffect`), `sound_consume`
+    /// (`SetIngestibleConsumeSound`), `value`, and `ETYP` (`SetEquipType`) changes.
+    pub fn ingestible_def(&self, item: FormId) -> Option<crate::data::IngestibleDef> {
+        let base = self.unclone(item);
+        if self.data.sig(base) != Some(*b"ALCH") {
+            return None;
+        }
+        let mut def = self.data.ingestibles.get(&base).cloned().unwrap_or_else(|| crate::data::IngestibleDef {
+            equip_type: self.data.record_field(base, "ETYP", "").and_then(Json::as_i64).unwrap_or(-1),
+            ..crate::data::IngestibleDef::default()
+        });
+        if let Some(XVal::Num(f)) = self.field_overrides.get(&(item, "ENIT/flags".into())) {
+            def.flags = *f as u8;
+        }
+        if let Some(XVal::Num(c)) = self.field_overrides.get(&(item, "ENIT/addiction_chance".into())) {
+            def.addiction_chance = *c as f32;
+        }
+        if let Some(v) = self.field_overrides.get(&(item, "ENIT/withdrawal_effect".into())) {
+            def.withdrawal = as_ref(Some(v.clone()));
+        }
+        if let Some(v) = self.field_overrides.get(&(item, "ENIT/sound_consume".into())) {
+            def.consume_sound = as_ref(Some(v.clone()));
+        }
+        if let Some(XVal::Num(e)) = self.field_overrides.get(&(item, "ETYP/".into())) {
+            def.equip_type = *e as i64;
+        }
+        if let Some(XVal::Num(v)) = self.field_overrides.get(&(item, "ENIT/value".into())) {
+            def.value = *v as i32;
+        }
+        Some(def)
+    }
+
+    /// An actor effect's SPIT type (0 Actor Effect .. 10 Addiction), following
+    /// `TempCloneForm` clones.
+    pub fn spell_type(&self, spell: FormId) -> Option<i64> {
+        let base = self.unclone(spell);
+        self.data.spell_types.get(&base).copied()
+    }
+
+    /// An actor effect's SPIT flags byte, `SetEffectFlag`'s change first; follows
+    /// `TempCloneForm` clones while keeping post-clone edits on the original isolated.
+    pub fn spell_flags(&self, spell: FormId) -> u8 {
+        let base = self.unclone(spell);
+        if self.data.sig(base) != Some(*b"SPEL") {
+            return 0;
+        }
+        if let Some(XVal::Num(f)) = self.field_overrides.get(&(spell, "SPIT/flags".into())) {
+            return *f as u8;
+        }
+        self.data.spell_flags.get(&base).copied().unwrap_or(0)
+    }
+
+    /// Whether a magic item's area effects ignore line of sight: true for non-spells or
+    /// spells with live SPIT bit 4 ("Area Effect Ignores LOS").
+    pub fn spell_ignores_los(&self, item: FormId) -> bool {
+        self.spell_type(item).is_none() || self.spell_flags(item) & crate::area_effects::SPELL_AREA_IGNORES_LOS != 0
+    }
+
+    /// The effect flags byte of a SPEL (SPIT), ALCH (ENIT) or ENCH (ENIT), live session
+    /// changes first (`SetEffectFlag`, `SetIngestibleFlag`).
+    pub fn effect_flags(&self, form: FormId) -> u8 {
+        let base = self.unclone(form);
+        match self.data.sig(base).as_ref() {
+            Some(b"SPEL") => self.spell_flags(form),
+            Some(b"ALCH") => self.ingestible_def(form).map_or(0, |d| d.flags),
+            Some(b"ENCH") => match self.field_overrides.get(&(form, "ENIT/flags".into())) {
+                Some(XVal::Num(f)) => *f as u8,
+                _ => self.data.record_field(base, "ENIT", "flags").and_then(Json::as_f64).unwrap_or(0.0) as u8,
+            },
+            _ => 0,
+        }
+    }
+
+    /// Snapshot live SPEL, ALCH, MGEF and ENCH traits onto a `TempCloneForm` clone so
+    /// pre-clone edits carry over while post-clone edits on the source remain isolated.
+    pub(crate) fn snapshot_magic_traits(&mut self, source: FormId, clone: FormId) {
+        let base = self.unclone(source);
+        match self.data.sig(base).as_ref() {
+            Some(b"SPEL") => {
+                let flags = self.spell_flags(source);
+                self.field_overrides.insert((clone, "SPIT/flags".into()), XVal::Num(f64::from(flags)));
+            }
+            Some(b"ALCH") => {
+                let def = self.ingestible_def(source).unwrap_or_default();
+                self.field_overrides.insert((clone, "ENIT/flags".into()), XVal::Num(f64::from(def.flags)));
+                self.field_overrides.insert((clone, "ENIT/addiction_chance".into()), XVal::Num(crate::nvse::record_float(f64::from(def.addiction_chance))));
+                self.field_overrides.insert((clone, "ENIT/withdrawal_effect".into()), XVal::Ref(def.withdrawal.map_or(0, |f| f.0)));
+                self.field_overrides.insert((clone, "ENIT/sound_consume".into()), XVal::Ref(def.consume_sound.map_or(0, |f| f.0)));
+                self.field_overrides.insert((clone, "ENIT/value".into()), XVal::Num(f64::from(def.value)));
+                if def.equip_type >= 0 {
+                    self.field_overrides.insert((clone, "ETYP/".into()), XVal::Num(def.equip_type as f64));
+                }
+                let weight = self
+                    .field_overrides
+                    .get(&(source, "DATA/".into()))
+                    .cloned()
+                    .or_else(|| self.data.record_field(base, "DATA", "").and_then(Json::as_f64).map(|x| XVal::Num(crate::nvse::record_float(x))));
+                if let Some(w) = weight {
+                    self.field_overrides.insert((clone, "DATA/".into()), w);
+                }
+            }
+            Some(b"MGEF") => {
+                let flags = self.base_effect_flags(source);
+                self.other.jip8.base_effect_flags.insert(clone, flags);
+                if let Some(script) = self.base_effect_script(source) {
+                    self.other.jip8.base_effect_scripts.insert(clone, script);
+                }
+            }
+            Some(b"ENCH") => {
+                let flags = self.effect_flags(source);
+                self.field_overrides.insert((clone, "ENIT/flags".into()), XVal::Num(f64::from(flags)));
+            }
+            _ => {}
+        }
     }
 
     /// A water's actor effect (XNAM), SetWaterFormEffect's change first.
@@ -351,31 +498,31 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- ingestibles and base effects
         // ALCH ENIT: the addiction chance and the addiction (withdrawal) effect
         // [documented: the pages; the fields: xEdit ALCH].
-        "getaddictionchance" => XVal::Num(of_sig(g, form(args, 0), b"ALCH").map_or(0.0, |a| g.num_field8(a, "ENIT", "addiction_chance"))),
+        "getaddictionchance" => XVal::Num(form(args, 0).and_then(|a| g.ingestible_def(a)).map_or(0.0, |d| crate::nvse::record_float(f64::from(d.addiction_chance)))),
         "setaddictionchance" => {
             // Kept as given, 50, 1.5 and -0.5 too [observed: jip8]; an f32 field.
-            if let (Some(a), Some(c)) = (of_sig(g, form(args, 0), b"ALCH"), field_number(num(args, 1, f64::NAN), F32.0, F32.1)) {
+            let alch = form(args, 0).filter(|&a| g.data.sig(g.unclone(a)) == Some(*b"ALCH"));
+            if let (Some(a), Some(c)) = (alch, field_number(num(args, 1, f64::NAN), F32.0, F32.1)) {
                 g.set_field8(a, "ENIT", "addiction_chance", XVal::Num(c));
             }
             zero
         }
-        "getaddictioneffect" => XVal::Ref(of_sig(g, form(args, 0), b"ALCH").and_then(|a| as_ref(crate::nvse::record_value(g, a, "ENIT", "withdrawal_effect"))).map_or(0, |f| f.0)),
+        "getaddictioneffect" => XVal::Ref(form(args, 0).and_then(|a| g.ingestible_def(a)).and_then(|d| d.withdrawal).map_or(0, |f| f.0)),
         "setaddictioneffect" => {
             // An actor effect; none is ignored [documented: "actorEffect"; observed: jip8,
             // none leaves Cateye's effect].
-            if let (Some(a), Some(e)) = (of_sig(g, form(args, 0), b"ALCH"), of_sig(g, form(args, 1), b"SPEL")) {
+            let alch = form(args, 0).filter(|&a| g.data.sig(g.unclone(a)) == Some(*b"ALCH"));
+            let spel = form(args, 1).filter(|&e| g.data.sig(g.unclone(e)) == Some(*b"SPEL"));
+            if let (Some(a), Some(e)) = (alch, spel) {
                 g.set_field8(a, "ENIT", "withdrawal_effect", XVal::Ref(e.0));
             }
             zero
         }
         // A script-type (archetype 1) base effect's script [documented: the pages].
-        "getbaseeffectscript" => {
-            let m = form(args, 0).and_then(|f| g.data.magic_effects.get(&f).map(|m| (f, m)));
-            XVal::Ref(m.filter(|(_, m)| m.archetype == 1).and_then(|(f, m)| g.other.jip8.base_effect_scripts.get(&f).copied().or(m.script)).map_or(0, |s| s.0))
-        }
+        "getbaseeffectscript" => XVal::Ref(form(args, 0).and_then(|f| g.base_effect_script(f)).map_or(0, |s| s.0)),
         "setbaseeffectscript" => {
-            let m = form(args, 0).filter(|f| g.data.magic_effects.get(f).is_some_and(|m| m.archetype == 1));
-            if let (Some(m), Some(s)) = (m, of_sig(g, form(args, 1), b"SCPT")) {
+            let m = form(args, 0).filter(|&f| g.data.magic_effects.get(&g.unclone(f)).is_some_and(|m| m.archetype == crate::data::ARCHETYPE_SCRIPT));
+            if let (Some(m), Some(s)) = (m, form(args, 1).filter(|&s| g.data.sig(g.unclone(s)) == Some(*b"SCPT"))) {
                 g.other.jip8.base_effect_scripts.insert(m, s);
             }
             zero
@@ -384,7 +531,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [documented: the table; observed: jip8, flag 11 is set].
         "setbaseeffectflag" => {
             let k = num(args, 1, -1.0);
-            let m = form(args, 0).filter(|f| g.data.magic_effects.contains_key(f));
+            let m = form(args, 0).filter(|&f| g.data.magic_effects.contains_key(&g.unclone(f)));
             if let Some(m) = m.filter(|_| k.fract() == 0.0 && (0.0..32.0).contains(&k)) {
                 let flags = g.base_effect_flags(m);
                 let bit = 1u32 << (k as u32);
@@ -399,13 +546,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "seteffectflag" => {
             let k = num(args, 1, -1.0);
             let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
-            let sub = match g.data.sig(f).as_ref() {
+            let sub = match g.data.sig(g.unclone(f)).as_ref() {
                 Some(b"SPEL") => "SPIT",
                 Some(b"ENCH" | b"ALCH") => "ENIT",
                 _ => return Some(Ok(zero)),
             };
             if (0.0..8.0).contains(&k) && k.fract() == 0.0 {
-                let flags = g.num_field8(f, sub, "flags") as u64;
+                let flags = u64::from(g.effect_flags(f));
                 let bit = 1u64 << (k as u32);
                 let new = if num(args, 2, 0.0) != 0.0 { flags | bit } else { flags & !bit };
                 g.set_field8(f, sub, "flags", XVal::Num(new as f64));
@@ -567,7 +714,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let (sub, b) = if k < 8.0 { ("DATA", k as u32) } else { ("LNAM", k as u32 - 8) };
             let flags = g.num_field8(c, sub, "") as u64;
             let new = if num(args, 2, 0.0) != 0.0 { flags | 1 << b } else { flags & !(1 << b) };
-            g.set_field8(c, sub, "", XVal::Num(new as f64));
+            let prev = if k >= 8.0 { g.field_overrides.get(&(c, "LNAM/".into())).cloned() } else { None };
+            let next = XVal::Num(new as f64);
+            g.set_field8(c, sub, "", next);
+            if k >= 8.0 && !matches!(prev, Some(XVal::Num(p)) if p.to_bits() == (new as f64).to_bits()) {
+                g.bump_lighting_revision();
+            }
             zero
         }
         // `cell water`: XCWT [documented: the page; the field: xEdit CELL].

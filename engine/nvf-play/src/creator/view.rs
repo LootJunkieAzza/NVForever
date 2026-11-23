@@ -19,7 +19,9 @@
 //! UI interaction state (the panel is rebuilt while a slider is dragged).
 
 use super::model::{Model, RowView, ACTIONS};
-use crate::interface::{amber, at, face, line_anchor, plain_font, u, Face, Picture, Pictures};
+use crate::interface::{
+    amber, at, face, line_anchor, needs_cjk_line, plain_font, set_line, set_scaled_bitmap_line, u, Face, Picture, Pictures,
+};
 use bevy::prelude::*;
 use fnv_font::Line;
 use nvf_assets::GameData;
@@ -217,11 +219,24 @@ pub fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32
     // the menus' body text, chargen::draw::BODY_BASE for 31].
     let base = top + face.font.size * 0.75 * scale;
     let Some((image, size)) = &face.image else {
-        p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(top), ..default() }).with_children(|n| {
-            n.spawn((Text::new(s.to_string()), TextFont { font_size: crate::interface::font_units(face.font.size * 0.75 * scale), ..default() }, TextColor(color)));
-        });
+        if needs_cjk_line(face, &line) {
+            let transform = UiTransform {
+                scale: Vec2::splat(scale),
+                ..default()
+            };
+            p.spawn((at(x, base, 0.0, 0.0), transform))
+                .with_children(|n| set_line(n, face, &line, 0.0, 0.0, color));
+        } else {
+            p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(top), ..default() }).with_children(|n| {
+                n.spawn((Text::new(s.to_string()), TextFont { font_size: crate::interface::font_units(face.font.size * 0.75 * scale), ..default() }, TextColor(color)));
+            });
+        }
         return w;
     };
+    if needs_cjk_line(face, &line) {
+        set_scaled_bitmap_line(p, face, &line, x, base, scale, color, ());
+        return w;
+    }
     p.spawn(line_anchor(base)).with_children(|p| {
         for placed in &line.glyphs {
             let g = face.font.glyph(placed.code);

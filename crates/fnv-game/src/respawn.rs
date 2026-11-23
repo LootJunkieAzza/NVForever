@@ -61,7 +61,19 @@ impl Game<'_> {
     /// Whether the actor reference `r` respawns: its base has the flag Respawn, or its
     /// template does with the template flag "Base Data" (module notes).
     pub fn respawns(&self, r: FormId) -> bool {
-        base_of(self, r).and_then(|b| self.template_source(b, r, |d| d.template_base)).is_some_and(|(_, d)| d.respawn)
+        base_of(self, r)
+            .and_then(|b| self.template_source(b, r, |d| d.template_base))
+            .is_some_and(|(id, d)| self.acbs_flag(id, d, crate::actor_values::acbs::RESPAWN, |d| d.respawn))
+    }
+
+    /// Whether `cell`'s encounter zone currently has "Never Resets", accounting for
+    /// `SetCellEncounterZone` / `SetWorldspaceEncounterZone`, saved `SetZoneRespawns`,
+    /// and session `SetZoneFlag` changes.
+    pub fn cell_never_resets(&self, cell: FormId) -> bool {
+        let Some(z) = crate::nvse_jg5::cell_zone(self, cell) else {
+            return false;
+        };
+        self.zone(z).map_or_else(|| self.world.cell_never_resets(cell), |d| d.never_resets)
     }
 
     /// Whether `cell` will reset at its next load: `None` while the player is in it or
@@ -77,7 +89,7 @@ impl Game<'_> {
         }
         let now = self.world.calendar().ok().map(|k| k.days_passed);
         let away = now.zip(self.world.detached_since(cell)).map(|(n, s)| (f64::from(n) - f64::from(s)) * 24.0);
-        Some(away.is_some_and(|h| h + 1e-3 >= f64::from(self.world.respawn_hours())) && !self.world.cell_never_resets(cell))
+        Some(away.is_some_and(|h| h + 1e-3 >= f64::from(self.world.respawn_hours())) && !self.cell_never_resets(cell))
     }
 
     /// The cells `left` are no longer in the loaded area: their reset clock starts.
@@ -97,11 +109,12 @@ impl Game<'_> {
         let full = self.forms.expired_cells_full.remove(&cell);
         let since = self.world.detached_since(cell);
         let now = self.world.calendar().ok().map(|c| c.days_passed);
-        let containers = self.world.attach_cell(cell).unwrap_or_default();
+        let never_resets = self.cell_never_resets(cell);
+        let containers = self.world.attach_cell_with_never_resets(cell, never_resets).unwrap_or_default();
         let away = now.zip(since).map(|(n, s)| (n as f64 - s as f64) * 24.0);
         // The same slack as `World::attach_cell` (GameDaysPassed is an f32). An encounter
         // zone with "Never Resets" is never reset (docs/spec-notes/encounter-zones.md §4).
-        let timed = away.filter(|h| h + 1e-3 >= self.world.respawn_hours() as f64 && !self.world.cell_never_resets(cell));
+        let timed = away.filter(|h| h + 1e-3 >= self.world.respawn_hours() as f64 && !never_resets);
         // ResetInteriorAlt's reset brings the dead respawning actors back as a timed one
         // [documented: ResetInteriorAlt, "will also let dead actors that were set to
         // respawn be resurrected"].
@@ -138,6 +151,9 @@ impl Game<'_> {
 
     /// The reference `r` starts again as authored, alive (module notes).
     fn recreate(&mut self, r: FormId) {
+        // The script it runs now (its pick's, a SetScript change included), before the
+        // pick is made again.
+        let before = self.ref_script(r);
         self.extra.remove(&r);
         if let Some(p) = self.world.placed.get(r) {
             let (cell, pos, rot) = (p.cell, p.pos, p.rot);
@@ -148,6 +164,17 @@ impl Game<'_> {
         // Made anew: at its level now, its leveled pick and carried items with it.
         self.refix_level(r);
         let _ = self.world.reset_inventory(r);
+        // A new pick may run another script (template flag "Script"): when the script it
+        // runs changes, its instance starts fresh; a ScriptWait ends unless it is the
+        // script it runs now [design, #3228].
+        let key = crate::game::InstKey::Ref { reference: r };
+        let after = self.ref_script(r);
+        if before != after {
+            self.instances.remove(&key);
+        }
+        if self.jip.waits.get(&key).is_some_and(|w| Some(w.script) != after) {
+            self.jip.waits.remove(&key);
+        }
         // The layer that moves actors starts it again from its authored place.
         self.teleported.insert(r);
     }
@@ -159,7 +186,11 @@ impl Game<'_> {
     /// those that respawned, after the reset and before their OnLoad [hypothesis: the
     /// order; the wiki ties the blocks to the cell's reset, not to respawning].
     pub(crate) fn cell_reset_blocks(&mut self, cell: FormId) {
-        let refs = self.data.scripted_by_cell.get(&cell).cloned().unwrap_or_default();
+        let mut refs = self.data.scripted_by_cell.get(&cell).cloned().unwrap_or_default();
+        // Actors scripted only through their template too (#3228).
+        refs.extend(self.template_scripted_in(cell));
+        refs.sort();
+        refs.dedup();
         for r in refs {
             if self.present(r) {
                 self.ref_event(r, crate::game::event::ON_RESET, Some(fnv_script::vm::Value::Ref(r.0)), None);

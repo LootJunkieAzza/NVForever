@@ -700,7 +700,14 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
 
 ### 7.1 Script instances
 
-One instance per scripted reference (its base form's `SCRI`), per running quest's script,
+One instance per scripted reference (its base form's `SCRI`; for an actor whose base has
+the template flag "Script", its template's, through a leveled list the reference's pick
+[documented: GECK wiki Template Data, "Use Script: Uses the Script of the ActorBase"]. An
+actor scripted only through its template gets the lifecycle blocks OnLoad and OnReset
+through the lifecycle index [design, #3228]. Existing per-frame and directed events
+continue to read the script through `Game::ref_script`. The current pick decides which
+script runs, and a reset whose new pick runs another script starts a fresh instance,
+`GameData::script_through_template`, dead-on-spawn.md §4.1, #3228), per running quest's script,
 and per scripted item in an inventory (holder, item). Instances are created on first use
 (an event that runs the script, or a variable access): an instance never touched has all
 variables 0, so this is the same state as creating it when the reference is materialised.
@@ -930,9 +937,13 @@ faction of the actor. GetPCSleepHours reads the hours of a sleep in progress, 0 
 awake or waiting. SetLastExtDoorActivated sets the door GetPCLastExteriorDoor reads.
 SetPCYoung, SetPCToddler, SetNoActivationSound / ClearNoActivationSound and
 SetLocationSpecificLoadScreensOnly are kept in `PlayerState` (`young`, `toddler`,
-`no_activation_sound`, `location_load_screens_only`), but nothing draws, animates or
-plays by them yet: the child's default hair, the toddler's walk, the refused-activation
-sound and the load screen choice are not built.
+`no_activation_sound`, `location_load_screens_only`). `SetPCYoung` forces the
+race's default hair and suppresses face attachments in the actor resolver and
+rebuilds the player body (`appearance.rs`, `fnv_actor::resolve`); `SetPCToddler`
+switches player locomotion clips to the toddler walk set, forces walking pace
+(blocking sprint), and follows the toddler walk clip's root speed when loaded
+(`pc-toddler-young.md`). The refused-activation sound and the load screen choice
+are not built yet.
 
 The rest of the audit's §1 (2026-11-03, same module, opcodes the same way; Wait 0x10B7
 and IsWaiting 0x106F come with StopWaiting). Two opcodes have no catalogue name and
@@ -1103,11 +1114,20 @@ then, in a loaded cell) [hypothesis]; trace event `placed`. DropMe and Drop use 
 drop rule; DropMe acts as a return and neither runs OnDrop [documented: catalogue notes].
 Ownership lives in the reference's Layer 4 extra data; SetOwnership with no owner gives
 the player's base (0x7) [documented]. Destruction: the stage is the highest DSTD index
-whose health percent the remaining health (DEST health − damage) has fallen to, 0 when
-damaged above every stage, −1 without data or damage [documented −1: GECK wiki
-GetDestructionStage; the rest hypothesis]; a stage with the Destroy flag sets the
+whose health percent the remaining health (DEST health − damage) has fallen to, and
+GetDestructionStage gives it counted from 1 (index + 1), 0 when damaged above every stage,
+−1 without data or damage [documented −1: GECK wiki GetDestructionStage; the rest
+hypothesis; the count from 1 fits the masters' scripts, which compare it with values only
+it reaches: Zeta's generator core (eight stages) disables itself at 7, its Destroy stage,
+and tests 8; Point Lookout's Brain (seven stages) bursts at 7; DLC04DarMuckBubble (two
+stages) tests `>= 2` (#3053, observer check 247)]; a stage with the Destroy flag sets the
 destroyed state, one with Disable disables the reference, a stage change runs
-OnDestructionStageChange [hypothesis from the flag names]. Regions: the player is in a
+OnDestructionStageChange [hypothesis from the flag names]; a block with a parameter
+(`Begin OnDestructionStageChange 3`) runs only for the stage reached counted from 1 (DSTD
+index + 1), one without a parameter for any change [hypothesis: fit to the only such
+block in a TTW load order, SCPT 0x0A096CC8 on MQ11vertibirdPartyBus, whose 3 is index 2
+in both Fallout3.esm's four-stage and TTW's three-stage DEST, DSTD damage stage 3 too;
+observed, #3112: without it Liberty Prime's march never passed the first wreck]. Regions: the player is in a
 region when in an exterior cell of the region's worldspace and inside one of its area
 polygons (even-odd rule; the RPLI edge fall-off is ignored) [documented: never in an
 interior, nested regions both true; hypothesis: the polygon test]. GetHeadingAngle

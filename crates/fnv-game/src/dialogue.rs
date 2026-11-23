@@ -29,6 +29,21 @@ use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+/// The Editor ID of the speech challenge's failure topic (DIAL 0x000000FD in both masters)
+/// [documented: GECK wiki Topics Tab; observed: FalloutNV.esm, Fallout3.esm].
+pub const SPEECH_CHALLENGE_FAILURE: &str = "SpeechChallengeFailure";
+
+/// The difficulty GameSettings for a Fallout 3 style speech challenge, by INFO DNAM
+/// (1 Very Easy … 5 Very Hard) [documented: GECK wiki Speech Formula (Fallout 3) and
+/// Complete List of GameSettings; observed: all five values in FalloutNV.esm].
+pub const SPEECH_CHALLENGE_DIFFICULTIES: [(&str, f64); 5] = [
+    ("iSpeechChallengeDifficultyVeryEasy", 10.0),
+    ("iSpeechChallengeDifficultyEasy", 40.0),
+    ("iSpeechChallengeDifficultyAverage", 55.0),
+    ("iSpeechChallengeDifficultyHard", 70.0),
+    ("iSpeechChallengeDifficultyVeryHard", 80.0),
+];
+
 /// How far from the player a StartConversation speaker may be and still talk at once,
 /// game units ([`Game::walk_up_greet`]) [design: twice the AI's standard talk distance].
 pub const WALK_UP_REACH: f32 = 300.0;
@@ -58,18 +73,25 @@ pub struct Line {
     pub remaining: f64,
 }
 
-/// The tag of a choice whose line names an actor value or perk (KNAM): the
+/// The tag of a choice whose line names an actor value or perk (KNAM) — the
 /// "[Speech 40]" or "[Speech 37/40]" the player sees [documented: Category:Dialogue,
 /// "AV/Perk": the field only controls what is shown; whether the line is available
-/// depends on its own conditions].
+/// depends on its own conditions] — or of a Fallout 3 style percentage speech challenge
+/// (`SPEECH_CHALLENGE` flag with DNAM difficulty 1–5), carrying its pass `chance`
+/// [documented: GECK wiki Speech Formula (Fallout 3), Category:Dialogue "Speech Challenge"].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Challenge {
-    /// The actor value (AVIF) or perk (PERK).
+    /// The actor value (AVIF) or perk (PERK). For a Fallout 3 style speech challenge
+    /// without KNAM, `AVSpeech` (0x000004BB) when present, else FormId(0) [design].
     pub form: FormId,
-    /// DNAM difficulty code (the Speech Challenge flag's die roll of Fallout 3; three
-    /// lines of the masters carry it).
+    /// DNAM difficulty code (the Speech Challenge flag's die roll of Fallout 3: 1 Very
+    /// Easy … 5 Very Hard).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub difficulty: Option<u32>,
+    /// Pass chance in `0.0..=1.0` for a Fallout 3 style speech challenge
+    /// ([`Game::speech_challenge_chance`]); `None` for New Vegas deterministic KNAM checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chance: Option<f64>,
     /// The level the line asks for and the player's: the comparison value and the
     /// current value of the line's first GetActorValue-family condition run on the
     /// listener [hypothesis: the game shows the numbers of that condition; observed:
@@ -95,8 +117,9 @@ pub struct Choice {
     /// The text is the line's prompt (else the topic's name).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub prompt: bool,
-    /// The line has the Goodbye flag: it ends the conversation when it has been said
-    /// (`Game::finish_line`).
+    /// The line ends the conversation when it has been said (`Game::finish_line`): it has
+    /// the Goodbye flag, or is the GOODBYE topic's and leads nowhere
+    /// (`Game::ends_conversation`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub goodbye: bool,
     /// The entry is shaded as already chosen: the actor said this line before and the
@@ -218,6 +241,14 @@ pub enum Says {
 pub(crate) struct Link {
     pub topic: FormId,
     pub from: Option<FormId>,
+}
+
+impl Link {
+    /// Whether the line `d` of the linked topic answers the player through this link: by
+    /// Link From only a player line (type Topic) whose Link From names the topic just said.
+    fn takes_for_player(&self, d: &InfoDef) -> bool {
+        self.from.is_none_or(|x| d.info_type == crate::data::topic_type::TOPIC && d.link_from.contains(&x))
+    }
 }
 
 /// The condition functions that let a line be said by a voice type without "Allow
@@ -793,6 +824,7 @@ impl<'a> Game<'a> {
         if def.has(info_flag::RUN_IMMEDIATELY) {
             self.run_line_result(actor, def, info, true);
         }
+        self.jip_dialog_topic(actor, topic, info);
     }
 
     fn emit_response(&mut self, actor: FormId, def: &InfoDef, info: FormId, position: usize) {
@@ -907,7 +939,8 @@ impl<'a> Game<'a> {
     ///    line ends, and stay known after the conversation];
     /// 3. a Goodbye line ends the conversation [documented: Category:Dialogue] (with
     ///    `GameConfig::goodbye_at_once` one the player chose has ended it already, as it
-    ///    started, and ends as a farewell: `Game::choose`, `Game::end_line`);
+    ///    started, and ends as a farewell: `Game::choose`, `Game::end_line`), and so does a
+    ///    line of the GOODBYE topic that leads nowhere (`Game::ends_conversation`);
     /// 4. otherwise, if the line has follow-up lines (TCFU), the first one the actor can
     ///    say is said next, with no choice by the player [owner statement 2026-10-10:
     ///    follow-ups have no player response, as in Doc Mitchell's farewell; not yet
@@ -945,18 +978,14 @@ impl<'a> Game<'a> {
         if let Some(c) = self.dialogue.as_mut() {
             c.ending = false;
         }
-        if def.goodbye {
+        if self.ends_conversation(actor, topic, def) {
             self.end_dialogue_as(ended::GOODBYE);
             return;
         }
-        let listener = Some(FormId::PLAYER_REF);
-        for &f in &def.follow_ups {
-            let Some(fd) = dv.info(&f) else { continue };
-            if !(fd.goodbye && !def.choices.is_empty()) && self.can_say(actor, listener, f) {
-                self.drop_held_greet();
-                self.speak(actor, fd.topic.unwrap_or(FormId(0)), f);
-                return;
-            }
+        if let Some(f) = self.next_follow_up(actor, def) {
+            self.drop_held_greet();
+            self.speak(actor, dv.info(&f).and_then(|d| d.topic).unwrap_or(FormId(0)), f);
+            return;
         }
         let choices = self.build_choices(actor, topic, def);
         if choices.is_empty() {
@@ -970,6 +999,53 @@ impl<'a> Game<'a> {
             c.topic_list = def.choices.is_empty();
         }
         self.dialogue_transition();
+    }
+
+    /// The follow-up of `def` the actor says next in the player's conversation: the first
+    /// it can say now, passing over Goodbye lines when `def` has choices
+    /// ([`Game::finish_line`], #964).
+    fn next_follow_up(&mut self, actor: FormId, def: &InfoDef) -> Option<FormId> {
+        let dv = self.dialogue_view();
+        let listener = Some(FormId::PLAYER_REF);
+        def.follow_ups.iter().copied().find(|&f| dv.info(&f).is_some_and(|fd| !fd.goodbye || def.choices.is_empty()) && self.can_say(actor, listener, f))
+    }
+
+    /// Whether `def`, said by `actor` as a line of `topic`, ends the player's conversation
+    /// when it is over: a line with the Goodbye flag [documented: Category:Dialogue], or
+    /// one of the GOODBYE topic, flagged or not, that leads nowhere [documented: Quest and
+    /// Dialogue Tutorial: without a topic flagged Goodbye "the dialog will end with one of
+    /// those GOODBYEs"; Conversation Tab: NPCs use the topic when the player exits the
+    /// dialogue menu; hypothesis: that its unflagged lines end it too, issue #3477,
+    /// observer check 283]. FalloutNV.esm has 2 such lines without the flag (Keith's
+    /// 0x0014E019, Jerry's 0x0014C483), Fallout 3's masters 32 (Pronto's 0x000384CF), and
+    /// none of the 34 has choices, follow-ups or a result script, nor does any line name
+    /// GOODBYE in its Link From [observed: `fnvtool dialogue lines --topic GOODBYE` and
+    /// `--all`].
+    ///
+    /// A line leads on when the actor can say now a line of one of its own links: a
+    /// follow-up ([`Game::next_follow_up`]), a choice, or a topic linked by Link From
+    /// ([`Game::player_links`], as [`Game::build_choices`] takes them; also one the topic
+    /// list has anyway). The topic list itself does not count. Only what can be said
+    /// counts [design]: a Link From names the topic, so it is a link of every actor's
+    /// GOODBYE, and one actor's reply in a plugin would otherwise bring back the topic
+    /// list after everyone else's.
+    ///
+    /// A choice's [`Choice::goodbye`] asks it when the list is built, the conversation
+    /// when the line is over. Conditions are evaluated only for an unflagged GOODBYE line
+    /// with links, and no Random line is drawn. A link whose condition is random
+    /// (GetRandomPercent) may be rolled differently here and when it is offered: a line
+    /// taken to lead on by a follow-up or a Link From then brings the ordinary topic list,
+    /// as before.
+    fn ends_conversation(&mut self, actor: FormId, topic: FormId, def: &InfoDef) -> bool {
+        if def.goodbye || self.data.goodbye != Some(topic) {
+            return def.goodbye;
+        }
+        let (data, dv, listener) = (self.data, self.dialogue_view(), Some(FormId::PLAYER_REF));
+        self.next_follow_up(actor, def).is_none()
+            && !self.player_links(topic, def).iter().any(|l| {
+                let lines = data.lines_tried(l.topic);
+                lines.iter().any(|i| dv.info(i).is_some_and(|d| l.takes_for_player(d)) && self.can_say(actor, listener, *i))
+            })
     }
 
     /// StartConversation with the player from `speaker` farther than [`WALK_UP_REACH`]
@@ -1112,7 +1188,7 @@ impl<'a> Game<'a> {
         let data = self.data;
         let dv = self.dialogue_view();
         let priority = |t: &FormId| dv.topic(t).map_or(50.0, |d| d.priority);
-        let mut links = self.links_after(topic, def);
+        let mut links = self.player_links(topic, def);
         if !def.choices.is_empty() {
             links.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)));
             let mut out = self.offer(actor, &links);
@@ -1166,6 +1242,26 @@ impl<'a> Game<'a> {
         self.offer(actor, &[Link { topic, from: None }])
     }
 
+    /// The links of a line ([`Game::links_after`]) that can be offered to the player: its
+    /// choices, and of the topics linked by Link From those of type Topic, as Link From
+    /// reaches player dialogue only from the Topics tab (conversations between actors and
+    /// the radio share [`GameData::linked_from`]).
+    fn player_links(&self, topic: FormId, def: &InfoDef) -> Vec<Link> {
+        let dv = self.dialogue_view();
+        let mut links = self.links_after(topic, def);
+        // The speech challenge's failure topic is what the actor says when a challenge
+        // fails [documented: GECK wiki Topics Tab, SpeechChallengeFailure], not a choice
+        // for the player: its lines' Link From names the challenge it answers, and offered
+        // through it the list showed its Editor ID (Megaton's Lucas Simms in TTW, #3024).
+        links.retain(|l| {
+            l.from.is_none()
+                || dv.topic(&l.topic).is_some_and(|d| {
+                    d.topic_type == crate::data::topic_type::TOPIC && !d.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(SPEECH_CHALLENGE_FAILURE))
+                })
+        });
+        links
+    }
+
     /// The entries for the topics of `links` the actor has a line for ([`Game::link_line`]),
     /// in that order.
     fn offer(&mut self, actor: FormId, links: &[Link]) -> Vec<Choice> {
@@ -1179,13 +1275,8 @@ impl<'a> Game<'a> {
             if out.iter().any(|c| c.topic == topic) {
                 continue;
             }
-            // Link From reaches player dialogue only from the Topics tab: a player line
-            // (type Topic) of a topic of type Topic, as before conversations between actors
-            // and the radio shared [`GameData::linked_from`].
-            if link.from.is_some() && dv.topic(&topic).is_none_or(|d| d.topic_type != crate::data::topic_type::TOPIC) {
-                continue;
-            }
-            let player_line = |d: &InfoDef| link.from.is_none() || d.info_type == crate::data::topic_type::TOPIC;
+            // A topic linked by Link From answers with a player line (type Topic).
+            let player_line = |d: &InfoDef| link.takes_for_player(d);
             let found = match link.from {
                 None => self.select_choice_line(actor, listener, topic, player_line),
                 Some(_) => self.link_line_where(actor, listener, link, player_line, Says::Actor),
@@ -1193,10 +1284,21 @@ impl<'a> Game<'a> {
             let Some(info) = found else { continue };
             // The script-edited line, so a flag or prompt set by SUP's setters shows here too.
             let Some(def) = dv.info(&info) else { continue };
-            let challenge = def.challenge_form.map(|form| {
-                let (needed, have, skill) = self.challenge_levels(def);
-                Challenge { form, difficulty: def.challenge_difficulty, needed, have, skill }
-            });
+            let speech_difficulty = def.has(info_flag::SPEECH_CHALLENGE).then_some(def.challenge_difficulty).flatten().filter(|&d| (1..=5).contains(&d));
+            let challenge = if let Some(diff) = speech_difficulty {
+                let form = def
+                    .challenge_form
+                    .or_else(|| self.data.by_edid("AVSpeech"))
+                    .or_else(|| crate::item_text::avif_form(crate::actor_values::SPEECH).map(FormId))
+                    .unwrap_or(FormId(0));
+                let chance = self.speech_challenge_chance(actor, diff);
+                Some(Challenge { form, difficulty: Some(diff), chance: Some(chance), needed: None, have: None, skill: Some(crate::actor_values::SPEECH) })
+            } else {
+                def.challenge_form.map(|form| {
+                    let (needed, have, skill) = self.challenge_levels(def);
+                    Challenge { form, difficulty: def.challenge_difficulty, chance: None, needed, have, skill }
+                })
+            };
             let said = self.said.contains(&(actor, info));
             let dumb = dim && dv.topic(&topic).is_some_and(|t| t.dumb_response.is_some());
             out.push(Choice {
@@ -1205,7 +1307,7 @@ impl<'a> Game<'a> {
                 chars: if dumb { dv.topic(&topic).expect("topic").dumb_response.as_deref().unwrap_or("").chars().count() } else { dv.choice_text(topic, info).chars().count() },
                 dumb,
                 prompt: def.prompt.is_some(),
-                goodbye: def.goodbye,
+                goodbye: self.ends_conversation(actor, topic, def),
                 darkened: def.has(info_flag::ALWAYS_DARKEN) || (said && !def.has(info_flag::INFO_REFUSAL)),
                 challenge,
             });
@@ -1275,7 +1377,8 @@ impl<'a> Game<'a> {
     /// line with the Goodbye flag is said in the conversation like any other, the player
     /// held, and ends it when it is over ([`Game::finish_line`]) [owner statement
     /// 2026-11-11, issue #2157]. With `GameConfig::goodbye_at_once` it closes the
-    /// conversation at once and goes on in the world ([`Game::say_farewell`]).
+    /// conversation at once and goes on in the world ([`Game::say_farewell`]); a line of
+    /// the GOODBYE topic without the flag is held until it is over with the switch too.
     pub fn choose(&mut self, index: usize) -> Result<FormId, String> {
         let c = self.dialogue.as_ref().ok_or("no conversation is running")?;
         if c.line.is_some() {
@@ -1284,15 +1387,69 @@ impl<'a> Game<'a> {
         let (actor, lines) = (c.actor, c.lines);
         let choice = c.choices.get(index).cloned().ok_or_else(|| format!("no choice {index} ({} offered)", c.choices.len()))?;
         self.emit(EventKind::ChoiceMade { actor, index, topic: choice.topic, info: choice.info });
-        // A Fallout 3 style speech challenge (the flag and a difficulty) gives its XP when
-        // its line is said. The roll is not modelled, so the line always passes
-        // [hypothesis, dialogue.md §3.3]. New Vegas's skill checks (KNAM without the
-        // flag) give none here: their pass lines' result scripts carry RewardXP (638 of
-        // the 1,499 in the masters [observed]), which would count twice.
-        if let Some(d) = self.dialogue_view().info(&choice.info).filter(|d| d.has(info_flag::SPEECH_CHALLENGE)).and_then(|d| d.challenge_difficulty) {
-            self.count_stat(crate::misc_stats::SPEECH_SUCCESSES, 1.0);
-            let x = crate::experience::speech_challenge_xp(self, d);
-            crate::experience::award(self, crate::experience::Source::SpeechChallenge, x);
+        // A Fallout 3 style speech challenge (the flag and a DNAM difficulty 1..=5) rolls
+        // against the player's Speech, Charisma, Karma, weapon state and actor disposition
+        // (`Game::speech_challenge_chance`) [documented: GECK wiki Speech Formula (Fallout 3)].
+        // On pass it counts Speech Successes, awards `iXPRewardSpeechChallenge<class>` XP and
+        // speaks the challenge line; on failure it counts Speech Failures, marks the challenge
+        // line said (so a Say Once challenge cannot be retried) and routes to
+        // `SpeechChallengeFailure` [documented: GECK wiki Topics Tab, SpeechChallengeFailure].
+        // New Vegas's skill checks (KNAM without the flag) remain deterministic and give no
+        // XP here: their pass lines' result scripts carry RewardXP (638 of the 1,499 in the
+        // masters [observed]), which would count twice.
+        let speech_challenge = self
+            .dialogue_view()
+            .info(&choice.info)
+            .filter(|d| d.has(info_flag::SPEECH_CHALLENGE))
+            .and_then(|d| d.challenge_difficulty)
+            .filter(|&d| (1..=5).contains(&d));
+        if let Some(d) = speech_challenge {
+            if self.roll_speech_challenge(actor, d) {
+                self.count_stat(crate::misc_stats::SPEECH_SUCCESSES, 1.0);
+                let x = crate::experience::speech_challenge_xp(self, d);
+                crate::experience::award(self, crate::experience::Source::SpeechChallenge, x);
+                self.speak(actor, choice.topic, choice.info);
+                self.say_farewell(actor, choice.topic, choice.info, lines + 1);
+                return Ok(choice.info);
+            }
+            self.count_stat(crate::misc_stats::SPEECH_FAILURES, 1.0);
+            // Mark the failed challenge line said without running its pass result scripts
+            // so a Say Once challenge cannot be retried and a repeatable one darkens
+            // [documented: Fallout Wiki "Speech (Fallout 3)"; hypothesis: via the line's
+            // said state].
+            self.mark_said(actor, choice.info, true);
+            if let Some((fail_topic, fail_info)) = self.select_speech_challenge_failure(actor, choice.topic) {
+                self.speak(actor, fail_topic, fail_info);
+                self.say_farewell(actor, fail_topic, fail_info, lines + 1);
+                return Ok(fail_info);
+            }
+            if let Some(fail_topic) = self.data.speech_challenge_failure {
+                self.emit(EventKind::NoLine { speaker: actor, topic: fail_topic });
+            }
+            // No failure line is available to say: keep the conversation coherent without
+            // speaking the pass line [design].
+            let still_sayable = self.can_say(actor, Some(FormId::PLAYER_REF), choice.info);
+            let info_refusal = self.dialogue_view().info(&choice.info).is_some_and(|d| d.has(info_flag::INFO_REFUSAL));
+            let empty = if let Some(c) = self.dialogue.as_mut() {
+                if !still_sayable {
+                    if index < c.choices.len() {
+                        c.choices.remove(index);
+                    }
+                } else if !info_refusal {
+                    if let Some(ch) = c.choices.get_mut(index) {
+                        ch.darkened = true;
+                    }
+                }
+                c.choices.is_empty()
+            } else {
+                false
+            };
+            if empty {
+                self.end_dialogue_as(ended::NO_CHOICES);
+            } else {
+                self.dialogue_transition();
+            }
+            return Ok(FormId(0));
         } else if let Some(passed) = choice.challenge.as_ref().and_then(speech_check_passed) {
             // A New Vegas Speech check: the line offered is the pass line when the player
             // meets the level, the fail line otherwise (dialogue.md §3.3), so choosing it
@@ -1306,6 +1463,103 @@ impl<'a> Game<'a> {
         self.merchant_caravan_chosen(actor, &choice);
         self.say_farewell(actor, choice.topic, choice.info, lines + 1);
         Ok(choice.info)
+    }
+
+    /// Pass chance in `0.0..=1.0` for a Fallout 3 style speech challenge against `actor`
+    /// at DNAM `difficulty` (1 Very Easy … 5 Very Hard) [documented: GECK wiki Speech
+    /// Formula (Fallout 3) and Complete List of GameSettings]:
+    ///
+    /// `Disposition Value × Speech Value × Difficulty Value`, where:
+    /// - `Charisma Value = (Player Charisma − fDispTargetCharOffset) × fDispTargetCharMult + fDispTargetCharBase`
+    /// - `Karma Value = (Actor Responsibility × fDispActorRespMult + fDispActorRespBase) × (Player Karma × fDispTargetKarmaMult)`
+    /// - `Disposition Value = ((Charisma Value + Karma Value + IsWeaponOut × fDispTargetWeaponBase + Actor Disposition − fSpeechChallengeDispositionBase) × fSpeechChallengeDispositionMultiplier) / 100 + 1`
+    /// - `Speech Value = ((Player Speech − fSpeechChallengeSpeechBase) × fSpeechChallengeMultiplier) / 100 + 1`
+    /// - `Difficulty Value = (100 − Difficulty) / 100`
+    ///
+    /// A calculated chance greater than `fSpeechAutoSuccessThreshold` (default 0.9) always
+    /// succeeds [documented: same] and is reported as `1.0` [hypothesis]. Each multiplier
+    /// factor is floored at `0.0` before multiplication so two negative factors cannot yield
+    /// a positive chance [design]. When `SetDisposition`/`ModDisposition` overrode `actor`'s
+    /// disposition toward the player, that stored value replaces `Actor Disposition + Charisma
+    /// Value` so Charisma is not counted twice [design, matching `functions::actor::get_disposition`].
+    pub fn speech_challenge_chance(&mut self, actor: FormId, difficulty: u32) -> f64 {
+        let Some(&(diff_gmst, diff_default)) = (difficulty as usize).checked_sub(1).and_then(|i| SPEECH_CHALLENGE_DIFFICULTIES.get(i)) else {
+            return 0.0;
+        };
+        let diff_setting = crate::combat::setting(self, diff_gmst, diff_default);
+        let difficulty_value = ((100.0 - diff_setting) / 100.0).max(0.0);
+
+        let speech = crate::functions::actor::actor_value_capped(self, FormId::PLAYER_REF, crate::actor_values::SPEECH);
+        let speech_base = crate::combat::setting(self, "fSpeechChallengeSpeechBase", 50.0);
+        let speech_mult = crate::combat::setting(self, "fSpeechChallengeMultiplier", 2.0);
+        let speech_value = (((speech - speech_base) * speech_mult) / 100.0 + 1.0).max(0.0);
+
+        let disp_plus_cha = if let Some(&override_disp) = self.extra.get(&actor).and_then(|e| e.dispositions.get(&FormId::PLAYER_REF)) {
+            override_disp
+        } else {
+            let base_disp = self.base_data_def(actor).map_or(0, |d| d.disposition_base) as f64;
+            let cha = crate::actor_values::capped(
+                crate::actor_values::CHARISMA,
+                crate::functions::actor::actor_value(self, FormId::PLAYER_REF, crate::actor_values::CHARISMA).unwrap_or(5.0),
+            );
+            let char_offset = crate::combat::setting(self, "fDispTargetCharOffset", 5.0);
+            let char_mult = crate::combat::setting(self, "fDispTargetCharMult", 10.0);
+            let char_base = crate::combat::setting(self, "fDispTargetCharBase", 0.0);
+            base_disp + (cha - char_offset) * char_mult + char_base
+        };
+
+        let resp = crate::functions::actor::actor_value(self, actor, crate::actor_values::RESPONSIBILITY).unwrap_or(0.0);
+        let resp_mult = crate::combat::setting(self, "fDispActorRespMult", 1.0);
+        let resp_base = crate::combat::setting(self, "fDispActorRespBase", -50.0);
+        let karma = crate::functions::actor::actor_value(self, FormId::PLAYER_REF, crate::actor_values::KARMA).unwrap_or(0.0);
+        let karma_mult = crate::combat::setting(self, "fDispTargetKarmaMult", 0.002);
+        let karma_value = (resp * resp_mult + resp_base) * (karma * karma_mult);
+
+        let weapon_base = crate::combat::setting(self, "fDispTargetWeaponBase", -10.0);
+        let weapon_value = if self.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.weapon_out) { weapon_base } else { 0.0 };
+
+        let disp_base = crate::combat::setting(self, "fSpeechChallengeDispositionBase", 30.0);
+        let disp_mult = crate::combat::setting(self, "fSpeechChallengeDispositionMultiplier", 1.0);
+        let disposition_value = (((disp_plus_cha + karma_value + weapon_value - disp_base) * disp_mult) / 100.0 + 1.0).max(0.0);
+
+        let raw = (disposition_value * speech_value * difficulty_value).clamp(0.0, 1.0);
+        if raw <= 0.0 {
+            return 0.0;
+        }
+        let auto = crate::combat::setting(self, "fSpeechAutoSuccessThreshold", 0.9);
+        if raw > auto {
+            1.0
+        } else {
+            raw
+        }
+    }
+
+    /// Roll a Fallout 3 style speech challenge using [`Game::speech_challenge_chance`] and
+    /// the game's seeded RNG.
+    fn roll_speech_challenge(&mut self, actor: FormId, difficulty: u32) -> bool {
+        let chance = self.speech_challenge_chance(actor, difficulty);
+        if chance >= 1.0 {
+            return true;
+        }
+        if chance <= 0.0 {
+            return false;
+        }
+        let roll = (self.rng.next_u64() >> 11) as f64 / (1u64 << 53) as f64;
+        roll < chance
+    }
+
+    /// The `SpeechChallengeFailure` line `actor` says when a speech challenge under `topic`
+    /// fails: a line whose Link From names `topic` first, then an unlinked line of
+    /// `SpeechChallengeFailure` [documented: GECK wiki Topics Tab, SpeechChallengeFailure;
+    /// observed: Fallout3.esm has 74 failure lines with Link From and 113 without, #3024;
+    /// hypothesis: unlinked lines act as fallback when no line links from `topic`].
+    fn select_speech_challenge_failure(&mut self, actor: FormId, topic: FormId) -> Option<(FormId, FormId)> {
+        let fail_topic = self.data.speech_challenge_failure?;
+        let listener = Some(FormId::PLAYER_REF);
+        let info = self
+            .select_line_where(actor, listener, fail_topic, |d| d.link_from.contains(&topic))
+            .or_else(|| self.select_line_where(actor, listener, fail_topic, |d| d.link_from.is_empty()))?;
+        Some((fail_topic, info))
     }
 
     /// **Off by default** (`GameConfig::goodbye_at_once`): a chosen line with the Goodbye

@@ -81,6 +81,8 @@ const S_LF_FROM: u32 = 0xF54;
 const S_LF_PLAIN: u32 = 0xF55;
 const S_LF_TO: u32 = 0xF56;
 const T_CHAT: u32 = 0x957;
+const T_FAIL: u32 = 0x9E0;
+const S_FAIL: u32 = 0xFE0;
 const T_ANSWER: u32 = 0x958;
 const C_CHAT: u32 = 0xF57;
 const C_OPENER: u32 = 0xF58;
@@ -691,6 +693,9 @@ fn plugin_bytes() -> Vec<u8> {
                 L { id: V_AFTER, quest: QA, ty: CONV, speaker: me, responses: one("Third"), ..L::default() },
             ],
         ),
+        // Fallout 3's speech challenge failure topic: a line whose Link From names the
+        // challenge's topic (Lucas Simms's MegTownFatherChoice answer, #3024).
+        topic(T_FAIL, "SpeechChallengeFailure", "", topic_type::TOPIC, 0, 50.0, vec![L { id: S_FAIL, quest: QA, speaker: me, responses: one("Sorry friend."), link_from: vec![T_LF_PLAIN], ..L::default() }]),
         // Between actors: TestChat's line links nowhere; TestAnswer's second line names
         // TestChat in its Link From, its first (an opener) does not.
         topic(T_CHAT, "TestChat", "TestChat", topic_type::CONVERSATION, 0, 50.0, vec![L { id: C_CHAT, quest: QA, ty: CONV, speaker: me, responses: one("Chat"), ..L::default() }]),
@@ -1426,6 +1431,20 @@ fn a_topic_is_offered_after_the_topics_its_lines_link_from() {
     assert_eq!(offered(&h), vec![T_TOP2, T_TOP, T_LF_TO, T_SKILL, GOODBYE]);
 }
 
+/// #3024: SpeechChallengeFailure is not offered as a player choice through Link From
+/// (its line links from the topic just said); other Link From topics still are.
+#[test]
+fn the_speech_challenge_failure_topic_is_not_a_player_choice() {
+    let f = fixture();
+    assert!(f.data.linked_from[&FormId(T_LF_PLAIN)].contains(&FormId(T_FAIL)));
+    let mut g = game(&f);
+    g.start_dialogue(actor(), Some(FormId(T_LF_PLAIN))).unwrap();
+    listen(&mut g);
+    let list = offered(&g);
+    assert!(!list.contains(&T_FAIL), "{list:?}");
+    assert!(list.contains(&T_LF_TO), "{list:?}");
+}
+
 #[test]
 fn a_line_whose_choices_cannot_be_said_offers_nothing_else() {
     let f = fixture();
@@ -1549,6 +1568,134 @@ fn a_goodbye_line_ends_the_conversation() {
     assert_eq!(pick(&mut h, GOODBYE), FormId(I_BYE));
     assert!(h.dialogue.is_none());
     assert!(h.speech.iter().any(|s| s.farewell && s.info == FormId(I_BYE)));
+}
+
+/// The fixture with the GOODBYE topic's line as Pronto's in Fallout 3 (#3477): no Goodbye
+/// flag.
+fn unflagged_goodbye() -> Fixture {
+    let mut f = fixture();
+    let bye = f.data.infos.get_mut(&FormId(I_BYE)).unwrap();
+    bye.goodbye = false;
+    bye.flags &= !info_flag::GOODBYE;
+    f
+}
+
+/// Issue #3477: the GOODBYE topic's line ends the conversation when it is over without
+/// the Goodbye flag too, held until then like a flagged one (#2157); its entry counts as a
+/// Goodbye (Tab).
+#[test]
+fn a_goodbye_topics_line_without_the_flag_ends_the_conversation() {
+    let f = unflagged_goodbye();
+    let mut g = at_topic_list(&f);
+    assert!(g.dialogue_choices().iter().all(|c| c.goodbye == (c.topic == FormId(GOODBYE))));
+    assert_eq!(pick(&mut g, GOODBYE), FormId(I_BYE));
+    g.tick();
+    assert!(g.dialogue.as_ref().is_some_and(|c| c.line.as_ref().is_some_and(|l| l.info == FormId(I_BYE))));
+    listen(&mut g);
+    assert!(g.dialogue.is_none() && g.speech.is_empty());
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", lines: 2, .. })));
+    // Skipped to its end.
+    let mut g = at_topic_list(&f);
+    pick(&mut g, GOODBYE);
+    assert!(g.skip_response() && g.dialogue.is_none());
+    // With the switch it is not moved into the world: it ends as said to the end.
+    let mut g = at_topic_list(&f);
+    g.cfg.goodbye_at_once = true;
+    pick(&mut g, GOODBYE);
+    assert!(g.dialogue.is_some() && g.speech.is_empty());
+    listen(&mut g);
+    assert!(g.dialogue.is_none() && g.speech.is_empty());
+}
+
+/// #3477: a player topic whose line names GOODBYE in its Link From is a link of the
+/// unflagged GOODBYE line: while the actor can say that line the conversation goes on with
+/// it offered. Said by another actor only, of a closed condition, or no player line, it
+/// does not hold the conversation open.
+#[test]
+fn a_goodbye_topics_line_without_the_flag_goes_on_to_a_link_from_the_actor_can_say() {
+    const T_LATE: u32 = 0x9E8;
+    const S_LATE: u32 = 0xFE8;
+    let linked = |ty: u8, speaker: u32, conds: Vec<Subrecord>| {
+        let late = topic(T_LATE, "TopicLateThought", "One more thing", ty, 0, 50.0, vec![L { id: S_LATE, quest: QA, ty, speaker: Some(speaker), conds, responses: vec![(1, "Yes?", 0)], link_from: vec![GOODBYE], ..L::default() }]);
+        let mut f = fixture_bytes(&[plugin_bytes(), top(b"DIAL", &late)].concat());
+        let bye = f.data.infos.get_mut(&FormId(I_BYE)).unwrap();
+        bye.goodbye = false;
+        bye.flags &= !info_flag::GOODBYE;
+        assert_eq!(f.data.linked_from[&FormId(GOODBYE)], vec![FormId(T_LATE)]);
+        f
+    };
+    // The actor's own reply.
+    let f = linked(topic_type::TOPIC, NPC1, Vec::new());
+    let mut g = at_topic_list(&f);
+    assert!(g.dialogue_choices().iter().all(|c| !c.goodbye));
+    pick(&mut g, GOODBYE);
+    listen(&mut g);
+    assert!(offered(&g).contains(&T_LATE), "{:X?}", offered(&g));
+    assert_eq!(pick(&mut g, T_LATE), FormId(S_LATE));
+    // Nothing the actor can say: another's reply, a condition that fails, a line for
+    // conversations between actors.
+    for f in [linked(topic_type::TOPIC, NPC2, Vec::new()), linked(topic_type::TOPIC, NPC1, vec![gate(EQ, 77.0)]), linked(topic_type::CONVERSATION, NPC1, Vec::new())] {
+        let mut g = at_topic_list(&f);
+        assert!(g.dialogue_choices().iter().all(|c| c.goodbye == (c.topic == FormId(GOODBYE))));
+        pick(&mut g, GOODBYE);
+        listen(&mut g);
+        assert!(g.dialogue.is_none());
+        assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", lines: 2, .. })));
+    }
+}
+
+/// #3477: an unflagged GOODBYE line with choices or follow-ups of its own leads on, if
+/// one can be said.
+#[test]
+fn a_goodbye_topics_line_without_the_flag_that_leads_on_goes_on() {
+    let mut f = unflagged_goodbye();
+    f.data.infos.get_mut(&FormId(I_BYE)).unwrap().choices = vec![FormId(T_ASK)];
+    let mut g = at_topic_list(&f);
+    assert!(g.dialogue_choices().iter().all(|c| !c.goodbye));
+    pick(&mut g, GOODBYE);
+    listen(&mut g);
+    assert_eq!(offered(&g), vec![T_ASK]);
+    let mut f = unflagged_goodbye();
+    f.data.infos.get_mut(&FormId(I_BYE)).unwrap().follow_ups = vec![FormId(B_FOLLOW)];
+    let mut g = at_topic_list(&f);
+    pick(&mut g, GOODBYE);
+    listen(&mut g);
+    assert!(g.dialogue.is_some());
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineStarted { info, .. } if info == FormId(B_FOLLOW))));
+    // Choices that cannot be said and a Goodbye follow-up, which a line with choices
+    // passes over (#964): nothing is left to lead on to.
+    let bye = f.data.infos.get_mut(&FormId(I_BYE)).unwrap();
+    bye.choices = vec![FormId(T_HIDDEN)];
+    bye.follow_ups = vec![FormId(C_BYE)];
+    let mut g = at_topic_list(&f);
+    assert!(g.dialogue_choices().iter().any(|c| c.goodbye && c.topic == FormId(GOODBYE)));
+    pick(&mut g, GOODBYE);
+    listen(&mut g);
+    assert!(g.dialogue.is_none());
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", lines: 2, .. })));
+    // A follow-up the actor cannot say: the topic list does not come back.
+    f.data.infos.get_mut(&FormId(I_BYE)).unwrap().choices.clear();
+    f.data.infos.get_mut(&FormId(I_BYE)).unwrap().follow_ups = vec![FormId(R1)];
+    let mut g = at_topic_list(&f);
+    pick(&mut g, GOODBYE);
+    listen(&mut g);
+    assert!(g.dialogue.is_none());
+}
+
+/// #3477: the end script of an unflagged GOODBYE line runs before the conversation ends,
+/// and the conversation it starts comes after, as for a flagged line (#1107).
+#[test]
+fn a_goodbye_topics_line_without_the_flag_hands_off_like_a_flagged_one() {
+    let mut f = unflagged_goodbye();
+    let end = f.data.infos[&FormId(H_HANDOFF)].end;
+    f.data.infos.get_mut(&FormId(I_BYE)).unwrap().end = end;
+    let mut g = at_topic_list(&f);
+    pick(&mut g, GOODBYE);
+    listen(&mut g);
+    assert_eq!(g.dialogue_actor(), Some(FormId(NPC2_REF)));
+    let ended = event_at(&g, |k| matches!(k, EventKind::DialogueEnded { actor, reason: "goodbye", .. } if actor.0 == NPC1_REF));
+    let started = event_at(&g, |k| matches!(k, EventKind::DialogueStarted { actor, .. } if actor.0 == NPC2_REF));
+    assert!(ended < started, "{ended} {started}");
 }
 
 /// Owner's playtest 2026-11-11 (#2157): the last line of a conversation holds the player
@@ -2340,8 +2487,8 @@ fn a_skill_line_is_tagged_and_routed_by_its_conditions() {
 
 /// A New Vegas skill line gives no XP of its own (its result script would); a Fallout 3
 /// style speech challenge (the flag and a difficulty) gives `iXPRewardSpeechChallenge
-/// <class>` when it is said, nothing for a class no setting gives
-/// (docs/spec-notes/experience.md §2).
+/// <class>` when it passes, nothing for a class no setting gives, and nothing when it
+/// fails (docs/spec-notes/experience.md §2, dialogue.md §3.3).
 #[test]
 fn a_speech_challenge_gives_its_xp_and_a_skill_line_none() {
     let mut f = fixture();
@@ -2359,7 +2506,10 @@ fn a_speech_challenge_gives_its_xp_and_a_skill_line_none() {
         line.flags |= info_flag::SPEECH_CHALLENGE;
         line.challenge_difficulty = Some(difficulty);
         let mut g = at_topic_list(&f);
-        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH as u16, 60.0).unwrap();
+        // Speech 100 and disposition 85 exceed fSpeechAutoSuccessThreshold (0.9) for both
+        // Very Easy and Hard so the pass path is deterministic.
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH as u16, 100.0).unwrap();
+        g.extra.entry(actor()).or_default().dispositions.insert(FormId::PLAYER_REF, 85.0);
         pick(&mut g, T_TOP2);
         listen(&mut g);
         assert_eq!(pick(&mut g, T_SKILL), FormId(H_PASS));
@@ -3537,4 +3687,343 @@ fn a_group_condition_on_the_speaker_lets_others_than_the_fixed_speaker_say_a_lin
     assert!(!g.can_say(talker, player, FormId(GR_FIXED)), "not the fixed speaker");
     assert!(!g.can_say(chatter, player, FormId(GR_CREW)), "the fixed speaker, but not in the faction");
     assert!(g.can_say(chatter, player, FormId(GR_FIXED)));
+}
+
+#[test]
+fn set_on_dialog_topic_event_handler_fires_for_info_topic_and_wildcard_filters() {
+    let f = fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game, body: &str| {
+        let src = format!("Begin Function {{ }}\n{body}\nEnd\n");
+        g.run_query(&src, fnv_game::game::RunCtx::default()).unwrap();
+    };
+    // Register an INFO-filtered handler (using bare hex FormID like Casino Rewards Fix),
+    // a DIAL topic-filtered handler, an unrelated INFO handler (must not fire), and an
+    // unfiltered wildcard handler.
+    let info_hex = format!("{C_BYE:08X}");
+    let other_hex = format!("{I_BYE:08X}");
+    let topic_hex = format!("{T_BYE:08X}");
+    run(
+        &mut g,
+        &format!(
+            "SetOnDialogTopicEventHandler (begin function {{ref rForm}}\n\
+             PlayerREF.AuxVarSetRef \"*dt_info_self\" (GetSelf)\n\
+             PlayerREF.AuxVarSetRef \"*dt_info_form\" rForm\n\
+             end) 1 {info_hex}"
+        ),
+    );
+    run(
+        &mut g,
+        &format!(
+            "SetOnDialogTopicEventHandler (begin function {{ref rForm}}\n\
+             PlayerREF.AuxVarSetRef \"*dt_topic_self\" (GetSelf)\n\
+             PlayerREF.AuxVarSetRef \"*dt_topic_form\" rForm\n\
+             end) 1 {topic_hex}"
+        ),
+    );
+    run(
+        &mut g,
+        &format!(
+            "SetOnDialogTopicEventHandler (begin function {{ref rForm}}\n\
+             PlayerREF.AuxVarSetFlt \"*dt_other\" 1\n\
+             end) 1 {other_hex}"
+        ),
+    );
+    run(
+        &mut g,
+        "SetOnDialogTopicEventHandler (begin function {ref rForm}\n\
+         PlayerREF.AuxVarSetRef \"*dt_wild_form\" rForm\n\
+         PlayerREF.AuxVarSetFlt \"*dt_wild\" ((PlayerREF.AuxVarGetFlt \"*dt_wild\") + 1)\n\
+         end) 1",
+    );
+    g.start_dialogue(actor(), None).unwrap();
+    listen(&mut g);
+    assert_eq!(pick(&mut g, T_BYE), FormId(C_BYE));
+    let aux_flt = |g: &mut Game, key: &str| -> f64 {
+        let src = format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"{key}\")\nEnd\n");
+        g.run_query(&src, fnv_game::game::RunCtx::default()).unwrap().num().unwrap()
+    };
+    let aux_ref = |g: &mut Game, key: &str| -> u32 {
+        let src = format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetRef \"{key}\")\nEnd\n");
+        g.run_query(&src, fnv_game::game::RunCtx::default()).unwrap().value().unwrap().as_form().unwrap_or(0)
+    };
+    assert_eq!(aux_ref(&mut g, "*dt_info_self"), NPC1_REF, "INFO-filtered handler gets speaker as GetSelf");
+    assert_eq!(aux_ref(&mut g, "*dt_info_form"), C_BYE, "INFO-filtered handler receives the spoken INFO form");
+    assert_eq!(aux_ref(&mut g, "*dt_topic_self"), NPC1_REF, "topic-filtered handler gets speaker as GetSelf");
+    assert_eq!(aux_ref(&mut g, "*dt_topic_form"), T_BYE, "topic-filtered handler receives the spoken DIAL topic form");
+    assert_eq!(aux_flt(&mut g, "*dt_other"), 0.0, "non-matching INFO filter must not fire");
+    assert_eq!(aux_ref(&mut g, "*dt_wild_form"), T_BYE, "unfiltered wildcard handler receives the spoken topic");
+    // Greeting + T_BYE = 2 spoken lines for the unfiltered wildcard handler.
+    assert_eq!(aux_flt(&mut g, "*dt_wild"), 2.0, "unfiltered wildcard handler fired for both greeting and topic");
+}
+
+/// #3406: Fallout 3 speech challenge pass-chance formula (`Game::speech_challenge_chance`)
+/// follows GECK wiki Speech Formula (Fallout 3): Speech, Difficulty 1..=5, Charisma,
+/// base disposition vs SetDisposition override, Responsibility x Karma, weapon-out penalty,
+/// auto-success threshold, non-negative factor floor, and GMST overrides.
+#[test]
+fn fo3_speech_challenge_formula_matches_documented_terms() {
+    use fnv_game::actor_values::{CHARISMA, KARMA, RESPONSIBILITY, SPEECH};
+    let mut f = fixture();
+    // Give Talker a typical Megaton NPC disposition_base (35) and neutral responsibility (50).
+    let npc = f.data.actors.get_mut(&FormId(NPC1)).unwrap();
+    npc.disposition_base = 35;
+    npc.responsibility = Some(50);
+
+    let mut g = game(&f);
+    let set_av = |g: &mut Game, target: FormId, code: u16, v: f64| {
+        if code == CHARISMA {
+            g.extra.entry(target).or_default().actor_values.insert(code, v);
+        } else {
+            fnv_game::functions::set_actor_value_current(g, target, code, v).unwrap();
+        }
+    };
+    let approx = |a: f64, b: f64| assert!((a - b).abs() < 1e-6, "got {a}, expected {b}");
+
+    // Out-of-range difficulties produce 0.0.
+    set_av(&mut g, FormId::PLAYER_REF, SPEECH, 50.0);
+    set_av(&mut g, FormId::PLAYER_REF, CHARISMA, 5.0);
+    set_av(&mut g, FormId::PLAYER_REF, KARMA, 0.0);
+    assert_eq!(g.speech_challenge_chance(actor(), 0), 0.0);
+    assert_eq!(g.speech_challenge_chance(actor(), 6), 0.0);
+
+    // Baseline: disp 35 -> disp_val 1.05; Speech 50 -> speech_val 1.0; all 5 difficulties.
+    // Very Easy: 1.05 * 1.0 * 0.90 = 0.945 > fSpeechAutoSuccessThreshold (0.9) -> 1.0.
+    approx(g.speech_challenge_chance(actor(), 1), 1.0);
+    // Easy: 1.05 * 1.0 * 0.60 = 0.63.
+    approx(g.speech_challenge_chance(actor(), 2), 0.63);
+    // Average: 1.05 * 1.0 * 0.45 = 0.4725.
+    approx(g.speech_challenge_chance(actor(), 3), 0.4725);
+    // Hard: 1.05 * 1.0 * 0.30 = 0.315.
+    approx(g.speech_challenge_chance(actor(), 4), 0.315);
+    // Very Hard: 1.05 * 1.0 * 0.20 = 0.21.
+    approx(g.speech_challenge_chance(actor(), 5), 0.21);
+
+    // Speech 0 -> speech_val 0.0 -> 0% on every difficulty.
+    set_av(&mut g, FormId::PLAYER_REF, SPEECH, 0.0);
+    assert_eq!(g.speech_challenge_chance(actor(), 1), 0.0);
+
+    // Low Speech 15 -> speech_val 0.30; Average -> 1.05 * 0.30 * 0.45 = 0.14175.
+    set_av(&mut g, FormId::PLAYER_REF, SPEECH, 15.0);
+    approx(g.speech_challenge_chance(actor(), 3), 0.14175);
+
+    // Charisma scaling: CHA 10 (+50 -> disp 85 -> disp_val 1.55) vs CHA 1 (-40 -> disp -5 -> disp_val 0.65).
+    set_av(&mut g, FormId::PLAYER_REF, SPEECH, 50.0);
+    set_av(&mut g, FormId::PLAYER_REF, CHARISMA, 10.0);
+    approx(g.speech_challenge_chance(actor(), 4), 1.55 * 1.0 * 0.30);
+    set_av(&mut g, FormId::PLAYER_REF, CHARISMA, 1.0);
+    approx(g.speech_challenge_chance(actor(), 4), 0.65 * 1.0 * 0.30);
+
+    // SetDisposition override replaces base + Charisma without double-counting Charisma.
+    g.extra.entry(actor()).or_default().dispositions.insert(FormId::PLAYER_REF, 50.0);
+    // disp_val = ((50 - 30) * 1.0) / 100 + 1 = 1.20; Hard -> 1.20 * 1.0 * 0.30 = 0.36.
+    approx(g.speech_challenge_chance(actor(), 4), 0.36);
+    g.extra.get_mut(&actor()).unwrap().dispositions.clear();
+
+    // Weapon drawn penalty: fDispTargetWeaponBase = -10.0.
+    set_av(&mut g, FormId::PLAYER_REF, CHARISMA, 5.0);
+    g.extra.entry(FormId::PLAYER_REF).or_default().weapon_out = true;
+    // disp = 35 - 10 = 25 -> disp_val = 0.95; Hard -> 0.95 * 1.0 * 0.30 = 0.285.
+    approx(g.speech_challenge_chance(actor(), 4), 0.285);
+    g.extra.entry(FormId::PLAYER_REF).or_default().weapon_out = false;
+
+    // Responsibility x Karma: lawful (resp 75) + good karma (+500) -> karma_val = (75 - 50) * (500 * 0.002) = +25.
+    // disp = 35 + 25 = 60 -> disp_val = 1.30; Hard -> 1.30 * 1.0 * 0.30 = 0.39.
+    set_av(&mut g, actor(), RESPONSIBILITY, 75.0);
+    set_av(&mut g, FormId::PLAYER_REF, KARMA, 500.0);
+    approx(g.speech_challenge_chance(actor(), 4), 0.39);
+
+    // Evil NPC (resp 25) + evil karma (-500) -> karma_val = (25 - 50) * (-500 * 0.002) = +25 -> 0.39 too.
+    set_av(&mut g, actor(), RESPONSIBILITY, 25.0);
+    set_av(&mut g, FormId::PLAYER_REF, KARMA, -500.0);
+    approx(g.speech_challenge_chance(actor(), 4), 0.39);
+
+    // Negative factor guard: extreme negative disposition x negative speech must clamp to 0.0, never positive.
+    // GMST overrides take effect: insert settings into the form store and override via World::change_setting.
+    drop(g);
+    f.forms.settings.insert("fspeechchallengespeechbase".into(), fnv_sim::settings::Setting::Float(60.0));
+    f.forms.settings.insert("fspeechautosuccessthreshold".into(), fnv_sim::settings::Setting::Float(0.9));
+    let mut g = game(&f);
+    set_av(&mut g, actor(), RESPONSIBILITY, 100.0);
+    set_av(&mut g, FormId::PLAYER_REF, KARMA, -2000.0);
+    set_av(&mut g, FormId::PLAYER_REF, SPEECH, 0.0);
+    assert_eq!(g.speech_challenge_chance(actor(), 1), 0.0);
+
+    // GMST overrides take effect (fSpeechAutoSuccessThreshold raised above 1.0 disables auto-success snap).
+    g.world.change_setting("fSpeechChallengeSpeechBase", fnv_sim::settings::Setting::Float(50.0)).unwrap();
+    g.world.change_setting("fSpeechAutoSuccessThreshold", fnv_sim::settings::Setting::Float(1.5)).unwrap();
+    set_av(&mut g, actor(), RESPONSIBILITY, 50.0);
+    set_av(&mut g, FormId::PLAYER_REF, KARMA, 0.0);
+    set_av(&mut g, FormId::PLAYER_REF, SPEECH, 50.0);
+    approx(g.speech_challenge_chance(actor(), 1), 0.945);
+}
+
+/// #3406: A Fallout 3 speech challenge (`SPEECH_CHALLENGE` flag + DNAM, even with no KNAM)
+/// attaches `Challenge::chance`, rolls on choose, speaks the topic-linked
+/// `SpeechChallengeFailure` line on failure without running the pass line's result scripts
+/// or awarding XP, marks a Say Once challenge spent, and speaks the pass line on success.
+#[test]
+fn fo3_speech_challenge_without_knam_shows_chance_and_rolls_to_failure_topic() {
+    use fnv_game::actor_values::SPEECH;
+    use fnv_game::misc_stats::{SPEECH_FAILURES, SPEECH_SUCCESSES};
+    let mut f = fixture();
+    // Turn S_LF_PLAIN into a Fallout 3 style Say Once speech challenge (Average, NO KNAM!),
+    // with a begin result script that sets G_OUT = 1 (from A_FIRST's begin unit).
+    let pass_begin = f.data.infos[&FormId(A_FIRST)].begin;
+    let fail_begin = f.data.infos[&FormId(A_BARK)].begin;
+    assert!(pass_begin.is_some() && fail_begin.is_some());
+    {
+        let pass = f.data.infos.get_mut(&FormId(S_LF_PLAIN)).unwrap();
+        pass.flags |= info_flag::SPEECH_CHALLENGE | info_flag::SAY_ONCE;
+        pass.say_once = true;
+        pass.challenge_form = None;
+        pass.challenge_difficulty = Some(3); // Average (55)
+        pass.begin = pass_begin;
+        // Offer T_LF_PLAIN from T_TOP2 alongside T_BYE so we can test both failure and retry prevention.
+        f.data.infos.get_mut(&FormId(E_NOW)).unwrap().choices = vec![FormId(T_LF_PLAIN), FormId(T_BYE)];
+        // Give S_FAIL (already in SpeechChallengeFailure with link_from = [T_LF_PLAIN]) a distinct begin script.
+        f.data.infos.get_mut(&FormId(S_FAIL)).unwrap().begin = fail_begin;
+    }
+
+    // 1) Low Speech (0) -> 0% chance -> guaranteed failure -> SpeechChallengeFailure line S_FAIL.
+    {
+        let mut g = at_topic_list(&f);
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH, 0.0).unwrap();
+        pick(&mut g, T_TOP2);
+        listen(&mut g);
+        let offered_ch = g.dialogue_choices().iter().find(|c| c.topic == FormId(T_LF_PLAIN)).unwrap();
+        let ch = offered_ch.challenge.as_ref().expect("FO3 speech challenge without KNAM must still attach Challenge");
+        assert_eq!(ch.form, FormId(AVIF), "falls back to AVSpeech");
+        assert_eq!(ch.difficulty, Some(3));
+        assert_eq!(ch.chance, Some(0.0));
+        assert_eq!((ch.needed, ch.have), (None, None));
+
+        // Choosing it fails: speaks S_FAIL instead of S_LF_PLAIN.
+        let spoken = pick(&mut g, T_LF_PLAIN);
+        assert_eq!(spoken, FormId(S_FAIL));
+        assert_eq!(g.misc_stat(SPEECH_FAILURES), 1.0);
+        assert_eq!(g.misc_stat(SPEECH_SUCCESSES), 0.0);
+        assert_eq!(g.player.xp, 0.0);
+        // S_FAIL's begin script ran (sets G_OUT = 3), NOT S_LF_PLAIN's pass script (G_OUT = 1).
+        assert_eq!(g.world.global(FormId(G_OUT)).unwrap(), 3.0);
+
+        // After S_FAIL finishes, S_LF_PLAIN (Say Once) is marked said and cannot be retried.
+        listen(&mut g);
+        assert!(!g.can_say(actor(), Some(FormId::PLAYER_REF), FormId(S_LF_PLAIN)));
+        assert!(!offered(&g).contains(&T_LF_PLAIN));
+    }
+
+    // 2) High Speech (100) + high disposition (85) -> auto-success (1.0) -> speaks pass line S_LF_PLAIN.
+    {
+        let mut g = at_topic_list(&f);
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH, 100.0).unwrap();
+        g.extra.entry(actor()).or_default().dispositions.insert(FormId::PLAYER_REF, 85.0);
+        // Very Easy so XP = 5 is also verified on pass.
+        // (Keep Average here; check XP on Very Easy below, and verify pass line + script + stat.)
+        pick(&mut g, T_TOP2);
+        listen(&mut g);
+        let offered_ch = g.dialogue_choices().iter().find(|c| c.topic == FormId(T_LF_PLAIN)).unwrap();
+        assert_eq!(offered_ch.challenge.as_ref().unwrap().chance, Some(1.0));
+
+        let spoken = pick(&mut g, T_LF_PLAIN);
+        assert_eq!(spoken, FormId(S_LF_PLAIN));
+        assert_eq!(g.misc_stat(SPEECH_SUCCESSES), 1.0);
+        assert_eq!(g.misc_stat(SPEECH_FAILURES), 0.0);
+        // S_LF_PLAIN's begin script ran (sets G_OUT = 1).
+        assert_eq!(g.world.global(FormId(G_OUT)).unwrap(), 1.0);
+    }
+}
+
+/// #3406: When a failed challenge topic has no `Link From` line in `SpeechChallengeFailure`,
+/// an unlinked failure line is spoken instead of another topic's linked line; when no
+/// failure line is sayable at all, the pass line is still not spoken and a Say Once
+/// challenge is removed from the offered choices.
+#[test]
+fn fo3_speech_challenge_failure_fallback_and_missing_failure_line() {
+    use fnv_game::actor_values::SPEECH;
+    use fnv_game::misc_stats::{SPEECH_FAILURES, SPEECH_SUCCESSES};
+    let mut f = fixture();
+    // Make S_LF_TO a Say Once Very Hard challenge (no KNAM). Note S_FAIL links from T_LF_PLAIN, NOT T_LF_TO!
+    {
+        let pass = f.data.infos.get_mut(&FormId(S_LF_TO)).unwrap();
+        pass.flags |= info_flag::SPEECH_CHALLENGE | info_flag::SAY_ONCE;
+        pass.say_once = true;
+        pass.challenge_form = None;
+        pass.challenge_difficulty = Some(5);
+        pass.link_from.clear();
+        f.data.infos.get_mut(&FormId(E_NOW)).unwrap().choices = vec![FormId(T_LF_TO), FormId(T_BYE)];
+    }
+
+    // Case A: S_FAIL links from T_LF_PLAIN (a different topic), and no unlinked failure line exists.
+    // Failing T_LF_TO must NOT speak S_FAIL (wrong topic) and must NOT speak S_LF_TO (pass line).
+    {
+        let mut g = at_topic_list(&f);
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH, 0.0).unwrap();
+        pick(&mut g, T_TOP2);
+        listen(&mut g);
+        let spoken = pick(&mut g, T_LF_TO);
+        assert_eq!(spoken, FormId(0), "must not speak pass line or wrong-topic failure line");
+        assert_eq!((g.misc_stat(SPEECH_SUCCESSES), g.misc_stat(SPEECH_FAILURES)), (0.0, 1.0));
+        assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::NoLine { topic, .. } if topic == FormId(T_FAIL))));
+        // Failed Say Once choice was removed; T_BYE remains offered.
+        assert_eq!(offered(&g), vec![T_BYE]);
+    }
+
+    // Case B: Clear S_FAIL's link_from so it becomes an unlinked generic failure line (the
+    // 113 unlinked lines in Fallout3.esm). Failing T_LF_TO now falls back to S_FAIL.
+    f.data.infos.get_mut(&FormId(S_FAIL)).unwrap().link_from.clear();
+    {
+        let mut g = at_topic_list(&f);
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH, 0.0).unwrap();
+        pick(&mut g, T_TOP2);
+        listen(&mut g);
+        let spoken = pick(&mut g, T_LF_TO);
+        assert_eq!(spoken, FormId(S_FAIL), "falls back to unlinked SpeechChallengeFailure line");
+        assert_eq!((g.misc_stat(SPEECH_SUCCESSES), g.misc_stat(SPEECH_FAILURES)), (0.0, 1.0));
+    }
+}
+
+/// #3406: An intermediate pass chance (~47.25%) produces both passes and failures across
+/// seeded runs rather than always passing.
+#[test]
+fn fo3_speech_challenge_intermediate_chance_rolls_probabilistically() {
+    use fnv_game::actor_values::{CHARISMA, SPEECH};
+    use fnv_game::misc_stats::{SPEECH_FAILURES, SPEECH_SUCCESSES};
+    let mut f = fixture();
+    f.data.actors.get_mut(&FormId(NPC1)).unwrap().disposition_base = 35;
+    {
+        let pass = f.data.infos.get_mut(&FormId(S_LF_PLAIN)).unwrap();
+        pass.flags |= info_flag::SPEECH_CHALLENGE | info_flag::SAY_ONCE;
+        pass.say_once = true;
+        pass.challenge_form = None;
+        pass.challenge_difficulty = Some(3); // Average: 1.05 * 1.0 * 0.45 = 0.4725
+        f.data.infos.get_mut(&FormId(E_NOW)).unwrap().choices = vec![FormId(T_LF_PLAIN), FormId(T_BYE)];
+    }
+
+    let mut passes = 0u32;
+    let mut failures = 0u32;
+    for seed in 1u64..=64 {
+        let mut g = game_seeded(&f, seed);
+        g.start_dialogue(actor(), None).unwrap();
+        listen(&mut g);
+        pick(&mut g, T_BYE);
+        listen(&mut g);
+        g.start_dialogue(actor(), None).unwrap();
+        listen(&mut g);
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH, 50.0).unwrap();
+        g.extra.entry(FormId::PLAYER_REF).or_default().actor_values.insert(CHARISMA, 5.0);
+        pick(&mut g, T_TOP2);
+        listen(&mut g);
+        let spoken = pick(&mut g, T_LF_PLAIN);
+        if spoken == FormId(S_LF_PLAIN) {
+            assert_eq!((g.misc_stat(SPEECH_SUCCESSES), g.misc_stat(SPEECH_FAILURES)), (1.0, 0.0));
+            passes += 1;
+        } else {
+            assert_eq!(spoken, FormId(S_FAIL));
+            assert_eq!((g.misc_stat(SPEECH_SUCCESSES), g.misc_stat(SPEECH_FAILURES)), (0.0, 1.0));
+            failures += 1;
+        }
+    }
+    assert_eq!(passes + failures, 64);
+    assert!(passes >= 15 && failures >= 15, "expected ~47% passes across 64 seeds, got {passes} passes / {failures} failures");
 }

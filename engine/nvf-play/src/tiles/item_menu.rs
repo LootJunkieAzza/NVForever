@@ -42,6 +42,9 @@ pub struct RowShown {
     /// [observed: the tile's name, the item's without the count].
     pub name: String,
     pub text: String,
+    /// The row carries the equipped mark: a thing worn or held, and the ammo the weapon
+    /// loads now ([`Row::loaded`]; #3442: the list drawn from tiles left that out, so the
+    /// Ammo tab marked nothing).
     pub equipped: bool,
 }
 
@@ -89,7 +92,7 @@ pub fn rows_shown(rows: &[Row]) -> Vec<RowShown> {
     let mut out: Vec<RowShown> = Vec::with_capacity(rows.len());
     for (index, r) in rows.iter().enumerate() {
         let Some(key) = RowKey::at(rows, index) else { continue };
-        out.push(RowShown { key, name: r.name.clone(), text: look::row_text(r), equipped: r.equipped });
+        out.push(RowShown { key, name: r.name.clone(), text: look::row_text(r), equipped: r.equipped || r.loaded });
     }
     out
 }
@@ -356,6 +359,16 @@ pub(super) fn mark_menu(ui: &mut Ui, menu_name: &str, lists: &[&str]) {
     }
     for list_path in lists {
         set(ui, &format!("{list_path}/{}", list::HIGHLIGHT), HOTRECT_FILL, Value::Num(1.0));
+        if let Some(list_id) = ui.find_tile(list_path) {
+            let rows: Vec<TileId> = ui
+                .tile(list_id)
+                .children
+                .iter()
+                .copied()
+                .filter(|&c| ui.is_live(c) && ui.tile(c).get("listindex").is_some())
+                .collect();
+            list::unclip_row_children(ui, list_id, rows);
+        }
     }
 }
 
@@ -382,5 +395,40 @@ pub fn row_commands(side: Side, index: usize, on_it: bool, shift: bool) -> Vec<c
         (true, true) => vec![Command::Stack],
         (false, _) => vec![Command::Hover(side, index), if shift { Command::Stack } else { Command::One }],
         (true, false) => vec![Command::Select(side, index)],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_sim::FormId;
+
+    /// #3442: the ammo the weapon loads now carries the equipped mark in the list drawn
+    /// from tiles, as in the hand-built one.
+    #[test]
+    fn the_loaded_ammo_s_row_carries_the_equipped_mark() {
+        let row = |item: u32, equipped: bool, loaded: bool| Row {
+            item: FormId(item),
+            at: None,
+            name: format!("Item {item}"),
+            count: 12,
+            weight: None,
+            value: None,
+            kind: None,
+            equipped,
+            quest: false,
+            condition: None,
+            icon: None,
+            price: None,
+            bartered: false,
+            loaded,
+            mods: 0,
+            mods_value: 0,
+            folder: None,
+            reference: None,
+            live: false,
+        };
+        let shown = rows_shown(&[row(1, false, false), row(2, false, true), row(3, true, false)]);
+        assert_eq!(shown.iter().map(|r| r.equipped).collect::<Vec<_>>(), [false, true, true]);
     }
 }

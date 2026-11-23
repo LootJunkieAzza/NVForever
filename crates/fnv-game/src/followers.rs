@@ -25,6 +25,7 @@ use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
 use crate::awareness::Cause;
+use crate::combat_group::ALARM_RADIUS;
 use crate::detection::Band;
 use crate::functions::{Args, Ctx};
 use crate::game::Game;
@@ -85,6 +86,26 @@ impl Game<'_> {
         })
     }
 
+    /// Living, present actors whose currently chosen package is `Follow` or `Accompany`
+    /// targeting `leader` (including via `TargetKind::LinkedReference`), sorted by FormID
+    /// (`GetFollowers`). Pure read: does not evaluate unevaluated packages.
+    pub fn followers_of(&self, leader: FormId) -> Vec<FormId> {
+        let mut out: Vec<FormId> = self
+            .extra
+            .iter()
+            .filter_map(|(&actor, e)| {
+                if actor == leader || actor == FormId::PLAYER_REF || e.dead || !self.present(actor) {
+                    return None;
+                }
+                let pkg = e.current_package?;
+                let def = self.package_def(&pkg)?;
+                (matches!(def.ty, PackageType::Follow | PackageType::Accompany) && self.package_target(actor, def) == Some(leader)).then_some(actor)
+            })
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
     /// Whether `actor` is with the player: a teammate, or an actor whose package already
     /// chosen follows the player (`Game::package_follows_player`). Such an
     /// actor seeing the player does not count for the sneak word (#1159, owner's playtest
@@ -141,10 +162,9 @@ impl Game<'_> {
     /// 121,561 units away in the Mojave and did not follow the player for a minute
     /// (observed)].
     pub fn leave_foes_behind(&mut self, actor: FormId) {
-        let space = |g: &Self, r: FormId| g.cell_of(r).map(|c| g.world.placed.world_of(c).unwrap_or(c));
-        let Some(here) = space(self, actor) else { return };
+        let Some(here) = self.space_of(actor) else { return };
         let Some(a) = self.awareness.actors.get(&actor) else { return };
-        let mut gone: Vec<FormId> = a.targets.keys().copied().chain(a.alarms.iter().map(|al| al.owner)).filter(|&o| o != actor && space(self, o).is_some_and(|s| s != here)).collect();
+        let mut gone: Vec<FormId> = a.targets.keys().copied().chain(a.alarms.iter().map(|al| al.owner)).filter(|&o| o != actor && self.space_of(o).is_some_and(|s| s != here)).collect();
         gone.sort_unstable();
         gone.dedup();
         if gone.is_empty() {
@@ -194,6 +214,12 @@ impl Game<'_> {
         out
     }
 
+    /// The space `r` is in: its cell's worldspace outdoors, the cell itself indoors (or
+    /// when the cell's worldspace is not known).
+    fn space_of(&self, r: FormId) -> Option<FormId> {
+        self.cell_of(r).map(|c| self.world.placed.world_of(c).unwrap_or(c))
+    }
+
     /// Whether `r` stands where the player was before a move: in the same cell, or in the
     /// same worldspace within [`FOLLOW_REACH`].
     fn was_near(&self, r: FormId, from_cell: Option<FormId>, from_pos: [f32; 3]) -> bool {
@@ -213,7 +239,13 @@ impl Game<'_> {
     /// fights the player is a teammate's enemy) [documented: a teammate acts "as if he is
     /// in the player faction for the purposes of combat"; design: the alarm, as for an
     /// ally's assistance, without the Assistance check]. Called with
-    /// `Game::call_allies`. Returns how many alarms were given.
+    /// `Game::call_allies`. Only foes it could know of count: in the teammate's own space
+    /// (worldspace, or interior cell) and within [`ALARM_RADIUS`] of the teammate or of
+    /// the player [design, #3456: the wiki gives no reach for a teammate's help; this is
+    /// the reach within which comrades hear an actor's alarm, the one radius the code
+    /// already has for allies taking up a fight. Without it ED-E went Alert for a coyote
+    /// left 89,686 units away in another worldspace and never walked to her Lonesome Road
+    /// marker (observed: quest pilot, TTW sweep)]. Returns how many alarms were given.
     pub fn teammates_assist(&mut self) -> usize {
         let mates: Vec<FormId> = self
             .teammates()
@@ -230,10 +262,19 @@ impl Game<'_> {
             .filter(|(id, a)| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF) && !self.is_teammate(**id))
             .filter_map(|(id, _)| self.world.peek(*id).map(|s| s.pos).or_else(|| self.world.placed.get(*id).map(|p| p.pos)).map(|p| (*id, p)))
             .collect();
+        let pos = |g: &Self, r: FormId| g.world.peek(r).map(|s| s.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos));
+        let within = |a: [f32; 3], b: [f32; 3]| (a[0] - b[0]).hypot(a[1] - b[1]) <= ALARM_RADIUS;
+        let player_at = self.space_of(FormId::PLAYER_REF).zip(pos(self, FormId::PLAYER_REF));
         let mut given = 0;
         for t in mates {
+            let (Some(here), Some(t_at)) = (self.space_of(t), pos(self, t)) else { continue };
             for (&foe, &at) in &foes {
                 if foe == t || self.is_dead(foe) {
+                    continue;
+                }
+                // Out of its reach: in another space, or far from it and from the player.
+                let near_player = player_at.is_some_and(|(s, p)| s == here && within(at, p));
+                if self.space_of(foe) != Some(here) || !(within(at, t_at) || near_player) {
                     continue;
                 }
                 let knows = self.awareness.get(t).is_some_and(|a| a.targets.contains_key(&foe) || a.alarms.iter().any(|x| x.owner == foe));

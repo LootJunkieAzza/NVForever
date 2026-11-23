@@ -1211,11 +1211,32 @@ impl<'a> CombatBodies<'a> {
         Some(mine.room([tfeet[0], tfeet[1]], radius))
     }
 
+    /// [`CombatBodies::gap`] for an actor whose feet are at `feet`: none when its block
+    /// is not where it stands (further from its own feet than [`STALE_BLOCK`] beyond the
+    /// block's radius). The drawn blocks follow the drawn pose and can be far behind an
+    /// actor on the move: a gap measured from such a block read 1,161 units for a young
+    /// gecko whose feet were 51 units from the player, and up to 3,355 for a feral ghoul
+    /// [observed: runs of main 069ef9bde on the Searchlight Airport runway, 2026-11-21,
+    /// #3256]. Without a gap the spacing falls back to the reach alone, as it does for
+    /// bodies that are not known.
+    pub(crate) fn gap_at(&self, me: u32, target: u32, feet: V3, tfeet: V3) -> Option<f32> {
+        let (mine, radius) = self.pair(me, target)?;
+        if mine.room([feet[0], feet[1]], 0.0) > STALE_BLOCK {
+            return None;
+        }
+        Some(mine.room([tfeet[0], tfeet[1]], radius))
+    }
+
     pub(crate) fn radii(&self, me: u32, target: u32) -> Option<f32> {
         let (mine, radius) = self.pair(me, target)?;
         Some(mine.radius + radius)
     }
 }
+
+/// A block further than this from its own actor's feet (beyond its radius, units) is not
+/// where the actor is ([`CombatBodies::gap_at`]) [design, #3256: a torso that leans or a
+/// long body reaches ahead by less; the stale blocks seen were hundreds of units off].
+pub const STALE_BLOCK: f32 = 48.0;
 
 /// The strike-range decision shared by melee attacks and their pending blows
 /// [design: fight, melee_spacing, creature_spacing].
@@ -1604,7 +1625,7 @@ pub(crate) fn fight(
     }
     // The gap between an actor's body and its target's, when both are known.
     let bodies = CombatBodies::new(phys.as_deref(), blocks.as_deref());
-    let gap = |me: u32, target: u32, tfeet: V3| bodies.gap(me, target, tfeet);
+    let gap = |me: u32, target: u32, feet: V3, tfeet: V3| bodies.gap_at(me, target, feet, tfeet);
     // The two bodies' radii summed, which a melee reach is counted beyond (`melee_spacing`).
     let radii = |me: u32, target: u32| bodies.radii(me, target);
     let f = &mut *fighters;
@@ -2027,7 +2048,7 @@ pub(crate) fn fight(
                 _ => 0.0,
             };
             let reach = reach_of(c, &arm, scale);
-            let gap = gap(id, target.0, tfeet);
+            let gap = gap(id, target.0, feet, tfeet);
             let radii = radii(id, target.0);
             let want = match (&arm, gap) {
                 // Melee with bodies to measure: from where its feet are, as far as the
@@ -2514,7 +2535,7 @@ pub(crate) fn fight(
             // hop; idles.md §14): no attack until it has ended [documented: GECK wiki Idle
             // Animations Window, "No Attacking"]. An attack would end the idle
             // (`attack_anims.rs`), so it is held instead.
-            let idle_holds = idle.and_then(|i| i.0.cur.as_ref()).filter(|p| g.data.idles.get(&FormId(p.idle)).is_some_and(|d| d.no_attacking));
+            let idle_holds = idle.and_then(|i| i.0.cur.as_ref()).filter(|p| g.idle_def(FormId(p.idle)).is_some_and(|d| d.no_attacking));
             if let Some(p) = idle_holds {
                 if fighter.idle_hold_seen != Some(p.serial) {
                     fighter.idle_hold_seen = Some(p.serial);
@@ -3743,6 +3764,33 @@ mod tests {
         assert_eq!(phys.npcs[&id].ch.params.radius, 22.0);
         phys.npcs.clear();
         assert!(CombatBodies::new(Some(&phys), None).body(id, 456).is_none());
+    }
+
+    /// #3256: a drawn block that is not where its actor stands gives no gap (it read
+    /// 1,161 units for a gecko 51 units from the player); one at the actor's feet does.
+    #[test]
+    fn a_block_left_behind_gives_no_gap() {
+        use nvf_play::phys::PhysState;
+        let mut phys = PhysState::default();
+        let player_feet = [0.0, 0.0, 0.0];
+        phys.player = Some(phys.world.add_character(FormId::PLAYER_REF.0, fnv_phys::CharacterParams::default(), player_feet));
+        let player_radius = phys.player.as_ref().unwrap().params.radius;
+        let me = 0xFF00_0000;
+        // Its block where it stood 1,100 units back; its feet now 51 units from the player.
+        let mut blocks = ActorBlocks { list: vec![Block::character(me, [1151.0, 0.0, 0.0], 30.0, 60.0, false)], ..Default::default() };
+        let feet = [51.0, 0.0, 0.0];
+        let bodies = CombatBodies::new(Some(&phys), Some(&blocks));
+        assert_eq!(bodies.gap(me, FormId::PLAYER_REF.0, player_feet), Some(1151.0 - 30.0 - player_radius), "the old measure");
+        assert_eq!(bodies.gap_at(me, FormId::PLAYER_REF.0, feet, player_feet), None);
+        // The block where the actor is (a body that reaches a little ahead of its feet).
+        blocks.list = vec![Block::character(me, [45.0, 0.0, 0.0], 30.0, 60.0, false)];
+        let bodies = CombatBodies::new(Some(&phys), Some(&blocks));
+        assert_eq!(bodies.gap_at(me, FormId::PLAYER_REF.0, feet, player_feet), Some(45.0 - 30.0 - player_radius));
+        // Just within and just beyond the limit, from the block's edge.
+        blocks.list = vec![Block::character(me, [51.0 + 30.0 + STALE_BLOCK - 1.0, 0.0, 0.0], 30.0, 60.0, false)];
+        assert!(CombatBodies::new(Some(&phys), Some(&blocks)).gap_at(me, FormId::PLAYER_REF.0, feet, player_feet).is_some());
+        blocks.list = vec![Block::character(me, [51.0 + 30.0 + STALE_BLOCK + 1.0, 0.0, 0.0], 30.0, 60.0, false)];
+        assert!(CombatBodies::new(Some(&phys), Some(&blocks)).gap_at(me, FormId::PLAYER_REF.0, feet, player_feet).is_none());
     }
 
     #[test]

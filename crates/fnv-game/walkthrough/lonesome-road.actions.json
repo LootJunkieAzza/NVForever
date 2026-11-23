@@ -94,6 +94,8 @@
     {"op": "advance_seconds", "seconds": 1},
     {"op": "dismiss_message_boxes", "max": 2, "wait_frames": 10},
     {"op": "get_quest", "quest": "NVDLC04MQ01", "fields": ["stage"], "label": "MQ01 12 (laser detonator)"},
+    {"op": "note", "text": "The player carries the laser detonator (NVDLC04WeapSonicDetonator, a quest item given by SCPT 0x0400D792 [observed: script decompile], outside this chain): added as a stand-in, so the pilot fires it at the warhead instead of setting the hits off headless."},
+    {"op": "add_item", "to": "player", "item": "NVDLC04WeapSonicDetonator", "count": 1},
     {"op": "move_player", "to": "NVDLC04Road01CampBarrierWarhead01REF"},
     {"op": "hit", "target": "NVDLC04Road01CampBarrierWarhead01REF", "weapon": "NVDLC04WeapSonicDetonator"},
     {"op": "hit", "target": "NVDLC04Road01CampBarrierWarhead01REF", "weapon": "NVDLC04WeapSonicDetonator"},

@@ -17,6 +17,15 @@ use crate::jip_provenance::Registrar;
 /// SetOnCriticalHitEventHandler].
 const XMARKER: u32 = 0x0000_003B;
 
+/// Analog controller trigger press threshold (`0.0..=1.0`): standard XInput
+/// `XINPUT_GAMEPAD_TRIGGER_THRESHOLD` (30 / 255) [documented: Microsoft XInput
+/// `XINPUT_GAMEPAD_TRIGGER_THRESHOLD`; hypothesis: used for JIP trigger down/up edges].
+pub const TRIGGER_PRESS_THRESHOLD: f32 = 30.0 / 255.0;
+
+/// Default `fAutoAimMaxDistance` when the load order lacks the GMST
+/// [documented: GECK wiki Auto Aim Settings, 1800].
+pub const DEFAULT_AUTO_AIM_MAX_DISTANCE: f64 = 1800.0;
+
 /// The JIP registrations of a session.
 #[derive(Debug, Clone, Default)]
 pub struct JipEvents {
@@ -27,8 +36,22 @@ pub struct JipEvents {
     registrars: std::collections::HashMap<u64, Arc<Registrar>>,
     /// Each actor's hit in progress, or its last one (task J7, jip-hit-info.md §5).
     pub hits: std::collections::HashMap<FormId, JipHit>,
+    /// The keys and mouse buttons held last frame, for the named OnKeyDown/OnKeyUp events
+    /// (JIP's own key events keep theirs in `nvse_jam`).
+    pub keys_held: std::collections::BTreeSet<u16>,
     /// Last 28-control event snapshot; shared by both control-event interfaces.
     pub controls_held: u32,
+    /// Last gamepad button mask snapshot (XInput bits), for OnButtonDown/OnButtonUp.
+    pub buttons_held: u32,
+    /// Last controller trigger bitmask (bit 0 = left trigger, bit 1 = right trigger),
+    /// for SetOnTriggerDownEventHandler / SetOnTriggerUpEventHandler.
+    pub triggers_held: u8,
+    /// Last actor target reported to SetOnPCTargetChangeEventHandler.
+    pub pc_target: Option<FormId>,
+    /// Last `(crosshair_ref, crosshair_far, reticle_hit_bits, auto_aim_max_bits)`
+    /// snapshot synced from `Senses`, so explicit `set_pc_target` calls are not
+    /// overwritten on ticks when `Senses` has not changed.
+    last_crosshair_senses: (Option<FormId>, Option<FormId>, Option<u32>, u64),
     /// ScriptWait: the waiting block of each script instance (one at a time
     /// [documented: ScriptWait]); not saved [hypothesis, as the registrations].
     pub waits: std::collections::HashMap<crate::game::InstKey, Waiting>,
@@ -42,6 +65,37 @@ pub struct JipEvents {
     pub music_states: Vec<u8>,
     /// What lasts the whole session, across loads (`Game::take_session`).
     pub kept: JipKept,
+    /// `(frame, [(actor, weapon)])` pairs whose `fireweapon` event already fired this
+    /// frame, deduplicating `weapon_fired` -> `projectile_fired` and multi-pellet bursts.
+    pub(crate) fired_this_frame: (u64, Vec<(FormId, FormId)>),
+}
+
+impl JipEvents {
+    /// Carry active main-loop registrar metadata across `Game::take_session`.
+    pub(crate) fn take_main_loop_registrars(
+        &self,
+        kept: &[MainLoop],
+    ) -> (std::collections::HashMap<u64, Arc<Registrar>>, u64) {
+        let mut out = std::collections::HashMap::new();
+        for m in kept {
+            if let Some(r) = self.registrars.get(&m.seq) {
+                out.insert(m.seq, Arc::clone(r));
+            }
+        }
+        (out, self.seq)
+    }
+
+    /// Restore carried main-loop registrar metadata and advance `seq` so new
+    /// registrations in the restored `Game` never collide with carried `MainLoop.seq`.
+    pub(crate) fn restore_main_loop_registrars(
+        &mut self,
+        registrars: std::collections::HashMap<u64, Arc<Registrar>>,
+        seq: u64,
+    ) {
+        let max_kept = self.main_loop.iter().map(|m| m.seq).max().unwrap_or(0);
+        self.seq = self.seq.max(seq).max(max_kept);
+        self.registrars.extend(registrars);
+    }
 }
 
 /// JIP's settings that last until the game is quit (`crate::nvse_ttw`).
@@ -144,8 +198,19 @@ pub struct MainLoop {
     /// 1 game mode, 2 menu mode, 8 removed on load [documented].
     pub flags: u32,
     pub due: u64,
+    pub(crate) seq: u64,
     /// Quantized game clock at registration or the last actual invocation.
     pub(crate) last_clock: f64,
+}
+
+impl MainLoop {
+    fn failure_context(&self) -> String {
+        let receiver = self.on.map_or_else(|| "none".into(), |r| format!("0x{:08X}", r.0));
+        format!(
+            "registration={} callable={} receiver={} delay={} flags={}",
+            self.seq, diagnostic_value(&self.func), receiver, self.delay, self.flags,
+        )
+    }
 }
 
 /// What a filter at each position tests: the calling reference or an argument
@@ -164,10 +229,34 @@ fn slots(event: &str) -> &'static [Slot] {
         "animaction" | "playgroup" => &[Slot::On, Slot::ExactArg(0)],
         "criticalhit" => &[Slot::On, Slot::Arg(0), Slot::Arg(1)],
         "queststage" => &[Slot::Arg(0), Slot::Arg(1)],
-        "controldown" | "controlup" => &[Slot::ExactArg(0)],
-        "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "triggerdown" | "triggerup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
+        "controldown" | "controlup" | "triggerdown" | "triggerup" => &[Slot::ExactArg(0)],
+        "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
         _ => &[],
     }
+}
+
+fn normalize_click_filter(p: &str) -> String {
+    if let Some((m, n)) = p.split_once('#') {
+        return format!("{}#{}", m.trim().to_ascii_lowercase(), n.trim());
+    }
+    p.split(['/', '\\'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn click_segment_matches(want: &str, have: &str) -> bool {
+    fn split_idx(s: &str) -> (&str, Option<&str>) {
+        match s.rsplit_once(':') {
+            Some((base, idx)) if !idx.is_empty() && idx.bytes().all(|b| b.is_ascii_digit()) => (base, Some(idx)),
+            _ => (s, None),
+        }
+    }
+    let (w_name, w_idx) = split_idx(want);
+    let (h_name, h_idx) = split_idx(have);
+    (w_name == "*" || w_name == h_name) && (w_idx.is_none() || w_idx == h_idx)
 }
 
 /// Whether a SetOnMenuClickEventHandler tile path names this tile (see
@@ -178,7 +267,7 @@ pub fn click_path_matches(filter: &str, menu: &str, path: &str, id: f64) -> bool
     }
     let segs = |p: &str| p.split(['/', '\\']).map(str::trim).filter(|s| !s.is_empty()).map(str::to_ascii_lowercase).collect::<Vec<_>>();
     let (want, have) = (segs(filter), segs(path));
-    !want.is_empty() && want.len() <= have.len() && want.iter().zip(&have).all(|(a, b)| a == b)
+    !want.is_empty() && want.len() <= have.len() && want.iter().zip(&have).all(|(a, b)| click_segment_matches(a, b))
 }
 
 impl Game<'_> {
@@ -190,9 +279,24 @@ impl Game<'_> {
     /// as Just Assorted Mods' sprint relies on: it registers its key handler per key and
     /// removes it with no key before registering again or when the sprint is turned off,
     /// observed in its script source; issue #2952]. Returns whether anything changed.
-    pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
-        let same = |h: &JipHandler| h.event == event && h.func == func && h.filters == filters;
-        let removed = |h: &JipHandler| h.event == event && h.func == func && h.filters.starts_with(&filters);
+    pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, mut filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
+        if event == "playgroup" {
+            if let Some(XVal::Str(name)) = filters.get(1) {
+                if let Some(code) = self.anim_group_code(name) {
+                    filters[1] = XVal::Num(f64::from(code));
+                }
+            }
+        }
+        let filters_eq = |a: &XVal, b: &XVal| match (event.as_str(), a, b) {
+            ("menuclick", XVal::Str(sa), XVal::Str(sb)) => normalize_click_filter(sa) == normalize_click_filter(sb),
+            _ => a == b,
+        };
+        let same = |h: &JipHandler| {
+            h.event == event && h.func == func && h.filters.len() == filters.len() && h.filters.iter().zip(&filters).all(|(a, b)| filters_eq(a, b))
+        };
+        let removed = |h: &JipHandler| {
+            h.event == event && h.func == func && h.filters.len() >= filters.len() && h.filters.iter().zip(&filters).all(|(a, b)| filters_eq(a, b))
+        };
         if add {
             if self.jip.handlers.iter().any(same) {
                 return true;
@@ -213,11 +317,58 @@ impl Game<'_> {
     }
 
     /// SetGameMainLoopCallback func add [delay] [flags].
-    pub(crate) fn jip_main_loop(&mut self, func: XVal, add: bool, delay: u64, flags: u32, on: Option<FormId>) {
-        self.jip.main_loop.retain(|m| !(m.func == func && m.on == on));
-        if add {
-            let delay = delay.max(1);
-            self.jip.main_loop.push(MainLoop { func, on, delay, flags, due: self.frame + delay, last_clock: crate::functions::clock_now(self.time) });
+    pub(crate) fn jip_main_loop(
+        &mut self,
+        func: XVal,
+        add: bool,
+        delay: u64,
+        flags: u32,
+        on: Option<FormId>,
+        registrar: Option<Arc<Registrar>>,
+    ) {
+        let registrars = &mut self.jip.registrars;
+        self.jip.main_loop.retain(|m| {
+            if m.func == func && m.on == on {
+                registrars.remove(&m.seq);
+                false
+            } else {
+                true
+            }
+        });
+        if !add {
+            return;
+        }
+        // Refuse null/zero callable tokens — including any numeric value that
+        // `run_function_here` (`*x as u32`) would coerce to form 0 (0.0, negative
+        // numbers, fractions below 1.0, NaN) — at registration time with registrar
+        // attribution rather than enqueuing a form-0 callback that fails every frame
+        // (#2603) [design].
+        let is_zero = matches!(func, XVal::Ref(0)) || matches!(func, XVal::Num(n) if (n as u32) == 0);
+        if is_zero {
+            let receiver = on.map_or_else(|| "none".into(), |r| format!("0x{:08X}", r.0));
+            let callable = diagnostic_value(&func);
+            self.handler_failed_with_registrar(
+                "JIP main-loop callback".into(),
+                format!("cannot register zero callable token {callable}"),
+                || Some(format!("registration=0 callable={callable} receiver={receiver} delay={} flags={flags}", delay.max(1))),
+                registrar.as_deref(),
+            );
+            return;
+        }
+        let delay = delay.max(1);
+        self.jip.seq += 1;
+        let seq = self.jip.seq;
+        self.jip.main_loop.push(MainLoop {
+            func,
+            on,
+            delay,
+            flags,
+            due: self.frame + delay,
+            seq,
+            last_clock: crate::functions::clock_now(self.time),
+        });
+        if let Some(registrar) = registrar {
+            self.jip.registrars.insert(seq, registrar);
         }
     }
 
@@ -228,6 +379,25 @@ impl Game<'_> {
         }
         let hs = self.jip.handlers.iter().filter(|h| h.event == event && self.jip_matches(h, on, &args)).map(|h| self.jip.attempt(h)).collect();
         self.jip_run(event, hs, on, args)
+    }
+
+    /// Fire JIP's `SetOnAnimActionEventHandler` (`animaction`) for `actor` starting
+    /// `action` (0–13, `GetAnimAction` code) [documented: SetOnAnimActionEventHandler].
+    pub fn fire_anim_action(&mut self, actor: FormId, action: i32) -> usize {
+        if action < 0 {
+            return 0;
+        }
+        self.jip_event("animaction", Some(actor), vec![XVal::Num(f64::from(action))])
+    }
+
+    /// Fire JIP's `SetOnPlayGroupEventHandler` (`playgroup`) for `actor` starting
+    /// animation group `group` [documented: SetOnPlayGroupEventHandler]. Ignores
+    /// internal sentinel codes (`SEQUENCE`, `OPEN_GROUP`, `CLOSE_GROUP`).
+    pub fn fire_play_group(&mut self, actor: FormId, group: u16) -> usize {
+        if matches!(group, crate::anims::SEQUENCE | crate::anims::OPEN_GROUP | crate::anims::CLOSE_GROUP) {
+            return 0;
+        }
+        self.jip_event("playgroup", Some(actor), vec![XVal::Num(f64::from(group))])
     }
 
     /// SetOnMenuClickEventHandler's event: a tile was clicked (task T8). `menu` is the
@@ -247,6 +417,59 @@ impl Game<'_> {
         };
         let hs = self.jip.handlers.iter().filter(|h| h.event == "menuclick" && h.filters.first().is_some_and(matches)).map(|h| self.jip.attempt(h)).collect();
         self.jip_run("menuclick", hs, None, vec![XVal::Num(menu_id), XVal::Num(id), XVal::Str(name.to_ascii_lowercase())])
+    }
+
+    /// SetOnDialogTopicEventHandler's event: `speaker` spoke `info` under `topic`
+    /// (jip-events.md §2, §5). Each matching handler runs newest-first with
+    /// `this = speaker`: a non-wildcard filter matching `info` receives `info`;
+    /// a non-wildcard filter matching `topic` (or an unfiltered / wildcard
+    /// registration) receives `topic` [documented: topic or info; hypothesis:
+    /// unfiltered/wildcard handlers receive the topic].
+    pub(crate) fn jip_dialog_topic(&mut self, speaker: FormId, topic: FormId, info: FormId) -> usize {
+        if self.jip.handlers.is_empty() {
+            return 0;
+        }
+        let info_val = XVal::Ref(info.0);
+        let topic_val = XVal::Ref(topic.0);
+        let mut hs: Vec<(JipAttempt, XVal)> = self
+            .jip
+            .handlers
+            .iter()
+            .filter(|h| h.event == "dialogtopic")
+            .filter_map(|h| {
+                let matched = match h.filters.first() {
+                    None => Some(topic_val.clone()),
+                    Some(f) if self.jip_wildcard(f) => Some(topic_val.clone()),
+                    Some(f) if self.filter_matches(f, &info_val, false) => Some(info_val.clone()),
+                    Some(f) if self.filter_matches(f, &topic_val, false) => Some(topic_val.clone()),
+                    Some(_) => None,
+                };
+                matched.map(|arg| (self.jip.attempt(h), arg))
+            })
+            .collect();
+        if hs.is_empty() {
+            return 0;
+        }
+        hs.sort_by_key(|(a, _)| std::cmp::Reverse(a.handler.seq));
+        let ctx = RunCtx { self_ref: Some(speaker), ..RunCtx::default() };
+        let mut ran = 0;
+        for (attempt, arg) in hs {
+            let h = &attempt.handler;
+            if self.function_arity(&h.func).is_some_and(|n| n < 1) {
+                tracing::info!("jip: a dialogtopic handler takes fewer than the event's 1 values and does not run");
+                continue;
+            }
+            match self.run_function(&h.func, Some(Value::Ref(speaker.0)), vec![arg], None, ctx) {
+                Ok(_) => ran += 1,
+                Err(error) => self.handler_failed_with_registrar(
+                    "JIP dialogtopic handler".into(),
+                    error,
+                    || Some(h.failure_context(Some(speaker), 1)),
+                    attempt.registrar.as_deref(),
+                ),
+            }
+        }
+        ran
     }
 
     fn jip_run(&mut self, event: &str, mut hs: Vec<JipAttempt>, on: Option<FormId>, args: Vec<XVal>) -> usize {
@@ -331,21 +554,140 @@ impl Game<'_> {
         })
     }
 
-    /// Each frame (`Game::tick`): the key-down and key-up events of the keys and mouse
-    /// buttons pressed and let go since the last frame, by DirectX scancode (256 + n for
-    /// the mouse) [documented: SetOnKeyDownEventHandler, SetOnKeyUpEventHandler; the
-    /// handler gets the key]. The keys held are the player's whatever DisableKey says, as
-    /// the events "still run even if the key has been disabled" [documented:
-    /// SetOnKeyDownEventHandler].
-    /// Both control-event interfaces follow the same frame entry point, after key
-    /// callbacks, against a snapshot taken before callbacks (control-input-events.md).
+    /// Each frame (`Game::tick` and `Game::page_tick`): key-down/key-up events by
+    /// DirectX scancode (256 + n for the mouse) for both JIP (`SetOnKeyDownEventHandler`
+    /// / `SetOnKeyUpEventHandler`) and named `SetEventHandler` (`OnKeyDown` / `OnKeyUp`,
+    /// plain or `:code`) [documented: GECK wiki SetOnKeyDownEventHandler, OnKeyDown,
+    /// OnKeyUp]. The keys held are the player's whatever DisableKey says, as JIP's
+    /// events "still run even if the key has been disabled" [documented:
+    /// SetOnKeyDownEventHandler; hypothesis for SetEventHandler OnKeyDown/OnKeyUp].
+    /// Both control-event interfaces and gamepad button events (`OnButtonDown` /
+    /// `OnButtonUp`, plain or `:bitmask`) follow the same frame entry point against
+    /// snapshots taken before callbacks (control-input-events.md, ext-events.md).
     pub(crate) fn jip_keys(&mut self) {
         // One key-edge sender with one held-keys record (`nvse_jam::jam_key_events`,
         // which the engine also calls between frames): a second record here gave each
         // press two key-downs (merge of v0.8.0).
         let controls = self.input.controls_for_events();
+        let buttons = self.jip2.told.pad.buttons | self.jip2.told.pad.held_buttons;
+        let triggers = self.trigger_mask();
         self.jam_key_events();
+        self.named_key_edges();
         self.control_edges(controls);
+        self.button_edges(buttons);
+        self.trigger_edges(triggers);
+        self.sync_pc_target();
+    }
+
+    fn sanitize_trigger(value: f32) -> f32 {
+        if value.is_finite() { value.clamp(0.0, 1.0) } else { 0.0 }
+    }
+
+    fn trigger_mask(&self) -> u8 {
+        let p = &self.jip2.told.pad;
+        let left = p.held_triggers[0] || p.triggers[0] >= TRIGGER_PRESS_THRESHOLD;
+        let right = p.held_triggers[1] || p.triggers[1] >= TRIGGER_PRESS_THRESHOLD;
+        u8::from(left) | (u8::from(right) << 1)
+    }
+
+    /// Publish sanitized controller trigger values (`0.0..=1.0`, left then right) for
+    /// `GetLeftTrigger` / `GetRightTrigger` and the frame's `Game::jip_keys` trigger edge
+    /// dispatch (`Game::tick` / `Game::page_tick`) without running script callbacks
+    /// immediately [design: engine input systems run before `PlaySet::Scripts` and outside
+    /// `with_world` / pause / menu-page guards].
+    pub fn publish_pad_triggers(&mut self, left: f32, right: f32) {
+        self.jip2.told.pad.triggers = [Self::sanitize_trigger(left), Self::sanitize_trigger(right)];
+    }
+
+    /// Publish controller trigger values (`0.0..=1.0`, left then right) and immediately
+    /// dispatch any `SetOnTriggerDownEventHandler` / `SetOnTriggerUpEventHandler` edge
+    /// transitions (`0` left, `1` right) [documented: SetOnTriggerDownEventHandler,
+    /// SetOnTriggerUpEventHandler].
+    pub fn set_pad_triggers(&mut self, left: f32, right: f32) {
+        self.publish_pad_triggers(left, right);
+        let now = self.trigger_mask();
+        self.trigger_edges(now);
+    }
+
+    fn trigger_edges(&mut self, now: u8) {
+        let before = std::mem::replace(&mut self.jip.triggers_held, now);
+        let changed = now ^ before;
+        if changed == 0 {
+            return;
+        }
+        let jip = self.jip.handlers.iter().any(|h| h.event == "triggerdown" || h.event == "triggerup");
+        if !jip {
+            return;
+        }
+        for code in 0u8..2 {
+            let bit = 1u8 << code;
+            if changed & bit == 0 {
+                continue;
+            }
+            let down = now & bit != 0;
+            self.jip_event(if down { "triggerdown" } else { "triggerup" }, None, vec![XVal::Num(f64::from(code))]);
+        }
+    }
+
+    fn is_pc_target_actor(&self, r: FormId) -> bool {
+        r != FormId::PLAYER_REF
+            && matches!(
+                crate::functions::base_of(self, r).and_then(|b| self.data.sig(b)).as_ref(),
+                Some(b"NPC_") | Some(b"CREA")
+            )
+    }
+
+    fn pc_target_from_senses(&self, max_dist: f64) -> Option<FormId> {
+        let from_far = self.senses.crosshair_far.is_some();
+        let candidate = self.senses.crosshair_far.or(self.senses.crosshair_ref)?;
+        if !self.is_pc_target_actor(candidate) {
+            return None;
+        }
+        if from_far && max_dist > 0.0 {
+            let dist = self
+                .senses
+                .reticle
+                .and_then(|r| r.hit)
+                .map(f64::from)
+                .or_else(|| crate::nvse_showoff5::distance_between(self, FormId::PLAYER_REF, candidate));
+            if dist.is_some_and(|d| d > max_dist) {
+                return None;
+            }
+        }
+        Some(candidate)
+    }
+
+    /// Synchronize `SetOnPCTargetChangeEventHandler` (`pctargetchange`) against `Senses`
+    /// (`crosshair_far`, `crosshair_ref`, `reticle`, and `fAutoAimMaxDistance`) whenever
+    /// any of those inputs changed.
+    pub(crate) fn sync_pc_target(&mut self) {
+        let max_dist = crate::combat::setting(self, "fAutoAimMaxDistance", DEFAULT_AUTO_AIM_MAX_DISTANCE);
+        let snap = (
+            self.senses.crosshair_ref,
+            self.senses.crosshair_far,
+            self.senses.reticle.and_then(|r| r.hit).map(f32::to_bits),
+            max_dist.to_bits(),
+        );
+        if snap == self.jip.last_crosshair_senses {
+            return;
+        }
+        self.jip.last_crosshair_senses = snap;
+        let target = self.pc_target_from_senses(max_dist);
+        self.set_pc_target(target);
+    }
+
+    /// Update the actor under the player's reticle and fire JIP's
+    /// `SetOnPCTargetChangeEventHandler` (`pctargetchange`) if it changed: no calling
+    /// reference, 1 argument (`newTargetRef` or `0` for none). Non-actor references
+    /// normalize to `None` [documented: SetOnPCTargetChangeEventHandler,
+    /// docs/spec-notes/jip-events.md §2]. Returns how many handlers ran.
+    pub fn set_pc_target(&mut self, target: Option<FormId>) -> usize {
+        let next = target.filter(|&r| self.is_pc_target_actor(r));
+        if next == self.jip.pc_target {
+            return 0;
+        }
+        self.jip.pc_target = next;
+        self.jip_event("pctargetchange", None, vec![XVal::Ref(next.map_or(0, |r| r.0))])
     }
 
     pub(crate) fn control_edges(&mut self, now: u32) {
@@ -369,6 +711,69 @@ impl Game<'_> {
         }
     }
 
+    /// The named `SetEventHandler` key events (`OnKeyDown` / `OnKeyUp`, plain or `:code`).
+    /// JIP's own key-down and key-up go out from `jam_key_events` alone, with its own record
+    /// of the keys held: a second JIP sender gave each press two key-downs, so a toggle
+    /// handler undid itself (JAM bullet time on V, ship13 co-op).
+    fn named_key_edges(&mut self) {
+        if self.jip.keys_held == self.input.held {
+            return;
+        }
+        let now = self.input.held.clone();
+        let before = std::mem::replace(&mut self.jip.keys_held, now.clone());
+        let named = self.handlers.iter().any(|h| {
+            h.event == "onkeydown"
+                || h.event == "onkeyup"
+                || h.event.starts_with("onkeydown:")
+                || h.event.starts_with("onkeyup:")
+        });
+        if !named {
+            return;
+        }
+        for &k in now.difference(&before) {
+            let code = XVal::Num(f64::from(k));
+            self.dispatch_event("OnKeyDown", vec![code.clone()], None);
+            self.dispatch_event(&format!("OnKeyDown:{k}"), vec![code], None);
+        }
+        for &k in before.difference(&now) {
+            let code = XVal::Num(f64::from(k));
+            self.dispatch_event("OnKeyUp", vec![code.clone()], None);
+            self.dispatch_event(&format!("OnKeyUp:{k}"), vec![code], None);
+        }
+    }
+
+    fn button_edges(&mut self, now: u32) {
+        let before = std::mem::replace(&mut self.jip.buttons_held, now);
+        let changed = now ^ before;
+        if changed == 0 {
+            return;
+        }
+        let named = self.handlers.iter().any(|h| {
+            h.event == "onbuttondown"
+                || h.event == "onbuttonup"
+                || h.event.starts_with("onbuttondown:")
+                || h.event.starts_with("onbuttonup:")
+        });
+        if !named {
+            return;
+        }
+        for bit in 0..u32::BITS {
+            let mask = 1u32 << bit;
+            if changed & mask == 0 {
+                continue;
+            }
+            let down = now & mask != 0;
+            let args = vec![XVal::Num(f64::from(mask))];
+            self.dispatch_event(if down { "OnButtonDown" } else { "OnButtonUp" }, args.clone(), None);
+            let prefix = if down { "onbuttondown:" } else { "onbuttonup:" };
+            self.dispatch_event_matching(
+                |ev| ev.strip_prefix(prefix).and_then(|s| s.parse::<u32>().ok()).is_some_and(|m| m & mask != 0),
+                args,
+                None,
+            );
+        }
+    }
+
     /// An item was made in the recipe menu: SetOnCraftingEventHandler's event, with the
     /// item's base form and the quantity [documented: SetOnCraftingEventHandler]. Called
     /// once per output of the recipe, with all of that output the making gave
@@ -376,6 +781,55 @@ impl Game<'_> {
     /// two outputs, is reported].
     pub fn item_crafted(&mut self, item: FormId, quantity: i64) {
         self.jip_event("crafting", None, vec![XVal::Ref(item.0), XVal::Num(quantity as f64)]);
+    }
+
+    /// Fire JIP's `SetOnFireWeaponEventHandler` event (`fireweapon`) when an actor fires
+    /// a ranged weapon: `this = actor`, `arg0 = weapon` base form
+    /// [documented: SetOnFireWeaponEventHandler, docs/spec-notes/jip-events.md §2].
+    ///
+    /// Excluded:
+    /// - non-actors (e.g. trap activators firing via `FireWeapon`);
+    /// - melee/hand-to-hand weapons (WEAP DNAM `animation_type` 0..=2);
+    /// - the player while god mode (`ToggleGodMode`) is active (demigod /
+    ///   `ToggleImmortalMode` still fires) [documented: SetOnFireWeaponEventHandler].
+    ///
+    /// When `dedup_same_frame` is true (`Game::projectile_fired`), skip if
+    /// `(self.frame, actor, weapon)` already fired this frame so a player shot
+    /// (`weapon_fired` followed by `projectile_fired`) or a multi-pellet shotgun burst
+    /// fires once per round [hypothesis].
+    pub(crate) fn fire_weapon_jip_event(&mut self, actor: FormId, weapon: FormId, dedup_same_frame: bool) -> usize {
+        let is_actor = actor == FormId::PLAYER_REF
+            || matches!(
+                crate::functions::base_of(self, actor).and_then(|b| self.data.sig(b)).as_ref(),
+                Some(b"NPC_") | Some(b"CREA")
+            );
+        if !is_actor {
+            return 0;
+        }
+        if matches!(self.data.weapon_anim_types.get(&weapon), Some(0..=2)) {
+            return 0;
+        }
+        if actor == FormId::PLAYER_REF && self.toggles.god_mode {
+            return 0;
+        }
+        if self.jip.fired_this_frame.0 != self.frame {
+            self.jip.fired_this_frame = (self.frame, Vec::new());
+        }
+        let key = (actor, weapon);
+        if dedup_same_frame && self.jip.fired_this_frame.1.contains(&key) {
+            return 0;
+        }
+        if !self.jip.fired_this_frame.1.contains(&key) {
+            self.jip.fired_this_frame.1.push(key);
+        }
+        self.jip_event("fireweapon", Some(actor), vec![XVal::Ref(weapon.0)])
+    }
+
+    /// Fire JIP's `SetOnReloadWeaponEventHandler` event (`reloadweapon`) when an actor
+    /// starts reloading `weapon`: `this = actor`, `arg0 = weapon` base form
+    /// [documented: SetOnReloadWeaponEventHandler, docs/spec-notes/jip-events.md §2].
+    pub fn weapon_reloaded(&mut self, actor: FormId, weapon: FormId) -> usize {
+        self.jip_event("reloadweapon", Some(actor), vec![XVal::Ref(weapon.0)])
     }
 
     /// The main-loop callbacks due this frame (`Game::tick`).
@@ -386,8 +840,14 @@ impl Game<'_> {
         let menu = self.menu.is_some() || self.dialogue.is_some();
         let want = if menu { 2 } else { 1 };
         let frame = self.frame;
-        let due: Vec<MainLoop> = self.jip.main_loop.iter().filter(|m| m.due <= frame && m.flags & want != 0).cloned().collect();
-        for m in due {
+        let due: Vec<(MainLoop, Option<Arc<Registrar>>)> = self
+            .jip
+            .main_loop
+            .iter()
+            .filter(|m| m.due <= frame && m.flags & want != 0)
+            .map(|m| (m.clone(), self.jip.registrars.get(&m.seq).cloned()))
+            .collect();
+        for (m, registrar) in due {
             let now = crate::functions::clock_now(self.time);
             let seconds = (now - m.last_clock).max(0.0);
             for x in self.jip.main_loop.iter_mut().filter(|x| x.func == m.func && x.on == m.on) {
@@ -397,8 +857,33 @@ impl Game<'_> {
             let on = m.on.unwrap_or(FormId::PLAYER_REF);
             let ctx = RunCtx { self_ref: Some(on), ..RunCtx::default() };
             if let Err(error) = self.run_function_with_seconds(&m.func, Some(Value::Ref(on.0)), Vec::new(), None, (ctx, Some(seconds))) {
-                self.handler_failed("JIP main-loop callback".into(), error);
+                self.handler_failed_with_registrar(
+                    "JIP main-loop callback".into(),
+                    error,
+                    || Some(m.failure_context()),
+                    registrar.as_deref(),
+                );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod click_path_tests {
+    use super::*;
+
+    #[test]
+    fn click_path_matches_wildcards_and_indices() {
+        let path = "BarterMenu/BarterCategories/BC_Category:1";
+        assert!(click_path_matches("BarterMenu/BarterCategories", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("BarterMenu\\BarterCategories\\BC_Category", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("BarterMenu/*/BC_Category", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("BarterMenu/*/BC_Category:1", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("BarterMenu/*/*:1", "BarterMenu", path, -1.0));
+        assert!(!click_path_matches("BarterMenu/*/BC_Category:0", "BarterMenu", path, -1.0));
+        assert!(!click_path_matches("BarterMenu/*/*:2", "BarterMenu", path, -1.0));
+        assert!(!click_path_matches("ContainerMenu/BarterCategories", "BarterMenu", path, -1.0));
+        assert!(click_path_matches("bartermenu#12", "BarterMenu", path, 12.0));
+        assert!(!click_path_matches("bartermenu#12", "BarterMenu", path, -1.0));
     }
 }

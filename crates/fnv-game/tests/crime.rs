@@ -44,6 +44,7 @@ const HEIR: u32 = 0x838;
 const EXILE: u32 = 0x839;
 const TRINKET: u32 = 0x850;
 const SHOP: u32 = 0x200;
+const BARRACKS: u32 = 0x201;
 const SHOPKEEPER_REF: u32 = 0x320;
 const TOWNSMAN_REF: u32 = 0x321;
 const FIEND_REF: u32 = 0x322;
@@ -51,6 +52,7 @@ const STRANGER_REF: u32 = 0x323;
 const TRINKET_REF: u32 = 0x330;
 const GANG_TRINKET_REF: u32 = 0x331;
 const HEIR_TRINKET_REF: u32 = 0x332;
+const BARRACKS_TRINKET_REF: u32 = 0x333;
 const SHOP_DOOR: u32 = 0x860;
 /// Two teleport doors into the shop: the first flagged No Alarm (XTEL), the second not.
 const QUIET_DOOR_REF: u32 = 0x340;
@@ -198,10 +200,10 @@ fn plugin_bytes() -> Vec<u8> {
     // An interior cell, not public, owned by the shopkeeper.
     let cell = record(b"CELL", 0, SHOP, &[sub(b"EDID", z("Shop")), sub(b"DATA", vec![0x01]), sub(b"XOWN", SHOPKEEPER.to_le_bytes().to_vec())]);
     let refs = [
-        placed(b"ACHR", SHOPKEEPER_REF, SHOPKEEPER, vec![]),
-        placed(b"ACHR", TOWNSMAN_REF, TOWNSMAN, vec![]),
-        placed(b"ACHR", FIEND_REF, FIEND, vec![]),
-        placed(b"ACHR", STRANGER_REF, STRANGER, vec![]),
+        placed(b"ACHR", SHOPKEEPER_REF, SHOPKEEPER, vec![sub(b"EDID", z("ShopkeeperRef"))]),
+        placed(b"ACHR", TOWNSMAN_REF, TOWNSMAN, vec![sub(b"EDID", z("TownsmanRef"))]),
+        placed(b"ACHR", FIEND_REF, FIEND, vec![sub(b"EDID", z("FiendRef"))]),
+        placed(b"ACHR", STRANGER_REF, STRANGER, vec![sub(b"EDID", z("StrangerRef"))]),
         placed(b"ACHR", CONVICT_REF, CONVICT, vec![]),
         placed(b"ACHR", BOSS_REF, BOSS, vec![]),
         placed(b"ACHR", SAINT_REF, SAINT, vec![]),
@@ -210,14 +212,23 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", LEGIONARY_REF, LEGIONARY, vec![]),
         placed(b"ACHR", DECANUS_REF, DECANUS, vec![]),
         placed(b"ACHR", TROOPER_REF, TROOPER, vec![]),
-        placed(b"REFR", TRINKET_REF, TRINKET, vec![]),
-        placed(b"REFR", GANG_TRINKET_REF, TRINKET, vec![sub(b"XOWN", GANG.to_le_bytes().to_vec()), sub(b"XRNK", 1i32.to_le_bytes().to_vec())]),
+        placed(b"REFR", TRINKET_REF, TRINKET, vec![sub(b"EDID", z("TrinketRef"))]),
+        placed(b"REFR", GANG_TRINKET_REF, TRINKET, vec![sub(b"EDID", z("GangTrinketRef")), sub(b"XOWN", GANG.to_le_bytes().to_vec()), sub(b"XRNK", 1i32.to_le_bytes().to_vec())]),
         placed(b"REFR", HEIR_TRINKET_REF, TRINKET, vec![sub(b"XOWN", HEIR.to_le_bytes().to_vec())]),
         placed(b"REFR", QUIET_DOOR_REF, SHOP_DOOR, vec![xtel(LOUD_DOOR_REF, 1)]),
         placed(b"REFR", LOUD_DOOR_REF, SHOP_DOOR, vec![xtel(QUIET_DOOR_REF, 0)]),
     ]
     .concat();
     let children = group(SHOP.to_le_bytes(), 6, &group(SHOP.to_le_bytes(), 9, &refs));
+    // A second interior cell owned by Gang at required rank 2, with an unowned trinket inheriting it.
+    let barracks = record(
+        b"CELL",
+        0,
+        BARRACKS,
+        &[sub(b"EDID", z("GangBarracks")), sub(b"DATA", vec![0x01]), sub(b"XOWN", GANG.to_le_bytes().to_vec()), sub(b"XRNK", 2i32.to_le_bytes().to_vec())],
+    );
+    let barracks_refs = placed(b"REFR", BARRACKS_TRINKET_REF, TRINKET, vec![sub(b"EDID", z("BarracksTrinketRef"))]);
+    let barracks_children = group(BARRACKS.to_le_bytes(), 6, &group(BARRACKS.to_le_bytes(), 9, &barracks_refs));
     let glob = |fid: u32, name: &str, v: f32| record(b"GLOB", 0, fid, &[sub(b"EDID", z(name)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", v.to_le_bytes().to_vec())]);
     let globals = [
         glob(0x940, "GameYear", 2281.0),
@@ -238,7 +249,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NPC_", &npcs),
         top(b"MISC", &misc),
         top(b"DOOR", &door),
-        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children, barracks, barracks_children].concat()))),
     ]
     .concat()
 }
@@ -970,4 +981,141 @@ fn an_assault_alarm_after_the_factions_members_were_killed_turns_nobody() {
     alarm_on_gang(&mut g);
     assert_eq!(crimes(&mut g), vec![]);
     assert!(!g.crime_enemy(FormId(STRANGER_REF)));
+}
+
+fn restore<'a>(f: &'a Fixture, snap: &fnv_game::game::GameSnapshot) -> Game<'a> {
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, snap).unwrap()
+}
+
+fn eval_num(g: &mut Game, expr: &str) -> f64 {
+    let src = format!("Begin Function {{ }}\nSetFunctionValue ({expr})\nEnd\n");
+    match g.run_query(&src, Default::default()) {
+        Ok(fnv_script::vm::XVal::Num(n)) => n,
+        other => panic!("expected Num for `{expr}`, got {other:?} (events: {:?})", g.events),
+    }
+}
+
+fn eval_ref(g: &mut Game, expr: &str) -> u32 {
+    let src = format!("Begin Function {{ }}\nSetFunctionValue ({expr})\nEnd\n");
+    match g.run_query(&src, Default::default()) {
+        Ok(fnv_script::vm::XVal::Ref(r)) => r,
+        other => panic!("expected Ref for `{expr}`, got {other:?} (events: {:?})", g.events),
+    }
+}
+
+fn run_stmt(g: &mut Game, stmt: &str) {
+    let src = format!("Begin Function {{ }}\n{stmt}\nEnd\n");
+    g.run_query(&src, Default::default()).unwrap_or_else(|e| panic!("stmt `{stmt}` failed: {e:?} (events: {:?})", g.events));
+}
+
+#[test]
+fn set_owning_faction_required_rank_drives_ownership_theft_and_session_transfer() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Baseline: GangTrinketRef has authored XOWN = Gang, XRNK = 1.
+    // Player at Gang rank 1 owns it across Game::ownership, IsOwned, and HasOwnership.
+    g.extra.entry(FormId::PLAYER_REF).or_default().factions.insert(FormId(GANG), 1);
+    assert_eq!(eval_num(&mut g, "GangTrinketRef.GetOwningFactionRequiredRank"), 1.0);
+    assert_eq!(g.ownership(FormId(GANG_TRINKET_REF)).map(|o| (o.owner, o.rank)), Some((FormId(GANG), Some(1))));
+    assert!(g.owned_by_other(FormId(GANG_TRINKET_REF)).is_none());
+    assert_eq!(eval_num(&mut g, "GangTrinketRef.IsOwned PlayerREF"), 1.0);
+    assert_eq!(eval_num(&mut g, "PlayerREF.HasOwnership GangTrinketRef"), 1.0);
+
+    // Raise required rank to 2: rank-1 player loses ownership everywhere, and a seen theft turns FiendRef hostile.
+    run_stmt(&mut g, "GangTrinketRef.SetOwningFactionRequiredRank 2");
+    assert_eq!(eval_num(&mut g, "GangTrinketRef.GetOwningFactionRequiredRank"), 2.0);
+    assert_eq!(g.ownership(FormId(GANG_TRINKET_REF)).map(|o| (o.owner, o.rank)), Some((FormId(GANG), Some(2))));
+    assert!(g.owned_by_other(FormId(GANG_TRINKET_REF)).is_some());
+    assert_eq!(eval_num(&mut g, "GangTrinketRef.IsOwned PlayerREF"), 0.0);
+    assert_eq!(eval_num(&mut g, "PlayerREF.HasOwnership GangTrinketRef"), 0.0);
+
+    sees(&mut g, FIEND_REF);
+    assert!(!g.would_attack(FormId(FIEND_REF), FormId::PLAYER_REF));
+    assert!(g.player_stole(Some(FormId(GANG_TRINKET_REF)), None, FormId(TRINKET), 1));
+    assert_eq!(crimes(&mut g), vec![(Kind::Theft, vec![FormId(FIEND_REF)])]);
+    assert!(g.would_attack(FormId(FIEND_REF), FormId::PLAYER_REF));
+
+    // Fresh-run restore without put_session resets session-only rank override back to authored XRNK = 1.
+    let snap = g.snapshot();
+    let mut fresh = restore(&f, &snap);
+    assert_eq!(eval_num(&mut fresh, "GangTrinketRef.GetOwningFactionRequiredRank"), 1.0);
+    assert_eq!(fresh.ownership(FormId(GANG_TRINKET_REF)).map(|o| o.rank), Some(Some(1)));
+    assert!(fresh.owned_by_other(FormId(GANG_TRINKET_REF)).is_none());
+    assert_eq!(eval_num(&mut fresh, "GangTrinketRef.IsOwned PlayerREF"), 1.0);
+
+    // Same-run save load transfers session-only owner_ranks through Game::take_session / put_session.
+    let session = g.take_session();
+    let mut same_run = restore(&f, &snap);
+    same_run.put_session(session);
+    assert_eq!(eval_num(&mut same_run, "GangTrinketRef.GetOwningFactionRequiredRank"), 2.0);
+    assert_eq!(same_run.ownership(FormId(GANG_TRINKET_REF)).map(|o| o.rank), Some(Some(2)));
+    assert!(same_run.owned_by_other(FormId(GANG_TRINKET_REF)).is_some());
+    assert_eq!(eval_num(&mut same_run, "GangTrinketRef.IsOwned PlayerREF"), 0.0);
+    assert_eq!(eval_num(&mut same_run, "PlayerREF.HasOwnership GangTrinketRef"), 0.0);
+
+    // Negative required rank does not grant ownership to a non-member (faction_rank == -1), only members (>= 0).
+    run_stmt(&mut same_run, "GangTrinketRef.SetOwningFactionRequiredRank -1");
+    assert_eq!(eval_num(&mut same_run, "GangTrinketRef.GetOwningFactionRequiredRank"), -1.0);
+    assert_eq!(eval_num(&mut same_run, "GangTrinketRef.IsOwned StrangerRef"), 0.0);
+    assert_eq!(eval_num(&mut same_run, "StrangerRef.HasOwnership GangTrinketRef"), 0.0);
+    assert_eq!(eval_num(&mut same_run, "GangTrinketRef.IsOwned FiendRef"), 1.0);
+    assert_eq!(eval_num(&mut same_run, "FiendRef.HasOwnership GangTrinketRef"), 1.0);
+}
+
+#[test]
+fn live_ownership_edits_flow_to_get_owner_is_owned_and_get_owner_of_cell() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Baseline authored ownership.
+    assert_eq!(eval_ref(&mut g, "GangTrinketRef.GetOwner"), GANG);
+    assert_eq!(eval_ref(&mut g, "TrinketRef.GetOwner"), 0);
+    assert_eq!(eval_ref(&mut g, "GetOwnerOfCell Shop"), SHOPKEEPER);
+    assert_eq!(eval_num(&mut g, "TrinketRef.IsOwned ShopkeeperRef"), 1.0);
+    assert_eq!(eval_num(&mut g, "ShopkeeperRef.HasOwnership TrinketRef"), 1.0);
+    assert_eq!(eval_num(&mut g, "TrinketRef.IsOwned PlayerREF"), 0.0);
+
+    // Inherited cell XRNK: GangBarracks requires Gang rank 2.
+    g.extra.entry(FormId::PLAYER_REF).or_default().factions.insert(FormId(GANG), 1);
+    assert_eq!(eval_num(&mut g, "BarracksTrinketRef.IsOwned PlayerREF"), 0.0);
+    assert_eq!(eval_num(&mut g, "PlayerREF.HasOwnership BarracksTrinketRef"), 0.0);
+    g.extra.entry(FormId::PLAYER_REF).or_default().factions.insert(FormId(GANG), 2);
+    assert_eq!(eval_num(&mut g, "BarracksTrinketRef.IsOwned PlayerREF"), 1.0);
+    assert_eq!(eval_num(&mut g, "PlayerREF.HasOwnership BarracksTrinketRef"), 1.0);
+    g.extra.entry(FormId::PLAYER_REF).or_default().factions.remove(&FormId(GANG));
+
+    // SetOwnership on a reference flows to GetOwner, IsOwned, and HasOwnership.
+    run_stmt(&mut g, "TrinketRef.SetOwnership");
+    assert_eq!(eval_ref(&mut g, "TrinketRef.GetOwner"), FormId::PLAYER_BASE.0);
+    assert_eq!(eval_num(&mut g, "TrinketRef.IsOwned PlayerREF"), 1.0);
+    assert_eq!(eval_num(&mut g, "PlayerREF.HasOwnership TrinketRef"), 1.0);
+    assert_eq!(eval_num(&mut g, "TrinketRef.IsOwned ShopkeeperRef"), 0.0);
+
+    // ClearOwnership clears live reference ownership so GetOwner returns 0 and IsOwned falls back to the cell.
+    run_stmt(&mut g, "GangTrinketRef.ClearOwnership");
+    assert_eq!(eval_ref(&mut g, "GangTrinketRef.GetOwner"), 0);
+    assert_eq!(eval_num(&mut g, "GangTrinketRef.IsOwned ShopkeeperRef"), 1.0);
+    assert_eq!(eval_num(&mut g, "GangTrinketRef.IsOwned FiendRef"), 0.0);
+
+    // SetCellOwnership flows to GetOwnerOfCell and inherited reference ownership.
+    run_stmt(&mut g, "SetCellOwnership Shop Town");
+    assert_eq!(eval_ref(&mut g, "GetOwnerOfCell Shop"), TOWN);
+    assert_eq!(eval_num(&mut g, "GangTrinketRef.IsOwned TownsmanRef"), 1.0);
+    assert_eq!(eval_num(&mut g, "TownsmanRef.HasOwnership GangTrinketRef"), 1.0);
+    assert_eq!(eval_num(&mut g, "GangTrinketRef.IsOwned FiendRef"), 0.0);
+
+    // SetOwnershipTemp flows to GetOwner / GetOwnerOfCell / IsOwned, and snapshot restore reverts it.
+    run_stmt(&mut g, "TrinketRef.SetOwnershipTemp Gang");
+    run_stmt(&mut g, "SetOwnershipTemp Gang Shop");
+    assert_eq!(eval_ref(&mut g, "TrinketRef.GetOwner"), GANG);
+    assert_eq!(eval_num(&mut g, "TrinketRef.IsOwned FiendRef"), 1.0);
+    assert_eq!(eval_num(&mut g, "TrinketRef.IsOwned PlayerREF"), 0.0);
+    assert_eq!(eval_ref(&mut g, "GetOwnerOfCell Shop"), GANG);
+
+    let snap = g.snapshot();
+    let mut restored = restore(&f, &snap);
+    assert_eq!(eval_ref(&mut restored, "TrinketRef.GetOwner"), FormId::PLAYER_BASE.0);
+    assert_eq!(eval_ref(&mut restored, "GetOwnerOfCell Shop"), TOWN);
 }

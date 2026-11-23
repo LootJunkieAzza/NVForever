@@ -1,0 +1,11 @@
+[package]
+name = "fnv-pbr"
+description = "Authored PBR material maps under textures\\pbr\\: path rules, the set index, scalar files (#2981)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# `normalize` and `texture_path`: the same path forms the engine's texture lookup uses.
+fnv-vfs = { path = "../fnv-vfs" }
+toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }

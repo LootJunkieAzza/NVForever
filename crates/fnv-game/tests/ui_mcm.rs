@@ -311,3 +311,108 @@ fn ccc_mod_index_global_is_its_load_index() {
     assert_eq!(value("Someone Else.esp", fnv_game::jip_ccc::MOD_INDEX_GLOBAL), 0.0);
     assert_eq!(value(fnv_game::jip_ccc::PLUGIN, "iSomethingElse"), 0.0);
 }
+
+/// Clean-room regression for #2270: a mod script filling MCM option rows via chained `*:N`
+/// wildcard paths (`SetUIFloat "StartMenu/MCM/*:1/*:1/_enable" 1`,
+/// `SetUIStringEx "StartMenu/MCM/*:1/*:3/value/*:1/string" "%k" 18`, `*:9/string`) and
+/// MCM's slider popup resolving unprefixed `&sAccept;` / `&sCancel;` via built-in labels.
+#[test]
+fn positional_wildcard_script_and_unprefixed_scale_entities_resolve() {
+    struct StringsSource {
+        mem: MemSource,
+        strings: fnv_ui::GameStrings,
+    }
+    impl fnv_ui::Source for StringsSource {
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            self.mem.read(path)
+        }
+        fn game_string(&self, name: &str) -> Option<String> {
+            self.strings.get(name)
+        }
+        fn game_string_is_built_in(&self, name: &str) -> bool {
+            matches!(self.strings.lookup(name), Some((_, fnv_ui::strings::Origin::BuiltIn)))
+        }
+    }
+
+    const POSITIONAL_SCRIPT: &str = r#"scn McmPositionalTestScript
+Begin MenuMode 1013
+  if GetUIFloat "StartMenu/MCM/_ActiveMod" != GetSelfModIndex
+    return
+  endif
+  if GetUIFloat "StartMenu/MCM/_Reset"
+    SetUIFloat "StartMenu/MCM/_Reset" 0
+    SetUIFloat "StartMenu/MCM/*:1/*:1/_enable" 1
+    SetUIString "StartMenu/MCM/*:1/*:1/_title" "Row One"
+    SetUIFloat "StartMenu/MCM/*:1/*:3/_enable" 1
+    SetUIStringEx "StartMenu/MCM/*:1/*:3/value/*:1/string" "%k" 18
+    SetUIString "StartMenu/MCM/*:9/string" "Info text"
+  endif
+End
+"#;
+
+    let bytes = script(&[(0, None, st(0x7FFF, &le16(0)))]);
+    let mut subs = unit(1, &bytes, &[], &[]);
+    subs.push(sub(b"SCTX", POSITIONAL_SCRIPT.as_bytes().to_vec()));
+    let scpt = record(b"SCPT", 0, SCRIPT & 0xFF_FFFF, &[vec![sub(b"EDID", z("McmPositionalTestScript"))], subs].concat());
+    let data = sub(b"DATA", [vec![1u8, 0, 0, 0], 0.01f32.to_le_bytes().to_vec()].concat());
+    let qust = record(b"QUST", 0, QUEST & 0xFF_FFFF, &[sub(b"EDID", z("McmPositionalQuest")), sub(b"SCRI", (SCRIPT & 0xFF_FFFF).to_le_bytes().to_vec()), data]);
+    let plugin = [tes4(), top(b"SCPT", &scpt), top(b"QUST", &qust)].concat();
+    let plugins = vec![Plugin::parse(&tes4(), "Base.esm".into()).unwrap(), Plugin::parse(&plugin, "PosTest.esp".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let gdata = GameData::build(&lo, &schema, FunctionTable::load(&p).unwrap(), &j, &refs);
+
+    let options = (1..=4)
+        .map(|i| {
+            format!(
+                r#"<hotrect name="Option{i}"> <_enable> 0 </_enable> <_title> </_title>
+                   <rect name="value"> <text name="text"> <string> </string> </text> <image name="check"/> </rect> </hotrect>"#
+            )
+        })
+        .collect::<String>();
+    let mem = MemSource::default()
+        .with(r"menus\options\start_menu.xml", r#"<menu name="StartMenu"> <class> &StartMenu; </class> <include src="MCM\MCM.xml"/> </menu>"#)
+        .with(
+            r"menus\prefabs\MCM\MCM.xml",
+            &format!(
+                r#"<rect name="MCM"> <_ActiveMod> 0 </_ActiveMod> <_Reset> 0 </_Reset>
+                   <rect name="MCM_Options"> {options} </rect>
+                   <rect name="MCM_Scale">
+                     <hotrect name="Scale_Accept"> <text name="text"> <string> &sAccept; </string> </text> </hotrect>
+                     <hotrect name="Scale_Cancel"> <text name="text"> <string> &sCancel; </string> </text> </hotrect>
+                   </rect>
+                   <rect name="MCM_List"/> <hotrect name="MCM_Trigger"/> <rect name="MCM_ModList"/>
+                   <rect name="MCM_BG"/> <rect name="MCM_Bracket"/> <rect name="MCM_ModTitle"/>
+                   <text name="MCM_Info"> <string> </string> </text>
+                   <text name="MCM_Version"> <string> 1 </string> </text>
+                 </rect>"#
+            ),
+        );
+    let paths = mem.files.keys().cloned().collect::<Vec<_>>();
+    let src = StringsSource { mem, strings: fnv_ui::GameStrings::from_settings(Vec::<(&str, &str)>::new()) };
+
+    let mut g = Game::new(&gdata, World::new(&forms, &refs, SimConfig::default()), GameConfig::default());
+    g.new_game();
+    ui_loading::load(&mut g, Box::new(src), paths);
+    g.menu = Some(menus::START);
+    ui_loading::sync(&mut g, true, false);
+
+    // Unprefixed `&sAccept;` and `&sCancel;` in MCM_Scale expand to built-in labels instead of raw entities.
+    assert_eq!(g.ui_tree.get_string("StartMenu/MCM/MCM_Scale/Scale_Accept/text/string").as_deref(), Some("Accept"));
+    assert_eq!(g.ui_tree.get_string("StartMenu/MCM/MCM_Scale/Scale_Cancel/text/string").as_deref(), Some("Cancel"));
+
+    // Selecting this mod with `_Reset = 1` populates options via chained `*:N` wildcard paths and `%k`.
+    assert!(g.ui_tree.set_float("StartMenu/MCM/_ActiveMod", 1.0));
+    assert!(g.ui_tree.set_float("StartMenu/MCM/_Reset", 1.0));
+    g.frames(3);
+    assert_eq!(g.ui_tree.get_float("StartMenu/MCM/_Reset"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("StartMenu/MCM/MCM_Options/Option1/_enable"), Some(1.0));
+    assert_eq!(g.ui_tree.get_string("StartMenu/MCM/MCM_Options/Option1/_title").as_deref(), Some("Row One"));
+    assert_eq!(g.ui_tree.get_float("StartMenu/MCM/MCM_Options/Option3/_enable"), Some(1.0));
+    assert_eq!(g.ui_tree.get_string("StartMenu/MCM/MCM_Options/Option3/value/text/string").as_deref(), Some("E"));
+    assert_eq!(g.ui_tree.get_string("StartMenu/MCM/MCM_Info/string").as_deref(), Some("Info text"));
+}

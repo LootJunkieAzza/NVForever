@@ -336,17 +336,20 @@ pub struct Look {
     pub facegen: FaceGen,
 }
 
-/// A script's change of an actor's race or sex (AgeRace, SexChange; `fnv_game::
-/// appearance`): `None` keeps the record's (or the look's).
+/// A script's change of an actor's race, sex, or childhood state (AgeRace, SexChange,
+/// SetPCYoung; `fnv_game::appearance`): `None` keeps the record's (or the look's).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct Change {
     pub race: Option<FormId>,
     pub female: Option<bool>,
+    /// SetPCYoung: the player uses only the race's default hair and loads no face
+    /// attachments (head parts) [documented: GECK wiki SetPCYoung].
+    pub young: bool,
 }
 
 impl Change {
     pub fn is_none(&self) -> bool {
-        self.race.is_none() && self.female.is_none()
+        self.race.is_none() && self.female.is_none() && !self.young
     }
 }
 
@@ -582,14 +585,23 @@ impl<'a> Resolver<'a> {
                 let texture = if matches!(p.index, 6 | 7) { eye_texture.clone() } else { None };
                 push_race_part(&mut parts, role, race_id, p, texture);
             }
-            for &hp in &model.head_parts {
-                self.push_head_part(&mut parts, hp, 0, &mut HashSet::new());
+            if !change.young {
+                for &hp in &model.head_parts {
+                    self.push_head_part(&mut parts, hp, 0, &mut HashSet::new());
+                }
             }
         }
         // Hair (§2.4): gone with the head; under headgear covering Hat, the hair model's
         // `Hat` shape; replaced (e.g. a wig) when Hair is covered without Hat.
-        // A chosen look without hair is bald, not the race's default.
-        let hair = if look.is_some() { model.hair } else { model.hair.or(race.default_hair[sex]) };
+        // SetPCYoung forces the race's default hair for the sex [documented: GECK wiki
+        // SetPCYoung]; otherwise a chosen look without hair is bald, not the race's default.
+        let hair = if change.young {
+            race.default_hair[sex]
+        } else if look.is_some() {
+            model.hair
+        } else {
+            model.hair.or(race.default_hair[sex])
+        };
         let hat = covered & slot::HAT != 0;
         if !head_covered && (hat || covered & slot::HAIR == 0) {
             if let Some((id, h)) = hair.and_then(|id| Some((id, self.actors.hairs.get(&id)?))) {
@@ -1058,5 +1070,94 @@ mod tests {
         assert_eq!(mesh_path("Characters\\_Male\\Skeleton.NIF"), "meshes\\characters\\_male\\skeleton.nif");
         assert_eq!(mesh_path("meshes/a.nif"), "meshes\\a.nif");
         assert_eq!(texture_path("\\Characters\\Male\\HeadHumanOld.dds"), "textures\\characters\\male\\headhumanold.dds");
+    }
+
+    #[test]
+    fn set_pc_young_forces_default_hair_and_skips_head_parts() {
+        use crate::records::{Choosable, FaceGen, Hair, HeadPart, Npc, Race};
+        let race_id = FormId(0x10);
+        let default_hair = FormId(0x20);
+        let custom_hair = FormId(0x21);
+        let beard = FormId(0x30);
+        let npc_id = FormId(0x7);
+
+        let mut actors = ActorForms::default();
+        actors.races.insert(
+            race_id,
+            Race {
+                id: race_id,
+                edid: Some("ChildRace".into()),
+                name: None,
+                playable: true,
+                child: true,
+                height: [0.85, 0.85],
+                body: [vec![], vec![]],
+                head: [vec![], vec![]],
+                default_hair: [Some(default_hair), Some(default_hair)],
+                facegen: [None, None],
+                hairs: vec![default_hair, custom_hair],
+                eyes: vec![],
+                older: None,
+                younger: None,
+                voices: [None, None],
+            },
+        );
+        actors.hairs.insert(
+            default_hair,
+            Hair { model: Some("characters\\hair\\default.nif".into()), texture: None, edid: Some("DefaultHair".into()), name: None, choosable: Choosable::default() },
+        );
+        actors.hairs.insert(
+            custom_hair,
+            Hair { model: Some("characters\\hair\\custom.nif".into()), texture: None, edid: Some("CustomHair".into()), name: None, choosable: Choosable::default() },
+        );
+        actors.head_parts.insert(
+            beard,
+            HeadPart { model: Some("characters\\hair\\beard.nif".into()), extra: vec![], edid: Some("Beard".into()), name: None, playable: true },
+        );
+        actors.npcs.insert(
+            npc_id,
+            Npc {
+                id: npc_id,
+                edid: Some("Player".into()),
+                name: None,
+                race: Some(race_id),
+                female: false,
+                chargen_preset: false,
+                height: Some(1.0),
+                skeleton: None,
+                hair: Some(custom_hair),
+                hair_length: None,
+                hair_color: None,
+                eyes: None,
+                head_parts: vec![beard],
+                facegen: None,
+                template: None,
+                template_flags: 0,
+            },
+        );
+        let forms = FormStore::default();
+        let res = Resolver { actors: &actors, forms: &forms };
+        let look = Look {
+            race: race_id,
+            female: false,
+            hair: Some(custom_hair),
+            hair_color: None,
+            eyes: None,
+            head_parts: vec![beard],
+            facegen: FaceGen::default(),
+        };
+
+        // Adult (young = false): chosen custom hair and beard head_part are present.
+        let adult = res.resolve_changed(npc_id, FormId::PLAYER_REF, Some(&[]), Some(&look), Change::default()).unwrap();
+        assert!(adult.parts.iter().any(|p| p.role == "hair" && p.form == custom_hair));
+        assert!(adult.parts.iter().any(|p| p.role == "head_part" && p.form == beard));
+
+        // Young (SetPCYoung 1): race default hair replaces custom hair, and head_parts are suppressed.
+        let young = res
+            .resolve_changed(npc_id, FormId::PLAYER_REF, Some(&[]), Some(&look), Change { race: None, female: None, young: true })
+            .unwrap();
+        assert!(young.parts.iter().any(|p| p.role == "hair" && p.form == default_hair));
+        assert!(!young.parts.iter().any(|p| p.role == "hair" && p.form == custom_hair));
+        assert!(!young.parts.iter().any(|p| p.role == "head_part"));
     }
 }

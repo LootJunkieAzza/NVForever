@@ -371,7 +371,29 @@ pub fn layout_by_locus(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) 
     layout_in(ui, root, measure, Context { t15, by_locus: true, ..Default::default() })
 }
 
-fn layout_in(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context) -> Vec<DrawItem> {
+/// [design] A single tile's laid-out rectangle, inherited clip window and visibility,
+/// including container tiles such as `<hotrect>` that [`layout`] skips emitting as
+/// drawable items.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TileBox {
+    pub rect: Rect,
+    pub clip: Option<Rect>,
+    pub visible: bool,
+}
+
+/// [design] Lay out one live tile (including `<hotrect>` containers) using the exact
+/// ancestor walk of [`layout`]; returns `None` when the tile or any ancestor is not live.
+pub fn tile_box(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Option<TileBox> {
+    let tile = ui.tile(root);
+    if !tile.live {
+        return None;
+    }
+    let parent = ancestor_context(ui, root, measure, Context { t15, ..Default::default() })?;
+    let context = place(tile, &kind(tile), parent, measure);
+    Some(TileBox { rect: context.rect, clip: context.clip, visible: context.visible })
+}
+
+fn ancestor_context(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context) -> Option<Context> {
     let mut ancestors = Vec::new();
     let mut at = ui.tile(root).parent;
     while let Some(id) = at {
@@ -385,10 +407,17 @@ fn layout_in(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context) -> Ve
     for id in ancestors.into_iter().rev() {
         let tile = ui.tile(id);
         if !tile.live {
-            return Vec::new();
+            return None;
         }
         context = children_context(tile, place(tile, &kind(tile), context, measure), context);
     }
+    Some(context)
+}
+
+fn layout_in(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context) -> Vec<DrawItem> {
+    let Some(context) = ancestor_context(ui, root, measure, start) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     let mut stack = vec![(root, context)];
     while let Some((id, parent)) = stack.pop() {
@@ -488,6 +517,29 @@ mod tests {
         let items = layout(&ui, root, &unmeasured, true);
         assert_eq!(items.len(), 1, "the hotrect itself draws nothing");
         assert_eq!((items[0].alpha, items[0].visible), (255.0, true));
+    }
+
+    #[test]
+    fn tile_box_lays_out_hotrects_with_inherited_clip_and_visibility() {
+        let (mut ui, _) = tree(
+            r#"<menu name="M"><rect name="W"><x>10</x><y>20</y><width>200</width><height>120</height><clips>&true;</clips>
+              <hotrect name="Bar"><x>5</x><y>6</y><width>18</width><height>90</height>
+                <hotrect name="Marker"><y>12</y><width>18</width><height>24</height><visible>&false;</visible></hotrect>
+              </hotrect>
+            </rect></menu>"#,
+        );
+        let bar = ui.find_tile("M/W/Bar").unwrap();
+        let marker = ui.find_tile("M/W/Bar/Marker").unwrap();
+        assert!(layout(&ui, bar, &unmeasured, true).is_empty(), "hotrect emits no draw item");
+        let bar_box = tile_box(&ui, bar, &unmeasured, true).expect("hotrect still lays out");
+        assert_eq!(bar_box.rect, Rect { left: 15.0, top: 26.0, width: 18.0, height: 90.0 });
+        assert_eq!(bar_box.clip, Some(Rect { left: 10.0, top: 20.0, width: 200.0, height: 120.0 }));
+        assert!(bar_box.visible);
+        let marker_box = tile_box(&ui, marker, &unmeasured, true).unwrap();
+        assert_eq!(marker_box.rect, Rect { left: 15.0, top: 38.0, width: 18.0, height: 24.0 });
+        assert!(!marker_box.visible);
+        ui.unload_tile(marker);
+        assert_eq!(tile_box(&ui, marker, &unmeasured, true), None, "dead tile is not laid out");
     }
 
     #[test]

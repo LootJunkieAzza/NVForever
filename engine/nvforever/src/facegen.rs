@@ -84,6 +84,9 @@ pub struct FaceGenCache {
     pub egt_time: std::time::Duration,
     /// EGMs whose vertex count does not cover the shape they sit beside.
     pub mismatched: usize,
+    /// Copies of materials made the game's own for good (#2981, [`Self::role_legacy`]), by
+    /// source, while both exist (weak: the ids only).
+    legacy_copies: HashMap<AssetId<NifMaterial>, AssetId<NifMaterial>>,
 }
 
 /// `meshes\a\b.nif` → `meshes\a\b.<ext>`.
@@ -261,6 +264,26 @@ impl FaceGenCache {
         Some(image)
     }
 
+    /// `material` made the game's own for good (#2981, `nvf_assets::authored::make_legacy`):
+    /// for a shape whose role (race skin, a head's face, the hair model) is known only once
+    /// its part is worn, and which takes no authored set, whether or not a tint follows. A
+    /// material without a legacy look (it could never take a set) is returned as it is; the
+    /// copy is shared by every actor wearing the same source.
+    pub fn role_legacy(&mut self, materials: &mut Assets<NifMaterial>, material: &Handle<NifMaterial>) -> Handle<NifMaterial> {
+        if !materials.get(material).is_some_and(|m| m.extension.legacy.is_some()) {
+            return material.clone();
+        }
+        if let Some(h) = self.legacy_copies.get(&material.id()).and_then(|&id| materials.get_strong_handle(id)) {
+            return h;
+        }
+        let Some(mut m) = materials.get(material).cloned() else { return material.clone() };
+        nvf_assets::authored::make_legacy(&mut m);
+        let h = materials.add(m);
+        self.legacy_copies.retain(|source, copy| materials.contains(*source) && materials.contains(*copy));
+        self.legacy_copies.insert(material.id(), h.id());
+        h
+    }
+
     /// The parsed `.egt` at `path` when it has been read (`None` also when it is absent).
     pub fn egt_read(&self, path: &str) -> Option<Arc<Egt>> {
         self.egt.get(path).cloned().flatten()
@@ -301,9 +324,12 @@ impl FaceGenCache {
         self.ahead.retain(|_, (_, made)| now - *made < AHEAD_KEEP_SECS);
     }
 
-    /// A copy of `material` whose shader adds the FaceGen offset `offset` to its texture.
+    /// A copy of `material` whose shader adds the FaceGen offset `offset` to its texture. A
+    /// FaceGen tint target is skin, which takes no authored set (#2981): a part's shape
+    /// found to be one only here (by the race's skin texture) goes back to the game's look.
     pub fn tinted(&mut self, materials: &mut Assets<NifMaterial>, material: &Handle<NifMaterial>, offset: &Handle<Image>) -> Option<Handle<NifMaterial>> {
         let mut m = materials.get(material)?.clone();
+        nvf_assets::authored::make_legacy(&mut m);
         m.extension.facegen_offset = Some(offset.clone());
         self.shapes_tinted += 1;
         Some(materials.add(m))
@@ -348,6 +374,37 @@ fn offset_image(columns: usize, rows: usize, planes: &[Vec<f32>; 3]) -> Result<I
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2981: a shape found to be skin, the face or the hair model is made the game's own for
+    /// good, whether it wore a set or only kept a legacy look; one copy per source; a material
+    /// that could never take a set is left as it is.
+    #[test]
+    fn role_legacy_drops_the_set_and_the_legacy_look_for_good() {
+        use nvf_assets::authored::{is_authored, LegacyLook, AUTHORED_MARK};
+        let mut images = Assets::<Image>::default();
+        let mut materials = Assets::<NifMaterial>::default();
+        let look = LegacyLook { normal: None, specular: None, roughness: 0.7, reflectance: 0.3, metallic: 0.0, tangents: false, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None };
+        let mut authored = nvf_assets::nif_material(StandardMaterial::default());
+        let orm = images.add(Image::default());
+        authored.base.metallic_roughness_texture = Some(orm.clone());
+        authored.base.occlusion_texture = Some(orm);
+        authored.base.perceptual_roughness = 1.0;
+        authored.extension.emissive_rule.w = AUTHORED_MARK;
+        authored.extension.legacy = Some(look.clone());
+        let mut eligible = nvf_assets::nif_material(StandardMaterial::default());
+        eligible.extension.legacy = Some(look);
+        let never = nvf_assets::nif_material(StandardMaterial::default());
+        let (authored, eligible, never) = (materials.add(authored), materials.add(eligible), materials.add(never));
+        let mut cache = FaceGenCache::default();
+        let a = cache.role_legacy(&mut materials, &authored);
+        let m = materials.get(&a).unwrap();
+        assert!(a != authored && !is_authored(m) && m.base.metallic_roughness_texture.is_none() && m.extension.legacy.is_none());
+        assert_eq!(m.base.perceptual_roughness, 0.7, "the legacy values are back");
+        assert_eq!(cache.role_legacy(&mut materials, &authored), a, "one copy per source");
+        let e = cache.role_legacy(&mut materials, &eligible);
+        assert!(e != eligible && materials.get(&e).unwrap().extension.legacy.is_none(), "no later swap can give it a set");
+        assert_eq!(cache.role_legacy(&mut materials, &never), never);
+    }
 
     #[test]
     fn absent_whole_egm_discovers_shape_files_and_missing_files_finish_readiness() {

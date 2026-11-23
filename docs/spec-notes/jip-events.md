@@ -60,7 +60,7 @@ page below].
 | SetOnTriggerDownEventHandler / …TriggerUp… | 0 left, 1 right | the trigger | a controller trigger is pressed / released [documented; Controller.xml] |
 | SetOnMenuOpenEventHandler / …MenuClose… | menu ID (optional: any menu) | the menu ID | a menu opens / closes. It must be a **specific** menu ID: a menu *type* such as 1 errors or crashes [documented] |
 | SetOnMouseoverChangeEventHandler | menu ID (optional) | the menu ID | the highlighted item in that menu changes [documented] |
-| SetOnMenuClickEventHandler | tile path: `"Menu#<id>"`, a full path or a prefix | menu ID, tile id (-1 if none), tile name **lower-case**; list items get `:<index>` | a matching tile is clicked [documented] |
+| SetOnMenuClickEventHandler | tile path: `"Menu#<id>"`, a full path, a prefix, or `*` / `:<index>` segments | menu ID, tile id (-1 if none), tile name **lower-case**; repeated same-named sibling tiles get `:<index>` (`Ui::indexed_name_of` / `Ui::indexed_path_of`) | a matching tile is clicked [documented; hypothesis: 0-based index among same-named siblings; `*` wildcard and slash/case-insensitive filter deduplication/removal] |
 
 Observed with SetOnHealthDamageEventHandler on the player and `DamageAV Health 1`:
 - The handler gets -1 as the amount, and the actor is the calling reference (GetSelf is
@@ -93,6 +93,17 @@ default 3]` [documented: SetGameMainLoopCallback].
 - Observed: a lambda registered with delay 1 and flag 1 ran, with GetSelf the player
   [observed: loop.ran, loop.this]. How many times per frame was not measured: a capture
   query does not run on every game frame.
+- Zero/null callable registration (`XVal::Ref(0)` or any `XVal::Num(n)` that converts
+  to form 0 via `n as u32` — `0.0`, negative numbers, fractions below `1.0`, and `NaN`):
+  NVForever refuses to enqueue a form-zero main-loop callback and emits one `ScriptError`
+  plus structured warning via `handler_failed_with_registrar` (carrying registrar provenance
+  captured by `Exec::event_call` for `EventCall::MainLoop { add: true, .. }`) at
+  registration time rather than dispatching form zero every frame (#2603) [design;
+  native handling of null `SetGameMainLoopCallback` callable tokens is unobserved].
+  Active main-loop registrations also retain registrar provenance (including across
+  `take_session`/`put_session` handoff) for runtime dispatch errors; direct
+  `Game::event_call` registrations without an executing script unit report
+  `registrar_kind = "unavailable"`.
 
 ## 4. Evidence still to get
 
@@ -127,10 +138,18 @@ runs only where the game fires it (`Game::jip_event`):
 | noteadded, queststage, mouseoverchange, menuclick | the note, SetStage, the menus' tiles | J6, T8 |
 | projectileimpact | a shot in flight hits anything, terrain included: `Game::projectile_impact`, on the shot's temporary reference; the filter is matched against its PROJ base | #1408 |
 | menuopen, menuclose | `Game::open_menu`, `Game::close_menu`, the menu under the tutorial menu closing, and a Pip-Boy page left for another [hypothesis: each page is a menu of its own code]. The dialogue menu (1009) is not reported | #1408 |
-| keydown, keyup | each frame, the keys and mouse buttons (256 + n) held by the player that changed since the last (`Game::jip_keys`), disabled keys included [documented] | #1408 |
+| keydown, keyup | each frame, the keys and mouse buttons (256 + n) held by the player that changed since the last (`Game::jip_keys`), disabled keys included [documented]; named `OnKeyDown`/`OnKeyUp` (plain and `:code`) and gamepad `OnButtonDown`/`OnButtonUp` (plain and `:bitmask`) share the same frame entry point ([ext-events.md](ext-events.md)) | #1408 |
 | controldown, controlup | the existing key-event frame entry point, comparing the selected-device 28-control snapshot; both JIP and colon-name handlers ([contract](control-input-events.md)) | authored engine controls, unrun |
 | crafting | the recipe menu made an item: once per output, with all of it (`Game::item_crafted`) [hypothesis: the page does not say how a recipe made several times is reported] | #1408 |
 | locationdiscover | the engine found a map marker, with the marker reference (`Game::challenge_marker_found`) | #1408 |
+| dialogtopic | a dialogue line is spoken (`dialogue.rs` `speak` and `game.rs` `say_line`), with `this = speaker` and `arg0 = info` when matched by an INFO filter or `topic` when matched by a topic/wildcard filter [documented; hypothesis: unfiltered/wildcard passes topic] | authored controls |
+| criticalhit | a critical hit lands on a living, non-immune actor (`combat.rs` `Game::hit`), after `last_hit` is recorded so `GetHitLocation` reads the hit; `this = target`, `arg0 = source`, `arg1 = weapon`, matching filters `[target, source, weapon]` with `XMarker` wildcard [documented: SetOnCriticalHitEventHandler] | #2272 |
+| fireweapon | an actor fires a ranged weapon (`combat.rs` `Game::weapon_fired` for the player and `nvse_proj.rs` `Game::projectile_fired` for NPCs/scripted actor shots, deduplicated per `(frame, actor, weapon)` so player shots and multi-pellet bursts fire once per round); `this = actor`, `arg0 = weapon`; excluded for non-actors, melee animation types 0–2, and the player in god mode (`ToggleGodMode`, while demigod / `ToggleImmortalMode` still fires) [documented: SetOnFireWeaponEventHandler; hypothesis: per-frame deduplication across `weapon_fired` and pellets] | #2272 |
+| reloadweapon | an actor enters a reload action (`anim_state.rs` `Game::set_anim_state` on the rising edge into `Reload` or `ReloadOpen`, and `Game::weapon_reloaded`), with `this = actor`, `arg0 = weapon` (equipped or held); `ReloadOpen` → `Reload` fires once per reload, and jams (`ForceScriptAnim`) do not fire [documented: SetOnReloadWeaponEventHandler; hypothesis: `ReloadOpen` → `Reload` counts as one reload] | #2272 |
+| pctargetchange | the actor under the player's reticle changes (`crosshair_events.rs` `Game::set_crosshair_ref`, `jip_events.rs` `Game::sync_pc_target` / `Game::set_pc_target`, using `crosshair_far` within `fAutoAimMaxDistance`, default 1800, else `crosshair_ref`), with no calling reference and `arg0` the new actor reference or `0` (null) when cleared or aimed at a non-actor [documented: SetOnPCTargetChangeEventHandler, Auto Aim Settings] | #2272 |
+| triggerdown, triggerup | the existing key-event frame entry point (`jip_events.rs` `Game::jip_keys`, fed each frame by `nvf-play::script_input::sync_pad_state` -> `Game::publish_pad_triggers` in `PreUpdate` and `Update` before `PlaySet::Scripts` across all connected `ActionPads` with finite `0.0..=1.0` clamping and digital-only trigger fallback, plus the immediate API `Game::set_pad_triggers`), comparing left (`0`) and right (`1`) controller trigger state (`pad.triggers >= 30/255` or `pad.held_triggers`) on press/release edges, with exact filter matching (`0` is left trigger, not a wildcard) and no calling reference [documented: SetOnTriggerDownEventHandler, SetOnTriggerUpEventHandler, XInput `XINPUT_GAMEPAD_TRIGGER_THRESHOLD`; hypothesis: analog threshold 30/255; design: multi-pad aggregation and frame-synced dispatch inside `Game::tick` / `Game::page_tick` under `with_world` and pause/loading guards] | #2272 |
+| fasttravel | the player fast-travels (`nvse_jip12.rs` `Game::fast_travel`, `Game::note_fast_travel_to`, and `Game::note_fast_travel` called by `nvf_play::pipboy::data::travel::depart`), with no calling reference and `arg0` the arrival marker reference (the map marker's linked reference when present, else the map marker itself); blocked/refused travel does not fire [documented: SetOnFastTravelEventHandler; hypothesis: `note_fast_travel` resolves the arrival marker from the player's landing position] | #2272 |
+| animaction | an actor enters a new `AnimAction` in `Game::set_anim_state` (`anim_state.rs`, bridged from `nvf-play`'s `sync_player_anim_events` / `bridge_player_anim_state` in `PlaySet::Activation` and `nvforever`'s `AnimStatePlugin` after `PlaySet::Scripts`), with `this = actor` and `arg0 = action.code()` [documented: SetOnAnimActionEventHandler; design: edge-triggered on `AnimState::action` transition after storing the live state; in `nvforever`, if a player weapon action ends on the same frame a renderer-driven non-weapon action is still active, `sync_player_anim_events` clears `action` to `None` before `PlaySet::Scripts` and `AnimStatePlugin::tell` restores the non-weapon action after `PlaySet::Scripts`] | #2272 |
+| playgroup | a script plays an animation group (`PlayGroup` / `PlayGroupAlt` via `Game::ask_anim`, skipping flag-0 repeats of the group already playing and internal sentinel codes) or an actor enters a new named locomotion group in `Game::set_anim_state`, with `this = actor` and `arg0 = group` [documented: SetOnPlayGroupEventHandler; design: bare known `anim_group` keywords compile to numeric codes, quoted/runtime strings normalize via `Game::anim_group_code` in `Game::jip_set`, and `Slot::ExactArg(0)` preserves literal 0 (`Idle`)] | #2272 |
 
-Not fired yet: criticalhit, fireweapon, reloadweapon, animaction, playgroup,
-dialogtopic, fasttravel, pctargetchange, triggerdown/up.
+All events listed above are now wired to fire.

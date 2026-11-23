@@ -1330,6 +1330,9 @@ impl ModelCtx<'_> {
             if alpha_keys.is_some() {
                 props.material_alpha = Some(1.0);
             }
+            // Particles take no authored set (#2981): they inherit their node's properties,
+            // and a pack's maps are for surfaces.
+            props.no_authored = true;
             let mut template = particle_mesh();
             // Its soft distance is set once its emitter's radius is read (below).
             let (mut material, _missing) = shape_material(&props, &mut template, &mut self.textures, &self.data, &mut self.images, self.formats.as_deref());

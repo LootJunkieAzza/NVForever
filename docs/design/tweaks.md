@@ -210,7 +210,7 @@ saves load, and the frame's sync sets them from the settings again.
 | Row | INI key | Where |
 |---|---|---|
 | Aid at Full Health | `bAllowAidAtMaxHealth` | `pipboy::stats::model::refusal_with` |
-| Grabbing Is Stealing | `bGrabbingItemsIsCrime` | `grab::grab` (`Game::player_stole`) |
+| Grabbing Is Stealing (+ Min Value, 0–500 caps) | `bGrabbingItemsIsCrime` (`fMinValue`) | `grab::grab` (`Game::grab_triggers_theft`, `Game::player_stole`) |
 | Merchants Keep to Their Lists | `bBarterCheckActorBuySellFlags` | `MenuModel::refresh_trade` (`vendor_lists_both`) |
 | Name the Key | `bLockNeedsKeyShowName` | `lockpick::open` refusal line |
 | No Skill Tags | `bNoSkillTags` | `dialogue` topic tags |
@@ -237,7 +237,7 @@ saves load, and the frame's sync sets them from the settings again.
 | Quiet Theft | `bStealingSendsNoAlarm` | `Game::player_stole` |
 | No XP for Companion Kills | `bNoCompanionKillXP` | `Game::kill_earns_xp` |
 | Companions Keep Their Weapons | `bNoDisarmCompanions` | `combat::hit_actor` |
-| Own Blasts Spare the Player | `bNoSelfExplosionDamage` | `combat::fly` blast loop |
+| Own Blasts Spare the Player (+ Non-Hostiles) | `bNoSelfExplosionDamage` | `combat::fly` blast loop (`Game::own_explosion_spares`) |
 | Sneak Criticals Melee Only | `bSneakCriticalsOnlyMeleeWeapons` | `combat::fly` shots |
 | Meltdown for Companions | `bAllowTeammatesUseMeltdown` | `combat::meltdown` |
 | Speed Scales the Jump | `bSpeedMultScalesJumpHeight` | `player::step` jump height |
@@ -427,7 +427,7 @@ unless the player binds them, so nothing changes until then.
 | Agility Scales Jump Height (0–0.2) | `bAgilityScalesJumpHeight` | `combat::stat_speed` puts 1 + mult x (Agility − 1) in `player::StatSpeed`'s second number, a factor on the jump height (the tweak's own formula) |
 | Force Lock Near the Sweet Spot (0–50 %) | `bLockpickForceBonusNearSweetSpot` | `lockpick::Picking::force_chance` adds `Settings::force_near_bonus` × (1 − distance / 90°); the falloff is ours (the tweak's formula is not all known) |
 | Contact Mines (Player), (Others) | `bContactMines` | `mines::tick`: an actor that sets a mine off within `CONTACT_DISTANCE` (24 units, ours) of its axis gets no fuse |
-| Sleep Healing Min Duration (0–12 h) | `bSleepHealingMinDuration` | `aid::hour_passed` calls `Game::pass_hours_healing` with healing held until the hour; every bed counts (who owns the bed is not known there); `bMiscStatRequiresSleepDuration` is not done |
+| Sleep Healing Min Duration (0–12 h, + Stat Needs Full Duration) | `bSleepHealingMinDuration` (`bMiscStatRequiresSleepDuration`) | `aid::hour_passed` calls `Game::pass_hours_healing` with healing held until the hour; every bed counts (who owns the bed is not known there); `Game::begin_rest` gates `TIMES_SLEPT` on `sleep_misc_stat_requires_duration` |
 | Barter Lowers Repair Costs (0–60 %) | `bBarterAffectsRepairCosts` | `repair::view` scales `RepairSettings::cost_mult` by `fnv_game::tweaks::barter_repair_factor` (ours; no perk modifiers) |
 | Armour Condition Penalty (x0–x2) | `bCustomArmorConditionPenalty` | `combat::target_armor` uses `CombatForms::armor_values_worn_with` and `fnv_combat::condition::armor_mult_with`; the repair menus still show DT at the original's x1 |
 | No Pip-Boy In Combat | `bNoPipBoyInCombat` | `menu::open_menus` keeps the inventory request shut while `after_combat::AfterCombat::fighting`, with a corner line (ours). Opening it for Action Points is not done |
@@ -551,7 +551,7 @@ unless the player binds them, so nothing changes until then.
 | Weapon Requirements Matter | `bWeaponRequirementsMatter` | `Game::weapon_requirement_unmet` compares the weapon's DNAM Strength and skill requirements with the player's values now; the Pip-Boy (`menu.rs`) and the hotkeys (`weapon_wheel::read`, not for the weapon already equipped) refuse with "Needs <stat> <n>." |
 | Console Shows Models | `bExtraConsoleDetails` | `console::describe` adds the base's MODL path (`MODEL_DETAILS`); the cell's Editor ID and name were already in the details |
 | Backward Pace, Sideways Pace | `bMovementPenalties` | the player's step multiplies the pace by the backward and sideways shares, a diagonal weighted by its forward and side parts; aiming already slows to a walk (`aiming_walks`) |
-| Hacking: Symbols Do Nothing, No Repeat Guesses, Dud When Attempts Full, Duds Spare Tried Words | `bImprovedHacking` | `hacking::Puzzle::rules` (`HackRules`, set by `terminal.rs` from the game's tweaks) in `Puzzle::choose`; `Puzzle::guessed` keeps the words denied; the options about printing are not done |
+| Hacking: Symbols Do Nothing, No Repeat Guesses, Dud When Attempts Full, Duds Spare Tried Words, Mark Guesses as Duds, Keep Matching Characters, Compact Guess Log, Replenish Bonus Attempts | `bImprovedHacking` | `hacking::Puzzle::rules` (`HackRules::from_tweaks`, set by `terminal.rs` from the game's tweaks) in `Puzzle::choose`; `Puzzle::guessed` keeps the words denied; `mark_guesses_as_duds` blanks wrong guesses in the dump, optionally retaining password-matching characters (`keep_matching_chars`, Stewie 9.50); `compact_guesses` logs `>WORD (n/len)` on one line; `replenish_bonus` adds attempts on Replenished instead of resetting to 4; `bOverscroll` and speed/typing options are not done |
 | Run While Overencumbered | `bOverencumberedTweak` | `player::encumbered_walks` no longer forces a walk and sets `OVERENCUMBERED`; `tweaks::ap_costs` adds the overencumbered running and jump costs (4 a second and 10 a jump by default, our numbers), walking and refusing the jump without the points |
 | Enemy Blows Hit Where They Land | `bLocationalMeleeDamage` | an NPC's blow on the player takes `player_body_part`'s `hit_part` in place of `HitPart::default()`; the player's blows already used the struck part's; NPC on NPC has no part lookup yet |
 | Disarming Needs Skill | `bDisarmRequiresSkill` | `Game::disarm_chances` (the readme's formulas: disarm = mult × (skill + Perception − 5) × 100 / required; set off = mult × (required − skill + 5 − Luck) × 2, each held to 0–100); `activate` rolls before the disarm and on a failure either queues the mine in `Mines::set_off` (no fuse) or says it is still armed |
@@ -615,7 +615,7 @@ unless the player binds them, so nothing changes until then.
 | Repair Kits in the Repair List | `bUseWeaponRepairKitsInRepairMenu` | `fnv_game::repair` (`is_weapon_repair_kit`, `kit_condition`, the kit script's rule); `pipboy::repair::with_kits` adds the carried kits to a weapon's offer, `Session::after` gives a kit's result, Use takes one kit. The switch: `Tweaks::repair_kits_in_list` |
 | Idle vanity camera, Vanity Camera Returns to First Person | `bVanityCamReturnsToFirstPerson` | base: `vanity` starts the circling camera (`control::Orbit`) after `fVanityModeAutoDelay` (120) s without input and ends it at any input (observer check 191). The switch: `TweakSettings::vanity_returns_first`, read by `vanity::end_view` from `vanity` and from `control::read_controls`'s Toggle POV release |
 | Target Projectiles in V.A.T.S., Mines Too, Your Own Projectiles, Ignores Non-Explosive | `bTargetProjectilesInVATS`, `bVATSTargetPlayerProjectiles`, `bVATSIgnoreNonExplosiveProjectiles` | `vats_mode::projectile_under` picks from `Combat::vats_projectiles` by `ProjectileRules`; `mark_projectile` marks it (target FormId 0, `Spot::projectile`), `follow` tracks it and drops it when it ends; a landed shot asks `Combat::shoot_down`. Mines lying armed are marked as objects (`Mines::is_live`) and set off by the shot as destructibles. The switches: `Tweaks::vats_target_projectiles`, `vats_target_mines`, `vats_target_own_projectiles`, `vats_ignore_non_explosive` |
-| Revive Unconscious Companions | `bReviveUnconsciousCompanions` | `fnv_game::unconscious` (`can_revive`, `revive`: the master's Stimpak used up, then the usual getting up; `essential_down` for the time); `activate::actor_action_in` gives `Action::Revive`, Activate calls `revive`. The switches: `Tweaks::revive_companions`, `revive_down_seconds` |
+| Revive Unconscious Companions (+ On Changing Cells) | `bReviveUnconsciousCompanions` (`bReviveWhenChangingCells`) | `fnv_game::unconscious` (`can_revive`, `revive`: the master's Stimpak used up, then the usual getting up; `essential_down` for the time; `revive_companions_on_cell_change` wired from `tweaks::revive_companions_on_arrival`); `activate::actor_action_in` gives `Action::Revive`, Activate calls `revive`. The switches: `Tweaks::revive_companions`, `revive_down_seconds`, `revive_on_cell_change` |
 | Clicking the Tab Sorts | `bClickingActiveTabTogglesSorting` | `pipboy::apply_input` steps `PipBoy::item_sort` on a click on the open tab; `pipboy::items::keys` hands it to the model (`Command::SetSort`); `menu::model::SortBy::apply` orders the player's list after the category filter. The switch: `TweakSettings::tab_click_sorts` |
 | Repair Items Preview | `bRepairItemsPreview` | `pipboy::repair::keys` opens a `Session` with `preview` when Alt is held (the full-condition and skill checks skipped), and refuses Use in it. The switch: `Tweaks::repair_preview` |
 | Crippled Legs: Pain When Falling | `bCrippledLimbsPlayPainSoundWhenFalling` | `falls::hurt` says the player's `Hit` combat line (`Game::combat_line`) when the fall's height reaches `Tweaks::crippled_fall_pain` and either leg is crippled (`falls::crippled_leg`) |
@@ -637,7 +637,7 @@ unless the player binds them, so nothing changes until then.
 | Low-health heartbeat, Heartbeat Fades | `bHeatbeatSoundsFade` | base: `heartbeat` loops `UIHealthHeartbeatALP` under `LOW`; `sfx::LoopScale` sets a loop's share of its volume. The switch: `TweakSettings::heartbeat_fade`, `heartbeat_fade_seconds` (`heartbeat::faded`) |
 | Terminal close fade, Terminal Fade Time | `bTerminalFadeTime` | base: `terminal::close` marks the backdrop and screen `FadeOut`, `fade_out` dims and removes them, `draw` keeps the picture while it fades. The switch: `TweakSettings::terminal_fade`, `terminal_fade_seconds` |
 | Loaded ammo marked, Containers Show Equipped Ammo | `bContainersShowEquippedAmmo` | `MenuModel::current_ammo` (set by `tweaks::sync` from `Combat::player_ammo`) marks `Row::loaded`, drawn as the equipped square (`pipboy::items`, `menu::look`). The switch: `TweakSettings::containers_show_ammo` |
-| Critical-hit message, Name the Limb | `bCriticalHitMessagesIncludeLimbName` | base: `combat::hit_actor` emits a `NoteShown` with the `sCriticalStrikeIcon` icon for the player's critical; the switch `Tweaks::crit_message_limb` adds `limb_name` of the part |
+| Critical-hit message, Name the Limb | `bCriticalHitMessagesIncludeLimbName` | base: `combat::hit_actor` emits a `NoteShown` with the default Vault Boy corner-message icon (`icon: None`, since `sCriticalStrikeIcon` is unused) for the player's critical; the switch `Tweaks::crit_message_limb` adds `limb_name` of the part |
 | Map marker added, Names the Place | `bDescriptiveMarkerAddedMessage` | base: `marker_added::watch` notes markers joining `PlayerState::map_markers` while played; the switch `TweakSettings::descriptive_marker_added` adds the name from `pipboy::data::read::markers` |
 | Hardcore need messages, Disable Needs Messages | `bDisableNeedsMessages` | base: `Game::update_need_stages` shows the masters' sDehydration/sSleepDeprevation Increase, Decrease or NotSick (`needs::need_change`); the switches `Tweaks::no_dehydration_messages`, `no_sleep_messages` |
 | Water Sources Show H2O | `bWaterSourcesShowH2O` | `activate`'s prompt for a water source adds `water_label` with the Dehydration change of its water's effect. The switch: `Tweaks::water_shows_h2o` |
@@ -660,6 +660,7 @@ unless the player binds them, so nothing changes until then.
 | Hold and Release Throws | `bHoldAndReleaseThrowables` | `combat::fire`: the cycle's `WindUp` is not let reach 0 while the trigger is held (`WeaponAnim::throw_held`); nvforever `player_body` keeps the wound-up clip at its `Hit` key (`wound_hit`). The switch: `Tweaks::hold_release_throws` |
 | Enemies Can Disarm You | `bNPCsCanDisarmPlayer` | `hit_actor` pushes the player's crippled arm to `HitFeedback::disarms` (not their own hits); `combat::disarm` drops `Combat::weapon` with `drop_equipped` and says so on the HUD. The switch: `Tweaks::npcs_disarm_player` |
 | NPCs Drop Live Grenades | `bNPCsDropLiveGrenades` | `combat::death_drops`: a held grenade (`is_grenade`) is fired as an `ActorFire` straight down from 60 units up, its holder noted in `Combat::dropped_live`, so `actor_attacks` slows the projectile to `LIVE_DROP_SPEED`. The switch: `Tweaks::npcs_drop_live_grenades` |
+| Keep Chosen Ammo | `tweak-keep-chosen-ammo` | `combat::Combat::chosen_ammo` remembers the player's last chosen ammo type per weapon base form across Ammo Swap, weapon-wheel ammo swaps, holstered swaps, Full Reload Swaps Ammo, and Reload Swaps Spent Ammo, used on `equip_sync` (and weapon-wheel preview) when still in the weapon's ammo list and carried, falling back to `ammo_for` while retaining the remembered choice when temporarily out of stock; persisted in `EngineSnapshot::chosen_ammo` beside `magazine_ammo` (#1574) and remapped on load-order changes [documented: Remember Selected Ammo mod description ("Not let the game forget your selected ammo type after switching, unequipping or dropping the gun"), #3305; design: per weapon base form, player only, off by default, saved with the game] |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -734,13 +735,13 @@ game's Data folder, read-only).
 | `bFreeWildWasteland` | done |  |  | Free Wild Wasteland (editor ID WildWasteland, a trait on offer) |
 | `bFrenzyGrantsPlayerXP` | done |  |  | Frenzied Kills Earn Experience (Aggression 3) |
 | `bGodModePreventsJamAnims` | done |  |  | No Jams in God Mode |
-| `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing (any value; the minimum-value option not built) |
+| `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing with Grabbing Is Stealing: Min Value (`fMinValue`, slider 0–500 caps; stack count × base item value) |
 | `bHardcoreTweaks` | done |  | 3 | Hardcore Rules One by One: Ammo Has Weight, Companions Cannot Die, Sleep Heals, each whatever the mode |
 | `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
 | `bHoldToActivate` | done |  | 9 | Hold to Activate: E held half a second (ours) on containers and bodies, furniture and water, each a switch (bContainers, bFurniture, bWater). Not built: crafting (nothing marks a workbench), taking items while held, the stealing delay |
 | `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
 | `bHostilesPrioritizePlayer` | done |  | 3 | Hostiles Prioritize Player with Chance at the Start, Chance Mid-Fight and Detection Needed; one roll for each companion a fighter would pick |
-| `bImprovedHacking` | done |  | 10 | four Hacking switches (symbols do nothing, no repeat guesses, dud when attempts full, duds spare tried words); the print options not built |
+| `bImprovedHacking` | done |  | 10 | eight Hacking switches/options (symbols do nothing, no repeat guesses, dud when attempts full, duds spare tried words, mark guesses as duds, keep matching characters, compact guess log, replenish bonus attempts); overscroll and print-speed options not built |
 | `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpSwimsUpwards` | done |  | 2 | Jump Swims Upwards (at the walking stroke speed; the sub-options not offered) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
@@ -800,7 +801,7 @@ game's Data folder, read-only).
 | `bRememberBobbyPinHealth` | done |  |  | Remember Bobby Pin Wear (kept on the player in the save) |
 | `bRepairScalesCraftingCondition` | done |  |  | Crafting Uses Repair (half condition at Repair 0, whole at 100) |
 | `bRepairsRewardXP` | done |  | 1 | Experience per Repair (slider; Pip-Boy repairs) |
-| `bReviveUnconsciousCompanions` | done |  | 3 | Revive Unconscious Companions: a knocked-out companion's prompt is Revive (our word; sPrompt not built, no text field); E uses a Stimpak and they get up at once, else a corner line says one is needed. Revive: Companions Stay Down is fUnconsciousTime (0 keeps our 10 s) |
+| `bReviveUnconsciousCompanions` | done |  | 3 | Revive Unconscious Companions: a knocked-out companion's prompt is Revive (our word; sPrompt not built, no text field); E uses a Stimpak and they get up at once, else a corner line says one is needed. Revive: Companions Stay Down is fUnconsciousTime (0 keeps our 10 s), and Revive: On Changing Cells is bReviveWhenChangingCells |
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
 | `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
@@ -810,7 +811,7 @@ game's Data folder, read-only).
 | `bSemiAutoQueue` | done |  | 2 | Semi-Auto Shot Queue (slider, up to 0.5 s before the weapon is ready) |
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
 | `bSkipVeryEasyLocksAtMaxSkill` | done |  | 2 | Skip Easy Locks (+ margin; full XP; use again to go through) |
-| `bSleepHealingMinDuration` | done |  | 2 | Sleep Healing Min Duration (hours; every bed, the bed's owner is not known; bMiscStatRequiresSleepDuration not done) |
+| `bSleepHealingMinDuration` | done |  | 2 | Sleep Healing Min Duration (hours; every bed, the bed's owner is not known) with Sleep Healing: Stat Needs Full Duration (`bMiscStatRequiresSleepDuration`, default on) |
 | `bSleepOnChairs` | done |  |  | Sleep on Chairs |
 | `bSlowBreathRegen` | done |  | 2 | Slow Breath Regen (seconds of breath a second at the surface; the meter already stays up until whole) |
 | `bSneakAttackWithoutCrouching` | done |  |  | Sneak Attacks Standing |
@@ -871,7 +872,7 @@ game's Data folder, read-only).
 | `bNoScaleNpcDamageByCondition` | done |  |  | NPC Weapons Hit Whole |
 | `bNoScaleNpcDamageResistanceByCondition` | done |  |  | NPC Armour DR Ignores Condition |
 | `bNoScaleNpcDamageThresholdByCondition` | done |  |  | NPC Armour DT Ignores Condition |
-| `bNoSelfExplosionDamage` | done |  |  | Own Blasts Spare the Player |
+| `bNoSelfExplosionDamage` | done |  | 1 | Own Blasts Spare the Player with Own Blasts Spare Non-Hostiles (spares friendly and neutral living actors too) |
 | `bNoSelfMeltdownDamage` | done |  | 3 | No Self Meltdown Damage (the player and companions; the three sub-options as one) |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
 | `bNoVATSTargetInvisible` | done |  |  | already so: cloaked actors are barred without Enhanced Sensors |
@@ -1020,7 +1021,7 @@ game's Data folder, read-only).
 | `bCompassLocationDistanceBasedAlpha` | done |  |  | Fade Places by Distance |
 | `bCompassNPCDistanceBasedAlpha` | done |  |  | Fade Pips by Distance |
 | `bCompassQuestHeightIndicator` | done |  |  | Quest Marker Height (a bar over or under it on the hand-built HUD's compass) |
-| `bCriticalHitMessagesIncludeLimbName` | done |  |  | Critical Hit Messages Name the Limb: NVForever now shows a corner message on the player's critical hits with the masters' sCriticalStrikeIcon (our words, owner-review 70); the tweak adds the limb struck |
+| `bCriticalHitMessagesIncludeLimbName` | done |  |  | Critical Hit Messages Name the Limb: NVForever now shows a corner message on the player's critical hits with the default Vault Boy corner icon (our words, owner-review 70; `sCriticalStrikeIcon` is documented unused on the GECK wiki, #3433); the tweak adds the limb struck |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
 | `bDescriptiveMarkerAddedMessage` | done | yes |  | Map Marker Added Names the Place: NVForever now says "Map marker added" in the corner when a script's ShowMap adds a marker (`marker_added`, our words, owner-review 82); the tweak adds the marker's name |
@@ -1101,7 +1102,7 @@ game's Data folder, read-only).
 | `bShowWeaponAmmoUseInMenus` | done | yes |  | Rounds per Shot |
 | `bSkipSkillMenuIfNoPointsToAssign` | done | yes |  | Perks First When No Points |
 | `bSortEquipableAmmo` | done | yes |  | Usable Ammo First |
-| `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (the option for emptying a category not built) |
+| `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (also keeps the emptied category after transferring its last item, matching `bPreventSwitchWhenEmptyingCategory`) |
 | `bTakeAllInCompanionContainers` | done | yes |  | already so: Take All shows for companions |
 | `b12HourPipboyClock` | done |  |  | 12-Hour Pip-Boy Clock |
 | `b24HourSleepWaitClock` | done |  |  | already so: the wait clock is 24-hour |

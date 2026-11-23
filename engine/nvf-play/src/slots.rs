@@ -57,6 +57,7 @@ use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
 use fnv_game::casino;
+use fnv_util::words::{tr, trf};
 use fnv_game::slots::{self as rules, Limits, REELS};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -802,7 +803,7 @@ fn apply(
             SlotsInput::Spin => {
                 let bet = s.bet;
                 if bet == 0 || bet > s.chips {
-                    s.status = Some("You do not have enough chips.".into());
+                    s.status = Some(tr("You do not have enough chips.").into());
                     continue;
                 }
                 if let Err(e) = sim.world.remove_item(FormId::PLAYER_REF, s.chip, bet as i32) {
@@ -911,11 +912,12 @@ fn step(
                 if s.banned { "; banned" } else { "" }
             );
             // [hypothesis: the original's words are not in the plugins; these are NVForever's]
-            let result = match rules::win_name(line) {
-                Some(w) => format!("{w}: you win {back} chips."),
-                None => format!("You lose {} chips.", s.bet),
+            // In the chosen language (`lang/*.toml`, #3146); the log's line above is English.
+            let result = match rules::win_words(line) {
+                Some(w) => trf("{win}: you win {back} chips.", &[("win", &tr(w)), ("back", &back)]),
+                None => trf("You lose {n} chips.", &[("n", &s.bet)]),
             };
-            s.status = Some(if s.banned { format!("{result} You have been banned from {}.", s.casino_name) } else { result });
+            s.status = Some(if s.banned { trf("{result} You have been banned from {casino}.", &[("result", &result), ("casino", &s.casino_name)]) } else { result });
             // A win: its celebration, as long as the prize is big (item 170); the result
             // stays up at least as long.
             let party = rules::celebration(multiple);

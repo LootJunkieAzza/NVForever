@@ -292,3 +292,167 @@ fn zone_levels_survive_a_snapshot() {
     assert_eq!(g2.world.zone_level(FormId(ZONE)), Some(5));
     assert_eq!(g2.world.fixed_level(FormId(EASY)), Some(LevelAt { level: 2, all_levels: true }));
 }
+
+#[test]
+fn zone_respawns_getters_setters_and_cell_expiry_stay_consistent() {
+    let f = fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game, body: &str| {
+        g.run_query(&format!("Begin Function {{}}\n{body}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap()
+    };
+    let num = |g: &mut Game, expr: &str| match q(g, &format!("SetFunctionValue ({expr})")) {
+        fnv_script::vm::XVal::Num(n) => n,
+        other => panic!("{expr}: expected number, got {other:?}"),
+    };
+
+    // Authored baseline: TestZone respawns (flags=0), SafeZone never resets + match PC below min (flags=3).
+    assert_eq!(num(&mut g, "GetZoneRespawns TestZone"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneRespawns SafeZone"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag TestZone 1"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 1"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 2"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneRespawns ZoneCell"), 0.0, "non-ECZN form returns 0");
+    assert!(!g.cell_never_resets(FormId(ZONE_CELL)));
+    assert!(g.cell_never_resets(FormId(SAFE_CELL)));
+
+    // Saved SetZoneRespawns updates GetZoneRespawns, GetZoneFlag bit 1, and cell_never_resets
+    // without clobbering unrelated flag bit 2.
+    q(&mut g, "SetZoneRespawns SafeZone 1\nSetZoneRespawns TestZone 0");
+    assert_eq!(num(&mut g, "GetZoneRespawns SafeZone"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneRespawns TestZone"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 1"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 2"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneFlag TestZone 1"), 1.0);
+    assert!(!g.cell_never_resets(FormId(SAFE_CELL)));
+    assert!(g.cell_never_resets(FormId(ZONE_CELL)));
+
+    // Session SetZoneFlag bit 1 overrides SetZoneRespawns for the current session and reaches
+    // both GetZoneRespawns and Game::cell_never_resets.
+    q(&mut g, "SetZoneFlag TestZone 1 0");
+    assert_eq!(num(&mut g, "GetZoneRespawns TestZone"), 1.0);
+    assert_eq!(num(&mut g, "GetZoneFlag TestZone 1"), 0.0);
+    assert!(!g.cell_never_resets(FormId(ZONE_CELL)));
+
+    // Session SetCellEncounterZone reaches Game::cell_never_resets using live zone state.
+    assert!(!g.cell_never_resets(FormId(PLAIN_CELL)));
+    q(&mut g, "SetZoneFlag SafeZone 1 1\nSetCellEncounterZone PlainCell SafeZone");
+    assert!(g.cell_never_resets(FormId(PLAIN_CELL)));
+
+    // Save/restore keeps SetZoneRespawns while resetting session-only SetZoneFlag changes.
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.checked_snapshot().unwrap()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut restored = Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, &snap).unwrap();
+    assert_eq!(num(&mut restored, "GetZoneRespawns SafeZone"), 1.0);
+    assert_eq!(num(&mut restored, "GetZoneRespawns TestZone"), 0.0);
+    assert_eq!(num(&mut restored, "GetZoneFlag SafeZone 1"), 0.0);
+    assert_eq!(num(&mut restored, "GetZoneFlag TestZone 1"), 1.0);
+    assert!(!restored.cell_never_resets(FormId(SAFE_CELL)));
+    assert!(restored.cell_never_resets(FormId(ZONE_CELL)));
+
+    // A later SetZoneRespawns supersedes an earlier session SetZoneFlag bit-1 override.
+    q(&mut restored, "SetZoneFlag TestZone 1 0");
+    assert_eq!(num(&mut restored, "GetZoneRespawns TestZone"), 1.0);
+    q(&mut restored, "SetZoneRespawns TestZone 0");
+    assert_eq!(num(&mut restored, "GetZoneRespawns TestZone"), 0.0);
+    assert_eq!(num(&mut restored, "GetZoneFlag TestZone 1"), 1.0);
+    assert!(restored.cell_never_resets(FormId(ZONE_CELL)));
+}
+
+/// Session `SetZoneMinLevel`, `SetZoneFlag` (bits 1 & 2), `SetZoneOwner`,
+/// `SetCellEncounterZone`, and `SetRefEncounterZone` overrides must reach `enter_zone`,
+/// `fix_cell_levels` / `LevelNews`, leveled actor selection (`display_base`), reset on
+/// fresh-run restore, and survive same-run `WorldSession` + `Game::Session` load (#2272).
+#[test]
+fn session_zone_level_and_assignment_overrides_reach_spawns_and_survive_same_run_session() {
+    let f = fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game, body: &str| {
+        g.run_query(&format!("Begin Function {{}}\n{body}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap()
+    };
+    let num = |g: &mut Game, expr: &str| match q(g, &format!("SetFunctionValue ({expr})")) {
+        fnv_script::vm::XVal::Num(n) => n,
+        fnv_script::vm::XVal::Ref(r) => f64::from(r),
+        other => panic!("{expr}: expected number/ref, got {other:?}"),
+    };
+
+    // 1. SetZoneMinLevel lowers TestZone from authored 5 -> 2: level-1 player enters at 2
+    //    and IN_ZONE picks Rat (lvl 1) instead of Wolf (lvl 5).
+    g.player.level = Some(1);
+    q(&mut g, "SetZoneMinLevel TestZone 2");
+    assert_eq!(num(&mut g, "GetZoneMinLevel TestZone"), 2.0);
+    g.player_entered(Some(FormId(ZONE_CELL)));
+    assert_eq!(g.world.zone_level(FormId(ZONE)), Some(2));
+    assert_eq!(g.display_base(FormId(TIERS), FormId(IN_ZONE)), FormId(RAT), "min_level 2 must spawn Rat, not Wolf");
+    let news = g.take_level_news();
+    assert!(
+        news.contains(&LevelNews::Zone { zone: FormId(ZONE), level: 2, min_level: 2, player_level: 1 }),
+        "LevelNews::Zone must report overridden min_level and level: {news:?}"
+    );
+
+    // 2. SetZoneFlag bit 2 turns OFF Match PC Below Minimum Level on SafeZone (authored min 8, flags 3):
+    //    level-3 player enters SafeZone at 8 instead of 3.
+    g.player.level = Some(3);
+    q(&mut g, "SetZoneFlag SafeZone 2 0");
+    assert_eq!(num(&mut g, "GetZoneMatchLevel SafeZone"), 0.0);
+    assert_eq!(num(&mut g, "GetZoneFlag SafeZone 2"), 0.0);
+    g.player_entered(Some(FormId(SAFE_CELL)));
+    assert_eq!(g.world.zone_level(FormId(SAFE_ZONE)), Some(8), "Match PC Below Min disabled -> level 8");
+
+    // 3. SetCellEncounterZone PlainCell SafeZone + clearing OWN_ZONE's ref XEZN makes BOTH
+    //    OUTSIDE and OWN_ZONE pick Wolf (SafeZone lvl 8), report zone=Some(SAFE_ZONE), and
+    //    satisfy GetInZone SafeZone.
+    assert_eq!(call(&mut g, GET_IN_ZONE, OUTSIDE, &[ArgValue::Value(Value::Ref(SAFE_ZONE))]), 0.0);
+    q(&mut g, "SetCellEncounterZone PlainCell SafeZone");
+    assert_eq!(call(&mut g, GET_IN_ZONE, OUTSIDE, &[ArgValue::Value(Value::Ref(SAFE_ZONE))]), 1.0);
+    g.world.set_ref_zone(FormId(OWN_ZONE), None);
+    let _ = g.take_level_news();
+    g.player_entered(Some(FormId(PLAIN_CELL)));
+    assert_eq!(g.display_base(FormId(TIERS), FormId(OUTSIDE)), FormId(WOLF), "PlainCell assigned to SafeZone (lvl 8) must spawn Wolf");
+    assert_eq!(g.display_base(FormId(TIERS), FormId(OWN_ZONE)), FormId(WOLF), "cleared ref XEZN inherits PlainCell's SafeZone (lvl 8)");
+    let news = g.take_level_news();
+    assert!(
+        news.iter().any(|n| matches!(n, LevelNews::Actor { actor, zone, .. } if *actor == FormId(OUTSIDE) && *zone == Some(FormId(SAFE_ZONE)))),
+        "LevelNews::Actor must report overridden cell zone: {news:?}"
+    );
+
+    // 4. Session save/load boundary for ALL zone setters (SetZoneMinLevel, SetZoneFlag bits 1 & 2,
+    //    SetZoneOwner, SetCellEncounterZone).
+    let mut g2 = game(&f);
+    g2.player.level = Some(3);
+    q(
+        &mut g2,
+        "SetZoneMinLevel TestZone 9\nSetZoneFlag TestZone 1 1\nSetZoneFlag SafeZone 2 0\nSetZoneOwner TestZone Wolf\nSetCellEncounterZone PlainCell SafeZone",
+    );
+    assert_eq!(num(&mut g2, "GetZoneOwner TestZone"), f64::from(WOLF));
+    assert_eq!(call(&mut g2, GET_IN_ZONE, OUTSIDE, &[ArgValue::Value(Value::Ref(SAFE_ZONE))]), 1.0);
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g2.checked_snapshot().unwrap()).unwrap()).unwrap();
+
+    // 4a. Fresh-run restore (without Session transfer) reverts all session overrides to authored values.
+    let fresh_world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut fresh = Game::restore(&f.data, fresh_world, GameConfig { strict: true, ..GameConfig::default() }, &snap).unwrap();
+    assert_eq!(num(&mut fresh, "GetZoneMinLevel TestZone"), 5.0);
+    assert_eq!(num(&mut fresh, "GetZoneFlag TestZone 1"), 0.0);
+    assert_eq!(num(&mut fresh, "GetZoneMatchLevel SafeZone"), 1.0);
+    assert_eq!(num(&mut fresh, "GetZoneOwner TestZone"), 0.0);
+    assert!(!fresh.cell_never_resets(FormId(ZONE_CELL)));
+    assert!(!fresh.cell_never_resets(FormId(PLAIN_CELL)));
+    assert_eq!(call(&mut fresh, GET_IN_ZONE, OUTSIDE, &[ArgValue::Value(Value::Ref(SAFE_ZONE))]), 0.0);
+
+    // 4b. Same-run restore with WorldSession + Game::Session preserves ALL session zone overrides.
+    let ws = g2.world.take_session();
+    assert!(!ws.is_empty());
+    let gs = g2.take_session();
+    let mut same_world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    same_world.put_session(ws);
+    let mut same_run = Game::restore(&f.data, same_world, GameConfig { strict: true, ..GameConfig::default() }, &snap).unwrap();
+    same_run.put_session(gs);
+    assert_eq!(num(&mut same_run, "GetZoneMinLevel TestZone"), 9.0);
+    assert_eq!(num(&mut same_run, "GetZoneFlag TestZone 1"), 1.0);
+    assert_eq!(num(&mut same_run, "GetZoneMatchLevel SafeZone"), 0.0);
+    assert_eq!(num(&mut same_run, "GetZoneOwner TestZone"), f64::from(WOLF));
+    assert!(same_run.cell_never_resets(FormId(ZONE_CELL)));
+    assert!(same_run.cell_never_resets(FormId(PLAIN_CELL)));
+    assert_eq!(call(&mut same_run, GET_IN_ZONE, OUTSIDE, &[ArgValue::Value(Value::Ref(SAFE_ZONE))]), 1.0);
+    same_run.player_entered(Some(FormId(ZONE_CELL)));
+    assert_eq!(same_run.world.zone_level(FormId(ZONE)), Some(9), "carried SetZoneMinLevel 9 must govern entry after load");
+}

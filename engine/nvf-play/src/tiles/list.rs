@@ -92,6 +92,31 @@ pub fn reconcile<K: PartialEq + Clone>(ui: &mut Ui, list: &str, template: &str, 
     ok
 }
 
+/// [documented: GECK wiki `clipwindow`] In `list_box.xml` + `list_box_template.xml`,
+/// `<clips> 1 </clips>` on a list row opts the row into clipping by its parent
+/// `<clipwindow>` rather than cropping the row's own children (`ListItemText`,
+/// value/modifier text, markers) to the row's box. Because
+/// `fnv_ui::input::clips_children` treats `<clips>` as a self-clipper for legacy
+/// layouts, mark live direct children of a `<clips>` row under a `<clipwindow>` list
+/// with [`fnv_ui::input::OUTSIDE_CLIP`] so their clip is `parent.clip_above` (the
+/// list's `<clipwindow>` itself), preserving list-window clipping and pointer hits.
+pub fn unclip_row_children(ui: &mut Ui, list: TileId, rows: impl IntoIterator<Item = TileId>) {
+    if !ui.is_live(list) || !ui.tile(list).get("clipwindow").is_some_and(Value::truthy) {
+        return;
+    }
+    for row in rows {
+        if !ui.is_live(row) || !ui.tile(row).get("clips").is_some_and(Value::truthy) {
+            continue;
+        }
+        let children = ui.tile(row).children.clone();
+        for child in children {
+            if ui.is_live(child) {
+                ui.write_changed(child, fnv_ui::input::OUTSIDE_CLIP, Value::Num(1.0));
+            }
+        }
+    }
+}
+
 /// The rows' heights from their text tiles `text` ([`write_text_sizes`] wrote each size, at
 /// its final wrap width): the template's height, else the text's and `_VerticalSpacing`. Each
 /// row's `height` and `_y` are written. Returns the heights.
@@ -275,7 +300,7 @@ pub fn marker_grab(ui: &Ui, menu: TileId, list: TileId, pointer_y: f64) -> Optio
 /// [`marker_grab`] of a scrollbar by its own tile; `owner` is what [`Drag::list`] holds.
 pub fn marker_grab_on(ui: &Ui, menu: TileId, owner: TileId, bar: TileId, pointer_y: f64) -> Option<Drag> {
     let marker = child(ui, bar, MARKER)?;
-    let placed = super::layout::layout(ui, marker, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker)?.rect;
+    let placed = super::layout::tile_box(ui, marker, &|_, _, _| (0.0, 0.0), true)?.rect;
     Some(Drag { menu, list: owner, bar, top: placed.top - num(ui, marker, "y"), grab: pointer_y - placed.top })
 }
 
@@ -825,5 +850,35 @@ mod tests {
         // The highlight follows the scroll.
         write_highlight(&mut ui, list, Some((200.0, 70.0)), 4.0);
         assert_eq!(ui.tile(list).get("_highlight_y").map(Value::num), Some(200.0 - 232.0));
+    }
+
+    #[test]
+    fn unclip_row_children_marks_only_clips_rows_under_clipwindow_lists() {
+        let src = fnv_ui::MemSource::default().with(
+            "m.xml",
+            r#"<menu name="M">
+              <hotrect name="Window"><clipwindow>1</clipwindow>
+                <hotrect name="ClippedRow"><clips>1</clips><text name="Label"/></hotrect>
+                <hotrect name="PlainRow"><clips>0</clips><text name="Label"/></hotrect>
+              </hotrect>
+              <hotrect name="Open"><clipwindow>0</clipwindow>
+                <hotrect name="ClippedRow"><clips>1</clips><text name="Label"/></hotrect>
+              </hotrect>
+            </menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "m.xml").unwrap();
+        ui.update();
+        let window = ui.find_tile("M/Window").unwrap();
+        let clipped_row = ui.find_tile("M/Window/ClippedRow").unwrap();
+        let plain_row = ui.find_tile("M/Window/PlainRow").unwrap();
+        let open = ui.find_tile("M/Open").unwrap();
+        let open_row = ui.find_tile("M/Open/ClippedRow").unwrap();
+        unclip_row_children(&mut ui, window, [clipped_row, plain_row]);
+        unclip_row_children(&mut ui, open, [open_row]);
+        let has_mark = |path: &str| ui.tile(ui.find_tile(path).unwrap()).get(fnv_ui::input::OUTSIDE_CLIP).is_some_and(Value::truthy);
+        assert!(has_mark("M/Window/ClippedRow/Label"), "clips row under clipwindow list opts child out of row self-clip");
+        assert!(!has_mark("M/Window/PlainRow/Label"), "non-clips row leaves children untouched");
+        assert!(!has_mark("M/Open/ClippedRow/Label"), "list without clipwindow leaves children untouched");
     }
 }

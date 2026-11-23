@@ -449,7 +449,7 @@ impl Game<'_> {
         for faction in evil {
             let mut alerted = 0;
             for (&m, &at) in &hearers {
-                if m == FormId::PLAYER_REF || m == victim || self.is_dead(m) || !self.present(m) || self.is_teammate(m) {
+                if m == FormId::PLAYER_REF || m == victim || self.is_dead(m) || !self.present(m) || self.is_teammate(m) || self.combat_disabled(m) {
                     continue;
                 }
                 let near = if indoors {
@@ -567,7 +567,7 @@ impl Game<'_> {
             }
             let watchers = watching.get(&victim).cloned().unwrap_or_default();
             for helper in watchers {
-                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) {
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.combat_disabled(helper) {
                     continue;
                 }
                 // The player's teammates take up its fights by their own rule
@@ -654,7 +654,7 @@ impl Game<'_> {
             .collect();
         let mut joined = 0;
         for (escort, charge) in escorts {
-            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) {
+            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) || self.combat_disabled(escort) {
                 continue;
             }
             // It must at least notice its charge [hypothesis: an escort keeps track of the
@@ -790,7 +790,7 @@ impl Game<'_> {
                 if victim != FormId::PLAYER_REF && helper != victim {
                     continue;
                 }
-                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat {
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat || self.combat_disabled(helper) {
                     continue;
                 }
                 if self.provocations.holds(helper, attacker) || self.would_attack(helper, attacker) || !self.would_attack(attacker, helper) {
@@ -817,9 +817,25 @@ impl Game<'_> {
 
 /// `actor.GetFriendHit target`: the friendly hits `target` made on the actor that still
 /// count [documented: GECK wiki GetFriendHit, Friendly Fire].
+///
+/// In a parameterless CTDA condition (function index 288, empty CTDA parameter list in
+/// `FalloutNV.esm`, e.g. dialogue INFOs with `GetFriendHit > 0`), the implicit attacker
+/// is the condition's target (`Game::condition_target`, or `0` when absent) [hypothesis:
+/// `eval_conditions` supplies the conversation/interaction target in `condition_target`,
+/// matching `Exists` in `functions::fighting`; native behavior when `target` is absent
+/// or differs from the player is unobserved]. Ordinary script calls still require an
+/// explicit actor argument (`a.form(0)?`).
 pub fn get_friend_hit(g: &mut Game, ctx: &crate::functions::Ctx, a: &crate::functions::Args) -> Result<fnv_script::vm::Value, String> {
     let r = ctx.subject()?;
-    Ok(fnv_script::vm::Value::Num(g.friend_hits(r, a.form(0)?) as f64))
+    let by = if ctx.in_condition && a.0.is_empty() {
+        let Some(target) = g.condition_target else {
+            return Ok(fnv_script::vm::Value::ZERO);
+        };
+        target
+    } else {
+        a.form(0)?
+    };
+    Ok(fnv_script::vm::Value::Num(g.friend_hits(r, by) as f64))
 }
 
 /// `actor.GetAttacked`: 1 once someone attacked the actor, cleared when it drops out of

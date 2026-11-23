@@ -476,3 +476,104 @@ fn batch_five_answers() {
         assert_eq!(n(&mut g, call), 0.0, "{call}");
     }
 }
+
+#[test]
+fn refresh_anim_data_queues_one_shot_and_refreshes_folder_entries() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    let player = FormId::PLAYER_REF;
+
+    // Seed a conditional AnimGroupOverride entry that only activates once player level >= 5.
+    g.anim_folders.entries.push(fnv_game::nvse_anim_folders::FolderEntry {
+        forms: vec![player],
+        folder: "TestRefresh".into(),
+        condition: Some("GetLevel >= 5".into()),
+        priority: 1,
+        order: 0,
+        third: vec!["AnimGroupOverride\\TestRefresh\\_male\\mtidle.kf".into()],
+        first: vec!["AnimGroupOverride\\TestRefresh\\_1stPerson\\mtidle.kf".into()],
+    });
+    g.refresh_anim_folders();
+    assert!(g.anim_overrides(player, false).is_empty(), "level 1 does not satisfy folder condition");
+
+    // Raise player level without waiting for REFRESH_FRAMES; RefreshAnimData refreshes immediately.
+    g.player.level = Some(5);
+    assert_eq!(n(&mut g, "PlayerREF.RefreshAnimData"), 0.0);
+    assert_eq!(n(&mut g, "NpcRef.RefreshAnimData"), 0.0);
+    assert!(g.anim_refresh_pending(player));
+    assert!(g.anim_refresh_pending(npc));
+    assert_eq!(g.anim_overrides(player, false), vec!["AnimGroupOverride\\TestRefresh\\_male\\mtidle.kf"]);
+    assert_eq!(g.anim_overrides(player, true), vec!["AnimGroupOverride\\TestRefresh\\_1stPerson\\mtidle.kf"]);
+
+    // Transient: snapshot + restore drops queued refresh requests.
+    let snap = g.snapshot();
+    let restored = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), g.cfg, &snap).unwrap();
+    assert!(!restored.anim_refresh_pending(player));
+    assert!(!restored.anim_refresh_pending(npc));
+
+    // Player and NPC consumers drain independently without swallowing each other.
+    assert!(g.take_player_anim_refresh());
+    assert!(!g.anim_refresh_pending(player));
+    assert!(g.anim_refresh_pending(npc));
+    assert!(!g.take_player_anim_refresh(), "one-shot for player");
+
+    let npcs = g.take_npc_anim_refreshes();
+    assert!(npcs.contains(&npc));
+    assert!(!npcs.contains(&player));
+    assert!(!g.anim_refresh_pending(npc));
+    assert!(g.take_npc_anim_refreshes().is_empty(), "one-shot for NPCs");
+}
+
+#[test]
+fn reload_equipped_models_queues_slot_masks_coalesces_and_is_transient() {
+    use fnv_game::nvse_gaps::{ALL_EQUIP_SLOTS, EQUIP_SLOT_WEAPON_BIT};
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    let player = FormId::PLAYER_REF;
+
+    // Specific slots coalesce via bitwise OR; out-of-range slots are ignored.
+    assert_eq!(n(&mut g, "PlayerREF.ReloadEquippedModels 2"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.ReloadModels 5"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.ReloadEquippedModels -1"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.ReloadEquippedModels 20"), 0.0);
+    assert_eq!(g.equipped_model_reload_mask(player), (1 << 2) | EQUIP_SLOT_WEAPON_BIT);
+
+    // Omitting equipSlot selects all 20 biped slots.
+    assert_eq!(n(&mut g, "NpcRef.ReloadEquippedModels"), 0.0);
+    assert_eq!(g.equipped_model_reload_mask(npc), ALL_EQUIP_SLOTS);
+
+    // Transient: snapshot + restore drops queued reload masks.
+    let snap = g.snapshot();
+    let restored = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), g.cfg, &snap).unwrap();
+    assert_eq!(restored.equipped_model_reload_mask(player), 0);
+    assert_eq!(restored.equipped_model_reload_mask(npc), 0);
+
+    // Player and NPC consumers drain independently and one-shot.
+    assert_eq!(g.take_player_equipped_model_reload(), (1 << 2) | EQUIP_SLOT_WEAPON_BIT);
+    assert_eq!(g.take_player_equipped_model_reload(), 0);
+    assert_eq!(g.equipped_model_reload_mask(npc), ALL_EQUIP_SLOTS);
+
+    let npcs = g.take_npc_equipped_model_reloads();
+    assert_eq!(npcs.get(&npc).copied(), Some(ALL_EQUIP_SLOTS));
+    assert!(!npcs.contains_key(&player));
+    assert!(g.take_npc_equipped_model_reloads().is_empty());
+}
+
+#[test]
+fn update_player_3d_queues_one_shot_and_is_transient() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(!g.update_player_3d_pending());
+    assert_eq!(n(&mut g, "UpdatePlayer3D"), 0.0);
+    assert!(g.update_player_3d_pending());
+
+    let snap = g.snapshot();
+    let restored = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), g.cfg, &snap).unwrap();
+    assert!(!restored.update_player_3d_pending());
+
+    assert!(g.take_update_player_3d());
+    assert!(!g.update_player_3d_pending());
+    assert!(!g.take_update_player_3d(), "one-shot");
+}

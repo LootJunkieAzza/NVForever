@@ -15,7 +15,8 @@
 //!   (`PhysState::loading_done`), the renderer has drawn its cells (it reports through
 //!   [`Loading::render_busy`]) and no actor in view still waits for its parts
 //!   ([`Loading::actors_busy`]), [`SETTLE_SECS`] later so that textures and meshes reach
-//!   the graphics card behind the picture.
+//!   the graphics card behind the picture. With ALC shadows on it also waits while their
+//!   maps are drawn behind it ([`Loading::lamp_shadows_busy`]).
 //! - A run that starts in the world ([`StartCover`]) is held under the screen from its
 //!   first frame until the same is in, the scripts are made (a save put back into
 //!   them) and the residents in view are drawn ([`Loading::start_actors`], for at most
@@ -197,6 +198,10 @@ pub struct Loading {
     pub pipelines_busy: bool,
     /// Hidden Pip-Boy draws or their teardown still need the cover [design: nvforever/pipboy_arm.rs].
     pub pipboy_warming: bool,
+    /// The lamps' shadow maps are still being drawn behind the screen, so they are whole when
+    /// it comes down. Set by nvforever every frame (`light_shadows`, its pre-draw, which gives
+    /// up after a few seconds of its own); stays false without it.
+    pub lamp_shadows_busy: bool,
     /// Since when only pipelines have been waited for (real time), and whether
     /// [`PIPELINE_CAP_SECS`] has passed this screen.
     pipelines_since: Option<f64>,
@@ -302,6 +307,17 @@ impl Loading {
     /// Whether a loading screen is up for travel (not for a [`CoverRequest`]).
     pub fn travelling(&self) -> bool {
         self.trip.is_some()
+    }
+
+    /// Whether the start's or the travel's screen has everything in and only waits out
+    /// [`SETTLE_SECS`] before it comes down (nvforever `pipeline_prewarm` stops drawing the
+    /// cells unculled then, so the first frame seen is culled).
+    pub fn settling(&self) -> bool {
+        match (&self.trip, &self.start) {
+            (Some(trip), _) => trip.sent && trip.ready.is_some(),
+            (None, Some(start)) => start.ready.is_some(),
+            (None, None) => false,
+        }
     }
 
     /// Whether the world holds off loading until the start's screen has been drawn. The hold
@@ -645,6 +661,9 @@ fn missing(loading: &Loading, phys: Option<&PhysState>, scripts: Option<&crate::
     if loading.pipboy_warming {
         out.push("the Pip-Boy warm-up");
     }
+    if loading.lamp_shadows_busy {
+        out.push("ALC shadows");
+    }
     out
 }
 
@@ -866,6 +885,14 @@ mod tests {
         assert!(missing(&loading, None, None, true).contains(&"the Pip-Boy warm-up"));
         loading.pipboy_warming = false;
         assert!(missing(&loading, None, None, true).is_empty());
+    }
+
+    #[test]
+    fn a_screen_waits_for_the_lamp_shadows_pre_draw() {
+        let mut loading = Loading { lamp_shadows_busy: true, ..default() };
+        assert_eq!(missing(&loading, None, None, false), vec!["ALC shadows"]);
+        loading.lamp_shadows_busy = false;
+        assert!(missing(&loading, None, None, false).is_empty());
     }
 
     #[test]

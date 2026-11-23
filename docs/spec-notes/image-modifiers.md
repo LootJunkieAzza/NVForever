@@ -479,3 +479,61 @@ adapters), give a factor per value (`ScreenModifiers::hdr_ratio`):
 
 Log lines: `eye adaptation: … modifiers +1.00 EV` when a Target LUM change starts and
 ends; `eye adaptation: speed S EV/s (Eye Adapt Speed E)` when the speed changes.
+
+
+## Live nonanimated trait edits
+
+[documented: GECK wiki SetImageSpaceModTrait,
+https://geckwiki.com/index.php/SetImageSpaceModTrait] Traits 1–2 edit the radial blur
+centre X/Y; 3–36 edit the 17 HDR/bloom multiply/add pairs (`\x00IAD`..`\x10IAD` /
+`@IAD`..`PIAD`); 37–44 edit the cinematic multiply/add pairs; 45–46 edit blur and double
+vision; 47–50 edit tint RGBA; 51–54 edit fade RGBA (`NAM3`); 55–59 edit radial blur
+strength/ramps (`RNAM`, `SNAM`, `UNAM`, `NAM1`, `NAM2`); 60–62 edit depth of field
+strength/distance/range (`WNAM`, `XNAM`, `YNAM`); 63 edits full-screen motion blur
+strength (`NAM4`).
+
+[design, mapped; engine design choice] For a nonanimatable modifier actually selected
+for the screen or lens, evaluate its ordinary record and then apply the current session's
+assigned values across traits 1–63 (with a fast exit when no trait overrides exist in the
+session). Follow the existing IMAD getter and decoder: 3–36 map directly to the 17
+`Hdr` multiply/add pairs (`ScreenModifiers::hdr`, feeding eye adaptation, light glow,
+sunlight dimmer, and emissive fog scale), 37–38 are saturation,
+39–40 are contrast average luminance (`0x12`/`0x52` IAD), 41–42 are contrast
+(`0x13`/`0x53` IAD), and 43–44 are brightness [hypothesis: this trait-to-field order
+is the existing getter's, not a capture of the original setter]. Tint RGBA (47–50) are
+all 0–255: divide each assigned value by 255; the getter reads TNAM alpha ×255 like its
+RGB [observed: original FNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-20 —
+`GetImageSpaceModTrait` on unchanged non-animated `FalloutNV.esm` IMADs returned
+traits 47–50 as `[106.0, 141.0, 149.0, 120.0]` for `WastelandMegatonNightISFX`
+(`0x00054E13`, authored TNAM `106/255, 141/255, 149/255, 120/255`),
+`[101.0, 154.0, 150.0, 160.0]` for `WastelandNightISFX` (`0x00091890`, authored TNAM
+`101/255, 154/255, 150/255, 160/255`), and `[102.0, 149.0, 153.0, 100.0]` for
+`WastelandNorthNightISFX` (`0x0003920C`, authored TNAM `102/255, 149/255, 153/255, 100/255`);
+`SetImageSpaceModTrait` round-trips on the same records read back `0.35000002` for trait 50 = `0.35`,
+`128.0` for trait 50 = `128.0`, and `200.000015` for trait 47 = `200.0`].
+Separately, in an installed mod (Radiation Visuals), the controller writes 47–49 as 0–255
+and 50 as its effect strength times its tint strength (default 0.3) times 255, and a
+contributor playtest in NVForever with that mod (2026-11-18) visually confirmed on three
+builds in irradiated water that before this PR the cyan effect persisted, with trait 50
+read as 0–1 alpha the whole screen turned cyan, and with 47–50 all read as 0–255 the tint
+looked correct.
+Fade RGB (51–53) divide by 255 like the getter; NAM3 alpha (54) keeps its normalized
+getter units (unobserved).
+Leave every unassigned component, other effect, sound, duration and track alone.
+[engine design choice] Read only bounded fields of active modifiers; do not clone the
+record cache, mutate the load order or scan unrelated forms each frame. Nonfinite values
+(and finite `f64` values that overflow `f32` to infinity) which cannot be represented as
+finite renderer floats are left off the visual override; the existing core setter/getter
+state and admission policy are unchanged.
+
+[hypothesis] This maps the installed radiation controller's edit/apply/update/
+remove cycle (and other nonanimated trait edits) onto the existing grade and HDR
+consumers. Native first-key versus whole-track editing for animatable records remains
+open; this bridge leaves animated evaluation unchanged.
+Existing session-only trait lifetime is preserved, and removal must restore the
+current base/other effects rather than replay a cached grade. Authored fixtures
+exercise compiled setter calls and getter-to-setter round trips through
+actual ImageSpaceGrade and ScreenModifiers::hdr output, warm-cache updates, nonfinite
+and f32-overflow guards, removal, re-entry, lens isolation, missing runtime and fresh
+restore.
+No native, GPU or full installed-mod acceptance follows from CPU controls.

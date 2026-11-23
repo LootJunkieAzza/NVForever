@@ -1,4 +1,4 @@
-//! "Delete my reports" (player-reports.md §6): the settings row Gameplay > Reports >
+//! "Delete my reports" (player-reports.md §6): the settings row Gameplay > Bug Reports >
 //! "Reports already sent". Choosing "Delete them now" asks the server to delete every
 //! report this PC sent: the current install ID and the earlier ones kept since reports were
 //! turned off (`[Reports] PastInstalls`), each with its delete token (§5.1 `DELETE

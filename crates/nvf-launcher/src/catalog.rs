@@ -226,23 +226,28 @@ pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
         ("split-layout", &["Top and bottom", "Side by side"][..]),
         // As the INI keeps them (`Smoothing::stored`, #2676); the engine also reads its older 1/0.
         ("smooth-terrain", &["off", "2x2", "4x4", "4x4-near"][..]),
+        // ssao.rs `AO_CHOICES` (2026-11-19); the engine also reads its older 1/0.
+        ("ambient-occlusion", &["Off", "Performance", "Quality"][..]),
     ])
 }
 
 /// A list row's value as one of its choices ([`list_choices`]): the older values a list took
 /// over from map to the choice they stand for (the Smooth terrain row's on/off of #2149:
-/// `1`, true, on, yes are `4x4`; `0`, false, off, no are `off`, as the engine reads them);
-/// anything else as it is (trimmed).
+/// `1`, true, on, yes are `4x4`; `0`, false, off, no are `off`; the Ambient occlusion row's
+/// switch of before 2026-11-19: `Quality` and `Off`, as the engine reads them); anything else
+/// as it is (trimmed).
 pub fn list_value(key: &str, value: &str) -> String {
     let v = value.trim();
-    if key == "smooth-terrain" {
-        match v.to_ascii_lowercase().as_str() {
-            "1" | "true" | "on" | "yes" => return "4x4".to_string(),
-            "0" | "false" | "off" | "no" => return "off".to_string(),
-            _ => {}
-        }
+    let (on, off) = match key {
+        "smooth-terrain" => ("4x4", "off"),
+        "ambient-occlusion" => ("Quality", "Off"),
+        _ => return v.to_string(),
+    };
+    match v.to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" => on.to_string(),
+        "0" | "false" | "off" | "no" => off.to_string(),
+        _ => v.to_string(),
     }
-    v.to_string()
 }
 
 #[cfg(test)]
@@ -394,10 +399,15 @@ mod tests {
                 assert!(src.contains(&format!("=> \"{name}\"")), "{key}: {name} is no longer a choice in {file}");
             }
         }
+        // The Ambient occlusion row's, as the engine lists them (ssao.rs `AO_CHOICES`).
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/ssao.rs")).unwrap();
+        let listed = list_choices()["ambient-occlusion"].iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
+        assert!(src.contains(&format!("pub const AO_CHOICES: [&str; 3] = [{listed}];")), "ambient-occlusion: the engine's AO_CHOICES are no longer {listed}");
     }
 
-    /// The Smooth terrain row's older on/off reads as its choices (4x4 and off), so a
-    /// launcher with an old INI offers the list, not a switch; other values stay as they are.
+    /// The Smooth terrain row's older on/off reads as its choices (4x4 and off), the Ambient
+    /// occlusion row's as Quality and Off, so a launcher with an old INI offers the list, not
+    /// a switch; other values stay as they are.
     #[test]
     fn older_values_map_to_list_choices() {
         let choices = list_choices();
@@ -405,6 +415,11 @@ mod tests {
             let got = list_value("smooth-terrain", v);
             assert_eq!(got, want, "{v}");
             assert!(choices["smooth-terrain"].contains(&got.as_str()));
+        }
+        for (v, want) in [("1", "Quality"), ("0", "Off"), ("on", "Quality"), ("false", "Off"), ("Performance", "Performance"), (" Quality ", "Quality")] {
+            let got = list_value("ambient-occlusion", v);
+            assert_eq!(got, want, "{v}");
+            assert!(choices["ambient-occlusion"].contains(&got.as_str()));
         }
         assert_eq!(list_value("kill-camera", " 1 "), "1");
     }

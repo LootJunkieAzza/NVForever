@@ -176,6 +176,7 @@ low.
   TTW calls from both (`TTW_*`, StewieGetValue, `fnv_game::nvse_small`). Neither plugin
   is on the owner's install, so neither version was read: 941 is the lowest TTW accepts,
   and TTW never asks ttw_nvse's. Most of Stewie's tweaks are not built (ext-small.md).
+  As of 2026-11-22 Stewie's remains 941 (§5.1).
 - **The other plugins the engine builds** (2026-11-12): until then a mod asking
   `IsPluginInstalled "SUP NVSE Plugin"` got 0 and `GetPluginVersion` -1 for every plugin
   outside the list above, though all of that plugin's catalogue functions run here
@@ -205,6 +206,40 @@ low.
   when that setting is off or missing there.
 - **GetNVSEVersionFull**: a JIP function; answer only once JIP's module exists.
 - **GetLNVersion**: 0, as documented.
+
+### 5.1 Stewie's Tweaks: reported version by the features built
+
+[design, updated 2026-11-22] Mods gate on `GetPluginVersion "lStewieAl's Tweaks"` for a
+feature that came in that version [documented: the plugin's public changelog,
+https://www.nexusmods.com/newvegas/mods/66347?tab=logs]. The version reported rises one
+verified step at a time once every feature for that step is built and checked; it is
+never the version of a DLL found on disk (the engine is not that DLL). A higher gate
+rises only when its full step is verified, with a row here and tests
+(`fnv_script::vm::jip::PLUGINS`; `stewie_945_960_970_qualification`).
+
+`GetPluginVersion "lStewieAl's Tweaks"` **remains `941`** until all remaining 9.45 items
+tracked in `#3179` (Sleep Healing Min Duration, Hit Location in Cinematic Killcams,
+Scale Radio Volume, `bReviveWhenChangingCells`, non-hostile option of No Self Explosion
+Damage, `fMinValue` for Grabbing Items Is Crime, Popups Don't Move Cursor, and
+empty-objective hiding) and a live end-to-end run of Casino Rewards Fix 1.1 are built
+and verified.
+
+| Reported | Feature it stands for (changelog) | Status in NVForever | Mods gated (installed list) |
+|---|---|---|---|
+| 941 (reported) | TTW 3.4's minimum | Built & verified: TTW's `TTW_*` and StewieGetValue calls | Tale of Two Wastelands; gates 905/906 (Explosion Reactions, Animated Moments, Drowning Visuals, Modern Minimap's MCM list) |
+| 945 (not reported) | 9.45 "No Casino Bans - make GetCasinoWinningStage not return banned" and remaining 9.42–9.45 items (#3179) | Partial: `casino::script_winnings_level` (#2878, live `bNoCasinoBans=0/1` observed in `blackjack.md` §4; `SetCasinoWinningsLevel` follow-up in #3474), Casino Rewards Fix 1.1 consumers (#3180: casino MenuMode 1080/1081/1082, `SetOnDialogTopicEventHandler`, 8-digit all-decimal bare hex FormIDs), and qualification E2E test (#3378). Held at 941 until the remaining 9.45 items tracked in #3179 and a live end-to-end Casino Rewards Fix 1.1 run are built and verified | Casino Rewards Fix 1.1 (`< 945` guard; then `GetCasinoWinningsLevel`, casino menu-close and dialogue-topic events) |
+| 960 (not reported) | 9.60 "Add Command StewieGetValue (alias StewVal)", xNVSE 6.3.0 (#3183) | Held for its own verified step PR (#3183) | Pip-Boy UI Tweaks, Quality of Life ESPless (`bKeepPipboyLightOnCellChange`), MCM Extender requirement lists asking 960 |
+| 970 (not reported) | 9.70 inventory/AddItem refresh and WASD menu changes (#3184) | Held for its own verified step PR (#3184) | Barter Categories Icons |
+
+[observed: the installed mods' scripts and requirement lists, read locally; only the
+gate numbers and the function/key names they call are kept] The "Mods gated" column.
+[observed: original FNV 1.4.0.525 + Stewie's Tweaks v1005 + JIP LN 57.3, 2026-11-22,
+two-pass `bNoCasinoBans` 0 vs 1 capture] The `4 -> 3` clamp on `GetCasinoWinningsLevel`
+and quarter thresholds in `blackjack.md` §4. [design] Keeping the reported number at
+`941` is an engine design choice (the engine is not the plugin and has no version of its
+own); `945` (#3179), `960` (#3183), and `970` (#3184) remain unpromoted until their full
+step verifications land. [hypothesis] Full end-to-end execution of installed Casino
+Rewards Fix 1.1 in a live game and unexercised 9.42–9.45 tweaks remain unobserved.
 
 ## 6. Open (to observe)
 

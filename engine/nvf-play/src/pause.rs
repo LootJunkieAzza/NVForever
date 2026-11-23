@@ -294,6 +294,11 @@ impl PlayClock {
         self.stopped
     }
 
+    /// This frame's real time while the virtual clock stands still (capped at 0.25 s).
+    pub fn frame_secs(&self) -> Option<f32> {
+        self.frame
+    }
+
     /// A clock whose frame stood still for `secs` of real time (tests).
     #[cfg(test)]
     pub(crate) fn frozen_frame(secs: f32) -> PlayClock {
@@ -1652,7 +1657,7 @@ struct Window {
 
 /// How many lines the settings page's window shows at once (headings count): as many as fit
 /// between the rows' top and a note of [`NOTE_LINES`] lines over [`note_bottom`], at least
-/// one; 13 with today's layout [design: #2377, the menu overhaul]. Worked out here only and carried as a value
+/// one; 11 with today's layout [design: #2377, the menu overhaul; observed: `pause menu: inspect: window 11 lines` at 1280x720, 2026-11-22, #3375]. Worked out here only and carried as a value
 /// ([`PauseView::lines`], [`Drawn::lines`]) to everything that draws, scrolls or points at
 /// the window, so a later layout can make it depend on the view.
 fn window_lines() -> usize {
@@ -4115,7 +4120,17 @@ fn choose(
                     // A number: as the INI takes it (a row that was a slider, the overhaul).
                     Some((_, v)) if value.is_some() => {
                         let text = v.trim().to_string();
+                        let key = key.clone();
                         commands.queue(move |world: &mut World| {
+                            // A row greyed now takes no edit, as a click on it would not
+                            // (`settings::pick` refuses it). The number's way in below is the
+                            // INI's, which does not ask: without this the aid wrote
+                            // `anti-aliasing=0` through the lock FSR Native AA puts on the row,
+                            // and the saved 8x was gone when FSR was turned off (#3355).
+                            if let Some(why) = world.get_resource::<Settings>().and_then(|s| s.disabled_status(world, i)) {
+                                info!("test aid NVF_PLAY_TEST_SETTINGS: {key} is greyed now ({why}): not changed");
+                                return;
+                            }
                             let named = world.get_resource::<Settings>().and_then(|s| s.choices(i)).is_some_and(|c| (c.names)(world).contains(&text));
                             if named {
                                 crate::settings::pick(world, i, &text);
@@ -6219,6 +6234,7 @@ mod tests {
             ("Light glow (HDR)", "Light Glow (HDR)"),
             ("V.A.T.S. time slowdown", "V.A.T.S. Time Slowdown"),
             ("Use Pip-Boy", "Use Pip-Boy"),
+            ("ALC shadows", "ALC Shadows"),
             ("Close In on the Speaker", "Close In on the Speaker"),
             ("Sky follows the game clock", "Sky Follows the Game Clock"),
             ("Aim lock-on", "Aim Lock-On"),

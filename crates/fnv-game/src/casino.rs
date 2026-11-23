@@ -106,18 +106,34 @@ pub fn script_winnings_level(g: &Game<'_>, casino: FormId) -> i32 {
     if g.tweaks.no_casino_bans && level == 4 { 3 } else { level }
 }
 
-/// Source-name SetCasinoWinningsLevel; the same saved standing as the getter and
-/// the table opening consumer (blackjack.md §4), independent of net earnings.
+/// Source-name `SetCasinoWinningsLevel` (blackjack.md §4): a no-op on an untouched
+/// casino, and on a tracked casino sets net earnings to `level * max_winnings / 4`
+/// alongside the saved standing [observed: 2026-11-22 live probe, #3474].
 pub(crate) fn set_winnings_level(g: &mut Game, args: &[fnv_script::vm::XVal]) -> Result<fnv_script::vm::XVal, String> {
     use fnv_script::vm::XVal;
     let casino = args.first().and_then(|v| v.value().ok()?.as_form()).map(FormId).ok_or("casino is not a form")?;
     let level = args.get(1).ok_or("winnings level is missing")?.num().map_err(|e| e.to_string())?;
-    if !g.data.casinos.contains_key(&casino) { return Err("not a casino".into()); }
+    if !g.data.casinos.contains_key(&casino) {
+        return Err("not a casino".into());
+    }
     if !level.is_finite() || level.fract() != 0.0 || !(0.0..=4.0).contains(&level) {
         return Err("winnings level must be an integer from 0 to 4".into());
     }
-    g.player.casino_levels.insert(casino, level as i32);
+    if !g.player.casino_earnings.contains_key(&casino) && !g.player.casino_levels.contains_key(&casino) {
+        return Ok(XVal::Num(0.0));
+    }
+    let level = level as i32;
+    let max = max_winnings(g, casino, 0);
+    let target_earnings = level_earnings(level, max);
+    g.player.casino_earnings.insert(casino, target_earnings);
+    g.player.casino_levels.insert(casino, level);
     Ok(XVal::Num(0.0))
+}
+
+/// Net winnings corresponding to `SetCasinoWinningsLevel casino level`: `level * max / 4`
+/// [observed: 2026-11-22 live probe, #3474].
+pub fn level_earnings(level: i32, max: u32) -> i64 {
+    i64::from(level.clamp(0, 4)) * i64::from(max) / 4
 }
 
 /// Add a round's net to the player's earnings at a casino and set the winnings level the
@@ -200,6 +216,22 @@ mod tests {
         assert_eq!(winnings_level(8999, 9000), 3);
         assert_eq!(winnings_level(9000, 9000), 4);
         assert_eq!(winnings_level(50, 0), 0);
+    }
+
+    #[test]
+    fn level_earnings_matches_observed_quarter_thresholds() {
+        for (max, expected) in [
+            (2500u32, [0i64, 625, 1250, 1875, 2500]),
+            (5000, [0, 1250, 2500, 3750, 5000]),
+            (10000, [0, 2500, 5000, 7500, 10000]),
+        ] {
+            for (level, &want) in expected.iter().enumerate() {
+                let earnings = level_earnings(level as i32, max);
+                assert_eq!(earnings, want);
+                assert_eq!(winnings_level(earnings, max), level as i32);
+            }
+        }
+        assert_eq!(level_earnings(4, 0), 0);
     }
 
     #[test]

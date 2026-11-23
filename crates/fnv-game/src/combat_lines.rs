@@ -332,8 +332,7 @@ impl Game<'_> {
     /// A hit's effect took hold on `target` (`Game::apply_hit_effect`): one resisted by
     /// Fire Resistance says OnFire, one by Poison Resistance Poisoned (module notes).
     pub(crate) fn effect_started_lines(&mut self, target: FormId, caster: Option<FormId>, applied: &[crate::aid::Applied]) {
-        let data = self.data;
-        let resisted = |code: u16| applied.iter().any(|a| !a.extended && data.magic_effects.get(&a.effect).is_some_and(|m| m.resistance == Some(code)));
+        let resisted = |code: u16| applied.iter().any(|a| !a.extended && self.magic_effect_def(a.effect).is_some_and(|m| m.resistance == Some(code)));
         if resisted(FIRE_RESISTANCE) {
             self.combat_line(target, caster, "OnFire");
         } else if resisted(crate::actor_values::POISON_RESISTANCE) {

@@ -245,6 +245,39 @@ impl Game<'_> {
         }
     }
 
+    /// Evaluate `entries` for one actor `a`, writing its active third- and first-person
+    /// override lists into `active`.
+    fn eval_anim_folders_for(&mut self, entries: &[FolderEntry], a: FormId, active: &mut HashMap<(FormId, bool), Vec<String>>) {
+        let base = crate::functions::base_of(self, a);
+        let weapon = crate::functions::items::equipped_weapon(self, a);
+        let mut hold: Vec<&FolderEntry> = Vec::new();
+        for e in entries {
+            if !e.forms.is_empty() && !e.forms.iter().any(|&f| f == a || Some(f) == base || Some(f) == weapon) {
+                continue;
+            }
+            if let Some(c) = &e.condition {
+                match self.evaluate_on(c, Some(a)) {
+                    Ok(true) => {}
+                    Ok(false) => continue,
+                    Err(err) => {
+                        if self.anim_folders.warned.insert(c.clone()) {
+                            tracing::warn!("AnimGroupOverride: {}: condition {c:?}: {err}", e.folder);
+                        }
+                        continue;
+                    }
+                }
+            }
+            hold.push(e);
+        }
+        hold.sort_by_key(|e| (e.priority, e.order));
+        for first in [false, true] {
+            let files: Vec<String> = hold.iter().flat_map(|e| if first { e.first.iter() } else { e.third.iter() }).cloned().collect();
+            if !files.is_empty() {
+                active.insert((a, first), files);
+            }
+        }
+    }
+
     /// The entries that hold for each actor now.
     pub fn refresh_anim_folders(&mut self) {
         let mut actors: Vec<FormId> = self.senses.anim.keys().copied().collect();
@@ -263,35 +296,25 @@ impl Game<'_> {
             for first in [false, true] {
                 active.remove(&(a, first));
             }
-            let base = crate::functions::base_of(self, a);
-            let weapon = crate::functions::items::equipped_weapon(self, a);
-            let mut hold: Vec<&FolderEntry> = Vec::new();
-            for e in &entries {
-                if !e.forms.is_empty() && !e.forms.iter().any(|&f| f == a || Some(f) == base || Some(f) == weapon) {
-                    continue;
-                }
-                if let Some(c) = &e.condition {
-                    match self.evaluate_on(c, Some(a)) {
-                        Ok(true) => {}
-                        Ok(false) => continue,
-                        Err(err) => {
-                            if self.anim_folders.warned.insert(c.clone()) {
-                                tracing::warn!("AnimGroupOverride: {}: condition {c:?}: {err}", e.folder);
-                            }
-                            continue;
-                        }
-                    }
-                }
-                hold.push(e);
-            }
-            hold.sort_by_key(|e| (e.priority, e.order));
-            for first in [false, true] {
-                let files: Vec<String> = hold.iter().flat_map(|e| if first { e.first.iter() } else { e.third.iter() }).cloned().collect();
-                if !files.is_empty() {
-                    active.insert((a, first), files);
-                }
-            }
+            self.eval_anim_folders_for(&entries, a, &mut active);
         }
+        self.anim_folders.entries = entries;
+        self.anim_folders.active = active;
+    }
+
+    /// Re-evaluate the `AnimGroupOverride` entries for one actor immediately (used by
+    /// `RefreshAnimData` and `UpdatePlayer3D` so scripts do not wait for the periodic
+    /// `REFRESH_FRAMES` poll) [design].
+    pub fn refresh_anim_folders_for(&mut self, actor: FormId) {
+        self.load_anim_folders();
+        if self.anim_folders.entries.is_empty() {
+            return;
+        }
+        let entries = std::mem::take(&mut self.anim_folders.entries);
+        let mut active = std::mem::take(&mut self.anim_folders.active);
+        active.remove(&(actor, false));
+        active.remove(&(actor, true));
+        self.eval_anim_folders_for(&entries, actor, &mut active);
         self.anim_folders.entries = entries;
         self.anim_folders.active = active;
     }

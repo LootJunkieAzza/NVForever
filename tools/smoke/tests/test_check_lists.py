@@ -5,7 +5,11 @@ CONTRIBUTING.md and docs/development.md. This test reads each as a list of comma
 (cargo test, clippy and deny, and the Python suites), written the same way —
 `(cd engine && cargo test --release --locked)` for a command run in engine/ — and checks
 that the docs and CI give the same commands in the same order, and the `[[check]]` entries
-the same set."""
+the same set.
+
+CI's Windows job (`windows-clippy`, #3143) runs two of the same commands again on a
+Windows runner. They are no further checks to list: the job is read apart, and must run
+only commands the list already has."""
 
 import re
 import sys
@@ -45,15 +49,20 @@ def from_doc(text: str) -> list[str]:
     return out
 
 
-def from_ci(text: str) -> list[str]:
+def from_ci(text: str, windows: bool = False) -> list[str]:
     """The check commands of ci.yml's steps, in order: `run:` lines (with their
     `working-directory`, the Python suites' `-v` dropped) and the cargo-deny action's
-    `command` (with its `manifest-path`)."""
+    `command` (with its `manifest-path`). The jobs whose name starts with `windows` are
+    left out, or with `windows` are the only ones read."""
     steps: list[dict[str, str]] = []
+    job = ""
     for raw in text.splitlines():
         line = raw.strip()
+        named = re.match(r"^ {2}([A-Za-z][\w-]*):\s*$", raw)
+        if named:
+            job = named.group(1)
         if raw.lstrip().startswith("- ") and re.match(r"^ {6}- ", raw):
-            steps.append({})
+            steps.append({"job": job})
             line = line[2:]
         if not steps:
             continue
@@ -62,6 +71,8 @@ def from_ci(text: str) -> list[str]:
             steps[-1][m.group(1)] = m.group(2)
     out = []
     for s in steps:
+        if s["job"].startswith("windows") != windows:
+            continue
         if "cargo-deny-action" in s.get("uses", ""):
             mp = s.get("manifest-path")
             out.append(norm(f"cargo deny {'--manifest-path ' + mp + ' ' if mp else ''}{s.get('command', 'check')}"))
@@ -79,6 +90,15 @@ class CheckLists(unittest.TestCase):
         self.assertIn("(cd engine && cargo test --release --locked)", self.ci)
         self.assertIn("cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources", self.ci)
         self.assertEqual(len(self.ci), len(set(self.ci)), self.ci)
+
+    def test_the_windows_job_lints_both_workspaces_with_the_lists_commands(self):
+        windows = from_ci((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"), windows=True)
+        self.assertEqual(windows, [
+            "cargo clippy --workspace --all-targets --release --locked -- -D warnings",
+            "(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)",
+        ])
+        for cmd in windows:
+            self.assertIn(cmd, self.ci)
 
     def test_the_docs_list_what_ci_runs_in_its_order(self):
         for doc in DOCS:
@@ -100,7 +120,10 @@ class CheckLists(unittest.TestCase):
             "      - name: Lab\n        run: python -m unittest discover -s parity-lab/tests -v\n"
             "      - name: Engine tests\n        run: cargo test --release --locked\n        working-directory: engine\n"
             "      - name: Other\n        run: sudo apt-get install x\n"
+            "  windows-clippy:\n    steps:\n"
+            "      - name: Lint\n        run: cargo clippy --release --locked\n        working-directory: engine\n"
         )
+        self.assertEqual(from_ci(ci, windows=True), ["(cd engine && cargo clippy --release --locked)"])
         self.assertEqual(from_ci(ci), [
             "cargo deny --manifest-path engine/Cargo.toml check licenses",
             "python -m unittest discover -s parity-lab/tests",

@@ -3,6 +3,7 @@
 //!
 //! - [`alt_textures`]: records' alternate textures (MODS…): texture sets on named shapes
 //! - [`audio`]: music types, media sets, acoustic spaces, audio markers and sound markers
+//! - [`bos`]: clean-room `Data/BaseObjectSwapper/*.ini` placement swap rules
 //! - [`fields`]: schema-decoded access to one record's subrecords
 //! - [`image_modifier`]: image space modifiers as animated screen effects
 //! - [`imagespace`]: image spaces and the weather's adapters (the colour grade)
@@ -21,6 +22,7 @@
 
 pub mod alt_textures;
 pub mod audio;
+pub mod bos;
 pub mod effect_shader;
 pub mod fields;
 pub mod grass;
@@ -40,6 +42,7 @@ pub mod teleport;
 pub mod transform;
 pub mod xrgd;
 
+pub use bos::{BosLoadReport, BosTable};
 pub use index::{Cell, RefEntry, WorldIndex, Worldspace};
 pub use land::Land;
 pub use placed::{BaseObject, Placement};

@@ -59,3 +59,51 @@ becoming a result-based veto. Clearing it again in the same callback permits the
 ordinary action. The existing policy still allows destroyed containers and actors.
 This preserves the established SetDestroyed refusal rather than adding a new
 callback return rule. Original-game ordering for such mutations remains unobserved.
+
+## Scripted and inventory preactivation (`ShowOff:OnPreScriptedActivate`, `ShowOff:OnPreActivateInventoryItem`, `ShowOff:OnPreActivateInventoryItemAlt`)
+
+[documented: GECK wiki Category:Event Handlers (ShowOff NVSE), [ShowOff:OnPreActivate](https://geckwiki.com/index.php?title=ShowOff%3AOnPreActivate)]
+ShowOff defines preactivation hooks that allow UDF handlers to inspect an upcoming
+activation and cancel it by returning explicit numeric `SetFunctionValue 0` (sticky
+across handlers; omitted `SetFunctionValue` or non-zero values do not veto). No
+extender DLL or source code was consulted; details beyond the public wiki pages are
+tagged `[hypothesis]` or `[design]` below.
+
+### `ShowOff:OnPreScriptedActivate`
+
+[hypothesis] Dispatched by `Game::activate` for scripted `Activate` calls
+(`ActMode::Default` and `ActMode::Block`), after `OnActivate` observers and destroyed
+checks and before the `OnActivate` block or default action. Regular hand activation
+(`ActMode::Hand`) continues to dispatch `ShowOff:OnPreActivate` and never fires
+`ShowOff:OnPreScriptedActivate`. The activated reference is the calling reference
+(`this` / `0::`), and the three arguments are `(rActivator, bIsActivationNotPrevented,
+bRunOnActivateBlock)` where `bRunOnActivateBlock` is `1` for `ActMode::Block` and `0`
+for `ActMode::Default`. Dynamic filter matching on `bIsActivationNotPrevented`,
+priority/registration order, snapshot array-filter retention, sticky explicit-zero
+veto, and post-handler destroyed re-check follow `ShowOff:OnPreActivate` via shared
+`Game::dispatch_pre_event`.
+
+### `ShowOff:OnPreActivateInventoryItem` and `ShowOff:OnPreActivateInventoryItemAlt`
+
+[hypothesis] Dispatched before an inventory item is equipped, unequipped, or consumed:
+- Player UI/hotkey/quick-use/stats-page activations (`engine/nvf-play` inventory menu
+  `Command::One` / selected-row `Command::Select`, hotkey & weapon-wheel slots,
+  Quick Use pickup, and Pip-Boy STATS aid hints) call
+  `Game::pre_activate_inventory_item(PLAYER_REF, item, key, equipping)`.
+  - `ShowOff:OnPreActivateInventoryItem` runs first with calling reference `actor`
+    (`0::`) and four arguments `(rItemBase, rItemRef, bIsActivationNotPrevented, iKey)`
+    where `rItemRef` is a temporary inventory reference (`Game::temp_ref`) and `iKey`
+    is the hotkey slot (`1..=8`) or `0` for non-hotkey menu/quick-use activation.
+  - `ShowOff:OnPreActivateInventoryItemAlt` runs next with calling reference `actor`
+    (`0::`) and five arguments `(rItemBase, rItemRef, bIsActivationNotPrevented, iKey,
+    bEquipping)` carrying forward the sticky `allowed` state from the non-Alt pass.
+- Scripted `EquipItem` and `UseAidItem` (`Game::consume`) check
+  `Game::pre_activate_inventory_item_alt` when the actor carries the item.
+
+[design] Both helpers short-circuit with zero `temp_ref` allocation when no matching
+handler is registered, leaving unmodded vanilla behavior untouched. A per-`Game`
+re-entrancy guard (`ShowOffState::in_pre_activate_item`) prevents infinite recursion if
+a handler invokes `EquipItem` or `UseAidItem` from inside the callback. Exact original
+fourth/fifth integer encodings (`iKey`, `bEquipping`), scripted-vs-UI event split, and
+relative ordering between non-Alt and Alt handlers remain `[hypothesis]` pending
+original-game probe captures.

@@ -324,6 +324,13 @@ No texts are printed.
   file, not the `_mono` copy [documented: Creating Radio Stations]; the song's static
   attenuation, DJ lines at full level, as for receivers. The station's programme is the
   one its receivers play (§6).
+- **The music** (#3311): while the Pip-Boy plays its station (received here, the
+  Radio volume above 0, not held by the Esc menu, a line or song of the station tuned
+  heard above zero level now or within 8 s), the place's music
+  is turned down to silence and fades back in, where it has got to, when it stops;
+  static alone leaves the music alone, battle music still plays over the radio, and
+  world receivers do not turn the music down [hypothesis: observer check 266; design:
+  the 8 s hold; audio.md §13.2 item 9].
 - **Controls** [design; there is no Pip-Boy screen yet]: `]` tunes to the next station
   received (off → first → … → last → off), `[` to the previous; not while a script has
   turned the Pip-Boy off (DisablePlayerControls). Turned on without a station it takes

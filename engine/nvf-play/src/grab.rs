@@ -4,7 +4,8 @@
 //! - What can be held ([`Candidate`], found every frame by [`grab`]): under the
 //!   crosshair, within the activation reach (`activate::pick::REACH`), a reference whose
 //!   collision is one dynamic body (loose clutter placed in the world, an item dropped)
-//!   or the ragdoll of a corpse.
+//!   or the ragdoll of a corpse. A body on the non-collidable layer is not one: the ray
+//!   passes through it (the pickable plants, #3389).
 //! - The Grab control (Z, the game's own binding; the right stick's press on a pad)
 //!   held picks it up and keeps it while held [hypothesis: the settings are the
 //!   "ZKey" ones, `fZKey*`, grab.md §2]. Activate (E) held for [`ACTIVATE_HOLD`] on it
@@ -237,6 +238,10 @@ fn weights(sim: &SimState) -> (f32, f32) {
 fn find_candidate(phys: &mut PhysState, sim: &SimState, eye: [f32; 3], dir: [f32; 3]) -> Result<Candidate, String> {
     let mut filter = phys.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
     filter.exclude_layers.insert(layers::TRIGGER);
+    // A body on the non-collidable layer touches nothing, so there is nothing to hold: the
+    // pickable plants' (White Horse Nettle, Broc Flower: one dynamic box of 45 kg on layer
+    // 15) stay rooted (#3389) [hypothesis: the players' report; observer check 278].
+    filter.exclude_layers.insert(layers::NON_COLLIDABLE);
     let hit = phys.ray(eye, dir, REACH, filter).ok_or("nothing within reach")?;
     let on = match hit.owner {
         Owner::Ref { form_id, .. } => GripOn::Ref(form_id),
@@ -298,8 +303,16 @@ fn grab(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     (control, target, seat, vats): Around,
 ) {
-    let Some(mut phys) = phys else { return };
     let g = &mut *grab;
+    let Some(mut phys) = phys else {
+        if let Some(h) = g.held.take() {
+            info!("grab: dropped {} after {:.1} s (physics gone)", h.name, h.seconds);
+            tell_scripts(script.as_deref_mut(), &mut sim, None);
+        }
+        g.candidate = None;
+        g.tap = None;
+        return;
+    };
     let dt = time.delta_secs();
     let playing = *state.get() == PlayState::Playing && seat.is_none_or(|s| s.hold.is_none()) && !vats.is_some_and(|v| v.holds_input());
     if g.weights.is_none() {
@@ -410,12 +423,23 @@ fn grab(
     if let Some((c, by)) = start {
         let id = c.on.form_id();
         let name = name_of(&sim, script.as_deref(), id);
-        // The player's tweak: grabbing someone else's thing is stealing it [design: docs/design/tweaks.md].
+        // The player's tweak: grabbing someone else's thing is stealing it (when its stack value meets fMinValue) [design: docs/design/tweaks.md].
         if let (GripOn::Ref(_), Some(rt)) = (c.on, script.as_deref_mut().and_then(|s| s.rt.as_mut())) {
             if rt.game.tweaks.grabbing_is_theft && crate::activate::owned_by_other(Some(&rt.game), &sim, id, &crate::activate::outcome::Action::Take { count: 1 }) {
                 if let Some(base) = sim.base_of(id) {
-                    let seen = crate::script::with_world(rt, &mut sim, |rt| rt.game.player_stole(Some(FormId(id)), None, base, 1));
-                    info!("grab: {name} is someone else's: stolen (tweak){}", if seen { ", seen" } else { "" });
+                    let count = sim
+                        .world
+                        .peek(FormId(id))
+                        .map(|s| s.count)
+                        .or_else(|| sim.refs.get(FormId(id)).and_then(|r| r.count))
+                        .unwrap_or(1)
+                        .max(1) as u32;
+                    let stolen = crate::script::with_world(rt, &mut sim, |rt| {
+                        rt.game.grab_triggers_theft(base, count).then(|| rt.game.player_stole(Some(FormId(id)), None, base, count as i32))
+                    });
+                    if let Some(seen) = stolen {
+                        info!("grab: {name} is someone else's: stolen (tweak){}", if seen { ", seen" } else { "" });
+                    }
                 }
             }
         }
@@ -459,7 +483,7 @@ fn grab(
     };
     let throw = (h.by != By::Aid && input.just_pressed(Control::Use)) || aid_throw;
     let gap = point.map(|p| dist(p, want));
-    let why = if point.is_none() || phys.world.holding().is_none() {
+    let why = if point.is_none() || phys.world.holding().is_none() || !sim.present(h.on.form_id()) {
         Some("it is gone")
     } else if !playing {
         Some("play stopped")
@@ -562,11 +586,235 @@ mod tests {
         g.tap = Some(Tap { target: None, candidate: c, held: 0.1 });
         assert_eq!(g.released_tap(false), None);
         assert!(g.tap.is_some());
-        let t = Targeted { form_id: 7, name: "Skull".into(), action: crate::activate::outcome::Action::Name, distance: 60.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
+        let t = Targeted { form_id: 7, name: "Skull".into(), action: crate::activate::outcome::Action::Name, distance: 60.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false, through: None };
         g.tap = Some(Tap { target: Some(t.clone()), candidate: c, held: 0.1 });
         assert_eq!(g.released_tap(true), None);
         assert!(g.tap.is_some());
         assert_eq!(g.released_tap(false), Some(t));
         assert!(g.tap.is_none());
+    }
+
+    #[test]
+    fn grab_system_dispatches_symmetric_on_player_grab_and_release_across_all_drop_paths() {
+        use crate::bindings::Bindings;
+        use crate::script::ScriptState;
+        use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+        use fnv_phys::RefPose;
+        use fnv_script::vm::XVal;
+        use fnv_sim::forms::{BaseData, BaseForm, Item, ItemKind};
+        use fnv_sim::{FormStore, RefTable, SimConfig, World};
+
+        const BASE_ID: u32 = 0x100;
+        const CELL_ID: u32 = 0x200;
+        const OBJ_ID: u32 = 0x301;
+
+        let mut forms = FormStore::default();
+        forms.bases.insert(
+            FormId(BASE_ID),
+            BaseForm {
+                id: FormId(BASE_ID),
+                sig: *b"MISC",
+                edid: Some("TestSkull".into()),
+                name: Some("Test Skull".into()),
+                script: None,
+                prompt: None,
+                voice_filter: false,
+                data: BaseData::Item(Item {
+                    kind: ItemKind::Misc,
+                    value: Some(1),
+                    money: None,
+                    weight: Some(5.0),
+                    slots: None,
+                    projectile: None,
+                    health: None,
+                    non_playable: false,
+                    cant_drop: false,
+                    armor_class: Default::default(),
+                    power_armor: false,
+                    armor_dr: None,
+                    armor_dt: None,
+                    weapon_damage: None,
+                    weight_mods: [0.0; 3],
+                    drawable: false,
+                    not_for_npcs: false,
+                    thrown: false,
+                    quest_item: false,
+                    icon: None,
+                    placed_count: None,
+                    teaches: None,
+                    cant_be_taken: false,
+                    modulates_voice: false,
+                    weapon_traits: None,
+                }),
+            },
+        );
+        let mut refs = RefTable::default();
+        refs.refs.insert(FormId(OBJ_ID), crate::activate::tests::placed(OBJ_ID, BASE_ID, CELL_ID));
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
+        let refs: &'static RefTable = Box::leak(Box::new(refs));
+        let sim = SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) };
+
+        let dynamic_box = CollisionObject {
+            node: None,
+            node_block: 0,
+            node_transform: Iso::IDENTITY,
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Dynamic,
+            layer: layers::CLUTTER,
+            mass: 5.0,
+            friction: 0.5,
+            restitution: 0.0,
+            shape: Shape::Box { half_extents: [10.0; 3] }.into(),
+            shell: 0.0,
+            material: None,
+            wind: false,
+        };
+        let add_body = |phys: &mut PhysState| {
+            phys.world.add_ref(
+                &RefPose {
+                    form_id: OBJ_ID,
+                    position: [0.0, 80.0, 120.0],
+                    rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                    scale: 1.0,
+                },
+                std::slice::from_ref(&dynamic_box),
+            );
+        };
+        let mut phys = PhysState::default();
+        add_body(&mut phys);
+
+        let mut script = ScriptState::over_no_plugins();
+        {
+            let game = &mut script.rt.as_mut().unwrap().game;
+            let files = fnv_ui::MemSource::default().with(
+                "grab.xml",
+                r#"<menu name="HUDMainMenu"><rect name="Grab"><_grabs>0</_grabs><_rels>0</_rels><_hidden>0</_hidden><_grabRef>0</_grabRef><_relRef>0</_relRef></rect></menu>"#,
+            );
+            game.ui_tree.load_menu(&files, "grab.xml").unwrap();
+            game.ui_tree.update();
+            let setup = "Begin Function {}\n\
+                SetEventHandler \"OnPlayerGrab\" (Begin Function {ref r}\n\
+                  SetUIFloat \"HUDMainMenu/Grab/_grabs\" ((GetUIFloat \"HUDMainMenu/Grab/_grabs\") + 1)\n\
+                  SetUIFloat \"HUDMainMenu/Grab/_hidden\" 1\n\
+                  if r == 0x301 && GetPlayerGrabbedRef == r\n\
+                    SetUIFloat \"HUDMainMenu/Grab/_grabRef\" ((GetUIFloat \"HUDMainMenu/Grab/_grabRef\") + 1)\n\
+                  endif\n\
+                End)\n\
+                SetEventHandler \"OnPlayerRelease\" (Begin Function {ref r}\n\
+                  SetUIFloat \"HUDMainMenu/Grab/_rels\" ((GetUIFloat \"HUDMainMenu/Grab/_rels\") + 1)\n\
+                  SetUIFloat \"HUDMainMenu/Grab/_hidden\" 0\n\
+                  if r == 0x301 && GetPlayerGrabbedRef == 0\n\
+                    SetUIFloat \"HUDMainMenu/Grab/_relRef\" ((GetUIFloat \"HUDMainMenu/Grab/_relRef\") + 1)\n\
+                  endif\n\
+                End)\n\
+                End\n";
+            game.run_query(setup, Default::default()).unwrap();
+        }
+
+        let mut app = App::new();
+        app.insert_resource(State::new(PlayState::Playing))
+            .insert_resource(sim)
+            .insert_resource(phys)
+            .insert_resource(script)
+            .insert_resource(GrabState::default())
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 120.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .init_resource::<PlayerControl>()
+            .init_resource::<Target>()
+            .init_resource::<Bindings>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Time>()
+            .add_systems(Update, grab);
+
+        let stat = |app: &App, name: &str| {
+            app.world()
+                .resource::<ScriptState>()
+                .rt
+                .as_ref()
+                .unwrap()
+                .game
+                .ui_tree
+                .get_float(&format!("HUDMainMenu/Grab/{name}"))
+                .unwrap()
+        };
+        let step = |app: &mut App| {
+            app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_millis(16));
+            app.update();
+        };
+
+        // 1. Hold Z to grab -> OnPlayerGrab fires once; holding across another frame does not double-fire.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyZ);
+        step(&mut app);
+        assert!(app.world().resource::<GrabState>().held.is_some());
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels"), stat(&app, "_hidden"), stat(&app, "_grabRef")), (1.0, 0.0, 1.0, 1.0));
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear_just_pressed(KeyCode::KeyZ);
+        step(&mut app);
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels")), (1.0, 0.0));
+
+        // 2. Manual release of Z -> OnPlayerRelease fires once; idle frame does not double-fire.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().release(KeyCode::KeyZ);
+        step(&mut app);
+        assert!(app.world().resource::<GrabState>().held.is_none());
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels"), stat(&app, "_hidden"), stat(&app, "_relRef")), (1.0, 1.0, 0.0, 1.0));
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
+        step(&mut app);
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels")), (1.0, 1.0));
+
+        // 3. Menu / PlayState exit release ("play stopped").
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyZ);
+        step(&mut app);
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels")), (2.0, 1.0));
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear_just_pressed(KeyCode::KeyZ);
+        app.insert_resource(State::new(PlayState::Menu));
+        step(&mut app);
+        assert!(app.world().resource::<GrabState>().held.is_none());
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels"), stat(&app, "_hidden")), (2.0, 2.0, 0.0));
+        app.insert_resource(State::new(PlayState::Playing));
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+
+        // 4. Throw via Use (Left Mouse Button) -> OnPlayerRelease fires once ("thrown").
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyZ);
+        step(&mut app);
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels")), (3.0, 2.0));
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear_just_pressed(KeyCode::KeyZ);
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        step(&mut app);
+        assert!(app.world().resource::<GrabState>().held.is_none());
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels")), (3.0, 3.0));
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().reset_all();
+
+        // 5. Simulation removal (picked up / disabled while held) -> OnPlayerRelease fires once ("it is gone").
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyZ);
+        step(&mut app);
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels")), (4.0, 3.0));
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear_just_pressed(KeyCode::KeyZ);
+        app.world_mut().resource_mut::<SimState>().world.set_enabled(FormId(OBJ_ID), false).unwrap();
+        step(&mut app);
+        assert!(app.world().resource::<GrabState>().held.is_none());
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels")), (4.0, 4.0));
+        app.world_mut().resource_mut::<SimState>().world.set_enabled(FormId(OBJ_ID), true).unwrap();
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+
+        // 6. Physics resource teardown while held -> OnPlayerRelease fires once ("physics gone").
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyZ);
+        step(&mut app);
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels")), (5.0, 4.0));
+        app.world_mut().remove_resource::<PhysState>();
+        step(&mut app);
+        assert!(app.world().resource::<GrabState>().held.is_none());
+        assert_eq!((stat(&app, "_grabs"), stat(&app, "_rels"), stat(&app, "_relRef")), (5.0, 5.0, 5.0));
+
+        // Confirm GetPlayerGrabbedRef reads 0 after all releases.
+        let grabbed = app
+            .world_mut()
+            .resource_mut::<ScriptState>()
+            .rt
+            .as_mut()
+            .unwrap()
+            .game
+            .run_query("Begin Function {}\nSetFunctionValue (GetPlayerGrabbedRef)\nEnd\n", Default::default())
+            .unwrap();
+        assert_eq!(grabbed, XVal::Ref(0));
     }
 }

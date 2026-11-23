@@ -295,7 +295,8 @@ pub struct RipplesPlugin;
 
 impl Plugin for RipplesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_ripples).add_systems(Update, update_ripples.after(crate::world::stream).run_if(nvf_play::photo_mode::view_live));
+        app.add_systems(Startup, setup_ripples)
+            .add_systems(Update, update_ripples.after(crate::world::stream).after(crate::water::distant_water).run_if(nvf_play::photo_mode::view_live));
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
                 .init_resource::<RippleUpload>()

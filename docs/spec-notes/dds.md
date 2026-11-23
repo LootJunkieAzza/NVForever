@@ -15,7 +15,8 @@ Tags as in `nif.md`. Observations cover all 26,907 `.dds` files in the owner's a
    bytes), RGB bit count, then red, green, blue and alpha bit masks.
 4. Pixel data follows immediately: for each face, every mip level from largest to
    smallest [documented: MS DDS]. There is no DX10 extension header in these files
-   (no FourCC `DX10`) [observed].
+   (no FourCC `DX10`) [observed]. Files from other tools may have one: then the data
+   starts 20 bytes later (§6).
 
 ## 2. Formats present [observed]
 
@@ -53,6 +54,11 @@ A layout without alpha reads as opaque; luminance is copied to all three colours
 [documented: MS "Map Direct3D 9 Formats to Direct3D 10"]. Alpha-only `DDPF_ALPHA`
 (A8) is not read: Direct3D samples it with black colour, so what it would look like
 in the game is not known.
+
+A FourCC format may carry other flags beside the FourCC flag (Alpha Pixels on a
+DXT1, flags 0x5); the FourCC names the format then [observed: NV Interiors'
+`dcintlenfant*.dds`, flags 0x5 DXT1, drawn by the original; documented: MS
+`DDS_PIXELFORMAT`, `DDPF_FOURCC`].
 
 ## 3. Sizes [observed: exact for all 26,907 files]
 
@@ -93,37 +99,136 @@ explicitly, so rendering does not rely on the naming convention.
 ```json
 {"schema": "fnv.dds.listing/1", "archive": "Fallout - Textures.bsa",
  "files": [{"path": "textures\\x.dds", "width": 512, "height": 512, "mip_count": 10,
-            "levels": 10, "format": "DXT1", "cubemap": false, "faces": 1,
-            "expected_size": 174904, "actual_size": 174904, "error": null}]}
+            "levels": 10, "format": "DXT1", "dxgi_format": null, "cubemap": false,
+            "faces": 1, "array_size": null, "expected_size": 174776,
+            "actual_size": 174776, "error": null}]}
 ```
 
 `mip_count` is the stored value; `levels` the number used (§3). `format` is a name from
 §2 (a row matches on the whole pixel-format flags value), or, for anything else,
 `unknown(flags=0x%x,fourcc=<4 ASCII chars, or 0x + 8 hex digits>,bits=%d,masks=0x%08x/0x%08x/0x%08x/0x%08x)`
-with `expected_size` `null`. `cubemap` = capabilities-2 bit 0x200; `faces` = number of the
-six face bits set (1 when not a cube map). Sizes count the
-bytes after the 128-byte header. `error` is set when the file is not a valid DDS (bad
-magic, short header); then the other fields are `null`. Lab comparator: **keyed** on
-`path`, all fields.
+with `expected_size` `null`. For a file with a DX10 header (§6), `format` is the DXGI
+name of its code (`BC7_UNORM_SRGB`), or `unknown(dxgi=N)` for a code not read, and
+`dxgi_format` is the code itself; `dxgi_format` is `null` for every other file.
+`cubemap` = capabilities-2 bit 0x200 (or the DX10 cube flag); `faces` = faces per array
+element: for a legacy file the number of the six face bits set (1 when not a cube map),
+for a DX10 cube map always 6, one cube per array element (§6.1). `array_size` is a DX10
+header's array size (`null` for every other file). `expected_size` covers every array
+element, face and level, and for a DX10 volume (3D) each level's slices; it is `null`
+for a layout the listing does not size: a legacy volume (capabilities-2 bit 0x200000
+[documented: MS "DDS_HEADER", dwCaps2]), and for a DX10 header a resource dimension
+other than 1D, 2D or 3D, an array size of 0, a volume that is an array or a cube, or a
+1D cube, a cube being whatever `cubemap` says. Sizes count the
+bytes after the headers: 128 bytes, or 148 with a DX10 header. The listing reads the
+headers only; it does not apply the refusals of §6.3. `error` is set when the file is
+not a valid DDS (bad magic, short header, a DX10 file shorter than 148 bytes); then the
+other fields are `null`.
 
-## 6. DX10 extension header (mods)
+Lab comparator (`parity-lab/scenarios/layer2_dds.json`): **keyed** on `path`, with no
+field list, so each row compares every field the independent oracle
+(`tools/capture/oracle_dds.py`) writes: `path`, `width`, `height`, `mip_count`,
+`levels`, `format`, `cubemap`, `faces`, `expected_size`, `actual_size` and `error`
+(`compare_keyed` in `parity-lab/fnvlab/comparators.py` skips fields the oracle row
+lacks). `dxgi_format` and `array_size` are fnvtool's own: the oracle writes neither, so
+they are outside that comparison and are checked by fnvtool's unit tests only.
 
-- The game's own archives have none (§1). Some mods ship textures with one [observed, the
-  owner's load order 2026-11-07: three of 16,435 loose `.dds` files, all DXGI 98 BC7_UNORM,
-  2D, one array element: `textures\LVC\DesertInn1.dds` and `WestwardHo1.dds` (a Las Vegas
-  signs mod), `textures\HotM\parkbrick_lod.dds`].
-- Layout [documented: MS DDS, `DDS_HEADER_DXT10`]: the pixel format's FourCC is `DX10` and
-  five u32 values follow the 128-byte header: DXGI format, resource dimension, misc flags,
-  array size, misc flags 2. The pixel data starts after them (byte 148), laid out as in §3.
-- BC7 [documented: Microsoft, "BC7 Format"] stores 16 bytes per 4×4 block, like DXT5.
-  It is a Direct3D 11 format. Whether the original game, a Direct3D 9 program, draws such a
-  file at all is open (observer check).
-- NVForever reads the DX10 header [design, `crates/fnv-dds`]:
-  - DXGI 70-72 as DXT1, 73-75 as DXT3, 76-78 as DXT5 and 97-99 as BC7 (typeless, UNORM and
-    SRGB alike: colour or not is the caller's choice, as for the legacy formats);
-  - 27-29 as A8B8G8R8 and 87, 90, 91 as A8R8G8B8;
-  - other DXGI formats are refused by number.
+## 6. DX10 header (files from other tools, #2981)
 
-  Before this, the three files above did not load. The shapes using them drew untextured,
-  so the Desert Inn sign by Freeside's wall was a milky white-blue shape at night (owner,
-  2026-11-07, overnight queue item 87).
+No file of the base game has one (§1). Texture tools write it for formats the legacy
+pixel format cannot name (BC7, sRGB variants) and for arrays, and may write it for
+formats a legacy FourCC also names (BC1-BC5, §6.2): the format read is the same either
+way.
+
+### 6.1 Layout
+
+- The header follows when the pixel format has the FourCC flag and the FourCC `DX10`
+  [documented: MS "Programming Guide for DDS", DDS file layout; MS "DDS_HEADER_DXT10",
+  remarks]. It sits between the 128 bytes of §1 and the pixel data, so the data starts
+  at byte 148, and a shorter file is cut off [documented: MS "Programming Guide for
+  DDS", DDS variants: such a file is at least 148 bytes].
+- Five little-endian u32 values, 20 bytes [documented: MS "DDS_HEADER_DXT10"]:
+  1. the `DXGI_FORMAT` code of the data;
+  2. the resource dimension: 2 a 1D, 3 a 2D, 4 a 3D texture;
+  3. miscellaneous flags: 0x4 marks a 2D texture as a cube map;
+  4. the array size: how many textures the file holds (for a cube map, how many cubes,
+     six faces each);
+  5. a second flags value whose low three bits are the alpha mode: 0 unknown (what
+     legacy files have), 1 straight, 2 premultiplied, 3 opaque (every alpha fully
+     opaque), 4 custom (the alpha is a fourth data channel); the other bits are
+     reserved.
+- The levels are laid out as in §3, each array element a full chain [documented: MS
+  "Programming Guide for DDS", texture arrays]; a cube map's element is its six faces.
+  A volume's level holds its slices together, half as many each level, at least one
+  [documented: MS "DDS Volume Texture Example"]. Block formats keep whole 4×4 blocks
+  per level; BC1 and BC4 blocks are 8 bytes, the other BC formats 16 [documented: MS
+  "Programming Guide for DDS", pitch of block-compressed formats].
+
+### 6.2 Codes read
+
+[documented: MS "DXGI_FORMAT enumeration", the numbers of `dxgiformat.h`]
+
+| Code | DXGI name | Read as |
+|---|---|---|
+| 28, 29 | R8G8B8A8_UNORM, _SRGB | A8B8G8R8 (§2.1): bytes R, G, B, A |
+| 71, 72 | BC1_UNORM, _SRGB | DXT1 |
+| 74, 75 | BC2_UNORM, _SRGB | DXT3 |
+| 77, 78 | BC3_UNORM, _SRGB | DXT5 |
+| 80, 81 | BC4_UNORM, BC4_SNORM | BC4: one channel, 8-byte blocks (legacy `BC4U` or `ATI1`, `BC4S`) |
+| 83, 84 | BC5_UNORM, BC5_SNORM | BC5 (dds-bc5.md; legacy `ATI2`, `BC5S`) |
+| 87, 91 | B8G8R8A8_UNORM, _SRGB | A8R8G8B8 (§2): bytes B, G, R, A |
+| 98, 99 | BC7_UNORM, _SRGB | BC7: four channels, 16-byte blocks |
+
+The byte orders of 28 and 87 are those of the legacy masks Microsoft gives for the
+same formats [documented: MS "Programming Guide for DDS", common formats table].
+BC4 and BC5 also come with legacy headers: Microsoft's guide lists the FourCCs `BC4U`
+and `BC4S` for BC4_UNORM and BC4_SNORM, and `ATI2` and `BC5S` for BC5_UNORM and
+BC5_SNORM; all four are read, with data at byte 128 and no sRGB hint or alpha mode.
+`ATI1` and `BC5U` are not in that table [documented: MS "Programming Guide for DDS",
+common formats table]. BC7 has no legacy FourCC in that table, so BC7 is read from a
+DX10 header only.
+
+`ATI1` is read as BC4_UNORM, the same as `BC4U` (#3151). It is the FourCC of ATI's
+one-channel "3Dc+" format, the older name of BC4 [documented: Wikipedia, "3Dc", the
+3Dc+ section: FourCC `ATI1`, also known as BC4], and Microsoft's own DDS library reads
+`ATI1` and `BC4U` alike as BC4_UNORM [documented: DirectXTex wiki, "DDS I/O Functions",
+the Remarks table of legacy FourCCs]. The OpenGL name for the format, RGTC1, is "BC4
+unsigned" [documented: Khronos EXT_texture_compression_rgtc, table C.3]. `BC5U` is
+still not read: the same DirectXTex table gives it as BC5_UNORM, but no file with it
+has been seen.
+
+[observed: the loose `.dds` files of the two mod list installs, Blue Moon and High and
+Dry, headers only, 2026-11-21: 60,826 files; no FourCC (masks) 23,257, `DXT1` 19,980,
+`DXT5` 14,806, `DXT3` 2,737, DX10 BC3_UNORM_SRGB 41, `ATI2` 3, `BC5S` 1, DX10 BC7 1;
+none with `ATI1`, `BC4U`, `BC4S`, `BC5U` or a BC6H code. Archives were not looked in.]
+So `ATI1` is read on the documents' word; no file with it was at hand to draw.
+
+BC6H (DXGI 95 `BC6H_UF16`, 96 `BC6H_SF16`; high dynamic range colour in 16-byte
+blocks) is not read and stays refused as `unknown(dxgi=N)` [design, #3151]: it has no
+legacy FourCC in Microsoft's table, so it needs a DX10 header; the engine has no CPU
+decoder for it and no use that takes values above 1 from a texture file (the sky and
+the lights are computed, not sampled from HDR images). [hypothesis: the codes 95 and 96
+are from memory of `dxgiformat.h`; Microsoft's BC6H page names the two formats without
+their numbers.] A mod texture in BC6H is drawn as missing and listed in the log.
+
+### 6.3 What NVForever does with it [design: #2981]
+
+- Refused (`Unsupported`): any other code (the listing's `unknown(dxgi=N)`), a resource
+  dimension other than 2D, an array size other than 1 (0 included), and a cube map, by
+  the DX10 flag or the legacy capability bit. The engine draws no DX10 cube or array.
+- The `_SRGB` codes are a hint (`DdsHeader::srgb_hint`): the colour space is chosen by
+  what the texture is used for, as for legacy files, never by the code. A diffuse is
+  sRGB, data and normal maps are linear.
+- An OPAQUE alpha mode (`DdsHeader::alpha_opaque`) marks the texture as holding no
+  alpha mask, so a normal map with that mode gets the no-mask specular of nif.md §6.
+  Without it a BC7 or BC3 normal map's alpha is read as its specular mask, as for a
+  legacy DXT5 one. A DX10 BC1 holds no mask on every path, also when decoded to RGBA8
+  for sides off the block grid; a legacy DXT1 decoded so keeps the engine's earlier
+  reading (its alpha taken as a mask), unchanged by this work.
+- The BC4 and BC5 rules hold whichever header the file has. BC7 has no CPU decoder in
+  the engine: it goes to the GPU as blocks when the top level's sides are multiples of
+  4 and the GPU samples BC formats, and is refused otherwise. BC4 is linear data only (a height or a mask): native when aligned and
+  supported, else decoded on the CPU to one byte a texel; a colour or normal-map use
+  is refused. The CPU readers of alpha (cut-out detection, alpha maps) report no alpha
+  for BC4 and BC7, and the generated terrain LOD bake reads no BC4 or BC7 texture.
+- Like legacy files, `Dds::parse` takes up to 32 levels and leaves bytes after the
+  counted ones alone (§3); the GPU upload refuses more levels than the size allows.

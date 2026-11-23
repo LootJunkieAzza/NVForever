@@ -27,6 +27,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
+use fnv_util::words::{tr, trf};
 use nvf_assets::GameData;
 
 const EDGE: f32 = 30.0;
@@ -154,10 +155,10 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
         r.spawn(main).with_children(|m| {
             // The information box.
             let rows = [
-                ("Current Bet:".to_string(), s.bet.to_string()),
-                ("Total Bet:".into(), s.table.total().to_string()),
-                ("Chips:".into(), s.free_chips().to_string()),
-                (format!("{} Earnings:", s.casino_name), s.earnings.to_string()),
+                (tr("Current Bet:").to_string(), s.bet.to_string()),
+                (tr("Total Bet:").into(), s.table.total().to_string()),
+                (tr("Chips:").into(), s.free_chips().to_string()),
+                (trf("{casino} Earnings:", &[("casino", &s.casino_name)]), s.earnings.to_string()),
             ];
             let widths: Vec<(f32, f32)> = rows.iter().map(|(t, v)| (c.text_width(FontKind::Menu, t), c.text_width(FontKind::Menu, v))).collect();
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, 16.0, &widths);
@@ -178,12 +179,12 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
             let any = !s.table.bets.is_empty();
             let h = |k: KeyCode| crate::pad::hint(&[k], crate::pad::at_menu(fnv_game::roulette::MENU_CODE));
             let buttons = [
-                ("Place Bet", h(KeyCode::KeyW), RouletteInput::Place, betting && s.can_place()),
-                ("Remove Bet", h(KeyCode::KeyF), RouletteInput::Remove, betting && any),
-                ("Finish Bet", h(KeyCode::KeyS), RouletteInput::Spin, betting && s.can_finish()),
-                ("Decrease Bet", h(KeyCode::KeyQ), RouletteInput::Decrease, betting && s.bet > s.table.min_bet),
-                ("Increase Bet", h(KeyCode::KeyE), RouletteInput::Increase, betting && s.bet < s.table.max_bet),
-                ("Exit", h(KeyCode::KeyR), RouletteInput::Exit, betting),
+                (tr("Place Bet"), h(KeyCode::KeyW), RouletteInput::Place, betting && s.can_place()),
+                (tr("Remove Bet"), h(KeyCode::KeyF), RouletteInput::Remove, betting && any),
+                (tr("Finish Bet"), h(KeyCode::KeyS), RouletteInput::Spin, betting && s.can_finish()),
+                (tr("Decrease Bet"), h(KeyCode::KeyQ), RouletteInput::Decrease, betting && s.bet > s.table.min_bet),
+                (tr("Increase Bet"), h(KeyCode::KeyE), RouletteInput::Increase, betting && s.bet < s.table.max_bet),
+                (tr("Exit"), h(KeyCode::KeyR), RouletteInput::Exit, betting),
             ];
             let column = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(BUTTONS_TOP), width: u(0.0), height: u(6.0 * BUTTON_H), ..default() };
             m.spawn(column).with_children(|b| {

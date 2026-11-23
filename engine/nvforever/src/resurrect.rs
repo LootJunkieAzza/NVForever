@@ -157,7 +157,7 @@ pub(crate) fn respawn(
     transforms: &Query<&Transform>,
     stats: &mut crate::actors::ActorStats,
 ) -> Option<bool> {
-    let p = fnv_world::placed::placement(world.lo, world.schema, id)?;
+    let p = world.index.placement(world.lo, world.schema, id)?;
     let base = p.base.and_then(|b| fnv_world::placed::base_object(world.lo, world.schema, b))?;
     let to_parent = transforms.get(parent).map_or(Affine3A::IDENTITY, |t| t.compute_affine()).inverse();
     let m = Mat3::from_cols_array(&fnv_world::transform::ref_rotation(rot)).transpose();

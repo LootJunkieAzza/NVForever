@@ -278,7 +278,7 @@ impl Game<'_> {
         let data = self.data;
         let inv = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref())?;
         let plain = data.default_object(crate::data::DefaultObject::Stimpak).or_else(|| data.by_edid("Stimpak"));
-        let mut found: Vec<(FormId, i32)> = inv.iter().filter(|(i, n)| *n > 0 && data.ingestibles.get(i).is_some_and(|d| d.equip_type == 11)).collect();
+        let mut found: Vec<(FormId, i32)> = inv.iter().filter(|(i, n)| *n > 0 && self.ingestible_def(*i).is_some_and(|d| d.equip_type == 11)).collect();
         found.sort_by_key(|(i, _)| (Some(*i) != plain, *i));
         let total = found.iter().map(|(_, n)| n).sum();
         found.first().map(|(i, _)| (*i, total))

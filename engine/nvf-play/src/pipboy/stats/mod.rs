@@ -328,6 +328,10 @@ impl StatsView {
     /// Choose a limb by key; the same one again chooses the whole body.
     pub fn choose_limb(&mut self, i: usize) {
         self.limb = if self.limb == Some(i) { None } else { Some(i) };
+        if matches!(self.hover, Some(Spot::Limb(_))) {
+            self.hover = None;
+            self.cycled = true;
+        }
     }
 
     /// How many of the status page's buttons the view that draws it has: each view gives its own,
@@ -475,8 +479,10 @@ pub fn prepare(
             (AidStep::Perk(f), Some(g)) => *g.player.perks.entry(fnv_sim::FormId(f)).or_default() += 1,
             (AidStep::Fame(f, n), Some(g)) => g.player.reputation.entry(fnv_sim::FormId(f)).or_default()[1] += n,
             (AidStep::Perk(_) | AidStep::Fame(..), None) => warn!("NVF_PLAY_TEST_PIPBOY_STATS: {s:?} needs the scripts' game"),
-            (AidStep::Use(hint), _) => {
-                input.asks.write(UseHint { hint, limb: if hint == model::STIMPAK { view.limb } else { None } });
+            (AidStep::Use(hint), game) => {
+                let hardcore = game.as_ref().is_some_and(|g| g.hardcore());
+                let limb = if hint == model::STIMPAK || (hint == model::DOCTORS_BAG && hardcore) { view.limb } else { None };
+                input.asks.write(UseHint { hint, limb });
             }
             (AidStep::LongDesc, _) => long = true,
             _ => change(&mut view, |v| apply_aid(v, tab, s)),
@@ -493,7 +499,8 @@ pub fn prepare(
         // keyboard's A stepping from S.P.E.C.I.A.L. to a Status left on RAD uses no
         // RadAway (#1899).
         if !new {
-            change(&mut view, |v| ask = keys(&input.keys.snapshot(), v, tab));
+            let hardcore = src.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.hardcore());
+            change(&mut view, |v| ask = keys(&input.keys.snapshot(), v, tab, hardcore));
         }
         if let Some(a) = ask {
             input.asks.write(a);
@@ -660,7 +667,7 @@ fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
 }
 
 /// The page's keys (module notes); a hint's item to use.
-fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option<UseHint> {
+fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize, hardcore: bool) -> Option<UseHint> {
     use KeyCode::*;
     if tab == 0 {
         if keys.just_pressed(ArrowUp) && view.status > 0 {
@@ -683,7 +690,7 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
         for (i, k) in [KeyS, KeyE, KeyA, KeyX].into_iter().enumerate() {
             let shown = (view.status == 0 && i < 2) || (view.status == 1 && i >= 2);
             if shown && keys.just_pressed(k) {
-                ask = hint_pressed(view, i);
+                ask = hint_pressed(view, i, hardcore);
             }
         }
         return ask;
@@ -706,12 +713,21 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
     None
 }
 
-/// A hint's key or button: the item to use (the Stimpak on the limb aimed at), or `None`
-/// for Rad-X, which is not used from here, or the separate limb-switch hint.
-pub(crate) fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
+/// Which hint item a click on a limb's bar, word or picture uses on CND: a Doctor's Bag in
+/// Hardcore mode (where Stimpaks mend no limb), else a Stimpak [observed: FalloutNV.esm MESG
+/// `HelpHealingLimbs`; design: #3431].
+pub(crate) fn limb_click_hint(hardcore: bool) -> usize {
+    if hardcore { model::DOCTORS_BAG } else { model::STIMPAK }
+}
+
+/// A hint's key or button: the item to use (a Stimpak on the limb aimed at, and in Hardcore
+/// a Doctor's Bag on the limb aimed at or on all limbs when none is aimed), or `None` for
+/// Rad-X, which is not used from here, or the separate limb-switch hint.
+pub(crate) fn hint_pressed(view: &StatsView, hint: usize, hardcore: bool) -> Option<UseHint> {
     match hint {
         model::STIMPAK => Some(UseHint { hint, limb: view.aimed() }),
-        model::DOCTORS_BAG | model::RADAWAY => Some(UseHint { hint, limb: None }),
+        model::DOCTORS_BAG => Some(UseHint { hint, limb: hardcore.then(|| view.aimed()).flatten() }),
+        model::RADAWAY => Some(UseHint { hint, limb: None }),
         SWITCH_LIMBS => None,
         _ => {
             info!("pipboy stats: {} (using it from the STATS page is not built)", HINT_KEYS[hint]);
@@ -759,12 +775,13 @@ fn on_out(out: On<PointerOut>, spots: Query<&Spot>, view: Option<ResMut<StatsVie
     });
 }
 
-fn on_click(click: On<PointerClick>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, mut asks: MessageWriter<UseHint>) {
+fn on_click(click: On<PointerClick>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, prepared: Option<Res<Prepared>>, mut asks: MessageWriter<UseHint>) {
     let (Ok(&spot), Some(mut view)) = (spots.get(click.entity), view) else { return };
     let tab = pip.tab();
+    let hardcore = prepared.as_ref().and_then(|p| p.snap.as_ref()).is_some_and(|s| s.hardcore);
     let ask = match spot {
-        Spot::Hint(i) => hint_pressed(&view, i),
-        Spot::Limb(i) => Some(UseHint { hint: model::STIMPAK, limb: Some(i) }),
+        Spot::Hint(i) => hint_pressed(&view, i, hardcore),
+        Spot::Limb(i) => Some(UseHint { hint: limb_click_hint(hardcore), limb: Some(i) }),
         _ => None,
     };
     if let Some(a) = ask {
@@ -1266,6 +1283,16 @@ pub fn use_hints(
             sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
             continue;
         }
+        if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.has_pre_activate_inventory_handlers()) {
+            let allowed = crate::script::with_world(rt, &mut sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, item, 0, true));
+            if !allowed {
+                info!("pipboy stats: {name} not used: activation prevented by script");
+                if let Some(m) = active.0.as_mut().filter(|m| m.mode == crate::menu::model::Mode::Inventory) {
+                    let _ = m.refresh(&mut sim.world);
+                }
+                continue;
+            }
+        }
         if let Err(e) = sim.world.remove_item(FormId::PLAYER_REF, item, 1) {
             warn!("pipboy stats: {name} not used: {e}");
             continue;
@@ -1413,10 +1440,7 @@ mod tests {
             let index: String = PAPERDOLL_FILES.iter().map(|name| format!("{name}.dds owned-paperdoll-atlas.dds, 0, 2D, 0, 0, 0, 0.125, 0.125\n")).collect();
             std::fs::write(owned.0.join("textures/interface/interfaceshared.tai"), index).unwrap();
         }
-        let data = nvf_assets::GameData {
-            vfs: Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()),
-            schema: Arc::new(fnv_nif::Schema::default()),
-        };
+        let data = nvf_assets::GameData::new(Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
         let mut world = World::new();
         world.run_system_once(move |mut commands: Commands| {
             let mut kit = Kit::default();
@@ -1544,17 +1568,23 @@ mod tests {
     #[test]
     fn the_stimpak_goes_on_the_limb_pointed_at_or_chosen() {
         let mut v = StatsView::default();
-        assert_eq!(hint_pressed(&v, model::STIMPAK), Some(UseHint { hint: 0, limb: None }));
+        assert_eq!(hint_pressed(&v, model::STIMPAK, false), Some(UseHint { hint: 0, limb: None }));
         v.choose_limb(4);
         assert_eq!(v.aimed(), Some(4));
         v.hover = Some(Spot::Limb(1));
-        assert_eq!(hint_pressed(&v, model::STIMPAK), Some(UseHint { hint: 0, limb: Some(1) }));
-        // The Doctor's Bag is for every limb; the same key again is the whole body.
-        assert_eq!(hint_pressed(&v, model::DOCTORS_BAG), Some(UseHint { hint: 1, limb: None }));
+        assert_eq!(hint_pressed(&v, model::STIMPAK, false), Some(UseHint { hint: 0, limb: Some(1) }));
+        // Outside Hardcore the Doctor's Bag heals every limb; in Hardcore it aims at the
+        // hovered or chosen limb, or the whole body when none is aimed (#3431).
+        assert_eq!(hint_pressed(&v, model::DOCTORS_BAG, false), Some(UseHint { hint: 1, limb: None }));
+        assert_eq!(hint_pressed(&v, model::DOCTORS_BAG, true), Some(UseHint { hint: 1, limb: Some(1) }));
+        assert_eq!(limb_click_hint(false), model::STIMPAK);
+        assert_eq!(limb_click_hint(true), model::DOCTORS_BAG);
         v.hover = None;
+        assert_eq!(hint_pressed(&v, model::DOCTORS_BAG, true), Some(UseHint { hint: 1, limb: Some(4) }));
         v.choose_limb(4);
         assert_eq!(v.aimed(), None);
-        assert_eq!(hint_pressed(&v, model::RADAWAY), Some(UseHint { hint: model::RADAWAY, limb: None }));
+        assert_eq!(hint_pressed(&v, model::DOCTORS_BAG, true), Some(UseHint { hint: 1, limb: None }));
+        assert_eq!(hint_pressed(&v, model::RADAWAY, false), Some(UseHint { hint: model::RADAWAY, limb: None }));
     }
 
     #[test]

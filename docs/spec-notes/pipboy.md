@@ -65,6 +65,25 @@ Authored core and CPU pose regressions exercise this mapping; their execution
 and an installed-profile replay are recorded separately. No model visibility
 override or suppressed readiness warning is part of this change.
 
+[design: #2862, `player_body.rs`, `pipboy_arm.rs`, `anim_blend.rs`] When the
+built-in Pip-Boy arm clip is active (`pip.on_arm() && pip.warming.is_none()`,
+outside the Esc pause menu) while the virtual world clock is held
+(`--menu-pause original`), first-person seam smoothing also advances by the
+menu frame time (`PlayClock::frame_secs`) without ticking ordinary world/weapon
+clips or skipped script-sequence fades. Otherwise a frame without a new script
+tick (including `--no-scripts`, render frames between script ticks, and
+lowering transitions) leaves `Animator::last_dt == 0`, causing `Seams::smooth`
+to copy the pre-menu arms-down pose over the raised Pip-Boy when the player's
+hands were empty or holstered. Hidden warm-up poses evaluate unsmoothed
+(`Animator::pose_unsmoothed`) so they neither freeze on `last_dt == 0` nor
+overwrite live seam history, and retain `WarmUnculled`/`NoFrustumCulling` across
+consecutive warm frames until warming finishes or aborts (preventing a
+same-frame deferred-remove race between `restore_warm_pose` and `draw_warm_pose`
+that culled the rig behind the camera on alternating warm frames and triggered
+the zero-submission readiness cap). `requeue_raise` also refreshes retained
+mesh bins once on entering `Phase::Up`, and `show_rigs` keeps the first-person
+root's ECS `Visibility` synchronized with `Rig::shown`.
+
 - **The clip** [observed]: `pipboy.kf` is one sequence `Pipboy`, 0.7333 s, clamped, with
   text keys `start` 0, `Blend: 8` 0.033, `Hit` 0.333, `end` 0.733. It drives
   `Camera1st` (a small move, no turn) and both arms from the spine out. Measured on the
@@ -598,18 +617,21 @@ is the top left 85 × 92 of `head.dds`) [observed].
     and RadX (2) (default-objects.md §1), else the Editor IDs `Stimpak`, `NVDoctorBag`,
     `RadAway`, `RadX` [observed: FalloutNV.esm's list names those four, so nothing changes
     with the shipped data; ESM full audit 2026-10-24].
-    **Using them on CND** (built 2026-10-23, owner's request) [design]: S or a click
-    on the Stimpak hint uses one on the body, or on the limb chosen (keys 1-6: head,
-    torso, left arm, right arm, left leg, right leg; the same key again the body; the
-    pointer on a limb's bar chooses it while there, and a click on the bar uses a
-    Stimpak on that limb); E or the Doctor's Bag hint uses one on every limb. An item is
-    not used when it would not heal: a Stimpak on the body at full health, on a limb
-    that is whole, a Stimpak on a limb in Hardcore mode (it mends no limb there
+    **Using them on CND** (built 2026-10-23, owner's request; updated for Hardcore limb
+    selection, #3431) [design]: S or a click on the Stimpak hint uses one on the body, or on
+    the limb chosen (keys 1-6: head, torso, left arm, right arm, left leg, right leg; the
+    same key again the body; the pointer on a limb's bar chooses it while there, and a click
+    on the bar, word or picture uses a Stimpak on that limb outside Hardcore, or a Doctor's
+    Bag on that limb in Hardcore); E or the Doctor's Bag hint uses one on every limb outside
+    Hardcore, and in Hardcore on the limb hovered or chosen (or every limb when none is
+    aimed). An item is not used when it would not heal: a Stimpak on the body at full health,
+    on a limb that is whole, a Stimpak on a limb in Hardcore mode (it mends no limb there
     [observed: FalloutNV.esm help text, "In Hardcore Mode, a Doctor's Bag or an actual
-    doctor is required"]), a Doctor's Bag with no limb hurt, or none carried
-    (`model::refusal`). The chosen or pointed-at limb's bracket is boxed. The item is
-    taken, its consume sound plays and the runtime uses it as the inventory does
-    (`stats::use_hints`); what it does to the limbs: aid-items.md §3.
+    doctor is required"]), a Doctor's Bag on a limb that is whole, or on the body with no
+    limb hurt, or none carried (`model::refusal`). The chosen or pointed-at limb's bracket
+    is boxed (on both hand-built and tile-drawn pages). The item is taken, its consume sound
+    plays and the runtime uses it as the inventory does (`stats::use_hints`); what it does
+    to the limbs: aid-items.md §3.
     [design: `engine/nvf-play/src/pipboy/stats/mod.rs`, `stats/read.rs`, `pad.rs`;
     #1898] The middle hint uses `sSwitchLimbs` through `ui_loading::game_string`,
     with the repository's string table as fallback (NVForever's own label) [design:
@@ -670,8 +692,12 @@ is the top left 85 × 92 of `head.dds`) [observed].
   temporary modifiers, less damage), which holds the worn apparel's enchantments in the
   temporary pool [documented: GECK wiki ActorValue; aid-items.md §13; #2495], skills kept to
   0–100; "(+)" or "(-)" when it differs from the permanent value [observed: "34 (+)";
-  hypothesis: "(-)"]. Perks: the player's perks, playable and not hidden by PERK DATA
-  [hypothesis: its bytes as trait, minimum level, ranks, playable, hidden], traits
+  hypothesis: "(-)"]. Perks: the player's perks that are not Hidden by PERK DATA
+  [hypothesis: its bytes as trait, minimum level, ranks, playable, hidden; documented: GECK
+  wiki Category:Perk, Hidden "does not show up in the user interface", Playable only that
+  the level-up menu offers it]. Perks that are not Playable (challenge perks such as Lord
+  Death, implants, companion and quest perks: 62 of FalloutNV.esm's 176 [observed: #3118])
+  are listed [hypothesis: as the original does; capture a non-Playable perk's row], traits
   included [hypothesis], in name order, the rank as the number when the perk has more
   than one [hypothesis].
   - Names, descriptions and pictures: AVIF FULL, DESC, ICON (the record of code c is
@@ -1028,7 +1054,7 @@ rads [observed: the runs, 0, then 450; hypothesis: a need's on its own page], `u
 | `stats_player_<part>_pct_meter/_Value` | the limb's condition as a fraction [observed: the runs, 1, 0.40, 0] | `Snapshot::limbs`. The file shows the bar or the `_crippled` word from it [documented: the file; observed: the runs] |
 | `stats_player_<part>/filename` | the limb's picture, "_broken" at 0 [observed: the runs, `left_leg_broken.dds`, `head.dds`] | `stats::boy_picture` |
 | `stats_player_face/filename` | `face_00.dds` always [observed: at 1 and 0.40; when others show is not known] | `stats::BOY_FACE` |
-| `stats_player_<part>_pct/target`, `_crippled/target` | true: the Stimpak's click on a limb [owner 2026-10-23]; the file gives only the picture one, while the meter is under 1 | a click is `StatsTile::Limb`, `UseHint`, and so is one on the picture or, over the head, the face [observed: the runs, id 24] |
+| `stats_player_<part>_pct/target`, `_crippled/target` | true: the limb healing click on CND (Stimpak outside Hardcore [owner 2026-10-23], Doctor's Bag in Hardcore [#3431]); the file gives only the picture one, while the meter is under 1 | a click is `StatsTile::Limb`, `UseHint`, and so is one on the picture or, over the head, the face [observed: the runs, id 24] |
 | `stats_player_name/string` | "<name> - <`sStatsLVLAbbrev`> <level>": the hand-built page's "Level" is off the original's screen, so the setting's word | `Snapshot` |
 | hint `button_text/string` | a count in parentheses when some are carried, the item's name from its record | `model::hint_text`, `Hints` |
 | hint `_PCButtonText` | the key: `sPCMenuHintS`, `E`, `A`, `X`, with a controller the button's | `pad::game_hint` |
@@ -1044,7 +1070,8 @@ rads [observed: the runs, 0, then 450; hypothesis: a need's on its own page], `u
 The arrow's place is the file's from the root's two values [observed: the runs: the zero-to-full span
 over `user2`]. `stats_healing_mode` is the file's, a controller's only [documented: the file]; hidden, it
 keeps a box's height over the bag's hint [observed: the runs, the bag's y 114], so with no words of its own
-its text holds a space to be measured [design].
+its text holds a space to be measured, or `sSwitchLimbs` when present so it displays and cycles limbs
+(`StatsTile::SwitchLimbs`) when shown with a controller [design: #3431].
 
 **Pictures' sizes**, on every tab: `filewidth` and `fileheight` of each picture under the menu, its file's
 texels times its zoom, written for the file it shows (`write_file_sizes`), as the file works from them
@@ -1055,11 +1082,14 @@ none [design].
 
 **The six buttons** are the tabs' prefab, so they get `write_tabs`' marks (`mark_inner_rects`): unmarked each
 inner rect stands twice as far down, its words hidden and over the next button.
-Input: `StatsTile::Sub`, `Hint`, `Limb`, and hover gives `StatsView::hover` for `aimed()`.
+Input: `StatsTile::Sub`, `Hint`, `SwitchLimbs`, `Limb`, and hover gives `StatsView::hover` for `aimed()`
+(an unmoved pointer on a limb does not reclaim a limb chosen by keyboard/controller, matching the hand-built
+page's `keep_limb`).
 
-**Lost behind the switch**, for the maintainer to accept: the hand-built page's box on a limb
-pointed at or chosen by a key has no tile, so a limb chosen by 1 to 6 still aims the Stimpak but shows
-nothing; a dim hint gives no click, so no refusal's sound or log line from it.
+**Selection box and dim hints** [design: #3431]: when a limb is hovered or chosen on CND (`StatsView::aimed`),
+the tile page frames that limb's bar (`_pct`) or `"Crippled"` word (`_crippled`) with a four-edge `Look::Box`
+appended to `pieces` after `usable` (no extra tile, zero pieces added when no limb is aimed). **Lost behind
+the switch**, for the maintainer to accept: a dim hint gives no click, so no refusal's sound or log line from it.
 
 **Left out**: the rad effects' row (`stats_rad_effects_template`, `stats_rad_effects_bracket`), a label
 and a column per effect at high rads and on the needs' pages [observed: the runs]: the hand-built page has
@@ -1442,7 +1472,23 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     McCarran 8, Hoover Dam 7]), flags `FNAM`, radius `XRDS`. Shown when the player has been
     within the radius (`XRDS`) in the marker's own worldspace with its type's icon,
     or when ShowMap or the Visible flag made it known, with the undiscovered icon
-    [hypothesis]. A marker without `XRDS` is found within `iMapMarkerRevealDistance`
+    [hypothesis]. `GetMapMarkerVisible` reads the authored flags before the player has
+    found the marker: `FNAM` Visible (1) alone gives 1, Visible | Can Travel To (3)
+    gives 2, Can Travel To alone (2) gives 0, as does no flag [observed: observer check
+    252, 2026-11-22, campaign `o31_mapmarker_visible` with a probe plugin overriding
+    Coyote Den 0x00154A69 to 1, Hoover Dam 0x00135E5F to 3 and Jacobstown 0x000CDF57 to
+    2, and Honest Hearts' Southern Passage, authored 3, read as it ships]. JIP's
+    `GetMapMarkerTravel` read 0 for the Can Travel To alone marker and 1 for the
+    Visible | Can Travel To ones [observed: same runs], so Can Travel To without Visible
+    gives no fast travel either [hypothesis as a rule]. Unflagged markers in the same
+    save read 0 until shown or found; `ShowMap` 0 made one read 1 and `ShowMap` 1 made
+    one read 2; `ShowMap` 0 on a marker already at 2 left it at 2; walking into a marker's
+    radius after `player.MoveTo` made it read 2 and raised Locations Discovered by one
+    [observed: same runs, control run without the probe plugin]. In the base game only
+    Southern Passage sets any of these flags: every placed MapMarker of FalloutNV.esm (189),
+    DeadMoney.esm, OldWorldBlues.esm and LonesomeRoad.esm has `FNAM` 0, and HonestHearts.esm
+    has one at 3 among 55 [observed: a scan of every MapMarker reference, 2026-11-22].
+    A marker without `XRDS` is found within `iMapMarkerRevealDistance`
     [documented: GECK wiki "Complete List of GameSettings", the Fallout: New Vegas default
     1000; no master sets it], that setting being this distance a [hypothesis] (#2338;
     observer check 128); a plugin's value is used as it is, and 0 finds no such marker by
@@ -1512,6 +1558,28 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     marker's texture coordinates equal the box's middle within 0.001), no does
     nothing. With a marker placed it asks with three answers, in this order: move (to
     the highlight box's spot), remove, leave (it stays).
+  - **With the mouse** (#3324) [design]: a click on a map away from any marker (the left
+    button pressed and let go on the map's window, the pointer moving no more than 6
+    units between, as a travel click) does what X does there, of the place under the
+    highlight box at the pointer: it asks the question above, or under the player's No
+    Place Marker Popup tweak answers at once as X does (docs/design/tweaks.md). The
+    click is read once the map is laid out for good on the frame the button is let go
+    (its pan and zoom, the window the page drawn from the file published and any second
+    layout of it, the highlight box as it stands then): on the World Map, with the
+    player's Map Selectable Companions tweak on and companions under the box then, it
+    summons them; else with a marker under the box it asks to travel there instead and
+    places nothing. A click wins over Enter (A, the Travel hint) in the same frame: one
+    question, the click's. The Local Map has no travel, so a click anywhere
+    on it places (on a door or marker the box has taken, at its spot, as X there). A
+    press that moved further is a drag and does neither; a press on a hint over the map
+    is the hint's; with a question box up the box takes every click; a map that cannot
+    be drawn (a worldspace without map data) takes none, nothing being under its box; a
+    press held while DATA closes (another page, the Pip-Boy down) is let go with it
+    (`data.rs::travel_ask`, `take_click`, `step`). The capture above placed the marker
+    with X [observed]; how the original's mouse places it (a left click on an
+    empty spot, whether it asks first) is [hypothesis] (docs/handoff/observer-checks.md
+    #262). Log: `pipboy map: a click on the <world|local>
+    map away from any marker: Place Marker`, then Place Marker's own lines.
   - The words are game settings by name: `sSetMarkerQuestion` (no marker yet),
     `sMoveMarkerQuestion` (one placed), `sYes`, `sNo`, `sMoveMarker`, `sRemoveMarker`,
     `sLeaveMarker` [documented: the GECK wiki's Complete List of GameSettings names
@@ -2239,3 +2307,49 @@ still need runtime checks after this review revision.
   positive emitted dimensions may differ by at most one representable f32 step when
   an atlas subrectangle is multiplied back into canvas units. Normalized source
   regions and the selected atlas rectangle remain independent, unchanged checks.
+
+### List-row `<clips>` under `<clipwindow>` (`StatsMenu`, `InventoryMenu`, `MapMenu`)
+
+- [documented: GECK wiki `clipwindow`] In `list_box.xml` + `list_box_template.xml`,
+  `<clipwindow> 1 </clipwindow>` on a list container defines the clipping window for
+  descendants carrying `<clips> 1 </clips>`. On a list row (`stats_list_template_item`,
+  `IM_InventoryListTemplateRect`, etc.), `<clips> 1 </clips>` opts that row into the
+  list's `<clipwindow>` rather than cropping the row's own text children
+  (`ListItemText`, value/modifier texts) to the row's `<hotrect>` height.
+- [design] Because `fnv_ui::input::clips_children` retains self-clipping for legacy
+  `<clips>` layouts, `tiles::list::unclip_row_children` marks live direct children of a
+  `<clips>` row under a `<clipwindow>` list with `fnv_ui::input::OUTSIDE_CLIP` (the same
+  mechanism `tiles::vats_menu` uses for right-justified queue rows). Both layout and
+  pointer hit-testing then assign `parent.clip_above` — the enclosing list's
+  `<clipwindow>` — to the row's text children. This prevents rows whose `ListItemText`
+  vertical alignment offset exceeds `_VerticalSpacing` from failing `StatsMenu`
+  readiness with `row 0 does not fit` (or `InventoryMenu` / `MapMenu` with `no row shows
+  whole`) while keeping list-window clipping and off-canvas/narrow-window rejections
+  intact.
+- [hypothesis] Original-game clipping of nested grandchildren inside a `<clips>` list
+  row and full installed-profile visual verification remain unqualified without an
+  original-game capture.
+
+### Restructured container & `<hotrect>` scrollbar fallbacks (`InventoryMenu`, `MapMenu`)
+
+- [design] `InventoryMenu` and `MapMenu` resolve required and written tiles by exact
+  vanilla path first (`Ui::find_tile`) so unmodded menu files behave identically, and
+  fall back segment-by-segment to direct child or live descendant search under each
+  enclosing container (`tiles::stats_menu::resolve_tile`) when a UI overhaul wraps a
+  tile (such as `IM_ItemIcon`, `IM_ModButton`, or `MM_QuestObjectivesList`) inside an
+  extra container `<rect>`. Scoping each segment to the previously resolved container
+  keeps generic child names (`button_text`, `CI_TitleText`, scrollbar pieces) from
+  matching sibling subtrees, and still rejects menus where a required tile is absent.
+- [design] `InventoryMenu::built` checks `IM_InventoryListTemplate`'s
+  `IM_Template_ItemMarker` as `<image>` first (vanilla), falling back to `<rect>` when
+  a modded row template implements the equipped marker as a composite `<rect>` container
+  (the adapter only writes `visible` on `IM_Template_ItemMarker`).
+- [design] `tiles::layout::tile_box` evaluates a single live tile's laid-out rectangle,
+  inherited clip window, and ancestor-propagated visibility using the same ancestor walk
+  as `tiles::layout::layout`, including `<hotrect>` containers that `layout` does not
+  emit as drawable pieces. `MapMenu::pane_window`, `MapMenu`'s scrolling text-scrollbar
+  marker visibility check, and `tiles::list::marker_grab_on` read `tile_box` so modded
+  `list_box.xml` / `scrollbar_vert.xml` layouts that declare `lb_scrollbar` or
+  `scrollbar_vert_marker` as `<hotrect>` containers stay on the tile tree without
+  falling back to hand-drawn pages.
+

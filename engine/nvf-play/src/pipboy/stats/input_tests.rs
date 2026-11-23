@@ -154,10 +154,11 @@ fn cnd_pad_x_cycles_all_limbs_and_wraps_to_the_body() {
     for expected in (0..6).map(Some).chain([None, Some(0)]) {
         let mut input = ButtonInput::default();
         input.press(key);
-        assert_eq!(keys(&input, &mut view, 0), None);
+        assert_eq!(keys(&input, &mut view, 0, false), None);
         assert_eq!(view.limb, expected);
         assert_eq!(view.aimed(), expected);
-        assert_eq!(hint_pressed(&view, model::STIMPAK).unwrap().limb, expected);
+        assert_eq!(hint_pressed(&view, model::STIMPAK, false).unwrap().limb, expected);
+        assert_eq!(hint_pressed(&view, model::DOCTORS_BAG, true).unwrap().limb, expected);
     }
     // A pointer left on a limb must not mask the new choice.
     view.hover = Some(Spot::Limb(2));
@@ -167,9 +168,111 @@ fn cnd_pad_x_cycles_all_limbs_and_wraps_to_the_body() {
         let mut view = StatsView { status, ..default() };
         let mut input = ButtonInput::default();
         input.press(key);
-        keys(&input, &mut view, tab);
+        keys(&input, &mut view, tab, false);
         assert_eq!(view.limb, None);
     }
+}
+
+#[test]
+fn hardcore_cnd_selects_limbs_for_doctors_bag_and_keeps_body_when_none_aimed() {
+    let mut view = StatsView::default();
+    // Selecting a limb via digit 3 (left arm, index 2) and pressing E targets that limb in Hardcore.
+    let mut input = ButtonInput::default();
+    input.press(KeyCode::Digit3);
+    assert_eq!(keys(&input, &mut view, 0, true), None);
+    assert_eq!(view.aimed(), Some(2));
+    let mut input = ButtonInput::default();
+    input.press(KeyCode::KeyE);
+    assert_eq!(keys(&input, &mut view, 0, true), Some(UseHint { hint: model::DOCTORS_BAG, limb: Some(2) }));
+    // Outside Hardcore, Doctor's Bag still heals the whole body even with a limb chosen.
+    assert_eq!(keys(&input, &mut view, 0, false), Some(UseHint { hint: model::DOCTORS_BAG, limb: None }));
+    // Hovering another limb overrides keyboard choice; pressing digit 3 again clears hover and toggles back to body.
+    view.hover = Some(Spot::Limb(5));
+    assert_eq!(keys(&input, &mut view, 0, true), Some(UseHint { hint: model::DOCTORS_BAG, limb: Some(5) }));
+    let mut toggle = ButtonInput::default();
+    toggle.press(KeyCode::Digit3);
+    keys(&toggle, &mut view, 0, true);
+    assert_eq!(view.aimed(), None);
+    assert_eq!(keys(&input, &mut view, 0, true), Some(UseHint { hint: model::DOCTORS_BAG, limb: None }));
+}
+
+#[test]
+fn hardcore_use_hints_targets_selected_hurt_limb_and_refuses_unhurt_limb() {
+    const DRBAG: FormId = FormId(0x101);
+    let mut forms = FormStore::default();
+    let item = Item {
+        kind: ItemKind::Aid, value: Some(55), money: None, weight: Some(1.0), slots: None,
+        projectile: None, health: None, non_playable: false, cant_drop: false,
+        armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None,
+        weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false,
+        thrown: false, quest_item: false, icon: None, placed_count: None, teaches: None,
+        cant_be_taken: false, modulates_voice: false, weapon_traits: None,
+    };
+    for (id, data) in [
+        (DRBAG, BaseData::Item(item)),
+        (FormId::PLAYER_BASE, BaseData::Actor(ActorBase { entries: Vec::new(), attributes: Some([5; 7]) })),
+    ] {
+        forms.bases.insert(id, BaseForm {
+            id, sig: if id == DRBAG { *b"ALCH" } else { *b"NPC_" },
+            edid: None, name: Some("Doctor's Bag".into()), script: None,
+            prompt: None, voice_filter: false, data,
+        });
+    }
+    forms.edids.insert("nvdoctorbag".into(), DRBAG);
+    let forms = Box::leak(Box::new(forms));
+    let refs = Box::leak(Box::new(RefTable::default()));
+    let mut world = fnv_sim::World::new(forms, refs, SimConfig::default());
+    world.add_item(FormId::PLAYER_REF, DRBAG, 2).unwrap();
+    let sim = crate::sim::SimState { forms, refs, world };
+
+    let mut script = crate::script::ScriptState::over_no_plugins();
+    let g = &mut script.rt.as_mut().unwrap().game;
+    g.set_hardcore(true);
+    fnv_game::functions::add_actor_value_damage(g, FormId::PLAYER_REF, model::LIMBS[2], 100.0);
+
+    let mut app = App::new();
+    app.init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<super::super::KeysTaken>()
+        .init_resource::<crate::menu::PromptKeys>()
+        .init_resource::<crate::menu::ActiveMenu>()
+        .insert_resource(Time::<()>::default())
+        .init_resource::<crate::pause::PlayClock>()
+        .init_resource::<Prepared>()
+        .insert_resource(sim)
+        .insert_resource(script)
+        .insert_resource(PipBoy { page: Page::Stats, phase: super::super::Phase::Up, tabs: [0, 0, 0], ..default() })
+        .insert_resource(StatsView { status: 0, ..default() })
+        .add_message::<super::super::PipBoyInput>()
+        .add_message::<UseHint>()
+        .add_message::<MouseWheel>()
+        .add_message::<crate::ItemUsed>()
+        .add_message::<crate::ui_sounds::UiSound>()
+        .add_systems(Update, (prepare, use_hints).chain());
+    // Frame 1: open page (first frame is `new`).
+    app.update();
+    // Frame 2: select right arm (digit 4 -> index 3, which is whole) and press E -> refused, 2 bags remain.
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.reset_all();
+        keys.press(KeyCode::Digit4);
+        keys.press(KeyCode::KeyE);
+    }
+    app.update();
+    let used: Vec<_> = app.world_mut().resource_mut::<Messages<crate::ItemUsed>>().drain().collect();
+    assert!(used.is_empty(), "unhurt limb must not consume a Doctor's Bag");
+    assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF, DRBAG).unwrap(), 2);
+    // Frame 3: select left arm (digit 3 -> index 2, crippled) and press E -> uses 1 bag on LeftAttackCondition (27).
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.reset_all();
+        keys.press(KeyCode::Digit3);
+        keys.press(KeyCode::KeyE);
+    }
+    app.update();
+    let used: Vec<_> = app.world_mut().resource_mut::<Messages<crate::ItemUsed>>().drain().collect();
+    assert_eq!(used.len(), 1);
+    assert_eq!((used[0].item, used[0].limb), (DRBAG.0, Some(model::LIMBS[2])));
+    assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF, DRBAG).unwrap(), 1);
 }
 
 #[test]

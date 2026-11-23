@@ -353,3 +353,94 @@ controls were unreached. The engine control passed once (full engine 3422 passed
 zero failed, three ignored; strict engine Clippy passed). The typed-filter fixture
 correction and its identical-fixture baseline are unexecuted at authoring. This
 changes fixture inputs and diagnostics only, preserving production policy.
+
+### Crosshair target loss (`OnCrosshairOff`)
+
+[documented: GECK wiki, [OnCrosshairOff](https://geckwiki.com/index.php/OnCrosshairOff)]
+`OnCrosshairOff` is the counterpart to `OnCrosshairOn`: it notifies a registered UDF
+when a reference within activation range leaves the player's crosshair, passing that
+reference as its single argument. Like `OnCrosshairOn`, it supports form/form-list
+filters and colon-qualified form-type event names (`OnCrosshairOff:<formType>`).
+
+[hypothesis] In `Game::set_crosshair_ref`, transitioning from `Some(prev)` to `None`
+dispatches plain `OnCrosshairOff` then `OnCrosshairOff:<formType>` for `prev` (with
+`GetCrosshairRef` already updated to `0`). Transitioning from `Some(prev)` to
+`Some(next)` with `prev != next` dispatches `OnCrosshairOff` (and its typed variant)
+for `prev` before `OnCrosshairOn` (and its typed variant) for `next`. Repeating the
+same target or staying on `None` emits nothing. Plain-before-typed ordering and
+`GetCrosshairRef` visibility inside `OnCrosshairOff` have not been measured in the
+original game.
+
+[design] When no `OnCrosshairOff` or `OnCrosshairOff:*` handler is registered,
+`Game::set_crosshair_ref` performs no type lookup or argument allocation, leaving
+unmodded gameplay unchanged. No third-party mod DLL or extender source code was
+consulted.
+
+## Named key and gamepad button events (`OnKeyDown`, `OnKeyUp`, `OnButtonDown`, `OnButtonUp`)
+
+[documented: GECK wiki, [OnKeyDown](https://geckwiki.com/index.php?title=OnKeyDown),
+[OnKeyUp](https://geckwiki.com/index.php?title=OnKeyUp)] `OnKeyDown` and `OnKeyUp`
+notify a `SetEventHandler`-registered UDF when a keyboard key or mouse button is
+pressed or released, passing the DirectX scancode (256 + n for mouse buttons) as one
+numeric argument. Registration accepts either the plain event name or a colon-qualified
+scancode (`"OnKeyDown:38"`, `"OnKeyUp:203"`).
+
+[documented: GECK wiki, [OnButtonDown](https://geckwiki.com/index.php?title=OnButtonDown),
+[OnButtonUp](https://geckwiki.com/index.php?title=OnButtonUp)] `OnButtonDown` and
+`OnButtonUp` notify a `SetEventHandler`-registered UDF when a gamepad button is pressed
+or released, passing the pressed or released XInput single-button code (`1` D-pad up,
+`2` D-pad down, `4` D-pad left, `8` D-pad right, `16` Start, `32` Back, `64`/`128`
+thumbsticks, `256`/`512` shoulders, `1024` guide, `4096` A, `8192` B, `16384` X,
+`32768` Y) as one numeric argument. A colon-qualified suffix (`"OnButtonDown:4"`,
+`"OnButtonDown:12288"`) accepts either a single button code or a combined decimal
+bitmask so one registration listens for any button bit in that mask.
+
+[design] `Game::jip_keys` (invoked from both `Game::tick` and `Game::page_tick`)
+advances held-key and held-button snapshots once per frame even without subscribers,
+matching `control_edges` ([control-input-events.md](control-input-events.md)). Key
+edges read `ScriptInput::held` and dispatch JIP's `keydown`/`keyup` alongside plain
+`"OnKeyDown"`/`"OnKeyUp"` and colon-qualified `"OnKeyDown:<code>"`/`"OnKeyUp:<code>"`.
+Button edges read `Pad::buttons | Pad::held_buttons` (matching `GetPressedButtons` /
+`IsButtonPressed`) and dispatch plain `"OnButtonDown"`/`"OnButtonUp"` followed by all
+colon-qualified `"OnButtonDown:<mask>"`/`"OnButtonUp:<mask>"` handlers whose decimal
+bitmask overlaps the changed single-button bit, ordered by priority descending and
+registration sequence ascending, with `GetCurrentEventName` returning each handler's
+registered event string.
+
+[hypothesis] Relative ordering between JIP `SetOnKeyDownEventHandler` /
+`SetOnKeyUpEventHandler`, plain `OnKeyDown`/`OnKeyUp`, colon-qualified
+`OnKeyDown:<code>`/`OnKeyUp:<code>`, control events, and `OnButtonDown`/`OnButtonUp`
+within the same frame is a mapped NVForever ordering not yet measured in the original
+game. Whether `DisableKey` suppresses named `OnKeyDown`/`OnKeyUp` or `DisableButton`
+suppresses `OnButtonDown`/`OnButtonUp`, whether `HoldButton` triggers `OnButtonDown`,
+and how native handles multi-button bitmask priority ties or plain `"OnButtonDown"`
+without a colon suffix have not been observed in original-game captures; NVForever
+delivers disabled-key and disabled-button transitions consistently with
+`SetOnKeyDownEventHandler` and `OnControlDown`.
+
+## Player grab events (`OnPlayerGrab`, `OnPlayerRelease`)
+
+[documented: GECK wiki, OnPlayerGrab, OnPlayerRelease] `OnPlayerGrab` and
+`OnPlayerRelease` notify a `SetEventHandler`-registered UDF when the player picks up
+(Control Code 27 / hold Activate) or releases (drops/throws) a grabbed world reference,
+passing the grabbed or released reference as one reference argument. Registration accepts
+the plain event name, `"first"::` form/base/form-list filters, `SetEventHandlerAlt`
+indexed filters (`0::`/`1::`), and colon-qualified form-type names
+(`"OnPlayerGrab:<type>"`, `"OnPlayerRelease:<type>"`).
+
+[design] `Game::set_player_grab` (`crates/fnv-game/src/functions/senses.rs`, called by
+`engine/nvf-play/src/grab.rs` on every grab start and release path: manual release, throw,
+caught/out-of-range drop, menu/VATS/furniture/state exit, simulation absence or body
+removal, and physics teardown) short-circuits on unchanged state so grab/release events
+are symmetric with zero double-fire. With no matching `OnPlayerGrab` or `OnPlayerRelease`
+handlers registered, the dispatch helper performs no form-type lookup or allocation and
+leaves unmodded vanilla behavior unchanged.
+
+[hypothesis] `Game::set_player_grab` updates `senses.grabbed` before dispatching (so
+`IsPlayerGrabbedRef` and `GetPlayerGrabbedRef` report the new grab state inside callbacks),
+runs the reference's `OnRelease` / `OnGrab` blocks before the named extender handlers,
+sets `this = grabbedRef` alongside `arg0 = grabbedRef`, and delivers plain then
+colon-qualified `:formType` events using the canonical `form_type_code` mapping. Relative
+block-vs-handler ordering, exact calling reference, and whether `GetPlayerGrabbedRef`
+still reports the released ref inside `OnPlayerRelease` have not been measured in
+original-game captures.

@@ -42,8 +42,12 @@
 //! the app), so the file ends with a trailer of its own, [`TRAILER_MAGIC`] and the body's
 //! hash, checked before the body reaches the driver: a damaged body is not used. Past
 //! [`MAX_DRIVER_BYTES`] the file is removed, and the next run starts a new cache, since a
-//! `VkPipelineCache` keeps all it was loaded with and would never fit again. The key is
-//! wgpu's for the adapter (`util::pipeline_cache_key`). On NVIDIA it
+//! `VkPipelineCache` keeps all it was loaded with and would never fit again. The composed
+//! shaders' file carries the same trailer: a damaged composition would fail its pipeline for
+//! the run, so a file whose body does not match is not used at all. (The pipeline list has
+//! none: a damaged line is skipped, and a damaged recipe only fails its own build, inside an
+//! error scope.) The key is wgpu's for the adapter (`util::pipeline_cache_key`); another
+//! GPU's file not written for [`STALE_DAYS`] days is removed. On NVIDIA it
 //! adds little to the driver's own disk cache, which already answers; it is for drivers and
 //! settings without one (NVIDIA's shader cache can be switched off or fill up).
 //!
@@ -55,7 +59,8 @@
 //! dropped; the file is cut at 512 MB. It is read on the I/O pool, so the start does not wait
 //! for it.
 //!
-//! **Making shader modules** (naga) no longer holds the shader cache's lock (vendored
+//! **Making shader modules** (naga) no longer holds the shader cache's lock; composing them,
+//! the larger cost, still does (above: on several threads at once it is slower) (vendored
 //! bevy_shader `ModuleStep`, bevy_render `nvf_modules`): a Novac start's 245 modules took
 //! 751 ms one at a time while the compile threads waited 3.9 s in all for the lock
 //! [observed 2026-11-19, `pipeline timing:` lines]. This needs wgpu's error scopes per
@@ -80,7 +85,9 @@
 //! contents are taken there too, not on the main thread) to a temporary file of this
 //! process's own (its PID and a count in the name, so two instances on one home never write
 //! the same one) that is renamed over the old one, so a crash mid-write leaves the previous
-//! one; a driver cache whose contents did not change is not written again.
+//! one; the temporary file such a crash leaves is removed by a later run once it is
+//! [`STALE_TEMP_SECS`] old. A driver cache whose contents did not change is not written
+//! again, and one past the cap is not even copied out again that run.
 
 use crate::pipeline_gate::PipelineGate;
 use bevy::prelude::*;
@@ -173,12 +180,43 @@ impl Plugin for PipelineDiskCachePlugin {
             return;
         }
         let Some(dir) = cache_dir() else { return };
+        let stale_dir = dir.clone();
+        IoTaskPool::get()
+            .spawn(async move {
+                for stale in stale_temp_files(&stale_dir, std::process::id(), std::time::SystemTime::now()) {
+                    match std::fs::remove_file(&stale) {
+                        Ok(()) => info!("pipeline cache: removed {}, left by a save that did not finish", stale.display()),
+                        Err(e) => warn!("pipeline cache: {} not removed: {e}", stale.display()),
+                    }
+                }
+            })
+            .detach();
         let Some(render) = app.get_sub_app_mut(RenderApp) else { return };
         let world = render.world_mut();
+        // The composed shaders and the driver cache are read here, not on the I/O pool as the
+        // list is: both must be in place before the first pipeline is queued (the shader cache
+        // composes through the store, and each pipeline is created with the driver cache).
         let composed = kept.composed.then(|| {
             let file = dir.join(COMPOSED_FILE);
-            let store = Arc::new(ComposedStore::from_bytes(&std::fs::read(&file).unwrap_or_default()));
-            info!("composed shaders: {} kept at {}", store.len(), file.display());
+            let began = Instant::now();
+            let bytes = std::fs::read(&file).unwrap_or_default();
+            // With its trailer, as the driver cache: a damaged composition would fail its
+            // pipeline for the run, so a file whose body does not match is not used at all.
+            let body = match trailed_body(&bytes) {
+                Ok(body) => body,
+                Err(why) if !bytes.is_empty() => {
+                    info!("composed shaders: {} bytes at {}, {why}: starting anew", bytes.len(), file.display());
+                    &[][..]
+                }
+                Err(_) => &[][..],
+            };
+            let store = Arc::new(ComposedStore::from_bytes(body));
+            info!(
+                "composed shaders: {} kept at {} (read in {:.0} ms)",
+                store.len(),
+                file.display(),
+                began.elapsed().as_secs_f64() * 1000.0
+            );
             (store, file)
         });
         let driver = kept.driver.then(|| driver_cache(world, &dir)).flatten();
@@ -264,6 +302,7 @@ fn driver_cache(world: &World, dir: &Path) -> Option<(wgpu::PipelineCache, PathB
         return None;
     };
     let file = dir.join(format!("{key}.bin"));
+    let began = Instant::now();
     let data = std::fs::read(&file).ok().and_then(|d| match driver_body(&d) {
         Ok(body) => Some(body.to_vec()),
         Err(why) => {
@@ -283,21 +322,91 @@ fn driver_cache(world: &World, dir: &Path) -> Option<(wgpu::PipelineCache, PathB
         })
     };
     match &data {
-        Some(d) => info!("pipeline cache: read {} bytes from {}", d.len(), file.display()),
+        Some(d) => info!("pipeline cache: read {} bytes from {} in {:.0} ms", d.len(), file.display(), began.elapsed().as_secs_f64() * 1000.0),
         None => info!("pipeline cache: none yet at {}", file.display()),
     }
+    let (dir, keep) = (dir.to_path_buf(), file.clone());
+    IoTaskPool::get()
+        .spawn(async move {
+            for stale in stale_driver_files(&dir, &keep, std::time::SystemTime::now()) {
+                match std::fs::remove_file(&stale) {
+                    Ok(()) => info!("pipeline cache: removed {}, another GPU's, unused for {STALE_DAYS} days", stale.display()),
+                    Err(e) => warn!("pipeline cache: {} not removed: {e}", stale.display()),
+                }
+            }
+        })
+        .detach();
     Some((cache, file))
+}
+
+/// A temporary file of another process not written for this long is left by a save that
+/// did not finish (a crash or a kill mid-write, `write_replacing`) and is removed.
+const STALE_TEMP_SECS: u64 = 10 * 60;
+
+/// The temporary files of [`write_replacing`] in `dir` (`<name>.bin.<pid>-<n>.tmp`) that
+/// are not this process's (`pid`) and were not written for [`STALE_TEMP_SECS`].
+fn stale_temp_files(dir: &Path, pid: u32, now: std::time::SystemTime) -> Vec<PathBuf> {
+    let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
+    let ours = format!(".{pid}-");
+    read.flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(".tmp") && n.contains(".bin.") && !n.contains(&ours))
+        })
+        .filter(|p| {
+            std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| now.duration_since(t).ok())
+                .is_some_and(|age| age.as_secs() >= STALE_TEMP_SECS)
+        })
+        .collect()
+}
+
+/// Another GPU's driver cache not written for this many days is removed (a machine that
+/// switches between two GPUs keeps both).
+const STALE_DAYS: u64 = 30;
+
+/// The driver cache files in `dir` other than `keep` (wgpu's key: `wgpu_pipeline_cache_*`)
+/// not written for [`STALE_DAYS`].
+fn stale_driver_files(dir: &Path, keep: &Path, now: std::time::SystemTime) -> Vec<PathBuf> {
+    let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
+    read.flatten()
+        .map(|e| e.path())
+        .filter(|p| p.as_path() != keep)
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("wgpu_pipeline_cache_") && n.ends_with(".bin"))
+        })
+        .filter(|p| {
+            std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| now.duration_since(t).ok())
+                .is_some_and(|age| age.as_secs() >= STALE_DAYS * 86_400)
+        })
+        .collect()
 }
 
 /// The body of a driver cache file whose trailer matches it (module notes), or why not.
 fn driver_body(file: &[u8]) -> Result<&[u8], &'static str> {
+    let body = trailed_body(file)?;
+    if body.len() > MAX_DRIVER_BYTES {
+        return Err("more than the cap");
+    }
+    Ok(body)
+}
+
+/// The body of a file written with its trailer ([`driver_file`]: the driver cache and the
+/// composed shaders), when the trailer matches it, or why not.
+fn trailed_body(file: &[u8]) -> Result<&[u8], &'static str> {
     let Some(at) = file.len().checked_sub(TRAILER_LEN) else { return Err("too short for its trailer") };
     let (body, trailer) = file.split_at(at);
     if &trailer[..TRAILER_MAGIC.len()] != TRAILER_MAGIC {
         return Err("no trailer (written by an older build, or damaged)");
-    }
-    if body.len() > MAX_DRIVER_BYTES {
-        return Err("more than the cap");
     }
     let hash = u64::from_le_bytes(trailer[TRAILER_MAGIC.len()..].try_into().unwrap());
     if bevy::shader::nvf_composed::source_hash(body) != hash {
@@ -306,7 +415,7 @@ fn driver_body(file: &[u8]) -> Result<&[u8], &'static str> {
     Ok(body)
 }
 
-/// A driver cache file: the body, then its trailer.
+/// A driver cache file (or the composed shaders'): the body, then its trailer.
 fn driver_file(body: &[u8], hash: u64) -> Vec<u8> {
     let mut out = Vec::with_capacity(body.len() + TRAILER_LEN);
     out.extend_from_slice(body);
@@ -354,7 +463,9 @@ fn save_when_quiet(gate: Option<Res<PipelineGate>>, mut disk: ResMut<DiskCache>)
     disk.last_save = Some(now);
     // The driver cache's contents (up to MAX_DRIVER_BYTES) are copied out on the I/O pool,
     // not here on the main thread.
-    let driver = disk.driver.clone();
+    // Once over the cap (`save_driver`) nothing more is written this run: the contents are
+    // not copied out only to be thrown away.
+    let driver = disk.driver.clone().filter(|_| disk.driver_saved.load(Relaxed) != OVER_CAP);
     let composed = disk.composed.clone().filter(|(store, _)| store.changed());
     let list = disk.list.clone().filter(|(list, _)| list.changed());
     let at_screen_end = disk.at_screen_end;
@@ -367,12 +478,21 @@ fn save_when_quiet(gate: Option<Res<PipelineGate>>, mut disk: ResMut<DiskCache>)
         .spawn(async move {
             // Cleared however the task ends, a panic included: else no save would run again.
             let _writing = ClearOnDrop(writing);
-            if let Some((data, file)) = driver.and_then(|(cache, file)| cache.get_data().map(|d| (d, file))) {
+            // `get_data` is a driver call: not while the device is being switched (the gate
+            // bevy_render's compile tasks hold for the same reason).
+            let data = driver.and_then(|(cache, file)| {
+                let _gate = bevy::render::render_resource::RENDER_DEVICE_API_GATE
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                cache.get_data().map(|d| (d, file))
+            });
+            if let Some((data, file)) = data {
                 save_driver(&data, &file, &driver_saved, asked);
             }
             if let Some((store, file)) = composed {
                 let began = Instant::now();
-                let bytes = store.to_bytes();
+                let body = store.to_bytes();
+                let bytes = driver_file(&body, bevy::shader::nvf_composed::source_hash(&body));
                 match write_replacing(&file, &bytes) {
                     Ok(()) => info!(
                         "composed shaders: saved {} ({} bytes; {} used again and {} composed this run) in {:.0} ms to {}",
@@ -402,12 +522,15 @@ impl Drop for ClearOnDrop {
     }
 }
 
+/// `DiskCache::driver_saved` once the driver cache passed [`MAX_DRIVER_BYTES`] this run.
+const OVER_CAP: u64 = u64::MAX;
+
 /// Write the driver cache's contents unless they are what was written last. Past
 /// [`MAX_DRIVER_BYTES`] the file is removed instead, so the next run starts a new cache
 /// (this one holds everything it was loaded with, so it would never fit again).
 fn save_driver(data: &[u8], file: &Path, saved: &AtomicU64, asked: u32) {
     if data.len() > MAX_DRIVER_BYTES {
-        if saved.swap(u64::MAX, Relaxed) != u64::MAX {
+        if saved.swap(OVER_CAP, Relaxed) != OVER_CAP {
             match std::fs::remove_file(file) {
                 Ok(()) => info!("pipeline cache: {} bytes, more than {MAX_DRIVER_BYTES}: {} removed, the next run starts a new one", data.len(), file.display()),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -569,5 +692,66 @@ mod tests {
         save_driver(b"more", &file, &saved, 3);
         assert_eq!(driver_body(&std::fs::read(&file).unwrap()), Ok(b"more".as_slice()), "written with its trailer");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_damaged_composed_file_gives_an_empty_store() {
+        let store = ComposedStore::from_bytes(&[]);
+        store.put("k".into(), "fn main() {}".into(), vec![("m".into(), Some(1))]);
+        let body = store.to_bytes();
+        let file = driver_file(&body, bevy::shader::nvf_composed::source_hash(&body));
+        assert_eq!(ComposedStore::from_bytes(trailed_body(&file).unwrap()).len(), 1);
+        let mut damaged = file.clone();
+        let at = damaged.len() - TRAILER_LEN - 3; // inside the body, its length unchanged
+        damaged[at] ^= 0x20;
+        assert!(trailed_body(&damaged).is_err(), "a composition damaged at the same length is not used");
+        assert!(trailed_body(&body).is_err(), "an older build's file without the trailer is not used");
+    }
+
+    #[test]
+    fn only_old_temporary_files_of_other_processes_are_removed() {
+        let dir = std::env::temp_dir().join(format!("nvf-pipeline-cache-tmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ours = dir.join("key.bin.1-0.tmp");
+        let other = dir.join("key.bin.2-5.tmp");
+        let foreign = dir.join("notes.tmp");
+        for f in [&ours, &other, &foreign, &dir.join("key.bin")] {
+            std::fs::write(f, b"x").unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        assert!(stale_temp_files(&dir, 1, now).is_empty(), "written just now: a save may be under way");
+        let later = now + std::time::Duration::from_secs(STALE_TEMP_SECS + 60);
+        assert_eq!(stale_temp_files(&dir, 1, later), [other], "not this process's own, nor files not ours");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn only_other_gpus_driver_caches_unused_for_long_are_removed() {
+        let dir = std::env::temp_dir().join(format!("nvf-pipeline-cache-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ours = dir.join("wgpu_pipeline_cache_vulkan_1_2.bin");
+        let other = dir.join("wgpu_pipeline_cache_vulkan_3_4.bin");
+        for f in [&ours, &other, &dir.join(LIST_FILE), &dir.join(COMPOSED_FILE)] {
+            std::fs::write(f, b"x").unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        assert!(stale_driver_files(&dir, &ours, now).is_empty(), "written just now: kept");
+        let later = now + std::time::Duration::from_secs(STALE_DAYS * 86_400 + 60);
+        assert_eq!(stale_driver_files(&dir, &ours, later), [other], "not ours, nor the list or the compositions");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_composed_files_wesl_is_the_one_in_cargo_lock() {
+        // The composed shaders' file names the wesl it was composed with, so that another
+        // wesl's compositions are not used; bevy_shader writes the version by hand.
+        let lock = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../Cargo.lock")).unwrap();
+        let version = lock
+            .split("[[package]]")
+            .find(|p| p.lines().any(|l| l == "name = \"wesl\""))
+            .and_then(|p| p.lines().find_map(|l| l.strip_prefix("version = \"")))
+            .and_then(|v| v.strip_suffix('"'))
+            .expect("wesl in Cargo.lock");
+        assert_eq!(bevy::shader::nvf_composed::WESL_VERSION, version);
     }
 }

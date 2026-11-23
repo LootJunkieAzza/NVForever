@@ -72,7 +72,7 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::camera::{ImageRenderTarget, RenderTarget};
-use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
@@ -641,6 +641,9 @@ fn mask_camera(commands: &mut Commands, eye: Entity, projection: &Projection, im
             RenderTarget::Image(ImageRenderTarget::from(image.clone())),
             projection.clone(),
             Tonemapping::None,
+            // A mask is not a picture: no dither, which Bevy warns of beside
+            // `Tonemapping::None` every frame it sees the camera (#2757).
+            DebandDither::Disabled,
             Msaa::Off,
             Transform::IDENTITY,
             RenderLayers::layer(MASK_LAYER),

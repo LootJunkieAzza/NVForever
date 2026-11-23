@@ -383,11 +383,11 @@ impl ClipSet {
     }
 }
 
-/// [design, #2352] Apply the dart correction only to moving clips, including script
-/// replacements and hurt/weapon sets (`ClipSet` loaders).
+/// Apply the in-place policy for the selected move, including script replacements
+/// and hurt/weapon sets (`ClipSet` loaders; animation.md §9.13).
 fn bind_move(skel: &PreparedSkeleton, clip: Arc<nvf_assets::anim_play::Clip>, mv: Move) -> BoundClip {
     let bound = bind_clip(skel, clip);
-    if mv.is_moving() { bound.locomotion() } else { bound }
+    if mv.is_turn() { bound.turn_in_place() } else if mv.is_moving() { bound.locomotion() } else { bound }
 }
 
 /// A weapon stance's movement clips bound to one skeleton
@@ -499,6 +499,12 @@ pub struct Locomotion {
     /// The first such stretch while it lasts: its frames, time and distance (units), told
     /// once it ends, so a one-frame step and a slide can be told apart (item 187).
     clipless_run: Option<(u32, f32, f32)>,
+    /// Whether "actor base layer fault" was logged for this actor ([`Locomotion::base_fault`], once).
+    baseless_logged: bool,
+    /// The set fading out is one the bed rest changed from (`swimming.rs`: between the
+    /// swimming and standing sets of an actor on the bed): while it fades, a creature
+    /// does not set off at once ([`Locomotion::step`]). Cleared when that fade ends.
+    pub bed_fade: bool,
 }
 
 /// [design, #2352] The creature set's pose-only idle below movement, stance, aim,
@@ -548,7 +554,7 @@ fn under_clip(idle: &BoundClip) -> BoundClip {
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0, clipless_run: None }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0, baseless_logged: false, bed_fade: false, clipless_run: None }
     }
 
     /// The standing set now (kNVSE's SetActorAnimationPath swaps it, anim_paths.rs).
@@ -743,8 +749,18 @@ impl Locomotion {
         if self.blend.prev.is_none() {
             self.prev_set = None;
         }
+        self.bed_fade &= self.prev_set.is_some();
         let before = self.blend.cur.mv;
+        // While the bed rest's change of set fades (`bed_fade`), a creature does not set
+        // off at once (`Blend::set_off_at_once`): that would start the walk from the clip
+        // fading in and drop the other set's, still showing, in one frame; the walk waits
+        // for the fade's end (a blend time) [design, #2980: a lakelurk setting off from
+        // the bed part way through its swimming idle's fade into the standing one]. Other
+        // changes of set set off at once as before.
+        let at_once = self.blend.set_off_at_once;
+        self.blend.set_off_at_once = at_once && !self.bed_fade;
         self.blend.step(choice, dt, |m| set.info(m));
+        self.blend.set_off_at_once = at_once;
         let dir = fnv_actor::jump::dir_index(fnv_actor::jump::jump_dir(self.velocity));
         let land_len = self.set.jump.get(true, dir).map(|c| c.clip.length());
         self.jump.step(self.in_air, dt, land_len);
@@ -753,6 +769,7 @@ impl Locomotion {
         if self.blend.prev.is_none() || self.blend.cur.mv != before {
             self.prev_set = None;
         }
+        self.bed_fade &= self.prev_set.is_some();
         // The idle's own phase: the blend's while the idle plays, else running on.
         if self.blend.cur.mv == Move::Idle {
             self.under.phase = self.blend.cur.phase;
@@ -834,6 +851,72 @@ impl Locomotion {
             fnv_actor::jump::JumpPhase::Land(_) => true,
         };
         self.set.jump.get(land, fnv_actor::jump::dir_index(fnv_actor::jump::jump_dir(self.velocity)))
+    }
+
+    /// The name of the set the actor plays from now ([`Locomotion::posture_set`]), for
+    /// the log.
+    pub fn posture_name(&self) -> &'static str {
+        if self.swimming && self.swim.is_some() {
+            return "swimming";
+        }
+        let armed = self.armed.as_ref().filter(|_| self.armed_on);
+        let limp = if self.alerted { self.hurt_alert.as_ref().or(self.hurt.as_ref()) } else { self.hurt.as_ref() };
+        if self.sneaking && armed.and_then(|a| a.sneak.as_ref()).or(self.sneak.as_ref()).is_some() {
+            return "crouched";
+        }
+        if !self.sneaking && self.limping && armed.and_then(|a| a.hurt.as_ref()).or(limp).is_some() {
+            return "limping";
+        }
+        match (armed.is_some(), self.alerted && self.alert.is_some()) {
+            (true, _) => "armed",
+            (false, true) => "alert",
+            (false, false) => "standing",
+        }
+    }
+
+    /// The file of `clip` when it is one of the clips of the set the actor plays from or
+    /// of the set it fades out of (for the log).
+    pub fn clip_path(&self, clip: &Arc<BoundClip>) -> Option<&str> {
+        [Some(&self.set), self.prev_set.as_ref()].into_iter().flatten().flat_map(|s| s.clips.values()).find(|c| Arc::ptr_eq(&c.bound, clip)).map(|c| c.path.as_str())
+    }
+
+    /// A fault of the actor's base layer (layer 0, its movement clip) after
+    /// [`Locomotion::layers`] filled `player`: no clip there (the set it plays from has
+    /// no clip for the move), or a weight or phase there that is not a finite number.
+    /// Says what layer 1 (the clip fading out) holds then. `None` when the base layer is
+    /// sound. What the body shows follows from the other layers and `BlendPlayer`'s
+    /// rules (a node no clip drives keeps its bind transform; a non-finite mix falls
+    /// back to it); this only reports the layer. A diagnostic (#2980: a creature that
+    /// looked T-posed until it fought, when the aim and attack clips covered its base
+    /// layer).
+    pub fn base_fault(&self, player: &BlendPlayer) -> Option<String> {
+        let mv = self.blend.cur.mv;
+        let fading = || {
+            player.layers[1].as_ref().map_or_else(
+                || "nothing on layer 1".to_string(),
+                |l| format!("layer 1 {} at weight {}", self.clip_path(&l.clip).map_or_else(|| format!("sequence {:?}", l.clip.clip.name), str::to_string), l.weight),
+            )
+        };
+        match &player.layers[0] {
+            None => {
+                let idle = self.set.clips.get(&Move::Idle).map_or("none", |c| c.path.as_str());
+                Some(format!("no {} clip in its {} set ({} clips, idle {idle}); {}", mv.group(), self.posture_name(), self.set.clips.len(), fading()))
+            }
+            Some(l) if !l.weight.is_finite() || !l.phase.is_finite() => {
+                Some(format!("its {} clip in its {} set has weight {} and phase {}; {}", mv.group(), self.posture_name(), l.weight, l.phase, fading()))
+            }
+            Some(_) => None,
+        }
+    }
+
+    /// [`Locomotion::base_fault`] the first time this actor has one (to log once).
+    pub fn base_fault_news(&mut self, player: &BlendPlayer) -> Option<String> {
+        if self.baseless_logged {
+            return None;
+        }
+        let fault = self.base_fault(player)?;
+        self.baseless_logged = true;
+        Some(fault)
     }
 }
 
@@ -1056,6 +1139,9 @@ fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32,
     }
     cost.turn_frames += u64::from(lo.blend.cur.mv.is_turn());
     lo.layers(player);
+    if let Some(fault) = lo.base_fault_news(player) {
+        warn!("actor base layer fault: {}: {fault}", name.map_or("actor", |n| n.as_str()));
+    }
     let drawn = crate::attack_anims::drawn(weapon.as_deref());
     if let Some(w) = weapon.as_mut() {
         if !w.hold {
@@ -1409,6 +1495,75 @@ mod tests {
     use super::*;
 
     #[test]
+    fn turn_moves_remove_exported_root_basis_at_the_pose_consumer() {
+        use fnv_nif::anim::{Channel, TransformTrack};
+        let basis = Quat::from_euler(EulerRot::XYZ, 1.1, 0.4, -0.3);
+        let root_track = Arc::new(TransformTrack {
+            translation: Channel::Static(Some([0.0; 3])),
+            rotation: Channel::Static(Some([basis.w, basis.x, basis.y, basis.z])),
+            euler: None, scale: Channel::Static(None), per_cycle: None,
+        });
+        let body_track = Arc::new(TransformTrack { rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])), ..(*root_track).clone() });
+        let mut clip = (*death_clip(1.0).clip).clone();
+        clip.accum_root = Some("Bip01".into());
+        clip.tracks = vec![("Bip01".into(), root_track), ("Bip01 NonAccum".into(), body_track)];
+        clip.priorities = vec![26, 26];
+        let clip = Arc::new(clip);
+        let skel = PreparedSkeleton {
+            names: vec![Some("Scene Root".into()), Some("Bip01".into()), Some("Bip01 NonAccum".into())],
+            by_name: std::collections::HashMap::from([("Bip01".into(), 1), ("Bip01 NonAccum".into(), 2)]),
+            ..default()
+        };
+        let nodes = (1..=3).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+        let mut player = BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; 3]));
+        let mut out = Vec::new();
+        for mv in [Move::TurnLeft, Move::TurnRight, Move::Idle, Move::Forward, Move::Backward] {
+            let bound = Arc::new(bind_move(&skel, clip.clone(), mv));
+            player.layers[0] = Some(Layer { clip: bound, phase: 0.5, weight: 1.0 });
+            player.sample(&mut out);
+            let root = out.iter().find(|(i, _)| *i == 1).unwrap().1.rotation;
+            let expected = if mv.is_turn() { Quat::IDENTITY } else { basis };
+            assert!(root.dot(expected).abs() > 1.0 - 1e-6, "{mv:?}: {root:?}");
+            assert!(out.iter().find(|(i, _)| *i == 2).unwrap().1.rotation.dot(Quat::IDENTITY).abs() > 1.0 - 1e-6);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires local KF files in NVF_TURN_CLIP_DIR and NIF schema in NVF_NIF_SCHEMA"]
+    fn loaded_turn_assets_keep_accumulation_root_upright() {
+        use fnv_nif::anim::sequences;
+        use fnv_nif::scene::Decoded;
+        use fnv_nif::{NifFile, Schema};
+        let clips = std::path::PathBuf::from(std::env::var_os("NVF_TURN_CLIP_DIR").expect("NVF_TURN_CLIP_DIR"));
+        let schema_path = std::path::PathBuf::from(std::env::var_os("NVF_NIF_SCHEMA").expect("NVF_NIF_SCHEMA"));
+        let schema = Schema::load_dir(&schema_path).unwrap();
+        let skel = PreparedSkeleton {
+            by_name: std::collections::HashMap::from([("Bip01".into(), 1), ("Bip01 NonAccum".into(), 2)]),
+            ..default()
+        };
+        for (file, mv) in [("2haturnleft.kf", Move::TurnLeft), ("2haturnright.kf", Move::TurnRight), ("mtturnleft.kf", Move::TurnLeft), ("mtturnright.kf", Move::TurnRight)] {
+            let data = std::fs::read(clips.join(file)).unwrap();
+            let nif = NifFile::parse(&data, Some(&schema)).unwrap();
+            let decoded = Decoded::new(&nif, &data, &schema);
+            let sequence = sequences(&nif, &decoded).into_iter().next().expect("turn sequence");
+            let clip = Arc::new(nvf_assets::anim_play::Clip::from_sequence(&sequence));
+            assert_eq!(clip.accum_root.as_deref(), Some("Bip01"));
+            assert!(clip.tracks.iter().any(|(name, _)| name == "Bip01 NonAccum"));
+            let bound = Arc::new(bind_move(&skel, clip, mv));
+            let nodes = (1..=3).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+            let mut player = BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; 3]));
+            let mut out = Vec::new();
+            for phase in [0.0, 0.25, 0.5, 0.75, 0.0] {
+                player.layers[0] = Some(Layer { clip: bound.clone(), phase, weight: 1.0 });
+                player.sample(&mut out);
+                let root = out.iter().find(|(i, _)| *i == 1).unwrap().1.rotation;
+                let up = root * Vec3::Z;
+                assert!(up.abs_diff_eq(Vec3::Z, 1e-4), "{file} at {phase}: root up {up:?}");
+            }
+        }
+    }
+
+    #[test]
     fn walk_test_script() {
         let v = 100.0;
         // 3 s out, 1 s stand, 2 s turn, 3 s back, 1 s, 2 s, 3 s out, 1 s, 4 s back, 1 s.
@@ -1487,6 +1642,62 @@ mod tests {
         assert!(!lo.set_swimming(true));
         assert!(lo.set_swimming(false));
         assert!(!Arc::ptr_eq(&lo.set, &swim));
+    }
+
+    #[test]
+    fn a_missing_or_non_finite_base_clip_is_told_once() {
+        let stand = set();
+        let mut lo = Locomotion::new(stand.clone(), 0.0);
+        let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
+        lo.layers(&mut player);
+        assert_eq!(lo.base_fault(&player), None);
+        // The set it plays from has no clip for the move: nothing on layer 0.
+        let mut no_idle = (*stand).clone();
+        no_idle.clips.remove(&Move::Idle);
+        lo.swim = Some(Arc::new(no_idle));
+        lo.swimming = true;
+        lo.set = lo.posture_set();
+        lo.layers(&mut player);
+        assert!(player.layers[0].is_none());
+        assert_eq!(lo.base_fault_news(&player).as_deref(), Some("no Idle clip in its swimming set (4 clips, idle none); nothing on layer 1"));
+        assert_eq!(lo.base_fault_news(&player), None, "told once");
+        assert!(lo.base_fault(&player).is_some());
+        // A weight that is not a finite number.
+        let mut lo = Locomotion::new(stand.clone(), 0.0);
+        lo.layers(&mut player);
+        player.layers[0].as_mut().expect("idle").weight = f32::NAN;
+        assert_eq!(lo.base_fault(&player).as_deref(), Some("its Idle clip in its standing set has weight NaN and phase 0; nothing on layer 1"));
+    }
+
+    #[test]
+    fn a_creature_sets_off_at_once_within_a_change_of_set_except_the_bed_rest() {
+        // Limping (any change of set but the bed rest's): the walk starts at once, part
+        // way through the fade from the standing idle into the limping one, as on main.
+        let (stand, hurt) = (set(), set());
+        let start = |bed: bool| {
+            let mut lo = Locomotion::new(stand.clone(), 0.0);
+            lo.hurt = Some(hurt.clone());
+            lo.blend.set_off_at_once = true;
+            assert!(lo.set_limping(true));
+            lo.bed_fade = bed;
+            lo.step(1.0 / 60.0);
+            assert!(lo.blend.prev.is_some() && lo.prev_set.is_some(), "the change of set fades");
+            lo.velocity = [0.0, 85.26];
+            lo.step(1.0 / 60.0);
+            lo
+        };
+        let lo = start(false);
+        assert_eq!(lo.blend.cur.mv, Move::Forward, "set off at once");
+        assert!(!lo.bed_fade);
+        // The bed rest's change of set: the walk waits for the fade's end.
+        let mut lo = start(true);
+        assert_eq!(lo.blend.cur.mv, Move::Idle, "waits");
+        assert!(lo.bed_fade);
+        for _ in 0..30 {
+            lo.step(1.0 / 60.0);
+        }
+        assert_eq!(lo.blend.cur.mv, Move::Forward);
+        assert!(!lo.bed_fade, "cleared once that fade ended");
     }
 
     #[test]

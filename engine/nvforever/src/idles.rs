@@ -758,7 +758,7 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
 /// The clip of an idle and its playback, as its record and text keys say; a creature's
 /// standing look loops until replaced (`IdleSource::Standing`).
 fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: bool) -> Result<(Arc<Clip>, IdlePlay), String> {
-    let def = game.data.idles.get(&idle).ok_or("not an idle animation")?;
+    let def = game.idle_def(idle).ok_or("not an idle animation")?;
     let path = clip_path(game, idle).ok_or("it names no file")?;
     let clip = ctx.clip(&path).ok_or_else(|| format!("{path} does not load"))?;
     let mut keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
@@ -1538,7 +1538,7 @@ pub fn drive(
                 // (`Camera1st` hangs under `Bip01 Looking`, so the player's pitch still
                 // applies) [design, #2349: whether the original holds the player is
                 // observer check 131; documented: `_1stperson\skeleton.nif`].
-                let holds = first && source != IdleSource::Activate && camera_idle_holds(game.data.idles.get(&idle).map_or(0, |d| d.section));
+                let holds = first && source != IdleSource::Activate && camera_idle_holds(game.idle_def(idle).map_or(0, |d| d.section));
                 if holds && pi.held.is_none() {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
@@ -1572,7 +1572,7 @@ pub fn drive(
                 failed(st, "its clip is another creature's");
                 continue;
             }
-            let section = game.data.idles.get(&idle).map_or(0, |d| d.section);
+            let section = game.idle_def(idle).map_or(0, |d| d.section);
             let holds = holds_in_place(source, section, &clip, lo.and_then(walk_clip));
             let bound = bind_clip(&rig.skel, clip);
             // A stimpak plays on the upper body only (`npc_stimpaks.rs`).
@@ -1954,6 +1954,49 @@ mod tests {
         assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\stop.kf"));
         fnv_game::nvse::call(&mut game,&Default::default(),"setidleanimpath",None,&[XVal::Ref(idle.0),XVal::Str("Owned/Loop.kf".into())]).unwrap().unwrap();
         assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\loop.kf"));
+    }
+
+    #[test]
+    fn renderer_idle_path_and_definition_admit_temp_cloned_idles() {
+        use fnv_script::vm::XVal;
+        let empty = crate::outfits::tests::empty_world_data();
+        let forms = crate::outfits::tests::actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let functions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = fnv_script::FunctionTable::load(&functions).unwrap();
+        let json = serde_json::from_str(&std::fs::read_to_string(functions).unwrap()).unwrap();
+        let mut data = fnv_game::GameData::build(empty.lo, empty.schema, table, &json, &refs);
+        let orig = FormId(0x7A01);
+        data.idles.insert(
+            orig,
+            fnv_game::data::IdleDef {
+                model: Some("Owned/Orig.kf".into()),
+                section: 4,
+                no_attacking: true,
+                ..Default::default()
+            },
+        );
+        let mut game = Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let XVal::Ref(clone_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(orig.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected clone FormId");
+        };
+        let clone = FormId(clone_raw);
+        assert_eq!(game.idle_def(clone).map(|d| (d.section, d.no_attacking)), Some((4, true)));
+        assert_eq!(clip_path(&game, clone).as_deref(), Some("meshes\\owned\\orig.kf"));
+
+        // Overriding the clone's path does not alter the original's resolved clip path.
+        fnv_game::nvse::call(&mut game, &Default::default(), "setidleanimpath", None, &[XVal::Ref(clone.0), XVal::Str("Owned/Clone.kf".into())]).unwrap().unwrap();
+        assert_eq!(clip_path(&game, clone).as_deref(), Some("meshes\\owned\\clone.kf"));
+        assert_eq!(clip_path(&game, orig).as_deref(), Some("meshes\\owned\\orig.kf"));
+
+        // Non-IDLE clone has no definition and no clip path.
+        let non_idle = FormId(0x7A02);
+        let XVal::Ref(bad_raw) = fnv_game::nvse::call(&mut game, &Default::default(), "tempcloneform", None, &[XVal::Ref(non_idle.0), XVal::Num(1.0)]).unwrap().unwrap() else {
+            panic!("expected non-idle clone FormId");
+        };
+        let bad_clone = FormId(bad_raw);
+        assert!(game.idle_def(bad_clone).is_none());
+        assert_eq!(clip_path(&game, bad_clone), None);
     }
 
     #[test]

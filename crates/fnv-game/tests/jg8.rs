@@ -115,6 +115,22 @@ fn handlers_hear_the_game() {
     let removed = g.other.jg8.handlers.len();
     q(&mut g, "SetJohnnyOnFailQuestEventHandler 0 (begin function {ref rQ}\nend) 0 TestQuest");
     assert_eq!(g.other.jg8.handlers.len(), removed, "another function's removal leaves the handler");
+    // Aliases SetOnSettingsUpdateEventHandler and SetOnKBCTrlUIDeltaHandler:
+    // MenuID filter 0 or omitted matches any menu; positive MenuID matches only that menu.
+    q(&mut g, "let TestGlobal := 0\nSetOnSettingsUpdateEventHandler 1 (begin function {}\nlet TestGlobal := TestGlobal + 7\nend) 0");
+    g.jg8_settings_closed();
+    assert_eq!(global(&mut g), 7.0);
+    q(&mut g, "let TestGlobal := 0\nSetOnKBCTrlUIDeltaHandler 1 (begin function {int m}\nlet TestGlobal := TestGlobal + m\nend) 0 1002");
+    q(&mut g, "SetOnKBCTrlUIDeltaHandler 1 (begin function {int m}\nlet TestGlobal := TestGlobal + 1\nend) 0 0");
+    q(&mut g, "SetJohnnyOnKeyboardControllerSelectionChangeEventHandler 1 (begin function {int m}\nlet TestGlobal := TestGlobal + 10\nend) 0");
+    g.jg8_keyboard_selection(1008.0);
+    assert_eq!(global(&mut g), 11.0, "only wildcard 0 and unfiltered handlers fire for 1008");
+    g.jg8_keyboard_selection(1002.0);
+    assert_eq!(global(&mut g), 11.0 + 1002.0 + 1.0 + 10.0, "exact 1002 plus both wildcards fire");
+    // Unregistering with setOrRemove=0 and matching func+filter removes that handler.
+    let before = g.other.jg8.handlers.len();
+    q(&mut g, "ref h\nlet h := (begin function {int m}\nlet TestGlobal := TestGlobal + 99\nend)\nSetOnKBCTrlUIDeltaHandler 1 h 0 1002\nSetOnKBCTrlUIDeltaHandler 0 h 0 1002");
+    assert_eq!(g.other.jg8.handlers.len(), before);
 }
 
 #[test]

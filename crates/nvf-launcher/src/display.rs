@@ -15,13 +15,15 @@ fn choice(label: impl Into<String>, stored: impl Into<String>) -> Choice {
 }
 
 /// A display attached to the desktop: its device name (what `monitor=` keeps, `\\.\DISPLAY1`
-/// on Windows), its desktop size and position, and the sizes of its video modes.
+/// on Windows), its desktop size and position, the sizes of its video modes and whether it
+/// is the system's primary display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Monitor {
     pub name: String,
     pub size: (u32, u32),
     pub position: (i32, i32),
     pub modes: Vec<(u32, u32)>,
+    pub primary: bool,
 }
 
 /// Display sync, as `DisplaySync::name` / `stored` have it (frame_pace.rs).
@@ -104,11 +106,16 @@ pub fn steps(key: &str) -> Option<Vec<String>> {
         "ui-scale" => Some((0..21).map(|i| format!("{}%", 50 + 5 * i)).collect()),
         "menu-scale" => Some((0..11).map(|i| format!("{}%", 50 + 5 * i)).collect()),
         // graphics.rs AA_CHOICES, SHADOW_FILTERS and SHADOW_RESOLUTIONS, shadow_rate.rs
-        // SUN_SHADOW_CHOICES.
+        // SUN_SHADOW_CHOICES, light_shadows.rs CHOICES.
         "anti-aliasing" => Some(["Off", "2x", "4x", "8x", "FXAA", "SMAA", "TAA"].map(String::from).to_vec()),
         "shadow-filter" => Some(["Fast", "Smooth", "Temporal"].map(String::from).to_vec()),
         "shadow-resolution" => Some(["2048", "4096"].map(String::from).to_vec()),
+        "light-shadows" => Some(["Off", "Performance", "Quality"].map(String::from).to_vec()),
         "sun-shadows" => Some(["Off", "Performance", "Quality"].map(String::from).to_vec()),
+        // full_detail.rs FullDetail::CHOICES (#2701).
+        "full-detail" => Some(["Off", "7 x 7", "9 x 9"].map(String::from).to_vec()),
+        // distant_objects.rs DistantObjects::CHOICES (#3014).
+        "distant-objects" => Some(["Off", "8 cells", "12 cells"].map(String::from).to_vec()),
         // Degrees in steps of 5 (engine settings.rs FOV_MIN..FOV_MAX, VIEWMODEL_FOV_*).
         "field-of-view" => Some((0..13).map(|i| format!("{}°", 50 + 5 * i)).collect()),
         "viewmodel-field-of-view" => Some((0..13).map(|i| format!("{}°", 30 + 5 * i)).collect()),
@@ -157,9 +164,10 @@ pub fn monitor_choices(monitors: &[Monitor]) -> Vec<Choice> {
     monitors.iter().enumerate().map(|(i, m)| choice(monitor_label(i, m), m.name.clone())).collect()
 }
 
-/// The display `monitor=` names, else the first (the game's rule).
+/// The display `monitor=` names, else the primary display, else the first (the game's rule,
+/// window_mode.rs `chosen_index`, #3334).
 pub fn chosen_monitor<'a>(monitors: &'a [Monitor], stored: Option<&str>) -> Option<&'a Monitor> {
-    stored.and_then(|s| monitors.iter().find(|m| m.name.eq_ignore_ascii_case(s.trim()))).or_else(|| monitors.first())
+    stored.and_then(|s| monitors.iter().find(|m| m.name.eq_ignore_ascii_case(s.trim()))).or_else(|| monitors.iter().find(|m| m.primary)).or_else(|| monitors.first())
 }
 
 /// Sizes offered when the displays cannot be asked (not Windows): the common ones.
@@ -249,7 +257,7 @@ pub fn chosen(key: &str, choices: &[Choice], value: &str) -> Option<usize> {
 /// gives the game, so `monitor=` matches.
 #[cfg(windows)]
 pub fn monitors() -> Vec<Monitor> {
-    use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, EnumDisplaySettingsW, DEVMODEW, DISPLAY_DEVICEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, ENUM_CURRENT_SETTINGS};
+    use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, EnumDisplaySettingsW, DEVMODEW, DISPLAY_DEVICEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE, ENUM_CURRENT_SETTINGS};
     let wide = |w: &[u16]| String::from_utf16_lossy(&w[..w.iter().position(|c| *c == 0).unwrap_or(w.len())]);
     let blank_mode = || {
         // SAFETY: DEVMODEW is plain data (integers, arrays, unions of integers); all zeros is
@@ -286,7 +294,7 @@ pub fn monitors() -> Vec<Monitor> {
             }
             modes.push((mode.dmPelsWidth, mode.dmPelsHeight));
         }
-        out.push(Monitor { name: wide(&dd.DeviceName), size: (dm.dmPelsWidth, dm.dmPelsHeight), position: (p.x, p.y), modes });
+        out.push(Monitor { name: wide(&dd.DeviceName), size: (dm.dmPelsWidth, dm.dmPelsHeight), position: (p.x, p.y), modes, primary: dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE != 0 });
     }
     out.sort_by_key(|m| m.position);
     out
@@ -393,6 +401,17 @@ mod tests {
         assert!(engine("shadow_rate.rs").contains("pub const SUN_SHADOW_CHOICES: [&str; 3] = [\"Off\", \"Performance\", \"Quality\"];"));
         assert!(gr.contains("pub const AA_CHOICES: [(&str, ScreenAa, Msaa); 7]") && gr.contains("pub const SHADOW_FILTERS: [(&str, ShadowFilteringMethod); 3]"));
         assert!(gr.contains("pub const SHADOW_RESOLUTIONS: [(&str, usize); 2]"));
+        assert!(engine("light_shadows.rs").contains("pub const CHOICES: [&str; 3] = [\"Off\", \"Performance\", \"Quality\"];"));
+        let fd = engine("full_detail.rs");
+        for w in steps("full-detail").unwrap() {
+            assert!(fd.contains(&format!("(\"{w}\", FullDetail::")), "full_detail.rs: {w}");
+        }
+        assert!(fd.contains("pub const CHOICES: [(&'static str, FullDetail); 3]"));
+        let dob = engine("distant_objects.rs");
+        for w in steps("distant-objects").unwrap() {
+            assert!(dob.contains(&format!("(\"{w}\", DistantObjects::")), "distant_objects.rs: {w}");
+        }
+        assert!(dob.contains("pub const CHOICES: [(&'static str, DistantObjects); 3]"));
         assert!(st.contains("pub(crate) const LEGACY_KEY: &str = \"fsr-upscaling\";") && st.contains("set_older_key(app, UPSCALER_KEY, LEGACY_KEY)"));
         assert!(st.contains("if fnv_install::ini_get(&text, section, \"display-sync\").is_some() {") && st.contains("let Some(old) = fnv_install::ini_get(&text, section, \"vsync\")"), "the old vsync key is read only without display-sync");
         let q = engine("quality.rs");
@@ -411,7 +430,7 @@ mod tests {
     }
 
     fn monitor(name: &str, size: (u32, u32), modes: &[(u32, u32)]) -> Monitor {
-        Monitor { name: name.into(), size, position: (0, 0), modes: modes.to_vec() }
+        Monitor { name: name.into(), size, position: (0, 0), modes: modes.to_vec(), primary: false }
     }
 
     #[test]
@@ -443,6 +462,11 @@ mod tests {
         assert_eq!(chosen_monitor(&ms, Some("gone")).unwrap().name, r"\\.\DISPLAY1", "the first display");
         assert_eq!(chosen_monitor(&ms, None).unwrap().name, r"\\.\DISPLAY1");
         assert_eq!(chosen("monitor", &c, r"\\.\DISPLAY2"), Some(1));
+        // #3334: the primary display right of a portrait one is the default, as in the game.
+        let ms = [monitor(r"\\.\DISPLAY2", (1080, 1920), &[]), Monitor { primary: true, ..monitor(r"\\.\DISPLAY1", (3840, 2160), &[]) }];
+        assert_eq!(chosen_monitor(&ms, None).unwrap().name, r"\\.\DISPLAY1");
+        assert_eq!(chosen_monitor(&ms, Some("gone")).unwrap().name, r"\\.\DISPLAY1");
+        assert_eq!(chosen_monitor(&ms, Some(r"\\.\DISPLAY2")).unwrap().size, (1080, 1920));
     }
 
     /// Windows lists this machine's displays with their modes (none on a machine without

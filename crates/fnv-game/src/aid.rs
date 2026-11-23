@@ -97,12 +97,18 @@ pub struct ValueChange {
 
 /// What a restore of `amount` to `code` with the limbs too ("parts") gives the limbs,
 /// besides `code` itself: a Limb Condition effect (`code` a limb, the Doctor's Bag) gives
-/// every other limb the same amount [hypothesis: "NVRestoreLimbs" names no actor value;
+/// every other limb the same amount when un-aimed [hypothesis: "NVRestoreLimbs" names no
+/// actor value; aid-items.md §3], or only the aimed limb at full condition (`amount.max(100.0)`)
+/// when aimed from the Pip-Boy's CND page [design: #3431, docs/spec-notes/crippled-limbs.md §1,
 /// aid-items.md §3]; a Value And Parts one (the Stimpak) gives each limb
 /// [`PARTS_LIMB_SHARE`] of it, or the limb it is aimed at the whole of it.
 pub fn parts_restore(code: u16, amount: f64, limb: Option<u16>) -> Vec<(u16, f64)> {
     if LIMB_CONDITIONS.contains(&code) {
-        return LIMB_CONDITIONS.filter(|&l| l != code).map(|l| (l, amount)).collect();
+        return match limb {
+            Some(l) if amount > 0.0 => vec![(l, amount.max(100.0))],
+            Some(_) => Vec::new(),
+            None => LIMB_CONDITIONS.filter(|&l| l != code).map(|l| (l, amount)).collect(),
+        };
     }
     match limb {
         Some(l) => vec![(l, amount)],
@@ -215,7 +221,8 @@ pub struct Mods {
     /// A worn enchantment: the equipped item it comes from (`crate::abilities`).
     pub worn: Option<FormId>,
     /// Used on one limb (its condition code, 25-30) from the Pip-Boy's CND page: a Value
-    /// And Parts restore gives that limb the whole amount ([`PARTS_LIMB_SHARE`]).
+    /// And Parts restore (Stimpak) gives that limb the whole amount ([`PARTS_LIMB_SHARE`]),
+    /// and an instant Limb Condition restore (Doctor's Bag in Hardcore) heals that limb alone.
     pub limb: Option<u16>,
     /// Only this effect of the item (an area effect reaching an actor around the target,
     /// `crate::area_effects`).
@@ -256,7 +263,9 @@ impl Mods {
         if c.code == crate::actor_values::HEALTH && c.amount > 0.0 {
             c.amount *= self.health;
         }
-        if c.parts && !LIMB_CONDITIONS.contains(&c.code) {
+        // Value And Parts (Stimpak) and instant Limb Condition (Hardcore Doctor's Bag) accept
+        // a single targeted limb; duration Limb Condition (Hydra) restores all limbs over time.
+        if c.parts && (!LIMB_CONDITIONS.contains(&c.code) || c.kind == ChangeKind::Once) {
             c.limb = self.limb;
         }
         c
@@ -315,8 +324,9 @@ impl Game<'_> {
     /// screenshot; one line per value, owner's playtest list 7 item 5].
     pub fn aid_preview(&mut self, actor: FormId, item: FormId) -> Vec<(u16, f64)> {
         let data = self.data;
-        let Some(items) = data.effect_items.get(&item) else { return Vec::new() };
-        let def = data.ingestibles.get(&item).cloned().unwrap_or_default();
+        let base = self.unclone(item);
+        let Some(items) = data.effect_items.get(&base) else { return Vec::new() };
+        let def = self.ingestible_def(item).unwrap_or_default();
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
@@ -325,19 +335,41 @@ impl Game<'_> {
         let mods = Mods { potency, duration, health, ..Mods::default() };
         let mut out: Vec<(u16, f64)> = Vec::new();
         for (index, e) in items.iter().enumerate() {
-            let label = format!("{} effect {index} (preview)", data.name(item));
+            let label = format!("{} effect {index} (preview)", data.name(base));
             if !self.conditions_pass(&e.conditions, Some(actor), Some(actor), &label) {
                 continue;
             }
-            let m = data.magic_effects.get(&e.effect);
-            let Some(c) = m.and_then(|m| value_change(m, e, potency, false)).map(|c| mods.on_change(c)) else { continue };
+            let m = self.magic_effect_def(e.effect);
+            let Some(c) = m.as_ref().and_then(|m| value_change(m, e, potency, false)).map(|c| mods.on_change(c)) else { continue };
             let amount = match c.kind {
-                ChangeKind::PerSecond => c.amount * mods.seconds(m, e),
+                ChangeKind::PerSecond => c.amount * mods.seconds(m.as_ref(), e),
                 ChangeKind::Once | ChangeKind::Modifier => c.amount,
             };
             match out.iter_mut().find(|(code, _)| *code == c.code) {
                 Some(line) => line.1 += amount,
                 None => out.push((c.code, amount)),
+            }
+        }
+        out
+    }
+
+    /// The base effects of an ingestible shown by their name alone
+    /// ([`crate::data::MagicEffectDef::shows_name`]) whose conditions pass for `actor` now,
+    /// once each in the order the item names them: for the item's EFFECTS figure beside
+    /// [`Game::aid_preview`]'s values (#3119) [hypothesis: the original lists the name;
+    /// its layout is not captured].
+    pub fn aid_preview_names(&mut self, actor: FormId, item: FormId) -> Vec<FormId> {
+        let data = self.data;
+        let base = self.unclone(item);
+        let Some(items) = data.effect_items.get(&base) else { return Vec::new() };
+        let mut out: Vec<FormId> = Vec::new();
+        for (index, e) in items.iter().enumerate() {
+            if out.contains(&e.effect) || !self.magic_effect_def(e.effect).is_some_and(|m| m.shows_name()) {
+                continue;
+            }
+            let label = format!("{} effect {index} (preview)", data.name(base));
+            if self.conditions_pass(&e.conditions, Some(actor), Some(actor), &label) {
+                out.push(e.effect);
             }
         }
         out
@@ -356,11 +388,7 @@ impl Game<'_> {
     pub fn ingest_on(&mut self, actor: FormId, item: FormId, limb: Option<u16>) -> Ingested {
         // [documented: SetOnUseAidItemEventHandler] this = the actor, the item.
         self.jip_event("useaiditem", Some(actor), vec![fnv_script::vm::XVal::Ref(item.0)]);
-        let mut def = self.data.ingestibles.get(&item).cloned().unwrap_or_default();
-        // LU's SetIngestibleFlag (`nvse_lu2`).
-        if let Some(f) = crate::nvse::record_value(self, item, "ENIT", "flags").and_then(|v| v.num().ok()) {
-            def.flags = f as u8;
-        }
+        let def = self.ingestible_def(item).unwrap_or_default();
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
@@ -387,7 +415,7 @@ impl Game<'_> {
             self.challenge_used(item);
         }
         let effects = applied.iter().filter(|a| !a.extended).map(|a| a.id).collect();
-        let has_monitor = self.data.effect_items.get(&item).is_some_and(|l| l.iter().any(|e| e.effect == USAGE_MONITOR));
+        let has_monitor = self.data.effect_items.get(&self.unclone(item)).is_some_and(|l| l.iter().any(|e| e.effect == USAGE_MONITOR));
         let usage = has_monitor.then(|| self.spell_usage(actor, item));
         let threshold = self.aid_setting("fAddictionUsageMonitorThreshold");
         let mut chance = addiction_chance(&def, usage, threshold);
@@ -444,7 +472,7 @@ impl Game<'_> {
     /// The addictions (spells of type Addiction) an actor has.
     pub fn addictions(&self, actor: FormId) -> Vec<FormId> {
         let Some(e) = self.extra.get(&actor) else { return Vec::new() };
-        e.spells.iter().copied().filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ADDICTION)).collect()
+        e.spells.iter().copied().filter(|&s| self.spell_type(s) == Some(SPELL_ADDICTION)).collect()
     }
 
     /// Whether an addiction is sated: an effect (not the usage monitor) of an ingestible
@@ -455,7 +483,7 @@ impl Game<'_> {
         self.effects.iter().any(|e| {
             e.target == actor
                 && e.effect != USAGE_MONITOR
-                && self.data.ingestibles.get(&e.source).is_some_and(|d| d.withdrawal == Some(spell))
+                && self.ingestible_def(e.source).is_some_and(|d| d.withdrawal == Some(spell))
         })
     }
 
@@ -489,10 +517,16 @@ impl Game<'_> {
             let to = (now - amount).max(0.0);
             let _ = fa::shift_base(self, actor, code, to - now);
         } else if amount >= 0.0 {
-            fa::restore(self, actor, code, amount);
-            if parts {
+            if parts && LIMB_CONDITIONS.contains(&code) && limb.is_some() {
                 for (l, a) in parts_restore(code, amount, limb) {
                     fa::restore(self, actor, l, a);
+                }
+            } else {
+                fa::restore(self, actor, code, amount);
+                if parts {
+                    for (l, a) in parts_restore(code, amount, limb) {
+                        fa::restore(self, actor, l, a);
+                    }
                 }
             }
         } else {
@@ -553,10 +587,10 @@ impl Game<'_> {
             ChangeKind::Modifier => {
                 // A player's ability without conditions changes the permanent pool
                 // [documented: GECK wiki ActorValue, the Life Giver example].
-                let unconditional = self.data.effect_items.get(&source).and_then(|l| l.get(index)).is_none_or(|e| e.conditions.is_empty());
-                let ability = permanent && self.data.spell_types.get(&source) == Some(&4);
+                let unconditional = self.data.effect_items.get(&self.unclone(source)).and_then(|l| l.get(index)).is_none_or(|e| e.conditions.is_empty());
+                let ability = permanent && self.spell_type(source) == Some(4);
                 c.permanent_pool = ability && target == FormId::PLAYER_REF && unconditional;
-                c.suspended = self.data.spell_types.get(&source) == Some(&SPELL_ADDICTION) && self.sated(target, source);
+                c.suspended = self.spell_type(source) == Some(SPELL_ADDICTION) && self.sated(target, source);
                 if !c.suspended {
                     self.hold_modifier(target, &mut c);
                 }
@@ -611,7 +645,7 @@ impl Game<'_> {
             .effects
             .iter()
             .filter(|e| e.permanent && !e.inactive && e.change.is_some_and(|c| c.kind == ChangeKind::Modifier))
-            .filter(|e| self.data.spell_types.get(&e.source) == Some(&SPELL_ADDICTION))
+            .filter(|e| self.spell_type(e.source) == Some(SPELL_ADDICTION))
             .map(|e| (e.id, e.target, e.source))
             .collect();
         for (id, target, spell) in ids {
@@ -637,8 +671,9 @@ impl Game<'_> {
     pub(crate) fn effect_archetype_start(&mut self, id: u32) {
         let Some(e) = self.effects.iter().find(|e| e.id == id) else { return };
         let (target, effect) = (e.target, e.effect);
-        let archetype = self.data.magic_effects.get(&effect).map(|m| m.archetype);
-        if let Some(a) = archetype.filter(|_| self.data.magic_effects.get(&effect).is_some_and(crate::magic_archetypes::acts_on_start)) {
+        let mgef = self.magic_effect_def(effect);
+        let archetype = mgef.as_ref().map(|m| m.archetype);
+        if let Some(a) = archetype.filter(|_| mgef.as_ref().is_some_and(crate::magic_archetypes::acts_on_start)) {
             self.archetype_start(id, a);
         }
         if archetype == Some(ARCHETYPE_CURE_ADDICTION) {
@@ -702,14 +737,20 @@ mod tests {
         assert!(spread.iter().all(|&(_, a)| (a - 39.0 * PARTS_LIMB_SHARE).abs() < 1e-9));
         // Aimed at the left arm (27): that limb alone, the whole amount.
         assert_eq!(parts_restore(16, 39.0, Some(27)), vec![(27, 39.0)]);
-        // Limb Condition (the Doctor's Bag): every other limb the whole amount, aimed or not.
-        let bag = parts_restore(25, 46.8, Some(27));
+        // Limb Condition (the Doctor's Bag): every other limb the whole amount when un-aimed;
+        // aimed at one limb, only that limb at full condition (#3431).
+        let bag = parts_restore(25, 46.0, None);
         assert_eq!(bag.len(), 6);
-        assert!(bag.iter().all(|&(l, a)| l != 25 && a == 46.8));
-        // The aim reaches only Value And Parts changes.
+        assert!(bag.iter().all(|&(l, a)| l != 25 && a == 46.0));
+        assert_eq!(parts_restore(25, 46.0, Some(27)), vec![(27, 100.0)]);
+        assert_eq!(parts_restore(25, 108.0, Some(27)), vec![(27, 108.0)]);
+        // Value And Parts (Stimpak) and instant Limb Condition (Doctor's Bag) take an aimed
+        // limb; duration Limb Condition (Hydra) restores all limbs over time.
         let m = Mods { limb: Some(27), ..Mods::default() };
         let stim = value_change(&mgef(34, 0, Some(16)), &item(30, 0, Some(16)), 1.0, false).unwrap();
         assert_eq!(m.on_change(stim).limb, Some(27));
+        let drbag = value_change(&mgef(35, 0, None), &item(36, 0, None), 1.3, false).unwrap();
+        assert_eq!(m.on_change(drbag).limb, Some(27));
         let hydra = value_change(&mgef(35, 0, None), &item(10, 60, None), 1.0, false).unwrap();
         assert_eq!(m.on_change(hydra).limb, None);
     }

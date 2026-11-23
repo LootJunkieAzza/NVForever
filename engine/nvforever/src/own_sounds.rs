@@ -174,7 +174,172 @@ pub struct OwnSoundsPlugin;
 impl Plugin for OwnSoundsPlugin {
     fn build(&self, app: &mut App) {
         // Before sfx and the ambient play what they send (nvf_play::sfx::SfxSet).
-        app.init_resource::<OwnSounds>().add_systems(Update, (addons, projectiles, idles).before(nvf_play::sfx::SfxSet)).add_systems(Last, report);
+        // `idles` runs after PlaySet::Sync so same-frame SetWeaponSound (slot 6) and
+        // script sound-source syncs reach NPC held-weapon idle loops before SfxSet plays.
+        app.init_resource::<OwnSounds>()
+            .add_systems(Update, (addons, projectiles).before(nvf_play::sfx::SfxSet))
+            .add_systems(Update, idles.after(nvf_play::PlaySet::Sync).before(nvf_play::sfx::SfxSet))
+            .add_systems(Last, report);
+    }
+}
+
+#[cfg(test)]
+mod weapon_sound_bridge_tests {
+    use super::*;
+    use fnv_combat::fx::{FxForms, WeaponFx};
+    use fnv_game::game::RunCtx;
+    use fnv_sim::{SimConfig, World};
+    use nvf_play::world_sounds::{script_weapon_sounds, WeaponSoundSync};
+
+    const WEAP_A: FormId = FormId(0x0000_0F10);
+    const WEAP_B: FormId = FormId(0x0000_0F11);
+    const SND_AUTH_IDLE: FormId = FormId(0x0000_0F20);
+    const SND_OVR_IDLE: FormId = FormId(0x0000_0F21);
+    const NPC_BASE: FormId = FormId(0x0000_0F30);
+    const NPC_A: FormId = FormId(0x0000_0F31);
+    const NPC_B: FormId = FormId(0x0000_0F32);
+    const CELL_ID: FormId = FormId(0x0000_0F40);
+
+    fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(6 + data.len());
+        out.extend_from_slice(sig);
+        out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+        out.extend_from_slice(data);
+        out
+    }
+
+    fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+        let body: Vec<u8> = subs.concat();
+        let mut out = Vec::with_capacity(24 + body.len());
+        out.extend_from_slice(sig);
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&id.to_le_bytes());
+        out.extend_from_slice(&[0u8; 8]);
+        out.extend_from_slice(&body);
+        out
+    }
+
+    fn group(label: [u8; 4], gtype: i32, body: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(24 + body.len());
+        out.extend_from_slice(b"GRUP");
+        out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+        out.extend_from_slice(&label);
+        out.extend_from_slice(&gtype.to_le_bytes());
+        out.extend_from_slice(&[0u8; 8]);
+        out.extend_from_slice(body);
+        out
+    }
+
+    fn test_plugin() -> fnv_esm::Plugin {
+        let sounds = [
+            rec(b"SOUN", SND_AUTH_IDLE.0, &[sub(b"EDID", b"AuthIdle\0"), sub(b"FNAM", b"fx\\owned\\i.wav\0")]),
+            rec(b"SOUN", SND_OVR_IDLE.0, &[sub(b"EDID", b"OvrIdle\0"), sub(b"FNAM", b"fx\\owned\\i2.wav\0")]),
+        ]
+        .concat();
+        let weapons = [
+            rec(b"WEAP", WEAP_A.0, &[sub(b"EDID", b"IdleWeapA\0"), sub(b"UNAM", &SND_AUTH_IDLE.0.to_le_bytes())]),
+            rec(b"WEAP", WEAP_B.0, &[sub(b"EDID", b"IdleWeapB\0"), sub(b"UNAM", &SND_AUTH_IDLE.0.to_le_bytes())]),
+        ]
+        .concat();
+        let npcs = [
+            rec(b"NPC_", 7, &[sub(b"EDID", b"Player\0")]),
+            rec(b"NPC_", NPC_BASE.0, &[sub(b"EDID", b"IdleNpcBase\0")]),
+        ]
+        .concat();
+        let cell = [
+            rec(b"CELL", CELL_ID.0, &[sub(b"EDID", b"IdleCell\0")]),
+            group(
+                CELL_ID.0.to_le_bytes(),
+                6,
+                &group(
+                    CELL_ID.0.to_le_bytes(),
+                    8,
+                    &[
+                        rec(b"ACHR", NPC_A.0, &[sub(b"EDID", b"IdleNpcA\0"), sub(b"NAME", &NPC_BASE.0.to_le_bytes())]),
+                        rec(b"ACHR", NPC_B.0, &[sub(b"EDID", b"IdleNpcB\0"), sub(b"NAME", &NPC_BASE.0.to_le_bytes())]),
+                    ]
+                    .concat(),
+                ),
+            ),
+        ]
+        .concat();
+        let bytes = [
+            rec(b"TES4", 0, &[sub(b"HEDR", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0])]),
+            group(*b"SOUN", 0, &sounds),
+            group(*b"WEAP", 0, &weapons),
+            group(*b"NPC_", 0, &npcs),
+            group(*b"CELL", 0, &cell),
+        ]
+        .concat();
+        fnv_esm::Plugin::parse(&bytes, "OwnedIdleSounds.esm".into()).unwrap()
+    }
+
+    #[test]
+    fn npc_weapon_idle_tracks_live_set_weapon_sound_slot_6_and_clear() {
+        let plugins = Box::leak(vec![test_plugin()].into_boxed_slice());
+        let mut script = ScriptState::over_plugins(plugins);
+        let (forms, refs) = {
+            let g = &mut script.rt.as_mut().unwrap().game;
+            for npc in [NPC_A, NPC_B] {
+                g.extra.entry(npc).or_default().weapon_out = true;
+            }
+            (g.world.forms, g.world.placed)
+        };
+        let mut world = World::new(forms, refs, SimConfig::default());
+        for npc in [NPC_A, NPC_B] {
+            world.get(npc).unwrap().pos = [100.0, 0.0, 0.0];
+        }
+
+        let mut fx = FxForms::default();
+        fx.weapons.insert(WEAP_A, WeaponFx { idle: Some(SND_AUTH_IDLE), ..WeaponFx::default() });
+        fx.weapons.insert(WEAP_B, WeaponFx { idle: Some(SND_AUTH_IDLE), ..WeaponFx::default() });
+
+        let mut app = App::new();
+        app.init_resource::<OwnSounds>()
+            .init_resource::<WeaponSoundSync>()
+            .insert_resource(script)
+            .insert_resource(SimState { forms, refs, world })
+            .insert_resource(Sfx::new(fx))
+            .add_message::<SoundSource>()
+            .add_systems(Update, (script_weapon_sounds, idles).chain());
+
+        app.world_mut().spawn(HeldWeapon { reference: NPC_A.0, weapon: WEAP_A });
+        app.world_mut().spawn(HeldWeapon { reference: NPC_B.0, weapon: WEAP_B });
+
+        // Baseline: both NPCs emit authored UNAM idle sound.
+        app.update();
+        let emitted: HashMap<u64, FormId> = app.world_mut().resource_mut::<Messages<SoundSource>>().drain().map(|s| (s.key, s.sound)).collect();
+        assert_eq!(emitted.get(&SoundSource::key(IDLE_KIND, NPC_A.0)), Some(&SND_AUTH_IDLE));
+        assert_eq!(emitted.get(&SoundSource::key(IDLE_KIND, NPC_B.0)), Some(&SND_AUTH_IDLE));
+
+        // Compiled NVSE SetWeaponSound slot 6 overrides IdleWeapA while leaving IdleWeapB untouched.
+        app.world_mut()
+            .resource_mut::<ScriptState>()
+            .rt
+            .as_mut()
+            .unwrap()
+            .game
+            .run_query("Begin Function {}\nSetWeaponSound IdleWeapA 6 OvrIdle\nEnd", RunCtx::default())
+            .unwrap();
+        app.update();
+        let emitted: HashMap<u64, FormId> = app.world_mut().resource_mut::<Messages<SoundSource>>().drain().map(|s| (s.key, s.sound)).collect();
+        assert_eq!(emitted.get(&SoundSource::key(IDLE_KIND, NPC_A.0)), Some(&SND_OVR_IDLE));
+        assert_eq!(emitted.get(&SoundSource::key(IDLE_KIND, NPC_B.0)), Some(&SND_AUTH_IDLE));
+
+        // Clearing IdleWeapA slot 6 to 0 suppresses NPC_A's idle source while NPC_B stays active.
+        app.world_mut()
+            .resource_mut::<ScriptState>()
+            .rt
+            .as_mut()
+            .unwrap()
+            .game
+            .run_query("Begin Function {}\nSetWeaponSound IdleWeapA 6 0\nEnd", RunCtx::default())
+            .unwrap();
+        app.update();
+        let emitted: HashMap<u64, FormId> = app.world_mut().resource_mut::<Messages<SoundSource>>().drain().map(|s| (s.key, s.sound)).collect();
+        assert!(!emitted.contains_key(&SoundSource::key(IDLE_KIND, NPC_A.0)), "cleared idle slot stops emitting SoundSource");
+        assert_eq!(emitted.get(&SoundSource::key(IDLE_KIND, NPC_B.0)), Some(&SND_AUTH_IDLE));
     }
 }
 

@@ -43,7 +43,18 @@ are known by name only; no memory layout of the original is used (extender-compa
 ## Conventions
 
 - Rotation: degrees, X Y Z extrinsic (glam `EulerRot::ZYX` read backwards); the getter's
-  "intrinsic" form (whichRotation 2) is not yet told apart.
+  "intrinsic" form (whichRotation 2) is not yet told apart. The angles are those of the
+  transpose of the rotation the node is drawn with, for drawn nodes as for a model file's
+  (`fnv_game::nif_blocks::drawn`; the engine's mirror writes and reads the inverse)
+  [observed: the 10mm pistol's ProjectileNode reads 90 0 90, its file matrix's rows taken
+  as columns; hypothesis: angles a script sets are drawn the same way, as B42 True
+  Leaning's lean steps right while turning its nodes -18° about Y, a roll right only so;
+  [observer check 250](../handoff/observer-checks.md)]. The world places (`node_place`)
+  go through the drawn rotations. Accepted by the maintainer on 2026-11-21 (#3138).
+- A player rig's root (`Scene Root`) is told in the player's own frame, its position and
+  angles in the simulation, from the pose the rig was given before the first-person lens
+  holds it at the eye (`PlayerBody::posed_root`), so a node's world place is where it is
+  drawn [observed: a first-person node's world place was the player's feet before].
 - GetNifBlockTranslation / Rotation with an axis letter give that number; with a number
   or nothing, the three as an array [observed: JIP 57.3 returns an array].
 - Name lookups: exact first, then without regard to case [observed: InsertNode took a
@@ -57,8 +68,8 @@ FaceGenMouth …, names the data files do not hold [observed]), where NVForever 
 head models' shape names; the player's skeleton lists 90 nodes under Bip01 against the
 original's 108 (Bip01 Looking, Translate, Rotate …); GetNifBlockFlag's flag 2, and
 RenameNifBlock, InsertNode and RemoveNifBlock on the head as the set chains them.
-Rotations read from drawn nodes go through nif_spawn's transpose; whether they read
-as the original's needs a set that reads a static's node [hypothesis].
+A set that sets and reads a drawn node's rotation in the original would confirm the
+transpose (Conventions) beyond the two cases it rests on.
 
 AttachModel's reference consumer is described in
 [nif-attachments](../spec-notes/nif-attachments.md); its base-form-wide replay and

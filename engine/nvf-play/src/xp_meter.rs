@@ -350,9 +350,11 @@ fn play_sound(sfx: Option<&Sfx>, cache: &mut HashMap<&'static str, Option<FormId
 /// For an earned level: the level-up sound once the pointer fills (or at once when
 /// no bar is up, as for the second of two levels earned together), then the level-up menu
 /// [`LEVEL_UP_DELAY`] seconds later once the player can take it: in the world, out of
-/// every menu, nobody fighting or searching for them ([`experience::hunters`], the
-/// owner's rule), and the last fight over for a while (`crate::after_combat`, #1050).
-/// The wait counts only while the HUD is up.
+/// every menu, nobody drawn fighting or searching for them (the owner's rule; counted over
+/// the drawn actors as `crate::after_combat` counts them, since an actor left in an
+/// unloaded cell keeps its combat state, #3030), and the last fight over for a while
+/// (`crate::after_combat`, #1050). The wait counts only while the HUD is up. Each new
+/// reason it waits for is logged once (`xp: level up waits: …`).
 #[allow(clippy::too_many_arguments)]
 fn level_up(
     time: Res<Time>,
@@ -366,8 +368,9 @@ fn level_up(
     mut music: Option<ResMut<crate::music::MusicCues>>,
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
     after: Option<Res<crate::after_combat::AfterCombat>>,
+    actors: Option<Res<crate::hitvol::HitVolumes>>,
     mut since_sound: Local<Option<f32>>,
-    mut waiting: Local<usize>,
+    mut waiting: Local<Option<String>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
@@ -376,6 +379,16 @@ fn level_up(
     };
     if !experience::level_up_due(&rt.game) {
         *since_sound = None;
+        // Earned, but held by SetInCharGen 1 or ToggleLevelUpMenu 0: say so once.
+        let due = experience::standing(&rt.game).due();
+        let reason = if due && rt.game.player.in_chargen {
+            Some("the game is in character generation (SetInCharGen 1)".to_string())
+        } else if due && !rt.game.level_up_menu_enabled() {
+            Some("a script disabled the level-up menu (ToggleLevelUpMenu 0)".to_string())
+        } else {
+            None
+        };
+        note_wait(&mut waiting, reason);
         return;
     }
     if *state.get() != PlayState::Playing || !view.shown {
@@ -412,19 +425,40 @@ fn level_up(
     if g.in_menu() {
         return;
     }
-    let hunters = experience::hunters(g);
-    if hunters != *waiting {
-        if hunters > 0 {
-            info!("xp: level up waits: {hunters} actors fighting or searching for the player");
-        }
-        *waiting = hunters;
-    }
-    if hunters > 0 || after.is_some_and(|a| !a.settled()) {
+    let hunters = match actors.as_deref() {
+        Some(a) => crate::after_combat::drawn_hunters(g, &a.living),
+        None => experience::hunters(g),
+    };
+    if let Some(why) = level_up_wait(hunters, after.as_deref()) {
+        note_wait(&mut waiting, Some(why));
         return;
     }
+    note_wait(&mut waiting, None);
     *since_sound = None;
     let (level, max) = with_world(rt, &mut sim, |rt| (experience::level_up(&mut rt.game), experience::max_level(&rt.game)));
     info!("xp: level up taken: level {level} (cap {max})");
+}
+
+/// What still keeps an earned level-up's menu shut once its delay has run, with nothing
+/// open: drawn actors hunting the player, or the last fight not over for long enough.
+fn level_up_wait(hunters: usize, after: Option<&crate::after_combat::AfterCombat>) -> Option<String> {
+    if hunters > 0 {
+        return Some(format!("{hunters} actors fighting or searching for the player"));
+    }
+    if after.is_some_and(|a| !a.settled()) {
+        return Some(format!("the last fight is not over for {:.1} s of play yet", crate::after_combat::AFTER_COMBAT_DELAY));
+    }
+    None
+}
+
+/// Log the reason a level-up waits when it changes (`None`: nothing waits now).
+fn note_wait(last: &mut Option<String>, why: Option<String>) {
+    if *last != why {
+        if let Some(w) = &why {
+            info!("xp: level up waits: {w}");
+        }
+        *last = why;
+    }
 }
 
 /// The meter's pointer.
@@ -618,6 +652,24 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #3030: the menu waits for drawn hunters and the after-combat delay only; once both
+    /// are clear nothing holds it, and each new reason is logged once.
+    #[test]
+    fn the_level_up_waits_for_drawn_hunters_and_the_after_combat_delay_only() {
+        use crate::after_combat::AfterCombat;
+        let settled = AfterCombat::default();
+        let fresh = AfterCombat { fighting: false, quiet: 0.5 };
+        assert_eq!(level_up_wait(0, Some(&settled)), None);
+        assert_eq!(level_up_wait(0, None), None);
+        assert!(level_up_wait(2, Some(&settled)).is_some_and(|w| w.starts_with("2 actors")));
+        assert!(level_up_wait(0, Some(&fresh)).is_some_and(|w| w.contains("not over")));
+        let mut last = None;
+        note_wait(&mut last, Some("a".into()));
+        assert_eq!(last.as_deref(), Some("a"));
+        note_wait(&mut last, None);
+        assert_eq!(last, None, "nothing waits: the next wait is logged again");
+    }
 
     #[test]
     fn alternate_level_sounds_fall_on_their_levels() {

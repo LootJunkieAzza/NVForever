@@ -1010,7 +1010,7 @@ mod tests {
 
     #[test]
     fn the_prompt_steps_aside_for_the_bar_over_the_same_actor() {
-        let t = Targeted { form_id: 0x1234, name: "Cazador".into(), action: Action::Name, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
+        let t = Targeted { form_id: 0x1234, name: "Cazador".into(), action: Action::Name, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false, through: None };
         assert!(under_bar(&t, 0x1234));
         assert!(!under_bar(&t, 0x5678));
     }
@@ -1019,7 +1019,7 @@ mod tests {
     /// no word for E); a peaceful creature with nothing to say keeps its name.
     #[test]
     fn a_hostile_actor_has_no_prompt() {
-        let of = |action| Targeted { form_id: 0x1234, name: "Radscorpion".into(), action, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
+        let of = |action| Targeted { form_id: 0x1234, name: "Radscorpion".into(), action, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false, through: None };
         assert!(!of(Action::Hostile).prompted());
         assert_eq!(Action::Hostile.label(), "");
         for shown in [Action::Name, Action::Talk, Action::Steal, Action::Search] {

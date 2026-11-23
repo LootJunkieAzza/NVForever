@@ -51,6 +51,12 @@ const CHEM_HELD: u32 = 0x86C;
 const POISON_FX: u32 = 0x85A;
 const POISON: u32 = 0x86D;
 const WITHDRAWAL_HELD: u32 = 0x873;
+const NAMED_FX: u32 = 0x85B;
+const SCRIPT_FX: u32 = 0x85C;
+const LIMB_COND_FX: u32 = 0x85D;
+const PSYCHO: u32 = 0x86E;
+const DRBAG: u32 = 0x86F;
+const HYDRA: u32 = 0x874;
 
 const P: FormId = FormId::PLAYER_REF;
 const STRENGTH: u16 = 5;
@@ -174,6 +180,12 @@ fn plugin_bytes() -> Vec<u8> {
         mgef(DAMAGE_RADS, "DamageRads", 4, 0, 54),
         mgef(RESTORE_HUNGER, "RestoreHunger", 0, 0, 74),
         mgef(REDUCE_END, "ReduceEndurance", 2 | 4, 0, 7),
+        // Script effects (archetype 1): one flagged Display Name Only (bit 13), as
+        // Psycho's "Damage +25%", and one not, as a Nuka-Cola's cap.
+        mgef(NAMED_FX, "PsychoMagicEffect", 1 << 13, 1, -1),
+        mgef(SCRIPT_FX, "PlainScriptEffect", 0, 1, -1),
+        // Limb Condition (archetype 35): NVRestoreLimbs for Doctor's Bag (instant) and Hydra (over time).
+        mgef(LIMB_COND_FX, "RestoreLimbs", 0, 35, -1),
     ]
     .concat();
     let alchs = [
@@ -196,6 +208,9 @@ fn plugin_bytes() -> Vec<u8> {
         alch(BLOOD, "Blood", 0, 0, 0.0, vec![effect_if(RESTORE_HEALTH, 4, 5, 16, vec![has_perk(LEAD_BELLY, 1.0)]), effect(RESTORE_HEALTH, 1, 0, 16)]),
         alch(CHEM_HELD, "ChemHeld", 0, WITHDRAWAL_HELD, 0.0, vec![effect(MOD_STR, 2, 4, 5)]),
         alch(POISON, "TestVenom", 0, 0, 0.0, vec![effect(POISON_FX, 5, 0, 16)]),
+        alch(PSYCHO, "Psycho", 0, 0, 0.0, vec![effect(NAMED_FX, 0, 240, -1), effect(SCRIPT_FX, 0, 240, -1), effect(MOD_STR, 1, 240, 5)]),
+        alch(DRBAG, "DrBag", 4, 0, 0.0, vec![effect(LIMB_COND_FX, 36, 0, -1)]),
+        alch(HYDRA, "Hydra", 0, 0, 0.0, vec![effect(LIMB_COND_FX, 10, 6, -1)]),
     ]
     .concat();
     let spels = [
@@ -333,6 +348,39 @@ fn a_stimpak_on_a_limb_gives_it_the_whole_amount() {
     assert!(near(av(&mut g, HEALTH), 79.0));
     assert!(near(av(&mut g, PERCEPTION_CONDITION), 89.0));
     assert!(near(av(&mut g, PERCEPTION_CONDITION + 1), 50.0));
+}
+
+/// A Doctor's Bag aimed at one limb in Hardcore heals only that limb to full; un-aimed it
+/// restores every limb by `36 * potency`, and a duration Limb Condition item (Hydra) still
+/// restores all limbs over time (#3431).
+#[test]
+fn a_doctors_bag_aimed_at_a_limb_heals_only_that_limb() {
+    let f = fixture();
+    let mut g = game(&f);
+    let head = PERCEPTION_CONDITION;
+    let left_arm = PERCEPTION_CONDITION + 2;
+    let left_leg = PERCEPTION_CONDITION + 4;
+    // Aimed at left arm: only left arm heals to 100; head and left leg stay crippled.
+    for limb in [head, left_arm, left_leg] {
+        add_actor_value_damage(&mut g, P, limb, 100.0);
+    }
+    g.ingest_on(P, FormId(DRBAG), Some(left_arm));
+    assert!(near(av(&mut g, head), 0.0), "head must stay untouched when left arm is targeted");
+    assert!(near(av(&mut g, left_arm), 100.0), "targeted left arm heals to full");
+    assert!(near(av(&mut g, left_leg), 0.0), "left leg must stay untouched");
+    // Aimed at head: only head heals to 100; left leg stays at 0.
+    g.ingest_on(P, FormId(DRBAG), Some(head));
+    assert!(near(av(&mut g, head), 100.0));
+    assert!(near(av(&mut g, left_leg), 0.0));
+    // Un-aimed (body): restores every damaged limb by floor(36 * 1.3) = 46 at Medicine 15.
+    add_actor_value_damage(&mut g, P, head, 100.0);
+    g.ingest_on(P, FormId(DRBAG), None);
+    assert!(near(av(&mut g, head), 46.0));
+    assert!(near(av(&mut g, left_leg), 46.0));
+    // Duration Limb Condition (Hydra): restores all limbs over time even if a limb was passed.
+    g.ingest_on(P, FormId(HYDRA), Some(head));
+    g.frames(120);
+    assert!(av(&mut g, head) > 65.0 && av(&mut g, left_leg) > 65.0);
 }
 
 /// Without Recover and with a duration the magnitude is restored every second while
@@ -996,4 +1044,96 @@ fn a_poison_needs_a_weapon_that_takes_it() {
     assert!(!g.is_poison(FormId(STIM)) && !g.is_poison(FormId(BUFF)));
     assert_eq!(g.use_poison(FormId(POISON)), PoisonUse::NoWeapon);
     assert!(g.player.weapon_poisons.is_empty() && g.player.poison_asked.is_none());
+}
+
+/// #3119: the preview names a Script effect flagged Display Name Only (Psycho's), not one
+/// without the flag, beside the values; an item with none names nothing.
+#[test]
+fn the_preview_names_script_effects_shown_by_name() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.aid_preview_names(P, FormId(PSYCHO)), vec![FormId(NAMED_FX)]);
+    assert_eq!(g.aid_preview(P, FormId(PSYCHO)), vec![(STRENGTH, 1.0)]);
+    assert!(g.aid_preview_names(P, FormId(STIM)).is_empty());
+    let m = &g.data.magic_effects[&FormId(NAMED_FX)];
+    assert!(m.shows_name());
+    assert!(!g.data.magic_effects[&FormId(SCRIPT_FX)].shows_name());
+}
+
+/// `[Sleep Healing] bMiscStatRequiresSleepDuration`: with a minimum sleep duration set,
+/// Times Slept increments only when the sleep meets that duration unless the option is off.
+#[test]
+fn sleep_misc_stat_requires_duration_gates_times_slept() {
+    use fnv_game::misc_stats::TIMES_SLEPT;
+    let f = fixture();
+
+    // Default (sleep_heal_min_hours = 0): any sleep counts.
+    let mut g = game(&f);
+    assert_eq!(g.tweaks.sleep_heal_min_hours, 0);
+    assert!(g.tweaks.sleep_misc_stat_requires_duration);
+    g.begin_rest(true, 1);
+    assert_eq!(g.misc_stat(TIMES_SLEPT), 1.0);
+
+    // Min duration 6h, bMiscStatRequiresSleepDuration = true: 3h does not count, 6h does.
+    let mut g = game(&f);
+    g.tweaks.sleep_heal_min_hours = 6;
+    g.tweaks.sleep_misc_stat_requires_duration = true;
+    g.begin_rest(true, 3);
+    assert_eq!(g.misc_stat(TIMES_SLEPT), 0.0, "short sleep skipped");
+    g.rest.end();
+    g.begin_rest(true, 6);
+    assert_eq!(g.misc_stat(TIMES_SLEPT), 1.0, "full duration sleep counts");
+
+    // Min duration 6h, bMiscStatRequiresSleepDuration = false: 3h still counts.
+    let mut g = game(&f);
+    g.tweaks.sleep_heal_min_hours = 6;
+    g.tweaks.sleep_misc_stat_requires_duration = false;
+    g.begin_rest(true, 3);
+    assert_eq!(g.misc_stat(TIMES_SLEPT), 1.0);
+}
+
+/// `[Grabbing Items Is Crime] fMinValue`: grabbing an owned item counts as stealing only
+/// when the grabbed stack's base value (unit value × count) meets `fMinValue`.
+#[test]
+fn grab_triggers_theft_respects_min_value_and_stack_count() {
+    const VAL0: u32 = 0x901;
+    const VAL5: u32 = 0x902;
+    const VAL15: u32 = 0x903;
+    let misc = |id: u32, edid: &str, value: i32| {
+        record(b"MISC", 0, id, &[sub(b"EDID", z(edid)), sub(b"DATA", [value.to_le_bytes(), 1.0f32.to_le_bytes()].concat())])
+    };
+    let bytes = [
+        tes4(),
+        top(b"MISC", &[misc(VAL0, "Worthless", 0), misc(VAL5, "Cheap", 5), misc(VAL15, "Costly", 15)].concat()),
+        top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))])),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &record(b"CELL", 0, CELL, &[sub(b"EDID", z("Room"))])))),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "GrabVal.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig::default());
+
+    // Tweak off: never triggers.
+    assert!(!g.grab_triggers_theft(FormId(VAL15), 1));
+
+    // fMinValue = 0.0: even worthless items trigger.
+    g.tweaks.grabbing_is_theft = true;
+    g.tweaks.grabbing_is_theft_min_value = 0.0;
+    assert!(g.grab_triggers_theft(FormId(VAL0), 1));
+    assert!(g.grab_triggers_theft(FormId(VAL5), 1));
+
+    // fMinValue = 10.0: single 5-cap item skipped; stack of 2x5 = 10 triggers; single 15 triggers.
+    g.tweaks.grabbing_is_theft_min_value = 10.0;
+    assert!(!g.grab_triggers_theft(FormId(VAL0), 1));
+    assert!(!g.grab_triggers_theft(FormId(VAL5), 1));
+    assert!(g.grab_triggers_theft(FormId(VAL5), 2));
+    assert!(g.grab_triggers_theft(FormId(VAL15), 1));
 }

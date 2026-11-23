@@ -70,6 +70,9 @@ pub struct FrameLoop {
 /// The session state of the plugins of this file.
 #[derive(Debug, Default)]
 pub struct SmallState {
+    /// Loaded application settings are authoritative after engine handoff.
+    /// Session-only: a restored Game must be rebound before startup scripts.
+    pub(crate) stewie_stat_settings_loaded: bool,
     /// Seconds of play, menus included: each frame's own length added up (the engine
     /// changes `frame_seconds` every frame, so the frame count times it is no clock).
     pub real_seconds: f64,
@@ -581,13 +584,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- Stewie's Tweaks ----
-        // `"key:section"` (StewVal): the value in the plugin's INI, a number when it reads
-        // as one [documented: StewieGetValue; hypothesis: the INI is
-        // Data\NVSE\Plugins\nvse_stewie_tweaks.ini]; 0 when there is none (the plugin is
-        // not installed).
+        // Recognized loaded settings follow their actual engine consumers;
+        // unbound games and other keys retain their existing layered-file query.
         "stewiegetvalue" | "stewval" => {
             let ks = text(args, 0);
             let Some((key, section)) = ks.split_once(':') else { return Some(Ok(zero)) };
+            if let Some(value) = g.loaded_stewie_stat_value(key, section) {
+                return Some(Ok(XVal::Num(value)));
+            }
+            if let Some(value) = g.loaded_stewie_inventory_value(key, section) {
+                return Some(Ok(XVal::Num(value)));
+            }
             // The INIs in Tweaks\INIs override the main one, read in name order, the last
             // that sets the key winning [hypothesis: Stewie's Tweaks' description, "INIs in
             // Data\NVSE\Plugins\Tweaks\INIs" override; Keybinder writes its own there
@@ -639,24 +646,38 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- yUI ----
         // `"tag"|"icon" [form]` and `trait value [form]`: ySI's sorting tag and icon of the
         // form, else of the calling reference's base [documented: ySIGetTrait,
-        // ySISetTrait]. An icon set on a form with a tag goes to every form of that tag
-        // [documented: "Changing the icon texture of a Form will also change also icon
-        // texture of all Forms with the same sorting tag"]. Not read from ySI's own
-        // files [decision: ySI is not installed]: an unset trait reads "".
+        // ySISetTrait]. Session overrides from ySISetTrait take precedence over the
+        // bounded JSON rule snapshot in `crate::ysi_filename`; an icon set on a tagged
+        // form (whether overridden or JSON-assigned) applies to every form sharing that
+        // tag [documented: "Changing the icon texture of a Form will also change also icon
+        // texture of all Forms with the same sorting tag"]. Unset/unmatched traits read "".
         "ysigettrait" | "ysisettrait" => {
             let set = name == "ysisettrait";
             let trait_name = text(args, 0).to_ascii_lowercase();
             let at = if set { 2 } else { 1 };
-            let f = form(args, at).or(subject).map(|f| crate::functions::base_of(g, f).unwrap_or(f));
+            let f = form(args, at).or(subject).map(|f| {
+                let orig = g.unclone(f);
+                if g.world.forms.item(orig).is_some() {
+                    orig
+                } else {
+                    g.unclone(crate::functions::base_of(g, f).unwrap_or(f))
+                }
+            });
             let Some(f) = f else { return Some(Ok(if set { zero } else { XVal::Str(String::new()) })) };
-            let tag = g.small.ysi_tag.get(&f).cloned();
+            let effective_tag = |g: &mut Game<'_>, base: FormId| -> Option<String> {
+                if let Some(override_tag) = g.small.ysi_tag.get(&base) {
+                    (!override_tag.is_empty()).then(|| override_tag.clone())
+                } else {
+                    crate::ysi_filename::json_tag(g, base).filter(|t| !t.is_empty())
+                }
+            };
             if set {
                 let v = text(args, 1);
                 match trait_name.as_str() {
                     "tag" => {
                         g.small.ysi_tag.insert(f, v);
                     }
-                    "icon" => match tag {
+                    "icon" => match effective_tag(g, f) {
                         Some(t) => {
                             g.small.ysi_icon_by_tag.insert(t, v);
                         }
@@ -669,8 +690,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 zero
             } else {
                 XVal::Str(match trait_name.as_str() {
-                    "tag" => tag.unwrap_or_default(),
-                    "icon" => tag.and_then(|t| g.small.ysi_icon_by_tag.get(&t).cloned()).or_else(|| g.small.ysi_icon.get(&f).cloned()).unwrap_or_default(),
+                    "tag" => effective_tag(g, f).unwrap_or_default(),
+                    "icon" => match effective_tag(g, f) {
+                        Some(t) => g
+                            .small
+                            .ysi_icon_by_tag
+                            .get(&t)
+                            .cloned()
+                            .or_else(|| crate::ysi_filename::json_icon_filename(g, &t))
+                            .or_else(|| g.small.ysi_icon.get(&f).cloned())
+                            .unwrap_or_default(),
+                        None => g.small.ysi_icon.get(&f).cloned().unwrap_or_default(),
+                    },
                     _ => String::new(),
                 })
             }

@@ -23,6 +23,9 @@ pub struct NifFile {
     pub trailing: usize,
     /// Offset where the header ends and the first block starts.
     pub header_len: usize,
+    /// The header's block-size table was wrong (its end is not the footer that ends the
+    /// file), so the blocks were split by decoding them in order instead (#3198).
+    pub size_table_ignored: bool,
 }
 
 /// How well the schema explains one block.
@@ -51,107 +54,37 @@ impl BlockStatus {
 
 impl NifFile {
     /// Parse the container. Files without a block-size table (before 20.2.0.5) can only
-    /// be split by decoding every block, so they need a schema.
+    /// be split by decoding every block, so they need a schema. A file whose table does not
+    /// end at a footer that ends the file, with roots among its blocks, is split the same
+    /// way when a schema is given (#3198: a mod's meshes whose table is off by one block's
+    /// worth; the blocks decode in order and the real footer follows them) [hypothesis: the
+    /// original reads the blocks by their types and does not rely on the table].
     pub fn parse(data: &[u8], schema: Option<&Schema>) -> Result<NifFile, NifError> {
         let mut c = Cursor::new(data);
-        let mut header = Header::parse(&mut c)?;
+        let header = Header::parse(&mut c)?;
         let header_len = c.pos;
-        match Self::split(data, header_len, &header, schema, true) {
-            Ok((blocks, footer, trailing)) if trailing == 0 || header.block_sizes.is_none() || schema.is_none() => {
-                Ok(NifFile { header, blocks, footer, trailing, header_len })
-            }
-            first => {
-                // The block-size table is a convenience for skipping blocks; the blocks
-                // themselves say how long they are. Some mod tools write a wrong table
-                // [observed: Heart of the Mojave ultraluxhotelfront.nif and
-                // ultraluxdome_glowsbackside.nif store NiTriStripsData sizes without the
-                // strip points; NV Interiors hulagirl1.nif's sizes overrun the file by 35
-                // bytes], so when the stored sizes do not end in a footer at the end of the
-                // file, split again by decoding each known block with the schema.
-                let Ok((blocks, footer, trailing)) = Self::split(data, header_len, &header, schema, false) else {
-                    return first.map(|(blocks, footer, trailing)| NifFile { header, blocks, footer, trailing, header_len });
-                };
-                if trailing != 0 {
-                    if let Ok((blocks, footer, trailing)) = first {
-                        return Ok(NifFile { header, blocks, footer, trailing, header_len });
-                    }
-                }
-                // Keep the header consistent with the blocks so `rewrite` makes a valid file.
-                header.block_sizes = Some(blocks.iter().map(|b| b.range.len() as u32).collect());
-                Ok(NifFile { header, blocks, footer, trailing, header_len })
-            }
-        }
-    }
-
-    /// Split the blocks after the header and read the footer: by the stored block sizes
-    /// when `trust_sizes` and the file has them, otherwise by decoding each block with the
-    /// schema (a block the schema does not know falls back to its stored size, if any).
-    fn split(
-        data: &[u8],
-        header_len: usize,
-        header: &Header,
-        schema: Option<&Schema>,
-        trust_sizes: bool,
-    ) -> Result<(Vec<RawBlock>, Footer, usize), NifError> {
-        let mut c = Cursor::new(data);
-        c.pos = header_len;
-        let n = header.num_blocks as usize;
-        let mut blocks = Vec::with_capacity(n);
-        if !trust_sizes {
-            let schema = schema.ok_or_else(|| NifError::Invalid("a schema is needed to split blocks".into()))?;
-            let sizes = header.block_sizes.as_deref();
-            for i in 0..n {
-                let type_name = header.block_type_name(i).unwrap_or_default();
-                let start = c.pos;
-                let mut bc = Cursor::new(&data[start..]);
-                match decode_with(schema, header, &type_name, &mut bc) {
-                    Ok(_) => c.pos = start + bc.pos,
-                    Err(DecodeFailure::Unknown) => match sizes.and_then(|s| s.get(i)) {
-                        Some(&size) => {
-                            c.bytes(size as usize)?;
-                        }
-                        None => {
-                            return Err(NifError::Invalid(format!(
-                                "block {i} ({type_name}) has no schema definition; cannot split the file"
-                            )))
-                        }
-                    },
-                    Err(DecodeFailure::Codec(e)) => return Err(NifError::Invalid(format!("block {i} ({type_name}): {e}"))),
-                }
-                blocks.push(RawBlock { type_name, range: start..c.pos });
-            }
-            let footer = Footer::parse(&mut c)?;
-            return Ok((blocks, footer, c.remaining()));
-        }
         match &header.block_sizes {
             Some(sizes) => {
-                for (i, &size) in sizes.iter().enumerate() {
-                    let start = c.pos;
-                    c.bytes(size as usize)?;
-                    blocks.push(RawBlock { type_name: header.block_type_name(i).unwrap_or_default(), range: start..c.pos });
+                let by_table = split_by_table(data, &header, header_len, sizes);
+                let fits = by_table.as_ref().is_ok_and(|(_, footer, end)| footer_ends_file(footer, *end, data.len(), header.num_blocks));
+                if !fits {
+                    if let Some(schema) = schema {
+                        if let Ok((blocks, footer, end)) = split_by_decoding(data, &header, header_len, schema) {
+                            if footer_ends_file(&footer, end, data.len(), header.num_blocks) {
+                                return Ok(NifFile { header, blocks, footer, trailing: 0, header_len, size_table_ignored: true });
+                            }
+                        }
+                    }
                 }
+                let (blocks, footer, end) = by_table?;
+                Ok(NifFile { header, blocks, footer, trailing: data.len() - end, header_len, size_table_ignored: false })
             }
             None => {
-                let schema = schema.ok_or_else(|| {
-                    NifError::Invalid("version without block sizes: a schema is needed to split blocks".into())
-                })?;
-                for i in 0..n {
-                    let type_name = header.block_type_name(i).unwrap_or_default();
-                    let start = c.pos;
-                    let mut bc = Cursor::new(&data[start..]);
-                    decode_with(schema, header, &type_name, &mut bc).map_err(|e| match e {
-                        DecodeFailure::Unknown => {
-                            NifError::Invalid(format!("block {i} ({type_name}) has no schema definition; cannot split the file"))
-                        }
-                        DecodeFailure::Codec(e) => NifError::Invalid(format!("block {i} ({type_name}): {e}")),
-                    })?;
-                    c.pos = start + bc.pos;
-                    blocks.push(RawBlock { type_name, range: start..c.pos });
-                }
+                let schema = schema.ok_or_else(|| NifError::Invalid("version without block sizes: a schema is needed to split blocks".into()))?;
+                let (blocks, footer, end) = split_by_decoding(data, &header, header_len, schema)?;
+                Ok(NifFile { header, blocks, footer, trailing: data.len() - end, header_len, size_table_ignored: false })
             }
         }
-        let footer = Footer::parse(&mut c)?;
-        Ok((blocks, footer, c.remaining()))
     }
 
     pub fn ctx(&self) -> FileCtx<'_> {
@@ -204,6 +137,46 @@ impl NifFile {
         out.extend_from_slice(&data[end..]);
         out
     }
+}
+
+/// The blocks as the size table cuts them, the footer after them and where it ends.
+fn split_by_table(data: &[u8], header: &Header, header_len: usize, sizes: &[u32]) -> Result<(Vec<RawBlock>, Footer, usize), NifError> {
+    let mut c = Cursor::new(data);
+    c.pos = header_len;
+    let mut blocks = Vec::with_capacity(sizes.len());
+    for (i, &size) in sizes.iter().enumerate() {
+        let start = c.pos;
+        c.bytes(size as usize)?;
+        blocks.push(RawBlock { type_name: header.block_type_name(i).unwrap_or_default(), range: start..c.pos });
+    }
+    let footer = Footer::parse(&mut c)?;
+    Ok((blocks, footer, c.pos))
+}
+
+/// The blocks as decoding them in order cuts them, the footer after them and where it ends.
+fn split_by_decoding(data: &[u8], header: &Header, header_len: usize, schema: &Schema) -> Result<(Vec<RawBlock>, Footer, usize), NifError> {
+    let n = header.num_blocks as usize;
+    let mut blocks = Vec::with_capacity(n);
+    let mut c = Cursor::new(data);
+    c.pos = header_len;
+    for i in 0..n {
+        let type_name = header.block_type_name(i).unwrap_or_default();
+        let start = c.pos;
+        let mut bc = Cursor::new(&data[start..]);
+        decode_with(schema, header, &type_name, &mut bc).map_err(|e| match e {
+            DecodeFailure::Unknown => NifError::Invalid(format!("block {i} ({type_name}) has no schema definition; cannot split the file")),
+            DecodeFailure::Codec(e) => NifError::Invalid(format!("block {i} ({type_name}): {e}")),
+        })?;
+        c.pos = start + bc.pos;
+        blocks.push(RawBlock { type_name, range: start..c.pos });
+    }
+    let footer = Footer::parse(&mut c)?;
+    Ok((blocks, footer, c.pos))
+}
+
+/// Whether a footer read up to `end` ends the file and names roots among its blocks.
+fn footer_ends_file(footer: &Footer, end: usize, len: usize, num_blocks: u32) -> bool {
+    end == len && footer.roots.iter().all(|&r| r >= -1 && (r as i64) < i64::from(num_blocks))
 }
 
 enum DecodeFailure {

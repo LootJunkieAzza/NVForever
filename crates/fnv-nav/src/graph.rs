@@ -147,6 +147,9 @@ pub struct DoorEdge {
     pub door_at: Option<[f32; 3]>,
 }
 
+/// How near two edges' ends are to count as the same edge, game units [engine choice].
+pub const EDGE_MATCH: f32 = 1.0;
+
 /// Counts of what the graph could and could not resolve while building.
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct BuildStats {
@@ -159,6 +162,8 @@ pub struct BuildStats {
     pub boundary_edges: usize,
     /// Linked edges whose NVEX entry, navmesh or triangle is missing.
     pub unresolved_links: usize,
+    /// One-way portals linked back from the edge they land on ([`NavGraph::join_one_way_portals`]).
+    pub portals_joined_back: usize,
     /// Triangles left out because their corners are not finite, lie past [`MAX_COORD`]
     /// or spread wider than [`MAX_TRI_SPAN`].
     pub bad_triangles: usize,
@@ -441,6 +446,7 @@ impl NavGraph {
                 }
             }
         }
+        g.join_one_way_portals();
         // Outline vertices.
         g.boundary_vertex = vec![false; g.vertices.len()];
         for t in &g.tris {
@@ -480,6 +486,54 @@ impl NavGraph {
         g.up = (0..g.tris.len() as u32).map(|t| slope_cos(g.corners(t))).collect();
         g.compute_areas();
         g
+    }
+
+    /// A portal from one triangle onto an edge of another that does not lead back: the
+    /// edge it lands on, when it is the same edge (both ends within [`EDGE_MATCH`]) and
+    /// is open (no neighbour) or links to a triangle that has no such edge (a stale
+    /// link), is linked back [engine choice]. Lonesome Road's silo lift: the far door's
+    /// one-triangle navmesh 0x0100A556 links onto the lift floor (0x0100A555 triangles 12
+    /// and 15), whose edges there link to triangle 16 of 0x0100A554, far off; the door
+    /// was an island no path reached (observed 2026-11-15, `fnvtool nav near`).
+    fn join_one_way_portals(&mut self) {
+        let ends = |g: &NavGraph, t: u32, e: usize| {
+            let v = g.tris[t as usize].v;
+            (g.vertices[v[e] as usize], g.vertices[v[(e + 1) % 3] as usize])
+        };
+        let same = |a: [f32; 3], b: [f32; 3]| (a[0] - b[0]).abs() <= EDGE_MATCH && (a[1] - b[1]).abs() <= EDGE_MATCH && (a[2] - b[2]).abs() <= EDGE_MATCH;
+        let meets = |g: &NavGraph, (p, q): ([f32; 3], [f32; 3]), t: u32, e: usize| {
+            let (a, b) = ends(g, t, e);
+            (same(p, a) && same(q, b)) || (same(p, b) && same(q, a))
+        };
+        let mut fixes: Vec<(u32, usize, u32)> = Vec::new();
+        for t in 0..self.tris.len() as u32 {
+            let tri = self.tris[t as usize];
+            if tri.has(tri_flags::DELETED) {
+                continue;
+            }
+            for e in 0..3 {
+                let n = tri.next[e];
+                if tri.kind[e] != EdgeKind::Portal || n == NONE || self.tris[n as usize].next.contains(&t) || self.tris[n as usize].has(tri_flags::DELETED) {
+                    continue;
+                }
+                let edge = ends(self, t, e);
+                let Some(ne) = (0..3).find(|&ne| meets(self, edge, n, ne)) else { continue };
+                let nt = self.tris[n as usize];
+                let stale = match nt.kind[ne] {
+                    EdgeKind::Boundary => true,
+                    EdgeKind::Portal => nt.next[ne] == NONE || !(0..3).any(|me| meets(self, edge, nt.next[ne], me)),
+                    _ => false,
+                };
+                if stale {
+                    fixes.push((n, ne, t));
+                }
+            }
+        }
+        for (n, ne, t) in fixes {
+            self.tris[n as usize].next[ne] = t;
+            self.tris[n as usize].kind[ne] = EdgeKind::Portal;
+            self.stats.portals_joined_back += 1;
+        }
     }
 
     /// Label walkable areas (flood fill over internal and portal edges between usable

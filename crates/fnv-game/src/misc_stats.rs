@@ -213,9 +213,14 @@ impl Game<'_> {
     }
 
     /// The wait menu's hours start passing (`Rest::begin`); a sleep counts in Times Slept
-    /// when no sleep was passing already [hypothesis: one per sleep, counted as it starts].
+    /// when no sleep was passing already [hypothesis: one per sleep, counted as it starts],
+    /// unless `bSleepHealingMinDuration` + `bMiscStatRequiresSleepDuration` require the sleep
+    /// to meet the minimum healing duration [design: docs/design/tweaks.md].
     pub fn begin_rest(&mut self, sleep: bool, hours: u32) {
-        if sleep && !self.rest.sleeping() {
+        let count_sleep = !(self.tweaks.sleep_heal_min_hours > 0
+            && self.tweaks.sleep_misc_stat_requires_duration
+            && hours < self.tweaks.sleep_heal_min_hours);
+        if sleep && !self.rest.sleeping() && count_sleep {
             self.count_stat(TIMES_SLEPT, 1.0);
         }
         self.rest.begin(sleep, hours);

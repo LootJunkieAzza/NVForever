@@ -109,7 +109,7 @@ impl Fixture {
         std::fs::write(dir.join("meshes/OwnedThird.kf"), clip("Root")).unwrap();
         // The standing idle both rigs play by themselves (on the weapon's node only).
         std::fs::write(dir.join("meshes/mtidle.kf"), clip("Weapon")).unwrap();
-        app.insert_resource(nvf_assets::GameData { vfs: Arc::new(fnv_vfs::Vfs::open(dir, &[]).unwrap()), schema: old.schema.clone() });
+        app.insert_resource(nvf_assets::GameData::new(Arc::new(fnv_vfs::Vfs::open(dir, &[]).unwrap()), old.schema.clone()));
 
         let plugins = Box::leak(vec![fnv_esm::Plugin::parse(&plugin(), "OwnedCamera.esm".into()).unwrap()].into_boxed_slice());
         let mut data = empty_world_data();
@@ -159,6 +159,7 @@ impl Fixture {
                 worn: Vec::new(), look: None, change: Default::default(), female: false, scale: 1.0,
                 third: build_rig(&mut commands, parent, &world, &mut ctx, &a, View::Third, None).unwrap(),
                 first: Some(build_rig(&mut commands, parent, &world, &mut ctx, &a, View::First, None).unwrap()),
+                first_addons: Vec::new(),
             }
         }).unwrap();
         app.world_mut().resource_mut::<PlayerBody>().body = Some(body);

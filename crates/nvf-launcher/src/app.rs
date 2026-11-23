@@ -52,7 +52,23 @@ enum Upd {
     /// Downloaded and checked; installs as soon as the game is not running.
     Ready(update::Ready),
     Installing,
+    /// The swap is done and the new launcher was started: this window is closing (#3117).
+    Closing,
     Failed(String),
+}
+
+impl Upd {
+    /// Whether a close of the window is refused: only during the swap itself. The launcher's
+    /// own close after the swap arrives as a close request one frame later, so the state has
+    /// to have left `Installing` by then or the launcher cancels its own close (#3117).
+    fn refuses_close(&self) -> bool {
+        matches!(self, Upd::Installing)
+    }
+
+    /// The state once the swap went in, by whether the new launcher could be started.
+    fn installed(restarted: &Result<(), String>) -> Upd {
+        if restarted.is_ok() { Upd::Closing } else { Upd::Idle }
+    }
 }
 
 /// The launcher's version: its build's, or `NVF_LAUNCHER_VERSION` (a test aid: a launcher
@@ -477,7 +493,7 @@ impl App {
     }
 
     fn start(&mut self, ctx: &egui::Context, start: Start) {
-        if matches!(self.upd, Upd::Installing) {
+        if matches!(self.upd, Upd::Installing | Upd::Closing) {
             self.message = Some(("The update is being installed: play once it is done.".into(), true));
             return;
         }
@@ -652,7 +668,7 @@ impl eframe::App for App {
         self.poll_news();
         let running = self.running();
         self.poll_update(ctx, running);
-        if matches!(self.upd, Upd::Installing) && ctx.input(|i| i.viewport().close_requested()) {
+        if self.upd.refuses_close() && ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.message = Some(("Installing the update: the launcher closes by itself when it is done.".into(), false));
         }
@@ -1267,6 +1283,11 @@ impl App {
                         menu_control(ui, key, kind, &v, control_w)
                     } else if let Some(choices) = self.display_choices(key) {
                         let at = crate::display::chosen(key, &choices, &v);
+                        // Monitor with nothing kept: the display the game takes then (#3334).
+                        let at = at.or_else(|| {
+                            let m = (key == "monitor" && v.trim().is_empty()).then(|| crate::display::chosen_monitor(&self.monitors, None)).flatten()?;
+                            choices.iter().position(|c| c.stored == m.name)
+                        });
                         let shown = at.map_or(v.clone(), |i| choices[i].label.clone());
                         let mut picked = None;
                         egui::ComboBox::from_id_salt(key).width(control_w - 8.0).selected_text(shown).show_ui(ui, |ui| {
@@ -1903,7 +1924,13 @@ impl App {
     fn save_game_folder(&mut self) {
         let dir = PathBuf::from(self.game_edit.trim());
         let r = match GameInstall::open(&dir) {
-            Ok(_) => self.write_ini(|t| Config { game_dir: Some(dir.clone()), code_page: None }.to_ini(&t)),
+            Ok(_) => self.write_ini(|t| {
+                Config {
+                    game_dir: Some(dir.clone()),
+                    ..Config::default()
+                }
+                .to_ini(&t)
+            }),
             Err(e) => Err(e.to_string()),
         };
         self.after_write(r, Some("Game folder saved."));
@@ -1995,10 +2022,10 @@ impl App {
                 Msg::Installed(Ok(v)) => {
                     self.upd_rx = None;
                     let restarted = install_dir(self.game().as_ref()).and_then(|d| update::restart(&d, "--updated").map_err(|e| e.to_string()));
+                    self.upd = Upd::installed(&restarted);
                     match restarted {
                         Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
                         Err(e) => {
-                            self.upd = Upd::Idle;
                             self.latest = None;
                             self.message = Some((format!("Updated to v{v}; start the launcher again ({e})."), false));
                         }
@@ -2094,7 +2121,7 @@ impl App {
                     Upd::Ready(_) => {
                         ui.label(RichText::new(if running { "Downloaded. It installs as soon as the game is closed." } else { "Downloaded." }).color(GOOD));
                     }
-                    Upd::Installing => {
+                    Upd::Installing | Upd::Closing => {
                         ui.add(egui::ProgressBar::new(1.0).animate(true).text(Phase::Installing.words()));
                     }
                     Upd::Failed(e) => {
@@ -2211,6 +2238,23 @@ mod tests {
         coop_home_ready(&home, Some(std::path::Path::new("C:/Other"))).unwrap();
         assert_eq!(Config::from_ini(&std::fs::read_to_string(&ini).unwrap()).game_dir.as_deref(), Some(game));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// #3117: the close guard holds the window only during the swap; once the new launcher
+    /// was started the old one's own close goes through.
+    #[test]
+    fn the_window_closes_once_the_new_launcher_started() {
+        assert!(Upd::Installing.refuses_close());
+        let after = Upd::installed(&Ok(()));
+        assert!(matches!(after, Upd::Closing));
+        assert!(!after.refuses_close());
+        // The new launcher did not start: the window stays, usable and closable by hand.
+        let after = Upd::installed(&Err("no such file".into()));
+        assert!(matches!(after, Upd::Idle));
+        assert!(!after.refuses_close());
+        for u in [Upd::Idle, Upd::Working { phase: Phase::Checking, done: 0, total: 0 }, Upd::Failed(String::new())] {
+            assert!(!u.refuses_close());
+        }
     }
 
     #[test]

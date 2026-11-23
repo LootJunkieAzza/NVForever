@@ -249,7 +249,7 @@ impl Furnishings {
                 None => (rest, None),
             };
             let furniture = hex(target).ok_or_else(bad)?;
-            let placed = fnv_world::placed::placement(world.lo, world.schema, furniture).ok_or_else(|| format!("--npc-sit {spec}: no placed reference {furniture:08X}"))?;
+            let placed = world.index.placement(world.lo, world.schema, furniture).ok_or_else(|| format!("--npc-sit {spec}: no placed reference {furniture:08X}"))?;
             let base = placed.base.filter(|b| f.bases.contains_key(b)).ok_or_else(|| format!("--npc-sit {spec}: {furniture:08X} is not furniture"))?;
             let record = f.bases[&base].clone();
             // Where the actor starts, to pick the entry point it will come up to.
@@ -407,7 +407,7 @@ impl Furnishings {
 /// made at run time (the arm-wrestling table's stools, `nvf_play::armwrestle`), the
 /// simulation's own pose and base [design: created furniture is used as placed].
 fn placed_at(world: &WorldData, sim: Option<&nvf_play::sim::SimState>, furniture: u32) -> Option<fnv_world::placed::Placement> {
-    if let Some(p) = fnv_world::placed::placement(world.lo, world.schema, furniture) {
+    if let Some(p) = world.index.placement(world.lo, world.schema, furniture) {
         return Some(p);
     }
     let s = sim?.world.peek(FormId(furniture))?;

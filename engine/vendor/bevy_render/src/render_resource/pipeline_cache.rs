@@ -1677,6 +1677,9 @@ fn nvf_compile_threads(setting: Option<&str>, cores: usize) -> usize {
 ))]
 fn nvf_list_pool() -> Option<&'static bevy_tasks::TaskPool> {
     static POOL: std::sync::OnceLock<bevy_tasks::TaskPool> = std::sync::OnceLock::new();
+    // `NVF_PIPELINE_THREADS=0` is upstream's path: no pool of the list's either (its builds
+    // would otherwise make the game's tasks wait for them on the async compute pool).
+    nvf_compile_pool()?;
     Some(POOL.get_or_init(|| {
         let cores = std::thread::available_parallelism().map_or(4, usize::from);
         let threads = (nvf_compile_threads(None, cores) / 2).max(1);

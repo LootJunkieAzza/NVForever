@@ -170,9 +170,10 @@ pub struct TerminalPointer {
 #[derive(Resource, Default)]
 pub struct PowerAid(pub bool);
 
-/// The menu's rows on the canvas as last drawn, for the pointer.
+/// The menu's rows on the canvas as last drawn, for the pointer, and an open note's window
+/// (for paging it).
 #[derive(Resource, Default)]
-struct MenuRows(Vec<(usize, Rect)>);
+struct MenuRows(screen::Drawn);
 
 /// The game's word list, read once.
 #[derive(Resource, Default)]
@@ -469,6 +470,7 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
                 "symbol" => AidStep::Input(TerminalInput::Aid(AidPick::Symbol)),
                 "item" => AidStep::Input(TerminalInput::Aid(AidPick::Item(arg.trim().parse().map_err(|_| format!("{what:?}: expected item:<n>"))?))),
                 "back" => AidStep::Input(TerminalInput::Back),
+                "select" => AidStep::Input(TerminalInput::Select),
                 "exit" => AidStep::Input(TerminalInput::Exit),
                 "power" => AidStep::Power,
                 "point" => AidStep::Input(TerminalInput::Point(
@@ -758,7 +760,7 @@ fn open(
             };
             // The player's hacking tweaks [design: docs/design/tweaks.md].
             let t = &rt.game.tweaks;
-            puzzle.rules = fnv_game::hacking::HackRules { no_single_chars: t.hack_no_single_chars, no_repeat_words: t.hack_no_repeat_words, dud_when_full: t.hack_dud_when_full, spare_guessed: t.hack_spare_guessed };
+            puzzle.rules = fnv_game::hacking::HackRules::from_tweaks(t);
             stats.hacks += 1;
             info!(
                 "terminal: open {reference} {name}: hacking, {} (Science {sci:.0}): {} words of {} letters, {} bracket pairs",
@@ -901,8 +903,14 @@ fn mouse(
                 out.write(TerminalInput::Select);
             }
         }
+        // A click on an open note turns its page (#3409) [hypothesis: as E].
+        Page::Menu(m) if m.note.is_some() => {
+            if pointer.canvas.is_some() && buttons.just_pressed(MouseButton::Left) {
+                out.write(TerminalInput::Select);
+            }
+        }
         Page::Menu(_) => {
-            let under = pointer.canvas.and_then(|p| rows.0.iter().find(|(_, r)| r.contains(p)).map(|(i, _)| *i));
+            let under = pointer.canvas.and_then(|p| rows.0.rows.iter().find(|(_, r)| r.contains(p)).map(|(i, _)| *i));
             if under != *last_row {
                 *last_row = under;
                 if let Some(i) = under {
@@ -939,7 +947,7 @@ fn apply(
     real: Res<Time<Real>>,
     mut stats: ResMut<TerminalStats>,
     mut rng: Local<Option<ChaCha8Rng>>,
-    (mut sounds, mut opened, mut read): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>, ResMut<ReadEntries>),
+    (mut sounds, mut opened, mut read, drawn): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>, ResMut<ReadEntries>, Res<MenuRows>),
 ) {
     let now = time.elapsed_secs();
     // The hover sound's gap is real time: the menu's pause and the game's speed do not
@@ -1067,9 +1075,21 @@ fn apply(
                         }
                         None
                     }
-                    // Up / Down scroll a note a line [design].
+                    // Up / Down scroll a note a line [design], no further than its last lines
+                    // show (as the screen last drew it); E, Enter or a click turns to its next
+                    // page, and nothing on the last (#3409) [hypothesis: the player's memory
+                    // of the original; observer check 255].
                     TerminalInput::Step(_, dy) if m.note.is_some() => {
-                        m.scroll = (m.scroll as i32 + dy).max(0) as usize;
+                        let window = drawn.0.note.filter(|w| Some(w.note) == m.note);
+                        m.scroll = note_scroll(m.scroll, window, dy);
+                        None
+                    }
+                    TerminalInput::Select if m.note.is_some() => {
+                        if let Some(next) = drawn.0.note.filter(|w| Some(w.note) == m.note).and_then(|w| w.next_page()) {
+                            info!("terminal: note turned to line {next}");
+                            m.scroll = next;
+                            sound(UiEvent::Focus);
+                        }
                         None
                     }
                     TerminalInput::Step(_, dy) if m.note.is_none() && !m.items.is_empty() => {
@@ -1209,6 +1229,24 @@ fn timers(time: AidTime, mut screen: ResMut<TerminalScreen>, mut sim: ResMut<Sim
     }
 }
 
+/// A note's scroll after a step of `dy` lines from `scroll`: never above its first line, nor
+/// past its last lines' `window` (when the screen has drawn it).
+fn note_scroll(scroll: usize, window: Option<screen::NoteWindow>, dy: i32) -> usize {
+    let s = (scroll.min(window.map_or(usize::MAX, |w| w.last_first())) as i64 + dy as i64).max(0) as usize;
+    window.map_or(s, |w| s.min(w.last_first()))
+}
+
+/// A key for the page the screen shows, whatever is chosen, scrolled or guessed on it: its
+/// text types out again when this changes (`screen::Typed`, #3327) [hypothesis: the
+/// original types out a page as it comes up, not when the selection moves].
+fn page_key(s: &Session) -> String {
+    match &s.page {
+        Page::Hacking(_) => "h".into(),
+        Page::LockedOut(_) => "lockout".into(),
+        Page::Menu(m) => format!("m{}:{}:{:?}", m.terminal.0, m.parents.len(), m.note),
+    }
+}
+
 /// A key for what the screen shows: it is drawn again when this changes.
 fn view_key(s: &Session) -> String {
     match &s.page {
@@ -1229,17 +1267,19 @@ fn draw(
     roots: Query<Entity, With<screen::ScreenRoot>>,
     fading: Query<Entity, With<FadeOut>>,
     mut blinks: Query<&mut Visibility, With<screen::Blink>>,
+    mut typed: Query<(&screen::Typed, &mut Node)>,
     time: Res<Time<Real>>,
     image: Option<Res<TerminalImage>>,
     (mut rows, read): (ResMut<MenuRows>, Res<ReadEntries>),
     mut faces: Local<Option<screen::Faces>>,
-    mut shown: Local<Option<String>>,
+    mut shown: Local<Option<(String, u32)>>,
+    mut page: Local<Option<(String, f32)>>,
 ) {
     // The screen is laid out in its own texture, at its size whatever the UI scale; the
     // picture of it on the window scales (`screen::spawn_backdrop`, #1631).
     let _canvas = crate::interface::original_units();
     let grey = grey_read();
-    let key = screen.0.as_ref().map(|s| format!("{}:{grey}", view_key(s)));
+    let key = screen.0.as_ref().map(|s| (format!("{}:{grey}", view_key(s)), crate::cjk_font::revision()));
     // A closing screen keeps its picture while it fades (`fade_out`); one opened meanwhile
     // takes its place at once.
     if !fading.is_empty() {
@@ -1252,9 +1292,22 @@ fn draw(
         *shown = None;
     }
     let on = ((time.elapsed_secs() / screen::BLINK_SECONDS) as u32).is_multiple_of(2);
+    // The page's text types out from when it came up (a closed screen starts again).
+    let now = time.elapsed_secs();
+    let this_page = screen.0.as_ref().map(page_key);
+    if page.as_ref().map(|p| &p.0) != this_page.as_ref() {
+        *page = this_page.map(|k| (k, now));
+    }
+    let typed_for = page.as_ref().map_or(f32::INFINITY, |p| now - p.1);
     if key == *shown {
         for mut v in &mut blinks {
             v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+        }
+        for (t, mut node) in &mut typed {
+            let w = crate::interface::u(t.shown(typed_for));
+            if node.width != w {
+                node.width = w;
+            }
         }
         return;
     }
@@ -1262,10 +1315,10 @@ fn draw(
         commands.entity(e).despawn();
     }
     *shown = key;
-    rows.0.clear();
+    rows.0 = screen::Drawn::default();
     let (Some(s), Some(rt), Some(image)) = (screen.0.as_ref(), script.as_ref().and_then(|s| s.rt.as_ref()), image) else { return };
     let faces = faces.get_or_insert_with(|| screen::load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref())));
-    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on, grey.then_some(&*read));
+    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on, grey.then_some(&*read), typed_for);
 }
 
 /// How long the screen fades out as it closes, seconds [documented:
@@ -1463,6 +1516,24 @@ mod tests {
         assert_eq!(aid_pick(&p, AidPick::Wrong), Some(9));
         assert_eq!(aid_pick(&p, AidPick::Brackets), None);
         assert_eq!(aid_pick(&p, AidPick::Symbol), Some(0));
+    }
+
+    #[test]
+    /// #3409: E turns a long note a page on, the last page keeping its last lines in view;
+    /// on the last page it does nothing. Up / Down stop at the ends; a note that fits has
+    /// no next page.
+    fn a_long_note_turns_by_pages() {
+        let w = |first| screen::NoteWindow { note: FormId(7), first, shown: 16, total: 40 };
+        assert_eq!(w(0).next_page(), Some(16));
+        assert_eq!(w(16).next_page(), Some(24), "the last page shows the last 16 lines");
+        assert_eq!(w(24).next_page(), None, "nothing after the last page");
+        assert_eq!(screen::NoteWindow { note: FormId(7), first: 0, shown: 9, total: 9 }.next_page(), None, "a note that fits");
+        assert_eq!(note_scroll(24, Some(w(24)), 1), 24, "Down stops at the last lines");
+        assert_eq!(note_scroll(24, Some(w(24)), -1), 23);
+        assert_eq!(note_scroll(0, Some(w(0)), -1), 0);
+        assert_eq!(note_scroll(90, Some(w(24)), -1), 23, "a scroll past the end comes back from the end");
+        assert_eq!(note_scroll(3, None, 1), 4, "not drawn yet: a line on");
+        assert_eq!(parse_aid("5:select").unwrap(), vec![(5.0, AidStep::Input(TerminalInput::Select))]);
     }
 
     #[test]

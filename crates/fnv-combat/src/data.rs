@@ -255,6 +255,30 @@ pub struct AmmoEffect {
     pub value: f32,
 }
 
+impl AmmoEffect {
+    /// Construct a live [`AmmoEffect`] from numeric `AMEF` `DATA` codes (`0..=5` kind,
+    /// `0..=2` operation) matching `schemas/fnv/combat.json` `AmmoEffectData` and
+    /// `SetAmmoEffectTraitNumeric` overrides.
+    pub fn from_numeric(effect_type: u8, operation: u8, value: f32) -> AmmoEffect {
+        let kind = match effect_type {
+            0 => Some("Damage Mod".to_string()),
+            1 => Some("DR Mod".to_string()),
+            2 => Some("DT Mod".to_string()),
+            3 => Some("Spread Mod".to_string()),
+            4 => Some("Weapon Condition Mod".to_string()),
+            5 => Some("Fatigue Mod".to_string()),
+            _ => None,
+        };
+        let operation = match operation {
+            0 => Some("Add".to_string()),
+            1 => Some("Multiply".to_string()),
+            2 => Some("Subtract".to_string()),
+            _ => None,
+        };
+        AmmoEffect { edid: None, name: None, kind, operation, value }
+    }
+}
+
 /// PROJ.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ProjectileStats {
@@ -281,6 +305,35 @@ pub struct ProjectileStats {
     pub bouncy_mult: f32,
     pub sound_level: Option<String>,
 }
+
+/// WEAP `DNAM/flags1` bit names in bit order (0..=7) [documented: xEdit WEAP DNAM,
+/// `schemas/fnv/objects.json` `WeaponDNAM.flags1`].
+pub const WEAPON_FLAGS1_BITS: [(u8, &str); 8] = [
+    (0, "Ignores Normal Weapon Resistance"),
+    (1, "Is Automatic"),
+    (2, "Has Scope"),
+    (3, "Can't Drop"),
+    (4, "Hide Backpack"),
+    (5, "Embedded Weapon"),
+    (6, "Don't Use 1st Person IS Animations"),
+    (7, "Non-Playable"),
+];
+
+/// PROJ `DATA/flags` named bits in bit order (0..=11; bit 4 is unnamed in xEdit)
+/// [documented: xEdit PROJ DATA, `schemas/fnv/combat.json` `ProjectileData.flags`].
+pub const PROJECTILE_FLAGS_BITS: [(u8, &str); 11] = [
+    (0, "Hitscan"),
+    (1, "Explosion"),
+    (2, "Alt. Trigger"),
+    (3, "Muzzle Flash"),
+    (5, "Can Be Disabled"),
+    (6, "Can Be Picked Up"),
+    (7, "Supersonic"),
+    (8, "Pins Limbs"),
+    (9, "Pass Through Small Transparent"),
+    (10, "Detonates"),
+    (11, "Rotation"),
+];
 
 /// The flag of a mod slot (1, 2, 3) in a unit's mod flags [documented: GECK wiki
 /// GetEquippedWeaponModFlags: 1 Weapon Mod 1, 2 Weapon Mod 2, 4 Weapon Mod 3].
@@ -363,6 +416,26 @@ impl WeaponStats {
         self.flags.iter().any(|f| f == name)
     }
 
+    /// Project a session `DNAM/flags1` bitmask (e.g. from `SetWeaponFlag`,
+    /// `SetWeaponFlags1`, `SetWeaponIsAutomatic`) onto this weapon's `flags` and derived
+    /// `flags1` fields (`automatic`, `embedded`, `playable`), preserving `flags2` names
+    /// [design].
+    pub fn apply_flags1(&mut self, flags1: u8) {
+        let mut rebuilt: Vec<String> = WEAPON_FLAGS1_BITS
+            .iter()
+            .filter(|(bit, _)| flags1 & (1u8 << bit) != 0)
+            .map(|(_, name)| (*name).to_string())
+            .collect();
+        rebuilt.extend(self.flags.drain(..).filter(|name| !WEAPON_FLAGS1_BITS.iter().any(|(_, f1)| f1 == name)));
+        self.flags = rebuilt;
+        self.automatic = flags1 & (1 << 1) != 0;
+        self.embedded = flags1 & (1 << 5) != 0;
+        if !self.embedded {
+            self.embedded_limb = None;
+        }
+        self.playable = flags1 & (1 << 7) == 0;
+    }
+
     /// The scope's overlay model (MOD3) when the weapon is scoped: "Has Scope", and for a
     /// "Scope from Mod" weapon an Increase Zoom mod on it [documented: GECK wiki
     /// "Weapons", docs/spec-notes/weapon-scopes.md §2].
@@ -387,6 +460,17 @@ impl WeaponStats {
 impl ProjectileStats {
     pub fn has(&self, flag: &str) -> bool {
         self.flags.iter().any(|f| f == flag)
+    }
+
+    /// Project a session `DATA/flags` bitmask (e.g. from `SetProjectileFlag`) onto this
+    /// projectile's named `flags` list so `has`, `explodes`, `lands_as_weapon`,
+    /// `mine::is_mine`, and `projectile::Projectile::spawn` see live script edits [design].
+    pub fn apply_flags(&mut self, flags: u16) {
+        self.flags = PROJECTILE_FLAGS_BITS
+            .iter()
+            .filter(|(bit, _)| flags & (1u16 << bit) != 0)
+            .map(|(_, name)| (*name).to_string())
+            .collect();
     }
 
     /// Whether what this projectile was lands as its weapon, to be picked up again: DATA
@@ -575,6 +659,29 @@ impl ArmorStats {
 
     pub fn covers_body(&self) -> bool {
         self.slots & Self::UPPER_BODY != 0
+    }
+}
+
+/// Session-only runtime overrides applied on top of authored [`ArmorStats`].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ArmorOverride {
+    pub health: Option<i32>,
+    pub dt: Option<f32>,
+    pub dr_raw: Option<i32>,
+    pub slots: Option<u32>,
+}
+
+impl ArmorOverride {
+    /// Return `base` with any overridden fields replaced.
+    pub fn apply(&self, base: &ArmorStats) -> ArmorStats {
+        ArmorStats {
+            edid: base.edid.clone(),
+            name: base.name.clone(),
+            health: self.health.unwrap_or(base.health),
+            dt: self.dt.unwrap_or(base.dt),
+            dr_raw: self.dr_raw.unwrap_or(base.dr_raw),
+            slots: self.slots.unwrap_or(base.slots),
+        }
     }
 }
 
@@ -859,9 +966,16 @@ impl CombatForms {
     /// The same for `weapon` with the figures `w` (a modded weapon's,
     /// [`WeaponStats::modded`]).
     pub fn chain_with(&self, weapon: FormId, w: &WeaponStats, ammo: Option<FormId>) -> ShotChain {
+        self.chain_with_ammo(weapon, w, ammo, None)
+    }
+
+    /// Resolve a shot chain with an optional live session [`AmmoStats`] override (e.g.
+    /// from `SetAmmoTraitNumeric`, `SetAmmoProjectile`, `AddAmmoEffect`, or
+    /// `RemoveAmmoEffect`) without mutating the loaded ESM record cache.
+    pub fn chain_with_ammo(&self, weapon: FormId, w: &WeaponStats, ammo: Option<FormId>, ammo_override: Option<&AmmoStats>) -> ShotChain {
         let ammo_choices = self.ammo_choices(w);
         let ammo = ammo.filter(|a| ammo_choices.contains(a)).or_else(|| ammo_choices.first().copied());
-        let a = ammo.and_then(|a| self.ammo.get(&a));
+        let a = ammo_override.or_else(|| ammo.and_then(|a| self.ammo.get(&a)));
         let (projectile, projectile_from) = match a.and_then(|a| a.projectile) {
             Some(p) => (Some(p), Some("ammo")),
             None => (w.projectile, w.projectile.map(|_| "weapon")),
@@ -1360,5 +1474,116 @@ mod tests {
         r.mods = vec![slot(1, 1, "Regenerate Ammo (seconds)", -5.0, 0.0)];
         assert!((r.modded(1).regen_rate - 0.1).abs() < 1e-6);
         assert_eq!(with("Regenerate Ammo (seconds)", 3.0, 0.0).regen_rate, 0.0);
+    }
+
+    #[test]
+    fn chain_with_ammo_and_numeric_ammo_effects_reach_combat_consumers() {
+        let mut forms = CombatForms::default();
+        let weap = FormId(0x100);
+        let ammo = FormId(0x200);
+        let proj_a = FormId(0x300);
+        let proj_b = FormId(0x301);
+        let eff_dmg = FormId(0x400);
+        let eff_spread = FormId(0x401);
+        let eff_wear = FormId(0x402);
+
+        let w = WeaponStats { base_damage: 60, projectile_count: 1, projectile: Some(proj_a), ammo: Some(ammo), min_spread: 2.0, ..Default::default() };
+        forms.weapons.insert(weap, w.clone());
+        forms.ammo.insert(ammo, AmmoStats { projectile: Some(proj_a), projectiles_per_shot: 1, effects: vec![], ..Default::default() });
+
+        let live = AmmoStats { projectile: Some(proj_b), projectiles_per_shot: 3, effects: vec![eff_dmg, eff_spread, eff_wear], ..Default::default() };
+        let ch = forms.chain_with_ammo(weap, &w, Some(ammo), Some(&live));
+        assert_eq!((ch.projectile, ch.projectile_from), (Some(proj_b), Some("ammo")));
+        assert_eq!(ch.projectiles_per_shot, 3);
+        assert!((ch.damage_per_projectile - 20.0).abs() < 1e-6);
+        assert_eq!(ch.ammo_effects, vec![eff_dmg, eff_spread, eff_wear]);
+
+        // Clearing projectile in override falls back to weapon projectile.
+        let cleared = AmmoStats { projectile: None, projectiles_per_shot: 0, effects: vec![], ..Default::default() };
+        let ch_cleared = forms.chain_with_ammo(weap, &w, Some(ammo), Some(&cleared));
+        assert_eq!((ch_cleared.projectile, ch_cleared.projectile_from), (Some(proj_a), Some("weapon")));
+        assert_eq!(ch_cleared.projectiles_per_shot, 1);
+
+        // Live numeric AMEF codes drive damage, spread, and weapon wear.
+        let e_dmg = AmmoEffect::from_numeric(0, 1, 1.5);
+        let e_dt = AmmoEffect::from_numeric(2, 2, 4.0);
+        let e_spread = AmmoEffect::from_numeric(3, 1, 0.5);
+        let e_wear = AmmoEffect::from_numeric(4, 1, 2.0);
+        let refs = [&e_dmg, &e_dt, &e_spread, &e_wear];
+        assert!((crate::damage::apply_effects(20.0, &refs, "Damage Mod") - 30.0).abs() < 1e-6);
+        assert!((crate::damage::apply_effects(10.0, &refs, "DT Mod") - 6.0).abs() < 1e-6);
+        let base_cone = crate::spread::cone_deg(0.0, 0.0, &w, &[]);
+        assert!((crate::spread::cone_deg(0.0, 0.0, &w, &refs) - 0.5 * base_cone).abs() < 1e-6);
+        let rules = crate::Rules::defaults();
+        assert!((crate::condition::weapon_wear(&rules, &w, &refs) - 2.0 * rules.damage_to_weapon_value).abs() < 1e-6);
+    }
+
+    #[test]
+    fn weapon_apply_flags1_projects_bits_and_preserves_flags2() {
+        let mut w = WeaponStats {
+            flags: vec!["Has Scope".into(), "Scope from Mod".into(), "Scope has NightVision".into()],
+            scope_nif: Some("scope.nif".into()),
+            zoom_mod_on: true,
+            embedded: true,
+            embedded_limb: Some(25),
+            playable: true,
+            ..Default::default()
+        };
+        assert_eq!(w.scope_model(), Some("scope.nif"));
+        assert!(w.night_vision_scope());
+
+        // Set Ignores Normal Weapon Resistance (0), Is Automatic (1), Can't Drop (3), Non-Playable (7);
+        // clear Has Scope (2) and Embedded Weapon (5).
+        let mask = (1 << 0) | (1 << 1) | (1 << 3) | (1 << 7);
+        w.apply_flags1(mask);
+        assert!(w.has_flag("Ignores Normal Weapon Resistance"));
+        assert!(w.has_flag("Is Automatic") && w.automatic);
+        assert!(!w.has_flag("Has Scope") && w.scope_model().is_none() && !w.night_vision_scope());
+        assert!(w.has_flag("Can't Drop"));
+        assert!(!w.has_flag("Embedded Weapon") && !w.embedded && w.embedded_limb.is_none());
+        assert!(w.has_flag("Non-Playable") && !w.playable);
+        // flags2 entries stay intact.
+        assert!(w.has_flag("Scope from Mod") && w.has_flag("Scope has NightVision"));
+
+        // Re-enabling Has Scope (2) and clearing Non-Playable (7) restores scope and playability.
+        w.apply_flags1(1 << 2);
+        assert!(!w.automatic && w.playable);
+        assert_eq!(w.scope_model(), Some("scope.nif"));
+        assert!(w.night_vision_scope());
+    }
+
+    #[test]
+    fn projectile_apply_flags_updates_combat_and_launch_consumers() {
+        let mut p = ProjectileStats {
+            kind: Some("Missile".into()),
+            flags: vec!["Hitscan".into(), "Supersonic".into()],
+            speed: 4000.0,
+            range: 10000.0,
+            explosion: Some(FormId(0x500)),
+            alt_trigger_proximity: 128.0,
+            ..Default::default()
+        };
+        assert!(p.has("Hitscan") && p.has("Supersonic"));
+        assert_eq!(p.explodes(), None);
+
+        // Clear Hitscan (0), set Explosion (1) + Alt. Trigger (2) + Pass Through Small Transparent (9) + Detonates (10); unnamed bit 4 ignored.
+        p.apply_flags((1 << 1) | (1 << 2) | (1 << 4) | (1 << 9) | (1 << 10));
+        assert!(!p.has("Hitscan") && !p.has("Supersonic"));
+        assert!(p.has("Explosion") && p.has("Alt. Trigger") && p.has("Pass Through Small Transparent") && p.has("Detonates"));
+        assert_eq!(p.explodes(), Some(FormId(0x500)));
+        assert_eq!(p.flags.len(), 4, "unnamed bit 4 is not emitted");
+
+        // Verify Projectile::spawn sees live hitscan/alt_trigger/detonates/pass_small_transparent flags.
+        let shot = crate::projectile::Projectile::spawn(&p, p.explodes(), [0.0; 3], [0.0, 1.0, 0.0], None, 512.0, &crate::tuning::CombatTuning::default());
+        assert!(!shot.hitscan && shot.alt_trigger && shot.pass_small_transparent && shot.detonates);
+
+        // Switching to Lobber + Explosion + Alt. Trigger makes it a mine; switching to Can Be Picked Up alone makes it land as a weapon.
+        p.kind = Some("Lobber".into());
+        assert!(crate::mine::is_mine(&p));
+        p.apply_flags((1 << 6) | (1 << 11));
+        assert!(!crate::mine::is_mine(&p));
+        assert!(p.lands_as_weapon());
+        p.apply_flags((1 << 5) | (1 << 6));
+        assert!(!p.lands_as_weapon(), "Can Be Disabled prevents lands_as_weapon");
     }
 }

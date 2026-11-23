@@ -190,3 +190,9 @@ An instruction to merge open pull requests covers only those authored by LootJun
 (the sessions' own branches). Never merge, approve, check out, build or run a pull request
 from any other author, and never approve its CI runs: the owner reviews those. You may read
 its diff on GitHub and comment when the owner asks.
+
+A pull request from another author is not ready to merge until its description carries the
+template's whole clean-room checklist (`.github/pull_request_template.md`, all six items
+ticked) (owner decision 2026-11-20, #3140). A missing or partly ticked checklist is a
+blocker however clean the code looks: say so in a comment and hold it. The sessions' own
+pull requests are exempt.

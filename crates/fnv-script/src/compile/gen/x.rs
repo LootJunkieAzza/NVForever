@@ -626,6 +626,13 @@ impl Gen<'_> {
         f.opcode.is_none() && self.table.unnumbered.get(&n.to_ascii_lowercase()).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "axis" || p.wiki_type.as_deref().is_some_and(axis_letters))
     }
 
+    /// JIP's `SetOnPlayGroupEventHandler` takes an animation group keyword in its fourth
+    /// argument (index 3) [documented: SetOnPlayGroupEventHandler].
+    fn anim_group_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(n) = &f.func else { return false };
+        f.opcode.is_none() && k == 3 && n.eq_ignore_ascii_case("setonplaygroupeventhandler")
+    }
+
     /// The function's parameter `k` takes a form, or is named for a global (the base
     /// game's GetGlobalValue included).
     fn form_param(&self, f: &XFn, k: usize) -> bool {
@@ -681,10 +688,10 @@ impl Gen<'_> {
             // compiled bytes holding the variable and the box operator as the first of
             // five arguments, #2275].
             let boxed = comma && p.peek().is_some_and(|t| t.is(XKind::Op, "&"));
-            // `{expr}` not followed by `=>` is the expression, one argument (`call Fn
-            // {(BuildRef 0 n)}`, `call Fn {Quest.var}`) [observed: Animated Ingestibles.esp
-            // ships both with compiled bytes holding the value alone as the one argument,
-            // #2275].
+            // `{expr}` or `{arg1 arg2}` / `{arg1, arg2}` not followed by `=>` passes the
+            // braced expression(s) as argument(s) (`call Fn {(BuildRef 0 n)}`, `call Fn
+            // {Quest.var}` [observed: Animated Ingestibles.esp, #2275]; multiple space- or
+            // comma-separated arguments in braces, `call Fn {a b}` [hypothesis]).
             let braced = p.peek().is_some_and(|t| t.kind == XKind::LBrace) && !lambda_at(p);
             let boxing = f.params != Some(0) && p.peek().is_some_and(|t| t.sign && (t.is(XKind::Op, "*") || t.is(XKind::Op, "&")));
             if !starts_operand(p.peek()) && !minus_first && !boxed && !boxing && !braced {
@@ -692,19 +699,44 @@ impl Gen<'_> {
             }
             if braced {
                 p.next();
-                let was = std::mem::replace(&mut self.in_args, false);
-                let was_paren = std::mem::replace(&mut self.in_paren, true);
-                let surplus = std::mem::replace(&mut p.inline_surplus, false);
-                let e = self.xexpr(p, 0);
-                p.inline_surplus = surplus;
-                self.in_args = was;
-                self.in_paren = was_paren;
-                let e = e?;
+                let mut braced_count = 0usize;
+                while p.peek().is_some_and(|c| c.kind != XKind::RBrace) {
+                    if f.params.is_some_and(|n| args.len() >= n) {
+                        break;
+                    }
+                    let mut braced_comma = false;
+                    if braced_count > 0 && p.peek().is_some_and(|t| t.kind == XKind::Comma) {
+                        p.next();
+                        braced_comma = true;
+                        if p.peek().is_some_and(|c| c.kind == XKind::RBrace) {
+                            break;
+                        }
+                    }
+                    let b_prefix = p.peek().is_some_and(|t| {
+                        t.kind == XKind::Op
+                            && matches!(t.text.as_str(), "-" | "&" | "*")
+                            && (braced_comma || braced_count == 0 || t.sign)
+                    });
+                    let b_lambda = p.peek().is_some_and(|t| t.kind == XKind::LBrace) && lambda_at(p);
+                    if !starts_operand(p.peek()) && !b_prefix && !b_lambda {
+                        break;
+                    }
+                    let was = std::mem::replace(&mut self.in_args, true);
+                    let was_any = std::mem::replace(&mut self.in_arg_any, true);
+                    let was_paren = std::mem::replace(&mut self.in_paren, true);
+                    let surplus = std::mem::replace(&mut p.inline_surplus, false);
+                    let e = self.xexpr(p, 0);
+                    p.inline_surplus = surplus;
+                    self.in_args = was;
+                    self.in_arg_any = was_any;
+                    self.in_paren = was_paren;
+                    args.push(e?);
+                    braced_count += 1;
+                }
                 if p.next().map(|c| c.kind) != Some(XKind::RBrace) {
                     self.xerr("syntax", "missing }");
                     return None;
                 }
-                args.push(e);
                 continue;
             }
             // A string variable given by name to an xNVSE function's plain string
@@ -761,7 +793,7 @@ impl Gen<'_> {
                 // do not compile; Armor Damage Fix's gr_CondDamFix.txt ships `… 0 f`].
                 if let Some(t) = p.peek().filter(|t| matches!(t.kind, XKind::Word | XKind::Num) && !t.text.contains('.')).cloned() {
                     let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
-                    let named = self.var(&t.text).is_some() || self.form(&t.text).is_some();
+                    let named = t.kind == XKind::Word && (self.var(&t.text).is_some() || self.form(&t.text).is_some());
                     if let (true, false, Some(fi)) = (alone, named, self.hex_form_id(&t.text)) {
                         p.next();
                         args.push(val_expr(self.form_val(fi, &t.text)));
@@ -772,6 +804,15 @@ impl Gen<'_> {
             let enc = match f.opcode {
                 Some(o) => self.table.param_enc(o, args.len()),
                 None if self.axis_param(f, args.len()) => ParamEnc::Axis,
+                None if self.anim_group_param(f, args.len())
+                    && p.peek().is_some_and(|t| {
+                        t.kind == XKind::Word
+                            && !t.text.contains('.')
+                            && self.var(&t.text).is_none()
+                            && self.form(&t.text).is_none()
+                            && self.xfunction(&t.text).is_none()
+                            && self.enums.get("anim_group").is_some_and(|m| m.contains_key(&t.text.to_ascii_lowercase()))
+                    }) => ParamEnc::Enum("anim_group".into()),
                 None => ParamEnc::Value,
             };
             // Inside an expression an NVSE-aware function's argument stops at a comparison
@@ -782,8 +823,13 @@ impl Gen<'_> {
             // 0x0700254B, Party Banter 2.esm SCPT 0x0701D892, #2275]. Arithmetic stays in
             // the argument and a range or pair (`1:2`, `"k"::v`) continues it, as in an
             // override block [hypothesis].
+            // `TestExpr` and `let` accept assignments (`=`, `:=`) inside their whole-expression
+            // argument [documented: TestExpr; Let].
+            let assign_param = matches!(&f.func, FuncId::Name(n) if n.eq_ignore_ascii_case("testexpr") || n.eq_ignore_ascii_case("let")) && args.is_empty();
             let nested_aware = f.aware && self.in_expression() && !self.expression_param(f, args.len());
-            let min = if f.aware && !nested_aware {
+            let min = if assign_param {
+                0
+            } else if f.aware && !nested_aware {
                 ARG_OVERRIDE
             } else if self.co || nested_aware {
                 ARG_IN_OVERRIDE

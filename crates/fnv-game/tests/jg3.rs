@@ -248,35 +248,72 @@ fn casino_chip_and_winnings() {
 }
 
 #[test]
-fn casino_level_source_reaches_the_table_ban_and_saved_standing_without_changing_earnings() {
+fn casino_level_source_noop_on_untouched_and_writes_quarter_earnings_on_tracked_casino() {
     use fnv_game::casino::{opening, Closed};
-    let f = fixture(); let mut g = game(&f);
+    let f = fixture();
+    let mut g = game(&f);
     g.player.casino_levels.insert(FormId(0xABC), 2);
-    for level in 0..=4 {
+
+    // Untouched casino: SetCasinoWinningsLevel 1..=4 is a no-op (leaves earnings and level
+    // absent/0, matching the 2026-11-22 live probe on Atomic Wrangler, #3474).
+    for level in 1..=4 {
         q(&mut g, &format!("SetCasinoWinningsLevel TestCasino {level}"));
-        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), f64::from(level));
-        assert_eq!(opening(&g, FormId(CSNO), 10, 1000), if level == 4 { Err(Closed::Banned) } else { Ok(()) });
+        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), 0.0);
+        assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), 0.0);
         assert_eq!(g.player.casino_earnings.get(&FormId(CSNO)), None);
+        assert_eq!(g.player.casino_levels.get(&FormId(CSNO)), None);
+        assert_eq!(opening(&g, FormId(CSNO), 10, 1000), Ok(()));
         assert_eq!(g.player.casino_levels[&FormId(0xABC)], 2);
     }
+
+    // Tracked casino (max_winnings = 1000): SetCasinoWinningsLevel writes net earnings
+    // `level * max_winnings / 4` and updates saved standing (#3474).
+    q(&mut g, "SetCasinoWinnings TestCasino 1000");
+    assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), 1000.0);
+    assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), 4.0);
+    for (level, want_earnings) in [(2, 500i64), (4, 1000), (1, 250), (3, 750), (0, 0), (4, 1000)] {
+        q(&mut g, &format!("SetCasinoWinningsLevel TestCasino {level}"));
+        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), f64::from(level));
+        assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), want_earnings as f64);
+        assert_eq!(g.player.casino_earnings[&FormId(CSNO)], want_earnings);
+        assert_eq!(g.player.casino_levels[&FormId(CSNO)], level);
+        assert_eq!(opening(&g, FormId(CSNO), 10, 1000), if level == 4 { Err(Closed::Banned) } else { Ok(()) });
+        assert_eq!(g.player.casino_levels[&FormId(0xABC)], 2);
+    }
+
     let saved = g.checked_snapshot().unwrap();
     let world = World::restore(&f.forms, &f.refs, &saved.sim).unwrap();
     let mut back = Game::restore(&f.data, world, g.cfg, &saved).unwrap();
     assert_eq!(n(&mut back, "GetCasinoWinningsLevel TestCasino"), 4.0);
+    assert_eq!(n(&mut back, "GetCasinoWinnings TestCasino"), 1000.0);
+    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Err(Closed::Banned));
+
+    // Under bNoCasinoBans, SetCasinoWinningsLevel 4 still writes max earnings (1000) and raw
+    // level 4 while GetCasinoWinningsLevel reports 3 and table opening remains allowed.
+    back.tweaks.no_casino_bans = true;
+    q(&mut back, "SetCasinoWinningsLevel TestCasino 2");
+    assert_eq!(n(&mut back, "GetCasinoWinnings TestCasino"), 500.0);
+    assert_eq!(n(&mut back, "GetCasinoWinningsLevel TestCasino"), 2.0);
+    q(&mut back, "SetCasinoWinningsLevel TestCasino 4");
+    assert_eq!(n(&mut back, "GetCasinoWinnings TestCasino"), 1000.0);
+    assert_eq!(back.player.casino_levels[&FormId(CSNO)], 4);
+    assert_eq!(n(&mut back, "GetCasinoWinningsLevel TestCasino"), 3.0);
+    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Ok(()));
+
+    // With bNoCasinoBans off, lowering the level lowers net earnings too and lifts the ban.
+    back.tweaks.no_casino_bans = false;
     assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Err(Closed::Banned));
     q(&mut back, "SetCasinoWinningsLevel TestCasino 1");
-    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Ok(()));
-    fnv_game::casino::add_earnings(&mut back, FormId(CSNO), 1000, 1000);
-    q(&mut back, "SetCasinoWinningsLevel TestCasino 0");
-    assert_eq!(back.player.casino_earnings[&FormId(CSNO)], 1000);
-    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Err(Closed::Banned), "earnings ban remains");
-    back.tweaks.no_casino_bans = true;
+    assert_eq!(back.player.casino_earnings[&FormId(CSNO)], 250);
+    assert_eq!(back.player.casino_levels[&FormId(CSNO)], 1);
     assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Ok(()));
 }
 
 #[test]
 fn casino_level_source_rejects_invalid_forms_and_levels_without_mutating_standing() {
-    let f = fixture(); let mut g = game(&f);
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetCasinoWinnings TestCasino 500");
     q(&mut g, "SetCasinoWinningsLevel TestCasino 2");
     for args in ["TestNote 4", "0 4", "TestCasino -1", "TestCasino 5", "TestCasino 1.5", "TestCasino (Pow10 400)", "TestCasino"] {
         let before = g.checked_snapshot().unwrap();
@@ -325,12 +362,15 @@ fn no_casino_bans_source_and_actual_dialogue_condition_follow_the_table_opening_
 fn no_casino_bans_preserves_reward_stages_and_existing_missing_entry_behavior() {
     let f = fixture();
     let mut g = game(&f);
+    // Seed TestCasino so it is tracked before stepping through reward stages 0..=3 (#3474).
+    q(&mut g, "SetCasinoWinnings TestCasino 0");
     for enabled in [false, true] {
         g.tweaks.no_casino_bans = enabled;
         for stage in 0..=3 {
             q(&mut g, &format!("SetCasinoWinningsLevel TestCasino {stage}"));
             assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), f64::from(stage));
             assert_eq!(n(&mut g, "GetCasinoWinningStage TestCasino"), f64::from(stage));
+            assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), f64::from(stage * 250));
             assert_eq!(g.player.casino_levels[&FormId(CSNO)], stage);
         }
         let before = g.player.casino_levels.clone();
@@ -401,6 +441,43 @@ fn terminal_menu_items() {
     let chosen = fnv_game::terminal::choose(&mut g, FormId(TERM), FormId(TERM), 0).unwrap();
     assert_eq!((chosen.result.as_str(), chosen.note), ("Again.", Some(FormId(NOTE2))));
     assert_eq!(fnv_game::terminal::choose(&mut g, FormId(TERM), FormId(TERM), 1).unwrap().submenu, None);
+}
+
+#[test]
+fn casino_menu_close_events_fire_on_documented_menu_codes_1080_1081_1082() {
+    assert_eq!(fnv_game::slots::MENU_CODE, 1080);
+    assert_eq!(fnv_game::blackjack::MENU_CODE, 1081);
+    assert_eq!(fnv_game::roulette::MENU_CODE, 1082);
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.no_casino_bans = true;
+    fnv_game::casino::add_earnings(&mut g, FormId(CSNO), 1000, 1000);
+    for menu_code in [1080u16, 1081, 1082] {
+        q(
+            &mut g,
+            &format!(
+                "SetOnMenuCloseEventHandler (begin function {{int iMenu}}\n\
+                 if (GetCasinoWinningsLevel TestCasino) == 3\n\
+                   PlayerREF.AddItem TestChip iMenu\n\
+                 endif\n\
+                 end) 1 {menu_code}"
+            ),
+        );
+    }
+    for (menu_code, expected_total) in [
+        (fnv_game::slots::MENU_CODE, 1080i32),
+        (fnv_game::blackjack::MENU_CODE, 1080 + 1081),
+        (fnv_game::roulette::MENU_CODE, 1080 + 1081 + 1082),
+    ] {
+        g.open_menu(menu_code);
+        assert_eq!(g.close_menu(), Some(menu_code));
+        assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), expected_total);
+    }
+    // Unregistered menu does not trigger the casino close handlers.
+    g.open_menu(fnv_game::caravan::MENU_CODE);
+    assert_eq!(g.close_menu(), Some(fnv_game::caravan::MENU_CODE));
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), 1080 + 1081 + 1082);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
 }
 
 #[test]

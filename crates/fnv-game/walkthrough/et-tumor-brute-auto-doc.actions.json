@@ -2,6 +2,7 @@
   "format": "fnv.script.actions/1",
   "title": "Headless Et Tumor, Brute? (VMS35) by the Auto-Doc: the Legion chain to Caesar's coma, the Auto-Doc repaired and Caesar healed by it (stage 105)",
   "given": [
+    {"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}},
     {"kind": "menu", "menu": 1001, "open": false},
     {"kind": "quest", "quest": "VMQTops", "running": false, "completed": true, "stage": 80, "done": [80]},
     {"kind": "global", "name": "VStoryEventBennyKilledCasino", "value": 1},
@@ -54,6 +55,10 @@
     {"op": "wait_talk"},
     {"op": "wait_quest", "quest": "VMQ02", "field": "done.5", "value": true, "max_frames": 1200, "label": "milestone: VMQ02 5 (chip handed back, bunker task)"},
     {"op": "get_item_count", "of": "player", "item": "VPlatinumChip", "label": "player chip for the bunker"},
+    {"op": "note", "text": "The walks through the Fort are stand-ins, so the weather station guard's own disarming is not played: his 'Here you go.' (INFO 0x00156FAB) starts quest 0x00164762, whose script (SCPT 0x00164763) sets VFreeformTheFort.bEquipmentConfiscated 1 [observed]. Without it the weather station's door out (0x00125215, SCPT 0x00156FAF) has FortWeatherStationGuardRef talk to the player at every use and never lets them out (pilot rerun, step 62). Set as that line leaves it (as house.actions.json does)."},
+    {"op": "set_quest_var", "quest": "VFreeformTheFort", "var": "bEquipmentConfiscated", "value": 1},
+    {"op": "note", "text": "Mr. House's monitor at the bunker's vault door: the player turns him down; his last line (INFO 0x0014B658) unlocks SecuritronVaultDoorRef 0x0012AF42 and opens it, the way to the power regulators."},
+    {"op": "say_info", "info": "0x0014B658", "speaker": "SVMrHouseRef"},
     {"op": "note", "text": "Down in the Securitron Vault (travel stand-in) the player shoots the three power regulators; two DamageObject hits each stand in for the shots (the first hit stops at the capped stage 2, the second reaches stage 3, which their OnDestructionStageChange counts)."},
     {"op": "move_player", "to": "SVPowerRegulator01Ref"},
     {"op": "call", "line": "SVPowerRegulator01Ref.DamageObject 1000"},

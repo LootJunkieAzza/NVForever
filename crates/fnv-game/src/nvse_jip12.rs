@@ -214,14 +214,171 @@ pub fn marker_model(path: &str) -> bool {
 }
 
 impl Game<'_> {
+    fn worldspace_own_ref_override(&self, world: FormId, key: &str, expect_sig: &[u8; 4]) -> Option<FormId> {
+        let orig = self.unclone(world);
+        let v = self.field_overrides.get(&(world, key.to_string())).or_else(|| self.field_overrides.get(&(orig, key.to_string())))?;
+        let FormId(id) = match v {
+            XVal::Ref(r) if *r != 0 => FormId(*r),
+            _ => return None,
+        };
+        (self.data.sig(self.unclone(FormId(id))) == Some(*expect_sig)).then_some(FormId(id))
+    }
+
+    fn worldspace_own_ref_record(&self, world: FormId, sub: &str) -> Option<FormId> {
+        let s = self.data.record_field(self.unclone(world), sub, "")?.as_str()?;
+        let id = u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()?;
+        (id != 0).then_some(FormId(id))
+    }
+
+    fn worldspace_parent_info(&self, world: FormId) -> (Option<FormId>, u16) {
+        let parent = match crate::nvse::record_value(self, world, "WNAM", "") {
+            Some(XVal::Ref(r)) if r != 0 && self.data.sig(self.unclone(FormId(r))) == Some(*b"WRLD") => Some(FormId(r)),
+            _ => None,
+        };
+        let pnam = match crate::nvse::record_value(self, world, "PNAM", "") {
+            Some(XVal::Num(n)) if n.is_finite() => (n.trunc() as i64 as u64 & 0xFFFF) as u16,
+            _ => 0,
+        };
+        (parent, pnam)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_worldspace_ref(
+        &self,
+        world: FormId,
+        key: &str,
+        sub: &str,
+        expect_sig: &[u8; 4],
+        parent_flag: u16,
+        override_only: bool,
+        depth: u8,
+    ) -> Option<FormId> {
+        if depth >= 4 {
+            return None;
+        }
+        let orig = self.unclone(world);
+        if self.data.sig(orig) != Some(*b"WRLD") {
+            return None;
+        }
+        if let Some(ov) = self.worldspace_own_ref_override(world, key, expect_sig) {
+            return Some(ov);
+        }
+        let (parent, pnam) = self.worldspace_parent_info(world);
+        let parent = parent.filter(|&p| p != world && p != orig);
+        let own_rec = self.worldspace_own_ref_record(world, sub);
+        if pnam & parent_flag != 0 {
+            let from_parent = parent.and_then(|p| self.resolve_worldspace_ref(p, key, sub, expect_sig, parent_flag, override_only, depth + 1));
+            if override_only { from_parent } else { from_parent.or(own_rec) }
+        } else if own_rec.is_some() {
+            if override_only { None } else { own_rec }
+        } else {
+            parent.and_then(|p| self.resolve_worldspace_ref(p, key, sub, expect_sig, parent_flag, override_only, depth + 1))
+        }
+    }
+
+    /// Session `SetWorldspaceClimate` (`WRLD CNAM/`) override applying to `world`
+    /// (clone-first, original fallback, following `WNAM` + `PNAM` Use Climate Data
+    /// or missing child `CNAM`). Returns `None` when no session override applies [design].
+    pub fn worldspace_climate_override(&self, world: FormId) -> Option<FormId> {
+        self.resolve_worldspace_ref(world, "CNAM/", "CNAM", b"CLMT", fnv_world::index::parent_use::CLIMATE, true, 0)
+    }
+
+    /// Effective climate (`CLMT`) for `world`: session `SetWorldspaceClimate` override
+    /// first, else authored `WRLD CNAM` (following `WNAM` + `PNAM` Use Climate Data
+    /// inheritance) [documented: xEdit WRLD; design].
+    pub fn worldspace_climate(&self, world: FormId) -> Option<FormId> {
+        self.resolve_worldspace_ref(world, "CNAM/", "CNAM", b"CLMT", fnv_world::index::parent_use::CLIMATE, false, 0)
+    }
+
+    /// Session `SetWorldspaceImagespace` (`WRLD INAM/`) override applying to `world`
+    /// (clone-first, original fallback, following `WNAM` + `PNAM` Use Image Space Data
+    /// or missing child `INAM`). Returns `None` when no session override applies [design].
+    pub fn worldspace_image_space_override(&self, world: FormId) -> Option<FormId> {
+        self.resolve_worldspace_ref(world, "INAM/", "INAM", b"IMGS", fnv_world::index::parent_use::IMAGE_SPACE, true, 0)
+    }
+
+    /// Effective image space (`IMGS`) for `world`: session `SetWorldspaceImagespace`
+    /// override first, else authored `WRLD INAM` (following `WNAM` + `PNAM` Use Image
+    /// Space Data inheritance) [documented: xEdit WRLD; design].
+    pub fn worldspace_image_space(&self, world: FormId) -> Option<FormId> {
+        self.resolve_worldspace_ref(world, "INAM/", "INAM", b"IMGS", fnv_world::index::parent_use::IMAGE_SPACE, false, 0)
+    }
+
+    /// Session `SetWorldspaceImagespace` override for the player's current exterior
+    /// worldspace, `None` indoors or when unedited [design].
+    pub fn current_worldspace_image_space_override(&self) -> Option<FormId> {
+        self.player_world().and_then(|w| self.worldspace_image_space_override(w))
+    }
+
+    /// Effective image space (`IMGS`) of the player's current exterior worldspace,
+    /// `None` indoors [design].
+    pub fn current_worldspace_image_space(&self) -> Option<FormId> {
+        self.player_world().and_then(|w| self.worldspace_image_space(w))
+    }
+
+    /// Effective image space (`IMGS`) of a `CELL`: `SetCellImageSpace` (`FormChanges`)
+    /// first, else authored `CELL XCIM` [documented: SetCellImageSpace, GetCellImageSpace].
+    pub fn cell_image_space(&self, cell: FormId) -> Option<FormId> {
+        let orig = self.unclone(cell);
+        if self.data.sig(orig) != Some(*b"CELL") {
+            return None;
+        }
+        if let Some(&space) = self.forms.cell_image_spaces.get(&cell).or_else(|| self.forms.cell_image_spaces.get(&orig)) {
+            return Some(space);
+        }
+        self.worldspace_own_ref_record(cell, "XCIM")
+    }
+
+    /// Effective image space (`IMGS`) where the player currently is: the current cell's
+    /// image space (`SetCellImageSpace` / `CELL XCIM`) first, else the exterior
+    /// worldspace's (`SetWorldspaceImagespace` / `WRLD INAM`) [design].
+    pub fn current_image_space(&self) -> Option<FormId> {
+        let cell = self.cell_of(FormId::PLAYER_REF)?;
+        self.cell_image_space(cell).or_else(|| self.world.placed.world_of(cell).and_then(|w| self.worldspace_image_space(w)))
+    }
+
     /// The climate the scripts want drawn: ForceClimate's, else SetCurrentClimate's while
-    /// the player is in the worldspace it was set in; `None` leaves the worldspace's.
+    /// the player is in the worldspace it was set in, else SetWorldspaceClimate's override
+    /// for the player's current worldspace; `None` leaves the worldspace's authored record.
     pub fn script_climate(&self) -> Option<FormId> {
         let j = &self.other.jip12;
-        j.forced_climate.or_else(|| {
-            let (c, w) = j.set_climate?;
-            (self.player_world() == Some(w)).then_some(c)
-        })
+        j.forced_climate
+            .or_else(|| {
+                let (c, w) = j.set_climate?;
+                (self.player_world() == Some(w)).then_some(c)
+            })
+            .or_else(|| self.player_world().and_then(|w| self.worldspace_climate_override(w)))
+    }
+
+    /// The climate the player's worldspace shows now: `script_climate()`, else the
+    /// worldspace's authored climate (with parent inheritance); `None` indoors.
+    pub fn current_climate(&self) -> Option<FormId> {
+        let w = self.player_world()?;
+        self.script_climate().or_else(|| self.worldspace_climate(w))
+    }
+
+    /// The weather table (`WLST`, with `ClimateAddWeatherType` / `ClimateRemoveWeatherType`
+    /// edits) of the player's current climate, empty indoors or without a climate [design].
+    pub fn current_climate_weathers(&self) -> Vec<crate::nvse_jip7::ClimateWeather> {
+        self.current_climate().map(|c| self.climate_weathers(c)).unwrap_or_default()
+    }
+
+    /// The default weather of the player's current climate: the eligible `WLST` entry
+    /// (no global, or its global is non-zero) with the highest chance, first entry on ties
+    /// (matching `fnv_world::sky::default_weather`) [design].
+    pub fn current_climate_default_weather(&self) -> Option<FormId> {
+        let mut best: Option<(i64, FormId)> = None;
+        for entry in self.current_climate_weathers() {
+            if let Some(glob) = entry.global {
+                if !self.world.global(glob).is_ok_and(|v| v != 0.0) {
+                    continue;
+                }
+            }
+            if best.is_none_or(|(c, _)| entry.chance > c) {
+                best = Some((entry.chance, entry.weather));
+            }
+        }
+        best.map(|(_, w)| w)
     }
 
     fn player_world(&self) -> Option<FormId> {
@@ -272,9 +429,112 @@ impl Game<'_> {
         self.other.jip12.light = Some(field);
     }
 
-    /// The player fast travelled (the Pip-Boy's map).
-    pub fn note_fast_travel(&mut self) {
+    /// Whether `marker` is a placed map marker that the player may fast-travel to:
+    /// discovered (`set_found_markers`), or shown and enabled for travel by `ShowMap` /
+    /// `ShowAllMapMarkers` (respecting `skip_hidden` via `map_marker_shown` and
+    /// `MARKER_HIDDEN`, without treating authored `FNAM` bit 2 `Can Travel To` on
+    /// undiscovered markers as discovered) [documented: GetMapMarkerVisible, ShowMap,
+    /// ShowAllMapMarkers].
+    fn map_marker_can_travel(&self, marker: FormId) -> bool {
+        let Some(flags) = self.marker_flags(marker) else { return false };
+        let p = &self.player;
+        if p.found_markers.contains(&marker) {
+            return true;
+        }
+        let hidden = flags & crate::nvse_lu2::MARKER_HIDDEN != 0;
+        let shown = self.map_marker_shown(marker, hidden);
+        shown && (p.travel_markers.contains(&marker) || p.all_markers.is_some_and(|a| a.shown && a.travel))
+    }
+
+    /// The arrival reference for a fast travel to `marker`: its linked reference
+    /// (`XLKR` / `SetLinkedReference`) when present, else `marker` itself
+    /// [documented: GECK wiki SetOnFastTravelEventHandler; hypothesis: marker itself
+    /// when unlinked, docs/spec-notes/fast-travel.md §4].
+    fn fast_travel_destination(&self, marker: FormId) -> Option<&fnv_sim::refs::PlacedRef> {
+        let placed = self.world.placed.get(marker)?;
+        self.linked_ref(marker).and_then(|l| self.world.placed.get(l)).or(Some(placed))
+    }
+
+    /// Find the fast-travel destination marker matching the player's current arrival
+    /// position (set by `nvf_play::pipboy::data::travel::depart` immediately before
+    /// calling [`Game::note_fast_travel`]).
+    fn fast_travel_marker_at_player(&self) -> Option<FormId> {
+        let p = self.world.peek(FormId::PLAYER_REF)?;
+        let player_world = p.cell.and_then(|c| self.world.placed.world_of(c));
+        let mut best: Option<(f32, f32, u32)> = None;
+        for m in self.world.placed.refs.values().filter(|r| r.map_marker.is_some()) {
+            let dest = self.fast_travel_destination(m.id).unwrap_or(m);
+            let dest_world = dest.cell.and_then(|c| self.world.placed.world_of(c));
+            let same_space = if player_world.is_some() || dest_world.is_some() {
+                dest_world == player_world
+            } else {
+                dest.cell == p.cell
+            };
+            if !same_space {
+                continue;
+            }
+            let d2 = (0..3).map(|i| (dest.pos[i] - p.pos[i]).powi(2)).sum::<f32>();
+            if d2 > 1.0 {
+                continue;
+            }
+            let yaw = (dest.rot[2] - p.rot[2]).abs();
+            let cand = (d2, yaw, dest.id.0);
+            if best.is_none_or(|b| cand.0 < b.0 || (cand.0 == b.0 && (cand.1 < b.1 || (cand.1 == b.1 && cand.2 < b.2)))) {
+                best = Some(cand);
+            }
+        }
+        best.map(|(_, _, id)| FormId(id))
+    }
+
+    /// Record a completed player fast travel to `marker` (the destination marker
+    /// reference, which may be a map marker's linked arrival reference rather than
+    /// the MapMarker-based reference itself) [documented: SetOnFastTravelEventHandler,
+    /// GetPCFastTravelled]: increments `GetPCFastTravelled`'s counter and fires
+    /// `SetOnFastTravelEventHandler` (`fasttravel`) with `marker`, returning how
+    /// many handlers ran.
+    pub fn note_fast_travel_to(&mut self, marker: FormId) -> usize {
         self.other.jip12.fast_travels += 1;
+        self.jip_event("fasttravel", None, vec![XVal::Ref(marker.0)])
+    }
+
+    /// The player fast travelled (the Pip-Boy's map): counts the travel for
+    /// `GetPCFastTravelled` and fires JIP's `SetOnFastTravelEventHandler`
+    /// (`fasttravel`) with the arrival marker reference at the player's destination
+    /// (or form 0 when none matches) [documented: SetOnFastTravelEventHandler,
+    /// GetPCFastTravelled].
+    pub fn note_fast_travel(&mut self) {
+        let marker = self.fast_travel_marker_at_player().unwrap_or(FormId(0));
+        self.note_fast_travel_to(marker);
+    }
+
+    /// Attempt to fast-travel the player to `marker`: checks `can_fast_travel`
+    /// (`EnableFastTravel 0`, cell/world flags, air, combat, hostiles near,
+    /// encumbrance without Long Haul) and verifies `marker` is a placed, travelable
+    /// map marker. Refused travel changes nothing and fires no event; on success,
+    /// moves the player to the marker's linked arrival reference (if any) or the
+    /// marker itself, updates `player_entered` / `bring_teammates` /
+    /// `GetPCFastTravelled`, and fires `SetOnFastTravelEventHandler` (`fasttravel`)
+    /// with the destination marker reference [documented: SetOnFastTravelEventHandler,
+    /// EnableFastTravel, GetPCCanFastTravel].
+    pub fn fast_travel(&mut self, marker: FormId) -> bool {
+        if !self.can_fast_travel(&RunCtx::default()) || !self.map_marker_can_travel(marker) {
+            return false;
+        }
+        let Some((dest_id, dest_cell, dest_pos, dest_rot)) = self
+            .fast_travel_destination(marker)
+            .map(|d| (d.id, d.cell, d.pos, d.rot))
+        else {
+            return false;
+        };
+        let cell = dest_cell.map(|c| self.world.placed.exterior_cell_at(c, dest_pos).unwrap_or(c));
+        let from = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos));
+        if let Ok(p) = self.world.get(FormId::PLAYER_REF) {
+            (p.cell, p.pos, p.rot) = (cell, dest_pos, [0.0, 0.0, dest_rot[2]]);
+        }
+        self.player_entered(cell);
+        self.note_fast_travel_to(dest_id);
+        self.bring_teammates(from);
+        true
     }
 
     /// The engine loaded a save made with another load order.
@@ -390,18 +650,9 @@ impl Game<'_> {
     }
 }
 
-/// The climate a worldspace's record names (WRLD CNAM).
-fn world_climate(g: &Game, w: FormId) -> Option<FormId> {
-    match crate::nvse::record_value(g, w, "CNAM", "") {
-        Some(XVal::Ref(c)) if c != 0 => Some(FormId(c)),
-        _ => None,
-    }
-}
-
 /// The climate the player's worldspace shows now: the scripts', else the record's.
 pub fn current_climate(g: &Game) -> Option<FormId> {
-    let w = g.player_world()?;
-    g.script_climate().or_else(|| world_climate(g, w))
+    g.current_climate()
 }
 
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
@@ -411,7 +662,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // A climate locked until ForceClimate without one or SetCurrentClimate
         // [documented]; NVForever's sky changes to it (`nvforever::worldspace`).
         "forceclimate" => {
-            g.other.jip12.forced_climate = form(args, 0).filter(|&c| g.data.sigs.get(&c) == Some(b"CLMT"));
+            g.other.jip12.forced_climate = form(args, 0).filter(|&c| g.data.sig(g.unclone(c)) == Some(*b"CLMT"));
             if g.other.jip12.forced_climate.is_some() {
                 g.other.jip12.set_climate = None;
             }
@@ -422,7 +673,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // the worldspace [decision: the page's "Bugs" note, the climate going back after
         // about 7 seconds, is not followed].
         "setcurrentclimate" => {
-            let c = form(args, 0).filter(|&c| g.data.sigs.get(&c) == Some(b"CLMT"));
+            let c = form(args, 0).filter(|&c| g.data.sig(g.unclone(c)) == Some(*b"CLMT"));
             g.other.jip12.forced_climate = None;
             g.other.jip12.set_climate = c.zip(g.player_world());
             reff(c)

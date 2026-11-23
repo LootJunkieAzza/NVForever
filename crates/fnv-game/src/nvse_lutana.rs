@@ -29,7 +29,8 @@ pub struct LutanaState {
     /// (`Game::services`, `Game::aggro_radius`).
     pub services: HashMap<FormId, u32>,
     pub aggro_radius: HashMap<FormId, u32>,
-    /// SetRadius on a reference (its XRDS).
+    /// SetRadius on a reference (its XRDS), read by `GetRadius` and
+    /// `Game::radiation_markers_in`, and carried across same-run loads in `Game::Session`.
     pub ref_radius: HashMap<FormId, f32>,
     /// SetDefaultMessageTime's seconds.
     pub message_time: Option<f64>,
@@ -481,12 +482,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             reff(own.or_else(|| g.data.by_edid("DefaultCombatstyle")))
         }
         // ---- perks ----
-        // [documented: IsTrait] PERK DATA Trait, SetPerkFlag's change first (`nvse_gaps`).
-        "istrait" => {
-            let Some(p) = form(args, 0) else { return Some(Ok(zero)) };
-            let rec = g.data.perks.get(&p).is_some_and(|d| d.is_trait);
-            yes(g.gaps.perk_flags.get(&(p, 0)).copied().unwrap_or(rec))
-        }
+        // [documented: IsTrait] PERK DATA Trait, `Game::perk_def` first (`SetPerkFlag`).
+        "istrait" => yes(form(args, 0).and_then(|p| g.perk_def(p)).is_some_and(|d| d.is_trait)),
         // `perk index`: an ability entry's spell, a quest stage entry's quest [documented:
         // "Ability for type 5, Quest for type 6"]; an entry point 0 (its leveled list is
         // not kept decoded) [hypothesis], a negative index or past the entries 0.
@@ -553,12 +550,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setzoneflag" => {
             if let (Some(z), Some(bit)) = (form(args, 0).filter(|z| g.world.forms.zones.contains_key(z)), num(args, 1).map(|b| b as i64 as u8)) {
                 let on = num(args, 2).unwrap_or(0.0) != 0.0;
-                let c = g.other.zone_changes.entry(z).or_default();
                 if bit & 1 != 0 {
-                    c.never_resets = Some(on);
+                    g.other.zone_changes.entry(z).or_default().never_resets = Some(on);
                 }
                 if bit & 2 != 0 {
-                    c.match_pc_below_min = Some(on);
+                    g.world.set_zone_match_level(z, on);
                 }
             }
             zero
@@ -592,12 +588,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let unlocked = crate::data::terminal_flag::UNLOCKED;
             XVal::Num(t.and_then(|t| g.data.terminals.get(&t)).map_or(0.0, |d| if d.has(unlocked) { -1.0 } else { f64::from(d.difficulty) }))
         }
-        // `[terminal]`: TERM PNAM [documented: GetPasswordNote], SetPasswordNote's first.
-        "getpasswordnote" => reff(form(args, 0).or(subject).map(|f| base(g, f)).and_then(|t| record_ref(g, t, "PNAM"))),
+        // `[terminal]`: TERM PNAM [documented: GetPasswordNote], SetPasswordNote's first
+        // (`crate::terminal::password_note`, shared with `terminal::has_password` and
+        // `PlayerHasKey` and carried across same-run loads via `Game::Session`).
+        "getpasswordnote" => reff(form(args, 0).or(subject).map(|f| base(g, f)).and_then(|t| crate::terminal::password_note(g, t))),
         "setpasswordnote" => {
-            let t = form(args, 1).or(subject).map(|f| base(g, f)).filter(|&t| g.data.sig(t) == Some(*b"TERM"));
-            if let Some(t) = t {
-                g.field_overrides.insert((t, "PNAM/".into()), XVal::Ref(form(args, 0).map_or(0, |f| f.0)));
+            if let Some(t) = form(args, 1).or(subject).map(|f| base(g, f)) {
+                crate::terminal::set_password_note(g, t, form(args, 0));
             }
             zero
         }
@@ -667,16 +664,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // door with no lock of its own reads the other side's [hypothesis: as GetLockLevel].
         "playerhaskey" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
-            let key = if is_terminal(g, r) {
-                let b = base(g, r);
-                let note = record_ref(g, b, "PNAM");
-                if note.is_some_and(|n| g.player.notes.contains(&n)) {
-                    return Some(Ok(XVal::Num(1.0)));
-                }
-                note
-            } else {
-                g.world.lock_of(r).and_then(|l| l.key)
-            };
+            if is_terminal(g, r) {
+                return Some(Ok(yes(crate::terminal::has_password(g, base(g, r)))));
+            }
+            let key = g.world.lock_of(r).and_then(|l| l.key);
             yes(key.is_some_and(|k| g.world.item_count(FormId::PLAYER_REF, k).is_ok_and(|n| n > 0)))
         }
         // `[ref]`: XAPD "Parent Activate Only" [documented: IsParentActivateOnly; the
@@ -793,7 +784,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             if let Some(l) = form(args, 0) {
                 XVal::Num(record_num(g, l, "DATA", "radius").unwrap_or(0.0))
             } else if let Some(r) = subject {
-                let own = g.other.lutana.ref_radius.get(&r).copied().or_else(|| g.world.placed.get(r).and_then(|p| p.radius));
+                let own = g.ref_radius(r);
                 let b = base(g, r);
                 let light = || (g.data.sig(b) == Some(*b"LIGH")).then(|| record_num(g, b, "DATA", "radius")).flatten();
                 XVal::Num(own.map(|x| crate::nvse::record_float(f64::from(x))).or_else(light).unwrap_or(0.0))
@@ -821,11 +812,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
 /// Whether a form is playable, for the form types LNIsPlayable names; `None` for another
 /// type.
 fn playable(g: &Game, f: FormId) -> Option<bool> {
-    Some(match &g.data.sig(f)? {
-        b"WEAP" | b"ARMO" | b"AMMO" => g.playable_overrides.get(&f).copied().unwrap_or_else(|| g.world.forms.item(f).is_some_and(|i| !i.non_playable)),
+    Some(match &g.data.sig(g.unclone(f))? {
+        b"WEAP" | b"ARMO" | b"AMMO" => g.is_item_playable(f),
         b"RACE" => record_num(g, f, "DATA", "flags").is_some_and(|x| x as u64 & 1 != 0),
         b"HAIR" | b"EYES" => record_num(g, f, "DATA", "").is_some_and(|x| x as u64 & 1 != 0),
-        b"PERK" => g.gaps.perk_flags.get(&(f, 1)).copied().unwrap_or_else(|| g.data.perks.get(&f).is_some_and(|p| p.playable)),
+        b"PERK" => g.perk_def(f).is_some_and(|p| p.playable),
         _ => return None,
     })
 }
@@ -836,9 +827,18 @@ fn set_playable(g: &mut Game, f: FormId, on: bool) {
         let now = x.map_or(0, |x| x as u64);
         (if on { now | 1 } else { now & !1 }) as f64
     };
-    match g.data.sig(f).as_ref() {
-        Some(b"WEAP" | b"ARMO" | b"AMMO") => {
-            g.playable_overrides.insert(f, on);
+    match g.data.sig(g.unclone(f)).as_ref() {
+        Some(b"WEAP") => {
+            let now = record_num(g, f, "DNAM", "flags1").map_or(0, |x| x as u64);
+            let new = if on { now & !(1 << 7) } else { now | (1 << 7) };
+            g.field_overrides.insert((f, "DNAM/flags1".into()), XVal::Num(new as f64));
+            g.playable_overrides.remove(&f);
+            g.world.mutate_item_override(f, |ov| {
+                ov.non_playable = Some(!on);
+            });
+        }
+        Some(b"ARMO" | b"AMMO") => {
+            g.set_item_playable(f, on);
         }
         Some(b"RACE") => {
             let v = bit(record_num(g, f, "DATA", "flags"));
@@ -849,7 +849,9 @@ fn set_playable(g: &mut Game, f: FormId, on: bool) {
             g.field_overrides.insert((f, "DATA/".into()), XVal::Num(v));
         }
         Some(b"PERK") => {
-            g.gaps.perk_flags.insert((f, 1), on);
+            if let Some(p) = g.perk_def_mut(f) {
+                p.playable = on;
+            }
         }
         _ => {}
     }

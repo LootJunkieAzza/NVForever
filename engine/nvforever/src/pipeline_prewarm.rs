@@ -11,7 +11,9 @@
 //! was ready [observed 2026-11-19, NVF_PLAY_TEST_PIPELINE_LOG, before this module].
 //!
 //! While the screen is up each mesh without `NoFrustumCulling` gets it, with [`Prewarmed`]
-//! to say so, and loses both when the screen comes down. The camera's own settings make
+//! to say so, and loses both once the screen only settles before coming down (everything in,
+//! its pipelines ready: `Loading::settling`), before that frame's culling, so the first
+//! frame seen is culled. The camera's own settings make
 //! the view's key, so the variants asked for are those its later frames use; the sun's
 //! cascades see the meshes too, for the shadow variants. Meshes hidden otherwise (Visibility,
 //! a visibility range: the draw distance, LOD) stay hidden, so what lies beyond them is not
@@ -47,7 +49,14 @@ impl Plugin for PipelinePrewarmPlugin {
             info!("pipeline prewarm: off (NVF_PIPELINE_PREWARM=0)");
             return;
         }
-        app.init_resource::<PrewarmState>().add_systems(Last, screen_up.pipe(prewarm));
+        // Before this frame's culling, so the frame the screen comes down on is culled
+        // already (the marks' removal is applied at the sync point Bevy puts before it).
+        app.init_resource::<PrewarmState>().add_systems(
+            PostUpdate,
+            screen_up
+                .pipe(prewarm)
+                .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+        );
     }
 }
 
@@ -55,23 +64,39 @@ impl Plugin for PipelinePrewarmPlugin {
 struct PrewarmState {
     /// Meshes marked under the screen now up.
     marked: usize,
+    /// The screen now up settled once and its marks came off: none again until it is down.
+    released: bool,
 }
 
-/// Whether a screen that warms is up: a start's or a travel's, not a cover's (a save
-/// loading in a new run, the main menu).
-fn screen_up(loading: Option<Res<Loading>>) -> bool {
-    loading.is_some_and(|l| l.starting() || l.travelling())
+/// The screen as prewarming sees it: whether one that warms is up (a start's or a
+/// travel's, not a cover's: a save loading in a new run, the main menu), and whether it
+/// only settles before coming down (`Loading::settling`: everything is in and its
+/// pipelines are ready).
+fn screen_up(loading: Option<Res<Loading>>) -> (bool, bool) {
+    loading.map_or((false, false), |l| (l.starting() || l.travelling(), l.settling()))
 }
 
+/// Marks the meshes while a warming screen is up; takes the marks off once it settles,
+/// so the frame it comes down on is culled already, and for good: removing them can make
+/// the screen wait a frame more (it starts settling again), and marking again then would
+/// draw everything unculled once more [observed 2026-11-20: without this, the marks came
+/// off and went back on one frame apart at the `GSDocMitchellHouse` start of smoke's
+/// pipeline-cache scenarios, two "pipeline prewarm" lines 12 ms apart].
 fn prewarm(
-    In(up): In<bool>,
+    In((screen, settling)): In<(bool, bool)>,
     mut commands: Commands,
     mut state: ResMut<PrewarmState>,
     unmarked: Query<Entity, (With<Mesh3d>, Without<NoFrustumCulling>)>,
     marked: Query<Entity, With<Prewarmed>>,
     gate: Option<Res<crate::pipeline_gate::PipelineGate>>,
 ) {
-    if up {
+    if !screen {
+        state.released = false;
+    }
+    if screen && settling {
+        state.released = true;
+    }
+    if screen && !state.released {
         for e in &unmarked {
             commands.entity(e).insert((NoFrustumCulling, Prewarmed));
             state.marked += 1;
@@ -95,27 +120,61 @@ mod tests {
 
     #[test]
     fn marks_meshes_while_the_screen_is_up_and_clears_them_after() {
-        #[derive(Resource)]
-        struct Up(bool);
-        let mut app = App::new();
-        app.init_resource::<PrewarmState>().insert_resource(Up(false)).add_systems(Update, (|up: Res<Up>| up.0).pipe(prewarm));
+        let mut app = test_app();
         let mesh = app.world_mut().spawn(Mesh3d::default()).id();
         let own = app.world_mut().spawn((Mesh3d::default(), NoFrustumCulling)).id();
         let not_a_mesh = app.world_mut().spawn(Transform::default()).id();
         app.update();
         assert!(!app.world().entity(mesh).contains::<Prewarmed>(), "no loading screen: nothing");
 
-        app.insert_resource(Up(true));
+        app.insert_resource(Screen(true, false));
         app.update();
         assert!(app.world().entity(mesh).contains::<NoFrustumCulling>());
         assert!(app.world().entity(mesh).contains::<Prewarmed>());
         assert!(!app.world().entity(own).contains::<Prewarmed>(), "its own NoFrustumCulling: left alone");
         assert!(!app.world().entity(not_a_mesh).contains::<NoFrustumCulling>());
 
-        app.insert_resource(Up(false));
+        app.insert_resource(Screen(false, false));
         app.update();
         assert!(!app.world().entity(mesh).contains::<NoFrustumCulling>(), "the screen is down: culled again");
         assert!(!app.world().entity(mesh).contains::<Prewarmed>());
         assert!(app.world().entity(own).contains::<NoFrustumCulling>(), "another's NoFrustumCulling stays");
+    }
+
+    #[derive(Resource)]
+    struct Screen(bool, bool);
+
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<PrewarmState>()
+            .insert_resource(Screen(false, false))
+            .add_systems(Update, (|s: Res<Screen>| (s.0, s.1)).pipe(prewarm));
+        app
+    }
+
+    #[test]
+    fn the_marks_come_off_once_the_screen_settles_and_stay_off_until_the_next() {
+        let mut app = test_app();
+        let mesh = app.world_mut().spawn(Mesh3d::default()).id();
+        app.insert_resource(Screen(true, false));
+        app.update();
+        assert!(app.world().entity(mesh).contains::<Prewarmed>());
+
+        app.insert_resource(Screen(true, true));
+        app.update();
+        assert!(!app.world().entity(mesh).contains::<NoFrustumCulling>(), "settling: culled before the screen drops");
+
+        app.insert_resource(Screen(true, false));
+        app.update();
+        assert!(
+            !app.world().entity(mesh).contains::<Prewarmed>(),
+            "waiting again after it settled once: not marked again"
+        );
+
+        app.insert_resource(Screen(false, false));
+        app.update();
+        app.insert_resource(Screen(true, false));
+        app.update();
+        assert!(app.world().entity(mesh).contains::<Prewarmed>(), "the next screen warms again");
     }
 }

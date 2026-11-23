@@ -223,7 +223,9 @@ on fixture folders and a fixture zip/tar.gz (no real release is downloaded by an
   violation) and Linux (ETXTBSY) refuse while it runs; one that is running stops the install
   with its name.
 - **Restart.** After the swap the launcher starts the new `nvforever-launcher` in the install
-  with `--updated` and closes; the new one says "Updated to vX".
+  with `--updated` and closes; the new one says "Updated to vX". A click on the window's X is
+  refused only during the swap itself, so the launcher's own close afterwards goes through
+  (#3117).
 - **Roll back.** The Game folder page's Version card shows "Roll back to vX" when
   `update/previous/v<X>/` holds the game program. It is the same swap with the kept
   folder as the payload, so the current version is kept in its place (a second roll back goes

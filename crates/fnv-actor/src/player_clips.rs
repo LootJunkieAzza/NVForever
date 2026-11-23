@@ -171,6 +171,52 @@ pub fn limping_turn_clips(drawn: Option<&str>, left: bool) -> Vec<String> {
     out
 }
 
+/// Standing with `SetPCToddler 1`: prefers the toddler locomotion clips
+/// (`locomotion\toddler\mt*.kf`, observed in `_1stperson` and TTW/FO3 meshes;
+/// `docs/spec-notes/animation.md` §3.1), then child walk clips (`locomotion\child\`),
+/// then normal walk clips so a toddler never falls back to adult running clips
+/// [documented: GECK wiki SetPCToddler; hypothesis: fallback order when toddler clips are absent].
+pub fn toddler_move_clips(stance: Stance, female: bool, fast: bool, dir: Dir, drawn: Option<&str>) -> Vec<String> {
+    if stance != Stance::Stand {
+        return move_clips(stance, female, fast, dir, drawn);
+    }
+    let d = dir.name();
+    let mut out = Vec::new();
+    if fast {
+        out.push(format!(r"locomotion\toddler\mtfast{d}.kf"));
+    }
+    out.push(format!(r"locomotion\toddler\mt{d}.kf"));
+    if fast {
+        out.push(format!(r"locomotion\child\mtfast{d}.kf"));
+    }
+    out.push(format!(r"locomotion\child\mt{d}.kf"));
+    out.extend(move_clips(Stance::Stand, female, false, dir, drawn));
+    out
+}
+
+/// Standing idle with `SetPCToddler 1`: `locomotion\toddler\mtidle.kf`, then
+/// `locomotion\child\mtidle.kf`, then [`idle_clips`].
+pub fn toddler_idle_clips(stance: Stance) -> Vec<String> {
+    if stance != Stance::Stand {
+        return idle_clips(stance);
+    }
+    let mut out = vec![r"locomotion\toddler\mtidle.kf".to_string(), r"locomotion\child\mtidle.kf".to_string()];
+    out.extend(idle_clips(Stance::Stand));
+    out
+}
+
+/// Turning on the spot with `SetPCToddler 1`: `locomotion\toddler\mtturn*.kf`, then
+/// `locomotion\child\mtturn*.kf`, then [`turn_clips`].
+pub fn toddler_turn_clips(stance: Stance, drawn: Option<&str>, left: bool) -> Vec<String> {
+    if stance != Stance::Stand {
+        return turn_clips(stance, drawn, left);
+    }
+    let t = if left { "turnleft" } else { "turnright" };
+    let mut out = vec![format!(r"locomotion\toddler\mt{t}.kf"), format!(r"locomotion\child\mt{t}.kf")];
+    out.extend(turn_clips(Stance::Stand, drawn, left));
+    out
+}
+
 /// How the weapon is pointed: level, or towards the aim-up or aim-down extreme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Aim {
@@ -674,6 +720,34 @@ mod tests {
             ["2hhturnleft.kf", r"locomotion\2hhturnleft.kf", r"locomotion\hurt\mtturnleft.kf", r"locomotion\mtturnleft.kf", "mtturnleft.kf"]
         );
         assert_eq!(limping_turn_clips(None, false), [r"locomotion\hurt\mtturnright.kf", r"locomotion\mtturnright.kf", "mtturnright.kf"]);
+    }
+
+    #[test]
+    fn toddler_clips_prefer_toddler_then_child_then_walk_fallback() {
+        assert_eq!(
+            toddler_move_clips(Stance::Stand, false, false, Dir::Forward, None),
+            [
+                r"locomotion\toddler\mtforward.kf",
+                r"locomotion\child\mtforward.kf",
+                r"locomotion\male\mtforward.kf",
+                r"locomotion\mtforward.kf",
+            ]
+        );
+        // Even if fast is requested, toddler walk precedes child/adult fallback and never falls back to adult fast run.
+        let fast = toddler_move_clips(Stance::Stand, true, true, Dir::Left, None);
+        assert_eq!(fast[0], r"locomotion\toddler\mtfastleft.kf");
+        assert_eq!(fast[1], r"locomotion\toddler\mtleft.kf");
+        assert_eq!(fast[2], r"locomotion\child\mtfastleft.kf");
+        assert_eq!(fast[3], r"locomotion\child\mtleft.kf");
+        assert!(fast.iter().skip(4).all(|p| !p.contains("fast")));
+        assert_eq!(
+            toddler_idle_clips(Stance::Stand),
+            [r"locomotion\toddler\mtidle.kf", r"locomotion\child\mtidle.kf", r"locomotion\mtidle.kf", "mtidle.kf"]
+        );
+        assert_eq!(
+            toddler_turn_clips(Stance::Stand, None, true),
+            [r"locomotion\toddler\mtturnleft.kf", r"locomotion\child\mtturnleft.kf", r"locomotion\mtturnleft.kf", "mtturnleft.kf"]
+        );
     }
 
     #[test]

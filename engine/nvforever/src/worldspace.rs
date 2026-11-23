@@ -46,6 +46,8 @@ fn carry_sky(from: &SkyState, s: &mut SkyState) {
     s.days_passed = from.days_passed;
     s.clock_seen = from.clock_seen;
     s.fog_override = from.fog_override;
+    s.weather_fog_overrides = from.weather_fog_overrides.clone();
+    s.weather_visual_overrides = from.weather_visual_overrides.clone();
     s.script_wind = from.script_wind;
     s.moon_textures = from.moon_textures.clone();
 }
@@ -60,6 +62,9 @@ pub(crate) fn carry_climate_sky(from: &SkyState, s: &mut SkyState, global_value:
         }
     }
     carry_sky(from, s);
+    if from.world_image_space_id.is_some() && from.world_image_space_id == s.world_image_space_id {
+        s.image_space = from.image_space;
+    }
     s.carry_region_placement(from);
 }
 
@@ -92,6 +97,16 @@ pub fn script_sky(
         let weather = sky.weather.edid.clone();
         match SkyState::with_climate(&world, c, args.weather.as_deref(), weather.as_deref(), sky.hour, sky.rng) {
             Ok(mut s) => {
+                // Preserve live SetWorldspaceImagespace / exterior SetCellImageSpace across
+                // same-worldspace climate rebuilds before carry_climate_sky runs.
+                let active_space = sky
+                    .world_image_space_id
+                    .filter(|&id| Some(id) != s.world_image_space_id)
+                    .or_else(|| crate::world::effective_worldspace_image_space_id(&world, Some(g)));
+                if active_space != s.world_image_space_id {
+                    s.world_image_space_id = active_space;
+                    s.image_space = active_space.and_then(|id| crate::world::effective_image_space(&world, Some(g), id));
+                }
                 carry_climate_sky(&sky, &mut s, |id| sim.world.global(fnv_sim::FormId(id)).ok());
                 info!("sky: climate {:08X} -> {c:08X}{}: {}", sky.climate.form_id, if wanted.is_some() { " (a script's)" } else { "" }, s.describe());
                 *sky = s;

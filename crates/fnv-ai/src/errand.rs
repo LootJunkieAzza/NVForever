@@ -494,7 +494,7 @@ impl Ai {
         for (_, object) in objects.into_iter().take(TRIES) {
             let Some(to) = goal::place_of_ref(game, object) else { continue };
             let params = self.path_params(game, actor);
-            let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(fnv_game::package::flags::ALWAYS_RUN));
+            let running = game.package_def(&package).is_some_and(|d| d.has(fnv_game::package::flags::ALWAYS_RUN));
             let speed = self.pace(game, actor, running);
             let own = Ai::walk_pace_of(game, actor, running, speed);
             let a = self.agents.get_mut(&actor).expect("listed");

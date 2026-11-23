@@ -99,31 +99,117 @@ impl World<'_> {
         &self.zone_levels
     }
 
-    /// The player (at `player_level`) enters `zone`: it gets its level now if it has none.
-    /// `Some(level)` when it was set by this call.
+    /// Effective `ZoneDef` for `zone`: authored `ECZN DATA` with session
+    /// `SetZoneMinLevel` and `SetZoneFlag` bit 2 ("Match PC Below Minimum Level")
+    /// overrides applied. `None` when `zone` is not an `ECZN` form.
+    pub fn effective_zone_def(&self, zone: FormId) -> Option<ZoneDef> {
+        let mut d = *self.forms.zones.get(&zone)?;
+        if let Some(&min) = self.zone_session.min_levels.get(&zone) {
+            d.min_level = min;
+        }
+        if let Some(&m) = self.zone_session.match_levels.get(&zone) {
+            d.match_pc_below_min = m;
+        }
+        Some(d)
+    }
+
+    /// Session `SetZoneMinLevel zone level` override (ignored for non-`ECZN` forms).
+    pub fn set_zone_min_level(&mut self, zone: FormId, min_level: i8) {
+        if self.forms.zones.contains_key(&zone) {
+            self.zone_session.min_levels.insert(zone, min_level);
+        }
+    }
+
+    /// Session `SetZoneFlag zone 2 on` ("Match PC Below Minimum Level") override (ignored
+    /// for non-`ECZN` forms).
+    pub fn set_zone_match_level(&mut self, zone: FormId, match_pc_below_min: bool) {
+        if self.forms.zones.contains_key(&zone) {
+            self.zone_session.match_levels.insert(zone, match_pc_below_min);
+        }
+    }
+
+    /// Reference `r`'s own encounter zone: session `SetRefEncounterZone` override first
+    /// (`None` when cleared), else authored `REFR/ACHR/ACRE XEZN`.
+    pub fn ref_own_zone(&self, r: FormId) -> Option<FormId> {
+        match self.zone_session.ref_zones.get(&r) {
+            Some(&z) => z,
+            None => self.placed.get(r).and_then(|p| p.encounter_zone),
+        }
+    }
+
+    /// Session `SetRefEncounterZone [zone]` override (`None` removes the reference's own zone).
+    pub fn set_ref_zone(&mut self, r: FormId, zone: Option<FormId>) {
+        self.zone_session.ref_zones.insert(r, zone);
+    }
+
+    /// Effective encounter zone of worldspace `world`: session `SetWorldspaceEncounterZone`
+    /// override first (`None` when cleared), else authored `WRLD XEZN`.
+    pub fn world_zone_of(&self, world: FormId) -> Option<FormId> {
+        match self.zone_session.world_zones.get(&world) {
+            Some(&z) => z,
+            None => self.placed.world_zones.get(&world).copied(),
+        }
+    }
+
+    /// Session `SetWorldspaceEncounterZone world [zone]` override.
+    pub fn set_world_zone(&mut self, world: FormId, zone: Option<FormId>) {
+        self.zone_session.world_zones.insert(world, zone);
+    }
+
+    /// Effective encounter zone of `cell`: session `SetCellEncounterZone` first (`None`
+    /// when cleared), else authored `CELL XEZN`, else its worldspace's effective zone
+    /// (`SetWorldspaceEncounterZone` -> `WRLD XEZN`).
+    pub fn cell_zone_of(&self, cell: FormId) -> Option<FormId> {
+        if let Some(&z) = self.zone_session.cell_zones.get(&cell) {
+            return z;
+        }
+        if let Some(&z) = self.placed.cell_zones.get(&cell) {
+            return Some(z);
+        }
+        let w = self.placed.world_of(cell)?;
+        self.world_zone_of(w)
+    }
+
+    /// Session `SetCellEncounterZone cell [zone]` override.
+    pub fn set_cell_zone(&mut self, cell: FormId, zone: Option<FormId>) {
+        self.zone_session.cell_zones.insert(cell, zone);
+    }
+
+    /// Effective encounter zone governing reference `r`: its own zone ([`World::ref_own_zone`]),
+    /// else its placed cell's effective zone ([`World::cell_zone_of`]).
+    pub fn zone_of(&self, r: FormId) -> Option<FormId> {
+        if let Some(z) = self.ref_own_zone(r) {
+            return Some(z);
+        }
+        let cell = self.placed.get(r)?.cell?;
+        self.cell_zone_of(cell)
+    }
+
+    /// The player (at `player_level`) enters `zone`: it gets its level now if it has none,
+    /// reading live session `SetZoneMinLevel` / `SetZoneFlag` bit 2 overrides. `Some(level)`
+    /// when it was set by this call.
     pub fn enter_zone(&mut self, zone: FormId, player_level: u16) -> Option<u16> {
         if self.zone_levels.contains_key(&zone) {
             return None;
         }
-        let def = self.forms.zones.get(&zone).copied().unwrap_or_default();
+        let def = self.effective_zone_def(zone).unwrap_or_default();
         let level = level_on_entry(&def, player_level);
         self.zone_levels.insert(zone, level);
         Some(level)
     }
 
-    /// The level `r` reads leveled lists at: the one fixed for it, else its zone's level
-    /// (or the level the zone would take if entered now), else `player_level`, changed by
-    /// its level modifier.
+    /// The level `r` reads leveled lists at: the one fixed for it, else its effective
+    /// zone's level (or the level the zone would take if entered now, including session
+    /// overrides), else `player_level`, changed by its level modifier.
     pub fn level_at(&self, r: FormId, player_level: u16) -> LevelAt {
         if let Some(&l) = self.ref_levels.get(&r) {
             return l;
         }
-        let placed = self.placed;
-        let base = match placed.zone_of(r) {
-            Some(z) => self.zone_level(z).unwrap_or_else(|| level_on_entry(&self.forms.zones.get(&z).copied().unwrap_or_default(), player_level)),
+        let base = match self.zone_of(r) {
+            Some(z) => self.zone_level(z).unwrap_or_else(|| level_on_entry(&self.effective_zone_def(z).unwrap_or_default(), player_level)),
             None => player_level.max(1),
         };
-        modified_by(base, placed.get(r).and_then(|p| p.level_modifier), |name| self.setting_f32(name))
+        modified_by(base, self.placed.get(r).and_then(|p| p.level_modifier), |name| self.setting_f32(name))
     }
 
     /// The level fixed for `r`, if any.
@@ -161,11 +247,16 @@ impl World<'_> {
     /// Whether `cell`'s zone has "Never Resets" (docs/spec-notes/encounter-zones.md §4),
     /// or a script turned its respawning off ([`World::set_zone_respawns`]).
     pub fn cell_never_resets(&self, cell: FormId) -> bool {
-        let Some(z) = self.placed.cell_zone(cell) else { return false };
+        let Some(z) = self.cell_zone_of(cell) else { return false };
         match self.zone_respawns.get(&z) {
             Some(&respawns) => !respawns,
             None => self.forms.zones.get(&z).is_some_and(|d| d.never_resets),
         }
+    }
+
+    /// Saved `SetZoneRespawns` override for `zone`, if any.
+    pub fn zone_respawns_override(&self, zone: FormId) -> Option<bool> {
+        self.zone_respawns.get(&zone).copied()
     }
 
     /// `SetZoneRespawns zone flag`: the zone's cells reset (`true`) or never reset, over

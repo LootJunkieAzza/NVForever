@@ -52,6 +52,14 @@
 //!   for it, and the place's music starts at the shared clock's point in its files, so
 //!   the players in one place hear the same music at the same point [design]. Battle,
 //!   script, death and incidental music stay each game's own.
+//! - **The Pip-Boy radio** (`crate::radio::Radio::pipboy_playing`): while it plays a
+//!   station the place's music (and its outgoing crossfades) is turned down to silence
+//!   over [`RADIO_FADE`] ([`mix_tracks`]); it plays on unheard, so when the radio stops
+//!   it fades back in where it has got to. Only what the mixer hears changes: the
+//!   player's volume, SetMusicState's pause and the layers are left as they are. Battle
+//!   music (a battle loop, a dungeon set's battle stem) and the music scripts ask for
+//!   keep their level; incidental phrases are not changed [hypothesis: observer check
+//!   266; #3311].
 //! - Music goes on in menus and behind loading screens [design].
 //! - Not built: the main menu's music (no main menu yet; `SMainMenuMusicTrack`), the
 //!   controllers' retrigger delay and `NAM1` (not understood), `IsMusicPlaying`-style
@@ -388,6 +396,49 @@ pub fn hold_layers(wanted: [bool; 3], playing: [bool; 3], on_since: [f32; 3], mi
     [0, 1, 2].map(|k| wanted[k] || (playing[k] && now - on_since[k] < min_on))
 }
 
+/// Seconds the place's music takes to fade out under the Pip-Boy radio, and to come
+/// back after it [design].
+const RADIO_FADE: f32 = DEFAULT_FADE;
+
+/// The share of its level each layer of a track keeps under the Pip-Boy radio: the
+/// place's music (`place`: a location or dungeon set or the cell's or worldspace's music
+/// type) is turned down to `duck` (1 with the radio off, 0 under it, eased over
+/// [`RADIO_FADE`]), except a dungeon set's battle stem (`dungeon`: its third layer),
+/// which keeps its level as battle music does; the stem comes and goes by its own fade,
+/// so a battle starting or ending under the radio blends, while the explore and
+/// suspense stems stay down. A battle set's loop and the music scripts ask for (`place`
+/// false) keep theirs [hypothesis: observer check 266; #3311, a player's report that the
+/// music should stop while the radio is on].
+pub fn radio_share(place: bool, dungeon: bool, duck: f32) -> [f32; 3] {
+    let duck = duck.clamp(0.0, 1.0);
+    match (place, dungeon) {
+        (false, _) => [1.0; 3],
+        (true, true) => [duck, duck, 1.0],
+        (true, false) => [duck; 3],
+    }
+}
+
+/// One frame of a track: each layer's fade moved on by `dt` and its level handed to the
+/// mixer at `volume` (the player's music volume and the conversation tweak) times its
+/// share under the Pip-Boy radio ([`radio_share`], from `duck`). The share changes what
+/// the mixer hears only, so the track plays on with its layers' fades and the player's
+/// volume as they were.
+fn mix(t: &mut Track, dt: f32, volume: f32, duck: f32) {
+    let share = radio_share(t.place, t.layer_names == DUNGEON_LAYERS, duck);
+    for (k, share) in share.into_iter().enumerate() {
+        t.level[k] = fade_step(t.level[k], t.target[k], dt, t.fade);
+        t.levels[k].store((t.level[k] * t.gain[k] * volume * share).to_bits(), Ordering::Relaxed);
+    }
+}
+
+/// Whether the place's music is silenced: under the main menu, which plays its own
+/// theme, under the intro film, which has its own sound, under a scripted film that
+/// pauses it (PlayBink), and at the poker table, which plays its casino's station
+/// (`crate::poker`).
+fn in_front(main_menu: Option<&crate::main_menu::MainMenu>, intro: Option<&crate::intro::Intro>, poker: Option<&crate::poker::PokerScreen>) -> bool {
+    main_menu.is_some_and(|m| m.open) || intro.is_some_and(|i| i.silences_music()) || poker.is_some_and(|p| p.0.is_some())
+}
+
 /// Day for a set without a controller (an incidental set).
 fn incidental_day(hour: f32) -> bool {
     hour >= INCIDENTAL_DAY.0 && hour < INCIDENTAL_DAY.1
@@ -429,10 +480,21 @@ struct Track {
     /// In co-op, the shared clock when the track was asked for, for its sound once its
     /// files are in ([`Music::finish`]).
     shared_at: Option<(f64, std::time::Instant)>,
+    /// The place's music (a set or the cell's or worldspace's type), which the Pip-Boy
+    /// radio turns down ([`radio_share`]); false for a battle loop and script music.
+    place: bool,
 }
 
 #[derive(Component)]
 struct MusicSound;
+
+/// Where a track [`Music::start`]s: the place's music or a battle loop, or music a
+/// script asked for (also the death and level-up music).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Slot {
+    Place,
+    Script,
+}
 
 /// A battle and the music it brought.
 #[derive(Default)]
@@ -473,6 +535,13 @@ pub struct Music {
     battle: Battle,
     /// The player is dead: no music plays.
     dead: bool,
+    /// The Pip-Boy radio plays a station: the place's music is turned down
+    /// ([`radio_share`]).
+    radio: bool,
+    /// How much of the place's music the Pip-Boy radio leaves, 0-1, and the end of its
+    /// fade last logged.
+    duck: f32,
+    duck_logged: f32,
     /// When the next incidental phrase is due, and the region it is for.
     incidental: Option<(u32, f32)>,
     reported: HashSet<String>,
@@ -488,6 +557,8 @@ pub struct Music {
     pub deaths: u32,
     /// Level-up music started ([`MusicCues::level_up`]).
     pub level_ups: u32,
+    /// Times the Pip-Boy radio came on and held the place's music.
+    pub radio_holds: u32,
     /// SetMusicState 1 holds the music where it is until SetMusicState 2 (or 0)
     /// [documented: SetMusicState].
     paused: bool,
@@ -507,6 +578,9 @@ impl Default for Music {
             marker: None,
             battle: Battle::default(),
             dead: false,
+            radio: false,
+            duck: 1.0,
+            duck_logged: 1.0,
             incidental: None,
             reported: HashSet::new(),
             rng: SplitMix(0x6d75_7369),
@@ -520,6 +594,7 @@ impl Default for Music {
             stingers: 0,
             deaths: 0,
             level_ups: 0,
+            radio_holds: 0,
             paused: false,
         }
     }
@@ -695,11 +770,13 @@ impl Music {
         Some(files[k.min(files.len() - 1)].clone())
     }
 
-    /// The archive path of a music file, warning once when a folder has none.
-    fn file_path(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
+    /// The archive path of a music file, saying once when a folder has none: a warning,
+    /// or at debug level when the record naming it is the game's own (`own`; the base
+    /// game's music types name Fallout 3's folders, #2757).
+    fn file_path(&mut self, vfs: &fnv_vfs::Vfs, file: &str, own: bool) -> Option<String> {
         let path = self.path(vfs, file);
         if path.is_none() && self.reported.insert(file.to_string()) {
-            warn!("music: no files in music\\{file}");
+            crate::game_files::say_missing(own, &format!("music: no files in music\\{file}"));
         }
         path
     }
@@ -707,18 +784,26 @@ impl Music {
     /// Whether a music file is there to be played (its folder has a file, the archives
     /// have it and it was not found unreadable), without reading it.
     fn playable(&mut self, vfs: &fnv_vfs::Vfs, file: &str) -> bool {
-        self.file_path(vfs, file).is_some_and(|p| vfs.exists(&p) && !matches!(self.files.peek(&p), Some(None)))
+        // Only asked of the default objects' music, which may well not be shipped.
+        self.file_path(vfs, file, true).is_some_and(|p| vfs.exists(&p) && !matches!(self.files.peek(&p), Some(None)))
     }
 
-    /// Start what is wanted, silent, with its layers fading in. Its files are read off
-    /// the main thread (`FileBytes::fetch`); the sound starts once they are all in
+    /// Start what is wanted, silent, with its layers fading in, as the place's music or
+    /// a battle loop (`Slot::Place`; the place's music is what the Pip-Boy radio turns
+    /// down) or as music a script asked for (`Slot::Script`). Its files are read off the
+    /// main thread (`FileBytes::fetch`); the sound starts once they are all in
     /// ([`Music::finish`]), this frame when they were kept already.
-    fn start(&mut self, commands: &mut Commands, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Assets<LayeredMusic>, w: &Wanted, now: f32) -> Track {
+    fn start(&mut self, commands: &mut Commands, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Assets<LayeredMusic>, w: &Wanted, now: f32, slot: Slot) -> Track {
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)]);
         let mut paths = Vec::new();
+        // Whose record names the files: the set's, the battle's or the type's.
+        let own = crate::game_files::games_own(match w.key {
+            Key::Set { set, .. } => set,
+            Key::Battle(form) | Key::Type(form) => form,
+        });
         for (k, file) in w.files.iter().enumerate() {
             let Some(file) = file else { continue };
-            match self.file_path(vfs, file) {
+            match self.file_path(vfs, file, own) {
                 Some(p) => paths.push((k, p)),
                 None => self.failed += 1,
             }
@@ -740,6 +825,7 @@ impl Music {
             layer_names: w.layers,
             synced: shared.map(|(_, e)| e),
             shared_at: shared.map(|(t, _)| (t, std::time::Instant::now())),
+            place: slot == Slot::Place && !matches!(w.key, Key::Battle(_)),
         };
         let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| w.layers[k]).collect();
         t.layer_names = w.layers;
@@ -900,11 +986,7 @@ fn play(
     let now = time.elapsed_secs();
     let eye = player.eye();
     let hour = game_hour(&sim);
-    // The place's music is silent under the main menu, which plays its own theme, under
-    // the intro film, which has its own sound, under a scripted film that pauses it
-    // (PlayBink), and at the poker table, which plays its
-    // casino's station (`crate::poker`).
-    let front = main_menu.is_some_and(|m| m.open) || intro.is_some_and(|i| i.silences_music()) || poker.is_some_and(|p| p.0.is_some());
+    let front = in_front(main_menu.as_deref(), intro.as_deref(), poker.as_deref());
     let audible = settings.play && settings.volume > 0.0 && !front;
 
     // SetMusicState [documented: SetMusicState]: 1 pauses what plays, 2 resumes it; 0
@@ -952,7 +1034,7 @@ fn play(
                     old.target = [0.0; 3];
                     music.leaving.push(old);
                 }
-                let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now);
+                let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now, Slot::Script);
                 music.script = Some(t);
             }
             None => {
@@ -1033,7 +1115,7 @@ fn play(
                 info!("music: the player died: the music stops, the default objects' death music {} plays", ty.edid.as_deref().unwrap_or("?"));
                 if audible {
                     w.fade = SCRIPT_FADE;
-                    let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now);
+                    let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now, Slot::Script);
                     music.script = Some(t);
                     music.deaths += 1;
                 }
@@ -1072,7 +1154,7 @@ fn play(
                         music.leaving.push(old);
                     }
                     w.fade = SCRIPT_FADE;
-                    let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now);
+                    let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now, Slot::Script);
                     music.script = Some(t);
                     music.level_ups += 1;
                 }
@@ -1184,7 +1266,7 @@ fn play(
                 info!("music: {} at the co-op clock ({t:.1} s)", w.name);
                 music.next_shared = Some((t, epoch));
             }
-            let t = music.start(&mut commands, &data.vfs, &mut assets, w, now);
+            let t = music.start(&mut commands, &data.vfs, &mut assets, w, now, Slot::Place);
             music.current = Some(t);
         }
     }
@@ -1249,16 +1331,56 @@ fn play(
     for t in &mut music.leaving {
         t.waiting = None;
     }
+}
 
+/// The screens that hold the place's music down ([`mix_tracks`]).
+type Screens<'a> = (Option<Res<'a, crate::main_menu::MainMenu>>, Option<Res<'a, crate::intro::Intro>>, Option<Res<'a, crate::poker::PokerScreen>>);
+
+/// Each frame after [`play`]: the tracks' fades moved on and their levels handed to the
+/// mixer, at the player's volume, the conversation tweak and, for the place's music
+/// (outgoing crossfades too), its share under the Pip-Boy radio (`radio_share`): while
+/// the radio plays a station (`crate::radio::Radio::pipboy_playing`) it is turned down,
+/// plays on unheard, and fades back in where it has got to when the radio stops.
+/// Tracks that have faded out are let go.
+#[allow(clippy::too_many_arguments)]
+fn mix_tracks(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    settings: Res<MusicSettings>,
+    music: Option<ResMut<Music>>,
+    state: Res<State<PlayState>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (main_menu, intro, poker): Screens,
+    radio: Option<Res<crate::radio::Radio>>,
+) {
+    let Some(mut music) = music else { return };
+    let music = &mut *music;
+    let radio_on = radio.is_some_and(|r| r.pipboy_playing);
+    if radio_on != music.radio {
+        music.radio = radio_on;
+        if radio_on {
+            music.radio_holds += 1;
+            info!("music: the Pip-Boy radio plays: the place's music is held");
+        } else {
+            info!("music: the Pip-Boy radio stopped: the place's music comes back");
+        }
+    }
     let dt = time.delta_secs();
+    let front = in_front(main_menu.as_deref(), intro.as_deref(), poker.as_deref());
     // The player's tweak turns the music down in a conversation [design: docs/design/tweaks.md].
     let talk = if *state.get() == PlayState::Dialogue { tweaks.as_ref().map_or(1.0, |t| t.dialogue_music_volume) } else { 1.0 };
     let volume = if settings.play && !front { settings.volume.max(0.0) * talk } else { 0.0 };
-    for t in music.current.iter_mut().chain(music.script.iter_mut()).chain(music.leaving.iter_mut()) {
-        for k in 0..3 {
-            t.level[k] = fade_step(t.level[k], t.target[k], dt, t.fade);
-            t.levels[k].store((t.level[k] * t.gain[k] * volume).to_bits(), Ordering::Relaxed);
+    // The Pip-Boy radio's share of the place's music, eased; the ends of its fade logged.
+    music.duck = fade_step(music.duck, if music.radio { 0.0 } else { 1.0 }, dt, RADIO_FADE);
+    for end in [0.0, 1.0] {
+        if (music.duck - end).abs() < 1e-4 && music.duck_logged != end {
+            music.duck_logged = end;
+            info!("music: the place's music is {} (Pip-Boy radio)", if end == 0.0 { "silent" } else { "back at full level" });
         }
+    }
+    let duck = music.duck;
+    for t in music.current.iter_mut().chain(music.script.iter_mut()).chain(music.leaving.iter_mut()) {
+        mix(t, dt, volume, duck);
     }
     music.leaving.retain(|t| {
         let over = t.level.iter().all(|l| *l <= 0.0);
@@ -1272,7 +1394,7 @@ fn play(
 fn report(mut exit: MessageReader<AppExit>, music: Option<Res<Music>>) {
     if let (Some(_), Some(m)) = (exit.read().last(), music) {
         info!(
-            "music summary: {} started, {} changes of layers, {} files not played, {} battles ({} battle loops started), {} intro and outro sounds, {} script requests, {} incidental phrases, {} death sounds, {} level-up music{}",
+            "music summary: {} started, {} changes of layers, {} files not played, {} battles ({} battle loops started), {} intro and outro sounds, {} script requests, {} incidental phrases, {} death sounds, {} level-up music, {} held by the Pip-Boy radio{}",
             m.started,
             m.layer_changes,
             m.failed,
@@ -1283,6 +1405,7 @@ fn report(mut exit: MessageReader<AppExit>, music: Option<Res<Music>>) {
             m.incidentals,
             m.deaths,
             m.level_ups,
+            m.radio_holds,
             m.current.as_ref().map_or(String::new(), |t| format!("; playing {}", t.name))
         );
     }
@@ -1306,7 +1429,7 @@ impl Plugin for MusicPlugin {
             .add_audio_source::<LayeredMusic>()
             .add_systems(Startup, init)
             // Its stingers are sound effects: before sfx plays them (crate::sfx::SfxSet).
-            .add_systems(Update, (cues.after(crate::PlaySet::Scripts), script_markers, play.after(crate::PlaySet::Activation)).chain().before(crate::sfx::SfxSet))
+            .add_systems(Update, (cues.after(crate::PlaySet::Scripts), script_markers, play.after(crate::PlaySet::Activation), mix_tracks).chain().before(crate::sfx::SfxSet))
             .add_systems(Last, (release_files, report));
         crate::settings::add_setting(
             app,
@@ -1465,6 +1588,182 @@ mod tests {
         assert!(!wanted_type(&MusicType { form_id: 9, edid: None, file: Some("scr\\b.mp3".into()), db: -7.74 }).unwrap().looping);
         // No file ("1NoMusic"): nothing to play.
         assert!(wanted_type(&MusicType::default()).is_none());
+    }
+
+    fn track(place: bool) -> Track {
+        Track {
+            key: Key::Type(1),
+            name: "t".into(),
+            entity: None,
+            waiting: None,
+            levels: Arc::new([AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)]),
+            level: [1.0, 0.0, 0.0],
+            target: [1.0, 0.0, 0.0],
+            gain: [0.5, 1.0, 1.0],
+            fade: 3.0,
+            min_on: 0.0,
+            on_since: [0.0; 3],
+            layer_names: ONE_LAYER,
+            synced: None,
+            shared_at: None,
+            place,
+        }
+    }
+
+    /// What the mixer is told for the first layer of `t`.
+    fn heard(t: &Track) -> f32 {
+        f32::from_bits(t.levels[0].load(Ordering::Relaxed))
+    }
+
+    #[test]
+    fn the_pipboy_radio_turns_the_place_music_down_and_back() {
+        let settings = MusicSettings { play: true, volume: 0.6 };
+        let mut place = track(true);
+        let mut script = track(false);
+        let mut battle = track(false);
+        battle.key = Key::Battle(2);
+        let mut duck = 1.0;
+        fn step(n: usize, radio: bool, volume: f32, duck: &mut f32, tracks: [&mut Track; 3]) {
+            let [place, script, battle] = tracks;
+            for _ in 0..n {
+                *duck = fade_step(*duck, if radio { 0.0 } else { 1.0 }, 0.1, RADIO_FADE);
+                for t in [&mut *place, &mut *script, &mut *battle] {
+                    mix(t, 0.1, volume, *duck);
+                }
+            }
+        }
+        step(1, false, settings.volume, &mut duck, [&mut place, &mut script, &mut battle]);
+        assert!((heard(&place) - 0.3).abs() < 1e-6, "audible before the radio");
+        // The radio on: the place's music fades to silence over RADIO_FADE (#3311)...
+        step(15, true, settings.volume, &mut duck, [&mut place, &mut script, &mut battle]);
+        assert!(heard(&place) > 0.0 && heard(&place) < 0.3, "halfway down");
+        step(20, true, settings.volume, &mut duck, [&mut place, &mut script, &mut battle]);
+        assert_eq!(heard(&place), 0.0, "silent under the radio");
+        // ...while it plays on, its own fade untouched; battle and script music keep theirs.
+        assert_eq!(place.level, [1.0, 0.0, 0.0]);
+        assert!((heard(&script) - 0.3).abs() < 1e-6 && (heard(&battle) - 0.3).abs() < 1e-6);
+        // The radio off: back where it was; the player's volume never changed.
+        step(35, false, settings.volume, &mut duck, [&mut place, &mut script, &mut battle]);
+        assert!((heard(&place) - 0.3).abs() < 1e-6, "audible again");
+        assert_eq!(settings.volume, 0.6);
+    }
+
+    /// Started by `Music::start` as the game starts the place's music (and a script's
+    /// music beside it), then mixed by `mix_tracks`: what the mixer is told before,
+    /// during and after the Pip-Boy radio plays its station.
+    #[test]
+    fn a_place_track_started_by_the_game_turns_down_under_the_radio() {
+        use bevy::ecs::system::RunSystemOnce;
+        let dir = std::env::temp_dir().join(format!("nvf-music-radio-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let vfs = Arc::new(fnv_vfs::Vfs::open(&dir, &[]).unwrap());
+        let mut app = App::new();
+        app.init_resource::<Music>()
+            .init_resource::<Assets<LayeredMusic>>()
+            .insert_resource(MusicSettings { play: true, volume: 0.6 })
+            .insert_resource(State::new(PlayState::Playing))
+            .insert_resource(Time::<Real>::default())
+            .init_resource::<crate::radio::Radio>()
+            .add_systems(Update, mix_tracks);
+        // A music type, as a cell names one (a folder: no file is read here), started as
+        // the place's music and as a script's.
+        let ty = MusicType { form_id: 7, edid: Some("Place".into()), file: Some("place\\".into()), db: 1.0 };
+        let w = wanted_type(&ty).unwrap();
+        app.world_mut()
+            .run_system_once(move |mut commands: Commands, mut music: ResMut<Music>, mut assets: ResMut<Assets<LayeredMusic>>| {
+                let mut t = music.start(&mut commands, &vfs, &mut assets, &w, 0.0, Slot::Place);
+                (t.level, t.gain) = ([1.0, 0.0, 0.0], [0.5, 1.0, 1.0]);
+                music.current = Some(t);
+                let mut s = music.start(&mut commands, &vfs, &mut assets, &w, 0.0, Slot::Script);
+                (s.level, s.gain) = ([1.0, 0.0, 0.0], [0.5, 1.0, 1.0]);
+                music.script = Some(s);
+            })
+            .unwrap();
+        let frames = |app: &mut App, n: usize| {
+            for _ in 0..n {
+                app.world_mut().resource_mut::<Time<Real>>().update_with_duration(Duration::from_millis(100));
+                app.update();
+            }
+        };
+        let now = |app: &App| {
+            let m = app.world().resource::<Music>();
+            (heard(m.current.as_ref().unwrap()), heard(m.script.as_ref().unwrap()))
+        };
+        frames(&mut app, 2);
+        assert!((now(&app).0 - 0.3).abs() < 1e-6, "the place's music before: {:?}", now(&app));
+        app.world_mut().resource_mut::<crate::radio::Radio>().pipboy_playing = true;
+        frames(&mut app, 35);
+        assert_eq!(now(&app).0, 0.0, "the place's music under the radio");
+        assert!((now(&app).1 - 0.3).abs() < 1e-6, "a script's music keeps its level");
+        app.world_mut().resource_mut::<crate::radio::Radio>().pipboy_playing = false;
+        frames(&mut app, 35);
+        assert!((now(&app).0 - 0.3).abs() < 1e-6, "the place's music after: {:?}", now(&app));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A dungeon set under the radio: a battle brings its battle stem in by the stem's
+    /// own fade, the explore stem stays down, and the battle's end fades the stem out
+    /// again, in the current track and in an outgoing crossfade alike.
+    #[test]
+    fn a_dungeon_battle_under_the_radio_blends_its_battle_stem_only() {
+        let layer = |t: &Track, k: usize| f32::from_bits(t.levels[k].load(Ordering::Relaxed));
+        let mut t = track(true);
+        t.layer_names = DUNGEON_LAYERS;
+        t.gain = [1.0; 3];
+        t.fade = 2.0;
+        // Under the radio (duck 0), exploring.
+        mix(&mut t, 0.1, 1.0, 0.0);
+        assert_eq!((layer(&t, 0), layer(&t, 2)), (0.0, 0.0));
+        // A battle: the battle stem comes in over its fade, not in one frame.
+        t.target = [1.0, 1.0, 1.0];
+        mix(&mut t, 0.1, 1.0, 0.0);
+        assert!((layer(&t, 2) - 0.05).abs() < 1e-6, "the battle stem fades in: {}", layer(&t, 2));
+        for _ in 0..30 {
+            mix(&mut t, 0.1, 1.0, 0.0);
+        }
+        assert_eq!((layer(&t, 0), layer(&t, 1), layer(&t, 2)), (0.0, 0.0, 1.0), "only the battle stem is heard");
+        // The battle over: the stem fades out over its fade; nothing snaps.
+        t.target = [1.0, 0.0, 0.0];
+        mix(&mut t, 0.1, 1.0, 0.0);
+        assert!((layer(&t, 2) - 0.95).abs() < 1e-6, "the battle stem fades out: {}", layer(&t, 2));
+        // Leaving (a crossfade to another set): the same shares.
+        t.target = [0.0; 3];
+        mix(&mut t, 0.1, 1.0, 0.0);
+        assert_eq!(layer(&t, 0), 0.0);
+        assert!(layer(&t, 2) > 0.0);
+        assert_eq!(radio_share(true, true, 0.25), [0.25, 0.25, 1.0]);
+        assert_eq!(radio_share(true, false, 0.25), [0.25; 3]);
+        assert_eq!(radio_share(false, true, 0.0), [1.0; 3]);
+    }
+
+    /// Through the system the game runs: the place's music as the mixer is told, before,
+    /// during and after the Pip-Boy radio plays, with the player's volume left alone.
+    #[test]
+    fn the_music_system_turns_down_under_the_pipboy_radio() {
+        let mut app = App::new();
+        app.insert_resource(Music { current: Some(track(true)), ..Default::default() })
+            .insert_resource(MusicSettings { play: true, volume: 0.6 })
+            .insert_resource(State::new(PlayState::Playing))
+            .insert_resource(Time::<Real>::default())
+            .init_resource::<crate::radio::Radio>()
+            .add_systems(Update, mix_tracks);
+        let frames = |app: &mut App, n: usize| {
+            for _ in 0..n {
+                app.world_mut().resource_mut::<Time<Real>>().update_with_duration(Duration::from_millis(100));
+                app.update();
+            }
+        };
+        let heard_now = |app: &App| heard(app.world().resource::<Music>().current.as_ref().unwrap());
+        frames(&mut app, 2);
+        assert!((heard_now(&app) - 0.3).abs() < 1e-6, "audible before: {}", heard_now(&app));
+        app.world_mut().resource_mut::<crate::radio::Radio>().pipboy_playing = true;
+        frames(&mut app, 35);
+        assert_eq!(heard_now(&app), 0.0, "silent under the radio");
+        assert_eq!(app.world().resource::<Music>().radio_holds, 1);
+        app.world_mut().resource_mut::<crate::radio::Radio>().pipboy_playing = false;
+        frames(&mut app, 35);
+        assert!((heard_now(&app) - 0.3).abs() < 1e-6, "audible after: {}", heard_now(&app));
+        assert_eq!(app.world().resource::<MusicSettings>().volume, 0.6);
     }
 
     #[test]

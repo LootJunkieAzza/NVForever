@@ -333,6 +333,15 @@ for each effect, and how it fits a long description.
 - Scripts' view: GetWeaponHasMod-style functions are NVSE/JIP (not vanilla) and not
   built. GetMenuTargetRef 1061 answers the weapon being modded and GetSelectedItemRef
   the highlighted mod (or the weapon), as inventory references (ext-menus.md).
+  `GetCalculatedWeaponDamage` and `GetCalculatedWeaponDPS` (`crate::nvse_gaps`) resolve
+  inventory references (using the owning actor's stats when held by an actor, else the
+  player's) and world-placed weapon references (using the player's stats) in addition to
+  actor/base-form calls [documented: GECK wiki GetCalculatedWeaponDamage], and apply
+  attached `Increase Weapon Damage` (1) / `Increase Rate of Fire` (8) mods, condition
+  scaling (`SetConditionDamagePenalty`, `Tweaks::no_condition_damage_penalty`,
+  `Tweaks::no_condition_damage_buffer`), and `Tweaks::crit_damage_scale` [hypothesis:
+  exact ammo/perk interactions in `GetCalculatedWeaponDamage` remain unbuilt; observer
+  check].
 
 ## 7. The mod shoot sounds (ESM gap audit row 12)
 
@@ -392,3 +401,58 @@ for each effect, and how it fits a long description.
   player's sound changes to a mod sound [design], and at debug level each NPC
   shot's choice (`combat: npc <ref> shot sound <SOUN> (silenced|plain, 3D|distant)`).
 
+
+## 8. Models changed by scripts
+
+- **The setters**: SetWeaponModel `weapon mask path` sets `MODL` (0) or `MWD1`–`MWD7`
+  (1–7) [documented: SetWeaponModel's table]; SetModelPath sets `MODL` [documented];
+  SetWeapon1stPersonModel `weapon trait [model]` sets `WNAM` (0) or `WNM1`–`WNM7` (1–7)
+  [documented: SetWeapon1stPersonModel]. With no model it clears that form, so first
+  person draws the third-person model the weapon has for the combination (§2)
+  [hypothesis: WAP Year One's script files set every `MODL`/`MWD` model of a weapon with
+  SetWeaponModel and then call SetWeapon1stPersonModel with no model for each of 0–7,
+  which only means something as a clear; observed: its `gr_10mmP.txt`]. A model argument
+  that is no form (an empty reference, a missing master's form) changes nothing
+  [hypothesis: the original's no-op for a form it cannot resolve].
+- **Drawn**: the changes hold for the session (`fnv_game::Game::weapon_model_changes`);
+  the renderer copies them into its record view (`engine/nvforever/src/weapon_models.rs`),
+  so the player's weapon in both views and an NPC's weapon taken up afterwards are drawn
+  with them. A change that goes (a load) puts the record's models back. The player's
+  weapon is drawn again as soon as its model changes [design].
+- **Alternate textures**: a model a script set is drawn without the record's alternate
+  texture list for the model it replaced [hypothesis: the list names that model's
+  shapes]; a first-person form's list stays with the form, which other weapons may share; the third-person `MOD4` held in place of `MODL` (Lucky's) gives way to a
+  script's `MODL` [hypothesis: the mod meant its model to be seen].
+- **Not built**: a weapon lying in the world or placed in a cell keeps its record's
+  model; an NPC already holding the weapon keeps the old model until it takes up
+  another weapon or is drawn anew.
+
+
+## 9. Sounds changed by scripts
+
+- **The setters**: JIP's `SetWeaponSound weapon soundID [newSound]` and
+  `GetWeaponSound weapon soundID` address all 14 `WEAP` sound slots `0..=13`
+  (`SNAM` 0/1 Shoot 3D / Shoot Dist, `XNAM` Shoot 2D, `NAM7` Attack Loop, `TNAM` Attack
+  Fail, `NAM6` Melee Block, `UNAM` Idle, `NAM9` Equip, `NAM8` Unequip, `WMS1` 0/1 Mod
+  Shoot 3D / Shoot Dist, `WMS2` Mod Shoot 2D, `YNAM` Pickup, `ZNAM` Putdown)
+  [documented: GECK wiki `GetWeaponSound`, `SetWeaponSound`; xEdit `wbDefinitionsFNV.pas`
+  `WEAP`; observed: `gaps4` for slots 0–3]. Omitting `newSound` or passing null (`0`)
+  clears the slot for the session [documented: GECK wiki `SetWeaponSound`]; invalid slots,
+  non-`WEAP` targets, and non-`SOUN` replacements are rejected without mutating state
+  [design].
+- **Pickup and putdown sharing**: for `WEAP` records, Lutana's `GetPickupSound` /
+  `SetPickupSound` and `GetPutdownSound` / `SetPutdownSound` share live slots 12 (`YNAM`)
+  and 13 (`ZNAM`) with `GetWeaponSound` / `SetWeaponSound`, while keeping `SetPickupSound`
+  and `SetPutdownSound`'s observed rule that a null sound leaves the existing sound intact
+  [observed: `plugins2`].
+- **`TempCloneForm` isolation**: cloning a `WEAP` snapshots any active session overrides
+  (both replacements and clears) onto the clone (`Game::snapshot_weapon_sounds`), so
+  pre-clone edits carry over while later edits on the original or the clone stay isolated
+  [design, matching `TempCloneForm` sound-trait isolation]. `TempCloneForm` `SOUN` aliases
+  are accepted as valid replacement sounds.
+- **Consumer view**: `fnv_game::Game::weapon_sound`, `Game::weapon_sound_override`,
+  `Game::set_weapon_sound`, `Game::weapon_sound_changes`, and `Game::weapon_sound_stamp`
+  expose the effective and session-changed weapon sound slots in the same pattern as
+  `Game::weapon_model_changes` / `Game::weapon_model_stamp` (§8) [design]. Engine playback
+  consumption over `WeaponFx` and inventory pickup/putdown audio is documented in
+  `docs/spec-notes/weapon-sound-bridge.md`.

@@ -23,6 +23,8 @@
   {"op": "choose", "topic": "VFreeformCasaMadrid1ESaintJamesTopic001", "label": "saint james lies"},
   {"op": "wait_talk"},
   {"op": "get_quest", "quest": "VMS13", "fields": ["stage", "done.20", "objective.20.displayed", "objective.30.displayed"], "label": "milestone: VMS13 20"},
+  {"op": "note", "text": "Saint James' room door (CasaMadridDoorStJamesRef, 0x000F3641) is locked at level 50; its key StJamesRoomKey is carried only by SweetieRef [observed: pilot rerun], and four of her lines hand it over (INFO 0x0015872A, 0x0015872E, 0x00158728, 0x0015872D: player.AddItem 0x001607BB 1) [observed: decompiled]. A player picks the Average lock or gets the key from her; the pilot does not pick locks. Stand-in: the player is given Saint James' Room Key."},
+  {"op": "add_item", "to": "player", "item": "StJamesRoomKey", "count": 1},
   {"op": "note", "text": "Stand-in for the search of Saint James' room: the player picks up the teddy bear (its OnAdd completes objective 30)."},
   {"op": "move_player", "to": "VMS13TeddyBearRef"},
   {"op": "activate", "actor": "player", "target": "VMS13TeddyBearRef"},

@@ -452,6 +452,8 @@ pub struct Settings(
     Vec<(&'static str, &'static str, ShownWhen)>,
     /// Rows whose note gives other words for a while ([`set_note_now`]).
     Vec<(&'static str, NoteNow)>,
+    /// Rows whose shared NEEDS rules the game answers itself ([`set_needs_in_game`]).
+    Vec<(&'static str, DisabledStatus)>,
 );
 
 /// Whether a row is shown now ([`set_shown_when`]).
@@ -507,6 +509,11 @@ impl Settings {
         let key = self.0.get(i)?.key;
         if let Some(status) = self.2.iter().find(|(k, _)| *k == key).and_then(|(_, f)| f(world)) {
             return Some(status);
+        }
+        // A row whose NEEDS rules hold for the next start (the launcher's), while this run
+        // has its own state ([`set_needs_in_game`]).
+        if let Some((_, f)) = self.10.iter().find(|(k, _)| *k == key) {
+            return f(world);
         }
         // A row whose parent is off or not on a choice it needs (the shared tables
         // `settings_layout::NEEDS` and `NEEDS_CHOICE`, which the launcher follows too).
@@ -649,6 +656,17 @@ pub fn set_shown_when(app: &mut App, key: &'static str, parent: &'static str, sh
     let mut settings = app.world_mut().resource_mut::<Settings>();
     settings.8.retain(|(k, _, _)| *k != key);
     settings.8.push((key, parent, shown));
+}
+
+/// Answer row `key`'s shared NEEDS rules (`settings_layout::NEEDS`, which the launcher
+/// follows by the saved values, for the next start) by `status` in the game: for a row whose
+/// parent takes effect at the next start, so this run's state decides whether it can apply
+/// now, whatever the parent row says until then [design, #3322 review].
+pub fn set_needs_in_game(app: &mut App, key: &'static str, status: DisabledStatus) {
+    app.init_resource::<Settings>();
+    let mut settings = app.world_mut().resource_mut::<Settings>();
+    settings.10.retain(|(k, _)| *k != key);
+    settings.10.push((key, status));
 }
 
 /// Give row `key`'s note `note`'s words, in place of its own, while it says something (module

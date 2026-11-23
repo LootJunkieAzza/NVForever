@@ -41,6 +41,8 @@ pub struct PlayerTold {
     /// or jam holding them down (the engine's `Combat::player_sights_up`); false while a
     /// melee weapon blocks. For SUP's HUD bars' aiming condition (`crate::ui_hudbar`).
     pub sights_up: bool,
+    /// A kill camera (`nvf_play::kill_cam::KillCam::kill_playing`) currently has the view.
+    pub kill_cam: bool,
     pub pad: Pad,
 }
 
@@ -97,6 +99,38 @@ fn yes(b: bool) -> XVal {
 }
 
 impl Game<'_> {
+    /// Whether the player is currently in character generation: `SetInCharGen 1` is active
+    /// (`PlayerState::in_chargen`) or a character-creation menu is open (`ShowRaceMenu`
+    /// creator, `SetTagSkills`, `ShowLoveTesterMenuParams`, `ShowTraitMenu`, or
+    /// `GetPlayerName` — excluding `ShowBarberMenu`, `ShowPlasticSurgeonMenu`, and
+    /// `ShowTextInputMenu`) [documented: GECK wiki IsInCharGen, SetInCharGen; hypothesis:
+    /// open character-creation menus also count when invoked outside SetInCharGen].
+    pub fn is_in_chargen(&self) -> bool {
+        use crate::game::{menus, RaceMenu};
+        self.player.in_chargen
+            || (self.menu_open(menus::RACE) && self.race_menu == RaceMenu::Creator)
+            || self.menu_open(menus::TAG_SKILLS)
+            || self.menu_open(menus::LOVE_TESTER)
+            || self.menu_open(menus::TRAITS)
+            || (self.menu_open(menus::NAME) && self.other.jip12.text_input.is_none())
+    }
+
+    /// Whether `form` (its base form, or `TempCloneForm` origin) carries JIP keyword
+    /// `keyword` (case-insensitive, shared by `HasKeyword` and `HasKeywordCond`)
+    /// [documented: GECK wiki HasKeyword, HasKeywordCond; observed: jip-n7].
+    pub fn has_keyword(&self, form: FormId, keyword: &str) -> bool {
+        if keyword.is_empty() {
+            return false;
+        }
+        let k = keyword.to_ascii_lowercase();
+        let b = crate::functions::base_of(self, form).unwrap_or(form);
+        if self.jip2.keywords.get(&b).is_some_and(|s| s.contains(&k)) {
+            return true;
+        }
+        let orig = self.unclone(b);
+        orig != b && self.jip2.keywords.get(&orig).is_some_and(|s| s.contains(&k))
+    }
+
     /// GetActorVelocity's followed actors move on (`Game::tick`).
     pub(crate) fn track_velocity(&mut self) {
         let dt = self.time - self.jip2.velocity_time;
@@ -225,16 +259,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let aiming = g.jip2.told.aiming && w.is_some();
             yes(aiming && (scoped == (name == "getpcusingscope")))
         }
-        // NVForever has no kill camera [hypothesis: VATS and its kill cam are not built].
-        "isinkillcam" => zero,
-        "isincharGen" | "isinchargen" => zero,
+        // Live kill-camera state reported each frame by the engine (`KillCam::kill_playing`)
+        // [documented: GECK wiki IsInKillCam; design: classic VATS attack cameras are excluded].
+        "isinkillcam" => yes(g.jip2.told.kill_cam),
+        // Character-generation state (`SetInCharGen` or open chargen menu)
+        // [documented: GECK wiki IsInCharGen; hypothesis: open chargen menus also count].
+        "isincharGen" | "isinchargen" => yes(g.is_in_chargen()),
         // In water: the physics' swimming state [hypothesis: wading is not told];
         // immersion 1 when swimming, else 0 [hypothesis].
         "isinwater" | "getwaterimmersionperc" => {
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             yes(g.senses.motion.get(&a).is_some_and(|m| m.swimming))
         }
-        "isinair" => zero,
+        // In the air: the physics' airborne state (neither grounded nor swimming)
+        // [documented: GECK wiki IsInAir; hypothesis: swimming counts as not in air].
+        "isinair" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            yes(g.senses.motion.get(&a).is_some_and(|m| m.in_air))
+        }
         // Units per second on the axis (none given: the speed), measured frame to frame
         // from the first call on [hypothesis: the first call gives 0].
         "getactorvelocity" => {
@@ -267,7 +309,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             read_keyword_lists(g);
             let targets: Vec<FormId> = if g.data.sig(f) == Some(*b"FLST") { crate::functions::list_members(g, f) } else { vec![base(g, f)] };
             match name {
-                "haskeyword" => return Some(Ok(yes(g.jip2.keywords.get(&base(g, f)).is_some_and(|s| s.contains(&k))))),
+                "haskeyword" => return Some(Ok(yes(g.has_keyword(f, &k)))),
                 "assignkeyword" => {
                     for t in targets {
                         g.jip2.keywords.entry(t).or_default().insert(k.clone());
@@ -452,8 +494,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (a, b, t) = (num(args, 0, 0.0), num(args, 1, 0.0), num(args, 2, 0.0));
             XVal::Num(a + (b - a) * t)
         }
-        // The Pip-Boy's mode [hypothesis: 0 while it is closed, as observed].
-        "getpipboymode" => zero,
+        // The Pip-Boy's mode: 0 closed, 1/2 opening, 3 opened, 4/5 closing [documented:
+        // GECK wiki GetPipBoyMode]. NVForever reports 3 whenever any Pip-Boy page is open
+        // (`Game::menu_open(menus::PIPBOY)`, including underneath a tutorial overlay) and
+        // 0 otherwise [hypothesis: opening/closing animation modes 1/2/4/5 are not emitted].
+        "getpipboymode" => XVal::Num(if g.menu_open(crate::game::menus::PIPBOY) { 3.0 } else { 0.0 }),
         // [observed: an unknown stat is -1, and ModExtraMiscStat did not create one]
         "getextramiscstat" => XVal::Num(g.jip2.misc_stats.get(&text(args, 0).to_ascii_lowercase()).copied().unwrap_or(-1.0)),
         // ModExtraMiscStat and InitExtraMiscStat: `crate::nvse_ttw`.

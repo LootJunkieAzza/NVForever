@@ -72,7 +72,8 @@ archives its `SArchiveList` names. NVForever mounts them the same way (#1526 pha
   `fallout.ini` [documented: `FalloutNVDataArchives::archives`, which reads that key from
   the profile's INI with local settings on]. An empty list, or neither file, keeps the
   shipped default list. A list that leaves out a base archive gets a warning, since its
-  files will be missing.
+  files will be missing. Under `--mo2`, `NVForever.ini`'s `[Archive] SArchiveList` is not
+  read at all: the VFS takes one list per run, and the profile's is the game's.
 - A name is opened from the highest layer that has it: the overwrite folder, then the mods
   from the highest priority down, then `Data`. A mod's copy of `Fallout - Meshes.bsa` thus
   replaces the game's, as usvfs' merged folder shows one file. A mod archive the list does
@@ -83,15 +84,52 @@ archives its `SArchiveList` names. NVForever mounts them the same way (#1526 pha
   the mounted order, so a later archive's copy of a path replaces an earlier one's; mods
   that ship overlapping archives are the case this does not model beyond that.
 
+## The profile's INIs and its saves (phase 2b)
+
+MO2's profile folder keeps more than the lists: a `settings.ini` with the profile's own
+switches, copies of the game's INI files when the profile keeps them, MO2's merged INI tweaks,
+and — with local saves — the saves. NVForever reads all of it read-only and writes nothing
+into the profile; a save is only ever written to NVForever's own folder.
+
+- **`settings.ini`** is a QSettings INI; a key outside any group is under `[General]`
+  [documented: Qt QSettings]. Two keys matter:
+  - `LocalSaves` — on: the profile's saves are `<profile>/saves`, which MO2 maps over the
+    game's own save folder; off: the player's folder [documented: MO2
+    `Profile::localSavesEnabled`, `GamebryoLocalSavegames`]. A profile without the key is read
+    as MO2's `Profile::findProfileSettings` reads it: a `saves` folder means on.
+  - `LocalSettings` — on: the profile keeps the game's INI files (below) [documented: MO2
+    `Profile::localSettingsEnabled`]. A profile without the key is on when it has a
+    `Fallout.ini`, since MO2's copies exist only with the switch on.
+  MO2's global defaults for both (`profile_local_saves`, `profile_local_inis`, in the
+  instance's own settings) are not read: a profile with neither the key nor its folder/copies
+  is taken as off.
+- **The INI text the game reads**, lowest precedence first:
+  1. `<profile>/Fallout.ini`, then `<profile>/FalloutPrefs.ini` — the profile's own copies,
+     only with local settings on. The prefs file wins a key in both, as the game reads it
+     after `Fallout.ini`.
+  2. `<profile>/initweaks.ini` — MO2 rewrites this file from the enabled mods' INI tweaks in
+     priority order plus the profile's own, and adds `[Archive] bInvalidateOlderFiles=1`
+     [documented: MO2 `Profile::createTweakedIniFile`]. Its keys sit above the INIs'.
+  Files are matched without case and read as lossy UTF-8 (the game's INIs are in the system
+  code page). No file, or a profile with neither, means no INI text.
+- **What the text is used for.** The extender's INI functions read it: `GetNumericINISetting`,
+  `GetStringIniSetting` and the setters (`fnv_game::nvse_settings`) see the profile's values
+  under `--mo2`, where before they had none. The engine's own settings are *not* taken from
+  it: its controls, LOD and graphics defaults stay its own (`bindings.rs`, `lod.rs`), and
+  `NVForever.ini` keeps its place — merging MO2's INIs into NVForever's own settings is a
+  separate step, and the profile's `[Archive] SArchiveList` is already read as the archive
+  list above.
+- **Saves.** With `LocalSaves` on, a bare `--load <name>` reads `<profile>/saves`, the place
+  MO2's mapping shows the original game; with it off, `--load` reads NVForever's home. Every
+  save and autosave NVForever makes goes to its own home folder, never into the profile
+  (maintainer decision 2026-11-18): the profile's saves are read-only. Nothing else in the
+  profile is written either.
+
 ## What this does not do (yet)
 
-- **Profile INIs.** `FalloutPrefs.ini` and `initweaks.ini` are not read, and neither are
-  the profile's other `Fallout.ini` keys: NVForever keeps its own settings and does not
-  merge MO2's tweaks. The one key read is `[Archive] SArchiveList`, which names the
-  archives (below). Phase 2b of #1526.
-- **Saves.** The profile's saves are not used, and a save NVForever writes does not go into
-  the profile (the editor's nothing-to-do-with path uses `Layout::save_target` for the
-  original game's plugin saves, not for this). Phase 2b of #1526.
+- **The engine's own settings from the profile's INIs.** Controls, LOD and the graphics
+  values stay coded in NVForever (with `NVForever.ini` over them); only the extender's INI
+  functions read the profile's text. MO2's global profile switches are not read either (above).
 - **Files read outside `Vfs`.** Anything that opens `Data` with plain file calls instead of
   through the virtual file system will not see the mods. The engine's assets go through
   `GameData`/`Vfs`; this is the honest limit of an in-process merge, and worth naming in a
@@ -103,7 +141,9 @@ archives its `SArchiveList` names. NVForever mounts them the same way (#1526 pha
 
 - `crates/fnv-install/src/mo2.rs`: `Layout::open` (instance + profile), `mod_roots`
   (lowest first, overwrite last), `profile_plugins`, `profile_archives` (the archive list
-  and the file it came from), `mod_archives` (the warning's list).
+  and the file it came from), `mod_archives` (the warning's list), `profile_setting`,
+  `local_settings`/`profile_inis`/`ini_texts`/`ini_setting` (the profile's INI text) and
+  `local_saves`/`saves_dir`.
 - `crates/fnv-vfs/src/lib.rs`: `Vfs::open_for_plugins_layered` indexes each root over `Data`
   in order, later roots replacing earlier files by normalised path (case- and
   slash-insensitive); `archive_files_layered` resolves the base list, `Update.bsa` and the
@@ -113,8 +153,13 @@ archives its `SArchiveList` names. NVForever mounts them the same way (#1526 pha
   highest first.
 - `engine/nvforever/src/main.rs`: `--mo2`, `--profile`; the profile's plugins take the place
   of the home `plugins.txt` when `--plugins` is not given, and its archive list the place of
-  `NVForever.ini`'s.
-- `crates/fnvtool/src/bsa_cmd.rs`: `vfs mods`, the verification command.
+  `NVForever.ini`'s; with local saves, a bare `--load` reads the profile's `saves` folder
+  (read-only: saves are never written there); the INI text goes to
+  `nvf_play::script::set_ini_texts`.
+- `engine/nvf-play/src/script.rs`: `set_ini_texts`, put into the `GameData` the script VM is
+  built on.
+- `crates/fnvtool/src/bsa_cmd.rs`: `vfs mods`, the verification command (`fnv.vfs.mods/3`
+  adds `local_settings`, `local_saves`, `saves_dir`, `inis` and two sample settings).
 
 ## Tests
 

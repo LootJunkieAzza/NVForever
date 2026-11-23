@@ -865,6 +865,9 @@ pub struct ScriptLooks {
     /// (`refs::disable`); saved (`GameSnapshot::fading_out`), so a save during the hold
     /// still disables.
     pub fading_out: std::collections::BTreeMap<fnv_sim::FormId, f64>,
+    /// Neutral hologram colours held back under a threat colour ([`ScriptLooks::play`]):
+    /// each comes back when the threat colour above it ends by its time (#3017).
+    pub hologram_fallbacks: Vec<HologramFallback>,
     /// References whose fade-out hold ended and that are now disabled, for the engine to
     /// take (their collision and enable children follow).
     pub disabled_after_fade: Vec<fnv_sim::FormId>,
@@ -890,24 +893,121 @@ pub struct FadeMove {
 impl ScriptLooks {
     /// The engine has ended a play (its time is up).
     pub fn end(&mut self, serial: u64) {
-        self.shaders.retain(|p| p.serial != serial);
+        let ended = self.shaders.iter().position(|p| p.serial == serial).map(|i| self.shaders.remove(i));
+        // A threat colour whose time is up gives the neutral colour held under it back
+        // (a play already stopped by a script is no longer listed: nothing comes back).
+        if let Some(p) = ended {
+            if let Some(i) = self.hologram_fallbacks.iter().position(|f| f.on == p.on && f.under == p.shader) {
+                let f = self.hologram_fallbacks.remove(i);
+                self.next_serial += 1;
+                self.shaders.push(ShaderPlay { on: f.on, shader: f.neutral, duration: None, serial: self.next_serial });
+            }
+        }
         self.generation += 1;
     }
+
+    /// A script's `StopMagicShaderVisuals` of `shader` on `on`: also a neutral colour held
+    /// back under a threat colour is let go.
+    pub fn stop(&mut self, on: fnv_sim::FormId, shader: fnv_sim::FormId) {
+        self.shaders.retain(|p| !(p.on == on && p.shader == shader));
+        self.hologram_fallbacks.retain(|f| !(f.on == on && f.neutral == shader));
+        self.generation += 1;
+    }
+
+    /// Hold `neutral` back on `on` under the threat colour `under` (one per set).
+    fn hold_back(&mut self, on: fnv_sim::FormId, set: u8, neutral: fnv_sim::FormId, under: fnv_sim::FormId) {
+        self.hologram_fallbacks.retain(|f| !(f.on == on && f.set == set));
+        self.hologram_fallbacks.push(HologramFallback { on, set, neutral, under });
+    }
+
+    /// A script's `PlayMagicShaderVisuals` of `shader` on `on`: the same shader played
+    /// again starts over. A hologram colour (`colour`, [`hologram_colour`]) follows the
+    /// colour rule [hypothesis: #3017, effect-shaders.md §9]:
+    /// - a threat colour ends the other colours of its set playing on the reference; a
+    ///   neutral colour it ends is held back under it, and comes back when the threat
+    ///   colour ends by its time ([`ScriptLooks::end`]), unless a script stops it first;
+    /// - the neutral colour is not played while another colour of its set plays there
+    ///   (a code holder reaches it only after stopping the threat colour, so a neutral
+    ///   play over a threat colour is the hologram ability's replay); it is held back
+    ///   under that colour instead.
+    ///
+    /// Whether it was played.
+    pub fn play(&mut self, on: fnv_sim::FormId, shader: fnv_sim::FormId, duration: Option<f64>, colour: impl Fn(fnv_sim::FormId) -> Option<HologramColour>) -> bool {
+        if let Some(c) = colour(shader) {
+            let same_set = |p: &ShaderPlay| p.on == on && p.shader != shader && colour(p.shader).is_some_and(|o| o.set == c.set);
+            if c.neutral {
+                if let Some(threat) = self.shaders.iter().find(|p| same_set(p)).map(|p| p.shader) {
+                    self.hold_back(on, c.set, shader, threat);
+                    return false;
+                }
+                self.hologram_fallbacks.retain(|f| !(f.on == on && f.set == c.set));
+            } else {
+                let neutral = self.shaders.iter().find(|p| same_set(p) && colour(p.shader).is_some_and(|o| o.neutral)).map(|p| p.shader);
+                let held = self.hologram_fallbacks.iter().find(|f| f.on == on && f.set == c.set).map(|f| f.neutral);
+                if let Some(n) = neutral.or(held) {
+                    self.hold_back(on, c.set, n, shader);
+                }
+            }
+            self.shaders.retain(|p| !same_set(p));
+        }
+        self.shaders.retain(|p| !(p.on == on && p.shader == shader));
+        self.next_serial += 1;
+        self.shaders.push(ShaderPlay { on, shader, duration, serial: self.next_serial });
+        self.generation += 1;
+        true
+    }
+}
+
+/// A neutral hologram colour held back on a reference under a threat colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HologramFallback {
+    pub on: fnv_sim::FormId,
+    pub set: u8,
+    pub neutral: fnv_sim::FormId,
+    /// The threat colour it waits under.
+    pub under: fnv_sim::FormId,
+}
+
+/// A hologram colour: which set (index in [`HOLOGRAM_COLOURS`]) and whether it is the
+/// set's neutral colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HologramColour {
+    pub set: u8,
+    pub neutral: bool,
+}
+
+/// The hologram colours, by the plugin that defines them and their FormIDs in it: Dead
+/// Money's `NVDLC01HologramNeutral`, `…Attention`, `…Aggressive` and Old World Blues'
+/// `NVDLC03HologramNeutral`, `…Attention`, `…Aggressive` [observed: the maintainer's
+/// decode in #3017 and the main session's EFSH listing of 2026-11-21]. Named by identity
+/// rather than by their flags so a mod's membrane with the same flags is left alone, and
+/// both a script's queries (HasEffectShader) and the drawing see the same plays [design].
+pub const HOLOGRAM_COLOURS: [(&str, [u32; 3]); 2] = [
+    ("DeadMoney.esm", [0x001118, 0x00307D, 0x00307C]),
+    ("OldWorldBlues.esm", [0x012080, 0x012081, 0x012082]),
+];
+
+/// The hologram colour `shader` is, if it is one: its set from [`HOLOGRAM_COLOURS`] (the
+/// plugin its load-order index names and its FormID in that plugin), neutral when its
+/// editor ID ends in "Neutral" [observed: the six records' editor IDs].
+pub fn hologram_colour(load_order: &[String], edid: Option<&str>, shader: fnv_sim::FormId) -> Option<HologramColour> {
+    let plugin = load_order.get((shader.0 >> 24) as usize)?;
+    let local = shader.0 & 0x00FF_FFFF;
+    let set = HOLOGRAM_COLOURS.iter().position(|(p, ids)| p.eq_ignore_ascii_case(plugin) && ids.contains(&local))?;
+    let neutral = edid.is_some_and(|e| e.to_ascii_lowercase().ends_with("neutral"));
+    Some(HologramColour { set: set as u8, neutral })
 }
 
 /// `ref.PlayMagicShaderVisuals shader [duration]`: play an effect shader on the calling
 /// reference (the player without one) for the duration, or until stopped [documented:
 /// GECK wiki PlayMagicShaderVisuals]. The same shader played again on the same reference
-/// starts over [hypothesis].
+/// starts over [hypothesis]; hologram colours follow [`ScriptLooks::play`]'s rule.
 pub fn play_magic_shader_visuals(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let on = ctx.subject_or_player();
     let shader = a.form(0)?;
     let duration = a.num(1).ok().filter(|d| *d > 0.0);
-    let looks = &mut g.script_looks;
-    looks.shaders.retain(|p| !(p.on == on && p.shader == shader));
-    looks.next_serial += 1;
-    looks.shaders.push(ShaderPlay { on, shader, duration, serial: looks.next_serial });
-    looks.generation += 1;
+    let data = g.data;
+    g.script_looks.play(on, shader, duration, |s| hologram_colour(&data.load_order, data.edid_of.get(&s).map(String::as_str), s));
     none()
 }
 
@@ -916,9 +1016,7 @@ pub fn play_magic_shader_visuals(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Va
 pub fn stop_magic_shader_visuals(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let on = ctx.subject_or_player();
     let shader = a.form(0)?;
-    let looks = &mut g.script_looks;
-    looks.shaders.retain(|p| !(p.on == on && p.shader == shader));
-    looks.generation += 1;
+    g.script_looks.stop(on, shader);
     none()
 }
 
@@ -1062,8 +1160,172 @@ fn general_form(v: f64, precision: usize, upper: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_message, message_vars, Args, MAX_MESSAGE_FIELD};
+    use super::{format_message, hologram_colour, message_vars, Args, HologramColour, ScriptLooks, MAX_MESSAGE_FIELD};
     use fnv_script::vm::{ArgValue, Value};
+    use fnv_sim::FormId;
+
+    /// #3017: Dead Money loaded second (index 01): its three hologram colours, and the
+    /// shaders the scripts play on one hologram.
+    const NEUTRAL: FormId = FormId(0x0100_1118);
+    const ATTENTION: FormId = FormId(0x0100_307D);
+    const AGGRESSIVE: FormId = FormId(0x0100_307C);
+    const FIRE: FormId = FormId(0x0005_F9B6);
+    const HOLO: FormId = FormId(0x0100_9000);
+
+    fn colour(s: FormId) -> Option<HologramColour> {
+        let order = ["FalloutNV.esm".to_string(), "DeadMoney.esm".into()];
+        let edid = match s {
+            NEUTRAL => Some("NVDLC01HologramNeutral"),
+            ATTENTION => Some("NVDLC01HologramAttention"),
+            AGGRESSIVE => Some("NVDLC01HologramAggressive"),
+            _ => None,
+        };
+        hologram_colour(&order, edid, s)
+    }
+
+    fn playing(l: &ScriptLooks) -> Vec<FormId> {
+        l.shaders.iter().filter(|p| p.on == HOLO).map(|p| p.shader).collect()
+    }
+
+    fn stop(l: &mut ScriptLooks, shader: FormId) {
+        l.stop(HOLO, shader);
+    }
+
+    fn serial_of(l: &ScriptLooks, shader: FormId) -> u64 {
+        l.shaders.iter().find(|p| p.on == HOLO && p.shader == shader).unwrap().serial
+    }
+
+    #[test]
+    fn hologram_colours_by_plugin_and_id() {
+        assert_eq!(colour(NEUTRAL), Some(HologramColour { set: 0, neutral: true }));
+        assert_eq!(colour(AGGRESSIVE), Some(HologramColour { set: 0, neutral: false }));
+        assert_eq!(colour(FIRE), None);
+        // The same FormID in another plugin is not one.
+        let order = ["FalloutNV.esm".to_string(), "SomeMod.esp".into()];
+        assert_eq!(hologram_colour(&order, Some("NVDLC01HologramNeutral"), NEUTRAL), None);
+        let owb = ["FalloutNV.esm".to_string(), "DeadMoney.esm".into(), "OldWorldBlues.esm".into()];
+        assert_eq!(hologram_colour(&owb, Some("NVDLC03HologramNeutral"), FormId(0x0201_2080)), Some(HologramColour { set: 1, neutral: true }));
+    }
+
+    /// #3017, the hologram ability after a load in combat: Neutral, Neutral and Aggressive in
+    /// one update leave Aggressive; a fire on the same hologram stays.
+    #[test]
+    fn the_abilitys_neutral_neutral_aggressive_leaves_aggressive() {
+        let mut l = ScriptLooks::default();
+        assert!(l.play(HOLO, NEUTRAL, None, colour));
+        assert!(l.play(HOLO, FIRE, None, colour));
+        assert!(l.play(HOLO, NEUTRAL, None, colour));
+        assert!(l.play(HOLO, AGGRESSIVE, None, colour));
+        assert_eq!(playing(&l), vec![FIRE, AGGRESSIVE]);
+    }
+
+    /// #3017: after a load the code holder restores Attention; the ability's Neutral replay
+    /// out of combat must not turn the alerted hologram blue.
+    #[test]
+    fn a_neutral_play_leaves_an_active_threat_colour() {
+        let mut l = ScriptLooks::default();
+        assert!(l.play(HOLO, ATTENTION, None, colour));
+        let generation = l.generation;
+        assert!(!l.play(HOLO, NEUTRAL, None, colour));
+        assert_eq!(playing(&l), vec![ATTENTION]);
+        assert_eq!(l.generation, generation, "nothing changed");
+        // The ability's start before the code holder's OnLoad: Attention takes over.
+        let mut l = ScriptLooks::default();
+        l.play(HOLO, NEUTRAL, None, colour);
+        l.play(HOLO, ATTENTION, None, colour);
+        assert_eq!(playing(&l), vec![ATTENTION]);
+    }
+
+    /// #3017: a timed threat colour over the always-on blue: the blue (and its replay
+    /// during the timer) is held back and comes back when the threat colour's time is up.
+    #[test]
+    fn neutral_comes_back_when_a_timed_threat_colour_expires() {
+        let mut l = ScriptLooks::default();
+        l.play(HOLO, NEUTRAL, None, colour);
+        l.play(HOLO, AGGRESSIVE, Some(5.0), colour);
+        assert_eq!(playing(&l), vec![AGGRESSIVE]);
+        assert!(!l.play(HOLO, NEUTRAL, None, colour), "the replay during the timer is held back");
+        let red = serial_of(&l, AGGRESSIVE);
+        l.end(red);
+        assert_eq!(playing(&l), vec![NEUTRAL], "blue again when red's time is up");
+        assert!(l.hologram_fallbacks.is_empty());
+        // Attention then Aggressive over it, the second timed: blue still waits under it.
+        l.play(HOLO, ATTENTION, None, colour);
+        l.play(HOLO, AGGRESSIVE, Some(3.0), colour);
+        let red = serial_of(&l, AGGRESSIVE);
+        l.end(red);
+        assert_eq!(playing(&l), vec![NEUTRAL]);
+    }
+
+    /// #3017: stopped by a script, the blue does not come back; a threat colour stopped by a
+    /// script (the code holder's step) brings nothing back by itself.
+    #[test]
+    fn a_stopped_neutral_or_threat_brings_nothing_back() {
+        let mut l = ScriptLooks::default();
+        l.play(HOLO, NEUTRAL, None, colour);
+        l.play(HOLO, AGGRESSIVE, Some(5.0), colour);
+        stop(&mut l, NEUTRAL);
+        let red = serial_of(&l, AGGRESSIVE);
+        l.end(red);
+        assert!(playing(&l).is_empty(), "stopped blue stays stopped");
+        let mut l = ScriptLooks::default();
+        l.play(HOLO, NEUTRAL, None, colour);
+        l.play(HOLO, ATTENTION, None, colour);
+        let yellow = serial_of(&l, ATTENTION);
+        stop(&mut l, ATTENTION);
+        l.end(yellow);
+        assert!(playing(&l).is_empty(), "the engine's end of a stopped play changes nothing");
+    }
+
+    /// #3017: Old World Blues' hologram colours follow the same rule in their own set.
+    #[test]
+    fn old_world_blues_colours_follow_the_rule() {
+        let order = ["FalloutNV.esm".to_string(), "DeadMoney.esm".into(), "OldWorldBlues.esm".into()];
+        let (n, a) = (FormId(0x0201_2080), FormId(0x0201_2082));
+        let owb = |s: FormId| {
+            let edid = match s.0 {
+                0x0201_2080 => Some("NVDLC03HologramNeutral"),
+                0x0201_2082 => Some("NVDLC03HologramAggressive"),
+                0x0100_1118 => Some("NVDLC01HologramNeutral"),
+                _ => None,
+            };
+            hologram_colour(&order, edid, s)
+        };
+        let mut l = ScriptLooks::default();
+        l.play(HOLO, n, None, owb);
+        l.play(HOLO, a, Some(2.0), owb);
+        assert!(!l.play(HOLO, n, None, owb));
+        // A Dead Money colour is another set: it neither ends nor waits under them.
+        assert!(l.play(HOLO, NEUTRAL, None, owb));
+        assert_eq!(playing(&l), vec![a, NEUTRAL]);
+        let red = serial_of(&l, a);
+        l.end(red);
+        assert_eq!(playing(&l), vec![NEUTRAL, n]);
+    }
+
+    /// #3017: a code holder's step down, Stop Attention then Play Neutral, shows Neutral; its
+    /// step up, Stop Neutral then Play Attention, shows Attention.
+    #[test]
+    fn a_code_holders_steps_change_the_colour() {
+        let mut l = ScriptLooks::default();
+        l.play(HOLO, NEUTRAL, None, colour);
+        stop(&mut l, NEUTRAL);
+        l.play(HOLO, ATTENTION, None, colour);
+        assert_eq!(playing(&l), vec![ATTENTION]);
+        stop(&mut l, ATTENTION);
+        l.play(HOLO, AGGRESSIVE, None, colour);
+        assert_eq!(playing(&l), vec![AGGRESSIVE]);
+        stop(&mut l, AGGRESSIVE);
+        l.play(HOLO, ATTENTION, None, colour);
+        stop(&mut l, ATTENTION);
+        assert!(l.play(HOLO, NEUTRAL, None, colour));
+        assert_eq!(playing(&l), vec![NEUTRAL]);
+        // Another hologram's colours are its own.
+        let other = FormId(0x0100_9001);
+        l.play(other, AGGRESSIVE, None, colour);
+        assert_eq!(playing(&l), vec![NEUTRAL]);
+        assert_eq!(l.shaders.len(), 2);
+    }
 
     #[test]
     fn huge_widths_and_precisions_are_cut() {
