@@ -38,6 +38,7 @@ fn every_world_material_compiles_with_physical_pbr() {
         ("nvforever/terrain.wesl", &["NVF_PHYSICAL_PBR"][..]),
         ("nvforever/grass.wesl", &[][..]),
         ("nvforever/tree.wesl", &["TREE_LEAVES"][..]),
+        ("nvforever/tree.wesl", &["TREE_LEAVES", "NVF_CROWN_SHADOW"][..]),
         ("bevy_pbr/render/pbr.wesl", &[][..]),
     ] {
         for env_map in [false, true] {

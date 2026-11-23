@@ -1694,13 +1694,14 @@ mod tests {
         assert!(shader.contains("    unshadowed.flags |= NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT;\n"));
         assert!(!shader.contains("unshadowed.flags &= ~MESH_FLAGS_SHADOW_RECEIVER_BIT"));
         // The vendored bevy_pbr reads the bit in the directional loop only (its shadow-map,
-        // transmitted-lobe and contact-shadow conditions), never in the point or spot loops.
+        // crown-shadow, transmitted-lobe and contact-shadow conditions), never in the point
+        // or spot loops.
         let pbr = include_str!("../../vendor/bevy_pbr/src/render/pbr_functions.wesl").replace("\r\n", "\n");
         let directional = pbr.find("    // directional lights (direct)\n").expect("directional loop");
         let end = directional + pbr[directional..].find("    // Ambient light (indirect)").expect("after the loop");
         let at = |s: &str| pbr.match_indices(s).map(|(i, _)| i).collect::<Vec<_>>();
         let reads = at("(in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u");
-        assert_eq!(reads.len(), 3);
+        assert_eq!(reads.len(), 4);
         assert!(reads.iter().all(|&i| directional < i && i < end));
         assert!(include_str!("../../vendor/bevy_pbr/src/render/mesh_types.wesl").contains("const NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT: u32 = 1u << 26u;"));
     }
