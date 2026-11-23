@@ -220,7 +220,7 @@ their titles have a space where the name has an underscore).
 | Quaternion_GetMatrix (Quat_GetMat) `[w x y z]`, Matrix3x3_GetQuaternion (Mat_GetQuat) | the layout [w, x, y, z] [documented]. Quat_GetMat does not normalise and gives the transpose of the usual right-handed matrix, in single precision: diagonal 2(w²+a²)−1, (2 0 0 0) gives 7 7 7 [observed 2026-11-08: quat.unnormal]; (0.7071 0 0 0.7071) gives m[0][0] −5.96046e-08, m[0][1] 1, m[1][0] −1, m[2][2] 1 [observed: quat.z90; the x and y terms transposed alike, hypothesis]. Mat_GetQuat reads the usual right-handed form, by the largest of trace and diagonal with w not negative [observed: quat.back, quat.back.270 equal], so the two are not inverses |
 | Results' shape | a one-row result of a one-dimensional input stays one-dimensional; a 1-D row transposed is a column of one-element lists [hypothesis; probe schur.flat.size, transpose.flat.size] |
 | SayTo_GetTopic, SayTo_GetTopicInfo | the topic and response of the actor's running SayTo line (`Game::speech`), none without one [documented] |
-| Get/SetItemHotkeyIconPath `item [onlyOverride]`, `item path` | the override, else GetTexturePath's icon; onlyOverride 1 the override or ""; "" resets [documented]. Kept game-side only: the engine's hotkey pictures (`weapon_wheel::draw`, `pipboy::hotkey_panel`) do not read it yet [follow-up] |
+| Get/SetItemHotkeyIconPath `item [onlyOverride]`, `item path` | the override, else GetTexturePath's icon; onlyOverride 1 the override or ""; "" resets [documented: GetItemHotkeyIconPath, SetItemHotkeyIconPath]. Wired into the engine's hotkey pictures (`Game::item_hotkey_icon_path`, `nvf_play::hotkeys::icon_override`, `weapon_wheel::draw`, `pipboy::hotkey_panel`) for both assigned slots (excluding Ammo Swap slot 2) and the Pip-Boy hotkey panel's pointed-at centre icon; override paths are normalised to lowercase backslashes relative to `textures\` (stripping any leading separator or `data\textures\` / `textures\` prefix, ignoring whitespace-only values) before `interface::Pictures` lookup [design]. Unmodded vanilla icon resolution is unchanged when no override is set |
 | Get/SetPlayerCanPickpocketEquippedItems (Get/SetPCCanStealEqItems) | off by default; on, the pickpocket menu lists the victim's equipped items, never a child's (`Game::pickpocket_worn`, `nvf_play::menu::model::Steal::worn`) [documented] |
 | ClearCinematicTextQueue (ClearQuestMessageQueue) | the quest lines waiting are dropped, as KillQuestUpdates [documented: "Clears the quest message queue"; hypothesis: the line on screen finishes] |
 | ToggleQuestMessages `[bOn]` | 0 hides every quest line (`UiRequests::quest_messages_off`, read by `nvf_play::script`), 1 shows them; 1 when that changed; -1 or nothing reads 1 while they are on [documented; hypothesis: what the read means, the page's wording leaves it open] |
@@ -240,8 +240,7 @@ their titles have a space where the name has an underscore).
 | GetCalculatedActorSpread | live actor weapon spread from the Gun Spread Formula, stance, crippled arms, `SetNoGunWobble`, and spread perks (`Game::calculated_actor_spread`) [documented: Gun Spread Formula; hypothesis: `docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md`] |
 | IsFormLoading | 0 [decision: the page is marked Incomplete with no summary, arguments or result; nothing to build from] |
 
-Follow-ups: the engine's hotkey pictures should read SetItemHotkeyIconPath's override;
-the three Incomplete pages need their text.
+Follow-ups: the three Incomplete pages need their text.
 
 Left for batch 5 (37), with what each needs: the level-up menu's pages and points
 (Get/SetLevelUpMenuCurrentPage, GetLevelUpMenuPoints, SetLevelUpMenuCanExitEarly,

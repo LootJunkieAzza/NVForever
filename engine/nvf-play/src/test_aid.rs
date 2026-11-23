@@ -103,6 +103,18 @@
 //!   placed reference with a dynamic body for that long after its cell loads — offsets,
 //!   turns, speeds and the overlaps found after the first step (physics.md §4.3.1).
 //!
+//! - `NVF_PLAY_TEST_PBR_MOUNT_PACK=1` (nvf-assets pbr_field/reflect.rs) and
+//!   `NVF_PLAY_TEST_PBR_GROUND_PACK=1` (nvf-assets pbr_field/ground.rs, with nvforever
+//!   terrain.rs `ground_pack_diffuses`): generated authored sets written into a fresh folder
+//!   of the run under an explicit `NVFOREVER_HOME` and mounted over every other loose layer
+//!   for that run only; the ground pack gives every landscape texture the load order names a
+//!   height-only set (a ridged `_p` from a formula, depth 0.08) for the terrain parallax
+//!   (#3322).
+//! - `NVF_PLAY_TEST_TERRAIN_PARALLAX_AB=<seconds>[:hold][:grazing|head-on][,...]` (nvforever
+//!   terrain_parallax_ab.rs): three screenshots at each time, the Terrain parallax switch
+//!   off, on, off (or left alone with `hold`), optionally from its own pose on a spot of
+//!   ground the march moves, and log lines for what lies under the view's centre and how the
+//!   ground's texture there moved between them (`moved`, `still`, `bare`, ...).
 //! - `NVF_PLAY_TEST_PICK_LOG=1` (activate.rs): each new crosshair target is logged with
 //!   what it was picked from: the raw first collision hit, every render box the view ray
 //!   enters (entry and exit distances, rough, bed) and the boxes set aside (#3323).

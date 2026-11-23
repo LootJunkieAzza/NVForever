@@ -510,6 +510,25 @@ pub(crate) fn find(data: &GameData, enabled: bool, key: &str, memo: &Memo, mut l
     }
 }
 
+/// The height map alone of the set for the resolved diffuse `key`: an authored set's `_p` or a
+/// height-only set's, at its scalars' depth, the set's other members not loaded; for a surface
+/// that takes nothing else of a set (the landscape's texture layers, nvforever terrain.rs
+/// "Parallax", #3322) [design]. `None` as [`find`] gives no height map: the setting off (the
+/// index not asked), no active set, no `_p`, a depth of 0, or a `_p` that does not load or is
+/// refused ([`height_map`], one warning per file). Unlike [`find`], an authored set whose
+/// `_orm` does not load keeps its height map here, as nothing of the `_orm` is used.
+pub(crate) fn find_height(data: &GameData, enabled: bool, key: &str, memo: &Memo, mut load: impl FnMut(&str, TextureUsage) -> Option<Loaded>) -> Option<Parallax> {
+    if !enabled {
+        return None;
+    }
+    let found = data.pbr_index().lookup(key)?;
+    if found.state() == SetState::Incomplete {
+        return None;
+    }
+    let scalars = found.path(Member::Scalars).map(|path| data.pbr_scalars(&path)).unwrap_or_default();
+    height_map(&found, &scalars, memo, &mut load)
+}
+
 /// The set's `_p` as a height map at the scalars' depth ([`Scalars::parallax_depth_or_default`]),
 /// or `None`: no `_p`, a depth of 0 (the file is then not loaded), a `_p` that does not
 /// load, or a signed one ([`signed_format`]; refused, as `fnvtool pbr check` refuses it), one

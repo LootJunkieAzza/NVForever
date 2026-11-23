@@ -236,6 +236,29 @@ fn the_synchronous_source_loads_a_set_by_its_exact_member_paths() {
 }
 
 #[test]
+fn a_texture_outside_the_shapes_takes_only_its_sets_height_map() {
+    // #3322: the landscape's layers ask for the `_p` alone (TextureCache::authored_height).
+    let pack = Pack::new();
+    let mut cache = TextureCache::default();
+    let mut images = Assets::<Image>::default();
+    // Off: nothing is asked of the index.
+    assert!(cache.authored_height_with(false, "walls/stone.dds", &pack.data, &mut images, None).is_none());
+    assert!(!pack.data.pbr_index_built(), "the index is never built while the setting is off");
+    // A height-only set: its `_p` at the default depth, by the raw path as the layers name it.
+    let (stone, depth) = cache.authored_height_with(true, r"Walls\Stone.dds", &pack.data, &mut images, None).expect("height-only set");
+    assert_eq!(depth, fnv_pbr::DEFAULT_PARALLAX_DEPTH);
+    assert_eq!(images.get(&stone).unwrap().texture_descriptor.format, TextureFormat::Bc4RUnorm);
+    // An authored set: its `_p` at the scalar file's depth, and its `_orm` not loaded.
+    let (_, depth) = cache.authored_height_with(true, "walls/relief.dds", &pack.data, &mut images, None).expect("authored set with _p");
+    assert_eq!(depth, 0.05);
+    assert!(!cache.has_or_ahead(r"textures\pbr\walls\relief_orm.dds"), "only the height map is loaded");
+    // No `_p`, a depth of 0, a refused `_p`, a `_p` that does not load, no set at all: none.
+    for none in ["walls/brick.dds", "walls/flat.dds", "walls/signed.dds", "walls/brokenheight.dds", "walls/plain.dds"] {
+        assert!(cache.authored_height_with(true, none, &pack.data, &mut images, None).is_none(), "{none}");
+    }
+}
+
+#[test]
 fn off_asks_nothing_of_the_index() {
     let pack = Pack::new();
     let memo = Memo::default();

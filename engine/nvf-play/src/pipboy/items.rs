@@ -597,6 +597,13 @@ fn on_row_click(
     }
 }
 
+/// Cached heading figures and hotkey-panel icons from the last draw of the ITEMS page.
+#[derive(Default)]
+pub struct DrawnState {
+    heading: Option<Heading>,
+    panel_icons: Option<super::hotkey_panel::PanelIcons>,
+}
+
 /// Fill the ITEMS page's body when it is new or the inventory changed.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
@@ -614,7 +621,7 @@ pub fn draw(
     play: Option<Res<crate::PlayWorld>>,
     mut forms: Local<Option<super::stats::read::Forms>>,
     (repair, modding, mut script): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>, Option<ResMut<crate::script::ScriptState>>),
-    (hold, hotkeys, mut figures): (Res<HotkeyHold>, Res<Hotkeys>, Local<Option<Heading>>),
+    (hold, hotkeys, mut drawn): (Res<HotkeyHold>, Res<Hotkeys>, Local<DrawnState>),
     (pip, mut logged, mut drawn_with): (Res<PipBoy>, Local<String>, Local<Option<crate::pad::Labels>>),
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
@@ -629,8 +636,17 @@ pub fn draw(
     // they differ from what it drew (#3120), as the STATS page does with its snapshot.
     let shown = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory) && modding.0.is_none() && repair.0.is_none();
     let now = shown.then(|| heading(sim.bypass_change_detection(), script.as_mut().map(|s| s.bypass_change_detection()), combat.as_deref()));
-    let refigured = now.is_some() && *figures != now;
-    if added.get(body).is_err() && !relabelled && !refigured && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() {
+    let refigured = now.is_some() && drawn.heading != now;
+    let now_panel_icons = (shown && hold.slot.is_some()).then(|| {
+        let selected_now = active.0.as_ref().and_then(|m| m.list(Side::Player).rows.get(m.selected[Side::Player as usize]));
+        let script_ref = script.as_mut().map(|s| &*s.bypass_change_detection());
+        super::hotkey_panel::panel_icons(&hotkeys, &hold, selected_now, sim.bypass_change_detection(), combat.as_deref(), script_ref)
+    });
+    let reiconed = now_panel_icons.is_some() && drawn.panel_icons != now_panel_icons;
+    if now_panel_icons.is_none() {
+        drawn.panel_icons = None;
+    }
+    if added.get(body).is_err() && !relabelled && !refigured && !reiconed && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() {
         return;
     }
     if forms.is_none() {
@@ -666,7 +682,8 @@ pub fn draw(
         info!("pipboy items: {} selected: {:?}", r.name, i);
     }
     let (hp, dt) = now.unwrap_or_else(|| heading(sim, script.as_deref_mut(), combat.as_deref()));
-    *figures = Some((hp.clone(), dt.clone()));
+    drawn.heading = Some((hp.clone(), dt.clone()));
+    drawn.panel_icons = now_panel_icons;
     let offer = super::repair::current(&active, sim, script.as_deref());
     // The tab's hints for the selected row (the hotkey panel hides them).
     let tab = TABS[pip.tab().min(TABS.len() - 1)];
@@ -701,7 +718,7 @@ pub fn draw(
         // The hotkey panel hides the picture, the badge and the hints (`IM_ButtonRect`).
         if let (true, Some(k)) = (panel, hold.slot) {
             info!("pipboy hotkeys: panel drawn, key {} chosen{}", k + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
-            super::hotkey_panel::draw(p, &mut c, &hotkeys, &hold, selected, sim, combat.as_deref());
+            super::hotkey_panel::draw(p, &mut c, &hotkeys, &hold, selected, sim, combat.as_deref(), script.as_deref());
         } else {
             // The selected item's own lines for its Repair and Mod hints.
             let (repair_row, mod_row) = hint_rows(labels);

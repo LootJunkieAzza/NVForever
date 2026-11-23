@@ -806,6 +806,50 @@ impl TextureCache {
         self.load_key(fnv_vfs::normalize(path), usage, false, data, images, formats)
     }
 
+    /// The deepest an authored set's height map may be drawn, in texture-coordinate units: the
+    /// end of the scalar range (`fnv_pbr::PARALLAX_DEPTH_RANGE`), for marches that share one
+    /// step grid across sets (nvforever terrain.rs `PARALLAX_SCALE`).
+    pub const AUTHORED_HEIGHT_MAX_DEPTH: f32 = *fnv_pbr::PARALLAX_DEPTH_RANGE.end();
+
+    /// The authored height map (`_p`) for a texture drawn outside the NIF shapes, with its
+    /// depth (UV units): the set the index finds for the texture's resolved path, as a shape's
+    /// diffuse finds it, of which only the `_p` is loaded (`crate::authored::find_height`).
+    /// For the landscape's texture layers (nvforever terrain.rs "Parallax", #3322) [design].
+    /// `None` while the run's Authored materials state is off (`crate::authored::enabled`),
+    /// for a texture no set may take (`crate::authored::key_eligible`), without a set or
+    /// without a height map to draw.
+    pub fn authored_height(
+        &mut self,
+        raw_path: &str,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<(Handle<Image>, f32)> {
+        self.authored_height_with(crate::authored::enabled(), raw_path, data, images, formats)
+    }
+
+    /// [`Self::authored_height`] with the setting's state given (the tests').
+    pub(crate) fn authored_height_with(
+        &mut self,
+        enabled: bool,
+        raw_path: &str,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<(Handle<Image>, f32)> {
+        let key = resolved_path(raw_path, |p| data.vfs.exists(p));
+        if !crate::authored::key_eligible(&key) {
+            return None;
+        }
+        let workers = self.workers.clone();
+        let height = crate::authored::find_height(data, enabled, &key, &workers.authored, |path, usage| {
+            let (h, _) = self.exact(path, usage, data, images, formats)?;
+            let format = images.get(&h).map(|i| i.texture_descriptor.format);
+            Some((h, format))
+        })?;
+        Some((height.depth_map?, height.depth_scale))
+    }
+
     fn load(
         &mut self,
         raw_path: &str,
