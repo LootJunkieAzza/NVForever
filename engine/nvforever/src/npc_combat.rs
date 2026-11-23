@@ -3724,7 +3724,8 @@ mod tests {
         let id = 123;
         let feet = [10.0, 20.0, 30.0];
         let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), feet);
-        phys.npcs.insert(id, NpcBody { ch, prev_feet: feet, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+        let standing_height = ch.params.height;
+        phys.npcs.insert(id, NpcBody { ch, prev_feet: feet, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
         assert!(CombatBodies::new(Some(&phys), None).body(id, 456).is_none());
         phys.actor_block_radii.insert(id, 10.0);
         assert!(CombatBodies::new(Some(&phys), None).body(id, 456).is_none());
@@ -3781,7 +3782,8 @@ mod tests {
             let creature_reach = creature_reach(Some(64.0), Some(r"Creatures\Radscorpion\Skeleton.nif"), scale);
             for (id, feet) in [(person, [0.0; 3]), (creature, [combined + 0.01, 0.0, 0.0])] {
                 let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), feet);
-                phys.npcs.insert(id, NpcBody { ch, prev_feet: feet, velocity: [25.0, 0.0], jump: false, sink: 0.0, lift: Default::default() });
+                let standing_height = ch.params.height;
+                phys.npcs.insert(id, NpcBody { ch, prev_feet: feet, velocity: [25.0, 0.0], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
             }
             phys.actor_block_radii.insert(creature, width);
             let height = phys.npcs[&creature].ch.params.height;
@@ -3796,7 +3798,8 @@ mod tests {
                 } else if !phys.npcs.contains_key(&creature) {
                     let feet = [combined + 0.01, 0.0, 0.0];
                     let ch = phys.world.add_character(creature, fnv_phys::CharacterParams::default(), feet);
-                    phys.npcs.insert(creature, NpcBody { ch, prev_feet: feet, velocity: [25.0, 0.0], jump: false, sink: 0.0, lift: Default::default() });
+                    let standing_height = ch.params.height;
+                    phys.npcs.insert(creature, NpcBody { ch, prev_feet: feet, velocity: [25.0, 0.0], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
                     blocks.list.clear();
                 }
                 for offset in [0.0, 15.0] {
