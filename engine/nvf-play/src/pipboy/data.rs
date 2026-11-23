@@ -3147,8 +3147,13 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     // The other co-op players: outdoors in this worldspace where they stand, indoors at a
     // door outdoors into their interior, named "<name>, in <cell>" (item 134). After the
     // markers' count above, which is of the map's markers.
+    // Each head carries its texture coordinates and, for the page drawn from the file, its name
+    // and place: that page keeps only marks with coordinates (`tiles::map_menu`, 0.8.0's
+    // MapMenu), so a head without them was never drawn there.
     for (mate, at, inside) in mates_on_world_map(st, game, world) {
-        marks.push(MapMark { icon: None, highlighted: false, at: on_map(m.uv(at[0], at[1])), head: Some(crate::coop_heads::picture(&mate.head).to_string()), tag: Some(mate.name.clone()), form: mate.reference, uv: None, name: String::new(), detail: None, recent: false, outside: None });
+        let uv = m.uv(at[0], at[1]);
+        let (name, tile_detail) = if st.tile_rows { (mate.name.clone(), inside.clone()) } else { (String::new(), None) };
+        marks.push(MapMark { icon: None, highlighted: false, at: on_map(uv), head: Some(crate::coop_heads::picture(&mate.head).to_string()), tag: Some(mate.name.clone()), form: mate.reference, uv: Some(uv), name, detail: tile_detail, recent: false, outside: None });
         names.push(mate.name.clone());
         forms.push(mate.reference);
         details.push(inside);
@@ -3519,7 +3524,12 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     for m in game.mates.iter().flat_map(|m| m.0.iter()).filter(|m| m.interior == loc.interior && (m.interior.is_some() || m.world == loc.world)) {
         let at = on_map(m.feet[0], m.feet[1]);
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at, head: Some(crate::coop_heads::picture(&m.head).to_string()), tag: Some(m.name.clone()), form: m.reference, uv: None, name: String::new(), detail: None, recent: false, outside: None });
+            let head = MapMark { icon: None, highlighted: false, at, head: Some(crate::coop_heads::picture(&m.head).to_string()), tag: Some(m.name.clone()), form: m.reference, uv: Some(view.local_uv(m.feet[0], m.feet[1])), name: String::new(), detail: None, recent: false, outside: None };
+            // The page drawn from the file draws its rows, not the marks: the head is a row too.
+            if st.tile_rows {
+                rows.push(MapMark { name: m.name.clone(), ..head.clone() });
+            }
+            marks.push(head);
             names.push(m.name.clone());
             mate_refs.push(m.reference);
         }
