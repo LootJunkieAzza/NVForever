@@ -1862,14 +1862,20 @@ mod tests {
         {
             let mut b = tar::Builder::new(&mut bytes);
             let mut h = tar::Header::new_gnu();
+            // The name goes into the header as raw bytes: on Windows the tar crate's
+            // `append_data` refuses an absolute path, so the test would build no archive there.
+            let name = r"C:\Windows\x".as_bytes();
+            h.as_gnu_mut().unwrap().name[..name.len()].copy_from_slice(name);
             h.set_size(1);
             h.set_mode(0o644);
             h.set_entry_type(tar::EntryType::Regular);
-            b.append_data(&mut h, r"C:\Windows\x", &b"x"[..]).unwrap();
+            h.set_cksum();
+            b.append(&h, &b"x"[..]).unwrap();
             b.finish().unwrap();
         }
         let bad = |e: &dyn std::fmt::Display| e.to_string();
-        assert!(super::unpack_tar(&bytes[..], &dest, &bad).is_err());
+        // Refused by the path check itself (`rel_path`), not by a broken header.
+        assert_eq!(super::unpack_tar(&bytes[..], &dest, &bad), Err(super::rel_path(r"C:\Windows\x").unwrap_err()));
         assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
