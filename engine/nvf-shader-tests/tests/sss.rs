@@ -108,3 +108,56 @@ fn skin_and_foliage_sss_compile_across_both_lighting_modes() {
         }
     }
 }
+
+#[test]
+fn foliage_canopy_and_shadow_prepass_shaders_compile() {
+    for physical_pbr in [false, true] {
+        let mut compiler = Compiler::with_sss(physical_pbr);
+
+        let mut grass_defs = vec!["NVF_CANOPY", "NVF_FOLIAGE_SSS", "NVF_AMBIENT_OCCLUSION"];
+        if physical_pbr {
+            grass_defs.push("NVF_PHYSICAL_PBR");
+        }
+        let grass_main = compiler.compile("nvforever/grass.wesl", &grass_defs);
+        assert!(has_fn(&grass_main, "nvf_foliage_direct"));
+
+        let grass_shadow = compiler.compile(
+            "nvforever/grass.wesl",
+            &["PREPASS_PIPELINE", "VIEW_PROJECTION_ORTHOGRAPHIC"],
+        );
+        assert!(grass_shadow
+            .module
+            .entry_points
+            .iter()
+            .any(|e| e.stage == naga::ShaderStage::Vertex));
+
+        let mut tree_defs = vec!["TREE_LEAVES", "NVF_CANOPY", "NVF_FOLIAGE_SSS", "NVF_CROWN_SHADOW"];
+        if physical_pbr {
+            tree_defs.push("NVF_PHYSICAL_PBR");
+        }
+        let tree_main = compiler.compile("nvforever/tree.wesl", &tree_defs);
+        assert!(has_fn(&tree_main, "nvf_foliage_direct"));
+
+        for extra in [
+            &["PREPASS_PIPELINE", "MAY_DISCARD", "GRASS_SHADOW_PREPASS"][..],
+            &["PREPASS_PIPELINE", "MAY_DISCARD", "FOLIAGE_SHADOW_PREPASS"][..],
+        ] {
+            let compiled = compiler.compile("nvf_assets/fade_prepass.wesl", extra);
+            assert!(compiled
+                .module
+                .entry_points
+                .iter()
+                .any(|e| e.stage == naga::ShaderStage::Fragment));
+        }
+
+        let nif_shadow = compiler.compile(
+            "nvf_assets/nif_prepass.wesl",
+            &["PREPASS_PIPELINE", "MAY_DISCARD", "FOLIAGE_SHADOW_PREPASS"],
+        );
+        assert!(nif_shadow
+            .module
+            .entry_points
+            .iter()
+            .any(|e| e.stage == naga::ShaderStage::Fragment));
+    }
+}

@@ -93,6 +93,7 @@ impl MaterialExtension for TreeBillboards {
         descriptor.vertex.shader_defs.push("TREE_BILLBOARD".into());
         // Billboards crossfade with the cells whose trees they stand in for (treelod.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        nvf_assets::enable_foliage_canopy(descriptor);
         nvf_assets::soft_edges(descriptor, key.mesh_key);
         nvf_assets::nif_material::enable_foliage_sss(descriptor);
         Ok(())
@@ -124,6 +125,8 @@ impl MaterialExtension for LeafCards {
         descriptor.vertex.shader_defs.push("TREE_LEAVES".into());
         // Trees fade in and out with their cells (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        nvf_assets::enable_foliage_canopy(descriptor);
+        nvf_assets::foliage_shadow_prepass(descriptor, key.mesh_key);
         nvf_assets::soft_edges(descriptor, key.mesh_key);
         if !LEAVES_READ_AMBIENT_OCCLUSION {
             nvf_assets::ambient_occlusion_opt_out(descriptor);
@@ -442,6 +445,20 @@ fn build(
         let (mut pos, mut nor, mut uv, mut corner) = (Vec::with_capacity(4 * n), Vec::with_capacity(4 * n), Vec::with_capacity(4 * n), Vec::with_capacity(4 * n));
         let mut colour = Vec::with_capacity(4 * n);
         let mut reach = 0.0f32;
+        let canopy_depth = nvf_assets::authored::physical_pbr() || nvf_assets::authored::sss_enabled();
+        let (crown_core, crown_max_dist) = if canopy_depth {
+            let (mut c_min, mut c_max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+            for l in &g.leaves {
+                let p = Vec3::from_array(l.position);
+                c_min = c_min.min(p);
+                c_max = c_max.max(p);
+            }
+            let core = Vec3::new((c_min.x + c_max.x) * 0.5, (c_min.y + c_max.y) * 0.5, c_min.z + 0.35 * (c_max.z - c_min.z));
+            let max_d = g.leaves.iter().map(|l| Vec3::from_array(l.position).distance(core)).fold(0.0f32, f32::max).max(1e-4);
+            (core, max_d)
+        } else {
+            (Vec3::ZERO, 1.0)
+        };
         // Each card's first vertex and its place, for the draw orders (`LeafOrder`).
         let mut cards: Vec<(u32, Vec3)> = Vec::with_capacity(n);
         for l in &g.leaves {
@@ -473,7 +490,14 @@ fn build(
             let (x0, x1, y0, y1) = (x0 + s0 * (x1 - x0), x0 + s1 * (x1 - x0), y0 + t0 * (y1 - y0), y0 + t1 * (y1 - y0));
             let first = pos.len() as u32;
             cards.push((first, Vec3::from_array(l.position)));
-            let tint = dim_colour(rec.leaf_dimming.map_or(1.0, |d| g.brightness(d, l.position[2])));
+            let mut tint = dim_colour(rec.leaf_dimming.map_or(1.0, |d| g.brightness(d, l.position[2])));
+            if canopy_depth {
+                let r_norm = (Vec3::from_array(l.position).distance(crown_core) / crown_max_dist).clamp(0.0, 1.0);
+                let depth = 0.60 + 0.40 * r_norm.powf(0.75);
+                tint[0] *= depth;
+                tint[1] *= depth;
+                tint[2] *= depth;
+            }
             // Bottom left, bottom right, top right, top left: counter-clockwise on screen.
             for (cx, cy, s, t) in [(x0, y0, s0, t0), (x1, y0, s1, t0), (x1, y1, s1, t1), (x0, y1, s0, t1)] {
                 pos.push(l.position);
@@ -492,7 +516,7 @@ fn build(
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, corner);
-        if rec.leaf_dimming.is_some() {
+        if rec.leaf_dimming.is_some() || canopy_depth {
             mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colour);
         }
         let orders: [Handle<Mesh>; LEAF_ORDERS] = std::array::from_fn(|k| {

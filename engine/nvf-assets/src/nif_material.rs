@@ -432,18 +432,67 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
     }
 }
 
+fn push_shader_def_once(defs: &mut Vec<ShaderDefVal>, def: &ShaderDefVal) {
+    if !defs.contains(def) {
+        defs.push(def.clone());
+    }
+}
+
+fn push_vertex_and_fragment_def(descriptor: &mut RenderPipelineDescriptor, name: &'static str) {
+    let def = ShaderDefVal::from(name);
+    push_shader_def_once(&mut descriptor.vertex.shader_defs, &def);
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        push_shader_def_once(&mut fragment.shader_defs, &def);
+    }
+}
+
+fn orthographic_shadow_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey, def: &'static str) {
+    let is_ortho = (mesh_key & MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS) == MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC;
+    if !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE"))
+        || !is_ortho
+        || !mesh_key.contains(MeshPipelineKey::MAY_DISCARD)
+    {
+        return;
+    }
+    depth_prepass_fragment(descriptor, FADE_PREPASS_SHADER);
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        push_shader_def_once(&mut fragment.shader_defs, &ShaderDefVal::from(def));
+    }
+}
+
 /// Enable foliage subsurface translucency (`NVF_FOLIAGE_SSS`) in a non-prepass
 /// fragment shader when `NVF_SSS=1`.
 pub fn enable_foliage_sss(descriptor: &mut RenderPipelineDescriptor) {
     if !crate::authored::sss_enabled() || descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
         return;
     }
-    let def = ShaderDefVal::from("NVF_FOLIAGE_SSS");
     if let Some(fragment) = descriptor.fragment.as_mut() {
-        if !fragment.shader_defs.contains(&def) {
-            fragment.shader_defs.push(def);
-        }
+        push_shader_def_once(&mut fragment.shader_defs, &ShaderDefVal::from("NVF_FOLIAGE_SSS"));
     }
+}
+
+/// Enable canopy shading defs (`NVF_CANOPY` and `NVF_PHYSICAL_PBR`) on custom foliage
+/// materials (grass, SpeedTree leaves and billboards) outside prepass pipelines.
+pub fn enable_foliage_canopy(descriptor: &mut RenderPipelineDescriptor) {
+    if descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        return;
+    }
+    if crate::authored::physical_pbr() || crate::authored::sss_enabled() {
+        push_vertex_and_fragment_def(descriptor, "NVF_CANOPY");
+    }
+    if crate::authored::physical_pbr() {
+        push_vertex_and_fragment_def(descriptor, "NVF_PHYSICAL_PBR");
+    }
+}
+
+/// Use the core-thickened grass shadow prepass in orthographic directional shadow maps.
+pub fn grass_shadow_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    orthographic_shadow_prepass(descriptor, mesh_key, "GRASS_SHADOW_PREPASS");
+}
+
+/// Use the foliage-thickened shadow prepass in orthographic directional shadow maps.
+pub fn foliage_shadow_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    orthographic_shadow_prepass(descriptor, mesh_key, "FOLIAGE_SHADOW_PREPASS");
 }
 
 /// The extension part: the falloff parameters, the alpha cut, the decal switch and the
@@ -610,8 +659,8 @@ pub struct NifSurface {
     /// The shape uses the game's skin shader (`SHADER_SKIN`). CPU only; enables
     /// `NVF_SKIN_SSS` when `NVF_SSS=1`.
     pub skin: bool,
-    /// The shape is placed NIF foliage (`nif_spawn::is_foliage_texture`). CPU only;
-    /// enables `NVF_FOLIAGE_SSS` when `NVF_SSS=1`.
+    /// The shape is placed NIF foliage (`nif_spawn::is_foliage_shape`). CPU only;
+    /// enables `NVF_FOLIAGE_SSS` when `NVF_SSS=1` and foliage shadow thickening.
     pub foliage: bool,
 }
 
@@ -880,6 +929,15 @@ impl MaterialExtension for NifSurface {
         if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty() && reflect_def.is_empty() && physical_def.is_empty() && sss_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
                 fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).chain(reflect_def).chain(physical_def).chain(sss_def).map(|d| ShaderDefVal::from(*d)));
+            }
+        }
+        if key.bind_group_data.foliage
+            && descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE"))
+            && (key.mesh_key & MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS) == MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC
+            && key.mesh_key.contains(MeshPipelineKey::MAY_DISCARD)
+        {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                push_shader_def_once(&mut fragment.shader_defs, &ShaderDefVal::from("FOLIAGE_SHADOW_PREPASS"));
             }
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
@@ -1510,6 +1568,28 @@ mod tests {
             assert!(!has(&main, "SOFT_EDGES") && !has(&main, "PREPASS_COVERAGE"), "{key:?}");
             assert_eq!(depth_state(&main), EQUAL_DEPTH, "{key:?}");
         }
+    }
+
+    #[test]
+    fn grass_and_foliage_shadow_prepasses_only_run_on_orthographic_discard_pipelines() {
+        let has = |d: &RenderPipelineDescriptor, def: &'static str| d.fragment.as_ref().is_some_and(|f| f.shader_defs.contains(&def.into()));
+        let ortho_discard = MeshPipelineKey::DEPTH_PREPASS | MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC | MeshPipelineKey::MAY_DISCARD;
+        let persp_discard = MeshPipelineKey::DEPTH_PREPASS | MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE | MeshPipelineKey::MAY_DISCARD;
+
+        let mut grass_shadow = prepass_pipeline(1);
+        grass_shadow_prepass(&mut grass_shadow, ortho_discard);
+        assert_eq!(grass_shadow.fragment.as_ref().unwrap().shader, FADE_PREPASS_SHADER);
+        assert!(has(&grass_shadow, "GRASS_SHADOW_PREPASS"));
+
+        let mut foliage_shadow = prepass_pipeline(1);
+        foliage_shadow_prepass(&mut foliage_shadow, ortho_discard);
+        assert_eq!(foliage_shadow.fragment.as_ref().unwrap().shader, FADE_PREPASS_SHADER);
+        assert!(has(&foliage_shadow, "FOLIAGE_SHADOW_PREPASS"));
+
+        let mut persp = prepass_pipeline(1);
+        grass_shadow_prepass(&mut persp, persp_discard);
+        foliage_shadow_prepass(&mut persp, persp_discard);
+        assert!(persp.fragment.is_none());
     }
 
     /// coverage.wesl `sample_mask`, in Rust.

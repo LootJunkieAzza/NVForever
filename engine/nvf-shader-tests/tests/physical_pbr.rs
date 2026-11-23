@@ -136,3 +136,32 @@ fn imagespace_shader_validates_with_agx_punchy_and_vats() {
         "nvforever/imagespace.wesl: a fragment entry point"
     );
 }
+
+#[test]
+fn blend_multiply_decals_attenuate_with_fog_transmittance() {
+    for physical_pbr in [false, true] {
+        let mut compiler = if physical_pbr {
+            Compiler::with_physical_pbr()
+        } else {
+            Compiler::with_ambient_occlusion_hook()
+        };
+        for defs in [
+            &["BLEND_MULTIPLY"][..],
+            &["BLEND_MULTIPLY", "DISTANCE_FOG"][..],
+        ] {
+            let mut full_defs = defs.to_vec();
+            if physical_pbr {
+                full_defs.push("NVF_PHYSICAL_PBR");
+            }
+            let compiled = compiler.compile("nvf_assets/nif_material.wesl", &full_defs);
+            assert!(
+                compiled
+                    .module
+                    .entry_points
+                    .iter()
+                    .any(|e| e.stage == naga::ShaderStage::Fragment),
+                "physical={physical_pbr} {full_defs:?}: fragment validates"
+            );
+        }
+    }
+}

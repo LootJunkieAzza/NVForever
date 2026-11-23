@@ -21,8 +21,9 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject, Transform as NifTransform};
 use fnv_nif::{NifFile, Struct, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
+use std::sync::{OnceLock, RwLock};
 
 /// Marks the root of a spawned NIF.
 #[derive(Component)]
@@ -112,6 +113,7 @@ impl Props {
             }
             n += 1;
         }
+        self.eye |= is_eye_shape(0, &self.textures);
         n
     }
 }
@@ -148,6 +150,8 @@ pub(crate) struct Props {
     pub(crate) hair: bool,
     /// The shader property's type is [`SHADER_SKIN`]: the shape is an actor's skin.
     pub(crate) skin: bool,
+    /// Eye mesh (`Eye_Environment_Mapping` bit 17, `eyecubemap`, or `characters/eyes/`).
+    pub(crate) eye: bool,
     /// The view-angle falloff of a BSShaderNoLightingProperty that switches it on
     /// ([`property_falloff`]).
     falloff: Option<Falloff>,
@@ -180,6 +184,8 @@ pub(crate) struct Props {
     /// The caller keeps the shape off authored sets (#2981): particle systems, object LOD
     /// (`crate::authored::shape_eligible`).
     pub(crate) no_authored: bool,
+    /// Shape comes from a known foliage model (FLOR/TREE record or botanical NIF path).
+    pub(crate) foliage_model: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -353,6 +359,21 @@ pub(crate) fn window_env_flags(shader_flags: i64) -> bool {
     shader_flags & (1 << 7) != 0 && shader_flags & (1 << 21) != 0
 }
 
+/// Whether shader flags or texture paths identify an eye shape (`Eye_Environment_Mapping`
+/// bit 17, `eyecubemap`, or `characters/eyes/`).
+pub(crate) fn is_eye_shape(shader_flags: i64, textures: &[String]) -> bool {
+    if shader_flags & (1 << 17) != 0 {
+        return true;
+    }
+    let has_eye_path = |slot: usize| {
+        textures.get(slot).is_some_and(|t| {
+            let norm = t.replace('\\', "/").to_ascii_lowercase();
+            norm.contains("characters/eyes/") || norm.contains("eyecubemap")
+        })
+    };
+    has_eye_path(0) || has_eye_path(4)
+}
+
 /// Whether shader flags ask for an environment map: BSShaderFlags bit 7
 /// "Environment_Mapping" [documented: nif.xml flag names; GECK wiki "NIF Shader
 /// Properties": "Enables environment mapping on the object"], with or without the window
@@ -374,6 +395,9 @@ pub(crate) fn env_flags(shader_flags: i64) -> bool {
 /// gated as #2462 gated them, LOD block geometry included. A cube that does not load as a
 /// cube map leaves the shape as it was (`shape_material_inner`).
 pub(crate) fn shape_env(props: &Props, aids: &crate::env_map::EnvAids) -> Option<crate::env_map::ShapeEnv> {
+    if props.eye {
+        return None;
+    }
     let f = props.env.filter(|f| f.scale > 0.0 && !props.unlit)?;
     if !f.window && (!aids.non_window || props.lod_building) {
         return None;
@@ -423,6 +447,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.dynamic_alpha = ty == "BSShaderNoLightingProperty" && flags & (1 << 19) != 0;
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
+        p.eye = is_eye_shape(flags, &p.textures);
         p.external_emittance = flags & (1 << 29) != 0;
         p.decal = is_decal(flags);
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
@@ -458,6 +483,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
             let src = s.strukt("base_texture").and_then(|b| b.block_ref("source")).and_then(|r| dec.get(r));
             if let Some(f) = src.and_then(|t| t.text("file_name")) {
                 p.textures = vec![f.to_string()];
+                p.eye |= is_eye_shape(0, &p.textures);
             }
         }
         "NiAlphaProperty" => p.alpha = Some((s.int("flags").unwrap_or(0), s.int("threshold").unwrap_or(128))),
@@ -713,6 +739,9 @@ pub fn display_to_linear(v: f32) -> f32 {
 pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (f32, bool) {
     if props.hair {
         return (0.0, false);
+    }
+    if props.eye {
+        return (0.38, false);
     }
     let physical = crate::authored::physical_pbr();
     let sss = crate::authored::sss_enabled();
@@ -1070,14 +1099,405 @@ pub(crate) fn shape_material_reusing_tangents(
     shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats }, Tangents::Keep)
 }
 
-/// Whether a NIF diffuse path belongs to placed foliage (plants, shrubs, leaves) that
-/// should receive backlit translucency when `NVF_SSS=1`.
-pub(crate) fn is_foliage_texture(path: &str) -> bool {
-    let norm = path.replace('\\', "/").to_ascii_lowercase();
+static FOLIAGE_MODELS: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+
+fn foliage_models() -> &'static RwLock<HashSet<String>> {
+    FOLIAGE_MODELS.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+/// Record a NIF model path used by a `FLOR` or `TREE` base object so all its cutout/double-sided
+/// shapes automatically receive foliage shading and canopy normals regardless of mod folder layout.
+pub fn register_foliage_model(path: &str) {
+    let norm = fnv_vfs::normalize(path);
+    if norm.is_empty() {
+        return;
+    }
+    if let Ok(read) = foliage_models().read() {
+        if read.contains(&norm) {
+            return;
+        }
+    }
+    if let Ok(mut write) = foliage_models().write() {
+        write.insert(norm);
+    }
+}
+
+pub(crate) fn is_registered_foliage_model(path: &str) -> bool {
+    let norm = fnv_vfs::normalize(path);
+    foliage_models().read().is_ok_and(|set| set.contains(&norm))
+}
+
+fn contains_any_token(s: &str, tokens: &[&str]) -> bool {
+    tokens.iter().any(|t| s.contains(t))
+}
+
+fn is_vanilla_foliage_folder(norm: &str) -> bool {
     norm.contains("textures/landscape/plants/")
         || norm.contains("textures/plants/")
         || norm.contains("textures/trees/leaves/")
         || norm.contains("textures/clutter/plants/")
+}
+
+fn is_non_foliage_folder(norm: &str) -> bool {
+    contains_any_token(
+        norm,
+        &[
+            "architecture/",
+            "weapons/",
+            "armor/",
+            "characters/",
+            "creatures/",
+            "interface/",
+            "effects/",
+            "vehicles/",
+            "furniture/",
+            "sky/",
+            "dungeons/",
+            "interiors/",
+            "pipboy",
+            "signs/",
+            "clutter/junk/",
+        ],
+    )
+}
+
+fn is_bark_or_non_foliage(path: &str) -> bool {
+    let norm = path.replace('\\', "/").to_ascii_lowercase();
+    contains_any_token(
+        &norm,
+        &[
+            "bark",
+            "trunk",
+            "stump",
+            "/log.",
+            "/log_",
+            "_log",
+            "logs/",
+            "trees/branches/",
+            "planter",
+            "/pot.",
+            "/pot_",
+            "_pot",
+            "pots/",
+            "characters/",
+            "eyes/",
+            "eyecubemap",
+            "skin",
+            "hair",
+            "metal",
+            "concrete",
+            "brick",
+            "plaster",
+            "powerplant",
+            "implant",
+            "vinegar",
+            "casino",
+            "fence",
+            "crate",
+            "sign",
+            "landscape/dirt",
+            "landscape/rock",
+            "clutter/wood",
+            "wood/",
+            "_wood",
+            "/wood.",
+            "/wood_",
+        ],
+    )
+}
+
+/// Whether a NIF diffuse path belongs to placed foliage (plants, shrubs, leaves) that
+/// should receive backlit translucency when `NVF_SSS=1`.
+pub(crate) fn is_foliage_texture(path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    let norm = path.replace('\\', "/").to_ascii_lowercase();
+    if is_bark_or_non_foliage(&norm) {
+        return false;
+    }
+    if is_vanilla_foliage_folder(&norm) {
+        return true;
+    }
+    if is_non_foliage_folder(&norm) {
+        return false;
+    }
+    contains_any_token(
+        &norm,
+        &[
+            "plants/",
+            "flora/",
+            "foliage/",
+            "leaves/",
+            "shrubs/",
+            "bushes/",
+            "grass/",
+            "bush",
+            "shrub",
+            "leaves",
+            "leaf",
+            "foliage",
+            "fern",
+            "flora",
+            "yucca",
+            "joshua",
+            "creosote",
+            "sagebrush",
+            "agave",
+            "frond",
+            "tumbleweed",
+            "bramble",
+            "mesquite",
+            "ocotillo",
+            "pinyon",
+            "juniper",
+            "canopy",
+            "cattail",
+            "hedge",
+            "clover",
+            "pricklypear",
+            "barrelcactus",
+            "cactus",
+            "ivy",
+            "grass",
+        ],
+    )
+}
+
+/// Whether a NIF path itself is a known vegetation model (registered `FLOR`/`TREE` record or
+/// botanical NIF path outside LOD/wood).
+pub(crate) fn is_foliage_model_path(path: &str) -> bool {
+    if is_registered_foliage_model(path) {
+        return true;
+    }
+    let norm = path.replace('\\', "/").to_ascii_lowercase();
+    if norm.contains("lod") || is_non_foliage_folder(&norm) || is_bark_or_non_foliage(&norm) {
+        return false;
+    }
+    contains_any_token(
+        &norm,
+        &[
+            "plants/",
+            "trees/",
+            "flora/",
+            "foliage/",
+            "shrub",
+            "bush",
+            "fern",
+            "yucca",
+            "joshua",
+            "creosote",
+            "sagebrush",
+            "agave",
+            "tumbleweed",
+            "cactus",
+            "mesquite",
+            "ocotillo",
+            "pinyon",
+            "juniper",
+        ],
+    )
+}
+
+fn is_foliage_shape(props: &Props, diffuse: Option<&str>, alpha_mode: AlphaMode, cutout: Option<f32>) -> bool {
+    if props.skin || props.hair || props.eye || props.unlit || props.decal || props.lod_building || props.refraction.is_some() {
+        return false;
+    }
+    if diffuse.is_some_and(is_bark_or_non_foliage) {
+        return false;
+    }
+    let vanilla_folder = diffuse.is_some_and(|d| is_vanilla_foliage_folder(&d.replace('\\', "/").to_ascii_lowercase()));
+    let is_card = matches!(alpha_mode, AlphaMode::Mask(_)) || cutout.is_some() || props.double_sided;
+    vanilla_folder || (is_card && (diffuse.is_some_and(is_foliage_texture) || props.foliage_model))
+}
+
+fn find_root(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+    }
+    x
+}
+
+fn union_roots(parent: &mut [usize], a: usize, b: usize) {
+    let ra = find_root(parent, a);
+    let rb = find_root(parent, b);
+    if ra != rb {
+        parent[rb] = ra;
+    }
+}
+
+/// Group vertices into spatial canopy clusters so individual bushes shade as one 3D crown while
+/// separated multi-cluster trees (such as Joshua trees) keep independent crown centroids.
+fn cluster_vertices(positions: &[[f32; 3]], mesh: &Mesh) -> (Vec<usize>, usize) {
+    let count = positions.len();
+    let mut parent: Vec<usize> = (0..count).collect();
+    match mesh.indices() {
+        Some(Indices::U32(idx)) => {
+            for tri in idx.chunks_exact(3) {
+                let (a, b, c) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+                if a < count && b < count && c < count {
+                    union_roots(&mut parent, a, b);
+                    union_roots(&mut parent, a, c);
+                }
+            }
+        }
+        Some(Indices::U16(idx)) => {
+            for tri in idx.chunks_exact(3) {
+                let (a, b, c) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+                if a < count && b < count && c < count {
+                    union_roots(&mut parent, a, b);
+                    union_roots(&mut parent, a, c);
+                }
+            }
+        }
+        None => {
+            for base in (0..count).step_by(3) {
+                if base + 2 < count {
+                    union_roots(&mut parent, base, base + 1);
+                    union_roots(&mut parent, base, base + 2);
+                }
+            }
+        }
+    }
+
+    let mut shape_min = Vec3::splat(f32::MAX);
+    let mut shape_max = Vec3::splat(f32::MIN);
+    let mut root_to_comp = HashMap::<usize, usize>::new();
+    let mut comp_of_v = vec![0usize; count];
+    let mut comp_sum: Vec<Vec3> = Vec::new();
+    let mut comp_len: Vec<f32> = Vec::new();
+    for (i, p) in positions.iter().enumerate() {
+        let v = Vec3::from_array(*p);
+        shape_min = shape_min.min(v);
+        shape_max = shape_max.max(v);
+        let r = find_root(&mut parent, i);
+        let c = *root_to_comp.entry(r).or_insert_with(|| {
+            let id = comp_sum.len();
+            comp_sum.push(Vec3::ZERO);
+            comp_len.push(0.0);
+            id
+        });
+        comp_of_v[i] = c;
+        comp_sum[c] += v;
+        comp_len[c] += 1.0;
+    }
+
+    let k = comp_sum.len();
+    if k <= 1 || k > 512 {
+        return if k <= 1 { (comp_of_v, k) } else { (vec![0usize; count], 1) };
+    }
+
+    let max_extent = (shape_max - shape_min).length();
+    let link_dist2 = (max_extent * 0.16).clamp(18.0, 65.0).powi(2);
+    let centroids: Vec<Vec3> = comp_sum.iter().zip(&comp_len).map(|(s, n)| *s / (*n).max(1.0)).collect();
+    let mut comp_parent: Vec<usize> = (0..k).collect();
+    for i in 0..k {
+        for j in (i + 1)..k {
+            if centroids[i].distance_squared(centroids[j]) <= link_dist2 {
+                union_roots(&mut comp_parent, i, j);
+            }
+        }
+    }
+
+    let mut cluster_map = HashMap::<usize, usize>::new();
+    let mut cluster_of_v = vec![0usize; count];
+    let mut next_id = 0usize;
+    for (i, &c) in comp_of_v.iter().enumerate() {
+        let r = find_root(&mut comp_parent, c);
+        let id = *cluster_map.entry(r).or_insert_with(|| {
+            let id = next_id;
+            next_id += 1;
+            id
+        });
+        cluster_of_v[i] = id;
+    }
+    (cluster_of_v, next_id)
+}
+
+/// Bend flat foliage-card normals radially outward from each cluster core while preserving
+/// sharper leaf-card normals at the outer tips, and bake core-to-tip self-occlusion into vertex
+/// colors (Gamebryo Z-up space).
+pub(crate) fn apply_canopy_normals(mesh: &mut Mesh) {
+    let positions: Vec<[f32; 3]> = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+        Some(VertexAttributeValues::Float32x3(p)) if !p.is_empty() => p.clone(),
+        _ => return,
+    };
+    let count = positions.len();
+    let orig_normals: Vec<[f32; 3]> = match mesh.attribute(Mesh::ATTRIBUTE_NORMAL) {
+        Some(VertexAttributeValues::Float32x3(n)) if n.len() == count => n.clone(),
+        _ => vec![[0.0, 0.0, 1.0]; count],
+    };
+
+    let (cluster_of_v, cluster_count) = cluster_vertices(&positions, mesh);
+    if cluster_count == 0 {
+        return;
+    }
+
+    let mut c_min = vec![Vec3::splat(f32::MAX); cluster_count];
+    let mut c_max = vec![Vec3::splat(f32::MIN); cluster_count];
+    for (i, p) in positions.iter().enumerate() {
+        let c = cluster_of_v[i];
+        let v = Vec3::from_array(*p);
+        c_min[c] = c_min[c].min(v);
+        c_max[c] = c_max[c].max(v);
+    }
+
+    let cores: Vec<Vec3> = c_min
+        .iter()
+        .zip(&c_max)
+        .map(|(lo, hi)| Vec3::new((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, lo.z + 0.30 * (hi.z - lo.z)))
+        .collect();
+    let mut max_dist = vec![0.0f32; cluster_count];
+    for (i, p) in positions.iter().enumerate() {
+        let c = cluster_of_v[i];
+        max_dist[c] = max_dist[c].max(Vec3::from_array(*p).distance(cores[c]));
+    }
+
+    let mut final_normals = Vec::with_capacity(count);
+    let mut ao_values = Vec::with_capacity(count);
+    for i in 0..count {
+        let c = cluster_of_v[i];
+        let core = cores[c];
+        let r_max = max_dist[c].max(1e-3);
+        let offset = Vec3::from_array(positions[i]) - core;
+        let r_norm = (offset.length() / r_max).clamp(0.0, 1.0);
+        let n_radial = Vec3::new(offset.x, offset.y, offset.z * 0.85 + 0.15 * r_max).normalize_or(Vec3::Z);
+        let mut n_orig = Vec3::from_array(orig_normals[i]).normalize_or(n_radial);
+        if n_orig.dot(n_radial) < 0.0 {
+            n_orig = -n_orig;
+        }
+        let orig_w = 0.10 + 0.30 * r_norm * r_norm;
+        let n_final = (n_radial * (1.0 - orig_w) + n_orig * orig_w).normalize_or(n_radial);
+        final_normals.push(n_final.to_array());
+        ao_values.push(0.52 + 0.48 * r_norm.powf(0.75));
+    }
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, final_normals.clone());
+
+    if let Some(VertexAttributeValues::Float32x4(tangents)) = mesh.attribute_mut(Mesh::ATTRIBUTE_TANGENT) {
+        if tangents.len() == count {
+            for (t4, n_arr) in tangents.iter_mut().zip(&final_normals) {
+                let n = Vec3::from_array(*n_arr);
+                let t = Vec3::new(t4[0], t4[1], t4[2]);
+                let ortho = (t - n * t.dot(n)).normalize_or(n.any_orthonormal_vector());
+                *t4 = [ortho.x, ortho.y, ortho.z, if t4[3] < 0.0 { -1.0 } else { 1.0 }];
+            }
+        }
+    }
+
+    if let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) {
+        if colors.len() == count {
+            for (col, ao) in colors.iter_mut().zip(&ao_values) {
+                col[0] *= ao;
+                col[1] *= ao;
+                col[2] *= ao;
+            }
+            return;
+        }
+    }
+    let colors: Vec<[f32; 4]> = ao_values.into_iter().map(|ao| [ao, ao, ao, 1.0]).collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
 }
 
 /// [`shape_material`] with its textures from `textures` and the normal map's tangents from
@@ -1176,7 +1596,14 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
     let physical = crate::authored::physical_pbr();
     let sss = crate::authored::sss_enabled();
-    let perceptual_roughness = if (physical || sss) && props.skin {
+    let foliage = is_foliage_shape(props, diffuse.map(String::as_str), alpha_mode, cutout);
+    let canopy_cards = foliage && (physical || sss) && (matches!(alpha_mode, AlphaMode::Mask(_)) || cutout.is_some() || props.double_sided);
+    if canopy_cards {
+        apply_canopy_normals(mesh);
+    }
+    let perceptual_roughness = if props.eye && (physical || sss) {
+        gloss_roughness(gloss).clamp(0.28, 0.45)
+    } else if (physical || sss) && props.skin {
         gloss_roughness(gloss).clamp(0.58, 0.72)
     } else if physical && !props.specular && !props.hair {
         gloss_roughness(gloss).max(0.86)
@@ -1197,8 +1624,8 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
         emissive_texture: glow,
         alpha_mode,
-        double_sided: props.double_sided,
-        cull_mode: if props.double_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
+        double_sided: if canopy_cards { false } else { props.double_sided },
+        cull_mode: if canopy_cards || props.double_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
         unlit: props.unlit,
         ..default()
     };
@@ -1224,7 +1651,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     }
     material.extension.decal = props.decal;
     material.extension.skin = props.skin;
-    material.extension.foliage = !props.skin && !props.hair && !props.unlit && props.refraction.is_none() && diffuse.is_some_and(|t| is_foliage_texture(t));
+    material.extension.foliage = foliage;
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
     }
@@ -2631,21 +3058,134 @@ mod bc5_material_tests {
     fn foliage_texture_classification_matches_plants_and_leaves_only() {
         for yes in [
             r"textures\landscape\plants\maize_d.dds",
+            r"textures\landscape\plants\woodlandfern01.dds",
             r"Data\Textures\Landscape\Plants\JoshuaTree01.dds",
             r"textures\plants\yucca01.dds",
             r"textures\trees\leaves\NVTreeLeaves.dds",
             r"textures/clutter/plants/fern01.dds",
+            r"textures\wfo\flora\creosote_branch_d.dds",
+            r"textures\mods\mojaveflora\joshua_fronds.dds",
+            r"textures\mods\desert\sagebrush_d.dds",
         ] {
             assert!(is_foliage_texture(yes), "expected foliage: {yes}");
         }
         for no in [
             r"textures\trees\branches\bark01.dds",
+            r"textures\wfo\bark\pinebark_d.dds",
             r"textures\landscape\dirt01.dds",
+            r"textures\landscape\rock01.dds",
             r"textures\characters\male\headhuman.dds",
             r"textures\clutter\metal\tincan.dds",
+            r"textures\architecture\powerplant\wall01.dds",
+            r"textures\clutter\wine_vinegar.dds",
+            r"textures\signs\message01.dds",
+            r"textures\architecture\palmcasino\trim.dds",
+            r"textures\weapons\pine_wood.dds",
             "",
         ] {
             assert!(!is_foliage_texture(no), "unexpected foliage: {no}");
         }
+
+        register_foliage_model(r"meshes\mods\customflora\desertshrub99.nif");
+        assert!(is_registered_foliage_model(r"meshes/Mods/CustomFlora/DesertShrub99.NIF"));
+        assert!(is_foliage_model_path(r"meshes\mods\customflora\desertshrub99.nif"));
+
+        let flor_props = Props {
+            foliage_model: true,
+            double_sided: true,
+            textures: vec![r"textures\custompack\exotic01.dds".into()],
+            ..Default::default()
+        };
+        assert!(is_foliage_shape(&flor_props, flor_props.textures.first().map(String::as_str), AlphaMode::Mask(0.5), None));
+        let opaque_flor_props = Props {
+            foliage_model: true,
+            double_sided: false,
+            textures: vec![r"textures\custompack\exotic01.dds".into()],
+            ..Default::default()
+        };
+        assert!(!is_foliage_shape(&opaque_flor_props, opaque_flor_props.textures.first().map(String::as_str), AlphaMode::Opaque, None));
+        let bark_props = Props {
+            foliage_model: true,
+            textures: vec![r"textures\custompack\oak_bark.dds".into()],
+            ..Default::default()
+        };
+        assert!(!is_foliage_shape(&bark_props, bark_props.textures.first().map(String::as_str), AlphaMode::Opaque, None));
+    }
+
+    #[test]
+    fn canopy_normals_point_outward_per_cluster_preserve_tip_detail_and_bake_ao() {
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+        // Two separated clusters (> 65 units apart): cluster 0 near origin, cluster 1 at +200 X.
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![
+                // Cluster 0: inner base + outer right tip + outer top tip
+                [0.0, 0.0, 3.0],
+                [20.0, 0.0, 10.0],
+                [-10.0, 10.0, 20.0],
+                // Cluster 1: centered around (200, 0, 100)
+                [200.0, 0.0, 103.0],
+                [220.0, 0.0, 110.0],
+                [190.0, -10.0, 120.0],
+            ],
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; 6]);
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_TANGENT,
+            vec![[1.0, 0.0, 0.0, -1.0]; 6],
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0, 0.8, 0.6, 0.42]; 6]);
+        mesh.insert_indices(Indices::U32(vec![0, 1, 2, 3, 4, 5]));
+
+        apply_canopy_normals(&mut mesh);
+
+        let Some(VertexAttributeValues::Float32x3(norms)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else {
+            panic!("normals missing");
+        };
+        let Some(VertexAttributeValues::Float32x4(tans)) = mesh.attribute(Mesh::ATTRIBUTE_TANGENT) else {
+            panic!("tangents missing");
+        };
+        let Some(VertexAttributeValues::Float32x4(cols)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else {
+            panic!("colors missing");
+        };
+
+        // Cluster 0 outer right tip points strongly +X; cluster 1 outer right tip ALSO points +X (independent centroid).
+        assert!(norms[1][0] > 0.5, "cluster 0 right tip normal: {:?}", norms[1]);
+        assert!(norms[4][0] > 0.5, "cluster 1 right tip normal: {:?}", norms[4]);
+        // Inner core is darker (lower AO) than outer tips, while vertex alpha is preserved.
+        assert!(cols[0][0] < cols[2][0], "core AO {} < tip AO {}", cols[0][0], cols[2][0]);
+        assert!((cols[0][3] - 0.42).abs() < 1e-5, "vertex alpha preserved");
+        // Tangents remain orthogonal to updated normals and keep handedness sign.
+        for (t, n) in tans.iter().zip(norms.iter()) {
+            let dot = Vec3::new(t[0], t[1], t[2]).dot(Vec3::from_array(*n));
+            assert!(dot.abs() < 1e-4, "tangent orthogonal to normal: dot={dot}");
+            assert_eq!(t[3], -1.0);
+        }
+    }
+
+    #[test]
+    fn eye_shapes_skip_additive_cubemap_and_take_corneal_specular() {
+        assert!(is_eye_shape(1 << 17, &[]));
+        assert!(is_eye_shape(0, &[r"textures\characters\eyes\eyebrown.dds".into()]));
+        assert!(is_eye_shape(0, &["".into(), "".into(), "".into(), "".into(), r"textures\effects\eyecubemap.dds".into()]));
+        assert!(!is_eye_shape(1 << 7, &[r"textures\clutter\metal\tincan.dds".into()]));
+
+        let props = Props {
+            shader: true,
+            has_properties: true,
+            eye: true,
+            specular: true,
+            env: Some(crate::env_map::EnvFlags { scale: 1.0, window: false, light_fade: false }),
+            textures: vec![
+                r"textures\characters\eyes\eyebrown.dds".into(),
+                r"textures\shared\flat_n.dds".into(),
+                "".into(),
+                "".into(),
+                r"textures\effects\eyecubemap.dds".into(),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(shape_env(&props, &crate::env_map::EnvAids::default()), None);
+        assert_eq!(specular(&props, true, false), (0.38, false));
     }
 }

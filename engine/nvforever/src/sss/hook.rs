@@ -21,7 +21,7 @@ const PHYSICAL_DIFFUSE_SSS_TEXT: &str = "    @if(!NVF_SKIN_SSS && !NVF_FOLIAGE_S
     @if(NVF_SKIN_SSS)
     lighting_input.diffuse_color = vec3(0.0);
     @if(NVF_FOLIAGE_SSS)
-    lighting_input.diffuse_color = diffuse_color * 0.58;
+    lighting_input.diffuse_color = diffuse_color * 0.78;
 ";
 
 const INDIRECT_RESTORE_ANCHOR: &str = "    var indirect_light = vec3(0.0f);\n";
@@ -87,11 +87,13 @@ fn directional_sss_text(physical: bool) -> String {
         @if(NVF_FOLIAGE_SSS)
         var nvf_fol_shadow = shadow;
         @if(NVF_FOLIAGE_SSS)
-        if nvf_fol_has_shadow && dot(in.N, (*light).direction_to_light.xyz) < 0.0 {{
-            var nvf_back_sh = shadows::fetch_directional_shadow(i, in.world_position, -in.world_normal, view_z, in.frag_coord.xy) * in.directional_shadow_factor;
+        if nvf_fol_has_shadow {{
+            let nvf_sun_pos = in.world_position + vec4<f32>((*light).direction_to_light.xyz * 6.0, 0.0);
+            let nvf_sun_n = select(in.world_normal, -in.world_normal, dot(in.N, (*light).direction_to_light.xyz) < 0.0);
+            var nvf_back_sh = shadows::fetch_directional_shadow(i, nvf_sun_pos, nvf_sun_n, view_z, in.frag_coord.xy) * in.directional_shadow_factor;
             @if(NVF_SUN_VISIBILITY)
             if ((*light).flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT) != 0u {{
-                nvf_back_sh = nvf_sun_visibility(in.world_position.xyz, (*light).direction_to_light, nvf_back_sh, view_z);
+                nvf_back_sh = nvf_sun_visibility(nvf_sun_pos.xyz, (*light).direction_to_light, nvf_back_sh, view_z);
             }}
             nvf_fol_shadow = max(nvf_fol_shadow, nvf_back_sh);
         }}

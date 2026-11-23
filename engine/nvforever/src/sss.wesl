@@ -238,7 +238,7 @@ fn nvf_sss_clustered_skin(
     if is_spot {
         attenuation *= nvf_sss_spot_attenuation(light_id, L);
     }
-    let light_rad = nvf_sss_light_radiance((*light).color_inverse_square_range.rgb, is_display, physical) * attenuation * select(1.0, 1.65, physical);
+    let light_rad = nvf_sss_light_radiance((*light).color_inverse_square_range.rgb, is_display, physical) * attenuation * select(1.0, 1.10, physical);
     return nvf_skin_eval(
         N, world_normal, V, L, diffuse_color, F0_dielectric, perceptual_roughness,
         curvature_mm, shadow, -1.0, shadow, light_rad, physical,
@@ -320,8 +320,8 @@ fn nvf_sss_directional_skin(
     );
 }
 
-// Energy-conserving two-sided foliage BSDF (cuticle Fresnel entry/exit, Beer-Lambert
-// chlorophyll absorption, normalized Henyey-Greenstein g = 0.52 forward scattering).
+// Energy-conserving two-sided foliage BSDF (wrapped cuticle Fresnel entry/exit,
+// desert-warm Beer-Lambert absorption, normalized Henyey-Greenstein phase, and grazing rim sheen).
 fn nvf_foliage_direct(
     N: vec3<f32>,
     V: vec3<f32>,
@@ -330,24 +330,27 @@ fn nvf_foliage_direct(
     shadow: f32,
     physical: bool,
 ) -> vec3<f32> {
-    let back_ndotl = saturate(-dot(N, L));
-    if back_ndotl <= 0.0 {
-        return vec3(0.0);
-    }
+    let s = saturate(shadow);
+    let back_wrap = saturate((-dot(N, L) + 0.42) / 1.42);
     let ndotv = max(abs(dot(N, V)), 0.0001);
-    let t_in = vec3(1.0) - fresnel(vec3(0.04), back_ndotl);
+    let t_in = vec3(1.0) - fresnel(vec3(0.04), max(back_wrap, 0.15));
     let t_out = vec3(1.0) - fresnel(vec3(0.04), ndotv);
-    let path_len = 0.45 / max(back_ndotl, 0.25);
-    let beer = exp(-vec3(0.35, 0.12, 1.35) * path_len);
+    let path_len = 0.42 / max(back_wrap, 0.30);
+    let beer = exp(-vec3(0.18, 0.16, 1.15) * path_len);
 
     let cos_a = dot(V, -L);
-    let g = 0.52;
+    let g = 0.58;
     let denom = max(1.0 + g * g - 2.0 * g * cos_a, 0.05);
     let hg = (1.0 - g * g) / (2.0 * denom * sqrt(denom));
-    let phase = mix(1.0, hg, 0.55);
+    let phase = mix(0.65, min(hg, 3.2), 0.58);
 
-    let tau = select(0.24, 0.42, physical);
-    return diffuse_color * (tau * back_ndotl * phase * saturate(shadow)) * (t_in * t_out * beer);
+    let tau = select(0.26, 0.38, physical);
+    let transmission = diffuse_color * (tau * back_wrap * phase * s) * (t_in * t_out * beer);
+
+    let rim_grazing = pow(1.0 - saturate(ndotv), 2.5);
+    let forward_rim = pow(saturate(cos_a * 0.5 + 0.5), 3.0);
+    let sheen = diffuse_color * (rim_grazing * (0.14 + 0.36 * forward_rim) * s) * vec3(1.15, 1.02, 0.78);
+    return transmission + sheen;
 }
 
 fn nvf_sss_clustered_foliage(
@@ -369,7 +372,7 @@ fn nvf_sss_clustered_foliage(
     if is_spot {
         attenuation *= nvf_sss_spot_attenuation(light_id, L);
     }
-    let light_rad = nvf_sss_light_radiance((*light).color_inverse_square_range.rgb, is_display, physical) * attenuation * select(1.0, 1.65, physical);
+    let light_rad = nvf_sss_light_radiance((*light).color_inverse_square_range.rgb, is_display, physical) * attenuation * select(1.0, 1.10, physical);
     return nvf_foliage_direct(N, V, L, diffuse_color, shadow, physical) * light_rad;
 }
 

@@ -238,7 +238,7 @@ mod tests {
                         assert!(lighting.contains("nvf_sss_directional_foliage("));
                         assert!(!code(&foliage).contains("nvf_sss_point_skin("));
                         if physical {
-                            let front_at = lighting.find("lighting_input.diffuse_color = diffuse_color * 0.58;").expect("physical foliage scales direct diffuse");
+                            let front_at = lighting.find("lighting_input.diffuse_color = diffuse_color * 0.78;").expect("physical foliage scales direct diffuse");
                             let restore_at = lighting.find("lighting_input.diffuse_color = diffuse_color;").expect("physical foliage restores IBL diffuse");
                             let indirect_at = lighting.find("var indirect_light = vec3(0.0f);").expect("indirect_light decl");
                             assert!(front_at < restore_at && restore_at < indirect_at);

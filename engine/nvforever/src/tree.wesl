@@ -154,7 +154,13 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         }
         out.previous_world_position = vec4(previous_world, 1.0);
     }
-    @if(!PREPASS_PIPELINE && VERTEX_NORMALS) out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
+    @if(!PREPASS_PIPELINE && VERTEX_NORMALS) {
+        var wn = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
+        @if(!PREPASS_PIPELINE && TREE_LEAVES && VERTEX_UVS_B && NVF_CANOPY) {
+            wn = normalize(wn + (right * corner.x + up * corner.y) * (0.28 / max(size, 1.0)));
+        }
+        out.world_normal = wn;
+    }
 
     @if(VERTEX_COLORS) out.color = vertex.color;
     @if(VERTEX_OUTPUT_INSTANCE_INDEX) out.instance_index = vertex.instance_index;

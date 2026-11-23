@@ -77,12 +77,13 @@ import bevy_pbr::{
 @if(!PREPASS_PIPELINE) import bevy_pbr::{
     render::forward_io::{VertexOutput, FragmentOutput},
     render::pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
-    render::pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
+    render::pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT, STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT},
     render::pbr_lighting::{EnvBRDFApprox, F_AB},
     render::mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler, fog},
     render::mesh_view_types::FOG_MODE_ATMOSPHERIC,
     render::view_transformations::{position_ndc_to_world, depth_ndc_to_view_z},
 };
+@if(!PREPASS_PIPELINE && BLEND_MULTIPLY && DISTANCE_FOG) import bevy_pbr::render::pbr_functions::apply_fog;
 @if(!PREPASS_PIPELINE && DEPTH_PREPASS) import bevy_pbr::prepass::utils as prepass_utils;
 @if(!PREPASS_PIPELINE) import bevy_pbr::render::mesh_functions::get_world_from_local;
 @if(!PREPASS_PIPELINE) import nvf_assets::first_person_depth;
@@ -105,7 +106,6 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
 @if(NVF_PBR_VIEW_HEIGHT && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_DEPTH_MAP_BIT;
 @if(NVF_PBR_PARALLAX_MASK && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types as parallax_mask_types;
 @if(MESH_TERRAIN_BLEND) import nvf_assets::nif_surface_bindings::{mesh_terrain_lookup, mesh_terrain_view, mesh_terrain_shading, mesh_terrain_unlit_view, mesh_terrain_diagnostic, mesh_terrain_blend_normal, mesh_terrain_target_colour, mesh_terrain_target_normal, mesh_terrain_face_up, MeshTerrainInputs, LOOKUP_SUCCESS, LAND_ROUGHNESS, LAND_REFLECTANCE};
-@if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
 @if(!NIF_SURFACE_BLEND) import nvf_assets::nif_surface_bindings::{env_cube_texel, env_mask_texel, env_mask_alpha};
 // NVF_PBR_VIEW=reflection (nvf-assets authored.rs `PbrView::Reflection`): the view's cube,
 // read here only by this opted-in fragment (NVF_PBR_REFLECT) in a view that has one.
@@ -945,6 +945,13 @@ fn nif_fragment(
                 let luma_weights = vec3(0.2126, 0.7152, 0.0722);
                 reflection *= saturate(dot(lit_rgb, luma_weights) / max(dot(pbr_input.material.base_color.rgb, luma_weights), 0.02));
             }
+            @if(NVF_PHYSICAL_PBR) if surface.env_how.z < 0.5 {
+                let luma_w = vec3(0.2126, 0.7152, 0.0722);
+                let recv = clamp(dot(lit_rgb, luma_w) / max(dot(pbr_input.material.base_color.rgb, luma_w), 0.04), 0.02, 1.0);
+                let ndotv = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+                let fresnel_w = select(0.35 + 0.65 * pow(1.0 - ndotv, 3.0), 0.08 + 0.92 * pow(1.0 - ndotv, 4.0), surface.env.y < 0.5);
+                reflection *= recv * fresnel_w;
+            }
             out.color = vec4(out.color.rgb + reflection, out.color.a);
         }
     } else {
@@ -975,10 +982,20 @@ fn nif_fragment(
         }
     }
     @if(!PREPASS_PIPELINE) out.color = vec4(mix(out.color.rgb, surface.holes_edge.rgb, holes_band), out.color.a);
-    // The colour is a factor, not light: no fog and no tonemapping. Bevy's multiply blend
-    // is destination × colour + destination × (1 − alpha), so the colour is premultiplied
-    // as bevy_pbr::pbr_functions::premultiply_alpha does.
-    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) let factor = multiply_factor(out.color.rgb, multiply_emissive);
+    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
+        out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
+    }
+    // The colour is a factor, not light: no tonemapping, and attenuated toward 1 by fog
+    // transmittance so baked grime/AO decals recede behind fog instead of punching through.
+    // Bevy's multiply blend is destination × colour + destination × (1 − alpha).
+    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) var factor = multiply_factor(out.color.rgb, multiply_emissive);
+    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY && DISTANCE_FOG) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT) != 0u {
+        let fog_black = apply_fog(fog, vec4(0.0, 0.0, 0.0, 1.0), pbr_input.world_position.xyz, view.world_position.xyz, pbr_input.frag_coord.xy).rgb;
+        let fog_white = apply_fog(fog, vec4(1.0, 1.0, 1.0, 1.0), pbr_input.world_position.xyz, view.world_position.xyz, pbr_input.frag_coord.xy).rgb;
+        let transmittance = saturate(fog_white - fog_black);
+        factor = mix(vec3(1.0), factor, transmittance);
+    }
     @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) out.color = vec4(factor * out.color.a, out.color.a);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && BLEND_PREMULTIPLIED_ALPHA) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
         // Additive: fog (and, in views without HDR, the tonemapping) on the colour at
@@ -1008,10 +1025,6 @@ fn nif_fragment(
     // tone maps here when the view has no HDR (the Glow setting off).
     @if(PIPBOY_SCREEN) out.color.r = min(out.color.r, 0.67);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !BLEND_PREMULTIPLIED_ALPHA) out.color = main_pass_post_lighting_processing(pbr_input, out.color);
-    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
-        out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
-    }
     // NifSurface::pipboy_screen: the mark that keeps these pixels out of the image-space grade
     // (imagespace.wesl SCREEN_MARK).
     @if(PIPBOY_SCREEN) out.color.a = 0.25;
