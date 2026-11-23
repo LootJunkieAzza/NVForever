@@ -111,9 +111,9 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 ///
 /// The Nuclear Sunset mod list (owner, 2026-11-11: "if it cant fake anything build it")
 /// gates mods on four more, each a DLL whose work NVForever does itself or does not need:
-/// - Stewie's Tweaks at 980, the owner's installed 9.80 [observed: nvse_stewie_tweaks.dll
-///   file version 9.80, 2026-11-11] (Item Cards, Pip-Boy UI Tweaks, Character Build
-///   Presets and Companion Map Icons ask for 960, Casino Rewards Fix for 945).
+/// - Stewie's Tweaks stays at 941 (above): the mods that ask for 945 or 960 (Item Cards,
+///   Pip-Boy UI Tweaks, Character Build Presets, Companion Map Icons, Casino Rewards Fix)
+///   wait for a later change that reports the owner's 9.80 [design, owner 2026-11-23].
 /// - "Engine Optimizations" at 100 [observed: EngineOptimizations.dll 1.00]: speed-ups
 ///   of the original's engine, nothing a script sees (Modern Minimap asks for 100).
 /// - "HighResLocalMaps" at 12 [hypothesis: the lowest Modern Minimap accepts; the DLL
@@ -166,7 +166,7 @@ pub const PLUGINS: [(&str, f64); 20] = [
     // (`nvf_play::tiles`, uio\public\*.txt). Mods gate on its version (Heartbeat
     // Sensor Framework wants 230 or more) [hypothesis: 240, the newest release's].
     ("UI Organizer Plugin", 240.0),
-    ("lStewieAl's Tweaks", 980.0),
+    ("lStewieAl's Tweaks", 941.0),
     ("ttw_nvse", 1.0),
     ("Engine Optimizations", 100.0),
     ("HighResLocalMaps", 12.0),

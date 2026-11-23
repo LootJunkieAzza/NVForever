@@ -621,6 +621,7 @@ name = "Русский"
 "You lose {n} chips." = "Вы проиграли фишек: {n}."
 "You break even." = "Вы остались при своих."
 "{win}: you win {back} chips." = "{win}: вы выиграли фишек: {back}."
+"You had no bets on this spin." = "В этом вращении у вас не было ставок."
 # [design, #3146; crates/fnv-game/src/roulette.rs, slots.rs] The roulette bets and colours (the green of the zeros is the "Green" line above) and the slot wins. "1-18" and "19-36" read the same in every language.
 "Straight-Up" = "Прямая"
 "Street" = "Стрит"

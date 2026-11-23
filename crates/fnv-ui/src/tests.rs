@@ -1033,10 +1033,16 @@ fn a_refresh_works_out_what_one_trait_reads_as_an_update_does() {
         fast.update();
         assert_eq!(all_values(&fast), all_values(&slow), "write {n}");
     }
-    // A write that reshapes the tree: the trait's sources are not known, an update is due.
+    // A write that reshapes the tree where the trait resolved through none of it: the
+    // trait's structure still holds (per-root structural dependencies), and the refresh
+    // finds what an update does.
+    let read = "TestMenu/Panel/Title/alpha";
+    let (t, k) = at(&fast, read);
     assert!(fast.inject_text(&files(), "TestMenu", "<rect name=\"New\"/>"));
-    let (t, k) = at(&fast, "TestMenu/Panel/Title/alpha");
-    assert!(!fast.refresh(t, k));
+    assert!(slow.inject_text(&files(), "TestMenu", "<rect name=\"New\"/>"));
+    assert!(fast.refresh(t, k));
+    slow.update();
+    assert_eq!(fast.get_float(read), slow.get_float(read));
 }
 
 #[test]

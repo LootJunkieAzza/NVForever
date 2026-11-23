@@ -599,6 +599,7 @@ name = "Deutsch"
 "You lose {n} chips." = "Sie verlieren {n} Chips."
 "You break even." = "Weder Gewinn noch Verlust."
 "{win}: you win {back} chips." = "{win}: Sie gewinnen {back} Chips."
+"You had no bets on this spin." = "Sie hatten bei diesem Dreh keine Einsätze."
 # [design, #3146; crates/fnv-game/src/roulette.rs, slots.rs] The roulette bets and colours (the green of the zeros is the "Green" line above) and the slot wins. "1-18" and "19-36" read the same in every language.
 "Straight-Up" = "Plein"
 "Street" = "Transversale"

@@ -1405,6 +1405,8 @@ fn a_spectator_runs_from_a_fight_but_not_through_a_load_door() {
     let a = s.game.awareness.actors.entry(foe).or_default();
     a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
     a.settle(foe, now, &t, true);
+    // It stands in the room's corner (a foe with no place is near no one, #3223).
+    a.at = Some([0.0; 3]);
     s.player_to([10.0, 10.0, 0.0]);
     s.run_social(0.5);
     let ev = s.events();

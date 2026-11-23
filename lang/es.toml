@@ -600,6 +600,7 @@ name = "Español"
 "You lose {n} chips." = "Pierdes {n} fichas."
 "You break even." = "Ni ganas ni pierdes."
 "{win}: you win {back} chips." = "{win}: ganas {back} fichas."
+"You had no bets on this spin." = "No tenías apuestas en esta tirada."
 # [design, #3146; crates/fnv-game/src/roulette.rs, slots.rs] The roulette bets and colours (the green of the zeros is the "Green" line above) and the slot wins. "1-18" and "19-36" read the same in every language.
 "Straight-Up" = "Pleno"
 "Street" = "Calle"

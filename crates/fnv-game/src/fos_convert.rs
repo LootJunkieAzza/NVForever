@@ -385,7 +385,7 @@ pub fn convert_fos(
                 if count == 0 {
                     continue;
                 }
-                match raw_form.ok_or("not in save form ID array").and_then(&map_id) {
+                match raw_form.ok_or("not in save form ID array").and_then(map_id) {
                     Ok(id) if matches!(data.sig(id).as_ref(), Some(b"NPC_") | Some(b"CREA")) => {
                         g.player.dead_count.insert(id, u32::from(count));
                         inc_ok("dead_counts");
@@ -790,7 +790,7 @@ pub fn convert_fos(
             inc_skip("created_ref", "32-byte header not understood");
             continue;
         };
-        let base_id = match cr.base.ok_or("not in save form ID array").and_then(&map_id) {
+        let base_id = match cr.base.ok_or("not in save form ID array").and_then(map_id) {
             Ok(id) => id,
             Err(why) => {
                 inc_skip("created_ref", why);
@@ -840,7 +840,7 @@ pub fn convert_fos(
             }
         };
         for (other, _modifier, reaction) in f.relations {
-            match other.ok_or("not in save form ID array").and_then(&map_id) {
+            match other.ok_or("not in save form ID array").and_then(map_id) {
                 Ok(oid) => {
                     g.forms.faction_reactions.entry(fid).or_default().insert(oid, i64::from(reaction));
                     factions_changed = true;
@@ -874,7 +874,7 @@ pub fn convert_fos(
         };
         let mut members = Vec::new();
         for entry in fl.forms {
-            match entry.ok_or("not in save form ID array").and_then(&map_id) {
+            match entry.ok_or("not in save form ID array").and_then(map_id) {
                 Ok(id) => members.push(id),
                 Err(why) => inc_skip("form_list_entry", why),
             }
@@ -905,7 +905,7 @@ pub fn convert_fos(
         };
         let mut added_any = false;
         for entry in lv.entries {
-            match entry.item.ok_or("not in save form ID array").and_then(&map_id) {
+            match entry.item.ok_or("not in save form ID array").and_then(map_id) {
                 Ok(item_id) => {
                     if !entry.condition.is_finite() {
                         inc_skip("leveled_list_condition", "non-finite value");
