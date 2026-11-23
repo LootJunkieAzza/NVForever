@@ -972,10 +972,12 @@ mod tests {
     #[test]
     fn windowed_daylight_lifts_indoor_ibl_while_night_and_windowless_stay_unchanged() {
         let mut sky = SkyState::default();
-        let mut lighting = fnv_world::lighting::CellLighting::default();
-        lighting.ambient = [80, 72, 64];
-        lighting.directional = [120, 108, 92];
-        lighting.directional_fade = 1.0;
+        let lighting = fnv_world::lighting::CellLighting {
+            ambient: [80, 72, 64],
+            directional: [120, 108, 92],
+            directional_fade: 1.0,
+            ..Default::default()
+        };
         sky.interior = Some(lighting);
 
         let night = IblParams::from_sky_with_daylight(&sky, 0.0);

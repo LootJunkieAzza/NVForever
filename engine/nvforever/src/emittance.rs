@@ -335,9 +335,7 @@ mod tests {
         assert_eq!(linear_luma(LinearRgba::BLACK), 0.0);
         assert!(linear_luma(LinearRgba::rgb(0.9, 0.8, 0.5)) > 0.7);
 
-        let mut w = Weather::default();
-        w.form_id = 0x15e;
-        w.colors = vec![vec![[0; 3]; 4]; 10];
+        let mut w = Weather { form_id: 0x15e, colors: vec![vec![[0; 3]; 4]; 10], ..Default::default() };
         // 4 times: sunrise, day, sunset, night; ColorType::Sunlight == 2.
         w.colors[ColorType::Sunlight as usize] = vec![
             [200, 160, 100],
