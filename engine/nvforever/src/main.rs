@@ -1265,10 +1265,9 @@ fn main() -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    // Without --mo2, Data is still read. Enabled mod folders are layers over it.
-    // The game does not read mod-order.txt. --mod-layer is that order, lowest first
-    // (the last layer wins). With no --mod-layer, every mod folder is a layer in name
-    // order, so folder on/off and the launcher's order are not applied.
+    // The mods folders: with --mo2, an MO2 profile's mods from the highest priority down
+    // with its overwrite folder first (#1526), as on main; otherwise NVForever's own mods
+    // folder, whose enabled folders are the layers below.
     let mods: Vec<PathBuf> = match &mo2 {
         Some(l) => {
             let mut roots = l.mod_roots();
@@ -1298,8 +1297,8 @@ fn main() -> AppExit {
     // Without --mo2, the enabled mod folders are layers over Data, lowest priority first: the
     // launcher passes them as --mod-layer (it reads mod-order.txt; the game does not). With
     // none, every mod folder is a layer in name order. Plugins come from the same layers,
-    // highest first, then Data, so a turned-off folder's plugin is not opened and the list
-    // order picks between two copies.
+    // highest first, then one left loose at the top of the mods folder, then Data, so a
+    // turned-off folder's plugin is not opened and the list order picks between two copies.
     let mods_dir = mods.first().cloned().unwrap_or_default();
     let launcher_layers: Vec<PathBuf> = if mo2.is_some() {
         Vec::new()

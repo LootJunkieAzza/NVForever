@@ -19,17 +19,18 @@
 //!
 //! Every base-game plugin in `Data` has a line (`FalloutNV.esm`, [`ADDON_MASTERS`],
 //! and their `<master>_lang.esp` files). A `*` in front means it is loaded. Any other
-//! plugin is a mod. It is read from the mods folder when that folder has it, including
-//! a file nested in a subfolder, and from `Data` when it does not. A copy in the mods
-//! folder wins. A new mod plugin gets a line at the next start, turned off. A new
+//! plugin is a mod. On a start through the launcher it is read from the mod folders that
+//! are on, the highest in the list first (a file nested in a subfolder too), then from one
+//! left loose at the top of the mods folder, then from `Data` ([`layered_plugin_files`]). A new mod plugin gets a line at the next start, turned off. A new
 //! `.esm` goes after the last `.esm` line. Lines are never removed: a plugin no longer
 //! present is skipped with a warning.
 //!
-//! A plugin under NVForever's mods folder (`<home>\mods\`, [`EngineHome::mods`]) is opened
-//! from there, including one nested in a subfolder. A file of the same name in `Data` is
-//! not opened when the mods folder has it ([`plugin_path`]). A plugin that is not in the
-//! mods folder is opened from `Data`. `mod-order.txt` is the launcher's list. This module
-//! does not use it to decide which file the game opens.
+//! The list of plugins ([`present_plugins`], [`sync`]) counts every plugin under NVForever's
+//! mods folder (`<home>\mods\`, [`EngineHome::mods`]), on or off, and those in `Data`. Which
+//! file the game opens is decided by the layers: the launcher reads `mod-order.txt`
+//! ([`mod_content_layers`]) and passes the folders that are on as `--mod-layer`; the game
+//! does not read that file ([`layered_plugin_files`], [`plugin_path_layered`]). A turned-off
+//! folder's plugin is not opened.
 //!
 //! **Language plugins** (#1443): a localized install can keep the English masters and put
 //! its text in one more plugin per master, `<master>_lang.esp` [observed: a Russian
@@ -47,9 +48,10 @@ pub const PLUGINS_FILE: &str = "plugins.txt";
 
 const HEADER: &str = "; NVForever's plugins, in load order (top loads first). A * in front of a plugin turns\n\
 ; it on; take the * away to turn it off, or move a line to change the order. A plugin is\n\
-; read from the mods folder when that folder has it, including a nested folder, and from\n\
-; Data when it does not. A mod that was installed in Data is still read. The base game\n\
-; is read from Data. A new mod plugin is added at the next start, turned off.\n\
+; read from the mod folders that are on (the highest in the launcher's list first, a\n\
+; nested folder too), then from the top of the mods folder, then from Data. A mod that\n\
+; was installed in Data is still read. The base game is read from Data. A new mod\n\
+; plugin is added at the next start, turned off.\n\
 ; NVForever has its own list: the original game's plugins.txt is not read or changed.\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,7 +71,7 @@ pub struct PluginSync {
     /// The active plugins present in `Data` or the mods folder, in load order;
     /// `FalloutNV.esm` first.
     pub load: Vec<String>,
-    /// Those of `load` opened from the mods folder ([`plugin_path`]).
+    /// Those of `load` found in the mods folder (any folder in it, on or off).
     pub from_mods: Vec<String>,
     /// Plugins given a line this time (new in the mods folder, or a base file in `Data`).
     pub added: Vec<String>,
@@ -151,8 +153,8 @@ fn is_game_master(name: &str) -> bool {
 }
 
 /// A file the base game ships in `Data`: a master, an add-on master, or that master's
-/// language plugin. Any other plugin is a mod. A mod plugin is opened from the mods
-/// folder when that folder has it, and from `Data` when it does not.
+/// language plugin. Any other plugin is a mod. A mod plugin is opened from the enabled
+/// mod layers, then the top of the mods folder, then `Data` ([`layered_plugin_files`]).
 pub fn is_base_game_plugin(name: &str) -> bool {
     is_game_master(name) || is_language_plugin(name)
 }
@@ -214,9 +216,8 @@ pub fn data_plugins(game: &GameInstall) -> Result<Vec<String>, InstallError> {
     Ok(names)
 }
 
-/// The plugins of `Data` and of the mods folder `mods` together, in [`data_plugins`]'
-/// order; a name in both is listed once, as the mods folder names it. A missing mods
-/// folder has no plugins.
+/// A folder a plugin search does not enter: a hidden one, the game's asset folders
+/// (`meshes`, `textures` and the like), and an installer's (`fomod`, `optional`, `docs`).
 fn skip_plugin_dir(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     n.starts_with('.') || matches!(n.as_str(), "meshes" | "textures" | "sound" | "music" | "video" | "menus" | "interface" | "scripts" | "facegen" | "shaders" | "lodsettings" | "trees" | "materials" | "distantlod" | "lsdata" | "fomod" | "meta" | "optional" | "docs" | "source" | "__macosx" | "target")
@@ -421,6 +422,11 @@ fn symlink_file(src: &Path, dest: &Path) -> std::io::Result<()> {
     }
 }
 
+/// The plugin `src`, found outside the mods folder and Data by `NVFOREVER_PLUGIN_SEARCH`,
+/// made available as `mods/name`: a hard link, else a file symlink, else (only with
+/// `NVFOREVER_PLUGIN_COPY` set) a copy. Refused, and `src` opened where it is, when `mods`
+/// or the target is inside the game folder or where `guard_write` refuses ([`link_refused`]).
+/// Only the launcher path calls this ([`plugin_path_layered`]); `--mo2` never does.
 fn link_into_mods(mods: &Path, data: &Path, src: &Path, name: &str) -> Option<PathBuf> {
     let dest = mods.join(name);
     if link_refused(mods, data, &dest) {
@@ -468,8 +474,10 @@ fn link_into_mods(mods: &Path, data: &Path, src: &Path, name: &str) -> Option<Pa
 }
 
 /// The plugins of `Data` and of the mods folder `mods` together, in [`data_plugins`]'
-/// order; a name in both is listed once, as the mods folder names it. A missing mods
-/// folder has no plugins. A plugin that is only in `Data` is still listed.
+/// order; a name in both is listed once, as the mods folder names it. Every folder in
+/// `mods` counts, on or off, nested ones too: this is the list, not what the game opens
+/// ([`layered_plugin_files`]). A missing mods folder has no plugins. A plugin that is
+/// only in `Data` is still listed.
 pub fn present_plugins(game: &GameInstall, mods: &Path) -> Result<Vec<String>, InstallError> {
     let mut names: Vec<String> = mod_plugin_map(mods).values().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
     for d in plugins_in(&game.data).map_err(|e| InstallError::Io(game.data.clone(), e))? {
@@ -481,15 +489,11 @@ pub fn present_plugins(game: &GameInstall, mods: &Path) -> Result<Vec<String>, I
     Ok(names)
 }
 
-/// The file to open for plugin `name`: a file of that name anywhere under `mods`
-/// when `mods` is set, else a file of that name directly in `data`, else `data/name`.
+/// The file to open for plugin `name`: the mods folder's copy when `mods` has one (any
+/// case), else `Data`'s (any case), else `data/name`. Only the top of `mods` is looked at.
+/// The game's launcher path uses [`plugin_path_layered`].
 pub fn plugin_path(data: &Path, mods: Option<&Path>, name: &str) -> PathBuf {
-    if let Some(m) = mods {
-        if let Some(path) = mod_plugin_map(m).get(&name.to_ascii_lowercase()) {
-            return path.clone();
-        }
-    }
-    child_ci(data, name).filter(|p| p.is_file()).unwrap_or_else(|| data.join(name))
+    mods.and_then(|m| child_ci(m, name)).or_else(|| child_ci(data, name)).unwrap_or_else(|| data.join(name))
 }
 
 /// [`plugin_path`] over the mods folders `roots`, highest precedence first (issue #1526:
@@ -512,7 +516,10 @@ pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
 pub fn layered_plugin_files(layers: &[PathBuf], mods_top: Option<&Path>) -> std::collections::HashMap<String, PathBuf> {
     let mut found = std::collections::HashMap::new();
     for layer in layers.iter().rev() {
-        let mut listed = plugins_in_tree(layer);
+        // A layer is a mod's content root, `<Name>/Data` when it has one. The launcher lists
+        // a mod's plugins from `<Name>` itself, so they are found there too.
+        let folder = if layer.file_name().is_some_and(|n| n.eq_ignore_ascii_case("Data")) { layer.parent().unwrap_or(layer) } else { layer.as_path() };
+        let mut listed = plugins_in_tree(folder);
         listed.sort_by_key(|(_, path)| path.components().count());
         for (name, path) in listed {
             found.entry(name.to_ascii_lowercase()).or_insert(path);
@@ -828,9 +835,11 @@ Edits.esp
         assert_eq!(s.load, names(&["FalloutNV.esm", "mod.esp", "Edit.esp"]));
         assert_eq!(s.from_mods, names(&["mod.esp", "Edit.esp"]));
         assert!(s.missing.is_empty());
+        // plugin_path reads only the top of the mods folder, as on main: Edit.esp from there,
+        // the nested mod.esp from Data's copy. The game's own lookup is plugin_path_layered.
+        assert_eq!(plugin_path(&data, Some(&home.mods()), "Edit.esp"), home.mods().join("Edit.esp"));
         let p = plugin_path(&data, Some(&home.mods()), "Mod.esp");
-        assert!(p.starts_with(home.mods()));
-        assert!(p.file_name().unwrap().to_string_lossy().eq_ignore_ascii_case("mod.esp"));
+        assert_eq!(p.parent(), Some(data.as_path()));
         assert_eq!(plugin_path(&data, Some(&home.mods()), "FalloutNV.esm"), data.join("FalloutNV.esm"));
         assert_eq!(plugin_path(&data, None, "Mod.esp"), data.join("Mod.esp"));
         std::fs::remove_dir_all(&t).ok();
@@ -902,6 +911,14 @@ mod layered_plugin_tests {
         assert_eq!(path("OnlyOff.esp"), data.join("OnlyOff.esp"));
         // Data still serves what no layer has.
         assert_eq!(path("falloutnv.esm"), data.join("FalloutNV.esm"));
+        // A mod with a Data folder: its content root is the layer, and a plugin beside that
+        // Data folder is found as the launcher's list finds it.
+        std::fs::create_dir_all(mods.join("Packed/Data")).unwrap();
+        std::fs::write(mods.join("Packed/Beside.esp"), "x").unwrap();
+        std::fs::write(mods.join("Packed/Data/Inside.esp"), "x").unwrap();
+        let packed = layered_plugin_files(&[mods.join("Packed/Data")], None);
+        assert_eq!(plugin_path_layered(&data, &packed, None, "Beside.esp"), mods.join("Packed/Beside.esp"));
+        assert_eq!(plugin_path_layered(&data, &packed, None, "Inside.esp"), mods.join("Packed/Data/Inside.esp"));
         // Swap the order: the other copy wins.
         let found = layered_plugin_files(&[mods.join("High"), mods.join("Low")], Some(&mods));
         assert_eq!(plugin_path_layered(&data, &found, None, "Shared.esp"), mods.join("Low/Shared.esp"));
