@@ -141,9 +141,11 @@ so a set does not depend on the load order.
   folder `NVForever Player Voices` (`nvforever/voices/<id>.json`), not in the repository. For a
   Nexus voice the folder also holds the extracted files the map uses
   (`sound/voice/<plugin>/<voice type>/...`, with their `.lip`) and `mods-used.txt`
-  (credits). Whether
-  vanilla maps (FormID lists) may be committed is the owner's call; until then they stay
-  private like other game-derived files.
+  (credits). The base-game sets (`vanilla.*`, FormID and tag lists, no text, no audio) are
+  committed in `coop-assets/nvforever/voices/` and ship beside `nvforever-coop.exe` in
+  `coop-assets
+vforeveroices`, read like the co-op icons (owner decision 2026-11-23: base-game
+  voice sets ship; no Nexus set or file ships). The Nexus sets stay in the private mod folder.
 - The menu name and personality blurb are NVForever's own words (LEGAL.md).
 - **A Nexus voice's lines carry their sound and subtitle** (phase 5, decided 2026-11-06).
   Loading the follower's plugin to reach its INFOs would put the follower in the world
@@ -290,8 +292,8 @@ has a line for it.
 
 ## 9. Open questions for the owner
 
-- May the vanilla maps (FormID and tag lists, no text) be committed, or do they stay in
-  the private mod folder?
+- ~~May the vanilla maps (FormID and tag lists, no text) be committed?~~ Settled 2026-11-23:
+  the base-game sets are committed and ship (§3); nothing from Nexus ships.
 - Voice as its own creator tab, or a row on the first tab?
 - Cook: kept as a thin set of six lines (phase 5); enough, or folded into another voice?
 - The authors of Niner, Cook and Molerat for `mods-used.txt` (their plugins name none and the Nexus pages could not be read here).

@@ -831,17 +831,28 @@ fn with_map_picture(ui: &Ui, mut pieces: Vec<Piece>, picture: Option<Piece>) -> 
     pieces
 }
 
+/// A co-op player's head on the pages drawn from the file, its square's side in the file's units
+/// whatever the magnification, as the arrow keeps its size [design]: the face fills about
+/// two-thirds of its message icon, so 56 shows a face about as wide as the hand-built page's
+/// whole 34 square at 1080p and plainly bigger than the arrow (owner via parity, 2026-11-23: the
+/// 34 square read as a blob, "those heads don't look like head at all").
+pub(crate) const HEAD_ON_PAGE: f64 = 56.0;
+/// The gap kept between a head nudged aside and the arrow or head it would cover [design].
+const HEAD_NUDGE_GAP: f64 = 2.0;
+
 /// `pieces` with each co-op head's row (`heads`, [`MarkerShown::head`]) drawn as a head: the
 /// file's `MapMarkerTemplate` sizes every row by `user0` (a location icon's [`data::MARKER`]) and
 /// crops its picture to an icon's piece of the marker atlas, so a Vault Boy face put through it
 /// came out a few-pixel scrap (owner, 2026-11-23: "those heads don't look like head at all").
 /// The row stays (the highlight box names the player from it); its piece becomes the head's
-/// whole picture, its own file stretched over a square [`data::HEAD`] / [`data::MARKER`] times
-/// the row's size (34 at a magnification of 1, as the hand-built page draws heads), centred
-/// where the row stands, and is moved after every location icon so no icon covers it.
-fn with_heads(ui: &Ui, mut pieces: Vec<Piece>, heads: &[TileId]) -> Vec<Piece> {
+/// whole picture, its own file stretched over a [`HEAD_ON_PAGE`] square centred where the row
+/// stands, drawn after every location icon and the arrow so nothing covers it. A head that would
+/// cover the player's arrow (`cursor`, players a few metres apart at world scale) or another
+/// head is moved right until it clears them, so both still show. Returns the pieces and, per
+/// head, its square and whether it was moved.
+fn with_heads(ui: &Ui, mut pieces: Vec<Piece>, heads: &[TileId], cursor: Option<TileId>) -> (Vec<Piece>, Vec<(super::layout::Rect, bool)>) {
     if heads.is_empty() {
-        return pieces;
+        return (pieces, Vec::new());
     }
     let mut drawn = Vec::new();
     let mut i = 0;
@@ -852,19 +863,38 @@ fn with_heads(ui: &Ui, mut pieces: Vec<Piece>, heads: &[TileId]) -> Vec<Piece> {
             i += 1;
         }
     }
+    let overlaps = |a: &super::layout::Rect, b: &super::layout::Rect| a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
+    // The arrow as a square of its longer side about its centre: it turns with the heading.
+    let mut taken: Vec<super::layout::Rect> = cursor
+        .and_then(|c| pieces.iter().find(|p| p.tile == c))
+        .map(|p| {
+            let (r, side) = (p.rect, p.rect.width.max(p.rect.height));
+            super::layout::Rect { left: r.left + r.width / 2.0 - side / 2.0, top: r.top + r.height / 2.0 - side / 2.0, width: side, height: side }
+        })
+        .into_iter()
+        .collect();
+    let mut told = Vec::new();
     for p in &mut drawn {
         let Look::Picture { name, .. } = &p.look else { continue };
         let r = p.rect;
-        let side = r.width.max(r.height) * f64::from(data::HEAD / data::MARKER);
+        let side = HEAD_ON_PAGE;
         let (cx, cy) = (r.left + r.width / 2.0, r.top + r.height / 2.0);
+        let mut sq = super::layout::Rect { left: cx - side / 2.0, top: cy - side / 2.0, width: side, height: side };
+        let mut moved = false;
+        while let Some(t) = taken.iter().find(|t| overlaps(&sq, t)) {
+            sq.left = t.left + t.width + HEAD_NUDGE_GAP;
+            moved = true;
+        }
         p.look = Look::Picture { name: name.clone(), source: Source::Own, fit: Fit::Stretch };
-        p.rect = super::layout::Rect { left: cx - side / 2.0, top: cy - side / 2.0, width: side, height: side };
+        p.rect = sq;
         p.crop = None;
         p.tex = None;
+        taken.push(sq);
+        told.push((sq, moved));
     }
-    let after = pieces.iter().rposition(|q| keeps_file_brightness(ui, q.tile)).map_or(pieces.len(), |k| k + 1);
+    let after = pieces.iter().rposition(|q| keeps_file_brightness(ui, q.tile) || Some(q.tile) == cursor).map_or(pieces.len(), |k| k + 1);
     pieces.splice(after..after, drawn);
-    pieces
+    (pieces, told)
 }
 
 fn num_of(v: f32) -> Value {
@@ -1556,6 +1586,8 @@ pub struct Written {
     told_line: Option<String>,
     counted: Checked,
     places_told: Option<String>,
+    /// The co-op heads last logged (`with_heads`), so a still page logs them once.
+    heads_told: Option<String>,
     /// Final passes in a row that failed, the tab and frame the last was for, the tree it met, and
     /// its reason.
     failing: u32,
@@ -1762,7 +1794,19 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         if let Some(world) = s.world.as_ref() {
             let rows = w.map_rows(world.local);
             let heads: Vec<TileId> = rows.markers.iter().zip(&world.markers).filter(|(_, m)| m.head).map(|(r, _)| r.tile).collect();
-            pieces = with_heads(ui, pieces, &heads);
+            let cursor = ui.find_tile(world.paths().cursor);
+            let (out, told) = with_heads(ui, pieces, &heads, cursor);
+            pieces = out;
+            let said = format!(
+                "{} on the {}: {}",
+                told.len(),
+                world.paths().name,
+                told.iter().map(|(r, moved)| format!("{:.0} square at {:.0}, {:.0}{}", r.width, r.left, r.top, if *moved { ", moved off the arrow" } else { "" })).collect::<Vec<_>>().join("; ")
+            );
+            if !told.is_empty() && w.heads_told.as_ref() != Some(&said) {
+                info!("tiles: {MAP_MENU} co-op heads: {said}");
+                w.heads_told = Some(said);
+            }
         }
         let places = tab_places(ui, &w.tabs);
         if w.places_told.as_ref() != Some(&places) {
@@ -3667,24 +3711,39 @@ mod tests {
     }
 
     #[test]
-    fn a_co_op_head_is_drawn_whole_at_the_heads_size_over_the_location_icons() {
+    fn a_co_op_head_is_drawn_whole_and_large_over_the_location_icons_and_off_the_arrow() {
         // The head's row listed first, so the file's order would draw the icon over it.
-        let head = MarkerShown { icon: crate::coop_heads::PLAIN.into(), head: true, ..marker(7, [0.5, 0.5], false) };
+        let head = MarkerShown { icon: crate::coop_heads::PLAIN.into(), head: true, ..marker(7, [0.3, 0.3], false) };
         let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
-        run(&mut ui, Some(world(1.0, [0.5, 0.5], vec![head, marker(8, [0.5, 0.5], false)])), &mut t).unwrap();
+        run(&mut ui, Some(world(1.0, [0.5, 0.5], vec![head, marker(8, [0.3, 0.3], false)])), &mut t).unwrap();
         let tile = |form| t.written.world.markers.iter().find(|r| r.key == form).unwrap().tile;
         let at = |form| t.pieces.iter().position(|p| p.tile == tile(form)).expect("the row's piece");
         let (h, icon) = (&t.pieces[at(7)], &t.pieces[at(8)]);
         assert!(at(7) > at(8), "drawn after the location icon: over it");
-        let want = icon.rect.width.max(icon.rect.height) * f64::from(data::HEAD / data::MARKER);
-        assert!((h.rect.width - want).abs() < 1e-6 && (h.rect.height - want).abs() < 1e-6, "{:?} want {want}", h.rect);
-        assert!((h.rect.width - f64::from(data::HEAD)).abs() < 1e-6, "34 at a magnification of 1");
+        assert!((h.rect.width - HEAD_ON_PAGE).abs() < 1e-6 && (h.rect.height - HEAD_ON_PAGE).abs() < 1e-6, "{:?}", h.rect);
+        assert!(h.rect.width > 2.0 * icon.rect.width, "plainly bigger than a location icon");
         let centre = |r: super::super::layout::Rect| (r.left + r.width / 2.0, r.top + r.height / 2.0);
         let (hc, ic) = (centre(h.rect), centre(icon.rect));
-        assert!((hc.0 - ic.0).abs() < 1e-6 && (hc.1 - ic.1).abs() < 1e-6, "centred where the row stands");
+        assert!((hc.0 - ic.0).abs() < 1e-6 && (hc.1 - ic.1).abs() < 1e-6, "centred where the row stands, away from the arrow");
         assert!(h.crop.is_none(), "the whole face, not an icon's piece of the atlas");
         assert!(matches!(&h.look, Look::Picture { name, source: Source::Own, fit: Fit::Stretch } if name == crate::coop_heads::PLAIN), "{:?}", h.look);
         assert!((icon.rect.width - f64::from(data::MARKER)).abs() < 1e-6, "the icon keeps the file's size");
+    }
+
+    #[test]
+    fn a_co_op_head_on_the_players_arrow_is_moved_beside_it_so_both_show() {
+        // The guest a few metres from the host at world scale: the same spot as the arrow (0.5, 0.5).
+        let head = MarkerShown { icon: crate::coop_heads::PLAIN.into(), head: true, ..marker(7, [0.5, 0.5], false) };
+        let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
+        run(&mut ui, Some(world(1.0, [0.5, 0.5], vec![head])), &mut t).unwrap();
+        let row = t.written.world.markers.iter().find(|r| r.key == 7).unwrap().tile;
+        let cursor = ui.find_tile(WORLD_CURSOR).unwrap();
+        let (hi, ai) = (t.pieces.iter().position(|p| p.tile == row).unwrap(), t.pieces.iter().position(|p| p.tile == cursor).expect("the arrow painted"));
+        let (h, a) = (t.pieces[hi].rect, t.pieces[ai].rect);
+        let side = a.width.max(a.height);
+        let arrow_right = a.left + a.width / 2.0 + side / 2.0;
+        assert!(h.left >= arrow_right, "beside the arrow, not over it: head {h:?} arrow {a:?}");
+        assert!(hi > ai, "drawn after the arrow");
     }
 
     #[test]

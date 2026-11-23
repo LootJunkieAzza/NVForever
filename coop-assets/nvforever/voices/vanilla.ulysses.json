@@ -1,0 +1,1294 @@
+{
+  "format": "nvforever.voice_set/1",
+  "id": "vanilla.ulysses",
+  "name": "Ulysses",
+  "sex": "male",
+  "race": "human",
+  "blurb": "Low, terse and deliberate; a courier who says little and means it.",
+  "speaker": "LonesomeRoad.esm|003E40",
+  "rate": 1.0,
+  "lines": [
+    {
+      "info": "LonesomeRoad.esm|003E3E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|008A9E",
+      "event": "FireExplosive",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008A9F",
+      "event": "FireExplosive",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "LonesomeRoad.esm|008AA0",
+      "event": "react.inironsites",
+      "first_person": false
+    },
+    {
+      "info": "LonesomeRoad.esm|008AA1",
+      "event": "react.inironsites",
+      "first_person": false
+    },
+    {
+      "info": "LonesomeRoad.esm|008AA2",
+      "event": "react.throwgrenade",
+      "first_person": false
+    },
+    {
+      "info": "LonesomeRoad.esm|008AA3",
+      "event": "react.throwgrenade",
+      "first_person": false
+    },
+    {
+      "info": "LonesomeRoad.esm|008AA4",
+      "event": "LostToCombat",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AA5",
+      "event": "LostToCombat",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "LonesomeRoad.esm|008AA6",
+      "event": "react.fireweapon",
+      "first_person": false
+    },
+    {
+      "info": "LonesomeRoad.esm|008AA7",
+      "event": "react.fireweapon",
+      "first_person": false
+    },
+    {
+      "info": "LonesomeRoad.esm|008AAA",
+      "event": "react.laymine",
+      "first_person": false,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "LonesomeRoad.esm|008AAB",
+      "event": "react.laymine",
+      "first_person": false,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "LonesomeRoad.esm|008AAC",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AAD",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AAE",
+      "event": "Attack",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "LonesomeRoad.esm|008AAF",
+      "event": "Attack",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB0",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB1",
+      "event": "Hit",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB2",
+      "event": "CombatToNormal",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB3",
+      "event": "CombatToNormal",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB4",
+      "event": "Flee",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB5",
+      "event": "Flee",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB6",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB7",
+      "event": "PowerAttack",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB8",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AB9",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008ABA",
+      "event": "Death",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008ABB",
+      "event": "Death",
+      "first_person": true,
+      "use": false,
+      "note": "the speaker's own story (owner 2026-11-23: lines that wouldn't fit are left out)"
+    },
+    {
+      "info": "LonesomeRoad.esm|008ABE",
+      "event": "AvoidThreat",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008ABF",
+      "event": "AvoidThreat",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AC0",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AC1",
+      "event": "CombatToLost",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AC4",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AC5",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AC6",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AC7",
+      "event": "StartCombatResponse",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AC8",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008AC9",
+      "event": "NormalToCombat",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008ACC",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008ACD",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|008ACE",
+      "event": "AlertToCombat",
+      "first_person": true
+    },
+    {
+      "info": "LonesomeRoad.esm|009233",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, HasPerk"
+    },
+    {
+      "info": "LonesomeRoad.esm|009234",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C12A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C12B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C12C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C12D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C12E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C68D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C68E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C68F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C690",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C691",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C692",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C693",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C694",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C695",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C696",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C697",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C698",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C699",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C69A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C69B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C69C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C69D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C69E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C69F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00C819",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetPCIsSex, GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00C824",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CA96",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CA97",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CA98",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00CA9A",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00CA9B",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00CA9C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD60",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD62",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD6B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD6C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD6D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD6E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD8F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD92",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD9B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CD9E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CDA0",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00CDA1",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00CF32",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00CF36",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D07B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D07C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D07D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D07E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D07F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D081",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D082",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D083",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D084",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D085",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetDeadCount"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D089",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D08A",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D08B",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetDeadCount"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D08C",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetDeadCount"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D08D",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetDeadCount"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D08E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D08F",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D090",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D132",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D133",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D137",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D239",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, HasPerk"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D266",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2CA",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2CF",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2F7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2F8",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2FA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2FB",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetGlobalValue, GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2FC",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2FD",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D2FE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D305",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetGlobalValue"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D306",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D307",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D32D",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D331",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D332",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D333",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D334",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D335",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D337",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3A2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3A3",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3A7",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3AA",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetPCIsSex, GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3C4",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3CB",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3D8",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3E0",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3E4",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetActorValue"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3F6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3FA",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3FB",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3FC",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold, HasPerk"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3FD",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D3FE",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D400",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D403",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D41A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D41C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D41D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D41E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D420",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D422",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D435",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D436",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D437",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D43B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D43E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D43F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D444",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetHasNote"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D6ED",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D6F5",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D6F6",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D711",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D712",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D718",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D71A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D71C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D722",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D724",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D72D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D73C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D97F",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D980",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D98A",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell, GetScriptVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D98B",
+      "event": "place",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetInCell, GetScriptVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D9DD",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable, GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D9E2",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00D9E3",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D9E4",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00D9E5",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA0A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA0B",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA0D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA0E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA0F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA11",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA14",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA19",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA1A",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA1C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA1D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA1F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA21",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA23",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA26",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA3D",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA3E",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA3F",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA65",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA66",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA67",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA69",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetReputationThreshold"
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA6E",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA71",
+      "event": "idle",
+      "first_person": false,
+      "use": false,
+      "note": "conditions: GetQuestVariable"
+    },
+    {
+      "info": "LonesomeRoad.esm|00DA74",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    },
+    {
+      "info": "LonesomeRoad.esm|00E12C",
+      "event": "idle",
+      "first_person": false,
+      "use": false
+    }
+  ]
+}
