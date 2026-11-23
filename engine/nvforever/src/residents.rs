@@ -2945,10 +2945,10 @@ impl Core {
             if fnv_ai::alert::reacting(game, r.actor) {
                 continue;
             }
-            let Some(aw) = aw else { continue };
             let active = game.active_weapon_use(r.actor);
             let use_target = use_aim(active.map(|w| w.target), active.is_some_and(|w| w.taken));
-            let Some(target) = aim_target(use_target, aw.combat_target().map(|(t, _)| t)) else { continue };
+            let use_target = use_out_of_combat(use_target, aw.is_some(), active.is_some_and(|w| w.in_place));
+            let Some(target) = aim_target(use_target, aw.and_then(|aw| aw.combat_target().map(|(t, _)| t))) else { continue };
             let at = if use_target.is_some() {
                 fnv_ai::goal::weapon_target_place(game, target, a.walker.space)
             } else {
@@ -4436,6 +4436,18 @@ fn use_aim(use_target: Option<FormId>, taken_by_fight: bool) -> Option<FormId> {
     use_target.filter(|_| !taken_by_fight)
 }
 
+/// A weapon use's aim ([`use_aim`]) for a person out of Combat: kept once it stands where
+/// the use wants it (`WeaponUse::in_place`), so it turns to its target and the shooter
+/// (`use_weapon`, which fires only facing it) fires. A Use Weapon package fires at its
+/// target with no fight needed [documented: GECK wiki, Use Weapon package]. Before, only
+/// one in Combat was turned: in Honest Hearts' ambush the White Leg sent to kill Ricky
+/// (NVDLC02IntroWLCStageSevenKillRicky) stood with its gun drawn and never fired unless it
+/// happened to see a fight first, so Ricky, Stella and Jed never died and the arrival box
+/// waited for ever [observed: ship-081 duo and solo runs, hh-slideshow-to-ambush-lobby].
+fn use_out_of_combat(use_target: Option<FormId>, in_combat: bool, in_place: bool) -> Option<FormId> {
+    use_target.filter(|_| in_combat || in_place)
+}
+
 /// Whether a combat lock on `lock_target` (`npc_combat::Fighters::lock_on`) may hold a
 /// person's drawn heading: not when a weapon use owns its aim at another target
 /// (`use_target`, [`aim_target`]).
@@ -4575,6 +4587,19 @@ mod tests {
         assert_eq!(aim_target(taken, Some(enemy)), Some(enemy));
         assert!(keeps_lock(enemy.0, taken), "the fight's lock on its enemy holds");
         assert_eq!(use_aim(None, true), None);
+    }
+
+    /// Honest Hearts' ambush: the White Leg whose Use Weapon package is to kill Ricky
+    /// turns to him at its stand though it is in no fight; on its way there, out of
+    /// Combat, it walks as it goes.
+    #[test]
+    fn a_weapon_use_at_its_stand_aims_out_of_combat() {
+        use super::{aim_target, use_out_of_combat};
+        let ricky = FormId(0x0100_F1A5);
+        assert_eq!(aim_target(use_out_of_combat(Some(ricky), false, true), None), Some(ricky), "at its stand: turned to its target");
+        assert_eq!(use_out_of_combat(Some(ricky), false, false), None, "still on its way: no aim");
+        assert_eq!(use_out_of_combat(Some(ricky), true, false), Some(ricky), "in Combat, as before");
+        assert_eq!(use_out_of_combat(None, false, true), None);
     }
 
     /// Only an Immobile creature with a Turning Speed of 0 never turns: Mr. House's
