@@ -94,8 +94,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 // interior.setcolor].
                 let v = num(args, 2, 0.0);
                 let v = if path.ends_with(".red") || path.ends_with(".green") || path.ends_with(".blue") { (v.trunc() as i64).rem_euclid(256) as f64 } else { v };
-                g.field_overrides.insert((c, format!("XCLL/{path}")), XVal::Num(v));
-                g.bump_lighting_revision();
+                let prev = g.field_overrides.insert((c, format!("XCLL/{path}")), XVal::Num(v));
+                let same = matches!(prev, Some(XVal::Num(p)) if p.to_bits() == v.to_bits());
+                if !same {
+                    g.bump_lighting_revision();
+                }
                 zero
             } else {
                 XVal::Num(as_num(field(g, c, "XCLL", &path)))

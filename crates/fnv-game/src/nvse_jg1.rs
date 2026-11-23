@@ -86,12 +86,17 @@ impl Game<'_> {
             _ => None,
         };
         let flags = self.field_overrides.get(&(cell, "LNAM/".into())).and_then(|v| v.num().ok()).map(|n| n as u32);
-        fnv_world::lighting::cell_lighting_with_overrides(
+        let has_own_override = (0u8..=15).any(|id| {
+            let path = crate::nvse_jg2::interior_trait(f64::from(id)).expect("the documented sixteen interior lighting traits");
+            self.field_overrides.contains_key(&(cell, format!("XCLL/{path}")))
+        });
+        fnv_world::lighting::cell_lighting_with_session(
             lo,
             schema,
             cell.0,
             template,
             flags,
+            has_own_override,
             |light| {
                 // Apply explicit SetInteriorLightingTraitNumeric (CELL XCLL) session overrides.
                 for id in 0u8..=15 {
@@ -102,13 +107,13 @@ impl Game<'_> {
                         3..=5 => light.directional[(id - 3) as usize] = value as u8,
                         6 => light.directional_rotation_xy = value as i32,
                         7 => light.directional_rotation_z = value as i32,
-                        8 => light.directional_fade = value as f32,
+                        8 if (value as f32).is_finite() => light.directional_fade = value as f32,
                         9..=11 => light.fog_color[(id - 9) as usize] = value as u8,
-                        12 => light.fog_near = value as f32,
-                        13 => light.fog_far = value as f32,
-                        14 => light.fog_power = value as f32,
-                        15 => light.fog_clip_dist = value as f32,
-                        _ => unreachable!(),
+                        12 if (value as f32).is_finite() => light.fog_near = value as f32,
+                        13 if (value as f32).is_finite() => light.fog_far = value as f32,
+                        14 if (value as f32).is_finite() => light.fog_power = value as f32,
+                        15 if (value as f32).is_finite() => light.fog_clip_dist = value as f32,
+                        _ => {}
                     }
                 }
             },
@@ -123,14 +128,14 @@ impl Game<'_> {
                         1..=3 => light.ambient[(id - 1) as usize] = value as u8,
                         4..=6 => light.directional[(id - 4) as usize] = value as u8,
                         7..=9 => light.fog_color[(id - 7) as usize] = value as u8,
-                        10 => light.fog_near = value as f32,
-                        11 => light.fog_far = value as f32,
+                        10 if (value as f32).is_finite() => light.fog_near = value as f32,
+                        11 if (value as f32).is_finite() => light.fog_far = value as f32,
                         12 => light.directional_rotation_xy = value as i32,
                         13 => light.directional_rotation_z = value as i32,
-                        14 => light.directional_fade = value as f32,
-                        15 => light.fog_clip_dist = value as f32,
-                        16 => light.fog_power = value as f32,
-                        _ => unreachable!(),
+                        14 if (value as f32).is_finite() => light.directional_fade = value as f32,
+                        15 if (value as f32).is_finite() => light.fog_clip_dist = value as f32,
+                        16 if (value as f32).is_finite() => light.fog_power = value as f32,
+                        _ => {}
                     }
                 }
             },
@@ -299,8 +304,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getlightingtemplatetraitnumeric" | "setlightingtemplatetraitnumeric" => {
             let (Some(t), Some((sub, path))) = (of_sig(g, form(args, 0), b"LGTM"), lighting_trait(num(args, 1, 0.0))) else { return Some(Ok(zero)) };
             if name.starts_with("set") {
-                g.field_overrides.insert((t, format!("{sub}/{path}")), XVal::Num(num(args, 2, 0.0)));
-                g.bump_lighting_revision();
+                let value = num(args, 2, 0.0);
+                let prev = g.field_overrides.insert((t, format!("{sub}/{path}")), XVal::Num(value));
+                let same = matches!(prev, Some(XVal::Num(p)) if p.to_bits() == value.to_bits());
+                if !same {
+                    g.bump_lighting_revision();
+                }
                 zero
             } else {
                 XVal::Num(field(g, t, sub, &path).and_then(|v| v.num().ok()).unwrap_or(0.0))

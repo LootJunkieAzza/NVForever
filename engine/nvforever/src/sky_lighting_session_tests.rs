@@ -25,7 +25,7 @@ pub(super) fn sky() -> SkyState {
         shadow_distance: DEFAULT_SHADOW_DISTANCE, shadow_reach: 1.0,
         shadow_layout: CascadeLayout::Quality, grade: true, time_scale: 0.0,
         clock_running: false, days_passed: 0.0, keep_once: false, prev: None, fade: 1.0,
-        choices: Vec::new(), image_space: None, world_image_space_id: None, weather_fog_overrides: HashMap::new(), adapters: HashMap::new(), changed: true,
+        choices: Vec::new(), image_space: None, world_image_space_id: None, weather_fog_overrides: HashMap::new(), weather_visual_overrides: WeatherVisualOverrides::default(), adapters: HashMap::new(), changed: true,
         script: None, pinned: false, regions: Vec::new(), source: None, placed: false, region_cell: None,
         clock_seen: false, sun_hour: None, rolled_for: None, pick: 0, rolls: 0,
         rng: DEFAULT_WEATHER_SEED, hour_index: None, live_globals: HashMap::new(),

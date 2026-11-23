@@ -923,6 +923,7 @@ fn apply_engine(world: &mut World) {
     // [hypothesis: plugins only added after the save's own do not count].
     if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
         rt.game.set_load_order_changed(order.is_some());
+        rt.game.senses.first_person = !e.third_person;
     }
     world.insert_resource(CoopEngineState(e.coop.clone()));
     if let Some(mut c) = world.get_resource_mut::<crate::control::PlayerControl>() {

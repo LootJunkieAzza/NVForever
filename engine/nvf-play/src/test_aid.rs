@@ -103,6 +103,10 @@
 //!   placed reference with a dynamic body for that long after its cell loads — offsets,
 //!   turns, speeds and the overlaps found after the first step (physics.md §4.3.1).
 //!
+//! - `NVF_PLAY_TEST_PICK_LOG=1` (activate.rs): each new crosshair target is logged with
+//!   what it was picked from: the raw first collision hit, every render box the view ray
+//!   enters (entry and exit distances, rough, bed) and the boxes set aside (#3323).
+//!
 //! - `NVF_PLAY_TEST_POSE_WATCH=[<seconds>:]<text>[,<text>...]` (nvforever's
 //!   `swimming.rs`): from that time on, a line whenever what a watched actor plays
 //!   changes (its name contains a text, any case): its base layer's and fading layer's

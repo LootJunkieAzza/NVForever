@@ -93,8 +93,18 @@ this item). Everything below that is not tagged otherwise is [hypothesis].
 ## 4. Scripts
 
 The engine tells `fnv_game` what is held (`Game::set_player_grab`) when a grab starts
-and ends. A change runs the OnRelease blocks of the object let go, then the OnGrab
-blocks of the one picked up (the player as their action reference). IsPlayerGrabbedRef
+and ends (manual release, throw, caught/out-of-range drop, play stopped by a menu/VATS/
+furniture, body or reference gone from simulation/physics, or physics teardown [design]).
+A change updates `senses.grabbed`, runs the OnRelease blocks and `OnPlayerRelease`
+extender event handlers of the object let go, then the OnGrab blocks and `OnPlayerGrab`
+extender event handlers of the one picked up (the player as the block action reference,
+and the grabbed/released reference as `arg0` and calling reference for `OnPlayerGrab` /
+`OnPlayerRelease`, plain and colon-qualified `:formType`) [documented: GECK wiki
+OnPlayerGrab, OnPlayerRelease; hypothesis: handler-vs-block order, colon-qualified
+`:formType` delivery, calling reference `this = grabbedRef`, and `IsPlayerGrabbedRef` /
+`GetPlayerGrabbedRef` reading the updated grab state inside handlers]. Repeating the same
+grab state is a no-op (zero double-fire), and when no `OnPlayerGrab` / `OnPlayerRelease`
+handlers are registered the event path allocates nothing [design]. IsPlayerGrabbedRef
 answers from it (0 at rest [observed: function probes, script-function-coverage.md]).
 Not saved: a save made while holding loads with nothing held.
 

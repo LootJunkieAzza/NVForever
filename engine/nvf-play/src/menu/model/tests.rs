@@ -84,6 +84,7 @@ const SKILL_BOOK: u32 = 0x182; // BOOK "Big Book of Science", teaches Science
 const PLAIN_BOOK: u32 = 0x183; // BOOK "Paradise Lost", teaches nothing
 const CARD: u32 = 0x184; // CCRD "Ace of Hearts" (no DATA here)
 const VEST: u32 = 0x185; // ARMO "Leather Vest", upper body
+const KEY_VALUED: u32 = 0x186; // KEYM "Valued Key", non-quest, value 50
 const CELL: u32 = 0x200;
 const BOX_REF: u32 = 0x300;
 const CAN_REF: u32 = 0x301;
@@ -131,11 +132,11 @@ fn plugin_bytes() -> Vec<u8> {
         &record(b"GMST", 0, 0x160, &[sub(b"EDID", z("fAVDCarryWeightsBase")), sub(b"DATA", 150f32.to_le_bytes().to_vec())]),
         &record(b"GMST", 0, 0x162, &[sub(b"EDID", z("fAVDCarryWeightMult")), sub(b"DATA", 10f32.to_le_bytes().to_vec())]),
     ]);
-    let key = |fid: u32, edid: &str, full: &str| {
+    let key = |fid: u32, edid: &str, full: &str, value: i32| {
         let [e, f] = named(edid, full);
-        record(b"KEYM", 0, fid, &[e, f, sub(b"DATA", cat(&[&0i32.to_le_bytes(), &0f32.to_le_bytes()]))])
+        record(b"KEYM", 0, fid, &[e, f, sub(b"DATA", cat(&[&value.to_le_bytes(), &0f32.to_le_bytes()]))])
     };
-    let keys = cat(&[&key(KEY_A, "TestKeyA", "Shack Key"), &key(KEY_B, "TestKeyB", "Vault Key")]);
+    let keys = cat(&[&key(KEY_A, "TestKeyA", "Shack Key", 0), &key(KEY_B, "TestKeyB", "Vault Key", 0), &key(KEY_VALUED, "TestKeyValued", "Valued Key", 50)]);
     // BOOK DATA: flags, skill (-1 none, 10 Science), value, weight.
     let book = |fid: u32, edid: &str, full: &str, skill: i8| {
         let [e, f] = named(edid, full);
@@ -1557,4 +1558,69 @@ fn jip_qtt_select_short_keys_skips_quantity_menu_in_container_barter_and_invento
     assert_eq!(row_commands_with(Side::Container, 2, true, false, true), vec![Command::OneSingle]);
     assert_eq!(row_commands_with(Side::Container, 2, false, false, true), vec![Command::Hover(Side::Container, 2), Command::OneSingle]);
     assert_eq!(row_commands_with(Side::Container, 2, true, true, true), vec![Command::Stack]);
+}
+
+#[test]
+fn barter_hides_keys_on_both_sides_in_all_and_misc_while_inventory_and_containers_keep_them() {
+    use crate::tiles::barter_menu::tests::of_model;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let cloned_key = FormId(0xFF00_0180);
+    assert!(w.add_clone_item(cloned_key, FormId(KEY_A)));
+    // Give both sides zero-value, valued, and TempCloneForm keys alongside ordinary MISC and a quest item.
+    for holder in [PLAYER, FormId(BOX_REF)] {
+        w.add_item(holder, FormId(KEY_A), 1).unwrap();
+        w.add_item(holder, FormId(KEY_VALUED), 2).unwrap();
+        w.add_item(holder, cloned_key, 1).unwrap();
+    }
+    w.add_item(PLAYER, FormId(CAN), 1).unwrap();
+    w.add_item(PLAYER, FormId(CHIP), 1).unwrap();
+
+    let mut m = barter(&mut w);
+    let has = |m: &MenuModel, side: Side, item: FormId| m.list(side).rows.iter().any(|r| r.item == item);
+    for category in [Category::All, Category::Misc] {
+        m.apply(&mut w, Command::SetCategory(Side::Player, category));
+        m.apply(&mut w, Command::SetCategory(Side::Container, category));
+        for side in [Side::Player, Side::Container] {
+            for key in [FormId(KEY_A), FormId(KEY_VALUED), cloned_key] {
+                assert!(!has(&m, side, key), "key {key} must not appear in barter ({side:?}, {category:?})");
+            }
+            assert!(!has(&m, side, FormId(CHIP)), "quest item stays hidden");
+            assert!(!has(&m, side, FormId(CAPS)), "caps stay hidden");
+            assert!(has(&m, side, FormId(CAN)), "ordinary MISC stays listed in barter ({side:?}, {category:?})");
+        }
+        // Tiled barter view reflects the same model rows: no key tiles on either side.
+        let ui = of_model(&m);
+        let root = "BarterMenu/NOGLOW_BRANCH";
+        for list in ["BM_ItemsRect/BM_Items_InventoryList", "BM_ContainerRect/BM_Container_InventoryList"] {
+            assert!(ui.find_tile(&format!("{root}/{list}/Shack Key")).is_none());
+            assert!(ui.find_tile(&format!("{root}/{list}/Valued Key")).is_none());
+            assert!(ui.find_tile(&format!("{root}/{list}/tin can")).is_some());
+        }
+    }
+
+    // Even with a vendor service filter (whether allowing or refusing Miscellaneous) and cleared
+    // HideItemBarterEx flags, keys stay hidden and are not reported in `withheld`.
+    m.set_barter_hidden(&mut w, BTreeMap::new()).unwrap();
+    m.set_sells(&mut w, Sells(std::sync::Arc::new(|_| Some("Miscellaneous")))).unwrap();
+    assert!(!has(&m, Side::Container, FormId(KEY_A)) && !has(&m, Side::Container, FormId(KEY_VALUED)));
+    assert!(m.trade.as_ref().unwrap().withheld.iter().all(|(id, _)| !matches!(id.0, KEY_A | KEY_VALUED) && *id != cloned_key));
+
+    // A stale offered key cannot survive refresh or trade acceptance.
+    m.trade.as_mut().unwrap().offered[Side::Player as usize].insert((FormId(KEY_VALUED), None, 0), 1);
+    m.refresh(&mut w).unwrap();
+    assert!(m.trade.as_ref().unwrap().is_empty());
+    assert_eq!((count(&mut w, 0x14, KEY_VALUED), count(&mut w, BOX_REF, KEY_VALUED)), (2, 2));
+
+    // Controls: containers and the Pip-Boy inventory still list keys as before.
+    let mut cont = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    cont.apply(&mut w, Command::SetCategory(Side::Container, Category::Misc));
+    cont.apply(&mut w, Command::SetCategory(Side::Player, Category::Misc));
+    assert!(has(&cont, Side::Container, FormId(KEY_A)) && has(&cont, Side::Container, FormId(KEY_VALUED)));
+    assert!(has(&cont, Side::Player, FormId(KEY_A)) && has(&cont, Side::Player, FormId(KEY_VALUED)));
+
+    let mut inv = MenuModel::open_inventory(&mut w).unwrap();
+    assert!(has(&inv, Side::Player, FormId(KEY_A)) && has(&inv, Side::Player, FormId(KEY_VALUED)));
+    inv.apply(&mut w, Command::SetCategory(Side::Player, Category::Misc));
+    assert!(names(inv.list(Side::Player)).contains(&("Keyring", 3)));
 }

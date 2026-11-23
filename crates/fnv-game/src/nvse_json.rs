@@ -40,8 +40,8 @@ fn num(args: &[XVal], k: usize) -> f64 {
     }
 }
 
-fn key_of(path: &str) -> String {
-    path.replace('/', "\\").to_ascii_lowercase()
+pub(crate) fn key_of(path: &str) -> String {
+    path.trim().replace('/', "\\").to_ascii_lowercase()
 }
 
 /// The file's text as written: indented by four spaces, keys in order [observed: the
@@ -58,7 +58,7 @@ fn pretty(v: &Value) -> String {
 
 /// The value with every object's keys in order, as the original keeps them [observed:
 /// json1.tostring, keys sorted whatever the file's order].
-fn sorted(v: Value) -> Value {
+pub(crate) fn sorted(v: Value) -> Value {
     match v {
         Value::Object(m) => {
             let mut pairs: Vec<(String, Value)> = m.into_iter().map(|(k, x)| (k, sorted(x))).collect();
@@ -106,7 +106,7 @@ fn document(g: &Game, path: &str, cached: bool) -> Result<Value, f64> {
     if cached {
         return g.other.json.cache.get(&key_of(path)).cloned().ok_or(NO_FILE);
     }
-    let t = g.mod_files.read_root_text(path).ok_or(NO_FILE)?;
+    let t = g.mod_files.read_root_utf8(path).ok_or(NO_FILE)?;
     serde_json::from_str(&t).map(sorted).map_err(|_| BAD_JSON)
 }
 

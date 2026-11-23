@@ -150,6 +150,55 @@ fn loaded() -> Ui {
 }
 
 #[test]
+fn mended_mod_hud_traits_evaluate_end_to_end() {
+    // Synthetic end-to-end check: missing-slash trait closing tags and an unclosed trait
+    // before a sibling trait/child tile all evaluate into live tile traits and children.
+    let src = MemSource::default().with(
+        "menus/mod_hud.xml",
+        r#"<menu name="HUDMainMenu">
+            <rect name="Panel">
+                <_base> 20 <_base>
+                <height> <copy src="screen()" trait="height"/> <div> 4 </div> <height>
+                <x> <copy src="me()" trait="_base"/> <add> 5 </add> </x>
+                <image name="Meter">
+                    <alpha>
+                        <copy> 100 </copy>
+                        <add> 55 </add>
+                    <brightness> 220 </brightness>
+                </image>
+            </rect>
+        </menu>"#,
+    );
+    let mut ui = Ui::new();
+    let s = ui.screen();
+    ui.set_trait(s, "height", Value::Num(960.0));
+    ui.load_menu(&src, "menus/mod_hud.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("HUDMainMenu/Panel/_base"), Some(20.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Panel/height"), Some(240.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Panel/x"), Some(25.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Panel/Meter/alpha"), Some(155.0));
+    assert_eq!(ui.get_float("HUDMainMenu/Panel/Meter/brightness"), Some(220.0));
+    assert!(
+        !ui.warnings.iter().any(|w| w.contains("is no operator")),
+        "mended sibling traits must not be dropped as unknown operators: {:?}",
+        ui.warnings
+    );
+}
+
+#[test]
+fn include_with_parent_segment_resolves_sibling_under_menus() {
+    let src = MemSource::default()
+        .with("menus/test.xml", r#"<menu name="TestMenu"><include src="..\ext\piece.xml"/></menu>"#)
+        .with("menus/ext/piece.xml", r#"<_flag> 7 </_flag>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/test.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("TestMenu/_flag"), Some(7.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}
+
+#[test]
 fn builds_tiles_from_the_file_and_its_includes() {
     let ui = loaded();
     assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
@@ -893,11 +942,17 @@ fn an_update_skips_expressions_whose_sources_did_not_change() {
     assert_eq!(evaluations(&mut ui), 3);
     assert_eq!(ui.get_float("TestMenu/Panel/Gauge:1/Bar/width"), Some(95.0));
     assert_eq!(ui.get_float("TestMenu/Panel/Gauge:1/Bar/x"), Some(-47.5));
-    // A new tile changes the shape: everything is worked out once, then skipped again.
+    // A new unrelated tile under TestMenu does not re-evaluate TestMenu's existing
+    // expressions (none depend on TestMenu's children or "New"); injecting under Panel
+    // re-evaluates only Title's x (which reads sibling(Gauge)); injecting a tile with an
+    // expression evaluates only that new expression.
     assert!(ui.inject_text(&src, "TestMenu", "<rect name=\"New\"/>"));
-    // Panel's height, two Gauges' width and their Bars' width, x and filename, Title's x,
-    // alpha and visible.
-    assert_eq!(evaluations(&mut ui), 12);
+    assert_eq!(evaluations(&mut ui), 0);
+    assert!(ui.inject_text(&src, "TestMenu/Panel", "<rect name=\"Extra\"/>"));
+    assert_eq!(evaluations(&mut ui), 1);
+    assert!(ui.inject_text(&src, "TestMenu", "<rect name=\"ExprChild\"><x><copy src=\"parent()\" trait=\"_Fill\"/></x></rect>"));
+    assert_eq!(evaluations(&mut ui), 1);
+    assert_eq!(ui.get_float("TestMenu/ExprChild/x"), Some(0.5));
     assert_eq!(evaluations(&mut ui), 0);
     assert!(ui.set_float("TestMenu/_Selected", 0.0));
     assert_eq!(evaluations(&mut ui), 2);
@@ -1775,4 +1830,399 @@ fn uio_bt_admission_retains_unknown_operator_diagnostics_and_boolean_controls() 
     assert_eq!(ui.get_float("Bits/arithmetic"), Some(18.0));
     assert_eq!(ui.warnings.len(), 1, "{:?}", ui.warnings);
     assert!(ui.warnings[0].contains("<bt_typo> is no operator; ignored"));
+}
+
+#[test]
+fn scoped_invalidation_keeps_unrelated_menus_and_subtrees_untouched() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let src = MemSource::default()
+        .with(
+            "menus/hud.xml",
+            r#"<menu name="MenuA">
+              <_base> 10 </_base>
+              <rect name="Widget1">
+                <_w> 20 </_w>
+                <x> <copy src="child()" trait="_v"/> </x>
+                <template name="item">
+                  <rect name="Item"> <_v> 7 </_v> <y> <copy src="parent()" trait="_w"/> <add> 1 </add> </y> </rect>
+                </template>
+              </rect>
+              <rect name="Widget2">
+                <_k> 5 </_k>
+                <rect name="Inner">
+                  <x> <copy src="parent()" trait="_k"/> <add src="io()" trait="_base"/> </x>
+                  <y> <copy src="Widget2" trait="_k"/> <mul> 2 </mul> </y>
+                  <width> <copy src="parent" trait="_k"/> </width>
+                </rect>
+              </rect>
+            </menu>"#,
+        )
+        .with(
+            "menus/other.xml",
+            r#"<menu name="MenuB">
+              <_n> 3 </_n>
+              <rect name="Anchor"> <_a> 11 </_a> </rect>
+              <rect name="Panel">
+                <x> <copy src="io()" trait="_n"/> <add src="Anchor" trait="_a"/> </x>
+                <y> <copy src="me()" trait="x"/> <mul> 2 </mul> </y>
+                <width> <copy src="parent" trait="_n"/> </width>
+              </rect>
+            </menu>"#,
+        );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/hud.xml").unwrap();
+    ui.load_menu(&src, "menus/other.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("MenuA/Widget2/Inner/x"), Some(15.0));
+    assert_eq!(ui.get_float("MenuB/Panel/y"), Some(28.0));
+
+    // 1. add_from_template under MenuA/Widget1 evaluates only Widget1/x (reads child())
+    //    and the new Item0/y; MenuA/Widget2 and MenuB are completely skipped.
+    ui.named_source_visits.store(0, Relaxed);
+    let item0 = ui.add_from_template(&src, "MenuA/Widget1", "item", Some("Item0")).unwrap();
+    assert_eq!(evaluations(&mut ui), 2);
+    assert_eq!(ui.get_float("MenuA/Widget1/x"), Some(7.0));
+    assert_eq!(ui.get_float("MenuA/Widget1/Item0/y"), Some(21.0));
+    assert_eq!(ui.named_source_visits.load(Relaxed), 0, "unrelated named maps stay warm");
+
+    // 2. inject_text adding two tiles under MenuA/Widget1 evaluates Widget1/x and the new tiles' exprs.
+    ui.named_source_visits.store(0, Relaxed);
+    assert!(ui.inject_text(
+        &src,
+        "MenuA/Widget1",
+        r#"<rect name="Mid"><_v>15</_v></rect><rect name="Extra"><_v>9</_v><y><copy src="sibling()" trait="_v"/></y></rect>"#,
+    ));
+    assert_eq!(evaluations(&mut ui), 2);
+    assert_eq!(ui.get_float("MenuA/Widget1/Extra/y"), Some(15.0));
+    assert_eq!(ui.named_source_visits.load(Relaxed), 0);
+
+    // 3. unload_tile of Mid re-evaluates only Widget1/x (child()) and Extra/y (sibling() rebinds to Item0);
+    //    subsequent writes to Item0/_v now drive Extra/y, and unloading Item0 updates Widget1/x to Extra.
+    let mid = ui.find_tile("MenuA/Widget1/Mid").unwrap();
+    ui.unload_tile(mid);
+    assert_eq!(evaluations(&mut ui), 2);
+    assert!(ui.set_float("MenuA/Widget1/Item0/_v", 17.0));
+    assert_eq!(evaluations(&mut ui), 2, "Widget1/x and Extra/y both follow Item0/_v");
+    assert_eq!(ui.get_float("MenuA/Widget1/x"), Some(17.0));
+    assert_eq!(ui.get_float("MenuA/Widget1/Extra/y"), Some(17.0));
+    ui.unload_tile(item0);
+    assert_eq!(evaluations(&mut ui), 2);
+    assert!(ui.set_float("MenuA/Widget1/Extra/_v", 19.0));
+    assert_eq!(evaluations(&mut ui), 1, "only Widget1/x follows Extra/_v");
+    assert_eq!(ui.get_float("MenuA/Widget1/x"), Some(19.0));
+
+    // 4. Adding a brand-new unread trait on MenuA/Widget1 evaluates 0 expressions anywhere.
+    let w1 = ui.find_tile("MenuA/Widget1").unwrap();
+    ui.set_trait(w1, "_unread_new", Value::Num(42.0));
+    assert_eq!(evaluations(&mut ui), 0);
+
+    // 5. Loading and unloading a third unrelated menu evaluates 0 expressions in MenuA and MenuB.
+    let menu_c = MemSource::default().with("menus/c.xml", r#"<menu name="MenuC"><rect name="Leaf"><x><copy>4</copy></x></rect></menu>"#);
+    let c = ui.load_menu(&menu_c, "menus/c.xml").unwrap();
+    assert_eq!(evaluations(&mut ui), 1, "only MenuC/Leaf/x");
+    ui.unload_tile(c);
+    assert_eq!(evaluations(&mut ui), 0, "unloading unrelated MenuC skips MenuA and MenuB");
+    assert_eq!(ui.get_float("MenuB/Panel/y"), Some(28.0));
+}
+
+#[test]
+fn scoped_invalidation_preserves_cross_menu_and_pseudo_tile_dependencies() {
+    let src = MemSource::default()
+        .with("menus/a.xml", r#"<menu name="MenuA"><_val> 5 </_val><rect name="Child0"/></menu>"#)
+        .with(
+            "menus/b.xml",
+            r#"<menu name="MenuB">
+              <_from_sib> <copy src="sibling(MenuA)" trait="_flag"/> </_from_sib>
+              <_from_sib_val> <copy src="sibling(MenuA)" trait="_val"/> </_from_sib_val>
+              <rect name="Reader">
+                <x> <copy src="MenuA" trait="_val"/> </x>
+                <y> <copy src="MenuA" trait="childcount"/> </y>
+                <width> <copy src="screen()" trait="_late"/> <add src="globals()" trait="_g"/> </width>
+                <height> <copy src="strings()" trait="_s"/> </height>
+              </rect>
+              <rect name="Unrelated">
+                <x> <copy src="io()" trait="_local"/> </x>
+              </rect>
+              <_local> 3 </_local>
+            </menu>"#,
+        );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/b.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("MenuB/_from_sib"), Some(0.0));
+    assert_eq!(ui.get_float("MenuB/Reader/x"), Some(0.0));
+    assert_eq!(ui.get_float("MenuB/Reader/y"), Some(0.0));
+    assert_eq!(ui.get_float("MenuB/Reader/width"), Some(0.0));
+    assert_eq!(ui.get_float("MenuB/Reader/height"), Some(0.0));
+
+    // Loading MenuA invalidates MenuB's cross-menu readers without touching MenuB/Unrelated.
+    let menu_a = ui.load_menu(&src, "menus/a.xml").unwrap();
+    assert_eq!(evaluations(&mut ui), 4, "_from_sib, _from_sib_val, Reader/x, Reader/y");
+    assert_eq!(ui.get_float("MenuB/_from_sib"), Some(0.0));
+    assert_eq!(ui.get_float("MenuB/_from_sib_val"), Some(5.0));
+    assert_eq!(ui.get_float("MenuB/Reader/x"), Some(5.0));
+    assert_eq!(ui.get_float("MenuB/Reader/y"), Some(1.0));
+
+    // Adding a previously missing trait `_flag` to MenuA invalidates only `_from_sib` (which missed on MenuA).
+    ui.set_trait(menu_a, "_flag", Value::Num(1.0));
+    assert_eq!(evaluations(&mut ui), 1);
+    assert_eq!(ui.get_float("MenuB/_from_sib"), Some(1.0));
+
+    // Adding a child to MenuA updates MenuB/Reader/y (childcount) without re-evaluating `_from_sib`/`Reader/x`.
+    assert!(ui.inject_text(&src, "MenuA", r#"<rect name="Child1"/>"#));
+    assert_eq!(evaluations(&mut ui), 1);
+    assert_eq!(ui.get_float("MenuB/Reader/y"), Some(2.0));
+
+    // Adding previously missing traits to screen(), globals(), and strings() updates their readers.
+    let (screen, globals, strings) = (ui.screen(), ui.globals(), ui.strings());
+    ui.set_trait(screen, "_late", Value::Num(10.0));
+    ui.set_trait(globals, "_g", Value::Num(4.0));
+    ui.set_trait(strings, "_s", Value::Num(8.0));
+    assert_eq!(evaluations(&mut ui), 2);
+    assert_eq!(ui.get_float("MenuB/Reader/width"), Some(14.0));
+    assert_eq!(ui.get_float("MenuB/Reader/height"), Some(8.0));
+
+    // Injecting a local tile named `MenuA` inside MenuB shadows root MenuA for `Src::Named("MenuA")`
+    // (MenuB/Reader/x and MenuB/Reader/y) while root `sibling(MenuA)` still reads root MenuA.
+    assert!(ui.inject_text(&src, "MenuB", r#"<rect name="MenuA"><_val> 99 </_val></rect>"#));
+    assert_eq!(evaluations(&mut ui), 2, "only Reader/x and Reader/y");
+    assert_eq!(ui.get_float("MenuB/Reader/x"), Some(99.0));
+    assert_eq!(ui.get_float("MenuB/_from_sib_val"), Some(5.0));
+    // Adding a child to the local shadow updates Reader/y (proving ChildCount rebound to MenuB/MenuA).
+    assert!(ui.inject_text(&src, "MenuB/MenuA", r#"<rect name="ShadowChild"/>"#));
+    assert_eq!(evaluations(&mut ui), 1);
+    assert_eq!(ui.get_float("MenuB/Reader/y"), Some(1.0));
+
+    // Unload local shadow, then unload and reload MenuA (reusing its slot) cleanly.
+    let shadow = ui.find_tile("MenuB/MenuA").unwrap();
+    ui.unload_tile(shadow);
+    ui.update();
+    ui.unload_tile(menu_a);
+    let menu_a2 = ui
+        .load_menu(
+            &MemSource::default().with("menus/a2.xml", r#"<menu name="MenuA"><_val> 77 </_val><_flag> 2 </_flag><rect name="FreshChild"/></menu>"#),
+            "menus/a2.xml",
+        )
+        .unwrap();
+    assert_eq!(menu_a.index(), menu_a2.index(), "slot reused across unload/reload");
+    ui.update();
+    assert_eq!(ui.get_float("MenuB/_from_sib"), Some(2.0));
+    assert_eq!(ui.get_float("MenuB/_from_sib_val"), Some(77.0));
+    assert_eq!(ui.get_float("MenuB/Reader/x"), Some(77.0));
+    assert_eq!(ui.get_float("MenuB/Reader/y"), Some(1.0));
+}
+
+#[test]
+fn noop_inject_text_and_template_reinjection_avoid_reshape_warning() {
+    let src = MemSource::default().with(
+        "menus/w.xml",
+        r#"<menu name="Widget">
+          <_x> 10 </_x>
+          <_y> <copy src="me()" trait="_x"/> <mul> 2 </mul> </_y>
+          <template name="row"><rect name="Row"><x> 5 </x></rect></template>
+        </menu>"#,
+    );
+    let mut ui = Ui::new();
+    let root = ui.load_menu(&src, "menus/w.xml").unwrap();
+    ui.update();
+    let base_shape = ui.shape();
+    let mut last_serial = ui.trait_write_serial(root, "_x").unwrap();
+
+    for i in 0..200 {
+        // 1. Empty / comment-only XML is a pure no-op.
+        assert!(ui.inject_text(&src, "Widget", "<!-- noop -->  "));
+        assert_eq!(ui.shape(), base_shape);
+        assert!(!ui.dirty());
+
+        // 2. Re-injecting an existing plain trait with the same value advances write_serial
+        //    without marking dirty, bumping shape, or evaluating expressions.
+        assert!(ui.inject_text(&src, "Widget", "<_x> 10 </_x>"));
+        let next_serial = ui.trait_write_serial(root, "_x").unwrap();
+        assert_ne!(next_serial, last_serial);
+        last_serial = next_serial;
+        assert_eq!(ui.shape(), base_shape);
+        assert!(!ui.dirty());
+        assert_eq!(evaluations(&mut ui), 0);
+
+        // 3. Re-injecting an identical template (even on different lines) does not duplicate
+        //    the template or bump shape.
+        assert!(ui.inject_text(&src, "Widget", "\n\n<template name=\"row\">\n  <rect name=\"Row\"><x> 5 </x></rect>\n</template>"));
+        assert_eq!(ui.tile(root).templates.len(), 1);
+        assert_eq!(ui.shape(), base_shape);
+
+        // 4. Updating an existing plain trait value via inject_text recomputes its reader
+        //    without bumping shape or triggering the 120-frame reshape warning.
+        let v = 10.0 + (i % 2) as f64;
+        assert!(ui.inject_text(&src, "Widget", &format!("<_x> {v} </_x>")));
+        assert_eq!(ui.shape(), base_shape);
+        ui.update();
+        assert_eq!(ui.get_float("Widget/_y"), Some(v * 2.0));
+        // Reset back to 10 for next iteration's equal-value check.
+        assert!(ui.inject_text(&src, "Widget", "<_x> 10 </_x>"));
+        ui.update();
+        assert_eq!(ui.take_reshape_warning(), None);
+    }
+    assert_eq!(ui.shape(), base_shape);
+}
+
+#[test]
+fn scoped_invalidation_matches_full_tree_evaluation_across_multi_menu_fuzz() {
+    let base_src = MemSource::default()
+        .with(
+            "menus/globals.xml",
+            r#"<rect name="Strings"><_g0> 2 </_g0><_g1> 5 </_g1></rect>"#,
+        )
+        .with(
+            "menus/alpha.xml",
+            r#"<menu name="Alpha">
+              <_a> 1 </_a>
+              <_sib> <copy src="sibling(Beta)" trait="_b"/> </_sib>
+              <rect name="Box">
+                <_k> 3 </_k>
+                <x> <copy src="child()" trait="_v"/> <add src="me()" trait="childcount"/> </x>
+                <rect name="Item"> <_v> 4 </_v> <x> <copy src="parent(Alpha)" trait="_a"/> <add src="parent" trait="_k"/> </x> </rect>
+                <rect name="Peer">
+                  <_v> 6 </_v>
+                  <x> <copy src="sibling()" trait="_v"/> <add src="sibling(Item)" trait="_v"/> </x>
+                  <y> <copy src="Beta" trait="_b"/> <add src="globals()" trait="_g0"/> </y>
+                </rect>
+                <template name="entry">
+                  <rect name="Entry"> <_v> 8 </_v> <x> <copy src="sibling" trait="_v"/> <add src="parent()" trait="_k"/> </x> </rect>
+                </template>
+              </rect>
+            </menu>"#,
+        )
+        .with(
+            "menus/beta.xml",
+            r#"<menu name="Beta">
+              <_b> 10 </_b>
+              <_alpha_ref> <copy src="sibling(Alpha)" trait="_a"/> </_alpha_ref>
+              <rect name="Pane">
+                <_idx> 0 </_idx>
+                <_pic_0> a.dds </_pic_0>
+                <_pic_1> b.dds </_pic_1>
+                <filename> <copy src="me()" trait="_idx"/> <copy src="me()" trait="_pic_"/> </filename>
+                <x> <copy src="Alpha" trait="childcount"/> <add src="screen()" trait="width"/> </x>
+                <y> <copy src="Item" trait="_v"/> </y>
+              </rect>
+            </menu>"#,
+        )
+        .with(
+            "menus/gamma.xml",
+            r#"<menu name="Gamma">
+              <_c> 20 </_c>
+              <rect name="Static">
+                <x> <copy src="io()" trait="_c"/> <mul> 3 </mul> </x>
+                <y> <copy src="me()" trait="x"/> <add> 1 </add> </y>
+              </rect>
+            </menu>"#,
+        );
+
+    let make = || {
+        let mut ui = Ui::new();
+        ui.load_globals(&base_src);
+        let s = ui.screen();
+        ui.set_trait(s, "width", Value::Num(1280.0));
+        ui.load_menu(&base_src, "menus/alpha.xml").unwrap();
+        ui.load_menu(&base_src, "menus/beta.xml").unwrap();
+        ui.load_menu(&base_src, "menus/gamma.xml").unwrap();
+        ui.update();
+        ui
+    };
+    let mut fast = make();
+    let mut slow = make();
+    slow.never_skip = true;
+    fast.evaluations = 0;
+    slow.evaluations = 0;
+
+    let mut seed: u64 = 0x5EED_CAFE_BABE_1234;
+    let mut next_u32 = || {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 32) as u32
+    };
+
+    for step in 0..80usize {
+        let action = next_u32() % 13;
+        let val = (next_u32() % 25) as f64;
+        let run = |ui: &mut Ui| match action {
+            0 => {
+                ui.set_float("Alpha/_a", val);
+            }
+            1 => {
+                ui.set_float("Beta/_b", val);
+            }
+            2 => {
+                let s = ui.screen();
+                ui.set_trait(s, "width", Value::Num(800.0 + val * 10.0));
+            }
+            3 => {
+                ui.add_from_template(&base_src, "Alpha/Box", "entry", Some(&format!("E{step}")));
+            }
+            4 => {
+                ui.inject_text(&base_src, "Alpha/Box", &format!(r#"<rect name="Item"><_v>{val}</_v></rect>"#));
+            }
+            5 => {
+                // Unload last non-Peer/Item child under Alpha/Box if any.
+                if let Some(bx) = ui.find_tile("Alpha/Box") {
+                    if ui.tile(bx).children.len() > 2 {
+                        let victim = *ui.tile(bx).children.last().unwrap();
+                        ui.unload_tile(victim);
+                    }
+                }
+            }
+            6 => {
+                // In-place trait update via inject_text on Beta.
+                ui.inject_text(&base_src, "Beta/Pane", &format!("<_idx>{}</_idx>", (val as u32) % 2));
+            }
+            7 => {
+                // Reload or unload/reload Beta to exercise cross-menu root churn and slot reuse.
+                if let Some(b) = ui.menu("Beta") {
+                    ui.unload_tile(b);
+                } else {
+                    let _ = ui.load_menu(&base_src, "menus/beta.xml");
+                }
+            }
+            8 => {
+                // Inject or unload a local `Item` inside Beta to test DescendantName invalidation.
+                if let Some(it) = ui.find_tile("Beta/Item") {
+                    ui.unload_tile(it);
+                } else {
+                    ui.inject_text(&base_src, "Beta", &format!(r#"<rect name="Item"><_v>{val}</_v></rect>"#));
+                }
+            }
+            9 => {
+                // External override on an expression trait.
+                ui.set_float("Alpha/Box/Peer/x", val + 100.0);
+            }
+            10 => {
+                // Add or remove explicit `childcount` on Alpha to toggle structural fallback.
+                if let Some(a) = ui.menu("Alpha") {
+                    if ui.tile(a).get("childcount").is_some() {
+                        ui.remove_trait(a, "childcount");
+                    } else {
+                        ui.set_trait(a, "childcount", Value::Num(val));
+                    }
+                }
+            }
+            11 => {
+                // Add a brand-new trait on globals() or update _g0.
+                let g = ui.globals();
+                ui.set_trait(g, "_g0", Value::Num(val));
+            }
+            _ => {
+                // Reload Alpha completely.
+                let _ = ui.load_menu(&base_src, "menus/alpha.xml");
+            }
+        };
+        run(&mut fast);
+        run(&mut slow);
+        assert_eq!(fast.update(), slow.update(), "step {step} action {action} changed count mismatch");
+        assert_eq!(all_values(&fast), all_values(&slow), "step {step} action {action} trait values mismatch");
+    }
+    assert!(
+        fast.evaluations * 2 < slow.evaluations,
+        "scoped invalidation should skip most unaffected expressions (fast={}, slow={})",
+        fast.evaluations,
+        slow.evaluations
+    );
 }

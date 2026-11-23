@@ -38,7 +38,10 @@
 //! simulation and the status line says so [documented: GECK wiki Category:Items, the
 //! player cannot drop one]. Storing one in a container is allowed [hypothesis: the page
 //! does not mention containers]. They cannot be sold [documented: the same page], so the
-//! barter menu does not list them [hypothesis: hidden rather than refused].
+//! barter menu does not list them [hypothesis: hidden rather than refused]. Keys
+//! (`ItemKind::Key`, `KEYM`) are also excluded from both sides of the barter menu (#3432)
+//! [hypothesis: issue #3432 reports that keys do not appear in barter in the original
+//! engine], while remaining listed in the inventory (`Keyring` folder) and in containers.
 //!
 //! Barter ([`Mode::Barter`], [`Trade`]): items are put up from either side and listed on
 //! the other side, first, marked, until the trade is accepted [observed: the owner's
@@ -1273,9 +1276,19 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                // A live explosive (`Row::live`) is not for trade (#1640); items hidden by
+                // Caps, quest items, keys (`ItemKind::Key`, #3432), and live explosives
+                // (`Row::live`, #1640) are not for trade; items hidden by
                 // `HideItemBarterEx` (`t.is_hidden`) stay off the requested side(s).
-                .filter(|r| r.item != t.caps && !r.quest && !r.live && !t.is_hidden(r.item, side) && !(side == Side::Player && hide_equipped && r.equipped) && !(side == Side::Player && hotkeyed.contains(&r.item)))
+                .filter(|r| {
+                    r.item != t.caps
+                        && !r.quest
+                        && !r.live
+                        && r.kind != Some(ItemKind::Key)
+                        && world.resolve_item(r.item).is_none_or(|i| i.kind != ItemKind::Key)
+                        && !t.is_hidden(r.item, side)
+                        && !(side == Side::Player && hide_equipped && r.equipped)
+                        && !(side == Side::Player && hotkeyed.contains(&r.item))
+                })
                 .filter(|r| {
                     // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
                     let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();

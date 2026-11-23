@@ -92,17 +92,23 @@ impl Plugin for WaterPlugin {
             .init_resource::<WaterCache>()
             .init_resource::<DistantWater>()
             .init_resource::<WaterRemaps>()
-            .add_systems(
-                Update,
-                (
-                    sync_remaps.before(crate::world::stream),
-                    update_water_sky.after(crate::sky::update_sky),
-                    // After the LOD chose its chunks this frame (the water covers them).
-                    distant_water.after(crate::world::stream).after(crate::lod::update_lod),
-                ),
-            )
             .add_plugins(crate::underwater::UnderwaterFogPlugin);
+        add_update_systems(app);
     }
+}
+
+pub(crate) fn add_update_systems(app: &mut App) {
+    app.add_systems(
+        Update,
+        (
+            sync_remaps.before(crate::world::stream),
+            // After streaming and distant water so newly created materials get the
+            // current sky, sun, and water-effects params on their first frame.
+            update_water_sky.after(crate::sky::update_sky).after(crate::world::stream).after(distant_water),
+            // After the LOD chose its chunks this frame (the water covers them).
+            distant_water.after(crate::world::stream).after(crate::lod::update_lod),
+        ),
+    );
 }
 
 #[derive(Clone, Copy, Debug, Default, ShaderType)]
@@ -413,6 +419,8 @@ impl DistantWater {
         self.want.clear();
         self.want_for = None;
         self.built_for = None;
+        self.loaded_seen.clear();
+        self.loaded_now.clear();
     }
 
     /// The drawn worldspace's [`water_candidates`], found on first use.

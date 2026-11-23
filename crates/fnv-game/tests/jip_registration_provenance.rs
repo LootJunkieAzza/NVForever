@@ -116,6 +116,10 @@ fn files() {
         let sr = root.join("nvse/plugins/scripts"); std::fs::create_dir_all(&sr).unwrap();
         std::fs::write(sr.join("gr_owned_a.txt"), format!("SetOnHitEventHandler {BAD_A}.0 1 0\n")).unwrap();
         std::fs::write(sr.join("gr_owned_b.txt"), format!("SetOnHitEventHandler {BAD_B}.0 1 0\n")).unwrap();
+        std::fs::write(
+            sr.join("gn_owned_mainloop.txt"),
+            "SetGameMainLoopCallback (CompileScript \"mainloop_valid.gek\") 1 1 1\nSetGameMainLoopCallback (CompileScript \"missing_mainloop.gek\") 1 1 1\n",
+        ).unwrap();
         root
     });
     let reader = Arc::new(|path: &str| {
@@ -126,6 +130,8 @@ fn files() {
             "register_remover.gek" => "SetOnHitEventHandler (GetModLocalData \"callback\") 1 0".into(),
             "removing_callback.gek" => format!("SetOnHitEventHandler (GetModLocalData \"callback\") 0 0\nCall {BAD_A}.0"),
             "remove_pending_callback.gek" => format!("SetOnHitEventHandler {BAD_B}.0 0 0\nCall {BAD_A}.0"),
+            "mainloop_valid.gek" => "SetUIFloat \"HUDMainMenu/Probe/_calls\" ((GetUIFloat \"HUDMainMenu/Probe/_calls\") + 1)".into(),
+            "mainloop_zero_reg.gek" => "SetGameMainLoopCallback 0 1 1 1".into(),
             _ if short == long_path() => format!("SetOnHitEventHandler {BAD_A}.0 1 0"),
             _ => return None,
         };
@@ -308,4 +314,46 @@ fn actual_source_provenance_preserves_the_unusable_error_gate_and_neighbor_frequ
         EventKind::ScriptError { unit, error } => Some((unit.as_str(), error.as_str())), _ => None,
     }).collect();
     assert_eq!(errors, [("JIP hit handler", "0x00000000 is not a function script")]);
+}
+
+#[test]
+fn main_loop_script_runner_and_compile_script_report_registrars_while_valid_callback_runs() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Script Runner NewGame file registers one valid CompileScript callback and one
+    // missing CompileScript (form 0). The zero token is refused once with exact
+    // ScriptRunner provenance while the valid callback runs live on Game::tick().
+    let sr_rows = capture(|| {
+        let runs = g.run_script_runner(Moment::NewGame);
+        assert_eq!(runs.len(), 1);
+        assert!(runs[0].result.is_ok(), "{:?}", runs[0]);
+    });
+    assert_eq!(sr_rows.len(), 1, "expected one ScriptRunner zero-token warning: {sr_rows:?}");
+    assert_eq!(sr_rows[0].get("registrar_kind"), Some(&serde_json::json!("script_runner")));
+    assert_eq!(sr_rows[0]["registrar_source"], "gn_owned_mainloop.txt");
+    assert_eq!(sr_rows[0]["registrar_plugin"], "<none>");
+    assert!(sr_rows[0]["handler_context"].as_str().unwrap().contains("callable=ref:0x00000000"));
+
+    let tick_rows = capture(|| {
+        g.tick();
+        g.tick();
+    });
+    assert!(tick_rows.is_empty(), "valid CompileScript callback must run without warnings: {tick_rows:?}");
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/Probe/_calls"), Some(2.0));
+
+    // A CompileScript file registering a zero main-loop callback reports compiled_file
+    // provenance with its compiled ID, file origin, and RunCtx.
+    let reg_id = compile(&mut g, "mainloop_zero_reg.gek", false);
+    let cs_rows = capture(|| {
+        run(&mut g, reg_id);
+    });
+    assert_eq!(cs_rows.len(), 1, "expected one CompileScript zero-token warning: {cs_rows:?}");
+    assert_eq!(cs_rows[0].get("registrar_kind"), Some(&serde_json::json!("compiled_file")));
+    assert_eq!(cs_rows[0]["registrar_compiled_id"], reg_id);
+    assert!(cs_rows[0]["registrar_source"].as_str().unwrap().ends_with("mainloop_zero_reg.gek"));
+    assert_eq!(cs_rows[0]["registrar_plugin"], "<none>");
+    assert_eq!(cs_rows[0]["registrar_self_ref"], 0xA10);
+    assert_eq!(cs_rows[0]["registrar_action_ref"], 0xA11);
+    assert_eq!(cs_rows[0]["registrar_quest"], 0xA12);
 }

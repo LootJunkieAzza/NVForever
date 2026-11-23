@@ -97,12 +97,18 @@ pub struct ValueChange {
 
 /// What a restore of `amount` to `code` with the limbs too ("parts") gives the limbs,
 /// besides `code` itself: a Limb Condition effect (`code` a limb, the Doctor's Bag) gives
-/// every other limb the same amount [hypothesis: "NVRestoreLimbs" names no actor value;
+/// every other limb the same amount when un-aimed [hypothesis: "NVRestoreLimbs" names no
+/// actor value; aid-items.md §3], or only the aimed limb at full condition (`amount.max(100.0)`)
+/// when aimed from the Pip-Boy's CND page [design: #3431, docs/spec-notes/crippled-limbs.md §1,
 /// aid-items.md §3]; a Value And Parts one (the Stimpak) gives each limb
 /// [`PARTS_LIMB_SHARE`] of it, or the limb it is aimed at the whole of it.
 pub fn parts_restore(code: u16, amount: f64, limb: Option<u16>) -> Vec<(u16, f64)> {
     if LIMB_CONDITIONS.contains(&code) {
-        return LIMB_CONDITIONS.filter(|&l| l != code).map(|l| (l, amount)).collect();
+        return match limb {
+            Some(l) if amount > 0.0 => vec![(l, amount.max(100.0))],
+            Some(_) => Vec::new(),
+            None => LIMB_CONDITIONS.filter(|&l| l != code).map(|l| (l, amount)).collect(),
+        };
     }
     match limb {
         Some(l) => vec![(l, amount)],
@@ -215,7 +221,8 @@ pub struct Mods {
     /// A worn enchantment: the equipped item it comes from (`crate::abilities`).
     pub worn: Option<FormId>,
     /// Used on one limb (its condition code, 25-30) from the Pip-Boy's CND page: a Value
-    /// And Parts restore gives that limb the whole amount ([`PARTS_LIMB_SHARE`]).
+    /// And Parts restore (Stimpak) gives that limb the whole amount ([`PARTS_LIMB_SHARE`]),
+    /// and an instant Limb Condition restore (Doctor's Bag in Hardcore) heals that limb alone.
     pub limb: Option<u16>,
     /// Only this effect of the item (an area effect reaching an actor around the target,
     /// `crate::area_effects`).
@@ -256,7 +263,9 @@ impl Mods {
         if c.code == crate::actor_values::HEALTH && c.amount > 0.0 {
             c.amount *= self.health;
         }
-        if c.parts && !LIMB_CONDITIONS.contains(&c.code) {
+        // Value And Parts (Stimpak) and instant Limb Condition (Hardcore Doctor's Bag) accept
+        // a single targeted limb; duration Limb Condition (Hydra) restores all limbs over time.
+        if c.parts && (!LIMB_CONDITIONS.contains(&c.code) || c.kind == ChangeKind::Once) {
             c.limb = self.limb;
         }
         c
@@ -508,10 +517,16 @@ impl Game<'_> {
             let to = (now - amount).max(0.0);
             let _ = fa::shift_base(self, actor, code, to - now);
         } else if amount >= 0.0 {
-            fa::restore(self, actor, code, amount);
-            if parts {
+            if parts && LIMB_CONDITIONS.contains(&code) && limb.is_some() {
                 for (l, a) in parts_restore(code, amount, limb) {
                     fa::restore(self, actor, l, a);
+                }
+            } else {
+                fa::restore(self, actor, code, amount);
+                if parts {
+                    for (l, a) in parts_restore(code, amount, limb) {
+                        fa::restore(self, actor, l, a);
+                    }
                 }
             }
         } else {
@@ -722,14 +737,20 @@ mod tests {
         assert!(spread.iter().all(|&(_, a)| (a - 39.0 * PARTS_LIMB_SHARE).abs() < 1e-9));
         // Aimed at the left arm (27): that limb alone, the whole amount.
         assert_eq!(parts_restore(16, 39.0, Some(27)), vec![(27, 39.0)]);
-        // Limb Condition (the Doctor's Bag): every other limb the whole amount, aimed or not.
-        let bag = parts_restore(25, 46.8, Some(27));
+        // Limb Condition (the Doctor's Bag): every other limb the whole amount when un-aimed;
+        // aimed at one limb, only that limb at full condition (#3431).
+        let bag = parts_restore(25, 46.0, None);
         assert_eq!(bag.len(), 6);
-        assert!(bag.iter().all(|&(l, a)| l != 25 && a == 46.8));
-        // The aim reaches only Value And Parts changes.
+        assert!(bag.iter().all(|&(l, a)| l != 25 && a == 46.0));
+        assert_eq!(parts_restore(25, 46.0, Some(27)), vec![(27, 100.0)]);
+        assert_eq!(parts_restore(25, 108.0, Some(27)), vec![(27, 108.0)]);
+        // Value And Parts (Stimpak) and instant Limb Condition (Doctor's Bag) take an aimed
+        // limb; duration Limb Condition (Hydra) restores all limbs over time.
         let m = Mods { limb: Some(27), ..Mods::default() };
         let stim = value_change(&mgef(34, 0, Some(16)), &item(30, 0, Some(16)), 1.0, false).unwrap();
         assert_eq!(m.on_change(stim).limb, Some(27));
+        let drbag = value_change(&mgef(35, 0, None), &item(36, 0, None), 1.3, false).unwrap();
+        assert_eq!(m.on_change(drbag).limb, Some(27));
         let hydra = value_change(&mgef(35, 0, None), &item(10, 60, None), 1.0, false).unwrap();
         assert_eq!(m.on_change(hydra).limb, None);
     }

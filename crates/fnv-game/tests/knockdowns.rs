@@ -331,3 +331,72 @@ fn a_knocked_out_companion_can_be_revived_under_the_tweak() {
     wait(&mut g, 20.0);
     assert!(g.knockout(HERO_REF).is_none_or(|k| !k.lying()), "up after 30 s");
 }
+
+/// `[Revive Unconscious Companions] bReviveWhenChangingCells`: changing cells revives
+/// living knocked-out essential teammates without a Stimpak, leaving non-teammates and
+/// non-essential knockdowns untouched.
+#[test]
+fn revive_companions_on_cell_change_revives_only_knocked_out_teammates() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Essential knockout on HERO_REF (not yet a teammate) + non-essential pushdown on THUG_REF (teammate).
+    ask(&mut g, Some(HERO_REF), KILL_ACTOR, &[]);
+    assert_eq!(g.knockout(HERO_REF).map(|k| k.cause), Some(Cause::Essential));
+    g.extra.entry(THUG_REF).or_default().teammate = true;
+    push(&mut g, Some(HERO_REF), THUG_REF, 5.0);
+    assert_eq!(g.knockout(THUG_REF).map(|k| k.cause), Some(Cause::Pushed));
+
+    // Both switches off -> nothing.
+    assert!(g.revive_companions_on_cell_change().is_empty());
+    // Main switch on, cell-change sub-option off -> nothing.
+    g.tweaks.revive_companions = true;
+    assert!(g.revive_companions_on_cell_change().is_empty());
+    // Both on, but HERO_REF is not a teammate and THUG_REF is only pushed -> nothing.
+    g.tweaks.revive_on_cell_change = true;
+    assert!(g.revive_companions_on_cell_change().is_empty());
+    assert!(g.knockout(HERO_REF).is_some_and(|k| k.lying()));
+    assert!(g.knockout(THUG_REF).is_some_and(|k| k.lying()));
+
+    // Mark HERO_REF as teammate: revives without a Stimpak; THUG_REF (pushed) still lies.
+    g.extra.entry(HERO_REF).or_default().teammate = true;
+    assert_eq!(g.revive_companions_on_cell_change(), vec![HERO_REF]);
+    assert!(g.knockout(HERO_REF).is_some_and(|k| !k.lying()), "HERO_REF is rising");
+    assert!(g.knockout(THUG_REF).is_some_and(|k| k.lying()), "non-essential knockdown untouched");
+    // Already rising -> calling again is a no-op.
+    assert!(g.revive_companions_on_cell_change().is_empty());
+}
+
+/// `bNoSelfExplosionDamage` + non-hostile NPC option: spares the player when enabled, and
+/// also spares living neutral/friendly actors (while still hurting hostiles and corpses)
+/// when `no_self_explosion_non_hostiles` is enabled.
+#[test]
+fn own_explosion_spares_player_and_optionally_non_hostiles() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Make THUG_REF hostile to the player (Very Aggressive = 2 attacks neutrals on sight).
+    g.extra.entry(THUG_REF).or_default().actor_values.insert(fnv_game::actor_values::AGGRESSION, 2.0);
+    assert!(!fnv_game::rest::hostile_to_player(&mut g, HERO_REF));
+    assert!(fnv_game::rest::hostile_to_player(&mut g, THUG_REF));
+
+    // Tweak off: spares nobody.
+    assert!(!g.own_explosion_spares(FormId::PLAYER_REF));
+    assert!(!g.own_explosion_spares(HERO_REF));
+    assert!(!g.own_explosion_spares(THUG_REF));
+
+    // Main tweak on only: spares player, still hurts neutral and hostile NPCs.
+    g.tweaks.no_self_explosion_damage = true;
+    assert!(g.own_explosion_spares(FormId::PLAYER_REF));
+    assert!(!g.own_explosion_spares(HERO_REF));
+    assert!(!g.own_explosion_spares(THUG_REF));
+
+    // Non-hostile option on: spares player and neutral NPC, still hurts hostile NPC.
+    g.tweaks.no_self_explosion_non_hostiles = true;
+    assert!(g.own_explosion_spares(FormId::PLAYER_REF));
+    assert!(g.own_explosion_spares(HERO_REF));
+    assert!(!g.own_explosion_spares(THUG_REF));
+
+    // Dead actors are not spared.
+    assert!(g.kill(ROCK_REF, None));
+    assert!(!g.own_explosion_spares(ROCK_REF));
+}

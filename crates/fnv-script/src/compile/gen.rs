@@ -1102,11 +1102,13 @@ impl<'a> Gen<'a> {
             return;
         }
         // In a compiler-override block the vanilla statements take the extender's grammar,
-        // and so does a vanilla `if` or `set` that calls an extender function
-        // (`if rItem.GetBaseObject == rGun`) [observed: the peer's nvse-inv probes compile in
-        // the original with xNVSE].
-        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && (self.calls_extender() || self.calls_unknown())) {
-            let x = lex::xtokens(&self.text);
+        // and so does a vanilla `if` or `set` that calls an extender function or contains
+        // an inline declaration (`if rItem.GetBaseObject == rGun`,
+        // `if TestExpr ref r = …`) [observed: the peer's nvse-inv probes compile in
+        // the original with xNVSE; documented: Inline variable declaration].
+        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && (self.calls_extender() || self.calls_unknown() || self.has_inline_decl())) {
+            let mut x = lex::xtokens(&self.text);
+            parse::inline_decls(&mut x);
             let mapped = match kw {
                 Kw::If(_) => Some(Kw::IfEval(x[1..].to_vec())),
                 Kw::ElseIf(_) => Some(Kw::ElseIfEval(x[1..].to_vec())),
@@ -1126,6 +1128,12 @@ impl<'a> Gen<'a> {
             }
         }
         self.statement_inner(kw)
+    }
+
+    /// Whether the current line contains an inline variable declaration
+    /// (`int x = …`, `ref r := …`, `(float f)`).
+    fn has_inline_decl(&self) -> bool {
+        !parse::inline_decls(&mut lex::xtokens(&self.text)).is_empty()
     }
 
     /// Whether the line names an extender function (one the vanilla table does not know),

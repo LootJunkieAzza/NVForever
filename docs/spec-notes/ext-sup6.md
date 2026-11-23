@@ -22,7 +22,7 @@ answer is still a [hypothesis].
 | GetMousePosition `xOut yOut` | the system's pointer [documented: "system mouse position"]: the window's pixels from its top left, the last place while the pointer is outside the window [hypothesis: the engine knows only its window] |
 | GetMouseMovement `xOut yOut request` | this frame's movement (0) or the last frame's that moved (1), in pixels, only in a menu [documented]; 0 0 out of menus [hypothesis] |
 | GetMouseWheelMovement `request` | the wheel's notches the same way [documented]; a wheel that gives pixels counts 40 a notch [hypothesis] |
-| FakeMouseMovement `x y` | the engine adds the move to the next frame's mouse movement, so it turns the camera or moves the pointer as the mouse would [documented: "Will move cursor\camera by 1 pixel"] |
+| FakeMouseMovement `x y` | the engine adds finite moves to the next frame's `MouseMotion` (turning the camera and feeding `GetMouseMovement` / lockpicking) and, while in a menu or HUD-cursor mode with no explicit `SetCursorPos` pending, also queues a relative pixel cursor warp through `script_switches::sync` / `script_cursor` [documented: "Will move cursor\camera by 1 pixel"; design: non-finite deltas ignored; routed through the cursor warp pipeline] |
 
 The `…Out` arguments are written by the VM (`fnv_script::vm` `out_params`), as
 GetTFCPosEx. The original's runtime compiler refused GetMousePosition and

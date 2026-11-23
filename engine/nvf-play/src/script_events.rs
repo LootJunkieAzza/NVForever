@@ -142,10 +142,10 @@ pub trait EffectCtx {
     /// The icon file and the seconds of a message that is not a box, as [`Note`] has
     /// them.
     fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>);
-    /// A skill's name and icon file (its AVIF record's FULL and ICON), for the line of a
-    /// skill book read.
-    fn skill_look(&self, code: u16) -> (String, Option<String>) {
-        (fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string(), None)
+    /// A skill's display name (its AVIF record's FULL, else the canonical actor-value
+    /// name), for the line of a skill book read.
+    fn skill_name(&self, code: u16) -> String {
+        fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string()
     }
     /// References whose enable parent chain leads to `r` (their presence follows it).
     fn enable_children(&self, r: FormId) -> Vec<FormId>;
@@ -390,14 +390,16 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             // name is not shown [hypothesis] (quest-messages.md §5).
             EventKind::ObjectiveDisplayed { quest, index, on: true } => {
                 let Some(text) = ctx.objective_text(*quest, *index).filter(|t| !t.trim().is_empty()) else { continue };
+                let Some(name) = ctx.quest_title(*quest).filter(|n| !n.trim().is_empty()) else { continue };
                 if announced.insert(*quest) && !ctx.quest_listed(*quest, &shown(*quest)) {
-                    if let Some(name) = ctx.quest_title(*quest) {
-                        out.push(ScriptEffect::Quest(QuestNotice::Added(name)));
-                    }
+                    out.push(ScriptEffect::Quest(QuestNotice::Added(name)));
                 }
                 out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: quest.0, text, completed: false }])));
             }
             EventKind::ObjectiveCompleted { quest, index, on: true, silent: false } => {
+                if ctx.quest_title(*quest).is_none_or(|n| n.trim().is_empty()) {
+                    continue;
+                }
                 if let Some(text) = ctx.objective_text(*quest, *index).filter(|t| !t.trim().is_empty()) {
                     out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: quest.0, text, completed: true }])));
                 }
@@ -418,14 +420,16 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                     None => added.push((*item, *count)),
                 }
             }
-            // A skill book read: "<Skill> increased to <value>" with the skill's icon
-            // [hypothesis: wording and icon NVForever's, the original's line is not in
-            // the plugins; docs/spec-notes/skill-books.md §5].
+            // A skill book read: "<Skill> increased to <value>" with the default corner
+            // icon (`icon: None` -> `glow_message_vaultboy_neutral.dds`) rather than the
+            // 256x256 Pip-Boy `AVIF` skill illustration [hypothesis: wording and icon
+            // NVForever's, no MESG or GMST in the masters names a book read;
+            // docs/spec-notes/skill-books.md §5].
             // The player's tweak: no line for a book that gave nothing [design: docs/design/tweaks.md].
             EventKind::BookRead { actor, points, .. } if *actor == player && *points == 0.0 && ctx.tweaks().is_some_and(|t| t.no_book_message_without_gain) => {}
             EventKind::BookRead { actor, value, skill, .. } if *actor == player => {
-                let (name, icon) = ctx.skill_look(*skill);
-                out.push(ScriptEffect::Notify(Note { text: format!("{name} increased to {}", value.round()), icon, seconds: None }));
+                let name = ctx.skill_name(*skill);
+                out.push(ScriptEffect::Notify(Note { text: format!("{name} increased to {}", value.round()), icon: None, seconds: None }));
             }
             EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => {
                 let n = ctx.name(*item);
@@ -1148,10 +1152,98 @@ mod tests {
         assert_eq!(sounds(&picked), vec![]);
     }
 
+    /// #3433: skill-book and iconless `NoteShown` (e.g. critical-hit) corner notifications
+    /// use `icon: None` (default Vault Boy corner icon), while explicit `MESG` icons are
+    /// preserved.
+    #[test]
+    fn book_read_and_iconless_notes_use_default_corner_icon() {
+        let e = run(vec![
+            EventKind::BookRead { actor: FormId::PLAYER_REF, book: FormId(0x1234), skill: 41, points: 3.0, value: 53.0, perks: vec![] },
+            EventKind::NoteShown { text: "Critical hit on Giant Soldier Ant".into(), icon: None, seconds: 2.0 },
+            EventKind::MessageShown { message: FormId(0xAA), text: Some("With icon.".into()), buttons: vec![], hidden: vec![] },
+        ]);
+        assert_eq!(
+            e,
+            vec![
+                ScriptEffect::Notify(Note { text: "Guns increased to 53".into(), icon: None, seconds: None }),
+                ScriptEffect::Notify(Note { text: "Critical hit on Giant Soldier Ant".into(), icon: None, seconds: Some(2.0) }),
+                ScriptEffect::Notify(Note { text: "With icon.".into(), icon: Some("icons\\pain.dds".into()), seconds: Some(10.0) }),
+            ]
+        );
+    }
+
     #[test]
     fn hidden_or_late_objectives_say_nothing() {
         let e = effects(&[ev(EventKind::ObjectiveCompleted { quest: QUEST, index: 10, on: true, silent: true })], &BTreeSet::new(), &Fake);
         assert_eq!(e, vec![]);
+    }
+
+    #[test]
+    fn empty_objective_text_and_nameless_quests_show_no_objective_notices() {
+        const NAMELESS: FormId = FormId(0x78);
+        const BLANK_TITLE: FormId = FormId(0x79);
+        struct EmptyCtx;
+        impl EffectCtx for EmptyCtx {
+            fn name(&self, form: FormId) -> String {
+                Fake.name(form)
+            }
+            fn objective_text(&self, quest: FormId, index: i32) -> Option<String> {
+                match (quest, index) {
+                    (QUEST, 1) => Some("".into()),
+                    (QUEST, 2) => Some("   \t\n ".into()),
+                    (NAMELESS, 1) => Some("Hidden behind nameless quest".into()),
+                    (BLANK_TITLE, 1) => Some("Hidden behind blank-title quest".into()),
+                    _ => Fake.objective_text(quest, index),
+                }
+            }
+            fn quest_title(&self, quest: FormId) -> Option<String> {
+                match quest {
+                    NAMELESS => None,
+                    BLANK_TITLE => Some("   ".into()),
+                    _ => Fake.quest_title(quest),
+                }
+            }
+            fn quest_listed(&self, quest: FormId, besides: &[i32]) -> bool {
+                Fake.quest_listed(quest, besides)
+            }
+            fn is_message_box(&self, message: FormId) -> bool {
+                Fake.is_message_box(message)
+            }
+            fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>) {
+                Fake.message_look(message)
+            }
+            fn enable_children(&self, r: FormId) -> Vec<FormId> {
+                Fake.enable_children(r)
+            }
+            fn pops_in(&self, r: FormId) -> bool {
+                Fake.pops_in(r)
+            }
+            fn player_heading_deg(&self) -> f32 {
+                Fake.player_heading_deg()
+            }
+            fn player_pitch_deg(&self) -> Option<f32> {
+                Fake.player_pitch_deg()
+            }
+            fn destination(&self, cell: Option<FormId>) -> Destination {
+                Fake.destination(cell)
+            }
+            fn activation_effects(&self, a: &Activation, target: FormId) -> Vec<Effect> {
+                Fake.activation_effects(a, target)
+            }
+            fn is_terminal(&self, r: FormId) -> bool {
+                Fake.is_terminal(r)
+            }
+        }
+        let events = [
+            ev(EventKind::ObjectiveDisplayed { quest: QUEST, index: 1, on: true }),
+            ev(EventKind::ObjectiveDisplayed { quest: QUEST, index: 2, on: true }),
+            ev(EventKind::ObjectiveCompleted { quest: QUEST, index: 2, on: true, silent: false }),
+            ev(EventKind::ObjectiveDisplayed { quest: NAMELESS, index: 1, on: true }),
+            ev(EventKind::ObjectiveCompleted { quest: NAMELESS, index: 1, on: true, silent: false }),
+            ev(EventKind::ObjectiveDisplayed { quest: BLANK_TITLE, index: 1, on: true }),
+            ev(EventKind::ObjectiveCompleted { quest: BLANK_TITLE, index: 1, on: true, silent: false }),
+        ];
+        assert!(effects(&events, &BTreeSet::new(), &EmptyCtx).is_empty());
     }
 
     #[test]

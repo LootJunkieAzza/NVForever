@@ -1532,10 +1532,10 @@ impl EffectCtx for PlayCtx<'_> {
         (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), self.game.message_seconds(message).map(|s| s as f32))
     }
 
-    fn skill_look(&self, code: u16) -> (String, Option<String>) {
+    fn skill_name(&self, code: u16) -> String {
         let info = self.data.actor_value_info(code);
         let name = info.map(|i| i.name.clone()).filter(|n| !n.trim().is_empty());
-        (name.unwrap_or_else(|| fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string()), info.and_then(|i| i.icon.clone()))
+        name.unwrap_or_else(|| fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string())
     }
 
     fn pops_in(&self, r: FormId) -> bool {
@@ -1836,7 +1836,17 @@ impl Plugin for ScriptPlugin {
             .init_resource::<PlayerTimeScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game, exit_to_main_menu_event, crate::query_job::exit_when_done).chain().in_set(PlaySet::Scripts))
-            .add_systems(Last, (crate::aid::report, crate::query_job::report, write_final));
+            .add_systems(
+                Last,
+                (
+                    crate::aid::report,
+                    crate::query_job::report,
+                    // After Bevy's window-closed exit (`ExitSystems` writes AppExit in Last):
+                    // closing the window runs `gx_` exit scripts and writes the final summary,
+                    // as Quit, `qqq`, and timed exits do (#2203).
+                    (run_exit_scripts, write_final).chain().after(bevy::window::ExitSystems),
+                ),
+            );
     }
 }
 
@@ -2792,6 +2802,48 @@ fn log_event(data: &GameData, e: &Event) {
     }
 }
 
+/// At exit: JIP's Script Runner `gx_` files (`fnv_game::script_runner::Moment::Exit`),
+/// run once in the played world before `write_final` and process teardown so cached mod
+/// INI and JSON writes flush synchronously to disk [design]. No-op when no `gx_` files
+/// exist or exit scripts have already run.
+fn run_exit_scripts(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>, mut sim: ResMut<SimState>) {
+    if exit.read().next().is_none() {
+        return;
+    }
+    let st = &mut *script;
+    let Some(rt) = st.rt.as_mut() else {
+        return;
+    };
+    let from = rt.game.events.len();
+    let runs = with_world(rt, &mut sim, |rt| rt.game.run_exit_scripts());
+    if runs.is_empty() {
+        return;
+    }
+    log_script_runner(runs, Moment::Exit);
+    let events = rt.game.events.split_off(from);
+    rt.stats.events += events.len() as u64;
+    if let Some(log) = st.mod_log.as_mut() {
+        crate::mod_log::frame(log, &mut rt.game, &events);
+    }
+    for e in &events {
+        log_event(rt.game.data, e);
+    }
+    if let Some(log) = st.trace.as_mut() {
+        let t = secs(rt.started);
+        let gt = rt.game.time;
+        for e in &events {
+            if let Ok(mut v) = serde_json::to_value(e) {
+                v["t"] = serde_json::json!(t);
+                v["gt"] = serde_json::json!(gt);
+                log.write(&v);
+            }
+        }
+        if !events.is_empty() {
+            let _ = log.out.flush();
+        }
+    }
+}
+
 /// At exit: the trace's final line and a summary in the log.
 fn write_final(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>) {
     if exit.read().next().is_none() {
@@ -3112,6 +3164,98 @@ mod runtime_start_tests {
         assert!(runtime_waits(false, true), "the menu opens later this frame");
         assert!(runtime_waits(true, false));
         assert!(!runtime_waits(false, false), "the menu is open, paused, or was never asked for");
+    }
+}
+
+#[cfg(test)]
+mod exit_script_tests {
+    use super::*;
+    use fnv_game::mod_files::{set_roots, Roots};
+
+    static ROOTS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn fresh_app() -> App {
+        let mut app = App::new();
+        let st = ScriptState::over_no_plugins();
+        let (forms, refs) = {
+            let rt = st.rt.as_ref().unwrap();
+            (rt.game.world.forms, rt.game.world.placed)
+        };
+        let sim = SimState { forms, refs, world: World::new(forms, refs, fnv_sim::SimConfig::default()) };
+        app.add_message::<AppExit>()
+            .insert_resource(st)
+            .insert_resource(sim)
+            .add_systems(Last, (run_exit_scripts, write_final).chain().after(bevy::window::ExitSystems));
+        app
+    }
+
+    #[test]
+    fn app_exit_runs_gx_scripts_once_and_flushes_cached_ini_to_disk() {
+        let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().join(format!("nvf-play-gx-exit-{}-{stamp}", std::process::id()));
+        let data = base.join("game/Data");
+        let layer = base.join("mods");
+        let scripts = data.join("NVSE/Plugins/Scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::create_dir_all(&layer).unwrap();
+        std::fs::write(
+            scripts.join("gx_flush.txt"),
+            "SaveCachedIni \"play_exit_test.ini\"\r\nCloseFileSO \"play_exit_test.ini\"\r\nPrintC \"play-gx-ran\"\r\n",
+        )
+        .unwrap();
+        set_roots(Roots { read: vec![layer.clone(), data], write: Some(layer.clone()), ..Roots::default() });
+
+        let mut app = fresh_app();
+        // Seed cached INI value in memory (not written to disk until gx_flush.txt runs).
+        {
+            let mut st = app.world_mut().resource_mut::<ScriptState>();
+            let rt = st.rt.as_mut().unwrap();
+            rt.game
+                .run_source("GetINIFloatOrCreate_Cached \"General:fPlayExit\" \"play_exit_test.ini\" 19.25\n", Default::default())
+                .unwrap();
+        }
+        let ini_path = layer.join("Config/play_exit_test.ini");
+
+        // An update without AppExit must not trigger exit scripts.
+        app.update();
+        assert!(!ini_path.is_file(), "gx_ script must not run before AppExit");
+
+        // AppExit triggers run_exit_scripts once and flushes cached INI to disk.
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert!(ini_path.is_file(), "AppExit must run gx_ script and flush cached INI");
+        let text = std::fs::read_to_string(&ini_path).unwrap();
+        assert!(text.contains("19.25"), "flushed INI text: {text:?}");
+        let events_after_first = app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events;
+        assert!(events_after_first >= 1, "gx_ PrintC event should be counted before write_final");
+
+        // Repeated AppExit is idempotent and does not re-execute gx_flush.txt.
+        std::fs::remove_file(&ini_path).unwrap();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert!(!ini_path.exists(), "repeated AppExit must not re-run gx_ scripts");
+        assert_eq!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events, events_after_first);
+
+        set_roots(Roots::default());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn app_exit_without_gx_scripts_is_a_vanilla_no_op() {
+        let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().join(format!("nvf-play-gx-empty-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        set_roots(Roots { read: vec![base.clone()], ..Roots::default() });
+
+        let mut app = fresh_app();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert_eq!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events, 0);
+
+        set_roots(Roots::default());
+        std::fs::remove_dir_all(&base).ok();
     }
 }
 

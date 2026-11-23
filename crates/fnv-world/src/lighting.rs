@@ -99,6 +99,12 @@ pub fn cell_lighting_with(
     cell_lighting_with_overrides(lo, schema, cell, template_override, flags_override, |_| {}, edit_template)
 }
 
+/// Default `XCLL` values matching [`parse`] when a cell has no authored `XCLL`
+/// subrecord yet receives session `SetInteriorLightingTraitNumeric` edits [design].
+pub fn default_xcll() -> CellLighting {
+    CellLighting { directional_fade: 1.0, fog_power: 1.0, ..Default::default() }
+}
+
 /// Extends [`cell_lighting_with`] with an `edit_own` hook for session overrides on
 /// the cell's own `XCLL` record (`SetInteriorLightingTraitNumeric`) prior to the
 /// existing inheritance merge.
@@ -108,16 +114,43 @@ pub fn cell_lighting_with_overrides(
     cell: u32,
     template_override: Option<u32>,
     flags_override: Option<u32>,
+    edit_own: impl FnMut(&mut CellLighting),
+    edit_template: impl FnMut(u32, &mut CellLighting),
+) -> Option<CellLighting> {
+    cell_lighting_with_session(lo, schema, cell, template_override, flags_override, false, edit_own, edit_template)
+}
+
+/// Extends [`cell_lighting_with_overrides`] with `synthesize_own`: when `true` and
+/// the `CELL` record has no authored `XCLL` subrecord (for example, an interior that
+/// previously relied solely on a lighting template or had no lighting subrecord),
+/// synthesizes [`default_xcll`] and applies `edit_own` so session
+/// `SetInteriorLightingTraitNumeric` writes still reach the inheritance merge [design].
+#[allow(clippy::too_many_arguments)]
+pub fn cell_lighting_with_session(
+    lo: &LoadOrder,
+    schema: &Schema,
+    cell: u32,
+    template_override: Option<u32>,
+    flags_override: Option<u32>,
+    synthesize_own: bool,
     mut edit_own: impl FnMut(&mut CellLighting),
     mut edit_template: impl FnMut(u32, &mut CellLighting),
 ) -> Option<CellLighting> {
     let (pi, r) = winner(lo, cell)?;
     let f = Fields::new(r, pi, schema).ok()?;
-    let own = f.get(b"XCLL").map(|v| {
-        let mut light = parse(&v);
-        edit_own(&mut light);
-        light
-    });
+    let own = match f.get(b"XCLL") {
+        Some(v) => {
+            let mut light = parse(&v);
+            edit_own(&mut light);
+            Some(light)
+        }
+        None if synthesize_own => {
+            let mut light = default_xcll();
+            edit_own(&mut light);
+            Some(light)
+        }
+        None => None,
+    };
     let template = template_override.or_else(|| f.formid(b"LTMP", lo)).filter(|&t| t != 0).and_then(|t| {
         let (tpi, tr) = winner(lo, t)?;
         let mut light = Fields::new(tr, tpi, schema).ok()?.get(b"DATA").map(|v| parse(&v))?;

@@ -586,6 +586,35 @@ fn the_quest_timer_runs_at_the_quest_delay_and_sets_the_complete_stage() {
     assert_eq!(g.var(InstKey::Quest { quest: q() }, 1), before);
 }
 
+/// #3465 (VMS49's helper quest): a quest that ran, stopped and is started again with a
+/// timer set runs the timer its full time: the first run's GetSecondsPassed is not the
+/// time the quest stood stopped.
+#[test]
+fn a_quest_started_again_runs_its_timer_from_the_start() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    g.frames(120);
+    assert!(g.quest_state(q()).stages_done.contains(&20), "the first timer ran out");
+    g.stop_quest(q());
+    // Ten seconds stopped.
+    g.frames(600);
+    // A timer of 1 s set, then the quest started (as the trigger script does).
+    let key = InstKey::Quest { quest: q() };
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 1, Value::Num(1.0), "test", true);
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 2, Value::Num(1.0), "test", true);
+    g.start_quest(q());
+    // Half a second on: the timer has not run out.
+    g.frames(30);
+    assert_eq!(g.var(key, 2), Value::Num(1.0), "still running: fTimer {:?}", g.var(key, 1));
+    let Value::Num(left) = g.var(key, 1) else { panic!() };
+    assert!(left > 0.3 && left <= 1.0, "{left}");
+    // And it runs out about a second later.
+    g.frames(90);
+    assert_eq!(g.var(key, 2), Value::Num(0.0), "ran out: fTimer {:?}", g.var(key, 1));
+}
+
 #[test]
 fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
     // OnTrigger runs every frame the player is inside; with `Game::trigger_frame` before

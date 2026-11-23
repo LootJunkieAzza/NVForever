@@ -273,6 +273,18 @@ fn pose_frame(
     sequence_dt: f32,
     pipboy: Option<f32>,
 ) {
+    pose_frame_with_pipboy_dt(world, target, samples, frame, sequence_dt, 0.0, pipboy);
+}
+
+fn pose_frame_with_pipboy_dt(
+    world: &mut World,
+    target: &mut OwnedRig,
+    samples: &[crate::script_sequences::Sample],
+    frame: &Frame,
+    sequence_dt: f32,
+    pipboy_dt: f32,
+    pipboy: Option<f32>,
+) {
     let mut state =
         SystemState::<(ResMut<ActorParts>, ModelCtx, Query<&mut Transform>, Query<&ChildOf>)>::new(world);
     {
@@ -294,6 +306,7 @@ fn pose_frame(
                 special: &special,
                 sequences: samples,
                 sequence_dt,
+                pipboy_dt,
                 pipboy,
                 sway: SwayPose::NONE,
                 sights: None,
@@ -574,5 +587,112 @@ fn device_menu_sequence_moves_and_blends_with_holstered_or_drawn_hands_and_a_hel
         assert_pose(&app, &first, 10.0);
         assert!(!first.rig.animator.layers.iter().any(|layer| layer.tag & 0x4000_0000 != 0), "deactivation releases the visible menu pose while world time is held");
         assert!(game.anim_paths.sequences.is_empty());
+    }
+}
+
+/// #2862: Under `--menu-pause original` (`dt == 0.0`) with Animation Smoothing on and
+/// no script ticks (`sequence_dt == 0.0`, e.g. `--no-scripts` or render frames between
+/// script ticks), opening the Pip-Boy with empty hands or a holstered weapon must still
+/// raise the first-person arm pose into view via `pipboy_dt` and restore the prior
+/// arms-down pose on close, without ticking ordinary world clips or breaking drawn hands.
+#[test]
+fn holstered_and_empty_hands_pipboy_raises_and_lowers_with_held_world_and_seam_smoothing() {
+    let make_static_clip = |name: &str, x: f32, priority: i32| {
+        Arc::new(ClipInfo::new(
+            name.into(),
+            Arc::new(Clip {
+                name: name.into(),
+                start: 0.0,
+                stop: 1.0,
+                frequency: 1.0,
+                cycle_type: 2,
+                tracks: vec![(
+                    "OwnedBone".into(),
+                    Arc::new(TransformTrack {
+                        translation: Channel::Static(Some([x, 0.0, 0.0])),
+                        rotation: Channel::Static(None),
+                        euler: None,
+                        scale: Channel::Static(None),
+                        per_cycle: None,
+                    }),
+                )],
+                priorities: vec![priority],
+                skipped: 0,
+                accum_root: None,
+                text_keys: vec![],
+                visibility: vec![],
+                emitters: vec![],
+                materials: vec![],
+                free: vec![],
+                free_visibility: vec![],
+                lights: vec![],
+            }),
+            None,
+        ))
+    };
+
+    for (label, prefix, phase) in [
+        ("empty-hands", UNARMED, WeaponPhase::Holstered),
+        ("holstered-pistol", "1hp", WeaponPhase::Holstered),
+        ("drawn-pistol", "1hp", WeaponPhase::Drawn),
+    ] {
+        let (mut app, _files) = crate::outfits::tests::asset_fixture();
+        app.add_plugins(bevy::transform::TransformPlugin);
+        let mut first = authored_rig(app.world_mut(), View::First, 100.0);
+        first.rig.animator.smooth_seams(Some(SEAM_SECONDS));
+        first.rig.clips.insert(ClipKey::Idle(Stance::Stand, false, false), Some(make_static_clip("idle", 10.0, 10)));
+        first.rig.clips.insert(ClipKey::Holster(Stance::Stand, prefix), Some(make_static_clip("holster", 10.0, 55)));
+        first.rig.clips.insert(ClipKey::Equip(Stance::Stand, prefix, true), None);
+        first.rig.clips.insert(ClipKey::Equip(Stance::Stand, prefix, false), None);
+        first.rig.clips.insert(ClipKey::Aim(Stance::Stand, prefix, Aim::Level, false), Some(make_static_clip("aim", 18.0, 50)));
+        first.rig.clips.insert(ClipKey::PipBoy(false), Some(make_static_clip("pipboy", 30.0, 98)));
+
+        let mut base = neutral_frame(0.25);
+        base.inertia = true;
+        base.prefix = prefix;
+        base.hands.phase = phase;
+        base.hands.in_hand = phase == WeaponPhase::Drawn;
+        base.drawn = (phase == WeaponPhase::Drawn).then_some(prefix);
+        let expected_down = if phase == WeaponPhase::Drawn { 18.0 } else { 10.0 };
+
+        // Establish pre-Pip-Boy pose (arms down for empty/holstered, held for drawn).
+        pose_frame_with_pipboy_dt(app.world_mut(), &mut first, &[], &base, 0.25, 0.0, None);
+        app.update();
+        assert_pose(&app, &first, expected_down);
+
+        // Open Pip-Boy under held world (dt == 0.0) and zero script ticks (sequence_dt == 0.0).
+        let mut held = base;
+        held.dt = 0.0;
+        let mut pip = nvf_play::pipboy::PipBoy::default();
+        pip.raise();
+        for _ in 0..10 {
+            pip.advance(0.05);
+            pose_frame_with_pipboy_dt(app.world_mut(), &mut first, &[], &held, 0.0, 0.05, Some(pip.clip_time));
+            app.update();
+        }
+        assert_eq!(pip.phase, nvf_play::pipboy::Phase::Up, "{label}");
+        assert_pose(&app, &first, 30.0);
+        assert!(
+            first.rig.animator.layers.iter().filter(|l| l.tag == TAG_IDLE).all(|l| (l.time - 0.25).abs() < 1e-6),
+            "{label}: ordinary idle clip time must stay held while world is paused"
+        );
+
+        // Close Pip-Boy: lowers cleanly back to the prior pose (arms down for empty/holstered, held for drawn).
+        pip.lower();
+        while pip.phase != nvf_play::pipboy::Phase::Down {
+            pip.advance(0.05);
+            let clip_t = pip.on_arm().then_some(pip.clip_time);
+            let pip_dt = if clip_t.is_some() { 0.05 } else { 0.0 };
+            let world_dt = if clip_t.is_some() { 0.0 } else { 0.05 };
+            held.dt = world_dt;
+            pose_frame_with_pipboy_dt(app.world_mut(), &mut first, &[], &held, world_dt, pip_dt, clip_t);
+            app.update();
+        }
+        // Let the residual leaving fade finish once normal world time resumes.
+        held.dt = 0.25;
+        pose_frame_with_pipboy_dt(app.world_mut(), &mut first, &[], &held, 0.25, 0.0, None);
+        app.update();
+        assert!(!first.rig.animator.layers.iter().any(|l| l.tag == TAG_PIPBOY), "{label}: Pip-Boy layer retired after lowering");
+        assert_pose(&app, &first, expected_down);
     }
 }

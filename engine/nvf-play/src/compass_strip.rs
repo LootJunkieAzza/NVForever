@@ -24,7 +24,7 @@
 
 use crate::hud::{strip_left, STRIP, STRIP_FADE};
 use crate::interface::{u, Pictures};
-use crate::repeat::{piece_texels, repeat_rgba, Repeats, MAX_TEXELS};
+use crate::repeat::{piece_texels, Repeats, MAX_TEXELS};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
@@ -67,13 +67,12 @@ impl StripTexels {
 
     /// The strip picture `name` as a HUD drew it: `rect` is its part of the texture
     /// (`interface::Picture`'s, `None` for the whole), `atlas` the index its `texatlas`
-    /// named (`interface::Pictures::texture_path`); the texture decoded through `repeats`.
+    /// named (`interface::Pictures::texture_path`); the texture (or only `rect` when the
+    /// source atlas exceeds [`MAX_TEXELS`]) decoded through `repeats`.
     pub fn read(pictures: &mut Pictures, name: &str, atlas: Option<&str>, rect: Option<Rect>, repeats: &mut Repeats, data: &GameData) -> Option<StripTexels> {
         let path = pictures.texture_path(name, atlas, rect.is_some(), data);
-        let (rgba, width) = repeats.texels(&path, data)?;
-        let height = rgba.len().checked_div(width * 4)? as u32;
-        let [x, y, w, h] = rect.map_or([0, 0, width as u32, height], piece_texels).map(|v| v as usize);
-        StripTexels::new(repeat_rgba(rgba, width, [x, y, w, h], (w, h))?, w)
+        let (rgba, width) = repeats.piece(&path, rect.map(piece_texels), data)?;
+        StripTexels::new(rgba, width)
     }
 
     /// Texels to a unit across: the strip's width over its 1024 units.
@@ -332,5 +331,50 @@ mod tests {
         // No mask: the window as it was.
         let plain = StripWindow::new(strip(), COMPASS.x, 0.0, &mut images).unwrap().masked(None, &mut images);
         assert_eq!(images.get(&plain.image()).and_then(|i| i.data.clone()).unwrap(), bake(&strip(), 870, 345));
+    }
+
+    #[test]
+    fn strip_reads_from_a_4k_atlas_without_decoding_the_whole_sheet() {
+        use std::sync::Arc;
+        // 4096 x 4096 DXT5 atlas (16M texels > MAX_TEXELS), with a 1024 x 4 strip placed at
+        // (0, 2048) whose first 4x4 block is opaque white and second is opaque black.
+        let (w, h) = (4096u32, 4096u32);
+        let mut dds = vec![0u8; 128 + (w as usize / 4) * (h as usize / 4) * 16];
+        dds[..4].copy_from_slice(b"DDS ");
+        dds[4..8].copy_from_slice(&124u32.to_le_bytes());
+        dds[12..16].copy_from_slice(&h.to_le_bytes());
+        dds[16..20].copy_from_slice(&w.to_le_bytes());
+        dds[76..80].copy_from_slice(&32u32.to_le_bytes());
+        dds[80..84].copy_from_slice(&4u32.to_le_bytes());
+        dds[84..88].copy_from_slice(b"DXT5");
+        let bw = (w / 4) as usize;
+        // Block (0, 512) -> pixel (0..4, 2048..2052): solid white alpha 255.
+        let off = 128 + (512 * bw) * 16;
+        dds[off] = 255;
+        dds[off + 1] = 255;
+        dds[off + 8..off + 10].copy_from_slice(&0xFFFFu16.to_le_bytes());
+        // Block (1, 512) -> pixel (4..8, 2048..2052): solid black alpha 255.
+        let off1 = off + 16;
+        dds[off1] = 255;
+        dds[off1 + 1] = 255;
+
+        let dir = std::env::temp_dir().join(format!("nvf-compass-4k-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("textures\\interface")).unwrap();
+        std::fs::write(dir.join("textures\\interface\\interfaceshared0.dds"), &dds).unwrap();
+        let data = nvf_assets::GameData::new(Arc::new(fnv_vfs::Vfs::open(&dir, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
+        let mut atlas = std::collections::HashMap::new();
+        atlas.insert(
+            "glow_hud_comp_direction_strip.dds".into(),
+            crate::interface::AtlasPiece { atlas: "interfaceshared0.dds".into(), rect: [0.0, 0.5, 0.25, 4.0 / 4096.0] },
+        );
+        let mut pictures = Pictures::with_atlas(atlas);
+        let mut repeats = Repeats::default();
+        let rect = Rect::new(0.0, 2048.0, 1024.0, 2052.0);
+        let strip = StripTexels::read(&mut pictures, r"Interface\HUD\glow_hud_comp_direction_strip.dds", None, Some(rect), &mut repeats, &data).unwrap();
+        assert_eq!((strip.width, strip.height), (1024, 4));
+        assert_eq!(&strip.rgba[0..4], &[255, 255, 255, 255]);
+        assert_eq!(&strip.rgba[16..20], &[0, 0, 0, 255]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

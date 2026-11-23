@@ -401,20 +401,32 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
     }
 }
 
-/// The NPCs and creatures of the loaded cells (and those a script moved in), with their
-/// feet: a moving body's (`PhysState::npcs`) or the reference's place.
+/// The NPCs and creatures of the loaded cells (and those a script moved in), and every
+/// actor with a moving body (`PhysState::npcs`), with their feet: the body's or the
+/// reference's place.
 pub(crate) fn actors_near(g: &fnv_game::Game, bodies: &std::collections::HashMap<u32, [f32; 3]>) -> Vec<(FormId, [f32; 3])> {
     let placed = g.world.placed;
     let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
-    let mut ids: BTreeSet<FormId> = g.loaded_cells.iter().filter_map(|c| placed.by_cell.get(c)).flatten().copied().filter(is_actor).collect();
-    ids.extend(g.moved.iter().copied().filter(is_actor));
-    ids.into_iter()
-        .filter(|r| g.cell_of(*r).is_some_and(|c| g.loaded_cells.contains(&c)))
+    let listed = g.loaded_cells.iter().filter_map(|c| placed.by_cell.get(c)).flatten().copied().chain(g.moved.iter().copied()).filter(is_actor);
+    let walking = bodies.keys().map(|&id| FormId(id));
+    chosen(listed, walking, |r| g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)))
+        .into_iter()
         .filter_map(|r| {
             let feet = bodies.get(&r.0).copied().or_else(|| g.world.peek(r).map(|s| s.pos)).or_else(|| placed.get(r).map(|p| p.pos))?;
             Some((r, feet))
         })
         .collect()
+}
+
+/// The actors [`actors_near`] looks at: those `listed` (the loaded cells' and the moved)
+/// whose cell is loaded now, and every one `walking` (with a moving body), wherever its
+/// cell is. A body is made only for an actor the world runs near the player, so its cell
+/// says nothing more (#3467: two Old World Blues lobotomites chased the player in from
+/// 3,000 units and fought it at 550 without a mark; their cells did not pass the test).
+fn chosen(listed: impl Iterator<Item = FormId>, walking: impl Iterator<Item = FormId>, in_loaded: impl Fn(FormId) -> bool) -> BTreeSet<FormId> {
+    let mut ids: BTreeSet<FormId> = listed.filter(|r| in_loaded(*r)).collect();
+    ids.extend(walking);
+    ids
 }
 
 /// How far the compass shows actors: the player's Perception × [`ACTOR_RANGE_PER_PERCEPTION`],
@@ -463,7 +475,7 @@ fn gather(
     mut sim: ResMut<SimState>,
     mut poll: Local<f32>,
     mut near: ResMut<CompassNear>,
-    mut logged: Local<[usize; 5]>,
+    mut logged: Local<[usize; 6]>,
     mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
@@ -501,6 +513,8 @@ fn gather(
     let mut perception = 5.0;
     // Actors in range and in the window left off because they sneak.
     let mut sneakers = 0;
+    // Living actors with a mark in range, in the window or not (the log, #3467).
+    let mut in_range = 0;
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         let found = with_world(rt, &mut sim, |rt| {
             let g = &mut rt.game;
@@ -565,6 +579,7 @@ fn gather(
             if shown {
                 marks.push(n.mark);
             }
+            in_range += usize::from(matches!(n.mark, Mark::Actor | Mark::Hostile | Mark::Companion));
             found_near.push(n);
         }
     }
@@ -689,10 +704,10 @@ fn gather(
         *logged_quest = Some((placed, shown));
     }
     let count = |k: &[Mark]| marks.iter().filter(|m| k.contains(m)).count();
-    let counts = [count(&[Mark::Actor, Mark::Hostile, Mark::Companion]), count(&[Mark::Hostile]), count(&[Mark::Place, Mark::Found]), count(&[Mark::Found]), sneakers];
+    let counts = [count(&[Mark::Actor, Mark::Hostile, Mark::Companion]), count(&[Mark::Hostile]), count(&[Mark::Place, Mark::Found]), count(&[Mark::Found]), sneakers, in_range];
     if counts != *logged {
-        let [actors, hostile, markers, found, sneakers] = counts;
-        info!("compass: {actors} actors ({hostile} hostile), {markers} map markers ({found} found) on the compass, Perception {perception}, {sneakers} sneaking left off");
+        let [actors, hostile, markers, found, sneakers, in_range] = counts;
+        info!("compass: {actors} actors ({hostile} hostile), {markers} map markers ({found} found) on the compass, Perception {perception}, {sneakers} sneaking left off; {in_range} actors in range");
         *logged = counts;
     }
     near.0 = found_near;
@@ -954,6 +969,19 @@ fn draw(
 
 #[cfg(test)]
 mod tests {
+    /// #3467: an actor with a moving body is looked at whatever its cell; one without a
+    /// body only when its cell is loaded.
+    #[test]
+    fn an_actor_with_a_body_is_looked_at_whatever_its_cell() {
+        use super::chosen;
+        use fnv_sim::FormId;
+        let loaded = |r: FormId| r.0 < 10;
+        // 1 placed in a loaded cell; 20 listed, its cell not loaded, no body; 30 walked in
+        // from a cell not loaded, with a body; 2 listed and with a body.
+        let ids = chosen([FormId(1), FormId(20), FormId(2)].into_iter(), [FormId(30), FormId(2)].into_iter(), loaded);
+        assert_eq!(ids.into_iter().collect::<Vec<_>>(), [FormId(1), FormId(2), FormId(30)]);
+    }
+
     use super::*;
 
     /// Two objectives marking one reference at two doors (one ignores locks) each keep

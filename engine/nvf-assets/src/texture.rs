@@ -577,9 +577,12 @@ fn checked_image_layers(w: u32, h: u32, mips: u32, layers: u32, format: TextureF
     if data.len() != expected {
         return Err(format!("{} bytes of data for a {w}x{h} texture of {mips} levels ({expected} expected)", data.len()));
     }
-    let mut img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: layers }, TextureDimension::D2, data, format, RenderAssetUsages::RENDER_WORLD);
+    // Construct uninitialized so `mip_level_count` is set alongside full mip-chain `data`
+    // without triggering Bevy `Image::new`'s single-mip byte-count check on uncompressed formats.
+    let mut img = Image::new_uninit(Extent3d { width: w, height: h, depth_or_array_layers: layers }, TextureDimension::D2, format, RenderAssetUsages::RENDER_WORLD);
     img.texture_descriptor.mip_level_count = mips;
     img.texture_descriptor.label = Some("dds texture");
+    img.data = Some(data);
     Ok(img)
 }
 
@@ -1436,6 +1439,86 @@ mod tests {
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\LaserRifle02.dds", exists), None);
         // Already a first-person texture: kept.
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\1stPersonLaserRifle01.dds", |_| true), None);
+    }
+
+    /// A legacy 32-bit `A8R8G8B8` DDS file with `mips` levels, optionally flagged as a
+    /// six-face cube map (`caps2 = 0xFE00`).
+    fn rgba8_dds(w: u32, h: u32, mips: u32, cube: bool, payload: &[u8]) -> Vec<u8> {
+        let mut b = vec![0u8; 128];
+        b[..4].copy_from_slice(b"DDS ");
+        let put = |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        put(&mut b, 4, 124);
+        put(&mut b, 8, 0x21007); // CAPS | HEIGHT | WIDTH | PIXELFORMAT | MIPMAPCOUNT
+        put(&mut b, 12, h);
+        put(&mut b, 16, w);
+        put(&mut b, 28, mips);
+        put(&mut b, 76, 32); // pixel format size
+        put(&mut b, 80, 0x41); // DDPF_RGB | DDPF_ALPHAPIXELS
+        put(&mut b, 88, 32); // RGBBitCount
+        put(&mut b, 92, 0x00FF_0000); // R mask
+        put(&mut b, 96, 0x0000_FF00); // G mask
+        put(&mut b, 100, 0x0000_00FF); // B mask
+        put(&mut b, 104, 0xFF00_0000); // A mask
+        put(&mut b, 108, 0x0040_1008); // DDSCAPS_COMPLEX | DDSCAPS_TEXTURE | DDSCAPS_MIPMAP
+        if cube {
+            put(&mut b, 112, 0xFE00);
+        }
+        b.extend_from_slice(payload);
+        b
+    }
+
+    #[test]
+    fn multimip_uncompressed_dds_and_cubemap_build_without_panic() {
+        // 16x16 with 5 mips: 16^2 + 8^2 + 4^2 + 2^2 + 1^2 = 341 texels = 1364 RGBA8 bytes.
+        let expected_2d = (16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1) * 4;
+        let dds_2d = rgba8_dds(16, 16, 5, false, &vec![0xAB; expected_2d]);
+        for (srgb, want_fmt) in [(true, TextureFormat::Rgba8UnormSrgb), (false, TextureFormat::Rgba8Unorm)] {
+            let img = dds_image(&dds_2d, srgb, true).unwrap();
+            assert_eq!(img.texture_descriptor.format, want_fmt);
+            assert_eq!(img.texture_descriptor.size, super::Extent3d { width: 16, height: 16, depth_or_array_layers: 1 });
+            assert_eq!(img.texture_descriptor.mip_level_count, 5);
+            assert_eq!(img.data.as_ref().unwrap().len(), expected_2d);
+        }
+
+        // 8x8 with 4 mips across 6 cube faces: (64 + 16 + 4 + 1) * 4 * 6 = 2040 bytes.
+        let expected_cube = (8 * 8 + 4 * 4 + 2 * 2 + 1) * 4 * 6;
+        let dds_cube = rgba8_dds(8, 8, 4, true, &vec![0xCD; expected_cube]);
+        let cube_img = super::dds_cube_image(&dds_cube, true, true).unwrap();
+        assert_eq!(cube_img.texture_descriptor.format, TextureFormat::Rgba8UnormSrgb);
+        assert_eq!(cube_img.texture_descriptor.size, super::Extent3d { width: 8, height: 8, depth_or_array_layers: 6 });
+        assert_eq!(cube_img.texture_descriptor.mip_level_count, 4);
+        assert_eq!(cube_img.data.as_ref().unwrap().len(), expected_cube);
+
+        // Multi-mip odd-sized DXT1 decoded to RGBA8 on CPU: 6x6 (4 blocks) + 3x3 (1) + 1x1 (1).
+        let mut odd_dxt1 = dds(b"DXT1", 6, 6, &[0x55; (4 + 1 + 1) * 8]);
+        odd_dxt1[8..12].copy_from_slice(&0x21007u32.to_le_bytes());
+        odd_dxt1[28..32].copy_from_slice(&3u32.to_le_bytes());
+        let decoded = dds_image(&odd_dxt1, false, true).unwrap();
+        assert_eq!(decoded.texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(decoded.texture_descriptor.mip_level_count, 3);
+        assert_eq!(decoded.data.as_ref().unwrap().len(), (6 * 6 + 3 * 3 + 1) * 4);
+
+        // Multi-mip DXT1 cube decoded to RGBA8 when BC compression is unavailable.
+        let mut dxt1_cube = dds(b"DXT1", 8, 8, &[0x55; (4 + 1 + 1 + 1) * 8 * 6]);
+        dxt1_cube[8..12].copy_from_slice(&0x21007u32.to_le_bytes());
+        dxt1_cube[28..32].copy_from_slice(&4u32.to_le_bytes());
+        dxt1_cube[108..112].copy_from_slice(&0x0040_1008u32.to_le_bytes());
+        dxt1_cube[112..116].copy_from_slice(&0xFE00u32.to_le_bytes());
+        let decoded_cube = super::dds_cube_image(&dxt1_cube, true, false).unwrap();
+        assert_eq!(decoded_cube.texture_descriptor.format, TextureFormat::Rgba8UnormSrgb);
+        assert_eq!(decoded_cube.texture_descriptor.mip_level_count, 4);
+        assert_eq!(decoded_cube.data.as_ref().unwrap().len(), expected_cube);
+
+        // Multi-layer array image via checked_image_layers.
+        let expected_layers = (8 * 8 + 4 * 4 + 2 * 2 + 1) * 4 * 3;
+        let arr = super::checked_image_layers(8, 8, 4, 3, TextureFormat::Rgba8Unorm, vec![0; expected_layers]).unwrap();
+        assert_eq!(arr.texture_descriptor.mip_level_count, 4);
+        assert_eq!(arr.texture_descriptor.size.depth_or_array_layers, 3);
+        assert_eq!(arr.data.as_ref().unwrap().len(), expected_layers);
+
+        // Truncated (mip-0 only) and overlong buffers are rejected cleanly with Err.
+        assert!(super::checked_image(16, 16, 5, TextureFormat::Rgba8Unorm, vec![0; 16 * 16 * 4]).is_err());
+        assert!(super::checked_image(16, 16, 5, TextureFormat::Rgba8Unorm, vec![0; expected_2d + 1]).is_err());
     }
 }
 

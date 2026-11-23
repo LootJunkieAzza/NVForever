@@ -65,6 +65,25 @@ Authored core and CPU pose regressions exercise this mapping; their execution
 and an installed-profile replay are recorded separately. No model visibility
 override or suppressed readiness warning is part of this change.
 
+[design: #2862, `player_body.rs`, `pipboy_arm.rs`, `anim_blend.rs`] When the
+built-in Pip-Boy arm clip is active (`pip.on_arm() && pip.warming.is_none()`,
+outside the Esc pause menu) while the virtual world clock is held
+(`--menu-pause original`), first-person seam smoothing also advances by the
+menu frame time (`PlayClock::frame_secs`) without ticking ordinary world/weapon
+clips or skipped script-sequence fades. Otherwise a frame without a new script
+tick (including `--no-scripts`, render frames between script ticks, and
+lowering transitions) leaves `Animator::last_dt == 0`, causing `Seams::smooth`
+to copy the pre-menu arms-down pose over the raised Pip-Boy when the player's
+hands were empty or holstered. Hidden warm-up poses evaluate unsmoothed
+(`Animator::pose_unsmoothed`) so they neither freeze on `last_dt == 0` nor
+overwrite live seam history, and retain `WarmUnculled`/`NoFrustumCulling` across
+consecutive warm frames until warming finishes or aborts (preventing a
+same-frame deferred-remove race between `restore_warm_pose` and `draw_warm_pose`
+that culled the rig behind the camera on alternating warm frames and triggered
+the zero-submission readiness cap). `requeue_raise` also refreshes retained
+mesh bins once on entering `Phase::Up`, and `show_rigs` keeps the first-person
+root's ECS `Visibility` synchronized with `Rig::shown`.
+
 - **The clip** [observed]: `pipboy.kf` is one sequence `Pipboy`, 0.7333 s, clamped, with
   text keys `start` 0, `Blend: 8` 0.033, `Hit` 0.333, `end` 0.733. It drives
   `Camera1st` (a small move, no turn) and both arms from the spine out. Measured on the
@@ -592,18 +611,21 @@ is the top left 85 × 92 of `head.dds`) [observed].
     and RadX (2) (default-objects.md §1), else the Editor IDs `Stimpak`, `NVDoctorBag`,
     `RadAway`, `RadX` [observed: FalloutNV.esm's list names those four, so nothing changes
     with the shipped data; ESM full audit 2026-10-24].
-    **Using them on CND** (built 2026-10-23, owner's request) [design]: S or a click
-    on the Stimpak hint uses one on the body, or on the limb chosen (keys 1-6: head,
-    torso, left arm, right arm, left leg, right leg; the same key again the body; the
-    pointer on a limb's bar chooses it while there, and a click on the bar uses a
-    Stimpak on that limb); E or the Doctor's Bag hint uses one on every limb. An item is
-    not used when it would not heal: a Stimpak on the body at full health, on a limb
-    that is whole, a Stimpak on a limb in Hardcore mode (it mends no limb there
+    **Using them on CND** (built 2026-10-23, owner's request; updated for Hardcore limb
+    selection, #3431) [design]: S or a click on the Stimpak hint uses one on the body, or on
+    the limb chosen (keys 1-6: head, torso, left arm, right arm, left leg, right leg; the
+    same key again the body; the pointer on a limb's bar chooses it while there, and a click
+    on the bar, word or picture uses a Stimpak on that limb outside Hardcore, or a Doctor's
+    Bag on that limb in Hardcore); E or the Doctor's Bag hint uses one on every limb outside
+    Hardcore, and in Hardcore on the limb hovered or chosen (or every limb when none is
+    aimed). An item is not used when it would not heal: a Stimpak on the body at full health,
+    on a limb that is whole, a Stimpak on a limb in Hardcore mode (it mends no limb there
     [observed: FalloutNV.esm help text, "In Hardcore Mode, a Doctor's Bag or an actual
-    doctor is required"]), a Doctor's Bag with no limb hurt, or none carried
-    (`model::refusal`). The chosen or pointed-at limb's bracket is boxed. The item is
-    taken, its consume sound plays and the runtime uses it as the inventory does
-    (`stats::use_hints`); what it does to the limbs: aid-items.md §3.
+    doctor is required"]), a Doctor's Bag on a limb that is whole, or on the body with no
+    limb hurt, or none carried (`model::refusal`). The chosen or pointed-at limb's bracket
+    is boxed (on both hand-built and tile-drawn pages). The item is taken, its consume sound
+    plays and the runtime uses it as the inventory does (`stats::use_hints`); what it does
+    to the limbs: aid-items.md §3.
     [design: `engine/nvf-play/src/pipboy/stats/mod.rs`, `stats/read.rs`, `pad.rs`;
     #1898] The middle hint uses `sSwitchLimbs` through `ui_loading::game_string`,
     with the repository's string table as fallback (NVForever's own label) [design:
@@ -1026,7 +1048,7 @@ rads [observed: the runs, 0, then 450; hypothesis: a need's on its own page], `u
 | `stats_player_<part>_pct_meter/_Value` | the limb's condition as a fraction [observed: the runs, 1, 0.40, 0] | `Snapshot::limbs`. The file shows the bar or the `_crippled` word from it [documented: the file; observed: the runs] |
 | `stats_player_<part>/filename` | the limb's picture, "_broken" at 0 [observed: the runs, `left_leg_broken.dds`, `head.dds`] | `stats::boy_picture` |
 | `stats_player_face/filename` | `face_00.dds` always [observed: at 1 and 0.40; when others show is not known] | `stats::BOY_FACE` |
-| `stats_player_<part>_pct/target`, `_crippled/target` | true: the Stimpak's click on a limb [owner 2026-10-23]; the file gives only the picture one, while the meter is under 1 | a click is `StatsTile::Limb`, `UseHint`, and so is one on the picture or, over the head, the face [observed: the runs, id 24] |
+| `stats_player_<part>_pct/target`, `_crippled/target` | true: the limb healing click on CND (Stimpak outside Hardcore [owner 2026-10-23], Doctor's Bag in Hardcore [#3431]); the file gives only the picture one, while the meter is under 1 | a click is `StatsTile::Limb`, `UseHint`, and so is one on the picture or, over the head, the face [observed: the runs, id 24] |
 | `stats_player_name/string` | "<name> - <`sStatsLVLAbbrev`> <level>": the hand-built page's "Level" is off the original's screen, so the setting's word | `Snapshot` |
 | hint `button_text/string` | a count in parentheses when some are carried, the item's name from its record | `model::hint_text`, `Hints` |
 | hint `_PCButtonText` | the key: `sPCMenuHintS`, `E`, `A`, `X`, with a controller the button's | `pad::game_hint` |
@@ -1042,7 +1064,8 @@ rads [observed: the runs, 0, then 450; hypothesis: a need's on its own page], `u
 The arrow's place is the file's from the root's two values [observed: the runs: the zero-to-full span
 over `user2`]. `stats_healing_mode` is the file's, a controller's only [documented: the file]; hidden, it
 keeps a box's height over the bag's hint [observed: the runs, the bag's y 114], so with no words of its own
-its text holds a space to be measured [design].
+its text holds a space to be measured, or `sSwitchLimbs` when present so it displays and cycles limbs
+(`StatsTile::SwitchLimbs`) when shown with a controller [design: #3431].
 
 **Pictures' sizes**, on every tab: `filewidth` and `fileheight` of each picture under the menu, its file's
 texels times its zoom, written for the file it shows (`write_file_sizes`), as the file works from them
@@ -1053,11 +1076,14 @@ none [design].
 
 **The six buttons** are the tabs' prefab, so they get `write_tabs`' marks (`mark_inner_rects`): unmarked each
 inner rect stands twice as far down, its words hidden and over the next button.
-Input: `StatsTile::Sub`, `Hint`, `Limb`, and hover gives `StatsView::hover` for `aimed()`.
+Input: `StatsTile::Sub`, `Hint`, `SwitchLimbs`, `Limb`, and hover gives `StatsView::hover` for `aimed()`
+(an unmoved pointer on a limb does not reclaim a limb chosen by keyboard/controller, matching the hand-built
+page's `keep_limb`).
 
-**Lost behind the switch**, for the maintainer to accept: the hand-built page's box on a limb
-pointed at or chosen by a key has no tile, so a limb chosen by 1 to 6 still aims the Stimpak but shows
-nothing; a dim hint gives no click, so no refusal's sound or log line from it.
+**Selection box and dim hints** [design: #3431]: when a limb is hovered or chosen on CND (`StatsView::aimed`),
+the tile page frames that limb's bar (`_pct`) or `"Crippled"` word (`_crippled`) with a four-edge `Look::Box`
+appended to `pieces` after `usable` (no extra tile, zero pieces added when no limb is aimed). **Lost behind
+the switch**, for the maintainer to accept: a dim hint gives no click, so no refusal's sound or log line from it.
 
 **Left out**: the rad effects' row (`stats_rad_effects_template`, `stats_rad_effects_bracket`), a label
 and a column per effect at high rads and on the needs' pages [observed: the runs]: the hand-built page has
@@ -2297,3 +2323,27 @@ still need runtime checks after this review revision.
 - [hypothesis] Original-game clipping of nested grandchildren inside a `<clips>` list
   row and full installed-profile visual verification remain unqualified without an
   original-game capture.
+
+### Restructured container & `<hotrect>` scrollbar fallbacks (`InventoryMenu`, `MapMenu`)
+
+- [design] `InventoryMenu` and `MapMenu` resolve required and written tiles by exact
+  vanilla path first (`Ui::find_tile`) so unmodded menu files behave identically, and
+  fall back segment-by-segment to direct child or live descendant search under each
+  enclosing container (`tiles::stats_menu::resolve_tile`) when a UI overhaul wraps a
+  tile (such as `IM_ItemIcon`, `IM_ModButton`, or `MM_QuestObjectivesList`) inside an
+  extra container `<rect>`. Scoping each segment to the previously resolved container
+  keeps generic child names (`button_text`, `CI_TitleText`, scrollbar pieces) from
+  matching sibling subtrees, and still rejects menus where a required tile is absent.
+- [design] `InventoryMenu::built` checks `IM_InventoryListTemplate`'s
+  `IM_Template_ItemMarker` as `<image>` first (vanilla), falling back to `<rect>` when
+  a modded row template implements the equipped marker as a composite `<rect>` container
+  (the adapter only writes `visible` on `IM_Template_ItemMarker`).
+- [design] `tiles::layout::tile_box` evaluates a single live tile's laid-out rectangle,
+  inherited clip window, and ancestor-propagated visibility using the same ancestor walk
+  as `tiles::layout::layout`, including `<hotrect>` containers that `layout` does not
+  emit as drawable pieces. `MapMenu::pane_window`, `MapMenu`'s scrolling text-scrollbar
+  marker visibility check, and `tiles::list::marker_grab_on` read `tile_box` so modded
+  `list_box.xml` / `scrollbar_vert.xml` layouts that declare `lb_scrollbar` or
+  `scrollbar_vert_marker` as `<hotrect>` containers stay on the tile tree without
+  falling back to hand-drawn pages.
+

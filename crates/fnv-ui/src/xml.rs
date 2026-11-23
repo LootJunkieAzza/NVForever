@@ -131,8 +131,21 @@ pub fn parse(src: &str) -> Doc {
             let name = p.take_while(name_char);
             let (attrs, empty) = p.attributes(line);
             let el = Element { name, attrs, children: Vec::new(), line };
+            let missing_slash_at = if too_deep == 0
+                && !empty
+                && el.attrs.is_empty()
+                && !is_container(&el.name)
+                && !el.is("include")
+                && !is_operator(&el.name)
+            {
+                open_trait_for_missing_slash(&stack, &el.name)
+            } else {
+                None
+            };
             if too_deep > 0 {
                 too_deep += usize::from(!empty);
+            } else if let Some(at) = missing_slash_at {
+                close_missing_slash(&mut stack, at, &el.name, line, &mut p.warnings);
             } else if !empty && stack.len() > MAX_DEPTH {
                 p.warn(line, &format!("<{}> is nested more than {MAX_DEPTH} deep; left out with what is in it", el.name));
                 too_deep = 1;
@@ -159,11 +172,87 @@ pub fn parse(src: &str) -> Doc {
         }
     }
     while stack.len() > 1 {
-        let el = stack.pop().unwrap();
+        let mut el = stack.pop().unwrap();
         p.warnings.push(format!("line {}: <{}> not closed at the end of the file", el.line, el.name));
-        stack.last_mut().unwrap().children.push(Node::Element(el));
+        let hoisted = if !is_container(&el.name) && !el.is("include") {
+            take_trailing_non_operators(&mut el)
+        } else {
+            Vec::new()
+        };
+        let parent = stack.last_mut().unwrap();
+        parent.children.push(Node::Element(el));
+        parent.children.extend(hoisted);
     }
     Doc { nodes: stack.pop().unwrap().children, warnings: p.warnings }
+}
+
+fn is_container(name: &str) -> bool {
+    crate::tree::TILE_KINDS.iter().any(|k| name.eq_ignore_ascii_case(k)) || name.eq_ignore_ascii_case("template")
+}
+
+fn is_operator(name: &str) -> bool {
+    crate::expr::OpKind::from_tag(name).is_some()
+}
+
+fn has_non_blank_nodes(nodes: &[Node]) -> bool {
+    nodes.iter().any(|n| match n {
+        Node::Text(t) => !t.trim().is_empty(),
+        Node::Entity(_) | Node::Element(_) => true,
+    })
+}
+
+/// Finds an open trait on `stack` with the same name as a repeated attributeless start
+/// tag `<T>` when only operators (if any) are open inside it and the trait already holds
+/// non-blank content [hypothesis: menu XML prefabs sometimes omit `/` on a closing trait
+/// tag (`<height><copy .../><height>`), and closing the open trait keeps subsequent
+/// traits and child tiles on the enclosing tile; menu-xml.md §1.1].
+fn open_trait_for_missing_slash(stack: &[Element], name: &str) -> Option<usize> {
+    for k in (1..stack.len()).rev() {
+        let open = &stack[k];
+        if open.name.eq_ignore_ascii_case(name) {
+            let parent_is_container = k == 1 || is_container(&stack[k - 1].name);
+            return (parent_is_container && has_non_blank_nodes(&open.children)).then_some(k);
+        }
+        if !is_operator(&open.name) {
+            return None;
+        }
+    }
+    None
+}
+
+fn close_missing_slash(stack: &mut Vec<Element>, at: usize, name: &str, line: u32, warnings: &mut Vec<String>) {
+    while stack.len() > at {
+        let el = stack.pop().unwrap();
+        if stack.len() == at {
+            warnings.push(format!("line {line}: <{name}> closes open <{}> (line {}); missing '/'", el.name, el.line));
+        } else {
+            warnings.push(format!("line {line}: <{}> (line {}) closed by <{name}>", el.name, el.line));
+        }
+        stack.last_mut().unwrap().children.push(Node::Element(el));
+    }
+}
+
+/// Detaches contiguous trailing non-operator elements from an implicitly closed trait or
+/// operator element when non-blank content precedes them [hypothesis: when an author omits
+/// `</trait>` before a following sibling trait, tile, include or template inside a tile,
+/// hoisting those trailing elements preserves them on the enclosing tile; menu-xml.md §1.1].
+fn take_trailing_non_operators(el: &mut Element) -> Vec<Node> {
+    let mut cut = el.children.len();
+    let mut saw_element = false;
+    for (idx, node) in el.children.iter().enumerate().rev() {
+        match node {
+            Node::Text(t) if t.trim().is_empty() => {}
+            Node::Element(child) if !is_operator(&child.name) => {
+                cut = idx;
+                saw_element = true;
+            }
+            _ => break,
+        }
+    }
+    if !saw_element || !has_non_blank_nodes(&el.children[..cut]) {
+        return Vec::new();
+    }
+    el.children.split_off(cut).into_iter().filter(|n| matches!(n, Node::Element(_))).collect()
 }
 
 /// An end tag closes the innermost open element of the name it gives (and those opened
@@ -178,12 +267,21 @@ fn close(stack: &mut Vec<Element>, name: &str, line: u32, warnings: &mut Vec<Str
         return;
     }
     let at = (1..stack.len()).rev().find(|&k| stack[k].name.eq_ignore_ascii_case(name)).unwrap_or(stack.len() - 1);
+    let closing_enclosing_container = at < stack.len() - 1 && is_container(&stack[at].name);
     while stack.len() > at {
-        let el = stack.pop().unwrap();
+        let mut el = stack.pop().unwrap();
+        let implicit = stack.len() > at;
         if !el.name.eq_ignore_ascii_case(name) {
             warnings.push(format!("line {line}: <{}> (line {}) closed by </{name}>", el.name, el.line));
         }
-        stack.last_mut().unwrap().children.push(Node::Element(el));
+        let hoisted = if implicit && closing_enclosing_container && !is_container(&el.name) && !el.is("include") {
+            take_trailing_non_operators(&mut el)
+        } else {
+            Vec::new()
+        };
+        let parent = stack.last_mut().unwrap();
+        parent.children.push(Node::Element(el));
+        parent.children.extend(hoisted);
     }
 }
 
@@ -466,5 +564,77 @@ mod tests {
     fn latin1_fallback() {
         assert_eq!(decode(&[b'a', 0xE9]), "a\u{e9}");
         assert_eq!(decode(&[0xEF, 0xBB, 0xBF, b'x']), "x");
+    }
+
+    #[test]
+    fn missing_slash_on_repeated_trait_closes_and_preserves_siblings() {
+        // Synthetic control: repeated attributeless trait start tags `<_offset> 20 <_offset>`
+        // and `<height><copy .../><height>` close the open trait instead of swallowing
+        // subsequent traits and child tiles.
+        let src = r#"<rect name="Panel">
+            <_offset> 20 <_offset>
+            <height><copy src="screen()" trait="height"/><height>
+            <x> 12 </x>
+            <text name="Label"><string>ok</string></text>
+        </rect>"#;
+        let d = parse(src);
+        let r = el(&d.nodes[0]);
+        let names: Vec<_> = r.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["_offset", "height", "x", "text"]);
+        assert_eq!(el(&r.children[1]).children, vec![Node::Text(" 20 ".into())]);
+        assert!(d.warnings.iter().any(|w| w.contains("<_offset> closes open <_offset>") && w.contains("missing '/'")), "{:?}", d.warnings);
+        assert!(d.warnings.iter().any(|w| w.contains("<height> closes open <height>") && w.contains("missing '/'")), "{:?}", d.warnings);
+    }
+
+    #[test]
+    fn unclosed_trait_hoists_trailing_sibling_traits_and_tiles_on_container_close() {
+        // Synthetic control: omitted `</alpha>` before `<brightness>` and a child tile
+        // hoists those non-operator siblings onto the enclosing container without
+        // disturbing explicitly closed traits that contain unknown operator tags.
+        let src = r#"<image name="Gauge">
+            <alpha>
+                <copy> 0 </copy>
+                <add> 128 </add>
+                <brightness> 200 </brightness>
+                <rect name="Child"><x> 4 </x></rect>
+        </image>
+        <rect name="Explicit">
+            <_flag><copy> 1 </copy><unknown_op> 2 </unknown_op></_flag>
+        </rect>"#;
+        let d = parse(src);
+        let els: Vec<_> = d.nodes.iter().filter_map(|n| match n {
+            Node::Element(e) => Some(e),
+            _ => None,
+        }).collect();
+        let img = els[0];
+        let img_names: Vec<_> = img.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(img_names, ["alpha", "brightness", "rect"]);
+        let alpha_ops: Vec<_> = img.elements().next().unwrap().elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(alpha_ops, ["copy", "add"]);
+        // Explicitly closed trait retains unknown inner tag for ops_of to warn on as before.
+        let explicit_flag = els[1].elements().next().unwrap();
+        let flag_kids: Vec<_> = explicit_flag.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(flag_kids, ["copy", "unknown_op"]);
+    }
+
+    #[test]
+    fn unclosed_chained_traits_and_eof_fragment_hoist_without_affecting_nested_operators() {
+        let chained = r#"<rect name="Box"><alpha> 120 <brightness> 240 <width> 64 </width></rect>"#;
+        let d = parse(chained);
+        let r = el(&d.nodes[0]);
+        let names: Vec<_> = r.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["alpha", "brightness", "width"]);
+        // Top-level prefab fragment closed at EOF.
+        let eof = r#"<alpha> 90 <brightness> 180 </brightness>"#;
+        let d2 = parse(eof);
+        let top_names: Vec<_> = d2.nodes.iter().filter_map(|n| match n {
+            Node::Element(e) => Some(e.name.as_str()),
+            _ => None,
+        }).collect();
+        assert_eq!(top_names, ["alpha", "brightness"]);
+        // Nested operators of the same name are untouched by missing-slash closing.
+        let nested_op = r#"<rect name="Calc"><x><add> 1 <add> 2 </add></add></x></rect>"#;
+        let d3 = parse(nested_op);
+        assert!(d3.warnings.is_empty(), "{:?}", d3.warnings);
     }
 }

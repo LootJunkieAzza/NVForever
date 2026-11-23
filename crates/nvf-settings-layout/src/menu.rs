@@ -205,6 +205,9 @@ mod tests {
         assert_eq!(crate::needs("vats-slowdown")[0].choices, ["Classic"]);
         let r = Rule::of(crate::needs("shadow-distance")[0], |w| format!("<{w}>"));
         assert_eq!((r.parent.as_str(), r.choices.len(), r.why.as_str()), ("sun-shadows", 0, "<Needs Sun Shadows.>"));
+        assert_eq!(crate::needs("tweak-revive-on-cell-change")[0].parent, "tweak-revive-companions");
+        assert_eq!(crate::needs("tweak-no-self-explosion-non-hostiles")[0].parent, "tweak-no-self-explosion-damage");
+        assert_eq!(crate::needs("tweak-grabbing-is-theft-min-value")[0].parent, "tweak-grabbing-is-theft");
         // Every rule names placed rows (a Controls row by its table name).
         let placed = |k: &str| crate::SECTIONS.iter().any(|s| s.keys.contains(&k));
         for (row, parent, _) in crate::SHOWN_WITH {

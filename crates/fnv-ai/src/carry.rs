@@ -788,6 +788,10 @@ pub struct Ai {
     /// player's nearest approach to the lead's point so far and when it last grew
     /// nearer, so that a walk that gets no nearer (something solid in the way) ends.
     lead_progress: BTreeMap<FormId, (f32, f64)>,
+    /// When each actor's latest conversation from a Dialogue package ended (game
+    /// seconds): it does not walk the player into its trigger location again for
+    /// [`LEAD_AGAIN_SECONDS`] after it (#3464).
+    talk_ended: BTreeMap<FormId, f64>,
     /// Progress a loaded save kept, by actor, until the actor takes up that package again
     /// ([`crate::progress`]).
     pub(crate) restored: BTreeMap<FormId, crate::progress::Progress>,
@@ -866,7 +870,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, closing_doors: Vec::new(), locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, closing_doors: Vec::new(), locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), talk_ended: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -1228,6 +1232,8 @@ impl Ai {
     /// Prospector Saloon after VMS16's MoveTo to the gas station, owner playtest].
     pub fn relocate(&mut self, game: &mut Game, actor: FormId) {
         let Some(place) = goal::place_of_ref(game, actor) else { return };
+        // From the new place a package set aside as out of reach may be reachable (#3472).
+        game.unblock_packages_of(actor);
         let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
         self.script_moved.insert(actor, game.time);
         self.set_using(game, actor, None);
@@ -1894,6 +1900,9 @@ impl Ai {
                         self.face(game, actor, t, dt);
                     }
                 } else {
+                    if talk.target == FormId::PLAYER_REF {
+                        self.talk_ended.insert(actor, game.time);
+                    }
                     self.talk_done(game, actor);
                     self.log(game, actor, AiEvent::TalkOver { package });
                 }
@@ -1930,7 +1939,15 @@ impl Ai {
                 // (`Game::player_lead`) and the conversation opens there [hypothesis:
                 // when the walk starts, and that it ends inside the location;
                 // docs/spec-notes/packages.md §3].
-                let leads = on_the_spot && talk.control_target && talk.target == FormId::PLAYER_REF && talk.trigger.has_room(game);
+                // Not again soon after a conversation with the same actor [our choice,
+                // #3464]: Harland's room in the REPCONN basement has a trigger on the way
+                // out that calls ResetAI on him (REPCONHarlandResetTrigger), and with an
+                // activate distance of 1200 his package, taken up afresh, walked the
+                // player straight back into the doorway trigger and greeted again, every
+                // time: the player could not leave. Without the walk he talks where the
+                // player stands, once (its end script then holds the doorway's evp).
+                let recent = self.talk_ended.get(&actor).is_some_and(|&t| game.time - t < LEAD_AGAIN_SECONDS);
+                let leads = on_the_spot && talk.control_target && talk.target == FormId::PLAYER_REF && talk.trigger.has_room(game) && !recent;
                 if near && triggered {
                     self.talk_start(game, actor, package, &talk, away);
                 } else if near && leads {
@@ -3547,6 +3564,11 @@ fn nearest_point(route: &Route, feet: Place) -> usize {
 /// nearer its point before the actor talks where the player stands
 /// ([`Ai::lead_player`]) [our choice].
 pub const LEAD_STUCK_SECONDS: f64 = 1.5;
+
+/// How long after a conversation from a Dialogue package its actor does not walk the
+/// player into its trigger location again ([`Ai::lead_player`], #3464) [our choice:
+/// longer than a walk out of a room; observer check 280 asks what the original does].
+pub const LEAD_AGAIN_SECONDS: f64 = 30.0;
 
 /// How much nearer the point counts as progress on that walk, in units [our choice].
 const LEAD_GAIN: f32 = 8.0;

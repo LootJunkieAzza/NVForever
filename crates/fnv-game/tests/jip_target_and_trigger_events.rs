@@ -362,3 +362,38 @@ fn target_and_trigger_events_run_newest_first() {
     assert_eq!((aux_flt(&mut g, "*ord_t", 0), aux_flt(&mut g, "*ord_t", 1)), (2.0, 1.0));
     assert_eq!((aux_flt(&mut g, "*ord_g", 0), aux_flt(&mut g, "*ord_g", 1)), (2.0, 1.0));
 }
+
+#[test]
+fn publish_pad_triggers_sanitizes_non_finite_values_and_drives_jip_keys_edges() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    q(
+        &mut g,
+        "SetOnTriggerDownEventHandler LtDownUdf 1 0\n\
+         SetOnTriggerDownEventHandler RtDownUdf 1 1\n\
+         SetOnTriggerUpEventHandler LtUpUdf 1 0\n\
+         SetOnTriggerUpEventHandler RtUpUdf 1 1",
+    );
+
+    // Non-finite and negative inputs clamp cleanly to 0.0 without firing.
+    g.publish_pad_triggers(f32::NAN, -0.5);
+    assert_eq!(g.jip2.told.pad.triggers, [0.0, 0.0]);
+    g.tick();
+    assert_eq!((global(&g, LT_DOWN), global(&g, RT_DOWN)), (0.0, 0.0));
+
+    // publish_pad_triggers clamps >1.0 to 1.0 and defers dispatch until Game::jip_keys on tick.
+    g.publish_pad_triggers(1.5, 0.05);
+    assert_eq!(g.jip2.told.pad.triggers, [1.0, 0.05]);
+    assert_eq!(global(&g, LT_DOWN), 0.0, "publish_pad_triggers does not dispatch before tick");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetLeftTrigger)"), XVal::Num(1.0));
+    g.tick();
+    g.tick();
+    assert_eq!((global(&g, LT_DOWN), global(&g, RT_DOWN)), (1.0, 0.0));
+
+    // set_pad_triggers also sanitizes NaN / +inf and dispatches immediately without tick replay.
+    g.set_pad_triggers(f32::NAN, f32::INFINITY);
+    assert_eq!(g.jip2.told.pad.triggers, [0.0, 0.0]);
+    g.tick();
+    assert_eq!((global(&g, LT_UP), global(&g, RT_DOWN)), (1.0, 0.0));
+}

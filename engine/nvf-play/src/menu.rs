@@ -968,6 +968,26 @@ fn apply_input(
             });
             m.companion_carry = cap;
         }
+        // ShowOff:OnPreActivateInventoryItem / OnPreActivateInventoryItemAlt before
+        // inventory item equip/unequip/use (Enter/Space or click on the selected row).
+        let inv_activating = m.mode == Mode::Inventory
+            && m.quantity.is_none()
+            && match cmd {
+                Command::One => true,
+                Command::Select(side, idx) => m.focus == side && m.selected[side as usize] == idx,
+                _ => false,
+            };
+        if inv_activating {
+            let row = m.selected_row(m.focus).filter(|r| r.folder.is_none() && r.kind != Some(fnv_sim::forms::ItemKind::CaravanCard)).cloned();
+            if let (Some(row), Some(rt)) = (row, script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.has_pre_activate_inventory_handlers())) {
+                let allowed = crate::script::with_world(rt, &mut sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, row.item, 0, !row.equipped));
+                if !allowed {
+                    info!("menu: {cmd:?}: {} activation prevented by script", row.name);
+                    let _ = m.refresh(&mut sim.world);
+                    continue;
+                }
+            }
+        }
         // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
         if matches!(cmd, Command::One) && m.mode == Mode::Inventory {
             let item = m.selected_row(m.focus).filter(|r| !r.equipped && r.folder.is_none()).map(|r| r.item);

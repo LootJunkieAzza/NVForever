@@ -1371,6 +1371,37 @@ fn a_door_that_closed_the_way_opening_brings_the_package_back() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// #3472 (Rex in Jacobstown): a package set aside as out of reach comes back the moment a
+/// script puts the actor somewhere else, not an hour later: here the way to its place is
+/// shut by a locked door, and a scripted door puts the actor on the far side.
+#[test]
+fn a_package_set_aside_comes_back_when_a_script_moves_the_actor() {
+    let mut f = fixture();
+    let actor = FormId(R_TRAVEL);
+    let door = FormId(M1);
+    f.refs.refs.get_mut(&door).unwrap().lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav.set_in_place_doors(vec![fnv_nav::InPlaceDoor {
+        door: M1, space: A, position: [200.0, 200.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0,
+        bounds: ([-4.0, -200.0, 0.0], [4.0, 200.0, 200.0]),
+    }], |_| Some(DoorLock { level: 255, key: None }));
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    s.run(1.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)));
+    assert!(s.game.extra.get(&actor).is_some_and(|e| e.package_blocked.contains_key(&FormId(P_TRAVEL_B))), "set aside");
+    s.run(5.0);
+    assert_eq!(s.feet(R_TRAVEL), START, "set aside, it stays");
+    // A script puts it in cell B, where its package's place is.
+    s.game.run_source("ScriptDoor.Activate TravellerRef", Default::default()).unwrap();
+    assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+    assert_eq!(s.ai.moved_by_scripts(&mut s.game), vec![(actor, true)]);
+    assert!(s.game.extra.get(&actor).is_none_or(|e| e.package_blocked.is_empty()), "the move lifts the block");
+    assert_eq!(s.game.extra.get(&actor).and_then(|e| e.current_package), Some(FormId(P_TRAVEL_B)), "chosen again at once");
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?} {:?}", s.feet(R_TRAVEL), s.events(R_TRAVEL));
+}
+
 /// A scripted door that does not let the actor through (its OnActivate block called no
 /// `Activate` for it, `fnv_game::npc_doors`) shuts the way as a lock does: asked as the
 /// actor comes near, it plans again without the door and, with no other way, sets the

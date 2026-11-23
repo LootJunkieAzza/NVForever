@@ -788,6 +788,38 @@ or the caller intended another behavior, remains open. Extend the owning surplus
 argument observer check with a query-only condition before claiming original-game
 parity; parsing this caller does not establish B42 Optics compatibility.
 
+### Mod-source declarations, braced call arguments, `TestExpr`, and aiming `anim_group` codes
+
+- **Aiming `anim_group` names** (`crates/fnv-script/data/encodings.json`): `AimUp` (18),
+  `AimDown` (19), `AimIS` (20), `AimISUp` (21), and `AimISDown` (22)
+  [documented: https://geckwiki.com/index.php?title=AnimGroups]. Both `PlayGroup` /
+  `IsAnimPlaying` bytecode parameters and `SetOnPlayGroupEventHandler` / `Game::anim_group_code`
+  share this table; vanilla master scripts do not use these codes so vanilla bytes are unchanged.
+- **Plain declarations with trailing words** (`compile/parse.rs`): [design] a non-initializing
+  declaration line (`int a`, `int a, b`) declares only the first word and any further words
+  explicitly separated by commas. Unseparated trailing words (such as a missing `=` before a
+  function call) are not declared as additional locals, preventing a function name from being
+  shadowed by a spurious local variable in later lines or lambdas.
+- **Inline declarations in `if`/`elseif`/`set` and assignments inside `TestExpr` / `let`**
+  (`compile/parse.rs`, `compile/gen.rs`, `compile/gen/x.rs`): [documented: Inline variable
+  declaration; TestExpr; Let] inline declarations (`if TestExpr ref r = …`, `if (int n = …) == 2`,
+  and nested inline declarations in a declaration initializer) declare the local and strip the
+  type keyword when lowering to extended expressions, and `TestExpr` / `let` accept `=` / `:=`
+  inside their whole-expression argument (`min = 0`).
+- **Braced call argument lists** (`compile/gen/x.rs`): `{expr}` was previously observed for one
+  argument (`call Fn {(BuildRef 0 n)}`, `call Fn {Quest.var}`, #2275). [hypothesis] Zero or more
+  space- or comma-separated arguments inside `{ … }` not followed by `=>` (`call Fn {a b}`,
+  `call Fn {a, b}`, `call Fn {}`) pass those expressions as arguments up to the callee's parameter
+  limit, while `{params} => expr` keeps its lambda grammar and an unclosed `{` still fails with
+  `syntax: missing }`. Original xNVSE runtime behavior for multi-argument braced lists remains to
+  be confirmed by a game compile probe.
+- **Preserved catalogue signatures**: `SetCritDam` remains unregistered pending the original-game
+  `GetCommandOpcode` capture in `docs/spec-notes/ext-last-core.md` §7; `IsAnimPlayingEx` (3
+  params, §9 above), `SetJohnnyOnRenderUpdateEventHandler` (3 params, `ext-script-runner.md` §6
+  and observer check 81), `PushActorNoRagdoll` (3 params, `jip-physics-13.md`), and
+  `GetReticleRange` (0 params in the GECK wiki export) keep their documented catalogue signatures
+  unchanged pending original-game parameter captures.
+
 ## 10. Open
 
 - The editor's error messages and refusals (G2).

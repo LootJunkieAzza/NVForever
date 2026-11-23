@@ -249,6 +249,11 @@ words (§8) are NVForever's own and are shown in the chosen language (`lang/READ
   at 600, 20 under the header; a line 10 under it as long as the text is wide; the list 10
   under that, 700 wide, 12 rows, each "> " and the item's text; at the bottom 30 above the
   edge a ">" prompt and, 34 right of it, the last result text.
+- Blank lines in the welcome text (`DESC`) and in a note body each take one row of line
+  height (`LINE`, 25 units) rather than two (#3478) [hypothesis: screenshots of a
+  translated terminal in #3478 show roughly half NVForever's previous double-counted gap
+  between the welcome text and the separator; an original-game observer check of blank
+  welcome lines and first-page note row count is still open].
 - Items listed: those whose conditions hold, run on the terminal reference with the
   player as target [hypothesis: 244 of the conditions run on the subject, 115 on the
   linked reference, which only makes sense from the terminal]. The list is read again

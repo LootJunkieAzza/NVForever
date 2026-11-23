@@ -653,7 +653,7 @@ fn nif_forward_composes_with_the_authored_debug_defs_and_is_unchanged_without_th
                     assert!(declaration_difference(&declarations(&compose(&modules, entry, &defs)), &off).is_some(), "{key} {set:?}: the defs change no declaration");
                 }
                 // The march needs coordinates and tangents, independently of a normal map.
-                assert_eq!(composed.contains("1.0 - height"), uvs, "{key}: the march inverts the stored height");
+                assert_eq!(composed.contains("1.0 - clamp(height, 0.0, 1.0)"), uvs, "{key}: the march inverts the stored height, held to 0..1");
                 if !bindless {
                     assert_eq!(texture_bindings(&composed).contains(&(3, 11)), uvs, "{key}: the march reads the depth map");
                 }

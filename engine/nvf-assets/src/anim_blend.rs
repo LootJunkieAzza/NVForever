@@ -740,8 +740,38 @@ impl Animator {
         self.layers.retain(|layer| layer.ease > 0.0 || !layer.leaving);
     }
 
+    /// Advance only the final pose's seam-smoothing clock by `dt` seconds, without
+    /// ticking clip time, layer fades or the locomotion phase. Used when a device
+    /// animation (such as the Pip-Boy raise/lower clip on menu real time) drives its
+    /// layer directly while the virtual world clock is held [design: pipboy.md §2].
+    pub fn advance_seam_clock(&mut self, dt: f32) {
+        if dt.is_finite() && dt > 0.0 {
+            self.last_dt += dt;
+        }
+    }
+
     /// Blend the layers into [`Self::locals`].
     pub fn pose(&mut self) {
+        self.blend_layers();
+        self.seamed = self.wrapped && self.seams.is_some();
+        if let Some(s) = self.seams.as_mut() {
+            s.smooth(&mut self.locals, self.wrapped, self.jump_seam, self.last_dt);
+            // A pose asked for again without time passing is not a second seam.
+            (self.wrapped, self.jump_seam) = (false, false);
+        }
+    }
+
+    /// Blend the layers into [`Self::locals`] without running seam smoothing or
+    /// updating rotation-alignment history. Used for temporary hidden poses (such as
+    /// Pip-Boy warm-up) so they neither freeze on `last_dt == 0` nor disturb the
+    /// live animator's smoothing history [design: pipboy.md §2].
+    pub fn pose_unsmoothed(&mut self) {
+        let saved_rotations = self.last_rotations.clone();
+        self.blend_layers();
+        self.last_rotations = saved_rotations;
+    }
+
+    fn blend_layers(&mut self) {
         let skel = &self.skel;
         self.scratch.clear();
         for (li, l) in self.layers.iter_mut().enumerate() {
@@ -842,12 +872,6 @@ impl Animator {
             if posed.translation.is_finite() && posed.rotation.is_finite() && posed.scale.is_finite() {
                 self.locals[bone] = posed;
             }
-        }
-        self.seamed = self.wrapped && self.seams.is_some();
-        if let Some(s) = self.seams.as_mut() {
-            s.smooth(&mut self.locals, self.wrapped, self.jump_seam, self.last_dt);
-            // A pose asked for again without time passing is not a second seam.
-            (self.wrapped, self.jump_seam) = (false, false);
         }
     }
 
@@ -1650,5 +1674,69 @@ mod tests {
         // Bip01 held at the identity: B is at A (1, 0, 0) + (0, 2, 0).
         let m = a.model_space(3);
         assert!((m.translation - Vec3A::new(1.0, 2.0, 0.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn advance_seam_clock_moves_smoothed_pipboy_pose_without_ticking_ordinary_layers() {
+        let mut a = animator();
+        a.smooth_seams(Some(0.3));
+        let idle = clip(&[("A", [1.0, 0.0, 0.0], 10)], 2.0);
+        let pipboy = clip(&[("A", [9.0, 0.0, 0.0], 98)], 1.0);
+        a.begin();
+        a.want(&idle, 0, 1.0, Mode::Loop, 0.0);
+        a.end();
+        a.advance(0.1, 1.0);
+        a.pose();
+        assert!((a.locals[2].translation.x - 1.0).abs() < 1e-5);
+
+        // World clock held (dt = 0): without seam clock, smoothing freezes at shown (1.0).
+        a.begin();
+        a.want(&idle, 0, 1.0, Mode::Loop, 0.0);
+        let p = a.want(&pipboy, 90, 1.0, Mode::Once, 0.0);
+        a.layers[p].rate = 0.0;
+        a.layers[p].ease = 1.0;
+        a.end();
+        a.advance(0.0, 1.0);
+        a.pose();
+        assert!((a.locals[2].translation.x - 1.0).abs() < 1e-5, "zero dt holds shown pose");
+
+        // Advancing only the seam clock admits the raised pose without ticking idle time.
+        a.advance(0.0, 1.0);
+        a.advance_seam_clock(0.016);
+        a.pose();
+        assert!((a.locals[2].translation.x - 9.0).abs() < 1e-5, "smoothed pose reaches raised layer");
+        assert!((a.layers[0].time - 0.1).abs() < 1e-6, "ordinary idle clip stays held");
+    }
+
+    #[test]
+    fn pose_unsmoothed_ignores_zero_dt_and_preserves_seam_history() {
+        let mut a = animator();
+        a.smooth_seams(Some(0.3));
+        let idle = clip(&[("A", [1.0, 0.0, 0.0], 10)], 2.0);
+        let warm = clip(&[("A", [9.0, 0.0, 0.0], 98)], 1.0);
+        a.begin();
+        a.want(&idle, 0, 1.0, Mode::Loop, 0.0);
+        a.end();
+        a.advance(0.1, 1.0);
+        a.pose();
+        assert!((a.locals[2].translation.x - 1.0).abs() < 1e-5);
+
+        // Borrowed warm pose with last_dt == 0.0 must still evaluate the warm clip
+        // and leave seam history intact for the real frame.
+        a.advance(0.0, 1.0);
+        let saved_layers = a.layers.clone();
+        let saved_locals = a.locals.clone();
+        a.begin();
+        let p = a.want(&warm, 90, 1.0, Mode::Once, 0.0);
+        a.layers[p].ease = 1.0;
+        a.end();
+        a.pose_unsmoothed();
+        assert!((a.locals[2].translation.x - 9.0).abs() < 1e-5, "warm pose evaluates raw clip despite zero dt");
+        a.layers = saved_layers;
+        a.locals = saved_locals;
+
+        // Real frame on zero dt still shows the untouched pre-warm pose (1.0).
+        a.pose();
+        assert!((a.locals[2].translation.x - 1.0).abs() < 1e-5, "seam history was not overwritten by warm pose");
     }
 }

@@ -4025,6 +4025,20 @@ order = [[
 ]]
 
 [[scenario]]
+name = "bed-suitcase-target"
+source = "issue #3323 (simulation.md §5, crosshair activation): the Suitcase 0x000AFA24 lying on BedQueenRight 0x000D72C7 in BisonSteve02 is the target, not the bed whose render box (floor to headboard) encloses it: a bed's boxes are set aside when one wholly holds, along the ray, an activatable box entered before the first collision hit (pick::set_aside_enclosing) [design]"
+note = "FalloutNV.esm: the suitcase at (1623.07, -3061.47, 303.52) lying on its side, the bed at (1672.21, -3093.25, 285.01), turned ~0. At 25 s the player's feet go 75 units north of the suitcase (1623, -2986), onto the floor at 256.7 (the run of 2026-11-21), eye ~369 (112 over the feet); at 27 s the view looks south (180), 40 degrees down, the ray reaching the suitcase's height (303.5) at its middle (~100 units away; at 50 degrees, the first try, it passed in front of the suitcase into the bed's box at 82, by Bounds); a shot at 28.5 s (bed_suitcase.png) to check the aim; E at 30 s opens its container menu. Before the fix the bed, its box entered first along the ray, is the expected target at this pose (`target 0x000D72C7 ... (Activate)`), unconfirmed until the main session's run on a main build shows it. The north side is a guess from the coordinates: the pose counts as confirmed only when the same scenario fails on a main build (the bed targeted) and passes on this change (the suitcase's menu); if the shot shows a wall or the headboard in the way, move the point, do not loosen the lines. NVF_PLAY_TEST_PICK_LOG logs, with each new target, the raw first hit, each box the ray enters (entry-exit, rough, bed) and the boxes set aside: read it before changing the pose or the code"
+areas = ["activate", "furniture"]
+paths = ["engine/nvf-play/src/activate/pick.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "25:1623:-2986:330", NVF_PLAY_TEST_LOOK = "27:180:-40", NVF_PLAY_TEST_PICK_LOG = "1", NVF_PLAY_TEST_SHOTS = "28.5:bed_suitcase.png", NVF_PLAY_TEST_ACTIVATE = "30" }
+args = ["--cell", "BisonSteve02", "--play", "--no-voice"]
+run_seconds = 36
+order = [[
+  { re = 'target 0x000AFA24 Suitcase \(Open[^)]*\) by (Collision|Bounds)', label = "the crosshair on the suitcase lying on the bed" },
+  { text = 'menu: open Container(0x000AFA24) "Suitcase"', label = "E opens the suitcase" },
+]]
+
+[[scenario]]
 name = "actor-values"
 kind = "tool"
 source = "CLAUDE.md: after actor value changes, fnvtool actor values (docs/spec-notes/actor-values.md §3.1, §7)"
@@ -10350,6 +10364,19 @@ commands = [["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/
 expect = [
   { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "CaravanOffer" },
   { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "GOODBYE" },
+]
+
+[[scenario]]
+name = "goodbye-topic-unflagged"
+kind = "tool"
+source = "issue #3477: the GOODBYE topic's line ends the conversation when it is over without the Goodbye flag too, unless it leads on (fnv-game dialogue.rs ends_conversation; docs/spec-notes/dialogue.md §5). Keith (Aerotech Suite 200) says 0x0014E019, one of FalloutNV.esm's two unflagged GOODBYE lines; before, his topic list came back"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/dialogue.rs"]
+commands = [["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/keith-goodbye.actions.json", "{data}", "FalloutNV.esm"]]
+expect = [
+  { json = "events.?kind=choice_made.info", equals = "0x0014E019" },
+  { json = "events.?kind=choices_offered.actor", count = 1, label = "his topic list does not come back" },
+  { json = "events.?kind=dialogue_ended.reason", equals = "goodbye" },
 ]
 
 [[scenario]]
@@ -28933,10 +28960,57 @@ paths = ["engine/nvforever/src/effect_shaders.rs", "engine/nvforever/src/weapons
 args = ["--cell", "NVDLC01Lobby", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = [
-  { re = 'effect shader: NVDLC01HologramNeutral covers \d+ meshes of NVDLC01StarLobby', label = "the hologram's effect shader covers it" },
+  { re = 'effect shader: NVDLC01HologramNeutral covers \d+ meshes of NVDLC01StarLobby \(overlays on [1-9]', label = "the hologram's effect shader covers it, with overlays on its see-through body (#3017: 0 before)" },
   { re = 'actor alpha: NVDLC01StarLobby', label = "the hologram is drawn see-through" },
+  { text = "effect shader: NVDLC01HologramNeutral on NVDLC01StarLobby (fill and darkening edge, until stopped)", label = "#3017: the hologram's inverse edge darkens (flags 0x18 in the maintainer's decode)" },
 ]
-forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error" }]
+order = [[
+  { re = 'effect shader: NVDLC01HologramNeutral covers \d+ meshes of NVDLC01StarLobby', label = "the membrane covers the hologram" },
+  { re = 'effect shader: NVDLC01HologramNeutral on NVDLC01StarLobby fades with its actor to 0\.70 \([1-9]\d* overlays on \d+ meshes\)', label = "#3017: then its flicker to 0.70 fades the membrane with its overlays still live (the alpha changes 0.00/0.70/1.00 were logged in runs of 2026-11-20)" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { re = 'effect shader: NVDLC01Hologram\w+: fill texture .* not found', label = "#3017: a hologram colour's fill texture missing" },
+  { re = 'effect shaders by script on \S+: (?:\S+, )*NVDLC0[13]Hologram\w+, (?:\S+, )*NVDLC0[13]Hologram\w+', label = "#3017: two hologram colours on one hologram" },
+]
+
+[[scenario]]
+name = "dead-money-hologram-threat"
+source = "#3017 (effect-shaders.md §9): a hostile Sierra Madre casino hologram goes from blue to yellow when the player comes within 600 units, to red when its timer runs out with the player still in range (StartCombat), and back to yellow and blue when the player leaves; each step of its threat machine (NVDLC01HoloCasinoCodeHolderSCRIPT) stops the old colour before playing the new"
+note = "Data: CasinoHologramB 0x01006377 in NVDLC01Casino. God mode; MoveTo by the call aid (its line marks each move): 450 units at 8 s (yellow), 1500 units at 30 s (the retreat). Seen in a run of 2026-11-21 (combined build): yellow 0.3 s after the move, red about 7 s later by the code holder's timer (its StartCombat logs `fights the player`, checked on its own: the fight and the shaders' playback are separate producers), yellow about 7 s after the retreat, blue 7 s after that; this sequence is what the order wants. The set count (5: blue, yellow, red, yellow, blue) fails on any other set in between, a blue between the red and the retreat included."
+areas = ["effect-shaders", "scripts"]
+paths = ["engine/nvforever/src/effect_shaders.rs", "crates/fnv-game/src/functions/misc.rs"]
+args = ["--cell", "NVDLC01Casino", "--play", "--no-voice", "--no-messages"]
+run_seconds = 55
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "8:call:player:MoveTo:CasinoHologramB:450:0:0,30:call:player:MoveTo:CasinoHologramB:1500:0:0", NVF_PLAY_TEST_SHOTS = "6:holo_calm.png,12:holo_attention.png,24:holo_aggressive.png,40:holo_retreat_attention.png,50:holo_retreat_calm.png" }
+expect = [
+  { re = 'effect shaders by script on CasinoHologramB: ', max = 5, label = "five sets in all (blue, yellow, red, yellow, blue): none in between" },
+  { re = 'npc combat: CasinoHologramB \S+ fights the player', label = "step 2: its timer runs out with the player in range: StartCombat (the fight is set up apart from the shaders' playback, so it is not in the order)" },
+  { re = 'effect shader: NVDLC01HologramNeutral covers \d+ meshes of CasinoHologramB \(overlays on [1-9]', label = "the membrane is on the hologram's see-through body (#3017: 0 before)" },
+]
+order = [[
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramNeutral$', label = "calm before the first move: blue alone" },
+  { re = 'script: test aid calls MoveTo on ', label = "step 1: the player 450 units from it" },
+  { text = "effect shader: NVDLC01HologramNeutral on CasinoHologramB ends (stopped)", label = "step 1: blue stopped" },
+  { text = "effect shader: NVDLC01HologramAttention on CasinoHologramB (fill and darkening edge, until stopped)", label = "step 1: yellow" },
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramAttention$', label = "step 1: yellow alone" },
+  { text = "effect shader: NVDLC01HologramAttention on CasinoHologramB ends (stopped)", label = "step 2: yellow stopped" },
+  { text = "effect shader: NVDLC01HologramAggressive on CasinoHologramB (fill and darkening edge, until stopped)", label = "step 2: red" },
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramAggressive$', label = "step 2: red alone" },
+  { re = 'script: test aid calls MoveTo on ', label = "step 3: the player 1500 units away" },
+  { text = "effect shader: NVDLC01HologramAggressive on CasinoHologramB ends (stopped)", label = "step 3: red stopped" },
+  { text = "effect shader: NVDLC01HologramAttention on CasinoHologramB (fill and darkening edge, until stopped)", label = "step 3: yellow again" },
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramAttention$', label = "step 3: yellow alone" },
+  { text = "effect shader: NVDLC01HologramAttention on CasinoHologramB ends (stopped)", label = "step 3: yellow stopped" },
+  { text = "effect shader: NVDLC01HologramNeutral on CasinoHologramB (fill and darkening edge, until stopped)", label = "step 3: blue again" },
+  { re = 'effect shaders by script on CasinoHologramB: NVDLC01HologramNeutral$', label = "step 3: blue alone" },
+]]
+forbid = [
+  { re = 'effect shader: NVDLC01Hologram\w+: fill texture .* not found', label = "a hologram colour's fill texture missing" },
+  { re = 'effect shaders by script on \S+: (?:\S+, )*NVDLC0[13]Hologram\w+, (?:\S+, )*NVDLC0[13]Hologram\w+', label = "two hologram colours on one hologram" },
+  { re = 'effect shader: NVDLC01Hologram\w+ on CasinoHologramB fades with its actor to \S+ \(0 overlays', label = "the membrane off while the hologram flickers" },
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+]
 
 [[scenario]]
 name = "tiles-tag-menu"
@@ -35160,6 +35234,48 @@ run_seconds = 10
 expect = [
   { text = "test aid: aiming at 001767AB", label = "the view is turned to the key" },
   { re = 'target 0x001767AB .*\(Take', label = "the key on the shelf is the target, to take" },
+]
+
+[[scenario]]
+name = "game-parallax-vault34"
+source = "[design, #2979] docs/spec-notes/nif.md §6 \"Parallax height maps\", docs/spec-notes/pbr-materials.md \"The game's own height maps\": with authored materials off, Vault 34's shapes whose texture set names a height map (slot 3) with shader flag bit 11 draw it as a depth map; depth and method provisional [hypothesis] until observer check 265; a frame in target/smoke (game_parallax_vault34.png)"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/actor.rs", "engine/nvforever/src/effect_shaders.rs", "engine/vendor/bevy_pbr/src/render/parallax_mapping.wesl"]
+# The switches the counts depend on are pinned (depth, method, layers, alpha-tested), and authored sets are off, so every count is the game's own maps.
+env = { NVFOREVER_HOME = "game-parallax-home", NVF_GAME_PARALLAX_DEPTH = "0.015", NVF_PBR_PARALLAX_METHOD = "relief:4", NVF_PBR_PARALLAX_LAYERS = "8", NVF_PBR_PARALLAX_MASK = "0", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_LOOK = "6:0:-40", NVF_PLAY_TEST_SHOT_FLATNESS = "1", NVF_PLAY_TEST_SHOTS = "8:game_parallax_vault34.png" }
+args = ["--cell", "Vault34a", "--play", "--no-voice", "--no-messages", "--graphics-only", "no-authored-materials"]
+run_seconds = 14
+expect = [
+  "authored materials: off",
+  { text = "authored materials summary: off (setting)", count = 1 },
+  { re = 'game height maps summary: depth 0\.015 \(relief:4, 8 layers\); [1-9]\d* material builds draw a NIF.s own height map \(texture-set slot 3, shader flag 11\), 0 more had it replaced by an authored _p,', count = 1, label = "Vault 34's flagged shapes draw their slot-3 height maps (none replaced: authored sets off)" },
+  { re = 'game height maps summary: .*, 0 could not load it;', count = 1, label = "every slot-3 height map asked for loads" },
+  { re = 'test aid: game_parallax_vault34\.png: \d+ % of the view is one colour', count = 1, label = "the frame was captured" },
+  { re = 'Screenshot saved to .*game_parallax_vault34\.png', count = 1, label = "the frame was written" },
+]
+forbid = [
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The count is of material builds that still draw the game's map, not distinct shapes (a model built twice counts twice). Vault34a was chosen by probe runs of this branch (2026-11-22, authored materials off, the test install): 69 builds there; RepconHQ01, which the first version of this scenario used, has none [observed: our runs]."
+manual = "Open game_parallax_vault34.png beside game_parallax_vault34_flat.png (game-parallax-vault34-off): floors and rubble with height maps show relief, nothing else changes."
+
+[[scenario]]
+name = "game-parallax-vault34-off"
+source = "[design, #2979] docs/spec-notes/pbr-materials.md \"The game's own height maps\": the control of game-parallax-vault34: the game depth switch at 0 draws and loads no game height map"
+areas = ["renderer", "textures", "nif"]
+paths = ["engine/nvf-assets/src/authored.rs", "engine/nvf-assets/src/authored/", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_spawn/"]
+env = { NVFOREVER_HOME = "game-parallax-home", NVF_GAME_PARALLAX_DEPTH = "0", NVF_PBR_PARALLAX_METHOD = "relief:4", NVF_PBR_PARALLAX_LAYERS = "8", NVF_PBR_PARALLAX_MASK = "0", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_LOOK = "6:0:-40", NVF_PLAY_TEST_SHOT_FLATNESS = "1", NVF_PLAY_TEST_SHOTS = "8:game_parallax_vault34_flat.png" }
+args = ["--cell", "Vault34a", "--play", "--no-voice", "--no-messages", "--graphics-only", "no-authored-materials"]
+run_seconds = 14
+expect = [
+  "authored materials: off",
+  { text = "NVF_GAME_PARALLAX_DEPTH=0: the game's own height maps (slot 3, shader flag 11) are not drawn", count = 1 },
+  { re = 'test aid: game_parallax_vault34_flat\.png: \d+ % of the view is one colour', count = 1, label = "the frame was captured" },
+  { re = 'Screenshot saved to .*game_parallax_vault34_flat\.png', count = 1, label = "the frame was written" },
+  { re = 'game height maps summary: off \(NVF_GAME_PARALLAX_DEPTH=0\) \(relief:4, 8 layers\); 0 material builds draw a NIF.s own height map \(texture-set slot 3, shader flag 11\), 0 more had it replaced by an authored _p, 0 left it flat .*, 0 could not load it;', count = 1, label = "depth 0: no game height map drawn, left flat or loaded" },
+]
+forbid = [
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
 ]
 
 [[scenario]]

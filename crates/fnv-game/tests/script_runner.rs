@@ -40,9 +40,13 @@ fn fixture() -> Fixture {
     Fixture { data, forms, refs }
 }
 
-/// The Data folder of the run, written once per test process (the tests run in parallel).
-fn files() {
+/// Serialize process-global `mod_files::ROOTS` across tests in this integration binary.
+static ROOTS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The Data folder of the run, written once per test process.
+fn files() -> std::sync::MutexGuard<'static, ()> {
     use fnv_game::mod_files::{set_roots, Roots};
+    let guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("nvf-script-runner-{}", std::process::id()));
     static WRITE: std::sync::Once = std::sync::Once::new();
     WRITE.call_once(|| {
@@ -87,6 +91,7 @@ fn files() {
         std::fs::write(udfs.join("srprobe.txt"), "Begin Function { }\r\nSetFunctionValue (SRSize.AuxVarGetFlt \"*Shared\" 0)\r\nEnd\r\n").unwrap();
     });
     set_roots(Roots { read: vec![dir], ..Roots::default() });
+    guard
 }
 
 fn game(f: &Fixture) -> Game<'_> {
@@ -103,7 +108,7 @@ fn value(g: &mut Game, expr: &str) -> f64 {
 
 #[test]
 fn each_prefix_runs_at_its_moment() {
-    files();
+    let _guard = files();
     let f = fixture();
     let mut g = game(&f);
     let runs = g.run_script_runner(Moment::Restart);
@@ -129,7 +134,7 @@ fn each_prefix_runs_at_its_moment() {
 
 #[test]
 fn register_sr_script_takes_subfolder_files_once() {
-    files();
+    let _guard = files();
     let f = fixture();
     let mut g = game(&f);
     g.run_script_runner(Moment::Restart);
@@ -140,7 +145,7 @@ fn register_sr_script_takes_subfolder_files_once() {
 
 #[test]
 fn registered_files_last_for_the_session() {
-    files();
+    let _guard = files();
     let f = fixture();
     let mut g = game(&f);
     g.run_script_runner(Moment::Restart);
@@ -156,10 +161,145 @@ fn script_runner_files_and_compiled_scripts_share_private_aux_vars() {
     // [hypothesis: scripts compiled at run time have no plugin of their own; observed: MCM
     // Extender's gr_ file writes `*MCMExt_ModName`, its CompileScript'd handler reads it,
     // Begin Again list 2026-11-13]
-    files();
+    let _guard = files();
     let f = fixture();
     let mut g = game(&f);
     g.run_script_runner(Moment::Restart);
     assert_eq!(value(&mut g, "SRSize.AuxVarGetFlt \"*Shared\" 0"), 7.0, "a query reads it");
     assert_eq!(value(&mut g, "Call (CompileScript \"srprobe.txt\")"), 7.0, "so does a CompileScript'd function");
+}
+
+fn fresh_temp_dir(tag: &str) -> std::path::PathBuf {
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("nvf-sr-{tag}-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn exit_scripts_compile_wait_for_exit_run_once_in_order_and_flush_cached_ini() {
+    use fnv_game::mod_files::{set_roots, Roots};
+    let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let base = fresh_temp_dir("gx-flush");
+    let data = base.join("game/Data");
+    let layer = base.join("mods");
+    let scripts = data.join("NVSE/Plugins/Scripts");
+    std::fs::create_dir_all(scripts.join("optional")).unwrap();
+    std::fs::create_dir_all(&layer).unwrap();
+
+    // Seed an in-memory cached INI key during game restart (not written to disk yet)
+    // and register a subfolder exit script.
+    std::fs::write(
+        scripts.join("gr_seed.txt"),
+        "GetINIFloatOrCreate_Cached \"General:fExitFlushVal\" \"exit_cache_test.ini\" 42.5\r\n\
+         set SRRegistered to RegisterSRScript \"optional\\gx_late.txt\"\r\n",
+    )
+    .unwrap();
+    // Uppercase prefix sorts before gx_b.txt; RegisterSRScript outside Restart must return 0.
+    std::fs::write(
+        scripts.join("GX_a.txt"),
+        "set SROrder to SROrder * 10 + 1\r\n\
+         set SRLate to RegisterSRScript \"optional\\gx_other.txt\"\r\n",
+    )
+    .unwrap();
+    // Flush cached INI to disk and clear its cache entry on exit.
+    std::fs::write(
+        scripts.join("gx_b.txt"),
+        "set SROrder to SROrder * 10 + 2\r\n\
+         SaveCachedIni \"exit_cache_test.ini\"\r\n\
+         CloseFileSO \"exit_cache_test.ini\"\r\n",
+    )
+    .unwrap();
+    // Broken gx_ file is skipped without stopping neighboring or registered gx_ scripts.
+    std::fs::write(scripts.join("gx_broken.txt"), "set SROrder 99\r\n").unwrap();
+    std::fs::write(scripts.join("optional/gx_late.txt"), "set SROrder to SROrder * 10 + 3\r\n").unwrap();
+    std::fs::write(scripts.join("optional/gx_other.txt"), "set SROrder to SROrder * 10 + 9\r\n").unwrap();
+
+    set_roots(Roots { read: vec![layer.clone(), data.clone()], write: Some(layer.clone()), ..Roots::default() });
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Discovery and compilation include gx_ files alongside gr_ files.
+    let compiled = g.compile_script_runner();
+    let compiled_names: Vec<&str> = compiled.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(compiled_names, ["gr_seed.txt", "GX_a.txt", "gx_b.txt", "gx_broken.txt"]);
+    assert!(compiled.iter().find(|r| r.path == "GX_a.txt").unwrap().result.is_ok());
+    assert!(compiled.iter().find(|r| r.path == "gx_b.txt").unwrap().result.is_ok());
+    assert!(compiled.iter().find(|r| r.path == "gx_broken.txt").unwrap().result.is_err());
+
+    // Startup, new-game, and load stages must NOT run gx_ scripts.
+    g.run_script_runner(Moment::Restart);
+    g.run_script_runner(Moment::NewGame);
+    g.run_script_runner(Moment::Load);
+    assert_eq!(value(&mut g, "SRRegistered"), 1.0, "subfolder gx_ script registered during Restart");
+    assert_eq!(value(&mut g, "SROrder"), 0.0, "gx_ files must not run during Restart/NewGame/Load");
+    let flushed_ini = layer.join("Config/exit_cache_test.ini");
+    assert!(!flushed_ini.exists(), "cached INI must not be flushed to disk before exit");
+
+    // Exit stage runs folder gx_ files in name order, skips broken ones, runs registered gx_ files.
+    let runs = g.run_exit_scripts();
+    let run_names: Vec<&str> = runs.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(run_names, ["GX_a.txt", "gx_b.txt", "gx_broken.txt", "optional\\gx_late.txt"]);
+    assert!(runs.iter().filter(|r| r.path != "gx_broken.txt").all(|r| r.result.is_ok()), "{runs:?}");
+    assert!(runs.iter().find(|r| r.path == "gx_broken.txt").unwrap().result.is_err());
+    assert_eq!(value(&mut g, "SROrder"), 123.0, "GX_a (1), gx_b (2), registered optional\\gx_late (3)");
+    assert_eq!(value(&mut g, "SRLate"), 0.0, "RegisterSRScript does nothing during Moment::Exit");
+    assert!(flushed_ini.is_file(), "gx_b flushed cached INI synchronously to disk");
+    let ini_text = std::fs::read_to_string(&flushed_ini).unwrap();
+    assert!(ini_text.contains("42.5"), "persisted INI text should hold flushed value: {ini_text:?}");
+
+    // A fresh Game reads the flushed INI back from disk.
+    let mut g_next = game(&f);
+    assert_eq!(value(&mut g_next, "GetINIFloat \"General:fExitFlushVal\" \"exit_cache_test.ini\""), 42.5);
+
+    // Idempotent: a second exit call runs nothing and leaves state untouched.
+    let second = g.run_exit_scripts();
+    assert!(second.is_empty(), "repeated run_exit_scripts must be a no-op: {second:?}");
+    assert_eq!(value(&mut g, "SROrder"), 123.0);
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn registered_exit_scripts_survive_session_restore() {
+    use fnv_game::mod_files::{set_roots, Roots};
+    let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let base = fresh_temp_dir("gx-session");
+    let scripts = base.join("NVSE/Plugins/Scripts");
+    std::fs::create_dir_all(scripts.join("optional")).unwrap();
+    std::fs::write(scripts.join("gr_reg.txt"), "set SRRegistered to RegisterSRScript \"optional\\gx_kept.txt\"\r\n").unwrap();
+    std::fs::write(scripts.join("optional/gx_kept.txt"), "set SROrder to 77\r\n").unwrap();
+
+    set_roots(Roots { read: vec![base.clone()], ..Roots::default() });
+    let f = fixture();
+    let mut g = game(&f);
+    g.run_script_runner(Moment::Restart);
+    assert_eq!(value(&mut g, "SRRegistered"), 1.0);
+    let session = g.take_session();
+    let mut g2 = game(&f);
+    g2.put_session(session);
+    let runs = g2.run_exit_scripts();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].path, "optional\\gx_kept.txt");
+    assert!(runs[0].result.is_ok());
+    assert_eq!(value(&mut g2, "SROrder"), 77.0);
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn absent_exit_scripts_are_a_no_op() {
+    use fnv_game::mod_files::{set_roots, Roots};
+    let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let base = fresh_temp_dir("gx-absent");
+    set_roots(Roots { read: vec![base.clone()], ..Roots::default() });
+    let f = fixture();
+    let mut g = game(&f);
+    let before_events = g.events.len();
+    let runs = g.run_exit_scripts();
+    assert!(runs.is_empty());
+    assert_eq!(g.events.len(), before_events);
+    assert_eq!(value(&mut g, "SROrder"), 0.0);
+
+    std::fs::remove_dir_all(&base).ok();
 }
