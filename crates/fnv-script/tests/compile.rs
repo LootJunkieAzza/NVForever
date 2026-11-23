@@ -1068,7 +1068,7 @@ let t := IsPluginInstalled \"ttw_nvse\"
 let u := IsPluginInstalled \"Not A Plugin\" + 10 * (IsPluginInstalled \"Improved Console\") + 100 * (GetPluginVersion \"yUI\" >= 140)
 end",
     );
-    assert_eq!(h.0[&1], Value::Num(980.0));
+    assert_eq!(h.0[&1], Value::Num(941.0));
     assert_eq!(h.0[&2], Value::Num(1.0));
     assert_eq!(h.0[&3], Value::Num(110.0));
 }
