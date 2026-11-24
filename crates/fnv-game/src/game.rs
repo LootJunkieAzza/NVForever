@@ -8048,8 +8048,6 @@ impl<'a> Game<'a> {
         g.script_worn = s.script_worn.clone();
         g.coop_checked = s.coop_checked.clone();
         g.coop_presence = s.coop_presence.clone();
-        // Every character gets its stable ID on its first load (`crate::coop_joint`).
-        g.ensure_character_id();
         g.coop_checkpoint_gear = s.coop_checkpoint_gear.clone();
         if s.said_day_days_clock {
             g.said_day = s.said_day.clone();

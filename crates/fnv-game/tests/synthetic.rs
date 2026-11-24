@@ -936,6 +936,42 @@ fn coop_players_round_trip_apart_from_the_player() {
     assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
 }
 
+/// Network co-op's parts of a save (docs/design/coop-save.md §5) are optional: a solo game
+/// writes none of them, a load gives it none, and set they come back as they went (a
+/// character's ID and claim ledger, the host's presence record).
+#[test]
+fn network_co_ops_save_fields_are_absent_solo_and_round_trip_when_set() {
+    use fnv_game::coop_joint::ClaimedStage;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    let fields = ["\"character_id\"", "\"claims\"", "\"coop_presence\""];
+    let solo = g.snapshot();
+    let text = serde_json::to_string(&solo).unwrap();
+    assert!(fields.iter().all(|f| !text.contains(f)), "a solo save");
+    let world = World::restore(&f.forms, &f.refs, &solo.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &solo).unwrap();
+    let again = serde_json::to_string(&h.snapshot()).unwrap();
+    assert!(fields.iter().all(|f| !again.contains(f)), "a solo save after a load");
+    // Set: a guest's character, and what a host keeps.
+    let id = g.ensure_character_id();
+    assert_ne!(id, 0);
+    g.player.claims.stages.entry(FormId(QUEST)).or_default().push(ClaimedStage { stage: 10, line: None });
+    g.player.claims.markers.insert(FormId(0x0000_1234));
+    g.coop_presence.stages.entry(FormId(QUEST)).or_default().entry(10).or_default().insert(id);
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(fields.iter().all(|f| text.contains(f)));
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.player.character_id, id);
+    assert_eq!(h.player.claims, g.player.claims);
+    assert!(h.coop_presence.was_there(FormId(QUEST), 10, id));
+}
+
 /// A co-op guest's save: its own game as it was when it joined, with the
 /// character as it is in the host's world; the place, quests and time stay its own.
 #[test]

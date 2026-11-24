@@ -51,9 +51,9 @@ Joining late fills in nothing already set.
 
 ### 3.2 Identity and presence
 
-- A character has a stable random ID (`coop_joint::CharacterId`), made at creation or on the
-  first load of an older save, and sent in the guest's hello. A slot number never names a
-  character across sessions.
+- A character has a stable random ID (`coop_joint::CharacterId`), made the first time it
+  joins another player's game and sent with its join choice (`Progress::JointChoice`); a
+  solo save never carries one. A slot number never names a character across sessions.
 - The host's save keeps which characters were connected for each stage it set
   (`coop_joint::SessionPresence`, an optional field of the save, absent in a solo save). A
   guest that left and came back resumes claiming from it.

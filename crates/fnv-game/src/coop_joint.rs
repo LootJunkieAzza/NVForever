@@ -3,8 +3,10 @@
 //! into its own save, stage by stage, and its own world replays them on its next load.
 //!
 //! - **Who is who.** Every character has a stable [`CharacterId`]
-//!   (`PlayerState::character_id`), made on the first load that lacks one and sent in the
-//!   guest's hello, so a slot number never names a character across sessions [design: coop-shared-progress.md §3.2].
+//!   (`PlayerState::character_id`), made the first time it joins another player's game
+//!   ([`Game::ensure_character_id`]; a solo save never carries one) and sent with its join
+//!   choice, so a slot number never names a character across sessions [design:
+//!   coop-shared-progress.md §3.2].
 //! - **Host: presence.** [`Game::set_stage`] calls [`Game::coop_joint_stage`]: for a
 //!   claimable quest (not base-game main story, [`is_main_story`]) every connected guest
 //!   with joint progression on ([`Game::coop_joint_guests`]) is written into
@@ -293,7 +295,7 @@ impl Game<'_> {
         Ok(())
     }
 
-    /// Give the character a [`CharacterId`] if it has none (an older save, a new game).
+    /// Give the character a [`CharacterId`] if it has none (its first join as a guest).
     pub fn ensure_character_id(&mut self) -> CharacterId {
         if self.player.character_id == 0 {
             self.player.character_id = new_character_id();
