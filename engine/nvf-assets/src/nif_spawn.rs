@@ -784,6 +784,20 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
     }
 }
 
+/// Hair-shader shapes take the strand BSDF (`NVF_HAIR`, nvforever sss.wesl): under
+/// subsurface scattering with physical PBR, the run's modern shading, as skin's
+/// [engineering choice; it sets aside nif.md §6 "Hair"'s matte reading of the original
+/// for that mode only, where faces already depart from it].
+pub(crate) fn hair_strand_shading() -> bool {
+    crate::authored::sss_enabled() && crate::authored::physical_pbr()
+}
+
+/// Under [`hair_strand_shading`], the hair's longitudinal roughness range: 0.35 to 0.5
+/// gives lobe widths of 7 to 14 degrees, inside the 5 to 10 degrees measured for real
+/// fibres [documented: Marschner et al. 2003, Table 1] and a little past, for the 2010
+/// meshes' few strands; the files' glossiness 10 reads 0.64, a blur over the cap.
+pub(crate) const HAIR_ROUGHNESS: (f32, f32) = (0.35, 0.5);
+
 /// The perceptual roughness of an eye's cornea under SSS (`shape_material_inner`): a tear
 /// film is close to a mirror; Bevy raises anything under 0.089 to that for its highlight.
 pub(crate) const EYE_CORNEA_ROUGHNESS: f32 = 0.06;
@@ -1661,6 +1675,8 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         gloss_roughness(gloss).clamp(0.28, 0.45)
     } else if (physical || sss) && props.skin {
         gloss_roughness(gloss).clamp(0.58, 0.72)
+    } else if props.hair && hair_strand_shading() {
+        gloss_roughness(gloss).clamp(HAIR_ROUGHNESS.0, HAIR_ROUGHNESS.1)
     } else if physical && !props.specular && !props.hair {
         gloss_roughness(gloss).max(0.86)
     } else {
@@ -1709,6 +1725,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     material.extension.skin = props.skin;
     material.extension.foliage = foliage;
     material.extension.eye = props.eye;
+    material.extension.hair = props.hair;
     // An eye under SSS: a wet cornea over the iris and white, a clear coat as smooth as
     // a tear film (Bevy's Filament clear coat; its F0 is 0.04, a cornea's about 0.025
     // [hypothesis: IOR 1.376]), which gives the eye its sharp highlight of the sun and

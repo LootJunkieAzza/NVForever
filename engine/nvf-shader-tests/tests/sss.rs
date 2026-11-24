@@ -161,6 +161,38 @@ fn screen_space_skin_blur_compiles_both_directions() {
     }
 }
 
+/// Hair under SSS with physical PBR (`NVF_HAIR`): the strand tangent from the texture and
+/// the strand BSDF for every light kind, blended or not, with the image-based light and the
+/// ambient occlusion on and off.
+#[test]
+fn hair_strand_shading_composes() {
+    let mut compiler = Compiler::with_sss(true);
+    for blend in [false, true] {
+        for env_map in [false, true] {
+            for ao in [false, true] {
+                let mut defs = vec!["NVF_HAIR", "NVF_PHYSICAL_PBR", "VERTEX_UVS", "VERTEX_UVS_A", "STANDARD_MATERIAL_BASE_COLOR_TEXTURE"];
+                if blend {
+                    defs.push("BLEND_ALPHA");
+                }
+                if env_map {
+                    defs.push("ENVIRONMENT_MAP");
+                }
+                if ao {
+                    defs.push("NVF_AMBIENT_OCCLUSION");
+                }
+                let compiled = compiler.compile("nvf_assets/nif_material.wesl", &defs);
+                assert!(has_fn(&compiled, "hair_strand"), "{defs:?}: strand tangent present");
+                for f in ["nvf_hair_eval", "nvf_sss_point_hair", "nvf_sss_spot_hair", "nvf_sss_directional_hair"] {
+                    assert!(has_fn(&compiled, f), "{defs:?}: {f} present");
+                }
+                assert!(!has_fn(&compiled, "nvf_preintegrated_skin"), "{defs:?}: no skin SSS on hair");
+            }
+        }
+    }
+    let plain = compiler.compile("nvf_assets/nif_material.wesl", &["NVF_PHYSICAL_PBR"]);
+    assert!(!has_fn(&plain, "hair_strand") && !has_fn(&plain, "nvf_hair_eval"), "no strand shading without NVF_HAIR");
+}
+
 /// An eye under SSS (`NVF_EYE`): the iris shift and limbal ring, with the clear coat
 /// Bevy compiles for the cornea, tinted or not, in both lighting modes.
 #[test]

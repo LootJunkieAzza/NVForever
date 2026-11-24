@@ -14,12 +14,15 @@ const IMPORT_TEXT: &str = "// NVForever subsurface scattering (nvforever sss.rs)
 @if(NVF_SKIN_SSS) import nvforever::sss::{nvf_sss_point_skin, nvf_sss_spot_skin, nvf_sss_directional_skin};
 @if(NVF_FOLIAGE_SSS) import nvforever::sss::{nvf_sss_point_foliage, nvf_sss_spot_foliage, nvf_sss_directional_foliage};
 @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT) import nvforever::sss::nvf_skin_last_diffuse;
+@if(NVF_HAIR) import nvforever::sss::{nvf_sss_point_hair, nvf_sss_spot_hair, nvf_sss_directional_hair};
 ";
 
 const PHYSICAL_DIFFUSE_ANCHOR: &str = "    lighting_input.diffuse_color = diffuse_color;\n";
-const PHYSICAL_DIFFUSE_SSS_TEXT: &str = "    @if(!NVF_SKIN_SSS && !NVF_FOLIAGE_SSS)
+const PHYSICAL_DIFFUSE_SSS_TEXT: &str = "    @if(!NVF_SKIN_SSS && !NVF_FOLIAGE_SSS && !NVF_HAIR)
     lighting_input.diffuse_color = diffuse_color;
     @if(NVF_SKIN_SSS)
+    lighting_input.diffuse_color = vec3(0.0);
+    @if(NVF_HAIR)
     lighting_input.diffuse_color = vec3(0.0);
     @if(NVF_FOLIAGE_SSS)
     lighting_input.diffuse_color = diffuse_color * 0.78;
@@ -31,6 +34,11 @@ const INDIRECT_RESTORE_TEXT: &str = "    // Restore unattenuated diffuse albedo 
     lighting_input.diffuse_color = diffuse_color;
     @if(NVF_FOLIAGE_SSS)
     lighting_input.diffuse_color = diffuse_color;
+    // NVF_HAIR: the strand BSDF took the direct lights; the sky's light is Bevy's again.
+    @if(NVF_HAIR)
+    lighting_input.diffuse_color = diffuse_color;
+    @if(NVF_HAIR)
+    lighting_input.F0_dielectric = calculate_F0_dielectric(reflectance);
 ";
 
 const POINT_LOOP_ANCHOR: &str = "    // Point lights (direct)\n";
@@ -47,6 +55,9 @@ const FOLIAGE_WEIGHT_PHYSICAL: &str = "    // NVForever subsurface scattering (n
     var nvf_skin_d_direct = vec3(0.0);
     @if(NVF_SKIN_SSS && NVF_SKIN_SPLIT)
     var nvf_skin_d_indirect = vec3(0.0);
+    // NVF_HAIR: no isotropic highlight from Bevy's direct lights; the strand BSDF gives it.
+    @if(NVF_HAIR)
+    lighting_input.F0_dielectric = vec3(0.0);
 ";
 
 /// Physical PBR: the image-based light's diffuse share (`physical_patched`; the ambient
@@ -84,6 +95,7 @@ const DIR_ANCHOR: &str = "        var light_contrib = lighting::directional_ligh
 
 fn clustered_sss_text(kind: &str, ao_var: &str, physical: bool) -> String {
     let p = if physical { "true" } else { "false" };
+    let hair = if physical { clustered_hair_text(kind, ao_var) } else { String::new() };
     format!(
         "        @if(NVF_SKIN_SSS && NVF_AMBIENT_OCCLUSION)
         let nvf_skin_{ao_var}_ao = select(nvf_ao_lamps, vec3(1.0), !nvf_display || ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));
@@ -103,12 +115,37 @@ fn clustered_sss_text(kind: &str, ao_var: &str, physical: bool) -> String {
         if enable_diffuse {{
             direct_light += nvf_sss_{kind}_foliage(light_id, in.world_position.xyz, in.N, in.V, diffuse_color, shadow, nvf_display, {p}) * nvf_sss_weight * nvf_foliage_{ao_var}_ao;
         }}
+{hair}"
+    )
+}
+
+/// NVF_HAIR (physical PBR only): the strand BSDF for one point or spot light, along the
+/// strand tangent the fragment put in `anisotropy_T` (nif_material.wesl `hair_strand`).
+fn clustered_hair_text(kind: &str, ao_var: &str) -> String {
+    format!(
+        "        @if(NVF_HAIR && NVF_AMBIENT_OCCLUSION)
+        let nvf_hair_{ao_var}_ao = select(nvf_ao_lamps, vec3(1.0), !nvf_display || ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));
+        @if(NVF_HAIR && !NVF_AMBIENT_OCCLUSION)
+        let nvf_hair_{ao_var}_ao = vec3(1.0);
+        @if(NVF_HAIR)
+        if enable_diffuse {{
+            direct_light += nvf_sss_{kind}_hair(light_id, in.world_position.xyz, in.N, in.anisotropy_T, in.V, diffuse_color, perceptual_roughness, shadow, nvf_display) * nvf_hair_{ao_var}_ao;
+        }}
 "
     )
 }
 
 fn directional_sss_text(physical: bool) -> String {
     let p = if physical { "true" } else { "false" };
+    let hair = if physical {
+        "        @if(NVF_HAIR)
+        if enable_diffuse {
+            direct_light += nvf_sss_directional_hair(i, in.N, in.anisotropy_T, in.V, diffuse_color, perceptual_roughness, shadow);
+        }
+"
+    } else {
+        ""
+    };
     format!(
         "        @if(NVF_SKIN_SSS)
         let nvf_skin_has_shadow = (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u;
@@ -141,7 +178,7 @@ fn directional_sss_text(physical: bool) -> String {
         if enable_diffuse {{
             direct_light += nvf_sss_directional_foliage(i, in.N, in.V, diffuse_color, nvf_fol_shadow, nvf_display, {p}) * nvf_sss_weight;
         }}
-"
+{hair}"
     )
 }
 

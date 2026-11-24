@@ -471,3 +471,128 @@ fn nvf_sss_directional_foliage(
     );
     return nvf_foliage_direct(N, V, L, diffuse_color, shadow, physical) * light_rad;
 }
+
+// ---------------------------------------------------------------------------------------
+// NVF_HAIR (hair-shader shapes: hair, beards, brows; NVF_SSS=1 with NVF_PHYSICAL_PBR=1):
+// a strand BSDF in place of Bevy's isotropic one, along the strand tangent the fragment
+// reads from the hair texture's own strokes (nif_material.wesl `hair_strand`, passed in
+// PbrInput::anisotropy_T). Marschner et al. (2003) "Light Scattering from Human Hair
+// Fibers": three lobes along the fibre, R (the white surface glint, shifted towards the
+// root) and TRT (the coloured second highlight, shifted towards the tip), in the closed-form approximations of Karis (2016)
+// "Physically Based Hair Shading in Unreal" (SIGGRAPH course notes). The diffuse is the
+// light scattered between fibres: a wrapped term on the surface normal mixed with
+// Kajiya & Kay (1989), tinted by the hair's own colour where it falls into shadow, the
+// hair's counterpart of the skin's warm penumbra [engineering choice].
+
+// Hair keratin's index of refraction, 1.55 [documented: Marschner et al. 2003, §4], and
+// its normal-incidence reflectance ((n - 1) / (n + 1))^2.
+const NVF_HAIR_F0: f32 = 0.0465;
+// The cuticle scales' tilt, which shifts the highlights along the fibre (radians):
+// R by -2 x, TRT by 4 x [documented: Karis 2016, after Marschner's 3 degrees].
+const NVF_HAIR_SHIFT: f32 = 0.035;
+// The wrap of the scattered diffuse: 0 is Lambert; at 0.5 light reaches 60 degrees past
+// the terminator, softening it as the skin's scattering does [engineering choice].
+const NVF_HAIR_WRAP: f32 = 0.5;
+// The share of a single fibre's surface glint (R) the hair shell keeps. Marschner's lobes
+// are one fibre's; the game's hair is a shell standing for many fibres that shade one
+// another, and its strand direction (nif_material.wesl `hair_strand`) turns from stroke to
+// stroke, which spreads the band into flecks. At 1 the glint of dark brown hair matched
+// its whole diffuse on average and outshone Lambert in a quarter of the light and view
+// directions; the owner's frames of 2026-11-24 read wet and grey. At 0.3 its mean is a
+// quarter of the diffuse and the highlights outshine Lambert in 1 direction in 10
+// [engineering choice, from a CPU copy of this function].
+const NVF_HAIR_R_SHARE: f32 = 0.3;
+
+fn nvf_hair_g(b: f32, t: f32) -> f32 {
+    return exp(-0.5 * t * t / (b * b)) / (2.5066283 * b);
+}
+
+fn nvf_hair_fresnel(cos_t: f32) -> f32 {
+    let m = 1.0 - saturate(cos_t);
+    let m2 = m * m;
+    return NVF_HAIR_F0 + (1.0 - NVF_HAIR_F0) * m2 * m2 * m;
+}
+
+// The hair's BSDF times the cosine for one light, per unit of light colour (the diffuse
+// part carries its 1 / pi). T: the strand tangent, root to tip; N: the shading normal.
+fn nvf_hair_eval(T_in: vec3<f32>, N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, albedo: vec3<f32>, perceptual_roughness: f32, shadow: f32) -> vec3<f32> {
+    let s = saturate(shadow);
+    let t_raw = T_in - N * dot(T_in, N);
+    let t_len2 = dot(t_raw, t_raw);
+    let ndl = dot(N, L);
+    // Diffuse: wrapped (energy-kept) on the surface normal, a third Kajiya-Kay.
+    let wrapped = saturate((ndl + NVF_HAIR_WRAP) / ((1.0 + NVF_HAIR_WRAP) * (1.0 + NVF_HAIR_WRAP)));
+    let luma = max(dot(albedo, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+    let tint = pow(max(albedo / luma, vec3(1e-4)), vec3(1.0 - s));
+    if t_len2 < 1e-8 {
+        return albedo * (1.0 / PI) * wrapped * tint * s;
+    }
+    let T = t_raw * inverseSqrt(t_len2);
+    let kajiya = 1.0 - abs(dot(T, L));
+    let diffuse = albedo * (1.0 / PI) * mix(wrapped, kajiya * 0.5 * saturate(ndl + 1.0), 0.33) * tint * s;
+
+    let r = clamp(perceptual_roughness, 0.18, 1.0);
+    let B = vec2(r * r, 2.0 * r * r);
+    let sin_l = clamp(dot(T, L), -1.0, 1.0);
+    let sin_v = clamp(dot(T, V), -1.0, 1.0);
+    let cos_d = max(cos(0.5 * abs(asin(sin_v) - asin(sin_l))), 0.05);
+    let Lp = L - sin_l * T;
+    let Vp = V - sin_v * T;
+    let cos_phi = dot(Lp, Vp) * inverseSqrt(dot(Lp, Lp) * dot(Vp, Vp) + 1e-4);
+    let cos_half_phi = sqrt(saturate(0.5 + 0.5 * cos_phi));
+
+    // R
+    let sa = sin(-2.0 * NVF_HAIR_SHIFT);
+    let ca = cos(-2.0 * NVF_HAIR_SHIFT);
+    let shift_r = 2.0 * sa * (ca * cos_half_phi * sqrt(max(1.0 - sin_v * sin_v, 0.0)) + sa * sin_v);
+    let m_r = nvf_hair_g(B.x * 1.4142135 * cos_half_phi + 1e-3, sin_l + sin_v - shift_r);
+    let spec_r = vec3(m_r * 0.25 * cos_half_phi * nvf_hair_fresnel(sqrt(saturate(0.5 + 0.5 * dot(L, V)))));
+    // No TT (light through the fibre to the far side): the hair is a shell on the scalp, so
+    // the light it would carry ends in the head. Kept, it peaked at 100 times Lambert
+    // wherever a light stood behind the strand [engineering choice].
+    // TRT
+    let m_trt = nvf_hair_g(B.y, sin_l + sin_v - 4.0 * NVF_HAIR_SHIFT);
+    let f_trt = nvf_hair_fresnel(cos_d * 0.5);
+    let t_trt = pow(max(albedo, vec3(1e-4)), vec3(0.8 / cos_d));
+    let spec_trt = m_trt * exp(17.0 * cos_phi - 16.78) * (1.0 - f_trt) * (1.0 - f_trt) * f_trt * t_trt;
+
+    return diffuse + (spec_r * NVF_HAIR_R_SHARE + spec_trt) * s;
+}
+
+fn nvf_sss_clustered_hair(
+    light_id: u32,
+    P: vec3<f32>,
+    N: vec3<f32>,
+    T: vec3<f32>,
+    V: vec3<f32>,
+    albedo: vec3<f32>,
+    perceptual_roughness: f32,
+    shadow: f32,
+    is_spot: bool,
+    is_display: bool,
+) -> vec3<f32> {
+    let light = &view_bindings::clustered_lights.data[light_id];
+    let to_light = (*light).position_radius.xyz - P;
+    let d2 = dot(to_light, to_light);
+    let L = to_light * inverseSqrt(max(d2, 0.0001));
+    var attenuation = getDistanceAttenuation(d2, (*light).color_inverse_square_range.w);
+    if is_spot {
+        attenuation *= nvf_sss_spot_attenuation(light_id, L);
+    }
+    // nvf_sss_light_radiance carries 1 / pi; the hair's BSDF carries its own.
+    let light_col = nvf_sss_light_radiance((*light).color_inverse_square_range.rgb, is_display, true) * (attenuation * PI);
+    return nvf_hair_eval(T, N, V, L, albedo, perceptual_roughness, shadow) * light_col;
+}
+
+fn nvf_sss_point_hair(light_id: u32, P: vec3<f32>, N: vec3<f32>, T: vec3<f32>, V: vec3<f32>, albedo: vec3<f32>, perceptual_roughness: f32, shadow: f32, is_display: bool) -> vec3<f32> {
+    return nvf_sss_clustered_hair(light_id, P, N, T, V, albedo, perceptual_roughness, shadow, false, is_display);
+}
+
+fn nvf_sss_spot_hair(light_id: u32, P: vec3<f32>, N: vec3<f32>, T: vec3<f32>, V: vec3<f32>, albedo: vec3<f32>, perceptual_roughness: f32, shadow: f32, is_display: bool) -> vec3<f32> {
+    return nvf_sss_clustered_hair(light_id, P, N, T, V, albedo, perceptual_roughness, shadow, true, is_display);
+}
+
+fn nvf_sss_directional_hair(light_id: u32, N: vec3<f32>, T: vec3<f32>, V: vec3<f32>, albedo: vec3<f32>, perceptual_roughness: f32, shadow: f32) -> vec3<f32> {
+    let light = &view_bindings::lights.directional_lights[light_id];
+    return nvf_hair_eval(T, N, V, (*light).direction_to_light.xyz, albedo, perceptual_roughness, shadow) * (*light).color.rgb;
+}

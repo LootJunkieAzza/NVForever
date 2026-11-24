@@ -559,6 +559,8 @@ impl From<&NifSurfaceBlendColour> for NifSurfaceBlendKey {
             skin: s.skin,
             foliage: s.foliage,
             eye: false,
+            // Hair is never blended into the landscape.
+            hair: false,
         }, s.mesh_terrain_layout)
     }
 }

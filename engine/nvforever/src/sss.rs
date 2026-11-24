@@ -247,6 +247,7 @@ mod tests {
                             &[
                                 ("NVF_SKIN_SSS", false),
                                 ("NVF_FOLIAGE_SSS", false),
+                                ("NVF_HAIR", false),
                                 ("NVF_AMBIENT_OCCLUSION", ao_on),
                                 ("NVF_SUN_VISIBILITY", sun_on),
                             ],
@@ -261,6 +262,7 @@ mod tests {
                             &[
                                 ("NVF_SKIN_SSS", true),
                                 ("NVF_FOLIAGE_SSS", false),
+                                ("NVF_HAIR", false),
                                 ("NVF_AMBIENT_OCCLUSION", ao_on),
                                 ("NVF_SUN_VISIBILITY", sun_on),
                             ],
@@ -292,6 +294,7 @@ mod tests {
                             &[
                                 ("NVF_SKIN_SSS", false),
                                 ("NVF_FOLIAGE_SSS", true),
+                                ("NVF_HAIR", false),
                                 ("NVF_AMBIENT_OCCLUSION", ao_on),
                                 ("NVF_SUN_VISIBILITY", sun_on),
                             ],
@@ -307,6 +310,33 @@ mod tests {
                             let restore_at = lighting.find("lighting_input.diffuse_color = diffuse_color;").expect("physical foliage restores IBL diffuse");
                             let indirect_at = lighting.find("var indirect_light = vec3(0.0f);").expect("indirect_light decl");
                             assert!(front_at < restore_at && restore_at < indirect_at);
+                        }
+
+                        // Hair enabled alone: the strand BSDF under physical PBR only.
+                        let hair = resolve(
+                            &hooked,
+                            &[
+                                ("NVF_SKIN_SSS", false),
+                                ("NVF_FOLIAGE_SSS", false),
+                                ("NVF_HAIR", true),
+                                ("NVF_AMBIENT_OCCLUSION", ao_on),
+                                ("NVF_SUN_VISIBILITY", sun_on),
+                            ],
+                        );
+                        assert!(balanced(&hair), "hair physical={physical} env={env_map} ao={ao_on} sun={sun_on}");
+                        let lighting = block_after(&hair, "fn nvf_apply_pbr_lighting(");
+                        assert!(!code(&hair).contains("nvf_sss_point_skin(") && !code(&hair).contains("nvf_sss_point_foliage("));
+                        if physical {
+                            for f in ["nvf_sss_point_hair(", "nvf_sss_spot_hair(", "nvf_sss_directional_hair("] {
+                                assert!(lighting.contains(f), "{f}");
+                            }
+                            let zero_at = lighting.find("lighting_input.diffuse_color = vec3(0.0);").expect("hair zeros direct diffuse");
+                            let f0_zero_at = lighting.find("lighting_input.F0_dielectric = vec3(0.0);").expect("hair zeros direct F0");
+                            let point_at = lighting.find("nvf_sss_point_hair(").unwrap();
+                            let restore_at = lighting.find("lighting_input.F0_dielectric = calculate_F0_dielectric(reflectance);\n    var indirect_light").expect("hair restores F0 for the sky's light");
+                            assert!(zero_at < point_at && f0_zero_at < point_at && point_at < restore_at);
+                        } else {
+                            assert!(!lighting.contains("nvf_sss_point_hair("), "no strand BSDF in display lighting");
                         }
                     }
                 }

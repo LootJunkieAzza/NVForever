@@ -647,6 +647,72 @@ const EYE_CORNER_DARKEN: f32 = 0.30;
 }
 
 // The limbal ring's darkening at `uv`: 1 away from the iris's edge.
+// The strand direction of a hair-shader shape, in world space, root to tip, unit length
+// (0 where there is none). The hair textures paint their strands along curves that turn
+// across the texture, so no texture axis is the strand: over the 67 HAIR models the texture
+// V axis follows the painted strands no better than a line straight down the head, both
+// |cos| 0.74 on average against 0.64 for a random line [observed: structure tensor of the
+// diffuse luma against each NoHat shape's UVs, 2026-11-23]. It is read here from the strokes
+// themselves: the structure tensor of the colour's luma over 4 x 4 texels at the mip about
+// 128 texels across, the strands' broad flow rather than single strokes (at 256 the
+// direction turned from stroke to stroke and the glint broke into flecks, owner's frames
+// 2026-11-24); the strand runs along the least change. Where the strokes give no
+// direction (flat texels), the line down the head; the sign is always down the head, so
+// the highlights' shift (sss.wesl) goes towards the root [engineering choice].
+@if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) fn hair_strand(ii: u32, uv: vec2<f32>, dp_dx: vec3<f32>, dp_dy: vec3<f32>, duv_dx: vec2<f32>, duv_dy: vec2<f32>, n: vec3<f32>) -> vec3<f32> {
+    let size = vec2<f32>(base_color_size(ii));
+    let level = max(log2(max(size.x, size.y) / 128.0), 0.0);
+    let step = exp2(level) / max(size, vec2(1.0));
+    var l: array<f32, 16>;
+    for (var j = 0; j < 4; j++) {
+        for (var i = 0; i < 4; i++) {
+            let c = base_color_texel_level(ii, uv + (vec2(f32(i), f32(j)) - 1.5) * step, level);
+            l[j * 4 + i] = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+        }
+    }
+    var jxx = 0.0;
+    var jyy = 0.0;
+    var jxy = 0.0;
+    for (var j = 0; j < 3; j++) {
+        for (var i = 0; i < 3; i++) {
+            let a = l[j * 4 + i];
+            let b = l[j * 4 + i + 1];
+            let c = l[(j + 1) * 4 + i];
+            let d = l[(j + 1) * 4 + i + 1];
+            let gx = 0.5 * (b + d - a - c);
+            let gy = 0.5 * (c + d - a - b);
+            jxx += gx * gx;
+            jyy += gy * gy;
+            jxy += gx * gy;
+        }
+    }
+    let spread = sqrt((jxx - jyy) * (jxx - jyy) + 4.0 * jxy * jxy);
+    let coherence = select(0.0, spread / (jxx + jyy), jxx + jyy > 1e-7);
+    // The least change: the gradient's direction turned a quarter, in texels, then in uv.
+    let ang = 0.5 * atan2(2.0 * jxy, jxx - jyy) + 1.5707963;
+    let s_uv = vec2(cos(ang), sin(ang)) * step;
+    // The surface's change per unit u and v, from the view pixel's.
+    let det = duv_dx.x * duv_dy.y - duv_dx.y * duv_dy.x;
+    let dp_du = (dp_dx * duv_dy.y - dp_dy * duv_dx.y) / det;
+    let dp_dv = (dp_dy * duv_dx.x - dp_dx * duv_dy.x) / det;
+    var t = dp_du * s_uv.x + dp_dv * s_uv.y;
+    t -= n * dot(t, n);
+    // Down the head (Bevy's -Y), on the surface.
+    var down = vec3(0.0, -1.0, 0.0) - n * -n.y;
+    let down_len = length(down);
+    down = select(vec3(0.0), down / max(down_len, 1e-6), down_len > 0.05);
+    let t_len = length(t);
+    if abs(det) < 1e-12 || t_len < 1e-9 || !(t_len < 1e30) {
+        return down;
+    }
+    t = t / t_len;
+    t = select(t, -t, dot(t, down) < 0.0);
+    let w = smoothstep(0.15, 0.5, coherence);
+    let mixed = mix(down, t, w);
+    let m_len = length(mixed);
+    return select(t, mixed / m_len, m_len > 1e-4);
+}
+
 @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) fn eye_limbus(uv: vec2<f32>) -> f32 {
     let r = distance(uv, EYE_IRIS_CENTRE) / EYE_IRIS_RADIUS;
     let x = (r - 1.0) / EYE_LIMBUS_WIDTH;
@@ -700,6 +766,13 @@ fn nif_fragment(
     @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_n = normalize(in.world_normal);
     @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_v = normalize(view.world_position - in.world_position.xyz);
     @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_shift = eye_iris_shift(in.uv, dpdx(in.world_position.xyz), dpdy(in.world_position.xyz), dpdx(in.uv), dpdy(in.uv), select(-eye_n, eye_n, is_front), eye_v);
+    // A hair-shader shape's strand direction (hair_strand): its texture coordinates and
+    // their change, and the position's, across a view pixel, before any discard.
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_uv = (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy;
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_duv_dx = dpdx(hair_uv);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_duv_dy = dpdy(hair_uv);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_dp_dx = dpdx(in.world_position.xyz);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_dp_dy = dpdy(in.world_position.xyz);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     let surface = nif_surface(in.instance_index);
     // NifSurface::pipboy_screen: the picture's texture coordinates and their change across a
@@ -928,6 +1001,10 @@ fn nif_fragment(
     @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_socket = eye_socket_occlusion(in.uv);
     @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.specular_occlusion = pbr_input.specular_occlusion * eye_socket;
     @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb * eye_limbus(vin.uv) * eye_socket, pbr_input.material.base_color.a);
+    // A hair-shader shape: the strand tangent for the strand BSDF (nvforever sss.wesl
+    // NVF_HAIR), in anisotropy_T, which Bevy reads only under its anisotropy, not set here.
+    @if(NVF_HAIR && !PREPASS_PIPELINE) pbr_input.anisotropy_T = vec3(0.0);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.anisotropy_T = hair_strand(in.instance_index, hair_uv, hair_dp_dx, hair_dp_dy, hair_duv_dx, hair_duv_dy, pbr_input.N);
     // base_color already holds texture × vertex colour × material colour.
     // Bevy's pbr_input_from_standard_material fills the emissive light in only for lit
     // materials, so an unlit shape's stays black: it is read from the material here
