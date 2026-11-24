@@ -90,6 +90,8 @@ mod foot_ik;
 mod anti_lag;
 mod dlss;
 mod dlss_download;
+#[cfg(windows)]
+mod nr;
 mod nv_low_latency;
 mod frame_pace;
 mod frame_telemetry;
@@ -1858,6 +1860,10 @@ fn main() -> AppExit {
     if startup.loads_streamline() {
         app.add_plugins(dlss::DlssInitPlugin);
     }
+    // DLSS 5 Neural Rendering (nr/): loads nr.dll and asks for the device requirements before
+    // DefaultPlugins, as DlssInitPlugin does; inert without the nr folder or with NVF_NR=0.
+    #[cfg(windows)]
+    app.add_plugins(nr::NrInitPlugin);
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))

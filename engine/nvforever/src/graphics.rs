@@ -706,6 +706,8 @@ impl Plugin for GraphicsPlugin {
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
             .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain())
             .add_systems(PostUpdate, log_shadow_map.before(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades));
+        #[cfg(windows)]
+        app.add_plugins(crate::nr::NrPassPlugin);
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
             // GPU time per render pass (timestamp queries), logged with the frame time.
             ensure_render_diagnostics(app);
