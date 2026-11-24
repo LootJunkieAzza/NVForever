@@ -209,7 +209,8 @@ through the same path a click on the World Map takes.
 - **Where the markers come from.** fnvtool's `world list`, then `world refs` for each
   worldspace: the references of the MapMarker static (0x00000010). `--worlds` and
   `--limit` pick a sample.
-- **A launch.** `--batch` markers (25) from `--start` (GSGeneralStore). The script aid
+- **A launch.** `--batch` markers (25) from `--start` (Goodsprings; an exterior,
+  since interiors refuse fast travel, #3434). The script aid
   `call:-:ShowAllMapMarkers:1:1:0` makes every marker a fast-travel target; then per
   marker, `--every` seconds (30) apart, the Pip-Boy aid opens on DATA, asks to travel
   there (`travel=`) and answers Yes (`key=use`).

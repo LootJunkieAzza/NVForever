@@ -469,6 +469,10 @@ Seen [observed 2026-10-11, Goodsprings]: a shot bottle falling off the fence,
 collision material 30 BABY_RATTLE) rolling, `PHYBabyRattle`. `PHYTumbleweed` exists but
 nothing links it to the tumbleweed (its MSTT has no `SNAM`) [observed].
 
+Mods may supply per-form collision sound overrides via
+`Data\NVSE\Plugins\SoundExtender\` (`*.json` / `*.txt`, `sound-extender.md`); when no
+overrides are present, knocks take the material table above unchanged.
+
 ### 11.3 Items, containers, activators
 
 | Record | Fields [documented: xEdit] | Records | Naming a pick-up / drop sound [observed] |

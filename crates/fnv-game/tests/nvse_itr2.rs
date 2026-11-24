@@ -559,7 +559,7 @@ fn object_under_reticle_casts_the_crosshairs_ray_between_its_ranges() {
     let mut g = game(&f);
     // No ray told (headless): nothing.
     assert_eq!(num(&mut g, "IsFormValid (ObjectUnderReticle 0 2048)"), 0.0);
-    g.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: [0.0, 0.0, 0.0], dir: [0.0, 1.0, 0.0], hit: None });
+    g.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: [0.0, 0.0, 0.0], dir: [0.0, 1.0, 0.0], hit: None, limb: None });
     // An actor 1000 units along the ray.
     let npc = |a: [f32; 3], b: [f32; 3], _k: fnv_game::ray::CastKind| {
         (a[1] <= 1000.0 && b[1] >= 1000.0).then(|| fnv_game::ray::Hit { distance: 1000.0 - a[1], point: [0.0, 1000.0, 0.0], form: Some(NPC_REF), material: None })

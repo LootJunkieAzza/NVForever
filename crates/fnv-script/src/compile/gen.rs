@@ -106,7 +106,7 @@ struct Chain {
 pub(super) struct Gen<'a> {
     table: &'a FunctionTable,
     env: &'a dyn Env,
-    vars: Vec<VarDecl>,
+    pub(super) vars: Vec<VarDecl>,
     refs: Vec<RefSlot>,
     /// The spelling each reference list entry was first used with.
     claims: Vec<Option<String>>,
@@ -117,7 +117,7 @@ pub(super) struct Gen<'a> {
     /// The extender's runtime compiler's refusals apply ([`super::compile_runtime`]).
     pub(super) runtime: bool,
     /// Lower-case names of the locals the source declares `ref`.
-    ref_vars: std::collections::HashSet<String>,
+    pub(super) ref_vars: std::collections::HashSet<String>,
     /// Seed reference list forms by lower-case Editor ID.
     seed_edids: HashMap<String, u32>,
     /// Names the source spells that no form has, by lower-case name, and the seed form
@@ -276,7 +276,11 @@ impl<'a> Gen<'a> {
         self.diags.push(Diag { line: self.line, kind, error, detail: detail.into() });
     }
 
-    pub(super) fn unit(mut self, src: &str) -> Compiled {
+    pub(super) fn unit(self, src: &str) -> Compiled {
+        self.unit_with_ref_vars(src).0
+    }
+
+    pub(super) fn unit_with_ref_vars(mut self, src: &str) -> (Compiled, std::collections::HashSet<String>) {
         let mut long = Vec::new();
         let lines = self.take_lambdas(lex::join_open_conditions(lex::lines(src, &mut long)));
         for n in long {
@@ -303,7 +307,7 @@ impl<'a> Gen<'a> {
             self.text = s.text.clone();
             self.statement(&s.kw);
         }
-        Compiled { bytes: self.out, variables: self.vars, refs: self.refs, diags: self.diags }
+        (Compiled { bytes: self.out, variables: self.vars, refs: self.refs, diags: self.diags }, self.ref_vars)
     }
 
     /// Take the block-form lambdas (`(begin function {…}` … `end)`, which span lines
@@ -485,6 +489,8 @@ impl<'a> Gen<'a> {
         };
         if ty == DeclType::Ref {
             self.ref_vars.insert(name.to_ascii_lowercase());
+        } else if self.declared_types_win {
+            self.ref_vars.remove(&name.to_ascii_lowercase());
         }
         // A record's variable list can only say Integer or FloatOrRef: the editor with xNVSE
         // stores a string_var as Integer and an array_var as FloatOrRef [observed:

@@ -193,6 +193,14 @@ low.
     replaced by the numbers read in the original (observer check 118). UIO has no script
     functions; the engine reads its `uio\public` lists itself (menu-xml.md), which is
     what a mod asking for it needs.
+  - `"Improved Console"` at `3` [documented: §2a registered name `"Improved Console"`;
+    observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + Improved Console v3 (10
+    official masters), `nvse.log` registered name `"Improved Console"` version `3`,
+    `GetPluginVersion "Improved Console" == 3`]. Improved Console (NVSE) has no script
+    functions of its own; NVForever implements persistent console locals
+    (`int`/`float`/`ref`/`string_var`/`array_var`) and transparent expression/statement
+    result printing directly in the interactive console (`docs/design/console.md`,
+    `Game::run_console_line`).
   - Still not reported: `"yUI"` (its two ySI trait functions are built, its menus are
     not; a mod that finds it goes on to read its tiles [observed: JustAssortedMods.esp
     4.6 asks `IsPluginInstalled "yUI"` and then reads `HUDMainMenu/ySI/_ySI`]), and the

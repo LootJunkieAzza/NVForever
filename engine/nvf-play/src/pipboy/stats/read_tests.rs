@@ -207,3 +207,67 @@ fn a_short_name_is_read_in_the_code_page() {
     assert_eq!(zstring(b"CHR\0junk", CodePage::Windows1252), "CHR", "stops at the first NUL");
     assert_ne!(zstring(&anam, CodePage::Windows1252), "Крас.");
 }
+
+#[test]
+fn pipboy_stats_snapshot_resolves_ttw_ini_karma_titles_for_levels_1_through_50() {
+    fn glob(fid: u32, edid: &str, v: f32) -> Vec<u8> {
+        record(b"GLOB", fid, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", v.to_le_bytes().to_vec())])
+    }
+    let globs = [
+        glob(0x900, "KarmaVeryEvil", -750.0),
+        glob(0x901, "KarmaEvil", -250.0),
+        glob(0x902, "KarmaGood", 250.0),
+        glob(0x903, "KarmaVeryGood", 750.0),
+    ]
+    .concat();
+    let player = record(b"NPC_", 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let bytes = [tes4(), top(b"GLOB", &globs), top(b"NPC_", &player)].concat();
+    let plugins: &'static [fnv_esm::Plugin] = Box::leak(Box::new([fnv_esm::Plugin::parse(&bytes, "Karma.esm".into()).unwrap()]));
+    let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).unwrap()));
+    let schema: &'static Schema = Box::leak(Box::new(Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap()));
+    let mut forms = Forms::new(lo, schema);
+    let mut sim = SimState::new(lo, schema, &fnv_world::WorldIndex::default());
+    let mut script = ScriptState::over_plugins(plugins);
+
+    // Vanilla (no TTW.ini): level 45 Evil clamps to vanilla level 30 ("Devil"), and tile
+    // setting title is None (no sKarmicTitle* GMST in the synthetic plugin).
+    {
+        let g = &mut script.rt.as_mut().unwrap().game;
+        g.player.level = Some(45);
+        gf::set_actor_value_current(g, P, av::KARMA, -500.0).unwrap();
+    }
+    let vanilla = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(vanilla.karma_title.as_deref(), Some("Devil"));
+    assert_eq!(vanilla.karma_setting_title, None);
+
+    // Synthetic TTW.ini with level 1..=50 titles across Good, Neutral, and Evil.
+    let mut ini = String::from("[Karma Titles]\n");
+    for lvl in 1..=50 {
+        ini.push_str(&format!("sKarmicTitleGood{lvl}=SynthGood{lvl}\n"));
+        ini.push_str(&format!("sKarmicTitleNeutral{lvl}=SynthNeutral{lvl}\n"));
+        ini.push_str(&format!("sKarmicTitleEvil{lvl}=SynthEvil{lvl}\n"));
+    }
+    script.rt.as_mut().unwrap().game.mod_files.write_bytes("NVSE/Plugins/TTW.ini", ini.as_bytes());
+
+    let evil_45 = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(evil_45.karma_title.as_deref(), Some("SynthEvil45"));
+    assert_eq!(evil_45.karma_setting_title.as_deref(), Some("SynthEvil45"));
+
+    {
+        let g = &mut script.rt.as_mut().unwrap().game;
+        g.player.level = Some(50);
+        gf::set_actor_value_current(g, P, av::KARMA, 800.0).unwrap();
+    }
+    let good_50 = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(good_50.karma_title.as_deref(), Some("SynthGood50"));
+    assert_eq!(good_50.karma_setting_title.as_deref(), Some("SynthGood50"));
+
+    {
+        let g = &mut script.rt.as_mut().unwrap().game;
+        g.player.level = Some(31);
+        gf::set_actor_value_current(g, P, av::KARMA, 0.0).unwrap();
+    }
+    let neutral_31 = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(neutral_31.karma_title.as_deref(), Some("SynthNeutral31"));
+    assert_eq!(neutral_31.karma_setting_title.as_deref(), Some("SynthNeutral31"));
+}

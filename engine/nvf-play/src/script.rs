@@ -2461,6 +2461,16 @@ pub(crate) fn run_scripts(
     let mut loading_menu = false;
     let mut aid_lines = Vec::new();
     let mut walks = Vec::new();
+    // Apply any pre-`run_scripts` `ClearMessageQueue` (e.g. `PlaySet::Activation` or
+    // dialogue result scripts) to `CornerMessages` without discarding the `Game::events`
+    // watermark, and sync `corner.total()` when no undrained events are pending [design].
+    if rt.game.hud.take_corner_clear() {
+        let dropped = corner.clear();
+        info!("corner messages: cleared {dropped} message(s) (ClearMessageQueue)");
+    }
+    if rt.game.events.is_empty() {
+        rt.game.hud.sync_corner_queue(corner.total());
+    }
     with_world(rt, &mut sim, |rt| {
         // The original's main menu is its start menu: its MenuMode 1013 blocks run there
         // before the game, where MCM mods add themselves to MCM's list; NVForever comes
@@ -2611,6 +2621,8 @@ pub(crate) fn run_scripts(
     // by hand earlier in the frame).
     let events = std::mem::take(&mut rt.game.events);
     let skip = std::mem::take(&mut rt.skip);
+    let corner_clear_at = rt.game.hud.take_corner_clear_event_index();
+    let corner_cleared = rt.game.hud.take_corner_clear();
     rt.stats.events += events.len() as u64;
     // References a `Disable 1` held enabled while they faded, disabled now: their visuals,
     // collision and enable children follow.
@@ -2620,7 +2632,11 @@ pub(crate) fn run_scripts(
     let culled = std::mem::take(&mut rt.game.script_looks.critical_changed);
     let move_fades = std::mem::take(&mut rt.game.script_looks.fades);
     let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests, game: &rt.game };
-    let mut effects = script_events::effects(&events, &skip, &ctx);
+    let mut effects = script_events::effects_with_corner_clear(&events, &skip, corner_clear_at.unwrap_or(0), &ctx);
+    if corner_cleared {
+        let dropped = corner.clear();
+        info!("corner messages: cleared {dropped} message(s) (ClearMessageQueue)");
+    }
     // Objects a script moved, turned or resized: their collision follows (`crate::phys`).
     for r in rt.game.turned.union(&console_turned) {
         repose.write(crate::RefRepose { form_id: r.0 });
@@ -2772,6 +2788,7 @@ pub(crate) fn run_scripts(
             }
         }
     }
+    rt.game.hud.sync_corner_queue(corner.total());
 }
 
 /// The control groups scripts turned off or on this frame reach the player's controls

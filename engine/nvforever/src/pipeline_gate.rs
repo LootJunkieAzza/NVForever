@@ -14,9 +14,11 @@
 //! while it is queued or compiling, and after the two errors Bevy retries (a shader or an
 //! import not loaded yet). An error Bevy does not retry is logged once with the pipeline's
 //! label and is not waited for; a draw that needs it stays skipped, as before. So is one
-//! still being retried [`PIPELINE_CAP_SECS`] after it was asked for, a shader that never
-//! loads for instance, so that it does not hold every screen after it to the screen's own
-//! cap. One merely slow to compile is still waited for, up to that cap.
+//! still being retried [`PIPELINE_CAP_SECS`] after its first retryable error (with at least
+//! [`MIN_RETRY_ERRORS`] error observations so a single long main-thread startup frame before
+//! a retry runs does not drop it prematurely), a shader that never loads for instance, so
+//! that it does not hold every screen after it to the screen's own cap. One merely slow to
+//! compile is still waited for, up to that cap.
 //!
 //! The render world answers through [`PipelineGate`], shared with the main world, so what
 //! the main world reads may be a frame or two old; a loading screen's settle time
@@ -190,18 +192,56 @@ fn label(d: &PipelineDescriptor) -> &str {
     .unwrap_or("(no label)")
 }
 
-fn count(gate: Res<PipelineGate>, cache: Res<PipelineCache>, mut failed: Local<HashSet<usize>>, mut asked: Local<Vec<Instant>>) {
+/// Minimum retryable-`Err` observations before [`PIPELINE_CAP_SECS`] drops a pipeline:
+/// 2 ensures at least one retry cycle has actually executed after the first error [design].
+const MIN_RETRY_ERRORS: u32 = 2;
+
+/// Retry-timeout state for one pipeline ([`count`]).
+///
+/// Bevy retries `ShaderNotLoaded` / `ShaderImportNotYetAvailable` across render frames
+/// (`Queued -> Creating -> Err -> Queued`). Measuring the retry cap from the first retryable
+/// `Err` observation and requiring at least [`MIN_RETRY_ERRORS`] error observations keeps a
+/// single long main-thread startup frame (e.g. heavy modded script compilation while the
+/// render thread waits for `Extract`) from dropping pipelines on their very first `Err`
+/// before any retry has run [design].
+#[derive(Clone, Copy, Debug, Default)]
+struct RetryState {
+    since: Option<Instant>,
+    errors: u32,
+}
+
+impl RetryState {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn observe(&mut self, state: &CachedPipelineState, now: Instant, cap_secs: f64) -> bool {
+        if !waited_for(state) {
+            self.reset();
+            return false;
+        }
+        if matches!(state, CachedPipelineState::Err(_)) {
+            let since = *self.since.get_or_insert(now);
+            self.errors = self.errors.saturating_add(1);
+            self.errors >= MIN_RETRY_ERRORS && now.duration_since(since).as_secs_f64() >= cap_secs
+        } else {
+            false
+        }
+    }
+}
+
+fn count(gate: Res<PipelineGate>, cache: Res<PipelineCache>, mut failed: Local<HashSet<usize>>, mut retries: Local<Vec<RetryState>>) {
     let now = Instant::now();
     let (mut busy, mut screen_busy) = (0, 0);
     for (i, p) in cache.pipelines().enumerate() {
-        if i >= asked.len() {
-            asked.push(now);
+        if i >= retries.len() {
+            retries.push(RetryState::default());
         }
         if waited_for(&p.state) {
             if failed.contains(&i) {
                 continue;
             }
-            if matches!(p.state, CachedPipelineState::Err(_)) && now.duration_since(asked[i]).as_secs_f64() >= PIPELINE_CAP_SECS {
+            if retries[i].observe(&p.state, now, PIPELINE_CAP_SECS) {
                 failed.insert(i);
                 warn!("pipeline {i} still being retried after {PIPELINE_CAP_SECS:.0} s and no longer waited for: {}", label(&p.descriptor));
                 continue;
@@ -210,14 +250,17 @@ fn count(gate: Res<PipelineGate>, cache: Res<PipelineCache>, mut failed: Local<H
             if draws_the_screen(label(&p.descriptor)) {
                 screen_busy += 1;
             }
-        } else if let CachedPipelineState::Err(e) = &p.state {
-            if failed.insert(i) {
-                warn!("pipeline {i} failed and will not be tried again: {}: {e}", label(&p.descriptor));
+        } else {
+            retries[i].reset();
+            if let CachedPipelineState::Err(e) = &p.state {
+                if failed.insert(i) {
+                    warn!("pipeline {i} failed and will not be tried again: {}: {e}", label(&p.descriptor));
+                }
             }
         }
     }
     gate.0.busy.store(busy, Relaxed);
-    gate.0.asked.store(asked.len() as u32, Relaxed);
+    gate.0.asked.store(retries.len() as u32, Relaxed);
     gate.0.screen_busy.store(screen_busy, Relaxed);
     // Publish the counts before a reader accepts this as a fresh render frame [design].
     gate.0.frames.fetch_add(1, Release);
@@ -489,5 +532,57 @@ mod tests {
         assert!(draws_the_screen("blit pipeline"));
         assert!(!draws_the_screen("pbr_opaque_mesh_pipeline"));
         assert!(!draws_the_screen("post_pipeline"));
+    }
+
+    #[test]
+    fn single_long_startup_frame_before_first_retry_error_does_not_cap() {
+        let t0 = Instant::now();
+        let mut retry = RetryState::default();
+        let not_loaded = CachedPipelineState::Err(ShaderCacheError::ShaderNotLoaded(AssetId::default()));
+        let import_missing = CachedPipelineState::Err(ShaderCacheError::ShaderImportNotYetAvailable);
+
+        // Render frame 1: queued while main frame 2 stalls for 21 s compiling scripts.
+        assert!(!retry.observe(&CachedPipelineState::Queued, t0, PIPELINE_CAP_SECS));
+        // Render frame 2 (21 s later): first retryable Err observed — must NOT drop yet.
+        let t1 = t0 + std::time::Duration::from_secs(21);
+        assert!(!retry.observe(&not_loaded, t1, PIPELINE_CAP_SECS), "first Err starts the retry window instead of capping");
+        // Render frame 3: Bevy resets Err -> Queued for retry.
+        assert!(!retry.observe(&CachedPipelineState::Queued, t1 + std::time::Duration::from_millis(20), PIPELINE_CAP_SECS));
+        // Even a second transient Err 40 ms after the first is still well within the 15 s window.
+        assert!(!retry.observe(&import_missing, t1 + std::time::Duration::from_millis(40), PIPELINE_CAP_SECS));
+        // Resetting clears the retry clock and counter.
+        retry.reset();
+        assert_eq!(retry.since, None);
+        assert_eq!(retry.errors, 0);
+    }
+
+    #[test]
+    fn persistent_retry_error_caps_after_window_and_retry_attempts() {
+        let t0 = Instant::now();
+        let mut retry = RetryState::default();
+        let not_loaded = CachedPipelineState::Err(ShaderCacheError::ShaderNotLoaded(AssetId::default()));
+
+        assert!(!retry.observe(&not_loaded, t0, PIPELINE_CAP_SECS));
+        // Queued between retries does NOT clear the retry start clock.
+        assert!(!retry.observe(&CachedPipelineState::Queued, t0 + std::time::Duration::from_secs(5), PIPELINE_CAP_SECS));
+        assert!(!retry.observe(&not_loaded, t0 + std::time::Duration::from_secs_f64(PIPELINE_CAP_SECS - 0.1), PIPELINE_CAP_SECS));
+        assert!(
+            retry.observe(&not_loaded, t0 + std::time::Duration::from_secs_f64(PIPELINE_CAP_SECS), PIPELINE_CAP_SECS),
+            "still retrying after PIPELINE_CAP_SECS across multiple errors: capped"
+        );
+    }
+
+    #[test]
+    fn retry_after_stall_still_caps_when_second_attempt_fails_past_window() {
+        let t0 = Instant::now();
+        let mut retry = RetryState::default();
+        let not_loaded = CachedPipelineState::Err(ShaderCacheError::ShaderNotLoaded(AssetId::default()));
+
+        // First retryable error observed.
+        assert!(!retry.observe(&not_loaded, t0, PIPELINE_CAP_SECS));
+        // Long stall before Bevy retries (Queued -> Creating -> Err).
+        assert!(!retry.observe(&CachedPipelineState::Queued, t0 + std::time::Duration::from_secs(20), PIPELINE_CAP_SECS));
+        // Second retryable error past PIPELINE_CAP_SECS after an actual retry cycle: capped.
+        assert!(retry.observe(&not_loaded, t0 + std::time::Duration::from_secs(20) + std::time::Duration::from_millis(20), PIPELINE_CAP_SECS));
     }
 }

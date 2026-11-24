@@ -584,7 +584,7 @@ impl App {
         ui.add_space(16.0);
         ui.heading("Recommended mods");
         ui.label(
-            RichText::new("Co-op is built to play these minigames together (shared tables, stakes and celebrations) and to use these extra emotes, but they are other authors' mods and are not included. Co-op plays fine without them: their tables and boards are simply not in the world, and the emote wheel uses the game's own animations. To add them, download each from Nexus Mods and put its files in the co-op mods folder.")
+            RichText::new("Co-op is built to play these minigames together (shared tables, stakes and celebrations), to use these extra emotes and to offer the ghoul companions' voices to a ghoul character, but they are other authors' mods and are not included. Co-op plays fine without them: their tables and boards are simply not in the world, the emote wheel uses the game's own animations, and the Voice row offers the human voices. To add them, download each from Nexus Mods and put its files in the co-op mods folder.")
                 .color(WEAK),
         );
         ui.add_space(6.0);
@@ -874,14 +874,18 @@ impl App {
 const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
 
 /// The other authors' mods co-op is made with (the Co-op page): name, what it adds, Nexus
-/// page. The three minigames are Luke2172's, Animated Greetings is Wombat's [observed: their
-/// Nexus pages, 2026-11-23]; its clips (`meshes\AG_*.kf`) are the emote wheel's extra
-/// gestures (nvf-play emotes.rs), the game's own idles play without it.
-const RECOMMENDED: [(&str, &str, &str); 4] = [
+/// page. The three minigames are Luke2172's, Animated Greetings is Wombat's, Fully Functional
+/// Ghoul Race is SeerixTyphon's [observed: their Nexus pages, 2026-11-23]. Animated Greetings'
+/// clips (`meshes\AG_*.kf`) are the emote wheel's extra gestures (nvf-play emotes.rs), the
+/// game's own idles play without it. A playable ghoul race lets a character take the ghoul
+/// voice sets (Raul, Dean, Beatrix): the Voice row offers a set only to its race kind
+/// (`fnv_game::player_voice::race_kind`, nvf-play creator model).
+const RECOMMENDED: [(&str, &str, &str); 5] = [
     ("Pool Tables Of The Mojave", "Playable pool tables (Pool Table Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100097"),
     ("Dart Boards Of The Mojave", "Playable dart boards (Darts Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100118"),
     ("Five Finger Fillet", "The knife game at tables (Knife Minigame.esp)", "https://www.nexusmods.com/newvegas/mods/100243"),
     ("Animated Greetings", "More gestures for the emote wheel (bow, tip hat, salutes and more)", "https://www.nexusmods.com/newvegas/mods/96211"),
+    ("Fully Functional Ghoul Race", "A playable ghoul, for the ghoul player voices (Raul, Dean, Beatrix)", "https://www.nexusmods.com/newvegas/mods/56961"),
 ];
 
 /// The co-op home made ready: its INI is given the game folder `game` when it has none, so

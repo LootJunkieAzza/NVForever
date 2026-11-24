@@ -76,6 +76,7 @@ pub fn row_of(forms: &FormStore, item: u32, count: u16) -> Row {
         folder: None,
         reference: None,
         live: false,
+        ysi: None,
     }
 }
 

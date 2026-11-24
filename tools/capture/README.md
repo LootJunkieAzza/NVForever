@@ -509,9 +509,58 @@ it refuses to run unless JIP is installed. Data from it is used only as the A/B 
 python tools/capture/observe_compare.py --base vanilla.timeline.1.json vanilla.timeline.2.json --with jip.timeline.1.json jip.timeline.2.json --text
 ```
 
+**Damage per hit, both games side by side (`damage_parity.py`, issue #3163):** one matrix,
+`observe/damage_parity.matrix.json` (weapons with their ammunition, target actor records,
+the height each is aimed at, the shooter's skills and level), makes the run of both
+sides, so they measure the same hit: the player stands on the Searchlight Airport runway
+(save `nvfairport`) and shoots a restrained target 300 units north, one shot at a time,
+record after record. Change the matrix, then write the campaign again (a test keeps the
+two in step).
+```
+python tools/capture/damage_parity.py campaign
+python tools/capture/observe.py run tools/capture/observe/damage_parity.campaign.json --only pistol9mm --game "<FNV folder>" --data "<Data>"   # and so on, one weapon a launch
+python tools/capture/damage_parity.py original C:/fnv-private/capture/out/obs_damage_parity_*.jsonl -o C:/fnv-private/capture/observe/damage_parity/original.rows.json
+
+python tools/capture/damage_parity.py scenarios -o <dir>/damage-parity.toml
+python tools/smoke run --scenarios <dir>/damage-parity.toml --all --no-merge --out <dir>/logs --exe <nvforever.exe> --data "<Data>"
+python tools/capture/damage_parity.py nvforever <dir>/logs -o <dir>/nvforever.rows.json
+
+python tools/capture/damage_parity.py compare C:/fnv-private/capture/observe/damage_parity/original.rows.json <dir>/nvforever.rows.json --text
+python tools/capture/damage_parity.py rule <dir>/nvforever.rows.json
+```
+- `rule` judges one side's rows alone, each hit by its own DT and DR, against the rule
+  measured in the original (docs/spec-notes/damage-armour.md) with the weapons' `figures`
+  of the matrix, and lists the body part multiplier each part showed. It is the check
+  to trust where `compare` says "the target's dt differs": leveled outfits dress the same
+  record differently from one spawn to the next, in both games.
+- The original's shots are `player.FireWeapon` with the equipped weapon and its hits are
+  read every game loop (Health, and the last hit as JIP LN NVSE reports it: the campaign
+  needs JIP installed); NVForever's are the player's own shots and its `combat: hit` log
+  lines. `compare` gives, per weapon, record and aim, the plain hit's damage on both
+  sides (no critical, no sneak attack), the target's DT and DR as each game reads them
+  and where the hits landed, and says `match`, `differs`, or which side has no hit.
+- One weapon a game launch (`--only`): with all ten sessions in one launch the first
+  one's shots landed and most of the later ones' went wide [observed 2026-11-21].
+- What the original's run does to make the shots land [observed 2026-11-21, the trial
+  sessions]: a person's weapon is taken away (a restrained person's rifle took the shots
+  aimed at the torso: hit location 14, no health lost); creatures and robots have their
+  AI turned off one run of the placing script after they are moved (in the same run the
+  move was lost), people keep theirs (with it off most shots after the first hit
+  missed); the weapon's spread is set to 0 in the running game; the weapon is mended
+  every 10 loops; the skills are set with SetAV and then ForceAV, after Luck (SetAV
+  alone left Guns at 65 on the save's character). A FireWeapon hit on the unarmoured
+  wastelander's torso was base damage × (0.5 + 0.5 × skill / 100), at skill 65 and at
+  skill 50: FireWeapon's damage is a normal shot's.
+- A row whose DT, DR or level differ between the games says the set-up differs (a
+  leveled outfit, a level that follows the player's), not only the hit.
+- The rows and the comparison hold figures measured in the original: keep them private.
+- Not covered yet: melee and unarmed (no way found to drive a swing in an unfocused
+  game [observed 2026-10-25: FireWeaponEx with a machete killed nothing]), explosives,
+  and limbs other than the head.
+
 Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, automatic mode,
 observe step, layouts), `tests/test_capture_steps.py`, `tests/test_capture_run.py`,
-`tests/test_observe.py` and `tests/test_observe_compare.py`.
+`tests/test_observe.py`, `tests/test_observe_compare.py` and `tests/test_damage_parity.py`.
 
 **Jobs by hand (plugin version 8):** a script may be given in a short form (just the
 expression, condition or statements; forms named once per job and used as `@name`), which

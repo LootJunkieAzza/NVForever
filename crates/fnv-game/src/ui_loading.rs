@@ -65,7 +65,10 @@ pub const ALWAYS_LOADED: &[&str] = &["HUDMainMenu", "InventoryMenu", "MapMenu", 
 /// Logging remembered until the tree is rebuilt after a load [design].
 #[derive(Default)]
 pub struct MenuLifetime {
-    unavailable: BTreeSet<u16>,
+    /// `(menu_code, jip_text_input)` pairs that failed to load so a missing vanilla
+    /// `TextEditMenu` does not suppress a present `NVSE\Plugins\textinput\texteditmenu.xml`
+    /// (or vice versa) [design].
+    unavailable: BTreeSet<(u16, bool)>,
     warnings: BTreeSet<String>,
 }
 
@@ -122,19 +125,47 @@ pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeRepor
     let warning_start = game.ui_tree.warnings.len();
     let uio_before: Vec<_> = game.ui_tree.uio.decisions.iter().map(|d| d.applied).collect();
     for code in open {
-        if game.ui_tree.menus().any(|root| class_code(&game.ui_tree, root) == Some(code)) || game.ui_lifetime.unavailable.contains(&code) {
+        let text_input_mode = code == menus::NAME && game.text_input().is_some();
+        let desired_path = if code == menus::NAME {
+            crate::ui_text_input::menu_path(game, files).map(str::to_owned)
+        } else {
+            game.ui_menus.code_path(code).map(str::to_owned)
+        };
+        let existing_root = game.ui_tree.menus().find(|&root| class_code(&game.ui_tree, root) == Some(code));
+        if let Some(existing_root) = existing_root {
+            // If `TextEditMenu` switched between vanilla `menus\dialog\texteditmenu.xml`
+            // and JIP `nvse\plugins\textinput\texteditmenu.xml` without an intervening
+            // closed frame, drop the stale root and rebuild from the active layout [design].
+            let stale_text_edit = code == menus::NAME
+                && desired_path.as_deref().is_some_and(|want| match &game.ui_tree.tile(existing_root).origin {
+                    fnv_ui::Origin::File { path, .. } => {
+                        !path.replace('/', "\\").eq_ignore_ascii_case(&want.replace('/', "\\"))
+                    }
+                    _ => false,
+                });
+            if !stale_text_edit {
+                continue;
+            }
+            let _span = tracing::info_span!("tiles::write::menu_drop").entered();
+            game.ui_tree.unload_tile(existing_root);
+            report.changes.push(format!("dropped {}", menu_class_name(code).unwrap()));
+        }
+        if game.ui_lifetime.unavailable.contains(&(code, text_input_mode)) {
             continue;
         }
         let name = menu_class_name(code).map_or_else(|| format!("menu {code}"), str::to_owned);
         // An attempt: entered too for a menu with no file and a load that fails.
         let span = tracing::info_span!("tiles::write::menu_build").entered();
-        let result = match game.ui_menus.code_path(code) {
-            Some(path) => game.ui_tree.load_menu(files, path).map(|root| (path, root)),
+        let result = match desired_path {
+            Some(path) => game.ui_tree.load_menu(files, &path).map(|root| (path, root)),
             None => Err(format!("{name}: no file with matching menu class")),
         };
         drop(span);
         match result {
             Ok((path, root)) => {
+                if let Some(input) = game.text_input().filter(|_| code == menus::NAME).cloned() {
+                    crate::ui_text_input::sync_to_tree(&mut game.ui_tree, root, &input);
+                }
                 if crate::ui_ysi::is_present(files) {
                     crate::ui_ysi::publish_for_menu(&mut game.ui_tree, files, root, Some(code));
                 }
@@ -150,7 +181,7 @@ pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeRepor
                 report.changes.push(format!("built {name} ({path}, {count} tiles)"));
             }
             Err(message) => {
-                game.ui_lifetime.unavailable.insert(code);
+                game.ui_lifetime.unavailable.insert((code, text_input_mode));
                 report.warnings.push(message);
             }
         }

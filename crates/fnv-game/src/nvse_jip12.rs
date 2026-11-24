@@ -85,6 +85,9 @@ pub struct TextInput {
     pub max: usize,
     pub digits_only: bool,
     pub enter_closes: bool,
+    /// Current live text of the input box (kept synchronized with `TextEditMenu`'s input
+    /// tile while open; updated by `SetTextInputString` and engine typing).
+    pub text: String,
     /// SetTextInputString's text, for the engine to take.
     pub set_text: Option<String>,
 }
@@ -620,6 +623,16 @@ impl Game<'_> {
         self.other.jip12.text_input.as_mut()?.set_text.take()
     }
 
+    /// Update the open `ShowTextInputMenu`'s live typed text from the engine UI and
+    /// mirror it into `TextEditMenu`'s input text tile without overwriting script edits
+    /// to other `TextEditMenu` traits.
+    pub fn set_text_input_live_text(&mut self, typed: &str) {
+        let Some(t) = self.other.jip12.text_input.as_mut() else { return };
+        let clipped: String = typed.chars().take(t.max).collect();
+        t.text = clipped.clone();
+        crate::ui_text_input::sync_live_text(self, &clipped);
+    }
+
     /// Ok in the text input menu: the callback gets the text (next frame), the menu closes.
     pub fn finish_text_input(&mut self, typed: String) {
         let Some(t) = self.other.jip12.text_input.take() else { return };
@@ -952,13 +965,25 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let title = formatted(args, 3);
             let size = (num(args, 1).unwrap_or(0.0) as f32, num(args, 2).unwrap_or(0.0) as f32);
             g.ext.retain(&cb);
-            g.other.jip12.text_input = Some(TextInput { callback: cb, title, size, offset: (0.0, 0.0), min: 1, max: TEXT_MAX, digits_only: false, enter_closes: false, set_text: None });
+            g.other.jip12.text_input = Some(TextInput {
+                callback: cb,
+                title,
+                size,
+                offset: (0.0, 0.0),
+                min: 1,
+                max: TEXT_MAX,
+                digits_only: false,
+                enter_closes: false,
+                text: String::new(),
+                set_text: None,
+            });
             g.open_menu(crate::game::menus::NAME);
             yes(true)
         }
         // Origin, the length limits (1 and 32,767 by default, 0 the latter too), digits
         // only (1), Enter closes (2) [documented].
         "settextinputextendedprops" => {
+            let mut updated = false;
             if let Some(t) = g.other.jip12.text_input.as_mut() {
                 t.offset = (num(args, 0).unwrap_or(0.0) as f32, num(args, 1).unwrap_or(0.0) as f32);
                 t.min = num(args, 2).map_or(1, |m| m.max(0.0) as usize);
@@ -966,13 +991,25 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 let switches = num(args, 4).unwrap_or(0.0) as u32;
                 t.digits_only = switches & 1 != 0;
                 t.enter_closes = switches & 2 != 0;
+                t.text = t.text.chars().take(t.max).collect();
+                updated = true;
+            }
+            if updated {
+                crate::ui_text_input::sync_open(g);
             }
             zero
         }
         "settextinputstring" => {
             let s = formatted(args, 0);
+            let mut live = None;
             if let Some(t) = g.other.jip12.text_input.as_mut() {
+                let clipped: String = s.chars().take(t.max).collect();
+                t.text = clipped.clone();
                 t.set_text = Some(s);
+                live = Some(clipped);
+            }
+            if let Some(live) = live {
+                crate::ui_text_input::sync_live_text(g, &live);
             }
             zero
         }

@@ -80,13 +80,16 @@ pub struct Senses {
 }
 
 /// The ray under the crosshair, game space: where it starts (about the player's eye,
-/// `nvf_play::control::Crosshair::ray`), its unit direction and the distance to the first
-/// thing it hits within [`RETICLE_REACH`] (`None`: nothing).
+/// `nvf_play::control::Crosshair::ray`), its unit direction, the distance to the first
+/// thing it hits within [`RETICLE_REACH`] (`None`: nothing), and the body part location
+/// (`BodyLocation` enum, 0..=14) when that hit is on an actor with resolved body parts
+/// (`GetReticleTargetLimb`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Reticle {
     pub start: [f32; 3],
     pub dir: [f32; 3],
     pub hit: Option<f32>,
+    pub limb: Option<i32>,
 }
 
 /// How far the engine casts the crosshair's ray for PlaceAtReticle: the largest

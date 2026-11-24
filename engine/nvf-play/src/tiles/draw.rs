@@ -1815,6 +1815,11 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
         }
     }
     if !spawn.is_empty() {
+        for &i in &spawn {
+            if let Look::Text { font, .. } = &pieces[i].look {
+                kit.load(f64::from(*font));
+            }
+        }
         let bc = bc_supported(kit.formats.as_deref());
         let data = kit.data.as_deref();
         let pictures = drawn.pictures.get_or_insert_with(|| Pictures::load(data));
@@ -3125,6 +3130,61 @@ mod tests {
         assert!((after[0].2.rotation.sin + 1.0).abs() < 1e-6 && after[0].2.rotation.cos.abs() < 1e-6);
         assert_eq!(app.world().resource::<super::super::runtime_images::RuntimeImages>().stamp("recipient"), stamp);
         assert_eq!(app.world().resource::<Painted>().0.get_float("Recipient/Map/rotateangle"), Some(1.));
+    }
+
+    #[test]
+    fn font_kit_loads_tex_only_slot_1_and_keeps_font_9_undrawn() {
+        use crate::interface::font_tex_tests::{synthetic_fnt, synthetic_tex, OwnedFontFiles};
+        let files = OwnedFontFiles::new(&[
+            ("glow_monofonto_large.fnt", synthetic_fnt("Glow_Monofonto_Large")),
+            ("Glow_Monofonto_Large.Tex", synthetic_tex(4, 2, [255, 255, 255, 255])),
+            ("nvfont_test.fnt", synthetic_fnt("NVFont_Test_0_Lod_A")),
+            ("nvfont_test_0_lod_a.tex", synthetic_tex(4, 4, [255, 255, 255, 255])),
+        ]);
+        let src = MemSource::default().with(
+            "fonts.xml",
+            r#"<menu name="Fonts">
+                <text name="Slot1"><string>A</string><font>1</font></text>
+                <text name="Slot9"><string>A</string><font>9</font></text>
+            </menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "fonts.xml").unwrap();
+        ui.update();
+        let t1 = ui.find_tile("Fonts/Slot1").unwrap();
+        let t9 = ui.find_tile("Fonts/Slot9").unwrap();
+
+        #[derive(Resource, Default)]
+        struct Seen {
+            f1_image: bool,
+            f9_image: bool,
+            f1_game: bool,
+            f9_game: bool,
+        }
+        #[derive(Resource)]
+        struct Probe {
+            ui: Ui,
+            t1: TileId,
+            t9: TileId,
+        }
+        fn check(mut kit: FontKit, probe: Res<Probe>, mut seen: ResMut<Seen>) {
+            seen.f1_game = kit.game_fonts(&probe.ui, &[probe.t1]);
+            seen.f9_game = kit.game_fonts(&probe.ui, &[probe.t9]);
+            seen.f1_image = kit.face(1.0).is_some_and(|f| f.image.is_some());
+            seen.f9_image = kit.face(9.0).is_some_and(|f| f.image.is_some());
+        }
+
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<Seen>()
+            .insert_resource(files.data())
+            .insert_resource(Probe { ui, t1, t9 })
+            .add_systems(Update, check);
+        app.update();
+        let seen = app.world().resource::<Seen>();
+        assert!(seen.f1_image && seen.f1_game, "tex-only slot 1 should load");
+        assert!(!seen.f9_image && !seen.f9_game, "vanilla font 9 should remain stand-in");
     }
 
 }

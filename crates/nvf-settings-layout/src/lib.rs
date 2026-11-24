@@ -321,6 +321,8 @@ pub const SECTIONS: &[Section] = &[
             "tweak-speed-scales-jump",
             "tweak-jump-ap-cost",
             "tweak-run-ap-cost",
+            "tweak-sneak-run-ap-cost",
+            "tweak-sneak-run-ap-endurance",
             "tweak-agility-speed",
             "tweak-agility-jump",
             "tweak-back-pace",

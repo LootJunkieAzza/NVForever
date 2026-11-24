@@ -21,6 +21,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use fnv_font::{Font, Line, Placed};
 use fnv_sim::FormId;
+use fnv_util::words::{tr, trf};
 use nvf_assets::GameData;
 use std::collections::{HashMap, VecDeque};
 
@@ -75,12 +76,12 @@ const MAX_WAITING: usize = 32;
 /// is NVForever's by analogy].
 pub(crate) fn label(n: &QuestNotice) -> Option<&'static str> {
     match n {
-        QuestNotice::Added(_) => Some("Quest added"),
-        QuestNotice::Completed(_) => Some("Quest completed"),
-        QuestNotice::Failed(_) => Some("Quest failed"),
+        QuestNotice::Added(_) => Some(tr("Quest added")),
+        QuestNotice::Completed(_) => Some(tr("Quest completed")),
+        QuestNotice::Failed(_) => Some(tr("Quest failed")),
         // [observed: the owner's screenshot "Discovered", the same place and fonts as
         // "Quest added"].
-        QuestNotice::Discovered(_) => Some("You have discovered"),
+        QuestNotice::Discovered(_) => Some(tr("You have discovered")),
         QuestNotice::Objectives(_) => None,
     }
 }
@@ -132,7 +133,7 @@ fn sound(n: &QuestNotice) -> Option<&'static str> {
 
 pub(crate) fn objective_text(o: &Objective) -> String {
     if o.completed {
-        format!("COMPLETED: {}", o.text.trim())
+        trf("COMPLETED: {text}", &[("text", &o.text.trim())])
     } else {
         o.text.trim().to_string()
     }

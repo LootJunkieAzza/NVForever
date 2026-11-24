@@ -140,7 +140,8 @@ use fnv_actor::idle::meshes_path;
 use fnv_actor::idle_play::{IdleKeys, IdlePlay};
 use fnv_actor::weapon::Stage;
 use fnv_game::game::Game;
-use fnv_game::idles::{FidgetKind, IdlePicker, IdleRequest, IdleSource, Loops};
+use fnv_game::idles::{FidgetKind, IdlePicker, IdlePov, IdleRequest, IdleSource, Loops};
+use fnv_game::nvse_knvse::SequenceInfo;
 use fnv_game::package::{flags, PackageType};
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
@@ -755,11 +756,11 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
     }
 }
 
-/// The clip of an idle and its playback, as its record and text keys say; a creature's
-/// standing look loops until replaced (`IdleSource::Standing`).
-fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: bool) -> Result<(Arc<Clip>, IdlePlay), String> {
+/// The clip of an idle and its playback, as its record, active kNVSE overrides, and text
+/// keys say; a creature's standing look loops until replaced (`IdleSource::Standing`).
+fn load(ctx: &mut ActorCtx, game: &Game, actor: FormId, pov: Option<IdlePov>, idle: FormId, rng: &mut Rng, endless: bool) -> Result<(Arc<Clip>, IdlePlay, String), String> {
     let def = game.idle_def(idle).ok_or("not an idle animation")?;
-    let path = clip_path(game, idle).ok_or("it names no file")?;
+    let path = clip_path_for(game, actor, pov, idle).ok_or("it names no file")?;
     let clip = ctx.clip(&path).ok_or_else(|| format!("{path} does not load"))?;
     let mut keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
     // A get-up starts from the body as its ragdoll left it, lying: no fade in from the
@@ -779,7 +780,7 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: b
         Loops::Times(n) => Some(n),
     };
     let play = effect_play(&clip, keys, passes);
-    Ok((clip, play))
+    Ok((clip, play, path))
 }
 
 /// [design, #2685] CLAMP effect tracks keep their final values until replacement.
@@ -802,11 +803,49 @@ fn clip_path(game: &Game, idle: FormId) -> Option<String> {
     (!model.trim().is_empty()).then(||meshes_path(model))
 }
 
+/// The KF file `actor` plays for `idle`, applying any active kNVSE replacement whose
+/// file name matches the idle's file name (stack top wins, case-insensitive) [hypothesis:
+/// as `Rig::clip`, a kNVSE idle replacement shares the overridden file's name]. Vanilla
+/// actors with no active overrides keep the exact record path.
+fn clip_path_for(game: &Game, actor: FormId, pov: Option<IdlePov>, idle: FormId) -> Option<String> {
+    let vanilla = clip_path(game, idle)?;
+    if game.anim_paths.actor.is_empty() && game.anim_paths.weapon.is_empty() && game.anim_folders.active.is_empty() {
+        return Some(vanilla);
+    }
+    let first = actor == FormId::PLAYER_REF
+        && match pov {
+            Some(IdlePov::First) => true,
+            Some(IdlePov::Third) => false,
+            None => game.senses.first_person,
+        };
+    let overrides = game.anim_overrides(actor, first);
+    if overrides.is_empty() {
+        return Some(vanilla);
+    }
+    let file_name = vanilla.replace('/', "\\");
+    let file_name = file_name.rsplit('\\').next().unwrap_or(&file_name);
+    overrides
+        .iter()
+        .rev()
+        .find(|p| p.replace('/', "\\").rsplit('\\').next().is_some_and(|n| n.eq_ignore_ascii_case(file_name)))
+        .map(|p| meshes_path(p))
+        .or(Some(vanilla))
+}
+
+/// Strip a leading `meshes\` or `meshes/` prefix and normalize slashes for `set_sequence_info`.
+fn strip_meshes_prefix(path: &str) -> String {
+    let norm = path.replace('/', "\\");
+    match norm.get(..7) {
+        Some(head) if head.eq_ignore_ascii_case("meshes\\") => norm[7..].to_string(),
+        _ => norm,
+    }
+}
+
 /// Whether the clip of `idle` is loaded (or known not to load), so starting it reads no
 /// file; when not, its read is started on a worker thread. An idle naming no file is
 /// ready ([`load`] says why it does not play).
-fn clip_ready(ctx: &mut ActorCtx, game: &Game, idle: FormId) -> bool {
-    clip_path(game, idle).is_none_or(|p| ctx.clip_ready(&p))
+fn clip_ready(ctx: &mut ActorCtx, game: &Game, actor: FormId, pov: Option<IdlePov>, idle: FormId) -> bool {
+    clip_path_for(game, actor, pov, idle).is_none_or(|p| ctx.clip_ready(&p))
 }
 
 /// Whether an idle asked for waits for its clip: not ready, and asked for less than
@@ -919,6 +958,7 @@ pub fn drive(
     let talk_parts = game.talk_parts();
     // Scripts' StopIdle and ForceStopIdle (`fnv_game::nvse_plugins`).
     let stops = std::mem::take(&mut game.gaps.idle_stops);
+    let pov_stops = std::mem::take(&mut game.gaps.idle_stop_pov);
     // The actors whose fidgets with the weapon away end now (`away_fidget_ends`): the
     // one playing, and one still waiting for its clip.
     let away_off: HashSet<u32> = actors
@@ -934,7 +974,7 @@ pub fn drive(
     for (_, v, _, idle, lo, _) in &mut actors {
         let Some(mut idle) = idle else { continue };
         idle.0.check_owner(|s| owner_now(game, v.0, s));
-        if stops.contains(&FormId(v.0)) {
+        if stops.contains(&FormId(v.0)) || pov_stops.iter().any(|(a, _)| a.0 == v.0) {
             if let Some(c) = idle.0.cur.as_mut() {
                 c.play.stop();
             }
@@ -1052,6 +1092,17 @@ pub fn drive(
             }
         }
     }
+    for (actor, pov) in &pov_stops {
+        if actor.0 == player_ref {
+            let slot = match pov {
+                IdlePov::First => &mut pi.first.cur,
+                IdlePov::Third => &mut pi.third.cur,
+            };
+            if let Some(c) = slot {
+                c.play.stop();
+            }
+        }
+    }
     busy.insert(player_ref, pi.first.playing().is_some() || pi.third.playing().is_some());
     // An idle asked for this frame (a package's begin idle) comes before its collection.
     for r in &game.idle_requests {
@@ -1109,7 +1160,7 @@ pub fn drive(
                 None => c.retry = RETRY_SECONDS.max(collection.timer),
                 // Its clip is read while the actor waits to play it.
                 Some((idle, _)) => {
-                    clip_ready(&mut ActorCtx { cache: &mut parts, models: &mut models }, game, idle);
+                    clip_ready(&mut ActorCtx { cache: &mut parts, models: &mut models }, game, FormId(actor), None, idle);
                 }
             }
         }
@@ -1456,7 +1507,7 @@ pub fn drive(
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
         let mut held_up: HashSet<u32> = HashSet::new();
         for (request, since) in requests {
-            let IdleRequest { actor, idle, source } = request;
+            let IdleRequest { actor, idle, source, pov } = request;
             // Counted once, when asked for (not again after waiting for its clip).
             if since.is_none() {
                 if !matches!(source, IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
@@ -1502,7 +1553,7 @@ pub fn drive(
                 }
             }
             // Its clip read on a worker thread rather than in this frame (#1429).
-            let ready = clip_ready(&mut ctx, game, idle);
+            let ready = clip_ready(&mut ctx, game, actor, pov, idle);
             let waited = since.map_or(std::time::Duration::ZERO, |t| t.elapsed());
             if held_up.contains(&actor.0) || waits_for_clip(ready, waited) {
                 if since.is_none() && !ready {
@@ -1519,7 +1570,7 @@ pub fn drive(
                 st.stats.clip_read_late += 1;
                 debug!("idle: {name}: the clip of {} was not read in {} ms: read now", game.data.name(idle), CLIP_WAIT.as_millis());
             }
-            let (clip, play) = match load(&mut ctx, game, idle, &mut st.rng, source == IdleSource::Standing) {
+            let (clip, play, resolved_path) = match load(&mut ctx, game, actor, pov, idle, &mut st.rng, source == IdleSource::Standing) {
                 Ok(l) => l,
                 Err(why) => {
                     st.stats.no_clip += 1;
@@ -1528,17 +1579,34 @@ pub fn drive(
                     continue;
                 }
             };
+            let rel_path = strip_meshes_prefix(&resolved_path);
+            game.set_sequence_info(&rel_path, SequenceInfo {
+                name: clip.name.clone(),
+                accum_root: clip.accum_root.clone().unwrap_or_default(),
+                frequency: f64::from(clip.frequency),
+                begin: f64::from(clip.start),
+                end: f64::from(clip.stop),
+                cycle: clip.cycle_type,
+                text_keys: clip.text_keys.iter().map(|(t, s)| (f64::from(*t), s.clone())).collect(),
+            });
             let owner = owner_now(game, actor.0, source).filter(|_| source.of_package());
-            let file = clip_path(game, idle);
+            let file = Some(resolved_path);
             let what = describe(game, idle, &play);
             if actor.0 == player_ref {
-                let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
+                let drives_camera = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
+                let first = match pov {
+                    Some(IdlePov::First) => true,
+                    Some(IdlePov::Third) => false,
+                    None => drives_camera,
+                };
                 // An activation's idle (the drink) holds nothing: mouse look, movement
                 // and the HUD stay with the player while the camera node moves the view
                 // (`Camera1st` hangs under `Bip01 Looking`, so the player's pitch still
                 // applies) [design, #2349: whether the original holds the player is
-                // observer check 131; documented: `_1stperson\skeleton.nif`].
-                let holds = first && source != IdleSource::Activate && camera_idle_holds(game.idle_def(idle).map_or(0, |d| d.section));
+                // observer check 131; documented: `_1stperson\skeleton.nif`]. A first-person
+                // arm-only idle (`ForcePlayIdle idle 2`) without `Camera1st` likewise keeps
+                // look and movement free [design].
+                let holds = first && drives_camera && source != IdleSource::Activate && camera_idle_holds(game.idle_def(idle).map_or(0, |d| d.section));
                 if holds && pi.held.is_none() {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
@@ -2061,7 +2129,7 @@ mod tests {
         // Waiting for their clips: the taken-over actor's fidget goes, its script idle and
         // another actor's fidget stay.
         let now = std::time::Instant::now();
-        let req = |actor: u32, idle: u32, source: IdleSource| (IdleRequest { actor: FormId(actor), idle: FormId(idle), source }, now);
+        let req = |actor: u32, idle: u32, source: IdleSource| (IdleRequest { actor: FormId(actor), idle: FormId(idle), source, pov: None }, now);
         let mut waiting = vec![req(7, 5, IdleSource::HolsteredFidget), req(7, 6, IdleSource::Script), req(8, 5, IdleSource::HolsteredFidget)];
         drop_holstered_waits(&mut waiting, &HashSet::from([7]));
         let left: Vec<(u32, IdleSource)> = waiting.iter().map(|(r, _)| (r.actor.0, r.source)).collect();
@@ -2175,7 +2243,7 @@ mod tests {
         fn step(g: &Game) -> (bool, bool) {
             let mut slot: IdleSlot<u8> = IdleSlot::default();
             slot.start(5, IdleSource::HolsteredFidget, None, 5, play(8.4, 0.3, Some(4)));
-            let mut waiting = vec![(IdleRequest { actor: FormId(ACTOR), idle: FormId(6), source: IdleSource::HolsteredFidget }, std::time::Instant::now())];
+            let mut waiting = vec![(IdleRequest { actor: FormId(ACTOR), idle: FormId(6), source: IdleSource::HolsteredFidget, pov: None }, std::time::Instant::now())];
             let off: HashSet<u32> = holstered_off(g, ACTOR, false, false, None, None).then_some(ACTOR).into_iter().collect();
             drop_holstered_waits(&mut waiting, &off);
             end_holstered(&mut slot, off.contains(&ACTOR));
@@ -2434,5 +2502,41 @@ mod tests {
         p.third.cur.as_mut().unwrap().holds = true;
         assert!(p.third.playing().is_some());
         assert!(!p.holds_camera());
+    }
+
+    #[test]
+    fn clip_path_for_applies_knvse_override_by_filename_and_normalizes_forward_slashes() {
+        let empty = crate::outfits::tests::empty_world_data();
+        let forms = crate::outfits::tests::actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let functions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = fnv_script::FunctionTable::load(&functions).unwrap();
+        let json = serde_json::from_str(&std::fs::read_to_string(functions).unwrap()).unwrap();
+        let mut data = fnv_game::GameData::build(empty.lo, empty.schema, table, &json, &refs);
+        let idle = FormId(0x9001);
+        data.idles.insert(
+            idle,
+            fnv_game::data::IdleDef {
+                model: Some("Characters\\_Male\\IdleAnims\\SpecialIdle_Test.kf".into()),
+                ..Default::default()
+            },
+        );
+        let mut game = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let npc = FormId(0x2000);
+
+        // Vanilla (no active overrides): exact record path.
+        assert_eq!(clip_path_for(&game, npc, None, idle).as_deref(), Some("meshes\\characters\\_male\\idleanims\\specialidle_test.kf"));
+
+        // Active AnimGroupOverride matching the idle's filename: replacement wins.
+        game.anim_folders.active.insert((npc, false), vec!["AnimGroupOverride\\ModA\\_male\\SpecialIdle_Test.kf".into()]);
+        assert_eq!(clip_path_for(&game, npc, None, idle).as_deref(), Some("meshes\\animgroupoverride\\moda\\_male\\specialidle_test.kf"));
+
+        // Player first-person POV override stays isolated from third-person POV, and forward-slash
+        // "meshes/..." paths normalize without double-prefixing.
+        game.anim_folders.active.insert((FormId::PLAYER_REF, true), vec!["meshes/AnimGroupOverride/ModA/_1stPerson/SpecialIdle_Test.kf".into()]);
+        assert_eq!(clip_path_for(&game, FormId::PLAYER_REF, Some(IdlePov::First), idle).as_deref(), Some("meshes\\animgroupoverride\\moda\\_1stperson\\specialidle_test.kf"));
+        assert_eq!(clip_path_for(&game, FormId::PLAYER_REF, Some(IdlePov::Third), idle).as_deref(), Some("meshes\\characters\\_male\\idleanims\\specialidle_test.kf"));
+        assert_eq!(strip_meshes_prefix("meshes/AnimGroupOverride/ModA/SpecialIdle_Test.kf"), "AnimGroupOverride\\ModA\\SpecialIdle_Test.kf");
+        assert_eq!(strip_meshes_prefix("Meshes\\AnimGroupOverride\\ModA\\SpecialIdle_Test.kf"), "AnimGroupOverride\\ModA\\SpecialIdle_Test.kf");
     }
 }

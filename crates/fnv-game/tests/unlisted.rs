@@ -493,6 +493,7 @@ fn refresh_anim_data_queues_one_shot_and_refreshes_folder_entries() {
         order: 0,
         third: vec!["AnimGroupOverride\\TestRefresh\\_male\\mtidle.kf".into()],
         first: vec!["AnimGroupOverride\\TestRefresh\\_1stPerson\\mtidle.kf".into()],
+        ..Default::default()
     });
     g.refresh_anim_folders();
     assert!(g.anim_overrides(player, false).is_empty(), "level 1 does not satisfy folder condition");

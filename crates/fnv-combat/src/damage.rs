@@ -208,7 +208,7 @@ pub struct Target {
     /// Not aware of the attacker (for the headshot critical, [design]).
     pub unaware: bool,
     /// Its value, in percent, of the resistance the weapon's damage type names (WEAP DNAM
-    /// Resist, [`resistance_of`]); used in place of DR when the weapon has one
+    /// Resist, [`resistance_of`]); cuts the hit as well as DR when the weapon has one
     /// (docs/spec-notes/weapon-data-fields.md §3). Not part of any report.
     #[serde(skip)]
     pub resist: f32,
@@ -220,8 +220,10 @@ pub struct Target {
 
 /// The resistance a weapon's damage type names, when it is one other than DR: "Energy
 /// Resistance", "Fire Resistance", "EMP Resistance" … (the actor value's name); `None`
-/// for None and Damage Resistance, which keep the DR rule
-/// (docs/spec-notes/weapon-data-fields.md §3) [hypothesis].
+/// for None and Damage Resistance. DR cuts such a weapon's hits like any other's
+/// [observed 2026-11-21: laser and plasma rifles, docs/spec-notes/damage-armour.md §4];
+/// that the named resistance cuts them too is a [hypothesis]
+/// (docs/spec-notes/weapon-data-fields.md §3).
 pub fn resistance_of(w: &WeaponStats) -> Option<&str> {
     w.resist.as_deref().filter(|r| !matches!(*r, "None" | "Damage Resistance" | "DamageResist"))
 }
@@ -261,14 +263,16 @@ pub struct Damage {
     pub kind: AttackKind,
     /// After skill, condition, the weapon multiplier and the per-projectile split.
     pub base: f32,
-    /// After ammo damage effects and the "Calculate Weapon Damage" perks.
+    /// After the "Calculate Weapon Damage" perks and the ammo damage effects, without
+    /// the critical bonus.
     pub modified: f32,
     pub sneak_mult: f32,
     pub part_mult: f32,
     pub crit_chance: f32,
     pub critical: bool,
     pub crit_bonus: f32,
-    /// Before armour.
+    /// Before armour: with the critical bonus and the ammo damage effects, without the
+    /// body part's multiplier (that comes after armour).
     pub raw: f32,
     pub dt: f32,
     pub dr: f32,
@@ -361,23 +365,27 @@ pub fn hit(
     // Companion Nerve: "+5% to their damage" per point of the player's Charisma
     // [documented: Fallout Wiki, Charisma (Fallout: New Vegas)]; after the perks
     // [hypothesis: where it applies].
-    let modified = (attacker_perks.weapon_damage(apply_effects(base, h.ammo_effects, "Damage Mod")) * (1.0 + a.nerve.max(0.0))).max(0.0);
+    let plain = (attacker_perks.weapon_damage(base) * (1.0 + a.nerve.max(0.0))).max(0.0);
+    let modified = apply_effects(plain, h.ammo_effects, "Damage Mod").max(0.0);
     let sneak_mult = match (a.sneaking, kind) {
         (false, _) => 1.0,
         (true, AttackKind::Gun) => r.sneak_mult_gun,
         (true, _) => r.sneak_mult_melee,
     };
-    // Body-part multiplier after the documented steps [design].
     let part_mult = h.part.damage_mult;
     let crit_chance = crit_chance(r, w, a, attacker_perks, target_perks);
     let critical = !miss
         && !a.no_crits
         && w.crit_mult > 0.0
         && (a.sneaking || (t.headshot_unaware_crit && h.part.head && target.unaware) || crit_roll * 100.0 < crit_chance);
-    // Critical damage is added before armour [documented]; shared among projectiles
-    // like the base damage [design].
-    let crit_bonus = if critical { attacker_perks.crit_damage(w.crit_damage as f32) * r.crit_damage_scale / n } else { 0.0 };
-    let raw = modified * sneak_mult * part_mult + crit_bonus;
+    // Critical damage is added before armour [documented], whole for each projectile:
+    // a Hunting Shotgun pellet's critical added the weapon's 10, not a seventh of it
+    // [observed 2026-11-21, docs/spec-notes/damage-armour.md §3].
+    let crit_bonus = if critical { attacker_perks.crit_damage(w.crit_damage as f32) * r.crit_damage_scale } else { 0.0 };
+    // The ammunition's Damage Mod scales the hit with its critical bonus in it: a
+    // Hunting Rifle critical dealt (39 + 52) x 1.75 with Hollow Point [observed, §3].
+    let before_ammo = plain * sneak_mult + crit_bonus;
+    let raw = apply_effects(before_ammo, h.ammo_effects, "Damage Mod").max(0.0);
 
     let ignores_armour = w.flags.iter().any(|f| f == "Ignores Normal Weapon Resistance");
     // Companion Nerve: "+5% to their … armor" per point of the player's Charisma
@@ -391,18 +399,17 @@ pub fn hit(
         // [hypothesis: in this order].
         (target_perks.dt_defender(apply_effects(target.dt * armour, h.ammo_effects, "DT Mod")) - attacker_perks.dt_attacker(0.0)).max(0.0)
     };
-    // A damage type other than DR: the target's value of that resistance instead of DR,
-    // under the same cap (docs/spec-notes/weapon-data-fields.md §3) [hypothesis].
-    let dr = if ignores_armour {
-        0.0
-    } else if resistance_of(w).is_some() {
-        target.resist.clamp(0.0, r.max_armor_rating)
-    } else {
-        apply_effects(target.dr * armour, h.ammo_effects, "DR Mod").clamp(0.0, r.max_armor_rating)
-    };
-    // DT subtracts, but never more than (1 − floor) of the hit [design]; DR scales the rest.
-    let after_dt = (raw - dt).max(raw * t.dt_floor);
-    let dealt = if target.child || miss { 0.0 } else { after_dt * (1.0 - dr / 100.0) };
+    // DR cuts every weapon's hit, a laser's and a plasma rifle's too [observed, §4].
+    let dr = if ignores_armour { 0.0 } else { apply_effects(target.dr * armour, h.ammo_effects, "DR Mod").clamp(0.0, r.max_armor_rating) };
+    // A damage type other than DR: the target's value of that resistance cuts the hit as
+    // well, under the same cap (docs/spec-notes/weapon-data-fields.md §3) [hypothesis].
+    let resist = if ignores_armour || resistance_of(w).is_none() { 0.0 } else { target.resist.clamp(0.0, r.max_armor_rating) };
+    // DT subtracts, DR scales what is left; the hit never deals less than the floor's
+    // share of its damage before the ammunition's Damage Mod, and DR does not cut the
+    // floor; the body part's multiplier comes last, on what armour let through
+    // [observed 2026-11-21, docs/spec-notes/damage-armour.md §1-2].
+    let through = (raw - dt) * (1.0 - dr / 100.0) * (1.0 - resist / 100.0);
+    let dealt = if target.child || miss { 0.0 } else { through.max(before_ammo * t.dt_floor) * part_mult };
     Damage { kind, base, modified, sneak_mult, part_mult, crit_chance, critical, crit_bonus, raw, dt, dr, dealt, miss }
 }
 

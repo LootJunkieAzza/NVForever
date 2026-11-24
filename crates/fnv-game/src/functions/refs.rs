@@ -76,6 +76,10 @@ pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String>
         tracing::info!("script: Disable of the player ignored: the player stays enabled (doors.md §6)");
         return none();
     }
+    // A dead actor disabled forgets when it died (GetTimeDead).
+    if let Some(e) = g.extra.get_mut(&r) {
+        e.died_day = None;
+    }
     let held = g.script_looks.fading_out.contains_key(&r);
     if fade && held {
         return none();

@@ -48,24 +48,35 @@ A statement is one script function call, spelled as script source spells it:
   world as a script's changes do. The reply is `<Function> on <reference> >> <value>`,
   or the failure the call reported.
 
-- A statement the reader above does not take goes through the script compiler
-  (docs/spec-notes/script-compiler.md §7) and runs at once as a one-line result script
-  on the selected reference: `set` with an expression for the value (`set TimeScale to
-  10 + 2 * 10`), or a refused call holding an operator or a parenthesis. The reply is
-  `<statement> >> ran`, then the compiler's warnings; a compile error is the reply instead.
-  A local variable has no meaning there: name the owner (`set SunnyRef.var to …`).
-
-- `eval <expression>` explicitly prints the compiler's result rather than `ran`
-  [design: explicit `eval` syntax and `<expression> >> <value>` reply format].
-  It uses the selected receiver and handles numbers, forms, strings and a preview
-  of up to 16 array entries (nested arrays by ID) [design: 16-entry preview cap
-  and non-recursive array labeling]. A temporary array is formatted before the VM
-  sweeps it; empty or multi-line input is rejected [design]. Regular console
-  commands still use existing dispatch.
-  [documented: [Improved Console's public description](https://www.nexusmods.com/newvegas/mods/70801?tab=description)]
-  Expression results are one part of that provider's behavior; persistent console
-  locals and transparent result printing for all command spellings are not
-  implemented.
+- A statement, declaration, or expression the direct vanilla word reader does not take
+  goes through the script compiler (`docs/spec-notes/script-compiler.md` §7,
+  `Game::run_console_line`) and runs on the selected reference:
+  - **Persistent console locals** (`int`/`short`/`long`, `float`, `ref`, `string_var`,
+    `array_var`, inline `let` declarations) persist across interactive console lines
+    within the current game (`Game::console_locals`) [documented: [Improved Console's public description](https://www.nexusmods.com/newvegas/mods/70801?tab=description)].
+    Re-declaring an existing variable with a different type releases any previous
+    `string_var` or `array_var` handle and resets its slot; a compile error leaves
+    existing locals untouched. Locals clear on `new_game` and are not carried across
+    save loads or serialized into saves [design].
+  - **Transparent result printing**: bare expressions (`5 + 5`, `x`, `a[0]`,
+    `player.GetAV Health + 10`), extender function calls (`GetModelPath TestBox`,
+    `ar_List 1, 9`, `IsPluginInstalled "Improved Console"`), initializers (`int x = 5`),
+    and assignments (`let x := x + 1`, `set TimeScale to 10 + 2 * 10`) print their
+    formatted result value (`<line> >> <value>`) without requiring an `eval` prefix
+    [documented: [Improved Console's public description](https://www.nexusmods.com/newvegas/mods/70801?tab=description);
+    design: `<line> >> <value>` / `<line> >> ran` reply format]. Bare declarations with
+    no initializer (`int x`) reply `<line> >> ran`. Compile-mode selection happens before
+    execution so a failing host call is never retried.
+  - `eval <expression>` remains supported and shares the same persistent console locals
+    and formatting: numbers, forms, quoted strings, and a bounded preview of up to 16
+    array entries (nested arrays by ID) [design: 16-entry preview cap and non-recursive
+    array labeling]. Temporary arrays are formatted before the VM sweeps them; arrays
+    bound to a persistent console `array_var` stay retained until released or cleared.
+    Empty or multi-line `eval` input is rejected [design]. Regular vanilla console
+    commands keep their existing dispatch.
+  - With persistent console locals and transparent expression/statement result printing
+    built in, NVForever reports `"Improved Console"` as installed in
+    `fnv_script::vm::jip::PLUGINS` (see `docs/spec-notes/ext-version.md` §5).
 
 Console commands of its own:
 
@@ -172,13 +183,16 @@ menu words `delete`, `depth`, `front`, `iso`, `reload`, `stack`,
 `use`, `usz`, `visible` [hypothesis for each: from its catalogue summary; revisit one
 when a player or a capture campaign asks for it].
 
-**The other 90** are script functions no master calls, many listed by the wiki as
+**The other 77** are script functions no master calls, many listed by the wiki as
 unused in New Vegas (`ModPCSkill`, `GetFactionReaction`, …) or as conditions with an opcode
-(`GetGold`, `SameFaction`, …). `GetCurrentWeatherPercent`, `IsSnowing`,
+(`GetGold`, …). `GetCurrentWeatherPercent`, `IsSnowing`,
 `IsPleasant` and `IsCloudy` now read the reported weather sample and are no longer
 in this unhandled list. `ModPCAttribute` and `RemoveReputationExact` now run through
 the existing source compiler fallback; `AdvancePCLevel` was already excluded as an
-engine word. The expected source census is 33/90. All four console controls,
+engine word. The expected source census was 33/90, then 33/85; 33/77 since #3615
+(2026-11-23) registered eight base-game functions players' games call (SameFaction,
+SameSex, HasFriendDisposition, GetFatiguePercentage, GetTimeDead, GetLastHitCritical,
+GetIsObjectType, GetVampire). All four console controls,
 including that census, passed in hosted checkout `098f6d07` (parents `72b385a5`,
 `c7aa2c76`; [run](https://github.com/LootJunkieAzza/NVForever/actions/runs/44168232041)).
 Earlier partial results remain recorded in PR #2772. Native

@@ -276,6 +276,28 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
         .or_else(|| c.edid.clone())
 }
 
+/// Resolve the body part location (`BodyLocation` enum, 0..=14) for an actor hit under
+/// the crosshair (`GetReticleTargetLimb`). Returns `None` (`-1` to scripts) for non-actors,
+/// gore, or actors without posed body parts [design: whole-capsule actors report -1].
+pub(crate) fn reticle_target_limb(
+    owner: Owner,
+    parts: Option<&crate::hitvol::ActorParts>,
+    combat: Option<&crate::combat::Combat>,
+) -> Option<i32> {
+    let Owner::Actor { form_id, part, .. } = owner else {
+        return None;
+    };
+    if part == crate::hitvol::WEAPON_PART {
+        return Some(14);
+    }
+    if part == fnv_phys::actors::WHOLE || part == fnv_phys::gore::GORE_PART {
+        return None;
+    }
+    let data = parts?.data_of(form_id)?;
+    let loc = combat?.forms.body_parts.get(&data)?.parts.get(part as usize)?.location();
+    (loc >= 0).then_some(loc)
+}
+
 /// The collision ray under the crosshair (the player's capsule and trigger volumes
 /// ignored), or a door just behind what it hits (`pick::door_behind`), then the
 /// render-bounds fallback (`pick`), then someone to talk to behind bars
@@ -299,6 +321,7 @@ pub(crate) fn find_target(
     mut logged: Local<Option<TargetLogged>>,
     talk: Option<Res<crate::coop_talk::TalkGuard>>,
     parts: Option<Res<crate::hitvol::ActorParts>>,
+    combat: Option<Res<crate::combat::Combat>>,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
@@ -306,6 +329,7 @@ pub(crate) fn find_target(
     // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
     let mut far = None;
     let mut far_ref = None;
+    let mut far_limb = None;
     // The node of what the far ray meets (GetReticleNode, `fnv_game::nvse_jip13`).
     let mut far_node = None;
     let mut behind = None;
@@ -317,6 +341,7 @@ pub(crate) fn find_target(
         filter.exclude_layers.insert(layers::TRIGGER);
         let far_hit = p.world.queries().ray(eye, dir, fnv_game::functions::senses::RETICLE_REACH, &filter);
         far = far_hit.as_ref().map(|h| h.distance);
+        far_limb = far_hit.as_ref().and_then(|h| reticle_target_limb(h.owner, parts.as_deref(), combat.as_deref()));
         far_node = far_hit.as_ref().and_then(|h| match h.owner {
             Owner::Ref { form_id, object, .. } => p.world.object_node(form_id, object).map(str::to_string),
             _ => None,
@@ -369,7 +394,7 @@ pub(crate) fn find_target(
     // An actor's box is rough (`pick::choose_precise_first`, #3125).
     let bounds: Vec<(u32, f32, f32, bool)> = bounds.map(|(id, (d, out))| (id, d, out, sim.is_actor(id))).collect();
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-        rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
+        rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far, limb: far_limb });
         if rt.game.other.jip13.reticle_node != far_node {
             rt.game.set_reticle_node(far_node);
         }

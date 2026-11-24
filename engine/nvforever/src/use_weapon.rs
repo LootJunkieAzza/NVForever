@@ -769,7 +769,7 @@ fn swing(
             s.stats.landed += 1;
             s.stats.harmless_blows += 1;
             // Its OnHit and OnHitWith blocks run, as for a harmless shot (#2433).
-            let info = fnv_game::combat::HitInfo { attacker: Some(me), weapon, location: -1, critical: false, limb: None };
+            let info = fnv_game::combat::HitInfo { attacker: Some(me), weapon, location: -1, ..Default::default() };
             let ran = g.harmless_hit(b.target, info);
             s.stats.harmless_blow_scripts += usize::from(ran);
             info!("use weapon: {}'s harmless blow lands on {}{}", x.name, x.target_name, if ran { ": its hit blocks ran" } else { "" });

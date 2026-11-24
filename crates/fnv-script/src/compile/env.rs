@@ -19,7 +19,20 @@ struct Def {
     script: Option<u32>,
     /// `NAME` of a placed reference (global).
     base: Option<u32>,
+    /// `TPLT` of an actor base (`NPC_`/`CREA`, global).
+    template: Option<u32>,
+    /// `ACBS` `template_flags` bit 9 (`Use Script`) on `NPC_`/`CREA` [documented:
+    /// `schemas/fnv/gameplay.json`, xEdit `wbTemplateFlags`; GECK wiki Template Data].
+    template_script: bool,
 }
+
+/// Template chain limit, matching `fnv_game::templates::MAX_DEPTH`.
+const MAX_TEMPLATE_DEPTH: usize = 16;
+
+/// `ACBS` `template_flags` offset (bytes 22..24) and bit 9 (`Script` / `Use Script`)
+/// [documented: `schemas/fnv/gameplay.json` NPC_/CREA ACBS].
+const ACBS_TEMPLATE_FLAGS_OFFSET: usize = 22;
+const ACBS_TEMPLATE_SCRIPT_BIT: u16 = 1 << 9;
 
 pub struct LoadOrderIndex<'a> {
     lo: &'a LoadOrder<'a>,
@@ -33,6 +46,12 @@ pub struct LoadOrderIndex<'a> {
 
 fn formid(data: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes(data.get(..4)?.try_into().ok()?))
+}
+
+fn acbs_template_script(data: &[u8]) -> bool {
+    data.get(ACBS_TEMPLATE_FLAGS_OFFSET..ACBS_TEMPLATE_FLAGS_OFFSET + 2)
+        .and_then(|b| <[u8; 2]>::try_from(b).ok())
+        .is_some_and(|b| u16::from_le_bytes(b) & ACBS_TEMPLATE_SCRIPT_BIT != 0)
 }
 
 impl<'a> LoadOrderIndex<'a> {
@@ -55,13 +74,16 @@ impl<'a> LoadOrderIndex<'a> {
                     .par_iter()
                     .filter_map(|r| {
                         let form = lo.to_global(pi, r.header.form_id)?;
-                        let mut d = Def { plugin: pi, sig: r.header.sig, edid: None, script: None, base: None };
+                        let actor = matches!(&r.header.sig, b"NPC_" | b"CREA");
+                        let mut d = Def { plugin: pi, sig: r.header.sig, edid: None, script: None, base: None, template: None, template_script: false };
                         r.visit_subrecords(|sig, data| match sig {
                             b"EDID" if d.edid.is_none() => d.edid = Some(fnv_util::text::decode_z(data)),
                             b"SCRI" if d.script.is_none() => d.script = formid(data).and_then(|l| lo.to_global(pi, l)),
                             b"NAME" if d.base.is_none() && matches!(&r.header.sig, b"REFR" | b"ACHR" | b"ACRE") => {
                                 d.base = formid(data).and_then(|l| lo.to_global(pi, l))
                             }
+                            b"TPLT" if actor && d.template.is_none() => d.template = formid(data).and_then(|l| lo.to_global(pi, l)),
+                            b"ACBS" if actor => d.template_script = acbs_template_script(data),
                             _ => {}
                         })
                         .ok()?;
@@ -116,6 +138,36 @@ impl<'a> LoadOrderIndex<'a> {
         let last = self.def(form, viewer).map(|d| d.plugin);
         self.defs.get(&form).into_iter().flat_map(|v| v.iter().rev()).filter(move |d| Some(d.plugin) == last)
     }
+
+    /// The script an actor base (`NPC_`/`CREA`) runs as `viewer` sees it: follow `TPLT`
+    /// while `ACBS` template flag `Use Script` (bit 9) is set, stopping on a missing
+    /// template or non-actor (such as a leveled list), and falling back to `base` on a
+    /// cycle, matching `fnv_game::GameData::base_template_source`.
+    fn actor_script(&self, base: u32, viewer: usize) -> Option<u32> {
+        let mut id = base;
+        for _ in 0..MAX_TEMPLATE_DEPTH {
+            let d = self.def(id, viewer)?;
+            if !matches!(&d.sig, b"NPC_" | b"CREA") {
+                return self.def(base, viewer)?.script;
+            }
+            match d.template.filter(|_| d.template_script) {
+                Some(t) if self.def(t, viewer).is_some_and(|td| matches!(&td.sig, b"NPC_" | b"CREA")) => id = t,
+                _ => return d.script,
+            }
+        }
+        self.def(base, viewer)?.script
+    }
+
+    /// The script a base form runs as `viewer` sees it (following `TPLT` `Use Script` on
+    /// `NPC_`/`CREA`).
+    fn base_script(&self, base: u32, viewer: usize) -> Option<u32> {
+        let d = self.def(base, viewer)?;
+        if matches!(&d.sig, b"NPC_" | b"CREA") {
+            self.actor_script(base, viewer)
+        } else {
+            d.script
+        }
+    }
 }
 
 /// Forms of the game itself that scripts name and no plugin defines: Editor ID, FormID
@@ -168,7 +220,13 @@ impl Env for PluginEnv<'_> {
     }
 
     fn script_vars(&self, form: u32) -> Option<Vec<VarDecl>> {
-        let script = self.ix.defs_here(form, self.plugin).find_map(|d| d.script.or_else(|| self.ix.def(d.base?, self.plugin)?.script))?;
+        let script = self.ix.defs_here(form, self.plugin).find_map(|d| {
+            if matches!(&d.sig, b"NPC_" | b"CREA") {
+                self.ix.actor_script(form, self.plugin)
+            } else {
+                d.script.or_else(|| self.ix.base_script(d.base?, self.plugin))
+            }
+        })?;
         let vis = &self.ix.visible[self.plugin];
         // The version the viewer sees; when only a later plugin's is at hand (a game reads
         // the winning records only), that one.

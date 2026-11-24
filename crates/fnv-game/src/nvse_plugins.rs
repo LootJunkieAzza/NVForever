@@ -622,19 +622,39 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // 00171DBB from the frame after ForcePlayIdle and still 4 frames after
         // ForceStopIdle or StopIdle; hypothesis: kept until another plays].
         "getplayedidle" => XVal::Ref(subject.and_then(|a| g.extra.get(&a)).and_then(|e| e.last_idle).map_or(0, |i| i.0)),
-        // kNVSE: `idle`, played at once as PlayIdle's are [documented: ForcePlayIdle].
+        // kNVSE: `idle [playerPOV]`, played at once as PlayIdle's are; optional
+        // `playerPOV` 1 targets third person and 2 targets first person
+        // [documented: GECK wiki ForcePlayIdle].
         "forceplayidle" => {
             if let (Some(a), Some(i)) = (subject, form(args, 0)) {
-                if g.ask_idle(a, i, crate::idles::IdleSource::Script) {
+                let pov = match num(args, 1, 0.0) as i64 {
+                    1 => Some(crate::idles::IdlePov::Third),
+                    2 => Some(crate::idles::IdlePov::First),
+                    _ => None,
+                };
+                if g.ask_idle_pov(a, i, crate::idles::IdleSource::Script, pov) {
                     g.extra.entry(a).or_default().last_idle = Some(i);
                 }
             }
             zero
         }
-        // The special idle stops (the engine takes it at its next frame).
+        // The special idle stops (the engine takes it at its next frame); optional
+        // `playerPOV` 1/2 scopes `ForceStopIdle` to one player rig [documented: ForceStopIdle].
         "stopidle" | "forcestopidle" => {
             if let Some(a) = subject {
-                g.gaps.idle_stops.push(a);
+                let pov = if name == "forcestopidle" {
+                    match num(args, 0, 0.0) as i64 {
+                        1 => Some(crate::idles::IdlePov::Third),
+                        2 => Some(crate::idles::IdlePov::First),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                match pov {
+                    Some(p) => g.gaps.idle_stop_pov.push((a, p)),
+                    None => g.gaps.idle_stops.push(a),
+                }
             }
             zero
         }
