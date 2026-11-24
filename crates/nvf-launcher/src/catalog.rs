@@ -213,7 +213,8 @@ impl Kind {
 /// first to last (the step `i` of `n` is kept as `i / (n - 1)`, `Slider::choice` in
 /// engine/nvf-play/src/settings.rs). Words are NVForever's own (the page's).
 pub fn step_words() -> HashMap<&'static str, &'static [&'static str]> {
-    HashMap::from([("difficulty", &["Very Easy", "Easy", "Normal", "Hard", "Very Hard"][..])])
+    // Difficulty was the last one; it is a list since the menu overhaul ([`list_choices`]).
+    HashMap::new()
 }
 
 /// List rows whose choices are fixed, by their names as the INI keeps them (each list's
@@ -221,6 +222,8 @@ pub fn step_words() -> HashMap<&'static str, &'static [&'static str]> {
 /// (the resolution, the monitor) depend on the machine and stay text.
 pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
     HashMap::from([
+        // fnv-game difficulty.rs `CHOICES` (the five levels, then Custom, 2026-11-22).
+        ("difficulty", &["Very Easy", "Easy", "Normal", "Hard", "Very Hard", "Custom"][..]),
         ("kill-camera", &["Last enemy", "Every kill", "Off"][..]),
         ("vats-style", &["Classic", "Mark and Fire"][..]),
         // As the INI keeps them (`Smoothing::stored`, #2676); the engine also reads its older 1/0.
@@ -237,6 +240,15 @@ pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
 /// as it is (trimmed).
 pub fn list_value(key: &str, value: &str) -> String {
     let v = value.trim();
+    // The Difficulty slider's part of before the menu overhaul: the nearest of the five
+    // levels, as the engine reads it (nvf-play difficulty.rs `take_level`).
+    if key == "difficulty" {
+        if let Some(p) = v.parse::<f32>().ok().filter(|p| p.is_finite()) {
+            let i = (p.clamp(0.0, 1.0) * 4.0).round() as usize;
+            return list_choices()["difficulty"][i].to_string();
+        }
+        return v.to_string();
+    }
     let (on, off) = match key {
         "smooth-terrain" => ("4x4", "off"),
         "ambient-occlusion" => ("Quality", "Off"),
@@ -398,6 +410,11 @@ mod tests {
                 assert!(src.contains(&format!("=> \"{name}\"")), "{key}: {name} is no longer a choice in {file}");
             }
         }
+        // The Difficulty row's: the engine's level names (fnv-game difficulty.rs `name`).
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../fnv-game/src/difficulty.rs")).unwrap();
+        for name in list_choices()["difficulty"] {
+            assert!(src.contains(&format!("=> \"{name}\"")), "difficulty: {name} is no longer a level in fnv-game's difficulty.rs");
+        }
         // The Ambient occlusion row's, as the engine lists them (ssao.rs `AO_CHOICES`).
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/ssao.rs")).unwrap();
         let listed = list_choices()["ambient-occlusion"].iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
@@ -421,6 +438,9 @@ mod tests {
             assert!(choices["ambient-occlusion"].contains(&got.as_str()));
         }
         assert_eq!(list_value("kill-camera", " 1 "), "1");
+        for (v, want) in [("0.50", "Normal"), ("0", "Very Easy"), ("1.0", "Very Hard"), ("0.75", "Hard"), ("Custom", "Custom")] {
+            assert_eq!(list_value("difficulty", v), want, "{v}");
+        }
     }
 
     #[test]

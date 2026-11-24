@@ -334,9 +334,9 @@ fn on_button_down_and_up_single_bitmask_plain_priority_disabled_and_remove() {
 }
 
 #[test]
-fn stewie_plugin_version_stays_at_941_gate() {
+fn stewie_plugin_version_stays_at_945_gate() {
     let f = fixture();
     let mut g = new_game(&f);
     run(&mut g, r#"set StewieVer to GetPluginVersion "lStewieAl's Tweaks""#);
-    assert_eq!(glob(&g, STEWIE_VER), 941.0);
+    assert_eq!(glob(&g, STEWIE_VER), 945.0);
 }

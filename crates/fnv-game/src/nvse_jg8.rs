@@ -488,7 +488,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // ---- the player's custom map marker: `x y z` in the player's worldspace (or
         // interior cell) [documented]; 1 when set [hypothesis: it fails only without a
-        // place for the player]. ClearCustomMapMarker: 1 when there was one [hypothesis].
+        // place for the player]. ClearCustomMapMarker returns 1 even when no custom marker
+        // was set [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE
+        // 528, clean-room script probe jg_29_custom_map_marker_set_clear_ret: 1,1,1,1;
+        // no DLL or source consulted].
         "setcustommapmarker" => {
             let space = g.cell_of(FormId::PLAYER_REF).map(|c| g.world.placed.world_of(c).unwrap_or(c));
             match space {
@@ -499,7 +502,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 None => zero,
             }
         }
-        "clearcustommapmarker" => yes(g.other.jg8.custom_marker.take().is_some()),
+        "clearcustommapmarker" => {
+            g.other.jg8.custom_marker = None;
+            XVal::Num(1.0)
+        }
         // ---- files [documented: MD5File, SHA1File; observed: upper-case hex (probe set
         // jg8); hypothesis: "" for a file that cannot be read].
         "md5file" => XVal::Str(text(args, 0).and_then(|p| game_file(&p)).map(|b| hex(&md5(&b))).unwrap_or_default()),

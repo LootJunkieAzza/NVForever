@@ -56,7 +56,7 @@
 //!   and in whole units, they stepped while the player turned or the actors walked,
 //!   where the original's glide, the owner's play of 2026-10-29].
 
-use crate::hud::{CompassMarks, COMPASS_HEADING, STRIP};
+use crate::hud::{CompassMarks, CompassTicks, COMPASS_HEADING, STRIP};
 use fnv_game::quest_targets::{DoorGraph, Place as QuestPlace};
 use crate::interface::{amber, at, bc_supported, texture, u};
 use crate::phys::PhysState;
@@ -110,28 +110,21 @@ pub const HEIGHT_STEP: f32 = 256.0;
 /// The bar: its size, and its gap from the picture's box [design].
 const RISE_BAR: Vec2 = Vec2::new(12.0, 3.0);
 const RISE_GAP: f32 = 2.0;
-/// The tick (a 32-texel picture, its bar at texel 9 [observed: hud.md §14.5]) drawn this
-/// size, its bar's middle on the bearing [design: the size fitted to the owner's
-/// screenshots, hud.md §11].
-const TICK_SIZE: f32 = 26.0;
+/// The tick's bar is at texel 9 of its 32-texel picture [observed: hud.md §14.5]; its
+/// middle stands on the bearing.
 const TICK_MIDDLE: f32 = 9.0 / 32.0;
 /// The original's actor ticks in the compass window: their group at y 10 [observed: hud.md
 /// §14.4, read from the original], each tick at y -10 in it, 32 x 32 [documented:
-/// `menus\prefabs\hudtemplates.xml`, `compass_npc_icon`].
+/// `menus\prefabs\hudtemplates.xml`, `compass_npc_icon`]. Drawn in that box, a texel a
+/// unit: the bar's width and end agree with a frame of the original (hud.md §11).
 const NPC_GROUP_Y: f32 = 10.0;
 const NPC_ICON_Y: f32 = -10.0;
-const NPC_ICON_SIZE: f32 = 32.0;
-/// The tick picture's bar ends this many of its 32 texel rows down [hypothesis: #3310,
-/// hud.md §11: on the player's screenshot the hand-built bar's fade and solid end span
-/// about 18 units of a 26-unit box, 22 texels, as the corner bars' `hud_tick_mark.dds`'s
-/// 22-row block].
-const TICK_BAR_ROWS: f32 = 22.0;
-/// Where the bar ends in the window: the file's box, the picture a texel a unit in it
-/// [hypothesis: hud.md §11, observer check 261].
-const TICK_BAR_END: f32 = NPC_GROUP_Y + NPC_ICON_Y + TICK_BAR_ROWS * NPC_ICON_SIZE / 32.0;
-/// The drawn tick's top: its bar ends where the original's does (#3310). Until #3310 it
-/// stood at 9, the bar ending on the strip's upper line, 4.9 units too low.
-const TICK_TOP: f32 = TICK_BAR_END - TICK_BAR_ROWS * TICK_SIZE / 32.0;
+const TICK_SIZE: f32 = 32.0;
+const TICK_TOP: f32 = NPC_GROUP_Y + NPC_ICON_Y;
+/// The bar is whole to the end of texel row 26 and weaker by half or more from there
+/// [observed: `glow_hud_tick_mark.dds` from `Fallout - Textures2.bsa`, decoded; hud.md
+/// §11], so its end reads 27 rows down.
+const TICK_BAR_ROWS: f32 = 27.0;
 /// The triangle (a 64-texel picture, the triangle's middle at texel 19, 15) drawn this
 /// size, its middle this far down the window.
 const LANDMARK_SIZE: f32 = 38.0;
@@ -393,7 +386,7 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
         // The player's tweak puts it in the corner instead of the banner [design: docs/design/tweaks.md].
         if in_corner && !name.trim().is_empty() {
             if let Some(c) = corner.as_deref_mut() {
-                c.push(format!("Discovered: {name}").into());
+                c.push(fnv_util::words::trf("Discovered: {name}", &[("name", &name)]).into());
             }
         } else if let (Some(m), false) = (messages.as_deref_mut(), name.trim().is_empty()) {
             m.push(QuestNotice::Discovered(name));
@@ -870,6 +863,7 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     layers: Query<Entity, With<CompassMarks>>,
+    under: Query<Entity, With<CompassTicks>>,
     added: Query<(), Added<CompassMarks>>,
     mut nodes: Query<&mut Node>,
     mut art: Local<Option<Art>>,
@@ -882,7 +876,7 @@ fn draw(
     let companion = crate::tweaks::companion_colour(tweaks.as_deref());
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
-    let Ok(layer) = layers.single() else { return };
+    let (Ok(layer), Ok(under)) = (layers.single(), under.single()) else { return };
     let fresh = added.get(layer).is_ok();
     let alpha_changed = alpha.as_ref().is_some_and(|a| a.is_changed()) || rise.as_ref().is_some_and(|r| r.is_changed());
     if !view.is_changed() && !fresh && !alpha_changed {
@@ -921,9 +915,12 @@ fn draw(
         return;
     }
     let mut out = Vec::with_capacity(view.0.len());
-    commands.entity(layer).despawn_related::<Children>().with_children(|p| {
-        for (k, &(mark, x)) in view.0.iter().enumerate() {
-            let image = image_of(mark);
+    commands.entity(layer).despawn_related::<Children>();
+    commands.entity(under).despawn_related::<Children>();
+    for (k, &(mark, x)) in view.0.iter().enumerate() {
+        let image = image_of(mark);
+        let layer = if matches!(mark, Mark::Actor | Mark::Hostile | Mark::Companion) { under } else { layer };
+        commands.entity(layer).with_children(|p| {
             let left = mark_left(mark, x, image.is_some());
             let (bx, by, bw, bh) = mark_box(mark, left);
             let node = at(bx, by, bw, bh);
@@ -947,7 +944,7 @@ fn draw(
             };
             if let (Some(k), Some(_)) = (kind, image) {
                 if !std::mem::replace(&mut ticks_logged[k], true) {
-                    info!("compass: {mark:?} tick drawn {bw} x {bh} at y {by:.3} of the window, its bar ending at {end:.1} (the strip's line about 26)", end = by + TICK_BAR_ROWS / 32.0 * bh);
+                    info!("compass: {mark:?} tick drawn {bw} x {bh} at y {by:.3} of the window, its bar ending at {end:.1}", end = by + TICK_BAR_ROWS / 32.0 * bh);
                 }
             }
             let id = match image {
@@ -962,8 +959,8 @@ fn draw(
                 (r, p.spawn((at(bx, by, RISE_BAR.x, RISE_BAR.y), BackgroundColor(colour))).id())
             });
             out.push((mark, id, bar));
-        }
-    });
+        });
+    }
     spawned.0 = out;
 }
 
@@ -1107,24 +1104,20 @@ mod tests {
         assert!((x + RISE_BAR.x / 2.0 - (100.0 + LANDMARK_MIDDLE.x * LANDMARK_SIZE)).abs() < 1e-4);
     }
 
-    /// #3310: an actor's tick (neutral, hostile, companion) ends its bar where the
-    /// original's box puts it, clear above the strip's line, at any HUD scale; the map
-    /// marker's box is unchanged.
+    /// #3310: an actor's tick (neutral, hostile, companion) is drawn in the box the file
+    /// and the original give it, a texel a unit, so its bar ends 27 units down the window
+    /// (30.9 before #3310, on the strip's line; 26.1 after its first change, the bar too
+    /// high and too thin), at any HUD scale; the map marker's box is unchanged.
     #[test]
     fn an_actor_tick_stands_where_the_originals_box_puts_its_bar() {
         use crate::interface::units_at;
-        // The original's box: the group's y 10 and the tick's -10, a texel a unit.
-        assert_eq!(NPC_GROUP_Y + NPC_ICON_Y, 0.0);
-        // The strip's upper line about 26 units down the window [hypothesis: measured on
-        // the #3310 screenshot, hud.md §11]; before #3310 the bar ended on it.
-        let strip_line = 26.0;
         for mark in [Mark::Actor, Mark::Hostile, Mark::Companion] {
             let left = mark_left(mark, 12.5, true);
             let (x, top, w, h) = mark_box(mark, left);
+            // The group's y 10 and the tick's -10; 32 x 32.
+            assert_eq!((top, w, h), (0.0, 32.0, 32.0), "{mark:?}");
             let bar_end = top + TICK_BAR_ROWS / 32.0 * h;
-            assert!((bar_end - 22.0).abs() < 1e-4, "{mark:?}: the bar ends at {bar_end}");
-            assert!(top >= 0.0 && bar_end <= strip_line - 3.0, "{mark:?}: {top} .. {bar_end}");
-            assert_eq!((w, h), (26.0, 26.0), "the size stays");
+            assert!((bar_end - 27.0).abs() < 1e-4, "{mark:?}: the bar ends at {bar_end}");
             // The bar's middle stays on the bearing.
             assert!((x + TICK_MIDDLE * w - (COMPASS_HEADING + 12.5)).abs() < 1e-4);
         }
@@ -1143,7 +1136,7 @@ mod tests {
                 panic!("the HUD's nodes are in view heights");
             };
             assert!((top / room - TICK_TOP / crate::hud::COMPASS.y).abs() < 1e-6, "at {scale}");
-            assert!(((top + height * TICK_BAR_ROWS / 32.0) / room - 22.0 / crate::hud::COMPASS.y).abs() < 1e-6, "at {scale}");
+            assert!(((top + height * TICK_BAR_ROWS / 32.0) / room - 27.0 / crate::hud::COMPASS.y).abs() < 1e-6, "at {scale}");
         }
     }
 

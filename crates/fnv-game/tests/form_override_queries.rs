@@ -164,11 +164,12 @@ fn override_queries_report_load_order_winners_for_base_forms_refs_clones_and_mis
     assert_eq!(eval(&mut g, "ref c\nlet c := TempCloneForm FormOverriddenTwice\nSetFunctionValue (IsFormOverridden c)"), XVal::Num(0.0));
     assert_eq!(eval(&mut g, "ref c\nlet c := TempCloneForm FormOverriddenTwice\nSetFunctionValue (GetFormOverrideIndex c)"), XVal::Num(255.0));
 
-    // Null / omitted / unknown forms: not overridden (0), index -1.
+    // Null / omitted / unknown forms: not overridden (0), index 0 [observed: Wave 4
+    // jg_01_form_override_index_edge, JohnnyGuitarNVSE 528 returned 0 for null].
     assert_eq!(eval(&mut g, "ref empty\nSetFunctionValue (IsFormOverridden empty)"), XVal::Num(0.0));
-    assert_eq!(eval(&mut g, "ref empty\nSetFunctionValue (GetFormOverrideIndex empty)"), XVal::Num(-1.0));
+    assert_eq!(eval(&mut g, "ref empty\nSetFunctionValue (GetFormOverrideIndex empty)"), XVal::Num(0.0));
     assert_eq!(eval(&mut g, "SetFunctionValue (IsFormOverridden)"), XVal::Num(0.0));
-    assert_eq!(eval(&mut g, "SetFunctionValue (GetFormOverrideIndex)"), XVal::Num(-1.0));
+    assert_eq!(eval(&mut g, "SetFunctionValue (GetFormOverrideIndex)"), XVal::Num(0.0));
     assert_eq!(eval(&mut g, "ref unk\nlet unk := 0x05123456\nSetFunctionValue (IsFormOverridden unk)"), XVal::Num(0.0));
-    assert_eq!(eval(&mut g, "ref unk\nlet unk := 0x05123456\nSetFunctionValue (GetFormOverrideIndex unk)"), XVal::Num(-1.0));
+    assert_eq!(eval(&mut g, "ref unk\nlet unk := 0x05123456\nSetFunctionValue (GetFormOverrideIndex unk)"), XVal::Num(0.0));
 }

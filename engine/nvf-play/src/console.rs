@@ -726,8 +726,8 @@ fn typing(
             "help" => {
                 let terms = query_terms(rest);
                 if terms.is_empty() {
-                    c.print("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100");
-                    c.print("eval <script expression>: print a number, form, quoted string, or array preview");
+                    c.print("A line is a script function, declaration, or expression: [reference.]Function argument ..., int x = 5, player.GetAV Health + 10");
+                    c.print("eval <script expression>: print a number, form, quoted string, or array preview (bare expressions print results directly too)");
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
                     c.print("prid <ref>, coc <cell>, cow <world> <x> <y>, coe <x> <y>, tgm, cls, save <name>, load [name], saves, set <var> to <value>, editor (editor mode on/off), editor select|move|turn|place|delete|undo, editor save <Name.esp>, editor why [topic] (why the selected actor says what it says). Click something to select it; calls without a reference run on it.");
                     c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up), poker [casino] (a poker table)");
@@ -1614,9 +1614,13 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     }
     let w = words(line);
     let Some(first) = w.first() else { return Ok(ConsoleReply::default()) };
-    let (on_name, func) = match first.rsplit_once('.') {
-        Some((r, f)) if !r.is_empty() && !f.is_empty() => (Some(r.to_string()), f.to_string()),
-        _ => (None, first.clone()),
+    let (on_name, func) = if first.parse::<f64>().is_ok() {
+        (None, first.clone())
+    } else {
+        match first.rsplit_once('.') {
+            Some((r, f)) if !r.is_empty() && !f.is_empty() => (Some(r.to_string()), f.to_string()),
+            _ => (None, first.clone()),
+        }
     };
     let args = &w[1..];
     // Words of the console's own for functions the catalogue gives no alias
@@ -1625,9 +1629,37 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         "tai" => "ToggleActorsAI".to_string(),
         _ => func,
     };
+    let selected = call.selected.map(FormId);
+    // Persistent console declarations, `let` statements, and lines starting with a
+    // console local go directly to the script compiler so locals persist across lines
+    // and print their results transparently (docs/design/console.md).
+    if on_name.is_none()
+        && (fnv_script::compile::parse::DeclType::from_word(&func).is_some()
+            || func.eq_ignore_ascii_case("let")
+            || rt.game.has_console_local(&func))
+    {
+        return compiled(&mut rt.game, call, selected);
+    }
+    if let Some(n) = &on_name {
+        if rt.game.has_console_local(n) {
+            if let Some((name, run)) = fnv_game::functions::console::lookup_word(&rt.game.data.table, &func) {
+                let on = rt.game.console_local_ref(n).ok_or_else(|| format!("{name}: console local {n} holds no reference"))?;
+                let g = &mut rt.game;
+                let console_ctx = ConsoleCtx { on: Some(on), active_quest: call.active_quest.map(FormId) };
+                let r = run(g, &console_ctx, args);
+                let requests = std::mem::take(&mut g.console_requests);
+                let lines = r.map_err(|e| format!("{name}: {e}"))?;
+                return Ok(ConsoleReply { lines, requests, ..Default::default() });
+            }
+            return compiled(&mut rt.game, call, selected);
+        }
+    }
     let on = match &on_name {
-        Some(n) => Some(form(rt, n)?),
-        None => call.selected.map(FormId),
+        Some(n) => match form(rt, n) {
+            Ok(id) => Some(id),
+            Err(_) => return compiled(&mut rt.game, call, selected),
+        },
+        None => selected,
     };
     let g = &mut rt.game;
     let console_ctx = ConsoleCtx { on, active_quest: call.active_quest.map(FormId) };
@@ -1652,10 +1684,16 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     if on_name.is_none() && func.eq_ignore_ascii_case("GetGameDifficulty") {
         return Ok(ConsoleReply { lines: vec![format!("GetGameDifficulty >> {:.2}", g.difficulty.code() as f64)], ..Default::default() });
     }
-    // The `set <variable> to <value>` statement; with an expression for the value
-    // (`set x to GetAV Luck + 1`), the compiler's.
+    // The `set <variable> to <value>` statement: keep plain literal assignments to
+    // globals or selected-reference script variables on the direct path; route console
+    // locals and expressions through the compiler.
     if on_name.is_none() && func.eq_ignore_ascii_case("set") {
-        if args.len() > 3 {
+        let literal = args.len() == 3
+            && args[1].eq_ignore_ascii_case("to")
+            && !g.has_console_local(&args[0])
+            && !g.has_console_local(&args[2])
+            && (args[2].parse::<f64>().is_ok() || !fnv_game::functions::console::has_expression_operator(&args[2]));
+        if !literal {
             return compiled(g, call, on);
         }
         let lines = fnv_game::functions::console::set_statement(g, &console_ctx, args)?;
@@ -1671,14 +1709,16 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         let lines = r.map_err(|e| format!("{name}: {e}"))?;
         return Ok(ConsoleReply { lines, requests, ..Default::default() });
     }
+    // Decide before calling any host function so a runtime failure never retries a side effect.
+    let use_compiler = fnv_game::functions::console::call_has_expression(g, line, &func, args)
+        || args.iter().any(|a| g.has_console_local(a))
+        || g.data.table.unnumbered.contains_key(&func.to_ascii_lowercase())
+        || g.data.table.by_name(&func).is_none();
+    if use_compiler {
+        return compiled(g, call, on);
+    }
     let asked = g.toggles.asked.len();
-    let called = match fnv_game::functions::console::call_words(g, on, &func, args, "console") {
-        Ok(c) => c,
-        // An expression the console's reader does not take, or an extender function the
-        // table knows by name only (`MessageEx "…"`): the compiler's.
-        Err(_) if has_operator(&call.line) || g.data.table.unnumbered.contains_key(&func.to_ascii_lowercase()) => return compiled(g, call, on),
-        Err(e) => return Err(e),
-    };
+    let called = fnv_game::functions::console::call_words(g, on, &func, args, "console")?;
     let (fname, v) = (called.name, called.value);
     // A function of a system not built says so instead of its 0.
     if let Some(why) = called.stub {
@@ -1698,24 +1738,22 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     Ok(ConsoleReply { lines: vec![format!("{fname}{on_text} >> {shown}")], ..Default::default() })
 }
 
-/// Whether a statement holds an operator or a parenthesis outside quotes.
-fn has_operator(line: &str) -> bool {
-    let mut quoted = false;
-    line.chars().any(|c| {
-        if c == '"' {
-            quoted = !quoted;
-        }
-        !quoted && "+-*/%()<>=&|".contains(c)
-    })
-}
-
-/// Run a statement through the script compiler as a one-line result script, on the
-/// selected (or named) reference (`Game::run_source`, docs/design/console.md).
+/// Run a statement, declaration, or expression through the script compiler with
+/// persistent console locals and transparent result printing
+/// (`Game::run_console_line`, docs/design/console.md).
 fn compiled(g: &mut fnv_game::Game, call: &ConsoleCall, on: Option<FormId>) -> Result<ConsoleReply, String> {
+    let asked = g.toggles.asked.len();
     let ctx = fnv_game::game::RunCtx { self_ref: on, ..Default::default() };
-    let warnings = g.run_source(&call.line, ctx)?;
-    let mut lines = vec![format!("{} >> ran", call.line.trim())];
-    lines.extend(warnings);
+    let res = g.run_console_line(&call.line, ctx)?;
+    if g.toggles.asked.len() > asked {
+        return Ok(ConsoleReply::default());
+    }
+    let reply = match res.value {
+        Some(v) => format!("{} >> {v}", call.line.trim()),
+        None => format!("{} >> ran", call.line.trim()),
+    };
+    let mut lines = vec![reply];
+    lines.extend(res.warnings);
     Ok(ConsoleReply { lines, ..Default::default() })
 }
 
@@ -1799,10 +1837,11 @@ mod tests {
 
     #[test]
     fn operators_outside_quotes_send_a_line_to_the_compiler() {
-        assert!(has_operator("set x to GetAV Luck + 1"));
-        assert!(has_operator("player.SetAV Luck (5)"));
-        assert!(!has_operator("player.additem f 100"));
-        assert!(!has_operator("ShowMessage \"a-b\""));
+        use fnv_game::functions::console::has_expression_operator;
+        assert!(has_expression_operator("set x to GetAV Luck + 1"));
+        assert!(has_expression_operator("player.SetAV Luck (5)"));
+        assert!(!has_expression_operator("player.additem f 100"));
+        assert!(!has_expression_operator("ShowMessage \"a-b\""));
     }
 
     #[test]
@@ -1876,5 +1915,36 @@ mod tests {
         let a = parse_aid("12:player.additem f 5; 10:help stim").unwrap();
         assert_eq!(a, vec![(10.0, "help stim".to_string()), (12.0, "player.additem f 5".to_string())]);
         assert!(parse_aid("nonsense").is_err());
+    }
+
+    #[test]
+    fn improved_console_persists_locals_prints_results_and_keeps_vanilla_dispatch() {
+        let mut st = ScriptState::over_no_plugins();
+        let rt = st.rt.as_mut().unwrap();
+        let call = |rt: &mut Runtime, line: &str| {
+            run_call(rt, &ConsoleCall { line: line.into(), selected: None, active_quest: None }).lines
+        };
+
+        assert_eq!(call(rt, "int x"), ["int x >> ran"]);
+        assert_eq!(call(rt, "set x to 10"), ["set x to 10 >> 10"]);
+        assert_eq!(call(rt, "x + 2"), ["x + 2 >> 12"]);
+        assert_eq!(call(rt, "1.5 + 2.5"), ["1.5 + 2.5 >> 4"]);
+        assert_eq!(call(rt, "eval x * 2"), ["x * 2 >> 20"]);
+
+        assert_eq!(call(rt, "string_var s = \"hi\""), ["string_var s = \"hi\" >> \"hi\""]);
+        assert_eq!(call(rt, "let s += \"!\""), ["let s += \"!\" >> \"hi!\""]);
+        assert_eq!(call(rt, "s"), ["s >> \"hi!\""]);
+
+        assert_eq!(call(rt, "array_var a = ar_List 1, 9"), ["array_var a = ar_List 1, 9 >> [0: 1, 1: 9]"]);
+        assert_eq!(call(rt, "a[0]"), ["a[0] >> 1"]);
+
+        assert_eq!(call(rt, "IsPluginInstalled \"Improved Console\""), ["IsPluginInstalled \"Improved Console\" >> 1"]);
+        assert_eq!(call(rt, "GetPluginVersion \"Improved Console\""), ["GetPluginVersion \"Improved Console\" >> 3"]);
+
+        assert_eq!(call(rt, "ref r = player"), ["ref r = player >> 0x00000014 0x00000014"]);
+        assert_eq!(call(rt, "player.SetAV Health 70"), ["SetActorValue on player >> 0.00"]);
+        assert_eq!(call(rt, "player.GetAV Health"), ["GetActorValue on player >> 70.00"]);
+        assert_eq!(call(rt, "r.GetAV Health"), ["r.GetAV Health >> 70"]);
+        assert_eq!(call(rt, "player.GetAV Health + x"), ["player.GetAV Health + x >> 80"]);
     }
 }

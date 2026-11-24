@@ -470,8 +470,11 @@ pub struct Blend {
     pub fade: f32,
     pub fade_time: f32,
     /// A walk or run asked for while a standing clip plays starts at once instead of
-    /// waiting for a running fade ([`Blend::step`]): creatures only (issue #1073); people
-    /// keep the eased fade [design].
+    /// waiting for a running fade ([`Blend::step`]). Creatures since issue #1073, and
+    /// people since #3670: a sandboxing NCR trooper at Primm waited out a fade into his
+    /// idle while walking off, sliding at 53 units/s on the idle (and four more people in
+    /// the same 90 s) [observed in NVForever; design: every actor `Locomotion::new`
+    /// makes sets off at once].
     pub set_off_at_once: bool,
 }
 

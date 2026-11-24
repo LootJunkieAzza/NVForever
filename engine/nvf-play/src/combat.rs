@@ -151,6 +151,8 @@ mod critical_damage_hit_tests;
 mod world_blood_tests;
 #[cfg(test)]
 mod weapon_sound_bridge_tests;
+#[cfg(test)]
+mod bullet_snap_tests;
 
 /// The shooter's id for projectiles (the player has no hit volume).
 const PLAYER: ActorId = u64::MAX;
@@ -405,8 +407,17 @@ fn armour_lines(script: Option<&mut ScriptState>, attacker: Option<FormId>, targ
 /// units [design].
 const BLOW_PROBE: f32 = 24.0;
 
-fn blast_hit_info(cause: Option<Cause>) -> HitInfo {
-    HitInfo { attacker: cause.map(|c| c.actor), weapon: cause.map(|c| c.weapon), location: -1, critical: false, limb: None }
+fn blast_hit_info(cause: Option<Cause>, explosion_ref: Option<FormId>, base_damage: f64) -> HitInfo {
+    HitInfo {
+        attacker: cause.map(|c| c.actor),
+        weapon: cause.map(|c| c.weapon),
+        projectile: explosion_ref,
+        location: -1,
+        critical: false,
+        explosion: true,
+        base_weapon_damage: base_damage,
+        ..HitInfo::default()
+    }
 }
 
 /// One projectile to draw this frame.
@@ -1113,6 +1124,10 @@ struct Ghost {
     fresh: bool,
     /// A beam from the muzzle: its start stays on the muzzle while it shows.
     follow: bool,
+    /// Weapon base damage and BulletSnap eligibility/player-impact flag for pass-by snaps.
+    damage: f32,
+    snap_eligible: bool,
+    hit_player: bool,
 }
 
 /// How strongly a shot is drawn with `left` of its `fade` seconds to go: a beam fades
@@ -1668,7 +1683,7 @@ impl Combat {
             }
             let p = self.forms.projectiles.get(&proj);
             let range = p.map_or(0.0, |p| if p.range > 0.0 { p.range } else { crate::vats_mode::REACH });
-            let lob = p.map_or(f32::INFINITY, |p| throw_reach(p.speed, p.gravity * gravity));
+            let lob = p.map_or(f32::INFINITY, |p| throw_reach(p.speed, p.fall() * gravity));
             return Ok(VatsWeapon { id, edid, cost, style: AttackStyle::Thrown, rounds_per_shot: 1, rounds: carried, reach: range.min(lob), melee_reach: 0.0, classic_reach: None });
         }
         if AttackKind::of(w) != AttackKind::Gun {
@@ -2595,7 +2610,7 @@ fn sync_player_anim_events(
     });
 }
 
-fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
+pub(crate) fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
     let t = std::time::Instant::now();
     let tracer_hold = std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0);
     let forms = CombatForms::build(d.lo, d.schema);
@@ -3633,7 +3648,21 @@ pub(crate) fn fire(
     c.player_spread = None;
     // Scripts' EjectCasing requests (`fnv_game::nvse_jg10`) are taken every frame, so
     // those made with no gun out (or for other actors) do not pile up or fire later.
-    let asked = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| rt.game.take_casing_requests()).unwrap_or_default();
+    let (asked, allow_attack) = script
+        .as_deref_mut()
+        .and_then(|s| s.rt.as_mut())
+        .map(|rt| (rt.game.take_casing_requests(), rt.game.take_allow_attack()))
+        .unwrap_or_default();
+    // kNVSE `AllowAttack`: clear the player's current attack/cooldown/flinch lock so
+    // the next attack may start at once [documented: GECK wiki AllowAttack; design].
+    if allow_attack.contains(&FormId::PLAYER_REF) {
+        if let Some(cycle) = c.cycle.as_mut() {
+            cycle.phase = Phase::Ready;
+        }
+        c.swings.reset();
+        anim.swing = None;
+        c.flinch_until = 0.0;
+    }
     if c.melee {
         c.vats_cone = None;
         return;
@@ -3953,7 +3982,7 @@ pub(crate) fn fire(
                     // VATS mode's throw: from the eye on the low arc that lands on the mark
                     // (vats-mode.md §16.3), at 45° when it is out of reach; at the speed the
                     // throw will leave with.
-                    let (speed, g) = projectile.map_or((0.0, 0.0), |p| (p.speed * throw_mult, p.gravity * gravity));
+                    let (speed, g) = projectile.map_or((0.0, 0.0), |p| (p.speed * throw_mult, p.fall() * gravity));
                     let aim = fnv_combat::vats::lob_dir(eye, point, speed, g).unwrap_or_else(|| fnv_combat::vats::lob_far(eye, point));
                     shot::Leaving { origin: eye, aim, aim_point: point, aim_distance: vec::len(vec::sub(point, eye)), seen: Seen::ON_PATH, covered: false }
                 } else {
@@ -4161,7 +4190,7 @@ fn target_resist(script: Option<&mut ScriptState>, sim: &mut SimState, target: F
     let Some(code) = fnv_game::functions::av_by_name(name) else { return 0.0 };
     let v = actor_av(script, sim, target, code).unwrap_or(0.0);
     if v > 0.0 {
-        info!("combat: {target} takes {} damage less {v:.0} % ({name}) in place of DR", w.edid.as_deref().unwrap_or("?"));
+        info!("combat: {target} takes {} damage less {v:.0} % ({name}) as well as DR", w.edid.as_deref().unwrap_or("?"));
     }
     v
 }
@@ -4961,6 +4990,7 @@ fn melee(
             // A person blocking it from the front stops part of it (combat-ai.md §14.3); a
             // power attack breaks through and staggers it (combat-rules.md §12).
             let mut guard_broken = false;
+            let mut blocked = false;
             if c.guarding.get(&target).is_some_and(|f| damage::from_front(*f, player.look_dir())) {
                 let before = d.dealt;
                 (d.dealt, guard_broken) = damage::against_block(&c.tuning, before, power.is_some());
@@ -4968,6 +4998,7 @@ fn melee(
                     stats.blocks_broken += 1;
                     info!("combat: the player's power attack breaks {target}'s block ({before:.1}, all dealt)");
                 } else {
+                    blocked = true;
                     stats.blows_blocked += 1;
                     info!("combat: {target} blocks the player's blow: {:.1} of {before:.1} stopped", before - d.dealt);
                     c.blocked_blows.push(BlockedBlow { attacker: FormId::PLAYER_REF, blocker: target, damage: before, dealt: d.dealt });
@@ -4980,7 +5011,21 @@ fn melee(
             let push = damage::knockback_force(&c.rules, d.dealt, agility);
             let location = bp.as_ref().map_or(0, BodyPart::location);
             let limb = limb_hit(bp.as_ref(), &d, &w);
-            let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
+            let info = HitInfo {
+                attacker: Some(FormId::PLAYER_REF),
+                weapon: Some(id),
+                location,
+                critical: d.critical,
+                blocking: blocked,
+                sneak_attack: a.sneaking,
+                base_weapon_damage: f64::from(d.base + d.crit_bonus),
+                hit_pos: Some(hit.point),
+                // [design] Player melee hits record the player's unit look direction for
+                // `GetHit3DData 1` (unprobed for melee swings in the original; jip-hit-info.md §6).
+                hit_dir: fnv_game::combat::unit_hit_dir(player.look_dir()),
+                limb,
+                ..HitInfo::default()
+            };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
             let mut items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
             // A special move's effect goes on with the blow (Ranger Takedown's knockdown
@@ -5131,7 +5176,7 @@ fn gas_hit(c: &Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: 
     let weapon = weapon.filter(|w| *w != FormId(0));
     let items: Vec<FormId> = weapon.and_then(|w| c.forms.weapons.get(&w)).and_then(|w| w.enchantment).into_iter().collect();
     let (ran, dummy) = with_world(rt, sim, |rt| {
-        let info = HitInfo { attacker, weapon, location: -1, critical: false, limb: None };
+        let info = HitInfo { attacker, weapon, location: -1, ..HitInfo::default() };
         let ran = rt.game.hit_object(r, info) | rt.game.magic_effect_hits(r, &items, attacker);
         if ran || !spark {
             return (ran, false);
@@ -5340,6 +5385,7 @@ fn actor_attacks(
         let player_guard = player_guard.filter(|_| c.time >= c.guard_down_until);
         let guard = if b.target == FormId::PLAYER_REF { player_guard } else { c.guarding.get(&b.target).copied() };
         let mut guard_broken = false;
+        let mut blocked = false;
         if guard.is_some_and(|f| damage::from_front(f, b.dir)) {
             let before = d.dealt;
             (d.dealt, guard_broken) = damage::against_block(&c.tuning, before, b.anim.is_some());
@@ -5350,6 +5396,7 @@ fn actor_attacks(
                     c.guard_down_until = c.time + c.tuning.guard_break;
                 }
             } else {
+                blocked = true;
                 stats.blows_blocked += 1;
                 info!("combat: {} blocks {}'s blow: {:.1} of {before:.1} stopped", b.target, b.attacker, before - d.dealt);
                 if b.target == FormId::PLAYER_REF {
@@ -5364,7 +5411,19 @@ fn actor_attacks(
         // [hypothesis] Melee's part multipliers are unmeasured (combat-rules.md §12):
         // keep Health on HitPart::default(), but give player blows a location and limb.
         // A creature uses this path's Fists Limb Dmg Mult in the absence of its own weapon.
-        let info = HitInfo { attacker: Some(b.attacker), weapon: b.weapon, location: bp.as_ref().map_or(0, BodyPart::location), critical: d.critical, limb: limb_hit(bp.as_ref(), &d, &w) };
+        let info = HitInfo {
+            attacker: Some(b.attacker),
+            weapon: b.weapon,
+            location: bp.as_ref().map_or(0, BodyPart::location),
+            critical: d.critical,
+            blocking: blocked,
+            sneak_attack: a.sneaking,
+            base_weapon_damage: f64::from(d.base + d.crit_bonus),
+            hit_pos: Some(b.point),
+            hit_dir: fnv_game::combat::unit_hit_dir(b.dir),
+            limb: limb_hit(bp.as_ref(), &d, &w),
+            ..HitInfo::default()
+        };
         if b.target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: b.target.0, point: b.point, dv: vec::scale(b.dir, MELEE_PUSH) });
         }
@@ -5469,9 +5528,12 @@ fn script_shot(sim: &SimState, from: FormId, weapon: FormId, muzzle: Option<[f32
 /// would go on in the new one at the same numbers (#1986). They are dropped, their script
 /// references with them [design]. A charge or mine at rest is a reference of its cell and
 /// stays there. Not gated on play, as the loading screen is up when the travel goes out.
-fn leave_space_shots(mut travel: MessageReader<crate::Travel>, mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut visuals: ResMut<ShotVisuals>) {
+fn leave_space_shots(mut travel: MessageReader<crate::Travel>, mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut visuals: ResMut<ShotVisuals>, mut snap: Option<ResMut<crate::bullet_snap::BulletSnap>>) {
     if travel.read().count() == 0 {
         return;
+    }
+    if let Some(s) = snap.as_deref_mut() {
+        s.clear_tracking();
     }
     let n = c.flying.len() + c.pending.len() + c.boom.len();
     if n == 0 {
@@ -5567,7 +5629,7 @@ fn fly(
     anim: Res<WeaponAnim>,
     sfx: Option<Res<Sfx>>,
     mut effects: ShotEffects,
-    mut dm: ResMut<crate::dismember::Dismemberment>,
+    (mut dm, mut snap): (ResMut<crate::dismember::Dismemberment>, Option<ResMut<crate::bullet_snap::BulletSnap>>),
 ) {
     sync_condition_penalty(&mut c, script.as_deref());
     let dt = time.delta_secs();
@@ -5726,13 +5788,51 @@ fn fly(
                 if thrown { Some(f.by.weapon) } else { p.default_weapon }
             });
             let rref = f.rref;
-            let ghost = move |to: V3| Ghost { id, proj, rref, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
+            let snap_active = snap.as_deref().is_some_and(crate::bullet_snap::BulletSnap::active);
+            let snap_damage = c.forms.weapons.get(&f.by.weapon).map_or(0.0, |w| w.base_damage as f32);
+            let snap_supersonic = c.forms.projectiles.get(&f.proj).is_some_and(|p| p.has("Supersonic"));
+            let snap_eligible = f.p.motion == Motion::Missile && !f.p.mine && !f.p.detonates && (f.p.explosion.is_none() || snap_supersonic);
+            let ghost = move |to: V3, hit_player: bool| Ghost { id, proj, rref, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam, damage: snap_damage, snap_eligible, hit_player };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             let touched_before = f.p.first_contact.is_some();
             let first = f.p.age == 0.0;
             world.only.set(f.by.sure.map(|t| if t == FormId::PLAYER_REF { PLAYER } else { t.0 as ActorId }));
             let events = f.p.step(&world, dt);
             world.only.set(None);
+            if snap_active && !at_once {
+                if let Some(s) = snap.as_deref_mut() {
+                    let to = events
+                        .iter()
+                        .find_map(|e| match e {
+                            ProjEvent::Hit { point, .. } | ProjEvent::Explode { point, .. } | ProjEvent::Expired { point } => Some(*point),
+                            _ => None,
+                        })
+                        .unwrap_or(f.p.pos);
+                    let hit_player = events.iter().any(|e| matches!(e, ProjEvent::Hit { actor: Some(a), .. } if *a == PLAYER));
+                    let is_player_owned = f.by.actor == FormId::PLAYER_REF;
+                    if hit_player {
+                        s.push(crate::bullet_snap::SnapInput::PlayerImpact {
+                            id: f.id,
+                            at: to,
+                            speed: f.p.speed,
+                            damage: snap_damage,
+                            is_player_owned,
+                            eligible: snap_eligible,
+                        });
+                    } else {
+                        s.push(crate::bullet_snap::SnapInput::Segment {
+                            id: f.id,
+                            from: before,
+                            to,
+                            dir: f.dir,
+                            speed: f.p.speed,
+                            damage: snap_damage,
+                            is_player_owned,
+                            eligible: snap_eligible,
+                        });
+                    }
+                }
+            }
             // Its way this frame, from the muzzle on the first, to where it stopped.
             if !gas.is_empty() && !f.by.harmless {
                 let to = events
@@ -5820,7 +5920,7 @@ fn fly(
                             c.marks.push(line(point, hold.unwrap_or(0.08)));
                         }
                         if at_once && f.shown {
-                            c.ghosts.push(ghost(point));
+                            c.ghosts.push(ghost(point, actor == Some(PLAYER)));
                         }
                     }
                     // A harmless shot sets nothing off [design].
@@ -5841,7 +5941,7 @@ fn fly(
                             c.marks.push(line(point, hold.unwrap_or(0.08)));
                         }
                         if at_once && f.shown {
-                            c.ghosts.push(ghost(point));
+                            c.ghosts.push(ghost(point, false));
                         }
                     }
                 }
@@ -5883,6 +5983,7 @@ fn fly(
     }
     // What is drawn this frame: the projectiles in flight where they are seen, and
     // those found at once on their way.
+    let snap_active = snap.as_deref().is_some_and(crate::bullet_snap::BulletSnap::active);
     c.ghosts.retain_mut(|g| {
         if let (true, Some(m)) = (g.follow, anim.muzzle) {
             g.from = m;
@@ -5894,10 +5995,48 @@ fn fly(
             g.left -= dt;
             g.left > 0.0
         } else {
+            let prev = g.travelled;
+            let len = vec::len(vec::sub(g.to, g.from));
             g.travelled += g.speed.max(1.0) * dt;
-            g.travelled < vec::len(vec::sub(g.to, g.from))
+            let finished = g.travelled >= len;
+            if snap_active {
+                if let Some(s) = snap.as_deref_mut() {
+                    let d = vec::sub(g.to, g.from);
+                    let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
+                    let is_player_owned = g.owner == FormId::PLAYER_REF;
+                    if g.hit_player {
+                        if finished {
+                            s.push(crate::bullet_snap::SnapInput::PlayerImpact {
+                                id: g.id,
+                                at: g.to,
+                                speed: g.speed,
+                                damage: g.damage,
+                                is_player_owned,
+                                eligible: g.snap_eligible,
+                            });
+                        }
+                    } else {
+                        let seg_from = vec::add(g.from, vec::scale(dir, prev));
+                        let seg_to = vec::add(g.from, vec::scale(dir, g.travelled.min(len)));
+                        s.push(crate::bullet_snap::SnapInput::Segment {
+                            id: g.id,
+                            from: seg_from,
+                            to: seg_to,
+                            dir,
+                            speed: g.speed,
+                            damage: g.damage,
+                            is_player_owned,
+                            eligible: g.snap_eligible,
+                        });
+                    }
+                }
+            }
+            !finished
         }
     });
+    if let Some(s) = snap.as_deref_mut().filter(|s| s.active()) {
+        s.retain_active(|id| c.flying.iter().any(|f| f.id == id) || c.ghosts.iter().any(|g| g.id == id));
+    }
     visuals.flying.clear();
     visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, owner: f.by.actor, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled, strength: 1.0 }));
     visuals.flying.extend(c.ghosts.iter().map(|g| {
@@ -5972,10 +6111,12 @@ fn fly(
             }
         }
         // The blast's live reference for the scripts (ShowOff's GetExplosionRefRadius and
-        // GetExplosionRefSource), gone after the frame (`fnv_game::nvse_showoff5`).
-        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-            crate::script::with_world(rt, &mut sim, |rt| rt.game.explosion_placed(id, cause.map(|c| c.actor), at, x.radius));
-        }
+        // GetExplosionRefSource, and JIP's GetHitProjectile), gone after the frame
+        // (`fnv_game::nvse_showoff5`).
+        let expl_ref = script
+            .as_deref_mut()
+            .and_then(|s| s.rt.as_mut())
+            .and_then(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.explosion_placed(id, cause.map(|c| c.actor), at, x.radius)));
         let hits = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
             blast(&world, &c.tuning, &x, at, normal)
@@ -6000,7 +6141,9 @@ fn fly(
             let d = damage::blast_hit(&c.rules, &c.tuning, raw, dt_v, dr, &ap, &tp);
             log_blast_perks(cause, target, &ap, &tp, &d);
             let dealt = d.dealt;
-            let info = blast_hit_info(cause);
+            // Wave 4D w4d_13_explosion_falloff_outdoor [observed]: GetHitBaseWeaponDamage
+            // includes explosion distance falloff (before difficulty scaling).
+            let info = blast_hit_info(cause, expl_ref, f64::from(raw));
             // The blast's object effect on those it catches (hit-effects.md §1).
             let items: Vec<FormId> = x.enchantment.into_iter().collect();
             // Its limb damage, on the torso and legs (crippled-limbs.md §5): from the damage
@@ -6250,7 +6393,7 @@ fn fly(
             stats.harmless_hits += 1;
             let hit = p.actor.map(|a| if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) }).or(p.object.map(|o| FormId(o as u32)));
             if let Some(target) = hit {
-                let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location: -1, critical: false, limb: None };
+                let info = HitInfo { attacker: Some(shooter), weapon: Some(id), projectile: p.rref, location: -1, ..HitInfo::default() };
                 let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.harmless_hit(target, info)));
                 stats.harmless_scripts += u32::from(ran);
                 if ran {
@@ -6283,7 +6426,7 @@ fn fly(
                 let r = FormId(obj as u32);
                 // The object's OnHit and OnHitWith blocks, before any damage
                 // [documented: GECK wiki Event Handling] (combat-rules.md §14).
-                let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location: -1, critical: false, limb: None };
+                let info = HitInfo { attacker: Some(shooter), weapon: Some(id), projectile: p.rref, location: -1, ..HitInfo::default() };
                 let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
                 // The weapon's object effect reaches the object: its OnMagicEffectHit
                 // blocks (the Vault 22 traps catch the flamer's burn this way).
@@ -6330,10 +6473,28 @@ fn fly(
         let nerve = companion_nerve(script.as_deref_mut(), &mut sim, target);
         let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, nerve, ..Target::default() }, &ap, &tp, roll);
         log_hit_perks(shooter, Some(target), &ap, &tp, &d);
+        // The ammo's Fatigue Mod (AMEF type 5: the bean bag's 250) takes that much fatigue,
+        // once a hit [documented: GECK wiki GetAmmoEffectTraitNumeric effect types;
+        // hypothesis: from 0, once a hit; logic-fields.md §3]. Computed before `HitInfo` so
+        // `SetOnHitEventHandler` reads it via `GetHitFatigueDamage`.
+        let fatigue = damage::apply_effects(0.0, &ammo_effects, "Fatigue Mod").max(0.0);
         // [design] Missing body part data keeps the whole-capsule fallback (location 0).
         let location = bp.as_ref().map_or(0, BodyPart::location);
         let limb = limb_hit(bp.as_ref(), &d, &w);
-        let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location, critical: d.critical, limb };
+        let info = HitInfo {
+            attacker: Some(shooter),
+            weapon: Some(id),
+            projectile: p.rref,
+            location,
+            critical: d.critical,
+            sneak_attack: a.sneaking,
+            base_weapon_damage: f64::from(d.base + d.crit_bonus),
+            fatigue_damage: f64::from(fatigue),
+            hit_pos: Some(p.point),
+            hit_dir: fnv_game::combat::unit_hit_dir(p.dir),
+            limb,
+            ..HitInfo::default()
+        };
         if target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
         }
@@ -6343,10 +6504,6 @@ fn fly(
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
         armour_lines(script.as_deref_mut(), Some(shooter), target, &d, c.tuning.dt_floor);
         spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
-        // The ammo's Fatigue Mod (AMEF type 5: the bean bag's 250) takes that much fatigue,
-        // once a hit [documented: GECK wiki GetAmmoEffectTraitNumeric effect types;
-        // hypothesis: from 0, once a hit; logic-fields.md §3].
-        let fatigue = damage::apply_effects(0.0, &ammo_effects, "Fatigue Mod");
         if fatigue > 0.0 && r.as_ref().is_some_and(|r| !r.immune) {
             if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
                 with_world(rt, &mut sim, |rt| rt.game.damage_fatigue(target, f64::from(fatigue)));
@@ -6988,10 +7145,17 @@ mod tests {
     #[test]
     fn a_blast_hit_is_its_causes_not_the_players() {
         let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, sure: None, vats: false, sneaking: false };
-        let info = blast_hit_info(Some(Cause::of(&by)));
-        assert_eq!((info.attacker, info.weapon, info.location, info.critical), (Some(FormId(0x000F5704)), Some(FormId(0x000906DA)), -1, false));
-        let none = blast_hit_info(None);
-        assert_eq!((none.attacker, none.weapon), (None, None));
+        let expl = FormId(0xFF00_0042);
+        let info = blast_hit_info(Some(Cause::of(&by)), Some(expl), 125.0);
+        assert_eq!(
+            (info.attacker, info.weapon, info.projectile, info.location, info.critical, info.explosion, info.base_weapon_damage),
+            (Some(FormId(0x000F5704)), Some(FormId(0x000906DA)), Some(expl), -1, false, true, 125.0)
+        );
+        let none = blast_hit_info(None, None, 100.0);
+        assert_eq!(
+            (none.attacker, none.weapon, none.projectile, none.explosion, none.base_weapon_damage),
+            (None, None, None, true, 100.0)
+        );
     }
 
     /// A grenade's cooldown, played from the shot (the clip's `Release`, 0.867 s) as the
@@ -7925,6 +8089,57 @@ mod tests {
                     seconds: CRIT_NOTE_SECONDS,
                 }
             );
+        }
+
+        #[test]
+        fn allow_attack_clears_player_cooldown_and_flinch_without_affecting_vanilla() {
+            let (mut sim, mut combat) = make_sim_and_combat();
+            let mut anim = WeaponAnim::default();
+            sim.world.equip(FormId::PLAYER_REF, PISTOL).unwrap();
+            equip_sync_step(&mut combat, &mut sim, &mut anim, false);
+
+            // Put the player in attack cooldown and flinch lock.
+            combat.cycle.as_mut().unwrap().phase = Phase::Cooldown { left: 1.2 };
+            combat.flinch_until = 5.0;
+            anim.swing = Some("attackleft".into());
+
+            let mut app = App::new();
+            let script = ScriptState::over_plugins(&[]);
+            // Vanilla frame: AllowAttack not called -> cooldown & flinch remain active.
+            app.insert_resource(Time::<()>::default())
+                .insert_resource(combat)
+                .insert_resource(sim)
+                .insert_resource(PhysState::default())
+                .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+                .insert_resource(PlayerControl::default())
+                .insert_resource(anim)
+                .insert_resource(CombatStats::default())
+                .insert_resource(script)
+                .insert_resource(PlayerLimbs::default())
+                .add_message::<ShotFired>()
+                .add_message::<PlaySound>()
+                .add_message::<CasingFx>()
+                .add_message::<LoopSound>()
+                .add_message::<ScaledSound>()
+                .add_systems(Update, fire);
+            app.update();
+            assert!(matches!(app.world().resource::<Combat>().cycle.as_ref().unwrap().phase, Phase::Cooldown { .. }), "vanilla cooldown untouched");
+            assert_eq!(app.world().resource::<Combat>().flinch_until, 5.0);
+
+            // Script calls PlayerREF.AllowAttack -> next frame clears cooldown, swing and flinch.
+            app.world_mut()
+                .resource_mut::<ScriptState>()
+                .rt
+                .as_mut()
+                .unwrap()
+                .game
+                .run_query("Begin Function {}\nPlayerREF.AllowAttack\nEnd", Default::default())
+                .unwrap();
+            app.update();
+            assert_eq!(app.world().resource::<Combat>().cycle.as_ref().unwrap().phase, Phase::Ready);
+            assert_eq!(app.world().resource::<Combat>().flinch_until, 0.0);
+            assert_eq!(app.world().resource::<WeaponAnim>().swing, None);
+            assert!(app.world_mut().resource_mut::<ScriptState>().rt.as_mut().unwrap().game.take_allow_attack().is_empty());
         }
     }
 }

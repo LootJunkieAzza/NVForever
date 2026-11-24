@@ -295,9 +295,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         "getyieldtimer" => XVal::Num(g.other.jg7.yield_timer.map_or(0.0, |(v, at)| (v - (g.time - at)).max(0.0))),
-        // 0 is the default [documented: Get/SetViewmodelClipDistance].
+        // 0 is the default [documented: Get/SetViewmodelClipDistance]; stores raw finite
+        // values including negatives without clamping to 0 [observed: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, clean-room script probe
+        // jg_25_yield_timer_and_viewmodel_clip_neg: -5.00; no DLL or source consulted].
         "setviewmodelclipdistance" => {
-            g.other.jg7.viewmodel_clip = num(args, 0, 0.0).max(0.0);
+            let v = num(args, 0, 0.0);
+            if v.is_finite() {
+                g.other.jg7.viewmodel_clip = v;
+            }
             zero
         }
         "getviewmodelclipdistance" => XVal::Num(g.other.jg7.viewmodel_clip),

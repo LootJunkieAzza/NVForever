@@ -187,7 +187,7 @@ pub fn place_name(lo: &LoadOrder, schema: &Schema, index: &WorldIndex, world: u3
     let cell = index.worldspaces.get(&world).and_then(|w| w.grid.get(&grid)).copied();
     let best = cell
         .into_iter()
-        .flat_map(|c| fnv_world::audio::cell_regions(lo, schema, c))
+        .flat_map(|c| fnv_world::audio::cell_regions_merged(lo, schema, c, index.merge_region_lists))
         .filter_map(|r| region_name(lo, schema, r))
         .max_by(|a, b| a.1.total_cmp(&b.1));
     match best {
@@ -395,5 +395,65 @@ mod tests {
         assert!(door_hidden(0, 28));
         // Automatic Door and Minimal Use alone keep it on the map.
         assert!(!door_hidden(0x400, 0x02 | 0x08));
+    }
+
+    #[test]
+    fn place_name_uses_merged_regions_only_when_hnvse_merge_enabled() {
+        fn z(s: &str) -> Vec<u8> {
+            [s.as_bytes(), &[0]].concat()
+        }
+        fn group(label: [u8; 4], kind: i32, body: &[u8]) -> Vec<u8> {
+            [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &label[..], &kind.to_le_bytes(), &[0; 8], body].concat()
+        }
+        fn tes4(masters: &[&str]) -> Vec<u8> {
+            let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+            let mut subs = vec![sub(b"HEDR", hedr)];
+            for m in masters {
+                subs.push(sub(b"MAST", z(m)));
+                subs.push(sub(b"DATA", 0u64.to_le_bytes().to_vec()));
+            }
+            record(b"TES4", 0, &subs)
+        }
+        fn map_region(id: u32, name: &str, prio: u8) -> Vec<u8> {
+            // RDAT: type 4 (Map), flags 0, priority, pad -> followed by RDMP.
+            let rdat = [4u32.to_le_bytes().as_slice(), &[0, prio, 0, 0]].concat();
+            record(b"REGN", id, &[sub(b"RDAT", rdat), sub(b"RDMP", z(name))])
+        }
+
+        const WORLD: u32 = 0x10;
+        const CELL: u32 = 0x20;
+        const REG_MAP: u32 = 0x30;
+        const REG_EMPTY: u32 = 0x31;
+
+        let cell_base = record(b"CELL", CELL, &[sub(b"DATA", vec![0]), sub(b"XCLC", [0i32.to_le_bytes(), 0i32.to_le_bytes()].concat()), sub(b"XCLR", REG_MAP.to_le_bytes().to_vec())]);
+        let cell_override = record(b"CELL", CELL, &[sub(b"DATA", vec![0]), sub(b"XCLC", [0i32.to_le_bytes(), 0i32.to_le_bytes()].concat()), sub(b"XCLR", REG_EMPTY.to_le_bytes().to_vec())]);
+        let wrld_base = [
+            record(b"WRLD", WORLD, &[sub(b"EDID", z("TestWorld")), sub(b"FULL", z("Fallback World"))]),
+            group(WORLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cell_base))),
+        ]
+        .concat();
+        let wrld_override = [
+            record(b"WRLD", WORLD, &[sub(b"EDID", z("TestWorld")), sub(b"FULL", z("Fallback World"))]),
+            group(WORLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cell_override))),
+        ]
+        .concat();
+        let p0 = [
+            tes4(&[]),
+            group(*b"REGN", 0, &[map_region(REG_MAP, "Master Region", 50), record(b"REGN", REG_EMPTY, &[])].concat()),
+            group(*b"WRLD", 0, &wrld_base),
+        ]
+        .concat();
+        let p1 = [tes4(&["Base.esm"]), group(*b"WRLD", 0, &wrld_override)].concat();
+
+        let plugins = [Plugin::parse(&p0, "Base.esm".into()).unwrap(), Plugin::parse(&p1, "Override.esp".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+        let mut index = WorldIndex::build(&lo, &schema);
+
+        // Vanilla (merge_region_lists = false): Override.esp's empty region wins -> world fallback.
+        assert_eq!(place_name(&lo, &schema, &index, WORLD, None, [100.0, 100.0, 0.0]), "Fallback World");
+        // hNVSE bMergeRegionLists=1: Master.esm's map region survives across override.
+        index.set_merge_region_lists(true);
+        assert_eq!(place_name(&lo, &schema, &index, WORLD, None, [100.0, 100.0, 0.0]), "Master Region");
     }
 }

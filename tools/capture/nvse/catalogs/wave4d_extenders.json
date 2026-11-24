@@ -1,0 +1,2183 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave4d_extenders",
+  "description": "Wave 4D strictly read-only console-only clean-room probe catalog covering open-PR and merged-PR NVSE/extender/vanilla edge-case hypotheses.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184",
+    "JohnnyGuitarNVSE": "528",
+    "kNVSE": "37",
+    "SUP NVSE Plugin": "855",
+    "AnhNVSE": "131",
+    "yUI": "140 (1.4d)",
+    "UI Organizer Plugin": "230",
+    "hNVSE": "120",
+    "lStewieAl's Tweaks": "1005"
+  },
+  "batches": [
+    {
+      "id": "w4d_01_open_pr_quickwins",
+      "title": "Wave 4D Batch 1 - Open-PR High-Priority Edge Cases",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + ShowOff 184",
+      "required_plugins": [
+        "ShowOffNVSE.dll",
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4d_01_tagskills_chargen",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-is-in-chargen.md",
+          "spec_line": 30,
+          "functions_tested": [
+            "SetTagSkills",
+            "IsInCharGen",
+            "GetActiveMenuMode"
+          ],
+          "claim": "TagSkills menu opened via SetTagSkills 3 (menu 1048) sets IsInCharGen.",
+          "expected": "PR #3730 (nvse_jip2.rs:106-109) checks only LOVE_TESTER (1074) || TRAITS (1084), excluding TagSkills.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*np_keepmenu\" 1",
+            "SetTagSkills 3"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 1,
+              "script_lines": [
+                "int mm = GetActiveMenuMode",
+                "int cg = IsInCharGen",
+                "CloseActiveMenu",
+                "Player.AuxVarSetFlt \"*np_keepmenu\" 0",
+                "PrintToConsole \"PROBE|w4d_01_tagskills_chargen|mm=%g,cg=%g\" mm cg"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_02_has_action_ref_triggers",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-unlisted-rest.md",
+          "spec_line": 299,
+          "functions_tested": [
+            "HasActionRef",
+            "Activate"
+          ],
+          "claim": "HasActionRef before/after Activate on unscripted door, scripted front door, sitting/spawned actors, and container.",
+          "expected": "PR #3732 (nvse_unlisted2.rs:371-379) only checks live ctx.action_ref / action_refs / furniture_use / scripted DOOR base.",
+          "script_lines": [
+            "ref rFront = GetFormFromMod \"FalloutNV.esm\" \"103E61\"",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rUnscr = 0",
+            "array_var aDoors = GetRefs 28 1",
+            "int nDoors = ar_Size aDoors",
+            "int i = 0",
+            "while i < nDoors",
+            "  ref rD = aDoors[i]",
+            "  if rD != rFront",
+            "    let rUnscr := rD",
+            "  endif",
+            "  let i += 1",
+            "loop",
+            "ref rCont = 0",
+            "array_var aConts = GetRefs 27 1",
+            "int nConts = ar_Size aConts",
+            "if nConts > 0",
+            "  let rCont := aConts[0]",
+            "endif",
+            "ref rSpawn = Player.PlaceAtMe rDocBase 1",
+            "int hF0 = rFront.HasActionRef",
+            "int hU0 = rUnscr.HasActionRef",
+            "int hD0 = rDoc.HasActionRef",
+            "int hS0 = rSpawn.HasActionRef",
+            "int hC0 = rCont.HasActionRef",
+            "rUnscr.Activate Player 1",
+            "int hU1 = rUnscr.HasActionRef",
+            "rCont.Activate Player 1",
+            "int hC1 = rCont.HasActionRef",
+            "rSpawn.Disable",
+            "rSpawn.MarkForDelete",
+            "PrintToConsole \"PROBE|w4d_02_has_action_ref_triggers|front=%g|unscr(%i:%g->%g)|doc=%g|spawn=%g|cont(%i:%g->%g)\" hF0 rUnscr hU0 hU1 hD0 hS0 rCont hC0 hC1"
+          ]
+        },
+        {
+          "id": "w4d_03_eval_empty_str_lit",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-values.md",
+          "spec_line": 93,
+          "functions_tested": [
+            "eval",
+            "sv_Construct"
+          ],
+          "claim": "Truthiness of bare empty/non-empty string literals vs initialized empty/non-empty string_var in if eval.",
+          "expected": "PR #3691 treats all empty strings or all string_vars uniformly without distinguishing bare \"\" literal from allocated empty string_var.",
+          "script_lines": [
+            "string_var s0 = \"\"",
+            "string_var s1 = \"x\"",
+            "string_var sc0",
+            "string_var sc1",
+            "let sc0 := sv_Construct \"%z\" s0",
+            "let sc1 := sv_Construct \"%z\" s1",
+            "int eV0 = 0",
+            "if eval s0",
+            "  let eV0 := 1",
+            "endif",
+            "int eV1 = 0",
+            "if eval s1",
+            "  let eV1 := 1",
+            "endif",
+            "int eC0 = 0",
+            "if eval sc0",
+            "  let eC0 := 1",
+            "endif",
+            "int eC1 = 0",
+            "if eval sc1",
+            "  let eC1 := 1",
+            "endif",
+            "int eL0 = 0",
+            "if eval \"\"",
+            "  let eL0 := 1",
+            "endif",
+            "int eL1 = 0",
+            "if eval \"abc\"",
+            "  let eL1 := 1",
+            "endif",
+            "PrintToConsole \"PROBE|w4d_03_eval_empty_str_lit|lit0=%g,lit1=%g|c0=%g,c1=%g|v0=%g,v1=%g\" eL0 eL1 eC0 eC1 eV0 eV1"
+          ]
+        },
+        {
+          "id": "w4d_04_generic_form_neg_idx",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-console-generic.md",
+          "spec_line": 76,
+          "functions_tested": [
+            "GenericAddForm",
+            "GenericReplaceForm",
+            "GenericDeleteForm",
+            "ListGetCount"
+          ],
+          "claim": "GenericAddForm/Replace/Delete behavior on negative indices (-1, -2, -3, -10) and past-end index on empty and non-empty FLST.",
+          "expected": "PR #3719 (nvse_lists.rs:183-201) accepts -2 on empty list in Add, rejects -2 in Replace, and rejects all negative indices in Delete.",
+          "script_lines": [
+            "array_var aFlsts = GetLoadedTypeArray 85",
+            "ref rLst = 0",
+            "int idx = 0",
+            "int nAll = ar_Size aFlsts",
+            "while idx < nAll",
+            "  ref rCand = aFlsts[idx]",
+            "  if (ListGetCount rCand) >= 3",
+            "    let rLst := rCand",
+            "    break",
+            "  endif",
+            "  let idx += 1",
+            "loop",
+            "ref rNew = GetFormFromMod \"FalloutNV.esm\" \"4326\"",
+            "ref rRep = GetFormFromMod \"FalloutNV.esm\" \"421C\"",
+            "int nInit = ListGetCount rLst",
+            "int aNeg1 = GenericAddForm 13 rLst rNew -1",
+            "int aNeg2 = GenericAddForm 13 rLst rNew -2",
+            "int nA2 = ListGetCount rLst",
+            "int aNeg3 = GenericAddForm 13 rLst rNew -3",
+            "int aOob = GenericAddForm 13 rLst rNew (nA2 + 5)",
+            "ref rpNeg1 = GenericReplaceForm 13 rLst rRep -1",
+            "ref rpNeg2 = GenericReplaceForm 13 rLst rRep -2",
+            "ref dlNeg1 = GenericDeleteForm 13 rLst -1",
+            "int nD1 = ListGetCount rLst",
+            "ref dlOob = GenericDeleteForm 13 rLst 999",
+            "PrintToConsole \"PROBE|w4d_04_generic_form_neg_idx|n0=%g|add(-1=%g,-2=%g:%g,-3=%g,oob=%g)|rep(-1=%i,-2=%i)|del(-1=%i:%g,oob=%i)\" nInit aNeg1 aNeg2 nA2 aNeg3 aOob rpNeg1 rpNeg2 dlNeg1 nD1 dlOob"
+          ]
+        },
+        {
+          "id": "w4d_05_haskeyword_1arg_ref",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/knvse-anim-folders.md",
+          "spec_line": 124,
+          "functions_tested": [
+            "HasKeyword",
+            "HasKeywordCond"
+          ],
+          "claim": "Whether 1-arg reference syntax `Player.HasKeyword \"TestKW\"` compiles in JIP LN 57.30 vs 2-arg `HasKeyword Player \"TestKW\"`.",
+          "expected": "PR #3654 (nvse_jip2.rs:304, knvse-anim-folders.md:124) adds 1-arg reference syntax `ref.HasKeyword \"keyword\"` as [hypothesis].",
+          "script_lines": [
+            "int opKw = GetCommandOpcode \"HasKeyword\"",
+            "int opKwc = GetCommandOpcode \"HasKeywordCond\"",
+            "ref f1 = CompileScript \"nvseprobe_h_kw1.gek\"",
+            "ref f2 = CompileScript \"nvseprobe_h_kw2.gek\"",
+            "ref fc1 = CompileScript \"nvseprobe_h_kwc1.gek\"",
+            "int r2 = -9",
+            "if f2",
+            "  let r2 := Call f2",
+            "endif",
+            "PrintToConsole \"PROBE|w4d_05_haskeyword_1arg_ref|op(kw=%g,kwc=%g)|kw1(cmp=%g)|kw2(cmp=%g,ret=%g)|kwc1(cmp=%g)\" opKw opKwc (f1 != 0) (f2 != 0) r2 (fc1 != 0)"
+          ],
+          "helper_scripts": {
+            "nvseprobe_h_kw1.gek": [
+              "int x = Player.HasKeyword \"TestKW\"",
+              "SetFunctionValue x"
+            ],
+            "nvseprobe_h_kw2.gek": [
+              "int x = HasKeyword Player \"TestKW\"",
+              "SetFunctionValue x"
+            ],
+            "nvseprobe_h_kwc1.gek": [
+              "int x = Player.HasKeywordCond \"TestKW\"",
+              "SetFunctionValue x"
+            ]
+          }
+        },
+        {
+          "id": "w4d_06_player_setpersistent_0",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md",
+          "spec_line": 36,
+          "functions_tested": [
+            "SetPersistent",
+            "IsPersistent"
+          ],
+          "claim": "Whether Player.SetPersistent 0 clears Player.IsPersistent or is ignored on FormId::PLAYER_REF.",
+          "expected": "PR #3706 (nvse_gaps.rs:999) filters out FormId::PLAYER_REF and ignores attempts to clear Player's persistent flag.",
+          "script_lines": [
+            "int p0 = Player.IsPersistent",
+            "Player.SetPersistent 0",
+            "int p1 = Player.IsPersistent",
+            "Player.SetPersistent 1",
+            "int p2 = Player.IsPersistent",
+            "PrintToConsole \"PROBE|w4d_06_player_setpersistent_0|p0=%g,after0=%g,after1=%g\" p0 p1 p2"
+          ]
+        },
+        {
+          "id": "w4d_07_setcombatdisabled_new_combat",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 181,
+          "functions_tested": [
+            "SetCombatDisabled",
+            "GetCombatDisabled",
+            "StartCombat",
+            "IsInCombat"
+          ],
+          "claim": "Whether SetCombatDisabled 1 suppresses new combat entry via StartCombat Player on a non-combat actor.",
+          "expected": "PR #3717 hypothesizes SetCombatDisabled 1 suppresses new combat entry while keeping active combat running.",
+          "script_lines": [
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rA = Player.PlaceAtMe rDocBase 1",
+            "int c0 = rA.IsInCombat",
+            "int cd0 = rA.GetCombatDisabled",
+            "rA.SetCombatDisabled 1",
+            "int cd1 = rA.GetCombatDisabled",
+            "rA.StartCombat Player",
+            "int c1 = rA.IsInCombat",
+            "Player.AuxVarSetRef \"*w4d07_a\" rA",
+            "Player.AuxVarSetFlt \"*w4d07_c0\" c0",
+            "Player.AuxVarSetFlt \"*w4d07_cd0\" cd0",
+            "Player.AuxVarSetFlt \"*w4d07_cd1\" cd1",
+            "Player.AuxVarSetFlt \"*w4d07_c1\" c1"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "post",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rA = Player.AuxVarGetRef \"*w4d07_a\"",
+                "int c2 = rA.IsInCombat",
+                "int cd2 = rA.GetCombatDisabled",
+                "rA.SetCombatDisabled 0",
+                "rA.StopCombat",
+                "rA.Disable",
+                "rA.MarkForDelete",
+                "int c0 = Player.AuxVarGetFlt \"*w4d07_c0\"",
+                "int cd0 = Player.AuxVarGetFlt \"*w4d07_cd0\"",
+                "int cd1 = Player.AuxVarGetFlt \"*w4d07_cd1\"",
+                "int c1 = Player.AuxVarGetFlt \"*w4d07_c1\"",
+                "PrintToConsole \"PROBE|w4d_07_setcombatdisabled_new_combat|c0=%g,cd(%g->%g->%g),sameTick=%g,nextTick=%g\" c0 cd0 cd1 cd2 c1 c2"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_08_forcejam_melee_god_nonactor",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 383,
+          "functions_tested": [
+            "ForceWeaponJamAnim",
+            "GetAnimAction",
+            "ToggleGodMode"
+          ],
+          "claim": "ForceWeaponJamAnim on static non-actor door, drawn melee weapon (Baseball Bat), and drawn 10mm Pistol with ToggleGodMode active.",
+          "expected": "PR #3632 (nvse_showoff.rs:440-470) rejects non-actors and melee (anim_type not in 3..=9) and allows TGM.",
+          "script_lines": [
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"103E61\"",
+            "int jDoor = rDoor.ForceWeaponJamAnim",
+            "Player.AuxVarSetFlt \"*w4d08_dr\" jDoor",
+            "ref rBat = GetFormFromMod \"FalloutNV.esm\" \"421C\"",
+            "Player.AddItem rBat 1 1",
+            "Player.EquipItem rBat 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "melee",
+              "wait_ticks": 2,
+              "script_lines": [
+                "int jBat = Player.ForceWeaponJamAnim",
+                "int aBat = Player.GetAnimAction",
+                "Player.AuxVarSetFlt \"*w4d08_jb\" jBat",
+                "Player.AuxVarSetFlt \"*w4d08_ab\" aBat",
+                "ref rBat = GetFormFromMod \"FalloutNV.esm\" \"421C\"",
+                "Player.UnequipItem rBat 0 1",
+                "Player.RemoveItem rBat 1 1",
+                "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rAmmo = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "Player.AddItem rGun 1 1",
+                "Player.AddItem rAmmo 20 1",
+                "Player.EquipItem rGun 0 1",
+                "Player.SetWeaponOut 1",
+                "ToggleGodMode"
+              ]
+            },
+            {
+              "suffix": "tgm",
+              "wait_ticks": 0,
+              "script_lines": [
+                "int jTgm = Player.ForceWeaponJamAnim",
+                "int aTgm = Player.GetAnimAction",
+                "ToggleGodMode",
+                "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.UnequipItem rGun 0 1",
+                "Player.RemoveItem rGun 1 1",
+                "int jDr = Player.AuxVarGetFlt \"*w4d08_dr\"",
+                "int jBat = Player.AuxVarGetFlt \"*w4d08_jb\"",
+                "int aBat = Player.AuxVarGetFlt \"*w4d08_ab\"",
+                "PrintToConsole \"PROBE|w4d_08_forcejam_melee_god_nonactor|door=%g|melee(ret=%g,act=%g)|tgm10mm(ret=%g,act=%g)\" jDr jBat aBat jTgm aTgm"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_09_spread_all_anim_types",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md",
+          "spec_line": 102,
+          "functions_tested": [
+            "GetCalculatedActorSpread",
+            "DamageActorValue",
+            "RestoreActorValue"
+          ],
+          "claim": "Crippled right/left/both arm spread penalties across weapon animation types 3, 4, 5, 6, 8, and 10.",
+          "expected": "PR #3736 (nvse_showoff4.rs:88-94) uses 0.4 fallback for 2H both-arms and includes anim 10..=13 in 1H arm penalties.",
+          "script_lines": [
+            "ref rW0 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "Player.AddItem rW0 1 1",
+            "Player.EquipItem rW0 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 6,
+          "extra_steps": [
+            {
+              "suffix": "s1",
+              "wait_ticks": 1,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*w4d09_n\" (Player.GetCalculatedActorSpread)",
+                "Player.DamageAV RightAttackCondition 100"
+              ]
+            },
+            {
+              "suffix": "s2",
+              "wait_ticks": 1,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*w4d09_r\" (Player.GetCalculatedActorSpread)",
+                "Player.DamageAV LeftAttackCondition 100"
+              ]
+            },
+            {
+              "suffix": "s3",
+              "wait_ticks": 0,
+              "script_lines": [
+                "float sB = Player.GetCalculatedActorSpread",
+                "float sN = Player.AuxVarGetFlt \"*w4d09_n\"",
+                "float sR = Player.AuxVarGetFlt \"*w4d09_r\"",
+                "Player.RestoreAV RightAttackCondition 100",
+                "Player.RestoreAV LeftAttackCondition 100",
+                "ref rW0 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.UnequipItem rW0 0 1",
+                "Player.RemoveItem rW0 1 1",
+                "PrintToConsole \"PROBE|w4d_09_spread_all_anim_types|t3(n=%.5f,r=%.5f,b=%.5f)\" sN sR sB"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_10_ar_deepcopy_cycle",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-arrays.md",
+          "spec_line": 190,
+          "functions_tested": [
+            "Ar_DeepCopy",
+            "Ar_Construct"
+          ],
+          "claim": "Self-referential array a[0] = a passed to Ar_DeepCopy in xNVSE 6.4.9.",
+          "expected": "NVForever guards against cyclic Ar_DeepCopy to avoid stack overflow.",
+          "script_lines": [
+            "array_var a = ar_Construct \"array\"",
+            "ar_Append a 42",
+            "let a[0] := a",
+            "PrintToConsole \"PROBE|w4d_10_ar_deepcopy_cycle|pre_sz=%g\" (ar_Size a)",
+            "array_var b = Ar_DeepCopy a",
+            "PrintToConsole \"PROBE|w4d_10_ar_deepcopy_cycle|post_sz=%g\" (ar_Size b)"
+          ]
+        },
+        {
+          "id": "w4d_11_compilescript_abs_drive",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/compilescript-relative-paths.md",
+          "spec_line": 7,
+          "functions_tested": [
+            "CompileScript",
+            "GetUDFFromFile"
+          ],
+          "claim": "CompileScript and GetUDFFromFile reject absolute drive paths, extended UNC paths, and parent-directory traversal.",
+          "expected": "NVForever rejects absolute/drive/stream/traversal paths and returns 00000000.",
+          "script_lines": [
+            "string_var sAbs = sv_Construct \"%c:%cWindows%cwin.ini\" 67 92 92",
+            "string_var sUnc = sv_Construct \"%c%c?%c%c:%cWindows%cwin.ini\" 92 92 92 67 92 92",
+            "string_var sTrav = sv_Construct \"..%c..%cFalloutNV.ini\" 92 92",
+            "ref cAbs = CompileScript sAbs",
+            "ref uAbs = GetUDFFromFile sAbs",
+            "ref cUnc = CompileScript sUnc",
+            "ref uUnc = GetUDFFromFile sUnc",
+            "ref cTrav = CompileScript sTrav",
+            "ref uTrav = GetUDFFromFile sTrav",
+            "PrintToConsole \"PROBE|w4d_11_compilescript_abs_drive|abs(%i,%i)|unc(%i,%i)|trav(%i,%i)\" cAbs uAbs cUnc uUnc cTrav uTrav"
+          ]
+        },
+        {
+          "id": "w4d_12_anim_seq_freq_active",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-last-14.md",
+          "spec_line": 50,
+          "functions_tested": [
+            "GetAnimSequenceFrequency",
+            "SetAnimSequenceFrequency"
+          ],
+          "claim": "GetAnimSequenceFrequency on Player KF path and static door before/after wildcard and specific SetAnimSequenceFrequency.",
+          "expected": "PR #3734 returns -1 for un-published/actor KF sequences and ignores '*' as a query name.",
+          "script_lines": [
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"103E61\"",
+            "float pIdle0 = Player.GetAnimSequenceFrequency \"Characters\\_Male\\IdleAnims\\MTIdle.kf\"",
+            "float dOpen0 = rDoor.GetAnimSequenceFrequency \"Open\"",
+            "rDoor.SetAnimSequenceFrequency \"*\" 1.5",
+            "float dOpenStar = rDoor.GetAnimSequenceFrequency \"Open\"",
+            "rDoor.SetAnimSequenceFrequency \"Open\" 2.0",
+            "float dOpen2 = rDoor.GetAnimSequenceFrequency \"Open\"",
+            "rDoor.SetAnimSequenceFrequency \"*\" 1.0",
+            "Player.SetAnimSequenceFrequency \"*\" 1.5",
+            "float pIdleStar = Player.GetAnimSequenceFrequency \"Characters\\_Male\\IdleAnims\\MTIdle.kf\"",
+            "Player.SetAnimSequenceFrequency \"*\" 1.0",
+            "PrintToConsole \"PROBE|w4d_12_anim_seq_freq_active|door(open=%.2f,star=%.2f,o2=%.2f)|pl(kf0=%.2f,star=%.2f)\" dOpen0 dOpenStar dOpen2 pIdle0 pIdleStar"
+          ]
+        },
+        {
+          "id": "w4d_13_explosion_falloff_outdoor",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-hit-info.md",
+          "spec_line": 127,
+          "functions_tested": [
+            "GetHitBaseWeaponDamage",
+            "GetHitHealthDamage",
+            "PlaceAtMe"
+          ],
+          "claim": "Whether GetHitBaseWeaponDamage on an outdoor distance-attenuated explosion includes distance falloff or returns un-attenuated base damage 100.0.",
+          "expected": "PR #3689 (combat.rs, jip-hit-info.md:127) returns un-attenuated explosion base damage or leaves distance falloff [hypothesis].",
+          "script_lines": [
+            "ref rGsMk = GetFormFromMod \"FalloutNV.esm\" \"CDF51\"",
+            "Player.MoveTo rGsMk",
+            "Player.ModActorValue Health 5000",
+            "Player.AuxVarSetFlt \"*w4d13c_n\" 0",
+            "SetEventHandler \"OnHit\" (CompileScript \"nvseprobe_h_hit13c.gek\")"
+          ],
+          "wait_ticks_after": 5,
+          "extra_steps": [
+            {
+              "suffix": "pos160",
+              "wait_ticks": 1,
+              "script_lines": [
+                "ref rXmk = GetFormFromMod \"FalloutNV.esm\" \"3B\"",
+                "ref rM = Player.PlaceAtMe rXmk 1",
+                "rM.SetPos X (Player.GetPos X)",
+                "rM.SetPos Y ((Player.GetPos Y) + 160)",
+                "rM.SetPos Z ((Player.GetPos Z) + 15)",
+                "Player.AuxVarSetRef \"*w4d13c_m\" rM"
+              ]
+            },
+            {
+              "suffix": "boom160",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"7078B\"",
+                "ref rM = Player.AuxVarGetRef \"*w4d13c_m\"",
+                "Player.AuxVarSetFlt \"*w4d13c_tag\" 160",
+                "Player.AuxVarSetFlt \"*w4d13c_dist\" (Player.GetDistance rM)",
+                "rM.PlaceAtMe rExpl 1",
+                "rM.Disable",
+                "rM.MarkForDelete"
+              ]
+            }
+          ],
+          "helper_scripts": {
+            "nvseprobe_h_hit13c.gek": [
+              "begin Function {ref rTgt, ref rAtk}",
+              "if rTgt != Player",
+              "  return",
+              "endif",
+              "float bd = Player.GetHitBaseWeaponDamage",
+              "float hd = Player.GetHitHealthDamage",
+              "int fl8 = Player.GetHitExtendedFlag 8",
+              "int iTag = Player.AuxVarGetFlt \"*w4d13c_tag\"",
+              "float dist = Player.AuxVarGetFlt \"*w4d13c_dist\"",
+              "int n = Player.AuxVarGetFlt \"*w4d13c_n\"",
+              "Player.AuxVarSetFlt \"*w4d13c_n\" (n + 1)",
+              "PrintToConsole \"PROBE|w4d_13_explosion_falloff_outdoor|tag=%g,d=%.1f,bd=%.2f,hd=%.2f,fl8=%g\" iTag dist bd hd fl8"
+            ]
+          }
+        },
+        {
+          "id": "w4d_14_script_runner_order",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-script-runner.md",
+          "spec_line": 25,
+          "functions_tested": [
+            "PrintToConsole"
+          ],
+          "claim": "Script Runner ordering across gr_, ln_, gn_ prefixes and within-prefix ordering.",
+          "expected": "PR #3706 (script_runner.rs:160-162) runs ln_ before gn_/gl_, then gr_ after, sorted case-insensitively alphabetically within each prefix.",
+          "script_lines": [
+            "array_var aOrd = Player.AuxVarGetAsArr \"*w4d14_ord\"",
+            "int n = ar_Size aOrd",
+            "PrintToConsole \"PROBE|w4d_14_script_runner_order|n=%g\" n"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "w4d_02_jip_lutana_edges",
+      "title": "Wave 4D Batch 2 - JIP LN 57.30 & Lutana Edge Cases",
+      "extender": "JIP LN 57.30",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4d_15_recipe_unlisted_item",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 63,
+          "functions_tested": [
+            "SetRecipeInputCount",
+            "SetRecipeOutputCount",
+            "GetRecipeInputForms",
+            "GetRecipeOutputForms"
+          ],
+          "claim": "SetRecipeInputCount / SetRecipeOutputCount on an unlisted item does not add it and leaves counts unchanged.",
+          "expected": "PR #3683 (nvse_lutana.rs:397) ignores unlisted items without adding them.",
+          "script_lines": [
+            "ref rR = GetFormFromMod \"FalloutNV.esm\" \"175AA9\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "int nIn0 = ar_Size (GetRecipeInputForms rR)",
+            "int nOut0 = ar_Size (GetRecipeOutputForms rR)",
+            "int cIn0 = GetRecipeInputCount rR rStim",
+            "int cOut0 = GetRecipeOutputCount rR rStim",
+            "SetRecipeInputCount rR rStim 5",
+            "SetRecipeOutputCount rR rStim 5",
+            "int nIn1 = ar_Size (GetRecipeInputForms rR)",
+            "int nOut1 = ar_Size (GetRecipeOutputForms rR)",
+            "int cIn1 = GetRecipeInputCount rR rStim",
+            "int cOut1 = GetRecipeOutputCount rR rStim",
+            "PrintToConsole \"PROBE|w4d_15_recipe_unlisted_item|in(n:%g->%g,c:%g->%g)|out(n:%g->%g,c:%g->%g)\" nIn0 nIn1 cIn0 cIn1 nOut0 nOut1 cOut0 cOut1"
+          ]
+        },
+        {
+          "id": "w4d_16_add_new_effect_edges",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-last-14.md",
+          "spec_line": 19,
+          "functions_tested": [
+            "AddNewEffect",
+            "GetNumEffects",
+            "GetNthEffectBase"
+          ],
+          "claim": "AddNewEffect return index and order for append=0 (prepend), append=1 (duplicate MGEF), and non-MGEF.",
+          "expected": "PR #3683 (nvse_jip14.rs:418) returns 0.0 when append=0 (prepend).",
+          "script_lines": [
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rJet = GetFormFromMod \"FalloutNV.esm\" \"15164\"",
+            "ref rCl = TempCloneForm rStim",
+            "int n0 = GetNumEffects rCl",
+            "ref mOrig = GetNthEffectBase rCl 0",
+            "ref mJet = GetNthEffectBase rJet 0",
+            "int retPrep = AddNewEffect rCl mJet 5 10 0 0 0",
+            "int n1 = GetNumEffects rCl",
+            "ref b1_0 = GetNthEffectBase rCl 0",
+            "ref b1_1 = GetNthEffectBase rCl 1",
+            "int retApp = AddNewEffect rCl mJet 5 10 0 0 1",
+            "int n2 = GetNumEffects rCl",
+            "ref b2_last = GetNthEffectBase rCl (n2 - 1)",
+            "int retBad = AddNewEffect rCl rStim 5 10 0 0 1",
+            "int n3 = GetNumEffects rCl",
+            "PrintToConsole \"PROBE|w4d_16_add_new_effect_edges|n0=%g(orig=%i,jet=%i)|prep(ret=%g,n=%g,e0=%i,e1=%i)|appDup(ret=%g,n=%g,last=%i)|nonMgef(ret=%g,n=%g)\" n0 mOrig mJet retPrep n1 b1_0 b1_1 retApp n2 b2_last retBad n3"
+          ]
+        },
+        {
+          "id": "w4d_17_followers_detecting_order",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-followers-detecting.md",
+          "spec_line": 34,
+          "functions_tested": [
+            "GetFollowers",
+            "GetDetectingActors",
+            "SetPlayerTeammate"
+          ],
+          "claim": "Non-empty GetDetectingActors and GetFollowers with SetPlayerTeammate 1 on spawned actors.",
+          "expected": "GetDetectingActors returns detecting actors; GetFollowers requires an active Follow AI package (not merely SetPlayerTeammate).",
+          "script_lines": [
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rA1 = Player.PlaceAtMe rDocBase 1",
+            "ref rA2 = Player.PlaceAtMe rDocBase 1",
+            "rA1.SetPlayerTeammate 1",
+            "rA2.SetPlayerTeammate 1",
+            "Player.AuxVarSetRef \"*w4d17_a1\" rA1",
+            "Player.AuxVarSetRef \"*w4d17_a2\" rA2"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+                "ref rA1 = Player.AuxVarGetRef \"*w4d17_a1\"",
+                "ref rA2 = Player.AuxVarGetRef \"*w4d17_a2\"",
+                "array_var aDet = Player.GetDetectingActors",
+                "array_var aFol = GetFollowers",
+                "int nDet = ar_Size aDet",
+                "int nFol = ar_Size aFol",
+                "rA1.SetPlayerTeammate 0",
+                "rA2.SetPlayerTeammate 0",
+                "rA1.Disable",
+                "rA1.MarkForDelete",
+                "rA2.Disable",
+                "rA2.MarkForDelete",
+                "PrintToConsole \"PROBE|w4d_17_followers_detecting_order|doc=%i,a1=%i,a2=%i|nDet=%g,nFol=%g\" rDoc rA1 rA2 nDet nFol"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_18_immortal_mode_oob",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-ui-9.md",
+          "spec_line": 52,
+          "functions_tested": [
+            "ToggleImmortalMode",
+            "DamageActorValue"
+          ],
+          "claim": "ToggleImmortalMode with -1, 3, 99, omitted; whether mode 3 holds HP.",
+          "expected": "PR #3683 (nvse_jip9.rs:398) stores raw signed i64 (`m as i64`) so -1 reads back as -1 instead of 255.",
+          "script_lines": [
+            "int m0 = ToggleImmortalMode",
+            "int pNeg = ToggleImmortalMode -1",
+            "int gNeg = ToggleImmortalMode",
+            "int p3 = ToggleImmortalMode 3",
+            "int g3 = ToggleImmortalMode",
+            "float hp0 = Player.GetActorValue Health",
+            "Player.DamageActorValue Health 10",
+            "float hpAfter3 = Player.GetActorValue Health",
+            "Player.RestoreActorValue Health 10",
+            "int p99 = ToggleImmortalMode 99",
+            "int g99 = ToggleImmortalMode",
+            "int pRest = ToggleImmortalMode 0",
+            "int gRest = ToggleImmortalMode",
+            "PrintToConsole \"PROBE|w4d_18_immortal_mode_oob|m0=%g|neg(prev=%g,cur=%g)|m3(prev=%g,cur=%g,hp=%.1f->%.1f)|m99(prev=%g,cur=%g)|rest(prev=%g,cur=%g)\" m0 pNeg gNeg p3 g3 hp0 hpAfter3 p99 g99 pRest gRest"
+          ]
+        },
+        {
+          "id": "w4d_19_menu_item_filter_persist",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 85,
+          "functions_tested": [
+            "GetMenuItemFilter",
+            "TogglePipBoy"
+          ],
+          "claim": "GetMenuItemFilter 1002 (InventoryMenu) default and persistence across open/close/reopen.",
+          "expected": "InventoryMenu filter defaults to 1 and is retained after menu close.",
+          "script_lines": [
+            "int f0 = GetMenuItemFilter 1002",
+            "Player.AuxVarSetFlt \"*w4d19_f0\" f0",
+            "Player.AuxVarSetFlt \"*np_keepmenu\" 1",
+            "TogglePipBoy 1002"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "close",
+              "wait_ticks": 1,
+              "script_lines": [
+                "int mm1 = GetActiveMenuMode",
+                "int fOpen1 = GetMenuItemFilter 1002",
+                "TogglePipBoy 1002",
+                "Player.AuxVarSetFlt \"*np_keepmenu\" 0",
+                "int f0 = Player.AuxVarGetFlt \"*w4d19_f0\"",
+                "PrintToConsole \"PROBE|w4d_19_menu_item_filter_persist|f0=%g|open1(mm=%g,f=%g)\" f0 mm1 fOpen1"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_20_barter_price_mult_live",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 79,
+          "functions_tested": [
+            "GetBarterPriceMult",
+            "SetBarterPriceMult",
+            "ShowBarterMenu",
+            "GetMenuItemFilter"
+          ],
+          "claim": "GetBarterPriceMult / SetBarterPriceMult inside live BarterMenu (1053), after close, and reset on fresh trade reopen.",
+          "expected": "PR #3683 hypothesizes SetBarterPriceMult applies to the open trade only and a new trade starts from the rules.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "Player.AuxVarSetFlt \"*np_keepmenu\" 1",
+            "rDoc.ShowBarterMenu"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": [
+            {
+              "suffix": "live",
+              "wait_ticks": 1,
+              "script_lines": [
+                "int mm1 = GetActiveMenuMode",
+                "float b0 = GetBarterPriceMult 0",
+                "float s0 = GetBarterPriceMult 1",
+                "int fB0 = GetMenuItemFilter 1053",
+                "SetBarterPriceMult 0 1.25",
+                "SetBarterPriceMult 1 0.75",
+                "float b1 = GetBarterPriceMult 0",
+                "float s1 = GetBarterPriceMult 1",
+                "Player.AuxVarSetFlt \"*w4d20_mm1\" mm1",
+                "Player.AuxVarSetFlt \"*w4d20_b0\" b0",
+                "Player.AuxVarSetFlt \"*w4d20_s0\" s0",
+                "Player.AuxVarSetFlt \"*w4d20_b1\" b1",
+                "Player.AuxVarSetFlt \"*w4d20_s1\" s1",
+                "Player.AuxVarSetFlt \"*w4d20_fb0\" fB0",
+                "CloseActiveMenu"
+              ]
+            },
+            {
+              "suffix": "closed",
+              "wait_ticks": 1,
+              "script_lines": [
+                "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+                "float bOut = GetBarterPriceMult 0",
+                "float sOut = GetBarterPriceMult 1",
+                "int fBOut = GetMenuItemFilter 1053",
+                "Player.AuxVarSetFlt \"*w4d20_bo\" bOut",
+                "Player.AuxVarSetFlt \"*w4d20_so\" sOut",
+                "Player.AuxVarSetFlt \"*w4d20_fbo\" fBOut",
+                "rDoc.ShowBarterMenu"
+              ]
+            },
+            {
+              "suffix": "reopen",
+              "wait_ticks": 1,
+              "script_lines": [
+                "int mm2 = GetActiveMenuMode",
+                "float bRe = GetBarterPriceMult 0",
+                "float sRe = GetBarterPriceMult 1",
+                "CloseActiveMenu",
+                "Player.AuxVarSetFlt \"*np_keepmenu\" 0",
+                "int mm1 = Player.AuxVarGetFlt \"*w4d20_mm1\"",
+                "float b0 = Player.AuxVarGetFlt \"*w4d20_b0\"",
+                "float s0 = Player.AuxVarGetFlt \"*w4d20_s0\"",
+                "float b1 = Player.AuxVarGetFlt \"*w4d20_b1\"",
+                "float s1 = Player.AuxVarGetFlt \"*w4d20_s1\"",
+                "float bo = Player.AuxVarGetFlt \"*w4d20_bo\"",
+                "float so = Player.AuxVarGetFlt \"*w4d20_so\"",
+                "int fb0 = Player.AuxVarGetFlt \"*w4d20_fb0\"",
+                "int fbo = Player.AuxVarGetFlt \"*w4d20_fbo\"",
+                "PrintToConsole \"PROBE|w4d_20_barter_price_mult_live|open1(mm=%g,b=%.3f->%.3f,s=%.3f->%.3f,fB=%g)|closed(b=%.3f,s=%.3f,fB=%g)|reopen(mm=%g,b=%.3f,s=%.3f)\" mm1 b0 b1 s0 s1 fb0 bo so fbo mm2 bRe sRe"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_21_cell_water_height_ext",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 89,
+          "functions_tested": [
+            "GetCellWaterHeight"
+          ],
+          "claim": "GetCellWaterHeight on interior cell, loaded Goodsprings exterior (no XCLW), and unloaded Camp Golf exterior water cell (0xDDEDC).",
+          "expected": "PR #3683 hypothesizes a cell without XCLW falls back to worldspace DNAM default water height (and reads unloaded exterior XCLW).",
+          "script_lines": [
+            "ref rIn = GetFormFromMod \"FalloutNV.esm\" \"103DF9\"",
+            "ref rGolf = GetFormFromMod \"FalloutNV.esm\" \"DDEDC\"",
+            "float hIn = GetCellWaterHeight rIn",
+            "float hGolfUnl = GetCellWaterHeight rGolf",
+            "Player.AuxVarSetFlt \"*w4d21_hin\" hIn",
+            "Player.AuxVarSetFlt \"*w4d21_hg0\" hGolfUnl",
+            "ref rGsMk = GetFormFromMod \"FalloutNV.esm\" \"CDF51\"",
+            "Player.MoveTo rGsMk"
+          ],
+          "wait_ticks_after": 5,
+          "extra_steps": [
+            {
+              "suffix": "ext",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rGsCell = Player.GetParentCell",
+                "float hGs = GetCellWaterHeight rGsCell",
+                "float hCur = GetCellWaterHeight",
+                "float hIn = Player.AuxVarGetFlt \"*w4d21_hin\"",
+                "float hGolf0 = Player.AuxVarGetFlt \"*w4d21_hg0\"",
+                "PrintToConsole \"PROBE|w4d_21_cell_water_height_ext|in=%.6g|gs(%i)=%.6g,cur=%.6g|golfUnl=%.6g\" hIn rGsCell hGs hCur hGolf0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_22_attach_light_replace_vs_append",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-unlisted-commands.md",
+          "spec_line": 65,
+          "functions_tested": [
+            "AttachLight",
+            "RemoveLight",
+            "GetChildBlocks"
+          ],
+          "claim": "Whether a second AttachLight on the same node replaces or appends to the first attached light.",
+          "expected": "PR #3683 (ext-unlisted-commands.md:65) hypothesizes one light per node (second AttachLight replaces first).",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rL1 = GetFormFromMod \"FalloutNV.esm\" \"695BE\"",
+            "ref rL2 = GetFormFromMod \"FalloutNV.esm\" \"31D9\"",
+            "int iC0 = ar_Size (rDoc.GetChildBlocks \"Bip01 Head\")",
+            "int a1 = rDoc.AttachLight \"Bip01 Head\" rL1 0 0 0",
+            "int iC1 = ar_Size (rDoc.GetChildBlocks \"Bip01 Head\")",
+            "int a2 = rDoc.AttachLight \"Bip01 Head\" rL2 0 0 0",
+            "int iC2 = ar_Size (rDoc.GetChildBlocks \"Bip01 Head\")",
+            "int rm1 = rDoc.RemoveLight \"Bip01 Head\"",
+            "int iC3 = ar_Size (rDoc.GetChildBlocks \"Bip01 Head\")",
+            "int rm2 = rDoc.RemoveLight \"Bip01 Head\"",
+            "int iC4 = ar_Size (rDoc.GetChildBlocks \"Bip01 Head\")",
+            "PrintToConsole \"PROBE|w4d_22_attach_light_replace_vs_append|c0=%g|a1=%g,c1=%g|a2=%g,c2=%g|rm1=%g,c3=%g|rm2=%g,c4=%g\" iC0 a1 iC1 a2 iC2 rm1 iC3 rm2 iC4"
+          ]
+        },
+        {
+          "id": "w4d_23_add_script_var_dup",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-scripts-10.md",
+          "spec_line": 42,
+          "functions_tested": [
+            "AddScriptVariable",
+            "HasVariable",
+            "GetVariable",
+            "SetVariable",
+            "RemoveScriptVariable"
+          ],
+          "claim": "AddScriptVariable returns 0 for a variable already declared in the quest's script and 1 for newly added (and re-added) dynamic variables.",
+          "expected": "PR #3683 hypothesizes 0 for a script-declared variable and 1 for added/duplicate dynamic variables.",
+          "script_lines": [
+            "ref rQ = GetFormFromMod \"FalloutNV.esm\" \"104C1C\"",
+            "int hDecl = HasVariable \"bChooseSex\" rQ",
+            "int aDecl = AddScriptVariable \"bChooseSex\" rQ",
+            "int aNew1 = AddScriptVariable \"w4dVar\" rQ",
+            "int aNew2 = AddScriptVariable \"w4dVar\" rQ",
+            "SetVariable \"w4dVar\" 42 rQ",
+            "float v1 = GetVariable \"w4dVar\" rQ",
+            "RemoveScriptVariable \"w4dVar\" rQ",
+            "PrintToConsole \"PROBE|w4d_23_add_script_var_dup|hasDecl=%g,addDecl=%g|new(%g,%g,v=%.1f)\" hDecl aDecl aNew1 aNew2 v1"
+          ]
+        },
+        {
+          "id": "w4d_24_active_imods_order",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 59,
+          "functions_tested": [
+            "ApplyImageSpaceModifier",
+            "GetActiveIMODs",
+            "RemoveImageSpaceModifier"
+          ],
+          "claim": "GetActiveIMODs ordering and duplicate handling after applying A, B, then duplicate A.",
+          "expected": "PR #3683 (nvse_jip12.rs:733-734) deduplicates via BTreeSet (`once each`).",
+          "script_lines": [
+            "ref rA = GetFormFromMod \"FalloutNV.esm\" \"54E13\"",
+            "ref rB = GetFormFromMod \"FalloutNV.esm\" \"1736A8\"",
+            "ApplyImageSpaceModifier rA",
+            "ApplyImageSpaceModifier rB",
+            "ApplyImageSpaceModifier rA",
+            "array_var aSameIm = GetActiveIMODs",
+            "int nSameIm = ar_Size aSameIm",
+            "ref e0 = 0",
+            "ref e1 = 0",
+            "ref e2 = 0",
+            "if nSameIm > 0",
+            "  let e0 := aSameIm[0]",
+            "endif",
+            "if nSameIm > 1",
+            "  let e1 := aSameIm[1]",
+            "endif",
+            "if nSameIm > 2",
+            "  let e2 := aSameIm[2]",
+            "endif",
+            "RemoveImageSpaceModifier rA",
+            "RemoveImageSpaceModifier rB",
+            "PrintToConsole \"PROBE|w4d_24_active_imods_order|n=%g,0=%i,1=%i,2=%i\" nSameIm e0 e1 e2"
+          ]
+        },
+        {
+          "id": "w4d_25_lsct_rgb_nan_and_password_key",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 206,
+          "functions_tested": [
+            "SetLoadScreenTypeTextRGB",
+            "GetLoadScreenTypeTextRGB",
+            "PlayerHasKey",
+            "AddNote"
+          ],
+          "claim": "Non-finite NaN float on SetLoadScreenTypeTextRGB, and PlayerHasKey on locked door key vs placed terminal with password note.",
+          "expected": "PR #3708 ignores NaN in SetLoadScreenTypeTextRGB (nvse_lu3.rs:188) and claims terminals' password notes are NOT treated as keys (nvse_lutana.rs:664).",
+          "script_lines": [
+            "ref rLsct = GetFormFromMod \"FalloutNV.esm\" \"166D58\"",
+            "array_var rgb0 = GetLoadScreenTypeTextRGB rLsct",
+            "float r0 = rgb0[\"r\"]",
+            "float g0 = rgb0[\"g\"]",
+            "float b0 = rgb0[\"b\"]",
+            "float fNan = Sqrt -1.0",
+            "SetLoadScreenTypeTextRGB rLsct fNan 123.5 45.0",
+            "array_var rgb1 = GetLoadScreenTypeTextRGB rLsct",
+            "float r1 = rgb1[\"r\"]",
+            "float g1 = rgb1[\"g\"]",
+            "float b1 = rgb1[\"b\"]",
+            "SetLoadScreenTypeTextRGB rLsct r0 g0 b0",
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"B182B\"",
+            "ref rKey = GetFormFromMod \"FalloutNV.esm\" \"90B7E\"",
+            "int kDr0 = rDoor.PlayerHasKey",
+            "Player.AddItem rKey 1 1",
+            "int kDr1 = rDoor.PlayerHasKey",
+            "Player.RemoveItem rKey 1 1",
+            "ref rTermBase = GetFormFromMod \"FalloutNV.esm\" \"13253C\"",
+            "ref rNote = GetFormFromMod \"FalloutNV.esm\" \"133107\"",
+            "ref rTermRef = Player.PlaceAtMe rTermBase 1",
+            "int kTm0 = rTermRef.PlayerHasKey",
+            "AddNote rNote",
+            "int kTm1 = rTermRef.PlayerHasKey",
+            "rTermRef.Disable",
+            "rTermRef.MarkForDelete",
+            "PrintToConsole \"PROBE|w4d_25_lsct_rgb_nan_and_password_key|lsct(0=%.1f,%.1f,%.1f|nan=%.3f,%.1f,%.1f)|door(%g->%g)|termRef(%g->%g)\" r0 g0 b0 r1 g1 b1 kDr0 kDr1 kTm0 kTm1"
+          ]
+        },
+        {
+          "id": "w4d_26_no_unequip_per_stack",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-get-no-unequip.md",
+          "spec_line": 25,
+          "functions_tested": [
+            "SetNoUnequip",
+            "GetNoUnequip",
+            "GetInvRefsForItem",
+            "AddItemHealthPercent"
+          ],
+          "claim": "Per-stack NoUnequip differentiation when an actor carries 2 separate 10mm Pistol stacks (0.5 and 0.9 health), one equipped.",
+          "expected": "Merged PR #3288 left per-stack differentiation [hypothesis].",
+          "script_lines": [
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "Player.RemoveItem rGun 99 1",
+            "Player.AddItemHealthPercent rGun 1 0.5 1",
+            "Player.AddItemHealthPercent rGun 1 0.9 1",
+            "Player.EquipItem rGun 0 1"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "check",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "array_var aInv = Player.GetInvRefsForItem rGun",
+                "int nInv = ar_Size aInv",
+                "int eq0 = -9",
+                "int eq1 = -9",
+                "int g0a = -9",
+                "int g1a = -9",
+                "int g0b = -9",
+                "int g1b = -9",
+                "if nInv >= 2",
+                "  ref rI0 = aInv[0]",
+                "  ref rI1 = aInv[1]",
+                "  let eq0 := rI0.IsEquipped",
+                "  let eq1 := rI1.IsEquipped",
+                "  let g0a := rI0.GetNoUnequip",
+                "  let g1a := rI1.GetNoUnequip",
+                "  if eq0",
+                "    rI0.SetNoUnequip 1",
+                "  else",
+                "    rI1.SetNoUnequip 1",
+                "  endif",
+                "  let g0b := rI0.GetNoUnequip",
+                "  let g1b := rI1.GetNoUnequip",
+                "  rI0.SetNoUnequip 0",
+                "  rI1.SetNoUnequip 0",
+                "endif",
+                "Player.UnequipItem rGun 0 1",
+                "Player.RemoveItem rGun 99 1",
+                "PrintToConsole \"PROBE|w4d_26_no_unequip_per_stack|nInv=%g|eq(%g,%g)|before(%g,%g)|after(%g,%g)\" nInv eq0 eq1 g0a g1a g0b g1b"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4d_27_expl_inam_placeable",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records.md",
+          "spec_line": 84,
+          "functions_tested": [
+            "SetExplosionTraitForm",
+            "GetExplosionTraitForm"
+          ],
+          "claim": "SetExplosionTraitForm slot 4 (INAM) type validation for STAT/MISC/ALCH/FACT and null clear.",
+          "expected": "Merged PR #3301 (nvse_gaps.rs:1436,1446) allows any form on slot 4 AND allows null/0 to clear the slot.",
+          "script_lines": [
+            "ref rE = GetFormFromMod \"FalloutNV.esm\" \"179DA\"",
+            "ref rStat = GetFormFromMod \"FalloutNV.esm\" \"3B\"",
+            "ref rMisc = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"1B2A4\"",
+            "ref rNull = 0",
+            "ref f0 = GetExplosionTraitForm rE 4",
+            "SetExplosionTraitForm rE 4 rStat",
+            "ref fStat = GetExplosionTraitForm rE 4",
+            "SetExplosionTraitForm rE 4 rMisc",
+            "ref fMisc = GetExplosionTraitForm rE 4",
+            "SetExplosionTraitForm rE 4 rStim",
+            "ref fAlch = GetExplosionTraitForm rE 4",
+            "SetExplosionTraitForm rE 4 rFac",
+            "ref fFac = GetExplosionTraitForm rE 4",
+            "SetExplosionTraitForm rE 4 rNull",
+            "ref fClr = GetExplosionTraitForm rE 4",
+            "SetExplosionTraitForm rE 4 f0",
+            "PrintToConsole \"PROBE|w4d_27_expl_inam_placeable|f0=%i|stat=%i|misc=%i|alch=%i|fac=%i|clr=%i\" f0 fStat fMisc fAlch fFac fClr"
+          ]
+        },
+        {
+          "id": "w4d_28_base_av_alt_and_faction_rank",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-actors-11.md",
+          "spec_line": 43,
+          "functions_tested": [
+            "GetBaseActorValueAlt",
+            "SetBaseFactionRank",
+            "GetBaseFactionRank",
+            "GetFactionRank"
+          ],
+          "claim": "GetBaseActorValueAlt on Player ref, NPC base, and non-actor base; SetBaseFactionRank propagation to existing and newly spawned refs.",
+          "expected": "GetBaseActorValueAlt returns 0 on non-actor base; SetBaseFactionRank propagates to placed and newly spawned refs.",
+          "script_lines": [
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"A46E7\"",
+            "float avP = Player.GetBaseActorValueAlt Strength",
+            "float avBase = GetBaseActorValueAlt Strength rDocBase",
+            "float avNonAct = GetBaseActorValueAlt Strength rStim",
+            "int fr0 = rDoc.GetFactionRank rFac",
+            "int bfr0 = GetBaseFactionRank rFac rDocBase",
+            "SetBaseFactionRank rFac 3 rDocBase",
+            "int bfr1 = GetBaseFactionRank rFac rDocBase",
+            "int frExisting = rDoc.GetFactionRank rFac",
+            "ref rSp = Player.PlaceAtMe rDocBase 1",
+            "int frSpawn = rSp.GetFactionRank rFac",
+            "SetBaseFactionRank rFac bfr0 rDocBase",
+            "rSp.Disable",
+            "rSp.MarkForDelete",
+            "PrintToConsole \"PROBE|w4d_28_base_av_alt_and_faction_rank|av(pl=%.1f,docBase=%.1f,nonAct=%.1f)|fac(b0=%g->%g,exist=%g->%g,spawn=%g)\" avP avBase avNonAct bfr0 bfr1 fr0 frExisting frSpawn"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "w4d_03_jg_sup_anh_showoff_edges",
+      "title": "Wave 4D Batch 3 - JohnnyGuitar 528, SUP 855, AnhNVSE 131 & ShowOff 184 Edges",
+      "extender": "JohnnyGuitar 528 + SUP 855 + AnhNVSE 131 + ShowOff 184",
+      "required_plugins": [
+        "AnhNVSE.dll",
+        "ShowOffNVSE.dll",
+        "jip_nvse.dll",
+        "johnnyguitar.dll",
+        "supNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4d_29_anh_scancode_table_and_zone",
+          "bucket": "A",
+          "extender": "AnhNVSE 131",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "AnhNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-anh.md",
+          "spec_line": 20,
+          "functions_tested": [
+            "ScancodeToChar",
+            "GetZoneLevel",
+            "SetZoneMinLevel"
+          ],
+          "claim": "ScancodeToChar key name table (2..220) & unmapped codes (0, 220, 221, 255, -1); SetZoneMinLevel on unentered zone.",
+          "expected": "PR #3681 (vm/anh.rs:36-45) returns empty string \"\" for unmapped scan codes.",
+          "script_lines": [
+            "string_var c0 = ScancodeToChar 0",
+            "string_var c2 = ScancodeToChar 2",
+            "string_var c14 = ScancodeToChar 14",
+            "string_var c15 = ScancodeToChar 15",
+            "string_var c28 = ScancodeToChar 28",
+            "string_var c57 = ScancodeToChar 57",
+            "string_var c87 = ScancodeToChar 87",
+            "string_var c88 = ScancodeToChar 88",
+            "string_var c200 = ScancodeToChar 200",
+            "string_var c220 = ScancodeToChar 220",
+            "string_var c255 = ScancodeToChar 255",
+            "int l0 = sv_Length c0",
+            "int l220 = sv_Length c220",
+            "int l255 = sv_Length c255",
+            "ref rZone = GetFormFromMod \"FalloutNV.esm\" \"E9081\"",
+            "int zl0 = GetZoneLevel rZone",
+            "SetZoneMinLevel rZone 15",
+            "int zl1 = GetZoneLevel rZone",
+            "SetZoneMinLevel rZone 0",
+            "PrintToConsole \"PROBE|w4d_29_anh_scancode_table_and_zone|unmapLen(0=%g,220=%g,255=%g)|map(2=%z,14=%z,15=%z,28=%z,57=%z,87=%z,88=%z,200=%z)|zone(%g->%g)\" l0 l220 l255 c2 c14 c15 c28 c57 c87 c88 c200 zl0 zl1"
+          ]
+        },
+        {
+          "id": "w4d_30_jg_efsh_47_to_52",
+          "bucket": "A",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg3.md",
+          "spec_line": 13,
+          "functions_tested": [
+            "GetEffectShaderTraitNumeric",
+            "SetEffectShaderTraitNumeric"
+          ],
+          "claim": "EFSH traits 47..60 mapping (color_key_3 at 49, color_key_2/3 alpha at 51/52, and traits 53..60).",
+          "expected": "PR #3685 (nvse_jg3.rs:58-68) returns 0 for all traits > 50.",
+          "script_lines": [
+            "ref rS = GetFormFromMod \"FalloutNV.esm\" \"446D3\"",
+            "float g47 = GetEffectShaderTraitNumeric rS 47",
+            "float g48 = GetEffectShaderTraitNumeric rS 48",
+            "float g49 = GetEffectShaderTraitNumeric rS 49",
+            "float g50 = GetEffectShaderTraitNumeric rS 50",
+            "float g51 = GetEffectShaderTraitNumeric rS 51",
+            "float g52 = GetEffectShaderTraitNumeric rS 52",
+            "int s49 = SetEffectShaderTraitNumeric rS 49 1122334",
+            "float g49a = GetEffectShaderTraitNumeric rS 49",
+            "SetEffectShaderTraitNumeric rS 49 g49",
+            "int s51 = SetEffectShaderTraitNumeric rS 51 0.5",
+            "float g51a = GetEffectShaderTraitNumeric rS 51",
+            "SetEffectShaderTraitNumeric rS 51 g51",
+            "int s52 = SetEffectShaderTraitNumeric rS 52 0.25",
+            "float g52a = GetEffectShaderTraitNumeric rS 52",
+            "SetEffectShaderTraitNumeric rS 52 g52",
+            "PrintToConsole \"PROBE|w4d_30_jg_efsh_47_to_52|get(47=%g,48=%g,49=%g,50=%g,51=%g,52=%g)|set(49:%g->%g,51:%g->%g,52:%g->%g)\" g47 g48 g49 g50 g51 g52 s49 g49a s51 g51a s52 g52a"
+          ]
+        },
+        {
+          "id": "w4d_31_jg_facegen_bounds",
+          "bucket": "A",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 31,
+          "functions_tested": [
+            "FaceGenGetNthProperty"
+          ],
+          "claim": "FaceGenGetNthProperty bounds on Doc Mitchell base for type 0 (n=0,49), type 1 (n=0,29), and OOB indices.",
+          "expected": "PR #3685 (nvse_jg10.rs:372, ext-jg10.md:31) returns 0.0 for out-of-range indices (type 0: 50, type 1: 30, type 2: 50).",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "float a0 = FaceGenGetNthProperty rDoc 0 0",
+            "float a49 = FaceGenGetNthProperty rDoc 0 49",
+            "float b0 = FaceGenGetNthProperty rDoc 1 0",
+            "PrintToConsole \"PROBE|w4d_31_jg_facegen_bounds|t0(0=%.4f,49=%.4f)|t1(0=%.4f)\" a0 a49 b0"
+          ]
+        },
+        {
+          "id": "w4d_32_jg_override_index_unknown_dot",
+          "bucket": "A",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/form-override-queries.md",
+          "spec_line": 29,
+          "functions_tested": [
+            "GetFormOverrideIndex",
+            "IsFormOverridden"
+          ],
+          "claim": "GetFormOverrideIndex on base/ref, dot-receiver `rDoc.GetFormOverrideIndex`, dynamic 0xFF ref, and invalid BuildRef.",
+          "expected": "PR #3685 (nvse_plugins.rs:282-293) returns 255 for 0xFF refs and 0 for unknown/null, and accepts subject fallback.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "int iBase = GetFormOverrideIndex rDocBase",
+            "int iDocRef = GetFormOverrideIndex rDoc",
+            "ref fDot = CompileScript \"nvseprobe_h_b32_dot.gek\"",
+            "ref rDyn = Player.PlaceAtMe rDocBase 1",
+            "int iDyn = GetFormOverrideIndex rDyn",
+            "int oDyn = IsFormOverridden rDyn",
+            "rDyn.Disable",
+            "rDyn.MarkForDelete",
+            "ref rBad = BuildRef 0 16777214",
+            "int iBad = GetFormOverrideIndex rBad",
+            "int oBad = IsFormOverridden rBad",
+            "PrintToConsole \"PROBE|w4d_32_jg_override_index_unknown_dot|base=%g,docRef=%g|dotCmp=%g|dyn(idx=%g,ov=%g)|bad(%i:idx=%g,ov=%g)\" iBase iDocRef (fDot != 0) iDyn oDyn rBad iBad oBad"
+          ],
+          "helper_scripts": {
+            "nvseprobe_h_b32_dot.gek": [
+              "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+              "int iRes = rDoc.GetFormOverrideIndex",
+              "SetFunctionValue iRes"
+            ]
+          }
+        },
+        {
+          "id": "w4d_33_jg_callperref_unloaded_barter",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg6.md",
+          "spec_line": 43,
+          "functions_tested": [
+            "CallPerRef",
+            "HideItemBarterEx",
+            "IsItemBarterHiddenEx",
+            "AddRegionWeather",
+            "GetRegionWeathers",
+            "SetRaceFlag",
+            "GetRaceFlag"
+          ],
+          "claim": "CallPerRef on unloaded cell (0 calls), HideItemBarterEx side 0/1/2 + vendor, AddRegionWeather duplicate, SetRaceFlag bit 30.",
+          "expected": "All 4 behaviors match PR #3685.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w4d33_cnt\" 0",
+            "ref rUnlCell = GetFormFromMod \"FalloutNV.esm\" \"103D79\"",
+            "ref rFn = CompileScript \"nvseprobe_h_b33_cpr.gek\"",
+            "CallPerRef rFn 0 0 0 rUnlCell",
+            "int cUnl = Player.AuxVarGetFlt \"*w4d33_cnt\"",
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "HideItemBarterEx rCap 1 0 rDoc",
+            "int h0 = IsItemBarterHiddenEx rCap rDoc",
+            "HideItemBarterEx rCap 1 1 rDoc",
+            "int h1 = IsItemBarterHiddenEx rCap rDoc",
+            "HideItemBarterEx rCap 1 2 rDoc",
+            "int h2 = IsItemBarterHiddenEx rCap rDoc",
+            "HideItemBarterEx rCap 0 0 rDoc",
+            "ref rReg = GetFormFromMod \"FalloutNV.esm\" \"123CE3\"",
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"100A4E\"",
+            "int rw0 = ar_Size (GetRegionWeathers rReg)",
+            "int ar1 = AddRegionWeather rReg rW 25",
+            "int rw1 = ar_Size (GetRegionWeathers rReg)",
+            "int ar2 = AddRegionWeather rReg rW 50",
+            "int rw2 = ar_Size (GetRegionWeathers rReg)",
+            "RemoveRegionWeather rReg rW",
+            "ref rRace = GetFormFromMod \"FalloutNV.esm\" \"33184\"",
+            "int rf30_0 = GetRaceFlag rRace 30",
+            "SetRaceFlag rRace 30 1",
+            "int rf30_1 = GetRaceFlag rRace 30",
+            "SetRaceFlag rRace 30 0",
+            "PrintToConsole \"PROBE|w4d_33_jg_callperref_unloaded_barter|cprUnl=%g|barter(%g,%g,%g)|regDup(n:%g->%g->%g,a1=%g,a2=%g)|raceBit30(%g->%g)\" cUnl h0 h1 h2 rw0 rw1 rw2 ar1 ar2 rf30_0 rf30_1"
+          ],
+          "helper_scripts": {
+            "nvseprobe_h_b33_cpr.gek": [
+              "begin Function {ref rA}",
+              "int c = Player.AuxVarGetFlt \"*w4d33_cnt\"",
+              "Player.AuxVarSetFlt \"*w4d33_cnt\" (c + 1)"
+            ]
+          }
+        },
+        {
+          "id": "w4d_34_jg_ref_encounter_zone",
+          "bucket": "A",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg2.md",
+          "spec_line": 15,
+          "functions_tested": [
+            "GetRefEncounterZone",
+            "SetRefEncounterZone"
+          ],
+          "claim": "GetRefEncounterZone / SetRefEncounterZone round-trip and omitted-arg clear on Doc Mitchell and front door.",
+          "expected": "Returns 00000000 initially, 1 on set/clear, reads back set zone and 00000000 after omitted-arg clear.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rZone = GetFormFromMod \"FalloutNV.esm\" \"E9081\"",
+            "ref z0 = rDoc.GetRefEncounterZone",
+            "int s1 = rDoc.SetRefEncounterZone rZone",
+            "ref z1 = rDoc.GetRefEncounterZone",
+            "int sClr = rDoc.SetRefEncounterZone",
+            "ref z2 = rDoc.GetRefEncounterZone",
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"103E61\"",
+            "ref zd0 = rDoor.GetRefEncounterZone",
+            "PrintToConsole \"PROBE|w4d_34_jg_ref_encounter_zone|doc(z0=%i,s1=%g,z1=%i,sClr=%g,z2=%i)|door0=%i\" z0 s1 z1 sClr z2 zd0"
+          ]
+        },
+        {
+          "id": "w4d_35_jg_camera_overlay_nif_bound",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
+          "spec_line": 28,
+          "functions_tested": [
+            "GetNiBound",
+            "EditorIDToFormID"
+          ],
+          "claim": "GetNiBound on named child node vs missing block (exact center [0,0,0] + r=0), and EditorIDToFormID for JG_CameraOverlayRef_PreIS / PreUI.",
+          "expected": "PR #3738 hypothesizes missing block returns [0.0, 0.0, 0.0, 0.0]; PR #3498 resolves JG camera overlay refs by EditorID.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "array_var aHead = rDoc.GetNiBound \"Bip01 Head\"",
+            "array_var aMiss = rDoc.GetNiBound \"NoSuchNodeXYZ\"",
+            "int nH = ar_Size aHead",
+            "int nM = ar_Size aMiss",
+            "float hX = 0",
+            "float hR = -1",
+            "float mX = -1",
+            "float mY = -1",
+            "float mZ = -1",
+            "float mR = -1",
+            "if nH >= 4",
+            "  let hX := aHead[0]",
+            "  let hR := aHead[3]",
+            "endif",
+            "if nM >= 4",
+            "  let mX := aMiss[0]",
+            "  let mY := aMiss[1]",
+            "  let mZ := aMiss[2]",
+            "  let mR := aMiss[3]",
+            "endif",
+            "ref rPreIS = EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"",
+            "ref rPreUI = EditorIDToFormID \"JG_CameraOverlayRef_PreUI\"",
+            "PrintToConsole \"PROBE|w4d_35_jg_camera_overlay_nif_bound|head(n=%g,x=%.1f,r=%.2f)|miss(n=%g,%.1f,%.1f,%.1f,r=%.2f)|camRef(preIS=%i,preUI=%i)\" nH hX hR nM mX mY mZ mR rPreIS rPreUI"
+          ]
+        },
+        {
+          "id": "w4d_36_sup_random_keymap_and_dialog",
+          "bucket": "A",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup7.md",
+          "spec_line": 25,
+          "functions_tested": [
+            "Ar_GetRandomKeyMap",
+            "DialogResponseRelatedGetAll",
+            "NifBlockInterpolateStop"
+          ],
+          "claim": "Ar_GetRandomKeyMap on stringmap/negative float map/ar_List/empty; DialogResponseRelatedGetAll 0/1/2; NifBlockInterpolateStop 0-arg vs miss with no active interps.",
+          "expected": "PR #3687 (nvse_sup7.rs:339) returns -1 on missing block in NifBlockInterpolateStop even when no interpolations are active.",
+          "script_lines": [
+            "array_var aStr = ar_Construct \"stringmap\"",
+            "let aStr[\"alpha\"] := 1",
+            "string_var kStr = Ar_GetRandomKeyMap aStr",
+            "array_var aNeg = ar_Construct \"map\"",
+            "let aNeg[-3.5] := 99",
+            "string_var kNeg = Ar_GetRandomKeyMap aNeg",
+            "array_var aArr = ar_List 10 20 30",
+            "string_var kArr = Ar_GetRandomKeyMap aArr",
+            "array_var aEmp = ar_Construct \"map\"",
+            "string_var kEmp = Ar_GetRandomKeyMap aEmp",
+            "ref rInfo = GetFormFromMod \"FalloutNV.esm\" \"104E7E\"",
+            "array_var aD0 = DialogResponseRelatedGetAll rInfo 0",
+            "array_var aD1 = DialogResponseRelatedGetAll rInfo 1",
+            "array_var aD2 = DialogResponseRelatedGetAll rInfo 2",
+            "int st0 = Player.NifBlockInterpolateStop",
+            "int stMiss = Player.NifBlockInterpolateStop \"NoSuchBlockXYZ\" 0 0",
+            "PrintToConsole \"PROBE|w4d_36_sup_random_keymap_and_dialog|rnd(str=[%z],neg=[%z],arr=[%z],empLen=%g)|dlg(%g,%g,%g)|nifStop(0arg=%g,miss=%g)\" kStr kNeg kArr (sv_Length kEmp) (ar_Size aD0) (ar_Size aD1) (ar_Size aD2) st0 stMiss"
+          ]
+        },
+        {
+          "id": "w4d_37_sup_json_and_excel_edges",
+          "bucket": "A",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup5.md",
+          "spec_line": 66,
+          "functions_tested": [
+            "JSONGetValue",
+            "ExcelGetWorkSheetCount",
+            "ExcelArrayFromFile"
+          ],
+          "claim": "Exact return structure of SUP JSONGetValue for object, array, string, bool, number, null, and missing key.",
+          "expected": "PR #3687 / main (nvse_sup5.rs:300-321) returns raw StringMap for objects, List for arrays, 1-element [val] for scalars, and ar_Null (0) for missing keys.",
+          "script_lines": [
+            "array_var jO = JSONGetValue \"nvseprobe_w4d_sup.json\" \"o\" 0",
+            "array_var jA = JSONGetValue \"nvseprobe_w4d_sup.json\" \"a\" 0",
+            "array_var jS = JSONGetValue \"nvseprobe_w4d_sup.json\" \"s\" 0",
+            "array_var jB = JSONGetValue \"nvseprobe_w4d_sup.json\" \"b\" 0",
+            "array_var jF = JSONGetValue \"nvseprobe_w4d_sup.json\" \"f\" 0",
+            "array_var jN = JSONGetValue \"nvseprobe_w4d_sup.json\" \"n\" 0",
+            "array_var jZ = JSONGetValue \"nvseprobe_w4d_sup.json\" \"z\" 0",
+            "array_var jM = JSONGetValue \"nvseprobe_w4d_sup.json\" \"missing\" 0",
+            "PrintToConsole \"PROBE|w4d_37_sup_json_and_excel_edges|o=%g(%g),a=%g(%g),s=%g(%g),b=%g(%g),f=%g(%g),n=%g(%g),z=%g(%g),m=%g(%g)\" (ar_Size jO) (jO[0]) (ar_Size jA) (jA[0]) (ar_Size jS) (jS[0]) (ar_Size jB) (jB[0]) (ar_Size jF) (jF[0]) (ar_Size jN) (jN[0]) (ar_Size jZ) (jZ[0]) (ar_Size jM) (jM[0])"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "nvseprobe_w4d_sup.json",
+              "content": "{\"o\":{\"i\":1},\"a\":[10,20,30],\"s\":\"hi\",\"b\":true,\"f\":false,\"n\":42,\"z\":null}\n"
+            }
+          ]
+        },
+        {
+          "id": "w4d_38_showoff_perk_stagger_fade",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 237,
+          "functions_tested": [
+            "ShowPerkMenu",
+            "ForceHitStaggerReaction",
+            "ForceRecoilAnim",
+            "GetActorFadeState",
+            "ReadFromJSON"
+          ],
+          "claim": "ShowPerkMenu 0 vs 2; ForceHitStaggerReaction; ForceRecoilAnim melee vs gun; GetActorFadeState non-actor; ReadFromJSON modes 0/1/2 (JSON/JAXN/TaoConfig).",
+          "expected": "PR #3693 & main (mod_files.rs:946) read standard JSON in all 3 modes (JAXN/TaoConfig extensions unimplemented).",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rBat = GetFormFromMod \"FalloutNV.esm\" \"421C\"",
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"103E61\"",
+            "int sp0 = ShowPerkMenu 0",
+            "CloseActiveMenu",
+            "int sp2 = ShowPerkMenu 2",
+            "CloseActiveMenu",
+            "int fsP = Player.ForceHitStaggerReaction",
+            "int fsD = rDoc.ForceHitStaggerReaction",
+            "int frUn = Player.ForceRecoilAnim",
+            "Player.AddItem rBat 1 1",
+            "Player.EquipItem rBat 0 1",
+            "int frBat = Player.ForceRecoilAnim",
+            "Player.UnequipItem rBat 0 1",
+            "Player.RemoveItem rBat 1 1",
+            "Player.AddItem rGun 1 1",
+            "Player.EquipItem rGun 0 1",
+            "int frGun = Player.ForceRecoilAnim",
+            "Player.UnequipItem rGun 0 1",
+            "Player.RemoveItem rGun 1 1",
+            "int fdP = Player.GetActorFadeState",
+            "int fdD = rDoc.GetActorFadeState",
+            "int fdDr = rDoor.GetActorFadeState",
+            "float jStd0 = ReadFromJSON \"nvseprobe_w4d_so_std.json\" \"/a\" 0",
+            "float jStd1 = ReadFromJSON \"nvseprobe_w4d_so_std.json\" \"/a\" 1",
+            "float jStd2 = ReadFromJSON \"nvseprobe_w4d_so_std.json\" \"/a\" 2",
+            "int tJaxn0 = TestExpr (ReadFromJSON \"nvseprobe_w4d_so_jaxn.json\" \"/a\" 0)",
+            "int tJaxn1 = TestExpr (ReadFromJSON \"nvseprobe_w4d_so_jaxn.json\" \"/a\" 1)",
+            "int tTao0 = TestExpr (ReadFromJSON \"nvseprobe_w4d_so_tao.cfg\" \"/a\" 0)",
+            "int tTao2 = TestExpr (ReadFromJSON \"nvseprobe_w4d_so_tao.cfg\" \"/a\" 2)",
+            "PrintToConsole \"PROBE|w4d_38_showoff_perk_stagger_fade|perk(%g,%g)|stag(%g,%g)|rec(%g,%g,%g)|fade(%g,%g,%g)|json(%.0f,%.0f,%.0f,%g/%g,%g/%g)\" sp0 sp2 fsP fsD frUn frBat frGun fdP fdD fdDr jStd0 jStd1 jStd2 tJaxn0 tJaxn1 tTao0 tTao2"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "nvseprobe_w4d_so_std.json",
+              "content": "{\"a\": 42, \"b\": \"ok\"}\n"
+            },
+            {
+              "rel_path": "nvseprobe_w4d_so_jaxn.json",
+              "content": "// comment\n{\"a\": 42, \"b\": \"jaxn\",}\n"
+            },
+            {
+              "rel_path": "nvseprobe_w4d_so_tao.cfg",
+              "content": "a = 42\nb = \"tao\"\n"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "w4d_04_xnvse_compiler_and_vanilla_cmds",
+      "title": "Wave 4D Batch 4 - xNVSE Compiler & Vanilla Script Command Edge Cases",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4d_39_xnvse_braced_call_and_lambda",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 815,
+          "functions_tested": [
+            "call",
+            "CompileScript"
+          ],
+          "claim": "xNVSE 6.4.9 braced call syntax: space-separated `{a b}`, comma-separated `{a, b}`, joined `fn{}`, empty `fn {}`, 1-arg `{a}`, and surplus inline operands (#2886).",
+          "expected": "PR #3525 / #2996 accept `{a b}`, `{a, b}`, `fn{}`, `fn {}`; PR #2886 left surplus inline operand behavior [hypothesis].",
+          "script_lines": [
+            "ref fSpace = CompileScript \"nvseprobe_h_b39_space.gek\"",
+            "ref fComma = CompileScript \"nvseprobe_h_b39_comma.gek\"",
+            "ref fJoin = CompileScript \"nvseprobe_h_b39_join.gek\"",
+            "ref fEmpty = CompileScript \"nvseprobe_h_b39_empty.gek\"",
+            "ref fOne = CompileScript \"nvseprobe_h_b39_one.gek\"",
+            "ref fSurp = CompileScript \"nvseprobe_h_b39_surp.gek\"",
+            "int rSp = -9",
+            "int rCm = -9",
+            "int rJn = -9",
+            "int rEm = -9",
+            "int rOn = -9",
+            "int rSu = -9",
+            "if fSpace",
+            "  let rSp := Call fSpace",
+            "endif",
+            "if fComma",
+            "  let rCm := Call fComma",
+            "endif",
+            "if fJoin",
+            "  let rJn := Call fJoin",
+            "endif",
+            "if fEmpty",
+            "  let rEm := Call fEmpty",
+            "endif",
+            "if fOne",
+            "  let rOn := Call fOne",
+            "endif",
+            "if fSurp",
+            "  let rSu := Call fSurp",
+            "endif",
+            "PrintToConsole \"PROBE|w4d_39_xnvse_braced_call_and_lambda|space(%g:%g)|comma(%g:%g)|join(%g:%g)|empty(%g:%g)|one(%g:%g)|surplus(%g:%g)\" (fSpace != 0) rSp (fComma != 0) rCm (fJoin != 0) rJn (fEmpty != 0) rEm (fOne != 0) rOn (fSurp != 0) rSu"
+          ],
+          "helper_scripts": {
+            "nvseprobe_h_b39_add.gek": [
+              "begin Function {int iA, int iB}",
+              "SetFunctionValue (iA * 10 + iB)"
+            ],
+            "nvseprobe_h_b39_onefn.gek": [
+              "begin Function {int iA}",
+              "SetFunctionValue (iA + 100)"
+            ],
+            "nvseprobe_h_b39_zero.gek": [
+              "begin Function {}",
+              "SetFunctionValue 77"
+            ],
+            "nvseprobe_h_b39_space.gek": [
+              "ref fn = CompileScript \"nvseprobe_h_b39_add.gek\"",
+              "int iA = 3",
+              "int iB = 4",
+              "int iRes = call fn {iA iB}",
+              "SetFunctionValue iRes"
+            ],
+            "nvseprobe_h_b39_comma.gek": [
+              "ref fn = CompileScript \"nvseprobe_h_b39_add.gek\"",
+              "int iA = 3",
+              "int iB = 4",
+              "int iRes = call fn {iA, iB}",
+              "SetFunctionValue iRes"
+            ],
+            "nvseprobe_h_b39_join.gek": [
+              "ref fn = CompileScript \"nvseprobe_h_b39_zero.gek\"",
+              "int iRes = call fn{}",
+              "SetFunctionValue iRes"
+            ],
+            "nvseprobe_h_b39_empty.gek": [
+              "ref fn = CompileScript \"nvseprobe_h_b39_zero.gek\"",
+              "int iRes = call fn {}",
+              "SetFunctionValue iRes"
+            ],
+            "nvseprobe_h_b39_one.gek": [
+              "ref fn = CompileScript \"nvseprobe_h_b39_onefn.gek\"",
+              "int iA = 5",
+              "int iRes = call fn {iA}",
+              "SetFunctionValue iRes"
+            ],
+            "nvseprobe_h_b39_surp.gek": [
+              "int iRes = GetPCIsRace 19 999",
+              "SetFunctionValue iRes"
+            ]
+          }
+        },
+        {
+          "id": "w4d_40_call_after_seconds_runwhen",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-udf.md",
+          "spec_line": 170,
+          "functions_tested": [
+            "CallAfterSeconds"
+          ],
+          "claim": "CallAfterSeconds with runWhen=0, 1, 2, 3, 99 in GameMode and MenuMode (1084).",
+          "expected": "PR #3241 hypothesizes runWhen > 2 behaves identically to runWhen == 2 (fires in both GameMode and MenuMode).",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*np_keepmenu\" 1",
+            "ShowTraitMenu"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": [
+            {
+              "suffix": "sched",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref fn = CompileScript \"nvseprobe_h_b40b_cb.gek\"",
+                "CallAfterSeconds 0.05 fn 0 0",
+                "CallAfterSeconds 0.05 fn 1 1",
+                "CallAfterSeconds 0.05 fn 2 2",
+                "CallAfterSeconds 0.05 fn 3 3",
+                "CallAfterSeconds 0.05 fn 99 99"
+              ]
+            },
+            {
+              "suffix": "close",
+              "wait_ticks": 2,
+              "script_lines": [
+                "CloseActiveMenu",
+                "Player.AuxVarSetFlt \"*np_keepmenu\" 0"
+              ]
+            }
+          ],
+          "helper_scripts": {
+            "nvseprobe_h_b40b_cb.gek": [
+              "begin Function {int iTag}",
+              "int mm = GetActiveMenuMode",
+              "PrintToConsole \"PROBE|w4d_40_call_after_seconds_runwhen|tag=%g,mm=%g\" iTag mm"
+            ]
+          }
+        },
+        {
+          "id": "w4d_41_vanilla_player_and_lists",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-list-additions.md",
+          "spec_line": 14,
+          "functions_tested": [
+            "RewardXP",
+            "ModPCAttribute",
+            "AddItemToLeveledList",
+            "GetCurrentAIPackage",
+            "RemoveMerchantContainer"
+          ],
+          "claim": "RewardXP XP delta, ModPCAttribute delta, AddItemToLeveledList level 0/1/65535/70000 acceptance, GetCurrentAIPackage, RemoveMerchantContainer.",
+          "expected": "PR #2819 (actor-list-additions.md:14) accepts levels 1..=65535 and ignores level 0 and >65535.",
+          "script_lines": [
+            "int xp0 = Player.GetActorValue XP",
+            "RewardXP 25",
+            "int xp1 = Player.GetActorValue XP",
+            "int str0 = Player.GetBaseActorValue Strength",
+            "ModPCAttribute Strength 2",
+            "int str1 = Player.GetBaseActorValue Strength",
+            "ModPCAttribute Strength -2",
+            "ref rLvli = GetFormFromMod \"FalloutNV.esm\" \"AA1\"",
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "int lv0 = GetNumLevItems rLvli",
+            "AddItemToLeveledList rLvli rCap 0 1 1.0",
+            "int lvA0 = GetNumLevItems rLvli",
+            "AddItemToLeveledList rLvli rCap 1 1 1.0",
+            "int lvA1 = GetNumLevItems rLvli",
+            "AddItemToLeveledList rLvli rCap 65535 1 1.0",
+            "int lvA65k = GetNumLevItems rLvli",
+            "AddItemToLeveledList rLvli rCap 70000 1 1.0",
+            "int lvA70k = GetNumLevItems rLvli",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "int pkgDoc = rDoc.GetCurrentAIPackage",
+            "int pkgPl = Player.GetCurrentAIPackage",
+            "rDoc.RemoveMerchantContainer",
+            "PrintToConsole \"PROBE|w4d_41_vanilla_player_and_lists|xp(%g->%g)|modAttr(%g->%g)|lvli(n0=%g,l0=%g,l1=%g,l65k=%g,l70k=%g)|pkg(doc=%g,pl=%g)|rmMerch=ok\" xp0 xp1 str0 str1 lv0 lvA0 lvA1 lvA65k lvA70k pkgDoc pkgPl"
+          ]
+        },
+        {
+          "id": "w4d_42_vanilla_faction_class_kill_drop",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/factions.md",
+          "spec_line": 229,
+          "functions_tested": [
+            "SetFactionReaction",
+            "GetFactionReaction",
+            "SetPCExpelled",
+            "GetPCExpelled",
+            "SetClass",
+            "GetDroppedRefs"
+          ],
+          "claim": "SetFactionReaction->GetFactionReaction, SetPCExpelled->GetPCExpelled, SetClass on non-actor door, GetDroppedRefs empty return.",
+          "expected": "SetFactionReaction/SetPCExpelled round-trip; SetClass on door is safe no-op; GetDroppedRefs empty representation unprobed (#2879).",
+          "script_lines": [
+            "ref rF1 = GetFormFromMod \"FalloutNV.esm\" \"1B2A4\"",
+            "ref rF2 = GetFormFromMod \"FalloutNV.esm\" \"104C6E\"",
+            "int rx0 = GetFactionReaction rF1 rF2",
+            "SetFactionReaction rF1 rF2 10",
+            "int rx1 = GetFactionReaction rF1 rF2",
+            "SetFactionReaction rF1 rF2 rx0",
+            "int exp0 = GetPCExpelled rF2",
+            "SetPCExpelled rF2 1",
+            "int exp1 = GetPCExpelled rF2",
+            "SetPCExpelled rF2 0",
+            "int exp2 = GetPCExpelled rF2",
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"103E61\"",
+            "ref rCls = GetFormFromMod \"FalloutNV.esm\" \"17657B\"",
+            "rDoor.SetClass rCls",
+            "array_var aDrop = GetDroppedRefs",
+            "int nDrop = ar_Size aDrop",
+            "PrintToConsole \"PROBE|w4d_42_vanilla_faction_class_kill_drop|rx(%g->%g)|exp(%g->%g->%g)|setClsDoor=ok|dropSz=%g\" rx0 rx1 exp0 exp1 exp2 nDrop"
+          ]
+        },
+        {
+          "id": "w4d_43_nif_selector_and_ui_entities",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/menu-xml.md",
+          "spec_line": 146,
+          "functions_tested": [
+            "GetChildBlocks",
+            "ModelHasBlock",
+            "SetUIString",
+            "GetUIFloat",
+            "GetUIString",
+            "TempCloneForm",
+            "SetModelPath",
+            "GetModelPath"
+          ],
+          "claim": "Player NIF omitted pcModel selector (#2419/#2827), SetUIString &false/&true/&center GetUIFloat readback (#3244/#3384), and TempCloneForm IDLE MODL clone-of-clone isolation (#3202).",
+          "expected": "Main defaults omitted pcModel to 3rd-person (nif-player-model-selection.md:26) and parses SetUIString \"&true\" as 1.0 in fnv-ui/src/value.rs:141.",
+          "script_lines": [
+            "int cbDef = ar_Size (Player.GetChildBlocks \"Bip01 Head\")",
+            "int cb3p = ar_Size (Player.GetChildBlocks \"Bip01 Head\" 1)",
+            "int cb1p = ar_Size (Player.GetChildBlocks \"Bip01 Head\" 2)",
+            "float vRet = GetUIFloat \"HUDMainMenu/ReticleCenter/visible\"",
+            "SetUIString \"HUDMainMenu/ReticleCenter/visible\" \"&false\"",
+            "float vF = GetUIFloat \"HUDMainMenu/ReticleCenter/visible\"",
+            "string_var sF = GetUIString \"HUDMainMenu/ReticleCenter/visible\"",
+            "SetUIString \"HUDMainMenu/ReticleCenter/visible\" \"&true\"",
+            "float vT = GetUIFloat \"HUDMainMenu/ReticleCenter/visible\"",
+            "SetUIString \"HUDMainMenu/ReticleCenter/visible\" \"&center\"",
+            "float vC = GetUIFloat \"HUDMainMenu/ReticleCenter/visible\"",
+            "SetUIFloat \"HUDMainMenu/ReticleCenter/visible\" vRet",
+            "ref rIdle = GetFormFromMod \"FalloutNV.esm\" \"2FD2\"",
+            "ref rCl1 = TempCloneForm rIdle",
+            "ref rCl2 = TempCloneForm rCl1",
+            "string_var p0 = GetModelPath rIdle",
+            "SetModelPath \"Characters\\_Male\\IdleAnims\\WriteOnBlackBoardB.kf\" rCl1",
+            "string_var p1 = GetModelPath rCl1",
+            "string_var p2 = GetModelPath rCl2",
+            "string_var pOrig = GetModelPath rIdle",
+            "int cl1Eq = 0",
+            "if eval p1 == \"Characters\\_Male\\IdleAnims\\WriteOnBlackBoardB.kf\"",
+            "  let cl1Eq := 1",
+            "endif",
+            "int cl2Eq = 0",
+            "if eval p2 == p1",
+            "  let cl2Eq := 1",
+            "endif",
+            "int origEq = 0",
+            "if eval pOrig == p0",
+            "  let origEq := 1",
+            "endif",
+            "PrintToConsole \"PROBE|w4d_43_nif_selector_and_ui_entities|cb(%g,%g,%g)|ui(ret=%.0f,f=%.0f[%z],t=%.0f,c=%.0f)|idle(%g,%g,%g)\" cbDef cb3p cb1p vRet vF sF vT vC cl1Eq cl2Eq origEq"
+          ]
+        }
+      ]
+    }
+  ]
+}

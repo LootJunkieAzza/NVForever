@@ -44,6 +44,7 @@ pub mod repair_menu;
 pub mod repair_services_menu;
 pub mod runtime_images;
 pub mod local_map_service;
+pub mod projected_ui;
 pub mod modern_minimap;
 mod item_menu;
 pub mod dialog_menu;
@@ -1053,6 +1054,7 @@ impl Plugin for TilesPlugin {
         app.init_resource::<draw::TileFonts>()
             .init_resource::<runtime_images::RuntimeImages>()
             .init_resource::<local_map_service::LocalMapService>()
+            .init_resource::<projected_ui::ProjectedUiTargets>()
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
@@ -1085,6 +1087,7 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, global_image_metrics::update_globals.after(PlaySet::Scripts).before(update))
             .add_systems(Update, local_map_service::system.after(PlaySet::Scripts).before(update))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
+            .add_systems(Update, projected_ui::reconcile.after(update).before(PlaySet::Ui))
             .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
             // The Pip-Boy's STATS page: written after the tile input and before the scripts;
             // again after its keys and decided before the frame and the tile drawing read it.
@@ -1125,6 +1128,7 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, vats_menu::write_system.after(PlaySet::Scripts).after(crate::vats_mode::VatsUpdate).before(update))
             // After the character menus' sync, so the trait menu's decision reads this frame's.
             .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui).after(crate::pipboy::frame::draw).after(crate::chargen::ChargenSet))
+            .add_systems(Update, projected_ui::draw.in_set(PlaySet::Ui).after(draw::draw))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }

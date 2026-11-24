@@ -759,6 +759,16 @@ impl<'a> Game<'a> {
         Ok(info)
     }
 
+    /// IsGreetingPlayer (condition index 123, `cond::IS_GREETING_PLAYER`): 1 while `actor`
+    /// says a greeting to the player: the GREETING line it opened the player's
+    /// conversation with, a Goodbye greeting said at the player, or a hello as the player
+    /// passes [hypothesis from the name; its one use picks the `GreetIdles` gestures].
+    pub fn is_greeting_player(&self, actor: FormId) -> bool {
+        let greeting = self.data.greeting;
+        let in_menu = self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.as_ref().is_some_and(|l| Some(l.topic) == greeting));
+        in_menu || self.speech.iter().any(|s| s.speaker == actor && s.target == Some(FormId::PLAYER_REF) && (s.greeting || s.hello))
+    }
+
     /// The actor of the running conversation starts saying a line: the begin result
     /// script runs now and the end result script when the last response is over
     /// [documented: Category:Dialogue, Result Script (Begin) / (End)]. With Run

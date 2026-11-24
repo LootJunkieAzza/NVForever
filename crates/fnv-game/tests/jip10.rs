@@ -348,3 +348,15 @@ fn text_files() {
     assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_test.txt\" 2 2)"), "two\nthree", "no break after the last line [observed]");
     assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_no_such_file.txt\")"), "");
 }
+
+#[test]
+fn compound_bitwise_or_shift_with_cached_ini_runs_end_to_end() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // End-to-end compound bitwise-OR assignment with nested GetINIFloat_Cached/Clamp/Floor/shift.
+    assert_eq!(
+        q(&mut g, "int iINITemp\niINITemp = 1\niINITemp |= (Floor (Clamp (GetINIFloat_Cached \"Main:bVisible\" \"Widget.ini\" 1) 0 1)) << 1\nSetFunctionValue iINITemp"),
+        XVal::Num(3.0),
+    );
+}

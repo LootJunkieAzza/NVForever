@@ -213,3 +213,85 @@ fn nif_translation_world_flag_composes_reference_and_parent_instead_of_returning
     let axis=fnv_game::nvse::call(&mut g,&Default::default(),"getnifblocktranslation",Some(P),&[XVal::Str("OwnedHand".into()),XVal::Str("Z".into()),XVal::Num(1.0)]).unwrap().unwrap();
     assert_eq!(axis,XVal::Num(336.0));
 }
+
+#[test]
+fn camera_overlay_refs_resolve_and_accept_nif_edits() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Built-in JohnnyGuitar camera overlay EditorIDs resolve to distinct valid REFRs and round-trip.
+    let pre_is = q(&mut g, "SetFunctionValue (EditorIDToFormID \"JG_CameraOverlayRef_PreIS\")");
+    let pre_ui = q(&mut g, "SetFunctionValue (EditorIDToFormID \"jg_cameraoverlayref_preui\")");
+    assert_eq!(pre_is, XVal::Ref(fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS.0));
+    assert_eq!(pre_ui, XVal::Ref(fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_UI.0));
+    assert_ne!(pre_is, pre_ui);
+
+    assert_eq!(
+        q(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (GetEditorID rCam)"),
+        XVal::Str("JG_CameraOverlayRef_PreIS".into()),
+    );
+    assert_eq!(
+        q(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreUI\"\nSetFunctionValue (GetEditorID rCam)"),
+        XVal::Str("JG_CameraOverlayRef_PreUI".into()),
+    );
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (IsFormValid rCam) * 10 + (IsReference rCam)"),
+        11.0,
+    );
+
+    // Synthetic camera-overlay attachment and SetNifBlockTranslation (alias SetNifTrans)
+    // run cleanly without raising NoReference and queue the expected first-person translation edit.
+    g.scene.take_edits();
+    q(
+        &mut g,
+        "ref rCamera\n\
+         let rCamera := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\n\
+         AttachModel rCamera 3 \"Scene Root|synthetic\\overlay.nif\"\n\
+         rCamera.SetNifTrans \"OverlayNode\" 0 7.5 0 2\n\
+         rCamera.SetParticleEmitterSpawnRate \"OverlayEmitter\" 0",
+    );
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+        "unexpected script errors: {:?}",
+        g.events,
+    );
+    let edits = g.scene.take_edits();
+    assert!(
+        edits.iter().any(|e| matches!(
+            e,
+            SceneEdit::Translation { r, node, v }
+                if *r == fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS && node == "OverlayNode" && *v == [0.0, 7.5, 0.0]
+        )),
+        "expected Translation edit on PreIS overlay ref, got {edits:?}",
+    );
+
+    // Reserved range sits strictly in [CAMERA_OVERLAY_BASE, LAMBDA_BASE), disjoint from temp_item.
+    for id in [fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS, fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_UI] {
+        assert!((fnv_game::game::CAMERA_OVERLAY_BASE..fnv_game::game::LAMBDA_BASE).contains(&id.0));
+        assert!(g.temp_item(id).is_none());
+    }
+
+    // A loaded plugin record occupying the same FormID wins over the synthetic fallback in
+    // form_sig (IsReference / GetType) and GetEditorID.
+    let mut f_loaded = fixture();
+    let slot = fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS;
+    f_loaded.data.sigs.insert(slot, *b"MISC");
+    f_loaded.data.edids.insert("loadedatoverlayslot".into(), slot);
+    f_loaded.data.edid_of.insert(slot, "LoadedAtOverlaySlot".into());
+    let mut g_loaded = game(&f_loaded);
+    assert_eq!(
+        n(
+            &mut g_loaded,
+            "ref rSlot\nlet rSlot := EditorIDToFormID \"LoadedAtOverlaySlot\"\nSetFunctionValue (IsFormValid rSlot) * 10 + (IsReference rSlot)",
+        ),
+        10.0,
+        "loaded MISC record must win in form_sig (valid, not REFR)",
+    );
+    assert_eq!(
+        q(
+            &mut g_loaded,
+            "ref rSlot\nlet rSlot := EditorIDToFormID \"LoadedAtOverlaySlot\"\nSetFunctionValue (GetEditorID rSlot)",
+        ),
+        XVal::Str("LoadedAtOverlaySlot".into()),
+    );
+}

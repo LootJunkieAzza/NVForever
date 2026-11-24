@@ -312,7 +312,7 @@ fn calculated_item_value_includes_weapon_mods_and_live_barter_multipliers() {
     assert!(on(&mut g, player_rifle, "GetCalculatedItemValue 1") < 326.0);
     assert!(on(&mut g, vendor_rifle, "GetCalculatedItemValue 1") > 375.0);
 
-    // Non-item returns -1; Stewie gate remains at 941.
+    // Non-item returns -1; Stewie gate remains at 945.
     assert_eq!(n(&mut g, "player.GetCalculatedItemValue"), -1.0);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
 }

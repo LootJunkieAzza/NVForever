@@ -114,3 +114,70 @@ fn disabling_hardcore_eligibility_persists_without_changing_mode_or_needs_toggle
     fresh.set_hardcore(true);
     assert_eq!(source(&mut fresh, "IsAlwaysHardcore"), XVal::Num(1.0));
 }
+
+#[test]
+fn setcritdam_alias_matches_setweaponcritdamage_bytes_and_execution() {
+    let f = fixture();
+    let canon = f.data.table.unnumbered.get("setweaponcritdamage").expect("canonical SetWeaponCritDamage");
+    let alias = f.data.table.unnumbered.get("setcritdam").expect("SetCritDam alias");
+    assert_eq!(f.data.table.by_name("setcritdam"), None, "SetCritDam stays unnumbered");
+    assert_eq!(alias.name, canon.name);
+    assert_eq!(alias.params.len(), canon.params.len());
+
+    // Source compilation through the canonical and alias spellings yields identical bytes and refs.
+    let mut g = game(&f);
+    let (c_canon, c_alias, c_lower) = {
+        let env = fnv_game::game::GameEnv { g: &g };
+        (
+            fnv_script::compile::compile_mod_runtime(
+                "Begin Function {}\nSetWeaponCritDamage 55 OwnedCriticalWeapon\nEnd",
+                &f.data.table,
+                &env,
+            ),
+            fnv_script::compile::compile_mod_runtime(
+                "Begin Function {}\nSetCritDam 55 OwnedCriticalWeapon\nEnd",
+                &f.data.table,
+                &env,
+            ),
+            fnv_script::compile::compile_mod_runtime(
+                "Begin Function {}\nsetcritdam 55 OwnedCriticalWeapon\nEnd",
+                &f.data.table,
+                &env,
+            ),
+        )
+    };
+    assert_eq!(c_canon.errors().count(), 0, "{:?}", c_canon.errors().collect::<Vec<_>>());
+    assert_eq!(c_alias.errors().count(), 0, "{:?}", c_alias.errors().collect::<Vec<_>>());
+    assert_eq!(c_lower.errors().count(), 0, "{:?}", c_lower.errors().collect::<Vec<_>>());
+    assert_eq!(c_alias.bytes, c_canon.bytes);
+    assert_eq!(c_alias.refs, c_canon.refs);
+    assert_eq!(c_lower.bytes, c_canon.bytes);
+
+    // Explicit weapon argument updates both script getter and combat critical-damage view.
+    assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(11.0));
+    query(&mut g, "SetCritDam 55 OwnedCriticalWeapon");
+    assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(55.0));
+    assert_eq!(g.weapon_critical_damage_override(WEAPON), Some(55));
+    assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedOtherWeapon"), XVal::Num(7.0));
+    assert_eq!(g.weapon_critical_damage_override(OTHER), None);
+
+    // Calling-reference form (omitted weapon arg) updates the calling weapon's base form.
+    query(&mut g, "OwnedCriticalWeapon.SetCritDam 77");
+    assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(77.0));
+    assert_eq!(g.weapon_critical_damage_override(WEAPON), Some(77));
+
+    // Implicit self_ref calling-reference form works identically to SetWeaponCritDamage.
+    g.run_query("Begin Function {}\nSetCritDam 88\nEnd", RunCtx { self_ref: Some(WEAPON), ..Default::default() }).unwrap();
+    assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(88.0));
+    assert_eq!(g.weapon_critical_damage_override(WEAPON), Some(88));
+
+    // Explicit empty receiver fails cleanly without mutating OwnedCriticalWeapon.
+    let invalid_receiver = "ref empty\nBegin Function {}\nempty.SetCritDam 23 OwnedCriticalWeapon\nEnd";
+    assert!(g.run_query(invalid_receiver, RunCtx { self_ref: Some(WEAPON), ..Default::default() }).is_err());
+    assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(88.0));
+
+    // Session lifetime matches SetWeaponCritDamage: save/load restore resets override.
+    let mut loaded = restored(&f, &g);
+    assert_eq!(source(&mut loaded, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(11.0));
+    assert_eq!(loaded.weapon_critical_damage_override(WEAPON), None);
+}

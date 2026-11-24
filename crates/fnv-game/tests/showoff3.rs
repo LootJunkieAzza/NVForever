@@ -282,10 +282,13 @@ fn small_getters_run() {
     assert!(sorted(&mut g, "TopicInfoGetResponseStrings TestHat").is_empty());
     assert_eq!(n(&mut g, "ModNumericINISetting \"fNoSuchSetting:General\" 1"), 0.0);
     assert_eq!(n(&mut g, "GetChallengeProgress TestHat"), 0.0);
-    // Level 1, the menu closed: the points of level 2, a perk level
-    // (iLevelsPerPerk 2).
+    // Level 1, the menu closed: evaluates `level + 1` (iLevelsPerPerk = 2), including
+    // for explicit nonzero `levelOverride` values (`1/2/3/4` -> `1/0/1/0`).
     assert_eq!(n(&mut g, "GetCalculatedPerkPoints"), 1.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 1"), 1.0);
     assert_eq!(n(&mut g, "GetCalculatedPerkPoints 2"), 0.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 3"), 1.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 4"), 0.0);
     assert!(n(&mut g, "GetCalculatedSkillPoints") >= 10.0);
     assert_eq!(n(&mut g, "player.GetRadiationExtraData"), 0.0);
     assert_eq!(n(&mut g, "player.SetRadiationExtraData 20"), 1.0);
@@ -317,7 +320,7 @@ fn calculated_equipped_weight_honors_weightless_tweaks_and_perks() {
     use fnv_sim::inventory::{WeightRules, WEIGHTLESS_ARMOR, WEIGHTLESS_WEAPONS};
     let f = fixture();
     let mut g = game(&f);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
 
     // Equip gun (6.0), power armor (20.0), and hat (1.0).
     let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();
@@ -367,7 +370,7 @@ fn calculated_equipped_weight_honors_weightless_tweaks_and_perks() {
 fn weapon_flag_overrides_sync_getters_playability_and_equipment() {
     let f = fixture();
     let mut g = game(&f);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
     dressed(&mut g);
 
     let gun = FormId(GUN);

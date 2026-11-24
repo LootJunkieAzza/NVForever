@@ -128,13 +128,23 @@ impl Related {
 
 /// `position` as a place in a list of `len`: -1 (any negative) the end, 0 the
 /// beginning [documented: TopicInfoAddChoice]; past the end, nowhere [observed: sup2
-/// choices.add.past, 99 in a list of 13 added nothing; hypothesis: `len` itself is the
-/// end].
+/// choices.add.past, 99 in a list of 13 added nothing]; `len` itself appends for
+/// `TopicInfoAddChoice` (`allow_end = true`) [observed: Fallout: New Vegas 1.4.0.525 +
+/// xNVSE 6.4.9 + SUP NVSE 855, probe sup_04_topic_info_add_choice_at_len: 1], while
+/// `DialogResponseAddRelatedTopic` (`allow_end = false`) does not append at `position ==
+/// len` on a non-empty list [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+/// JohnnyGuitarNVSE 528, probe jg_38_dialog_response_related_add_pos: 10,10; no DLL or
+/// source consulted] (position 0 on an empty list still inserts [observed: sup2
+/// related.add.linkfrom]).
 pub fn insert_at(len: usize, position: f64) -> Option<usize> {
+    insert_at_mode(len, position, true)
+}
+
+pub fn insert_at_mode(len: usize, position: f64, allow_end: bool) -> Option<usize> {
     if position < 0.0 {
         Some(len)
     } else {
-        Some(position as usize).filter(|&at| at <= len)
+        Some(position as usize).filter(|&at| if allow_end { at <= len } else { at == 0 || at < len })
     }
 }
 
@@ -189,9 +199,9 @@ impl<'a> Game<'a> {
     /// became 12 with the topic first]. Link From also offers the line's topic after
     /// `item` ([`GameData::linked_from`]). Nothing goes into Follow Ups [observed: sup2
     /// related.add.followinfo and …followtopic, neither a line nor a topic was added].
-    pub(crate) fn add_related(&mut self, info: FormId, item: FormId, kind: Related, position: f64) -> bool {
+    pub(crate) fn add_related(&mut self, info: FormId, item: FormId, kind: Related, position: f64, allow_end: bool) -> bool {
         let Some(len) = self.dialogue_view().info(&info).map(|d| kind.list(d).len()) else { return false };
-        let Some(at) = insert_at(len, position).filter(|_| kind != Related::FollowUps) else { return true };
+        let Some(at) = insert_at_mode(len, position, allow_end).filter(|_| kind != Related::FollowUps) else { return true };
         let ok = self.edit_info(info, |d| match kind {
             Related::LinkFrom => d.link_from.insert(at, item),
             _ => d.choices.insert(at, item),

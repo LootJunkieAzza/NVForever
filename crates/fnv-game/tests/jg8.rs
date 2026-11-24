@@ -188,7 +188,12 @@ fn arrays_colours_and_menus() {
     g.other.jg8.sleep_menu = true;
     g.open_menu(1012);
     assert_eq!(n(&mut g, "GetSleepWaitMenuState"), 2.0);
-    // Nothing to clear yet; IsRadioRefPlaying reads 0 (the page: it crashes the game).
-    assert_eq!(n(&mut g, "ClearCustomMapMarker"), 0.0);
+    // ClearCustomMapMarker returns 1 even when no custom marker is set [observed: Wave 4
+    // jg_29_custom_map_marker_set_clear_ret, JohnnyGuitarNVSE 528: 1,1,1,1].
+    assert_eq!(n(&mut g, "ClearCustomMapMarker"), 1.0);
+    g.other.jg8.custom_marker = Some((FormId(0x1), [10.0, 20.0, 30.0]));
+    assert_eq!(n(&mut g, "ClearCustomMapMarker"), 1.0);
+    assert_eq!(g.other.jg8.custom_marker, None);
+    assert_eq!(n(&mut g, "ClearCustomMapMarker"), 1.0);
     assert_eq!(n(&mut g, "IsBSALoaded \"Fallout - Meshes.bsa\""), 0.0);
 }

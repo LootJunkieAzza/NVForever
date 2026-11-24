@@ -3351,6 +3351,10 @@ mod edits {
         // Link From (0): the Added topic is offered after the plain line's topic.
         q(&mut g, "DialogResponseAddRelatedTopic LineF01 TopicLinkPlain 0 0");
         assert_eq!(entries(&mut g, "DialogResponseRelatedGetAll LineF01 0"), hex(&[T_LF_PLAIN]));
+        // Passing position == len on a non-empty list does not append, while -1 appends
+        // [observed: Wave 4 jg_38_dialog_response_related_add_pos, JohnnyGuitarNVSE 528].
+        q(&mut g, "DialogResponseAddRelatedTopic LineF01 TopicAsk 0 1");
+        assert_eq!(entries(&mut g, "DialogResponseRelatedGetAll LineF01 0"), hex(&[T_LF_PLAIN]));
         g.start_dialogue(actor(), Some(FormId(T_LF_PLAIN))).unwrap();
         listen(&mut g);
         assert_eq!(offered(&g), vec![T_TOP2, T_TOP, T_ADDED, T_LF_TO, T_SKILL, GOODBYE]);

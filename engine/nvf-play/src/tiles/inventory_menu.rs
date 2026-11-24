@@ -1417,7 +1417,7 @@ mod tests {
     const ROW_H: f64 = 40.0;
 
     fn row(item: u32, text: &str) -> item_menu::RowShown {
-        item_menu::RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: item == 1 }
+        item_menu::RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: item == 1, ysi: None }
     }
 
     fn shown(rows: usize, selected: usize) -> Shown {

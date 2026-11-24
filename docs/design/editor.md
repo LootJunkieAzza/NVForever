@@ -1528,7 +1528,7 @@ aids) that drives the editor by commands:
 
 ### 19.4 Observer checks (the original game, owner's machine)
 
-Added to `docs/handoff/observer-checks.md` only when this design leaves `local/`:
+Added to `docs/handoff/observer-checks/` only when this design leaves `local/`:
 
 - a plugin from each phase loads in the GECK without warnings beyond a hand-made one's;
 - xEdit's Check for Errors finds nothing;

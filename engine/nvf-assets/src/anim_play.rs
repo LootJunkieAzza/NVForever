@@ -776,6 +776,23 @@ pub struct Layer {
     pub weight: f32,
 }
 
+/// One script-requested animation layer on an NPC (`ActivateAnim` / `PlayAnimationPath`,
+/// docs/design/knvse-anim.md): explicit sequence time (seconds from `clip.start`),
+/// effective blend weight (`weight * fade`), priority tier and optional additive
+/// reference pose (`None` reference = rest/bind pose) [design].
+#[derive(Debug, Clone)]
+pub struct ScriptLayer {
+    pub clip: Arc<BoundClip>,
+    /// Seconds from `clip.start` (already multiplied by frequency).
+    pub time: f32,
+    /// Effective blend weight in `0..=1`.
+    pub weight: f32,
+    /// Sequence priority tier (higher wins before comparing per-bone track priorities).
+    pub priority: i32,
+    /// Optional additive pose: `(reference_clip, ref_time)` (`None` reference = bind pose).
+    pub additive: Option<(Option<Arc<BoundClip>>, f32)>,
+}
+
 /// [design: BlendPlayer] Regular clip slots: locomotion 0 and 1, weapon or stance
 /// 2 and 3, idles and attacks 4 and 5, spare 6, a robot's
 /// `Talking` 7 (nvforever's `talk_clips.rs`).
@@ -943,6 +960,9 @@ pub struct BlendPlayer {
     /// a special idle of a standing actor in place of its base idle (`mtidle.kf`). The
     /// caller sets it each frame; 0 leaves the priorities alone.
     pub over_movement: u8,
+    /// Script-requested kNVSE animation layers (`ActivateAnim` / `SetAnimAdditive`),
+    /// empty for all vanilla actors [design].
+    pub script_layers: Vec<ScriptLayer>,
 }
 
 /// How many whole cycles the clip in one [`BlendPlayer`] slot has looped, for the tracks
@@ -1052,6 +1072,7 @@ impl BlendPlayer {
             loops: Default::default(),
             part_nodes: Vec::new(),
             over_movement: 0,
+            script_layers: Vec::new(),
         }
     }
 
@@ -1201,6 +1222,145 @@ impl BlendPlayer {
                 self.touched.push(i);
             }
         }
+        // Script-requested kNVSE layers (ActivateAnim / SetAnimWeight / SetAnimAdditive):
+        // zero overhead when empty (all vanilla actors) [design].
+        if !self.script_layers.is_empty() {
+            let mut by_node: HashMap<usize, usize> = out.iter().enumerate().map(|(idx, (i, _))| (*i, idx)).collect();
+            let mut non_add: HashMap<usize, Vec<(i32, i32, f32, Transform)>> = HashMap::new();
+            for sl in self.script_layers.iter().filter(|l| l.additive.is_none() && l.weight > 0.0 && l.weight.is_finite()) {
+                let bc = &sl.clip;
+                let w = sl.weight.clamp(0.0, 1.0);
+                let time = cycle_time(bc.clip.start + sl.time, bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
+                let len = bc.clip.length();
+                let cycles = if bc.clip.cycle_type == 0 && len > 0.0 && sl.time.is_finite() {
+                    let within = time - bc.clip.start;
+                    ((sl.time - within) / len).round() as i64
+                } else {
+                    0
+                };
+                for (j, (i, track, p)) in bc.tracks.iter().enumerate() {
+                    if Some(*i) == bc.root {
+                        continue;
+                    }
+                    let b = self.rest_of(*i);
+                    let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
+                    let mut turn_out = None;
+                    if let Some((rj, per_cycle, start_z, start_rot)) = bc.root_track {
+                        if rj == j {
+                            turn_out = Some(start_rot);
+                            let phase = if len > 0.0 { (time - bc.clip.start) / len } else { 0.0 };
+                            t -= per_cycle * phase;
+                            t.z -= start_z;
+                        }
+                    }
+                    let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                    let r = turn_out.map_or(r, |q| (q.inverse() * r).normalize());
+                    let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
+                    non_add.entry(*i).or_default().push((sl.priority, *p, w, Transform { translation: t, rotation: r, scale: Vec3::splat(s) }));
+                    sampled += 1;
+                }
+            }
+            for (bone, mut items) in non_add {
+                items.sort_by_key(|b| std::cmp::Reverse((b.0, b.1)));
+                let base = by_node.get(&bone).map_or_else(|| self.rest_of(bone), |&idx| out[idx].1);
+                let mut mix = Mix::EMPTY;
+                let mut left = 1.0f32;
+                let mut k = 0;
+                while k < items.len() && left > 1e-6 {
+                    let key = (items[k].0, items[k].1);
+                    let end = (k..items.len()).find(|&e| (items[e].0, items[e].1) != key).unwrap_or(items.len());
+                    let group: f32 = items[k..end].iter().map(|x| x.2).sum();
+                    if group > 0.0 {
+                        let share = group.min(left);
+                        for x in &items[k..end] {
+                            mix.add(x.3.translation, x.3.rotation, x.3.scale.x, x.2 / group * share);
+                        }
+                        left -= share;
+                    }
+                    k = end;
+                }
+                if left > 1e-6 {
+                    mix.add(base.translation, base.rotation, base.scale.x, left);
+                }
+                let posed = Transform { translation: mix.t, rotation: mix.r.normalize(), scale: Vec3::splat(mix.s) };
+                if posed.translation.is_finite() && posed.rotation.is_finite() && posed.scale.is_finite() {
+                    if let Some(&idx) = by_node.get(&bone) {
+                        out[idx].1 = posed;
+                    } else {
+                        by_node.insert(bone, out.len());
+                        out.push((bone, posed));
+                        if let Some(d) = self.driven.get_mut(bone) {
+                            if !*d {
+                                *d = true;
+                                self.touched.push(bone);
+                            }
+                        }
+                    }
+                }
+            }
+            for sl in self.script_layers.iter().filter(|l| l.additive.is_some() && l.weight > 0.0 && l.weight.is_finite()) {
+                let Some((ref_clip, ref_at)) = &sl.additive else { continue };
+                let bc = &sl.clip;
+                let eff = sl.weight.clamp(0.0, 1.0);
+                let time = cycle_time(bc.clip.start + sl.time, bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
+                let len = bc.clip.length();
+                let cycles = if bc.clip.cycle_type == 0 && len > 0.0 && sl.time.is_finite() {
+                    let within = time - bc.clip.start;
+                    ((sl.time - within) / len).round() as i64
+                } else {
+                    0
+                };
+                let ref_time = ref_clip.as_ref().map(|rc| cycle_time(*ref_at, rc.clip.start, rc.clip.stop, rc.clip.cycle_type));
+                for (i, track, _) in &bc.tracks {
+                    if Some(*i) == bc.root {
+                        continue;
+                    }
+                    let bind = self.rest_of(*i);
+                    let (ref_t, ref_r, ref_s) = match (ref_clip, ref_time) {
+                        (Some(rc), Some(rt)) => match rc.tracks.iter().find(|(ri, ..)| ri == i) {
+                            Some((_, rtrack, _)) => (
+                                rtrack.translation.sample(rt).map_or(bind.translation, Vec3::from_array),
+                                rtrack.rotation_at(rt).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize()),
+                                rtrack.scale.sample(rt).map_or(bind.scale.x, |[s]| s),
+                            ),
+                            None => (bind.translation, bind.rotation, bind.scale.x),
+                        },
+                        _ => (bind.translation, bind.rotation, bind.scale.x),
+                    };
+                    let sample_t = track.translation.sample(time).map_or(ref_t, Vec3::from_array);
+                    let sample_r = track.rotation_after(time, cycles).map_or(ref_r, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                    let sample_s = track.scale.sample(time).map_or(ref_s, |[s]| s);
+                    let dt = sample_t - ref_t;
+                    let mut dr = sample_r * ref_r.inverse();
+                    if dr.w < 0.0 {
+                        dr = -dr;
+                    }
+                    let dr = dr.normalize();
+                    let ds = if ref_s.abs() > 1e-6 { sample_s / ref_s } else { 1.0 };
+                    let cur = by_node.get(i).map_or(bind, |&idx| out[idx].1);
+                    let posed = Transform {
+                        translation: cur.translation + dt * eff,
+                        rotation: (Quat::IDENTITY.slerp(dr, eff) * cur.rotation).normalize(),
+                        scale: cur.scale * Vec3::splat(1.0 + (ds - 1.0) * eff),
+                    };
+                    if posed.translation.is_finite() && posed.rotation.is_finite() && posed.scale.is_finite() {
+                        if let Some(&idx) = by_node.get(i) {
+                            out[idx].1 = posed;
+                        } else {
+                            by_node.insert(*i, out.len());
+                            out.push((*i, posed));
+                            if let Some(d) = self.driven.get_mut(*i) {
+                                if !*d {
+                                    *d = true;
+                                    self.touched.push(*i);
+                                }
+                            }
+                        }
+                    }
+                    sampled += 1;
+                }
+            }
+        }
         // Nodes posed last time that no clip drives now go back to their bind transform.
         for &i in &self.posed {
             if !self.driven[i] {
@@ -1240,11 +1400,15 @@ impl BlendPlayer {
     /// the bones [`Self::pose`] would have left. The nodes checked are those it would
     /// write; the caller's own writes do not count as changes on its next run.
     pub fn pose_held(&mut self, scratch: &mut Vec<(usize, Transform)>, transforms: &mut Query<&mut Transform>) -> Option<usize> {
-        if pose_stands(self.posed_from.as_ref(), self.layers.iter().chain(std::iter::once(&self.pose_only)), &self.pose_only_mask, self.rest_changes) && self.posed_from.as_ref().is_some_and(|f| f.over_movement == self.over_movement) && !self.nodes_written(transforms) {
+        if self.script_layers.is_empty() && pose_stands(self.posed_from.as_ref(), self.layers.iter().chain(std::iter::once(&self.pose_only)), &self.pose_only_mask, self.rest_changes) && self.posed_from.as_ref().is_some_and(|f| f.over_movement == self.over_movement) && !self.nodes_written(transforms) {
             return None;
         }
         let n = self.pose(scratch, transforms);
-        self.posed_from = Some(PosedFrom { layers: self.pose_layers(), pose_only_mask: self.pose_only_mask.clone(), rest_changes: self.rest_changes, over_movement: self.over_movement });
+        self.posed_from = if self.script_layers.is_empty() {
+            Some(PosedFrom { layers: self.pose_layers(), pose_only_mask: self.pose_only_mask.clone(), rest_changes: self.rest_changes, over_movement: self.over_movement })
+        } else {
+            None
+        };
         Some(n)
     }
 
@@ -1260,11 +1424,15 @@ impl BlendPlayer {
     /// [`Self::pose_held`] apart from writing, as [`Self::sample_into`]: `written` is
     /// [`Self::written_since`], asked before (it reads the transforms).
     pub fn sample_held_into(&mut self, written: bool, scratch: &mut Vec<(usize, Transform)>, out: &mut Vec<(Entity, Transform)>) -> Option<usize> {
-        if pose_stands(self.posed_from.as_ref(), self.layers.iter().chain(std::iter::once(&self.pose_only)), &self.pose_only_mask, self.rest_changes) && self.posed_from.as_ref().is_some_and(|f| f.over_movement == self.over_movement) && !written {
+        if self.script_layers.is_empty() && pose_stands(self.posed_from.as_ref(), self.layers.iter().chain(std::iter::once(&self.pose_only)), &self.pose_only_mask, self.rest_changes) && self.posed_from.as_ref().is_some_and(|f| f.over_movement == self.over_movement) && !written {
             return None;
         }
         let n = self.sample_into(scratch, out);
-        self.posed_from = Some(PosedFrom { layers: self.pose_layers(), pose_only_mask: self.pose_only_mask.clone(), rest_changes: self.rest_changes, over_movement: self.over_movement });
+        self.posed_from = if self.script_layers.is_empty() {
+            Some(PosedFrom { layers: self.pose_layers(), pose_only_mask: self.pose_only_mask.clone(), rest_changes: self.rest_changes, over_movement: self.over_movement })
+        } else {
+            None
+        };
         Some(n)
     }
 
@@ -2528,5 +2696,90 @@ mod tests {
         assert_eq!(cycle_time(2.5, 0.0, 2.0, 1), 1.5);
         assert_eq!(cycle_time(2.5, 0.0, 2.0, 2), 2.0);
         assert_eq!(cycle_time(1.0, 1.0, 1.0, 0), 1.0);
+    }
+
+    #[test]
+    fn script_layers_blend_weights_priorities_and_additive_deltas_on_npcs() {
+        let (mut p, ix) = player();
+        let base = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([10.0, 0.0, 0.0]), 50)]), &ix));
+        let overlay = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([30.0, 0.0, 0.0]), 1)]), &ix));
+        let ref_pose = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([2.0, 0.0, 0.0]), 1)]), &ix));
+        let add_clip = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([6.0, 0.0, 0.0]), 1)]), &ix));
+        let mut out = Vec::new();
+        let get = |out: &Vec<(usize, Transform)>, i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
+
+        // Vanilla path (empty script_layers): untouched base clip at x=10.
+        p.layers = [Some(Layer { clip: base.clone(), phase: 0.0, weight: 1.0 }), None, None, None, None, None, None, None];
+        p.sample(&mut out);
+        assert!((get(&out, 3).x - 10.0).abs() < 1e-5);
+
+        // Non-additive script layer at weight 0.25 blends 25% overlay (30) + 75% base (10) = 15.
+        p.script_layers = vec![ScriptLayer { clip: overlay.clone(), time: 0.0, weight: 0.25, priority: 1, additive: None }];
+        p.sample(&mut out);
+        assert!((get(&out, 3).x - 15.0).abs() < 1e-5, "got {}", get(&out, 3).x);
+
+        // Additive script layer with reference pose (6 - 2 = +4) at weight 0.5 adds +2 -> 17.
+        p.script_layers.push(ScriptLayer { clip: add_clip.clone(), time: 0.0, weight: 0.5, priority: 1, additive: Some((Some(ref_pose), 0.0)) });
+        p.sample(&mut out);
+        assert!((get(&out, 3).x - 17.0).abs() < 1e-5, "got {}", get(&out, 3).x);
+
+        // Additive script layer with bind-pose delta (bind is x=5; clip is x=6 -> delta +1) at weight 1.0 over base (10) -> 11.
+        p.script_layers = vec![ScriptLayer { clip: add_clip, time: 0.0, weight: 1.0, priority: 1, additive: Some((None, 0.0)) }];
+        p.sample(&mut out);
+        assert!((get(&out, 3).x - 11.0).abs() < 1e-5, "got {}", get(&out, 3).x);
+
+        // Clearing script_layers restores exact base pose.
+        p.script_layers.clear();
+        p.sample(&mut out);
+        assert!((get(&out, 3).x - 10.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn clearing_script_layers_restores_stationary_held_pose() {
+        let mut world = World::new();
+        let node = world.spawn(Transform::IDENTITY).id();
+        let mut state = SystemState::<Query<&mut Transform>>::new(&mut world);
+        let base = on_node_0(10.0);
+        let overlay = on_node_0(30.0);
+
+        // Exercise both `pose_held` (direct writes) and `sample_held_into` (compute-pool sampling).
+        let mut p = BlendPlayer::new(vec![node], Arc::new(vec![Transform::from_xyz(5.0, 0.0, 0.0)]));
+        p.layers[0] = Some(Layer { clip: base, phase: 0.0, weight: 1.0 });
+        let mut scratch = Vec::new();
+        macro_rules! held {
+            ($p:expr) => {{
+                world.clear_trackers();
+                $p.pose_held(&mut scratch, &mut state.get_mut(&mut world).unwrap())
+            }};
+        }
+        assert!(held!(p).is_some());
+        assert!((world.get::<Transform>(node).unwrap().translation.x - 10.0).abs() < 1e-5);
+        assert_eq!(held!(p), None, "stationary vanilla pose holds");
+
+        p.script_layers.push(ScriptLayer { clip: overlay.clone(), time: 0.0, weight: 1.0, priority: 1, additive: None });
+        assert!(held!(p).is_some());
+        assert!((world.get::<Transform>(node).unwrap().translation.x - 30.0).abs() < 1e-5);
+
+        p.script_layers.clear();
+        assert!(held!(p).is_some(), "clearing script layers must re-sample and restore vanilla pose");
+        assert!((world.get::<Transform>(node).unwrap().translation.x - 10.0).abs() < 1e-5);
+        assert_eq!(held!(p), None, "restored vanilla pose holds again");
+
+        let mut q = BlendPlayer::new(vec![Entity::PLACEHOLDER], Arc::new(vec![Transform::from_xyz(5.0, 0.0, 0.0)]));
+        let mut out = Vec::new();
+        assert_eq!(q.sample_held_into(false, &mut scratch, &mut out), Some(0));
+        assert!(out.is_empty());
+        assert_eq!(q.sample_held_into(false, &mut scratch, &mut out), None, "idle bind state holds");
+
+        q.script_layers.push(ScriptLayer { clip: overlay, time: 0.0, weight: 1.0, priority: 1, additive: None });
+        out.clear();
+        assert_eq!(q.sample_held_into(false, &mut scratch, &mut out), Some(1));
+        assert!((out.last().unwrap().1.translation.x - 30.0).abs() < 1e-5);
+
+        q.script_layers.clear();
+        out.clear();
+        assert_eq!(q.sample_held_into(false, &mut scratch, &mut out), Some(0), "clearing script layers must restore bind pose");
+        assert!((out.last().unwrap().1.translation.x - 5.0).abs() < 1e-5);
+        assert_eq!(q.sample_held_into(false, &mut scratch, &mut out), None, "restored bind pose holds again");
     }
 }

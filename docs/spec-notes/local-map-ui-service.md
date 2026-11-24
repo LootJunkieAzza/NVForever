@@ -99,5 +99,46 @@ rendered, bound image.
 
 [hypothesis] Budgets, outline presentation, and static-geometry revision heuristics are
 NVForever engine policies, not claims about native DLL camera output, native plugin
-versions, or GPU upload atomicity. GPU local-mode rendering tests and projected-UI painter
-integration remain separate follow-up tasks.
+versions, or GPU upload atomicity. GPU local-mode rendering tests remain separate
+follow-up work.
+
+## 6. Projected-UI Painter & 3D Model Surface Binding
+
+[design] `nvf_play::tiles::projected_ui` (`ProjectedUiTargets`) consumes active
+`fnv_game::ui_projection::Requests` (`ProjectUITile`) through the existing
+`tiles::draw::paint` pipeline rather than adding a second generic painter:
+
+- **Zero-work default:** when no `ProjectUITile` requests are active and no targets exist,
+  `projected_ui::draw` returns immediately with zero allocations, zero cameras, and zero
+  image allocations. Ordinary HUD and menu painting remain unchanged.
+- **Pre-draw reconciliation and session isolation:** `projected_ui::reconcile` runs after
+  `tiles::update` and before `PlaySet::Ui` to retire stale or shadowed sources permanently;
+  `projected_ui::draw` tracks `SessionEpoch { load_epoch, tree }` and tears down all
+  cameras, UI roots, and off-screen `Handle<Image>` assets on committed session rollover.
+- **Isolated subtree layout & coordinate/clip validation:** `layout::layout_isolated` lays
+  out only the subtree rooted at `request.source` without inheriting ancestor offsets,
+  clips, alpha, or hidden flags outside `source`. `draw::projected_pieces` shifts rects and
+  clips by `(-viewport.x, -viewport.y)`, rejects non-finite geometry, and intersects active
+  clips with `[0..width, 0..height]`.
+- **Shared runtime-image path:** `draw::paint` executes `runtime_images::mark` and
+  `runtime_images::present` on the projected `Target::image(camera, ...)` target so
+  `LocalMapService`'s in-place `Assets<Image>` mutations, `RuntimeImages` revision bumps,
+  and `set_recipient_axes` marker rotations reach projected recipients identically to normal
+  menu painting.
+- **Bounded off-screen resources:** the painter independently enforces `MAX_TARGETS` (16),
+  `MAX_EDGE` (2048), and `MAX_TOTAL_PIXELS` (8 Mi), reporting `ProjectionDiagnostic::RejectedBudget`
+  distinctly on overflow, and frees old images on resize or exact `1x1` withdrawal.
+
+[design] `nvforever::ui_project` (`UiProjectPlugin`) runs in `PostUpdate` after
+`nif_mirror::MirrorSystems` to bind each active `ProjectedOutput.image` onto matching
+`(reference, block)` mesh entities (`ShapeName`, `Name`, or skeleton node name,
+case-insensitive, across both first- and third-person player rigs as well as world/actor
+references) via an owned unlit `NifMaterial` copy. On withdrawal or target removal, the
+original `Handle<NifMaterial>` is restored only when the entity still carries this module's
+owned copy, and the owned copy is removed from `Assets<NifMaterial>`.
+
+[design] In `LocalMapService::publish_completed`, if an external sink write races with a
+completing rebind (`BindFailure::SinkChanged`), every unmodified sink whose
+`TraitWriteSerial` still matches this service's last owned write is conditionally restored
+before removing the runtime image so `filename` never remains pointed at a removed `nvf:`
+entry.

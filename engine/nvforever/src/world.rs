@@ -107,13 +107,23 @@ fn build_bos_table(lo: &LoadOrder, bos_sources: &[(String, String)], random_seed
 }
 
 impl WorldData {
-    pub fn open(schema_dir: &Path, opened: OpenedPlugins, world: &str, bos_sources: Vec<(String, String)>) -> Result<WorldData, String> {
+    pub fn open(
+        schema_dir: &Path,
+        opened: OpenedPlugins,
+        world: &str,
+        bos_sources: Vec<(String, String)>,
+        merge_region_lists: bool,
+    ) -> Result<WorldData, String> {
         let schema: &'static EsmSchema =
             Box::leak(Box::new(EsmSchema::load_dir(schema_dir).map_err(|e| format!("{}: {e}", schema_dir.display()))?));
         let OpenedPlugins { plugins, dropped: dropped_plugins } = opened;
         let plugins: &'static [EsmPlugin] = Box::leak(plugins.into_boxed_slice());
         let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).map_err(|e| e.to_string())?));
         let mut built = WorldIndex::build(lo, schema);
+        if merge_region_lists {
+            built.set_merge_region_lists(true);
+            info!("hNVSE: bMergeRegionLists=1 enabled (merging exterior CELL XCLR region lists across overrides)");
+        }
         if !bos_sources.is_empty() {
             let bos = build_bos_table(lo, &bos_sources, bos_session_seed());
             let rep = bos.report();
@@ -1131,6 +1141,8 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
     info!("{}", nvf_assets::tangents::summary());
     // Shapes that asked to be blended and are drawn opaque (#3230).
     info!("{}", nvf_assets::nif_spawn::blend_opaque_summary());
+    // Unlit shapes without a NiAlphaProperty that are blended all the same (#3443).
+    info!("{}", nvf_assets::nif_spawn::vertex_alpha_blended_summary());
     // What the two readers of each model file cost (#3149).
     info!("{}", nvf_assets::load_times::summary());
     // The smoke scenario `terrain-smoothing` reads it (#2149).

@@ -99,10 +99,15 @@ fn switches() {
     assert!(!fnv_game::experience::level_up_due(&g), "ToggleLevelUpMenu 0 holds automatic level-up");
     q(&mut g, "ToggleLevelUpMenu 1");
     assert!(fnv_game::experience::level_up_due(&g), "ToggleLevelUpMenu 1 releases pending level-up");
-    // [documented: Get/SetViewmodelClipDistance, 0 the default; Get/SetNiLODLevel].
+    // [documented: Get/SetViewmodelClipDistance, 0 the default; observed: Wave 4
+    // jg_25_yield_timer_and_viewmodel_clip_neg stores negative -5.0 verbatim].
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), 0.0);
     q(&mut g, "SetViewmodelClipDistance 2.5");
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), 2.5);
+    q(&mut g, "SetViewmodelClipDistance -5");
+    assert_eq!(n(&mut g, "GetViewmodelClipDistance"), -5.0);
+    q(&mut g, "SetViewmodelClipDistance 0");
+    assert_eq!(n(&mut g, "GetViewmodelClipDistance"), 0.0);
     // [observed: GetNiLODLevel -1 before any SetNiLODLevel, jg7 diagnostics].
     assert_eq!(n(&mut g, "GetNiLODLevel"), -1.0);
     q(&mut g, "SetNiLODLevel 2");

@@ -1278,6 +1278,48 @@ fn the_player_list_sorts_by_value_or_weight() {
     assert_eq!(SortBy::Name.next().next().next(), SortBy::Name);
 }
 
+#[test]
+fn ysi_apply_sorts_by_tag_keeps_folders_and_preserves_selection() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_inventory(&mut w).unwrap();
+    let base_rows = m.list(Side::Player).rows.clone();
+    assert!(base_rows.len() >= 3, "fixture has at least three player items");
+
+    // Pick the last item before sorting so we can verify selection follows it.
+    let target_item = base_rows[2].item;
+    let first_item = base_rows[0].item;
+    let second_item = base_rows[1].item;
+    m.selected[Side::Player as usize] = 2;
+
+    // Assign ySI tags in reverse alphabetical order vs item names, leaving first_item untagged.
+    m.apply_ysi(|id| {
+        if id == target_item {
+            Some(fnv_game::ui_ysi::YsiItemDisplay {
+                tag: Some("(a01)".into()),
+                icon: Some("icons\\target.dds".into()),
+                template: fnv_game::ui_ysi::YSI_DEFAULT_TEMPLATE.into(),
+            })
+        } else if id == second_item {
+            Some(fnv_game::ui_ysi::YsiItemDisplay {
+                tag: Some("(b02)".into()),
+                icon: Some("icons\\second.dds".into()),
+                template: fnv_game::ui_ysi::YSI_DEFAULT_TEMPLATE.into(),
+            })
+        } else {
+            None
+        }
+    });
+
+    let rows = &m.list(Side::Player).rows;
+    assert_eq!(rows[0].item, target_item, "(a01) sorts first");
+    assert_eq!(rows[0].ysi.as_ref().and_then(|y| y.icon.as_deref()), Some("icons\\target.dds"));
+    assert_eq!(rows[1].item, second_item, "(b02) sorts second");
+    let untagged_pos = rows.iter().position(|r| r.item == first_item).unwrap();
+    assert!(untagged_pos >= 2, "untagged items follow tagged items");
+    assert_eq!(m.selected_row(Side::Player).map(|r| r.item), Some(target_item), "selection tracks moved row");
+}
+
 /// The Quantity Menu Respects Companion Carry Cap tweak: what fits, at least one.
 #[test]
 fn a_companion_takes_no_more_than_it_can_carry() {

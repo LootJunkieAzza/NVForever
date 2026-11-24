@@ -164,6 +164,10 @@ fn actor_values_by_code() {
     let str0 = n(&mut g, "player.GetActorValue Strength");
     q(&mut g, "player.ModActorValueAlt 5 3");
     assert_eq!(n(&mut g, "player.GetActorValue Strength"), str0 + 3.0);
+    // Out-of-range AV code is safely rejected instead of crashing [design: Wave 4
+    // jg_17_mod_av_alt_out_of_range crashed JohnnyGuitarNVSE 528 with 0xC0000005].
+    q(&mut g, "player.ModActorValueAlt 999 5");
+    assert_eq!(n(&mut g, "player.GetActorValue Strength"), str0 + 3.0);
     // GetActorValueModifierAlt reads the effects' modifiers only: ModAV's change is in
     // none of its filters [observed 2026-11-08: jg6.av.mod].
     for filter in ["1", "2", "3", "4", ""] {
@@ -343,4 +347,19 @@ fn get_refs_in_cell_leaves_out_the_references_beyond_max_distance() {
     assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0 100)"), 4.0);
     assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0 100 45)"), 4.0);
     assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0 0)"), 5.0);
+}
+
+#[test]
+fn get_threshold_av_resolves_bare_perception_and_caps_special_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV Perception"), 5.0);
+    q(&mut g, "PlayerREF.SetActorValue Perception 8");
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV Perception"), 8.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdedActorValue Perception"), 8.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV \"Perception\""), 8.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV 6"), 8.0);
+    // SPECIAL values above 10 threshold to 10 [documented: GetThresholdedActorValue].
+    q(&mut g, "PlayerREF.ModActorValue Perception 5");
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV Perception"), 10.0);
 }

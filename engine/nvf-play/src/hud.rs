@@ -573,7 +573,7 @@ fn gather(
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();
     }
     // The player's tweak: the body armour's condition [design: docs/design/tweaks.md].
-    now.armor = combat.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.armor_condition)).and_then(|c| c.hud_armor(&mut sim));
+    now.armor = combat.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.game.armor_condition)).and_then(|c| c.hud_armor(&mut sim));
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);
         if let Some(v) = &vats {
@@ -963,6 +963,12 @@ struct Strip(StripNode);
 #[derive(Component)]
 pub struct CompassMarks;
 
+/// The actors' ticks, under the bracket and the strip: the original draws both over them,
+/// their dark halos shading the bar's top and end [observed: hud.md §11]. As
+/// [`CompassMarks`] otherwise.
+#[derive(Component)]
+pub struct CompassTicks;
+
 /// The lower row of the right piece: the condition's label and bar.
 #[derive(Component)]
 struct ConditionRow;
@@ -1018,6 +1024,9 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
         root.spawn((HpPiece, piece, DrawnByTiles)).with_children(|p| {
+            let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
+            marks.overflow = Overflow::clip_x();
+            p.spawn((CompassTicks, marks.clone()));
             spawn_bracket(p, &art.left_bracket, 0.0, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
@@ -1055,8 +1064,6 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
                     });
                 }
             });
-            let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
-            marks.overflow = Overflow::clip_x();
             p.spawn((CompassMarks, marks));
             p.spawn((PlaceNameText, at(0.0, 0.0, HP_PANEL.x, 0.0)));
         });

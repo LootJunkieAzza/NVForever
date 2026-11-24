@@ -83,3 +83,12 @@ source execution: the receiver fixture's typed local selects the existing Auto
 route, and its admission checks require a successful source-compile entry.
 The paired source-less units require decoded SCDA with no source-compile entry.
 Both paths retain the same receiver, side-effect and no-mutation oracles.
+
+[design: `crates/fnv-game/src/game.rs`, `engine/nvf-play/src/bullet_snap.rs`, `docs/spec-notes/audio.md` §19, `docs/spec-notes/ext-jg-nif-camera.md`]
+Reserved engine-internal `0xFE` subranges are partitioned without overlap:
+- `CLONE_BASE`: `0xFE00_0000..0xFE20_0000` (cloned base forms)
+- `COMPILED_BASE`: `0xFE20_0000..0xFE40_0000` (text-compiled runtime scripts)
+- `TEMP_REF_BASE`: `0xFE40_0000..0xFE7E_0000` (`ForEach` temporary inventory references; `Game::temp_ref` and `Game::temp_item` enforce `< BULLET_SNAP_SOUND_BASE` so temporary references never collide with the reserved windows above)
+- `BULLET_SNAP_SOUND_BASE`: `0xFE7E_0000..0xFE7F_0000` (audio-only synthetic `SOUN` FormIDs for BulletSnap pass-by folders; loaded `SOUN` records always win and BulletSnap takes the next free slot inside the window)
+- `CAMERA_OVERLAY_BASE`: `0xFE7F_0000..0xFE80_0000` (built-in JohnnyGuitar camera overlay references)
+- `LAMBDA_BASE` / `MADE_PACKAGE_BASE`: `0xFE80_0000..0xFF00_0000` (runtime lambdas and generated travel packages)

@@ -286,7 +286,8 @@ pub struct VoiceState {
     playing: HashMap<FormId, Playing>,
     /// Sounds started so far.
     pub started: u64,
-    /// Responses that started without a file.
+    /// Responses that started without a file, leaving out the silent ones ([`silent_text`]:
+    /// no words to say, so no file is expected; the reports' `audio` anomaly reads this).
     pub missing: u64,
     /// Responses that started out of the player's hearing (no sound, no subtitle).
     pub unheard: u64,
@@ -433,6 +434,13 @@ pub fn one_cry(bytes: Vec<u8>, roll: f64) -> Option<(PcmSound, Cut, f64)> {
 /// line of one response said outside the conversation with the player.
 pub fn cut_to_one_cry(path: &str, seconds: f64, responses: usize, conversation: bool) -> bool {
     !conversation && responses <= 1 && seconds > cry::LONG_SECONDS && cry::is_generic_death(path)
+}
+
+/// A response with no words in it: empty, or only dots and spaces (Generic's HELLO line
+/// 0x0017AF3D is `...` [observed: FalloutNV.esm]). Such a line has no voice file by design,
+/// so its having none is not counted as missing (#2758).
+pub fn silent_text(text: &str) -> bool {
+    text.chars().all(|c| c == '.' || c == '\u{2026}' || c.is_whitespace())
 }
 
 /// A sound whose line stopped this long before the sound's end is left to finish (the
@@ -723,7 +731,8 @@ fn play(
                 (entity, seconds)
             }
             None => {
-                st.missing += 1;
+                let text = g.data.infos.get(&s.info).and_then(|d| d.responses.get(k)).map_or("", |r| r.text.as_str());
+                st.missing += u64::from(!silent_text(text));
                 if let Some(why) = &out_of_hearing {
                     info!("voice: {who} line {} response {number} is out of hearing ({why}): no subtitle", g.data.name(s.info));
                 }
@@ -785,6 +794,15 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<VoiceState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lines_with_no_words_are_silent() {
+        assert!(silent_text("..."));
+        assert!(silent_text(""));
+        assert!(silent_text(" \u{2026} "));
+        assert!(!silent_text("Hello."));
+        assert!(!silent_text("...Hello?"), "words after the dots are said");
+    }
 
     #[test]
     fn only_long_generic_death_lines_are_cut_to_one_cry() {

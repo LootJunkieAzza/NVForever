@@ -39,14 +39,17 @@ fn edid(sig: &[u8; 4], fid: u32, name: &str, rest: &[fnv_esm::raw::Subrecord]) -
 /// EFSH DATA: 308 bytes [documented: schemas/fnv/effects.json EFSH DATA, from xEdit]:
 /// flags 9 (No Membrane Shader, No Particle Shader), membrane source blend 5, fill alpha
 /// fade in 0.25 s, edge fall off 1.5, particle lifetime 3, scale key 2 time 0.75, fill
-/// colour (1, 2, 3), colour key 1 (4, 5, 6).
+/// colour (1, 2, 3), colour key 1 (4, 5, 6), colour key 2 (7, 8, 9), colour key 3
+/// (10, 11, 12), colour key 1 alpha 1.0.
 fn efsh_data() -> Vec<u8> {
     let mut d = vec![0u8; 308];
     d[0] = 9;
     d[4..8].copy_from_slice(&5u32.to_le_bytes());
     d[16..19].copy_from_slice(&[1, 2, 3]);
     d[188..191].copy_from_slice(&[4, 5, 6]);
-    for (at, v) in [(20, 0.25f32), (52, 1.5), (132, 3.0), (184, 0.75)] {
+    d[192..195].copy_from_slice(&[7, 8, 9]);
+    d[196..199].copy_from_slice(&[10, 11, 12]);
+    for (at, v) in [(20, 0.25f32), (52, 1.5), (132, 3.0), (184, 0.75), (200, 1.0)] {
         d[at..at + 4].copy_from_slice(&v.to_le_bytes());
     }
     d
@@ -170,11 +173,15 @@ fn effect_shader_traits_and_textures() {
     for (t, want) in [(0, 9.0), (1, 5.0), (5, 0.25), (13, 1.5), (33, 3.0), (46, 0.75), (2, 0.0)] {
         assert_eq!(n(&mut g, &format!("GetEffectShaderTraitNumeric TestShader {t}")), want, "trait {t}");
     }
-    // The colours as one number (red × 65536 + green × 256 + blue); 47 is colour key 1;
-    // past it 0 [observed: jg3].
+    // The colours as one number (red × 65536 + green × 256 + blue); 47-49 are colour
+    // keys 1-3 and 50 is colour key 1 alpha [observed: jg3; Wave 4
+    // jg_03_efsh_trait_beyond_47 confirmed traits 47, 48, 50 and -1].
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 66051.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 14"), 0.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 47"), 263430.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 48"), 460809.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 49"), 658188.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 50"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader -1"), 0.0);
     // The setter returns 1 and takes every trait the getter reads, past 42 too.
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 13 2.5"), 1.0);
@@ -183,7 +190,11 @@ fn effect_shader_traits_and_textures() {
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 46"), 9.0);
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 4 255"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 255.0);
-    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 48 1"), 0.0);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 48 65536"), 1.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 48"), 65536.0);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 50 0.5"), 1.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 50"), 0.5);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 51 1"), 0.0);
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 1 7.9"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 1"), 7.0, "an enum keeps a whole number");
     // Textures: 0 fill (ICON), 1 particle (ICO2, none here), 2 holes (NAM7).
@@ -389,7 +400,7 @@ fn no_casino_bans_changes_real_source_reward_and_ban_branch_outputs_without_vers
         q(&mut g, "if (GetCasinoWinningsLevel TestCasino) == 4\nPlayerREF.AddItem TestChip 1\nelseif (GetCasinoWinningsLevel TestCasino) == 3\nPlayerREF.AddItem TestChip2 1\nendif");
         assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), if enabled { 0 } else { 1 });
         assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP2)).unwrap(), if enabled { 1 } else { 0 });
-        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
         assert_eq!(g.player.casino_earnings[&FormId(CSNO)], 1000);
     }
 }
@@ -476,7 +487,7 @@ fn casino_menu_close_events_fire_on_documented_menu_codes_1080_1081_1082() {
     g.open_menu(fnv_game::caravan::MENU_CODE);
     assert_eq!(g.close_menu(), Some(fnv_game::caravan::MENU_CODE));
     assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), 1080 + 1081 + 1082);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
 }
 
 #[test]

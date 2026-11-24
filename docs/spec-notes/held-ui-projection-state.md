@@ -1,6 +1,6 @@
 # Typed held UI projection requests
 
-[observed: private installed loose caller] ProjectUITile is called on a reference with two strings and four rectangle numbers. Process evidence: historical public-command metadata labels it JIP/reference-only with numeric return and opcode 0x2925; this is not a new native measurement. The installed caller uses an exact 1x1 rectangle to withdraw. No installed source or game text is transcribed into these authored fixtures.
+[hypothesis] ProjectUITile is called on a reference with two strings and four rectangle numbers, and an exact 1x1 rectangle withdraws an active projection. Process evidence: historical public-command metadata labels it JIP/reference-only with numeric return and opcode 0x2925; this is not a new native measurement. No installed source or game text is transcribed into these authored fixtures.
 
 [hypothesis] Correct the existing unnumbered source-command catalogue row in place and ordinary ExtCall routing. The existing `schemas/script/command_opcodes.json` mapping already names ProjectUITile as 10533 (`0x2925`); this contribution leaves that entire map unchanged. A precompiled call decoded through that mapping may reach the typed handler, but the native parameter-frame adapter and its compatibility remain unqualified. No opcode or native parameter descriptor is added. The run-on reference is required at runtime. Accepted/withdrawn calls return the engine's neutral numeric zero; native return parity is unmeasured.
 
@@ -60,3 +60,26 @@ Process qualification: historical CI belongs to its pinned checkout. Every later
 head requires its own applicable tests, lint, audits and review; the generator
 regression and existing real FunctionTable/VM control must both execute. This note
 records coverage rather than claiming unexecuted current-head results.
+
+## Off-screen projected painter and 3D model surface consumer
+
+[hypothesis] / [design] **Provenance clarification (`#2418`):** There is no published GECK
+Wiki / JIP LN documentation page for `ProjectUITile` and no named public mod script +
+version cited here documenting that `ProjectUITile` renders an isolated XML subtree onto
+the named block of a reference's model or that an exact `1x1` rectangle withdraws it.
+Inspection of an earlier local NVForever prototype is not an `[observed]` fact about the
+original JIP LN `ProjectUITile` command; accordingly, both behaviors (drawing an isolated
+XML subtree onto the named block of the reference's model, and treating an exact `1x1`
+rectangle as withdrawal) are explicitly tagged `[hypothesis]` / `[design]` (and the
+corresponding line in `#2418` is retagged from `[observed]` to `[design]`/`[hypothesis]`).
+
+[design] `nvf_play::tiles::projected_ui` (`ProjectedUiTargets`) now consumes
+`game.ui_extra.projections`: `projected_ui::reconcile` runs before `PlaySet::Ui` to retire
+stale/shadowed sources, and `projected_ui::draw` paints each admitted subtree in isolation
+(`layout::layout_isolated`, viewport shift and clip intersection) into a per-target
+`Camera2d` + `RenderTarget::Image` (`order = -3`) via `tiles::draw::paint` (reusing
+`runtime_images::mark` and `runtime_images::present`). `nvforever::ui_project`
+(`UiProjectPlugin`) binds each published texture onto matching `(reference, block)` mesh
+surfaces in `PostUpdate` after `nif_mirror::MirrorSystems` using an owned unlit
+`NifMaterial` copy with ownership-conditional restoration. Native `0x2925` parameter-frame
+decoding and live GPU held-map captures remain separate follow-up gates.

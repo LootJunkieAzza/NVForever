@@ -141,12 +141,25 @@ impl IdleSource {
     }
 }
 
+/// Explicit player point-of-view override for `ForcePlayIdle` / `ForceStopIdle`
+/// (`playerPOV`: `1` third-person, `2` first-person) [documented: GECK wiki ForcePlayIdle,
+/// ForceStopIdle].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdlePov {
+    Third,
+    First,
+}
+
 /// An actor is to play an idle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct IdleRequest {
     pub actor: FormId,
     pub idle: FormId,
     pub source: IdleSource,
+    /// Optional explicit player rig target (`ForcePlayIdle` arg 2); `None` preserves
+    /// vanilla auto-routing by `Camera1st` track presence.
+    pub pov: Option<IdlePov>,
 }
 
 /// How often an idle's loop plays.
@@ -257,6 +270,11 @@ impl<'a> Game<'a> {
     /// [hypothesis: only idles with a file can be listed or played by name; the editor
     /// lists only those in collections, documented], which is traced instead.
     pub fn ask_idle(&mut self, actor: FormId, idle: FormId, source: IdleSource) -> bool {
+        self.ask_idle_pov(actor, idle, source, None)
+    }
+
+    /// Queue `idle` on `actor` with an optional explicit player view override (`ForcePlayIdle`).
+    pub fn ask_idle_pov(&mut self, actor: FormId, idle: FormId, source: IdleSource, pov: Option<IdlePov>) -> bool {
         let reason = match self.idle_def(idle) {
             None => Some("not an idle animation"),
             Some(_) if !self.idle_has_file(idle) => Some("names no animation file"),
@@ -267,7 +285,7 @@ impl<'a> Game<'a> {
             return false;
         }
         self.emit(EventKind::IdleAsked { actor, idle, source });
-        self.idle_requests.push(IdleRequest { actor, idle, source });
+        self.idle_requests.push(IdleRequest { actor, idle, source, pov });
         true
     }
 

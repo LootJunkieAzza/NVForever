@@ -118,7 +118,7 @@ impl Probe {
             let projectile = chain.projectile?;
             let p = forms.projectiles.get(&projectile)?;
             let blast = forms.explosions.get(&p.explodes()?)?.radius;
-            Some(Ballistics { projectile, speed: p.speed, gravity: p.gravity * frame.gravity, blast })
+            Some(Ballistics { projectile, speed: p.speed, gravity: p.fall() * frame.gravity, blast })
         })();
         self.ballistics = ballistics;
         let distance = vec::len(vec::sub(frame.target_feet, frame.eyes));

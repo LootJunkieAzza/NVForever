@@ -142,6 +142,15 @@ pub struct TweakSettings {
     pub jump_ap_cost: f32,
     /// `bRunningCostsAP`: Action Points running costs a second; 0 changes nothing.
     pub run_ap_per_second: f32,
+    /// `bRunningCostsAP` (`fSneakAPDrainCostBase`, `fSneakRunAPEnduranceMult`): Action
+    /// Points running while sneaking costs a second (`fSneakAPDrainCostBase +
+    /// fSneakRunAPEnduranceMult * (Endurance - 5)`) [documented: Stewie Tweaks v10.05
+    /// generated `nvse_stewie_tweaks.ini` `[Running Costs AP]` comment; option names also
+    /// in v10.05 Readme & `AllTweaks.json`; hypothesis: sign vs. the v10.05 Readme's
+    /// `(5 - Endurance)` standing-run formula is unobserved in the original binary;
+    /// design: clamp at 0, off when the base is 0, Endurance fallback of 5].
+    pub sneak_run_ap_base: f32,
+    pub sneak_run_ap_endurance_mult: f32,
     /// `bDisableSellingItems`: the player cannot sell in a barter.
     pub no_selling: bool,
     /// The Own Skill Points Rule's numbers, kept while the rule is off.
@@ -216,9 +225,13 @@ pub struct TweakSettings {
     /// once; so does an attack this many seconds after the death (0: not by attacking).
     pub skip_death_cam: bool,
     pub skip_death_cam_attack: f32,
-    /// `bReplaceHelpWithConsole`: the pause menu has a Console entry where the original
-    /// has Help.
+    /// `bReplaceHelpWithConsole` (`[Help Button Replacer] sButtonLabel` [documented:
+    /// Stewie Tweaks v10.05 Readme & generated `nvse_stewie_tweaks.ini`]): the pause menu
+    /// has a Console entry where the original has Help, using `help_console_label` when
+    /// non-empty (else `"Console"`, read at startup from `NVForever.ini` `[Settings]
+    /// tweak-help-console-label` [design]).
     pub help_is_console: bool,
+    pub help_console_label: String,
     /// `bHeatbeatSoundsFade` (`fDuration`): the low-health heartbeat fades out over this
     /// many seconds, whole again at each loss of health.
     pub heartbeat_fade: bool,
@@ -330,11 +343,12 @@ pub struct TweakSettings {
     pub compass_doors_exterior: f32,
     pub compass_doors_interior: f32,
     pub compass_doors_fade: bool,
-    /// `bArmorConditionLabel`: the body armour's condition under the weapon's on the HUD;
-    /// shown below `armor_visible_below` (0: always), red below `armor_red_below`,
-    /// flashing below `armor_flash_below`, in the weapon's place with none drawn under
+    /// `bArmorConditionLabel`: thresholds and placement for the body armour's condition
+    /// row under the weapon's on the HUD (the enable switch itself lives on
+    /// `game.armor_condition` so `StewVal`/`StewieGetValue` reads it live): shown below
+    /// `armor_visible_below` (0: always), red below `armor_red_below`, flashing below
+    /// `armor_flash_below`, in the weapon's place with none drawn under
     /// `armor_in_weapon_place`.
-    pub armor_condition: bool,
     pub armor_visible_below: f32,
     pub armor_red_below: f32,
     pub armor_flash_below: f32,
@@ -404,8 +418,6 @@ pub struct TweakSettings {
     pub tab_closes_terminals: bool,
     /// `bTabBackInStartMenu`: Tab goes back in the pause menu where it steps no tabs.
     pub tab_back_in_pause: bool,
-    /// `bAllowUnsafeFastTravel`: fast travel from places flagged against it (indoors).
-    pub unsafe_fast_travel: bool,
     /// `iDateFormat`: the style of `crate::wait::model::DATE_STYLES`.
     pub date_style: usize,
     /// `bEnteringVATSDoesntUnholsterWeapon`: a weapon V.A.T.S. drew goes away again when
@@ -688,6 +700,56 @@ impl TweakSettings {
             self.game.skill_points = Some((self.skill_point_base, self.skill_points_per_int));
         }
     }
+
+    /// Label shown for the pause menu's Console entry (`[Help Button Replacer] sButtonLabel`
+    /// [documented: Stewie Tweaks v10.05 Readme & generated `nvse_stewie_tweaks.ini`]),
+    /// falling back to `"Console"` when empty or whitespace-only [design].
+    pub fn console_label(&self) -> &str {
+        let trimmed = self.help_console_label.trim();
+        if trimmed.is_empty() { "Console" } else { trimmed }
+    }
+}
+
+/// `NVForever.ini` `[Settings]` key supplying custom text for the pause menu's Console entry
+/// (`[Help Button Replacer] sButtonLabel` [documented: Stewie Tweaks v10.05 Readme & generated
+/// `nvse_stewie_tweaks.ini`]) [design: no free-text widget on the Tweaks tab; kept in
+/// `NVForever.ini` alongside `tweak-help-is-console`, never imported from
+/// `nvse_stewie_tweaks.ini`].
+pub const HELP_CONSOLE_LABEL_KEY: &str = "tweak-help-console-label";
+
+/// Read `[Settings] tweak-help-console-label` from `NVForever.ini` (`SettingsFile`) at startup
+/// into [`TweakSettings::help_console_label`] [design]. Unattended runs in the player's own
+/// home (`SettingsFile(None)`) leave the label at its default.
+pub(crate) fn read_help_console_label(file: Option<Res<crate::settings::SettingsFile>>, mut tweaks: ResMut<TweakSettings>) {
+    let Some(path) = file.and_then(|f| f.0.clone()) else { return };
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    if let Some(label) = parse_help_console_label(&text) {
+        info!("tweaks: [{}] {HELP_CONSOLE_LABEL_KEY}={label} read from {}", crate::settings::SECTION, path.display());
+        tweaks.help_console_label = label;
+    }
+}
+
+fn parse_help_console_label(text: &str) -> Option<String> {
+    let raw = fnv_install::ini_get(text, crate::settings::SECTION, HELP_CONSOLE_LABEL_KEY)?;
+    let trimmed = raw.trim();
+    let unquoted = trimmed.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(trimmed).trim();
+    (!unquoted.is_empty()).then(|| unquoted.to_string())
+}
+
+/// Action Points per second drained while sneak-running under `[Running Costs AP]`:
+/// `fSneakAPDrainCostBase + fSneakRunAPEnduranceMult * (Endurance - 5)`
+/// [documented: Stewie Tweaks v10.05 generated `nvse_stewie_tweaks.ini` `[Running Costs AP]`
+/// comment; option names also in v10.05 Readme & `AllTweaks.json`; hypothesis: sign vs. the
+/// v10.05 Readme's `(5 - Endurance)` standing-run formula is unobserved in the original
+/// binary].
+///
+/// [design]: returns `0.0` whenever `base <= 0.0` (disabled) and clamps the computed drain
+/// rate at `0.0` (never negative).
+pub fn sneak_run_ap_rate(base: f32, endurance_mult: f32, endurance: f32) -> f32 {
+    if base <= 0.0 {
+        return 0.0;
+    }
+    (base + endurance_mult * (endurance - 5.0)).max(0.0)
 }
 
 /// Whether `actor` wears power armour on the upper body.
@@ -741,6 +803,8 @@ impl Default for TweakSettings {
             no_travel_crippled_leg: false,
             jump_ap_cost: 0.0,
             run_ap_per_second: 0.0,
+            sneak_run_ap_base: 0.0,
+            sneak_run_ap_endurance_mult: 0.0,
             no_selling: false,
             skill_point_base: SKILL_POINTS_START.0,
             skill_points_per_int: SKILL_POINTS_START.1,
@@ -775,6 +839,7 @@ impl Default for TweakSettings {
             skip_death_cam: false,
             skip_death_cam_attack: 0.0,
             help_is_console: false,
+            help_console_label: String::new(),
             heartbeat_fade: false,
             heartbeat_fade_seconds: 5.0,
             terminal_fade: false,
@@ -828,7 +893,6 @@ impl Default for TweakSettings {
             compass_doors_exterior: 2000.0,
             compass_doors_interior: 1000.0,
             compass_doors_fade: false,
-            armor_condition: false,
             armor_visible_below: 0.0,
             armor_red_below: 0.25,
             armor_flash_below: 0.1,
@@ -870,7 +934,6 @@ impl Default for TweakSettings {
             shift_talks_sneaking: false,
             tab_closes_terminals: false,
             tab_back_in_pause: false,
-            unsafe_fast_travel: false,
             date_style: 0,
             vats_keeps_holstered: false,
             no_hotkey_wheel: false,
@@ -1139,6 +1202,7 @@ impl Plugin for TweaksPlugin {
         crate::save::add_save_hook(app, HIDE_HUD_SAVE_HOOK);
         app.init_resource::<TweakSettings>()
             .init_resource::<ItemPlaces>()
+            .add_systems(Startup, read_help_console_label)
             .add_systems(Update, remember_item_places.after(crate::menu::MenuSystems))
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
             .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song, toggle_device).in_set(crate::PlaySet::Input))
@@ -1320,6 +1384,30 @@ impl Plugin for TweaksPlugin {
         amount!(app, "kill-reward-ap", "Action Points per Kill", "Action Points a kill by the player gives back; 0 changes nothing. (Stewie's Tweaks bKillsRewardAP)", 50.0, f64, game.kill_reward_ap);
         amount!(app, "jump-ap-cost", "Action Points per Jump", "Action Points a jump costs; with too few the player cannot jump. 0 changes nothing. (Stewie's Tweaks bJumpingCostsAP)", 50.0, f32, jump_ap_cost);
         amount!(app, "run-ap-cost", "Action Points per Second Running", "Action Points running costs each second; with none left the player walks. 0 changes nothing. (Stewie's Tweaks bRunningCostsAP)", 20.0, f32, run_ap_per_second);
+        amount!(app, "sneak-run-ap-cost", "Action Points per Second Sneak-Running", "Action Points running while sneaking costs each second; with none left the player walks. 0 changes nothing. (Stewie's Tweaks bRunningCostsAP, fSneakAPDrainCostBase)", 20.0, f32, sneak_run_ap_base);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-sneak-run-ap-endurance",
+                GROUP,
+                "Sneak-Running AP: Endurance Factor",
+                "With Action Points per Second Sneak-Running above 0, added per Endurance over 5 (negative saves AP); 0 changes nothing. (Stewie's Tweaks bRunningCostsAP, fSneakRunAPEnduranceMult)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.5, |t| ((t.sneak_run_ap_endurance_mult + 1.0) / 2.0).clamp(0.0, 1.0)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.sneak_run_ap_endurance_mult = ((v * 2.0 - 1.0) * 10.0).round() / 10.0;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| {
+                        let rate = ((v * 2.0 - 1.0) * 10.0).round() / 10.0;
+                        if rate == 0.0 { "0.0".to_string() } else { format!("{rate:+.1}") }
+                    }),
+                },
+            ),
+        );
         // ---- batch 9 ----
         switch!(app, "no-selling", "No Selling", "The player cannot sell items in a barter (buying still works). (Stewie's Tweaks bDisableSellingItems)", no_selling);
         add_setting(
@@ -1667,7 +1755,7 @@ impl Plugin for TweaksPlugin {
         );
         // ---- batch 25 ----
         switch!(app, "invert-title-wheel", "Reverse Category Wheel", "The mouse wheel over a container's category title steps the other way. (Stewie's Tweaks bInvertContainerTitleScrollwheelDirection)", invert_title_wheel);
-        switch!(app, "armor-condition", "Armor Condition on the HUD", "The HUD shows the condition of the armour worn on the body, under the weapon's. (Stewie's Tweaks bArmorConditionLabel)", armor_condition);
+        switch!(app, "armor-condition", "Armor Condition on the HUD", "The HUD shows the condition of the armour worn on the body, under the weapon's. (Stewie's Tweaks bArmorConditionLabel)", game.armor_condition);
         part!(app, "armor-visible-below", "Armor Condition: Shown Below", "The armour's row shows only below this condition; 0% always. (Stewie's Tweaks bArmorConditionLabel)", armor_visible_below);
         part!(app, "armor-red-below", "Armor Condition: Red Below", "The armour's bar turns red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_red_below);
         part!(app, "armor-flash-below", "Armor Condition: Flashing Below", "The armour's bar flashes red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_flash_below);
@@ -1878,7 +1966,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hide-read-notes", "Hide Read Notes", "The Pip-Boy's notes list leaves out notes already read. (Stewie's Tweaks bHideReadNotes)", game.hide_read_notes);
         switch!(app, "tab-closes-terminals", "Tab Closes Terminals", "Tab closes a terminal from any page instead of going back a page (Backspace still goes back). (Stewie's Tweaks bTabClosesTerminals)", tab_closes_terminals);
         switch!(app, "tab-back-in-pause", "Tab Goes Back in the Pause Menu", "Tab goes back a page in the pause menu, as Backspace does (the Settings and Controls pages keep Tab for their tabs). (Stewie's Tweaks bTabBackInStartMenu)", tab_back_in_pause);
-        switch!(app, "unsafe-fast-travel", "Fast Travel From Anywhere", "Fast travel works from places flagged against it, such as interiors; leaving a scripted place this way can break it. (Stewie's Tweaks bAllowUnsafeFastTravel)", unsafe_fast_travel);
+        switch!(app, "unsafe-fast-travel", "Fast Travel From Anywhere", "Fast travel works from places flagged against it, such as interiors; leaving a scripted place this way can break it. (Stewie's Tweaks bAllowUnsafeFastTravel)", game.unsafe_fast_travel);
         switch!(app, "vats-auto-head", "V.A.T.S. Starts on the Head", "In the classic V.A.T.S., a target's head is selected first rather than the part easiest to hit. (Stewie's Tweaks bVATSAutoTargetHead)", game.vats_auto_head);
         switch!(app, "vats-drops-disarmed-shots", "V.A.T.S. Drops Shots at a Lost Weapon", "Attacks queued in V.A.T.S. on someone's weapon are not played once they no longer hold it. (Stewie's Tweaks bVATSDequeueWeaponShotsOnDisarm)", game.vats_drops_disarmed_shots);
         switch!(app, "vats-target-projectiles", "Target Projectiles in V.A.T.S.", "V.A.T.S. can mark projectiles in flight: explosives go off, others end; odds: distance, skill. (Stewie's Tweaks bTargetProjectilesInVATS)", game.vats_target_projectiles);
@@ -2676,18 +2764,21 @@ fn ap_costs(
     if over {
         (jump, run) = (jump + tweaks.over_jump_ap, run + tweaks.over_run_ap);
     }
+    let sneak_run_base = tweaks.sneak_run_ap_base;
     let asked = intent.jump;
     let fresh_jump = asked && !*jumped;
     *jumped = asked;
-    if (jump <= 0.0 && run <= 0.0) || crate::combat::god_mode() {
+    if (jump <= 0.0 && run <= 0.0 && sneak_run_base <= 0.0) || crate::combat::god_mode() {
         return;
     }
     let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
-    let running = (intent.forward != 0.0 || intent.right != 0.0) && !intent.walk && !intent.sneak;
+    let moving = intent.forward != 0.0 || intent.right != 0.0;
+    let running = moving && !intent.walk && !intent.sneak;
+    let sneak_running = moving && !intent.walk && intent.sneak;
     let dt = time.delta_secs();
     let intent = &mut *intent;
     crate::script::with_world(rt, &mut sim, |rt| {
-        use fnv_game::actor_values::ACTION_POINTS;
+        use fnv_game::actor_values::{ACTION_POINTS, ENDURANCE};
         let g = &mut rt.game;
         let p = fnv_sim::FormId::PLAYER_REF;
         let mut ap = fnv_game::functions::actor_value(g, p, ACTION_POINTS).unwrap_or(0.0);
@@ -2700,9 +2791,19 @@ fn ap_costs(
                 info!("tweaks: jump refused, {ap:.0} AP of {jump:.0}");
             }
         }
-        if running && run > 0.0 {
+        let move_rate = if running {
+            run
+        } else if sneak_running {
+            // [design]: Endurance fallback of 5.0 when the actor value is unavailable;
+            // sneak_run_ap_rate returns 0.0 when base <= 0.0 and clamps at 0.0.
+            let endurance = fnv_game::functions::actor_value(g, p, ENDURANCE).unwrap_or(5.0) as f32;
+            sneak_run_ap_rate(sneak_run_base, tweaks.sneak_run_ap_endurance_mult, endurance)
+        } else {
+            0.0
+        };
+        if move_rate > 0.0 {
             if ap > 0.0 {
-                fnv_game::functions::add_actor_value_damage(g, p, ACTION_POINTS, f64::from(run * dt).min(ap));
+                fnv_game::functions::add_actor_value_damage(g, p, ACTION_POINTS, f64::from(move_rate * dt).min(ap));
             } else {
                 intent.walk = true;
             }
@@ -3029,5 +3130,71 @@ mod tests {
         assert_eq!(t.game, Tweaks::default());
         assert_eq!(t.game.xp_multiplier, 1.0);
         assert!(!t.no_karma_messages && !t.disable_fast_travel && !t.keep_chosen_ammo);
+        assert_eq!(t.sneak_run_ap_base, 0.0);
+        assert_eq!(t.sneak_run_ap_endurance_mult, 0.0);
+        assert_eq!(t.console_label(), "Console");
+    }
+
+    #[test]
+    fn sneak_run_ap_rate_follows_endurance_formula() {
+        assert_eq!(sneak_run_ap_rate(0.0, -0.1, 1.0), 0.0, "disabled when base is zero");
+        assert_eq!(sneak_run_ap_rate(2.0, 0.0, 10.0), 2.0, "flat base with zero multiplier");
+        assert!((sneak_run_ap_rate(2.0, -0.2, 10.0) - 1.0).abs() < 1e-6, "higher Endurance reduces drain");
+        assert!((sneak_run_ap_rate(2.0, -0.2, 1.0) - 2.8).abs() < 1e-6, "lower Endurance raises drain");
+        assert_eq!(sneak_run_ap_rate(0.5, -0.5, 10.0), 0.0, "clamped non-negative");
+    }
+
+    #[test]
+    fn help_console_label_uses_custom_text_or_default() {
+        let mut t = TweakSettings::default();
+        assert_eq!(t.console_label(), "Console");
+        t.help_console_label = "   ".to_string();
+        assert_eq!(t.console_label(), "Console");
+        t.help_console_label = " Dev Console ".to_string();
+        assert_eq!(t.console_label(), "Dev Console");
+    }
+
+    #[test]
+    fn help_console_label_reads_from_nvforever_ini_and_survives_settings_save() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("nvf-help-console-label-{}-{stamp}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "[Settings]\ntweak-help-is-console=1\ntweak-help-console-label=\"Dev Console\"\n").unwrap();
+
+        let mut app = App::new();
+        app.add_plugins(TweaksPlugin);
+        app.insert_resource(crate::settings::SettingsFile(Some(path.clone())));
+        crate::settings::apply_stored(app.world_mut());
+        app.world_mut().run_system_cached(read_help_console_label).unwrap();
+        {
+            let tweaks = app.world().resource::<TweakSettings>();
+            assert!(tweaks.help_is_console);
+            assert_eq!(tweaks.help_console_label, "Dev Console");
+            assert_eq!(tweaks.console_label(), "Dev Console");
+        }
+
+        // Saving registered settings preserves the INI-only label line untouched.
+        let i = app.world().resource::<crate::settings::Settings>().index("tweak-no-karma-messages").unwrap();
+        crate::settings::flip(app.world_mut(), i);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(fnv_install::ini_get(&saved, crate::settings::SECTION, HELP_CONSOLE_LABEL_KEY).as_deref(), Some("\"Dev Console\""), "{saved}");
+
+        // Blank/whitespace value falls back to default "Console".
+        std::fs::write(&path, "[Settings]\ntweak-help-console-label=\"   \"\n").unwrap();
+        let mut blank = App::new();
+        blank.add_plugins(TweaksPlugin);
+        blank.insert_resource(crate::settings::SettingsFile(Some(path.clone())));
+        blank.world_mut().run_system_cached(read_help_console_label).unwrap();
+        assert_eq!(blank.world().resource::<TweakSettings>().console_label(), "Console");
+
+        // Unattended run with SettingsFile(None) reads nothing.
+        let mut none = App::new();
+        none.add_plugins(TweaksPlugin);
+        none.insert_resource(crate::settings::SettingsFile(None));
+        none.world_mut().run_system_cached(read_help_console_label).unwrap();
+        assert_eq!(none.world().resource::<TweakSettings>().console_label(), "Console");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

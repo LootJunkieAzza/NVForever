@@ -336,6 +336,9 @@ struct Tracked {
 #[derive(Resource, Default)]
 pub struct WorldSounds {
     forms: SoundForms,
+    /// Per-form collision sound overrides loaded from `Data\NVSE\Plugins\SoundExtender\` (`*.json` / `*.txt`)
+    /// (`docs/spec-notes/sound-extender.md`).
+    sound_extender: fnv_game::sound_extender::SoundExtenderTable,
     /// SOUN FormIDs by Editor ID (from `Sfx`, the first frame it is there).
     by_edid: Option<HashMap<String, FormId>>,
     /// The player's inventory while a container menu is open, to hear what moves.
@@ -505,9 +508,24 @@ pub struct ImpactPicked {
     pub no_material: bool,
 }
 
-fn init(mut commands: Commands, d: Res<PlayWorld>) {
+fn init(mut commands: Commands, d: Res<PlayWorld>, data: Option<Res<nvf_assets::GameData>>) {
     let t = std::time::Instant::now();
     let forms = SoundForms::build(d.lo);
+    let sound_extender = match data.as_deref() {
+        Some(gd) => fnv_game::sound_extender::SoundExtenderTable::load_from_vfs(d.lo, &gd.vfs),
+        None => fnv_game::sound_extender::SoundExtenderTable::load_from_mod_files(d.lo),
+    };
+    let se_rep = sound_extender.report();
+    if se_rep.files_loaded > 0 || se_rep.files_malformed > 0 {
+        info!(
+            "sound extender: {} file(s) ({} malformed), {} override(s) ({} rule(s) applied, {} skipped)",
+            se_rep.files_loaded,
+            se_rep.files_malformed,
+            sound_extender.len(),
+            se_rep.rules_applied,
+            se_rep.total_skipped(),
+        );
+    }
     info!(
         "world sounds: items (records, with a pick-up sound, with a drop sound): {}; {} containers with open or close sounds, {} activators with an activation sound; sounds of their own: {}; read in {:.0} ms",
         forms.counts.iter().map(|(s, c)| format!("{s} {} {} {}", c[0], c[1], c[2])).collect::<Vec<_>>().join(", "),
@@ -516,7 +534,7 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         OWN_SOUNDS.iter().zip(forms.object_sound_counts).map(|((_, sub, what), n)| format!("{n} {what} ({})", String::from_utf8_lossy(*sub))).collect::<Vec<_>>().join(", "),
         t.elapsed().as_secs_f64() * 1000.0
     );
-    commands.insert_resource(WorldSounds { forms, ..Default::default() });
+    commands.insert_resource(WorldSounds { forms, sound_extender, ..Default::default() });
 }
 
 /// SOUN FormIDs by Editor ID.
@@ -558,8 +576,31 @@ fn ref_pos(sim: &SimState, id: u32) -> Option<[f32; 3]> {
     sim.world.peek(FormId(id)).map(|s| s.pos).or_else(|| sim.refs.get(FormId(id)).map(|p| p.pos))
 }
 
+/// Resolve the collision knock sound for a dynamic body: a SoundExtender per-form override
+/// on its base form takes precedence over Havok-material [`phy_sound`] lookup [hypothesis:
+/// docs/spec-notes/sound-extender.md].
+fn knock_sound(
+    sound_extender: &fnv_game::sound_extender::SoundExtenderTable,
+    phy: &HashMap<String, FormId>,
+    base: Option<FormId>,
+    material: Option<u32>,
+    hard: bool,
+) -> Option<FormId> {
+    if let Some(sound) = base.and_then(|b| sound_extender.resolve(b)) {
+        return Some(sound);
+    }
+    material.and_then(|c| phy_sound(c, hard)).and_then(|e| phy.get(e).copied())
+}
+
 /// Knocks of loose bodies (see the module notes).
-fn knocks(mut ws: ResMut<WorldSounds>, sfx: Option<Res<Sfx>>, phys: Option<Res<PhysState>>, time: Res<Time<Real>>, mut out: MessageWriter<PlaySound>) {
+fn knocks(
+    mut ws: ResMut<WorldSounds>,
+    sfx: Option<Res<Sfx>>,
+    phys: Option<Res<PhysState>>,
+    sim: Option<Res<SimState>>,
+    time: Res<Time<Real>>,
+    mut out: MessageWriter<PlaySound>,
+) {
     let (Some(sfx), Some(phys)) = (sfx, phys) else { return };
     let ws = &mut *ws;
     if ws.by_edid.is_none() {
@@ -571,6 +612,7 @@ fn knocks(mut ws: ResMut<WorldSounds>, sfx: Option<Res<Sfx>>, phys: Option<Res<P
         info!("world sounds: actors' impact materials (NPC_ and CREA NAM4): {}", n.iter().map(|(m, c)| format!("{m} {c}")).collect::<Vec<_>>().join(", "));
     }
     let phy = ws.by_edid.get_or_insert_with(|| by_edid(&sfx));
+    let sound_extender = &ws.sound_extender;
     let now = time.elapsed_secs_f64();
     let steps = phys.world.steps();
     let stepped = steps != ws.steps;
@@ -596,7 +638,8 @@ fn knocks(mut ws: ResMut<WorldSounds>, sfx: Option<Res<Sfx>>, phys: Option<Res<P
         t.last_knock = now;
         let hard = speed >= KNOCK_HARD;
         let code = phys.world.ref_material(id);
-        let sound = code.and_then(|c| phy_sound(c, hard)).and_then(|e| phy.get(e).copied());
+        let base = sim.as_deref().and_then(|s| s.base_of(id));
+        let sound = knock_sound(sound_extender, phy, base, code, hard);
         ws.stats.knocks += 1;
         ws.stats.knocks_hard += hard as u32;
         match sound {
@@ -610,7 +653,7 @@ fn knocks(mut ws: ResMut<WorldSounds>, sfx: Option<Res<Sfx>>, phys: Option<Res<P
             if hard { "hard" } else { "light" },
             now - t.since,
             code.map_or("none".to_string(), |c| format!("{c} {}", havok_name(c))),
-            code.and_then(|c| phy_sound(c, hard)).unwrap_or("none")
+            sound_name(Some(&sfx), sound)
         );
     }
     ws.tracked.retain(|id, _| seen.contains(id));
@@ -2203,5 +2246,242 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hear(&mut app, &[RefChanged::new(0x311), RefChanged::new(drop_b)]), vec![new_up, new_down]);
+    }
+
+    #[test]
+    fn sound_extender_overrides_loose_body_knock_sounds_end_to_end() {
+        use crate::phys::{CreatedBody, PlacedDynamic};
+        use crate::sim::test_world::{item_base, placed, sim};
+        use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+        use fnv_combat::fx::{FxForms, Sound};
+        use fnv_game::sound_extender::SoundExtenderTable;
+        use fnv_phys::RefPose;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(6 + data.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body: Vec<u8> = subs.concat();
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&[0u8; 8]);
+            out.extend_from_slice(&body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(b"GRUP");
+            out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&[0u8; 12]);
+            out.extend_from_slice(body);
+            out
+        }
+
+        const BASE_MAPPED: u32 = 0x0000_0E4B;
+        const BASE_DROPPED: u32 = 0x0000_0E4C;
+        const BASE_VANILLA: u32 = 0x0000_0E4D;
+        const SND_BOTTLE_H: FormId = FormId(0x0000_0901);
+        const SND_BOTTLE_L: FormId = FormId(0x0000_0902);
+        const SND_FIRST: FormId = FormId(0x0000_0910);
+        const SND_OVERRIDE: FormId = FormId(0x0000_0911);
+        const SND_DROPPED: FormId = FormId(0x0000_0912);
+
+        let mut esm = rec(b"TES4", 0, &[sub(b"HEDR", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0])]);
+        let mut sounds_bin = Vec::new();
+        for (id, edid) in [
+            (SND_BOTTLE_H.0, b"PHYBottleH\0".as_slice()),
+            (SND_BOTTLE_L.0, b"PHYBottleL\0".as_slice()),
+            (SND_FIRST.0, b"SynthFirstKnock\0".as_slice()),
+            (SND_OVERRIDE.0, b"SynthDrumKnock\0".as_slice()),
+            (SND_DROPPED.0, b"SynthDropKnock\0".as_slice()),
+        ] {
+            sounds_bin.extend(rec(b"SOUN", id, &[sub(b"EDID", edid)]));
+        }
+        esm.extend(top(b"SOUN", &sounds_bin));
+        let mut misc_bin = Vec::new();
+        misc_bin.extend(rec(b"MISC", BASE_MAPPED, &[sub(b"EDID", b"SynthDrum\0")]));
+        misc_bin.extend(rec(b"MISC", BASE_DROPPED, &[sub(b"EDID", b"SynthRelic\0")]));
+        misc_bin.extend(rec(b"MISC", BASE_VANILLA, &[sub(b"EDID", b"SynthBottle\0")]));
+        esm.extend(top(b"MISC", &misc_bin));
+        let plugins = vec![fnv_esm::Plugin::parse(&esm, "SynthAudio.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+
+        let dir = std::env::temp_dir().join(format!("nvf-play-sound-extender-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 1) Absent SoundExtender folder -> vanilla material lookup unchanged.
+        let empty_vfs = fnv_vfs::Vfs::open(&dir, &[]).unwrap();
+        let empty_se = SoundExtenderTable::load_from_vfs(&lo, &empty_vfs);
+        assert!(empty_se.is_empty());
+
+        let phy = HashMap::from([
+            ("PHYBottleH".to_string(), SND_BOTTLE_H),
+            ("PHYBottleL".to_string(), SND_BOTTLE_L),
+        ]);
+        assert_eq!(knock_sound(&empty_se, &phy, Some(FormId(BASE_MAPPED)), Some(24), true), Some(SND_BOTTLE_H));
+        assert_eq!(knock_sound(&empty_se, &phy, Some(FormId(BASE_MAPPED)), Some(24), false), Some(SND_BOTTLE_L));
+        assert_eq!(knock_sound(&empty_se, &phy, Some(FormId(BASE_DROPPED)), None, true), None);
+
+        // 2) Populate temp VFS with sorted SoundExtender *.txt / *.json configs + one malformed file.
+        let se_dir = dir.join("NVSE").join("Plugins").join("SoundExtender");
+        std::fs::create_dir_all(&se_dir).unwrap();
+        std::fs::write(
+            se_dir.join("01_base.txt"),
+            r#"[
+                {"mod": "SynthAudio.esm", "form": "E4B", "sound": "SynthFirstKnock"},
+                {"mod": "SynthAudio.esm", "form": "E4C", "sound": "SynthDropKnock"},
+                {"mod": "MissingPlugin.esp", "form": "1234", "sound": "SynthFirstKnock"}
+            ]"#,
+        )
+        .unwrap();
+        std::fs::write(
+            se_dir.join("02_override.JSON"),
+            r#"[{"mod": "SynthAudio.esm", "form": "0xE4B", "sound": "SynthDrumKnock"}]"#,
+        )
+        .unwrap();
+        std::fs::write(se_dir.join("03_bad.txt"), "not valid json").unwrap();
+
+        let vfs = fnv_vfs::Vfs::open(&dir, &[]).unwrap();
+        let se = SoundExtenderTable::load_from_vfs(&lo, &vfs);
+        assert_eq!(se.report().files_loaded, 2);
+        assert_eq!(se.report().files_malformed, 1);
+        assert_eq!(se.report().skipped_missing_plugin, 1);
+
+        // Build a real knocks Bevy App with three dynamic bodies:
+        // - placed_mapped (material 24 BOTTLE, base BASE_MAPPED -> overridden to SND_OVERRIDE)
+        // - placed_vanilla (material 24 BOTTLE, base BASE_VANILLA -> vanilla PHYBottleH)
+        // - dropped_mapped (material None, base BASE_DROPPED -> overridden to SND_DROPPED)
+        let placed_mapped_id = 0x0000_5001u32;
+        let placed_vanilla_id = 0x0000_5002u32;
+        let mut world = sim(
+            vec![item_base(BASE_MAPPED), item_base(BASE_DROPPED), item_base(BASE_VANILLA)],
+            vec![placed(placed_mapped_id, BASE_MAPPED), placed(placed_vanilla_id, BASE_VANILLA)],
+        );
+        let dropped_mapped_id = world.world.place(FormId(BASE_DROPPED), None, [200.0, 0.0, 30.0], [0.0; 3], 1).unwrap().0;
+
+        let mut phys = PhysState::default();
+        // Flat floor at z = 0 so falling dynamic boxes land and trigger knocks.
+        let floor_obj = CollisionObject {
+            node: None,
+            node_block: 0,
+            node_transform: Iso::IDENTITY,
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Static,
+            layer: 1,
+            mass: 0.0,
+            friction: 0.5,
+            restitution: 0.0,
+            shape: Arc::new(Shape::Box { half_extents: [500.0, 500.0, 10.0] }),
+            shell: 0.0,
+            material: Some(0),
+            wind: false,
+        };
+        phys.world.add_ref(
+            &RefPose { form_id: 0x0000_5000, position: [0.0, 0.0, -10.0], rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 },
+            &[floor_obj],
+        );
+
+        let dynamic_box = |material: Option<u32>| CollisionObject {
+            node: None,
+            node_block: 0,
+            node_transform: Iso::IDENTITY,
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Dynamic,
+            layer: 4,
+            mass: 1.0,
+            friction: 0.5,
+            restitution: 0.0,
+            shape: Arc::new(Shape::Box { half_extents: [8.0, 8.0, 8.0] }),
+            shell: 0.0,
+            material,
+            wind: false,
+        };
+        let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        for (id, x, mat) in [
+            (placed_mapped_id, 0.0, Some(24)),
+            (placed_vanilla_id, 100.0, Some(24)),
+            (dropped_mapped_id, 200.0, None),
+        ] {
+            let pos = [x, 0.0, 120.0];
+            phys.world.add_ref(&RefPose { form_id: id, position: pos, rotation: identity, scale: 1.0 }, &[dynamic_box(mat)]);
+            if id == dropped_mapped_id {
+                phys.created.insert(
+                    id,
+                    CreatedBody {
+                        local: Some(Iso::IDENTITY),
+                        dynamic: true,
+                        start: pos,
+                        added_at: 0.0,
+                        settled: false,
+                        marks: 0,
+                        rested_at: None,
+                        sank: false,
+                    },
+                );
+            } else {
+                phys.placed_dynamic.insert(
+                    id,
+                    PlacedDynamic { local: Iso::IDENTITY, scale: 1.0, added: (pos, identity), moved: false, rested: false },
+                );
+            }
+        }
+
+        let mut fx_forms = FxForms::default();
+        for (id, edid) in [
+            (SND_BOTTLE_H, "PHYBottleH"),
+            (SND_BOTTLE_L, "PHYBottleL"),
+            (SND_FIRST, "SynthFirstKnock"),
+            (SND_OVERRIDE, "SynthDrumKnock"),
+            (SND_DROPPED, "SynthDropKnock"),
+        ] {
+            fx_forms.sounds.insert(id, Sound { edid: Some(edid.into()), ..Sound::default() });
+        }
+
+        let mut app = App::new();
+        app.insert_resource(world)
+            .insert_resource(phys)
+            .insert_resource(Sfx::new(fx_forms))
+            .insert_resource(WorldSounds { sound_extender: se, ..Default::default() })
+            .insert_resource(Time::<Real>::default())
+            .add_message::<PlaySound>()
+            .add_systems(Update, knocks);
+
+        // Initial registration frame at t = 0, then advance real time past KNOCK_SETTLE (1.5 s)
+        // and step physics until all three falling bodies land on the floor and knock.
+        app.update();
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(Duration::from_secs(2));
+        let mut played = Vec::new();
+        for _ in 0..90 {
+            app.world_mut().resource_mut::<Time<Real>>().advance_by(Duration::from_millis(16));
+            app.world_mut().resource_mut::<PhysState>().world.step();
+            app.update();
+            played.extend(
+                app.world_mut()
+                    .resource_mut::<bevy::ecs::message::Messages<PlaySound>>()
+                    .drain()
+                    .map(|m| m.sound),
+            );
+        }
+
+        assert!(played.contains(&SND_OVERRIDE), "mapped placed clutter plays later-file SoundExtender override: {played:?}");
+        assert!(!played.contains(&SND_FIRST), "earlier-file SoundExtender rule was deterministically superseded: {played:?}");
+        assert!(played.contains(&SND_DROPPED), "mapped dropped item with no Havok material still plays SoundExtender override: {played:?}");
+        assert!(
+            played.contains(&SND_BOTTLE_H) || played.contains(&SND_BOTTLE_L),
+            "unmapped sibling body retains vanilla PHYBottle knock sound: {played:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

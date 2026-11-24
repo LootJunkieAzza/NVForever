@@ -274,10 +274,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // Load-order override queries backed by `GameData::form_overrides`
         // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden;
-        // observed: plugins1, non-overridden Stimpak returns 0 and 0].
+        // observed: plugins1, non-overridden Stimpak returns 0 and 0;
+        // observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528,
+        // clean-room script probe jg_01_form_override_index_edge: overridden pistol=5,
+        // null=0, TempCloneForm=255, IsFormOverridden(clone)=0; no DLL or source consulted].
         "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden(f))),
         "getformoverrideindex" => {
-            let Some(f) = form(args, 0).or(subject) else { return Some(Ok(XVal::Num(-1.0))) };
+            let Some(f) = form(args, 0).or(subject) else { return Some(Ok(XVal::Num(0.0))) };
             let idx = if let Some(i) = g.data.form_override_index(f) {
                 f64::from(i)
             } else if f.0 >> 24 >= 0xFE {
@@ -285,7 +288,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             } else if g.world.placed.get(f).is_some() {
                 f64::from(f.0 >> 24)
             } else {
-                -1.0
+                0.0
             };
             XVal::Num(idx)
         }
@@ -622,19 +625,39 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // 00171DBB from the frame after ForcePlayIdle and still 4 frames after
         // ForceStopIdle or StopIdle; hypothesis: kept until another plays].
         "getplayedidle" => XVal::Ref(subject.and_then(|a| g.extra.get(&a)).and_then(|e| e.last_idle).map_or(0, |i| i.0)),
-        // kNVSE: `idle`, played at once as PlayIdle's are [documented: ForcePlayIdle].
+        // kNVSE: `idle [playerPOV]`, played at once as PlayIdle's are; optional
+        // `playerPOV` 1 targets third person and 2 targets first person
+        // [documented: GECK wiki ForcePlayIdle].
         "forceplayidle" => {
             if let (Some(a), Some(i)) = (subject, form(args, 0)) {
-                if g.ask_idle(a, i, crate::idles::IdleSource::Script) {
+                let pov = match num(args, 1, 0.0) as i64 {
+                    1 => Some(crate::idles::IdlePov::Third),
+                    2 => Some(crate::idles::IdlePov::First),
+                    _ => None,
+                };
+                if g.ask_idle_pov(a, i, crate::idles::IdleSource::Script, pov) {
                     g.extra.entry(a).or_default().last_idle = Some(i);
                 }
             }
             zero
         }
-        // The special idle stops (the engine takes it at its next frame).
+        // The special idle stops (the engine takes it at its next frame); optional
+        // `playerPOV` 1/2 scopes `ForceStopIdle` to one player rig [documented: ForceStopIdle].
         "stopidle" | "forcestopidle" => {
             if let Some(a) = subject {
-                g.gaps.idle_stops.push(a);
+                let pov = if name == "forcestopidle" {
+                    match num(args, 0, 0.0) as i64 {
+                        1 => Some(crate::idles::IdlePov::Third),
+                        2 => Some(crate::idles::IdlePov::First),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                match pov {
+                    Some(p) => g.gaps.idle_stop_pov.push((a, p)),
+                    None => g.gaps.idle_stops.push(a),
+                }
             }
             zero
         }

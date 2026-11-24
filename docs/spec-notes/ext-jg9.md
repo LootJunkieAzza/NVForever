@@ -51,7 +51,7 @@ sounds are UIPipBoyHolotapeStart and UIPipBoyHolotapeStop [observed: FalloutNV.e
 ## 3. Terminal menu items
 
 AddTerminalMenuItem `terminal` adds a new, empty item [documented], at the end
-[hypothesis]. RemoveTerminalMenuItem `terminal index` removes one [documented]; the items
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_33_add_remove_terminal_menu_item (AddTerminalMenuItem/RemoveTerminalMenuItem): 1,1; no DLL or source consulted]. RemoveTerminalMenuItem `terminal index` removes one [documented]; the items
 after it move up, with a script's changes to them (Set…TerminalMenuItem…, `nvse_jg3`).
 What stands at each position is kept for the session (`terminal::slots`); every reader of
 a terminal's items goes through it. An open menu holds positions, so a removal also asks
@@ -102,7 +102,7 @@ controls are read.
 | GetNearestCompassHostileDirection `[skipInvisible]` | 0 front … 7 front left [documented], eight equal sectors about the heading [hypothesis]; -1 with no hostile mark [observed, §7]; invisible is Invisibility or Chameleon above 0 (`nvf-play` compass.rs) |
 | GetCurrentSkyColor `type rOut gOut bOut` | the sky's colour of that type now [documented: 0 sky upper … 9 clouds upper], 0-255, by the weather colour types' order [hypothesis: the page's ids are NAM0's]; 0 in an interior [hypothesis] (`nvforever` sky.rs) |
 | GetPlayerCamFOV `0/1/2` | the world FOV, the first person's, or the one the camera uses now [documented], as GetCameraFOV reads them (a SetCameraFOV value, else the settings page's Field of view / Viewmodel field of view, else the INI's); the first person's until the engine tells the view [observed: 55 in the probe's save, §7] |
-| GetPipBoyMode | 0 closed, 1/2 opening, 3 opened, 4/5 closing [documented: GECK wiki GetPipBoyMode]; NVForever reports 3 while `Game::menu_open(menus::PIPBOY)` holds (any Pip-Boy page, including underneath a tutorial overlay) and 0 otherwise [hypothesis: opening/closing animation transition modes 1/2/4/5 are not emitted] |
+| GetPipBoyMode | 0 closed, 1/2 opening, 3 opened, 4/5 closing [documented: GECK wiki GetPipBoyMode; observed: 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `w4c_b3_06_toggle_pipboy_tab` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3678 / PR #3679), toggling `TogglePipBoy 1003` and polling `GetPipBoyMode`: `init(pb=0)|open1003(mm=1003,pb=2)|close(mm=1003,pb=3)|reopenNoArg(mm=0,pb=0)`, plus 2026-11-23 `b3_jg9_01_sound_runspeed_compass_pipboy` (`wave4b_extenders.json`): `ps=1,ss=0,rsP=338.8,rsD=338.8,hostDir=-1,pb=0`; no DLL or source consulted]; NVForever reports 3 while `Game::menu_open(menus::PIPBOY)` holds (any Pip-Boy page, including underneath a tutorial overlay) and 0 otherwise [not built: opening/closing animation transition modes 1/2/4/5] |
 
 ## 7. Observed (set jg9 at 5d1ab3447, 2026-11-10)
 

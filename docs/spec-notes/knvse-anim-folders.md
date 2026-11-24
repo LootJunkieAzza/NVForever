@@ -7,10 +7,14 @@ and plays what they give through the override layer of the kNVSE functions
 
 Sources: the GECK wiki export's CopyAnimationsToForm page, the one page that mentions the
 folder [documented: "Copies the kNVSE AnimGroupOverride animations, including conditions
-and other attributes"]; the file trees of the 25 mods installed in the owner's two Mod
+and other attributes"]; the kNVSE Animation Plugin Nexus Mods page (mod 71336) for
+`_1stPerson`, `_male`, and `Mod1`–`Mod3` weapon-mod subfolder conventions [documented];
+GECK wiki `GetEquippedWeaponModFlags` for weapon-mod bitmask bits `1`, `2`, and `4`
+[documented]; and the file trees of the 25 mods installed in the owner's two Mod
 Organizer folders that have one (8,837 files, 299 JSON files, 778 entries; survey of
-2026-11-03) [observed]. No kNVSE source, readme or mod page was read. What the files show is
-the layout mods use; how kNVSE reads it is [hypothesis] unless said otherwise.
+2026-11-03) [observed]. No kNVSE DLL or source code was consulted. What the files show is
+the layout mods use; details not explicitly stated by public documentation are tagged
+`[hypothesis]` or `[design]`.
 
 ## 1. Layout [observed]
 
@@ -28,9 +32,14 @@ the layout mods use; how kNVSE reads it is [hypothesis] unless said otherwise.
 - Files are `.kf` (8,517), with `.bak` copies, a `chances.txt` beside some jam files and
   `_male.mohidden` folders (Mod Organizer's hidden files). File names need not be the
   group's (`1hpReloadL v2.14.kf`, `2haJamF_a.kf`).
-- `_1stPerson\Mod1\` … `Mod3\` folders sit beside the plain files of a weapon
-  (`Ani_DesertEagle\_1stPerson\Mod1\1hpReloadL v2.14.kf`) [hypothesis: the files for the
-  weapon with that mod attached].
+- `_1stPerson\Mod1\` … `Mod3\` folders (and `_male\Mod1\` … `Mod3\`) sit beside the
+  plain files of a weapon (`Ani_DesertEagle\_1stPerson\Mod1\1hpReloadL v2.14.kf`)
+  [documented: kNVSE Animation Plugin Nexus page (mod 71336), Mod1/Mod2/Mod3 folders
+  apply only when the corresponding weapon mod slot is installed; hypothesis: combined
+  bitmask subfolders `Mod12`, `Mod13`, `Mod23`, `Mod123` apply when all named slots are
+  installed].
+- Some override folders place `.kf` files directly inside the folder or in named
+  non-view subfolders (without a `_male\` or `_1stPerson\` directory prefix).
 
 ## 2. The JSON files [observed]
 
@@ -75,7 +84,39 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   says what was read. Only loose files are read [hypothesis: mods ship them loose; none
   was seen in an archive].
 - **A set's files:** every `.kf` under its `_male` (third person) and `_1stPerson` (first
-  person) folders, at any depth, except under `Mod1`–`Mod3` (left for a follow-up).
+  person) folders at any depth, plus direct `.kf` files placed in the set's folder or in
+  named non-view subfolders when no `_male`/`_1stPerson` prefix is present (applied to
+  both views, ordered before explicit `_male`/`_1stPerson` files so explicit view files
+  override direct files of the same clip name) [hypothesis; design]. Nested child sets
+  (subfolders containing `_male`/`_1stPerson` below the top level, or subfolders named as
+  their own `folder` by another JSON entry) and Mod Organizer `*.mohidden` directories
+  are excluded so child sets never leak into a parent set [design].
+- **Weapon-mod subfolders (`Mod1`–`Mod3`, combined `Mod12`/`Mod13`/`Mod23`/`Mod123`):**
+  `.kf` files under a `Mod1`, `Mod2`, or `Mod3` directory (any ASCII case) are stored in
+  weapon-mod-gated buckets keyed by the 3-bit weapon-mod bitmask (`1` = Mod 1, `2` = Mod 2,
+  `4` = Mod 3) [documented: kNVSE Animation Plugin Nexus page (mod 71336); GECK wiki
+  `GetEquippedWeaponModFlags`]. Combined bitmask directory names (`Mod12`, `Mod13`,
+  `Mod23`, `Mod123`) and nested `Mod*` directories combine their bits [hypothesis]. A
+  folder whose only `.kf` files live inside `Mod*` subfolders is kept rather than dropped
+  as empty. During evaluation, matching buckets (`(equipped_mods & mask) == mask`) are
+  appended after base files ordered by `(mask.count_ones(), mask)` so more specific mod
+  combinations override single-mod and base animations [design]. Unmodded weapons
+  (`equipped_mods == 0`) fall back to the base files only.
+- **`chances.txt` weighted random selection:** when a directory containing `.kf` files
+  also contains a `chances.txt`, NVForever parses `<file> = <weight>`,
+  `<file>: <weight>%`, or `<file> <weight>` lines (ignoring blank lines, `;`/`#`/`//`
+  comments, malformed lines, negative weights, and non-finite weights fail-closed)
+  [hypothesis; design]. Matched `.kf` files (matched by lowercase filename or bare stem)
+  with weight `0` are excluded; positive-weighted matched files form weighted pools
+  (split by underscore-delimited base stem when multiple distinct multi-file variant
+  families exist in the same directory, otherwise one pool for the directory) and select
+  one path per pool deterministically via `AnimFolders`'s own dedicated `ChaCha8Rng`
+  (separate from `Game::rng`, so animation packs never perturb unrelated gameplay rolls)
+  [design]. Each actor's picks are cached per pool and stay stable across periodic polls
+  until the actor's equipped weapon, weapon-mod mask, or matching entry set changes
+  [design]. Unmatched `.kf` files (and directories whose `chances.txt` contains only
+  author notes such as `Short: 20%` with no matching `.kf` filenames) remain
+  unconditional and do not draw from either RNG [design].
 - **Which hold:** four times a second, for the player and each actor the engine draws: the
   entries for the actor's reference, its base or its equipped weapon, and those for every
   actor, whose condition holds on the actor (EvaluateString's compiler; a condition that
@@ -84,6 +125,7 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   (hypothesis); a quarter second covers both closely enough, so `pollCondition` is read
   but changes nothing.]
 - **Which wins:** the holding entries in order of priority (none is 0), then of reading;
+  within each entry, base files precede matching `Mod*` buckets in specificity order;
   their files are given in that order, and of two files of the same group the later wins
   (as the engine applies SetActorAnimationPath's paths) [hypothesis: the higher priority
   wins, and at the same priority the later entry]. SetActorAnimationPath's paths come
@@ -93,18 +135,20 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   and priorities with them [documented].
 - **The engine** plays the third-person files whose name is a standing locomotion group
   (`mtidle.kf`, `mtforward.kf` …) on drawn actors, as it plays SetActorAnimationPath's
-  (`engine/nvforever/src/anim_paths.rs`). A file's group is read from its name, not its
-  sequence [hypothesis, as knvse-anim.md §2; the mods' `1hpReloadL v2.14.kf` shows names
-  can differ].
+  (`engine/nvforever/src/anim_paths.rs`), and applies player first- and third-person
+  overrides through `engine/nvforever/src/player_body.rs` (`apply_anim_overrides`). A
+  file's group is read from its name, not its sequence [hypothesis, as knvse-anim.md §2;
+  the mods' `1hpReloadL v2.14.kf` shows names can differ].
 
 ## 4. Not built (follow-ups)
 
-- The engine plays no first-person override, no weapon group (attacks, reloads, aims,
-  equips) and no idle from them: it has no player for SetWeaponAnimationPath's either.
-  Weapon sets are read and matched game-side, ready for it.
-- The group of a file from its sequence name instead of its file name; several files of
-  one group (`2haJamF.kf`, `2haJamF_a.kf`) and `chances.txt` [hypothesis: variants picked
-  at random].
-- `Mod1`–`Mod3` folders by the weapon's mods.
+- The engine plays no NPC weapon group (attacks, reloads, aims, equips) or NPC idle from
+  folder overrides: it has no NPC player for SetWeaponAnimationPath's either. Weapon sets
+  (including `Mod1`–`Mod3`, direct `.kf` folders, and `chances.txt` weighted picks) are
+  read and resolved game-side into `Game::anim_overrides` / `Game::anim_overrides_now`.
+- The group of a file from its sequence name instead of its file name, and engine-side
+  variant-stem mapping when a selected file name carries a variant suffix (`2haJamF_a.kf`)
+  for a base group (`2haJamF.kf`).
 - An observer check in the original: which of two holding entries wins at equal and at
-  different priorities, and whether a script's SetActorAnimationPath beats a folder.
+  different priorities, whether a script's SetActorAnimationPath beats a folder, and exact
+  tie-breaking across simultaneous `Mod1`/`Mod2`/`Mod3` subfolders.
