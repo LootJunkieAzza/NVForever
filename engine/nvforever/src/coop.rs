@@ -183,6 +183,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 mod campfires;
+pub(crate) mod net_settings;
 mod story;
 mod replication;
 mod areas;
@@ -360,6 +361,7 @@ const GUEST_CREATED: u32 = 0xFF80_0000;
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
+        net_settings::register(app);
         let c = &self.0;
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
         let name = env(NAME_ENV).unwrap_or_else(|| c.name.clone());
@@ -516,6 +518,9 @@ fn host_session(port: u16, local: bool) -> Option<Link> {
 
 /// A guest's session with the host a code or an address names.
 fn guest_session(at: &str, name: &str) -> Result<Link, String> {
+    if matches!(nvf_signal::code::JoinForm::parse(at), Some(nvf_signal::code::JoinForm::Online(_))) && nvf_coop::prefs::connection() == nvf_coop::prefs::Connection::LanOnly {
+        return Err("That is an online code, and Co-op connection is set to LAN only: change it in Settings to join.".into());
+    }
     // An online code: the matchmaking service says where the host is.
     if let (Some(nvf_signal::code::JoinForm::Online(code)), Some(service)) = (nvf_signal::code::JoinForm::parse(at), nvf_coop::signal_io::service()) {
         return match Session::join_online(&service, code, name, &this_load_order()) {

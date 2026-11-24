@@ -29,6 +29,9 @@ const READ_WAIT: Duration = Duration::from_millis(30);
 
 /// The service to use: [`SERVICE_ENV`], else the default; None when turned off.
 pub fn service() -> Option<String> {
+    if crate::prefs::connection() == crate::prefs::Connection::LanOnly {
+        return None;
+    }
     match std::env::var(SERVICE_ENV) {
         Ok(v) if v.trim().eq_ignore_ascii_case("off") => None,
         Ok(v) if !v.trim().is_empty() => Some(v.trim().trim_end_matches('/').to_string()),

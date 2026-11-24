@@ -66,7 +66,7 @@ impl PortMap {
     /// Start asking for `local`'s port (an IPv4 LAN address of this PC with the game
     /// socket's port), when mapping is on and the router's address is known.
     pub fn start(local: SocketAddr, now: Instant) -> Option<Self> {
-        if std::env::var(ENV).is_ok_and(|v| v.trim() == "0") {
+        if !crate::prefs::port_mapping() {
             return None;
         }
         let IpAddr::V4(client) = local.ip() else { return None };

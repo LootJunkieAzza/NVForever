@@ -108,6 +108,8 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Dialogue"), &["dialogue-zoom", "dialogue-look", "dialogue-recentre", "menu-pause", "dialogue-goodbye-hint", "lip-sync"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
+    // Co-op networking (docs/design/coop-networking.md §10).
+    section("Gameplay", Some("Co-op"), &["coop-connection", "coop-router-port", "coop-relay", "coop-ask"]),
     // Split screen's layout (plan split-screen.md §2: "under Display"; owner 2026-11-20).
     section("Display", Some("Screen"), &["monitor", "resolution", "borderless", "split-layout"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
@@ -1091,7 +1093,11 @@ pub const SHOWN_WITH: &[(&str, &str, &[&str])] = &[
 /// choices by name, why) [design: the menu overhaul], as [`NEEDS`] for a row that needs a
 /// choice rather than a row switched on. The game's page
 /// (`nvf_play::settings::Settings::disabled_status`) and the launcher both go by it.
-pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[("vats-slowdown", "vats-style", &["Classic"], "Classic V.A.T.S. only.")];
+pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[
+    ("vats-slowdown", "vats-style", &["Classic"], "Classic V.A.T.S. only."),
+    ("coop-router-port", "coop-connection", &["Automatic", "Direct only"], "Not with LAN only."),
+    ("coop-relay", "coop-connection", &["Automatic", "Direct only"], "Not with LAN only."),
+];
 
 /// What a row needs of another row to apply: `parent` on (a switch on, a list past its first
 /// choice) when `choices` is empty, else `parent` on one of `choices` (by name). `why` is

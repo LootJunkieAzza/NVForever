@@ -289,6 +289,38 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 - More: docs/design/player-reports.md
 - Registered in `engine/nvforever/src/reports/delete.rs`
 
+## Gameplay › Co-op
+
+### `coop-connection`: Co-op connection
+
+- On the page: Automatic: online codes, and through another player when needed. Direct only:
+  never through another player. LAN only: players on this network only.
+- In full: Automatic: online codes through the matchmaking service, the router asked for a
+  port, and a relay through another player when no direct path is found. Direct only: the
+  same, never through another player. LAN only: no matchmaking service, router port or relay.
+- More: docs/design/coop-networking.md
+- Registered in `engine/nvforever/src/coop/net_settings.rs`
+
+### `coop-router-port`: Open router port automatically
+
+- On the page: On: your router is asked to let co-op players in (UPnP, NAT-PMP or PCP), and
+  the port closes when you leave. Applies to the next lobby or join.
+- Greyed with LAN only.
+- Registered in `engine/nvforever/src/coop/net_settings.rs`
+
+### `coop-relay`: Relay for other players
+
+- On the page: On: a player in your lobby who cannot reach the host may play through your
+  game (at most 2, about 15 KB/s each). Their traffic stays encrypted.
+- Greyed with LAN only.
+- Registered in `engine/nvforever/src/coop/net_settings.rs`
+
+### `coop-ask`: Ask before players join
+
+- On the page: On: when you host, a player joining by online code waits until you let them in
+  from the Co-op Lobby. Players on your network join at once.
+- Registered in `engine/nvforever/src/coop/net_settings.rs`
+
 ## Display › Screen
 
 ### `monitor`: Monitor

@@ -308,7 +308,7 @@ mod tests {
     /// shadows row; #2981's authored materials row and its reflections row; #2701's
     /// full-detail scenery row; #3014's distant objects row; #2993's aerial perspective row;
     /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row), by the group it registers with.
-    const KNOWN: [(&str, &str); 150] = [
+    const KNOWN: [(&str, &str); 154] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -459,6 +459,11 @@ mod tests {
         ("terrain-wireframe", "Debug"),
         ("send-reports", "Reports"),
         ("reports-delete", "Reports"),
+        // The co-op connection rows (nvforever `coop/net_settings.rs`).
+        ("coop-connection", "Gameplay"),
+        ("coop-router-port", "Gameplay"),
+        ("coop-relay", "Gameplay"),
+        ("coop-ask", "Gameplay"),
     ];
 
     /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).

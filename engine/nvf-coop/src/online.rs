@@ -394,7 +394,7 @@ impl Online {
                             };
                             // Join approval: the host is asked, unless it turned that off. The
                             // game's own link still turns a full lobby away.
-                            if std::env::var(ASK_ENV).is_ok_and(|v| v.trim() == "0") {
+                            if !crate::prefs::ask_before_join() {
                                 c.accept(peer);
                                 self.events.push(OnlineEvent::Note(format!("{name} (guest {peer}) asks to join: let in")));
                                 peers.insert(peer, Peer { key, remotes: candidates, agent: None });
@@ -505,7 +505,7 @@ impl Online {
                             // A: another player asks this game to relay for it. Only with a
                             // direct path of its own (not relayed itself).
                             let direct = *connected && relays.planner.as_ref().is_none_or(|p| p.current().is_none());
-                            let policy = Policy { allow: !std::env::var(RELAY_ENV).is_ok_and(|v| v.trim() == "0"), ..Policy::default() };
+                            let policy = Policy { allow: crate::prefs::relay_for_others(), ..Policy::default() };
                             let answer = if relays.serving.contains_key(&from) { Answer::Accept } else { policy.answer(relays.serving.len(), direct) };
                             match answer {
                                 Answer::Accept => {
@@ -569,6 +569,10 @@ impl Online {
                                 *connected = true;
                                 self.events.push(OnlineEvent::Note(format!("path to the host: {remote} ({path})")));
                                 self.events.push(OnlineEvent::HostAt(remote));
+                                done = true;
+                            }
+                            Action::Failed if !crate::prefs::relay_through_others() => {
+                                self.events.push(OnlineEvent::Failed("Couldn't reach the host from your network, and Co-op connection is set to Direct only (no relay through another player).".into()));
                                 done = true;
                             }
                             Action::Failed => {

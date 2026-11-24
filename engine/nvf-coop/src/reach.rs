@@ -37,6 +37,10 @@ pub fn open(port: u16) -> Reach {
     if let Some(public) = std::env::var(ADDRESS_ENV).ok().and_then(|a| a.trim().parse::<Ipv4Addr>().ok()) {
         return reach(public, true, None);
     }
+    if !crate::prefs::port_mapping() {
+        let why = if crate::prefs::connection() == crate::prefs::Connection::LanOnly { "Co-op connection is LAN only" } else { "the router port setting is off" };
+        return reach(local, false, Some(format!("Only players on your network can join ({why}).")));
+    }
     match open_router(local, port) {
         Ok(public) if carrier_nat(public) => reach(
             local,
