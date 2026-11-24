@@ -16,3 +16,6 @@ igd-next = { version = "0.18.0", default-features = false, features = ["io_sync"
 steamworks = "0.13.1"
 # Steam's notes reach the game's log (Bevy's LogPlugin takes `log` records).
 log = "0.4"
+# The IPv6 socket is bound IPv6-only (transport.rs), so it never takes the IPv4 socket's
+# port; std cannot set that before binding. MIT/Apache.
+socket2 = "0.6"

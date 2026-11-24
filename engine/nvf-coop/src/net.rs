@@ -1,4 +1,5 @@
-//! The co-op wire: one UDP socket (and Steam, [`crate::steam`], when the game has it), a
+//! The co-op wire: its sockets ([`crate::transport`]: UDP over IPv4 and IPv6, and Steam,
+//! [`crate::steam`], when the game has it), a
 //! host and up to [`MAX_GUESTS`] guests. A peer over Steam has a stand-in address
 //! ([`crate::steam::addr`]): everything here is the same for it.
 //!
@@ -71,6 +72,7 @@ use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6, UdpSocket};
 use crate::rel::{Frame, Reliable};
 use crate::repl::ActorPose;
 use crate::steam::Steam;
+use crate::transport::{Scope, Transport};
 use crate::story::{self, StoryEntry, StoryPager, StoryValue};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -107,8 +109,6 @@ const HELLO_EVERY: Duration = Duration::from_millis(500);
 /// The network thread's tick.
 const TICK: Duration = Duration::from_millis(10);
 const NAME_MAX: usize = 32;
-/// IP and UDP headers, counted with each packet's bytes in [`Session::traffic`].
-const UDP_OVERHEAD: u64 = 28;
 /// The most reliable packets one stream sends per network tick (10 ms): about 110 KB/s
 /// while a join's snapshot goes, far less after.
 const REL_PACKETS: usize = 4;
@@ -881,9 +881,8 @@ struct Paged {
 
 /// One side of the link, ticked by [`Link`]'s thread (or by hand in tests).
 pub struct Session {
-    sock: UdpSocket,
-    /// Steam, for peers with a stand-in address ([`Session::over_steam`]).
-    steam: Option<&'static Steam>,
+    /// The sockets, and Steam for peers with a stand-in address ([`Session::over_steam`]).
+    net: Transport,
     role: Role,
     /// The host's guests, or the other peers a guest has heard of (the host among them).
     peers: Vec<Peer>,
@@ -964,21 +963,22 @@ pub struct Session {
 }
 
 impl Session {
-    /// Host on `port` (all interfaces; 0 picks a free one).
+    /// Host on `port` (all interfaces, IPv4 and, when the PC has it, IPv6; 0 picks a free
+    /// one).
     pub fn host(port: u16) -> std::io::Result<Self> {
-        Self::with(UdpSocket::bind(("0.0.0.0", port))?, Role::Host)
+        Self::with(Transport::host(port, Scope::All)?, Role::Host)
     }
 
     /// Host for games on this PC only (127.0.0.1; 0 picks a free port): split screen's
     /// player 2. Nothing outside can reach it, so Windows asks nothing of its firewall and
     /// no router port is needed; [`Session::open_to_all`] opens it later.
     pub fn host_local(port: u16) -> std::io::Result<Self> {
-        Self::with(UdpSocket::bind(("127.0.0.1", port))?, Role::Host)
+        Self::with(Transport::host(port, Scope::Loopback)?, Role::Host)
     }
 
     /// Whether this session listens on this PC's loopback only ([`Session::host_local`]).
     pub fn local_only(&self) -> bool {
-        self.sock.local_addr().is_ok_and(|a| a.ip().is_loopback())
+        self.net.local_only()
     }
 
     /// A host for this PC only opens to every network, on the same port: the guests
@@ -990,23 +990,7 @@ impl Session {
         if !self.local_only() {
             return Ok(());
         }
-        let port = self.sock.local_addr()?.port();
-        let stand_in = UdpSocket::bind(("127.0.0.1", 0))?;
-        drop(std::mem::replace(&mut self.sock, stand_in));
-        match UdpSocket::bind(("0.0.0.0", port)) {
-            Ok(sock) => {
-                sock.set_nonblocking(true)?;
-                self.sock = sock;
-                Ok(())
-            }
-            Err(e) => {
-                if let Ok(back) = UdpSocket::bind(("127.0.0.1", port)) {
-                    let _ = back.set_nonblocking(true);
-                    self.sock = back;
-                }
-                Err(e)
-            }
-        }
+        self.net.rebind(Scope::All)
     }
 
     /// A host that opened to every network ([`Session::open_to_all`]) goes back to this PC
@@ -1018,7 +1002,6 @@ impl Session {
         if !self.is_host() || self.local_only() {
             return Ok(Vec::new());
         }
-        let port = self.sock.local_addr()?.port();
         let here = |a: Option<SocketAddr>| a.is_some_and(|a| a.ip().is_loopback());
         let away: Vec<(u8, SocketAddr)> = self.peers.iter().filter(|p| !here(p.addr)).filter_map(|p| Some((p.id, p.addr?))).collect();
         let host_bye = encode(&Msg::Bye { id: 0 });
@@ -1030,7 +1013,7 @@ impl Session {
                 match relay_index(*addr) {
                     // A game behind a guest on another PC: through that guest (`sock_send`).
                     Some(_) => self.sock_send(&Msg::Bye { id: 0 }, *addr),
-                    None => send_raw(&self.sock, self.steam, &host_bye, *addr),
+                    None => self.net.send(&host_bye, *addr),
                 }
             }
         }
@@ -1054,29 +1037,14 @@ impl Session {
             self.events.push(Event::Left(id));
             dropped.push(id);
         }
-        let stand_in = UdpSocket::bind(("127.0.0.1", 0))?;
-        let open = std::mem::replace(&mut self.sock, stand_in);
-        drop(open);
-        match UdpSocket::bind(("127.0.0.1", port)) {
-            Ok(sock) => {
-                sock.set_nonblocking(true)?;
-                self.sock = sock;
-                self.steam = None;
-                Ok(dropped)
-            }
-            Err(e) => {
-                if let Ok(back) = UdpSocket::bind(("0.0.0.0", port)) {
-                    let _ = back.set_nonblocking(true);
-                    self.sock = back;
-                }
-                Err(e)
-            }
-        }
+        // Steam is let go with the open sockets.
+        self.net.rebind(Scope::Loopback)?;
+        Ok(dropped)
     }
 
     /// Talk over Steam too from now on (a host for this PC only that opens to all), or not.
     pub fn set_steam(&mut self, steam: Option<&'static Steam>) {
-        self.steam = steam;
+        self.net.set_steam(steam);
     }
 
     /// A guest takes games behind it (split screen's player 2, plan split-screen.md
@@ -1121,7 +1089,6 @@ impl Session {
     /// (0 for none), `name` is shown to the others. `token` names this guest to the host
     /// across dropouts and restarts ([`new_token`] for a new one).
     pub fn join(candidates: &[SocketAddr], lobby: u32, name: &str, token: u64) -> std::io::Result<Self> {
-        let any = if candidates.iter().all(|c| c.is_ipv6()) && !candidates.is_empty() { "[::]:0" } else { "0.0.0.0:0" };
         let role = Role::Guest {
             candidates: candidates.to_vec(),
             host: None,
@@ -1136,23 +1103,19 @@ impl Session {
             gone: false,
         };
         // A host on this PC only (split screen's player 2): this PC's loopback, which asks
-        // nothing of the firewall.
-        let any = if !candidates.is_empty() && candidates.iter().all(|c| c.ip().is_loopback()) { if candidates[0].is_ipv6() { "[::1]:0" } else { "127.0.0.1:0" } } else { any };
-        let sock = UdpSocket::bind(any)?;
-        // A host on the guest's own network is asked by broadcast.
-        let _ = sock.set_broadcast(true);
-        Self::with(sock, role)
+        // nothing of the firewall; a host on the guest's own network is asked by broadcast
+        // (both in `Transport::guest`).
+        Self::with(Transport::guest(candidates)?, role)
     }
 
-    fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
-        sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None })
+    fn with(net: Transport, role: Role) -> std::io::Result<Self> {
+        Ok(Self { net, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
     /// one.
     pub fn over_steam(mut self, steam: &'static Steam) -> Self {
-        self.steam = Some(steam);
+        self.net.set_steam(Some(steam));
         self
     }
 
@@ -1466,7 +1429,7 @@ impl Session {
     }
 
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.sock.local_addr()
+        self.net.local_addr()
     }
 
     /// This game's newest player state; [`Session::tick`] sends it at [`SEND_HZ`].
@@ -1560,7 +1523,7 @@ impl Session {
                 let hello = encode(&Msg::Hello { token: *token, lobby: *lobby, name: name.clone() });
                 // Until one answers, every address the code gave; then that one.
                 for to in host.iter().chain(candidates.iter().filter(|_| host.is_none())) {
-                    send_raw(&self.sock, self.steam, &hello, *to);
+                    self.net.send(&hello, *to);
                 }
                 *last_hello = Some(now);
             }
@@ -1728,16 +1691,16 @@ impl Session {
 
     fn sock_send(&self, msg: &Msg, to: SocketAddr) {
         let bytes = encode(msg);
-        *self.sent.borrow_mut().entry(to).or_default() += bytes.len() as u64 + UDP_OVERHEAD;
+        *self.sent.borrow_mut().entry(to).or_default() += bytes.len() as u64 + crate::transport::overhead(to);
         match relay_index(to) {
             // A game behind a guest: wrapped, to that guest, the way any packet to it goes
             // (UDP or Steam).
             Some(i) => {
                 if let Some(&(via, sub)) = self.relays.get(i) {
-                    send_raw(&self.sock, self.steam, &encode(&Msg::Relayed { sub, bytes }), via);
+                    self.net.send(&encode(&Msg::Relayed { sub, bytes }), via);
                 }
             }
-            None => send_raw(&self.sock, self.steam, &bytes, to),
+            None => self.net.send(&bytes, to),
         }
     }
 
@@ -1824,29 +1787,15 @@ impl Session {
     }
 
     fn receive(&mut self, now: Instant) {
-        let mut buf = [0u8; 1500];
-        loop {
-            let (n, from) = match self.sock.recv_from(&mut buf) {
-                Ok(r) => r,
-                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-                // Windows reports an ICMP "port unreachable" from an earlier send as an error
-                // on a later receive (WSAECONNRESET); it says nothing about any packet.
-                Err(e) if e.kind() == ErrorKind::ConnectionReset => continue,
-                Err(_) => break,
-            };
-            self.handle(&buf[..n], from, now);
-        }
-        let mut steam = Vec::new();
-        if let Some(s) = self.steam {
-            s.receive(&mut steam);
-        }
-        for (bytes, from) in steam {
+        let mut got = Vec::new();
+        self.net.recv(|bytes, from| got.push((bytes.to_vec(), from)));
+        for (bytes, from) in got {
             self.handle(&bytes, from, now);
         }
     }
 
     fn handle(&mut self, bytes: &[u8], from: SocketAddr, now: Instant) {
-        *self.heard.entry(from).or_default() += bytes.len() as u64 + UDP_OVERHEAD;
+        *self.heard.entry(from).or_default() += bytes.len() as u64 + crate::transport::overhead(from);
         let msg = match decode(bytes) {
             Some(Msg::Relayed { sub, bytes }) => {
                 if self.is_host() {
@@ -2576,21 +2525,6 @@ impl Drop for Link {
 }
 
 /// `a` is newer than `b`, allowing for the counter wrapping.
-/// Send `bytes` to `to`: over Steam for a stand-in address (dropped without Steam), else
-/// over UDP.
-fn send_raw(sock: &UdpSocket, steam: Option<&Steam>, bytes: &[u8], to: SocketAddr) {
-    match crate::steam::peer(to) {
-        Some(id) => {
-            if let Some(s) = steam {
-                s.send(id, bytes);
-            }
-        }
-        None => {
-            let _ = sock.send_to(bytes, to);
-        }
-    }
-}
-
 fn newer(a: u32, b: u32) -> bool {
     a != b && a.wrapping_sub(b) < u32::MAX / 2
 }
@@ -3687,7 +3621,7 @@ mod tests {
         let unknown = SocketAddr::from(([10, 0, 0, 9], 1));
         host.relayed_up(0, &hello, unknown, now);
         assert_eq!(host.relays, vec![(steam_guest, 0), (udp_guest, 0)], "known guests only, no relay in a relay");
-        assert_eq!(crate::steam::peer(host.relays[0].0), Some(crate::steam::steam_id(12_345)), "sent over Steam (send_raw)");
+        assert_eq!(crate::steam::peer(host.relays[0].0), Some(crate::steam::steam_id(12_345)), "sent over Steam (Transport::send)");
         // The first Hello got an id and a place; the second, the same token, took it over.
         assert_eq!(host.peers.iter().filter(|p| p.addr.and_then(relay_index).is_some()).count(), 1);
         host.drop_relayed_via(udp_guest);
