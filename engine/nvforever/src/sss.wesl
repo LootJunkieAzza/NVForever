@@ -529,7 +529,8 @@ fn nvf_hair_eval(T_in: vec3<f32>, N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, albe
     }
     let T = t_raw * inverseSqrt(t_len2);
     let kajiya = 1.0 - abs(dot(T, L));
-    let diffuse = albedo * (1.0 / PI) * mix(wrapped, kajiya * 0.5 * saturate(ndl + 1.0), 0.33) * tint * s;
+    // Kajiya-Kay under a half-Lambert on the shell (1 facing the light, 0 facing away).
+    let diffuse = albedo * (1.0 / PI) * mix(wrapped, kajiya * 0.5 * (ndl + 1.0), 0.33) * tint * s;
 
     let r = clamp(perceptual_roughness, 0.18, 1.0);
     let B = vec2(r * r, 2.0 * r * r);
@@ -556,7 +557,14 @@ fn nvf_hair_eval(T_in: vec3<f32>, N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, albe
     let t_trt = pow(max(albedo, vec3(1e-4)), vec3(0.8 / cos_d));
     let spec_trt = m_trt * exp(17.0 * cos_phi - 16.78) * (1.0 - f_trt) * (1.0 - f_trt) * f_trt * t_trt;
 
-    return diffuse + (spec_r * NVF_HAIR_R_SHARE + spec_trt) * s;
+    // The lobes are one fibre's, which has no surface normal; the hair here is a shell on
+    // the head, and the light reaching it falls with the shell's cosine, as Bevy's own
+    // specular does. Without it, a light behind the camera (L = V: cos phi 1, sin_l + sin_v
+    // near 0 on every strand across the view) put both lobes at their peak over the whole
+    // shell, silhouette included, 6.8 times Lambert at N.V 0.15 for dark brown hair: a grey
+    // sheen over hair that read as see-through [engineering choice, from a CPU copy].
+    let shell = saturate(ndl);
+    return diffuse + (spec_r * NVF_HAIR_R_SHARE + spec_trt) * (s * shell);
 }
 
 fn nvf_sss_clustered_hair(
