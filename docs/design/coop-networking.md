@@ -412,11 +412,12 @@ Each phase is its own pull request with an issue first (CLAUDE.md), once this le
 
 1. ~~The gap~~ **Decided 2026-11-24: no relay of ours.** The fix list, peer relay and
    `nvf-relay` for self-hosters (section 9).
-2. **Join approval** on by default? Recommended: on for online codes, off for LAN.
+2. ~~Join approval on by default?~~ **Decided 2026-11-24: on** for online codes (players on the
+   host's network join at once); the Ask before players join row turns it off.
 3. ~~Where the Worker lives~~ **Decided 2026-11-24:** a repository of its own, like the other
    Cloudflare applications.
-4. **Peer relay default:** on (recommended: it is what makes 3+ player lobbies robust) or off.
-5. **UPnP default:** on, as the PR has it today (recommended), or off for privacy.
+4. ~~Peer relay default~~ **Decided 2026-11-24: on** (the Relay for other players row).
+5. ~~UPnP default~~ **Decided 2026-11-24: on** (the Open router port automatically row).
 
 ## Sources
 
