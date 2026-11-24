@@ -582,6 +582,13 @@ the spec it links to.
     `ShowTutorialMenu` shows as a page, with a count, Next and Previous, so none goes
     unread. In the original the second replaces the first, with none of those. Keep the pages,
     or follow the original? ([tutorial-menu §4](spec-notes/tutorial-menu.md))
+46. **A guard for Honest Hearts' arrival (item 117): you said build it (2026-11-09); built
+    in 6b3c20d52, on claude/scene-stalls-1109.** If NVDLC02MQ01 stage 5 has not come 8 s
+    after the slideshow, Jed is asked to choose his package again; at 30 s the guard sets
+    stage 5 itself (controls back), skipping Jed's greeting. Both steps log a
+    `story guard:` warning, so if it ever fires in your games, send that log: it is the
+    stall coming back. Smoke: hh-arrival-guard.
+    (overnight-results/scene-stalls-1109.md)
 47. **Nobody picks a cross on their own (#1522).** Sandboxes and Sleep or Eat searches leave
     the crucifix (marker 10) out for everyone, people as well as creatures. A package that
     names a cross or links to one still works, so the crucified stay on theirs. This is

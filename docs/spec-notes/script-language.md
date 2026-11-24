@@ -228,7 +228,11 @@ Where the documentation and a capture disagree, the capture wins; every differen
   Runtime: `Game::active_refs` runs GameMode and MenuMode for disabled references
   (MenuMode with them is [hypothesis]); `Game::set_loaded` runs OnLoad at a cell load
   for disabled references too [observed for VMS15's rising plane, layer5-captures.md
-  §8.3 d]; see §7.2 row 5.
+  §8.3 d], except disabled actors, whose OnLoad waits for their enable [hypothesis: data
+  fit, EDEScript (SCPT 00151D03) on the three ED-E refs placed disabled in
+  PrimmNashResidence counts its 2-second unrestrain timer from OnLoad, so a cell-load
+  OnLoad lets the timer run out before the repair enables ED-E, which then stays
+  restrained with the controls off; overnight queue item 52, 2026-11-07]; see §7.2 row 5.
 - **Quest scripts** run only while the quest runs, at its delay; a tiny delay (0.01, or
   0.001 in another page) amounts to every frame [documented: Quest scripts; Scripting for
   Beginners]. Captured the same (quests-dialogue.md §5).
@@ -357,7 +361,7 @@ function results as arguments.
 | 2 | Float variable precision | single, about 7 digits (Category:Variables) | double: 16777217, 0.1, 123456789.123 unchanged [observed: §5.5] | double (follows the capture) |
 | 3 | Out-of-range and literal integers | not covered | out of range → −2147483648; whole literals saturate at 2147483647 [observed: §5.5] | as captured |
 | 4 | Declarations inside a block | not allowed (Scripting for Beginners) | six SCPT units compile with one, skip count one too large [observed: scripts.md §2.6] | structured reading |
-| 5 | Disabled references | object scripts run even when disabled (Object scripts) | OnActivate ran on disabled, dead ED-E when activated with the run-OnActivate flag [observed: §8.3 c]; GameMode ran for the disabled skull at its enabled rate [observed: `od_09a_disabled_ref_script`, 2026-10-18, owner-decision-captures.md] | GameMode runs for disabled references (agrees; since 2026-10-09, test `a_disabled_reference_runs_its_game_mode_block`); no cell-load OnLoad for them [hypothesis, not captured]; OnActivate runs |
+| 5 | Disabled references | object scripts run even when disabled (Object scripts) | OnActivate ran on disabled, dead ED-E when activated with the run-OnActivate flag [observed: §8.3 c]; GameMode ran for the disabled skull at its enabled rate [observed: `od_09a_disabled_ref_script`, 2026-10-18, owner-decision-captures.md] | GameMode runs for disabled references (agrees; since 2026-10-09, test `a_disabled_reference_runs_its_game_mode_block`); cell-load OnLoad for disabled activators, not for disabled actors (their OnLoad comes with the enable) [hypothesis, not captured; §6 above]; OnActivate runs |
 | 6 | Scripted items in inventories | run while the holder is loaded (Scripting for Beginners) | captured only for the player's inventory [observed: §8.3 d] | only the player's items run GameMode. **Candidate** (§8 item 2) |
 
 ### 7.3 Documented rules the runtime does not implement or contradicts (no capture yet)

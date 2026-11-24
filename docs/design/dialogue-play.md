@@ -179,7 +179,8 @@ a third state beside `Playing` and `Menu`.
   - a topic's Editor ID or hex FormID: that topic's choice;
   - any other text: the choice that reads so, ignoring case; a part of it if exactly one
     choice contains it; quotes force text (`"3"`, `'leave'`);
-  - `leave`: as Tab; `skip`: skips the response being said (taken while the actor
+  - `leave`: the Goodbye choice, else breaks off; `tab`: Tab exactly as the player
+    presses it (a refusal included); `skip`: skips the response being said (taken while the actor
     speaks).
 - When the steps run out, or a step names nothing that is offered (a warning), the aid
   leaves: by the Goodbye choice if one is offered, else by breaking off (this safety net

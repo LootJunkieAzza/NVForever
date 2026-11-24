@@ -42,6 +42,12 @@
 //!   all Health; in Hardcore it heals neither [observed: the owner, 2026-10-31, "outside
 //!   Hardcore a sleep restores Health and every crippled limb in full"; #1177].
 //! - Only the player has needs here [design].
+//! - **Co-op**: every player's game keeps its own character's needs, each on its own
+//!   clock of play; the hours the host's clock jumps (its wait, sleep or fast travel)
+//!   pass for each guest's needs and effects too, as a wait (nvforever `coop`,
+//!   `guest_hours_passed`), and only the one who slept recovers from sleep. Before, the
+//!   host's 8 hours slept left a guest's needs where they were (overnight queue, owner
+//!   2026-11-15: "hardcore needs feel random") [design].
 
 use crate::aid::{DEHYDRATION, HUNGER, RAD_LEVEL, SLEEP_DEPRIVATION};
 use crate::combat::setting;

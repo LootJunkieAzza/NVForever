@@ -249,7 +249,18 @@ conditions are run on.
   looked at); DJ voice files at full level. By distance: the station's radio template,
   else the receiver's, else 150 / 1800 units (AMLRadio's), as `sfx::distance_gain`
   (full within the minimum, falling as minimum ÷ distance, faded out at the maximum).
-  The template's own static attenuation is not applied. Receivers and actors are panned
+  Since 2026-11-07 the template's own static attenuation is applied too (no template:
+  AMLRadio's 13 dB) [hypothesis: owner's playtest 2026-11-06, queue item 48, "music too
+  loud in many Vegas locations compared with vanilla"; the Freeside and casino music is
+  receivers of `vCountryRadio` (AMLRadio, 72 receivers), `vCasinoGomorrahRadio` and
+  `vCasinoUltraLuxeRadio` (AMLRadioLarge) and `vCasinoTopsRadio` (AMLRadioTheTops, heard
+  to 10000 units), all about 13 dB louder without it]. Since 2026-11-08 the template's
+  curve points are read as a share of power, the amplitude their square root
+  [hypothesis: owner 2026-11-07, queue item 69, the radio "cuts out" a short way off;
+  read as amplitude, AMLRadio's 100, 59, 27, 7, 0 over 150-1800 units is 11 dB down at
+  975 units and 23 dB at 1390; as power 5.7 and 11.5 dB, fading out at 1800. Other
+  placed sounds keep the amplitude reading (audio.md §15.5). How the original reads the
+  curve is a question for the decompilation reader]. Receivers and actors are panned
   as the sound effects are (`crate::sfx::Panned`, audio.md §14.5) [design].
 - Pause: the Esc menu and loading screens hold sounds and programmes, as for placed
   loops (audio.md §7).
@@ -363,8 +374,10 @@ No texts are printed.
   TRDT]. The data does not decide the DJ level; it stays at full [design], for the
   owner's ear.
 - The radio templates (AMLRadio 13 dB, AMLRadioLarge 10.13 dB, AMLRadioTheTops
-  13.66 dB, AMLRadioTopsPerformer 2.64 dB) carry a static attenuation we do not apply
-  (§6); applied, it would lower DJ lines and songs alike from receivers.
+  13.66 dB, AMLRadioTopsPerformer 2.64 dB) carry a static attenuation, applied since
+  2026-11-07 (§6): it lowers DJ lines and songs alike from receivers, not the Pip-Boy.
+  (With the full load order of 2026-11-06, AMLRadioLarge reads 13.22 dB [observed:
+  `fnvtool world radio`].)
 - The install's `Fallout_default.ini` [observed]: `fDefaultRadioVolume=0.5000`,
   `fDefaultVoiceVolume=0.6000`, `fDefaultEffectsVolume=1.0000`, `fRadioDialogMute=0.50`,
   `fDBVoiceAttenuationIn2D=2.0`, `iRadioUpdateInterval=250`. What they do is a

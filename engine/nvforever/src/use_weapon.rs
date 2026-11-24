@@ -116,6 +116,9 @@ struct Shooter {
     wait: f32,
     /// What it last waited for, told once each time it changes.
     held: Option<&'static str>,
+    /// Its target's feet at the last frame, for the target's velocity (an always-hit
+    /// shot leads a moving target).
+    last_target: Option<V3>,
     /// Its first shot of this use has been told (how far off its heading the target was).
     told: bool,
     /// Its cycle's reload takes as long as its rig's reload clips (`AttackTimes::reloads`).
@@ -133,7 +136,7 @@ const KEEP_IDLE: f32 = 30.0;
 
 impl Shooter {
     fn new(seq: u64, weapon: FormId, ws: &WeaponStats, timing: Timing) -> Shooter {
-        Shooter { seq, weapon, cycle: Cycle::new(ws, timing, false, ws.clip_size.max(1)), pulled: false, wait: 0.0, held: None, told: false, reload_timed: false, idle: 0.0, last_shot: None }
+        Shooter { seq, weapon, cycle: Cycle::new(ws, timing, false, ws.clip_size.max(1)), pulled: false, wait: 0.0, held: None, told: false, reload_timed: false, idle: 0.0, last_shot: None, last_target: None }
     }
 
     /// It goes on to another use with the same gun: the gun's cycle (the time left
@@ -418,6 +421,10 @@ pub(crate) fn shoot(
                 s.stats.done += 1;
                 continue;
             }
+            // A target that is no actor (a marker: Lonesome Road's NVDLC04SiloRevealTargetREF,
+            // an XMarker ED-E shoots at the silo reveal, queue item 190) is aimed at where it
+            // is placed; an actor not drawn is waited for [design].
+            let at_actor = places.contains_key(&w.target.0);
             // Nothing to fire at, or not there yet: the test `npc_combat::fight` keeps its
             // attacks off by ([`acts_on`]).
             let object_at = (!places.contains_key(&w.target.0)).then(|| target_place(g, me, w.target)).flatten();
@@ -497,6 +504,11 @@ pub(crate) fn shoot(
             let shooter = s.by.get_mut(&id).expect("inserted");
             shooter.idle = 0.0;
             shooter.wait = (shooter.wait - dt).max(0.0);
+            let target_vel = match shooter.last_target {
+                Some(was) if dt > 0.0 => vec::scale(vec::sub(tfeet, was), 1.0 / dt),
+                _ => [0.0; 3],
+            };
+            shooter.last_target = Some(tfeet);
             // Its reload takes as long as its reload clips in its rig, once known, between
             // reloads, and a semi-automatic gun's shots follow its attack clip there: the
             // same handoff as `npc_combat`'s gunmen (`AttackTimes::gun_timing`, #2739), so
@@ -570,8 +582,33 @@ pub(crate) fn shoot(
                         }
                         shooter.last_shot = Some(clock);
                         let muzzle = muzzle_at.get(&id).copied();
-                        let to = vec::sub(tchest, eyes);
-                        let aim = vec::scale(to, 1.0 / vec::len(to).max(1.0));
+                        // At the target's body as posed (the centre of its widest part
+                        // capsule, as `nvf_play::combat` aims), else its standing chest: a
+                        // kneeling or seated target's chest is well below a standing one's
+                        // (overnight queue item 40: Jean-Baptiste's always-hit shot at the
+                        // kneeling volunteer in the Silver Rush passed over him into the
+                        // wall, so his OnHit never ran and the scene stopped).
+                        let at = phys.as_deref().and_then(|p| p.world.actor_aim_point(w.target.0)).unwrap_or(tchest);
+                        let to = vec::sub(at, eyes);
+                        let mut aim = vec::scale(to, 1.0 / vec::len(to).max(1.0));
+                        // Always Hit with a slow or falling projectile (a thrown
+                        // tomahawk): aimed at where the target will be when it gets
+                        // there, on the projectile's arc (`fnv_combat::vats::lob_dir`, as
+                        // the combat AI throws grenades). Aimed straight, the White Leg's
+                        // tomahawks at the running caravan guard in Zion fell short and
+                        // the ambush waited for his death for ever (owner 2026-11-07)
+                        // [design: "always hit" read as a hit wherever the target goes].
+                        if w.always_hit {
+                            let proj = c.forms.chain(gun, None).and_then(|ch| ch.projectile).and_then(|p| c.forms.projectiles.get(&p));
+                            if let Some(p) = proj.filter(|p| p.speed > 0.0) {
+                                let gravity = p.gravity * phys.as_deref().map_or(686.0, |x| x.world.params.gravity);
+                                let flight = vec::len(to) / p.speed;
+                                let ahead = vec::add(at, vec::scale([target_vel[0], target_vel[1], 0.0], flight));
+                                if let Some(d) = fnv_combat::vats::lob_dir(eyes, ahead, p.speed, gravity) {
+                                    aim = d;
+                                }
+                            }
+                        }
                         let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
                         let cone = if w.always_hit {
                             0.0
@@ -581,7 +618,7 @@ pub(crate) fn shoot(
                             let stance = Stance { aiming: false, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, ..Stance::default() };
                             spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[])
                         };
-                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage, sure: w.always_hit.then_some(w.target) });
+                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage, sure: (w.always_hit && at_actor).then_some(w.target) });
                         anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default(), power: None, swing: None });
                         s.stats.shots += 1;
                         s.stats.sure += usize::from(w.always_hit);

@@ -797,6 +797,26 @@ fn a_say_to_package_says_its_line_without_a_conversation() {
     assert_eq!(s.talks(), 1);
 }
 
+/// ResetAI after a Dialogue package spoke begins the package again, so it talks again
+/// (HonestHearts.esm: Jed's and Stella's arrival lines end with their own ResetAI to say
+/// the next Say Once line; overnight queue item 26). ResetAI clears the goal while the
+/// package stays the same (`fnv_game::functions::ai_state::reset_ai`).
+#[test]
+fn reset_ai_after_a_dialogue_package_spoke_makes_it_talk_again() {
+    let f = fixture();
+    let mut s = sim(&f, R_SAY, [300.0, 100.0, 0.0]);
+    s.run(1.0);
+    assert_eq!(s.talks(), 1);
+    s.run(10.0);
+    assert_eq!(s.agent(R_SAY).talk, Some(Talking::Done));
+    // What ResetAI does to the actor's package state (the same package is chosen again).
+    s.game.extra.get_mut(&FormId(R_SAY)).unwrap().package_goal_met = false;
+    s.run(2.0);
+    assert_eq!(s.talks(), 2, "{:?}", s.events());
+    s.run(20.0);
+    assert_eq!(s.talks(), 2, "once per reset");
+}
+
 /// A Say To line to the player waits for a clear line as a force greet does: Officer
 /// Kendall's ambush bark in Tale of Two Wastelands (CG04Security02Ambush) came through
 /// the walls of the player's room and its end script skipped the wake-up's stage 3.
@@ -1358,6 +1378,41 @@ fn a_spectator_runs_from_a_fight_that_comes_too_close() {
     s.run_social(1.0);
     assert!(s.events().iter().any(|e| matches!(e, AiEvent::SearchOver { why } if why.contains("fight"))), "{:?}", s.events());
     assert!(s.agent(R_IDLE).search.is_none());
+}
+
+/// A spectator runs from a fight, but never through a load door (fnv-ai social.rs): the
+/// door rule is the combat flight's. Owner's overnight queue item 70 (2026-11-07):
+/// Freeside's bystanders went down the sewer manhole by Mick & Ralph's whenever a fight
+/// came near. Here a load door stands right by the spectator, away from the fight.
+#[test]
+fn a_spectator_runs_from_a_fight_but_not_through_a_load_door() {
+    use fnv_game::awareness::Timers;
+    use fnv_game::combat_group::{FleeBy, GroupSettings};
+    use fnv_game::detection::{Band, Detection};
+    let f = fixture();
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 700.0, ..GroupSettings::default() });
+    s.run_social(1.0);
+    // A load door on every triangle within 300 units of (400, 400), leading to the far
+    // corner of the room.
+    let (far, _) = s.nav.nearest(ROOM, [1150.0, 1150.0, 0.0], 100.0).unwrap();
+    let door = fnv_nav::graph::DoorEdge { door: 0xD00, to_door: 0xD01, arrival: [1150.0, 1150.0, 0.0], arrival_heading: 0.0, to: far, door_at: None };
+    for t in s.nav.triangles_near(ROOM, 400.0, 400.0, 300.0) {
+        s.nav.doors.entry(t).or_default().push(door);
+    }
+    let foe = FormId(0xF00);
+    let (now, t) = (s.game.time, Timers::default());
+    let a = s.game.awareness.actors.entry(foe).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
+    a.settle(foe, now, &t, true);
+    // It stands in the room's corner (a foe with no place is near no one, #3223).
+    a.at = Some([0.0; 3]);
+    s.player_to([10.0, 10.0, 0.0]);
+    s.run_social(0.5);
+    let ev = s.events();
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SpectatorFlee { .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Flee { .. })), "it runs: {ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Flee { how: FleeBy::Door { .. }, .. })), "not through the door: {ev:?}");
 }
 
 /// Who does not run from a fight (review of #1216): nobody while its foe only searches

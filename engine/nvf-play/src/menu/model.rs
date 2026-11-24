@@ -693,6 +693,8 @@ pub struct Quantity {
     /// The stack's size, the most it can move.
     pub max: i32,
     pub amount: i32,
+    /// The prompt's line instead of "How many?" (the co-op trade's price, `crate::coop_social::barter`).
+    pub label: Option<&'static str>,
 }
 
 impl Quantity {
@@ -930,11 +932,18 @@ pub struct MenuModel {
     amount: Option<i32>,
     /// The container menu is picking a living actor's pocket ([`Steal`]).
     pub steal: Option<Steal>,
+    /// A co-op guest's container menu: quest items are the host's (it carries the
+    /// quests) and are not listed (owner, items 123 and 130).
+    pub guest: bool,
     /// Inventory: the Misc folder open, if any ([`Folder`]).
     pub folder: Option<Folder>,
     /// Inventory: the player's Caravan cards, one entry a card, set by the engine from
     /// the scripts' game ([`MenuModel::set_cards`]).
     pub cards: Vec<FormId>,
+    /// A co-op trade between two players drawn on the barter screen
+    /// (`crate::coop_social::barter`): its rows and commands are that module's, not
+    /// [`MenuModel::apply`]'s.
+    pub coop: bool,
 }
 
 /// What a command did besides changing the model.
@@ -1102,6 +1111,16 @@ impl MenuModel {
         Ok(m)
     }
 
+    /// The merchant's side of a trade as listed now: (rows, stacks in its stock), its caps
+    /// left out of both; `None` outside a trade. The menu logs it on opening, where every
+    /// row is in the "All" tab (owner's report of 2026-11-12, "vendors inventories are way
+    /// too small").
+    pub fn stock_rows(&self, world: &World<'_>) -> Option<(usize, usize)> {
+        let t = self.trade.as_ref()?;
+        let stacks = world.peek(t.stock).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.groups().filter(|g| g.0 != t.caps).count());
+        Some((self.lists[Side::Container as usize].rows.len(), stacks))
+    }
+
     /// Limit the merchant's rows to what it sells, and list the trade again.
     pub fn set_sells(&mut self, world: &mut World<'_>, sells: Sells) -> Result<(), SimError> {
         if let Some(t) = self.trade.as_mut() {
@@ -1118,7 +1137,7 @@ impl MenuModel {
         self.refresh(world)
     }
 
-    fn empty(mode: Mode, title: String) -> MenuModel {
+    pub(crate) fn empty(mode: Mode, title: String) -> MenuModel {
         MenuModel {
             mode,
             search: Default::default(),
@@ -1164,8 +1183,10 @@ impl MenuModel {
             quantity: None,
             amount: None,
             steal: None,
+            guest: false,
             folder: None,
             cards: Vec::new(),
+            coop: false,
         }
     }
 
@@ -1223,6 +1244,13 @@ impl MenuModel {
                 self.filtered[side as usize] = all - l.rows.len();
                 if side == Side::Container && self.steal.as_ref().is_some_and(|s| !s.worn) {
                     l.rows.retain(|r| !r.equipped);
+                }
+                if side == Side::Container && self.guest {
+                    let before = l.rows.len();
+                    l.rows.retain(|r| !r.quest);
+                    if l.rows.len() != before {
+                        bevy::log::info!("menu: {} quest item row(s) left out: the host's quests' (co-op guest)", before - l.rows.len());
+                    }
                 }
                 // The player's tweak keeps worn things out of a container's exchange [design: docs/design/tweaks.md].
                 if side == Side::Player && self.hide_equipped_containers && matches!(self.mode, Mode::Container(_)) {
@@ -1684,6 +1712,7 @@ impl MenuModel {
             row: self.selected[self.focus as usize],
             max,
             amount: max,
+            label: None,
         })
     }
 
@@ -2074,7 +2103,7 @@ pub fn report_progress_fixture(mode: Mode, step: usize) -> MenuModel {
         m.category[0] = Category::Weapons;
     }
     if step >= 4 {
-        m.quantity = Some(Quantity { cmd: Command::One, side: Side::Player, row: 0, max: 3, amount: 1 });
+        m.quantity = Some(Quantity { cmd: Command::One, side: Side::Player, row: 0, max: 3, amount: 1, label: None });
     }
     if step >= 5 {
         m.quantity.as_mut().unwrap().amount = 2;

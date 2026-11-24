@@ -335,6 +335,20 @@ fn ownership_comes_from_the_reference_then_the_cell() {
 }
 
 #[test]
+fn an_owned_door_is_red_only_while_locked_and_an_owned_item_always() {
+    // IsCrimeOrEnemy, as the crosshair: JAM's JVO colours its markers by it.
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(fnv_game::nvse_jip3::is_crime_or_enemy(&mut g, FormId(TRINKET_REF)));
+    let door = FormId(LOUD_DOOR_REF);
+    g.world.get(door).unwrap().extra.owner = Some(FormId(SHOPKEEPER));
+    assert!(g.owned_by_other(door).is_some());
+    assert!(!fnv_game::nvse_jip3::is_crime_or_enemy(&mut g, door));
+    g.world.lock(door, Some(50)).unwrap();
+    assert!(fnv_game::nvse_jip3::is_crime_or_enemy(&mut g, door));
+}
+
+#[test]
 fn an_unseen_theft_costs_karma_and_turns_nobody() {
     let f = fixture();
     let mut g = game(&f);

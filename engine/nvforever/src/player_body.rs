@@ -65,6 +65,7 @@
 //! does. In third person the camera's pivot is lifted clear of the bed.
 
 use crate::actors::{part_uses, ActorWorld};
+use crate::anim_overrides::{clip_stem, override_stems, ordered_aim_variant};
 use crate::idles::{IdleSlot, PlayerIdles};
 use crate::sky::{Sun, ARMS_LAYER, BODY_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
@@ -77,7 +78,7 @@ use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use fnv_actor::first_person::{self, is_first_person_shape, shape_shows, Show};
 use fnv_actor::player_clips::{
-    aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
+    aim_clips, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
     limping_idle_clips, limping_move_clips, limping_turn_clips, move_clips, reload_clips, reload_open_clips, toddler_idle_clips, toddler_move_clips,
     toddler_turn_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
 };
@@ -101,6 +102,8 @@ use std::sync::Arc;
 
 /// Layer roles ([`Animator`] tags).
 const TAG_IDLE: u32 = 0;
+/// The stance idle under an idle that covers the rest (`pose_rig`).
+const TAG_IDLE_UNDER: u32 = 1;
 const TAG_MOVE: u32 = 10; // + 0 along, + 1 sideways
 const TAG_TURN: u32 = 20;
 const TAG_JUMP: u32 = 30;
@@ -112,8 +115,12 @@ const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
 const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
+/// How far a clip over the furniture clip is raised above it (`BodyClip::over`).
+const OVER_LIFT: i32 = 1000;
 /// The Pip-Boy coming up (`pipboy_arm.rs`).
 const TAG_PIPBOY: u32 = 90;
+/// The Pip-Boy checked on the third-person body (`pipboy_check.rs`).
+const TAG_CHECK: u32 = 91;
 /// The Pip-Boy clip fades in over its first 8 frames [observed: its `Blend: 8` key;
 /// hypothesis: frames at 30 a second, as for idles] and out over its last 8 going down
 /// [design].
@@ -133,10 +140,25 @@ pub const PIPBOY_FOV: f32 = 47.0;
 /// screenshots, playtest list 5 item 18)].
 pub const FIRST_PERSON_FOV: f32 = 55.0;
 
+/// The field of view the arms are drawn with while the Pip-Boy glance is up, degrees as
+/// [`PIPBOY_FOV`] [design: wider than [`FIRST_PERSON_FOV`], so the raised Pip-Boy sits
+/// small in the lower left with the world over it; tuned with
+/// `nvf_play::pipboy::glance::GLANCE_HOLD` against the owner's reference screenshot,
+/// 2026-11-04 (at 55 the screen was a third too big)].
+pub const GLANCE_FOV: f32 = 70.0;
+
 /// How much of the Pip-Boy clip shows at `t` seconds into it: up over its first
 /// [`PIPBOY_BLEND`], down over its last (smoothstep).
 pub fn pipboy_ease(t: f32) -> f32 {
     let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / PIPBOY_BLEND).clamp(0.0, 1.0);
+    e * e * (3.0 - 2.0 * e)
+}
+
+/// As [`pipboy_ease`] for the glance, whose clip is held before [`PIPBOY_BLEND`] is over:
+/// up over its way to the hold, down over the clip's last as long.
+pub fn glance_ease(t: f32) -> f32 {
+    let over = nvf_play::pipboy::glance::GLANCE_HOLD;
+    let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / over).clamp(0.0, 1.0);
     e * e * (3.0 - 2.0 * e)
 }
 
@@ -314,7 +336,7 @@ fn near_line(aabb: &bevy::camera::primitives::Aabb, at: &GlobalTransform, eye: V
 /// is squeezed in front of the world, so no wall, door or actor the camera stands against
 /// hides the arms or the weapon (`NifSurface::first_person`; `m` itself is shared with
 /// other actors and weapons).
-fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -> Handle<NifMaterial> {
+pub(crate) fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -> Handle<NifMaterial> {
     let Some(mut copy) = materials.get(m).cloned() else { return m.clone() };
     copy.extension.shade_light = true;
     copy.extension.first_person = true;
@@ -408,6 +430,9 @@ enum ClipKey {
     ReloadOpen(Stance, &'static str, &'static str),
     /// The Pip-Boy coming up (first person); a woman's.
     PipBoy(bool),
+    /// The Pip-Boy checked (third person, upper body only, `pipboy_check.rs`): the full
+    /// Pip-Boy's clip, else the glance's.
+    PipBoyCheck(bool),
     /// Weapon prefix and hand grip number: the grip clip (`1lmhandgrip1.kf`,
     /// `2hahandgrip1_plasmarifle.kf`).
     Grip(&'static str, u8),
@@ -441,6 +466,7 @@ impl ClipKey {
             // [observed: `_1stperson\locomotion\female\pipboyfemale.kf` beside the
             // male one]
             ClipKey::Grip(p, n) => vec![format!("{p}handgrip{n}.kf")],
+            ClipKey::PipBoyCheck(full) => vec![crate::pipboy_check::clip_of(full).to_string()],
             ClipKey::PipBoy(female) => {
                 let own = if female { vec!["locomotion\\female\\pipboyfemale.kf".to_string()] } else { Vec::new() };
                 own.into_iter().chain(["locomotion\\male\\pipboy.kf".to_string()]).collect()
@@ -701,10 +727,11 @@ enum View {
 /// One shape of the weapon model.
 struct WeaponPart {
     entity: Entity,
-    /// The model nodes above it whose names begin `##`, each with whether the clips
-    /// last showed it: clips show and hide such nodes (the minigun's gun while it is
-    /// holstered) [observed: animation.md §9.7].
-    tags: Vec<(String, bool)>,
+    /// The model nodes above it whose names begin `##`, each with whether it is shown and
+    /// how the model's own controllers leave it at rest (`PreparedModel::part_rest`):
+    /// clips show and hide such nodes (the minigun's gun while it is holstered)
+    /// [observed: animation.md §9.7].
+    tags: Vec<(String, bool, Option<bool>)>,
     /// Whether it hangs from a bone of its own (the minigun's backpack) rather than
     /// from the `Weapon` node.
     on_bone: bool,
@@ -712,6 +739,20 @@ struct WeaponPart {
     never: bool,
     /// The visibility last written to the entity.
     shown: Option<bool>,
+}
+
+/// Whether a weapon part (a `##` node) is shown: as the playing clips key it (`clip`),
+/// else hidden when the model's own controllers hide it at rest (`rest`: a revolver's
+/// speed loader, the C96's stripper clip, shown only while the reload keys them), else
+/// as it was (`was`: a part no clip speaks for stays as the last clip left it, the
+/// minigun's gun) [hypothesis, model::part_rest_visibility]. A part the model rests
+/// shown is not shown again by that: an empty launcher's round (`##NifRound`, which
+/// Another Millenia's RPG-7 rests shown) stays as the attack left it until the reload
+/// [observed: of Another Millenia's weapon models, only `##SpeedLoader` (29 models)
+/// and `##cmClip` (12) rest hidden; `##nmClip` (173), bullets, shells and casings rest
+/// shown].
+fn part_on(clip: Option<bool>, rest: Option<bool>, was: bool) -> bool {
+    clip.or(rest.filter(|shown| !shown)).unwrap_or(was)
 }
 
 /// kNVSE replacement files by a clip file's name, in lower case (`Rig::overrides`).
@@ -731,6 +772,18 @@ struct Rig {
     clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
     /// The up and down forms of clips, by path (failures too).
     variants: HashMap<String, Option<Arc<ClipInfo>>>,
+    /// The AnimGroupOverride and SetActorAnimationPath files the game gives the player
+    /// for this view (`Game::anim_overrides`), and from them, by clip stem, the file that
+    /// plays instead of the rig's own ([`override_stems`]): one file, or the files of
+    /// kNVSE's `_order_N` set, played in turn. Checked before [`Self::overrides`], which
+    /// has no `_order_N` sets or partial reloads.
+    override_list: Vec<String>,
+    by_stem: HashMap<String, Vec<String>>,
+    /// Which file of an `_order_N` set plays next: the count of the player's attacks so
+    /// far ([`Self::set_turn`]).
+    turn: usize,
+    /// A reload now would be a partial one (`WeaponAnim::partial`).
+    partial: bool,
     /// kNVSE's replacement files for this view ([`apply_anim_overrides`]): a clip's file
     /// name, in lower case, to the replacement's path under meshes.
     overrides: Overrides,
@@ -819,8 +872,12 @@ struct Rig {
     shown: Option<bool>,
     /// Third person: what of the rig the camera sees (last applied).
     seen: Option<Seen>,
+    /// The whole third-person rig is drawn behind a loading screen (see [`show_rigs`]).
+    warm: bool,
     /// The furniture clip it plays (`BodyClip::serial`), while it plays one.
     furniture: Option<u32>,
+    /// The clip played over it (`BodyClip::over`), by serial, while it plays.
+    furniture_over: Option<u32>,
     /// Seconds since the last attack started, and the repeated part of its clip, if it
     /// has one: from and to, seconds into the clip.
     since_attack: f32,
@@ -1035,7 +1092,11 @@ impl Rig {
         if let Some(c) = self.clips.get(&key) {
             return c.clone();
         }
-        // A kNVSE replacement of a candidate's file comes first [documented:
+        // A mod's file for any of the choice's names beats every file of the rig's own:
+        // first by clip stem (`_order_N` sets, partial reloads; `Self::override_for`),
+        // then kNVSE's replacement by file name.
+        let over = self.override_for(key).filter(|p| ctx.models.data.vfs.exists(p));
+        // A kNVSE replacement of a candidate's file comes next [documented:
         // SetActorAnimationPath, "the anim group that is overridden is specified in the
         // KF file"; hypothesis: a replacement file is named as the clip it replaces, as
         // in the mods' folders (`mtfastforward.kf`)].
@@ -1052,7 +1113,9 @@ impl Rig {
             let pick = found.iter().rev().find(|p| p.to_ascii_lowercase().ends_with(&tail)).or_else(|| found.iter().rev().find(|p| !p.to_ascii_lowercase().contains(other_sex)));
             pick.map(|p| format!("meshes\\{p}"))
         });
-        let mut path = replaced.filter(|p| ctx.models.data.vfs.exists(p)).or_else(|| key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)));
+        let over = over.or_else(|| replaced.filter(|p| ctx.models.data.vfs.exists(p)));
+        let from_override = over.is_some();
+        let mut path = over.or_else(|| key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)));
         // A grip clip may carry the weapon's name after its number
         // (`2hrhandgrip3_combatshotgun.kf`): the folder's one for that prefix and number.
         if let (None, ClipKey::Grip(p, n)) = (&path, key) {
@@ -1061,12 +1124,15 @@ impl Rig {
         }
         let found = path.and_then(|path| {
             let clip = ctx.clip(&path)?;
+            // The check keeps to the upper body: the legs walk on.
+            let clip = if matches!(key, ClipKey::PipBoyCheck(_)) { Arc::new(crate::pipboy_check::upper_clip(&clip)) } else { clip };
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
+            Some(c) if from_override => info!("player {:?} rig: {key:?} plays override {} ({:.3} s, shot at {:?})", self.view, c.path, c.clip.length(), c.keys.hit),
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
-            Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_) | ClipKey::PipBoyCheck(_)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             // Without it the arm never comes up (#1330): said where a player's log shows it.
             None if matches!(key, ClipKey::PipBoy(_)) => warn!("player {:?} rig: {key:?}: none of {:?} in {} could be read; the Pip-Boy cannot come up", self.view, key.candidates(), self.folder),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
@@ -1076,10 +1142,65 @@ impl Rig {
         found
     }
 
+    /// The file a mod gives for clip choice `key` ([`Self::by_stem`]): the first of its
+    /// names that has one, a partial reload's `_partial` form before the plain one; of an
+    /// `_order_N` set, the one whose turn it is.
+    fn override_for(&self, key: ClipKey) -> Option<String> {
+        if self.by_stem.is_empty() {
+            return None;
+        }
+        let partial = self.partial && matches!(key, ClipKey::Reload(..) | ClipKey::ReloadOpen(..));
+        key.candidates()
+            .iter()
+            .find_map(|c| {
+                let stem = clip_stem(c);
+                let set = partial.then(|| self.by_stem.get(&format!("{stem}_partial"))).flatten().or_else(|| self.by_stem.get(&stem))?;
+                set.get(self.turn % set.len().max(1)).cloned()
+            })
+            .map(|p| format!("meshes\\{p}"))
+    }
+
+    /// The attack count, which picks the file of an `_order_N` set that plays next: each
+    /// attack plays the next file of the set, the first again after the last
+    /// [documented: kNVSE's Nexus page, "If you want variants to play in order, have the
+    /// file names end with _order_[NUMBER].kf"; hypothesis: one turn per attack, shared
+    /// by every set of the rig, so the hip and sights sets keep in step]. The attack
+    /// clips are chosen again when it changes.
+    fn set_turn(&mut self, turn: usize) {
+        if turn != self.turn {
+            self.turn = turn;
+            if self.by_stem.values().any(|v| v.len() > 1) {
+                self.clips.retain(|k, _| !matches!(k, ClipKey::Attack(..)));
+            }
+        }
+    }
+
+    /// Take the game's override files for this view; the clips are chosen again when
+    /// they change.
+    fn set_overrides(&mut self, list: Vec<String>) {
+        if list == self.override_list {
+            return;
+        }
+        self.by_stem = override_stems(&list);
+        info!("player {:?} rig: {} override file(s), {} clip name(s) replaced", self.view, list.len(), self.by_stem.len());
+        self.override_list = list;
+        self.clips.clear();
+        self.variants.clear();
+    }
+
+    /// Whether a reload now is a partial one; the reload clips are chosen again when it
+    /// changes.
+    fn set_partial(&mut self, partial: bool) {
+        if partial != self.partial {
+            self.partial = partial;
+            self.clips.retain(|k, _| !matches!(k, ClipKey::Reload(..) | ClipKey::ReloadOpen(..)));
+        }
+    }
+
     /// The up or down form of clip `c` (`2hrattackleftup.kf` beside `2hrattackleft.kf`),
     /// if its folder has one (cached, failures too).
     fn variant(&mut self, ctx: &mut ActorCtx, c: &ClipInfo, aim: Aim) -> Option<Arc<ClipInfo>> {
-        let path = aim_variant(&c.path, aim);
+        let path = ordered_aim_variant(&c.path, aim);
         if let Some(v) = self.variants.get(&path) {
             return v.clone();
         }
@@ -1148,6 +1269,9 @@ struct Motion {
     turn_rate: f32,
     /// The view an idle gave the first-person camera last frame (`Player::body_view`).
     idle_view: Option<Quat>,
+    /// The heading and pitch the game gave the player when it moved them while an idle
+    /// held the view ([`after_idle_view`]).
+    moved_in_idle: Option<(f32, f32)>,
     /// Seconds until the line saying where the character stands after an idle let it
     /// go.
     after_idle: Option<f32>,
@@ -1173,6 +1297,8 @@ struct Motion {
     velocity: Vec2,
     /// The first-person arms' sway (`view_sway.rs`).
     sway: ViewSway,
+    /// The gun's sway while down the sights (`ads_sway.rs`).
+    ads_sway: crate::ads_sway::AdsSway,
     /// The camera's bob: first person's, and the third-person pivot's smoothing
     /// (`head_bob.rs`).
     head: crate::head_bob::HeadBob,
@@ -1232,6 +1358,7 @@ impl Default for Motion {
             last_heading: None,
             turn_rate: 0.0,
             idle_view: None,
+            moved_in_idle: None,
             after_idle: None,
             log_elapsed: 0.0,
             seat_settled: false,
@@ -1246,6 +1373,7 @@ impl Default for Motion {
             names: HashMap::new(),
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
+            ads_sway: crate::ads_sway::AdsSway::default(),
             head: crate::head_bob::HeadBob::default(),
             moved_at: [None; 2],
             lower: WeaponLower::default(),
@@ -1277,6 +1405,11 @@ pub struct PlayerBody {
     /// Line the gun's sights up with the eye while aiming (`iron_sights.rs`; off with
     /// `--no-true-iron-sights`, the settings page).
     pub true_iron_sights: bool,
+    /// A minigame's close camera wants the player's own body out of its view: the slot
+    /// machine's camera in on the reels (`slots_view.rs`), where the seated body's head
+    /// and arms came between it and the reels [observed 2026-11-11, ship4 slots-3d]. The
+    /// body still casts its shadow.
+    pub out_of_view: bool,
     body: Option<Body>,
     /// The muzzle node of the weapon in hand in the rig in view, this frame.
     muzzle_entity: Option<Entity>,
@@ -1323,6 +1456,13 @@ impl PlayerBody {
     pub fn animators(&self) -> Vec<(Entity, &Animator)> {
         let Some(b) = self.body.as_ref() else { return Vec::new() };
         std::iter::once((b.third.root, &b.third.animator)).chain(b.first.as_ref().map(|f| (f.root, &f.animator))).collect()
+    }
+
+    /// The held weapon's model on each rig (its holder entity), for hiding it while an
+    /// item clip plays (`consume_anims.rs`).
+    pub fn weapon_holders(&self) -> Vec<Entity> {
+        let Some(b) = self.body.as_ref() else { return Vec::new() };
+        std::iter::once(&b.third).chain(b.first.as_ref()).filter_map(|r| r.weapon_model).collect()
     }
 
     /// Whether the first-person rig is drawn (`pipboy_arm.rs`).
@@ -1420,7 +1560,7 @@ impl PlayerBody {
             Rig {
                 view, root, lens: None, folder: String::new(), skeleton: actor.skeleton,
                 animator: Animator::new(actor.skel, actor.nodes, None),
-                clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
+                clips: HashMap::new(), variants: HashMap::new(), override_list: Vec::new(), by_stem: HashMap::new(), turn: 0, partial: false, overrides: Arc::default(), active_clip: None, head: None,
                 eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None, script_used: None, translate: None,
                 weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
                 weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
@@ -1428,7 +1568,7 @@ impl PlayerBody {
                 casing: None, casing_entity: None, sighting: None, scope_eye: None, sight_relief: None,
                 use_lens: false, drawn: Vec::new(), spawned_forms: Vec::new(), shown: Some(false), seen: None,
                 furniture: None, since_attack: f32::INFINITY, attack_loop: None,
-                wound_up: None, wound_hit: None, sighting2: None, attack_eject: None, ejected: false, carry: None,
+                wound_up: None, wound_hit: None, sighting2: None, attack_eject: None, ejected: false, carry: None, warm: false, furniture_over: None,
             }
         }
         Self {
@@ -1654,7 +1794,7 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<PlayerBlows>()
             .add_systems(Update, collect_blows.in_set(nvf_play::player::BodySet).before(drive_body))
             .init_resource::<crate::script_sequences::PlayerSequences>()
-            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
+            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, take_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(Update, toggle_iron_sights)
             .add_systems(PostUpdate, follow_script_nodes.after(crate::nif_mirror::MirrorSystems).before(bevy::transform::TransformSystems::Propagate))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
@@ -1673,6 +1813,11 @@ struct WarmPose {
 /// [design: this file] Marks only culling overrides inserted by the warm-up.
 #[derive(Component)]
 struct WarmUnculled;
+
+/// [design: show_rigs] Marks only the culling overrides a loading screen's body warm-up
+/// inserted, so taking them off leaves any other override alone.
+#[derive(Component)]
+struct BodyWarmUnculled;
 
 fn restore_warm_pose(
     mut commands: Commands,
@@ -1892,7 +2037,7 @@ fn ensure_body(
     };
     // The dead or knocked-down player's body lies as its ragdoll left it: it is not
     // rebuilt.
-    if state.failed.is_some() || death.down() || knock.ragdolled() {
+    if state.failed.is_some() || death.down() || knock.holds_pose() {
         return;
     }
     let (worn, weapon, weapon_mods) = equipped(&sim, &world);
@@ -2074,10 +2219,18 @@ fn ensure_body(
                         // On the body, behind the first-person view.
                         continue;
                     }
-                    let tags: Vec<(String, bool)> =
-                        s.ancestors.iter().chain(s.name.as_ref()).filter(|n| n.starts_with("##")).map(|n| (n.clone(), true)).collect();
+                    let tags: Vec<(String, bool, Option<bool>)> = s
+                        .ancestors
+                        .iter()
+                        .chain(s.name.as_ref())
+                        .filter(|n| n.starts_with("##"))
+                        .map(|n| {
+                            let rest = pm.part_rest.iter().find(|(r, _)| r == n).map(|(_, v)| *v);
+                            (n.clone(), part_on(None, rest, true), rest)
+                        })
+                        .collect();
                     let never = mine && nvf_play::mines::lit_part(s.name.as_deref(), &s.ancestors);
-                    let shown = !never && (tags.is_empty() || in_hand);
+                    let shown = !never && (tags.is_empty() || in_hand) && tags.iter().all(|(_, on, _)| *on);
                     let visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
                     // On a bone of its own the shape keeps its place in the whole model;
                     // else it sits under its node, which the clips may move.
@@ -2194,7 +2347,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
                             continue;
                         }
                         let mesh = nvf_assets::actor::dismember_mesh(&s.cpu, &s.partitions, |p| !p.cap && first_person::is_arm_body_part(p.body_part));
-                        u.meshes[si] = Some(ctx.models.meshes.add(mesh));
+                        u.meshes[si] = Some((ctx.models.meshes.add(mesh.clone()), std::sync::Arc::new(mesh)));
                         cut.push(name.to_string());
                     }
                     let p = &a.parts[*i];
@@ -2289,6 +2442,10 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         animator,
         clips: HashMap::new(),
         variants: HashMap::new(),
+        override_list: Vec::new(),
+        by_stem: HashMap::new(),
+        turn: 0,
+        partial: false,
         overrides: Arc::default(),
         active_clip: None,
         head,
@@ -2322,7 +2479,9 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         spawned_forms,
         shown: None,
         seen: None,
+        warm: false,
         furniture: None,
+        furniture_over: None,
         since_attack: f32::INFINITY,
         attack_loop: None,
         wound_up: None,
@@ -2392,7 +2551,9 @@ struct Frame {
     upright: bool,
     /// Block held.
     aiming: bool,
-    speed: f32,
+    /// The speed the movement clips are paced at: the one the controls ask for on the
+    /// ground, else the measured speed.
+    pace: f32,
     /// The attack and reload clips of the weapon, and whether each starts this frame.
     attack: Option<&'static str>,
     reload: Option<&'static str>,
@@ -2436,6 +2597,8 @@ struct Posed<'a> {
     pipboy_dt: f32,
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
+    /// The Pip-Boy checked (third person): what the player does and the check playing.
+    check: Option<(nvf_play::pipboy::glance::Check, &'a mut crate::pipboy_check::CheckPlay)>,
     /// The sway of the arms (first person, `view_sway.rs`).
     sway: SwayPose,
     /// True iron sights (first person, `iron_sights.rs`): how far in (0–1), and the
@@ -2460,9 +2623,32 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, (transforms, parents): (&mut Query<&mut Transform>, &Query<&ChildOf>)) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, sequences, sequence_dt, pipboy_dt, pipboy, sway, sights } = posed;
+    let Posed { root, look_pitch, special, sequences, sequence_dt, pipboy_dt, pipboy, check, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
+    let check = check.filter(|_| rig.view == View::Third).and_then(|(want, play)| {
+        use nvf_play::pipboy::glance::Check;
+        let kind = play.clip_for(want);
+        let Some(c) = (kind != Check::None).then(|| rig.clip(ctx, ClipKey::PipBoyCheck(kind == Check::Full))).flatten() else {
+            *play = crate::pipboy_check::CheckPlay::default();
+            return None;
+        };
+        let keys = crate::pipboy_check::CheckKeys::read(c.clip.length(), &c.clip.text_keys);
+        let before = *play;
+        let step = play.step(want, f.dt, keys);
+        if play.closing && !before.closing {
+            info!("player {:?} rig: Pip-Boy check {:?} put away {:.2} s into its clip (arm up at {:.2} s), going on from {:.2} s", rig.view, play.kind, before.t, keys.up, play.t);
+        }
+        if before.kind != play.kind {
+            if play.kind == Check::None && before.closing {
+                info!("player {:?} rig: Pip-Boy check {:?} gone {:.2} s after it was put away", rig.view, before.kind, before.out + f.dt);
+            } else {
+                info!("player {:?} rig: Pip-Boy check {:?} -> {:?}", rig.view, before.kind, play.kind);
+            }
+        }
+        let (t, w) = step?;
+        Some((c, t, w))
+    });
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
     let holster = rig.clip(ctx, ClipKey::Holster(f.stance, f.prefix));
@@ -2659,16 +2845,20 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             }
             if !going {
                 // At the attack's rate: the weapon's multipliers and the Modify Attack Speed
-                // perks, as combat times the shot. With movement inertia in first person the
-                // clip starts at once and the arms ease across the jump back to its start
+                // perks, as combat times the shot. A `noBlend` clip starts at once
+                // (`ClipKeys::no_blend`). With movement inertia in first person the clip
+                // starts at once too and the arms ease across the jump back to its start
                 // (`Animator::smooth_jump`): its kick shows whole, with no snap between shots
                 // [design: the owner's eighth playtest, 2026-11-14, "the jump is not instant to
                 // the next recoil point"].
-                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, if first_inertia { 0.0 } else { ATTACK_FADE });
+                let fade = if c.keys.no_blend || first_inertia { 0.0 } else { ATTACK_FADE };
+                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, fade);
                 if first_inertia {
                     rig.animator.smooth_jump();
                 }
                 rig.animator.layers[l].rate = f.attack_rate;
+                // Its weapon parts over the stance clip's (`Layer::parts_over`), as a reload's.
+                rig.animator.layers[l].parts_over = true;
                 debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
                 // The attack's own up and down forms keep the body bent with the pitch while
                 // it plays, as the aim's do [observed: `2hrattackleftup.kf`, §9.6].
@@ -2676,8 +2866,9 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     let tag = TAG_ATTACK + i as u32;
                     rig.animator.cut(tag);
                     if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
-                        let l = rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                        let l = rig.animator.restart(&v.clip, tag, w, Mode::Once, if c.keys.no_blend { 0.0 } else { ATTACK_FADE });
                         rig.animator.layers[l].rate = f.attack_rate;
+                        rig.animator.layers[l].parts_over = true;
                     }
                 }
             }
@@ -2707,6 +2898,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             }
             // At the player's reload rate, as the cycle times it (Agility, Rapid Reload).
             rig.animator.layers[layer].rate = f.reload_rate;
+            // The weapon's parts move as the clip has them, in step with the hands, not
+            // shared with the stance clip that keys them still at the same priority
+            // (`Layer::parts_over`; the caravan shotgun's stock).
+            rig.animator.layers[layer].parts_over = true;
             info!("player {:?} rig: {} moves the weapon's {:?} (reload at x{:.2})", rig.view, c.path, rig.animator.extra_driven(&c.clip), f.reload_rate);
         }
     }
@@ -2714,7 +2909,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     // reload is [observed: the clips sit beside the reload clips in both rigs' folders].
     if f.hands.in_hand && f.jam_now {
         if let Some(c) = f.jam.and_then(|j| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, j))) {
-            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, if first_inertia { 0.0 } else { c.fade() });
+            let layer = rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, if first_inertia { 0.0 } else { c.fade() });
+            rig.animator.layers[layer].parts_over = true;
             if first_inertia {
                 rig.animator.smooth_jump();
             }
@@ -2738,6 +2934,21 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let a = &mut rig.animator;
     a.begin();
     let covered = special.covers();
+    // Under an idle that covers the rest, the stance idle still poses the bones the idle
+    // does not key, below every priority so the idle has all the bones it does key.
+    // Without it those bones fell to the bind pose: a clip that keys no `Bip01 NonAccum`
+    // (a pick-up, an emote's wave) or the head alone sank the body to the waist (laptop
+    // run, 2026-11-09). A layer of its own, so the stance idle's usual one keeps its
+    // priority for when the idle ends.
+    if covered {
+        if let Some((c, ..)) = want.iter().find(|(_, tag, ..)| *tag == TAG_IDLE) {
+            let n = a.layers.len();
+            let i = a.want(&c.clip, TAG_IDLE_UNDER, 1.0, Mode::Loop, 0.0);
+            if a.layers.len() > n {
+                a.lift(i, -OVER_LIFT);
+            }
+        }
+    }
     let is_aim = |tag: u32| (TAG_AIM..TAG_AIM + 3).contains(&tag);
     let is_move = |tag: u32| tag == TAG_IDLE || (TAG_MOVE..TAG_MOVE + 4).contains(&tag);
     // An aim clip coming in over another aim clip (the hold to the sights, to a block and
@@ -2906,10 +3117,17 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         let l = &mut a.layers[i];
         (l.rate, l.time) = (0.0, if f.inertia { pipboy_clip_time(*t) } else { *t });
     }
+    // The Pip-Boy checked: the arm's clip at its time over the upper body.
+    if let Some((c, t, _)) = &check {
+        let i = a.want(&c.clip, TAG_CHECK, 1.0, Mode::Once, 0.0);
+        let l = &mut a.layers[i];
+        (l.rate, l.time) = (0.0, *t);
+    }
     a.end();
-    // Movement clips play at the speed the character actually moves [hypothesis: the
-    // game matches the clip's root motion to the ground speed].
-    let rate = if expected_speed > 1.0 { (f.speed / expected_speed).clamp(0.25, 2.5) } else { 1.0 };
+    // Movement clips play at the speed the character moves at, as the controls ask for
+    // it on the ground (`Frame::pace`) [hypothesis: the game matches the clip's root
+    // motion to the speed].
+    let rate = if expected_speed > 1.0 { (f.pace / expected_speed).clamp(0.25, 2.5) } else { 1.0 };
     let attack_time = |a: &Animator| {
         let (clip, _) = rig.attack_eject.as_ref()?;
         a.layers.iter().find(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, clip)).map(|l| l.time)
@@ -2992,6 +3210,13 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     if let Some((_, t)) = pipboy {
         for l in a.layers.iter_mut().filter(|l| l.tag == TAG_PIPBOY) {
             (l.weight, l.ease) = (1.0, pipboy_ease(t));
+        }
+    }
+    // Only the clip asked for this frame: a check layer the old body handed on at a
+    // rebuild (`continue_from`; its clip is the old cache's) fades out as any other.
+    if let Some((c, _, w)) = check {
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_CHECK && Arc::ptr_eq(&l.clip, &c.clip)) {
+            (l.weight, l.ease) = (1.0, w);
         }
     }
     a.pose();
@@ -3123,7 +3348,13 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
     let mode = if o.looped { Mode::Loop } else { Mode::Once };
     if rig.furniture != Some(o.serial) {
         a.layers.retain(|l| l.tag >= TAG_SPECIAL);
-        a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        let i = a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        // Over a clip under it, the clip takes the bones it keys outright; the one under
+        // poses the rest (an emote's clip that keys no `Bip01 NonAccum`, or the head
+        // alone, would leave those in the bind pose: the body sank to the waist).
+        if o.under.is_some() {
+            a.lift(i, OVER_LIFT);
+        }
         rig.furniture = Some(o.serial);
     }
     // The holstered weapon keeps its place on the holster bone: the seat clips have no
@@ -3142,7 +3373,24 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
         }
     }
     a.begin();
+    if let Some(under) = &o.under {
+        a.want(under, TAG_FURNITURE - 1, 1.0, Mode::Loop, 0.0);
+    }
     a.want(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+    // A clip over it, once, above its priority (the fillet table's stabs and misses).
+    match &o.over {
+        Some((clip, serial)) => {
+            if rig.furniture_over != Some(*serial) {
+                let i = a.restart(clip, TAG_FURNITURE + 1, 1.0, Mode::Once, 0.06);
+                a.lift(i, OVER_LIFT);
+                rig.furniture_over = Some(*serial);
+            }
+            if a.layer(clip, TAG_FURNITURE + 1).is_some_and(|l| !l.finished()) {
+                a.want(clip, TAG_FURNITURE + 1, 1.0, Mode::Once, 0.06);
+            }
+        }
+        None => rig.furniture_over = None,
+    }
     // Over it the idle the body plays there (a fidget on furniture, `idles.rs`), as
     // `pose_rig` lays them.
     for (p, w) in special.shown() {
@@ -3351,9 +3599,68 @@ impl Seen {
     }
 }
 
+/// The get-up's start (`player_knockdown.rs`): the rig's nodes `k` of the way from the
+/// ragdoll's last pose `from` (each node in the space of the rig root's parent, so it stays
+/// where it lay however the player is moved) to what the clips give them.
+fn blend_from_pose(rig: &Rig, from: &[Affine3A], k: f32, transforms: &mut Query<&mut Transform>) {
+    let a = &rig.animator;
+    let Ok(r) = transforms.get(rig.root).copied() else { return };
+    let inv_root = Affine3A::from_scale_rotation_translation(r.scale, r.rotation, r.translation).inverse();
+    let n = a.skel.parents.len().min(from.len()).min(a.nodes.len()).min(a.locals.len());
+    // Each node under the rig root, as the ragdoll left it.
+    let model: Vec<Affine3A> = from[..n].iter().map(|f| inv_root * *f).collect();
+    for i in 1..n {
+        // Node 0 is the rig root itself: its children's transforms are under the root
+        // as it stands now (the player placed and turned for the clip), not as it lay.
+        let parent = a.skel.parents[i].filter(|&p| p > 0 && p < n).map_or(Affine3A::IDENTITY, |p| model[p]);
+        let (s, q, t) = (parent.inverse() * model[i]).to_scale_rotation_translation();
+        let clip = a.locals[i];
+        let want = Transform { translation: t.lerp(clip.translation, k), rotation: q.slerp(clip.rotation, k), scale: s.lerp(clip.scale, k) };
+        if want.translation.is_finite() && want.rotation.is_finite() && want.scale.is_finite() {
+            if let Ok(mut tr) = transforms.get_mut(a.nodes[i]) {
+                *tr = want;
+            }
+        }
+    }
+}
+
 /// Show the camera `seen` of the third-person rig, and the first-person rig or not.
-fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool) {
+///
+/// `warm`: a loading screen is up. Behind it the whole third-person rig is drawn in the
+/// camera's pass, culling or not, so that its pipelines compile there and the screen waits
+/// for them (`pipeline_gate`). Otherwise a body first seen in play, kept to the shadow pass
+/// until then (first person, the slot machine's close camera), is skipped for the frames
+/// its pipelines compile and then drawn as a flat silhouette [observed 2026-11-11: slots-3d
+/// on ship + 841b9f9d0, its first third-person view after the win asked 14 pipelines,
+/// ready after 183 ms; the body missing at 43.5 s and flat brown at 43.25 s and 44.0 s].
+/// Compiled once, they stay in the pipeline cache for the run.
+///
+/// `hidden` (photo mode's Hide Player): neither is seen, whatever the view (a loading
+/// screen's `warm` still draws the whole body behind it).
+fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool, warm: bool, hidden: bool) {
+    let (seen, first) = if hidden { (Seen { body: false, head: false, arms: false, weapon: false }, false) } else { (seen, first) };
     let third = &mut body.third;
+    let seen = if warm { Seen { body: true, head: true, arms: true, weapon: true } } else { seen };
+    if third.warm != warm {
+        let parts = third.drawn.iter().map(|d| d.entity).chain(third.weapon_parts.iter().map(|p| p.entity));
+        for e in parts {
+            if warm {
+                commands.entity(e).queue(|mut w: EntityWorldMut| {
+                    if !w.contains::<NoFrustumCulling>() {
+                        w.insert((NoFrustumCulling, BodyWarmUnculled));
+                    }
+                });
+            } else {
+                commands.entity(e).queue(|mut w: EntityWorldMut| {
+                    if w.contains::<BodyWarmUnculled>() {
+                        w.remove::<(NoFrustumCulling, BodyWarmUnculled)>();
+                    }
+                });
+            }
+        }
+        debug!("player body: {}", if warm { "drawn whole behind the loading screen" } else { "the loading screen is down" });
+        third.warm = warm;
+    }
     if third.seen != Some(seen) {
         for d in &third.drawn {
             commands.entity(d.entity).insert(Seen::layer(seen.part(d)));
@@ -3451,10 +3758,23 @@ fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate:
     }
 }
 
+/// kNVSE's AnimGroupOverride folders and SetActorAnimationPath on the player's rigs
+/// (`fnv_game::nvse_anim_folders`): each view takes the files the game gives it now, and
+/// whether a reload would be partial.
+fn take_overrides(script: Option<Res<nvf_play::script::ScriptState>>, anim: Res<WeaponAnim>, mut state: ResMut<PlayerBody>) {
+    let Some(body) = state.body.as_mut() else { return };
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
+        let list = game.map(|g| g.anim_overrides(FormId::PLAYER_REF, rig.view == View::First)).unwrap_or_default();
+        rig.set_overrides(list);
+        rig.set_partial(anim.partial);
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
-    (time, play_clock, paused, turbo, sim, mut told_scale, sequences, mut trace, stance_motion): (Res<Time>, Option<Res<nvf_play::pause::PlayClock>>, Option<Res<nvf_play::pause::Paused>>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Res<crate::script_sequences::PlayerSequences>, Local<MotionTrace>, Option<Res<nvf_play::stance::StanceMotion>>),
+    (time, play_clock, paused, turbo, sim, mut told_scale, loading, sequences, mut trace, stance_motion): (Res<Time>, Option<Res<nvf_play::pause::PlayClock>>, Option<Res<nvf_play::pause::Paused>>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Option<Res<nvf_play::loading::Loading>>, Res<crate::script_sequences::PlayerSequences>, Local<MotionTrace>, Option<Res<nvf_play::stance::StanceMotion>>),
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
@@ -3467,21 +3787,25 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, vats, inertia, mut blows)): (
+    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, script, vats, photo, inertia, mut blows)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
-        Res<nvf_play::pipboy::PipBoy>,
+        (Res<nvf_play::pipboy::PipBoy>, Res<nvf_play::pipboy::glance::Glance>, ResMut<crate::pipboy_check::PlayerCheck>),
         Query<&Projection, With<nvf_play::PlayerCamera>>,
-        (Option<Res<nvf_play::free_cam::FirstPersonFov>>, Option<Res<crate::Args>>),
+        (Option<Res<nvf_play::free_cam::FirstPersonFov>>, Option<Res<crate::Args>>, Option<Res<crate::split::view::HalfAspect>>),
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::vats_mode::VatsMode>>, Option<Res<nvf_play::inertia::MovementInertia>>, Option<ResMut<PlayerBlows>>),
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::script::ScriptState>>, Option<Res<nvf_play::vats_mode::VatsMode>>, Option<Res<nvf_play::photo_mode::PhotoMode>>, Option<Res<nvf_play::inertia::MovementInertia>>, Option<ResMut<PlayerBlows>>),
     ),
     (mut driven, parents, mut toddler): (ResMut<nvf_play::player::ViewDriven>, Query<&ChildOf>, Option<ResMut<nvf_play::player::PlayerToddler>>),
 ) {
     let state = &mut *state;
+    // A loading screen is up: the whole body is drawn behind it ([`show_rigs`]).
+    let warm = loading.as_deref().is_some_and(|l| l.active());
+    // Photo mode's Hide Player: no rig is drawn (the shadow stays).
+    let hidden = photo.as_deref().is_some_and(|p| p.hides_player());
     player.body_view = None;
     // Set again below while the body's attack clip carries the player.
     let was_carrying = std::mem::replace(&mut lunge.carrying, false);
@@ -3505,7 +3829,7 @@ fn drive_body(
         state.casing_entity = None;
         return;
     };
-    if death.down() || knock.ragdolled() {
+    if death.down() || knock.holds_pose() {
         // Dead or knocked down: the clips stop and the ragdoll has the body
         // (`death_cam.rs`, `player_knockdown.rs`). The whole body is drawn, but for its
         // head while the view is inside it (a knockdown's view is outside).
@@ -3514,7 +3838,7 @@ fn drive_body(
         anim.casing = None;
         state.muzzle_entity = None;
         state.casing_entity = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.ragdolled(), arms: true, weapon: true }, false);
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.holds_pose(), arms: true, weapon: true }, false, warm, hidden);
         return;
     }
     // Turbo slows the world's clock, not the player's clips (magic-archetypes.md §2).
@@ -3661,7 +3985,10 @@ fn drive_body(
         anim.casing = None;
         state.muzzle_entity = None;
         state.casing_entity = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: true }, false);
+        // A weapon still in the hand is not drawn: the furniture's clips (and the fillet
+        // table's, which put the mod's knife in that hand) do not hold it.
+        let seen = Seen { body: (third_view || own_body) && !state.out_of_view, head: third_view, arms: true, weapon: !m.hands.in_hand };
+        show_rigs(body, &mut commands, &mut visibility, seen, false, warm, hidden);
         return;
     }
     if body.third.furniture.take().is_some() {
@@ -3672,6 +3999,13 @@ fn drive_body(
     m.lying = None;
     // The weapon: draw and holster, timed by the clips of the rig in view.
     let prefix = m.prefix;
+    // An `_order_N` set's next file is the next attack's: chosen before combat reads its
+    // timing, and kept while it plays (the count moves on as the attack starts, below).
+    let turn = m.attacks_seen as usize;
+    body.third.set_turn(turn);
+    if let Some(f) = body.first.as_mut() {
+        f.set_turn(turn);
+    }
     let timing_rig = match body.first.as_mut() {
         Some(f) if !third_view => f,
         _ => &mut body.third,
@@ -3799,6 +4133,7 @@ fn drive_body(
     if let Some(h) = idles.held.and_then(|h| h.moved(player.placed, player.heading, player.pitch)) {
         info!("player view: the game moved the player while an idle holds them: held at ({:.0}, {:.0}, {:.0}) now", h.feet[0], h.feet[1], h.feet[2]);
         idles.held = Some(h);
+        m.moved_in_idle = Some((h.heading, h.pitch));
     }
     // A second later: where the collision has left the character (a smoke check).
     if let Some(t) = m.after_idle.as_mut() {
@@ -3862,7 +4197,12 @@ fn drive_body(
         // 2026-10-16, "the players own body standing over themselves"].
         upright: own_body && !third_view && body.first.is_some() && idles.held.is_none(),
         aiming: control.aiming,
-        speed: m.speed,
+        // On the ground, the pace the controls ask for: blocked by a wall or slowed by a
+        // slope too steep, the legs run on at that pace instead of shuffling at a
+        // quarter of it (overnight item 93: JAM's sprint ended against the climb to the
+        // Mojave Outpost and the run clip crept at its slowest rate) [hypothesis: the
+        // original runs on the spot against a wall; not measured].
+        pace: if grounded && !swimming && phys.player_wish > 1.0 { phys.player_wish } else { m.speed },
         attack: Some(attack),
         reload,
         jam,
@@ -3900,8 +4240,13 @@ fn drive_body(
     let (sprint_share, winded) = stance_motion.as_deref().map_or((0.0, 0.0), |s| (s.sprint_share, s.winded));
     let lean = if third_view { crate::sprint_view::lean(sprint_share) } else { Quat::IDENTITY };
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading) * lean, scale: Vec3::splat(body.scale * script_scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences: &sequences.third, sequence_dt: dt, pipboy_dt: 0.0, pipboy: None, sway: SwayPose::NONE, sights: None };
+    let want = nvf_play::pipboy::glance::Check::of(&pip, &glance);
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences: &sequences.third, sequence_dt: dt, pipboy_dt: 0.0, pipboy: None, check: Some((want, &mut check.0)), sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, (&mut transforms, &parents)).map(|(e, _)| e + eye_sink);
+    // Getting up after a knockdown: from the ragdoll's last pose into the clip.
+    if let Some((from, k)) = knock.blend_from() {
+        blend_from_pose(&body.third, from, k, &mut transforms);
+    }
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
@@ -3919,7 +4264,9 @@ fn drive_body(
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
     }
-    let pipboy = (pip.on_arm() && pip.warming.is_none()).then_some(pip.clip_time);
+    // The arm comes up for the full Pip-Boy (its clip on the arm) and for the glance
+    // (`glance::arm_clip`), not while the Pip-Boy warms up hidden.
+    let pipboy = nvf_play::pipboy::glance::arm_clip(&pip, &glance).filter(|_| pip.warming.is_none());
     // A heavier weapon in the hand sways slower and further, with its switch on.
     let gun_weight = combat.as_deref().filter(|_| m.hands.in_hand).and_then(|c| c.forms.weapons.get(&c.player_weapon()?)).map_or(0.0, |w| w.weight);
     let weight = gun_weight;
@@ -3936,7 +4283,7 @@ fn drive_body(
     // original's 55°, is scaled against the arms' size for it, so it looks the same size at
     // any viewmodel field of view (`view_sway::rescale`).
     let viewmodel_fov = {
-        let (asked_fov, args) = &first_fov;
+        let (asked_fov, args, _) = &first_fov;
         asked_fov.as_ref().and_then(|f| f.0).or_else(|| args.as_ref().map(|a| a.viewmodel_fov)).unwrap_or(FIRST_PERSON_FOV)
     };
     let sway_share = arms_magnification(1.0, FIRST_PERSON_FOV) / arms_magnification(1.0, viewmodel_fov).max(1e-3);
@@ -4089,6 +4436,17 @@ fn drive_body(
         None => nvf_play::space::look_dir(player.heading, player.pitch),
     };
     let sights = sights_in.map(|s| (s, Quat::from_rotation_z(held) * Vec3::from_array(gun_dir)));
+    // Down the sights the gun gets its own sway on top (`ads_sway.rs`): the normal sway
+    // turns it about the eye, where the sights sit, so it barely shows there.
+    let ads = m.ads_sway.update(crate::ads_sway::AdsInput {
+        dt,
+        heading: player.heading,
+        pitch: player.pitch,
+        velocity: m.velocity,
+        airborne: m.falling,
+        share: sights.map_or(0.0, |(s, _)| s),
+    });
+    let sway = crate::weapon_lower::then(sway, ads);
     // The crosshair goes while the gun is on its way to the eye.
     let lined = sights.is_some();
     if let Some(t) = true_sights.as_deref_mut() {
@@ -4103,7 +4461,7 @@ fn drive_body(
     } else {
         0.0
     };
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences: &sequences.first, sequence_dt: dt.max(sequences.first_menu_dt), pipboy_dt, pipboy, sway, sights };
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences: &sequences.first, sequence_dt: dt.max(sequences.first_menu_dt), pipboy_dt, pipboy, check: None, sway, sights };
     // With movement inertia the arms' looping clips have their seams smoothed (the idle's
     // hand turned back in one frame at each loop; `nvf_assets::anim_blend` `Seams`).
     if let Some(f) = body.first.as_mut() {
@@ -4115,17 +4473,23 @@ fn drive_body(
     // the world's, and narrower still while the Pip-Boy shows.
     let mut lens_k = 1.0;
     if let (Some(f), Some(eye)) = (body.first.as_ref(), first_eye) {
+        // Sized for the view the arms are drawn in: a wide split-screen half's
+        // (`crate::split::view::HalfAspect::arms_vfov`).
         let vfov = cams.single().ok().and_then(|p| match p {
-            Projection::Perspective(p) => Some(p.fov),
+            Projection::Perspective(p) => Some(first_fov.2.as_deref().map_or(p.fov, |h| h.arms_vfov(p.fov))),
             _ => None,
         });
+        // The arms' field of view (`viewmodel_fov`). The full Pip-Boy narrows the view onto
+        // the screen; the glance widens it, the arm drawn smaller and lower with the world
+        // seen past it.
         let first_fov = viewmodel_fov;
-        let k = match (pip.on_arm() && pip.warming.is_none(), vfov) {
-            (true, Some(v)) => {
+        let k = match (pipboy, vfov) {
+            (Some(t), Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
-                normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(pip.clip_time)
+                let (to, ease) = if pip.on_arm() { (PIPBOY_FOV, pipboy_ease(t)) } else { (GLANCE_FOV, glance_ease(t)) };
+                normal + (arms_magnification(v, to) - normal) * ease
             }
-            (false, Some(v)) => arms_magnification(v, first_fov),
+            (None, Some(v)) => arms_magnification(v, first_fov),
             _ => 1.0,
         };
         let forward = Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch));
@@ -4138,13 +4502,18 @@ fn drive_body(
             player.body_view = Some(v);
             m.idle_view = Some(v);
         }
-        // The idle is over: the view goes on from where it left it.
+        // The idle is over: the view goes on from where it left it, or looks where the
+        // game's move put it ([`after_idle_view`]).
         None => {
             if let Some(v) = m.idle_view.take() {
                 let fwd = v * Vec3::Y;
-                player.heading = fwd.x.atan2(fwd.y);
-                player.pitch = fwd.z.clamp(-1.0, 1.0).asin();
+                let moved = m.moved_in_idle;
+                (player.heading, player.pitch) = after_idle_view(fwd.x.atan2(fwd.y), fwd.z.clamp(-1.0, 1.0).asin(), moved);
+                if moved.is_some() {
+                    info!("player view: idle over; looking where the game's move put the view ({:.0} deg, pitch {:.0} deg)", player.heading.to_degrees(), player.pitch.to_degrees());
+                }
             }
+            m.moved_in_idle = None;
         }
     }
     // Sprint's side sway (`sprint_view.rs`, Camera Motion): a small roll of the first-person
@@ -4229,12 +4598,10 @@ fn drive_body(
     // no playing clip speaks for stays as it was).
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
         for p in &mut rig.weapon_parts {
-            for (tag, on) in &mut p.tags {
-                if let Some(v) = rig.animator.visible(tag) {
-                    *on = v;
-                }
+            for (tag, on, rest) in &mut p.tags {
+                *on = part_on(rig.animator.visible(tag), *rest, *on);
             }
-            let shown = !p.never && p.tags.iter().all(|(_, on)| *on);
+            let shown = !p.never && p.tags.iter().all(|(_, on, _)| *on);
             if p.shown != Some(shown) {
                 if let Ok(mut v) = visibility.get_mut(p.entity) {
                     *v = if shown { Visibility::Inherited } else { Visibility::Hidden };
@@ -4279,18 +4646,25 @@ fn drive_body(
     let seen = if frame.upright {
         Seen::upright(m.hands.in_hand, m.hands.phase != WeaponPhase::Holstered, pipboy.is_some())
     } else {
-        Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
+        // The Pip-Boy checked: the weapon in the hand is not seen (`pipboy_check.rs`).
+        Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: !(m.hands.in_hand && check.0.hides_weapon()) }
     };
     // Through a scope the arms rig is not drawn (docs/spec-notes/weapon-scopes.md §2),
     // unless the scope is shown in its lens (3D scopes).
     let scoped = scope.as_deref().is_some_and(|s| s.on && !s.lens_3d);
     // The console's Show1stPerson shows it in third person too, at the eye.
     let s1st = s1st.is_some_and(|s| s.0);
+    // The Vigor Tester's menu draws the machine's model in front of the camera
+    // (`nvf_play::chargen::vigor`): the arms rig, drawn in front of the world, is not
+    // drawn over it [observed 2026-11-06: an activation clip's reaching hand stayed over
+    // the machine's screen].
+    let vigor = script.as_deref().and_then(nvf_play::chargen::open_code) == Some(fnv_game::game::menus::LOVE_TESTER);
     // Nor while the classic VATS style chooses targets: the view is on the target alone
     // [observed: the owner's screenshots of the original's VATS, 2026-11-10, no arms or
     // weapon in the picture].
     let targeting = vats.is_some_and(|v| v.selected().is_some());
-    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !targeting);
+    let seen = Seen { body: seen.body && !state.out_of_view, ..seen };
+    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor && !targeting, warm, hidden);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {
@@ -4321,9 +4695,122 @@ fn drive_body(
     }
 }
 
+/// The heading and pitch (radians) the first-person view has when an idle that turned
+/// it ends: where the idle left it (`idle`, the opening's wake-up goes on from where the
+/// character sat up), unless the game moved the player while the idle held them (`moved`:
+/// a script's MoveTo, which arrives looking level along the marker, `Loading::level_view`)
+/// [design]. Dead Money's bunker trigger starts an idle and NVDLC01IntroSCRIPT moves the
+/// player to NVDLC01SlideshowMarker, which faces the slides' screen (DeadMoney.esm); when
+/// the idle ended its last look, 40 degrees up, stood for the whole slideshow and the
+/// slides lay along the bottom edge of the screen (item 214, solo run 2026-11-14).
+fn after_idle_view(idle_heading: f32, idle_pitch: f32, moved: Option<(f32, f32)>) -> (f32, f32) {
+    moved.unwrap_or((idle_heading, idle_pitch))
+}
+
 #[cfg(test)]
 mod tests {
+    /// The Colt Anaconda's speed loader (`##SpeedLoader`, rest hidden): hidden drawn and
+    /// idle, also with the magazine at 0/0 (no clip keys it); shown while the reload
+    /// (`1hpReloadE.kf`, which holds it shown) plays; hidden again once the reload ends.
+    /// Its casings (`##swmCasing`, rest shown) stay shown; the minigun's gun, which the
+    /// model has no rest for, stays as the last clip left it.
+    #[test]
+    fn a_move_during_an_idle_sets_the_view_after_it() {
+        // Item 214: the slideshow marker's level view, not the idle's last look up.
+        assert_eq!(after_idle_view(1.0, 0.7, Some((0.0, 0.0))), (0.0, 0.0));
+        // No move: the view goes on from where the idle left it (the opening's wake-up).
+        assert_eq!(after_idle_view(1.0, 0.7, None), (1.0, 0.7));
+    }
+
+    #[test]
+    fn a_speed_loader_shows_only_while_the_reload_keys_it() {
+        let loader = Some(false);
+        let mut on = super::part_on(None, loader, true);
+        assert!(!on, "drawn, before any reload");
+        on = super::part_on(None, loader, on);
+        assert!(!on, "idle at 0/0");
+        on = super::part_on(Some(true), loader, on);
+        assert!(on, "mid-reload");
+        on = super::part_on(None, loader, on);
+        assert!(!on, "after the reload");
+        assert!(super::part_on(None, Some(true), true), "the casings");
+        assert!(!super::part_on(None, None, false), "a part with no rest keeps the last clip's word");
+        assert!(super::part_on(None, None, true));
+        // An RPG-7's round (rest shown) hidden by the attack stays hidden after it.
+        assert!(!super::part_on(None, Some(true), false), "an empty launcher's round");
+        assert!(super::part_on(Some(true), Some(true), false), "the reload puts it back");
+    }
+
+    #[test]
+    fn override_files_replace_clips_by_stem() {
+        let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let m = super::override_stems(&f(&[
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpEquip Combat.kf",
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpEquip.kf",
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpReloadL_Partial.kf",
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpReloadL_hurt.kf",
+            "AnimGroupOverride\\Ani_1911\\_male\\1hpReloadL v1.6.kf",
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpAttackRight.kf",
+            "AnimGroupOverride\\Ani_1911\\LastShot\\_1stPerson\\1hpAttackRight last.kf",
+        ]));
+        assert_eq!(m["1hpequip"], ["AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpEquip.kf"]);
+        assert!(m.contains_key("1hpreloadl_partial"));
+        assert_eq!(m["1hpreloadl"], ["AnimGroupOverride\\Ani_1911\\_male\\1hpReloadL v1.6.kf"]);
+        assert!(!m.keys().any(|k| k.contains("hurt")));
+        // A later folder's (the last-shot entry's) file wins, spaced or not.
+        assert_eq!(m["1hpattackright"], ["AnimGroupOverride\\Ani_1911\\LastShot\\_1stPerson\\1hpAttackRight last.kf"]);
+        assert_eq!(super::clip_stem("sneak1hpreloadl.kf"), "sneak1hpreloadl");
+    }
+
+    /// Another Millenia's dual pistols (`Johnsonn_9mmAkimbo`): `_order_1` and `_order_2`
+    /// files make one set, played in turn; the last-shot folders, whose conditions put
+    /// them after the plain set, hold one file of it and replace the set.
+    #[test]
+    fn order_files_make_a_set_played_in_turn() {
+        let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let base = [
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAttackRight_order_2.kf",
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAttackRight_order_1.kf",
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAim.kf",
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_male\\Sneak1hpAttackRightDOWN.kf",
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_male\\Sneak1hpAttackRightDOWN_order_2.kf",
+        ];
+        let m = super::override_stems(&f(&base));
+        assert_eq!(
+            m["1hpattackright"],
+            ["AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAttackRight_order_1.kf", "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAttackRight_order_2.kf"]
+        );
+        assert_eq!(m["1hpaim"].len(), 1);
+        assert!(!m.keys().any(|k| k.contains("order")));
+        // A plain file of the stem leads its folder's set.
+        assert_eq!(m["sneak1hpattackrightdown"].len(), 2);
+        assert!(m["sneak1hpattackrightdown"][0].ends_with("Sneak1hpAttackRightDOWN.kf"));
+        // Two rounds left: the right gun's last-shot folder comes after and holds the set alone.
+        let mut last = base.to_vec();
+        last.push("AnimGroupOverride\\Johnsonn_9mmAkimboRightLast\\_1stPerson\\1hpAttackRight_order_1.kf");
+        let m = super::override_stems(&f(&last));
+        assert_eq!(m["1hpattackright"], ["AnimGroupOverride\\Johnsonn_9mmAkimboRightLast\\_1stPerson\\1hpAttackRight_order_1.kf"]);
+        assert_eq!(m["1hpaim"].len(), 1, "a stem the later folder lacks keeps its file");
+        assert_eq!(crate::anim_overrides::order_of("1hpattackright_order_12"), ("1hpattackright".to_string(), 12));
+        assert_eq!(crate::anim_overrides::order_of("1hpattackright_order_x"), ("1hpattackright_order_x".to_string(), 0));
+        let up = super::ordered_aim_variant("meshes\\AnimGroupOverride\\J\\_male\\1hpAttackRight_order_1.kf", Aim::Up);
+        assert_eq!(up, "meshes\\AnimGroupOverride\\J\\_male\\1hpAttackRightup_order_1.kf");
+        assert_eq!(super::ordered_aim_variant("a\\2hrattackleft.kf", Aim::Up), fnv_actor::player_clips::aim_variant("a\\2hrattackleft.kf", Aim::Up));
+    }
+
     use super::*;
+
+    #[test]
+    fn the_glance_draws_the_arm_smaller_and_fully_so_at_its_hold() {
+        use nvf_play::pipboy::{glance::GLANCE_HOLD, CLIP_SECONDS, HOLD_SECONDS};
+        let v = 75f32.to_radians() * 0.75;
+        assert!(arms_magnification(v, GLANCE_FOV) < arms_magnification(v, FIRST_PERSON_FOV));
+        assert_eq!(glance_ease(0.0), 0.0);
+        assert_eq!(glance_ease(GLANCE_HOLD), 1.0);
+        // Put down from the hold (the clip mirrored past its `Hit`), still fully wide.
+        assert_eq!(glance_ease(2.0 * HOLD_SECONDS - GLANCE_HOLD), 1.0);
+        assert_eq!(glance_ease(CLIP_SECONDS), 0.0);
+    }
 
     #[test]
     fn the_hand_over_sets_off_softly_and_ends_at_rest() {
@@ -4508,7 +4995,7 @@ mod tests {
         let third_rig = Rig {
             view: View::Third, root: third_root, lens: None, folder: String::new(), skeleton: String::new(),
             animator: Animator::new(skel, vec![third_root, bone], None),
-            clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
+            clips: HashMap::new(), variants: HashMap::new(), override_list: Vec::new(), by_stem: HashMap::new(), turn: 0, partial: false, overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
             weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(), idle_logged: false,
@@ -4516,13 +5003,13 @@ mod tests {
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown: Some(false), seen: None, furniture: None,
             since_attack: f32::INFINITY, attack_loop: None, wound_up: None, wound_hit: None,
-            sighting2: None, attack_eject: None, ejected: false, carry: None,
+            sighting2: None, attack_eject: None, ejected: false, carry: None, warm: false, furniture_over: None,
         };
         let mut first_rig = Rig {
             view: View::First, root, lens: Some([outer, inner]), folder: String::new(), skeleton: String::new(),
             animator,
             clips: [(ClipKey::PipBoy(false), Some(pip_clip))].into_iter().collect(),
-            variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
+            variants: HashMap::new(), override_list: Vec::new(), by_stem: HashMap::new(), turn: 0, partial: false, overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
             weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(), idle_logged: false,
@@ -4530,7 +5017,7 @@ mod tests {
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown: Some(false), seen: None, furniture: None,
             since_attack: f32::INFINITY, attack_loop: None, wound_up: None, wound_hit: None,
-            sighting2: None, attack_eject: None, ejected: false, carry: None,
+            sighting2: None, attack_eject: None, ejected: false, carry: None, warm: false, furniture_over: None,
         };
         first_rig.clips.insert(ClipKey::Idle(Stance::Stand, false, false), Some(Arc::new(ClipInfo::new("idle".into(), idle, None))));
 
@@ -4593,7 +5080,7 @@ mod tests {
         let make_rig = |root: Entity, view: View, shown: Option<bool>| Rig {
             view, root, lens: None, folder: String::new(), skeleton: String::new(),
             animator: Animator::new(skel.clone(), vec![root], None),
-            clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
+            clips: HashMap::new(), variants: HashMap::new(), override_list: Vec::new(), by_stem: HashMap::new(), turn: 0, partial: false, overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
             weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(), idle_logged: false,
@@ -4601,7 +5088,7 @@ mod tests {
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown, seen: None, furniture: None,
             since_attack: f32::INFINITY, attack_loop: None, wound_up: None, wound_hit: None,
-            sighting2: None, attack_eject: None, ejected: false, carry: None,
+            sighting2: None, attack_eject: None, ejected: false, carry: None, warm: false, furniture_over: None,
         };
         let pb = PlayerBody {
             body: Some(Body {
@@ -4617,13 +5104,13 @@ mod tests {
         world.insert_resource(pb);
         let seen = Seen { body: false, head: true, arms: true, weapon: true };
         world.run_system_once(move |mut pb: ResMut<PlayerBody>, mut commands: Commands, mut vis: Query<&mut Visibility>| {
-            show_rigs(pb.body.as_mut().unwrap(), &mut commands, &mut vis, seen, true);
+            show_rigs(pb.body.as_mut().unwrap(), &mut commands, &mut vis, seen, true, false, false);
         }).unwrap();
         assert_eq!(*world.get::<Visibility>(first_root).unwrap(), Visibility::Inherited);
         assert!(world.resource::<PlayerBody>().first_person_drawn());
         // Hiding hides cleanly; re-showing shows again.
         world.run_system_once(move |mut pb: ResMut<PlayerBody>, mut commands: Commands, mut vis: Query<&mut Visibility>| {
-            show_rigs(pb.body.as_mut().unwrap(), &mut commands, &mut vis, seen, false);
+            show_rigs(pb.body.as_mut().unwrap(), &mut commands, &mut vis, seen, false, false, false);
         }).unwrap();
         assert_eq!(*world.get::<Visibility>(first_root).unwrap(), Visibility::Hidden);
         assert!(!world.resource::<PlayerBody>().first_person_drawn());

@@ -1140,6 +1140,7 @@ fn app_on_the_box() -> App {
         .insert_resource(crate::sim::SimState { forms: &f.forms, refs: &f.refs, world })
         .insert_resource(crate::menu::ActiveMenu(Some(m)))
         .init_resource::<crate::menu::PromptKeys>()
+        .init_resource::<crate::menu::LiveMenu>()
         .add_message::<crate::menu::MenuInput>()
         .add_message::<crate::RefChanged>()
         .add_message::<crate::ItemUsed>()
@@ -1229,6 +1230,30 @@ fn a_modded_weapon_is_worth_its_mods_on_top() {
     // Slot 1 is empty: its flag adds nothing.
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 1), 0);
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 3), 125);
+}
+
+#[test]
+fn barter_lists_every_stack_of_the_stock_and_scrolls_to_the_last() {
+    // Owner's report of 2026-11-12 ("vendors inventories are way too small"): every stack
+    // of the merchant's stock but its caps is a row, and a stock longer than the list
+    // scrolls to its last row.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    for (item, n) in [(AID, 3), (BULLETS, 20), (PISTOL, 1), (SCOPE, 1), (SKILL_BOOK, 1), (PLAIN_BOOK, 1)] {
+        // A book, not a key: keys are no barter rows (#3432).
+        w.add_item(FormId(BOX_REF), FormId(item), n).unwrap();
+    }
+    let mut m = barter(&mut w);
+    assert_eq!(m.stock_rows(&w), Some((9, 9)));
+    const { assert!(9 > LIST_ROWS) };
+    m.apply(&mut w, Command::Focus(Side::Container));
+    for _ in 0..8 {
+        m.apply(&mut w, Command::Down);
+    }
+    assert_eq!(m.selected[Side::Container as usize], 8);
+    assert!(m.visible(Side::Container).contains(&8));
+    // Outside a trade there is no stock.
+    assert_eq!(MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap().stock_rows(&w), None);
 }
 
 #[test]
@@ -1337,7 +1362,7 @@ fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
     use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput, ButtonState};
     use crate::{bindings::{Bindings, InputDevice}, menu::{ActiveMenu, AmountMeter, MenuInput, quantity_mouse}, ui_pointer::{PointerState, UiPointerPlugin}};
     let mut model = MenuModel::empty(Mode::Inventory, "Synthetic inventory".into());
-    model.quantity = Some(Quantity { cmd: crate::menu::model::Command::One, side: Side::Player, row: 0, max: 10, amount: 1 });
+    model.quantity = Some(Quantity { cmd: crate::menu::model::Command::One, side: Side::Player, row: 0, max: 10, amount: 1, label: None });
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin, UiPointerPlugin))
         .init_resource::<Bindings>().init_resource::<bevy::ui::UiStack>()

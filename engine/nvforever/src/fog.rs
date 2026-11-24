@@ -158,12 +158,17 @@ pub fn with_source(shader: &Shader, source: String) -> Shader {
 /// `display` the fog colour is blended in display values (outdoors), else in linear
 /// light (indoors) [hypothesis, fitted: world.md §6 "Fog power"]. `emissive_scale` rides
 /// along for the NIF material shader (`view_emissive_scale`, world.md §6 "Emissive
-/// mult"): the fog is the one per-view value the world shaders all read.
+/// mult"): the fog is the one per-view value the world shaders all read. So does, in
+/// `bi.z`, whether the main view keeps Tony McMapface (1; `NVF_TONEMAP=tony`) instead of
+/// showing display values clipped (0, `lights::display_clip`): the NIF shader's hot light
+/// sources undo the tonemapper only when there is one (`hot_light`, nif.md §6 "Emitted
+/// light on screen").
 pub fn falloff(near: f32, far: f32, power: f32, display: bool, emissive_scale: f32) -> FogFalloff {
     let far = far.max(near + 1.0);
     let power = if power > 0.0 { power } else { 1.0 };
     if INSTALLED.load(Ordering::Relaxed) {
-        FogFalloff::Atmospheric { extinction: Vec3::new(near, far, power), inscattering: Vec3::new(if display { 1.0 } else { 0.0 }, emissive_scale.max(0.0), 0.0) }
+        let tony = if crate::lights::display_clip() { 0.0 } else { 1.0 };
+        FogFalloff::Atmospheric { extinction: Vec3::new(near, far, power), inscattering: Vec3::new(if display { 1.0 } else { 0.0 }, emissive_scale.max(0.0), tony) }
     } else {
         FogFalloff::Linear { start: near, end: far }
     }

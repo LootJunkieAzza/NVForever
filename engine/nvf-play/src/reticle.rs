@@ -30,6 +30,16 @@
 //!   movement flag and the texts with the rollover text flag [documented: GECK wiki
 //!   DisablePlayerControls, MovementFlag and RolloverTextFlag; controls.md §5].
 //! - Without the game's files: a small square, and the texts in Bevy's font.
+//! - **A mod's crosshair**: a script that sets the HUD's
+//!   `ReticleCenter/reticle_center/visible` to 0 hides the crosshair, the texts under it
+//!   staying ([`ScriptHidesReticle`]) [hypothesis: JAM's JDC sets it to 0 while it draws
+//!   its own reticle and to 1 to give the game's back; hud.md §14.4 read no `visible` on
+//!   that tile in the original, so only a script writes one].
+//! - **A mod's prompt**: a script that sets the HUD's `Info/visible` to 0 between two
+//!   frames of the HUD's own writes hides the texts under the crosshair
+//!   ([`ScriptHidesPrompt`]) [hypothesis: JAM's loot menu, with its "hide prompt" setting
+//!   on (the default), sets it to 0 every frame while it shows its own key hints, and the
+//!   original's code writes the piece's `visible` each frame, hud.md §14.1].
 
 use crate::activate::outcome::{self, Action};
 use crate::activate::{Target, Targeted};
@@ -95,6 +105,8 @@ const ACTION_BASE: f32 = 326.5;
 const LINE_PITCH: f32 = 40.0;
 /// From the key's end to the action's start.
 const KEY_GAP: f32 = 11.0;
+/// Between the first action's word and the second action's key [design].
+const SECOND_GAP: f32 = 24.0;
 /// The divider picture's top under the name's line; its stem's middle, across.
 const DIVIDER_BELOW: f32 = 8.5;
 const STEM_X: f32 = -4.0;
@@ -128,10 +140,19 @@ pub struct Prompt {
     pub key: String,
     /// A line under the name: [`EMPTY`] for a container or body with nothing in it.
     pub note: Option<String>,
+    /// A second action on the action line, its key ("R)") and word: a campfire's
+    /// "Light fire" (`crate::campfire`).
+    pub second: Option<(String, String)>,
+    /// Drawn greyed: E would do nothing (a revive with nothing to revive with).
+    pub grey: bool,
 }
 
 /// Under the name of an empty container or body [owner 2026-10-27].
 const EMPTY: &str = "[Empty]";
+/// Under the name of a downed player one has nothing to revive with (co-op) [design].
+const NOTHING_TO_REVIVE_WITH: &str = "[No Stimpak]";
+/// A greyed prompt's strength [design].
+const GREY: f32 = 0.45;
 
 /// The player's tweak: a stack's weight and value are the whole stack's [design: docs/design/tweaks.md].
 static STACK_FIGURES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -143,6 +164,10 @@ pub fn set_stack_figures(on: bool) {
 
 /// The XATO Activation Prompt of reference `form_id`, else of its base (an ACTI).
 pub fn activation_prompt(sim: &SimState, form_id: u32) -> Option<String> {
+    // NVForever's poker tables are blackjack tables in the plugins (`crate::poker_tables`).
+    if crate::poker_tables::is_poker_table(sim, fnv_sim::FormId(form_id)) {
+        return Some("Play Poker".into());
+    }
     let own = sim.refs.get(fnv_sim::FormId(form_id)).and_then(|r| r.prompt.clone());
     own.or_else(|| sim.base_of(form_id).and_then(|b| sim.forms.get(b)).and_then(|b| b.prompt.clone()))
 }
@@ -159,8 +184,20 @@ impl Prompt {
         Prompt { key, ..Prompt::of(t, sim) }
     }
 
+    /// With the second action of a campfire (`crate::campfire`): Activate is "Craft".
+    pub(crate) fn with_second(mut self, t: &Targeted, sim: &SimState, campfires: Option<&crate::campfire::Campfires>, bindings: Option<&crate::bindings::Bindings>) -> Prompt {
+        if let Some((action, second)) = crate::campfire::prompt_actions(campfires, sim, t.form_id, bindings) {
+            self.action = action.into();
+            self.second = second;
+        }
+        self
+    }
+
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
-        let (mut action, name) = outcome::prompt(&t.name, &t.action);
+        let (mut action, mut name) = outcome::prompt(&t.name, &t.action);
+        if crate::poker_tables::is_poker_table(sim, fnv_sim::FormId(t.form_id)) {
+            name = crate::poker_tables::NAME.into();
+        }
         // Session changes share the script reader's authority; XATO below still wins
         // (docs/spec-notes/string-settings.md).
         if matches!(t.action, Action::Talk) {
@@ -176,7 +213,7 @@ impl Prompt {
         // An Activation Prompt (XATO) of the reference, else of its activator base, in
         // place of the action word; not over a lock or an inaccessible door
         // (docs/spec-notes/cells-refs.md §3) [hypothesis: which states it replaces].
-        if !matches!(t.action, Action::Locked { .. } | Action::UsePassword | Action::Unlock | Action::Name | Action::Hostile | Action::Inaccessible) {
+        if !matches!(t.action, Action::Locked { .. } | Action::UsePassword | Action::Unlock | Action::Name | Action::Hostile | Action::Inaccessible | Action::Player | Action::Revive { .. }) {
             if let Some(p) = activation_prompt(sim, t.form_id) {
                 action = p;
             }
@@ -193,8 +230,14 @@ impl Prompt {
             BaseData::Item(i) => Some([weight_text(i.weight.map(|w| w * n as f32)), value_text(i.worth().map(|v| v.saturating_mul(n)))]),
             _ => None,
         });
-        let note = t.empty.then(|| EMPTY.to_string());
-        Prompt { action, name, figures, crime: t.crime, key: String::new(), note }
+        let mut note = t.empty.then(|| EMPTY.to_string());
+        // A revive with nothing to revive with says so, greyed [design: the owner,
+        // 2026-11-06, "as the game shows a missing key"].
+        let grey = matches!(t.action, Action::Revive { with: None });
+        if grey {
+            note = Some(NOTHING_TO_REVIVE_WITH.into());
+        }
+        Prompt { action, name, figures, crime: t.crime, key: String::new(), note, grey, second: None }
     }
 }
 
@@ -245,11 +288,30 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let mut texts = if p.action.is_empty() {
         vec![set(name.clone(), NAME_X - name.width / 2.0, name_base)]
     } else {
-        vec![
-            set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE),
-            set(action, action_x, ACTION_BASE),
-            set(name.clone(), NAME_X - name.width / 2.0, name_base),
-        ]
+        match p.second.as_ref() {
+            None => vec![
+                set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE),
+                set(action, action_x, ACTION_BASE),
+                set(name.clone(), NAME_X - name.width / 2.0, name_base),
+            ],
+            // Two actions: "F) Craft   R) Light fire", side by side as JAM's loot menu
+            // shows its two, the pair centred where the one action is [design].
+            Some((second_key, second_action)) => {
+                let (key2, action2) = (line(second_key), line(second_action));
+                let width = key.width + KEY_GAP + action.width + SECOND_GAP + key2.width + KEY_GAP + action2.width;
+                let x = ACTION_X - width / 2.0;
+                let action_x = x + key.width + KEY_GAP;
+                let key2_x = action_x + action.width + SECOND_GAP;
+                let action2_x = key2_x + key2.width + KEY_GAP;
+                vec![
+                    set(key.clone(), x, ACTION_BASE),
+                    set(action.clone(), action_x, ACTION_BASE),
+                    set(key2, key2_x, ACTION_BASE),
+                    set(action2, action2_x, ACTION_BASE),
+                    set(name.clone(), NAME_X - name.width / 2.0, name_base),
+                ]
+            }
+        }
     };
     // The note on its own line under the name, centred as the name is [design].
     if let Some(note) = p.note.as_deref().map(line) {
@@ -347,11 +409,40 @@ fn style_pick(w: &mut World, name: &str) -> bool {
     }
 }
 
+/// Whether the Pip-Boy keeps the crosshair off the screen: the full Pip-Boy (Tab) or the
+/// glance (G) anywhere from coming up to gone down. Paused, the full Pip-Boy leaves
+/// `PlayState::Playing` and the crosshair goes with it; but in co-op it opens live
+/// (`crate::menu::LiveMenu`), the state stays `Playing`, and the glance never pauses, so
+/// both are asked here [owner's playtest 2026-11-04: the crosshair drew over both].
+pub fn pipboy_hides_crosshair(full: Option<&crate::pipboy::PipBoy>, glance: Option<&crate::pipboy::glance::Glance>) -> bool {
+    full.is_some_and(|p| p.shown()) || glance.is_some_and(|g| g.shown())
+}
+
+/// Whether a script hid the HUD's crosshair tile (module notes), set each frame by
+/// `crate::tiles` from the tile tree.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScriptHidesReticle(pub bool);
+
+/// Whether the tile tree's crosshair tile has a `visible` a script set to false.
+pub fn script_hides(ui: &fnv_ui::Ui) -> bool {
+    ui.find_tile("HUDMainMenu/ReticleCenter/reticle_center").and_then(|t| ui.tile(t).get("visible")).is_some_and(|v| !v.truthy())
+}
+
+/// Whether a script hid the HUD's prompt tile (module notes), set each frame by
+/// `crate::tiles` before the HUD's own writes.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScriptHidesPrompt(pub bool);
+
+/// The HUD's prompt tile's `visible`, when the tree has it.
+pub fn prompt_visible(ui: &fnv_ui::Ui) -> Option<bool> {
+    ui.find_tile("HUDMainMenu/Info").and_then(|t| ui.tile(t).get("visible")).map(|v| v.truthy())
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().add_systems(Update, draw.in_set(PlaySet::Ui).in_set(crate::test_aid::activation_sweep::Draw));
+        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().init_resource::<ScriptHidesReticle>().init_resource::<ScriptHidesPrompt>().add_systems(Update, draw.in_set(PlaySet::Ui).in_set(crate::test_aid::activation_sweep::Draw));
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -517,6 +608,7 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 
 fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
     let color = if prompt.crime { crime_colour() } else { amber(255.0) };
+    let color = if prompt.grey { color.with_alpha(GREY) } else { color };
     let l = layout(prompt, &kit.face.font);
     if let (Some(corner), Some(picture)) = (l.divider, kit.divider.clone()) {
         p.spawn((at(corner.x, corner.y, DIVIDER_SIZE.x, DIVIDER_SIZE.y), picture_node(picture, color)));
@@ -535,12 +627,12 @@ fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    (state, wheel, style): (Res<State<PlayState>>, Option<Res<crate::weapon_wheel::WeaponWheel>>, Option<Res<CrosshairStyle>>),
+    (state, wheel, style, hud): (Res<State<PlayState>>, Option<Res<crate::weapon_wheel::WeaponWheel>>, Option<Res<CrosshairStyle>>, Option<Res<crate::hud::HudView>>),
     target: Res<Target>,
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time, dynamic, control): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>, Option<Res<crate::control::PlayerControl>>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
+    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>, Option<bool>)>,
     (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks, anim, vats): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
@@ -563,7 +655,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    texts: Query<Entity, With<Texts>>,
+    (texts, pipboy, glance, menu, modded, no_prompt, campfires, arm, arm_seat, (roots, mut rebuild)): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>, Option<Res<crate::armwrestle::ArmScreen>>, Option<Res<crate::armwrestle_coop::ArmSeat>>, (Query<Entity, With<Root>>, crate::interface::HudRebuild)),
 ) {
     // Record only what this drawing pass shows, including early hidden returns
     // [design: #2528, test_aid/activation_sweep.rs].
@@ -572,6 +664,16 @@ fn draw(
     }
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): the crosshair and the prompt are made again
+    // at it.
+    if rebuild.stale() {
+        for e in &roots {
+            commands.entity(e).try_despawn();
+        }
+        *kit = None;
+        *shown = None;
+        return;
+    }
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
     // (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then [owner
@@ -580,12 +682,21 @@ fn draw(
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034],
     // nor under the weapon wheel (docs/design/weapon-wheel.md §7).
     let killcam = kill_cam.is_some_and(|k| k.active());
+    // Nor while a card game's or a slot machine's end view frames the player (nvforever
+    // `match_end.rs`): a framed shot, no aim and nothing to use [owner 2026-11-12, ship 14:
+    // "like it was made with the game originally"; observed: the crosshair and "E) Activate
+    // Bed" over the blackjack cheer].
+    let end_view = control.as_ref().is_some_and(|c| c.end_view);
+    // Nor while a slideshow has the view (`crate::hud::slideshow_room`): in the original
+    // the slides show no crosshair (owner, 2026-11-23: "HUD shouldn't draw during
+    // slideshow").
+    let slideshow = hud.as_ref().is_some_and(|h| h.slideshow);
     // Nor while the classic VATS style chooses targets: the pointer and the target screen
     // have the view [observed: the owner's screenshots of the original's VATS, 2026-11-10,
     // no crosshair and no prompt].
     // Nor while it plays its queued attacks (`VatsMode::playing_back`).
     let targeting = vats.is_some_and(|v| v.selected().is_some() || v.playing_back());
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !targeting && !wheel.is_some_and(|w| w.is_open());
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !end_view && !slideshow && !targeting && !wheel.is_some_and(|w| w.is_open());
     // What the idle keeps off the screen, once per target.
     let kept = held.then(|| target.0.as_ref().map(|t| t.name.clone())).flatten();
     if kept != logged.3 {
@@ -622,7 +733,29 @@ fn draw(
     if !playing || sights {
         return;
     }
-    let locks = locks.as_deref().copied().unwrap_or_default();
+    // The Pip-Boy up while still playing (co-op's live Pip-Boy, the glance): no crosshair;
+    // the prompt stays under the glance (the player still walks and acts), not under the
+    // full Pip-Boy, whose menu holds the controls.
+    // So does the co-op trade's barter screen, open while playing (`crate::coop_social::barter`).
+    let trading = menu.as_ref().is_some_and(|m| m.0.as_ref().is_some_and(|m| m.coop));
+    let pip_up = pipboy_hides_crosshair(pipboy.as_deref(), glance.as_deref()) || trading;
+    if logged.7 != Some(pip_up) {
+        if pip_up || logged.7.is_some() {
+            info!("crosshair: {}", if pip_up { "hidden under the Pip-Boy" } else { "back from under the Pip-Boy" });
+        }
+        logged.7 = Some(pip_up);
+    }
+    // Nor over an arm-wrestling match: its card holds the keys (in co-op it stays up
+    // while playing) [owner (via the lead, 2026-11-11): "E) Interact P2" over the bout].
+    let wrestling = arm.is_some_and(|a| a.0.is_some());
+    let menu_up = pipboy.as_deref().is_some_and(|p| p.shown()) || trading || wrestling;
+    let mut locks = locks.as_deref().copied().unwrap_or_default();
+    // Nor is the crosshair itself over the bout and its result, drawn by the table's own
+    // HUD (`ArmSeat::hud`): it sat on the clasped hands (armwrestle-a desktop runs
+    // 2026-11-12) [design].
+    let bout = arm_seat.is_some_and(|a| a.hud);
+    locks.movement |= pip_up || bout;
+    locks.rollover |= menu_up;
     let aimed = target.0.as_ref().is_some_and(Targeted::prompted);
     let foe = hostile.is_some_and(|h| h.0);
     let colour = if foe || target.0.as_ref().is_some_and(|t| t.crime) { crime_colour() } else { amber(255.0) };
@@ -668,8 +801,16 @@ fn draw(
     let third = control.as_ref().is_some_and(|c| c.third_person_view());
     let view_hidden = tweaks.as_ref().is_some_and(|t| if third { t.hide_crosshair_third } else { t.hide_crosshair_first });
     let gap = spread.max(CROSS_REST);
+    // A mod's own crosshair in place of ours (module notes).
+    let modded = modded.is_some_and(|m| m.0);
+    if logged.8 != Some(modded) {
+        if modded || logged.8.is_some() {
+            info!("reticle: {}", if modded { "hidden: a script hid the HUD's crosshair tile" } else { "shown: the HUD's crosshair tile is visible again" });
+        }
+        logged.8 = Some(modded);
+    }
     for (b, mut v, mut node, mut image) in &mut bars {
-        v.set_if_neq(show(!view_hidden && !locks.movement && !aimed && cross));
+        v.set_if_neq(show(!view_hidden && !locks.movement && !modded && !aimed && cross));
         if image.color != colour {
             image.color = colour;
         }
@@ -679,7 +820,7 @@ fn draw(
     }
     let shift = (*spread - TIP).max(0.0);
     for (c, mut v, mut node, image) in &mut crosses {
-        v.set_if_neq(show(!view_hidden && !locks.movement && c.filled == aimed && (c.filled || !cross)));
+        v.set_if_neq(show(!view_hidden && !locks.movement && !modded && c.filled == aimed && (c.filled || !cross)));
         if let Some(mut image) = image.filter(|i| i.color != colour) {
             image.color = colour;
         }
@@ -693,8 +834,9 @@ fn draw(
         }
     }
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
+    let no_prompt = no_prompt.is_some_and(|p| p.0);
     // Quick Loot's list stands for the prompt while it shows (`crate::quick_loot`).
-    let want = target.0.as_ref().filter(|t| !locks.rollover && t.prompted() && !barred(t) && !crate::quick_loot::holds_input()).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
+    let want = target.0.as_ref().filter(|t| !locks.rollover && !no_prompt && t.prompted() && !barred(t) && !crate::quick_loot::holds_input()).map(|t| Prompt::bound(t, &sim, bindings.as_deref()).with_second(t, &sim, campfires.as_deref(), bindings.as_deref()));
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
@@ -702,9 +844,16 @@ fn draw(
                 spawn_texts(p, kit, prompt);
             }
         });
-        // What the prompt says, once per change (docs/spec-notes/cells-refs.md §3).
+        // What the prompt says, once per change (docs/spec-notes/cells-refs.md §3), and why
+        // a shown one went away.
         if let Some(p) = &want {
-            info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name);
+            match &p.second {
+                Some((key, second)) => info!("reticle: prompt \"{}\" and \"{key} {second}\" on \"{}\"", p.action, p.name),
+                None => info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name),
+            }
+        } else if let Some(old) = shown.as_ref() {
+            let why = gone_reason(target.0.is_some(), locks.rollover, no_prompt, target.0.as_ref().is_some_and(barred));
+            info!("reticle: prompt on \"{}\" gone: {why}", old.name);
         }
         *shown = want;
     }
@@ -713,9 +862,34 @@ fn draw(
     }
 }
 
+/// Why the prompt under the crosshair went away, for the log: no reference within reach
+/// along the view (`activate::pick::REACH` from the eye), or one of the rules that keep the
+/// texts off with a target.
+fn gone_reason(target: bool, rollover_locked: bool, script_hides: bool, under_bar: bool) -> &'static str {
+    if !target {
+        "no activatable reference within reach along the view"
+    } else if rollover_locked {
+        "a script's DisablePlayerControls holds the rollover text"
+    } else if script_hides {
+        "a script hid the HUD's prompt tile"
+    } else if under_bar {
+        "the health bar over the same actor"
+    } else {
+        "hidden"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_prompt_that_goes_says_why() {
+        assert_eq!(gone_reason(false, true, true, false), "no activatable reference within reach along the view");
+        assert_eq!(gone_reason(true, true, false, false), "a script's DisablePlayerControls holds the rollover text");
+        assert_eq!(gone_reason(true, false, true, false), "a script hid the HUD's prompt tile");
+        assert_eq!(gone_reason(true, false, false, true), "the health bar over the same actor");
+    }
 
     /// Every character 17 wide: about the game's font 7.
     fn font() -> Font {
@@ -723,7 +897,24 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None, grey: false, second: None }
+    }
+
+    #[test]
+    fn the_pipboy_up_without_a_pause_hides_the_crosshair() {
+        use crate::pipboy::{glance::Glance, Phase, PipBoy};
+        assert!(!pipboy_hides_crosshair(None, None));
+        let (mut full, mut glance) = (PipBoy::default(), Glance::default());
+        assert!(!pipboy_hides_crosshair(Some(&full), Some(&glance)), "both down");
+        for phase in [Phase::Raising, Phase::Up, Phase::Lowering] {
+            full.phase = phase;
+            assert!(pipboy_hides_crosshair(Some(&full), Some(&glance)), "the full Pip-Boy {phase:?}");
+        }
+        full.phase = Phase::Down;
+        for phase in [Phase::Raising, Phase::Up, Phase::Lowering] {
+            glance.phase = phase;
+            assert!(pipboy_hides_crosshair(Some(&full), Some(&glance)), "the glance {phase:?}");
+        }
     }
 
     #[test]
@@ -743,6 +934,16 @@ mod tests {
         let [_, _, name, note] = &l.texts[..] else { panic!("{:?}", l.texts) };
         assert_eq!((note.x + note.line.width / 2.0, note.base), (NAME_X, name.base + LINE_PITCH));
         assert_eq!(layout(&prompt("Open", "Footlocker", None), &font()).texts.len(), 3);
+        // A second action: both keys and words on the action line, left to right, the
+        // pair centred on the one action's place.
+        let two = Prompt { second: Some(("R)".into(), "Light fire".into())), ..prompt("Craft", "Campfire", None) };
+        let l = layout(&two, &font());
+        assert_eq!(l.texts.len(), 5);
+        let xs: Vec<f32> = l.texts[..4].iter().map(|t| t.x).collect();
+        assert!(xs.windows(2).all(|w| w[0] < w[1]), "{xs:?}");
+        assert!(l.texts[..4].iter().all(|t| t.base == ACTION_BASE));
+        let (left, right) = (l.texts[0].x, l.texts[3].x + l.texts[3].line.width);
+        assert!(((left + right) / 2.0 - ACTION_X).abs() < 0.01);
         assert_eq!(layout(&prompt("Open", "Footlocker", None), &font()).glyph, None);
         // A PlayStation face button: its glyph left of a lone ")" (#1452).
         let ps = Prompt { key: "Cross)".into(), ..prompt("Open", "Footlocker", None) };

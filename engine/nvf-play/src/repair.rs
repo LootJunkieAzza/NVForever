@@ -354,6 +354,10 @@ fn scripts_open(
     mut sounds: MessageWriter<UiSound>,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    // Over a conversation too: a line's ShowRepairMenu / ShowRecipeMenu opens the menu when
+    // the line ends, and closing it goes back to the choices (Major Knight's "I need
+    // repairs.", queue item 143) [documented: GECK wiki ShowRepairMenu, called from a
+    // topic's result script].
     let here = matches!(*state.get(), PlayState::Playing | PlayState::Dialogue);
     if rt.game.repair_requests.is_empty() || !here || menu.is_open() || active.0.is_some() {
         return;

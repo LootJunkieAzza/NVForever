@@ -118,15 +118,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // to the target with their state [observed: 2 stimpaks moved, Doc 2 to 4].
         "removeitemtarget" => {
             let (Some(from), Some(item), Some(to)) = (subject, form(args, 0), form(args, 1)) else { return Some(Ok(XVal::Num(0.0))) };
-            let have = g.world.inventory_mut(from).map(|inv| inv.count(item)).unwrap_or(0);
-            let q = num(args, 2, 0.0) as i32;
-            let n = if q <= 0 { have } else { q.min(have) };
-            if n > 0 {
-                let moved = g.world.remove_item(from, item, n).unwrap_or(0);
-                if moved > 0 {
-                    let _ = g.world.add_item(to, item, moved);
-                }
-            }
+            crate::functions::items::script_move_items(g, "RemoveItemTarget", from, item, num(args, 2, 0.0) as i32, Some(to));
             XVal::Num(0.0)
         }
         // [documented: EquipItemAlt] EquipItem with OnEquip run.

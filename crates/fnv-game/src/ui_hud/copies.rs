@@ -151,6 +151,13 @@ pub fn build(ui: &mut Ui) {
         code_copy(ui, &format!("HUDMainMenu/{parent}"), template, name);
     }
     let window = "HUDMainMenu/HitPoints/compass_window";
+    // An `alpha` of its own, 255 [observed: hud.md §14.4, the original's copy reads an
+    // alpha that stayed the same at every heading, where the traits it lacks read -999;
+    // hypothesis: 255, the HUD at full strength]. JAM's quest markers (JVO, with its
+    // alpha setting 0) take theirs from it; without it they were drawn at -599, unseen.
+    if let Some(tile) = ui.find_tile(window) {
+        num(ui, tile, "alpha", 255.0);
+    }
     for _ in 0..2 {
         if let Some(group) = code_copy(ui, window, "template_compass_icon_group", "compass_icon_group") {
             num(ui, group, "y", 30.0); // [observed: hud.md §14.4].
@@ -186,6 +193,11 @@ pub fn build(ui: &mut Ui) {
     }
     if let Some(tile) = find(ui, "ReticleCenter/reticle_center") {
         num(ui, tile, "depth", 1.0);
+        // A `visible` of its own, 1, which only a script changes after this [hypothesis:
+        // JAM's crosshair (JDCMainLoopEventHandler) writes
+        // `ReticleCenter\reticle_center\visible` 0 to hide the game's crosshair while it
+        // draws its own and 1 to give it back, so the original's copy carries one].
+        num(ui, tile, "visible", 1.0);
     }
     for (path, text) in [
         ("HitPoints/justify_left_text", "HP"),
@@ -279,7 +291,15 @@ pub(super) fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     if let Some(tile) = find(ui, "ActionPoints/justify_right_text:1") {
         string(ui, tile, &input.ammo);
     }
+    // The AP corner's alpha is set once when the copy is built (`build`, a template's
+    // own wins); its showing follows the parent's visibility and opacity, which a later
+    // script hide or JAM's loot fade then sees (merge of v0.8.0: upstream's rule replaced
+    // ours, which wrote 255/0 here every frame over the template's and scripts' values).
     if let Some(tile) = find(ui, "ReticleCenter/reticle_center") {
+        // An alpha, 255 while the crosshair shows and 0 when not [hypothesis: JAM's
+        // crosshair copies `ReticleCenter\reticle_center\alpha` into its own every frame
+        // (JDCMainLoopEventHandler); its fading with the HUD is not captured].
+        num(ui, tile, "alpha", if shown.root && shown.reticle { 255.0 } else { 0.0 });
         // Keep user0/user1 as the template's strings: their numeric reads are 0
         // [observed: hud.md §14.4]. Select the loaded alternate [design].
         num(ui, tile, "systemcolor", if input.aim_hostile && !shown.aiming { 2.0 } else { 1.0 });

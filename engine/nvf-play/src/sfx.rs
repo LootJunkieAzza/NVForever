@@ -50,6 +50,12 @@
 //!   sounds) and the background loops are not panned. Other modules' positioned streams
 //!   use [`Panned`] (placed loops in [`crate::ambient`], radios in [`crate::radio`],
 //!   voices said at a place in `crate::voice`).
+//! - **Split screen's second listener** [design: the usual split-screen rule; the original
+//!   has one player]: player 2's game plays only interface sounds, so player 1's plays the
+//!   world for both ([`SecondListener`], player 2's eye). A sound is as loud as the
+//!   louder of the two hear it ([`heard_gain`], [`heard_by`] for other fall-offs), is
+//!   panned for the nearer one ([`heard_pan`]) and is in reach of either
+//!   ([`heard_distance`]). The sound cover (`crate::sound_cover`) stays player 1's.
 //! - **Pitch**: the frequency adjustment, and ±5% at random with the Random Frequency
 //!   Shift flag [design: the size of the shift].
 //! - **Loops.** A [`LoopSound`] starts a SOUN going round and stops it again (a
@@ -296,6 +302,71 @@ pub fn pan_gains(eye: [f32; 3], heading: f32, at: [f32; 3]) -> [f32; 2] {
     }
 }
 
+/// A listener other than the player: an eye (game space) and the compass heading it
+/// faces (radians, as [`Player::heading`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ear {
+    pub eye: [f32; 3],
+    pub heading: f32,
+}
+
+/// Split screen's second listener, in player 1's game (the host): player 2's eye in this
+/// world. While player 2 is here its own game plays only its interface sounds and its own
+/// conversation (`crate::audio_out::SplitSound`), so this game plays the world's sounds for
+/// both players: each is as loud as the nearer player hears it and panned for that
+/// player ([`heard_gain`], [`heard_pan`]) [design: the usual split-screen rule; the
+/// original has one player]. No resource, or `None` (player 2 not in this place): one
+/// listener, the player, as without split screen.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct SecondListener(pub Option<Ear>);
+
+impl SecondListener {
+    /// The second listener's ear, if there is one.
+    pub fn ear(second: Option<&SecondListener>) -> Option<Ear> {
+        second.and_then(|s| s.0)
+    }
+}
+
+fn eye_distance(eye: [f32; 3], at: [f32; 3]) -> f32 {
+    ((at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2)).sqrt()
+}
+
+/// How far a sound at `at` is from whoever hears it nearest: the player's `eye`, or the
+/// [`SecondListener`] (for reach and for the near or distant take of a sound).
+pub fn heard_distance(eye: [f32; 3], second: Option<&SecondListener>, at: [f32; 3]) -> f32 {
+    let mine = eye_distance(eye, at);
+    match SecondListener::ear(second) {
+        Some(e) => mine.min(eye_distance(e.eye, at)),
+        None => mine,
+    }
+}
+
+/// The gain of a sound at `at` by a fall-off `gain_at` (of the distance): the larger of
+/// the player's (from `eye`) and the [`SecondListener`]'s. One rule for every fall-off
+/// (a SOUN's curve: [`heard_gain`]; a voice's, a radio's).
+pub fn heard_by(eye: [f32; 3], second: Option<&SecondListener>, at: [f32; 3], gain_at: impl Fn(f32) -> f32) -> f32 {
+    let mine = gain_at(eye_distance(eye, at));
+    match SecondListener::ear(second) {
+        Some(e) => mine.max(gain_at(eye_distance(e.eye, at))),
+        None => mine,
+    }
+}
+
+/// The distance gain ([`distance_gain`]) of a sound at `at` for the nearer listener
+/// ([`heard_by`]).
+pub fn heard_gain(s: &Sound, eye: [f32; 3], second: Option<&SecondListener>, at: [f32; 3]) -> f32 {
+    heard_by(eye, second, at, |d| distance_gain(s, d))
+}
+
+/// The left and right gains ([`pan_gains`]) of a sound at `at` for the nearer listener:
+/// the player (`eye`, `heading`), or the [`SecondListener`] when it is nearer.
+pub fn heard_pan(eye: [f32; 3], heading: f32, second: Option<&SecondListener>, at: [f32; 3]) -> [f32; 2] {
+    match SecondListener::ear(second) {
+        Some(e) if eye_distance(e.eye, at) < eye_distance(eye, at) => pan_gains(e.eye, e.heading, at),
+        _ => pan_gains(eye, heading, at),
+    }
+}
+
 /// Left and right gains shared with the audio thread while a sound plays: the targets
 /// the main thread sets; the sound eases to them ([`PanEase`]).
 #[derive(Clone, Debug)]
@@ -324,9 +395,10 @@ pub struct SoundAt {
 }
 
 impl SoundAt {
-    /// A sound at `at`, panned for the listener as it is now (centred without one).
-    pub fn new(at: [f32; 3], player: Option<&Player>) -> SoundAt {
-        let gains = player.map_or([1.0, 1.0], |p| pan_gains(p.eye(), p.heading, at));
+    /// A sound at `at`, panned for the nearer listener as it is now ([`heard_pan`];
+    /// centred without a player).
+    pub fn new(at: [f32; 3], player: Option<&Player>, second: Option<&SecondListener>) -> SoundAt {
+        let gains = player.map_or([1.0, 1.0], |p| heard_pan(p.eye(), p.heading, second, at));
         SoundAt { at, pan: Pan::new(gains) }
     }
 }
@@ -739,6 +811,10 @@ pub struct Sfx {
     frame: u64,
     /// How long requests waited for their files (the exit report).
     pub waits: Waits,
+    /// Sounds a module places itself though their record is 2D (an interface sound given
+    /// a direction, `crate::world_marks`' ping): panned toward their place, at their
+    /// record's level at any distance [design].
+    pub placed_2d: std::collections::HashSet<FormId>,
     /// One-shots played at a place since [`crate::sound_cover`] last took them: their gain
     /// at the listener (no effects volume), distance and seconds.
     pub cover_notes: Vec<(f32, f32, f32)>,
@@ -827,6 +903,7 @@ impl Sfx {
     pub fn new(forms: FxForms) -> Sfx {
         Sfx {
             forms,
+            placed_2d: Default::default(),
             loop_start: HashMap::new(),
             files: HashMap::new(),
             decoding: Vec::new(),
@@ -1121,9 +1198,11 @@ fn is_sound_file(path: &str) -> bool {
     path.ends_with(".wav") || path.ends_with(".ogg")
 }
 
-/// The folder (ending in `\`) a SOUN's path stands for; `None` for a file.
+/// The folder (ending in `\`) a SOUN's path stands for; `None` for a file (an `.mp3`
+/// too: a clip's `SoundPath:` key can name one, `chamber_spin_ratchet.mp3` in Another
+/// Millenia's Mateba reload [observed]; a folder's takes stay `.wav` and `.ogg`).
 fn folder_of(path: &str) -> Option<String> {
-    if is_sound_file(path) {
+    if is_sound_file(path) || path.ends_with(".mp3") {
         return None;
     }
     Some(if path.ends_with('\\') { path.to_string() } else { format!("{path}\\") })
@@ -1166,7 +1245,7 @@ fn pick_file(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
         let ogg = format!("{stem}.ogg");
         return Some(if !vfs.exists(&path) && vfs.exists(&ogg) { ogg } else { path });
     }
-    if path.ends_with(".ogg") {
+    if path.ends_with(".ogg") || path.ends_with(".mp3") {
         return Some(path);
     }
     let folder = folder_of(&path)?;
@@ -1364,6 +1443,8 @@ pub(crate) struct Out<'a, 'w, 's> {
     pub assets: &'a mut Assets<PcmSound>,
     pub settings: &'a SfxSettings,
     pub player: Option<&'a Player>,
+    /// Split screen's player 2, heard for too ([`SecondListener`]).
+    pub second: Option<&'a SecondListener>,
 }
 
 /// A request: started or played silent at once when its file is ready, a script
@@ -1569,7 +1650,7 @@ fn play(
     mut script_sounds: ResMut<ScriptSounds>,
     sfx: Option<ResMut<Sfx>>,
     settings: Res<SfxSettings>,
-    player: Option<Res<Player>>,
+    (player, second): (Option<Res<Player>>, Option<Res<SecondListener>>),
     data: Option<Res<nvf_assets::GameData>>,
     mut assets: ResMut<Assets<PcmSound>>,
     loop_scale: Option<Res<LoopScale>>,
@@ -1586,7 +1667,7 @@ fn play(
     }
     let vfs = &data.vfs;
     let ss = &mut *script_sounds;
-    let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: player.as_deref() };
+    let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: player.as_deref(), second: second.as_deref() };
     // LoopSound: any word on a SOUN stops it going round, also one started earlier in
     // this frame, and drops a start of it still waiting for its file; on starts it anew.
     // So on then off in one frame leaves nothing playing [engineering choice; hypothesis:
@@ -1754,7 +1835,7 @@ fn late_start(
     mut script_sounds: ResMut<ScriptSounds>,
     sfx: Option<ResMut<Sfx>>,
     settings: Res<SfxSettings>,
-    player: Option<Res<Player>>,
+    (player, second): (Option<Res<Player>>, Option<Res<SecondListener>>),
     data: Option<Res<nvf_assets::GameData>>,
     mut assets: ResMut<Assets<PcmSound>>,
     playing: Voices,
@@ -1775,7 +1856,7 @@ fn late_start(
         sfx.cancel_replacements(|p| matches!(p.wanted, Wanted::Script { id, .. } if stopped_before(stops, p.sound, id)));
     }
     reconcile(sfx, &playing);
-    let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: player.as_deref() };
+    let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: player.as_deref(), second: second.as_deref() };
     start_replacements(&mut out, sfx, &mut ss.heard);
     start_decided(&mut out, sfx, &data.vfs, &mut ss.heard, true);
 }
@@ -1805,12 +1886,12 @@ pub fn listener_submerged(phys: Option<Res<crate::phys::PhysState>>, player: Opt
     }
 }
 
-/// Turn the sounds playing at a place with the listener.
-pub fn pan_sounds(player: Option<Res<Player>>, sounds: Query<&SoundAt>) {
+/// Turn the sounds playing at a place with the nearer listener ([`heard_pan`]).
+pub fn pan_sounds(player: Option<Res<Player>>, second: Option<Res<SecondListener>>, sounds: Query<&SoundAt>) {
     let Some(p) = player else { return };
-    let (eye, heading) = (p.eye(), p.heading);
+    let (eye, heading, second) = (p.eye(), p.heading, second.as_deref());
     for s in &sounds {
-        s.pan.set(pan_gains(eye, heading, s.at));
+        s.pan.set(heard_pan(eye, heading, second, s.at));
     }
 }
 
@@ -1991,9 +2072,13 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
     };
     let (s, name, path) = (&r.s, &r.name, &r.path);
     let (settings, eye) = (out.settings, out.player.map(Player::eye));
-    let placed = at.zip(out.player).map(|(at, p)| SoundAt::new(at, Some(p)));
-    let distance = at.zip(eye).map(|(at, e)| ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt());
-    let gain = static_gain(s) * distance.map_or(1.0, |d| distance_gain(s, d)) * settings.volume.max(0.0) * scale;
+    let placed = at.zip(out.player).map(|(at, p)| SoundAt::new(at, Some(p), out.second));
+    // The player's own distance (the sound cover hears for the player alone), and the
+    // gain of the nearer listener ([`heard_gain`]).
+    let distance = at.zip(eye).map(|(at, e)| eye_distance(e, at));
+    let own_place = sfx.placed_2d.contains(&sound);
+    let heard = at.zip(eye).filter(|_| !own_place).map_or(1.0, |(at, e)| heard_gain(s, e, out.second, at));
+    let gain = static_gain(s) * heard * settings.volume.max(0.0) * scale;
     // The pitch: a replacement's was chosen when it was asked for; only what hangs on the
     // listener (gain, pan, place) is worked out again.
     let speed = match kept {
@@ -2024,7 +2109,7 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
         sfx.cover_notes.push((static_gain(s) * distance_gain(s, d), d, seconds));
     }
     let placed = match placed {
-        Some(_) if s.has("2D") => {
+        Some(_) if s.has("2D") && !own_place => {
             sfx.flat_2d += 1;
             None
         }
@@ -2382,6 +2467,51 @@ mod tests {
         // A panned sound keeps its pan in the dry part.
         let panned = PcmSound { pan: Some(Pan::new([1.0, 0.5])), ..mono };
         assert_eq!(&panned.decoder().collect::<Vec<_>>()[..2], &[0.5, 0.25]);
+    }
+
+    #[test]
+    fn a_second_listener_hears_by_the_nearer_ear() {
+        let s = Sound { min_distance: 200.0, max_distance: 1000.0, ..Sound::default() };
+        let eye = [0.0, 0.0, 0.0];
+        // Player 1 faces north; player 2 stands 2000 units east, facing south.
+        let second = SecondListener(Some(Ear { eye: [2000.0, 0.0, 0.0], heading: std::f32::consts::PI }));
+        let two = Some(&second);
+        let none = SecondListener(None);
+        // Without a second listener (no resource, or none in this place): as before.
+        for at in [[300.0, 0.0, 0.0], [1900.0, 50.0, 0.0], [-500.0, 0.0, 0.0]] {
+            let d = eye_distance(eye, at);
+            assert_eq!(heard_gain(&s, eye, None, at), distance_gain(&s, d));
+            assert_eq!(heard_gain(&s, eye, Some(&none), at), distance_gain(&s, d));
+            assert_eq!(heard_pan(eye, 0.0, None, at), pan_gains(eye, 0.0, at));
+            assert_eq!(heard_pan(eye, 0.0, Some(&none), at), pan_gains(eye, 0.0, at));
+            assert_eq!(heard_distance(eye, None, at), d);
+        }
+        // Near player 1: its gain and its pan (east of a player facing north: right).
+        let at = [300.0, 0.0, 0.0];
+        assert_eq!(heard_gain(&s, eye, two, at), distance_gain(&s, 300.0));
+        assert_eq!(heard_pan(eye, 0.0, two, at), pan_gains(eye, 0.0, at));
+        let [l, r] = heard_pan(eye, 0.0, two, at);
+        assert!(l < r);
+        assert_eq!(heard_distance(eye, two, at), 300.0);
+        // Near player 2, out of player 1's hearing: player 2's gain and pan. East of a
+        // player facing south is on its left (to player 1, facing north, the right).
+        let at = [2300.0, 0.0, 0.0];
+        assert_eq!(distance_gain(&s, 2300.0), 0.0);
+        assert_eq!(heard_gain(&s, eye, two, at), distance_gain(&s, 300.0));
+        assert_eq!(heard_distance(eye, two, at), 300.0);
+        let [l, r] = heard_pan(eye, 0.0, two, at);
+        assert!(l > r, "east of a listener facing south is on its left: {l} {r}");
+        assert_eq!([l, r], pan_gains(second.0.unwrap().eye, std::f32::consts::PI, at));
+        // Halfway between: the larger gain (both alike here); nearer by a hair to player 2.
+        let at = [1001.0, 0.0, 0.0];
+        assert_eq!(heard_gain(&s, eye, two, at), distance_gain(&s, 999.0));
+        assert_eq!(heard_pan(eye, 0.0, two, at), pan_gains([2000.0, 0.0, 0.0], std::f32::consts::PI, at));
+        // Any fall-off takes the larger of the two.
+        assert_eq!(heard_by(eye, two, [1500.0, 0.0, 0.0], |d| 1.0 / d), 1.0 / 500.0);
+        // A broken place: silent and centred, as for one listener.
+        let nan = [f32::NAN, 0.0, 0.0];
+        assert_eq!(heard_gain(&s, eye, two, nan), 0.0);
+        assert_eq!(heard_pan(eye, 0.0, two, nan), [1.0, 1.0]);
     }
 
     #[test]
@@ -3394,7 +3524,7 @@ mod tests {
             app.world_mut()
                 .run_system_once(|mut commands: Commands, mut sfx: ResMut<Sfx>, mut assets: ResMut<Assets<PcmSound>>, data: Res<nvf_assets::GameData>, settings: Res<SfxSettings>| {
                     collect_files(&mut sfx, &mut assets);
-                    let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: None };
+                    let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: None, second: None };
                     one_shot_heard(&mut out, &mut sfx, &data.vfs, BEEP, None, &mut None)
                 })
                 .unwrap()
@@ -3424,7 +3554,7 @@ mod tests {
             let given = before.clone();
             let now = app.world_mut().run_system_once(move |mut commands: Commands, mut sfx: ResMut<Sfx>, mut assets: ResMut<Assets<PcmSound>>, data: Res<nvf_assets::GameData>, settings: Res<SfxSettings>| {
                 collect_files(&mut sfx, &mut assets);
-                let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: None };
+                let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: None, second: None };
                 let mut pick = given.clone();
                 (one_shot_heard(&mut out, &mut sfx, &data.vfs, takes, None, &mut pick), pick)
             });
@@ -3452,6 +3582,9 @@ mod tests {
         assert_eq!(pick_file(&mut sfx, &vfs, "fx\\beep.wav").as_deref(), Some("sound\\fx\\beep.wav"));
         assert_eq!(pick_file(&mut sfx, &vfs, "FX/Only.wav").as_deref(), Some("sound\\fx\\only.ogg"));
         assert_eq!(pick_file(&mut sfx, &vfs, "\\fx\\only.ogg").as_deref(), Some("sound\\fx\\only.ogg"));
+        // An .mp3 a clip's `SoundPath:` key names is a file, not a folder.
+        assert_eq!(pick_file(&mut sfx, &vfs, "fx\\Ani\\MatebaMod6\\chamber_spin_ratchet.mp3").as_deref(), Some("sound\\fx\\ani\\matebamod6\\chamber_spin_ratchet.mp3"));
+        assert_eq!(folder_of("sound\\fx\\a.mp3"), None);
         let take = pick_file(&mut sfx, &vfs, "fx\\takes").unwrap();
         assert!(["sound\\fx\\takes\\a.wav", "sound\\fx\\takes\\b.wav"].contains(&take.as_str()), "{take}");
         assert_eq!(pick_file(&mut sfx, &vfs, "fx\\empty"), None);

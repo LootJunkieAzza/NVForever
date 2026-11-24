@@ -1156,8 +1156,14 @@ impl BlendPlayer {
                     }
                 }
                 let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                // A turn played in place takes its start rotation out here too
+                // (`BoundClip::turn_in_place`): Idle Variety's `IV_Cool_F` turn clips
+                // hold `Bip01` at a static (0.27, 0.65, 0.27, 0.65), which laid the body
+                // on its side as an NPC turned to face the player (owner's report,
+                // 2026-11-13). Other clips keep their authored root orientation.
                 let r = turn_out.map_or(r, |q| (q.inverse() * r).normalize());
-                let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
+                // The accumulation root keeps its bind scale (AG_ChinFlick.kf: Bip01 at 10).
+                let s = if turn_out.is_some() { b.scale.x } else { track.scale.sample(time).map_or(b.scale.x, |[s]| s) };
                 self.add(*i, Contrib { t, r, s, w, p: *p, k: k as u8 });
                 sampled += 1;
             }
@@ -2121,6 +2127,21 @@ mod tests {
     }
 
     #[test]
+    fn the_accumulation_root_keeps_its_own_scale() {
+        // AG_ChinFlick.kf: Bip01 at a scale of 10, the other bones at none.
+        let (mut player, ix) = player();
+        let root = Arc::new(TransformTrack { translation: Channel::Static(Some([0.0; 3])), rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])), euler: None, scale: Channel::Static(Some([10.0])), per_cycle: None });
+        let other = Arc::new(TransformTrack { translation: Channel::Static(Some([9.0, 0.0, 0.0])), rotation: Channel::Static(None), euler: None, scale: Channel::Static(Some([1.5])), per_cycle: None });
+        let c = clip(1.0, vec![("Bip01", root), ("Other", other)]);
+        player.layers[0] = Some(Layer { clip: Arc::new(BoundClip::bind(c, &ix)), phase: 0.5, weight: 1.0 });
+        let mut out = Vec::new();
+        player.sample(&mut out);
+        let scale = |i: usize| out.iter().find(|(n, _)| *n == i).unwrap().1.scale.x;
+        assert_eq!(scale(1), 1.0, "the root's scale is its bind pose's");
+        assert_eq!(scale(3), 1.5, "other bones take the clip's");
+    }
+
+    #[test]
     fn darting_locomotion_holds_xy_without_carrying_the_actor() {
         let (mut player, ix) = player();
         for (peak, net, held) in [(240.0, 100.0, true), (-240.0, -100.0, true), (150.0, 100.0, false), (149.0, 100.0, false), (8.0, 0.0, true), (0.0, 0.0, false)] {
@@ -2289,6 +2310,85 @@ mod tests {
         let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
         assert_eq!(get(1), Vec3::ZERO);
         assert_eq!(get(2).z, 61.0);
+    }
+
+    #[test]
+    fn a_static_root_rotation_does_not_turn_the_body() {
+        // Idle Variety's `IV_Cool_F\...\mtturnleft.kf` / `mtturnright.kf`: `Bip01` at
+        // priority 26 with a static rotation (w 0.2706, x 0.6533, y 0.2706, z 0.6533) and
+        // no travel, over `Bip01 NonAccum` at 90° about z. Played while an NPC turns to
+        // the player as a conversation opens, and back as it closes, it laid the body on
+        // its side. The root stays at the identity going into the turn, through it and
+        // coming out of it, with the turn blended over an idle at any weight.
+        let (mut p, ix) = player();
+        let tilt = [0.2706, 0.6533, 0.2706, 0.6533];
+        let nonaccum = [std::f32::consts::FRAC_1_SQRT_2, 0.0, 0.0, std::f32::consts::FRAC_1_SQRT_2];
+        let turn = Arc::new(BoundClip::bind(
+            prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(tilt))), 26), ("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(nonaccum))), 10)]),
+            &ix,
+        )
+        .turn_in_place());
+        let idle = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(nonaccum))), 10)]), &ix));
+        let mut out = Vec::new();
+        for w in [0.0, 0.1, 0.5, 0.9, 1.0] {
+            p.layers = [Some(Layer { clip: idle.clone(), phase: 0.5, weight: 1.0 - w }), Some(Layer { clip: turn.clone(), phase: 0.5, weight: w }), None, None, None, None, None, None];
+            p.sample(&mut out);
+            let root = out.iter().find(|(j, _)| *j == 1).unwrap().1;
+            assert!(root.rotation.angle_between(Quat::IDENTITY) < 1e-4, "turn weight {w}: root turned {:?}", root.rotation);
+            assert_eq!(root.translation, Vec3::ZERO);
+        }
+        // A root rotation in a clip not played as a turn still plays (in a clip with a
+        // pelvis track: one without has its start rotation taken out, `root_turn_out`).
+        let keyed = Channel::Keys(Keys { kind: KeyKind::Linear, keys: [0.0, 1.0].map(|time| Key { time, value: tilt, forward: [0.0; 4], backward: [0.0; 4], tbc: [0.0; 3] }).to_vec() });
+        let roll = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), keyed), 26), ("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(nonaccum))), 10)]), &ix));
+        p.layers = [Some(Layer { clip: roll, phase: 0.5, weight: 1.0 }), None, None, None, None, None, None, None];
+        p.sample(&mut out);
+        let root = out.iter().find(|(j, _)| *j == 1).unwrap().1;
+        assert!(root.rotation.angle_between(Quat::from_xyzw(0.6533, 0.2706, 0.6533, 0.2706).normalize()) < 1e-3);
+    }
+
+    #[test]
+    fn a_root_rotation_never_turns_the_body_on_a_clips_first_frame_or_at_load() {
+        // The skeleton's binds: `Bip01` (0, 0.657, 67.771) turned 90° about z, `Bip01
+        // NonAccum` at the identity; the clips hold `Bip01` at the identity and turn
+        // `Bip01 NonAccum` 90° about z instead (actors.md §7.2, §8.2). The body's turn is
+        // the two together: 90° about z in the bind pose, and so in every frame.
+        let z90 = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let nodes: Vec<_> = (1..=4).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+        let bind = vec![Transform::IDENTITY, Transform::from_xyz(0.0, 0.657, 67.771).with_rotation(z90), Transform::IDENTITY, Transform::IDENTITY];
+        let ix = |n: &str| ["Bip01", "Bip01 NonAccum", "Other"].iter().position(|x| *x == n).map(|i| i + 1);
+        let q = |r: Quat| [r.w, r.x, r.y, r.z];
+        let nonaccum = track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some(q(z90))));
+        let idle = Arc::new(BoundClip::bind(prio_clip(4.0, vec![("Bip01 NonAccum", nonaccum.clone(), 10)]), ix));
+        // Clips whose `Bip01` holds a static 90° about z, and Idle Variety's tilt.
+        let tilted = [z90, Quat::from_xyzw(0.6533, 0.2706, 0.6533, 0.2706).normalize()].map(|r| {
+            Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0; 3])), Channel::Static(Some(q(r)))), 26), ("Bip01 NonAccum", nonaccum.clone(), 10)]), ix).turn_in_place())
+        });
+        let body = |out: &Vec<(usize, Transform)>, p: &BlendPlayer| {
+            let get = |i: usize| out.iter().find(|(j, _)| *j == i).map_or(p.bind[i], |(_, t)| *t);
+            get(1).rotation * get(2).rotation
+        };
+        let mut out = Vec::new();
+        for clip in &tilted {
+            // At load: a player that has posed nothing yet starts the clip, alone, fading
+            // in from nothing, and at full weight.
+            for w in [0.01, 0.05, 0.5, 1.0] {
+                let mut fresh = BlendPlayer::new(nodes.clone(), Arc::new(bind.clone()));
+                fresh.layers[0] = Some(Layer { clip: clip.clone(), phase: 0.0, weight: w });
+                fresh.sample(&mut out);
+                assert!(body(&out, &fresh).angle_between(z90) < 1e-3, "at load, weight {w}: {:?}", body(&out, &fresh));
+            }
+            // A clip's first frame over the idle the body was showing.
+            let mut p = BlendPlayer::new(nodes.clone(), Arc::new(bind.clone()));
+            p.layers[0] = Some(Layer { clip: idle.clone(), phase: 0.3, weight: 1.0 });
+            p.sample(&mut out);
+            assert!(body(&out, &p).angle_between(z90) < 1e-3);
+            for w in [0.0, 0.02, 0.5, 1.0] {
+                p.layers[4] = Some(Layer { clip: clip.clone(), phase: 0.0, weight: w });
+                p.sample(&mut out);
+                assert!(body(&out, &p).angle_between(z90) < 1e-3, "first frame over the idle, weight {w}: {:?}", body(&out, &p));
+            }
+        }
     }
 
     #[test]

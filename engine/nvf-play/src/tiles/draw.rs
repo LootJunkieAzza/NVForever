@@ -153,6 +153,9 @@ pub struct TileFonts {
     /// The faces' fonts, owned, for the text widths a frame keeps back
     /// ([`fnv_game::ui_hud::defer`]); made again when a face is read.
     measure: Option<fnv_game::ui_hud::Measure>,
+    /// The faces' fonts, owned, for the texts a script measures between frames
+    /// ([`fnv_game::ui_hud::size_texts`]); made again when a face is read.
+    text_size: Option<fnv_game::ui_hud::TextSize>,
     /// What each notice text copy's width was last measured from
     /// ([`super::notices::write_widths`]).
     notice_widths: super::notices::WidthsWritten,
@@ -180,6 +183,7 @@ impl FontKit<'_> {
             let f = face(FONT_FILES[n as usize - 1], plain_font(31.0, 15.0), self.data.as_deref(), &mut self.images, bc);
             self.fonts.faces.insert(n, f);
             self.fonts.measure = None;
+            self.fonts.text_size = None;
         }
     }
 
@@ -271,6 +275,21 @@ impl FontKit<'_> {
         }
         let faces = &self.fonts.faces;
         move |font: f64, text: &str, wrap: Option<f64>| faces.get(&font_number(font)).map_or((0.0, 0.0), |face| measure_written(&face.font, font_number(font), text, wrap))
+    }
+
+    /// [`FontKit::menu_measure`] owned, for the game to measure the mods' HUD texts
+    /// between frames ([`fnv_game::ui_hud::TextSizer`]), its `fonts` loaded first.
+    pub(crate) fn text_size(&mut self, fonts: &[f64]) -> fnv_game::ui_hud::TextSize {
+        for &font in fonts {
+            self.load(font);
+        }
+        if let Some(size) = &self.fonts.text_size {
+            return size.clone();
+        }
+        let owned: HashMap<u8, Font> = self.fonts.faces.iter().map(|(&n, face)| (n, face.font.clone())).collect();
+        let size: fnv_game::ui_hud::TextSize = std::sync::Arc::new(move |font: f64, text: &str, wrap: Option<f64>| owned.get(&font_number(font)).map_or((0.0, 0.0), |f| measure_written(f, font_number(font), text, wrap)));
+        self.fonts.text_size = Some(size.clone());
+        size
     }
 
     /// A picture's own file's size in texels, read once by the one who asks (the tutorial
@@ -772,7 +791,8 @@ fn spawn_root(commands: &mut Commands, target: &Target) -> Entity {
         None => Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
     };
     let node = target.frame.map_or(node.clone(), |anchor| interface::framed_root(node, anchor));
-    let mut root = commands.spawn((TileRoot, node, GlobalZIndex(target.z), Pickable::IGNORE));
+    // Kept out of the safe zone's HUD boxes (`crate::safe_zone::SafeZoneIgnore`).
+    let mut root = commands.spawn((TileRoot, crate::safe_zone::SafeZoneIgnore, node, GlobalZIndex(target.z), Pickable::IGNORE));
     if let Some(camera) = target.camera {
         root.insert(UiTargetCamera(camera));
     }
@@ -1121,6 +1141,21 @@ pub(crate) struct View<'w, 's> {
     vats: Option<Res<'w, super::vats_menu::VatsTiles>>,
     /// The open character menu, for the same decision as the hand-built trait menu's.
     chargen: Option<Res<'w, crate::chargen::ChargenMenus>>,
+    /// The Pip-Boy and its glance, which hide the mods' HUD tiles ([`mods_hidden`]).
+    pipboy: Option<Res<'w, crate::pipboy::PipBoy>>,
+    glance: Option<Res<'w, crate::pipboy::glance::Glance>>,
+}
+
+/// Whether the mods' tiles in the HUD are not drawn: the HUD menu hidden (`visible` 0,
+/// as the engine writes it in menus, dialogue and loading screens, or a script), whose
+/// children go with it [hypothesis: docs/spec-notes/menu-xml.md, a false `visible` hides
+/// the whole subtree; JAM's loot menu and JVO's marks are `HUDMainMenu` children, and
+/// JAM's handlers return on `MenuMode` without hiding them], or the
+/// Pip-Boy up over a running game (co-op's live Pip-Boy, the glance), which leaves the
+/// HUD's state alone [design: owner's playtest 2026-11-06, JAM's loot menu, its key hints
+/// and JVO's marks drew over the Pip-Boy].
+pub fn mods_hidden(ui: &Ui, menu: TileId, pipboy_up: bool) -> bool {
+    pipboy_up || ui.tile(menu).get("visible").is_some_and(|v| !v.truthy())
 }
 
 /// The colours an [`Ink`] node may carry.
@@ -1218,6 +1253,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     let barter_on = view.barter.as_ref().is_some_and(|b| b.menu().is_some());
     let inventory_on = view.inventory.as_ref().is_some_and(|i| i.ready.is_some());
     let mut blur_now = super::menus::TileMenuBlur::default();
+    // A menu drawn from its file this frame: `screen()` is then its own (`super::hud_screen_scale`).
+    let mut file_menu = false;
     for (name, on, z, drawn) in [
         (super::menus::MESSAGE_MENU, game.is_some_and(|g| super::menus::message_tiled(switch.message, g)), MESSAGE_Z, &mut others.message),
         (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open, container_on || barter_on || inventory_on)), QUANTITY_Z, &mut others.quantity),
@@ -1243,6 +1280,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         blur_now.repair_services |= name == super::repair_services_menu::REPAIR_SERVICES_MENU && menu.is_some();
         blur_now.traits |= name == super::trait_menu::TRAIT_MENU && menu.is_some();
         blur_now.tags |= name == super::tag_menu::TAG_MENU && menu.is_some();
+        file_menu |= menu.is_some() && name != super::vats_menu::VATS_MENU;
         let pieces = match menu {
             Some((ui, menu)) => {
                 if drawn.told_menu != Some(menu) {
@@ -1285,6 +1323,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
+    super::note_file_menu_drawn(file_menu);
     pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
     repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
     item_mod_page(&mut commands, game, &mut view, &mut kit, &mut others.item_mod, &mut nodes, heading, &glyphs);
@@ -1444,6 +1483,7 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
             if let Some(trigger) = ui.find_tile(super::mods::MCM_TRIGGER) {
                 drawn.retain(|p| !under(ui, p.tile, &[trigger]));
             }
+            gamma_alpha(ui, &mut drawn);
             (drawn, roots)
         }
         None => (Vec::new(), 0),
@@ -1455,6 +1495,24 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
     }
     // In the middle of the view, as the pause menu's page under it (`crate::pause`).
     paint(commands, drawn, pieces, Target::window(scale, super::mods::MODS_Z).in_frame(interface::MIDDLE), Brightness::File, heading, ui, kit, nodes, glyphs);
+}
+
+/// The Mods page's pieces with their alpha put through the curve the hotrect fills already
+/// take (`alpha^2.2`, [`pieces`]), so a part-alpha piece over black reads as in a blend
+/// in display (gamma) space: MCM's rows dimmed to alpha 85 while its slider is open
+/// [observed: MCM 1.5's OptionRect.xml `_alpha`; the probe of 2026-11-12 read 85 in the
+/// tree and a peak of 156 of 255 on screen, the linear blend's] then peak near 85
+/// [hypothesis: the original blends in gamma space; not compared with a frame of it].
+/// Hotrect fills are left as they are (curved already). The Mods page only [design: parity's
+/// choice of 2026-11-12; the other tile menus wait on a check of a vanilla half-alpha text
+/// against the original].
+pub fn gamma_alpha(ui: &Ui, pieces: &mut [Piece]) {
+    for p in pieces.iter_mut() {
+        if matches!(p.look, Look::Box) && ui.tile(p.tile).kind == "hotrect" {
+            continue;
+        }
+        p.colour[3] = p.colour[3].powf(2.2);
+    }
 }
 
 /// The fonts of `pieces`' texts that are not loaded (`loaded` says which are), each once:
@@ -1536,7 +1594,7 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
     // With the tile HUD off and no mod tiles in the HUD (the default game), nothing to
     // walk or lay out (`fnv_ui::Ui::has_mod_added_tiles`, a kept count) [design: #938].
     let (pieces, roots) = match menu {
-        Some((ui, menu)) if whole || ui.has_mod_added_tiles(menu) => {
+        Some((ui, menu)) if whole || (ui.has_mod_added_tiles(menu) && !mods_hidden(ui, menu, crate::reticle::pipboy_hides_crosshair(view.pipboy.as_deref(), view.glance.as_deref()))) => {
             // The fonts of the text tiles drawn, read before measuring.
             let mut stack = if whole { vec![menu] } else { ui.mod_added_tiles(menu) };
             while let Some(t) = stack.pop() {
@@ -2136,6 +2194,52 @@ mod tests {
         assert!((drawn[0].colour[3] - (40.0f32 / 255.0).powf(2.2)).abs() < 1e-6, "the hand-built fill's curve");
     }
 
+    /// MCM's option rows: a hotrect row whose title's `alpha` MCM drops to 85 while
+    /// another row is selected [observed: MCM 1.5's OptionRect.xml]. The piece draws at
+    /// that third.
+    #[test]
+    fn a_mods_row_title_draws_at_its_dimmed_alpha() {
+        let (mut ui, src) = hud();
+        let menu = ui.menu(HUD_MENU).unwrap();
+        assert!(ui.inject_text(
+            &src,
+            "HUDMainMenu/Piece",
+            r#"<rect name="Opts"><hotrect name="Row"><width>50</width><height>20</height>
+                <text name="title"><string>Enable</string><systemcolor>0</systemcolor><alpha>255</alpha></text></hotrect></rect>"#
+        ));
+        ui.update();
+        let title = ui.find_tile("HUDMainMenu/Piece/Opts/Row/title").unwrap();
+        let alpha = |ui: &Ui, t15: bool| pieces(ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, t15).0.into_iter().find(|p| p.tile == title).unwrap().colour[3];
+        assert_eq!((alpha(&ui, true), alpha(&ui, false)), (1.0, 1.0));
+        ui.set_trait(title, "alpha", Value::Num(85.0));
+        ui.update();
+        assert_eq!((alpha(&ui, true), alpha(&ui, false)), (85.0 / 255.0, 85.0 / 255.0));
+        // The Mods page's curve: the third drawn at a third to the 2.2; full stays full.
+        let mut drawn = pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, true).0;
+        gamma_alpha(&ui, &mut drawn);
+        let a = drawn.iter().find(|p| p.tile == title).unwrap().colour[3];
+        assert!((a - (85.0f32 / 255.0).powf(2.2)).abs() < 1e-6, "{a}");
+    }
+
+    #[test]
+    fn the_mods_page_curve_leaves_hotrect_fills_and_full_alpha() {
+        let (mut ui, src) = hud();
+        let menu = ui.menu(HUD_MENU).unwrap();
+        assert!(ui.inject_text(
+            &src,
+            "HUDMainMenu/Piece",
+            r#"<rect name="M"><hotrect name="H"><alpha>128</alpha><red>0</red><width>9</width><height>9</height></hotrect>
+                <text name="T"><string>t</string></text></rect>"#
+        ));
+        let h = ui.find_tile("HUDMainMenu/Piece/M/H").unwrap();
+        ui.set_trait(h, layout::HOTRECT_FILL, Value::Num(1.0));
+        ui.update();
+        let before = pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).0;
+        let mut after = before.clone();
+        gamma_alpha(&ui, &mut after);
+        assert_eq!(before, after, "a hotrect fill is curved once already; alpha 1 stays 1");
+    }
+
     #[test]
     fn only_the_mods_tiles_draw_and_code_copies_never() {
         let (mut ui, src) = hud();
@@ -2684,6 +2788,18 @@ mod tests {
         assert_eq!((image.color, text.0), (was, was));
         // A node with none of the colours a recolour writes is left alone.
         recolour::<&mut ImageNode, &mut BackgroundColor, &mut TextColor>(Ink::Drawn, None, None, None, now);
+    }
+
+    /// A quarter of JDC's circle: an arc 64 by 32 above the middle, its axis at the
+    /// middle 40 units below its top edge, turned a quarter right lands right of the
+    /// middle (`layout::Turn`).
+    #[test]
+    fn a_turned_tile_moves_about_its_axis() {
+        let turn = layout::Turn { angle: std::f64::consts::FRAC_PI_2, pivot: (32.0, 40.0) };
+        let (dx, dy) = turn.shift(64.0, 32.0);
+        // The arc's middle, (0, -24) from the axis, goes to (24, 0): 24 right, 24 down.
+        assert!((dx - 24.0).abs() < 1e-9 && (dy - 24.0).abs() < 1e-9, "{dx} {dy}");
+        assert_eq!(layout::Turn { angle: 0.0, pivot: (1.0, 2.0) }.shift(10.0, 10.0), (0.0, 0.0));
     }
 
     /// A model's parts take no Ink, so its colour changing spawns it again; only moved, it

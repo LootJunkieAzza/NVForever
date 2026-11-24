@@ -314,6 +314,12 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 - Command-line switches: `--window`
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `split-layout`: Split screen layout
+
+- On the page: How the screen is shared with player 2. Top and bottom: player 1 above, player
+  2 below. Side by side: player 1 left, player 2 right. Changes at once.
+- Registered in `engine/nvf-play/src/split_screen.rs` (player 1's game, `engine/nvforever/src/split.rs`)
+
 ## Display › Frame Rate
 
 ### `display-sync`: Display sync
@@ -825,6 +831,43 @@ in `engine/nvf-play/src/pause.rs` (`row_note`, `AUTOMATIC_INPUT_NOTE`) and
   fall or an explosion goes off near you. Kept as "Rumble" in [Controller].
 - In full: harder for a heavier weapon. Kept in [Controller] of NVForever.ini.
 
+### Hold time
+
+- On the page: Left/Right or A: how long a button is held before a Hold binding acts. Kept
+  as "Hold Time" in [Controller].
+- In full: 0.25, 0.3, 0.4 (the default), 0.5, 0.6 or 0.8 seconds, for every Hold binding
+  the player makes ("Hold X"); the holds built into another control (holding Menu Mode for
+  the light) keep their own times. With a controller only. docs/design/controller.md §2a.
+
+### Double-tap window
+
+- On the page: Left/Right or A: how soon the second press of a Double-tap binding must come.
+  Kept as "Double Tap Window" in [Controller].
+- In full: 0.2, 0.25, 0.3 (the default), 0.35, 0.4 or 0.5 seconds from the first press to
+  the second. A press sharing its button with a double tap acts when the window ends. With
+  a controller only.
+
+### Combo window
+
+- On the page: Left/Right or A: how far apart a combo's two buttons may go down, in either
+  order; a button in a combo waits this long. Kept as "Combo Window" in [Controller].
+- In full: 50, 75, 100 (the default), 125, 150 or 200 milliseconds. Two buttons of a combo
+  that go down within it, in either order, act as the combo only; neither button's own
+  binding acts. Any button that is part of a combo waits this long before its own binding
+  acts (Sneak on LB with LB + RB bound), or acts late when let go sooner. With a controller
+  only. docs/design/controller.md §2a.
+
+### The controller's bindings and split holds
+
+- A controller row binds a press, a hold, a double tap or a combo by the gesture made (A on
+  the row, then the gesture; Start cancels), kept in [Controller] as `A`, `Hold X`,
+  `Double Y` or `LB + A`. Overlapping bindings are kept and warned of in the row's note.
+- With a controller, Toggle Light stands under Actions after Menu Mode, Holster Weapon
+  under Combat after Ready Item, Grab (Hold) after Activate and Orbit Camera after Toggle
+  POV (Actions), Weapon Wheel last under Hotkeys; each reads "Hold B (Menu Mode)" and the
+  like until bound elsewhere. With the keyboard Toggle Light and Holster Weapon stay with
+  the Tweaks keys and the other three have no row. docs/design/controller.md §2a.
+
 ## Controls › Look
 
 ### Invert Y
@@ -886,8 +929,16 @@ in `engine/nvf-play/src/pause.rs` (`row_note`, `AUTOMATIC_INPUT_NOTE`) and
 ## Controls › Movement, Combat, Actions and Hotkeys
 
 Each control is one of the Controls tab's own rows (`controls:bind:` and its name in
-`SECTIONS`), under Movement, Combat, Actions or Hotkeys, in that order. The two entries
-below cover them all.
+`SECTIONS`), under Movement, Combat, Actions, Hotkeys, Additional Features, Multiplayer
+Questions, Minigames, Minigame Stakes and Photo Mode, in that order. The two entries below
+cover them all.
+
+The last four hold the screens' own controls (owner 2026-11-22): answering a co-op question
+(Accept Y / A, Decline N / B), the minigames (Start / Next Space / A, Leave Tab / B, the
+numbered choices 1-5 / D-pad and Y, bets Q E / LB RB, Back to the Menu R / X, Throw the left
+button / RT, the knife race W A S D / Y X A B), a stake between two players (W A F R /
+Y X A B) and the keys inside Photo Mode. While a question is on screen its buttons answer
+it and do nothing else; a key or button is swapped only with a control of the same screen.
 
 ### A control (keyboard and mouse)
 

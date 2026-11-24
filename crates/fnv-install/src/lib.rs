@@ -265,8 +265,9 @@ impl EngineHome {
 }
 
 /// The original game's per-user folder (INIs, saves; its plugins.txt is in
-/// `%LOCALAPPDATA%\FalloutNV` [observed]). NVForever must not
-/// read or write it. Windows: `Documents\My Games\FalloutNV` [documented: community/xEdit
+/// `%LOCALAPPDATA%\FalloutNV` [observed]). NVForever never writes it; it reads only
+/// `Fallout.ini` and `FalloutCustom.ini` there, for how a new game starts (owner,
+/// 2026-11-11: a mod list's start quest, e.g. TTW's; `nvf_play::game_start`). Windows: `Documents\My Games\FalloutNV` [documented: community/xEdit
 /// docs; verify on the user's PC], where Documents is the Documents known folder, so a
 /// Documents folder redirected (e.g. to OneDrive or another drive) is followed.
 pub fn original_user_dir() -> Option<PathBuf> {

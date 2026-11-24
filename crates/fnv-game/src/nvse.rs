@@ -154,6 +154,18 @@ fn weapon_field(name: &str) -> Option<(&'static str, &'static str)> {
 }
 
 impl Game<'_> {
+    /// A number a script set on a record field this session with a `SetWeapon…`
+    /// setter (`DNAM/fire_rate`): `None` when no script set it. Combat reads the weapon's
+    /// speeds through this (Hit's Anims `gr_hitAMattackanimmult` sets
+    /// SetWeaponAnimAttackMult on the guns it animates) [documented: the setters' pages
+    /// say they change the weapon; hypothesis: the shot cycle follows].
+    pub fn record_number_edit(&self, form: FormId, field: &str) -> Option<f64> {
+        match self.field_overrides.get(&(form, field.to_string()))? {
+            XVal::Num(x) if x.is_finite() => Some(*x),
+            _ => None,
+        }
+    }
+
     /// Session critical damage used by both scripts and engine hit calculations.
     /// See ext-last-core.md, critical weapon damage. Authored data stays in the
     /// combat loader; this view supplies only script changes to that data.
@@ -549,6 +561,9 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
         return Some(r);
     }
     if let Some(r) = crate::nif_blocks::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jam::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_jip2::call(g, ctx, name, subject, args) {
@@ -1042,9 +1057,15 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
             let l = as_form(args.first()).unwrap_or(FormId(0));
             let Some(f) = as_form(args.get(1)) else { return Some(Ok(XVal::Num(-1.0))) };
             let at = int_of(args.get(2), -2);
-            let dupes = args.get(3).is_some_and(XVal::truthy);
+            // A form already on the list is not added again, whatever `checkForDupes` says
+            // [design: owner decision 2026-11-06. JAM adds itself to MCM's list in the
+            // start menu's main-menu frames and again after GetGameRestarted; listed twice,
+            // MCM counted two mods under one row, let the wheel scroll its only row away and
+            // never listed it again (its rebuild skips a form equal to the last one listed).
+            // Whether the original adds a duplicate without the flag is open: the page gives
+            // `checkForDupes` as optional; observer check].
             let list = g.edited_list(l);
-            if dupes && list.contains(&f) {
+            if list.contains(&f) {
                 return Some(Ok(XVal::Num(-1.0)));
             }
             // -2 or past the end: at the end [documented]; another negative index fails

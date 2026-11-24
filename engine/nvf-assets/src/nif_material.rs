@@ -449,7 +449,7 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
 /// the owner's settings (docs/design/streaming-hitches.md §3.1) [observed 2026-10-28].
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[data(50, NifSurfaceUniform, binding_array(101))]
-#[bindless(limit(512), index_table(range(50..57), binding(100)))]
+#[bindless(limit(512), index_table(range(50..58), binding(100)))]
 #[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
     /// Start angle, stop angle (cosines), start opacity, stop opacity; constant opacity 1
@@ -533,7 +533,9 @@ pub struct NifSurface {
     pub holes_edge: Vec4,
     /// Soft intersections (module notes, "Soft intersections"): x the distance in game
     /// units over which the shape fades out towards the opaque surface behind it, 0 for
-    /// none; y, z, w unused.
+    /// none; y 1: ground scorched by the grass fires' burn map ([`scorch_map`](Self::scorch_map),
+    /// nif_material.wesl "Scorch"; the landscape only); z 1: a lit shape's glow map alone
+    /// gives its light (nif_spawn.rs `glow_emits_alone`); w unused.
     pub soft: Vec4,
     /// The holes texture; `None` with no holes.
     #[texture(51)]
@@ -593,6 +595,11 @@ pub struct NifSurface {
     /// The environment mask (texture-set slot 5); `None` when the set has none.
     #[texture(56)]
     pub env_mask: Option<Handle<Image>>,
+    /// The grass fires' burn map (nvforever `grass::GrassBurn`, a byte per 64-unit patch,
+    /// read with `textureLoad`), on the landscape's materials only, with `soft.y` 1:
+    /// ground under grass that burnt is drawn scorched. `None` everywhere else.
+    #[texture(57)]
+    pub scorch_map: Option<Handle<Image>>,
 }
 
 /// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
@@ -699,6 +706,7 @@ impl Default for NifSurface {
             soft: Vec4::ZERO,
             holes_texture: None,
             facegen_offset: None,
+            scorch_map: None,
             terrain_repeat: 0.0,
             anti_tiling: false,
             metal_gain: 0.0,
@@ -1021,6 +1029,59 @@ pub fn display_emissive(value: f32) -> f32 {
 /// whole].
 pub const ADD_DISPLAY_MAX: f32 = 2.0;
 
+/// The most an additive shape adds to a display value in its brightest channel, the
+/// others held in proportion ([`add_display`]; nif_material.wesl has the same number)
+/// [engineering choice, 2026-11-10: the Monte Carlo's bulbs (HotM, unlit (1.0, 0.84,
+/// 0.16) × 15, additive) were held per channel to [`ADD_DISPLAY_MAX`] and burned white
+/// discs that merged into one blob (owner's playtest 119, queue item 174); held this way
+/// they stay yellow dots. The Big MT's sky beams (1.5 at the core) still pass whole].
+pub const ADD_HUE_MAX: f32 = 1.5;
+
+/// The most an unlit emitter that blends over the frame (SRC_ALPHA / INV_SRC_ALPHA) is
+/// drawn at, in its brightest channel (2026-11-10, queue item 146). Such a shape's alpha
+/// says how much of the frame it covers: the Ultra-Luxe's stair lights
+/// (`ultraluxdome_glows.nif` `StairLight1`..`10`, white × 2 over a flat white texture)
+/// have vertex alpha 0.15 at most, a faint wash on each step, and the Lucky 38's stair
+/// lights (`lucky38stairlights.nif`, white × 1.25) fade to alpha 0 at their edges
+/// [observed, fnvtool nif decode]. Drawn at the emissive multiplier times the Strip's
+/// night Emissive Mult (× 2.67) the colour was 3 to 5 times white, so alpha 0.15 was
+/// already white and both read as solid white bars. Held to white, the alpha shapes
+/// them as authored [hypothesis: an engine choice; the original's stair lights are
+/// separate strips with dark steps between them in the wiki's Ultra-Luxe exterior
+/// shot].
+pub const BLEND_GLOW_MAX: f32 = 1.0;
+
+/// The colour a blended unlit emitter of emitted light `e` is drawn at: `e` held to
+/// [`BLEND_GLOW_MAX`] in its brightest channel, the others in proportion (the shader's
+/// `blend_glow`).
+pub fn blend_glow(e: Vec3) -> Vec3 {
+    e * (BLEND_GLOW_MAX / e.max_element().max(1e-6)).min(1.0)
+}
+
+/// How much brighter than white emitted light past white is drawn under the main view's
+/// display clip for each doubling of its brightest channel (`hot_brightness`), and the
+/// most it reaches (nif_material.wesl has the same numbers) [engineering choice,
+/// 2026-11-10, judged against the original's frames of the Lucky 38 at night, whose sign
+/// keeps its letters and colours inside a soft halo].
+pub const HOT_GLOW_PER_STOP: f32 = 0.5;
+pub const HOT_GLOW_MAX: f32 = 3.0;
+
+/// The brightness (brightest channel) at which emitted light whose brightest channel is
+/// `m` is drawn under the display clip (CPU mirror of nif_material.wesl `hot_brightness`):
+/// as it is up to white, then [`HOT_GLOW_PER_STOP`] more per doubling, up to
+/// [`HOT_GLOW_MAX`]. The other channels keep their share, so after the clip a coloured
+/// emitter keeps its hue, and what lies over white feeds the light glow. Before
+/// 2026-11-10 every channel past 0.95 was raised on its own to about 11-16, so any
+/// coloured sign (Lucky 38's cards at white × 6 under the Strip's emissive ×2.67, the
+/// Monte Carlo's cyan tube) burned white with a halo that swallowed its shape
+/// [observed: owner's playtest 119 frames, queue items 146 and 174].
+pub fn hot_brightness(m: f32) -> f32 {
+    if m <= 1.0 {
+        return m.max(0.0);
+    }
+    (1.0 + m.log2() * HOT_GLOW_PER_STOP).min(HOT_GLOW_MAX)
+}
+
 /// The linear light an additive shape (NiAlphaProperty destination factor ONE, drawn as
 /// `AlphaMode::Add`) adds to a pixel whose opaque frame is `behind` (linear), for its
 /// linear colour `colour` and its alpha `alpha` (1 for a ONE / ONE shape; CPU mirror of
@@ -1030,12 +1091,14 @@ pub const ADD_DISPLAY_MAX: f32 = 2.0;
 /// docs/spec-notes/nif.md §6 "Additive blend"]. Bevy adds linear light, so the shader
 /// reads the frame behind the shape (Bevy's copy of the opaque frame, which
 /// [`TransmissionAnchor`] keeps in every view), adds in display values and returns the
-/// difference in linear light. The sum is held to [`ADD_DISPLAY_MAX`] (or the frame's
-/// own value, if brighter).
+/// difference in linear light. What is added is held to [`ADD_HUE_MAX`] in its
+/// brightest channel, the others in proportion, and the sum to [`ADD_DISPLAY_MAX`] (or
+/// the frame's own value, if brighter).
 pub fn add_display(colour: Vec3, alpha: f32, behind: Vec3) -> Vec3 {
     let behind = behind.max(Vec3::ZERO);
     let shown = behind.powf(1.0 / MULTIPLY_GAMMA);
-    let added = colour.max(Vec3::ZERO).powf(1.0 / MULTIPLY_GAMMA) * alpha.clamp(0.0, 1.0);
+    let raw = colour.max(Vec3::ZERO).powf(1.0 / MULTIPLY_GAMMA) * alpha.clamp(0.0, 1.0);
+    let added = raw * (ADD_HUE_MAX / raw.max_element().max(1e-6)).min(1.0);
     let sum = (shown + added).min(shown.max(Vec3::splat(ADD_DISPLAY_MAX)));
     (sum.powf(MULTIPLY_GAMMA) - behind).max(Vec3::ZERO)
 }
@@ -1325,7 +1388,7 @@ mod tests {
 
     /// [design] The ordinary interface (with #2551's `terrain` row and #2462's window
     /// environment map: the `env` row after it, then #2841's `env_how` row, the cube, its
-    /// sampler and the mask at 54-56): 50..57, table 100, data 101, and eleven 16-byte rows
+    /// sampler and the mask at 54-56; the fork's burn map at 57): 50..58, table 100, data 101, and eleven 16-byte rows
     /// (176 bytes). No
     /// enabled-only resource may enter this type.
     #[test]
@@ -1336,8 +1399,8 @@ mod tests {
         let descriptor = NifSurface::bindless_descriptor().unwrap();
         assert_eq!(descriptor.index_tables.len(), 1);
         let table = &descriptor.index_tables[0];
-        assert_eq!((table.indices.start.0, table.indices.end.0, table.binding_number.0), (50, 57, 100));
-        assert_eq!(&descriptor.resources[50..], &[R::DataBuffer, R::Texture2d, R::SamplerFiltering, R::Texture2d, R::TextureCube, R::SamplerFiltering, R::Texture2d]);
+        assert_eq!((table.indices.start.0, table.indices.end.0, table.binding_number.0), (50, 58, 100));
+        assert_eq!(&descriptor.resources[50..], &[R::DataBuffer, R::Texture2d, R::SamplerFiltering, R::Texture2d, R::TextureCube, R::SamplerFiltering, R::Texture2d, R::Texture2d]);
         assert_eq!(descriptor.buffers.len(), 1);
         assert_eq!((descriptor.buffers[0].binding_number.0, descriptor.buffers[0].bindless_index.0, descriptor.buffers[0].size), (101, 50, Some(176)));
         // Non-bindless declarations are from this exact derived production type.
@@ -1345,7 +1408,9 @@ mod tests {
         let extension = source.split("pub struct NifSurface {").nth(1).unwrap().split("\n}").next().unwrap();
         assert!(extension.contains("#[texture(51)]") && extension.contains("#[sampler(52)]") && extension.contains("#[texture(53)]"));
         assert!(extension.contains("#[texture(54, dimension = \"cube\")]") && extension.contains("#[sampler(55)]") && extension.contains("#[texture(56)]"));
-        assert!(!extension.contains("#[texture(57") && !extension.contains("mesh_terrain"));
+        // 57: the grass fires' burn map (`scorch_map`), the landscape's only (the fork's).
+        assert!(extension.contains("#[texture(57)]"));
+        assert!(!extension.contains("#[texture(58") && !extension.contains("mesh_terrain"));
     }
 
     /// A main-pass pipeline as Bevy hands it to `specialize`: one colour target, depth
@@ -1837,13 +1902,43 @@ mod tests {
         // A ONE / ONE shape (alpha 1) on black adds its colour as it is.
         let c = Vec3::new(0.2, 0.5, 0.9);
         assert!(close(add_display(c, 1.0, Vec3::ZERO), c));
-        // The sum is held to ADD_DISPLAY_MAX; a frame brighter than that gets nothing and
-        // loses nothing.
+        // What is added is held to ADD_HUE_MAX; a frame brighter than ADD_DISPLAY_MAX
+        // gets nothing and loses nothing.
         let flash = Vec3::splat(display_emissive(0.99 * 30.0));
-        assert!(close(shown(display(flash), 1.0, Vec3::ZERO), grey(ADD_DISPLAY_MAX)));
+        assert!(close(shown(display(flash), 1.0, Vec3::ZERO), grey(ADD_HUE_MAX)));
+        // A coloured shape far past white keeps its hue: the Monte Carlo's bulbs
+        // (HotM, (1.0, 0.84, 0.16) × 15) add a yellow, not a white.
+        let tint = Vec3::new(1.0, 0.84, 0.16);
+        let bulb = tint * display_emissive(15.0);
+        let lit = shown(display(bulb), 1.0, Vec3::ZERO);
+        assert!(close(lit, display(tint) * ADD_HUE_MAX), "{lit}");
+        assert!(lit.z < 0.7 * lit.x, "yellow, not white: {lit}");
         assert_eq!(add_display(flash, 1.0, grey(9.0)), Vec3::ZERO);
         // No alpha adds nothing.
         assert!(close(add_display(Vec3::ONE, 0.0, grey(0.2)), Vec3::ZERO));
+    }
+
+    #[test]
+    fn hot_emitters_keep_their_hue_under_the_display_clip() {
+        // Up to white nothing changes.
+        assert_eq!(hot_brightness(0.6), 0.6);
+        assert_eq!(hot_brightness(1.0), 1.0);
+        // A blended glow is never past white, and keeps its hue and anything dimmer.
+        let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 1e-5;
+        assert!(close(blend_glow(Vec3::new(0.91, 0.96, 0.98) * 5.3), Vec3::new(0.91, 0.96, 0.98) / 0.98));
+        assert!(close(blend_glow(Vec3::new(4.0, 2.0, 0.0)), Vec3::new(1.0, 0.5, 0.0)));
+        assert!(close(blend_glow(Vec3::new(0.2, 0.1, 0.4)), Vec3::new(0.2, 0.1, 0.4)));
+        // Past white: half a unit per doubling, at most HOT_GLOW_MAX.
+        assert!((hot_brightness(4.0) - 2.0).abs() < 1e-6);
+        assert_eq!(hot_brightness(1e6), HOT_GLOW_MAX);
+        // Lucky 38's card (white × 6 under the Strip's emissive ×2.67) on a red texel:
+        // drawn with the red channel brightest and the others in proportion, so after the
+        // per-channel clip it shows red, where raising each channel past white showed white.
+        let e = Vec3::new(0.8, 0.12, 0.1) * 6.0 * 2.67;
+        let drawn = e * (hot_brightness(e.max_element()) / e.max_element());
+        let shown = drawn.min(Vec3::ONE);
+        assert_eq!(shown.x, 1.0);
+        assert!(shown.y < 0.5 && shown.z < 0.5, "{shown}");
     }
 
     #[test]

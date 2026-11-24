@@ -62,7 +62,7 @@ impl Host for Answers {
 fn prepare(body: &str, bridge: bool) -> (FunctionTable, fnv_script::compile::Compiled, Program) {
     let table = FunctionTable::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json")).unwrap();
     let source = format!("short a\nshort b\nshort result\nBegin GameMode\n{body}\nEnd\n");
-    let seed = bridge.then_some(Seed { variables: &[], refs: &[], unknown_calls: true });
+    let seed = bridge.then_some(Seed { variables: &[], refs: &[], unknown_calls: true, unknown_operands: false });
     let compiled = compile(&source, &table, &Names, seed);
     assert_eq!(compiled.errors().count(), 0, "compile setup: {:?}", compiled.diags);
     let decoded = decode(&compiled.bytes, &table);

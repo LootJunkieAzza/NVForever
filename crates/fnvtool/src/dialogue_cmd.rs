@@ -82,13 +82,13 @@ pub struct Filter {
     pub text: bool,
 }
 
-struct Loaded<'p> {
-    lo: LoadOrder<'p>,
-    data: GameData,
-    refs: RefTable,
+pub(crate) struct Loaded<'p> {
+    pub(crate) lo: LoadOrder<'p>,
+    pub(crate) data: GameData,
+    pub(crate) refs: RefTable,
 }
 
-fn with_data<T>(a: &ScriptArgs, f: impl FnOnce(&Loaded) -> anyhow::Result<T>) -> anyhow::Result<T> {
+pub(crate) fn with_data<T>(a: &ScriptArgs, f: impl FnOnce(&Loaded) -> anyhow::Result<T>) -> anyhow::Result<T> {
     let tp = table_path(a);
     let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
     let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
@@ -110,7 +110,7 @@ pub fn run(cmd: DialogueCmd) -> anyhow::Result<Value> {
 }
 
 /// A form by Editor ID or hex FormID.
-fn form(l: &Loaded, s: &str) -> anyhow::Result<FormId> {
+pub(crate) fn form(l: &Loaded, s: &str) -> anyhow::Result<FormId> {
     if s.starts_with("0x") || s.starts_with("0X") {
         return Ok(FormId(crate::parse_formid(s).map_err(anyhow::Error::msg)?));
     }

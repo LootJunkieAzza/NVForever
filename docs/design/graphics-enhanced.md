@@ -901,6 +901,44 @@ enhanced "Bloom" (§3.3), when on, stands in for it.
 Engineering choices made by eye against the original's frames; not used to explain
 differences in the parity frames.
 
+### 3.12 Fuller fire (`fuller-fire`; off in both presets)
+
+An NVForever addition, not the original's look: the owner, with the campfires lit (queue
+item 103, 2026-11-09), asked for "more 3d fire in general". The world's fires burn as the
+particles of add-on nodes 14 and 0 (`MPS\MPSFireSmall01.NIF`, `MPS\MPSFireMed01.NIF`):
+about five camera-facing flame squares per fire, which read as a flat sprite.
+
+- **Volumetric flame** (`fire_volume.rs`, `fire_volume.wesl`): an add-on node whose
+  model's file name begins `mpsfire` burns a flame drawn by marching rays through a box
+  above it (30 units across the base and 100 high for the small fire, 48 and 165 for the
+  medium, times the node's scale). Its density is a teardrop cut into tongues by rising,
+  swirling 3D noise; its colour goes by heat from deep red through orange to a pale
+  yellow core, added to what is behind; each step hides what burns behind it, so the
+  flame's front shows. The march stops at the depth the scene drew, so the flame sits
+  among the logs. 4 to 40 steps a pixel (below). Its flame squares are then not born; its sparks
+  stay. This is the common technique of real-time volumetric fire (noise-shaped
+  density, a heat-to-colour ramp, emission summed along the ray); it looks the same
+  from every side and from above.
+- **Embers and smoke** (`fuller_fire.rs`): systems made from the game's own, from the
+  same node: the sparks as embers (0.08 the size, 3.5 times the life, half the pull up,
+  spread at least 0.5 rad) and ADDN 35's smoke (`MPS\MPSSmokeSmall01.NIF`) from 48
+  units above, at half the births and opacity and 0.6 the life.
+- Tried first and dropped: the flame squares again, denser and longer-lived. The owner
+  found it "just denser, not 3d or real".
+
+All values are [design], set by eye on the campfire shots of 2026-11-09 (test aid
+`NVF_FIRE_VOLUME=radius,height,brightness,frequency,gain,edge,swirl`).
+
+**Off in both presets** since 2026-11-14 [observed]: lighting a modded campfire (five fire
+nodes stacked in one spot) close up at 2560x1440 with no frame cap powered off the
+owner's PC [hypothesis: the GPU went from light load to a full arithmetic load in one
+frame and the power supply's protection tripped]. The flame's cost is now planned each
+frame (`fire_volume.rs` "Cost"): one flame per spot, at most four, the nearest; each
+flame's steps times its share of the screen at most 4, all flames' at most 6 (six full
+screens of one step), 4 to 40 steps; the shader clamps the steps and skips the empty
+corners of the box without noise. `--graphics-only fuller-fire` or the settings switch
+"Fuller fire" turns it on; on again by default only once the capped flame is measured
+safe.
 ### 3.12 Terrain height blending (`terrain-height-blend`; off in both presets)
 
 [design, #2550] An addition of NVForever's own, not a fact about the original game. The

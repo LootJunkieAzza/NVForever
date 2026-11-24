@@ -87,6 +87,52 @@ pub struct Triggers {
     /// shots, blasts and guns fired inside set off (`crate::gas_traps`, #2687). Built
     /// and dropped with [`Triggers::shapes`].
     gas: HashMap<FormId, Vec<TriggerShape>>,
+    /// A co-op guest's game: its story triggers are held ([`Triggers::held_for_guest`]).
+    guest: bool,
+    /// This game has been a co-op guest's (`Game::coop_guest` set) since it joined.
+    was_guest: bool,
+    /// Candidates whose volumes come from their model's trigger shapes (traps: bear
+    /// traps, tripwires, pressure plates), not from a placed primitive.
+    from_model: std::collections::HashSet<FormId>,
+}
+
+impl Triggers {
+    /// Whether this frame's story triggers are held because this game is a co-op guest's
+    /// (`fnv_game::Game::coop_guest`). The host's world runs the world's scripts: its
+    /// stand-in for the guest enters the host's triggers there. Held are the placed
+    /// volumes (XPRM primitives, the level designers' story triggers); a trap's trigger
+    /// from its model still fires here for the guest's own player only, so a guest who
+    /// steps on a bear trap is hit (the host's stand-in enters no trap, scene-stalls'
+    /// side) [design, with scene-stalls 2026-11-08]; the guest's NPCs follow the host's
+    /// and fire nothing. A guest's own copy of a
+    /// trigger running for its own player locked every control at Old World Blues' slide
+    /// show (`DisablePlayerControls` with no quest check, and the EnablePlayerControls that
+    /// ends it only comes from the quest the guest's game never runs) and killed the
+    /// guest's own Jed at Honest Hearts' ambush, which then showed "Honest Hearts can't be
+    /// accessed" (queue 2026-11-07 item 83, the guest-side gate). Nothing is entered,
+    /// run or left while held, and what was inside is forgotten, so a game that stops
+    /// being a guest enters what it stands in afresh (as after a load).
+    ///
+    /// `joining`: the host welcomed this game as a guest (`crate::save::KeepSolo`). The
+    /// game is flagged a guest only once its own game was kept (`crate::save::SoloBase`),
+    /// a moment after the host's world moved its player: before, its player entered its
+    /// own copy of a story trigger on that first frame (two-window check 2026-11-08). So
+    /// it is held from the welcome until the flag first comes, and after that by the flag
+    /// alone (a game that leaves the host's world runs its triggers again).
+    pub fn held_for_guest(&mut self, guest: bool, joining: bool) -> bool {
+        self.was_guest |= guest;
+        let guest = guest || (joining && !self.was_guest);
+        if guest != self.guest {
+            self.guest = guest;
+            if guest {
+                bevy::log::info!("script: triggers held: a co-op guest's world is the host's, whose game runs them ({} inside forgotten)", self.inside.len());
+            } else {
+                bevy::log::info!("script: triggers run again: no longer a co-op guest");
+            }
+            self.inside.clear();
+        }
+        guest
+    }
 }
 
 impl Triggers {
@@ -215,13 +261,20 @@ fn actors(rt: &mut Runtime, phys: &PhysState, player: Capsule) -> Vec<(FormId, C
         let k = (fnv_game::functions::scale_of(g, r) as f32).max(0.0);
         out.push((r, Capsule { feet, radius: npc.radius * k, height: npc.height * k }));
     }
+    // The other players' actors, which set off the co-op random encounters (item 131).
+    for &r in g.coop_actors.keys() {
+        if let Some(s) = g.world.peek(r).filter(|s| s.cell.is_some_and(|c| g.loaded_cells.contains(&c))) {
+            out.push((r, Capsule { feet: s.pos, radius: npc.radius, height: npc.height }));
+        }
+    }
     out
 }
 
 /// Test the actors against the triggers of the loaded cells and run the blocks. `player`
 /// is the player's capsule; `None` when the player has no position yet: the volumes are
 /// looked up (and their scripts held while they wait) but nobody enters or leaves.
-pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>) {
+pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>, joining: bool) {
+    let guest = rt.triggers.held_for_guest(rt.game.coop_guest, joining);
     let data = rt.game.data;
     let mut candidates: Vec<FormId> = Vec::new();
     for c in &rt.game.loaded_cells {
@@ -248,6 +301,9 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
         if rt.triggers.waiting.get(&r).is_some_and(|l| matches!(l, Lookup::Model(.., at) if *at != pose)) {
             rt.triggers.waiting.remove(&r);
         }
+        if guest && !rt.triggers.from_model.contains(&r) && rt.triggers.shapes.contains_key(&r) {
+            continue;
+        }
         if !rt.triggers.shapes.contains_key(&r) {
             let l = match rt.triggers.waiting.remove(&r) {
                 Some(l) => l,
@@ -255,7 +311,11 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
             };
             match l {
                 Lookup::Shapes(s) => {
+                    rt.triggers.from_model.remove(&r);
                     rt.triggers.shapes.insert(r, (pose, s));
+                    if guest {
+                        continue;
+                    }
                 }
                 Lookup::Model(path, pos, rot, scale, at) => match phys.model_triggers(&path) {
                     Some(objects) => {
@@ -263,6 +323,7 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
                         if !s.is_empty() {
                             bevy::log::info!("script: trigger {} has {} trigger volume(s) in its model", rt.game.data.name(r), s.len());
                         }
+                        rt.triggers.from_model.insert(r);
                         let gas: Vec<_> = objects.iter().filter(|o| o.layer == fnv_phys::layers::GAS_TRAP).cloned().collect();
                         let gas = model_shapes(&gas, pos, rot, scale);
                         if !gas.is_empty() {
@@ -295,8 +356,21 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     let Some(player) = player else { return };
     let mut now = BTreeSet::new();
     if !shapes.is_empty() {
-        for (a, cap) in actors(rt, phys, player) {
+        let who = if guest { vec![(FormId::PLAYER_REF, player)] } else { actors(rt, phys, player) };
+        // A trigger fires only for an actor in its own space: the same interior, or the
+        // same worldspace (item 184: Dead Money's NVDLC01VillaTravelTrigger, in the
+        // interior SLBoSBunkerINT, fired for the host standing at the same coordinates in
+        // WastelandNV while the interior was still loaded) [hypothesis: interiors and
+        // worldspaces are separate places, and a volume is only in its own].
+        let g = &rt.game;
+        let space = |r: FormId| g.cell_of(r).map(|c| g.world.placed.world_of(c).unwrap_or(c));
+        let trigger_space: HashMap<FormId, Option<FormId>> = shapes.iter().map(|(t, _)| (*t, space(*t))).collect();
+        for (a, cap) in who {
+            let mine = space(a);
             for (t, s) in &shapes {
+                if mine.is_some_and(|m| trigger_space.get(t).copied().flatten().is_some_and(|ts| ts != m)) {
+                    continue;
+                }
                 if s.touches(&cap) {
                     now.insert((*t, a));
                 }
@@ -308,6 +382,14 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     let who = |g: &fnv_game::Game, a: FormId| if a == FormId::PLAYER_REF { "player".to_string() } else { g.data.name(a) };
     rt.triggers.entered += ch.entered.len() as u64;
     for &(t, a) in &ch.entered {
+        // Another player entering a co-op random encounter's trigger is the player there
+        // (`fnv_game::coop::COOP_ENCOUNTERS`, item 131).
+        let a = if g.is_coop_actor(a) && g.coop_encounter(t) {
+            bevy::log::info!("script: co-op player {} sets off the encounter trigger {} as the player", who(g, a), g.data.name(t));
+            FormId::PLAYER_REF
+        } else {
+            a
+        };
         bevy::log::info!("script: {} entered trigger {}", who(g, a), g.data.name(t));
         g.ref_event(t, event::ON_TRIGGER_ENTER, Some(Value::Ref(a.0)), Some(a));
     }
@@ -352,6 +434,24 @@ fn leave_reported(actor: FormId, present: bool, loaded: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A co-op guest's game runs no trigger blocks (item 83): held while a guest, with
+    /// what was inside forgotten, and run again once it is not.
+    #[test]
+    fn a_guests_triggers_are_held() {
+        let mut t = Triggers::default();
+        t.inside.insert((FormId(0x0300_326F), FormId::PLAYER_REF));
+        assert!(!t.held_for_guest(false, false));
+        assert_eq!(t.inside.len(), 1, "solo: as before");
+        // Welcomed, not flagged a guest yet: held already.
+        assert!(t.held_for_guest(false, true));
+        assert!(t.inside.is_empty(), "forgotten: no Leave runs for them");
+        t.inside.insert((FormId(0x0200_A7CC), FormId::PLAYER_REF));
+        assert!(t.held_for_guest(true, true));
+        // Left the host's world: the welcome stays, the flag goes, triggers run again.
+        assert!(!t.held_for_guest(false, true));
+        assert!(t.inside.is_empty(), "entered afresh after");
+    }
 
     /// #2449: the player fast-travelling out of the Boomers' artillery field (its cell
     /// unloads) leaves the trigger with an OnTriggerLeave, so the script counts the

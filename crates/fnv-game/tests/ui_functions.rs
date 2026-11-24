@@ -82,6 +82,7 @@ fn get_set_and_mod_by_path() {
     assert_eq!(n(run(&mut g, "getuifloat", &[s("HUDMenu\\Bars\\Fill\\width")])), 150.0);
     assert_eq!(n(run(&mut g, "ModUIFloat", &[s("HUDMenu/Bars/width"), XVal::Num(-100.0)])), 1.0);
     g.ui_tree.update();
+    // `*:0` the last child, `*:N` from the first (upstream's `fnv_ui::Count::FromFirst`).
     assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMenu/*/*:0/width")])), 100.0);
     assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("HUDMenu/Bars/Fill/string"), s("x")])), 0.0);
     assert!(call(&mut g, "GetPlayerName", &[]).is_none());
@@ -287,6 +288,38 @@ fn mcm_functions_stand_for_start_menu_traits() {
     assert_eq!(n(run(&mut g, "GetMCMFloat", &[XVal::Num(5.0), XVal::Num(5.0), s("_enable")])), 0.0);
     run(&mut g, "SetMCMFloat", &[XVal::Num(0.0), XVal::Num(0.0), s("_Nope"), XVal::Num(1.0)]);
     assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/_Nope")])), NOT_FOUND);
+}
+
+#[test]
+fn mcm_paths_mass_setters_and_the_mod_list() {
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\start.xml",
+        r#"<menu name="StartMenu"> <rect name="MCM">
+           <rect name="Options">
+             <rect name="Option1"> <_enable> 1 </_enable> <rect name="value"> <text name="text"> <string> a </string> </text> </rect> </rect>
+             <rect name="Option2"> <_enable> 1 </_enable> <rect name="value"> <text name="text"> <string> b </string> </text> </rect> </rect>
+             <rect name="Option3"> <_enable> 1 </_enable> </rect> </rect>
+           <rect name="MCM_ModList"> <rect name="ArrowUp"> <y> 40 </y> </rect>
+             <hotrect name="Mod1"> <_enable> 0 </_enable> <_modIndex> 0 </_modIndex> <_modIndex2> 0 </_modIndex2> <text name="text"> <string> </string> <width> 88 </width> </text> </hotrect>
+           </rect> </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&src, "menus\\start.xml").unwrap();
+    g.ui_tree.update();
+    // A setting path reaches below the tile, with or without a leading slash.
+    run(&mut g, "SetMCMString", &[XVal::Num(1.0), XVal::Num(2.0), s("value/text/string"), s("on")]);
+    assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/Options/Option2/value/text/string")]), s("on"));
+    assert_eq!(n(run(&mut g, "GetMCMFloat", &[XVal::Num(2.0), XVal::Num(0.0), s("/ArrowUp/y")])), 40.0);
+    // The mass setters run over children from..=to, past the end harmlessly.
+    run(&mut g, "SetMCMFloatMass", &[XVal::Num(1.0), XVal::Num(1.0), XVal::Num(36.0), s("_enable"), XVal::Num(0.0)]);
+    for k in 1..=3 {
+        assert_eq!(n(run(&mut g, "GetUIFloat", &[s(&format!("StartMenu/MCM/Options/Option{k}/_enable"))])), 0.0);
+    }
+    run(&mut g, "SetMCMStringMass", &[XVal::Num(1.0), XVal::Num(1.0), XVal::Num(36.0), s("value/text/string"), s("")]);
+    assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/Options/Option1/value/text/string")]), s(""));
+    // SetMCMModList and GetMCMListWidth find their rows by position in MCM's own layout
+    // (MCM_ModList is MCM's 5th child; menu-xml.md 10.2, observed): tests/ui_mcm.rs.
 }
 
 // ---- the pointer on tiles (task T8, fnv_game::ui_input, fnv_ui::input) --------------
@@ -509,6 +542,31 @@ fn a_huge_click_count_is_capped() {
     // Under the cap the count is kept.
     assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(5.0)])), 1.0);
     assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), 5);
+}
+
+/// A script that sets a HUD text's string and reads a size made from it reads the new
+/// size, measured then by the engine's measure (`ui_hud::size_texts`): JAM's loot menu
+/// sets its rows and sizes its box from their widths in one go.
+#[test]
+fn a_text_set_and_read_in_one_go_is_measured_then() {
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus/hud_main_menu.xml",
+        r#"<menu name="HUDMainMenu"> <rect name="Row"> <_TextWidth> <copy src="child(Name)" trait="width"/> <add> 4 </add> </_TextWidth>
+           <string> Old </string>
+           <text name="Name"> <string> <copy src="parent()" trait="string"/> </string> <font> 1 </font> </text> </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&src, "menus/hud_main_menu.xml").unwrap();
+    g.ui_tree.update();
+    let name = g.ui_tree.find_tile("HUDMainMenu/Row/Name").unwrap();
+    // Ten per letter, twenty high a line.
+    let size: fnv_game::ui_hud::TextSize = std::sync::Arc::new(|_, text: &str, _| (text.len() as f64 * 10.0, 20.0));
+    g.ui_sizer = Some(fnv_game::ui_hud::TextSizer::new(size, vec![name]));
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMainMenu/Row/_TextWidth")])), 34.0);
+    run(&mut g, "SetUIStringEx", &[s("HUDMainMenu/Row/string"), s("A much longer name")]);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMainMenu/Row/_TextWidth")])), 184.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMainMenu/Row/Name/height")])), 20.0);
 }
 
 #[test]

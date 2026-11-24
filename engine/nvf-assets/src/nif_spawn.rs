@@ -132,6 +132,9 @@ pub(crate) struct Props {
     /// ([`game_height_slot`], #2979).
     parallax: bool,
     glossiness: Option<f32>,
+    /// NiMaterialProperty `specular_color` [documented: nif.xml]. Read for hair-shader
+    /// shapes only ([`hair_specular`]).
+    specular_color: Option<[f32; 3]>,
     /// BSShaderFlags bit 0 "Specular" of the shader property [documented: nif.xml].
     specular: bool,
     /// BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml]: vertex colour alpha is
@@ -167,6 +170,9 @@ pub(crate) struct Props {
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
+    /// BSShaderFlags2 bit 0 "ZBuffer_Write" [documented: nif.xml]: a lit blended shape
+    /// with it writes depth ([`BLEND_DEPTH_CUT`]).
+    zbuffer_write: bool,
     /// A sequence of the model drives the shape's emissive colour or multiplier
     /// (`crate::material_anim`): its glow map is loaded even when the stored colour is
     /// black, as the radios' dials store black and light up by their "Open" sequence
@@ -294,6 +300,30 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
         return None;
     }
     textures.get(2).filter(|t| !t.is_empty()).cloned()
+}
+
+/// A lit shape's emitted light comes from its glow map alone, not times its diffuse
+/// texture: it has a glow map in slot 2 ([`glow_map`]) that is not a normal map (`_n`)
+/// [hypothesis, docs/spec-notes/nif.md §6 "Glow maps emit on their own"]. Long 15's
+/// Baker thermometer (`bakerthermometer.nif` `BakerThermo_Lo`, white × 3, and
+/// `Numbers_Lo`, white × 10) paints red neon tubes and yellow numbers into
+/// `bakerthermo_g.dds` over a diffuse that is 45/255 and 13/255 there [observed]; in the
+/// original at night both burn bright (owner's frame, 2026-11-12), where times the
+/// diffuse they were dark. The Prospector Saloon's string lights, whose slot 2 is their
+/// normal map, keep the diffuse product their pastel bulbs need.
+pub(crate) fn glow_emits_alone(props: &Props) -> bool {
+    !props.unlit && props.glow.as_deref().is_some_and(|g| !g.to_ascii_lowercase().ends_with("_n.dds"))
+}
+
+/// Whether a shape's glow map is loaded: it emits light (`emissive`), a material track
+/// animates its emissive colour, or it is a lit External_Emittance shape (BSShaderFlags
+/// bit 29). The last one's emitted light can come from the reference's XEMI source alone:
+/// Long 15's Mad Roman sign (`AdvertFallen1.nif` shape `AD`, emissive black,
+/// `L15PostersRoman_gl.dds` through its TXST) glows in the source's colour
+/// (`nvforever` emittance.rs) [hypothesis]. Without XEMI its emissive stays black and the
+/// map adds nothing.
+pub(crate) fn loads_glow(props: &Props, emissive: bool) -> bool {
+    emissive || props.animated_emissive || (props.external_emittance && !props.unlit)
 }
 
 /// Whether a BSShaderPPLightingProperty's flags ask for parallax: BSShaderFlags bit 11
@@ -456,6 +486,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
         p.fire_period = fire_period(flags, s.int("refraction_fire_period"));
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
+        p.zbuffer_write = s.int("shader_flags_2").unwrap_or(0) & 1 != 0;
         p.falloff = None;
         p.parallax = false;
         let lit = dec.is_a(r as usize, "BSShaderPPLightingProperty");
@@ -499,6 +530,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
             p.emissive = s.floats("emissive_color").and_then(|e| e.try_into().ok());
             p.emissive_mult = s.float("emissive_mult");
             p.glossiness = s.float("glossiness");
+            p.specular_color = s.floats("specular_color").and_then(|c| c.try_into().ok());
         }
         "NiStencilProperty" => {
             // 20.1.0.3+: draw mode in flags bits 10-11; older files: draw_mode field.
@@ -697,8 +729,27 @@ pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_blo
             }
         }
     }
+    if untextured_blend(&props) {
+        props.vertex_alpha = true;
+    }
     props.vertex_faded = props.vertex_faded && props.unlit && props.alpha.is_none() && vertex_alpha_below_one(dec, o.block);
     props
+}
+
+/// Whether a shape is an unlit (BSShaderNoLightingProperty) shape that names no texture
+/// and blends: it takes its vertex alpha although its shader sets neither vertex-alpha
+/// flag ([`uses_vertex_alpha`]). With no texture the vertex alpha is the only alpha such a
+/// shape has, and the blend would otherwise change nothing [hypothesis]. In `Fallout -
+/// Meshes.bsa` 154 visible shapes are of this kind with some vertex alpha below 1, and
+/// 526 with all of it 1, which this leaves as they were [observed:
+/// `crates/fnv-nif/examples/untextured_blend_survey.rs`]. They are soft black contact
+/// shadows: the quad under the casino tables (`clutter\casino\cardtable01.nif`, shape
+/// `CardTable01:1`, alpha flags 0x10ED, shader flags 0x8200_0000, black vertices of alpha
+/// 0.7 inside and 0 at the edges), the Ultra-Luxe's tables, desks and bars. Drawn with
+/// alpha 1 they were hard black mats bigger than the tables (owner, 2026-11-07, overnight
+/// queue item 76).
+pub(crate) fn untextured_blend(p: &Props) -> bool {
+    p.unlit && !p.vertex_alpha && p.alpha.is_some_and(|(flags, _)| flags & 1 != 0) && p.textures.iter().all(|t| t.is_empty())
 }
 
 /// Perceptual roughness for a NiMaterialProperty glossiness, read as a Blinn-Phong
@@ -766,8 +817,8 @@ pub fn display_to_linear(v: f32) -> f32 {
 /// reflectance × a × 0.5, so 2.0 lets the mask span the full [0, 1] range: a mask of
 /// 0.5 gives the usual dielectric F0 of 0.04 [hypothesis]. Shaders without the specular
 /// flag get none; shapes without a normal map keep the earlier constant. Hair-shader
-/// shapes (hair, brows, beards) get none either [hypothesis, nif.md §6 "Hair": read as a
-/// plain mask their normal-map alpha gave glinting white strands the game does not show].
+/// shapes (hair, brows, beards) get it only where their material's specular colour is
+/// not black ([`hair_specular`]), and none without a normal map.
 ///
 /// A normal map without an alpha channel (DXT1: `unmasked`) holds no mask; read as one,
 /// its alpha of 1 is the strongest mask there is, seven times the median authored one,
@@ -775,7 +826,7 @@ pub fn display_to_linear(v: f32) -> f32 {
 /// shine like wet paint (owner's playtest, 2026-10-11). Such a shape gets
 /// [`UNMASKED_SPECULAR`] instead [hypothesis, nif.md §6 "Specular"].
 pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (f32, bool) {
-    if props.hair {
+    if props.hair && (hair_specular(props).is_none() || !has_normal_map) {
         return (0.0, false);
     }
     match (has_normal_map, props.specular) {
@@ -784,6 +835,26 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
         (true, false) => (0.0, false),
         (false, _) => (0.3, false),
     }
+}
+
+/// The specular colour of a hair-shader shape (hair, brows, beards), or `None` for one
+/// whose material asks for none: black, or no NiMaterialProperty.
+///
+/// Every hair-shader shape of the game's hair and head parts has specular colour
+/// (0, 0, 0) with the Specular flag set (154 shapes in 134 files of `Fallout -
+/// Meshes.bsa` under `characters\hair\` and `characters\head\`), and every one of
+/// Character Kit Remake's has a light one: (0.9, 0.9, 0.9) on 121 of 136, with
+/// glossiness 10 to 60 [observed, survey 2026-11-16]. Their normal maps' alpha is high
+/// on the strands either way (`hairbun_n.dds` mean 95 of 255, CKR `seductress_n.dds`
+/// mean 91 where the strands are drawn). The original's matte vanilla hair (nif.md §6
+/// "Hair": the owner's frame of Sunny Smiles) is what a black specular colour gives;
+/// read through it, the glinting white strands are gone without dropping the sheen the
+/// remake's hair is made with [hypothesis: the game multiplies the specular term by the
+/// material's specular colour; the colour as display values]. Before 2026-11-16 every
+/// hair-shader shape had no specular, and CKR's hair drew as flat dark cards.
+pub(crate) fn hair_specular(props: &Props) -> Option<Color> {
+    let c = props.specular_color?;
+    (props.specular && c.iter().any(|&v| v > 0.0)).then(|| Color::srgb(c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0)))
 }
 
 /// The reflectance of a shape whose normal map has no alpha channel: the median mask of
@@ -938,6 +1009,13 @@ pub(crate) trait TextureSource {
     /// (`texture::WorkerTextures::alpha_is_mask`): asked only for the shapes
     /// [`blended_cutout`] concerns.
     fn alpha_is_mask(&self, raw_path: &str) -> bool;
+    /// How the alpha of the texture at a NIF texture path is spread (`texture::AlphaShares`:
+    /// whether it is a cut-out mask, whether it has opaque texels), read from the archives
+    /// again: asked only for the few blended cut-outs [`solid_cutout`] concerns.
+    /// Test doubles that do not care answer `None` (no solid cut-out).
+    fn alpha_shares(&self, _raw_path: &str) -> Option<crate::texture::AlphaShares> {
+        None
+    }
     /// Whether every texel of the texture at a NIF texture path is opaque
     /// (`texture::alpha_all_opaque`), read from the archives once per file: asked only
     /// for the shapes [`blend_is_opaque`] concerns.
@@ -977,6 +1055,10 @@ impl TextureSource for StoreTextures<'_> {
 
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
         self.images.get(h).is_some_and(lacks_alpha)
+    }
+
+    fn alpha_shares(&self, raw_path: &str) -> Option<crate::texture::AlphaShares> {
+        crate::texture::texture_alpha_shares(raw_path, self.data)
     }
 
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
@@ -1177,6 +1259,13 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     } else {
         alpha_mode
     };
+    // A blended cut-out that writes depth and tests alpha is drawn as a solid cut-out at
+    // its own test threshold (`solid_cutout`, owner's queue item 107).
+    let shares = || props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.alpha_shares(t));
+    let alpha_mode = match solid_cutout(props, blended_cutout(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_mask(t))), shares) {
+        Some(test) => AlphaMode::Mask(test),
+        None => alpha_mode,
+    };
     // The environment map: the cube, the mask and how the mask is read
     // (docs/spec-notes/nif.md §6 "Window glass and environment maps", "Environment maps
     // on other shapes"; the debug switches in env_map.rs). A blended window shape that
@@ -1249,7 +1338,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
     // exposure (Bevy's default emissive_exposure_weight 0).
     let emissive = shape_emissive(props, alpha_mode);
-    let glow = (emissive.is_some() || props.animated_emissive)
+    let glow = loads_glow(props, emissive.is_some())
         .then_some(props.glow.as_deref())
         .flatten()
         .and_then(|t| textures.texture(t, true));
@@ -1265,6 +1354,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         perceptual_roughness: gloss_roughness(gloss),
         metallic: 0.0,
         reflectance,
+        specular_tint: if props.hair { hair_specular(props).unwrap_or(Color::BLACK) } else { Color::WHITE },
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
         emissive_texture: glow,
         alpha_mode,
@@ -1282,14 +1372,23 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     if props.hair && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
         material.extension.alpha_cut = HAIR_DEPTH_CUT;
         material.extension.depth_write = true;
+    } else if !props.unlit && props.zbuffer_write && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
+        material.extension.alpha_cut = blended_test_cut(props).unwrap_or(0.0).max(BLEND_DEPTH_CUT);
+        material.extension.depth_write = true;
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
+    material.extension.add_linear = adds_light(props, alpha_mode);
     if let Some((e, cube, mask, mode)) = env {
         (material.extension.env, material.extension.env_how) = crate::env_map::env_uniforms(&e, mode, aids);
         material.extension.env_cube = Some(cube);
         material.extension.env_mask = mask;
     }
     material.extension.emissive_rule = shape_emissive_rule(props, alpha_mode);
+    // soft.z: the loaded glow map alone gives the emitted light (`glow_emits_alone`; the
+    // emissive rule's w lane is the authored-set mark, `crate::authored::AUTHORED_MARK`).
+    if material.base.emissive_texture.is_some() && glow_emits_alone(props) {
+        material.extension.soft.z = 1.0;
+    }
     if props.unlit {
         unlit_vertex_colors(&mut material);
     }
@@ -1351,7 +1450,78 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         }
         material.extension.legacy = Some(legacy);
     }
+    shape_aids(props, &mut material);
     (material, missing)
+}
+
+/// A lit additive shape adds its lit colour as linear light, not by the display-value sum
+/// of unlit additive shapes (`nif_material::add_display`): that sum takes an emitted colour
+/// for a display colour, and Bevy's lighting of a lit shape is light. Summed in display
+/// values, the Think Tank screens' glass (`nvdlc03_brainbot_eyel_lg.nif` and the other
+/// screens, `MonitorL_ScreenGlass:0`: lit, ONE / ONE, a texture of 13/255) added about
+/// 0.018 of linear light as 41 grey levels over the eye picture and washed it white; with
+/// the glass left out the eyes are clear, as the original shows them [observed, item 207
+/// frames, 2026-11-15; hypothesis: the rule; docs/spec-notes/nif.md §6 "Lit additive
+/// shapes"].
+pub(crate) fn adds_light(props: &Props, alpha_mode: AlphaMode) -> bool {
+    !props.unlit && matches!(alpha_mode, AlphaMode::Add)
+}
+
+/// A shape's base texture path matches one of `parts` (any case, `/` or `\`).
+fn texture_matches(props: &Props, parts: &[String]) -> bool {
+    let Some(t) = props.textures.first().filter(|t| !t.is_empty()) else { return false };
+    let t = t.replace('/', "\\").to_ascii_lowercase();
+    parts.iter().any(|p| t.contains(p.as_str()))
+}
+
+fn parse_parts(v: &str) -> Vec<String> {
+    v.split(';').map(|p| p.trim().replace('/', "\\").to_ascii_lowercase()).filter(|p| !p.is_empty()).collect()
+}
+
+/// Test aids for looking at one model's layers: `NVF_PLAY_TEST_HIDE_TEXTURES="<part>;…"`
+/// draws nothing of a shape whose base texture path contains a part (any case), and
+/// `NVF_PLAY_TEST_LOG_TEXTURES="<part>;…"` logs the material such a shape is drawn with,
+/// and `NVF_PLAY_TEST_NO_SPECULAR_TEXTURES="<part>;…"` draws such a shape without
+/// specular (reflectance 0, no mask). Nothing changes without them.
+fn shape_aids(props: &Props, material: &mut NifMaterial) {
+    static AIDS: std::sync::OnceLock<(Vec<String>, Vec<String>, Vec<String>)> = std::sync::OnceLock::new();
+    let (hide, log, no_specular) = AIDS.get_or_init(|| {
+        let read = |k: &str| std::env::var(k).map(|v| parse_parts(&v)).unwrap_or_default();
+        (read("NVF_PLAY_TEST_HIDE_TEXTURES"), read("NVF_PLAY_TEST_LOG_TEXTURES"), read("NVF_PLAY_TEST_NO_SPECULAR_TEXTURES"))
+    });
+    if !no_specular.is_empty() && texture_matches(props, no_specular) {
+        info!("test aid: no specular on the shape with textures {:?}", props.textures);
+        material.base.reflectance = 0.0;
+        material.base.specular_texture = None;
+    }
+    if !log.is_empty() && texture_matches(props, log) {
+        let b = &material.base;
+        info!(
+            "test aid: material of {:?}: unlit {}, alpha {:?} (flags {:?}), emissive {:?} x {:?} -> {:?}, glow {}, specular flag {}, gloss {:?} -> roughness {:.3}, reflectance {:?}, mask {}, normal map {}, add_whole {}, emissive_rule {:?}",
+            props.textures,
+            b.unlit,
+            b.alpha_mode,
+            props.alpha,
+            props.emissive,
+            props.emissive_mult,
+            b.emissive,
+            b.emissive_texture.is_some(),
+            props.specular,
+            props.glossiness,
+            b.perceptual_roughness,
+            b.reflectance,
+            b.specular_texture.is_some(),
+            b.normal_map_texture.is_some(),
+            material.extension.add_whole,
+            material.extension.emissive_rule,
+        );
+    }
+    if !hide.is_empty() && texture_matches(props, hide) {
+        info!("test aid: hiding the shape with textures {:?}", props.textures);
+        material.base.base_color = Color::NONE;
+        material.base.emissive = LinearRgba::BLACK;
+        material.base.alpha_mode = AlphaMode::Mask(2.0);
+    }
 }
 
 /// The alpha from which a blended hair-shader shape (hair, beards, brows) writes depth;
@@ -1359,6 +1529,73 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
 /// [engineering choice: high enough that the faint fringe of a strand leaves no outline
 /// in the smoke or flames behind it, low enough that the strands keep their soft ends].
 pub const HAIR_DEPTH_CUT: f32 = 0.25;
+
+/// The alpha from which a lit blended shape whose shader sets ZBuffer_Write (BSShaderFlags2
+/// bit 0) writes depth; fragments below it, which add nothing to the picture, are dropped
+/// (docs/spec-notes/nif.md §6 "Depth of lit blended shapes"). The flag is set on 1,254 of
+/// the 1,331 visible lit blended shapes of `Fallout - Meshes.bsa` and `Update.bsa`, glass
+/// and windows among them [observed: `crates/fnv-nif/examples/zwrite_survey.rs`]. Without
+/// depth, a blended shape is covered by every blended or additive shape drawn after it
+/// wherever only what lies behind it held depth: Heart of the Mojave's magazine vending
+/// machines (vanilla `vendmachmag.nif`, NiAlphaProperty 0x10ED, texture alpha about
+/// 253/255) showed the glows and haze behind them through their body, pink and ghostly
+/// from a few metres (playtest 2026-11-04) [engineering choice: the cut only keeps
+/// fully clear texels out of the depth buffer].
+pub const BLEND_DEPTH_CUT: f32 = 1.0 / 255.0;
+
+/// The cut of a blended cut-out ([`blended_cutout`], `cutout`) that writes depth (its
+/// shader sets ZBuffer_Write) and tests alpha ([`blended_test_cut`]): such a shape is
+/// drawn as a solid cut-out at its own test threshold, in place of the blend [design,
+/// owner's queue item 107: "solid and crisp from every angle"]. Blended and writing depth,
+/// one mesh of crossing twigs hides its own far twigs wherever a near one was drawn first,
+/// and the sky shows through; a cut-out has no order. The texture is a mask, so the blend
+/// and the cut differ only on the mask's edge texels. At the test threshold (not
+/// [`BLENDED_CUTOUT_CUT`]) the outline is the one the test keeps, and it holds over the
+/// mip levels: the tumbleweed's texels above 50 are 13% of its top level and 19-22% of
+/// levels 2-4, those above 128 fall from 9% to 2% [observed: `TumbleweedNV.dds`, DXT3].
+/// Of the 68 lit depth-writing shapes the survey of [`blended_test_cut`] found, 38 have a
+/// mask with opaque texels and are drawn so: the tumbleweed (84% clear, 3.1% opaque, 12.9%
+/// between), the pinto and jalapeño plants, NCR money, the Sierra Madre posters, the
+/// `ncrcfsign01-06` signs, the quarry's lattices, the Hoover Dam map, Caesar's throne, the
+/// NCR guard tower's LOD and two building decals [observed: the textures' top levels]. The glass shards' mask has
+/// no opaque texel ([`SOLID_MIN_OPAQUE`]) and stays blended, as do the decals, glasses,
+/// hair and signs whose alpha is soft.
+pub(crate) fn solid_cutout(props: &Props, cutout: Option<f32>, shares: impl FnOnce() -> Option<crate::texture::AlphaShares>) -> Option<f32> {
+    cutout?;
+    if !props.zbuffer_write || props.unlit {
+        return None;
+    }
+    let test = blended_test_cut(props)?;
+    shares().is_some_and(|s| s.opaque >= SOLID_MIN_OPAQUE).then_some(test)
+}
+
+/// Least opaque share of a mask drawn as a solid cut-out ([`solid_cutout`]) [engineering
+/// choice: the glass shards' mask has no opaque texel (88% clear, 12% between) and is
+/// glass, translucent all over; the tumbleweed's is 3.1% opaque].
+pub const SOLID_MIN_OPAQUE: f32 = 0.01;
+
+/// The alpha test of a shape drawn blended although its NiAlphaProperty also tests alpha
+/// ([`alpha_mode`]: blend SRC_ALPHA / INV_SRC_ALPHA, test on, threshold 1 to
+/// [`BLEND_TEST_CUT`] − 1), when its alpha is its texture's (no vertex alpha): the cutoff
+/// below which its fragments are dropped, as the test drops them [documented: nif.xml
+/// AlphaFlags, bit 9 "alpha test enable", bits 10-12 the test function; GREATER keeps
+/// alpha above the threshold, as in [`alpha_mode`]]. Used for the lit blended shapes that
+/// write depth ([`BLEND_DEPTH_CUT`] otherwise): their faint texels, which the test keeps
+/// out of the picture, wrote depth and hid what lay behind them. The tumbleweed
+/// (`clutter\tumbleweednv.nif`, flags 0x12ED, threshold 50, a DXT3 texture whose twigs fade
+/// out over alpha 1-50 into 84% clear texels) showed the sky through its own twigs and dark
+/// specks around them (owner's queue item 107, 2026-11-08). Survey
+/// (`crates/fnv-nif/examples/blend_test_lit_survey.rs`, `Fallout - Meshes.bsa` and
+/// `Update.bsa`): 70 visible lit shapes test with a threshold of 16-63, 68 of them writing
+/// depth: the tumbleweed, the garden plants (pinto, jalapeño), posters, signs, decals,
+/// glass shards, glasses, Mr. House's beard (docs/spec-notes/nif.md §6 "Alpha").
+pub(crate) fn blended_test_cut(props: &Props) -> Option<f32> {
+    let (flags, threshold) = props.alpha?;
+    let source_over = flags & 1 != 0 && (flags >> 1) & 0xF == 6 && (flags >> 5) & 0xF == 7;
+    let tested = flags & 0x200 != 0 && (1..BLEND_TEST_CUT).contains(&threshold);
+    let strict = (flags >> 10) & 7 == 4;
+    (source_over && tested && !props.vertex_alpha).then(|| (threshold as f32 + if strict { 0.5 } else { 0.0 }) / 255.0)
+}
 
 /// The alpha from which a hair model's shapes (the HAIR record's model) are drawn solid:
 /// a cut-out at it ([`hair_model_cut_out`]) holds the hair's depth and shadow, and the
@@ -1697,6 +1934,42 @@ mod tests {
     use super::*;
 
     struct NoTextures;
+    #[test]
+    fn a_lit_external_emittance_shape_loads_its_glow_map_with_a_black_emissive_colour() {
+        let sign = Props { external_emittance: true, emissive: Some([0.0; 3]), glow: Some("l15postersroman_gl.dds".into()), ..Default::default() };
+        assert!(shape_emissive(&sign, AlphaMode::Opaque).is_none());
+        assert!(loads_glow(&sign, false));
+        assert!(!loads_glow(&Props { external_emittance: false, ..sign.clone() }, false));
+        assert!(!loads_glow(&Props { unlit: true, ..sign }, false));
+    }
+
+    #[test]
+    fn a_lit_additive_shape_adds_linear_light_and_an_unlit_one_the_display_sum() {
+        // The Think Tank screens' glass: lit, ONE / ONE (0x1001).
+        let glass = Props { alpha: Some((0x1001, 0)), specular: true, glossiness: Some(200.0), shader: true, has_properties: true, textures: vec!["NVDLC03_BrainBotScrn.dds".into()], ..Default::default() };
+        let (m, _) = shape_material_with(&glass, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Add);
+        assert!(m.extension.add_linear);
+        // The static over it: unlit, ONE / ONE, keeps the display-value sum.
+        let (m, _) = shape_material_with(&Props { unlit: true, emissive: Some([0.568; 3]), emissive_mult: Some(5.0), ..glass.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Add);
+        assert!(!m.extension.add_linear);
+        // A lit blended shape is not additive.
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x10ED, 0)), ..glass }, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert!(!m.extension.add_linear);
+    }
+
+    #[test]
+    fn the_layer_aids_match_a_shape_by_its_base_texture() {
+        let parts = parse_parts(" WhiteNoise01 ; ;textures/nvdlc03/creatures/brainbot/NVDLC03_BrainBotScrn");
+        assert_eq!(parts.len(), 2);
+        let tex = |t: &str| Props { textures: vec![t.into()], ..Default::default() };
+        assert!(texture_matches(&tex("textures\\clutter\\whitenoise01.dds"), &parts));
+        assert!(texture_matches(&tex("textures\\nvdlc03\\creatures\\brainbot\\NVDLC03_BrainBotScrn.dds"), &parts));
+        assert!(!texture_matches(&tex("textures\\nvdlc03\\creatures\\brainbot\\NVDLC03_BrainBot_ScanLine.dds"), &parts));
+        assert!(!texture_matches(&Props::default(), &parts));
+    }
+
     impl TextureSource for NoTextures {
         fn texture(&mut self, _: &str, _: bool) -> Option<Handle<Image>> {
             None
@@ -1706,6 +1979,9 @@ mod tests {
         }
         fn alpha_is_mask(&self, _: &str) -> bool {
             false
+        }
+        fn alpha_shares(&self, _: &str) -> Option<crate::texture::AlphaShares> {
+            None
         }
         fn alpha_is_opaque(&self, _: &str) -> bool {
             false
@@ -1721,7 +1997,9 @@ mod tests {
         }
     }
 
-    /// Textures whose alpha is a cut-out mask when their path says "mask".
+    /// Textures whose alpha is a cut-out mask when their path says "mask" (a plant's: 40%
+    /// clear, 56% opaque), or one with no opaque texel when it says "shards" (the glass
+    /// shards': 88% clear, 12% between) [observed shares, item 107].
     struct MaskTextures;
     impl TextureSource for MaskTextures {
         fn texture(&mut self, _: &str, _: bool) -> Option<Handle<Image>> {
@@ -1731,7 +2009,17 @@ mod tests {
             false
         }
         fn alpha_is_mask(&self, raw_path: &str) -> bool {
-            raw_path.contains("mask")
+            self.alpha_shares(raw_path).is_some_and(|s| s.is_mask())
+        }
+        fn alpha_shares(&self, raw_path: &str) -> Option<crate::texture::AlphaShares> {
+            use crate::texture::AlphaShares;
+            if raw_path.contains("mask") {
+                Some(AlphaShares { clear: 0.40, opaque: 0.56, partial: 0.04 })
+            } else if raw_path.contains("shards") {
+                Some(AlphaShares { clear: 0.88, opaque: 0.0, partial: 0.12 })
+            } else {
+                Some(AlphaShares { clear: 0.0, opaque: 0.2, partial: 0.8 })
+            }
         }
         fn alpha_is_opaque(&self, raw_path: &str) -> bool {
             raw_path.contains("solid")
@@ -1880,10 +2168,71 @@ mod tests {
         assert!(m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, HAIR_DEPTH_CUT);
         assert!(crate::nif_material::see_through(&m), "hair still casts no shadow");
-        // Other blended shapes (smoke, glass) write none and drop nothing.
+        // Other blended shapes (smoke, glass) without ZBuffer_Write write none and drop
+        // nothing.
         let (m, _) = shape_material_with(&Props { hair: false, ..hair }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 0.0);
+    }
+
+    /// `vendmachmag.nif`'s shapes: lit, blended with no test (flags 4333), ZBuffer_Write
+    /// set [observed]. They write depth; an unlit blended shape with the flag (a glow, a
+    /// dust sheet) still writes none.
+    #[test]
+    fn lit_blended_shapes_with_zbuffer_write_write_depth() {
+        let vend = Props { alpha: Some((4333, 0)), zbuffer_write: true, ..Default::default() };
+        let (m, _) = shape_material_with(&vend, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
+        assert!(m.extension.depth_write);
+        assert_eq!(m.extension.alpha_cut, BLEND_DEPTH_CUT);
+        assert!(crate::nif_material::see_through(&m), "glass still casts no shadow");
+        let (m, _) = shape_material_with(&Props { unlit: true, ..vend.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert!(!m.extension.depth_write);
+        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..vend }, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert!(!m.extension.depth_write);
+    }
+
+    /// The tumbleweed (`clutter\tumbleweednv.nif`): lit, blended and tested (0x12ED,
+    /// TEST_GREATER), threshold 50, ZBuffer_Write [observed]. Its fragments at or below the
+    /// threshold are dropped, so they write no depth over the twigs behind them (item 107).
+    /// A threshold of 0, vertex alpha, or a shape writing no depth keep what they had.
+    #[test]
+    fn blended_shapes_that_test_drop_what_the_test_drops() {
+        let weed = Props { alpha: Some((0x12ED, 50)), zbuffer_write: true, ..Default::default() };
+        assert_eq!(blended_test_cut(&weed), Some(50.5 / 255.0));
+        let (m, _) = shape_material_with(&weed, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
+        assert!(m.extension.depth_write);
+        assert_eq!(m.extension.alpha_cut, 50.5 / 255.0);
+        assert!(crate::nif_material::see_through(&m), "casts no shadow, as before");
+        // The marquee glass: threshold 0, nothing to drop beyond the depth cut.
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x12ED, 0)), ..weed.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert_eq!(m.extension.alpha_cut, BLEND_DEPTH_CUT);
+        assert_eq!(blended_test_cut(&Props { vertex_alpha: true, ..weed.clone() }), None);
+        assert_eq!(blended_test_cut(&Props { alpha: Some((0x10ED, 50)), ..weed.clone() }), None, "no test");
+        assert_eq!(blended_test_cut(&Props { alpha: Some((0x12ED, 64)), ..weed.clone() }), None, "alpha-tested from 64");
+        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..weed.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
+        assert_eq!(m.extension.alpha_cut, 0.0, "no depth written: as before");
+        // Its texture is a mask with opaque texels: a solid cut-out at the test threshold,
+        // casting a shadow, with nothing for FSR to switch.
+        let masked = Props { textures: vec![r"trees\leaves\tumbleweed_mask.dds".into()], ..weed.clone() };
+        let (m, _) = shape_material_with(&masked, &mut triangle(), &mut MaskTextures, Tangents::Generate);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Mask(50.5 / 255.0));
+        assert!(!m.extension.depth_write);
+        assert_eq!(m.extension.alpha_cut, 0.0);
+        assert_eq!(m.extension.blended_cutout, None);
+        assert!(!crate::nif_material::see_through(&m), "a cut-out casts a shadow");
+        // Glass shards (no opaque texel), soft alpha, no depth writes, or a threshold of 0
+        // (the corn): blended as before.
+        for (props, why) in [
+            (Props { textures: vec![r"clutter\glassshards.dds".into()], ..weed.clone() }, "glass"),
+            (Props { textures: vec![r"decals\grime.dds".into()], ..weed.clone() }, "soft alpha"),
+            (Props { zbuffer_write: false, ..masked.clone() }, "no depth written"),
+            (Props { alpha: Some((0x12ED, 0)), ..masked.clone() }, "threshold 0"),
+        ] {
+            let (m, _) = shape_material_with(&props, &mut triangle(), &mut MaskTextures, Tangents::Generate);
+            assert_eq!(m.base.alpha_mode, AlphaMode::Blend, "{why}");
+        }
     }
 
     /// A hair model's blended shape becomes a solid cut-out (#1454) with a blended layer
@@ -2838,6 +3187,22 @@ mod tests {
     }
 
     #[test]
+    fn glow_maps_emit_on_their_own() {
+        // Long 15's Baker thermometer: lit, emissive white × 3, `bakerthermo_g.dds` in
+        // slot 2 (shader flags 0x82000081): the glow map alone gives its light.
+        let tex = |s: &[&str]| s.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        let set = tex(&["BakerThermo_d.dds", "BakerThermo_n.dds", "BakerThermo_g.dds", "environment05.dds", "BakerThermo_m.dds", ""]);
+        let thermometer = Props { glow: glow_map(0x8200_0081, &set), emissive: Some([1.0; 3]), emissive_mult: Some(3.0), shader: true, has_properties: true, ..Default::default() };
+        assert!(glow_emits_alone(&thermometer));
+        // The Prospector's string lights carry their normal map in slot 2: times the diffuse.
+        let lights = tex(&["NVQueenPalmLights.dds", "NVQueenPalmLights_n.dds", "NVQueenPalmLights_N.dds"]);
+        assert!(!glow_emits_alone(&Props { glow: glow_map(0x8200_0101, &lights), ..thermometer.clone() }));
+        // No glow map, or an unlit shape: as before.
+        assert!(!glow_emits_alone(&Props { glow: None, ..thermometer.clone() }));
+        assert!(!glow_emits_alone(&Props { unlit: true, ..thermometer }));
+    }
+
+    #[test]
     fn glow_map_slot() {
         let set: Vec<String> = ["d.dds", "d_n.dds", "d_g.dds", "", "", ""].iter().map(|s| s.to_string()).collect();
         assert_eq!(glow_map(0x8200_0101, &set).as_deref(), Some("d_g.dds"));
@@ -2861,6 +3226,19 @@ mod tests {
         };
         assert_eq!(get(&mesh), vec![[0.5, 1.0, 1.0, 1.0], [0.2, 0.3, 0.4, 1.0]]);
         assert_eq!(get(&flagged), vec![[0.5, 1.0, 1.0, 0.0], [0.2, 0.3, 0.4, 0.25]]);
+    }
+
+    #[test]
+    fn untextured_blended_unlit_shapes_take_their_vertex_alpha() {
+        // The casino tables' shadow quads: no texture, blended, no vertex-alpha flag.
+        let shadow = Props { unlit: true, alpha: Some((0x10ED, 0)), textures: vec![String::new()], ..Default::default() };
+        assert!(untextured_blend(&shadow));
+        // Textured, not blended, lit, or already flagged: unchanged.
+        assert!(!untextured_blend(&Props { textures: vec!["a.dds".into()], ..shadow.clone() }));
+        assert!(!untextured_blend(&Props { alpha: Some((0x10EC, 0)), ..shadow.clone() }));
+        assert!(!untextured_blend(&Props { alpha: None, ..shadow.clone() }));
+        assert!(!untextured_blend(&Props { unlit: false, ..shadow.clone() }));
+        assert!(!untextured_blend(&Props { vertex_alpha: true, ..shadow }));
     }
 
     #[test]
@@ -2907,8 +3285,18 @@ mod tests {
         assert_eq!(specular(&flagged, true, true), (UNMASKED_SPECULAR, false));
         assert_eq!(specular(&Props::default(), true, false), (0.0, false));
         assert_eq!(specular(&flagged, false, false), (0.3, false));
+        // Hair: none with the game's black specular colour (or no material), the masked
+        // specular tinted by a light one (Character Kit Remake), none without a normal map.
         let hair = Props { specular: true, hair: true, ..Default::default() };
         assert_eq!((specular(&hair, true, false), specular(&hair, false, false)), ((0.0, false), (0.0, false)));
+        let vanilla = Props { specular_color: Some([0.0; 3]), ..hair.clone() };
+        assert_eq!(specular(&vanilla, true, false), (0.0, false));
+        assert!(hair_specular(&vanilla).is_none());
+        let ckr = Props { specular_color: Some([0.9; 3]), ..hair.clone() };
+        assert_eq!(specular(&ckr, true, false), (2.0, true));
+        assert_eq!(specular(&ckr, false, false), (0.0, false));
+        assert_eq!(hair_specular(&ckr), Some(Color::srgb(0.9, 0.9, 0.9)));
+        assert!(hair_specular(&Props { specular: false, ..ckr.clone() }).is_none());
         // Phong exponent → roughness: 0 is fully rough, higher is smoother.
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);

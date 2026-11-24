@@ -186,6 +186,13 @@ pub struct Loading {
     /// #1208). Set by the door's activation and the fast travel; taken by the residents
     /// when the `Travel` goes out.
     pub arriving: bool,
+    /// The next travel is a script moving the player (MoveTo): the player arrives looking
+    /// level along the marker's heading (`fnv_game::functions::refs::move_ref`), so a
+    /// scene's marker frames what it faces (Honest Hearts' slideshow screen, playtest
+    /// list 7 item 116) [hypothesis: the original's camera stays on the screen, the owner
+    /// 2026-11-09; the marker's X angle is 0]. Set by `crate::script`, taken by the
+    /// travel (`crate::phys`). A door keeps the pitch.
+    pub level_view: bool,
     /// Pipelines the view still needs are compiling. Set by the renderer every frame
     /// (nvforever `loading_gate`, `pipeline_gate`); stays false without one.
     pub pipelines_busy: bool,

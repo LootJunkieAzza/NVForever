@@ -205,6 +205,18 @@ impl Follower {
         (hdist(feet, *leg.points.last()?) <= reach).then_some(d.door)
     }
 
+    /// The load door that ends the current leg (one into another space), when the actor at
+    /// `feet` is within `reach` (horizontal units) of the leg's end and no door that opens
+    /// in place stands before it on the leg. Doors that open in place are not counted.
+    pub fn load_door_ahead(&self, feet: [f32; 3], reach: f32) -> Option<u32> {
+        let leg = self.path.legs.get(self.leg)?;
+        if self.stop < leg.door_stops.len() {
+            return None;
+        }
+        let d = leg.door?;
+        (hdist(feet, *leg.points.last()?) <= reach).then_some(d.door)
+    }
+
     /// The door that ended the current leg was used: go on with the next leg.
     pub fn door_used(&mut self) {
         self.passed.extend(self.path.legs.get(self.leg).and_then(|l| l.door).map(|d| d.door));
@@ -852,6 +864,17 @@ impl Walker {
         let (replans, waived) = same.map_or((0, false), |t| (t.replans, t.waived));
         self.trip = Some(Trip { to, params: params.clone(), replans, waived });
         Ok(&self.follower.as_ref().expect("just set").path)
+    }
+
+    /// Walk straight to `to` in the walker's space, off the navmesh: a path of one segment
+    /// (its height along the segment where no triangle is under it, [`Walker::update`]).
+    /// For a short way where the navmesh has no triangle near the start or the goal (a
+    /// mod's plaza left without one) [design: the game's own walk there is not known].
+    pub fn go_straight(&mut self, to: [f32; 3]) -> &Path {
+        let leg = Leg { space: self.space, points: vec![self.feet, to], corridor: Vec::new(), door: None, door_stops: Vec::new(), hops: Vec::new() };
+        let path = Path { legs: vec![leg], length: hdist(self.feet, to), expanded: 0, start_snap: 0.0, goal_snap: 0.0 };
+        self.follower = Some(Follower::new(path));
+        &self.follower.as_ref().expect("just set").path
     }
 
     /// `old` said [`Steer::OffPath`] with the feet at `feet`: the follower of a new path
@@ -1570,6 +1593,25 @@ mod tests {
         }
         assert!((t - 1.4).abs() < 0.11, "{t}");
         assert!(heading_delta(w.heading, PI).abs() < 1e-4);
+    }
+
+    /// Off the navmesh, a walker sent straight to a place gets there along the segment,
+    /// its height following it (a mod's plaza without navmesh, overnight queue item 3).
+    #[test]
+    fn a_walker_goes_straight_where_there_is_no_navmesh() {
+        let mut w = Walker::new(Space::Interior(1), [0.0, 0.0, 1009.0], 0.0, 100.0);
+        let g = NavGraph::default();
+        assert!(w.go_to(&g, Place { space: Space::Interior(1), pos: [36.0, 131.0, 1025.0] }, &PathParams::default()).is_err());
+        assert!((w.go_straight([36.0, 131.0, 1025.0]).length - 135.9).abs() < 0.1);
+        let mut arrived = false;
+        for _ in 0..600 {
+            if w.update(&g, 1.0 / 60.0) == WalkEvent::Arrived {
+                arrived = true;
+                break;
+            }
+        }
+        assert!(arrived && w.follower.is_none(), "{:?}", w.feet);
+        assert!((w.feet[0] - 36.0).abs() < 1.5 && (w.feet[1] - 131.0).abs() < 1.5 && (w.feet[2] - 1025.0).abs() < 1.0, "{:?}", w.feet);
     }
 
     #[test]

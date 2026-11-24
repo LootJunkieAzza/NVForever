@@ -82,25 +82,61 @@ type Shown = (
 );
 
 /// A bone's world position, by name.
-fn bone(rig: &ActorRig, globals: &Query<&GlobalTransform>, name: &str) -> Option<Vec3> {
+pub(crate) fn bone(rig: &ActorRig, globals: &Query<&GlobalTransform>, name: &str) -> Option<Vec3> {
     let &i = rig.skel.by_name.get(name)?;
     globals.get(*rig.nodes.get(i)?).ok().map(|g| g.translation())
 }
 
 /// The pelvis and the head (world space).
-fn pelvis_head(rig: &ActorRig, globals: &Query<&GlobalTransform>) -> Option<(Vec3, Vec3)> {
+pub(crate) fn pelvis_head(rig: &ActorRig, globals: &Query<&GlobalTransform>) -> Option<(Vec3, Vec3)> {
     Some((bone(rig, globals, "Bip01 Pelvis")?, bone(rig, globals, "Bip01 Head")?))
 }
 
 /// Whether the body lies face up: its front, (left upper arm − right upper arm) ×
 /// (head − pelvis) in game space (z up), points up. `None` for a skeleton without those
 /// bones.
-fn face_up(rig: &ActorRig, globals: &Query<&GlobalTransform>) -> Option<bool> {
+pub(crate) fn face_up(rig: &ActorRig, globals: &Query<&GlobalTransform>) -> Option<bool> {
     let g = |n: &str| bone(rig, globals, n).map(|p| Vec3::from(nvf_play::space::to_game(p)));
     let (l, r) = (g("Bip01 L UpperArm")?, g("Bip01 R UpperArm")?);
     let (p, h) = (g("Bip01 Pelvis")?, g("Bip01 Head")?);
     let front = (l - r).cross(h - p);
     Some(front.z > 0.0)
+}
+
+/// The actor a [`fall`] drops: its reference, rig, clips, clothes and place.
+type Faller<'a> = (&'a RefVisual, &'a ActorRig, Option<&'a Locomotion>, Option<&'a crate::outfits::Dressed>, &'a GlobalTransform);
+
+/// A body falls from the pose it is in, as a fresh death in `deaths.rs` does: its ragdoll
+/// ([`Corpse`], thrown at `shove`) where the ground under it is loaded, else its death
+/// pose from the first frame, else it is laid on its back about its feet. Returns its
+/// [`Dying`], its ragdoll and how it fell (for the log).
+fn fall(
+    data: Option<&GameData>,
+    ragdolls: &mut Ragdolls,
+    phys: Option<&PhysState>,
+    actor_world: Option<&crate::actors::ActorWorld>,
+    (r, rig, lo, dressed, gt): Faller,
+    t: &mut Transform,
+    shove: Option<[f32; 3]>,
+) -> (Dying, Option<Corpse>, &'static str) {
+    let templates = crate::ragdoll::worn_templates(actor_world, dressed.map_or(&[][..], |d| &d.worn));
+    let mut body = data.and_then(|d| ragdolls.corpse(d, rig, &templates));
+    if let (Some(b), Some(v)) = (body.as_mut(), shove) {
+        b.velocity = v;
+    }
+    let falls = body.is_some() && phys.is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
+    let clip = lo.filter(|lo| !falls && !lo.set.death.is_empty()).map(|lo| lo.set.death[(r.0 as usize) % lo.set.death.len()].clone());
+    if clip.is_none() && !falls {
+        t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
+    }
+    let how = if falls {
+        "ragdoll"
+    } else if clip.is_some() {
+        "death pose"
+    } else {
+        "laid down"
+    };
+    (Dying { clip, t: 0.0 }, body, how)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -130,29 +166,21 @@ fn show_knockouts(
             if !down || dying || rt.game.is_dead(id) {
                 continue;
             }
-            let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), dressed.map_or(&[][..], |d| &d.worn));
-            let mut body = data.as_deref().and_then(|d| ragdolls.corpse(d, rig, &templates));
-            if let Some(v) = rt.game.take_shove(id) {
-                if let Some(b) = body.as_mut() {
-                    b.velocity = v;
-                }
+            let stood = *t;
+            let shove = rt.game.take_shove(id);
+            if let Some(v) = shove {
                 info!("knockout: {:08X} thrown at ({:.0}, {:.0}, {:.0}) units/s", r.0, v[0], v[1], v[2]);
             }
-            let falls = body.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
-            let clip = lo.filter(|lo| !falls && !lo.set.death.is_empty()).map(|lo| lo.set.death[(r.0 as usize) % lo.set.death.len()].clone());
-            let stood = *t;
-            if clip.is_none() && !falls {
-                t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
-            }
-            info!("knockout: {:08X} falls ({})", r.0, if falls { "ragdoll" } else if clip.is_some() { "death pose" } else { "laid down" });
+            let (dying, body, how) = fall(data.as_deref(), &mut ragdolls, phys.as_deref(), actor_world.as_deref(), (r, rig, lo, dressed, gt), &mut t, shove);
+            info!("knockout: {:08X} falls ({how})", r.0);
             shows.fell += 1;
-            shows.ragdolls += usize::from(falls);
+            shows.ragdolls += usize::from(how == "ragdoll");
             let mut ec = commands.entity(e);
-            ec.insert((Dying { clip, t: 0.0 }, KnockedOut { stood, face_up: None, phase: Phase::Down }));
+            ec.insert((dying, KnockedOut { stood, face_up: None, phase: Phase::Down }));
             ec.remove::<Flinch>();
             if let Some(mut c) = body {
                 // Not falling, it lies without its ragdoll already (`ragdoll::unbuilt`).
-                c.laid_out = !falls;
+                c.laid_out = how != "ragdoll";
                 ec.insert(c);
             }
             continue;

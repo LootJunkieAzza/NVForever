@@ -362,6 +362,27 @@ fn params_from(
     false
 }
 
+/// The block type the extender's compiler gives `Begin Function {…}` [observed: the
+/// plugins' compiled user-defined functions; the vanilla block codes skip it].
+pub const EXTENDER_FUNCTION_BLOCK: u16 = 0x000D;
+
+/// The parameters of an extender-compiled Function block ([`EXTENDER_FUNCTION_BLOCK`]),
+/// as NVForever's compiler gives them: the script's local variables, an int one as a
+/// short [hypothesis: the trailing byte is not needed to call it]. None when the bytes do
+/// not read so.
+fn extender_function_params(b: &[u8]) -> Option<Vec<Arg>> {
+    let mut r = Rd::new(b);
+    let _version = r.u8()?;
+    let count = r.u8()?;
+    let mut out = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let index = r.u16()?;
+        let letter = if r.u8()? == 1 { VarLetter::Short } else { VarLetter::Float };
+        out.push(Arg::Var(VarRef { on: None, var: VarSlot::Local { index, letter } }));
+    }
+    (r.rest().len() <= 1).then_some(out)
+}
+
 /// A parameter block: empty (no parameters at all) or u16 count + parameters (+ trailer).
 /// `opcode` None = event parameters of a Begin block (every one a tagged value).
 fn params(c: &mut Ctx<'_>, blob: &[u8], opcode: Option<u16>) -> Option<Vec<Arg>> {
@@ -530,6 +551,18 @@ fn piece(c: &mut Ctx<'_>, f: &Flat<'_>) -> Piece {
         op::BEGIN => {
             let (Some(event), Some(len)) = (r.u16(), r.u32()) else { return raw(c, "short Begin") };
             let rest = r.rest();
+            // A user-defined function as the extender's compiler wrote it: block type
+            // 0x0D, then a version byte, a parameter count byte, each parameter's variable
+            // (u16 index, u8 type: 0 float, 1 int, 2 string, 3 array, 4 reference) and one
+            // more byte; read as NVForever's own [`FUNCTION_BLOCK`] [observed: SCDA of
+            // MAPMOCallbackMenuModeSCRIPT `0D 00 … 01 00 00`, JustAssortedMods.esp's
+            // JHIOnHitEventHandler `{fDamageAmount rAttacker}` `01 02 17 00 00 16 00 04 00`
+            // against its SLSD indexes 23 and 22].
+            if event == EXTENDER_FUNCTION_BLOCK {
+                if let Some(params) = extender_function_params(rest) {
+                    return Piece::Begin { event: FUNCTION_BLOCK, len, params: Some(params) };
+                }
+            }
             let params = params(c, rest, None);
             Piece::Begin { event, len, params }
         }

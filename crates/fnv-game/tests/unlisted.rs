@@ -232,7 +232,7 @@ fn kill_actor_alt_kills_with_the_killer() {
 fn attach_light_adds_a_node_and_remove_takes_it() {
     let f = fixture();
     let mut g = game(&f);
-    let node = |name: &str, parent| SceneNode { name: name.into(), parent, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None };
+    let node = |name: &str, parent| SceneNode { name: name.into(), parent, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, world: [0.0; 3], material: None, info: None };
     // The engine tells the tree once the reference is asked about.
     n(&mut g, "NpcRef.GetNifBlockScale \"Bip01 Head\"");
     g.scene.set_tree(FormId(NPC_REF), vec![node("Bip01", None), node("Bip01 Head", Some(0))]);

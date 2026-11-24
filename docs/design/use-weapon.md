@@ -66,6 +66,39 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
   gunmen: automatic weapons hold the trigger, others wait their semi-auto delay; aimed
   from the eyes at the chest, drawn from the muzzle. Each shot is counted on the use
   (`WeaponUse::shot`): more, a pause, or done.
+- **A target that is no actor** (a marker) is aimed at where it is placed
+  (`fnv_ai::goal::place_of_ref`), and Always Hit does not turn the shot into a hit on it
+  [design]. Lonesome Road's silo reveal has ED-E (0x01004D16) use its weapon 0x0100AB55 on
+  NVDLC04SiloRevealTargetREF (0x0100C1F5), a placed XMarker (base 0x0000003B) [observed:
+  LonesomeRoad.esm, fnvtool esm decode]; until 2026-11-11 a target was looked for only
+  among the drawn actors and the player, so the use waited for ever without a shot or a
+  line (overnight queue item 190). An actor target that is not drawn is still waited for.
+- **Always Hit**: shots are "treated as having hit the target, even if they hit something
+  else" [documented: GECK wiki Use Weapon Package, Always Hit]: a shot that strikes the
+  world, another actor or the weapon the target holds (§17 of combat: a weapon hit wears
+  the weapon only) is seen and heard there, and its hit goes to the target's body
+  (`By::always_hit`, no body part) [design for the held weapon: White Leg H's shots wore
+  Jed's pistol and his OnHit never ran]. Before (2026-11-07) cover stopped it, and in the Zion
+  ambush Jed's seven shots at White Leg C on its ledge struck the cliff edge, so the box
+  script (iState 8) never enabled White Leg F. A cone of 0 as well. Every
+  shot aims at the target's posed body (the centre of its widest part capsule), else its
+  standing chest, so a kneeling target (the Silver Rush volunteer, 00124122) is not shot
+  over [design; overnight queue item 40, 2026-11-07]. A projectile that falls (a thrown
+  tomahawk, a grenade: its PROJ gravity times the world's) is lobbed (`vats::lob_dir`) at
+  where the target will be when it lands: its feet' velocity, measured frame to frame,
+  times the straight-line flight time. Without that the Zion ambush's White Leg A threw
+  short of the running guard CM, and the box script (HonestHearts.esm SCPT 01010006,
+  iState 5) waited for his death for ever [design; follow-up to overnight item 26,
+  2026-11-07; smoke `zion-ambush`].
+- **Do No Damage**: `ActorFire::harmless` → `By::harmless`: the projectile flies, strikes,
+  shows its impact and plays its sound, but no damage and no explosion. An actor it
+  strikes still runs its OnHit and OnHitWith blocks, the shooter as the attacker
+  (`Game::hit_object`) [observed: FalloutNV.esm, the Hoover Dam sniper's
+  VHDLegionAssassinKillKimballPackage (PACK 0x00133EBB) is Always Hit and Do No Damage, and
+  President Kimball dies only by his script's `OnHit` block for that sniper (VHDKimballScript,
+  SCPT 0x0013259F, KillActor); until 2026-11-10 a harmless hit ran no block and the
+  assassination never happened (overnight item 171)]. The target does not react to it
+  otherwise [hypothesis]. On a co-op guest NPCs' hits stay the host's.
 - **Targets** [design, #2652; `use_weapon::target_place`]: drawn actors keep their posed
   chest aim point. Any other present reference uses its current position
   (`fnv_ai::goal::place_of_ref`) plus the base OBND centre, or the position itself

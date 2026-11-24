@@ -26,7 +26,9 @@
 //! sneak word says that.
 
 use crate::hud::{HudSet, HudView};
-use crate::interface::{amber, u};
+use crate::interface::{amber, bc_supported, face, line_base, plain_font, scaled_face, set_line, soft_backing_image, soft_backing_node, u, FONT_FILES};
+use bevy::image::CompressedImageFormatSupport;
+use nvf_assets::GameData;
 use crate::settings::{add_setting, Setting};
 use crate::PlaySet;
 use bevy::prelude::*;
@@ -148,12 +150,46 @@ struct Segment {
     k: usize,
 }
 
-fn spawn(mut commands: Commands, root: Query<(), With<GaugeRoot>>) {
+/// The labels' height, interface units, in the HUD's own font [design: the old labels'
+/// 13-unit text, in the game's lettering as the sneak word above it].
+const LABEL_SIZE: f32 = 16.0;
+
+/// The dark backing under both bars, fading out at its edges as the co-op message box
+/// does [design: owner's pick of 2026-11-06, mockup 1B, lighter here to keep the world
+/// in view].
+const BACKING: f32 = 0.6;
+const BACKING_FEATHER: f32 = 16.0;
+/// Room the backing's box keeps beside and above and below the bars, so its fade falls
+/// outside them [design].
+const BACKING_PAD: (f32, f32) = (14.0, 8.0);
+
+fn spawn(
+    mut commands: Commands,
+    root: Query<Entity, With<GaugeRoot>>,
+    (data, formats): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>),
+    mut images: ResMut<Assets<Image>>,
+    mut rebuild: crate::interface::HudRebuild,
+) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): made again at it from the next frame.
+    if rebuild.stale() {
+        for e in &root {
+            commands.entity(e).try_despawn();
+        }
+        return;
+    }
     if !root.is_empty() {
         return;
     }
+    // The HUD's font [documented: Fallout_default.ini `sFontFile_7`], drawn smaller.
+    let hud = face(FONT_FILES[6], plain_font(25.0, 11.0), data.as_deref(), &mut images, bc_supported(formats.as_deref()));
+    let label = scaled_face(&hud, LABEL_SIZE / hud.font.size.max(1.0));
+    // The capitals' middle on the bar's: the capital H's rise, not the font's tallest glyph.
+    let cap = Some(label.font.glyph(b'H').ascent).filter(|a| *a > 0.0).unwrap_or_else(|| line_base(&label));
+    let base = (ROW + cap) / 2.0;
+    let (bw, bh) = (WIDTH + 2.0 * BACKING_PAD.0, ROW * 2.0 + 2.0 * BACKING_PAD.1);
+    let backing = images.add(soft_backing_image(bw, bh, BACKING_FEATHER, BACKING));
     let node = Node {
         position_type: PositionType::Absolute,
         left: Val::Percent(50.0),
@@ -165,10 +201,15 @@ fn spawn(mut commands: Commands, root: Query<(), With<GaugeRoot>>) {
         ..default()
     };
     commands.spawn((GaugeRoot, node, Visibility::Hidden, GlobalZIndex(5))).with_children(|p| {
+        p.spawn((soft_backing_node(-BACKING_PAD.0, -BACKING_PAD.1, bw, bh, BACKING_FEATHER), ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(backing) }));
         for (bar, name) in ["LIGHT", "NOISE"].into_iter().enumerate() {
             p.spawn(Node { height: u(ROW), align_items: AlignItems::Center, ..default() }).with_children(|row| {
-                row.spawn((Node { width: u(LABEL), ..default() }, Text::new(name), TextFont { font_size: crate::interface::font_units(13.0), ..default() }, TextColor(amber(255.0))));
-                row.spawn(Node { width: u(WIDTH - LABEL), height: u(BAR), column_gap: u(GAP), ..default() }).with_children(|segs| {
+                row.spawn(Node { width: u(LABEL), height: u(ROW), ..default() }).with_children(|l| {
+                    if let Some(line) = label.font.lines(name, None).into_iter().next() {
+                        set_line(l, &label, &line, 0.0, base, amber(255.0));
+                    }
+                });
+                row.spawn(Node { width: u(WIDTH - LABEL), height: u(BAR), column_gap: u(3.0), ..default() }).with_children(|segs| {
                     for k in 0..SEGMENTS {
                         segs.spawn((
                             Segment { bar, k },

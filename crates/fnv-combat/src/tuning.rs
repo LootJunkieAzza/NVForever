@@ -212,6 +212,12 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fVATSPlayerDamageMult", 0.75),
 ];
 
+/// A combat setting's documented default ([`SETTINGS`]), for a setting the load order
+/// does not define, case ignored.
+pub fn documented_default(name: &str) -> Option<f32> {
+    SETTINGS.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|&(_, d)| d)
+}
+
 impl Rules {
     /// The documented defaults only (no load order).
     pub fn defaults() -> Rules {
@@ -469,5 +475,17 @@ impl Default for CombatTuning {
             jam_curve: 1.5,
             jam_fallback: 1.5,
         }
+    }
+}
+
+#[cfg(test)]
+mod default_tests {
+    use super::*;
+
+    #[test]
+    fn a_documented_default_is_found_by_name_in_any_case() {
+        assert_eq!(documented_default("fWalkingSpreadPenalty"), Some(0.1));
+        assert_eq!(documented_default("FUNAIMEDSPREADPENALTY"), Some(0.2));
+        assert_eq!(documented_default("fNoSuchSetting"), None);
     }
 }

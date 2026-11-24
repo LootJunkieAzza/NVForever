@@ -12,7 +12,15 @@
 //!   state [hypothesis: a fight comes first] (owner's playtest list 5 item 34: Sunny ran
 //!   to the geckos without her weapon drawn; VCG02SunnyTravelToWell1 has Weapon Drawn).
 //!   An actor fleeing a fight holsters it until it fights again [owner 2026-10-17;
-//!   docs/design/combat-ai.md §12.2.1].
+//!   docs/design/combat-ai.md §12.2.1]. Out of a fight, an actor about to play an idle
+//!   that is not made for a drawn weapon (a talking gesture, a response's or a package's
+//!   idle: `Game::idle_fits_weapon_out`) puts it away first and keeps it away while the
+//!   idle plays (`idles.rs`) [design: owner 2026-11-11, playtest 119 item 155]. The same
+//!   goes for furniture (`furniture.rs` plays its clips, not `idles.rs`): out of a fight,
+//!   an actor walking up to furniture, on it or getting off has its weapon away, whatever
+//!   its package's Weapon Drawn flag says [design, the same rule; owner's ship17 shot
+//!   2026-11-13: a caravan guard, VCaravanMerc01Post188REF, whose VCaravanMojaveToFork6am
+//!   drew her machete, sat on the floor with it in hand].
 //! - **Warning** (`Game::warning_to`, not alerted): the actor draws its weapon and holds
 //!   it while it says its warnings (GuardTrespass) [owner decision 2026-10-25: the
 //!   original's warning guard drew and holstered his gun every 2.5 s (Gomorrah's
@@ -59,21 +67,25 @@ pub(crate) struct WeaponHidden;
 /// The chest, as a fraction of the eye height (as `detection.rs` measures).
 const CHEST: f32 = 0.75;
 
-type Actors<'w> = (Entity, &'w ActorRig, Option<&'w mut WeaponHold>, Option<&'w LookOverride>, Option<&'w AlertLook>, Has<WeaponHidden>);
+type Actors<'w> = (Entity, &'w ActorRig, Option<&'w mut WeaponHold>, Option<&'w LookOverride>, Option<&'w AlertLook>, Has<WeaponHidden>, (Has<crate::furniture::SitOn>, Has<crate::furniture::OnFurniture>));
 
-fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, mut actors: Query<Actors>) {
+// Co-op puppets (coop.rs) draw and holster as their player does.
+fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, idles: Option<Res<crate::idles::Idles>>, mut actors: Query<Actors, (Without<crate::coop::Puppet>, Without<crate::coop::Remote>)>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let drawn_by_default = world.is_some_and(|w| w.weapon_mode == WeaponMode::Drawn);
-    for (e, rig, hold, forced, ours, hidden) in &mut actors {
+    for (e, rig, hold, forced, ours, hidden, (sit_on, on_furniture)) in &mut actors {
         let id = FormId(rig.reference);
         if let Some(mut hold) = hold {
             let fighting = game.awareness.state(id).in_combat();
             let unequipped = !fighting && game.package_has(id, flags::WEAPONS_UNEQUIPPED);
             let fleeing = fighting && game.awareness.tactics.flights.contains_key(&id);
-            let want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing);
+            let away = put_away(fighting, idles.as_deref().is_some_and(|i| i.holstering.contains_key(&id.0)), sit_on || on_furniture);
+            let want = away.is_none() && (game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing));
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
-                let why = if fleeing {
+                let why = if let Some(why) = away {
+                    why
+                } else if fleeing {
                     " (it flees)"
                 } else if game.active_weapon_use(id).is_some() {
                     " (a weapon use)"
@@ -129,5 +141,37 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
             }
             None => {}
         }
+    }
+}
+
+/// Why an actor out of a fight has its weapon away whatever its state and package say
+/// (module notes): an idle not played with a weapon out (`idles.rs` holds it in
+/// `Idles::holstering`), or furniture it walks up to, is on or gets off. `None` in a
+/// fight, or with neither.
+fn put_away(fighting: bool, for_idle: bool, furniture: bool) -> Option<&'static str> {
+    if fighting {
+        None
+    } else if for_idle {
+        Some(" (for an idle played without it)")
+    } else if furniture {
+        Some(" (it uses furniture)")
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn furniture_puts_the_weapon_away_out_of_a_fight() {
+        // VCaravanMerc01Post188REF: Weapon Drawn by her package, sitting on the floor.
+        assert_eq!(put_away(false, false, true), Some(" (it uses furniture)"));
+        assert_eq!(put_away(false, true, true), Some(" (for an idle played without it)"));
+        assert_eq!(put_away(false, true, false), Some(" (for an idle played without it)"));
+        // A fight comes first; with neither, the state and package decide.
+        assert_eq!(put_away(true, true, true), None);
+        assert_eq!(put_away(false, false, false), None);
     }
 }

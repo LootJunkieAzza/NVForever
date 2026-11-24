@@ -38,7 +38,7 @@ pub fn with_game(f: impl FnOnce(&mut Game<'_>)) {
 
 pub fn tree(name: &str) -> Vec<SceneNode> {
     vec![SceneNode { name: name.into(), parent: None, translation: [0.0; 3], rotation: [0.0; 3],
-        scale: 1.0, flags: 0, material: None, info: None }]
+        scale: 1.0, flags: 0, world: [0.0; 3], material: None, info: None }]
 }
 
 pub fn query(game: &mut Game<'_>, body: &str) -> XVal {

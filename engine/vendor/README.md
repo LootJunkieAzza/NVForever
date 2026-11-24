@@ -22,6 +22,15 @@ cursor is inside the client area before a warp, even without a motion event. The
 query itself changes neither focus nor cursor position. Every pre-existing
 module retains `forbid`; the rest of the new cursor consumer inherits `deny`.
 
+Second change (split screen), `src/hardware_input.rs` and two early returns in
+`src/state.rs` (`window_event`, `device_event`): `hardware_input::set_ignored(true)` makes
+the event loop drop this machine's keyboard, mouse, touch, gesture and text-input window
+events and raw mouse motion before they become Bevy messages (counted, `dropped()`).
+Split screen's player 2 game (nvforever `split.rs`, module notes, Focus) turns it on: this
+PC's keyboard and mouse are player 1's, whichever window has the focus, while input an
+app writes as messages itself (test aids) still arrives. Off by default; nothing else
+changes.
+
 Source: crates.io `bevy_winit` 0.20.1, archive SHA-256
 `397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`.
 
@@ -69,6 +78,16 @@ single slow frame charged to a render system that only writes a buffer
 (`upload_light_probes`, `write_binned_instance_buffers`) can be matched to a new memory
 block. `std` is linked for the clock (wgpu-hal turns the crate's `std` feature off).
 
+Third change (queue item 97), in `src/vulkan/mod.rs`: the number of empty general blocks
+kept is `set_keep_empty_general_blocks` (default 2). The driver counts kept blocks as the
+process's use of the GPU budget, so nvforever `memory_budget.rs` sets 0 on a GPU with a
+budget under 6 GB (two 256 MiB blocks are a sixth of a 4 GB laptop card's 3367 MB).
+
+Fourth change (queue item 99), in `src/vulkan/mod.rs` `Allocator::allocate`: CPU-to-GPU
+memory does not go to a host-visible device-local memory type whose heap is under 1 GiB
+(the 256 MB BAR window of a card without Resizable BAR, shared with every other program);
+it takes a host-visible, host-coherent type on a heap that is not device-local. Upstream
+prefers that small heap and falls back only when an allocation in it fails.
 ## bevy_post_process 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 Bevy's post-processing, for its auto exposure, which meters the view for the game's eye
@@ -798,6 +817,30 @@ Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
 
+Device lost without a panic (the co-op build, 2026-11-05/06; queue items 97 and 99).
+Why: in the owner's 5-player co-op stress test (2026-11-05) the AMD driver dropped the GPU
+device (`Caught DeviceLost error: ... driver implementation is at fault`), and 40 ms later,
+before Bevy's error handler had run, the game panicked: wgpu's `create_buffer_init` on a
+storage buffer (`Failed to get mapped range for buffer created with mapped_at_creation`)
+and the readback map callback (`gpu_readback.rs` `Failed to map buffer: BufferAsyncError`).
+Every object of a lost device is invalid, so these maps fail; upstream unwraps them. The
+changes, each marked `NVForever` in the source:
+
+- `renderer/render_device.rs` `create_buffer_with_data`: wgpu's `create_buffer_init`
+  written out, with a mapping that fails leaving the buffer unfilled (the first five
+  logged) instead of panicking.
+- `gpu_readback.rs` `map_buffers`, `view/window/screenshot.rs` `collect_screenshots`: a
+  failed map or mapped range drops that readback or screenshot, logged.
+- `slab_allocator.rs` (large mesh slabs), `storage.rs` (shader storage buffers),
+  `diagnostic/internal.rs` (render diagnostics): a failed mapped range is skipped.
+- `view/window/mod.rs`: no swapchain texture is asked of a lost device (queue item 99:
+  wgpu's surface error path panics on the render thread, before the game's handler runs).
+- `error_handler.rs`: the device-lost callback sets a flag, `device_was_lost()`, read by
+  the game's render error handler and its panic hook (engine/nvforever/src/gpu_lost.rs),
+  and keeps a second report instead of asserting there is none (a panic).
+
+What the game then does (autosave, a message, a clean error exit): gpu_lost.rs. Drop these
+device-lost changes when upstream Bevy handles map failures on a lost device without panicking.
 Window changes held for one frame (2026-11-13, the DLSS Frame Generation spike, #2317), in
 `src/view/window/mod.rs`, each part marked `NVForever (2026-11-13)`:
 

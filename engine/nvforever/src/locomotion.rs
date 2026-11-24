@@ -496,6 +496,9 @@ pub struct Locomotion {
     under: Under,
     /// Times "moves with no movement clip" was logged for this actor (once).
     clipless_logged: u8,
+    /// The first such stretch while it lasts: its frames, time and distance (units), told
+    /// once it ends, so a one-frame step and a slide can be told apart (item 187).
+    clipless_run: Option<(u32, f32, f32)>,
     /// Whether "actor base layer fault" was logged for this actor ([`Locomotion::base_fault`], once).
     baseless_logged: bool,
     /// The set fading out is one the bed rest changed from (`swimming.rs`: between the
@@ -551,7 +554,7 @@ fn under_clip(idle: &BoundClip) -> BoundClip {
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0, baseless_logged: false, bed_fade: false }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0, baseless_logged: false, bed_fade: false, clipless_run: None }
     }
 
     /// The standing set now (kNVSE's SetActorAnimationPath swaps it, anim_paths.rs).
@@ -1005,6 +1008,7 @@ type ActorAnimParts = (
     Option<&'static mut crate::creature_stance::CreatureStance>,
     Option<&'static Name>,
     Option<&'static crate::talk_clips::TalkClip>,
+    Option<&'static crate::pipboy_check::CheckAnim>,
 );
 
 /// Actors posed in one task of [`drive`] on the compute pool.
@@ -1061,8 +1065,8 @@ type ActorAnimItem<'w, 's> = bevy::ecs::query::QueryItem<'w, 's, ActorAnimParts>
 /// `out` (written by the caller); `written` is [`BlendPlayer::written_since`] for a dead
 /// one. Only the actor's own components are touched.
 fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32, scratch: &mut Vec<(usize, Transform)>, out: &mut Vec<(Entity, Transform)>, cost: &mut ActorAnimCost) {
-    let (lo, player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) = item;
-    let (flinch, seated, idle, name, talk) = (*flinch, *seated, *idle, *name, *talk);
+    let (lo, player, weapon, dying, flinch, seated, idle, pose, creature, name, talk, check) = item;
+    let (flinch, seated, idle, name, talk, check) = (*flinch, *seated, *idle, *name, *talk, *check);
     // Set below for a standing actor's idle only.
     player.over_movement = 0;
     player.pose_only = None;
@@ -1199,8 +1203,17 @@ fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32,
         cost.clipless_frames += 1;
         if lo.clipless_logged < 1 {
             lo.clipless_logged += 1;
+            lo.clipless_run = Some((0, 0.0, 0.0));
             info!("actor moves with no movement clip: {} at {:.0} units/s, {:?} playing", name.map_or("actor", |n| n.as_str()), lo.velocity[0].hypot(lo.velocity[1]), lo.blend.cur.mv);
         }
+        let speed = lo.velocity[0].hypot(lo.velocity[1]);
+        if let Some(run) = lo.clipless_run.as_mut() {
+            run.0 += 1;
+            run.1 += dt;
+            run.2 += speed * dt;
+        }
+    } else if let Some((frames, time, distance)) = lo.clipless_run.take() {
+        info!("actor moved with no movement clip: {} for {frames} frame(s), {time:.2} s, {distance:.0} units", name.map_or("actor", |n| n.as_str()));
     }
     // A stimpak's upper-body idle over the fight's pose too (`npc_stimpaks.rs`).
     if let Some(i) = idle.filter(|i| i.over_pose()) {
@@ -1209,6 +1222,10 @@ fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32,
     // A robot's `Talking` while it says a line (`talk_clips.rs`).
     if let Some(t) = talk {
         t.layers(player);
+    }
+    // A co-op player checking the Pip-Boy (`pipboy_check.rs`) over all of it.
+    if let Some(c) = check {
+        c.layers(player);
     }
     player.pose_only = lo.under_layer(player);
     let under = player.pose_only.as_ref().is_some_and(|l| l.weight > 0.0);

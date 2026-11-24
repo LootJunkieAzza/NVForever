@@ -652,6 +652,15 @@ fn typing(
         let name = if rest.is_empty() { "home".to_string() } else { rest.to_ascii_lowercase() };
         match lower.as_str() {
             "cls" | "clear" | "clr" => c.lines.clear(),
+            // Joint progression's debug words (`fnv_game::coop_joint`, plan P3).
+            "coop.presence" | "coop.ledger" => match script.as_deref().and_then(|s| s.rt.as_ref()) {
+                None => c.print(format!("{head}: scripts are not running")),
+                Some(rt) if lower == "coop.ledger" => rt.game.coop_ledger_lines().into_iter().for_each(|l| c.print(l)),
+                Some(rt) => match fnv_game::functions::console::form(&rt.game, rest) {
+                    Ok(q) => rt.game.coop_presence_lines(q).into_iter().for_each(|l| c.print(l)),
+                    Err(e) => c.print(format!("coop.presence <quest>: {e}")),
+                },
+            },
             "sethome" if c.homes_on => match here {
                 Some(t) => {
                     c.print(format!("Home \"{name}\" set here"));
@@ -862,7 +871,7 @@ fn typing(
             "poker" => match crate::poker::Casino::from_letter(rest) {
                 Some(casino) => {
                     c.print(format!("Opening the poker table at {}", casino.title()));
-                    poker.write(crate::poker::OpenPoker { casino });
+                    poker.write(crate::poker::OpenPoker { casino, table: None });
                     close(&mut c, &mut next, &mut commands, &roots);
                     return;
                 }

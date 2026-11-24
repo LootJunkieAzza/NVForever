@@ -38,7 +38,11 @@ in `lod.rs`.
   full detail are cut out exactly instead of being sunk (the rule used for game chunks).
   Edges facing a cut-out cell or the chunk border get a skirt (a strip hanging 256 units
   down) to hide T-junction cracks against finer neighbours. Cells without LAND heights
-  are left out.
+  (in a chunk that has some LAND) are drawn flat at the worldspace's default land height
+  (WRLD DNAM), as the game's own level-4 LOD fills them [observed: Lonesome Road and Honest
+  Hearts LOD meshes]; their texels keep the no-base colour. Leaving them out showed water
+  and sky through holes in the near LOD with skirts hanging into them (Long 15, the
+  Divide, 2026-11-16). Only without a default land height are they left out.
 - **Diffuse texture** (cached): `res` × `res` texels per chunk (default 1024, 16 units per
   texel, 4 × the game's linear resolution). Each texel repeats what the loaded-cell
   terrain draws at that spot (terrain.rs): the quadrant's base texture, then its layers

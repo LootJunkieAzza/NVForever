@@ -218,9 +218,13 @@ pub fn spread(sliders: &mut [Slider], faces: &[FaceGen]) {
 /// The least reach of an asymmetry slider either way, standard deviations [design].
 pub const ASYMMETRY_REACH: f64 = 2.0;
 /// The age slider's own label, and its lowest reading (years, as the control counts
-/// them [hypothesis: its offset of 29.7 is the mean age of FaceGen's sample]).
+/// them [hypothesis: its offset of 29.7 is the mean age of FaceGen's sample]). No face
+/// the creator gives reads younger than [`MIN_AGE`] [owner 2026-11-08, queue item 110:
+/// "lowest should be 18"; Randomise and some presets gave 3]: the slider's range, a
+/// random face, a starting face, a named preset, a save's look and another player's
+/// ([`Creator::adult`]).
 pub const AGE_LABEL: &str = "Age - young / old";
-pub const MIN_AGE: f64 = 16.0;
+pub const MIN_AGE: f64 = 18.0;
 
 /// The controls file [observed: `facegen\si.ctl` in `Fallout - Misc.bsa`].
 pub const CTL_PATH: &str = "facegen\\si.ctl";
@@ -235,6 +239,8 @@ pub struct Creator {
     pub ctl_problem: Option<String>,
     /// The player record's own look (NPC_ 7), where the creator starts the first time.
     pub player: Option<Look>,
+    /// What [`Creator::add_named_presets`] made of each preset file, for the log.
+    pub preset_log: Vec<String>,
 }
 
 impl Creator {
@@ -265,7 +271,7 @@ impl Creator {
                 facegen: full(n.facegen.as_ref().unwrap_or(&FaceGen::default())),
             })
         });
-        Creator { catalogue, sliders, ctl_problem, player }
+        Creator { catalogue, sliders, ctl_problem, player, preset_log: Vec::new() }
     }
 }
 
@@ -328,6 +334,10 @@ pub struct Catalogue {
     /// random faces and the "look like" starts: (NPC, race, female, own values).
     #[serde(skip)]
     pub faces: Vec<AuthoredFace>,
+    /// Named character presets from `RaceMenuPresets\*.preset` files
+    /// (docs/spec-notes/race-menu-presets.md), offered after the race's starting faces.
+    #[serde(skip)]
+    pub named: Vec<AuthoredFace>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -446,7 +456,7 @@ impl Catalogue {
         }
         let mut hair_colours: Vec<([u8; 3], usize)> = counts.into_values().map(|(n, sum)| (sum.map(|s| (s / n as u64) as u8), n)).collect();
         hair_colours.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        Catalogue { races, facial_hair, brows, hair_colours, faces }
+        Catalogue { races, facial_hair, brows, hair_colours, faces, named: Vec::new() }
     }
 
     pub fn race(&self, id: FormId) -> Option<&RaceChoice> {
@@ -466,6 +476,11 @@ impl Catalogue {
     /// The starting faces of a race and sex, in record order.
     pub fn presets(&self, race: FormId, female: bool) -> Vec<&AuthoredFace> {
         self.faces.iter().filter(|f| f.preset && f.race == race && f.female == female).collect()
+    }
+
+    /// The named presets of one sex, by name.
+    pub fn named_presets(&self, female: bool) -> Vec<&AuthoredFace> {
+        self.named.iter().filter(|f| f.female == female).collect()
     }
 
     /// Own + race values of the authored faces of one sex, for [`spread`].
@@ -510,6 +525,23 @@ fn below(rng: &mut impl RngCore, n: usize) -> usize {
 /// A number between `lo` and `hi`.
 fn between(rng: &mut impl RngCore, lo: f64, hi: f64) -> f64 {
     lo + (hi - lo) * (rng.next_u64() >> 11) as f64 / (1u64 << 53) as f64
+}
+
+impl Creator {
+    /// Raise `look`'s age reading to [`MIN_AGE`] when it is younger, along the age
+    /// control's own directions (as the slider moves it). The reading before, when raised.
+    pub fn adult(&self, look: &mut Look) -> Option<f64> {
+        let sex = usize::from(look.female);
+        let age = self.sliders[sex].iter().find(|s| s.label == AGE_LABEL)?;
+        let race = self.catalogue.race(look.race).and_then(|r| r.facegen[sex].as_ref());
+        let was = age.value(&look.facegen, race);
+        if was >= MIN_AGE {
+            return None;
+        }
+        look.facegen = full(&look.facegen);
+        age.set(&mut look.facegen, race, MIN_AGE);
+        Some(was)
+    }
 }
 
 /// What Randomise changes [design].
@@ -569,9 +601,141 @@ pub fn part_of(look: &Look, kind: &[Choice]) -> Option<FormId> {
     look.head_parts.iter().copied().find(|p| kind.iter().any(|c| c.id == *p))
 }
 
+// ---- named presets (RaceMenuPresets\*.preset) ------------------------------------------------
+
+/// The folder of the named presets, in the data's file namespace.
+pub const PRESET_DIR: &str = "racemenupresets\\";
+
+/// Read one `.preset` file (docs/spec-notes/race-menu-presets.md) [observed: the layout
+/// was read from eight files of a Nexus pack, 2026-11-07]. `plugin_index` gives a plugin's
+/// place in the load order (any case), `None` when it is not loaded: a preset that names
+/// a plugin not loaded is an error, so it is not offered.
+pub fn parse_preset(name: &str, b: &[u8], plugin_index: impl Fn(&str) -> Option<u8>) -> Result<AuthoredFace, String> {
+    let mut at = 0usize;
+    let u32_at = |at: &mut usize| -> Result<u32, String> {
+        let v = b.get(*at..*at + 4).ok_or("file ends early")?;
+        *at += 4;
+        Ok(u32::from_le_bytes([v[0], v[1], v[2], v[3]]))
+    };
+    let version = u32_at(&mut at)?;
+    if version != 1 {
+        return Err(format!("version {version}, only 1 is read"));
+    }
+    let _size = u32_at(&mut at)?;
+    let floats = |n: usize, at: &mut usize| -> Result<Vec<f64>, String> {
+        (0..n).map(|_| u32_at(at).map(|v| f64::from(f32::from_bits(v)))).collect()
+    };
+    let fggs = floats(50, &mut at)?;
+    let fgga = floats(30, &mut at)?;
+    let fgts = floats(50, &mut at)?;
+    let female = u32_at(&mut at)? != 0;
+    let _hair_length = u32_at(&mut at)?;
+    let c = u32_at(&mut at)?.to_le_bytes();
+    let hair_color = [c[0], c[1], c[2]];
+    let form = |at: &mut usize| -> Result<FormId, String> {
+        let raw = u32_at(at)?;
+        let rest = b.get(*at..).ok_or("file ends early")?;
+        let end = rest.iter().position(|&x| x == 0).ok_or("plugin name not ended")?;
+        let plugin = String::from_utf8_lossy(&rest[..end]).to_string();
+        *at += end + 1;
+        let i = plugin_index(&plugin).ok_or_else(|| format!("needs {plugin}, which is not loaded"))?;
+        Ok(FormId((u32::from(i) << 24) | (raw & 0x00FF_FFFF)))
+    };
+    let race = form(&mut at)?;
+    let hair = form(&mut at)?;
+    let eyes = form(&mut at)?;
+    let n = *b.get(at).ok_or("file ends early")?;
+    at += 1;
+    let head_parts = (0..n).map(|_| form(&mut at)).collect::<Result<Vec<_>, _>>()?;
+    let mut title = name.to_string();
+    if let Some(f) = title.get(..1) {
+        title = f.to_ascii_uppercase() + &title[1..];
+    }
+    Ok(AuthoredFace {
+        npc: FormId(0),
+        preset: true,
+        name: Some(title),
+        race,
+        female,
+        facegen: FaceGen { fggs, fgga, fgts },
+        hair: Some(hair),
+        hair_color: Some(hair_color),
+        eyes: Some(eyes),
+        head_parts,
+    })
+}
+
+impl Creator {
+    /// Add the named presets read from the data (`paths` with their bytes), keeping only
+    /// those whose race is offered; returns a line per file for the log.
+    pub fn add_named_presets(&mut self, files: Vec<(String, Vec<u8>)>, plugin_index: impl Fn(&str) -> Option<u8>) {
+        let mut log = Vec::new();
+        for (path, bytes) in files {
+            let stem = path.rsplit(['\\', '/']).next().unwrap_or(&path).trim_end_matches(".preset").to_string();
+            match parse_preset(&stem, &bytes, &plugin_index) {
+                Ok(f) if !self.catalogue.races.iter().any(|r| r.id == f.race) => log.push(format!("{path}: hidden, race {} is not offered", f.race)),
+                Ok(f) => {
+                    log.push(format!("{path}: {} ({})", f.name.as_deref().unwrap_or(""), if f.female { "female" } else { "male" }));
+                    self.catalogue.named.push(f);
+                }
+                Err(e) => log.push(format!("{path}: hidden, {e}")),
+            }
+        }
+        self.catalogue.named.sort_by(|a, b| a.name.cmp(&b.name));
+        self.preset_log = log;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A preset file laid out as the observed ones are (docs/spec-notes/race-menu-presets.md).
+    fn preset_bytes(female: bool, plugins: &[(u32, &str)], parts: usize) -> Vec<u8> {
+        let mut b = vec![];
+        b.extend(1u32.to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+        for i in 0..130 {
+            b.extend((i as f32 * 0.5).to_le_bytes());
+        }
+        b.extend(u32::from(female).to_le_bytes());
+        b.extend(0.25f32.to_le_bytes());
+        b.extend([10, 20, 30, 0]);
+        for (id, p) in plugins.iter().take(3 + parts) {
+            if b.len() == 8 + 520 + 12 + 3 * (4 + 14) {
+                b.push(parts as u8);
+            }
+            b.extend(id.to_le_bytes());
+            b.extend(p.as_bytes());
+            b.push(0);
+        }
+        if parts == 0 {
+            b.push(0);
+        }
+        b
+    }
+
+    #[test]
+    fn a_preset_file_reads_its_face_hair_and_parts() {
+        let fnv = "FalloutNV.esm";
+        let b = preset_bytes(true, &[(0x38E6, fnv), (0x22E4E, fnv), (0x4256, fnv), (0x0B6DE4, fnv)], 1);
+        let idx = |p: &str| (p.eq_ignore_ascii_case("falloutnv.esm")).then_some(0u8);
+        let f = parse_preset("kiri", &b, idx).unwrap();
+        assert_eq!(f.name.as_deref(), Some("Kiri"));
+        assert!(f.female);
+        assert_eq!((f.facegen.fggs.len(), f.facegen.fgga.len(), f.facegen.fgts.len()), (50, 30, 50));
+        assert_eq!((f.facegen.fgga[0], f.facegen.fgts[0]), (25.0, 40.0));
+        assert_eq!(f.race, FormId(0x38E6));
+        assert_eq!((f.hair, f.eyes, f.hair_color), (Some(FormId(0x22E4E)), Some(FormId(0x4256)), Some([10, 20, 30])));
+        assert_eq!(f.head_parts, vec![FormId(0x0B6DE4)]);
+        // The mod index in the file is the maker's; ours comes from the plugin's name.
+        let b = preset_bytes(false, &[(0x4E00_0ADD, fnv), (0x22E4E, fnv), (0x4256, fnv)], 0);
+        let f = parse_preset("x", &b, |p| (p == fnv).then_some(3)).unwrap();
+        assert_eq!(f.race, FormId(0x0300_0ADD));
+        // A plugin not loaded: not offered.
+        let b = preset_bytes(false, &[(0x5B09, "New Vegas Redesigned II.esm"), (1, fnv), (2, fnv)], 0);
+        assert!(parse_preset("eve", &b, idx).unwrap_err().contains("not loaded"));
+    }
     use crate::facegen::{Control, OffsetControl};
 
     fn ctl() -> Ctl {
@@ -611,6 +775,23 @@ mod tests {
         assert_eq!(labels, vec!["Age - young / old", "Nose - short / long", "Nose - bridge shallow / deep", "Nose - tip transverse shift", "Skin Shade Dark / Light"]);
         assert_eq!(sl[3].space(), Space::Asymmetry);
         assert_eq!(sl[4].space(), Space::Skin);
+    }
+
+    #[test]
+    fn a_face_younger_than_an_adult_is_raised_to_one() {
+        let c = Creator { sliders: [sliders(&ctl()), sliders(&ctl())], ..Creator::default() };
+        let age = c.sliders[0][0].clone();
+        let mut look = Look { race: FormId(1), female: false, hair: None, hair_color: None, eyes: None, head_parts: Vec::new(), facegen: full(&FaceGen::default()) };
+        // A random blend or preset reading 3 years (queue item 110) comes back as 18 ...
+        age.set(&mut look.facegen, None, 3.0);
+        assert_eq!(c.adult(&mut look).map(f64::round), Some(3.0));
+        assert!((age.value(&look.facegen, None) - MIN_AGE).abs() < 1e-9);
+        // ... once; an adult is left alone.
+        assert_eq!(c.adult(&mut look), None);
+        age.set(&mut look.facegen, None, 40.0);
+        let before = look.clone();
+        assert_eq!(c.adult(&mut look), None);
+        assert_eq!(look, before);
     }
 
     #[test]

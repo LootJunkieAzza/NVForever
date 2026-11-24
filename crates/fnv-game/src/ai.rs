@@ -612,10 +612,11 @@ impl<'a> Game<'a> {
 
     /// The actors scripts created at run time (PlaceAtMe of an NPC_, CREA or leveled
     /// actor list) that are still in the world: they take part in the AI, detection and
-    /// combat as placed actors do.
+    /// combat as placed actors do. The other players of a co-op game are not among them:
+    /// the network moves them ([`Game::coop_actors`]).
     pub fn created_actors(&self) -> Vec<FormId> {
         let forms = self.world.forms;
-        self.world.created().filter(|(_, s)| !s.deleted() && is_actor_base(forms, s.base)).map(|(id, _)| id).collect()
+        self.world.created().filter(|(id, s)| !s.deleted() && is_actor_base(forms, s.base) && !self.coop_actors.contains_key(id)).map(|(id, _)| id).collect()
     }
 
     /// Placed actors whose packages the periodic choice covers: those in loaded cells

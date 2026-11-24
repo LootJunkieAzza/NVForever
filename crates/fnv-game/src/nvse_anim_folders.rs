@@ -672,12 +672,19 @@ impl Game<'_> {
 
     /// Read the folders once (when the Data folder is known), then every
     /// [`REFRESH_FRAMES`] the entries of the player and each actor the engine draws.
+    /// The player's entries are checked every frame: a last-shot entry
+    /// (`GetCurrentAmmoRounds == 1`, Another Millenia's `LastShot` folders) must hold at
+    /// the shot it is for, which a quarter-second check misses in automatic fire.
     pub(crate) fn anim_folders_tick(&mut self) {
         self.load_anim_folders();
-        if self.anim_folders.entries.is_empty() || self.frame % REFRESH_FRAMES != 1 {
+        if self.anim_folders.entries.is_empty() {
             return;
         }
-        self.refresh_anim_folders();
+        if self.frame % REFRESH_FRAMES == 1 {
+            self.refresh_anim_folders();
+        } else {
+            self.refresh_anim_folders_of(&[FormId::PLAYER_REF], false);
+        }
     }
 
     /// Read the folders, once the Data folder is known.
@@ -796,12 +803,24 @@ impl Game<'_> {
         if !actors.contains(&FormId::PLAYER_REF) {
             actors.push(FormId::PLAYER_REF);
         }
+        self.refresh_anim_folders_of(&actors, true);
+    }
+
+    /// The entries that hold for `actors` now; `all`: the others' are dropped (they are
+    /// no longer drawn), else kept.
+    pub fn refresh_anim_folders_of(&mut self, actors: &[FormId], all: bool) {
         let entries = std::mem::take(&mut self.anim_folders.entries);
-        let mut active = HashMap::new();
-        for &a in &actors {
+        let mut active = if all { HashMap::new() } else { std::mem::take(&mut self.anim_folders.active) };
+        for &a in actors {
+            for first in [false, true] {
+                active.remove(&(a, first));
+            }
             self.eval_anim_folders_for(&entries, a, &mut active);
         }
-        self.anim_folders.picks.retain(|a, _| actors.contains(a));
+        // The others' chances.txt picks stay with their kept files.
+        if all {
+            self.anim_folders.picks.retain(|a, _| actors.contains(a));
+        }
         self.anim_folders.entries = entries;
         self.anim_folders.active = active;
     }
@@ -835,9 +854,99 @@ impl Game<'_> {
     }
 }
 
+impl Game<'_> {
+    /// Per form named by an entry with no condition: that entry's third-person (`first`
+    /// false) or first-person files, the lowest priority first as for an actor
+    /// ([`files_by_form`]); `None` before the folders are read. For the bodies the engine
+    /// draws with no actor of their own here (a co-op puppet), which take the files their
+    /// weapon's entries give [hypothesis: an entry for a weapon form is for any actor
+    /// holding it].
+    pub fn weapon_anim_files(&self, first: bool) -> Option<HashMap<FormId, Vec<String>>> {
+        self.anim_folders.loaded.then(|| files_by_form(&self.anim_folders.entries, first))
+    }
+}
+
+/// [`Game::weapon_anim_files`] of `entries`: the files of each entry with forms and no
+/// condition, by form, in (priority, order).
+pub fn files_by_form(entries: &[FolderEntry], first: bool) -> HashMap<FormId, Vec<String>> {
+    let mut hold: Vec<&FolderEntry> = entries.iter().filter(|e| e.condition.is_none() && !e.forms.is_empty()).collect();
+    hold.sort_by_key(|e| (e.priority, e.order));
+    let mut out: HashMap<FormId, Vec<String>> = HashMap::new();
+    for e in hold {
+        let files = if first { &e.first } else { &e.third };
+        if files.is_empty() {
+            continue;
+        }
+        for f in &e.forms {
+            out.entry(*f).or_default().extend(files.iter().cloned());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry(forms: &[u32], folder: &str, condition: Option<&str>, priority: i64, order: usize) -> FolderEntry {
+        FolderEntry {
+            forms: forms.iter().map(|f| FormId(*f)).collect(),
+            folder: folder.into(),
+            condition: condition.map(str::to_string),
+            priority,
+            order,
+            third: vec![format!("AnimGroupOverride\\{folder}\\_male\\1hpAim.kf")],
+            first: vec![format!("AnimGroupOverride\\{folder}\\_1stPerson\\1hpAim.kf")],
+            ..Default::default()
+        }
+    }
+
+    /// Another Millenia's akimbo entries: the always folder for each dual pistol, its
+    /// last-shot folders held back by their conditions; a later entry after an earlier.
+    #[test]
+    fn a_weapons_unconditioned_files_by_form() {
+        let entries = [
+            entry(&[0x1C00_2A0B, 0x1C00_2A0C], "Johnsonn_9mmAkimbo", None, 0, 0),
+            entry(&[0x1C00_2A0B], "Johnsonn_9mmAkimboRightLast", Some("GetCurrentAmmoRounds == 2"), 0, 1),
+            entry(&[], "IV_Arrogant_M", None, 0, 2),
+            entry(&[0x1C00_2A0B], "Later", None, 0, 3),
+        ];
+        let m = files_by_form(&entries, false);
+        assert_eq!(m[&FormId(0x1C00_2A0B)], ["AnimGroupOverride\\Johnsonn_9mmAkimbo\\_male\\1hpAim.kf", "AnimGroupOverride\\Later\\_male\\1hpAim.kf"]);
+        assert_eq!(m[&FormId(0x1C00_2A0C)].len(), 1);
+        assert_eq!(m.len(), 2);
+        assert!(files_by_form(&entries, true)[&FormId(0x1C00_2A0C)][0].contains("_1stPerson"));
+    }
+
+    /// Only the dual weapons take the akimbo files: the mod names each of them in its
+    /// akimbo entries (`Another_Millenia_Addon_Akimbo.json`, the add-on's 2A09-2A14;
+    /// `AMDualRevolversColt1849Pocket.json`, 2A06; `AkimboAF2011.json`, mil.esp 63729)
+    /// [observed: the mods' JSON files], and the single 9mm Police Pistol (mil.esp 5480A)
+    /// its own one-gun set (`Rock_AM_Glock.json`). A pistol no entry names gets nothing.
+    #[test]
+    fn only_the_dual_weapons_take_the_akimbo_files() {
+        let addon_duals: Vec<u32> = (0x2A09..=0x2A14).map(|f| 0x1C00_0000 | f).collect();
+        let entries = [
+            entry(&addon_duals, "Johnsonn_9mmAkimbo", None, 0, 0),
+            entry(&[0x1C00_2A06], "AMDualRevolvers", None, 0, 1),
+            entry(&[0x1B06_3729], "Ani_AkimboAF2011", None, 0, 2),
+            entry(&[0x1B05_480A, 0x1B06_D2AB], "Rock_AM_Glock", None, 0, 3),
+            entry(&[0x1B05_480A], "Rock_AM_Glock_lastshot", Some("GetCurrentAmmoRounds == 1"), 0, 4),
+        ];
+        let m = files_by_form(&entries, false);
+        let akimbo = |f: u32| m.get(&FormId(f)).is_some_and(|v| v.iter().any(|p| p.contains("Akimbo") || p.contains("AMDualRevolvers")));
+        for f in addon_duals.iter().copied().chain([0x1C00_2A06, 0x1B06_3729]) {
+            assert!(akimbo(f), "{f:08X} is a dual weapon");
+        }
+        // The Dual 9mm Police Pistols: the akimbo files.
+        assert_eq!(m[&FormId(0x1C00_2A0B)], ["AnimGroupOverride\\Johnsonn_9mmAkimbo\\_male\\1hpAim.kf"]);
+        // The 9mm Police Pistol: its one-gun files only.
+        assert!(!akimbo(0x1B05_480A));
+        assert_eq!(m[&FormId(0x1B05_480A)], ["AnimGroupOverride\\Rock_AM_Glock\\_male\\1hpAim.kf"]);
+        // The game's own 9mm pistol, named by no entry: no files.
+        assert!(!m.contains_key(&FormId(0x000E_3778)));
+        assert_eq!(m.len(), addon_duals.len() + 4);
+    }
 
     #[test]
     fn mod_folder_mask_parses_single_and_combined_slots() {

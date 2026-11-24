@@ -820,12 +820,14 @@ impl Ai {
             Some(Search::Fled { from, .. }) if from == flight.from && flight.arrived.is_some() => {
                 self.face(game, actor, Place { space, pos: threat }, dt);
             }
-            _ => self.flee_from(game, nav, actor, flight.from, threat),
+            _ => self.flee_from(game, nav, actor, flight.from, threat, true),
         }
     }
 
     /// Choose a flee spot away from `threat` and set off there, running (module notes).
-    pub(crate) fn flee_from(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, from: FormId, threat: [f32; 3]) {
+    /// `by_door`: whether a load door is among the tries (a combat flight's are; a
+    /// spectator's are not, `crate::social`).
+    pub(crate) fn flee_from(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, from: FormId, threat: [f32; 3], by_door: bool) {
         // Spectators also enter here while Normal, outside alert_step's takeover.
         self.interrupt_sandbox(game, actor);
         let params = self.path_params(game, actor);
@@ -839,7 +841,8 @@ impl Ai {
         let mut tries: Vec<(Place, FleeBy)> = Vec::new();
         // 1. A door that leads elsewhere, not nearer the threat than the actor is.
         let mut doors: Vec<(f32, Place, FleeBy)> = Vec::new();
-        for t in nav.triangles_near(space, feet[0], feet[1], gs.flee_max_door) {
+        let near = if by_door { nav.triangles_near(space, feet[0], feet[1], gs.flee_max_door) } else { Vec::new() };
+        for t in near {
             for e in nav.doors.get(&t).map_or(&[][..], |v| v.as_slice()) {
                 let c = nav.centre(t);
                 let d = flat(c, feet);

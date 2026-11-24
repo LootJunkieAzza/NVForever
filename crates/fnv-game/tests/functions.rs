@@ -2232,7 +2232,24 @@ fn player_x_angle_is_the_view_pitch() {
     assert!((rot[2] - 90f32.to_radians()).abs() < 1e-6);
 }
 
-/// MoveToMarkerWithFade: the reference stays while it fades out, then moves and fades in;
+/// MoveTo of the player onto a marker: it faces the marker's heading (Honest Hearts'
+/// slideshow marker faces the screen, playtest list 7 item 116); its X angle (the view's
+/// pitch) is the engine's to level.
+#[test]
+fn player_moved_to_a_marker_takes_its_heading() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.world.get(FormId(ACTI_REF)).unwrap().rot = [0.0, 0.0, 30f32.to_radians()];
+    g.world.get(FormId::PLAYER_REF).unwrap().rot = [20f32.to_radians(), 0.0, 200f32.to_radians()];
+    call(&mut g, 0x109E, Some(PLAYER), &[r(ACTI_REF)]);
+    let rot = g.world.peek(FormId::PLAYER_REF).unwrap().rot;
+    assert!((rot[2] - 30f32.to_radians()).abs() < 1e-6, "{rot:?}");
+    // The view's pitch is the marker's too (level here), not the one kept from before
+    // (upstream's `move_ref`, #2710: Honest Hearts' slide room).
+    assert!(rot[0].abs() < 1e-6, "{rot:?}");
+}
+
+/// MoveToMarkerWithFade:the reference stays while it fades out, then moves and fades in;
 /// a save during the wait moves it on load.
 #[test]
 fn move_to_marker_with_fade_waits_for_the_fade() {

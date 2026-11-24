@@ -108,6 +108,9 @@ pub(crate) fn log_notes(mut script: Option<ResMut<ScriptState>>, mut stats: ResM
                 stats.aggro_attacks += 1;
                 info!("provocation: {} attacks the player, who stayed inside its aggro radius ({distance:.0} of {radius:.0} units)", name(actor));
             }
+            Note::ForcedOnly { victim, foe } => {
+                info!("provocation: {}'s fight with {} was started by a script and {} has not fought back: its allies stay out", name(victim), name(foe), name(foe));
+            }
             Note::StaysOut { helper, victim } => {
                 stats.stayed_out += 1;
                 info!("provocation: {} stays out of {}'s fight: its confidence is Cowardly", name(helper), name(victim));

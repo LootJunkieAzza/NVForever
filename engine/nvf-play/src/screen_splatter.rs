@@ -311,11 +311,13 @@ pub struct ScreenSplatter {
     clears_seen: u64,
     rng: ChaCha8Rng,
     root: Option<Entity>,
+    /// Whether the full Pip-Boy hides the splats now (`draw`).
+    hidden: bool,
 }
 
 impl Default for ScreenSplatter {
     fn default() -> Self {
-        ScreenSplatter { splats: Vec::new(), fade: None, settings: None, pictures: None, clears_seen: 0, rng: ChaCha8Rng::seed_from_u64(0x5B1A_77E2), root: None }
+        ScreenSplatter { splats: Vec::new(), fade: None, settings: None, pictures: None, clears_seen: 0, rng: ChaCha8Rng::seed_from_u64(0x5B1A_77E2), root: None, hidden: false }
     }
 }
 
@@ -465,10 +467,19 @@ fn age(time: Res<Time>, paused: Res<crate::pause::Paused>, loading: Res<crate::l
     }
 }
 
-/// Draw the splats: one picture each over the screen, under the HUD and menus.
+/// Draw the splats: one picture each over the screen, under the HUD and menus. The full
+/// Pip-Boy hides them while it is up, as it hides the HUD (`crate::hud::pipboy_hides_hud`):
+/// they are a picture over the world, and the Pip-Boy in the hands is drawn in the world,
+/// so they would lie over it, their flares red glows on its screen [observed: queue
+/// item 212, the dlc-solo lr2long run 2026-11-14: nine splats from a hurt at 17:12:01, the
+/// Pip-Boy up at 17:12:02, red dots on it until the splats faded at 17:12:21;
+/// hypothesis: the original keeps the blood off the Pip-Boy, observer check 129]. They
+/// keep their age under it.
+#[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
     mut splatter: ResMut<ScreenSplatter>,
+    pipboy: Option<Res<crate::pipboy::PipBoy>>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -476,7 +487,14 @@ fn draw(
     mut flares: Query<(&FlarePicture, &mut Node, &mut ImageNode), Without<SplatPicture>>,
 ) {
     let sp = &mut *splatter;
-    if sp.splats.is_empty() {
+    let up = crate::hud::pipboy_hides_hud(pipboy.as_deref());
+    if up != sp.hidden {
+        sp.hidden = up;
+        if !sp.splats.is_empty() {
+            info!("screen splatter: {} under the Pip-Boy ({} splats)", if up { "hidden" } else { "back from" }, sp.splats.len());
+        }
+    }
+    if sp.splats.is_empty() || up {
         if let Some(root) = sp.root.take() {
             commands.entity(root).despawn();
         }

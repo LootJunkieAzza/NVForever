@@ -157,6 +157,11 @@ this voice type: GetIsVoiceType, GetIsID, GetInFaction, GetIsClass, GetIsRace, I
 xEdit; observed: every generic adult voice has bit 0; the unique, super mutant, robot and
 four MaleAdult09–12 voices do not; 61 of 100 lack it]. An actor whose voice type (from the
 definition supplying its traits) lacks the bit says no line unless the line has one of
+those six functions among its conditions, or its quest has one among its dialogue
+conditions [hypothesis, fit to ED-E: its one greeting, 001579D7 of vDialogueEDE, has no
+conditions of its own, the quest's are GetIsID on the three ED-E bases, and the voice
+RobotEDE lacks the bit; the greeting's begin script gives the controls back after the
+repair, overnight queue item 52]. A line whose INFO names its speaker (ANAM) is
 those six functions among its conditions, or its quest has one among the quest's
 conditions (which gate every line of the quest and have to pass too) [observed: ED-E's
 greetings 0x001579D7 and 0x001579D8 have no conditions of their own, their quest

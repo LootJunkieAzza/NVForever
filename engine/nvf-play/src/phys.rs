@@ -101,6 +101,11 @@ pub struct PhysState {
     /// Placed references whose pose [`PhysState::settle_placed`] wrote to the simulation
     /// this frame (for `crate::moved`).
     pub moved_now: Vec<u32>,
+    /// Placed references whose pose another game owns: a co-op guest's copies of what the
+    /// host's world moves (`nvforever::coop::replication`). [`PhysState::settle_placed`]
+    /// does not write them back, so this game's own simulation of them never overrides
+    /// the host's pose; their collision is built again where the host puts them.
+    pub follow_only: BTreeSet<u32>,
     /// Placed clutter and dropped items drawn between physics steps this frame
     /// ([`PhysState::drawn_ref_pose`]).
     pub between: DrawnBetween,
@@ -138,6 +143,12 @@ pub struct PhysState {
     /// How far the player's body and view are drawn above where its feet and drawn
     /// ground put them, after a step or a bump ([`step_lift::StepLift`]).
     pub player_lift: step_lift::StepLift,
+    /// The horizontal speed the player's controls ask for at the last physics step, game
+    /// units per second (the controls' velocity before anything blocked it; 0 swimming,
+    /// on auto-walk or with the controls idle). The body's movement clips play at it: a
+    /// player running into a wall or up a slope too steep runs on the spot at the pace
+    /// asked for (`nvforever::player_body`).
+    pub player_wish: f32,
     /// The height of each living actor's drawn bounds, game units, as `crate::hitvol`
     /// last measured them: an actor's character is made this tall ([`PhysState::add_npc`]).
     pub actor_heights: HashMap<u32, f32>,
@@ -226,6 +237,7 @@ impl Default for PhysState {
             created: BTreeMap::new(),
             placed_dynamic: BTreeMap::new(),
             moved_now: Vec::new(),
+            follow_only: BTreeSet::new(),
             between: DrawnBetween::default(),
             doors: BTreeMap::new(),
             animated: BTreeMap::new(),
@@ -238,6 +250,7 @@ impl Default for PhysState {
             drawn: HashMap::new(),
             player_sink: 0.0,
             player_lift: step_lift::StepLift::default(),
+            player_wish: 0.0,
             actor_heights: HashMap::new(),
             actor_block_radii: HashMap::new(),
             standing: HashMap::new(),
@@ -1339,6 +1352,19 @@ impl PhysState {
         }
     }
 
+    /// Where a reference with one dynamic body is now, by its body (position and angles,
+    /// as the settle write-back would put them), and whether the body sleeps. Co-op
+    /// replication sends a guest's carried object to the host with it.
+    pub fn ref_pose_now(&self, id: u32) -> Option<([f32; 3], [f32; 3], bool)> {
+        let (local, scale) = match self.created.get(&id) {
+            Some(cb) => cb.local.filter(|_| cb.dynamic).map(|l| (l, 1.0))?,
+            None => self.placed_dynamic.get(&id).map(|p| (p.local, p.scale))?,
+        };
+        let b = self.world.ref_bodies(id).first().copied()?;
+        let (pos, rot) = dropped::ref_pose_from_body(&b, &local, scale);
+        Some((pos, ref_angles(&rot), b.sleeping))
+    }
+
     /// A script moved or turned reference `id` (SetPos, SetAngle, Rotate, SetScale, the
     /// console's too) at time `now` (seconds): its collision is built again at the
     /// simulation's pose when it is not there already.
@@ -1550,12 +1576,30 @@ impl PhysState {
                 return false;
             }
         };
+        // The drinking contest's bill and bottle (`fnv_game::drink_table`) stay where they
+        // were made: a prop, not loose items a falling body knocks over.
+        let objects = if fnv_game::drink_table::fixed_in_place(FormId(id)) && objects.iter().any(|o| o.motion == Motion::Dynamic) {
+            *self.stats.counts.entry("created_fixed_prop").or_default() += 1;
+            Arc::new(objects.iter().cloned().map(|mut o| {
+                if o.motion == Motion::Dynamic {
+                    o.motion = Motion::Static;
+                }
+                o
+            }).collect())
+        } else {
+            objects
+        };
         let joined = one_dynamic_body(&objects).map(|o| (objects.len(), o));
         let objects = match &joined {
             Some((_, o)) => Arc::new(vec![o.clone()]),
             None => objects,
         };
-        let pose = RefPose { form_id: id, position: s.pos, rotation: ref_rotation(s.rot), scale: 1.0 };
+        // A created reference that does not move keeps its scale (a table made at 1.2,
+        // `fnv_game::drink_table`, `fnv_game::armwrestle_table`); a loose one is at 1, as
+        // its pose is read back from its body at 1 (`settle_created`).
+        let still = !objects.iter().any(|o| o.motion == Motion::Dynamic);
+        let scale = if still { s.scale.unwrap_or(1.0) } else { 1.0 };
+        let pose = RefPose { form_id: id, position: s.pos, rotation: ref_rotation(s.rot), scale };
         // A panic converting or adding the bodies (`nvf_assets::guard`): no collision for
         // this reference, and nothing of it left in the world.
         let rep = match nvf_assets::guard::guarded(|| Ok(self.world.add_ref(&pose, &objects))) {
@@ -1710,6 +1754,9 @@ impl PhysState {
     pub fn settle_placed(&mut self, sim: &mut World) -> Vec<u32> {
         let mut changed = Vec::new();
         for (&id, p) in self.placed_dynamic.iter_mut() {
+            if self.follow_only.contains(&id) {
+                continue;
+            }
             let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
             if b.sleeping && !p.moved {
                 continue;
@@ -2113,8 +2160,13 @@ fn travel(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut location: ResMut<Location>,
+    screen: Option<ResMut<crate::loading::Loading>>,
 ) {
     let Some(t) = msgs.read().last().copied() else { return };
+    // A script's MoveTo: looking level along the marker (`Loading::level_view`).
+    if screen.is_some_and(|mut s| std::mem::take(&mut s.level_view)) {
+        player.pitch = 0.0;
+    }
     let to = t.destination(*location);
     let space = match to.interior {
         Some(id) => Space::Interior(id),

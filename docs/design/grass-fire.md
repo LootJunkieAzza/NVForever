@@ -33,8 +33,14 @@ Code: `engine/nvf-play/src/grass_fire.rs` (the model, the ignition, the actors),
   cell's patches with the height of the lowest plant's ground.
 - Grass switched off (`--no-grass`, settings) means no fuel: nothing burns.
 - When a cell is neither loaded nor being loaded (it fell behind the player, or the player
-  went indoors) its patches and what burnt of them are forgotten. The grass regrows the
-  next time it loads: burnt grass is not kept in saves, and it comes back whole.
+  went indoors) its patches and its fires are forgotten, but what fire reached there is
+  kept, as burnt out (a patch still burning too), with its ground's height
+  (`Fires::kept`). The next time the cell loads, those patches are ash and scorched
+  ground again, even where no grass grows on this game, and do not burn twice
+  [design: owner 2026-11-15 via parity: grass burnt while a co-op player was elsewhere
+  must be burnt when that player arrives or joins]. Burnt grass lasts for the session; it
+  is not kept in saves. Log: `grass fire: cell (x, y) loaded again: <n> patches burnt
+  before are burnt here again (<m> kept elsewhere)`.
 
 ## 3. Spread
 
@@ -79,23 +85,60 @@ Code: `engine/nvf-play/src/grass_fire.rs` (the model, the ignition, the actors),
 - **Grass** (grass.wesl): each plant reads the patch it stands on. Its colour falls to
   5% as it chars, it glows orange like embers, flickering, while its patch burns, and once
   burnt it sinks into the ground the way grass beyond the grass distance does.
-- **Scorched ground** (terrain.wesl "Scorch"): the landscape under a patch that caught
+- **Scorched ground** (upstream: terrain.wesl "Scorch"; on the replication line, which
+  draws the landscape with the NIF material, base pass and blended layers:
+  nif_material.wesl "Scorch", `NifSurface::scorch_map` and `soft.y`, set on the
+  landscape's materials only by `terrain.rs`): the landscape under a patch that caught
   turns black (its colour × 0.16), reaching full by the time the patch is charred, and
   stays black until its cell unloads. It is read between the patches' middles and broken
   up with noise about 20 units across, so the mark has a ragged edge, not 64-unit
-  squares. Only the folded landscape draw reads it (every quadrant on a GPU with bindless
-  textures, the usual case); a quadrant's layers past the sixth, drawn blended over it,
-  cover the mark.
+  squares. Every layer pass is darkened alike, so the layers blended over the base keep
+  the mark.
 - **Flames** (grass_fire_fx.rs) [owner 2026-11-14: the first version looked "a bit
   sparse"; flames should start small and grow]: each patch that catches gets two small
   particle fires (`mps\mpsfiresmall01.nif`) at random spots and, on about a third of the
   patches, a larger one (`mps\mpsfiremed01.nif`). Each starts at 15% of its size and grows
   to it over 2 s (its particles' size, a size factor on the model's emitter added for
   this, `particles::ModelEmitter::size`, and its spray), and dies down over 1.2 s when its
-  patch burns out. About one patch in six has a flickering orange light (at most 16).
-  Half the burnt-out patches smoulder (`mps\mpssmokesmall01.nif`) for 5 s. At most 420
-  flame and smoke models at once. (The ambient `fxfiresmall01.nif` holds no particle
+  patch burns out. About one patch in six has a flickering orange light (at most 8).
+  Half the burnt-out patches smoulder (`mps\mpssmokesmall01.nif`) for 5 s.
+- GPU safety caps [design, gpu-device-lost 2026-11-14, after stacked fire filling the
+  screen close up powered a PC off; fill rate near the camera matters most]: at most 200
+  flame and smoke models at once; at most 24 of them within 400 units of the camera,
+  every stacked model counted, the nearest taken out past that; at most 8 lights; and a
+  ramp of at most 20 new models a second (burning patches queue for their flames, at
+  most 256, and get none if they burn out first), so a big burn cannot jump from nothing
+  to full in one frame. A build with a cap above these fails (a const assert in
+  `grass_fire_fx.rs`). Log every 10 s while fire effects live:
+  `grass fire fx: <n> drawn (cap 200), <m> near (cap 24 within 400), …`. (The ambient `fxfiresmall01.nif` holds no particle
   system or shape of its own and drew nothing.)
+
+## 6a. Co-op
+
+- The host decides [design]: only the host lights, spreads and puts out fires and burns
+  NPCs. Each patch the host lights goes to every guest as a reliable `GrassFire` effect
+  (patch, ground height, fire, item, who lit it, seconds left to burn,
+  `nvf_coop::repl::Effect`); the guest burns that patch for those seconds
+  (`Fires::light_remote`), so its grass glows and chars, and its flames, smoke and
+  light come from the same events as the host's (§6), with the same patch-seeded spots.
+- A guest's own burning landing (its Flamer's flame, an incendiary round) is not lit on
+  the guest: it goes to the host as a `GrassLanded` effect and the host lights it as if
+  it had landed there, then sends the patches back as above.
+- On a guest only its own player catches fire from the flames it sees; NPCs burn on the
+  host and their burning reaches the guest with their state.
+- A guest who joins while fires burn, or whose stream starts again, gets them as they
+  are (`Fires::snapshot`): when its stream starts and again when it asks for the
+  syncing screen's answer, standing in its place with its cells loaded, the host sends
+  every patch burning, with the seconds it has left, and every patch burnt out, in its
+  loaded cells or kept from cells it left (fire 0, `BURNT_OUT`: ash and scorched ground,
+  no flames).
+- Burnt grass is shared world state: the host sends every patch it lights to every
+  guest wherever the guest is, and each game keeps what burnt in cells it has not loaded
+  (§2), so a guest who was elsewhere, or who joined later, finds it burnt when its cell
+  loads, and so does the host when it comes back. A patch it
+  already has is not lit twice. Log: host `replication: player <n> is told the grass
+  fires here: <b> patches burning, <a> burnt out`; guest `grass fire: <a> patches the
+  host's fires burnt out before this player came are burnt here too`.
 
 ## 7. Not done (yet)
 

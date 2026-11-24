@@ -274,6 +274,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
 pub fn effects_with_corner_clear(events: &[Event], skip: &BTreeSet<usize>, clear_before: usize, ctx: &dyn EffectCtx) -> Vec<ScriptEffect> {
     let mut out = Vec::new();
     let mut added: Vec<(FormId, i32)> = Vec::new();
+    let mut removed: Vec<(FormId, i32)> = Vec::new();
     let player = FormId::PLAYER_REF;
     let push_notify = |out: &mut Vec<ScriptEffect>, idx: usize, note: Note| {
         if idx >= clear_before {
@@ -446,19 +447,37 @@ pub fn effects_with_corner_clear(events: &[Event], skip: &BTreeSet<usize>, clear
                 let name = ctx.skill_name(*skill);
                 push_notify(&mut out, i, Note { text: format!("{name} increased to {}", value.round()), icon: None, seconds: None });
             }
-            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => {
-                let n = ctx.name(*item);
-                push_notify(&mut out, i, if *count > 1 { format!("{n} ({count}) removed") } else { format!("{n} removed") }.into());
-            }
+            // Gathered for the one-line-or-many lines below; a line cleared by a same-frame
+            // ClearMessageQueue is not gathered (as `added`).
+            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player && i >= clear_before => match removed.iter_mut().find(|(i, _)| i == item) {
+                Some((_, n)) => *n += count,
+                None => removed.push((*item, *count)),
+            },
             _ => {}
         }
     }
     if caps_sound {
         out.push(ScriptEffect::ItemAddedSound(CAPS));
     }
+    // Items a script took from the player, one line each, or one line for many: a
+    // whole inventory put away (Dead Money's bunker, `player.RemoveAllItems` without its
+    // hide flag, SCPT 0x0100C59E [observed: fnvtool decompile]) was a 2-second line per
+    // stack, queued for a minute over the slides that follow (item 214). That the original
+    // shows item lines for RemoveAllItems is documented (the third flag suppresses them,
+    // GECK wiki RemoveAllItems via schemas/script/functions.json); how many and in what
+    // form is not (observer-checks.md) [design].
+    const MANY: usize = 4;
+    if removed.len() >= MANY {
+        let total: i32 = removed.iter().map(|(_, n)| n).sum();
+        out.push(ScriptEffect::Notify(format!("{} items removed ({total} in all)", removed.len()).into()));
+    } else {
+        for (item, n) in removed {
+            let name = ctx.name(item);
+            out.push(ScriptEffect::Notify(if n > 1 { format!("{name} ({n}) removed") } else { format!("{name} removed") }.into()));
+        }
+    }
     // Items a script gave the player, one line each, or one line for many (the add-on
     // packs give dozens at once).
-    const MANY: usize = 4;
     // The player's tweak sets how long these lines stay [design: docs/design/tweaks.md].
     let seconds = ctx.tweaks().map(|t| t.item_added_seconds).filter(|s| *s > 0.0);
     let line = |text: String| ScriptEffect::Notify(Note { text, icon: None, seconds });
@@ -941,13 +960,13 @@ mod tests {
 
     const QUEST: FormId = FormId(0x104C1C);
     const DOOR: FormId = FormId(0x116425);
+    const TERMINAL: FormId = FormId(0x14B0A7);
     const PARENT: FormId = FormId(0x500);
     const CHILD: FormId = FormId(0x501);
     const GRANDCHILD: FormId = FormId(0x502);
     const INTERIOR: u32 = 0x103DF9;
     const WORLD: u32 = 0xDA726;
     const EXTERIOR: u32 = 0x200;
-    const TERMINAL: FormId = FormId(0x14B0A7);
 
     struct Fake;
 
@@ -972,6 +991,9 @@ mod tests {
         }
         fn is_message_box(&self, message: FormId) -> bool {
             message.0 == 0x0BB
+        }
+        fn is_terminal(&self, r: FormId) -> bool {
+            r == TERMINAL
         }
         fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>) {
             match message.0 {
@@ -1007,9 +1029,6 @@ mod tests {
             ix.cells.insert(INTERIOR, fnv_world::Cell { form_id: INTERIOR, ..Default::default() });
             ix.cells.insert(EXTERIOR, fnv_world::Cell { form_id: EXTERIOR, world: Some(WORLD), ..Default::default() });
             crate::activate::outcome::effects(a, target.0, "Gate", &ix, |id| self.name(id))
-        }
-        fn is_terminal(&self, r: FormId) -> bool {
-            r == TERMINAL
         }
     }
 
@@ -1088,6 +1107,10 @@ mod tests {
         let locked = Activation { outcome: Outcome::Locked { level: 255 }, unlocked_with: None, script: None };
         let e = run(vec![EventKind::Activated { reference: DOOR, by: FormId::PLAYER_REF, outcome: Some(serde_json::to_value(&locked).unwrap()) }]);
         assert_eq!(e, vec![ScriptEffect::Notify("Gate is locked (Requires Key)".into())]);
+        // A terminal's OnActivate ending in Activate (the Lucky 38's, item 79): its screen.
+        let done = Some(serde_json::to_value(Activation { outcome: Outcome::Activated, unlocked_with: None, script: None }).unwrap());
+        assert_eq!(run(vec![EventKind::Activated { reference: TERMINAL, by: FormId::PLAYER_REF, outcome: done.clone() }]), vec![ScriptEffect::OpenTerminal(TERMINAL.0)]);
+        assert!(run(vec![EventKind::Activated { reference: TERMINAL, by: FormId(0x99), outcome: done }]).is_empty(), "only the player's");
     }
 
     #[test]
@@ -1135,6 +1158,9 @@ mod tests {
         // Many items at once: one line.
         let many: Vec<EventKind> = (0..10).map(|i| EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x100 + i), count: 2, silent: false }).collect();
         assert_eq!(run(many), vec![ScriptEffect::Notify("10 items added (20 in all)".into())]);
+        // A whole inventory put away (Dead Money's bunker): one line, not one per stack.
+        let away: Vec<EventKind> = (0..10).map(|i| EventKind::ItemRemoved { from: FormId::PLAYER_REF, item: FormId(0x100 + i), count: 3, silent: false }).collect();
+        assert_eq!(run(away), vec![ScriptEffect::Notify("10 items removed (30 in all)".into())]);
         // A script's hide flag (the opening's `player.RemoveItem PipBoy 1 1`): no line.
         let silent = vec![
             EventKind::ItemRemoved { from: FormId::PLAYER_REF, item: FormId(0x15038), count: 1, silent: true },

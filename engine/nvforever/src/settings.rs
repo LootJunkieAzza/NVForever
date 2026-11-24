@@ -1188,7 +1188,7 @@ fn register_graphics(app: &mut App) {
         Setting { key: AO_KEY, group: GROUP_GRAPHICS, label: "Ambient occlusion", note: AO_NOTE, switches: "--graphics, --ambient-occlusion", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| AO_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: ao_chosen, pick: take_ao, save: ao_chosen, load: take_ao, ask_keep: false },
     );
-    let switches: [Switch; 24] = [
+    let switches: [Switch; 25] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1382,6 +1382,14 @@ fn register_graphics(app: &mut App) {
             "--graphics-only",
             |w| w.resource::<Graphics>().water_mirror,
             |w, on| w.resource_mut::<Graphics>().water_mirror = on,
+        ),
+        (
+            "fuller-fire",
+            "Fuller fire",
+            "On: fires burn fuller, with rising embers and a wisp of smoke made from the game's own (an NVForever addition), capped to a share of each frame's GPU work. Off (default): as the game's data has them.",
+            "--graphics-only",
+            |w| w.resource::<Graphics>().fuller_fire,
+            |w, on| w.resource_mut::<Graphics>().fuller_fire = on,
         ),
         // #2661: off in both looks and not part of `enhanced`; switched while the game runs
         // (mesh_terrain_blend.rs `follow_setting`); the test aid NVF_PLAY_TEST_MESH_BLEND

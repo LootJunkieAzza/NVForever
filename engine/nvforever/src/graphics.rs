@@ -202,6 +202,10 @@ pub struct Graphics {
     /// vanilla, as the original's water reflects the world). Off, water reflects the sky,
     /// and what is on the screen where `water_reflections` is on.
     pub water_mirror: bool,
+    /// More body for the world's fires (`fuller_fire.rs`, `fire_volume.rs`; an NVForever
+    /// addition). Off in both presets since 2026-11-14, when a lit campfire's flames
+    /// powered off the owner's PC, until the capped flame is measured safe.
+    pub fuller_fire: bool,
     /// How the sun's shadow maps are filtered (Bevy's default, Gaussian, in vanilla).
     pub shadow_filter: ShadowFilteringMethod,
     /// Placed meshes blend into the landscape where they meet it (`mesh_terrain_blend.rs`,
@@ -335,6 +339,7 @@ impl Graphics {
             water_reflections: on,
             water_effects: on,
             water_mirror: true,
+            fuller_fire: false,
             shadow_filter: ShadowFilteringMethod::Gaussian,
             // Off in both looks, so `enhanced` (quality.rs `enhanced_keys`) leaves it out.
             mesh_terrain_blend: false,
@@ -386,6 +391,7 @@ impl Graphics {
             "eye-adaptation" => &mut self.eye_adaptation,
             "neon-glow" => &mut self.neon_glow,
             "water-mirror" => &mut self.water_mirror,
+            "fuller-fire" => &mut self.fuller_fire,
             "sharpen" => &mut self.sharpen,
             "anisotropic" => &mut self.anisotropic,
             "light-shafts" => &mut self.light_shafts,
@@ -428,11 +434,12 @@ impl Graphics {
                 "no-eye-adaptation" => g.eye_adaptation = false,
                 "no-neon-glow" => g.neon_glow = false,
                 "no-water-mirror" => g.water_mirror = false,
+                "no-fuller-fire" => g.fuller_fire = false,
                 "no-authored-materials" => g.authored_materials = false,
                 "no-authored-reflections" => g.authored_reflections = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-fuller-fire, no-authored-materials, no-authored-reflections", KEYS.join(", "))),
                 },
             }
         }
@@ -457,6 +464,7 @@ impl Graphics {
             (self.water_reflections, "screen-space water reflections"),
             (self.water_effects, "water caustics and river flow"),
             (!self.water_mirror, "no mirrored water"),
+            (self.fuller_fire, "fuller fire"),
             (self.mesh_terrain_blend, "meshes blended into the ground"),
             (self.shadow_filter == ShadowFilteringMethod::Hardware2x2, "hardware 2x2 shadow filtering"),
             (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
@@ -518,8 +526,38 @@ pub const SHADOW_RESOLUTIONS: [(&str, usize); 2] = [("2048", 2048), ("4096", 409
 /// The Shadow resolution row's choice now (an index into [`SHADOW_RESOLUTIONS`]; a side
 /// not among them reads as the first).
 pub fn shadow_resolution_choice(world: &World) -> usize {
-    let side = crate::sky::map_side(world.get_resource::<DirectionalLightShadowMap>());
+    let side = chosen_map_side(world);
     SHADOW_RESOLUTIONS.iter().position(|&(_, s)| s == side).unwrap_or(0)
+}
+
+/// The side the Shadow resolution row chose, kept apart from the maps' side in use while
+/// the split profile draws them one step smaller ([`split_map_side`]), so the row and the
+/// INI keep the player's choice.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChosenShadowMap(pub usize);
+
+/// The least side the split profile draws the shadow maps at [design].
+pub const SPLIT_MAP_FLOOR: usize = 1024;
+
+/// The split profile's shadow maps (plan split-screen.md §11: "the shadow map one
+/// resolution step down"): half the chosen side (4096 -> 2048, 2048 -> 1024), not under
+/// [`SPLIT_MAP_FLOOR`]. A 1024² layer takes 4 MiB against 16 MiB at 2048² (by
+/// arithmetic, 32-bit depth), and its shadow passes draw a quarter of the texels.
+pub fn split_map_side(side: usize) -> usize {
+    (side / 2).max(SPLIT_MAP_FLOOR).min(side)
+}
+
+/// The side the row chose: [`ChosenShadowMap`], or the maps' side before any choice.
+fn chosen_map_side(world: &World) -> usize {
+    world.get_resource::<ChosenShadowMap>().map_or_else(|| crate::sky::map_side(world.get_resource::<DirectionalLightShadowMap>()), |c| c.0)
+}
+
+/// The maps' side for the chosen side and the split profile (on or off) from now: the
+/// chosen side, or [`split_map_side`] of it while split (draw_distance.rs `set_split`).
+pub fn apply_shadow_map(world: &mut World, split: bool) {
+    let chosen = chosen_map_side(world);
+    world.insert_resource(ChosenShadowMap(chosen));
+    put_map_side(world, if split { split_map_side(chosen) } else { chosen });
 }
 
 /// Choose Shadow resolution `i` of [`SHADOW_RESOLUTIONS`]: the maps change size now, and
@@ -532,6 +570,14 @@ pub fn shadow_resolution_choice(world: &World) -> usize {
 /// resource is written only when the side changes.
 pub fn set_shadow_resolution_choice(world: &mut World, i: usize) {
     let side = SHADOW_RESOLUTIONS[i.min(SHADOW_RESOLUTIONS.len() - 1)].1;
+    world.insert_resource(ChosenShadowMap(side));
+    let split = world.get_resource::<crate::draw_distance::DrawDistances>().is_some_and(|d| d.split);
+    put_map_side(world, if split { split_map_side(side) } else { side });
+}
+
+/// The maps take `side` now, with the cascades laid out for it on the sun at once
+/// ([`set_shadow_resolution_choice`]).
+fn put_map_side(world: &mut World, side: usize) {
     let mut map = world.get_resource_or_insert_with(|| DirectionalLightShadowMap { size: SHADOW_MAP });
     if map.size == side {
         return;
@@ -703,7 +749,14 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(MsaaSetting(self.1))
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
             .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::heat_haze::HeatHazePlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
-            .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
+            .add_systems(Startup, |g: Res<Graphics>| {
+                info!("graphics: {}", g.describe());
+                // Off by default, the fuller fire is not named in the line above; this
+                // says so in words a fire-safety check can look for.
+                if !g.fuller_fire {
+                    info!("graphics: no fuller fire (no volumetric flame is made, added embers and smoke never emit)");
+                }
+            })
             .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain())
             .add_systems(PostUpdate, log_shadow_map.before(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades));
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
@@ -1460,6 +1513,30 @@ mod tests {
         assert_eq!(SHADOW_RESOLUTIONS[0].1, SHADOW_MAP, "the default first");
     }
 
+    /// The split profile draws the maps one step smaller and the row keeps the player's
+    /// choice; ending split gives the chosen side back, and a choice made while split
+    /// takes the smaller side at once.
+    #[test]
+    fn the_split_profile_draws_the_shadow_maps_one_step_smaller() {
+        assert_eq!(split_map_side(4096), 2048);
+        assert_eq!(split_map_side(2048), 1024);
+        assert_eq!(split_map_side(1024), 1024, "not under the floor");
+        assert_eq!(split_map_side(512), 512, "never larger than chosen");
+        let mut world = World::new();
+        world.insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP });
+        apply_shadow_map(&mut world, true);
+        assert_eq!(world.resource::<DirectionalLightShadowMap>().size, 1024);
+        assert_eq!(shadow_resolution_choice(&world), 0, "the row still reads 2048");
+        apply_shadow_map(&mut world, false);
+        assert_eq!(world.resource::<DirectionalLightShadowMap>().size, 2048);
+        set_shadow_resolution_choice(&mut world, 1);
+        apply_shadow_map(&mut world, true);
+        assert_eq!(world.resource::<DirectionalLightShadowMap>().size, 2048);
+        assert_eq!(shadow_resolution_choice(&world), 1, "the row still reads 4096");
+        apply_shadow_map(&mut world, false);
+        assert_eq!(world.resource::<DirectionalLightShadowMap>().size, 4096);
+    }
+
     /// The Shadow resolution row puts the cascades laid out for the new side on the sun at
     /// once, by day and by night; with the shadows off it leaves them alone.
     #[test]
@@ -1632,6 +1709,19 @@ mod tests {
         let mut g = Graphics::preset(Preset::Vanilla);
         *g.switch("mesh-terrain-blend").expect("settings key") = true;
         assert_eq!(g, on);
+    }
+
+    #[test]
+    fn fuller_fire_is_off_in_both_presets_and_can_be_switched_on() {
+        assert!(!Graphics::preset(Preset::Vanilla).fuller_fire && !Graphics::preset(Preset::Enhanced).fuller_fire);
+        let on = Graphics::only(&["fuller-fire".into()]).expect("fuller-fire");
+        assert!(on.fuller_fire);
+        assert_eq!(on.describe(), "light glow, fuller fire");
+        let off = Graphics::only(&["no-fuller-fire".into()]).expect("no-fuller-fire");
+        assert!(!off.fuller_fire);
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("fuller-fire").expect("settings key") = true;
+        assert!(g.fuller_fire);
     }
 
     #[test]

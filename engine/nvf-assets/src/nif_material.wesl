@@ -98,7 +98,7 @@ import bevy_pbr::{
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
 
-import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
+import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel, scorch_texel};
 @if(NVF_PBR_VIEW_OCCLUSION && !PREPASS_PIPELINE) import nvf_assets::nif_surface_bindings::occlusion_texel;
 @if(NVF_PBR_VIEW_OCCLUSION && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_OCCLUSION_TEXTURE_BIT;
 @if(NVF_PBR_VIEW_HEIGHT && !PREPASS_PIPELINE) import nvf_assets::nif_surface_bindings::height_texel;
@@ -307,6 +307,14 @@ fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
 // tonemapper's grey response (the same table as nvforever sky.wesl), so after the
 // tonemapper it lands where clipping would put it. Lit surfaces without emitted light
 // keep the tonemapper [hypothesis from the original's frames of Dead Money's lantern].
+// Since 2026-10-24 the main view shows display values clipped per channel in Tony
+// McMapface's place (nvforever lights.rs GAME_CLIP), and views without fog have no
+// tonemapper. There only the emitted light goes through the inverse, channel by channel
+// (its hot channels still feed the light glow: the Tropicana's MOTEL and La Concha
+// tubes), and the light falling on the surface is added as it is. Mapped together, a
+// white surface lit by street lights under a green neon emitter (HotM's Ultra-Luxe
+// starburst sign by the Vault 21 gift shop) had every channel raised past white and
+// burned white (strip-neon-white, 2026-11-05).
 const HOT_MAX: f32 = 0.95;
 const TONY_N: u32 = 24u;
 var<private> TONY_IN: array<f32, 24> = array<f32, 24>(0.0, 0.005, 0.01, 0.02, 0.04, 0.07, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0, 5.0, 8.0, 16.0, 40.0, 100.0);
@@ -322,15 +330,40 @@ fn tony_inverse(y: f32) -> f32 {
     return TONY_IN[TONY_N - 1u];
 }
 
+// The brightness at which emitted light whose brightest channel is `m` is drawn under the
+// display clip (nif_material.rs `hot_brightness`, the CPU mirror and the reasons): as it
+// is up to white, then HOT_GLOW_PER_STOP more for each doubling, at most HOT_GLOW_MAX.
+// The test aid NVF_NEON (nvforever lights.rs) replaces the two numbers.
+const HOT_GLOW_PER_STOP: f32 = 0.5;
+const HOT_GLOW_MAX: f32 = 3.0;
+fn hot_brightness(m: f32) -> f32 {
+    if m <= 1.0 {
+        return max(m, 0.0);
+    }
+    return min(1.0 + log2(m) * HOT_GLOW_PER_STOP, HOT_GLOW_MAX);
+}
+
 // `lit` plus the emitted light `e` as a hot source: held per channel, mapped through
 // the inverse response. Only light that goes past white is a hot source: blended in as
 // the emitted light's brightest channel rises from 0.8 to 1.5, so faint effect shapes
 // (window light rays, white × 1 under a warm emittance colour) and the dark parts of a
 // glow map keep the tonemapper; the lantern glass (× 10) and neon (× 25) burn.
-fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
+@if(!PREPASS_PIPELINE) fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
+    let k = smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b)));
+    if !view_keeps_tony() {
+        // The display clips: only the emitted light is changed; the light falling on the
+        // surface is left as it is. Emitted light past white keeps its hue: its brightest
+        // channel is compressed (hot_brightness) and the others follow in proportion, so
+        // after the clip a cyan tube stays cyan and a bulb stays a yellow dot, and what is
+        // left over white feeds the light glow. Raising each channel on its own past white
+        // turned every coloured sign white with a halo that swallowed its shape (owner's
+        // playtest 119: Lucky 38, Monte Carlo, Gomorrah; queue items 146, 174).
+        let m = max(e.r, max(e.g, e.b));
+        return lit + e * (hot_brightness(m) / max(m, 1e-6));
+    }
     let d = min(lit + e, vec3(HOT_MAX));
     let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
-    return mix(lit + e, hot, smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b))));
+    return mix(lit + e, hot, k);
 }
 
 // The linear light an additive shape (blend factors SRC_ALPHA or ONE, and ONE) of linear
@@ -338,7 +371,21 @@ fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
 // and the reasons: nif_material.rs `add_display`). The game adds colour × alpha to the
 // frame's display values [hypothesis]: the sum is formed in display values (gamma 2.2),
 // held to ADD_DISPLAY_MAX (2.0) or the frame's own value if brighter, and the difference
-// to the frame returned as linear light.
+// to the frame returned as linear light. What is added is first held to ADD_HUE_MAX in
+// its brightest channel, the others in proportion, so a coloured shape keeps its hue
+// (the Monte Carlo's bulbs at × 15 stay yellow dots, not white discs).
+const ADD_HUE_MAX: f32 = 1.5;
+
+// The colour an unlit emitter that blends over the frame (SRC_ALPHA / INV_SRC_ALPHA) is
+// drawn at: its emitted light held to BLEND_GLOW_MAX in its brightest channel, the
+// others in proportion (CPU mirror and the reasons: nif_material.rs `blend_glow`). Its
+// alpha is how much of the frame it covers, so a colour past white would turn a soft
+// edge or a faint wash into a solid bar.
+const BLEND_GLOW_MAX: f32 = 1.0;
+fn blend_glow(e: vec3<f32>) -> vec3<f32> {
+    let m = max(e.r, max(e.g, e.b));
+    return e * min(1.0, BLEND_GLOW_MAX / max(m, 1e-6));
+}
 // The sRGB transfer, display value to linear (as bevy::color's Srgba to LinearRgba;
 // CPU mirror: nif_spawn.rs `unlit_vertex_colors`' conversion).
 fn display_to_linear(c: vec3<f32>) -> vec3<f32> {
@@ -356,7 +403,9 @@ fn fogged_addition(fogged: vec3<f32>, fogged_black: vec3<f32>) -> vec3<f32> {
 fn add_display(colour: vec3<f32>, a: f32, behind: vec3<f32>) -> vec3<f32> {
     let b = max(behind, vec3(0.0));
     let shown = pow(b, vec3(1.0 / 2.2));
-    let added = pow(max(colour, vec3(0.0)), vec3(1.0 / 2.2)) * saturate(a);
+    let raw = pow(max(colour, vec3(0.0)), vec3(1.0 / 2.2)) * saturate(a);
+    let top = max(raw.r, max(raw.g, raw.b));
+    let added = raw * min(1.0, ADD_HUE_MAX / max(top, 1e-6));
     let sum = min(shown + added, max(shown, vec3(2.0)));
     return max(pow(sum, vec3(2.2)) - b, vec3(0.0));
 }
@@ -380,6 +429,14 @@ fn blend_colour_scale(a: f32) -> f32 {
 @if(!PREPASS_PIPELINE) fn view_emissive_scale() -> f32 {
     @if(!PREPASS_PIPELINE && DISTANCE_FOG) return select(1.0, fog.bi.y, fog.mode == FOG_MODE_ATMOSPHERIC && fog.bi.y > 0.0);
     @if(!PREPASS_PIPELINE && !DISTANCE_FOG) return 1.0;
+}
+
+// Whether the view shows Tony McMapface's curve (the test aid NVF_TONEMAP=tony), which
+// nvforever fog.rs `falloff` puts in the game fog's `bi.z`; else display values are
+// clipped, or a view without fog has no tonemapper.
+@if(!PREPASS_PIPELINE) fn view_keeps_tony() -> bool {
+    @if(!PREPASS_PIPELINE && DISTANCE_FOG) return fog.mode == FOG_MODE_ATMOSPHERIC && fog.bi.z > 0.5;
+    @if(!PREPASS_PIPELINE && !DISTANCE_FOG) return false;
 }
 
 // Soft intersections (nif_material.rs module notes): the share of the shape kept at this
@@ -571,6 +628,43 @@ fn fragment(
     return nif_fragment(in, is_front);
 }
 
+// Scorch (nvf_play grass_fire, docs/design/grass-fire.md; upstream #2572's terrain.wesl
+// "Scorch", here on the landscape's NIF materials, NifSurface::scorch_map): the ground
+// under grass that burns turns black and stays so until its cell unloads. The burn map
+// holds a byte per 64-unit patch: above 0 the patch has caught, and by 0.5 it is fully
+// charred. Read between the patches' middles (so the mark has no square edges) and
+// broken up with noise at its edge [chosen].
+const BURN_PATCH: f32 = 64.0;
+// How dark scorched ground gets (a factor on its colour) [chosen].
+const SCORCHED: f32 = 0.16;
+
+// How scorched the ground is at a point (Bevy world space; game (x, y) is Bevy (x, -z)).
+fn scorch(instance_index: u32, world: vec3<f32>) -> f32 {
+    let game = vec2<f32>(world.x, -world.z);
+    let p = game / BURN_PATCH - 0.5;
+    let base = vec2<i32>(floor(p));
+    let f = fract(p);
+    let a = saturate(scorch_texel(instance_index, base) * 2.0);
+    let b = saturate(scorch_texel(instance_index, base + vec2(1, 0)) * 2.0);
+    let c = saturate(scorch_texel(instance_index, base + vec2(0, 1)) * 2.0);
+    let d = saturate(scorch_texel(instance_index, base + vec2(1, 1)) * 2.0);
+    let s = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    if s <= 0.0 {
+        return 0.0;
+    }
+    // Value noise about 20 units across, so the edge is ragged.
+    let q = game / 20.0;
+    let i = floor(q);
+    let g = fract(q);
+    let h = g * g * (3.0 - 2.0 * g);
+    let n = mix(mix(scorch_hash(i), scorch_hash(i + vec2(1.0, 0.0)), h.x), mix(scorch_hash(i + vec2(0.0, 1.0)), scorch_hash(i + vec2(1.0, 1.0)), h.x), h.y);
+    return smoothstep(0.2, 0.7, s + (n - 0.5) * 0.45);
+}
+
+fn scorch_hash(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+
 fn nif_fragment(
     in: VertexOutput,
     is_front: bool,
@@ -689,6 +783,10 @@ fn nif_fragment(
         @if(PIPBOY_SCREEN && VERTEX_UVS_A && VERTEX_COLORS) factor *= vin.color.rgb;
         let picture = pipboy_picture(in.instance_index, screen_uv, screen_dx, screen_dy, surface.pipboy_a, surface.pipboy_b, in.position.xy);
         pbr_input.material.base_color = vec4(factor * picture, pbr_input.material.base_color.a);
+    }
+    if surface.soft.y > 0.5 {
+        let s = scorch(in.instance_index, in.world_position.xyz);
+        pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb * mix(1.0, SCORCHED, s), pbr_input.material.base_color.a);
     }
     @if(REFRACT) var tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
     @if(REFRACT && STANDARD_MATERIAL_NORMAL_MAP && VERTEX_UVS_A) if surface.fire_period != 0.0 {
@@ -815,7 +913,10 @@ fn nif_fragment(
     // to the 2026-11-06 frames; nif.md §6 "Unlit shapes that are pictures, and cut-out signs"].
     let emissive_scale = select(view_emissive_scale(), 1.0, surface.emissive_rule.x > 0.5 || (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
     let e = vec4(pbr_input.material.emissive.rgb * emissive_scale, pbr_input.material.emissive.a);
-    pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
+    // A real glow map gives the light on its own (soft.z, nif_spawn.rs
+    // `glow_emits_alone`); otherwise the light is modulated by the surface like lit light.
+    let surface_tint = select(pbr_input.material.base_color.rgb, vec3(1.0), surface.soft.z > 0.5);
+    pbr_input.material.emissive = vec4(e.rgb * surface_tint, e.a);
     // [design] Metal base colour (#2981; docs/spec-notes/pbr-materials.md "Metal base colour"):
     // in a view with a cube an authored material's base colour for both lighting calls is
     // lifted by its set's metal gain (NifSurface::metal_gain in the uniform's terrain.y;
@@ -955,8 +1056,13 @@ fn nif_fragment(
             // glows and beams that blend or add over the frame stay soft (hot_light), or a
             // lamp's glow card burns into a hard disc on the wall behind it.
             @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) let unlit_blend = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-            @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) if surface.emissive_rule.y > 0.0 || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
+            @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) if surface.emissive_rule.y > 0.0 || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
                 out.color = vec4(unlit_e, out.color.a);
+            } else if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
+                // A glow that blends over the frame covers it by its alpha: its colour is
+                // held to BLEND_GLOW_MAX (blend_glow), or a strip authored at alpha 0.15
+                // (the Ultra-Luxe's stair lights) covers the steps in solid white.
+                out.color = vec4(blend_glow(unlit_e), out.color.a);
             } else {
                 out.color = vec4(hot_light(vec3(0.0), unlit_e), out.color.a);
             }

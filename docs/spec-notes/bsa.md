@@ -223,6 +223,22 @@ screenshot) and DLC against DLC in load order (only DLC-worldspace files differ)
 `Fallout - Invalidation.bsa` is in no list and named after no plugin; the VFS ignores it
 [hypothesis that the game does too].
 
+## Override archives
+
+An archive with an empty file of the same name and the extension `.override` beside it
+(`NS A Content T 00.bsa` and `NS A Content T 00.override`) overrides earlier archives as
+in later Bethesda games; the behaviour needs the JIP LN NVSE plugin [documented: GECK
+wiki, "BSA"].
+
+The Nuclear Sunset list ships dozens of such pairs (`NS … 00.bsa`) whose names match no
+plugin of the list and no `SArchiveList` entry, and its own scripts and plugins use
+files only they hold (Modern Night Vision checks
+`Textures\Interface\Stentorious\RadiationVisuals _0.dds`, packed in
+`NS J UI T 00.bsa`) [observed, 2026-11-11]. NVForever therefore loads every archive of
+`Data` that has a `.override` file, whatever its name, above all other archives and
+below loose files, in name order among themselves [hypothesis: that the plugin loads
+them at all, the order among them, and that loose files still win, were not seen].
+
 
 ## NVForever home loose files
 

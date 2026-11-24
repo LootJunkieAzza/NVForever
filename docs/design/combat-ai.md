@@ -299,6 +299,29 @@ alarm at the attacker's position (`Cause::Ally`), so it becomes Alert and fights
 detects the attacker: `provocation: … helps … against …`. `Game::call_allies` runs after
 each round of measurements.
 
+**A fight a script forced** is not taken up while its target has not fought back
+[hypothesis]. This covers a target the actor fights only because of StartCombat, when:
+- the actor holds no grudge against it and its records would not set it on that target;
+- the target is not attacking it (not in combat with it on its list, has not hurt it).
+
+No ally assists such a fight and no alarm goes out (`Game::fight_only_forced`, logged
+`provocation: …'s fight with … was started by a script and … has not fought back`).
+Once the target fights back, the fight is an ordinary one. The sources:
+- Gloria's line 0012423E ends with `VFSVanGraffCustomerREF.StartCombat player` under the
+  comment "; Customer runs out" [observed: FalloutNV.esm INFO 0012423E SCTX].
+- VMS29aScript (SCPT 0012424E) lists state "8 = Customer runs away" [observed].
+- Mr. Soren (NPC_ 0012411C) is Unaggressive, Cowardly and Helps Nobody. He is in
+  VanGraffFaction (FACT 00118368, Ally of itself). His OnStartCombat (SCPT 0012424C)
+  only adds VFSVanGraffCustomerFleeTheScenePackage (PACK 00124270, Travel to
+  VFSSilverRushCustomerFleeMarkerREF) [observed].
+- Every Van Graff in the room has Helps Allies [observed: AIDT of 0010C67D, 0010C681,
+  0011836E/F, 0011839A/B, 001183A3]. By §10.3 alone, all of them would turn on the
+  player.
+- Jean-Baptiste's OnStartCombat player (SCPT 001251BE) reads "If the player pisses him
+  off, the Van Graffs go hostile!" and fails VMS29a (stage 200) [observed]. A fight with
+  the player was only expected on provocation.
+- In the original, Soren flees the building and nobody fights [documented:
+  fallout.wiki, Mr. Soren; owner 2026-11-07].
 **The player as the one helped** (#2794) [hypothesis: whether Assistance counts the player
 as an ally to help is not documented; the maintainer expects it, issue thread]: the player
 has no entry among the fighters, so `call_allies` adds one: its foes are every actor in a

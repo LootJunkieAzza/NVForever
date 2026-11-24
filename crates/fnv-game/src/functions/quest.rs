@@ -14,6 +14,15 @@ fn quest(g: &Game, a: &Args, i: usize) -> Result<FormId, String> {
     }
 }
 
+/// A co-op guest's world reads the host's story: quest `q` as the host has it, for a
+/// placed reference's script (`crate::coop::HostStory`), outside conditions.
+fn host<'g>(g: &'g Game, ctx: &Ctx, q: FormId) -> Option<&'g crate::coop::HostQuestState> {
+    if ctx.in_condition {
+        return None;
+    }
+    g.host_story(ctx.inst)?.quests.get(&q)
+}
+
 /// The quest a function names, or the running quest when the argument is absent
 /// (`GetQuestCompleted` documents an optional quest).
 fn quest_or_own(g: &Game, ctx: &Ctx, a: &Args) -> Result<FormId, String> {
@@ -30,20 +39,31 @@ pub fn set_stage(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
-pub fn get_stage(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn get_stage(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
+    if let Some(h) = host(g, ctx, q) {
+        return Ok(Value::Num(h.stage as f64));
+    }
     Ok(Value::Num(g.quests.get(&q).map(|s| s.stage()).unwrap_or(0) as f64))
 }
 
-pub fn get_stage_done(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn get_stage_done(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     let stage = a.int(1)?;
+    if let Some(h) = host(g, ctx, q) {
+        return yes(h.stage_done(stage));
+    }
     yes(g.quests.get(&q).is_some_and(|s| s.stages_done.contains(&stage)))
 }
 
 pub fn start_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     g.start_quest(q);
+    // A replication guest's own script started it: its script runs here
+    // (`Game::guest_own_quest`).
+    if g.guest_own_quest(q, true) {
+        tracing::info!("co-op: this guest's own script started quest {}: its script runs here until it stops", q);
+    }
     none()
 }
 
@@ -52,11 +72,15 @@ pub fn start_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> 
 pub fn stop_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     g.stop_quest(q);
+    g.guest_own_quest(q, false);
     none()
 }
 
-pub fn get_quest_running(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn get_quest_running(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
+    if let Some(h) = host(g, ctx, q) {
+        return yes(h.running);
+    }
     yes(g.quests.get(&q).is_some_and(|s| s.running))
 }
 
@@ -64,6 +88,9 @@ pub fn get_quest_running(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, St
 /// Quest stage makes it 1, `L5.quest.stage_order`].
 pub fn get_quest_completed(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest_or_own(g, ctx, a)?;
+    if let Some(h) = host(g, ctx, q) {
+        return yes(h.ended);
+    }
     yes(g.quests.get(&q).is_some_and(|s| s.completed || s.failed))
 }
 
@@ -145,11 +172,16 @@ pub fn complete_all_objectives(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
 /// [observed: o41, GetQuestRunning 0 and no GameMode run until StartQuest, from a job
 /// script; layer5-captures.md §5.7, issue #1232]. A reset from the quest's own script or
 /// stage result leaves it running [hypothesis, not observed: the Emergency Radio resets
-/// itself in its MenuMode and goes on to the supply drop].
+/// itself in its MenuMode and goes on to the supply drop]. A quest flagged "Start game
+/// enabled" goes back to its start, which is running, from any script [hypothesis, not
+/// observed: o41's VMQ03aTimer is not so flagged; NoticeBoard.esm's notice quests are,
+/// and a notice line's result script resets one with `ResetQuest` and sets its
+/// `GenerateEvent` for its GameMode block to act on, which works in the original].
 pub fn reset_quest(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     let (running, delay) = g.quests.get(&q).map_or((false, None), |s| (s.running, s.delay));
-    let running = running && ctx.quest == Some(q);
+    let start_enabled = g.data.quests.get(&q).is_some_and(|d| d.start_enabled());
+    let running = (running && ctx.quest == Some(q)) || start_enabled;
     g.quests.insert(q, crate::quest::QuestState { running, delay, ..Default::default() });
     g.instances.remove(&InstKey::Quest { quest: q });
     none()

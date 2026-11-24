@@ -441,6 +441,43 @@ fn an_if_leaving_two_values_stops_the_script() {
     assert_eq!(h.locals[&1], Value::Num(7.0));
 }
 
+/// Long 15's gate script (Long15Reloaded.esm SCPT 0x1E0025C2, ALLong15EntranceDoorScript),
+/// its GameMode block as the plugin's bytes have it:
+///
+/// ```text
+/// if GetMapMarkerVisible NVDLC04NukedNCRMapMarkerREF > 0
+///     disable
+/// endif
+/// ```
+///
+/// GetMapMarkerVisible takes no parameter (its marker is the calling reference,
+/// `Marker.GetMapMarkerVisible`), so the editor compiled the call with an empty parameter
+/// block and the marker as a reference of its own (`Z` 8): the expression leaves the
+/// call's value and `marker > 0`, two values. That is the shape of observer check 32: the
+/// original stops the script there and runs neither arm, so the gate is never disabled
+/// [observed: o4_00_probe for the GetStage case; the bytes here read from the plugin,
+/// 2026-11-13]. Not a misread of ours: the bytes say so.
+#[test]
+fn long_15s_gate_marker_check_leaves_two_values_and_stops() {
+    let bytes: Vec<u8> = vec![
+        // if (skip 1) " X 0x11EC (no parameters) Z 8 0 >"
+        0x16, 0x00, 0x12, 0x00, 0x01, 0x00, 0x0e, 0x00, 0x20, 0x58, 0xec, 0x11, 0x00, 0x00, 0x20, 0x5a, 0x08, 0x00, 0x20, 0x30, 0x20, 0x3e,
+        // disable (an empty parameter block)
+        0x22, 0x10, 0x02, 0x00, 0x00, 0x00,
+        // endif
+        0x19, 0x00, 0x00, 0x00,
+    ];
+    let t = table();
+    let d = fnv_script::decode(&bytes, &t);
+    assert_eq!(d.report.raw_total(), 0, "every byte is read");
+    let mut h = TestHost { refs: vec![0x0060_29D2, 0x14, 0x0600_25C8, 0x38, 0x0601_0146, 0x0011_E6E1, 0x0014_E861, 0x0400_C474], ..TestHost::default() };
+    let out = Vm::new(&t, &mut h, RunOpts { strict: false, max_steps: 100 }).run(&d.program.top);
+    assert!(matches!(&out, Err(VmError::Expression(m)) if m == "2 values left on the stack"), "{out:?}");
+    // GetMapMarkerVisible ran (on no reference); Disable did not.
+    assert_eq!(h.calls.iter().map(|c| c.0).collect::<Vec<_>>(), vec![0x11EC]);
+    assert_eq!(h.calls[0].1, None);
+}
+
 #[test]
 fn decoded_bytecode_runs() {
     // set fTimer (float 2) to fTimer - 0.5 ; if fTimer < 1, Disable ; endif

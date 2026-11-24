@@ -240,6 +240,18 @@ fn paths_with_wildcards_and_indexes() {
     assert_eq!(ui.get_float("TestMenu/*/Gauge/_Fill"), Some(0.0));
     assert_eq!(ui.get_float("TestMenu/*:0/*:0/x"), Some(392.0));
     assert_eq!(ui.get_float("TestMenu/Panel/*:2/_Fill"), Some(0.0));
+    // xNVSE's count: `*:N` among the file's own children from 1 in file order, 0 the
+    // last and nothing at the last's own number ([`crate::Count::FromFirst`], menu-xml.md
+    // §10.1); `name:N` as above.
+    let nvse = |p: &str| ui.get_counted(p, crate::Count::FromFirst).map(Value::num);
+    assert_eq!(nvse("TestMenu/*/*:1/_Fill"), Some(0.0));
+    assert_eq!(nvse("TestMenu/*/*:2/_Fill"), Some(1.0));
+    assert_eq!(nvse("TestMenu/*:0/*:0/x"), Some(392.0));
+    assert_eq!(nvse("TestMenu/Panel/*:0/x"), Some(392.0));
+    // The menu's one child is `*:0`, not `*:1`; Panel's last is not `*:3`.
+    assert!(nvse("TestMenu/*:1/*:1/_Fill").is_none());
+    assert!(nvse("TestMenu/Panel/*:3/x").is_none());
+    assert_eq!(nvse("TestMenu/Panel/Gauge:0/_Fill"), Some(1.0));
     assert!(ui.get("TestMenu/Panel/Gauge:2/_Fill").is_none());
     assert!(ui.get("TestMenu/Panel/*:3/_Fill").is_none());
     assert!(ui.find_tile("TestMenu/Panel/*:18446744073709551615").is_none());
@@ -997,6 +1009,43 @@ fn skipping_finds_what_working_everything_out_finds() {
 }
 
 #[test]
+fn a_refresh_works_out_what_one_trait_reads_as_an_update_does() {
+    // [design: owner's playtest 2026-11-11] A read after a write works out only the trait
+    // read and its sources; the update after it finds the same as a tree never refreshed.
+    let mut fast = loaded();
+    let mut slow = loaded();
+    fast.update();
+    slow.update();
+    let at = |ui: &Ui, path: &str| ui.find_trait(path).unwrap();
+    let writes: [(&str, f64, &str, f64); 4] = [
+        ("TestMenu/_Selected", 1.0, "TestMenu/Panel/Title/alpha", 295.0),
+        // A chain: _Fill, the Bar's width, then its x.
+        ("TestMenu/Panel/Gauge:1/_Fill", 0.25, "TestMenu/Panel/Gauge:1/Bar/x", -47.5),
+        ("TestMenu/Panel/Gauge:1/_Fill", 0.25, "TestMenu/Panel/Gauge:1/Bar/width", 95.0),
+        ("TestMenu/_Selected", 0.0, "TestMenu/Panel/Title/visible", slow.get_float("TestMenu/Panel/Title/visible").unwrap()),
+    ];
+    for (n, &(write, v, read, want)) in writes.iter().enumerate() {
+        assert!(fast.set_float(write, v) && slow.set_float(write, v));
+        let (t, k) = at(&fast, read);
+        assert!(fast.refresh(t, k), "write {n}");
+        assert_eq!(fast.get_float(read), Some(want), "write {n}");
+        slow.update();
+        fast.update();
+        assert_eq!(all_values(&fast), all_values(&slow), "write {n}");
+    }
+    // A write that reshapes the tree where the trait resolved through none of it: the
+    // trait's structure still holds (per-root structural dependencies), and the refresh
+    // finds what an update does.
+    let read = "TestMenu/Panel/Title/alpha";
+    let (t, k) = at(&fast, read);
+    assert!(fast.inject_text(&files(), "TestMenu", "<rect name=\"New\"/>"));
+    assert!(slow.inject_text(&files(), "TestMenu", "<rect name=\"New\"/>"));
+    assert!(fast.refresh(t, k));
+    slow.update();
+    assert_eq!(fast.get_float(read), slow.get_float(read));
+}
+
+#[test]
 fn ids_from_a_replaced_tree_name_no_tile_of_the_new_one() {
     // [design: #1061] Two trees built alike have their tiles in the same slots.
     let old = loaded();
@@ -1212,6 +1261,37 @@ fn trait_write_counts_tell_a_write_from_a_change() {
     ui.set_trait(screen, "width", Value::Num(1280.0));
     ui.set_trait(screen, "width", Value::Num(1920.0));
     assert_eq!(ui.trait_write_counts(), (writes + 3, changes + 2));
+}
+
+/// MCM's option rows dim when another row is selected [observed: MCM 1.5's
+/// OptionRect.xml `_alpha`, a condition with nested `or`/`and` in an `onlyif`; the
+/// slider sets `MCM_Options/_selected` to its row].
+#[test]
+fn mcms_row_alpha_follows_the_selected_row() {
+    let src = MemSource::default().with(
+        "menus\\mcm.xml",
+        r#"<menu name="StartMenu"> <rect name="MCM"> <rect name="MCM_Options"> <_selected> 0 </_selected>
+          <hotrect name="Option1"> <_optionID> 1 </_optionID> <_enable> 1 </_enable>
+            <_alpha> <copy> 3 </copy> <sub> <copy> 2 </copy> <onlyif>
+              <copy src="MCM_Options" trait="_selected"/> <eq> 0 </eq>
+              <or> <copy src="MCM_Options" trait="_selected"/> <eq> <copy src="me()" trait="_OptionID"/> </eq> </or>
+              <and> <copy src="me()" trait="_enable"/> <eq> 1 </eq> </and>
+            </onlyif> </sub> </_alpha>
+            <text name="title"> <brightness> 255 </brightness> <alpha> <copy src="me()" trait="brightness"/> <div src="parent()" trait="_alpha"/> </alpha> </text>
+          </hotrect> </rect> </rect> </menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus\\mcm.xml").unwrap();
+    ui.update();
+    let p = "StartMenu/MCM/MCM_Options";
+    assert_eq!(ui.get_float(&format!("{p}/Option1/_alpha")), Some(1.0), "nothing selected");
+    assert!(ui.set_float(&format!("{p}/_selected"), 24.0));
+    ui.update();
+    assert_eq!(ui.get_float(&format!("{p}/Option1/_alpha")), Some(3.0), "another row selected");
+    assert_eq!(ui.get_float(&format!("{p}/Option1/title/alpha")), Some(85.0));
+    assert!(ui.set_float(&format!("{p}/_selected"), 1.0));
+    ui.update();
+    assert_eq!(ui.get_float(&format!("{p}/Option1/_alpha")), Some(1.0), "this row selected");
 }
 
 #[test]

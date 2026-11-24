@@ -159,7 +159,11 @@ within a pixel in every one of these (§7).
 - **The other short lines** [design; nothing documents where the original shows them].
   NVForever's own lines for items a script added or removed and a default activation's
   message ("Gate is locked") go through the same area, with the default icon and the 2
-  seconds. The wording of these lines is NVForever's. So do the refusals of the
+  seconds. The wording of these lines is NVForever's. Four or more items in one go
+  (an add-on's pack, Dead Money's bunker putting the whole inventory away) make one
+  line, "<n> items added/removed (<total> in all)", not one each (item 214: the bunker's
+  lines, 2 seconds a stack, ran on over the slides that follow; observer-checks.md
+  item 131). So do the refusals of the
   lockpicking menu, of a terminal and of the Wait and Sleep menu ("You cannot sleep when
   enemies are nearby.", "You need a Lockpick skill of 50 to pick this lock.") [owner,
   list 5 items 44, 45]. The engine's own placeholder lines that were drawn white under

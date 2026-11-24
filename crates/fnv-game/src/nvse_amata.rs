@@ -174,6 +174,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // [documented: Update3D] the 3D is rebuilt [hypothesis: the engine redraws an
         // actor's look from the game state each time it loads; nothing to do here].
+        // Update3DAlt (JohnnyGuitar) is the same refresh with flags; Heart of the Mojave
+        // calls it after SetModelPath; Update3DAlt is built in `crate::nvse_jg_nif`.
         "update3d" => XVal::Num(0.0),
         // [documented: IsSpellTargetAlt] the reference is under an effect of that form.
         "isspelltargetalt" => {
@@ -237,6 +239,13 @@ impl Game<'_> {
     /// MessageBoxExAlt's callback, once its box has a button: the UDF runs with the
     /// button's index and the box closes [documented: MessageBoxExAlt].
     pub(crate) fn run_box_callback(&mut self) {
+        // The callbacks of queued boxes, each for its own box ([`Game::box_callbacks`]).
+        for (func, b) in std::mem::take(&mut self.box_callbacks_due) {
+            let ctx = crate::game::RunCtx::default();
+            if let Err(error) = self.run_function(&func, None, vec![XVal::Num(f64::from(b))], None, ctx) {
+                self.emit(crate::trace::EventKind::ScriptError { unit: "MessageBoxExAlt callback".into(), error });
+            }
+        }
         let Some(b) = self.message_box.as_ref().filter(|_| self.box_callback.is_some()).and_then(|m| m.pressed) else { return };
         let Some(func) = self.box_callback.take() else { return };
         self.message_box = None;

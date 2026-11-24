@@ -444,6 +444,17 @@ impl Cycle {
                                 out.push(Event::SpinUp);
                             } else {
                                 self.phase = Phase::WindUp { left: self.timing.fire_delay };
+                                // A shot that waits for the clip's `Hit` key does not leave
+                                // in the tick of its pull, however long the tick: the engine
+                                // starts the clip at the wind-up and draws the shot from
+                                // the clip's pose (its `ProjectileNode`), which it only has
+                                // from the next frame [design: Another Millenia's dual
+                                // pistols, `Hit` at 0.017 s, fired from the other gun's
+                                // muzzle at 60 frames a second; the shot is at most a frame
+                                // late].
+                                if self.timing.fire_delay > 0.0 {
+                                    break;
+                                }
                             }
                         } else if t.auto_reload && self.can_reload(i.carried) {
                             self.phase = self.start_reload();

@@ -166,6 +166,11 @@ pub struct Attacker {
     /// (docs/spec-notes/combat-rules.md §4).
     pub sneaking: bool,
     pub in_vats: bool,
+    /// No critical hits at all, a sneak attack's included (its damage multiplier stays):
+    /// the player's under the real-time VATS lock, whose criticals come from its meter
+    /// ([`crate::rt_vats`]). Not part of any report.
+    #[serde(skip)]
+    pub no_crits: bool,
     /// Companion Nerve when the attacker is one of the player's teammates: the share its
     /// damage goes up by, 0.05 per point of the player's Charisma (docs/spec-notes/
     /// actor-values.md §4); 0 for everyone else. Not part of any report.
@@ -186,6 +191,7 @@ impl Default for Attacker {
             arm_condition: 1.0,
             sneaking: false,
             in_vats: false,
+            no_crits: false,
             nerve: 0.0,
         }
     }
@@ -369,6 +375,7 @@ pub fn hit(
     let part_mult = h.part.damage_mult;
     let crit_chance = crit_chance(r, w, a, attacker_perks, target_perks);
     let critical = !miss
+        && !a.no_crits
         && w.crit_mult > 0.0
         && (a.sneaking || (t.headshot_unaware_crit && h.part.head && target.unaware) || crit_roll * 100.0 < crit_chance);
     // Critical damage is added before armour [documented], whole for each projectile:

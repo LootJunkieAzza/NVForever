@@ -170,6 +170,59 @@ impl PromptKeys {
     }
 }
 
+/// The full Pip-Boy (the inventory, Tab) opened with the world running on: in a co-op
+/// session the other players go on, so the Pip-Boy does not pause it [design: the
+/// real-time Pip-Boy, 2026-11-03]. `allowed` is set by the co-op link while in a session
+/// and the setting is on; `open` while such a menu is up. The menu then stays in
+/// `PlayState::Playing`: the game clock, physics and AI go on, the player's controls are
+/// held (`crate::bindings::ControlHold`), and scripts are not told a menu opened (their
+/// GameMode blocks keep running). Should a menu that pauses take over (repair, a
+/// conversation), [`live_menu_follows`] hands the menu over or shuts it.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LiveMenu {
+    pub allowed: bool,
+    pub open: bool,
+    /// The setting (on by default).
+    pub on: bool,
+}
+
+impl Default for LiveMenu {
+    fn default() -> Self {
+        LiveMenu { allowed: false, open: false, on: true }
+    }
+}
+
+/// The setting's INI key.
+pub const LIVE_SETTING_KEY: &str = "PipBoyLiveInCoop";
+
+/// A live menu ([`LiveMenu`]) when the state leaves `Playing` under it: into a menu that
+/// pauses (repair from the Pip-Boy) it becomes an ordinary menu, the scripts told now;
+/// anywhere else (a conversation, a loading screen) it shuts.
+fn live_menu_follows(mut live: ResMut<LiveMenu>, state: Res<State<PlayState>>, mut active: ResMut<ActiveMenu>, script: Option<ResMut<crate::script::ScriptState>>) {
+    if !live.open {
+        return;
+    }
+    if active.0.is_none() {
+        live.open = false;
+        return;
+    }
+    match *state.get() {
+        PlayState::Playing => {}
+        PlayState::Menu => {
+            live.open = false;
+            if let Some(m) = active.0.as_ref() {
+                info!("menu: the live Pip-Boy becomes a paused menu");
+                crate::script::engine_menu_opened(script.map(|s| s.into_inner()), m.mode);
+            }
+        }
+        _ => {
+            live.open = false;
+            active.0 = None;
+            info!("menu: the live Pip-Boy shuts (the world left play)");
+        }
+    }
+}
+
 /// [`wheel_hold`], first: what reads [`WheelHold`] this frame runs after it, the hand-built
 /// pointer ([`menu_mouse`]) and the tiles' (`crate::tiles::input::feed`), which runs before the
 /// other menu systems: a wheel step and a pointer's move in one frame leave the row alone
@@ -187,6 +240,7 @@ impl Plugin for MenuPlugin {
             .init_resource::<FreshMenu>()
             .init_resource::<PromptKeys>()
             .init_resource::<WheelHold>()
+            .init_resource::<LiveMenu>()
             .add_message::<MenuInput>()
             .add_message::<OpenInventory>()
             .add_message::<OpenNearestContainer>()
@@ -201,6 +255,7 @@ impl Plugin for MenuPlugin {
                     scripts_open_barter,
                     scripts_open_teammate_containers,
                     open_menus,
+                    live_menu_follows,
                     keep_menu_state,
                     sync_cards,
                     sync_refresh_items_list,
@@ -216,6 +271,19 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(PlayState::Menu), release_cursor)
             .add_systems(OnExit(PlayState::Menu), close_menu);
         test_aid::setup(app);
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: LIVE_SETTING_KEY,
+                group: crate::pause::GROUP_MENUS,
+                label: "Pip-Boy keeps co-op running",
+                note: "On: in a co-op session the full Pip-Boy (Tab) does not pause the world; the other players go on while you browse. Off: it pauses as in single player (for you; the others are not held).",
+                switches: "",
+                get: |w| w.resource::<LiveMenu>().on,
+                set: |w, on| w.resource_mut::<LiveMenu>().on = on,
+                slider: None,
+            },
+        );
     }
 }
 
@@ -265,6 +333,7 @@ pub(crate) fn add_open_and_keys<M>(app: &mut App, before: impl IntoScheduleConfi
     app.init_resource::<ActiveMenu>()
         .init_resource::<FreshMenu>()
         .init_resource::<PromptKeys>()
+        .init_resource::<LiveMenu>()
         .add_message::<MenuInput>()
         .add_message::<OpenBarter>()
         .add_message::<OpenInventory>()
@@ -371,6 +440,7 @@ pub(crate) fn open_menus(
     wait: Option<Res<crate::wait::WaitMenu>>,
     mut fresh: ResMut<FreshMenu>,
     animated: (Option<ResMut<crate::doors::Doors>>, Option<ResMut<crate::container_anim::ContainerOpening>>),
+    live: Option<ResMut<LiveMenu>>,
     (after, tweaks, mut corner): CombatGate,
 ) {
     let mut script = script.map(|s| s.into_inner());
@@ -431,6 +501,9 @@ pub(crate) fn open_menus(
                     let list: Vec<String> = held.iter().map(|(i, c)| format!("{} ({c})", model::display_name(sim.world.forms, *i))).collect();
                     info!("barter: {merchant} holds back {} item(s) outside its services: {}", held.len(), if list.is_empty() { "none".into() } else { list.join(", ") });
                 }
+                if let Some((rows, stacks)) = m.stock_rows(&sim.world) {
+                    info!("barter: {rows} rows from {stacks} stacks in {stock} (caps aside)");
+                }
                 Ok(m)
             })
         }
@@ -452,7 +525,16 @@ pub(crate) fn open_menus(
                 Ok(m)
             })
         }
-        (None, Some(c)) => MenuModel::open_container(&mut sim.world, FormId(c.container)),
+        (None, Some(c)) => {
+            let guest = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.coop_guest);
+            MenuModel::open_container(&mut sim.world, FormId(c.container)).and_then(|mut m| {
+                if guest {
+                    m.guest = true;
+                    m.refresh(&mut sim.world)?;
+                }
+                Ok(m)
+            })
+        }
         (None, None) => MenuModel::open_inventory(&mut sim.world),
     };
     match opened {
@@ -471,6 +553,15 @@ pub(crate) fn open_menus(
             info!("menu: open {:?} \"{}\"{}", m.mode, m.title, if hidden > 0 { format!(" ({hidden} non-playable stacks hidden)") } else { String::new() });
             if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
                 sync_ysi_model(&mut m, &mut rt.game);
+            }
+            // The inventory in a co-op session: the world runs on (`LiveMenu`).
+            let live = live.filter(|l| l.allowed && l.on && !talking && matches!(m.mode, Mode::Inventory));
+            if let Some(mut l) = live {
+                info!("menu: the Pip-Boy opens live (co-op: the world runs on)");
+                l.open = true;
+                active.0 = Some(m);
+                fresh.0 = true;
+                return;
             }
             // Scripts run MenuMode 1008 / 1002 / 1053 from now on (layer5-play.md).
             crate::script::engine_menu_opened(script, m.mode);
@@ -502,12 +593,13 @@ pub(crate) fn open_menus(
 /// the frame) [design: docs/design/tweaks.md].
 fn keep_menu_state(
     active: Res<ActiveMenu>,
+    live: Res<LiveMenu>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
     (pip, tweaks): (Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::tweaks::TweakSettings>>),
     mut waited: Local<u8>,
 ) {
-    if active.0.is_none() || *state.get() != PlayState::Playing {
+    if active.0.is_none() || live.open || *state.get() != PlayState::Playing {
         *waited = 0;
         return;
     }
@@ -550,9 +642,19 @@ fn close_menu(
     }
 }
 
-fn menu_keys(keys: crate::pad::ActionButtons<KeyCode>, active: Res<ActiveMenu>, mut fresh: ResMut<FreshMenu>, mut out: MessageWriter<MenuInput>) {
+fn menu_keys(keys: crate::pad::ActionButtons<KeyCode>, active: Res<ActiveMenu>, mut fresh: ResMut<FreshMenu>, mut out: MessageWriter<MenuInput>, script: Option<Res<crate::script::ScriptState>>) {
     let keys = keys.snapshot();
     use KeyCode::*;
+    // The merchant died behind the barter menu (in co-op another player or an NPC can
+    // kill it meanwhile; solo the world stands still behind the menu): the menu closes
+    // at once, as Exit does (queue item 195).
+    if let Some(Mode::Barter(r)) = active.0.as_ref().map(|m| m.mode) {
+        if crate::combat::is_dead(script.as_deref(), r.0) {
+            info!("menu: the merchant {r} died: the barter menu closes");
+            out.write(MenuInput(Command::Close));
+            return;
+        }
+    }
     // The press that opened the menu is not one of its keys (see [`FreshMenu`]).
     if std::mem::take(&mut fresh.0) {
         return;
@@ -856,7 +958,7 @@ fn publish_menu_picks(
             e.1 = p;
         }
     };
-    if let Some(m) = active.0.as_ref() {
+    if let Some(m) = active.0.as_ref().filter(|m| !m.coop) {
         let other = match m.mode {
             Mode::Container(c) | Mode::Barter(c) => Some(c),
             Mode::Inventory => None,
@@ -949,6 +1051,7 @@ fn apply_input(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     (mut taken, mut stolen): (MessageWriter<crate::crime::ItemsTaken>, MessageWriter<crate::pickpocket::Pickpocketed>),
     mut held: ResMut<PromptKeys>,
+    mut live: ResMut<LiveMenu>,
     after: Option<Res<crate::after_combat::AfterCombat>>,
     combat: Option<Res<crate::combat::Combat>>,
 ) {
@@ -958,6 +1061,10 @@ fn apply_input(
     let mut dropping = 0;
     for &MenuInput(cmd) in input.read() {
         let Some(m) = active.0.as_mut() else { return };
+        // A co-op trade's commands are `crate::coop_social::barter`'s.
+        if m.coop {
+            return;
+        }
         if let Command::Expect(guard) = cmd {
             dropping = if m.row_is(&guard) { 0 } else { guard.then };
             if dropping > 0 {
@@ -1128,7 +1235,11 @@ fn apply_input(
         }
         if a.close {
             info!("menu: close");
-            if *state.get() == PlayState::Menu {
+            if live.open {
+                // Never told to the scripts (`LiveMenu`); the drawing goes with the model.
+                live.open = false;
+                active.0 = None;
+            } else if *state.get() == PlayState::Menu {
                 next.set(PlayState::Playing);
             } else if let Some(m) = active.0.take() {
                 // Over a conversation: it goes on (the drawing goes with the model).
@@ -1143,6 +1254,10 @@ fn apply_input(
 
 /// The line under a container menu: the note for a container that refills.
 pub(crate) fn note(m: &MenuModel, sim: &SimState) -> Option<String> {
+    // A co-op trade: the line its module keeps (where the selected item's trade stands).
+    if m.coop {
+        return m.status.clone();
+    }
     let refused = m.status.as_deref().filter(|s| s.ends_with("enough caps.") || s.starts_with("Cannot"));
     if let Some(s) = refused {
         return Some(s.to_string());

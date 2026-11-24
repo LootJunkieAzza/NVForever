@@ -36,7 +36,8 @@ pub struct JipEvents {
     registrars: std::collections::HashMap<u64, Arc<Registrar>>,
     /// Each actor's hit in progress, or its last one (task J7, jip-hit-info.md §5).
     pub hits: std::collections::HashMap<FormId, JipHit>,
-    /// The keys and mouse buttons held last frame, for the key-down and key-up events.
+    /// The keys and mouse buttons held last frame, for the named OnKeyDown/OnKeyUp events
+    /// (JIP's own key events keep theirs in `nvse_jam`).
     pub keys_held: std::collections::BTreeSet<u16>,
     /// Last 28-control event snapshot; shared by both control-event interfaces.
     pub controls_held: u32,
@@ -595,10 +596,14 @@ impl Game<'_> {
     /// `OnButtonUp`, plain or `:bitmask`) follow the same frame entry point against
     /// snapshots taken before callbacks (control-input-events.md, ext-events.md).
     pub(crate) fn jip_keys(&mut self) {
+        // One key-edge sender with one held-keys record (`nvse_jam::jam_key_events`,
+        // which the engine also calls between frames): a second record here gave each
+        // press two key-downs (merge of v0.8.0).
         let controls = self.input.controls_for_events();
         let buttons = self.jip2.told.pad.buttons | self.jip2.told.pad.held_buttons;
         let triggers = self.trigger_mask();
-        self.jip_key_edges();
+        self.jam_key_events();
+        self.named_key_edges();
         self.control_edges(controls);
         self.button_edges(buttons);
         self.trigger_edges(triggers);
@@ -716,7 +721,7 @@ impl Game<'_> {
         self.jip_event("pctargetchange", None, vec![XVal::Ref(next.map_or(0, |r| r.0))])
     }
 
-    fn control_edges(&mut self, now: u32) {
+    pub(crate) fn control_edges(&mut self, now: u32) {
         let before = std::mem::replace(&mut self.jip.controls_held, now);
         let changed = now ^ before;
         if changed == 0 { return; }
@@ -737,41 +742,34 @@ impl Game<'_> {
         }
     }
 
-    fn jip_key_edges(&mut self) {
+    /// The named `SetEventHandler` key events (`OnKeyDown` / `OnKeyUp`, plain or `:code`).
+    /// JIP's own key-down and key-up go out from `jam_key_events` alone, with its own record
+    /// of the keys held: a second JIP sender gave each press two key-downs, so a toggle
+    /// handler undid itself (JAM bullet time on V, ship13 co-op).
+    fn named_key_edges(&mut self) {
         if self.jip.keys_held == self.input.held {
             return;
         }
         let now = self.input.held.clone();
         let before = std::mem::replace(&mut self.jip.keys_held, now.clone());
-        let jip = self.jip.handlers.iter().any(|h| h.event == "keydown" || h.event == "keyup");
         let named = self.handlers.iter().any(|h| {
             h.event == "onkeydown"
                 || h.event == "onkeyup"
                 || h.event.starts_with("onkeydown:")
                 || h.event.starts_with("onkeyup:")
         });
-        if !jip && !named {
+        if !named {
             return;
         }
         for &k in now.difference(&before) {
             let code = XVal::Num(f64::from(k));
-            if jip {
-                self.jip_event("keydown", None, vec![code.clone()]);
-            }
-            if named {
-                self.dispatch_event("OnKeyDown", vec![code.clone()], None);
-                self.dispatch_event(&format!("OnKeyDown:{k}"), vec![code], None);
-            }
+            self.dispatch_event("OnKeyDown", vec![code.clone()], None);
+            self.dispatch_event(&format!("OnKeyDown:{k}"), vec![code], None);
         }
         for &k in before.difference(&now) {
             let code = XVal::Num(f64::from(k));
-            if jip {
-                self.jip_event("keyup", None, vec![code.clone()]);
-            }
-            if named {
-                self.dispatch_event("OnKeyUp", vec![code.clone()], None);
-                self.dispatch_event(&format!("OnKeyUp:{k}"), vec![code], None);
-            }
+            self.dispatch_event("OnKeyUp", vec![code.clone()], None);
+            self.dispatch_event(&format!("OnKeyUp:{k}"), vec![code], None);
         }
     }
 

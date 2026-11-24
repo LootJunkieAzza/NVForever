@@ -1,0 +1,2 @@
+; Smoke menu-box-text: a form-less box shown while the main menu is up.
+MessageBoxEx "NVForever smoke: a box at the main menu%rsecond line"

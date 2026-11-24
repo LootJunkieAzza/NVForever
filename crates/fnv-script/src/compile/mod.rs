@@ -60,6 +60,11 @@ pub struct Seed<'a> {
     /// not cost a mod's whole script [decision: for the engine's compile of mods' source;
     /// the editor-parity compile keeps the error].
     pub unknown_calls: bool,
+    /// With [`Self::unknown_calls`]: an unknown name standing for a value (`set x to
+    /// GetMCMListWidth 2`, `sTag = ySIGetTagTrait …`) is such a call too. Off, only a call
+    /// line's unknown name is, and an unknown operand fails the unit as before (the
+    /// Script Runner files: `set x to SRNoSuchForm` must not compile).
+    pub unknown_operands: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +98,22 @@ pub fn compile(src: &str, table: &FunctionTable, env: &dyn Env, seed: Option<See
     either(src, |s, nvse| {
         let mut g = gen::Gen::new(table, env, seed);
         g.declared_types_win = nvse;
-        g.unit(s)
+        let c = g.unit(s);
+        // A name a later version of its plugin renamed: compiled again with the forms
+        // it now names (`gen::renamed_forms`).
+        let Some(sd) = seed.filter(|_| c.errors().any(|d| d.kind == "unresolved_name")) else { return c };
+        let renamed = gen::renamed_forms(s, &c.diags, &sd, env);
+        if renamed.is_empty() {
+            return c;
+        }
+        let mut g = gen::Gen::new(table, env, seed);
+        g.declared_types_win = nvse;
+        let mut notes: Vec<Diag> = renamed.iter().map(|(n, f)| Diag { line: 0, kind: "renamed_form", error: false, detail: format!("{n} as {f:08X}") }).collect();
+        notes.sort_by(|a, b| a.detail.cmp(&b.detail));
+        g.renamed = renamed;
+        let mut c = g.unit(s);
+        c.diags.extend(notes);
+        c
     })
 }
 
@@ -185,7 +205,7 @@ pub fn compile_runtime_with_locals(
 /// Moon list skipped whole Script Runner files over one plugin function the catalogue has
 /// no page for (EnableImprovedRecipeMenu, GetExtraAccuracyPenaltyMult, …)].
 pub fn compile_mod_runtime(src: &str, table: &FunctionTable, env: &dyn Env) -> Compiled {
-    let mut g = gen::Gen::new(table, env, Some(Seed { variables: &[], refs: &[], unknown_calls: true }));
+    let mut g = gen::Gen::new(table, env, Some(Seed { variables: &[], refs: &[], unknown_calls: true, unknown_operands: true }));
     g.runtime = true;
     g.unit(src)
 }

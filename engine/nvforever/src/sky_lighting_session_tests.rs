@@ -152,6 +152,7 @@ fn test_streamer(interior: Option<u32>) -> crate::world::Streamer {
         waiting: Default::default(),
         model_overrides: Default::default(),
         travels: 0,
+        coop_areas: Vec::new(),
     }
 }
 

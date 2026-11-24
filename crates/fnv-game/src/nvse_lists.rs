@@ -89,6 +89,7 @@ impl Game<'_> {
                 self.other.package_lists.insert(target, list);
             }
             13 => {
+                // The list as given, duplicates and all (ListAddForm would drop them).
                 *self.edited_list(target) = list;
             }
             _ => {

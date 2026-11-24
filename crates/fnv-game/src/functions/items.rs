@@ -35,6 +35,15 @@ fn hide_flag(a: &Args, i: usize) -> bool {
 pub const ADDED_CONDITION: f32 = 0.999;
 
 pub fn add_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying && ctx.subject() == Ok(FormId::PLAYER_REF) {
+        return none();
+    }
+    story_items(g, ctx, |g| add_item_now(g, ctx, a))
+}
+
+fn add_item_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let to = ctx.subject()?;
     let count = a.int(1)?;
     let silent = hide_flag(a, 2);
@@ -81,6 +90,10 @@ pub fn review_equipment(g: &mut Game, actor: FormId) {
 /// caps with 0 left both counts as they were and the next line ran]; Loyal's reward line
 /// (INFO 0x0010A1BF) passes one when Nellis' arrays are not all fixed (#1113).
 pub fn remove_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    story_items(g, ctx, |g| remove_item_now(g, ctx, a))
+}
+
+fn remove_item_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
     let count = a.int(1)?;
     if count == 0 {
@@ -99,12 +112,17 @@ pub fn remove_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// `Container.GetItemCount item`: how many are carried; for a form list, the sum over its
 /// members [documented: GECK wiki GetItemCount notes]. Notes do not count ("does not
 /// work with Notes" [documented: same notes]; observed 0 for a holotape just added,
-/// capture `fa_batch3_actions`).
+/// capture `fa_batch3_actions`). That holds for the player, whose notes leave the
+/// inventory for the Pip-Boy's list ([`Game::file_carried_notes`]); a note lying in
+/// another container is one of its items and counts [observed: observer check 125, the
+/// original 2026-11-15: a filing cabinet's `getitemcount 00112015` read 1 with the
+/// Matchbook in it, and after the take both the player and the cabinet read 0; without
+/// the rule Just Assorted Mods' loot menu never took the Matchbook, desktop probe jlm8].
 pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let of = ctx.subject()?;
     let mut n = 0;
     for item in items(g, a.form(0)?) {
-        if g.data.sig(item).as_ref() == Some(b"NOTE") {
+        if of == FormId::PLAYER_REF && g.data.sig(item).as_ref() == Some(b"NOTE") {
             continue;
         }
         n += g.world.item_count(of, item).map_err(|e| e.to_string())?;
@@ -121,12 +139,43 @@ pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
 /// Ringo's Caravan Deck relies on it: its OnAdd moves the spare deck's 54 cards to the
 /// player with RemoveAllItems and each card's OnAdd runs AddCardToPlayer, caravan.md §2].
 pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let to_player = a.opt_form(0) == Some(FormId::PLAYER_REF);
+    no_hand_out(g, to_player, |g| story_items(g, ctx, |g| remove_all_items_now(g, ctx, a)))
+}
+
+/// Co-op: a container that gives the player everything it holds (a checkpoint giving the
+/// player's own items back: Dead Money's SCPT 0x01013FB4, a casino's door) hands the
+/// guests nothing (`crate::coop_rewards`): what it gives was the player's (item 211;
+/// the way out of the Sierra Madre handed the host's own items out as NVDLC01MQ03's)
+/// [design].
+fn no_hand_out(g: &mut Game, to_player: bool, f: impl FnOnce(&mut Game) -> Result<Value, String>) -> Result<Value, String> {
+    let on = g.coop_rewards.on;
+    if to_player {
+        g.coop_rewards.on = false;
+    }
+    let r = f(g);
+    g.coop_rewards.on = on;
+    r
+}
+
+fn remove_all_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
     let silent = hide_flag(a, 2);
     let keep_owner = a.num_or(1, 0.0) != 0.0;
     let mut added = Vec::new();
     let stacks = match a.opt_form(0) {
         Some(to) => {
+            if to == FormId::PLAYER_REF && !g.coop_guest && g.coop_checkpoint_holds.remove(&from) {
+                g.coop_checkpoints.push((from, -1, None, true));
+            }
+            // Co-op: the player's whole gear put away (Dead Money's bunker trap, SCPT
+            // 0x0100C59E `player.RemoveAllItems` into 0x0100EFCC; item 182): every guest
+            // hands over its own the same, and gets it back when the container gives the
+            // host's back (above) [design: the script names the player only; each player].
+            if from == FormId::PLAYER_REF && to != FormId::PLAYER_REF && !g.coop_guest && g.coop_effects.is_some() {
+                g.coop_checkpoints.push((to, -1, None, false));
+                g.coop_checkpoint_holds.insert(to);
+            }
             let moved = g.world.transfer_all_owned(from, to, keep_owner).map_err(|e| e.to_string())?;
             for &(item, count) in &moved {
                 g.emit(EventKind::ItemAdded { to, item, count, silent });
@@ -175,6 +224,9 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if !e.consumed && hide_flag(a, 1) {
         g.world.lock_equip(actor, item, Some(EquipLock::NoUnequip)).map_err(|e| e.to_string())?;
     }
+    if !e.consumed && actor == FormId::PLAYER_REF {
+        g.script_worn.insert(item, hide_flag(a, 1));
+    }
     for u in e.unequipped {
         g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }
@@ -214,6 +266,9 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     if g.world.unequip(actor, item).map_err(|e| e.to_string())? {
         g.item_event(actor, item, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }
+    if actor == FormId::PLAYER_REF {
+        g.script_worn.remove(&item);
+    }
     if hide_flag(a, 1) {
         g.world.lock_equip(actor, item, Some(EquipLock::NoEquip)).map_err(|e| e.to_string())?;
     }
@@ -227,6 +282,16 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
 pub fn get_equipped(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let wanted = items(g, a.form(0)?);
+    // A co-op guest's shot, run as the player's (item 111): the weapon it was fired with
+    // is what the player has equipped as far as weapons go.
+    if let Some(w) = g.shot_for_player.filter(|_| actor == FormId::PLAYER_REF) {
+        if wanted.contains(&w) {
+            return yes(true);
+        }
+        if wanted.iter().all(|&i| g.world.forms.item(i).is_some_and(|f| f.kind == fnv_sim::forms::ItemKind::Weapon)) {
+            return yes(false);
+        }
+    }
     let s = g.world.get(actor).map_err(|e| e.to_string())?;
     yes(s.inventory.as_ref().is_some_and(|i| wanted.iter().any(|&w| i.is_equipped(w))))
 }
@@ -319,9 +384,31 @@ pub fn form_type_code(sig: &[u8; 4]) -> Option<i32> {
 /// items. With a target they move there keeping their condition (and their owner with
 /// the retain flag, otherwise the owner is cleared); without one they are destroyed.
 pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let to_player = a.opt_form(0) == Some(FormId::PLAYER_REF);
+    no_hand_out(g, to_player, |g| story_items(g, ctx, |g| remove_all_typed_items_now(g, ctx, a)))
+}
+
+fn remove_all_typed_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
-    let except = a.opt_form(4).map(|l| super::refs::list_members(g, l)).unwrap_or_default();
-    let how = RemoveAll { to: a.opt_form(0), retain: a.num_or(1, 0.0) != 0.0, silent: hide_flag(a, 2), code: a.num(3).map(|c| c as i32).unwrap_or(-1), except, quest_items: false, unplayable: false };
+    let to = a.opt_form(0);
+    let code = a.num(3).map(|c| c as i32).unwrap_or(-1);
+    let except_list = a.opt_form(4);
+    if code != 0 {
+        // Co-op: the player's things put away by type (a checkpoint's container) are put
+        // away for the guests too.
+        if let Some(to) = to.filter(|_| from == FormId::PLAYER_REF && !g.coop_guest) {
+            g.coop_checkpoints.push((to, code, except_list, false));
+            g.coop_checkpoint_holds.insert(to);
+        }
+        // The checkpoint giving the player's things back by type, as the Fort's gate does
+        // (`<container>.RemoveAllTypedItems player 1 1`, SCPT 0x00164763; item 177): the
+        // guests get theirs back too.
+        if to == Some(FormId::PLAYER_REF) && !g.coop_guest && g.coop_checkpoint_holds.remove(&from) {
+            g.coop_checkpoints.push((from, -1, None, true));
+        }
+    }
+    let except = except_list.map(|l| super::refs::list_members(g, l)).unwrap_or_default();
+    let how = RemoveAll { to, retain: a.num_or(1, 0.0) != 0.0, silent: hide_flag(a, 2), code, except, quest_items: false, unplayable: false };
     remove_all(g, from, &how)?;
     none()
 }
@@ -385,6 +472,10 @@ pub fn remove_all(g: &mut Game, from: FormId, how: &RemoveAll) -> Result<(), Str
 /// leveled list resolves as AddItem, its items at the given condition rather than the
 /// list's own (`World::add_item_at_condition`).
 pub fn add_item_health_percent(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    story_items(g, ctx, |g| add_item_health_percent_now(g, ctx, a))
+}
+
+fn add_item_health_percent_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let to = ctx.subject()?;
     let item = a.form(0)?;
     let count = a.int(1)?;
@@ -513,4 +604,58 @@ pub fn add_item_to_leveled_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Va
     let condition = a.num(4).ok().map(|h| (h / 100.0).clamp(0.0, 1.0) as f32).filter(|c| *c < 1.0);
     g.world.add_to_leveled_list(list, fnv_sim::forms::LeveledEntry { level, item, count, condition }).map_err(|e| e.to_string())?;
     none()
+}
+
+/// Run an item call, recording what it changed of the player's items as the host's story
+/// when it counts (`crate::coop_story`).
+fn story_items(g: &mut Game, ctx: &Ctx, f: impl FnOnce(&mut Game) -> Result<Value, String>) -> Result<Value, String> {
+    // Any call may change the player's items (`container.RemoveAllItems player` gives
+    // to it), so every one is watched while the story counts.
+    if !g.story_counts(ctx) {
+        return f(g);
+    }
+    let before = crate::coop_story::player_groups(g);
+    let r = f(g);
+    let after = crate::coop_story::player_groups(g);
+    if before != after {
+        g.coop_story.record_items(&before, &after);
+        tracing::info!("co-op story: {} changed the player's items: {} kinds now recorded", ctx.unit, g.coop_story.items.len());
+    }
+    r
+}
+
+/// An extender function's move of `n` units of `item` (`n <= 0`: the whole stack) out of
+/// `from`, into `to` when given (RemoveMeIR, RemoveMeIRAlt, RemoveItemTarget): the items
+/// leave and arrive as the game's own moves do, with the removed and added events and
+/// the item's OnAdd in its new holder, as AddItem runs it, so a loot menu built on these
+/// functions (Just Assorted Mods' JLM) takes an item the way the container menu does and
+/// the scripts watching for it (a quest's OnAdd, a note filed for GetHasNote) hear of it
+/// [hypothesis: the functions' pages say the items move, not what runs; the owner's
+/// playtest 2026-11-14, VMS18's Matchbook and quest items taken with JLM]. Every move is
+/// logged with the function's name. Gives the units moved.
+pub(crate) fn script_move_items(g: &mut Game, via: &str, from: FormId, item: FormId, n: i32, to: Option<FormId>) -> i32 {
+    let have = g.world.inventory_mut(from).map(|inv| inv.count(item)).unwrap_or(0);
+    let n = if n <= 0 { have } else { n.min(have) };
+    if n <= 0 {
+        tracing::info!("script items: {via}: no {} {item} in {from} to move", g.data.name(item));
+        return 0;
+    }
+    let gone = g.world.remove_item(from, item, n).unwrap_or(0);
+    if gone <= 0 {
+        tracing::info!("script items: {via}: {} {item} would not leave {from}", g.data.name(item));
+        return 0;
+    }
+    g.emit(EventKind::ItemRemoved { from, item, count: gone, silent: true });
+    let Some(to) = to else {
+        tracing::info!("script items: {via}: {gone} x {} {item} removed from {from}", g.data.name(item));
+        return gone;
+    };
+    if let Err(e) = g.world.add_item(to, item, gone) {
+        tracing::warn!("script items: {via}: {gone} x {} {item} left {from} but could not reach {to}: {e}", g.data.name(item));
+        return gone;
+    }
+    g.emit(EventKind::ItemAdded { to, item, count: gone, silent: true });
+    g.item_event(to, item, event::ON_ADD, Some(Value::Ref(to.0)));
+    tracing::info!("script items: {via}: {gone} x {} {item} moved from {from} to {to}", g.data.name(item));
+    gone
 }

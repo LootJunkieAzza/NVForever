@@ -7,7 +7,9 @@
 //!    winning), read from the owner's plugins at run time and never shipped;
 //! 2. [`BUILT_IN`]: NVForever's own English labels for the settings no plugin defines
 //!    [observed: 144 of the 145 names of the vanilla menu files have no GMST record in
-//!    FalloutNV.esm or the nine official add-ons, 2026-10-29].
+//!    FalloutNV.esm or the nine official add-ons, 2026-10-29], and for the few such names
+//!    mods' menu files use that no vanilla file does (JAM's `sSteal`, `sTargetTypeOpen`,
+//!    `sTargetTypeTake`), labelled the same way.
 //!
 //! A name in neither has no text: the reader puts in nothing, as the original reads an
 //! unknown name as an empty string. Names are compared without case: both spellings the
@@ -107,7 +109,10 @@ pub const BUILT_IN: &[Entry] = &[
     ("sInventoryRepair", "Repair", "setting name + inventory_menu.xml: a button"),
     ("sInventoryStrReq", "Strength Req.", "setting name + item_stats_display.xml: an item figure's card (the strength needed)"),
     ("sInventoryValue", "Value", "setting name + item_stats_display.xml: an item figure's card"),
-    ("sInventoryWeight", "Weight", "setting name + inventory_menu.xml, reputation_menu.xml: a headline card"),
+    // Short, as its neighbours "HP", "DR" and "DT" on the inventory menu's headline cards
+    // and as NVForever's HUD prompt writes "WG"; JAM's loot menu (jlm.xml) leaves the
+    // label 50 units before the load figure [design, 2026-11-05].
+    ("sInventoryWeight", "WG", "setting name + inventory_menu.xml, reputation_menu.xml: a headline card"),
     ("sInventoryWeightUpper", "WEIGHT", "setting name + item_stats_display.xml: an item figure's card (the upper-case form)"),
     ("sLevelProgress", "Level Progress", "setting name + loading_menu.xml: the label over the level bar"),
     ("sLevelUp", "Level Up!", "setting name + hud_main_menu.xml: the HUD's level-up text"),
@@ -181,9 +186,12 @@ pub const BUILT_IN: &[Entry] = &[
     ("sStatsStatus", "Status", "setting name + stats_menu.xml: a page's tail line"),
     ("sStatsXP", "XP", "setting name + stats_menu.xml (a headline card), hud_main_menu.xml (the XP label)"),
     ("sStimpak", "Use Stimpak", "setting name + surgerymenu.xml: a button"),
+    ("sSteal", "Steal", "setting name + JAM's jlm.xml (no vanilla file): a key hint's action on an owned item"),
     ("sStopAudio", "Stop", "setting name + map_menu.xml: a page's A button title"),
     ("sSwitchLimbs", "Switch Limb", "setting name + surgerymenu.xml: a button"),
     ("sTakeAll", "Take All", "setting name + container_menu.xml: a button"),
+    ("sTargetTypeOpen", "Open", "setting name + JAM's jlm.xml (no vanilla file): a key hint's action on a container"),
+    ("sTargetTypeTake", "Take", "setting name + JAM's jlm.xml (no vanilla file): a key hint's action on an item"),
     ("sTotalCardsText", "Total Cards", "setting name + caravan_builddeck_menu.xml: a title beside its value"),
     ("sTotalFundsText", "Funds", "setting name + caravan_bet_menu.xml: a title beside its value"),
     ("sTravel", "Travel", "setting name + map_menu.xml: a page's A button title"),

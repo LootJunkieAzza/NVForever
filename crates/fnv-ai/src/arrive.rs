@@ -73,7 +73,30 @@ pub struct Arrival {
     pub furniture: Option<FormId>,
 }
 
+/// The furniture reference `def`'s place names, when it names one: a specific reference,
+/// or the actor's linked reference (`linked`), that is furniture (`is_furniture`). The
+/// crucified Powder Gangers of Nipton have a Travel package to "Near linked reference",
+/// linked to their crosses [observed: vNiptonSurvivorCrucifix and its kin, see
+/// `goal::package_furniture`]; in the original they hang on them from the start [observed,
+/// owner, item 204b]. A sandbox's or a sleep's furniture is chosen there, so not this.
+pub fn named_furniture(def: &PackageDef, linked: Option<FormId>, is_furniture: impl Fn(FormId) -> bool) -> Option<FormId> {
+    let r = match def.location?.kind {
+        LocationKind::NearReference(Some(r)) => r,
+        LocationKind::NearLinked => linked?,
+        _ => return None,
+    };
+    (r != FormId::PLAYER_REF && is_furniture(r)).then_some(r)
+}
+
 impl Ai {
+    /// The furniture `actor`'s current package names as its place ([`named_furniture`]).
+    pub fn package_names_furniture(game: &mut Game, actor: FormId) -> Option<FormId> {
+        let package = game.current_package(actor)?;
+        let def = game.data.package_defs.get(&package)?;
+        let refs = game.world.placed;
+        named_furniture(def, refs.get(actor).and_then(|p| p.linked), |r| refs.get(r).is_some_and(|p| game.data.furniture.contains_key(&p.base)))
+    }
+
     /// `actor` is near the player as the player arrives somewhere (module notes): it
     /// takes up its current package, chosen again for the hour it is now, and is put
     /// where that package's walk would take it, on the furniture it would use there.
@@ -213,5 +236,31 @@ fn placed_on_an_actor(game: &Game, actor: FormId, def: &PackageDef) -> bool {
         Some(LocationKind::NearReference(Some(r))) => is_actor(r),
         Some(LocationKind::NearLinked) => refs.get(actor).and_then(|p| p.linked).is_some_and(is_actor),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::named_furniture;
+    use fnv_game::package::{Location, LocationKind, PackageDef, PackageType};
+    use fnv_sim::FormId;
+
+    fn travel(kind: LocationKind) -> PackageDef {
+        PackageDef { ty: PackageType::Travel, location: Some(Location { kind, radius: 0 }), ..PackageDef::default() }
+    }
+
+    /// A Travel to "near linked reference" whose link is a cross (furniture) names it:
+    /// the crucified at Nipton are put on it at once when first drawn (item 204b). A
+    /// link that is not furniture, a place that is the player, a cell: none.
+    #[test]
+    fn a_package_to_linked_furniture_names_it() {
+        let cross = FormId(0x0013_9FD7);
+        let is_cross = |r: FormId| r == cross;
+        assert_eq!(named_furniture(&travel(LocationKind::NearLinked), Some(cross), is_cross), Some(cross));
+        assert_eq!(named_furniture(&travel(LocationKind::NearReference(Some(cross))), None, is_cross), Some(cross));
+        assert_eq!(named_furniture(&travel(LocationKind::NearLinked), Some(FormId(0x0013_9FD8)), is_cross), None);
+        assert_eq!(named_furniture(&travel(LocationKind::NearLinked), None, is_cross), None);
+        assert_eq!(named_furniture(&travel(LocationKind::NearReference(Some(FormId::PLAYER_REF))), None, |_| true), None);
+        assert_eq!(named_furniture(&PackageDef::default(), Some(cross), is_cross), None);
     }
 }

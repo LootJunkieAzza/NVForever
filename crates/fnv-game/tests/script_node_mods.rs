@@ -8,7 +8,7 @@ use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 
 fn nodes(names: &[&str]) -> Vec<SceneNode> {
-    names.iter().enumerate().map(|(i, n)| SceneNode { name: (*n).into(), parent: i.checked_sub(1), translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None }).collect()
+    names.iter().enumerate().map(|(i, n)| SceneNode { name: (*n).into(), parent: i.checked_sub(1), translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, world: [0.0; 3], material: None, info: None }).collect()
 }
 
 fn inserts(edits: &[SceneEdit]) -> usize {

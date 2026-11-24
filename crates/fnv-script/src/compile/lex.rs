@@ -192,6 +192,27 @@ fn block_comments(line: &str, in_block: &mut bool) -> String {
     out
 }
 
+/// How many parentheses a line leaves open, outside quotes.
+fn open_parens(line: &str) -> i32 {
+    let mut quoted = false;
+    let mut depth = 0;
+    for c in line.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted => depth -= 1,
+            _ => {}
+        }
+    }
+    depth
+}
+
+/// Whether a line carries on the expression of the line before: it starts with a binary
+/// operator or a closing parenthesis.
+fn continues(line: &str) -> bool {
+    ["||", "&&", ")", "==", "!=", "<", ">", "+", "-", "*", "/", "|", "&"].iter().any(|op| line.starts_with(op))
+}
+
 /// Every line that can produce a statement, with its tokens; `long` collects the numbers
 /// of lines over [`MAX_LINE`] characters.
 pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
@@ -206,6 +227,18 @@ pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
             long.push(n + 1);
         }
         let text = strip_comment(raw).trim();
+        // A condition broken over lines inside its parentheses goes on in the next line
+        // when that line starts with an operator or the closing parenthesis: More Mojave's
+        // MoreMojaveExplodingBoatFlySCRIPT (SCPT 0x06006D04) ends a line with "( GetWeaponSkill
+        // rWeapon == 41 )" inside an open "if (" and goes on "|| ( GetWeaponSkill ... ) )", and
+        // its compiled bytes hold the whole condition, 34, 35, 41, 33 and IsRefInList
+        // [observed: MoreMojave.esm SCDA; laptop smoke run 2026-11-15: "line 19: syntax
+        // missing )"].
+        if let Some(last) = out.last_mut().filter(|l: &&mut Line| open_parens(&l.text) > 0 && continues(text)) {
+            last.text = format!("{} {}", last.text, text);
+            last.toks = tokens(&last.text);
+            continue;
+        }
         if !text.chars().any(|c| c.is_alphanumeric()) {
             continue;
         }

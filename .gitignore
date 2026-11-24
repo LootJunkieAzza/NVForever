@@ -41,3 +41,5 @@ nvforever-*.png
 nvf-screenshot-*.png
 # Before/after progress pictures kept locally for pull requests and issues.
 /pr-pictures/
+# The smoke games' own home (tools/smoke runner.smoke_home): settings, saves, LOD cache
+/.claude/smoke-home/

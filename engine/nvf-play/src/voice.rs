@@ -77,7 +77,7 @@
 
 use crate::player::Player;
 use crate::script::ScriptState;
-use crate::sfx::{pan_gains, Pan, Panned, PcmSound, PlaySound};
+use crate::sfx::{heard_by, heard_distance, heard_pan, Pan, Panned, PcmSound, PlaySound, SecondListener};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
@@ -231,6 +231,8 @@ struct Playing {
     /// A line heard where it is said: its left and right gains, distance included,
     /// followed while it plays (`None`: the conversation's, flat and whole).
     pan: Option<Pan>,
+    /// Playback speed (a player voice set's rate, else 1).
+    rate: f32,
 }
 
 /// A response being said, for what follows the voice (lip sync, `nvforever`'s
@@ -250,12 +252,15 @@ pub struct Spoken<'a> {
     /// pause menu): the sound's own time is `now - started_at - held_secs`
     /// ([`Spoken::position`]), which is what a mouth follows.
     pub held_secs: f64,
+    /// Playback speed: the sound's own time runs this much faster than real time.
+    pub rate: f32,
 }
 
 impl Spoken<'_> {
-    /// Seconds into the sound at real time `now`: it stands still while the sound is held.
+    /// Seconds into the sound at real time `now`: it stands still while the sound is held,
+    /// and runs at the playback speed.
     pub fn position(&self, now: f64) -> f64 {
-        now - self.started_at - self.held_secs
+        (now - self.started_at - self.held_secs) * f64::from(self.rate)
     }
 }
 
@@ -264,15 +269,17 @@ impl VoiceState {
     pub fn spoken(&self) -> impl Iterator<Item = Spoken<'_>> {
         // A sound that began inside its file (one cry, [`one_cry`]) reports when the file's
         // start would have been heard, so a mouth following the file's `.lip` is at the
-        // cry; it stops at the cut (`ends_at`).
+        // cry; it stops at the cut (`ends_at`). The file's own time runs at `rate`, so the
+        // offset in real seconds is `offset / rate`.
         self.playing.iter().map(|(&speaker, p)| Spoken {
             speaker,
             info: p.info,
             response: p.response,
             path: p.path.as_deref(),
-            started_at: p.started_at - p.offset,
+            started_at: p.started_at - p.offset / f64::from(p.rate),
             ends_at: p.ends_at,
             held_secs: p.held_secs,
+            rate: p.rate,
         })
     }
 }
@@ -322,14 +329,16 @@ pub fn response_at(lengths: &[f64], elapsed: f64) -> usize {
 /// taken from the simulation (between frames the runtime's own world is swapped out,
 /// `script::with_world`).
 pub fn line_lengths(g: &Game, sim: &SimState, s: &Speech) -> Vec<f64> {
-    g.response_lengths_voiced(sim.base_of(s.speaker.0), voice_base(g, sim, s.speaker), s.info)
+    let rate = f64::from(g.line_rate(s.speaker, s.info));
+    g.response_lengths_voiced(sim.base_of(s.speaker.0), voice_base(g, sim, s.speaker, s.info), s.info).into_iter().map(|x| x / rate).collect()
 }
 
 /// The base form whose voice type a speaker speaks with: its template chain's "Traits"
 /// source, a leveled list standing for the entry picked for it, so an actor speaks with
-/// the voice of the sex and race it shows (`Game::voice_base`; issue #1051).
-fn voice_base(g: &Game, sim: &SimState, speaker: FormId) -> Option<FormId> {
-    sim.base_of(speaker.0).map(|b| g.voice_base_in(&sim.world, b, speaker))
+/// the voice of the sex and race it shows (`Game::voice_base`; issue #1051). A line of the
+/// player's voice set is in the set's voice (`fnv_game::player_voice`).
+fn voice_base(g: &Game, sim: &SimState, speaker: FormId, info: FormId) -> Option<FormId> {
+    sim.base_of(speaker.0).map(|b| g.line_voice_base(&sim.world, b, speaker, info))
 }
 
 /// Which response (index in record order) of a SayTo or Say line is being said: the
@@ -370,9 +379,14 @@ struct Said {
 }
 
 /// Every response being said: the SayTo and Say lines, and the conversation's line.
+///
+/// A co-op guest's speaker saying a line of the host's (`Speech::remote`) is heard saying
+/// that one only: a line of the guest's own by the same speaker (a hello at this player)
+/// would take turns with it, each starting the sound over.
 fn said_now(g: &Game, sim: &SimState) -> Vec<Said> {
+    let hosts: Vec<FormId> = g.speech.iter().filter(|s| s.remote).map(|s| s.speaker).collect();
     let mut out: Vec<Said> =
-        g.speech.iter().map(|s| Said { speaker: s.speaker, place: s.place(), through: s.through.is_some(), info: s.info, response: speech_response(g, sim, s), remaining: s.remaining, conversation: false, two_d: s.two_d }).collect();
+        g.speech.iter().filter(|s| s.remote || !hosts.contains(&s.speaker)).map(|s| Said { speaker: s.speaker, place: s.place(), through: s.through.is_some(), info: s.info, response: speech_response(g, sim, s), remaining: s.remaining, conversation: false, two_d: s.two_d }).collect();
     if let Some((c, line)) = g.dialogue.as_ref().and_then(|c| Some((c, c.line.as_ref()?))) {
         let order = g.data.infos.get(&line.info).map(|d| d.response_order()).unwrap_or_default();
         if let Some(&r) = order.get(line.response) {
@@ -496,13 +510,14 @@ fn hook(state: Res<VoiceState>, settings: Res<VoiceSettings>, mut script: ResMut
 }
 
 /// The left and right gains of a line heard from where its speaker is now (0 out of
-/// hearing).
-fn placed_gains(sim: &SimState, player: Option<&Player>, speaker: FormId, through: bool) -> [f32; 2] {
+/// hearing), for the nearer listener (split screen's player 2 too:
+/// `crate::sfx::SecondListener`).
+fn placed_gains(sim: &SimState, player: Option<&Player>, second: Option<&SecondListener>, speaker: FormId, through: bool) -> [f32; 2] {
     let Some(p) = player else { return [1.0, 1.0] };
     match hearing(sim, p, speaker) {
-        Some((at, d)) => {
-            let g = line_gain(d, through);
-            let [l, r] = pan_gains(p.eye(), p.heading, at);
+        Some((at, _)) => {
+            let g = heard_by(p.eye(), second, at, |d| line_gain(d, through));
+            let [l, r] = heard_pan(p.eye(), p.heading, second, at);
             [l * g, r * g]
         }
         None => [0.0, 0.0],
@@ -524,9 +539,9 @@ fn play(
     mut effects: MessageWriter<PlaySound>,
     (sfx, sfx_settings): (Option<Res<crate::sfx::Sfx>>, Option<Res<crate::sfx::SfxSettings>>),
     mut cut_sounds: Option<ResMut<Assets<Panned<PcmSound>>>>,
-    mut cover: Option<ResMut<crate::sound_cover::SoundCover>>,
+    (mut cover, second): (Option<ResMut<crate::sound_cover::SoundCover>>, Option<Res<SecondListener>>),
 ) {
-    let player = player.as_deref();
+    let (player, second) = (player.as_deref(), second.as_deref());
     let st = &mut *state;
     let (Some(bank), Some(rt)) = (st.bank.clone(), script.rt.as_ref()) else { return };
     let g = &rt.game;
@@ -551,7 +566,7 @@ fn play(
     let cover_now = std::time::Instant::now();
     for (speaker, p) in st.playing.iter() {
         if let Some(pan) = &p.pan {
-            pan.set(placed_gains(&sim, player, p.place, p.through));
+            pan.set(placed_gains(&sim, player, second, p.place, p.through));
             // Heard at the listener while it plays, by the voice's fall-off
             // (`crate::sound_cover`); a held line makes no sound.
             let heard = player.filter(|_| p.entity.is_some() && !p.held && now < p.ends_at && *speaker != FormId::PLAYER_REF).and_then(|pl| hearing(&sim, pl, p.place));
@@ -599,8 +614,16 @@ fn play(
             }
         }
         let placed = sim.base_of(s.speaker.0);
-        let base = voice_base(g, &sim, s.speaker);
-        let fitted = g.response_seconds_voiced(placed, base, s.info, k);
+        let base = voice_base(g, &sim, s.speaker, s.info);
+        // A line of the player's voice set plays at its rate: pitch and speed together,
+        // the line as much shorter (docs/design/player-voices.md §6).
+        let rate = g.line_rate(s.speaker, s.info);
+        // The player's own lines are said in its own voice type, by sex and race
+        // (`Game::player_own_voice_type`): PlayerVoiceFemale for a woman, the ghoul
+        // voices for a ghoul; the record's file stands in where that voice has none.
+        let own_voice = g.line_voice_type(s.speaker, s.info);
+        let own_file = own_voice.and_then(|v| bank.file_for_voice(s.info.0, k, v.0));
+        let fitted = g.response_seconds_voiced(placed, base, s.info, k) / f64::from(rate);
         let who = g.data.name(s.speaker);
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);
         // A line said for its fixed speaker (INFO ANAM) by another actor (its own GetIsID
@@ -611,17 +634,11 @@ fn play(
         // A fixed speaker that is the placed base is no other actor: its file is in the
         // record's own voice, not the one the actor speaks with (issue #1051).
         let fixed = g.data.infos.get(&s.info).and_then(|d| d.speaker).filter(|f| Some(*f) != base && Some(*f) != placed);
-        // The player speaks in the voice of the sex she or he is (`Game::voice_override`,
-        // issue #2088), not the player record's.
-        let own_voice = g.voice_override(base);
-        let own = match own_voice {
-            Some(vt) => bank.file_for_voice(s.info.0, k, vt.0),
-            None => base.and_then(|b| bank.file(s.info.0, k, b.0)),
-        };
-        let file = own.or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0)));
+        let file = own_file.or_else(|| base.and_then(|b| bank.file(s.info.0, k, b.0))).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0))).or_else(|| carried_file(g, &bank, s.info));
         // A line outside the conversation is heard from where it is said, or not at all;
         // a 2D one (Say's is2D) as the conversation's.
-        let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.place))) };
+        // How far: from the nearer listener (`crate::sfx::heard_distance`).
+        let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.place).map(|(at, _)| (at, heard_distance(p.eye(), second, at))))) };
         let out_of_hearing = match heard {
             Some(Some((_, d))) if !in_reach(d, s.through, None) => Some(format!("{d:.0} units away")),
             Some(None) if player.is_some() => {
@@ -630,7 +647,7 @@ fn play(
             }
             _ => None,
         };
-        let pan = heard.map(|_| Pan::new(placed_gains(&sim, player, s.place, s.through)));
+        let pan = heard.map(|_| Pan::new(placed_gains(&sim, player, second, s.place, s.through)));
         // A response with a sound of its own plays it instead of the voice (creatures'
         // and robots' combat lines; docs/spec-notes/combat-dialogue.md §3).
         let own_sound = g.data.infos.get(&s.info).and_then(|d| d.responses.get(k)).and_then(|r| r.sound);
@@ -647,14 +664,14 @@ fn play(
             info!("voice: {who} line {} response {number} plays its sound {}{}", g.data.name(s.info), g.data.name(sound), if out_of_hearing.is_some() { " [out of hearing]" } else { "" });
             st.playing.insert(
                 s.speaker,
-                Playing { info: s.info, place: s.place, through: s.through, response: k, entity: None, ends_at: now + fitted, remaining: s.remaining, path: None, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan, offset: 0.0 },
+                Playing { info: s.info, place: s.place, through: s.through, response: k, entity: None, ends_at: now + fitted, remaining: s.remaining, path: None, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan, offset: 0.0, rate },
             );
             continue;
         }
         let mut offset = 0.0;
         let (entity, seconds) = match &file {
             Some(path) => {
-                let mut seconds = bank.seconds(path).unwrap_or(fitted);
+                let mut seconds = bank.seconds(path).map_or(fitted, |x| x / f64::from(rate));
                 // A long generic death file: one cry of it (issue #1539).
                 let responses = g.data.infos.get(&s.info).map_or(0, |d| d.responses.len());
                 let cry = if cut_to_one_cry(path, seconds, responses, s.conversation) {
@@ -665,7 +682,8 @@ fn play(
                     None
                 };
                 if let Some((_, cut, total)) = &cry {
-                    seconds = cut.span.seconds();
+                    // The cut plays at the line's rate too (a player voice set's; else 1).
+                    seconds = cut.span.seconds() / f64::from(rate);
                     offset = cut.span.start;
                     st.one_cry += 1;
                     cuts.push((s.speaker, s.info, seconds));
@@ -687,7 +705,7 @@ fn play(
                 let entity = match (settings.play, cry.as_ref(), cut_sounds.as_mut()) {
                     // One cry: its samples, at the speaker's place (or whole at both ears).
                     (true, Some((pcm, ..)), Some(cut_sounds)) => {
-                        let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume.max(0.0)));
+                        let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume.max(0.0))).with_speed(rate);
                         let pan = pan.clone().unwrap_or_else(|| Pan::new([1.0, 1.0]));
                         let handle = cut_sounds.add(Panned { voice_filter: filtered, reverb, ..Panned::new(pcm.clone(), pan) });
                         Some(commands.spawn((AudioPlayer::<Panned<PcmSound>>(handle), playback, VoiceSound, SoundCategory::Voice)).id())
@@ -696,7 +714,7 @@ fn play(
                         (true, Some(assets), Some(bytes)) => {
                             let source = AudioSource { bytes: bytes.into() };
                             let volume = Volume::Linear(settings.volume.max(0.0));
-                            let playback = PlaybackSettings::DESPAWN.with_volume(volume);
+                            let playback = PlaybackSettings::DESPAWN.with_volume(volume).with_speed(rate);
                             // The conversation's line, filtered, at both ears whole.
                             let pan = pan.clone().or_else(|| filtered.then(|| Pan::new([1.0, 1.0])));
                             match (&pan, panned.as_mut()) {
@@ -710,6 +728,11 @@ fn play(
                         _ => None,
                     },
                 };
+                // Split screen's player 2 always hears its own conversation
+                // (`crate::audio_out::SplitSound`).
+                if let Some(e) = entity.filter(|_| s.conversation) {
+                    commands.entity(e).insert(crate::audio_out::OwnConversation);
+                }
                 st.started += 1;
                 st.filtered += u64::from(filtered && entity.is_some());
                 let reverb = reverb.filter(|_| entity.is_some());
@@ -724,7 +747,8 @@ fn play(
                     (None, Some(_)) => String::new(),
                 };
                 let filter = if filtered { " through the voice filter" } else { "" };
-                info!("voice: playing {path} ({seconds:.2} s) {who} line {} response {number}{place}{filter}{silent}", g.data.name(s.info));
+                let speed = if rate != 1.0 { format!(" at speed {rate:.2}") } else { String::new() };
+                info!("voice: playing {path} ({seconds:.2} s) {who} line {} response {number}{speed}{place}{filter}{silent}", g.data.name(s.info));
                 if let Some(r) = reverb {
                     info!("voice: {who} line {} response {number} in the room's reverb: {} (send {:.2}, cut at its end)", g.data.name(s.info), r.preset.name, r.send);
                 }
@@ -744,7 +768,7 @@ fn play(
         st.unheard += u64::from(out_of_hearing.is_some());
         st.playing.insert(
             s.speaker,
-            Playing { info: s.info, place: s.place, through: s.through, response: k, entity, ends_at: now + seconds, remaining: s.remaining, path: file, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan, offset },
+            Playing { info: s.info, place: s.place, through: s.through, response: k, entity, ends_at: now + seconds, remaining: s.remaining, path: file, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan, offset, rate },
         );
     }
     // The lines cut to one cry end with it (and DeathResponse comes then).
@@ -755,6 +779,60 @@ fn play(
     }
 }
 
+/// The sound of a line a voice set carries with it (`GameData::voice_files`), when the data
+/// has that file.
+fn carried_file(g: &Game, bank: &VoiceBank, info: FormId) -> Option<String> {
+    g.data.voice_files.get(&info).filter(|p| bank.vfs().exists(p)).cloned()
+}
+
+/// The creator's preview of a voice ([`crate::player_voice::PreviewVoice`]): one of the
+/// set's first-person lines, its first response, played flat at the set's rate; a preview
+/// still playing is stopped. `voice: preview <id>: <path> at speed <r>`.
+#[allow(clippy::too_many_arguments)]
+fn preview(
+    mut commands: Commands,
+    mut asked: MessageReader<crate::player_voice::PreviewVoice>,
+    sets: Option<Res<crate::player_voice::VoiceSets>>,
+    state: Res<VoiceState>,
+    settings: Res<VoiceSettings>,
+    script: Res<ScriptState>,
+    sounds: Option<ResMut<Assets<AudioSource>>>,
+    mut last: Local<Option<Entity>>,
+    mut turn: Local<u32>,
+) {
+    let Some(ask) = asked.read().last().cloned() else { return };
+    let (Some(sets), Some(bank), Some(rt)) = (sets, state.bank.as_ref(), script.rt.as_ref()) else { return };
+    let g = &rt.game;
+    let Some(set) = sets.get(&ask.id) else { return };
+    let Ok((v, _)) = fnv_game::player_voice::PlayerVoice::resolve(set, g.data) else {
+        warn!("voice: preview {}: the set does not resolve", ask.id);
+        return;
+    };
+    // Every first-person line with its file, in a fixed order; each preview takes the next
+    // of a stride through them, so pressing again gives another line.
+    let file = |i: FormId| bank.file(i.0, 0, v.base.0).or_else(|| carried_file(g, bank, i));
+    let mut lines: Vec<FormId> = v.first_person.iter().copied().filter(|&i| file(i).is_some()).collect();
+    lines.sort();
+    if lines.is_empty() {
+        info!("voice: preview {}: no first-person line with a file", ask.id);
+        return;
+    }
+    *turn = turn.wrapping_add(1);
+    let info = lines[(*turn as usize * 7919) % lines.len()];
+    let Some(path) = file(info) else { return };
+    if let Some(e) = last.take() {
+        commands.entity(e).try_despawn();
+    }
+    info!("voice: preview {}: {path} at speed {:.2}", ask.id, v.rate);
+    if !settings.play {
+        return;
+    }
+    let (Some(mut assets), Some(bytes)) = (sounds, bank.read(&path).and_then(|b| crate::sfx::checked(&path, b))) else { return };
+    let source = AudioSource { bytes: bytes.into() };
+    let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume.max(0.0))).with_speed(v.rate);
+    *last = Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, VoiceSound, SoundCategory::Voice)).id());
+}
+
 pub struct VoicePlugin;
 
 impl Plugin for VoicePlugin {
@@ -763,7 +841,7 @@ impl Plugin for VoicePlugin {
             .init_resource::<VoiceState>()
             .add_audio_source::<Panned<AudioSource>>()
             .add_audio_source::<Panned<PcmSound>>()
-            .add_systems(Update, (load, hook, play).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (load, hook, play, preview).chain().in_set(PlaySet::Ui))
             .add_systems(Last, report);
         crate::settings::add_setting(
             app,

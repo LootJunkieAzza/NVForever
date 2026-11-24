@@ -521,7 +521,7 @@ impl Gen<'_> {
             // be a call (as text it would leave two operands side by side), in a mod's
             // source compiled by the engine [observed: JIP Companions Command & Control
             // 2.60, `SetFunctionValue (CCCInFaction SomeFaction == 0)`].
-            None if self.unknown_calls && head.is_none() && self.in_paren && !self.in_args && starts_operand(p.peek()) => self.unknown_call(p, name),
+            None if self.unknown_calls && head.is_none() && self.in_paren && !self.in_args && starts_operand(p.peek()) && self.unknown_operand_ok() => self.unknown_call(p, name),
             // Any other bare word that names nothing is its own text, with the editor's
             // "Unquoted argument" warning, parenthesised too [observed: nvse-fourth,
             // `SetFunctionValue (GetFOSEVersion)` returns the text "GetFOSEVersion" in xNVSE
@@ -537,10 +537,17 @@ impl Gen<'_> {
             // SCPT 001880 calls TTW_EnableRadioFix and InitRockItLauncher, plugin functions
             // the wiki does not document; JustAssortedMods.esp 4.6, `sATag =
             // ySIGetTagTrait "string" (aA[0])`]. As an argument the name stays its own
-            // text (the arm above).
-            None if self.unknown_calls && head.is_none() => self.unknown_call(p, name),
+            // text (the arm above). Without [`super::super::Seed::unknown_operands`] only on
+            // a call line (the Script Runner files: `set x to SRNoSuchForm` must not compile).
+            None if self.unknown_calls && head.is_none() && self.unknown_operand_ok() => self.unknown_call(p, name),
             None => self.xerr("unresolved_name", name.to_string()),
         }
+    }
+
+    /// An unknown bare name may be a call here: always with
+    /// [`super::super::Seed::unknown_operands`], otherwise only on a call line.
+    fn unknown_operand_ok(&self) -> bool {
+        self.unknown_operands || self.call_line
     }
 
     /// A call of a function nothing knows, by its name: `Name`, `Ref.Name` or
@@ -751,7 +758,7 @@ impl Gen<'_> {
             // `SetStringIniSetting "sLanguage:General" sText` set the text "sText";
             // documented: SetNameEx, "does not accept string variables directly … must be
             // converted", `$sv`; hypothesis: JIP's and the other plugins' functions differ].
-            if self.call_line && !self.in_args && !f.aware && !self.in_paren && self.plain_string_param(f, args.len()) {
+            if self.call_line && !self.in_args && !self.in_lambda && !f.aware && !self.in_paren && self.plain_string_param(f, args.len()) {
                 if let Some(t) = p.peek().filter(|t| t.kind == XKind::Word && !t.text.contains('.')).cloned() {
                     let string_var = self.var(&t.text).is_some_and(|v| matches!(&v.ty, crate::unit::VarType::Other(s) if s == "string_var"));
                     let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));

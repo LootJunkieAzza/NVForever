@@ -126,7 +126,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
         )),
         // [documented: GetNumericGameSetting; GetStringGameSetting; SetNumericGameSetting].
-        "getnumericgamesetting" => XVal::Num(g.world.setting_f32(&setting_name(g, args, 0)).map_or(0.0, f64::from)),
+        // A combat setting the load order leaves out reads its documented default, as the
+        // engine itself uses one [documented: GECK wiki Gun Spread Formula (New Vegas) and
+        // the other pages `fnv_combat::tuning` cites; hypothesis: the original's settings
+        // table holds the defaults, so JAM's crosshair reads fWalkingSpreadPenalty 0.1].
+        "getnumericgamesetting" => {
+            let name = setting_name(g, args, 0);
+            XVal::Num(g.world.setting_f32(&name).or_else(|| fnv_combat::tuning::documented_default(&name)).map_or(0.0, f64::from))
+        }
         "getstringgamesetting" => XVal::Str(match g.world.setting_value(&setting_name(g, args, 0)) {
             Some(fnv_sim::settings::Setting::Str(s)) => s.clone(),
             _ => String::new(),
@@ -184,7 +191,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
         }
         // [documented: GetCurrentQuest] the player's active quest.
-        "getcurrentquest" => XVal::Ref(g.ui.active_quest.map_or(0, |q| q.0)),
+        "getcurrentquest" => XVal::Ref(g.ui.current_quest().map_or(0, |q| q.0)),
         // [documented: IsRefInList] the exact form's index, else its base form's; -1.
         "isrefinlist" => {
             let m = crate::functions::list_members(g, form(args, 0).unwrap_or(FormId(0)));

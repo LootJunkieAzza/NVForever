@@ -374,10 +374,10 @@ impl RenderAsset for GpuShaderBuffer {
                 // remaining bytes stay zero-initialized; if it's longer, the tail
                 // is truncated.
                 let upload_len = (buffer_size as usize).min(data.len());
-                buffer
-                    .get_mapped_range_mut(..upload_len as u64)
-                    .unwrap()
-                    .copy_from_slice(&data[..upload_len]);
+                // NVForever: no panic when the GPU device was lost (vendor/README.md).
+                if let Ok(mut range) = buffer.get_mapped_range_mut(..upload_len as u64) {
+                    range.copy_from_slice(&data[..upload_len]);
+                }
                 buffer.unmap();
             }
             buffer

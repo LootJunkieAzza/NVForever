@@ -10,27 +10,36 @@
 //! ([`ease_angle`]), and the two rows of the settings page ([`register`]). The frame's
 //! work is `crate::vats_mode`'s, which asks here.
 //!
-//! Test aids: `NVF_PLAY_TEST_VATS_STYLE` (`classic` or `dead-eye`) and
+//! Test aids: `NVF_PLAY_TEST_VATS_STYLE` (`classic`, `dead-eye` or `real-time`) and
 //! `NVF_PLAY_TEST_VATS_SLOWDOWN` (0.5 to 1) set the two rows for an unattended run, which
 //! reads no INI (`crate::settings`); every VATS scenario pins its style with the first.
 
 use bevy::prelude::*;
 
 /// What V starts: the settings page's "V.A.T.S. style" (`vats-style` in NVForever.ini).
-/// Dead Eye is the default until the owner has ruled on docs/owner-review.md item 31a
-/// [design: the owner's review of #2102, 2026-11-11; the fork's owner plays Classic].
+/// Classic is the default on the co-op fork [design: the fork owner 2026-11-09, "the
+/// original's flow replaces Dead Eye as what V starts", and 2026-11-12, the classic
+/// style's limb selection for solo and co-op alike]; upstream keeps Dead Eye until
+/// docs/owner-review.md item 31a is answered.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VatsStyle {
     /// The original's flow: the world stopped or slowed, a target and its parts chosen
     /// from a list (docs/design/vats-classic.md).
+    #[default]
     Classic,
     /// NVForever's own slow-time mark and fire (docs/design/vats-mode.md).
-    #[default]
     DeadEye,
+    /// Real time: V is the lock-on of the RealtimeVatsNV mod (`crate::rt_vats`,
+    /// docs/spec-notes/realtime-vats.md), its limb lit with VATS's hatched highlight; the
+    /// world runs on and the player moves. A co-op session is always this, whatever the page
+    /// says [design: the fork owner 2026-11-12, "it should be based on the real time vats
+    /// mod but just using the new limb darwing technique instaead of the diamond", and "only
+    /// if solo vats mode is selected as real time vats"].
+    RealTime,
 }
 
 impl VatsStyle {
-    pub const ALL: [VatsStyle; 2] = [VatsStyle::Classic, VatsStyle::DeadEye];
+    pub const ALL: [VatsStyle; 3] = [VatsStyle::Classic, VatsStyle::DeadEye, VatsStyle::RealTime];
 
     /// The style's name on the settings page and in NVForever.ini [design: NVForever's own
     /// words. The slow-time style's is not the name of the mechanic it is modelled on,
@@ -40,6 +49,7 @@ impl VatsStyle {
         match self {
             VatsStyle::Classic => "Classic",
             VatsStyle::DeadEye => "Mark and Fire",
+            VatsStyle::RealTime => "Real time",
         }
     }
 
@@ -50,6 +60,7 @@ impl VatsStyle {
         match n.as_str() {
             "classic" => Some(VatsStyle::Classic),
             "markandfire" | "deadeye" => Some(VatsStyle::DeadEye),
+            "realtime" => Some(VatsStyle::RealTime),
             _ => None,
         }
     }
@@ -224,12 +235,39 @@ pub fn ease_angle(from: f32, to: f32, rate: f32, dt: f32) -> f32 {
     from + d * k
 }
 
+/// `to - from` the short way round, radians.
+pub fn angle_off(from: f32, to: f32) -> f32 {
+    let d = (to - from).rem_euclid(std::f32::consts::TAU);
+    if d > std::f32::consts::PI { d - std::f32::consts::TAU } else { d }
+}
+
+/// Once the view is this close to a locked target (heading and pitch, radians), it is held
+/// on it [design: about a degree and a half, under the crosshair's own size].
+pub const LOCK_WITHIN: f32 = 0.026;
+/// The held view's follow, a share of what is left each second [design: fast enough that
+/// a strafing player's view trails the target by about a degree (300 units a second across
+/// 500 units away), slow enough to smooth a frame's wobble of the target's point instead of
+/// passing it to the view].
+pub const LOCK_RATE: f32 = 40.0;
+
+/// The view (heading, pitch) turned onto `want` over `dt` seconds, and whether it is held
+/// on: until it is, it swings at [`TURN_RATE`]; then it follows at [`LOCK_RATE`], so the
+/// target stays under the crosshair while the player moves [design: the fork owner
+/// 2026-11-12, "vats should lock the aim to the currently selected target"]. A new target
+/// (`held` false) swings again.
+pub fn turn_onto(view: (f32, f32), want: (f32, f32), dt: f32, held: bool) -> ((f32, f32), bool) {
+    let rate = if held { LOCK_RATE } else { TURN_RATE };
+    let now = (ease_angle(view.0, want.0, rate, dt), ease_angle(view.1, want.1, rate, dt));
+    let close = angle_off(now.0, want.0).abs() < LOCK_WITHIN && angle_off(now.1, want.1).abs() < LOCK_WITHIN;
+    (now, held || close)
+}
+
 /// The test aids' style and slowdown (module notes).
 fn from_env() -> (Option<VatsStyle>, Option<f32>) {
     let style = std::env::var("NVF_PLAY_TEST_VATS_STYLE").ok().and_then(|v| {
         let s = VatsStyle::by_name(&v);
         if s.is_none() {
-            warn!("vats: NVF_PLAY_TEST_VATS_STYLE={v}: not classic or dead-eye");
+            warn!("vats: NVF_PLAY_TEST_VATS_STYLE={v}: not classic, dead-eye or real-time");
         }
         s
     });
@@ -263,6 +301,7 @@ pub fn register(app: &mut App) {
     if let Some(s) = slow {
         info!("vats: time slowdown {} (NVF_PLAY_TEST_VATS_SLOWDOWN)", slowdown_text(s));
     }
+
     crate::settings::add_choice_list(
         app,
         crate::settings::Setting {
@@ -272,7 +311,7 @@ pub fn register(app: &mut App) {
             // (0000017D) and `HelpVATS2`, whose names are "V.A.T.S." and "V.A.T.S. --
             // Advanced" (`fnvtool esm inventory`); #1740, LEGAL.md]; "style" is ours.
             label: "V.A.T.S. style",
-            note: "What the V.A.T.S. key starts. Classic: the world stops and you pick body parts to hit. Mark and Fire: time runs very slowly while you mark targets.",
+            note: "What the V.A.T.S. key starts. Classic: the world stops, you pick a target and its body parts from their chances to hit, then the queued attacks play. Mark and Fire: time runs very slowly while you mark targets under the crosshair. Real time: V locks on to a target while the world runs on; you keep moving, the aim stays on it and its limb is lit, Aim switches to the next target, Z the limb, V lets go. Co-op is always real time.",
             switches: "",
             get: |_| false,
             set: |_, _| {},
@@ -358,13 +397,16 @@ mod tests {
 
     #[test]
     fn styles_go_by_name() {
-        assert_eq!(VatsStyle::default(), VatsStyle::DeadEye, "Dead Eye until owner-review 31a is answered");
+        assert_eq!(VatsStyle::default(), VatsStyle::Classic, "the co-op fork's owner, 2026-11-09 and 2026-11-12");
         for s in VatsStyle::ALL {
             assert_eq!(VatsStyle::by_name(s.name()), Some(s));
         }
         assert_eq!(VatsStyle::by_name("dead-eye"), Some(VatsStyle::DeadEye));
         assert_eq!(VatsStyle::by_name(" CLASSIC "), Some(VatsStyle::Classic));
         assert_eq!(VatsStyle::by_name("fast"), None);
+        assert_eq!(VatsStyle::by_name("real-time"), Some(VatsStyle::RealTime), "the test aid's spelling");
+        assert_eq!(VatsStyle::by_name("Real time"), Some(VatsStyle::RealTime));
+        assert_eq!(VatsStyle::default(), VatsStyle::Classic, "solo is classic until real time is chosen");
     }
 
     #[test]
@@ -402,5 +444,42 @@ mod tests {
         assert!((ease_angle(0.0, 1.0, TURN_RATE, 5.0) - 1.0).abs() < 1e-4);
         // No time, no turn.
         assert_eq!(ease_angle(0.3, 1.0, TURN_RATE, 0.0), 0.3);
+    }
+
+    /// A player strafing past a locked target: once held, the view stays on it (within
+    /// [`LOCK_WITHIN`]) and turns smoothly frame after frame; the plain swing trails it by
+    /// several degrees.
+    #[test]
+    fn the_view_stays_on_a_locked_target_while_strafing() {
+        let target = [0.0f32, 500.0];
+        let want_of = |x: f32| (target[0] - x).atan2(target[1]);
+        let dt = 1.0 / 60.0;
+        let (mut view, mut held) = ((0.4f32, 0.0f32), false);
+        let (mut swing, mut worst, mut worst_swing, mut biggest_step) = (0.4f32, 0.0f32, 0.0f32, 0.0f32);
+        for frame in 0..240 {
+            let x = 300.0 * dt * frame as f32 - 300.0;
+            let want = (want_of(x), 0.0);
+            let before = view.0;
+            (view, held) = turn_onto(view, want, dt, held);
+            swing = ease_angle(swing, want.0, TURN_RATE, dt);
+            if frame >= 60 {
+                assert!(held, "held within a second");
+                worst = worst.max(angle_off(view.0, want.0).abs());
+                worst_swing = worst_swing.max(angle_off(swing, want.0).abs());
+                biggest_step = biggest_step.max(angle_off(before, view.0).abs());
+            }
+        }
+        assert!(worst < LOCK_WITHIN, "held view off the target by {:.2}°", worst.to_degrees());
+        assert!(worst_swing > 3f32.to_radians(), "the swing alone trails: {:.2}°", worst_swing.to_degrees());
+        // No frame jumps: at most the target's own turn in a frame (0.6 rad/s here), with room.
+        assert!(biggest_step < 0.6 * dt * 1.5, "a step of {:.3}°", biggest_step.to_degrees());
+    }
+
+    #[test]
+    fn a_new_target_swings_before_it_is_held() {
+        let ((h, _), held) = turn_onto((0.0, 0.0), (1.0, 0.0), 1.0 / 60.0, false);
+        assert!(!held && h > 0.0 && h < 0.2, "the swing: {h}");
+        let (_, held) = turn_onto((0.995, 0.0), (1.0, 0.0), 1.0 / 60.0, false);
+        assert!(held);
     }
 }

@@ -88,8 +88,13 @@
 //!   "run away if they get too close" [documented: GECK wiki Packages; no distance is
 //!   documented]: an actor whose package allows the behaviour, not in a combat state,
 //!   within [`SPECTATOR_FLEE_DISTANCE`] of a fighter [design: stand-in] runs from it,
-//!   wherever the player is, by the combat flee's search for a spot (a door, cover, or
-//!   straight away: `crate::alert`) without entering a combat state; at its spot it
+//!   wherever the player is, by the combat flee's search for a spot without entering a
+//!   combat state: cover, or straight away (`crate::alert`), never a load door [design:
+//!   the documented door rule, fCombatFleeMaxDoorDistance, is the combat flight's; the
+//!   wiki says only that spectators run away. Taking the nearest load door sent
+//!   Freeside's bystanders down the sewer manhole by Mick & Ralph's, FreesideInteriors'
+//!   0x0603BDEB, whenever a fight came near (owner's overnight queue item 70,
+//!   2026-11-07)]; at its spot it
 //!   stands facing the fight, runs again (at most once per
 //!   [`SPECTATOR_REFLEE_SECONDS`]) if the fight comes as close again, and goes back to
 //!   its package once no fighter is within [`OBSERVE_DISTANCE`] [design].
@@ -645,7 +650,7 @@ impl Ai {
         }
         self.social.fleeing.insert(actor, game.time);
         self.log(game, actor, AiEvent::SpectatorFlee { fighter, away });
-        self.flee_from(game, nav, actor, fighter, at);
+        self.flee_from(game, nav, actor, fighter, at, false);
     }
 
     /// One update of a spectator running from a fight (module notes), out of a combat

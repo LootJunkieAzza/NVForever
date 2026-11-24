@@ -279,6 +279,18 @@ The names with no record in the vanilla masters, by spelling:
 `sVatsBodyPart`, `sVatsSelect`, `sVatsTarget`, `sWinLossText`, `sXPProgressMarker`,
 `squit`.
 
+**Without the `-`** (2026-11-05). A mod's file can write a setting's name as a constant,
+`&sName;`: JAM's loot menu (`jlm.xml`) writes `&sTargetTypeTake;`, `&sSteal;` and
+`&sTargetTypeOpen;` for its key hints, beside `&-sTakeAll;` and `&-sInventoryEquip;`, and
+MCM's `scale.xml` writes `&sAccept;` and `&sCancel;` [observed: the files]. No vanilla
+file does. Ours reads such a name as `&-sName;` when the load order or the built-in table
+answers it, and as a constant's name otherwise (`fnv_ui::expr::literal`) [hypothesis: the
+mods' hints read as words in the original; how its reader tells a constant from a
+setting is not known]. The three JAM names have no vanilla use and no GMST record, so
+the table holds NVForever's own labels for them too ("Take", "Steal", "Open"); and
+`sInventoryWeight` is now "WG", short as its headline-card neighbours "HP", "DR", "DT",
+since JAM's loot menu leaves the label 50 units before the load figure [design].
+
 ## 3. Traits
 
 - A trait holds a number or a string; in the original it is both at once [documented:
@@ -314,6 +326,21 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 - [hypothesis] `depth` adds down the tree, with zero when absent. Parents precede
   children; siblings sort by increasing depth, preserving file order for ties. Neither
   this note's earlier sections nor hud.md establish cumulative depth or traversal order.
+  [observed: MCM 1.5's prefabs] MCM's files argue against plain summing. Its slider and list
+  windows (`MCM_Scale`, `MCM_List`, pieces at `depth` 15 to 17 under a rect with none)
+  are meant to cover the option rows. Those rows sum to 25 (`OptionN` 13 plus its
+  texts' 12). The rule is open (an observer check). Until it is settled the Mods page draws
+  those two windows 20 higher (`_NVFDepthLift`, engine-only, `tiles::layout::DEPTH_LIFT`).
+  MCM's hotrects that set their own `red`/`green`/`blue` (the windows' black `Scale_BG`,
+  `Title_BG`, `List_BG`, the colour previews) draw their box filled
+  (`tiles::mods::fill_mcm_boxes`) [hypothesis: the original fills such a hotrect; the one
+  vanilla case, the race menu's `RSM_Face_Grab`, is left as it was].
+  While the slider is open, MCM dims every other row to alpha 85 (`_selected` and each
+  row's `_alpha` 3) [observed: MCM's script and OptionRect.xml; the probe read 85]. With
+  Bevy's linear blend that shows a peak of 156 of 255. The Mods page puts its pieces'
+  alpha through `alpha^2.2` (`tiles::draw::gamma_alpha`) [hypothesis: the original blends
+  in gamma space, so the dimmed rows peak near 85; open until a vanilla half-alpha text is
+  compared with a frame of the original].
 - [hypothesis, T15a] A `hotrect`'s own `alpha` is not passed to its children: every
   vanilla text button is a hotrect of alpha 0 (`text_box.xml`) whose text sets its own
   alpha (128, or 255 while it is a target), the message box's list and its rows
@@ -333,6 +360,16 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   child cannot override a hidden parent.
 - [hypothesis] True `clips` crops children to this tile's rectangle. Nested ancestor
   clips intersect; a disjoint intersection is empty. The tile's own box is unchanged.
+  **Not for mods' tiles over the default HUD and on the Mods page** (2026-11-05,
+  `tiles::layout::Clips::Ignored`): JAM's loot menu sets `clips` on its root and centres
+  its title on the root's top edge (`y` = minus half the text's height), half outside the
+  box, and hides its own rows past the list by their `visible` [observed: jlm.xml]; a
+  crop there would cut the title in two, which the mod's author would have seen
+  [hypothesis: the original does not crop a `clips` tile's children, or not there; its
+  meter pictures that carry `clips` and no children suggest it crops the tile's own
+  picture]. Whole menus drawn from tiles still crop as above until checked [design: as
+  `clipwindow` below, the reading changes only where mods' tiles draw over the default
+  game]. Observer check 12.
 - [observed] True `clipwindow` crops a tile's descendants to its rectangle in the
   drawing: the tutorial menu's scrolled text stops part way through a line at the column's
   top and bottom edges (private capture hud_tutorial_more, 1280 x 720, shots
@@ -373,8 +410,19 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   [design] RGB clamps to 0–255; brightness passes unchanged. Colour does not multiply
   through ancestors. Numeric `systemcolor` is retained for the renderer to map; unknown
   named constants retain their names as well, and absence stays absent.
-- [design] `locus`, `id`, `target`, input traits, menu fades and stacking traits have
-  no extra layout effect yet. No undocumented meaning is assigned to them.
+- [design] `id`, `target`, input traits, menu fades and stacking traits have no extra
+  layout effect yet. No undocumented meaning is assigned to them.
+- `locus`, only in a menu whose root has the private trait `_NVFLocus` true
+  (`fnv_ui::input::LOCUS_ON`; the engine sets it on `StartMenu` for MCM, nvf-play
+  tiles/mods.rs): there only a tile with a true `locus` places its children from its
+  own top-left; a child of any other tile is placed from where that tile's parent
+  places its children [documented: GetUIFloatInherited, "parent tiles with an active
+  locus"; observed: MCM's tiles copy `parent()`'s x and y (MCM_ModList, MCM_BG, the
+  rows' texts) and would stand twice as far in if every parent placed its children].
+  Every other menu places children from every parent, as before: the HUD's `Subtitles`
+  rect has no locus and its text is placed from it [observed: the notices test]. The
+  rule is `fnv_ui::input::places_children`, shared by the layout (tiles/layout.rs) and
+  the pointer (`fnv_ui::input::hit`), so what is drawn is what is clicked [design].
 
 ### 3.1.2 Drawing interpretation (T5 part C)
 
@@ -464,6 +512,14 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   prefab's own expression, the child's width plus `_horbuf` [documented: text_box.xml])
   and `RadiationMeter/radiation_text_value` (`fnv_game::ui_hud::write_text_widths`),
   only with the game's fonts. A tile without a `string` keeps its width [design].
+- [hypothesis] `rotateangle` turns a tile's picture, in radians, clockwise on the screen,
+  about the point (`rotateaxisx`, `rotateaxisy`) measured from the tile's own top left
+  (`tiles::draw::Turn`): JAM's crosshair (`jdc.xml`) draws one arc picture four times
+  with 0, 1.570796, 3.141593 and 4.712389, each axis at the reticle's middle measured
+  from that arc's top left, and its four bars the same way, to make a circle and a cross
+  [observed: the file; the drawn circle closes, 2026-11-05]. The trait names are read
+  without case (the file writes `Rotateaxisx`). The box is placed as before and turned
+  as a whole; what turning does to the pointer is not done.
 
 ### 3.1.3 The whole menu, `zoom`, `tile`, `texatlas` (T12a)
 
@@ -638,7 +694,14 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
   the element is clicked by the mouse" (the tutorial) against "it will count how many
   times a element has been clicked" (the Clicked page). [hypothesis] The single frame
   (`fnv_ui::input::CLICKED_RULE`, `ClickedRule::OneFrame`; `Count` is the other); a
-  press, not the release, clicks. Observer check §8 item 8. `shiftclicked` is 1 for a
+  press, not the release, clicks. Observer check §8 item 8. In a menu whose root has
+  the private trait `_NVFClickTwoFrames` true (`fnv_ui::input::CLICK_TWO_FRAMES`; the
+  engine marks `StartMenu` for MCM) `clicked` lasts two frames, the click's and the
+  next [hypothesis: MCM reads a click as `clicked` less its own `_UnClick`; its main
+  script handles the input and sets `_UnClick`, and for a list row first skips a frame
+  ("Skip frame to let UI set variables", MCMMainScript), so a one-frame click loses the
+  row; two frames, as the original's traits taking a frame to follow `clicked` would
+  give, open a row on the first click and do not open and close a page again]. `shiftclicked` is 1 for a
   frame when Shift is held during the click [documented].
 - [documented: tutorial] A click sets `clicked` on a tile with an `id`; the Clicked page
   says on any target. [hypothesis] `clicked` on any target, the `id` being what the
@@ -652,8 +715,8 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
   made a target goes to the nearest tile above it whose own `target` is true.
 - [hypothesis] Boxes are the layout's (§3.1.1): `x`/`y` added to the parent's top-left,
   `width`/`height`, a text measured when it has no size and moved by its `justify`,
-  `clips` (or a `clipwindow` turned on, §3.1.1) cropping the children; `locus` is not
-  read, as the layout does not.
+  `clips` (or a `clipwindow` turned on, §3.1.1) cropping the children; `locus` as the
+  layout reads it (§3.1.1: only in a menu marked `_NVFLocus`).
 - [documented: tutorial, the higher `depth` is drawn on top] [hypothesis] Where targets
   overlap, the highest summed `depth` takes the pointer, a tie going to the one drawn
   later; a menu opened later is over an earlier one whatever their depths. Observer
@@ -680,8 +743,49 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
   a ref to another trait is reported, not followed [design].
 - [documented: ClickMenuButton, SetOnMenuClickEventHandler] `Menu#<id>` names the tile
   of that `<id>` in the menu. [hypothesis] The first in file order when two share one.
-- [documented] Wheelmoved, Draggable (`dragx` …), Repeathorizontal: not built (T8 left
-  them; `wheelable` is the next step for lists).
+- [documented] Wheelmoved, Repeathorizontal: not built (T8 left them; `wheelable` is the
+  next step for lists).
+- Draggable (owner item 2026-11-11, MCM sliders not saving). [observed: MCM's Scale.xml]
+  The meter's handle is a hotrect with `<draggable> &true;</draggable>`; the meter's
+  `_drag` reads `child(Meter1_Drag).dragx` less the bar's x over its width, and
+  MCMScaleScript reads that through `_Drag1` each frame, steps the value toward it and
+  sets `dragx` back to 0. With no `dragx` written the meter never moves and the value
+  the accept writes is the one it opened with. [hypothesis] A press on a draggable tile
+  starts a drag; while the left button stays down the tile's `dragx` and `dragy` are the
+  pointer's position in interface units (the same units as `x`), written each frame
+  before the menu's scripts read them; the release ends it. [design] Only for a
+  draggable hotrect with no `target` (MCM's handle): the vanilla lists' scroll markers
+  are draggable targets that NVForever's list code moves itself, and a written `dragy`
+  fought it (smoke `tiles-container`).
+  `fnv_ui::input::Pointer::step` (`Pointer::dragging`).
+- MCM's slider buttons (the same owner item). [observed: MCM's Scale.xml and scripts]
+  Accept, Cancel, Default and the meter arrows are hotrects with no `target`; each one's
+  `_clicked` reads its own `clicked`, and the `MCM_Scale` rect gathers them as `_Accept`,
+  `_Cancel`, `_Default`, `_MeterL`, `_MeterL2`, `_MeterR`, `_MeterR2`. [observed: The Mod
+  Configuration Menu.esp, quest `MCM` stage 2's result script; the quest allows repeated
+  stages and MCMMainScript sets stage 2 every frame] Stage 2 copies them to the `MCM`
+  quest's variables: `iInputMeterAccept` from `GetMCMFloat 2 0 "_Accept"` (MCM's second
+  child, `MCM_Scale`), likewise `_Cancel`, `_Default` and the four arrows (`_MeterL2` and
+  `_MeterR2` plus `MCM_Input`'s `_meterL2`/`_meterR2`), `iInputTrigger` from the trigger's
+  `_clicked` (child 4), `iInputBack` and `iInputDefault` from `MCM_Back` and
+  `MCM_Defaults`; it counts `iInputHeld` up while more than one input is on, else 0; and
+  only with `iAltInput` (MCM.xml's `_AltInput`, the controller) it takes `iInputClick`,
+  `iInputB`, the directions and `iInputY` from `MCM_Input` (child 15), whose `xbuttona`
+  default and `xup`/`xdown`/`xleft`/`xright`/`xbuttonb`/`xbuttony` refs click its
+  children. So no DLL joins these: an earlier NVForever bridge that wrote them from the
+  engine (2026-11-11) is gone. [observed: MCM.xml] Keyboard input would come in through
+  `MCM_Input` too, when `_KeyInput` is on, but the file declares it as `<_KeyInut> 0
+  </_KeyInput>`, so on a mouse and keyboard Enter does not reach the slider through
+  MCM's files; MCMMainScript's own `IsKeyPressed 28 || IsKeyPressed 156` only keeps the
+  pause column disabled while MCM is open. [hypothesis] A press over a hotrect with no
+  `target` sets its `clicked` for the frame (it already has `mouseover`; the list arrows'
+  rule, the raw button over `mouseover`, still works). On Accept MCMMainScript sets
+  `MCMScale.iNewValue`, whose finish writes `_NewValue` 1, which the mod's own script
+  reads to take the value. [design] `fnv_ui::input::Pointer::step` (`Report::bare_clicks`).
+  Opening: the Mods page sets the trigger's `clicked` (made if it has none, as a
+  pointer's first click makes it) until MCM's `_Menu` is 1, at most 60 frames; writing
+  `_clicked` itself does not stick, it is the file's formula over `clicked`
+  (`nvf-play` `tiles::mods::tick`).
 - [design] NVForever: `fnv_ui::input::hit` (the tile under a pointer in interface units,
   960 to the view's height as the tile renderer draws), `Pointer::step` (one frame:
   pulses ended, the pointer followed, the press, the keys), `fnv_game::ui_input::step`
@@ -796,6 +900,24 @@ pages]
 - A path is `MenuName/Tile/…/Tile/trait`, segments split by `/` or `\`, names without
   case.
 - `*` matches any child; `name:N` matches the N-th child of that name and `*:N` the
+  N-th child [documented: "`*:0/*:5/*:9`"]. Both count from zero **from the last
+  matching child**, reversing file/creation order [observed: private jobs hud_hardcore
+  hc0, hud_xp_limbs all, hud_prompt2 p0-p8; hud.md §14.8]. Unindexed matching still
+  searches in file order [hypothesis].
+- `*:N` among children that **all came from the menu files** counts from **1 in file
+  order** instead [hypothesis, 2026-11-05: MCM 1.5 and JAM write
+  `StartMenu/MCM/*:1/_optionID`, `*:5/SubMenu1/_enable`, `*:8/SubTitle1/string` and
+  `*:2/_setting1` for `MCM_Options`, `MCM_ModList`, `MCM_ModTitle` and `MCM_Scale`, the
+  1st, 5th, 8th and 2nd children of mcm.xml's `MCM` rect, the numbers MCM's own
+  GetMCMFloat shorthands use (17 is `MCM_Images`, 9 `MCM_Info`); counted from the last
+  they name tiles without those children, and JAM's sub-menus never list, which they do
+  in the original]. Every observed from-the-last read was of children the game's code
+  made (the HUD's template copies, hud.md §14.8). Another reading fits too: those reads
+  used JIP's GetUIFloatAlt, MCM's and JAM's use xNVSE's GetUIFloat/SetUIFloat, so the
+  count may depend on the function (observer check 6). `name:N` is unchanged.
+- `src="me"` without brackets is `me()` [hypothesis: MCM 1.5's options.xml places its
+  option column with `<copy src="me" trait="x"/>`; read as a tile named "me" every
+  option stood at the screen's left edge].
   N-th child [documented: "`*:0/*:5/*:9`"]. How N counts depends on the function:
   - JIP's functions (`GetUIFloatAlt` and the rest) count from zero **from the last
     matching child**, reversing file/creation order [observed: private jobs hud_hardcore
@@ -1048,6 +1170,10 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
    hud.md §14.8]. These reads used JIP GetUIFloatAlt; deprecated xNVSE GetUIFloat
    parity remains untested [hypothesis]. No contrary vanilla menu/script dependency
    was established by these captures; other menus/scripts still need checking.
+   **Reopened 2026-11-05 for file-made children**: MCM's and JAM's `*:N` paths only make
+   sense counted from 1 in file order (§5). To check: in the original, with MCM open,
+   `GetUIFloat "StartMenu/MCM/*:1/_columns"` (1 when `*:1` is `MCM_Options`) and the
+   same with GetUIFloatAlt.
 7. **Which target takes the pointer where two overlap.** Ours: the highest summed `depth`,
    a tie to the one drawn later; a later menu over an earlier one (§3.2). In a menu with
    overlapping buttons (the level-up menu's list over its buttons, or two tiles injected
@@ -1071,6 +1197,13 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
     `StartMenu/MCM/MCM_Options/Option1/_optionID`, and `GetMCMFloat 1 1 "_optionID"`,
     `GetMCMFloat 1 0 "_optionID"` with the pointer on the first row (ours: the
     shorthands count from 1 in file order, 0 stopping, §10; `*:N` from the last child).
+12. **What `clips` crops** (2026-11-05). With JAM's loot menu open on a container,
+    whether its title "Refrigerator"-style headline shows whole above the box's top line
+    or cut along it (ours: whole, §3.1.1); and whether a long item name runs past the
+    row's right edge.
+13. **`&sName;` without the `-`, and `%k`.** JAM's loot menu's key hints under the box:
+    the action words (ours: "Take", "Open") and the key before them (ours: GetKeyName's
+    text, "E)"), §2.4.
 
 ## 9. The rest of the tile functions (task T9)
 
@@ -1236,6 +1369,7 @@ read.
   trait only the `MCM` rect has) and `GetMCMFloat 1 0 "_optionID"` (the row under the
   pointer) and sets `SetMCMFloat 0 0 "_NewValue" 0`. The GECK wiki writes `SetMCMFloat
   1 1 "_enable" 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/_enable" 1` [documented:
+  SetMCMFloat], which NVForever's `*:N` now reads the same way for MCM's file-made tiles (§5, a hypothesis; observer check 6). The shorthands go straight to the children all the same (`fnv_game::ui_functions::mcm_trait`). A trait or place that is not there reads 0; the
   SetMCMFloat]; the extender's GetUIFloat and SetUIFloat count `*:N` from the first child
   (§5, #2298), JIP's from the last; the shorthands find their tile by place directly
   (`fnv_game::ui_functions::mcm_trait`). A trait or place that is not there reads 0; the
@@ -1302,6 +1436,13 @@ MCM 1.5 and Just Assorted Mods active, window 1280 x 720), with the pause menu o
   `_clicked` to 1 opened MCM's window (MCM's `_Menu` 1, `_Reset` 1, the mod list's
   `_visible` 1 and `_count` 2, Mod1 "Just Mods" with `_modIndex` 12, Just Assorted Mods'
   load index).
+- **NVForever** (`nvf-play` `tiles::mods`): the Mods page writes the column's code traits
+  (`childcount` 8, `_alpha` 255, `_enabled` 1) and makes one code `lb_item_hotrect` row
+  (MCM reads only its `target`) when it opens, then clicks MCM's trigger once, so the
+  page opens on MCM's window; MCM's window closing (`_Menu` 0) closes the page [design].
+  Each frame of the page `tiles::mods::column` also writes the menu's fade, `childcount`
+  and `_alpha`, and a place for the trigger in the middle of the page, since NVForever's
+  own column is drawn apart from the tile tree [design].
 - **MCM's quests in the original** [observed 2026-11-12, jobs mcm976q, mcm976r, mcm976s,
   save nvftest]: right after the load MCM's quest runs and its mod list (`MCMMods`)
   already holds Just Assorted Mods' item (count 1), so the mod added it before the save
@@ -1369,6 +1510,10 @@ plugin's source text), their effects measured in the original with job `mcm976e`
 - Built in `fnv_game::ui_functions` (names in `schemas/script/functions.json` from
   `tools/capture/script_functions.py`'s `PAGELESS`); the setting of every MCM shorthand
   may be a path below the tile (`"ArrowUp/y"`, `"/visible"`, as MCM's scripts pass).
+  A segment of that path may be `*:N` (or `name:N`): the Nth live child, from 1 in file
+  order [hypothesis: JAM writes the words of a choice option, `_type` 1, through
+  `SetMCMString 1 n "value/*:1/string"`; with the segment read as a name the words never
+  showed, owner item 2026-11-11].
 
 ### 10.3 What MCM needs of a click and of the frames before the game (2026-11-12)
 

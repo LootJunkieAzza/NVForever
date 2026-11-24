@@ -117,7 +117,8 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   [design]. Unmatched `.kf` files (and directories whose `chances.txt` contains only
   author notes such as `Short: 20%` with no matching `.kf` filenames) remain
   unconditional and do not draw from either RNG [design].
-- **Which hold:** four times a second, for the player and each actor the engine draws: the
+- **Which hold:** four times a second for each actor the engine draws, every frame for
+  the player (a last-shot entry, `GetCurrentAmmoRounds == 1`, must hold at its shot): the
   entries for the actor's reference, its base or its equipped weapon, and those for every
   actor, whose condition holds on the actor (EvaluateString's compiler; a condition that
   fails to compile or run counts as false and is logged once). [decision: the original
@@ -135,17 +136,79 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   and priorities with them [documented].
 - **The engine** plays the third-person files whose name is a standing locomotion group
   (`mtidle.kf`, `mtforward.kf` …) on drawn actors, as it plays SetActorAnimationPath's
-  (`engine/nvforever/src/anim_paths.rs`), and applies player first- and third-person
-  overrides through `engine/nvforever/src/player_body.rs` (`apply_anim_overrides`). A
-  file's group is read from its name, not its sequence [hypothesis, as knvse-anim.md §2;
-  the mods' `1hpReloadL v2.14.kf` shows names can differ].
+  (`engine/nvforever/src/anim_paths.rs`). A file's group is read from its name, not its
+  sequence [hypothesis, as knvse-anim.md §2; the mods' `1hpReloadL v2.14.kf` shows names
+  can differ].
+- **The player's two rigs** (`engine/nvforever/src/player_body.rs`, `apply_anim_overrides`;
+  first person from `_1stPerson`, third person from `_male`) take every clip choice from the files too:
+  locomotion, equip and unequip, aim and aim down the sights, attacks, reloads, jams. A
+  file's name is matched to the rig's own clip names (`1hpreloadl.kf`) by its stem: lower
+  case, without `.kf`, up to its first space (`1hpReloadL v1.6.kf`, `1hpAttackRight
+  last.kf`) [observed: Another Millenia's and Hit's Anims' files; hypothesis: the words
+  after the space are the author's notes]. A file for any of a choice's names beats every
+  file of the rig's own (a mod's plain `1hpreloadl` plays while sneaking even where the
+  game has `sneak1hpreloadl`). Within one folder a plain name beats a spaced one
+  (`1hpEquip.kf` over `1hpEquip Combat.kf`) [hypothesis]; across entries the later wins.
+  A reload with rounds still in the magazine plays the `…_Partial` file first
+  [hypothesis: from the file names only; 173 such files]. The log says `plays override
+  <path>` for each choice so taken.
+- **Files played in turn** (`_order_N`): "If you want variants to play in order, have the
+  file names end with _order_[NUMBER].kf" [documented: kNVSE's Nexus page, Tip 2 of the
+  folder guide; the same tip says other `_<letters>` variants are picked at random]. The
+  files of a stem ending `_order_N` are one set, ordered by N; a file of the same stem
+  without the ending, in the same folder, comes first [hypothesis: Another Millenia's
+  `Sneak1hpAttackRightDOWN.kf` beside `…DOWN_order_2.kf`, with no `_order_1`]. Each
+  attack of the player plays the set's next file, the first again after the last; the
+  turn is the player's attack count, one for every set of both rigs, so the hip and
+  down-the-sights sets keep in step [hypothesis: whether kNVSE keeps a turn per group,
+  per set or per actor is not known]. A later entry holding the stem replaces the whole
+  set [hypothesis]: the akimbo sets' last-shot folders (`…RightLast`,
+  `GetCurrentAmmoRounds == 2`, only `_order_1`; `…LeftLast`, `== 1`, only `_order_2`)
+  then play their one file at those shots. The up and down forms of an ordered file put
+  the aim's ending before `_order_N` (`1hpAttackRightUP_order_1.kf`) [observed: the
+  akimbo `_male` files]. The akimbo files move the weapon model's `ProjectileNode` and
+  `ShellCasingNode` to the gun that fires (`order_1` the right one, with `##nmBar`,
+  `order_2` the left, with `##nmBar1`) [observed: the node names in the files], and shots
+  leave from that node, so each shot leaves the gun its clip fires.
+- **`noBlend`** (a kNVSE text key): NVForever starts a clip that has it at once instead
+  of fading it in [hypothesis: from the key's name only; kNVSE's list of its text keys
+  is on the GECK wiki, which could not be read]. The key has a time: 0.15 s in
+  `…_order_1.kf`, 0.05 s in `…_order_2.kf`, so its meaning may be narrower [observed].
+  The clips' `Hit` key is at 0.017 s, one frame in; their `ProjectileNode` sits on the
+  firing gun from 0 to 0.1 s, then moves to the other gun for the next shot [observed:
+  the tracks sampled with NVForever's clip reader]. A 0.03 s fade-in left part of the
+  node at its rest place (the right gun) when the shot left.
+- **The shot's frame**: a shot that waits for a `Hit` key never leaves in the frame of its
+  pull, even when that frame is longer than the wait (`fnv_combat::attack`): the clip
+  starts at the pull and the shot is drawn from its pose a frame later [design]. Before,
+  at about 60 frames a second, some shots left in the pull's frame from the last clip's
+  fading pose: 9 of 15 left-gun shots left part way to the right gun [observed:
+  NVForever run of 2026-11-10].
+- **NPCs and co-op puppets holding a weapon** (`engine/nvforever/src/anim_overrides.rs`)
+  take the third-person (`_male`) files of the entries that name the weapon and have no
+  condition, sorted as the player's are (priority, then load order) [hypothesis: a guest's
+  puppet has no actor on the guest's side, so conditions cannot be tested for it; the
+  conditioned last-shot folders are left out]. These files replace, by stem as above, the
+  stance's aim and equip clips (which place the weapon model's parts once when the weapon
+  is drawn: the `Akimbo` node, the second gun of Another Millenia's dual pistols, goes from
+  its rest place 2.5 units below the right gun into the left hand [observed:
+  `DualGlock19\Glock19.nif` and the mod's `1hpAim.kf`]) and the attack, reload and aim
+  up/down/sights clips; `_order_N` sets go round with that actor's own attacks. The log
+  says `anim overrides: N form(s) with third-person files` once, and `from override
+  files: [...]` for each stance so made.
+- `respectEndKey`, also on those clips (0.25 s and 0.35 s), is not read.
 
 ## 4. Not built (follow-ups)
 
-- The engine plays no NPC weapon group (attacks, reloads, aims, equips) or NPC idle from
-  folder overrides: it has no NPC player for SetWeaponAnimationPath's either. Weapon sets
-  (including `Mod1`–`Mod3`, direct `.kf` folders, and `chances.txt` weighted picks) are
-  read and resolved game-side into `Game::anim_overrides` / `Game::anim_overrides_now`.
+- NPCs' and puppets' weapon parts are posed once from the aim or equip clip's end, not
+  played through an attack or reload, and conditioned entries do not apply to them.
+- `_hurt` files (143 in the Millenia and Hit packs) are left out [hypothesis: played
+  while the actor is hurt; kNVSE's page names a `Hurt` folder for crippled legs];
+  `_A`/`_B`/`_1`/`_2` variants of an attack are not picked at random, as the page says
+  kNVSE does (the plain file plays; a WEAP attack animation naming the variant plays it).
+- NPCs and co-op puppets take only an entry's base files: its `Mod1`–`Mod3` buckets and
+  `chances.txt` picks, resolved game-side for an actor (`Game::anim_overrides` /
+  `Game::anim_overrides_now`), are not given to them (`Game::weapon_anim_files`).
 - The group of a file from its sequence name instead of its file name, and engine-side
   variant-stem mapping when a selected file name carries a variant suffix (`2haJamF_a.kf`)
   for a base group (`2haJamF.kf`).

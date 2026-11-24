@@ -308,7 +308,7 @@ mod tests {
     /// shadows row; #2981's authored materials row and its reflections row; #2701's
     /// full-detail scenery row; #3014's distant objects row; #2993's aerial perspective row;
     /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row), by the group it registers with.
-    const KNOWN: [(&str, &str); 149] = [
+    const KNOWN: [(&str, &str); 150] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -370,6 +370,7 @@ mod tests {
         ("sky-clock", "World"),
         ("resolution", "Display"),
         ("borderless", "Display"),
+        ("split-layout", "Display"),
         ("monitor", "Display"),
         ("first-person-body", "Display"),
         ("weapon-inertia", "Display"),
@@ -659,7 +660,7 @@ mod tests {
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
         assert_eq!(keys(&list, &l, "Gameplay")[..11], ["[Game]", "difficulty", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
         assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
-        assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
+        assert_eq!(keys(&list, &l, "Controls")[..9], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", "", "[Look]", "@invert", "@sensitivity"]);
         assert_eq!(
             keys(&list, &l, NVF_FEATURES_TAB),
             ["[Advanced Movement]", "advanced-movement", "movement-weight", "", "[Gameplay]", "movement-inertia", "weapon-handling", "advanced-recoil", "sprint", "", "[Visual Only]", "weapon-inertia", "animation-smoothing", "camera-motion", "", "[World Interaction]", "grass-fire", "", "[Quick Loot]", "quick-loot", "quick-loot-scale", "quick-loot-background", "quick-loot-weight", "quick-loot-value", "quick-loot-value-per-weight"]

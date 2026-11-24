@@ -23,6 +23,23 @@
 //!    away as it ends, or [`ACK_WAIT_SECS`] after the file was written: on a busy machine
 //!    the screen's first frames were slow enough for the save to be put back before the
 //!    window was shown, while the old run still held its game (#1651).
+//!    Its world (`world::stream`, `readahead::read_ahead`) waits until the old process
+//!    has ended ([`OldRun`]; at most [`OLD_RUN_WAIT_SECS`] after the file is written),
+//!    so the two runs never hold a world each: before that, streaming went on in the
+//!    frames before the window was shown, and on a 4 GB laptop card a lobby join held
+//!    both runs' games for 13 s and lost both GPU devices [owner's playtest
+//!    2026-11-08]. The old run lets its caches go as soon as the new run has started
+//!    (`memory_budget::flush_now`).
+//!    Since queue item 132 (owner's playtest 2026-11-09) the new run, once its game data
+//!    is read and before it opens its GPU device, writes a second file ([`gpu_file`]) and
+//!    waits for this run's process to end ([`before_gpu`], at most [`OLD_GPU_WAIT_SECS`]):
+//!    the two runs never have a GPU device each, and the old window goes a few seconds
+//!    before the new one shows. That gap is never seen: just before writing the file, the
+//!    new run puts a copy of the old window's picture over it, a plain window with no GPU
+//!    surface, and takes it down once its own window shows its screen under it
+//!    ([`cover`], [`lower_cover`]; owner 2026-11-22, "there should be no gap or visible
+//!    switch between programs"). Steps 2 and 3 below are then what is left of the old
+//!    order, kept for a new run that could not wait.
 //! 3. This run sees the file, takes it away and ends: the frame's exit logs are written
 //!    (`Last`), then the process ends at once ([`EndNow`]) instead of taking its world
 //!    apart piece by piece, which held its memory for about 2 s more. Streamline (DLSS,
@@ -49,11 +66,17 @@
 //! a console line that loads would load again in every new run), except test aid
 //! `NVF_PLAY_TEST_HANDOFF_EXIT=1`: the new run ends once it has taken over and its world
 //! is in (the save put back) or its main menu is open, so a smoke run does not leave it
-//! running; and the aids that
+//! running; those `NVF_PLAY_TEST_HANDOFF_KEEP` names (a list, [`KEEP_AID`]); and the aids that
 //! only measure (`nvf_play::MEASURING_AIDS`), so a session played by hand logs its hitches
 //! after a load.
 //!
-//! Log: `load: handing over to a new run with --load <path>` (`with --menu`), `load: the
+//! Log: `load: the new run is about to open its GPU device after <s> s; ending this one`
+//! (the old run), `handoff: the old run (process <pid>) ended <s> s after it was told;
+//! this run's GPU device opens` (the new run; `is still going ... opens anyway` past the
+//! time limit), `handoff: the world waits for the old run (process <pid>) to end`, `handoff: the
+//! old run has ended after <s> s; the world loads` (or `... is still going <s> s after it
+//! was told; the world loads anyway`),
+//! `load: handing over to a new run with --load <path>` (`with --menu`), `load: the
 //! new run's command line: <exe> <args>`, `handoff: started as the new run (ready file
 //! <file>)` (the new run's), `load: the new run (process <pid>) is running but <why> after
 //! <s> s; ending this one so one game runs`, `load:
@@ -70,6 +93,7 @@ use nvf_play::loading::{CoverRequest, Loading, Uncover};
 use nvf_play::save::{LoadRequest, Restoring, SaveWrites};
 use std::path::{Path, PathBuf};
 use std::process::Child;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Real seconds (and at least [`SETTLE_FRAMES`] frames) the new run stays hidden after
@@ -104,6 +128,17 @@ pub const GIVE_UP_MARGIN_SECS: f64 = 15.0;
 
 /// The one test aid the new run keeps (module notes).
 const EXIT_AID: &str = "NVF_PLAY_TEST_HANDOFF_EXIT";
+
+/// Test aid `NVF_PLAY_TEST_HANDOFF_KEEP=<aid>[,<aid>…]`: the `NVF_PLAY_TEST_*` aids the
+/// new run keeps too (a co-op host that waits after its load, item 200). Their times count
+/// from the new run's start; an aid that loads must not be among them.
+const KEEP_AID: &str = "NVF_PLAY_TEST_HANDOFF_KEEP";
+
+/// Whether the new run keeps the test aid `k`: [`EXIT_AID`], and those `kept` names
+/// ([`KEEP_AID`], comma-separated); the list itself is not passed on.
+fn keeps(k: &str, kept: &str) -> bool {
+    k == EXIT_AID || (k != KEEP_AID && kept.split(',').any(|n| n.trim() == k))
+}
 
 /// How often the old run updates while it waits [engineering choice: often enough to see
 /// the new run's file soon, rarely enough to leave the computer to the new run].
@@ -158,6 +193,7 @@ impl Drop for Successor {
             let _ = self.child.kill();
         }
         let _ = std::fs::remove_file(&self.file);
+        let _ = std::fs::remove_file(gpu_file(&self.file));
         let _ = std::fs::remove_file(started_marker(&self.file));
     }
 }
@@ -208,6 +244,16 @@ enum Leaving {
 #[derive(Resource, Default)]
 pub struct Handoff(Leaving, Option<String>);
 
+impl Handoff {
+    /// The loading screen of a load (or of the way to the main menu) is up and a new run
+    /// takes over, or is about to start: what this run holds for others (the co-op host's
+    /// port, `crate::coop`) goes now. False again when the new run failed and this one
+    /// stays.
+    pub fn leaving(&self) -> bool {
+        matches!(self.0, Leaving::Covered(..) | Leaving::Waiting(_) | Leaving::HandedOver)
+    }
+}
+
 /// The new run's arguments: this run's without those the save or the window decide
 /// (`keep`), and what to open.
 pub fn new_run_args(keep: &[String], what: Option<&LoadRequest>, placement: Option<Placement>, file: &Path) -> Vec<String> {
@@ -223,10 +269,12 @@ pub fn new_run_args(keep: &[String], what: Option<&LoadRequest>, placement: Opti
 }
 
 /// A successor keeps its profile and measuring aids, but does not repeat the
-/// script clock or driving aids from the run that requested the handoff.
+/// script clock or driving aids from the run that requested the handoff, except those
+/// [`keeps`] names ([`EXIT_AID`], and the [`KEEP_AID`] list).
 fn remove_driving_aids(command: &mut std::process::Command, keys: impl IntoIterator<Item = std::ffi::OsString>) {
+    let kept = std::env::var(KEEP_AID).unwrap_or_default();
     for key in keys {
-        if key.to_str().is_some_and(|key| key == "NVF_PLAY_AIDS_FROM_SCRIPTS" || (nvf_play::drives_run(key) && key != EXIT_AID)) {
+        if key.to_str().is_some_and(|key| key == "NVF_PLAY_AIDS_FROM_SCRIPTS" || (nvf_play::drives_run(key) && !keeps(key, &kept))) {
             command.env_remove(&key);
         }
     }
@@ -284,8 +332,9 @@ fn ready_file() -> PathBuf {
 /// A save not yet on disk (its thumbnail, its writer thread) is waited for.
 #[allow(clippy::too_many_arguments)]
 pub fn leave(
+    mut commands: Commands,
     (mut asked, mut to_menu, mut refused): (MessageReader<LoadRequest>, MessageReader<nvf_play::pause::MainMenuRequest>, MessageReader<nvf_play::save::LoadRefused>),
-    writes: Res<SaveWrites>,
+    (writes, hold): (Res<SaveWrites>, Option<Res<crate::coop::HoldLeave>>),
     mut handoff: ResMut<Handoff>,
     (mut cover, mut uncover, mut exit): (MessageWriter<CoverRequest>, MessageWriter<Uncover>, MessageWriter<AppExit>),
     location: Res<nvf_play::Location>,
@@ -308,6 +357,8 @@ pub fn leave(
         Leaving::No => {}
         Leaving::HandedOver => *h = Leaving::HandedOver,
         Leaving::Asked(r) if writes.busy() => *h = Leaving::Asked(r),
+        // A co-op guest going to the main menu saves its own game first (`crate::coop`).
+        Leaving::Asked(None) if hold.as_deref().is_some_and(|h| h.holds()) => *h = Leaving::Asked(None),
         Leaving::Asked(r) => {
             cover.write(CoverRequest { to: r.as_ref().and_then(|r| destination_of(r, *location)) });
             *h = Leaving::Covered(r, 0);
@@ -333,6 +384,9 @@ pub fn leave(
             match started {
                 Ok(child) => {
                     info!("load: handing over to a new run with {}", r.as_ref().map_or("--menu".to_string(), |r| format!("--load {}", r.path.display())));
+                    // What this run's caches hold goes at once: the new run's world
+                    // waits for this process to end (`OldRun`), but its start overlaps.
+                    commands.insert_resource(crate::memory_budget::flush_now());
                     let settings = winit.clone();
                     *winit = WinitSettings { focused_mode: UpdateMode::reactive_low_power(WAIT_TICK), unfocused_mode: UpdateMode::reactive_low_power(WAIT_TICK) };
                     *h = Leaving::Waiting(Successor { child, file, started: Instant::now(), settings, handed_over: false });
@@ -344,6 +398,13 @@ pub fn leave(
             }
         }
         Leaving::Waiting(mut s) => {
+            if gpu_file(&s.file).exists() {
+                info!("load: the new run is about to open its GPU device after {:.2} s; ending this one", s.started.elapsed().as_secs_f64());
+                s.handed_over = true;
+                exit.write(AppExit::Success);
+                *h = Leaving::HandedOver;
+                return;
+            }
             if s.file.exists() {
                 info!("load: the new run is up after {:.2} s; ending this one", s.started.elapsed().as_secs_f64());
                 s.handed_over = true;
@@ -451,6 +512,192 @@ impl Hidden {
     }
 }
 
+/// The new run waits this long for the old one to end after telling it, then loads its
+/// world anyway (a warning) [engineering choice: the old run ends within a frame or two
+/// of seeing the file; this only covers one that hangs].
+pub const OLD_RUN_WAIT_SECS: f64 = 10.0;
+
+/// False while a new run's world waits for the old run to end ([`OldRun`]).
+static OLD_RUN_GONE: AtomicBool = AtomicBool::new(true);
+
+/// Whether the world may load: no old run is still holding its memory (module notes,
+/// step 2). `world::stream` and `readahead::read_ahead` do nothing until then.
+pub fn old_run_gone() -> bool {
+    OLD_RUN_GONE.load(Ordering::Relaxed)
+}
+
+/// The old run's process id, from the file name it gave ([`ready_file`]).
+pub fn old_pid(file: &Path) -> Option<u32> {
+    let name = file.file_name()?.to_str()?;
+    let rest = name.strip_prefix("nvforever-handoff-")?;
+    rest.split_once('-')?.0.parse().ok()
+}
+
+/// The new run's hold on the old one (`--handoff`): the old process, opened at the start
+/// so a later process with the same id is never taken for it. Until it has ended, this
+/// run's world does not load ([`old_run_gone`]), so the two runs never hold a world each
+/// [owner's playtest 2026-11-08: a lobby join on a 4 GB laptop card ran both out of GPU
+/// memory, the new run streaming its world in for 13 s while the old run's game was
+/// still there].
+#[derive(Resource)]
+pub struct OldRun {
+    /// The process handle (`HANDLE`, as an integer to be `Send`).
+    handle: usize,
+    pid: u32,
+    opened: Instant,
+    /// When this run wrote the file (or its window was shown without one).
+    told: Option<Instant>,
+}
+
+impl OldRun {
+    /// Open the old run named by `file`; `None` when it cannot be (it has ended already,
+    /// or not on Windows): the world loads at once.
+    pub fn open(file: &Path) -> Option<OldRun> {
+        let pid = old_pid(file)?;
+        let handle = open_process(pid)?;
+        OLD_RUN_GONE.store(false, Ordering::Relaxed);
+        info!("handoff: the world waits for the old run (process {pid}) to end");
+        Some(OldRun { handle, pid, opened: Instant::now(), told: None })
+    }
+}
+
+impl Drop for OldRun {
+    fn drop(&mut self) {
+        close_process(self.handle);
+        OLD_RUN_GONE.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(windows)]
+fn open_process(pid: u32) -> Option<usize> {
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+    // SAFETY: plain Win32 call; a null handle is checked.
+    let h = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    (!h.is_null()).then_some(h as usize)
+}
+
+#[cfg(not(windows))]
+fn open_process(_pid: u32) -> Option<usize> {
+    None
+}
+
+/// Whether the process behind `handle` has ended.
+#[cfg(windows)]
+fn process_ended(handle: usize) -> bool {
+    use windows_sys::Win32::Foundation::{HANDLE, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+    // SAFETY: the handle is open until `close_process`.
+    unsafe { WaitForSingleObject(handle as HANDLE, 0) != WAIT_TIMEOUT }
+}
+
+#[cfg(not(windows))]
+fn process_ended(_handle: usize) -> bool {
+    true
+}
+
+#[cfg(windows)]
+fn close_process(handle: usize) {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    // SAFETY: closed once, from `OldRun`'s drop.
+    unsafe { CloseHandle(handle as HANDLE) };
+}
+
+#[cfg(not(windows))]
+fn close_process(_handle: usize) {}
+
+/// The new run waits this long for the old run to end before opening its own GPU device,
+/// then opens it anyway (a warning) [engineering choice: the old run ends within a frame or
+/// two of seeing the file; this only covers one that hangs].
+pub const OLD_GPU_WAIT_SECS: f64 = 15.0;
+
+/// The file the new run writes when it is about to open its GPU device: the old run ends
+/// when it appears ([`before_gpu`]).
+pub fn gpu_file(file: &Path) -> PathBuf {
+    let mut s = file.as_os_str().to_owned();
+    s.push(".gpu");
+    PathBuf::from(s)
+}
+
+/// What the new run's wait before its GPU device came to, for the log once it is up.
+static BEFORE_GPU: std::sync::Mutex<Option<(bool, String)>> = std::sync::Mutex::new(None);
+
+/// The new run, after its game data is read and before its GPU device opens: tell the
+/// old run ([`gpu_file`]) and wait until its process has ended, so the two runs never
+/// have a GPU device each [owner's playtest 2026-11-09, queue item 132: on a 4 GB laptop
+/// card the old run, still holding 3 GB, lost its device while the new run opened its
+/// own and its main menu]. The old run's window goes when it ends, under the cover put up
+/// here first ([`cover`]); the new one shows once its loading screen (or main menu) is
+/// drawn, and the cover goes after ([`lower_cover`]).
+pub fn before_gpu(file: &Path) {
+    let note = match old_pid(file).and_then(|pid| open_process(pid).map(|h| (pid, h))) {
+        None => (true, "the old run had already ended; this run's GPU device opens".to_string()),
+        Some((pid, h)) => {
+            // The old window's picture goes up first, so its going is never seen (`cover`).
+            let covered = cover::up_over(pid);
+            let started = Instant::now();
+            let note = match std::fs::write(gpu_file(file), b"") {
+                Err(e) => (false, format!("cannot tell the old run (process {pid}) to end ({}: {e}); this run's GPU device opens with it still going", gpu_file(file).display())),
+                Ok(()) if wait_process(h, OLD_GPU_WAIT_SECS) => (true, format!("the old run (process {pid}) ended {:.2} s after it was told; this run's GPU device opens", started.elapsed().as_secs_f64())),
+                Ok(()) => (false, format!("the old run (process {pid}) is still going {OLD_GPU_WAIT_SECS} s after it was told; this run's GPU device opens anyway")),
+            };
+            close_process(h);
+            let (ok, text) = note;
+            match covered {
+                Ok(at) => (ok, format!("{text}; the old window's picture covered it ({at})")),
+                Err(why) => (false, format!("{text}; no cover over the old window: {why}")),
+            }
+        }
+    };
+    *BEFORE_GPU.lock().unwrap_or_else(|e| e.into_inner()) = Some(note);
+}
+
+/// Log what [`before_gpu`] came to (a startup system: the log is not up before).
+pub fn log_before_gpu() {
+    match BEFORE_GPU.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        Some((true, n)) => info!("handoff: {n}"),
+        Some((false, n)) => warn!("handoff: {n}"),
+        None => {}
+    }
+}
+
+/// Wait up to `secs` for the process behind `handle` to end; whether it did.
+#[cfg(windows)]
+fn wait_process(handle: usize, secs: f64) -> bool {
+    use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+    // SAFETY: the handle is open until `close_process`.
+    unsafe { WaitForSingleObject(handle as HANDLE, (secs * 1000.0) as u32) == WAIT_OBJECT_0 }
+}
+
+#[cfg(not(windows))]
+fn wait_process(_handle: usize, _secs: f64) -> bool {
+    true
+}
+
+/// Whether the old run has ended or the wait is over: `Some(true)` it ended, `Some(false)`
+/// this run stops waiting.
+fn old_run_done(ended: bool, told: Option<Instant>, now: Instant) -> Option<bool> {
+    if ended {
+        return Some(true);
+    }
+    told.filter(|t| now.duration_since(*t).as_secs_f64() >= OLD_RUN_WAIT_SECS).map(|_| false)
+}
+
+/// The new run's side, each frame until the old run has ended: then the world loads.
+pub fn watch_old_run(mut commands: Commands, old: Option<ResMut<OldRun>>, hidden: Option<Res<Hidden>>) {
+    let Some(mut old) = old else { return };
+    let now = Instant::now();
+    if old.told.is_none() && hidden.is_none_or(|h| h.told) {
+        old.told = Some(now);
+    }
+    match old_run_done(process_ended(old.handle), old.told, now) {
+        Some(true) => info!("handoff: the old run has ended after {:.2} s; the world loads", old.opened.elapsed().as_secs_f64()),
+        Some(false) => warn!("handoff: the old run (process {}) is still going {OLD_RUN_WAIT_SECS} s after it was told; the world loads anyway", old.pid),
+        None => return,
+    }
+    commands.remove_resource::<OldRun>();
+}
+
 /// Whether a hidden new run's screen is up, and for how long; `Some(late)` once the window
 /// is to be shown (`late`: the time limit was reached first).
 fn settle(h: &mut Hidden, up: bool, now: Instant) -> Option<bool> {
@@ -464,6 +711,85 @@ fn settle(h: &mut Hidden, up: bool, now: Instant) -> Option<bool> {
         h.ready = None;
     }
     (now.duration_since(h.started).as_secs_f64() >= SHOW_AFTER_SECS).then_some(true)
+}
+
+/// Frames the new run's window has drawn under the cover before the cover goes
+/// ([`lower_cover`]) [engineering choice: one for the window's first picture, one for
+/// Windows to put it on the screen, one to spare].
+const COVER_FRAMES_UNDER: u32 = 3;
+/// The cover goes this long after the new run's window shows, whatever split screen's
+/// backdrop is doing [engineering choice: a backdrop that cannot be made never holds it].
+const COVER_MAX_SECS: f64 = 3.0;
+
+/// The new run's side: the cover over the change of program ([`cover`]) goes once this
+/// run's window shows, has drawn its own screen for [`COVER_FRAMES_UNDER`] frames and
+/// has a picture in it ([`cover::drawn`]), and, as player 1 of split screen, once its
+/// window is on its half (`crate::split::p1_at_half`) with the black backdrop up under it;
+/// at most [`COVER_MAX_SECS`] after the window shows.
+pub fn lower_cover(windows: Query<(&Window, &bevy::window::RawHandleWrapper), With<PrimaryWindow>>, mut since: Local<Option<(u32, Instant)>>, mut raised: Local<bool>, _main_thread: NonSendMarker) {
+    let Ok((window, handle)) = windows.single() else { return };
+    if !cover::is_up() {
+        // Counted again for the next cover: split screen's end held the screen 111 s after
+        // the load's cover went, and went at once on the count left from it [observed: the
+        // check of 2026-11-22, item 215].
+        *since = None;
+        *raised = false;
+        return;
+    }
+    if !window.visible {
+        return;
+    }
+    // Split screen's end on the way to the main menu (`cover::up_over_screen`): counted
+    // from the end, at this window's own size.
+    if cover::till_split_ends() && std::env::var_os("NVF_SPLIT_P1").is_some() {
+        *since = None;
+        return;
+    }
+    let mine = match handle.get_window_handle() {
+        wgpu::rwh::RawWindowHandle::Win32(w) => Some(w.hwnd.get()),
+        _ => None,
+    };
+    if since.is_none() {
+        // Split screen's player 1 keeps its own stack, topmost (`crate::split::backdrop`).
+        if let (Some(mine), None) = (mine, std::env::var_os("NVF_SPLIT_P1")) {
+            cover::raise(mine);
+        }
+    }
+    let (frames, at) = since.get_or_insert((0, Instant::now()));
+    *frames += 1;
+    // Split screen's player 1: its window on its half, drawn there, with the backdrop under.
+    let split_ready = std::env::var_os("NVF_SPLIT_P1").is_none() || (crate::split::backdrop::ready() && crate::split::p1_at_half());
+    let waited = at.elapsed().as_secs_f64();
+    // Its own picture on the screen under the cover ([`cover::drawn`]), read only once the
+    // rest holds (a copy of the window each frame).
+    let drawn = *frames >= COVER_FRAMES_UNDER && split_ready && mine.is_none_or(cover::drawn);
+    // And in front: what the cover leaves is this window, not another program
+    // ([`cover::in_front`]); raised again, harder, while it is not. Split screen's player 1
+    // is topmost, its stack kept by `crate::split::backdrop`.
+    // Player 2's window too: player 1's game keeps it in its stack, in the topmost band, and
+    // the hard raise (through the band and out) took it out of it, under the black backdrop
+    // for a frame [observed: the full-screen check of 2026-11-22].
+    let in_front = !drawn || std::env::var_os("NVF_SPLIT_P1").is_some() || std::env::var_os(crate::split::P2_ENV).is_some() || mine.is_none_or(cover::in_front);
+    if drawn && !in_front {
+        if let Some(mine) = mine {
+            cover::raise_hard(mine);
+        }
+        if !*raised {
+            *raised = true;
+            info!("handoff: another window was under the cover over this one's place; this one raised");
+        }
+    }
+    if (drawn && in_front) || waited >= COVER_MAX_SECS {
+        cover::down();
+        let why = if !drawn {
+            ", before this window's picture was seen"
+        } else if !in_front {
+            ", with another window still in front of this one"
+        } else {
+            ""
+        };
+        info!("handoff: the cover goes after {frames} frames under it ({waited:.2} s){why}");
+    }
 }
 
 /// The new run's save waits while [`Hidden`] says the old run has not ended
@@ -516,7 +842,10 @@ pub fn reveal(
             h.shown = Some(0);
         }
         Some(0) => {
-            window.focused = true;
+            // Player 2's window in split screen never takes the focus (split.rs).
+            if std::env::var_os(crate::split::P2_ENV).is_none() {
+                window.focused = true;
+            }
             h.shown = Some(1);
         }
         Some(_) if !h.told => {
@@ -544,12 +873,63 @@ pub fn reveal(
     }
 }
 
+pub mod cover;
+
 #[cfg(test)]
 mod death_smoke_tests;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_new_run_finds_the_old_runs_process_in_the_file_name() {
+        let f = std::env::temp_dir().join("nvforever-handoff-44808-1762617963920963000.ready");
+        assert_eq!(old_pid(&f), Some(44808));
+        assert_eq!(old_pid(Path::new("ready")), None);
+        assert_eq!(old_pid(Path::new("nvforever-handoff-x-1.ready")), None);
+        let f = ready_file();
+        assert_eq!(old_pid(&f), Some(std::process::id()), "{}", f.display());
+    }
+
+    #[test]
+    fn the_gpu_file_sits_beside_the_handoff_file() {
+        let f = std::env::temp_dir().join("nvforever-handoff-44808-17.ready");
+        assert_eq!(gpu_file(&f), std::env::temp_dir().join("nvforever-handoff-44808-17.ready.gpu"));
+        assert_eq!(old_pid(&gpu_file(&f)), Some(44808));
+    }
+
+    #[test]
+    fn the_new_run_waits_for_no_old_run_when_there_is_none() {
+        // No such process: nothing to wait for, logged as ended.
+        let f = std::env::temp_dir().join(format!("nvforever-handoff-{}-1.ready", u32::MAX - 1));
+        before_gpu(&f);
+        let note = BEFORE_GPU.lock().unwrap().take();
+        assert!(matches!(&note, Some((true, n)) if n.contains("already ended")), "{note:?}");
+        assert!(!gpu_file(&f).exists());
+    }
+
+    #[test]
+    fn the_world_waits_for_the_old_run_or_gives_up_after_telling_it() {
+        let t0 = Instant::now();
+        let s = |secs: f64| t0 + Duration::from_secs_f64(secs);
+        assert_eq!(old_run_done(true, None, s(0.0)), Some(true));
+        // Not told yet: waits however long the start takes.
+        assert_eq!(old_run_done(false, None, s(300.0)), None);
+        assert_eq!(old_run_done(false, Some(s(5.0)), s(5.0 + OLD_RUN_WAIT_SECS - 0.1)), None);
+        assert_eq!(old_run_done(false, Some(s(5.0)), s(5.0 + OLD_RUN_WAIT_SECS)), Some(false));
+    }
+
+    #[test]
+    fn the_new_run_keeps_only_the_aids_named() {
+        let kept = "NVF_PLAY_TEST_WAIT, NVF_PLAY_TEST_SHOTS";
+        assert!(keeps("NVF_PLAY_TEST_WAIT", kept) && keeps("NVF_PLAY_TEST_SHOTS", kept));
+        assert!(keeps(EXIT_AID, "") && keeps(EXIT_AID, kept));
+        // The console's load would load again in the new run: not kept unless named.
+        assert!(!keeps("NVF_PLAY_TEST_CONSOLE", kept) && !keeps("NVF_PLAY_TEST_CONSOLE", ""));
+        // The list is not passed on, even when it names itself.
+        assert!(!keeps(KEEP_AID, "NVF_PLAY_TEST_HANDOFF_KEEP"));
+    }
 
     #[test]
     fn the_new_run_opens_where_the_old_window_is() {

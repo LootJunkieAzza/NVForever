@@ -53,9 +53,20 @@ pub enum Action {
     /// A door whose reference is flagged Inaccessible (header bit 8): it shows its name
     /// with "Inaccessible" and E does nothing (docs/spec-notes/cells-refs.md §2).
     Inaccessible,
+    /// Another player in co-op (the fork): E opens the interaction wheel
+    /// (`crate::coop_social`), not the world's activation.
+    Player,
+    /// Another player down in co-op, aimed at where the body lies: E revives them
+    /// (`nvforever`'s `coop.rs`), not the world's activation, using `with` (its name: a
+    /// Stimpak, or a drink with Quack Surgeon, `fnv_game::coop_perks::revive_item`);
+    /// `None`: this player has nothing to revive with.
+    Revive { with: Option<String> },
+    /// A co-op guest at an NPC the host's active quest is on: the host leads it, so E only
+    /// says to wait for them (`host`: the host's name; owner, item 130 Q1).
+    HostOnly { host: String },
     /// A knocked-out companion a Stimpak gets up (the player's Revive Unconscious
     /// Companions tweak, docs/design/tweaks.md).
-    Revive,
+    ReviveCompanion,
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -98,8 +109,11 @@ impl Action {
             // Our words for the tweak's prompt.
             Action::UsePassword => "Locked (Use Password)".into(),
             Action::Talk => "Talk".into(),
-            // [hypothesis: the original's word for picking a pocket]
-            Action::Steal => "Steal".into(),
+            // Picking a pocket reads "Pickpocket", as the data spells its topic (FalloutNV.esm
+            // DIAL `Pickpocket`, FULL "Pickpocket"); an owned item's "Steal" is
+            // `crate::reticle::Prompt::of` [owner 2026-11-14, queue: "F) Steal" on Nolan
+            // Crow "should read Pickpocket"; no game setting holds the label].
+            Action::Steal => "Pickpocket".into(),
             Action::Search => "Search".into(),
             Action::Activate => "Activate".into(),
             // [hypothesis, hacking.md §8: the original's word for a terminal]
@@ -110,8 +124,14 @@ impl Action {
             Action::Name | Action::Hostile => String::new(),
             // [hypothesis: the flag's name, cells-refs.md §2]
             Action::Inaccessible => "Inaccessible".into(),
+            // [design: the owner's "an interact prompt (like Talk on NPCs)", 2026-11-04]
+            Action::Player => "Interact".into(),
+            // [design: queue item 29, the game's own rollover with the verb]
+            Action::Revive { .. } => "Revive".into(),
+            // [design: owner, item 130: "Wait for <host name>"]
+            Action::HostOnly { host } => format!("Wait for {host}"),
             // Our word for the tweak's prompt.
-            Action::Revive => "Revive".into(),
+            Action::ReviveCompanion => "Revive".into(),
         }
     }
 }
@@ -124,6 +144,8 @@ pub fn prompt(name: &str, action: &Action) -> (String, String) {
     match action {
         Action::Take { count } if *count > 1 => (action.label(), format!("{name} ({count})")),
         Action::Travel { to: Some(to) } => ("Open".into(), to.clone()),
+        // [design: the owner, 2026-11-06: "E) Revive <name> (Stimpak)"]
+        Action::Revive { with: Some(with) } => (action.label(), format!("{name} ({with})")),
         _ => (action.label(), name.to_string()),
     }
 }

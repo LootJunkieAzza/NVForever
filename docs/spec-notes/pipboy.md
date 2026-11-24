@@ -386,7 +386,13 @@ root's ECS `Visibility` synchronized with `Rig::shown`.
 - Heading: a vertical line fading down at its left (60 long), a line of 50 to the title
   (font 4, 70 in), a line from 20 after the title to the first card; cards of figures
   (`card_info.xml`): a line along the top, one fading down the right side, the title 5
-  in and the value right-aligned 10 from the right end, both 20 down in font 2. ITEMS:
+  in and the value right-aligned 10 from the right end, both 20 down in font 2; the
+  value's x is not left of the title's width + 15 [documented: `card_info.xml`
+  `CI_ValueText` `user1`, `user2`]. A value longer than that room (an aid item's EFFECTS)
+  is clipped to it and scrolls sideways: held 1.5 s at its start, moved at 45 units a
+  second until its end shows, held 1.5 s, back to the start (`frame::Marquee`) [owner
+  2026-11-14, the Atomic Cocktail's line over the item list; the speed and holds are
+  hypothesis, observer-checks.md 128]. ITEMS:
   Wg at 215 (155 wide), HP 380 (155), DT 545 (110), Caps 665 (190). STATS: LVL 270
   (100), HP 380 (155), AP 545 (135), XP 690 (205).
 - Tab line (`tabline.xml`): 650 down, as wide as the menus, a vertical line rising at

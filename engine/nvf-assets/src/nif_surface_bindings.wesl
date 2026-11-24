@@ -37,14 +37,17 @@ struct NifSurface {
     // refraction); 0: it does not move.
     fire_period: f32,
     // x 1 skips the image-space emissive scale; y holds each channel on the soft path
-    // (0: no hold); z, w unused [hypothesis, nif.md §6 "Unlit shapes that are pictures,
+    // (0: no hold); z 1: vertex colours are display values; w 1 marks an authored material
+    // (authored.rs AUTHORED_MARK) [hypothesis, nif.md §6 "Unlit shapes that are pictures,
     // and cut-out signs"]. Same fields in the same order as NifSurfaceUniform.
     emissive_rule: vec4<f32>,
     // Holes: x the value (alpha units, negative: no holes), y the edge band's width.
     holes: vec4<f32>,
     // The edge band's colour (linear).
     holes_edge: vec4<f32>,
-    // Soft intersections: x the fade distance (game units), 0 for none.
+    // Soft intersections: x the fade distance (game units), 0 for none; y 1: ground
+    // scorched by the burn map (scorch_texel, nif_material.wesl "Scorch"); z 1: a lit
+    // shape's glow map alone gives its light (nif_spawn.rs `glow_emits_alone`); w unused.
     soft: vec4<f32>,
     // PIPBOY_SCREEN (nif_material.rs NifSurface::pipboy_a): x the roll up (share of the
     // canvas's height), y the wash (gain 1 - y on display values), z display value added,
@@ -76,8 +79,9 @@ struct NifSurface {
     @if(NIF_SURFACE_BLEND) mesh_terrain_widths: vec4<f32>,
 }
 
-// The extension's index table (indices 50-56 of NifSurface's bindless attribute; 54-56
-// are the window environment map's cube, sampler and mask, the ordinary type's only). The
+// The extension's index table (indices 50-57 of NifSurface's bindless attribute; 54-56
+// are the window environment map's cube, sampler and mask, and 57 the grass fires' burn
+// map (NifSurface::scorch_map), the ordinary type's only). The
 // enabled blend type (nif_surface_blend.rs module notes) has the same table, with its
 // landscape colour atlas at 51, that atlas's sampler at 52 and its height atlas at 53,
 // and after them round 10a's landscape palette (indices 54-453: 384 textures, then 16
@@ -91,6 +95,7 @@ struct NifSurface {
     @if(!NIF_SURFACE_BLEND) env_cube: u32,     // 54
     @if(!NIF_SURFACE_BLEND) env_sampler: u32,  // 55
     @if(!NIF_SURFACE_BLEND) env_mask: u32,     // 56
+    @if(!NIF_SURFACE_BLEND) scorch_map: u32,   // 57
     @if(NIF_SURFACE_BLEND) palette: array<u32, 400>, // 54-453
 }
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<storage> nif_indices: array<NifSurfaceIndices>;
@@ -102,6 +107,7 @@ struct NifSurface {
 @if(!BINDLESS && !NIF_SURFACE_BLEND) @group(constants::MATERIAL_BIND_GROUP) @binding(54) var env_cube: texture_cube<f32>;
 @if(!BINDLESS && !NIF_SURFACE_BLEND) @group(constants::MATERIAL_BIND_GROUP) @binding(55) var env_sampler: sampler;
 @if(!BINDLESS && !NIF_SURFACE_BLEND) @group(constants::MATERIAL_BIND_GROUP) @binding(56) var env_mask: texture_2d<f32>;
+@if(!BINDLESS && !NIF_SURFACE_BLEND) @group(constants::MATERIAL_BIND_GROUP) @binding(57) var scorch_map: texture_2d<f32>;
 @if(!BINDLESS && NIF_SURFACE_BLEND) @group(constants::MATERIAL_BIND_GROUP) @binding(51) var mesh_terrain_colour: texture_2d<f32>;
 @if(!BINDLESS && NIF_SURFACE_BLEND) @group(constants::MATERIAL_BIND_GROUP) @binding(52) var mesh_terrain_sampler: sampler;
 @if(!BINDLESS && NIF_SURFACE_BLEND) @group(constants::MATERIAL_BIND_GROUP) @binding(53) var mesh_terrain_height: texture_2d<f32>;
@@ -1052,6 +1058,16 @@ fn facegen_texel(instance_index: u32, p: vec2<i32>) -> vec3<f32> {
     @if(BINDLESS) return textureLoad(bindless_textures_2d[nif_indices[material_slot(instance_index)].facegen_offset], p, 0).rgb;
     @if(!BINDLESS && !NIF_SURFACE_BLEND) return textureLoad(facegen_offset, p, 0).rgb;
     @if(!BINDLESS && NIF_SURFACE_BLEND) return vec3(0.0);
+}
+
+// One texel of the grass fires' burn map (NifSurface::scorch_map), its 512 x 512 patches
+// wrapping.
+fn scorch_texel(instance_index: u32, p: vec2<i32>) -> f32 {
+    let t = ((p % 512) + 512) % 512;
+    // The blend type (nif_surface_blend.rs) has no burn map: its 54-453 are the palette's.
+    @if(NIF_SURFACE_BLEND) return 0.0;
+    @if(BINDLESS && !NIF_SURFACE_BLEND) return textureLoad(bindless_textures_2d[nif_indices[material_slot(instance_index)].scorch_map], t, 0).r;
+    @if(!BINDLESS && !NIF_SURFACE_BLEND) return textureLoad(scorch_map, t, 0).r;
 }
 
 // The base colour texture sampled at `uv` with the view's mip bias `bias`.

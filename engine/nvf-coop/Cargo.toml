@@ -1,0 +1,18 @@
+[package]
+name = "nvf-coop"
+description = "Co-op prototype (private fork): the UDP link between a host's game and its guests'"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Nothing of Bevy or the game: engine/nvforever/src/coop.rs draws the other players and
+# keeps guests on the host's leash.
+[dependencies]
+# The host's router opens the lobby's port (UPnP IGD; reach.rs); its blocking API. MIT.
+igd-next = { version = "0.18.0", default-features = false, features = ["io_sync"] }
+# Steam's relays (Spacewar, app 480): a guest anywhere reaches a host behind any router,
+# with no port to open. Optional at run time: without Steam the link is plain UDP. MIT/Apache.
+steamworks = "0.13.1"
+# Steam's notes reach the game's log (Bevy's LogPlugin takes `log` records).
+log = "0.4"

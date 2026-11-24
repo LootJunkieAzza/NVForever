@@ -138,7 +138,9 @@ impl Fixture {
             .init_resource::<crate::furniture::BodyOverride>().init_resource::<PlayerSeat>()
             .init_resource::<nvf_play::pipboy::PipBoy>().init_resource::<WeaponAnim>()
             .init_resource::<crate::death_cam::DeathCam>().init_resource::<crate::player_knockdown::PlayerKnockdown>()
-            .init_resource::<crate::weapon_lower::Ahead>().init_resource::<nvf_play::phys_load::PhysLoad>();
+            .init_resource::<crate::weapon_lower::Ahead>().init_resource::<nvf_play::phys_load::PhysLoad>()
+            // The fork's Pip-Boy glance and the body's Pip-Boy check, which drive_body reads.
+            .init_resource::<nvf_play::pipboy::glance::Glance>().init_resource::<crate::pipboy_check::PlayerCheck>();
         let mut phys = PhysState::default();
         let heights = vec![0.0; fnv_world::land::SIDE * fnv_world::land::SIDE];
         phys.world.add_terrain((0, 0), &heights);

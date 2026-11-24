@@ -108,7 +108,8 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Dialogue"), &["dialogue-zoom", "dialogue-look", "dialogue-recentre", "menu-pause", "dialogue-goodbye-hint", "lip-sync"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
-    section("Display", Some("Screen"), &["monitor", "resolution", "borderless"]),
+    // Split screen's layout (plan split-screen.md §2: "under Display"; owner 2026-11-20).
+    section("Display", Some("Screen"), &["monitor", "resolution", "borderless", "split-layout"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
     section("Display", Some("Upscaling and Anti-Aliasing"), &["upscaler", "upscaler-quality", "dlss-model", "fsr-library", "anti-aliasing", "sharpen"]),
     section("Display", Some("Frame Generation and Latency"), &["frame-generation", "frame-generation-frames", "latency-reduction"]),
@@ -153,11 +154,26 @@ pub const SECTIONS: &[Section] = &[
             "controls:bind:Sprint",
         ],
     ),
-    section("Controls", Some("Combat"), &["controls:bind:Use", "controls:bind:Block", "controls:bind:Ready Item", "controls:bind:Vats", "controls:bind:Ammo Swap", "controls:bind:Lower Weapon"]),
+    // Ship 0.8.1 co-op: the controller's split holds (`controls:padbind:`, nvf-play
+    // `bindings::SPLITS`) have no rows; they wait for the controller bindings' own PR
+    // (nvf-play `pad::binding::KINDS`).
+    section(
+        "Controls",
+        Some("Combat"),
+        &["controls:bind:Use", "controls:bind:Block", "controls:bind:Ready Item", "controls:bind:Vats", "controls:bind:Ammo Swap", "controls:bind:Lower Weapon"],
+    ),
     section(
         "Controls",
         Some("Actions"),
-        &["controls:bind:Activate", "controls:bind:Grab", "controls:bind:Menu Mode", "controls:bind:Rest", "controls:bind:Toggle POV", "controls:bind:QuickSave", "controls:bind:QuickLoad"],
+        &[
+            "controls:bind:Activate",
+            "controls:bind:Grab",
+            "controls:bind:Menu Mode",
+            "controls:bind:Rest",
+            "controls:bind:Toggle POV",
+            "controls:bind:QuickSave",
+            "controls:bind:QuickLoad",
+        ],
     ),
     section(
         "Controls",
@@ -172,6 +188,12 @@ pub const SECTIONS: &[Section] = &[
         "Controls",
         Some("Additional Features"),
         &[
+            // NVForever's own keys, bound by default, in the bindings table's order (merge
+            // of v0.8.0: the glance, bash, ping, emote and photo mode keys).
+            "controls:bind:Pip-Boy Glance",
+            "controls:bind:Weapon Bash",
+            "controls:bind:Ping",
+            "controls:bind:Emote",
             "controls:bind:Holster Weapon",
             "controls:bind:Toggle Light",
             "controls:bind:Toggle Crosshair",
@@ -200,6 +222,49 @@ pub const SECTIONS: &[Section] = &[
             "controls:bind:Skip Radio Song",
             "controls:bind:Console",
             "controls:bind:Screenshot",
+        ],
+    ),
+    // The screens' own controls (`MODE_CONTROLS`, owner 2026-11-22: every multiplayer, minigame
+    // and Photo Mode key rebindable on both devices). Answering a co-op question:
+    section(
+        "Controls",
+        Some("Multiplayer Questions"),
+        &[
+            "controls:bind:Accept",
+            "controls:bind:Decline",
+        ],
+    ),
+    // Darts, pool, fillet (and its race), arm wrestling and the drink contest:
+    section(
+        "Controls",
+        Some("Minigames"),
+        &[
+            "controls:bind:Minigame Confirm",
+            "controls:bind:Minigame Leave",
+            "controls:bind:Minigame Choice 1",
+            "controls:bind:Minigame Choice 2",
+            "controls:bind:Minigame Choice 3",
+            "controls:bind:Minigame Choice 4",
+            "controls:bind:Minigame Choice 5",
+            "controls:bind:Bet Less",
+            "controls:bind:Bet More",
+            "controls:bind:Rematch",
+            "controls:bind:Minigame Throw",
+            "controls:bind:Race Up",
+            "controls:bind:Race Left",
+            "controls:bind:Race Down",
+            "controls:bind:Race Right",
+        ],
+    ),
+    // A stake between two players (duels, the drink contest, the table games):
+    section(
+        "Controls",
+        Some("Minigame Stakes"),
+        &[
+            "controls:bind:Stake Match",
+            "controls:bind:Stake Raise",
+            "controls:bind:Stake Accept",
+            "controls:bind:Stake Decline",
         ],
     ),
     section("Graphics", Some("Quality"), &["quality"]),

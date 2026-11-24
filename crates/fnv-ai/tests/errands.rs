@@ -110,6 +110,7 @@ const P_FLEE_NOTHING: u32 = 0x828;
 const P_FIND_NONE: u32 = 0x829;
 const P_HUNT: u32 = 0x82A;
 const P_BUY: u32 = 0x82B;
+const P_MUG: u32 = 0x82E;
 const P_USE_NAMED: u32 = 0x82C;
 const P_FIND_CHAIR: u32 = 0x82D;
 // Bases.
@@ -129,6 +130,8 @@ const N_POACHER: u32 = 0x84C;
 const N_BUYER: u32 = 0x84D;
 const N_VENDOR: u32 = 0x84E;
 const N_SITTER_NAMED: u32 = 0x84F;
+const N_MUGGER: u32 = 0x850;
+const N_STRANGER: u32 = 0x851;
 // Cell and references.
 const CELL: u32 = 0x860;
 const MARK_FAR: u32 = 0x870;
@@ -160,6 +163,11 @@ const R_POACHER: u32 = 0x88C;
 const R_BUYER: u32 = 0x88D;
 const R_VENDOR: u32 = 0x88E;
 const R_STOCK: u32 = 0x88F;
+/// A second poacher, of the first one's base: its kin.
+const R_POACHER_KIN: u32 = 0x890;
+const R_MUGGER: u32 = 0x891;
+const R_MUGGER_KIN: u32 = 0x892;
+const R_STRANGER: u32 = 0x893;
 
 const C: Space = Space::Interior(CELL);
 
@@ -198,6 +206,8 @@ fn plugin_bytes() -> Vec<u8> {
         // Find meat with Allow Killing: it attacks the actors of its area, whatever they
         // carry (the original's gecko on FindFood, packages.md section 3.1).
         pack(P_HUNT, "HuntMeat", 0, FIND, type_flags::ALLOW_KILLING, Some((2, 0, 1500)), None, Some((1, MEAT, 1)), None),
+        // Any actor (object type 28), Allow Killing: as VFSFreesideThugPackage.
+        pack(P_MUG, "MugAnyone", 0, FIND, type_flags::ALLOW_KILLING, Some((2, 0, 400)), None, Some((2, 28, 1)), None),
         // Find two tonics with Allow Buying: only the vendor's stock holds any.
         pack(P_BUY, "BuyTonics", 0, FIND, type_flags::ALLOW_BUYING, Some((2, 0, 1500)), None, Some((1, TONIC, 2)), None),
     ]
@@ -218,6 +228,8 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_CALM, "Calm", &[P_FLEE_NOTHING]),
         npc(N_IDLE_FINDER, "IdleFinder", &[P_FIND_NONE]),
         npc(N_POACHER, "Poacher", &[P_HUNT]),
+        npc(N_MUGGER, "Mugger", &[P_MUG]),
+        npc(N_STRANGER, "Stranger", &[]),
         npc(N_BUYER, "Buyer", &[P_BUY]),
         // A vendor of Miscellaneous items (AIDT services, bit 10): the tonic is a MISC.
         record(b"NPC_", N_VENDOR, &[sub(b"EDID", z("Vendor")), sub(b"AIDT", [&[0u8; 8][..], &(1u32 << 10).to_le_bytes(), &[0u8; 8]].concat())]),
@@ -274,6 +286,10 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_IDLE_FINDER, "IdleFinderRef", N_IDLE_FINDER, [1200.0, 1200.0, 0.0], None),
         placed(b"ACRE", R_HUNTER, "HunterRef", N_HUNTER, [1100.0, 600.0, 0.0], None),
         placed(b"ACHR", R_POACHER, "PoacherRef", N_POACHER, [1100.0, 700.0, 0.0], None),
+        placed(b"ACHR", R_POACHER_KIN, "PoacherKinRef", N_POACHER, [1250.0, 700.0, 0.0], None),
+        placed(b"ACHR", R_MUGGER, "MuggerRef", N_MUGGER, [200.0, 1800.0, 0.0], None),
+        placed(b"ACHR", R_MUGGER_KIN, "MuggerKinRef", N_MUGGER, [350.0, 1800.0, 0.0], None),
+        placed(b"ACHR", R_STRANGER, "StrangerRef", N_STRANGER, [200.0, 1950.0, 0.0], None),
         placed(b"ACHR", R_BUYER, "BuyerRef", N_BUYER, [1600.0, 200.0, 0.0], None),
         vendor,
         placed(b"REFR", R_STOCK, "VendorStockRef", STOCK, [1900.0, 1900.0, -2000.0], None),
@@ -482,6 +498,43 @@ fn a_find_package_with_allow_killing_attacks_an_actor_carrying_nothing_it_wants(
     let mut s = sim(&f, &[R_POACHER]);
     s.run(10.0);
     assert!(!s.events(R_POACHER).iter().any(|e| matches!(e, AiEvent::Found { act: Act::Attacks, .. })), "{:?}", s.events(R_POACHER));
+}
+
+/// A person on Find with Allow Killing leaves its kin alone even when the kin carries
+/// what it looks for, and attacks a stranger carrying it [hypothesis: as the gecko left
+/// its kin alone; the Freeside thugs ApocalypticMojave.esp places together killed each
+/// other on VFSFreesideThugPackage, owner's run 2026-11-15].
+#[test]
+fn a_person_finding_with_allow_killing_spares_its_kin() {
+    let f = fixture();
+    let attacks = |s: &Sim| -> Vec<u32> { s.events(R_POACHER).iter().filter_map(|e| if let AiEvent::Found { object, act: Act::Attacks, .. } = e { Some(object.0) } else { None }).collect() };
+    let mut s = sim(&f, &[R_POACHER]);
+    s.game.world.add_item(FormId(R_POACHER_KIN), FormId(MEAT), 1).unwrap();
+    s.run(10.0);
+    assert!(attacks(&s).is_empty(), "{:?}", s.events(R_POACHER));
+    // The same meat on a stranger (the calm one, 400 units off): attacked.
+    let mut s = sim(&f, &[R_POACHER]);
+    s.game.world.add_item(FormId(R_CALM), FormId(MEAT), 1).unwrap();
+    s.run(10.0);
+    let a = attacks(&s);
+    assert!(!a.is_empty() && a.iter().all(|r| *r == R_CALM), "{:?}", s.events(R_POACHER));
+}
+
+/// A person on Find for any actor (object type 28) with Allow Killing attacks a stranger
+/// of its area and never its kin [hypothesis: as the gecko left its kin alone; the
+/// Freeside thugs ApocalypticMojave.esp places together outside Freeside killed each
+/// other on VFSFreesideThugPackage, owner's run 2026-11-15].
+#[test]
+fn a_find_for_any_actor_with_allow_killing_spares_its_kin() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_MUGGER, R_MUGGER_KIN]);
+    s.run(10.0);
+    for (r, kin) in [(R_MUGGER, R_MUGGER_KIN), (R_MUGGER_KIN, R_MUGGER)] {
+        let ev = s.events(r);
+        let attacked: Vec<u32> = ev.iter().filter_map(|e| if let AiEvent::Found { object, act: Act::Attacks, .. } = e { Some(object.0) } else { None }).collect();
+        assert!(!attacked.contains(&kin), "{ev:?}");
+        assert!(attacked.contains(&R_STRANGER), "{ev:?}");
+    }
 }
 
 /// Allow Buying: the vendor's merchant container holds the tonics; the buyer goes up to

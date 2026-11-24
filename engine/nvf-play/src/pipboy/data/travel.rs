@@ -10,6 +10,11 @@
 //!   ([`depart`]) the trip goes out as a door's does (`crate::loading::TravelRequest`),
 //!   the clock moves on by the travel time ([`travel_hours`]) and the player's teammates
 //!   come along (`fnv_game::Game::bring_teammates`).
+//! - In co-op, the other players' heads on the World and Local Maps are asked for as
+//!   their references (queue item 134): [`answer`] refuses while that player is in combat
+//!   or where no one may travel to it (`super::super::glance::Mate`), else tries this
+//!   player's refusals as for a found marker; [`go`] lands [`BESIDE`] units to that
+//!   player's right, facing as it faces [design].
 
 use super::{read, DataState};
 use crate::hitvol::HitVolumes;
@@ -157,6 +162,17 @@ pub fn question(template: &str, name: &str) -> String {
     }
 }
 
+/// The hours a trip passes on the clock: none while another player is connected
+/// (co-op, owner 2026-11-09, queue item 173: one player's trip does not move the shared
+/// clock, needs, weather and timers for everyone) [design]; solo, the walk's hours.
+pub fn trip_hours(hours: f64, others: usize) -> f64 {
+    if others > 0 {
+        0.0
+    } else {
+        hours
+    }
+}
+
 /// The trip's game hours: the straight line walked at `walk` units a second at
 /// `time_scale` game seconds a real second [hypothesis, fast-travel.md §4]; none within
 /// a cell's width [design].
@@ -165,6 +181,22 @@ pub fn travel_hours(distance: f32, walk: f32, time_scale: f64) -> f64 {
         return 0.0;
     }
     distance as f64 / walk as f64 * time_scale / 3600.0
+}
+
+/// How far to a co-op player's right a trip to it lands (game units) [design: clear of its
+/// body, about two steps].
+pub const BESIDE: f32 = 64.0;
+
+/// Where a trip to a co-op player standing at `feet`, facing `yaw` (radians, clockwise
+/// from north), lands: [`BESIDE`] to its right [design].
+pub fn beside(feet: [f32; 3], yaw: f32) -> [f32; 3] {
+    [feet[0] + BESIDE * yaw.cos(), feet[1] - BESIDE * yaw.sin(), feet[2]]
+}
+
+/// NVForever's own refusal for a co-op player in combat or a scene [design: no game setting
+/// says it].
+pub fn mate_refusal(name: &str) -> String {
+    format!("You cannot fast travel to {name} right now.")
 }
 
 /// The game's TimeScale when the plugins lack the global [documented: GECK wiki
@@ -254,25 +286,40 @@ fn travel_target(st: &DataState, script: Option<&ScriptState>, m: &read::Marker)
 type Around<'w> = (Res<'w, PhysState>, Res<'w, Location>, Res<'w, HitVolumes>, Option<Res<'w, MusicCues>>, Res<'w, PlayWorld>);
 
 /// Answer the asks: put up the question, or the refusal.
+#[allow(clippy::too_many_arguments)]
 pub fn answer(
     mut asks: MessageReader<FastTravelAsk>,
     state: Option<ResMut<DataState>>,
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     (phys, location, actors, cues, world): Around,
+    mates: Option<Res<super::super::glance::CoopMates>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     limbs: Option<Res<crate::combat::PlayerLimbs>>,
 ) {
     let Some(&FastTravelAsk(marker)) = asks.read().last() else { return };
     let Some(mut st) = state else { return };
+    let mate = mates.as_ref().and_then(|m| m.0.iter().find(|m| m.reference == marker).cloned());
+    if let Some(m) = mate.as_ref().filter(|m| m.combat || m.no_travel) {
+        let text = mate_refusal(&m.name);
+        info!("fast travel: to the co-op player {} refused ({}); the box says {text:?}", m.name, if m.combat { "in combat" } else { "in a conversation or scene" });
+        st.popup = Some(Popup::refused(text));
+        return;
+    }
     // The World Map reads the markers when first drawn; an ask from the test aid can come
     // before the map ever was.
     if st.markers.is_none() {
         st.markers = Some(read::markers(world.lo, world.schema, sim.refs));
     }
-    let Some(m) = st.markers.iter().flatten().find(|m| m.form == marker).cloned() else {
-        warn!("fast travel: {} is not a named map marker", FormId(marker));
-        return;
+    let found = st.markers.iter().flatten().find(|m| m.form == marker).cloned();
+    let m = match (found, &mate) {
+        (Some(m), _) => m,
+        // A co-op player: always a target, named as it is called.
+        (None, Some(mate)) => read::Marker { form: marker, name: mate.name.clone(), flags: 2, ..Default::default() },
+        (None, None) => {
+            warn!("fast travel: {} is not a named map marker", FormId(marker));
+            return;
+        }
     };
     let indoors = location.interior.is_some();
     let player = phys.player.as_ref();
@@ -373,9 +420,42 @@ pub fn go(
     location: Res<Location>,
     mut pending: ResMut<Pending>,
     mut menu: MessageWriter<MenuInput>,
+    mates: Option<Res<super::super::glance::CoopMates>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(&FastTravelGo(marker)) = goes.read().last() else { return };
+    if let Some(mate) = mates.as_ref().and_then(|m| m.0.iter().find(|m| m.reference == marker)) {
+        let feet = beside(mate.feet, mate.yaw);
+        let world = mate.interior.is_none().then_some(mate.world);
+        let cell = match mate.interior {
+            Some(c) => Some(c),
+            None => sim.refs.world_cell_at(FormId(mate.world), feet).map(|c| c.0),
+        };
+        let from = match location.interior {
+            None if location.world == mate.world => phys.player.as_ref().map(|c| c.feet),
+            None => None,
+            Some(_) => state.as_ref().and_then(|st| st.outdoors).filter(|o| Some(o.0) == world).map(|o| o.1),
+        };
+        let distance = from.filter(|_| world.is_some()).map_or(0.0, |f| (feet[0] - f[0]).hypot(feet[1] - f[1]));
+        let scale = sim.world.time_scale().unwrap_or(OWN_TIME_SCALE);
+        let hours = travel_hours(distance, crate::player::MoveSpeeds::OBSERVED.walk, scale);
+        let rot = [0.0, 0.0, mate.yaw];
+        let travel = Travel { world, interior: mate.interior, feet, heading_deg: crate::activate::outcome::heading_deg(rot), pitch_deg: None };
+        info!(
+            "fast travel: to the co-op player {} ({}): arrive beside it at {feet:?} {}, {hours:.2} hours on the clock",
+            mate.name,
+            FormId(marker),
+            match (mate.interior, from) {
+                // Into an interior no walk is measured: the trip takes no time [design].
+                (Some(c), _) => format!("into interior {}", FormId(c)),
+                (None, Some(_)) => format!("in worldspace {}, {distance:.0} units away", FormId(mate.world)),
+                (None, None) => format!("in worldspace {}, from another place (no walk measured)", FormId(mate.world)),
+            }
+        );
+        pending.0 = Some(Trip { travel, distance, to: marker, cell, rot, hours });
+        menu.write(MenuInput(Command::Close));
+        return;
+    }
     let Some(m) = state.as_ref().and_then(|st| st.markers.iter().flatten().find(|m| m.form == marker).cloned()) else { return };
     let placed = sim.refs.refs.get(&FormId(marker));
     // The marker's linked reference is where the player arrives [documented: GECK wiki
@@ -430,12 +510,20 @@ pub fn depart(
     mut passed: MessageWriter<HourPassed>,
     landing: Option<ResMut<crate::save::FastTravelLanding>>,
     screen: Option<ResMut<crate::loading::Loading>>,
+    mates: Option<Res<super::super::glance::CoopMates>>,
     (tweaks, hold): (Option<Res<crate::tweaks::TweakSettings>>, Option<ResMut<WeatherHold>>),
 ) {
     if *state.get() != PlayState::Playing {
         return;
     }
-    let Some(t) = pending.0.take() else { return };
+    let Some(mut t) = pending.0.take() else { return };
+    // Co-op: no time passes while another player is connected (owner, item 173).
+    let others = mates.as_ref().map_or(0, |m| m.0.len());
+    let hours = trip_hours(t.hours, others);
+    if hours != t.hours {
+        info!("fast travel: no time passes: {others} other player(s) connected (the trip would take {:.2} hours)", t.hours);
+        t.hours = hours;
+    }
     // The player's own trip (`Loading::arriving`): the destination's actors are put at
     // their package's place behind the screen.
     if let Some(mut s) = screen {
@@ -491,6 +579,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_trip_to_a_player_lands_to_its_right() {
+        let at = beside([100.0, 200.0, 5.0], 0.0);
+        assert!((at[0] - (100.0 + BESIDE)).abs() < 1e-3 && (at[1] - 200.0).abs() < 1e-3 && at[2] == 5.0);
+        // Facing east, its right is south.
+        let at = beside([0.0, 0.0, 0.0], std::f32::consts::FRAC_PI_2);
+        assert!(at[0].abs() < 1e-3 && (at[1] + BESIDE).abs() < 1e-3);
+        assert_eq!(mate_refusal("Courier 2"), "You cannot fast travel to Courier 2 right now.");
+    }
+
+    #[test]
     fn the_tweaks_drop_or_add_refusals() {
         let all = Checks { target: true, in_air: true, combat: true, hostiles_near: true, encumbered: true, ..Checks::default() };
         let mut c = all;
@@ -526,6 +624,13 @@ mod tests {
     fn the_question_names_the_marker() {
         assert_eq!(question(OWN_QUESTION, "Goodsprings"), "Do you want to travel to Goodsprings?");
         assert_eq!(question("Travel to", "Primm"), "Travel to Primm?");
+    }
+
+    #[test]
+    fn co_op_trips_pass_no_time() {
+        assert_eq!(trip_hours(3.5, 0), 3.5, "solo: the walk's hours");
+        assert_eq!(trip_hours(3.5, 1), 0.0);
+        assert_eq!(trip_hours(3.5, 3), 0.0);
     }
 
     #[test]

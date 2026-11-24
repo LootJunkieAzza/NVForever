@@ -9,7 +9,7 @@
 use crate::record::{link_kind, tri_flags, NavMeshRecord};
 use crate::NavRecords;
 use fnv_esm::{LoadOrder, Schema};
-use fnv_world::fields::{vec3, Fields};
+use fnv_world::fields::Fields;
 use fnv_world::index::global_of;
 use fnv_world::WorldIndex;
 use std::collections::HashMap;
@@ -301,16 +301,11 @@ pub fn door_lock(lo: &LoadOrder, schema: &Schema, door: u32) -> Option<DoorLock>
     Some(DoorLock { level, key })
 }
 
-/// A door reference's teleport: destination door, position, z rotation.
+/// A door reference's teleport: destination door, position, z rotation (a marker left
+/// stale by the load order mended, `fnv_world::teleport`).
 pub fn door_teleport(lo: &LoadOrder, schema: &Schema, door: u32) -> Option<(u32, [f32; 3], f32)> {
-    let (pi, r) = fnv_world::fields::winner(lo, door)?;
-    let f = Fields::new(r, pi, schema).ok()?;
-    let x = f.get(b"XTEL")?;
-    let to = global_of(lo, pi, x.get("door")?)?;
-    let pr = x.get("pos_rot")?;
-    let pos = vec3(pr.get("position")?)?;
-    let rot = vec3(pr.get("rotation_radians")?)?;
-    Some((to, pos, rot[2]))
+    let x = fnv_world::teleport::door_xtel(lo, schema, door)?;
+    Some((x.door, x.pos, x.rot[2]))
 }
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {

@@ -31,6 +31,8 @@ mod exit_watch;
 #[cfg(target_os = "linux")]
 mod native_crash_unix;
 mod nif_mirror;
+mod view_hold;
+mod anim_overrides;
 mod nif_attachments;
 mod extra_camera;
 // Authored record builders are loaded once for the engine test binary.
@@ -57,6 +59,8 @@ mod alert;
 mod anim_sounds;
 mod cpu_placement;
 mod crash;
+mod heap_stats;
+mod gpu_lost;
 mod events_log;
 mod creature_pace;
 mod creature_stance;
@@ -67,6 +71,8 @@ mod decals;
 mod dismember;
 mod distant_lights;
 mod knockouts;
+mod pose_watch;
+mod actor_twins;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -95,6 +101,9 @@ mod handoff;
 mod distant_objects;
 mod full_detail;
 mod furniture;
+mod fire_volume;
+mod fuller_fire;
+mod fillet_stage;
 mod game_digest;
 mod graphics;
 mod grass;
@@ -102,10 +111,15 @@ mod grass_fire_fx;
 mod head_look;
 mod rigid_head_probe;
 mod idles;
+mod sprint_guard;
 mod light_shadow_casters;
 mod light_shadow_detail;
 mod light_shadows;
 mod lights;
+// Photo Mode is left out of the 0.8.1 co-op ship (its own PR after it): its lights are not
+// registered, the code stays for that PR.
+#[allow(dead_code)]
+mod photo_lights;
 mod limbs;
 mod lips;
 mod memory_budget;
@@ -117,6 +131,10 @@ mod pipeline_prewarm;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
+mod slots_view;
+mod caravan_pot;
+mod caravan_view;
+mod card_shape;
 mod body_weapons;
 mod terminal_view;
 mod scope_lens;
@@ -138,10 +156,31 @@ mod provoked;
 mod weapons;
 mod lodgen;
 mod nav;
+// Co-op prototype (private fork): --host / --join.
+mod coop;
+mod split;
+// Split screen's XP catch-up for player 2 (split_xp.rs).
+mod split_xp;
+// B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
+mod consume_anims;
+// The drinking contest's win shot: one camera on the dancing winner, lit (drink_stage.rs).
+mod drink_stage;
+mod emote_play;
+mod mate_heads;
+mod slots_seat;
+mod armwrestle_arm;
+mod armwrestle_view;
+mod armwrestle_free_arm;
+mod darts_arm;
+mod darts_world;
+mod pool_world;
+// After a minigame match: cheers, the end camera, the fade (match_end.rs).
+mod match_end;
 mod object_anims;
 mod outfits;
 mod own_sounds;
 mod pipboy_arm;
+mod pipboy_check;
 mod pipboy_controls;
 mod pipboy_ready;
 mod player_body;
@@ -171,6 +210,7 @@ mod settings;
 mod iron_sights;
 mod head_bob;
 mod view_sway;
+mod ads_sway;
 mod weapon_lower;
 mod sprint_view;
 mod setup;
@@ -179,11 +219,13 @@ mod shadow_probe;
 mod shadow_rate;
 mod shadow_thin;
 mod shafts;
+mod bokeh;
 mod heat_haze;
 mod sun_heightfield;
 mod imagespace;
 mod imposters;
 mod sky;
+mod smp_physics;
 mod night_sky;
 mod start_times;
 mod sun_visibility;
@@ -194,11 +236,11 @@ mod swimming;
 mod ssao;
 mod ssao_lighting;
 mod taa;
+mod fsr;
 mod fg_presenter;
 mod ffx_api;
 mod fg_ui_layer;
 mod frame_gen;
-mod fsr;
 mod upscaler;
 mod speech_look;
 mod stream_pace;
@@ -593,7 +635,7 @@ struct Args {
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
     /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
     /// The switches on in vanilla are left on unless named off: no-glow, no-eye-adaptation,
-    /// no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections.
+    /// no-neon-glow, no-water-mirror, no-fuller-fire, no-authored-materials, no-authored-reflections.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
     /// Ambient occlusion on at this level whatever the look (--graphics, --graphics-only)
@@ -625,6 +667,30 @@ struct Args {
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
     play: bool,
+    /// Co-op prototype (private fork, coop.rs): host a game for up to five guests on
+    /// this UDP port.
+    #[arg(long, requires = "play", conflicts_with = "join")]
+    host: Option<u16>,
+    /// Co-op prototype: join the game hosted at this address (`host:port`; the port
+    /// defaults to 47960). Guests are kept near the host (the leash).
+    #[arg(long, requires = "play")]
+    join: Option<String>,
+    /// Co-op prototype: the name the other players see.
+    #[arg(long, default_value = "Courier")]
+    coop_name: String,
+    /// Co-op prototype: the NPC the other players are drawn as (base FormID, hex);
+    /// Sunny Smiles by default.
+    #[arg(long, default_value = "0x104E84", value_parser = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|e| e.to_string()))]
+    coop_base: u32,
+    /// Split screen (split.rs): once in the world, host (or, with `--join`, pass player 2
+    /// through to that host), take the top half of the screen and start player 2's game on
+    /// the bottom half. A guest's load restarts it with both (`handoff`).
+    #[arg(long, requires = "play", conflicts_with = "split_p2")]
+    split: bool,
+    /// Split screen: this game is player 2's, started by player 1's (`--split`); the
+    /// session folder in player 1's home.
+    #[arg(long, requires = "play")]
+    split_p2: Option<std::path::PathBuf>,
     /// With --play: the physics rate for this run, over the settings page's Physics rate:
     /// fixed steps a second, a whole number from 60 to 160, or `fps` for Match FPS: the
     /// game's frame rate, up to what the display's pace allows (`display`, its old name, is
@@ -1098,7 +1164,10 @@ static COMMAND_LINE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new
 
 /// This run's arguments after the program name, as acted on (`COMMAND_LINE`).
 fn command_line() -> Vec<String> {
-    COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec())
+    let mut line = COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec());
+    // Split screen turned on or off since the start goes with a load's new run (split.rs).
+    split::with_split_arg(&mut line);
+    line
 }
 
 /// Bevy's task pools. Test aid `NVF_PLAY_TEST_ASYNC_THREADS=<n>` sets the async compute
@@ -1148,6 +1217,7 @@ fn main() -> AppExit {
     if exit_watch::run_if_watcher() {
         return AppExit::Success;
     }
+    heap_stats::start();
     let mut line = with_default_mode(std::env::args().collect());
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
         line = with_schemas_beside(line, &dir);
@@ -1332,7 +1402,10 @@ fn main() -> AppExit {
         None
     };
     let opened = world::open_plugins(args.data(), &mods, &args.plugins);
+    heap_stats::mark("plugins opened");
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
+    // Co-op replication: the official masters' quests are the host's story.
+    coop::set_story_plugins(&args.plugins, &MASTERS);
     // No setting names the code page: the plugins' own text says it (#1443).
     if !code_page_named {
         setup::guess_code_page(&opened.plugins);
@@ -1443,13 +1516,25 @@ fn main() -> AppExit {
         }
         None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), &overs, &args.plugins, &args.nif_schema),
     };
-    let game = match game {
+    let mut game = match game {
         Ok(g) => g,
         Err(e) => return fail(e),
     };
+    // NVForever's own pictures (the co-op perks' and the interaction wheel's icons,
+    // `Interface\Icons\NVForever`) ship in `coop-assets` beside the exe, laid over the data
+    // as loose files, so a plain install has them without a mod manager [design: owner
+    // via parity 2026-11-23, "The extra perks are in the build right?"]. Their paths are
+    // NVForever's own, so they replace nothing of the game's.
+    if let Some(dir) = exe_dir.as_ref().map(|d| d.join("coop-assets")).filter(|d| d.is_dir()) {
+        if let Some(vfs) = std::sync::Arc::get_mut(&mut game.vfs) {
+            let n = vfs.add_loose_dir(&dir);
+            eprintln!("vfs: {n} file(s) of NVForever's own from {}", dir.display());
+        }
+    }
     // A damaged archive stops the start (owner 2026-10-25): the player is told which one
     // and why, and no save or world loads with its assets missing. A file inside a
     // readable archive that fails later is only that file's error.
+    heap_stats::mark("archives indexed");
     if let Some((why, text)) = damaged_archives(game.vfs.broken_archives()) {
         crash::tell_player_at_start(&text, args.handoff.is_some());
         return fail(why);
@@ -1478,6 +1563,7 @@ fn main() -> AppExit {
         Err(e) => return fail(e),
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
+    heap_stats::mark("world index");
     if let Some(s) = fos_start {
         if world.index.worldspaces.contains_key(&s.at) {
             world.set_world(s.at);
@@ -1679,12 +1765,22 @@ fn main() -> AppExit {
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
+    heap_stats::mark("actor records");
     // The character creator's choices and sliders (nvf_play::creator), in play; it says
     // what it has once the log is up.
     let mut creator_data = actor_world
         .as_ref()
         .filter(|_| play.is_some())
-        .map(|a| nvf_play::creator::CreatorData(std::sync::Arc::new(fnv_actor::creator::Creator::build(&a.actors, |p| game.read(p)))));
+        .map(|a| {
+            let mut c = fnv_actor::creator::Creator::build(&a.actors, |p| game.read(p));
+            // Named presets (RaceMenuPresets\*.preset, a mod's loose files).
+            let files = (game.vfs.paths(|p| p.starts_with(fnv_actor::creator::PRESET_DIR) && p.ends_with(".preset")).into_iter())
+                .filter_map(|p| game.read(&p).map(|b| (p, b)))
+                .collect();
+            c.add_named_presets(files, |name| args.plugins.iter().position(|q| q.eq_ignore_ascii_case(name)).and_then(|i| u8::try_from(i).ok()));
+            nvf_play::creator::CreatorData(std::sync::Arc::new(c))
+        });
+    heap_stats::mark("character creator");
     let open_doors = args.open_doors;
     // What the overlay system and the settings page go by.
     args.no_overlay |= args.frame_json.is_some() || (args.play && !args.overlay);
@@ -1726,6 +1822,7 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
+    heap_stats::mark("residents");
     // Furniture: used by the player in play mode and by --npc-sit travellers.
     let mut trips = args.npc_travel.clone();
     let furnishings = if args.play || !args.npc_sit.is_empty() || residents.is_some() {
@@ -1742,14 +1839,19 @@ fn main() -> AppExit {
     } else {
         None
     };
+    heap_stats::mark("furniture");
     let nav_state = if trips.is_empty() && !args.show_navmesh && residents.is_none() {
         None
+    } else if args.split_p2.is_some() && trips.is_empty() && !args.show_navmesh {
+        // Split screen's player 2: a co-op guest whose actors the host walks (nav.rs).
+        Some(nav::NavState::without_graph())
     } else {
         match nav::NavState::build(&world, &trips, args.npc_speed, args.npc_ledges, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
             Ok(n) => Some(n),
             Err(e) => return fail(e),
         }
     };
+    heap_stats::mark("nav graph");
     let mut graphics = match &args.graphics_only {
         Some(keys) => match graphics::Graphics::only(keys) {
             Ok(g) => g,
@@ -1781,6 +1883,11 @@ fn main() -> AppExit {
             Some(graphics::FrameTimes { every, cycle })
         }
     };
+    // A handoff's new run: the old run ends before this one's GPU device opens
+    // (handoff.rs, queue item 132).
+    if let Some(file) = args.handoff.as_deref() {
+        handoff::before_gpu(file);
+    }
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
@@ -1851,6 +1958,13 @@ fn main() -> AppExit {
     }
     app.add_plugins(
         DefaultPlugins
+            // No wgpu memory budget threshold (`instance_memory_budget_thresholds`, queue
+            // item 99). Its check judges an upload buffer against the small 256 MB
+            // host-visible device-local heap a card without Resizable BAR has, where
+            // gpu-allocator would have fallen back to system memory, and wgpu takes a
+            // refused upload buffer for a lost device: an RTX 4060 lost it at the main menu
+            // on every start. The texture cap and the flushes keep use under the budget
+            // (memory_budget.rs); a real out-of-memory error still goes on (crash.rs).
             .set(task_pools(cpu_placed.pool_threads))
             // Bevy's own renderer plugin, with the GPU the DLSS loader checked asked for by
             // name when it pinned one (dlss/ "Adapter pin"); otherwise `RenderPlugin::default()`.
@@ -1900,8 +2014,20 @@ fn main() -> AppExit {
                     position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
                     // Taking over a load: shown once its loading screen is up (handoff.rs).
                     visible: args.handoff.is_none(),
-                    // Measuring frame times: not held to the display's refresh.
-                    present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
+                    // Player 2's window in split screen never takes the focus (split.rs).
+                    focused: args.split_p2.is_none(),
+                    // ... and is borderless from the start: a frame taken off later shows the
+                    // window again, which on Windows activates it [documented: winit 0.30
+                    // `WindowFlags::apply_diff`, `SW_SHOW` after the first `SW_SHOWNOACTIVATE`].
+                    decorations: args.split_p2.is_none(),
+                    // ... and has no taskbar button of its own: the two halves are one game
+                    // on the taskbar, player 1's [design: the owner's list of 2026-11-21,
+                    // "on the taskbar it says there's two windows open"].
+                    skip_taskbar: args.split_p2.is_some(),
+                    // Measuring frame times: not held to the display's refresh, unless
+                    // `NVF_FRAME_TIMES_VSYNC=1` holds it there (measuring what a heavy
+                    // effect costs the GPU without running it flat out: fire_volume.rs "Cost").
+                    present_mode: if args.log_frame_times.is_some() && std::env::var("NVF_FRAME_TIMES_VSYNC").as_deref() != Ok("1") { bevy::window::PresentMode::AutoNoVsync } else { default() },
                     // `NVF_SWAPCHAIN_LATENCY=<n>`: frames the swapchain may queue (images: n + 1;
                     // Bevy's 2 otherwise), for measuring frame generation's pacing.
                     desired_maximum_frame_latency: std::env::var("NVF_SWAPCHAIN_LATENCY").ok().and_then(|v| v.trim().parse::<u32>().ok()).and_then(std::num::NonZeroU32::new),
@@ -1976,7 +2102,7 @@ fn main() -> AppExit {
     .init_resource::<TerrainCache>()
     .init_resource::<imposters::Imposters>()
     .insert_resource(Streamer {
-        radius: args.radius,
+        radius: world::load_radius(args.radius, world.index.worldspaces.get(&world.world).and_then(|w| w.edid.as_deref())),
         loaded: Default::default(),
         fades: Default::default(),
         fade_secs: args.cell_fade.max(0.0),
@@ -2000,6 +2126,7 @@ fn main() -> AppExit {
         centre: None,
         waiting: Vec::new(),
         model_overrides: Default::default(),
+        coop_areas: Vec::new(),
         travels: 0,
     })
     .insert_resource(world)
@@ -2051,13 +2178,13 @@ fn main() -> AppExit {
     .add_systems(Update, advance_animations)
     .add_systems(Update, particles::sync_idle_materials.after(anim_objects::hold).before(nvf_assets::material_anim::bind_rig_materials))
     // Vertex morphs (waving flags, sagging wires): docs/spec-notes/vertex-morphs.md.
-    .add_systems(Update, nvf_assets::morph::play_vertex_morphs.after(world::stream))
+    .add_systems(Update, nvf_assets::morph::play_vertex_morphs.after(world::stream).run_if(nvf_play::photo_mode::view_live))
     // [design, #2685] Manager morphs follow the active rig, including restored groups.
     .add_systems(Update, nvf_assets::morph::play_sequence_morphs.after(advance_animations))
     .init_resource::<activators::ActivatorStats>()
     .add_systems(
         Update,
-        (nvf_assets::material_anim::bind_rig_materials, activators::drive, nvf_assets::material_anim::animate_rig_materials)
+        (nvf_assets::material_anim::bind_rig_materials, activators::drive, nvf_assets::material_anim::animate_rig_materials.run_if(nvf_play::photo_mode::view_live))
             .chain()
             .after(advance_animations)
             .after(nvf_play::PlaySet::Scripts),
@@ -2065,6 +2192,7 @@ fn main() -> AppExit {
     .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_plugins(destroyed::DestroyedPlugin)
+    .add_plugins(view_hold::ViewHoldPlugin)
     // The full-detail scenery ring (#2701), off unless the settings or --graphics-only turn
     // it on: draw-only cells beyond the loaded ones (full_detail.rs).
     .add_plugins(full_detail::FullDetailPlugin)
@@ -2081,7 +2209,7 @@ fn main() -> AppExit {
     .add_systems(Last, world::report)
     .add_systems(Update, (locomotion::walk_test, locomotion::script_turns, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     // Clips that drive actors' part materials (the Securitron screens), once posed.
-    .add_systems(Update, actor_materials::pose.after(locomotion::drive))
+    .add_systems(Update, actor_materials::pose.after(locomotion::drive).run_if(nvf_play::photo_mode::view_live))
     .init_resource::<actor_materials::PlayerRigMaterials>()
     .add_systems(Update, actor_materials::pose_player.after(nvf_play::player::BodySet))
     .add_systems(Update, timelapse.after(sky::update_sky))
@@ -2093,6 +2221,8 @@ fn main() -> AppExit {
     // The sun's cascades' far bounds and texel sizes, logged when they change.
     .add_systems(PostUpdate, sky::log_sun_cascades.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(shadow_anchor::anchor_cascades))
     .add_systems(Startup, (crash::report_start, report_archives))
+    // A lost GPU device: autosave, tell the player, close (gpu_lost.rs).
+    .add_plugins(gpu_lost::GpuLostPlugin)
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
     .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), mo2_folders: report_mo2_folders(&args), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
@@ -2170,6 +2300,8 @@ fn main() -> AppExit {
         app.add_plugins(roulette_view::RouletteViewPlugin);
         // The blackjack table (blackjack_view.rs).
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // The reels turning on the placed slot machine, its arm and spin camera (slots_view.rs).
+        app.add_plugins(slots_view::SlotsViewPlugin);
         // Test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: the terrain parallax's readback (#3322).
         terrain_parallax_ab::install(&mut app);
         // The terminal's monitor (terminal_view.rs).
@@ -2178,6 +2310,8 @@ fn main() -> AppExit {
         app.add_plugins(scope_view::ScopeViewPlugin);
         // The poker table (poker_view.rs).
         app.add_plugins(poker_view::PokerViewPlugin);
+        // The Caravan table in 3D (caravan_view.rs).
+        app.add_plugins(caravan_view::CaravanViewPlugin);
     }
     if let Some(a) = actor_world {
         if let Some(c) = creator_data.take() {
@@ -2198,12 +2332,14 @@ fn main() -> AppExit {
         // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the
         // --npc-travel walkers' too, without --play.
         app.add_plugins(actor_jumps::ActorJumpsPlugin { physics: play.is_some() });
+        // NV SMP physics: items' cloth and hair bones (smp_physics/).
+        app.add_plugins(smp_physics::SmpPhysicsPlugin);
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             // The Vigor Tester's machine: its camera and lights, the room behind it.
             app.add_plugins(vigor_view::VigorViewPlugin);
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: args.weapon_sway, head_bob: args.head_bob, weapon_lower: !args.no_weapon_lower, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, wrecks::WrecksPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin, grass_fire_fx::GrassFireFxPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: args.weapon_sway, head_bob: args.head_bob, weapon_lower: !args.no_weapon_lower, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, wrecks::WrecksPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin, grass_fire_fx::GrassFireFxPlugin, pipboy_check::PipBoyCheckPlugin, fire_volume::FireVolumePlugin));
             app.insert_resource(nvf_play::aim_zoom::Scope3d { on: args.scope_3d, lens: false });
             // Advanced Movement's parts are off unless switched on, Advanced Recoil on under
             // the Global Toggle [design: the owner, 2026-11-16, "make sure all advanced
@@ -2217,6 +2353,12 @@ fn main() -> AppExit {
             app.insert_resource(inertia);
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
+            app.add_plugins(pose_watch::PoseWatchPlugin);
+            app.add_plugins(actor_twins::ActorTwinsPlugin);
+            // Co-op (private fork): idle until a lobby is opened or joined.
+            app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
+            app.add_plugins(split::SplitPlugin(split::SplitArgs { start: args.split, p2: args.split_p2.clone() }));
+            app.add_plugins(split_xp::SplitXpPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
@@ -2225,6 +2367,7 @@ fn main() -> AppExit {
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             // The player knocked down (player_knockdown.rs).
             app.add_plugins(player_knockdown::PlayerKnockdownPlugin);
+            app.add_plugins(fillet_stage::FilletStagePlugin);
             app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin, appearance::AppearancePlugin, zones::ZonesPlugin));
             // Weapon models scripts set, drawn (weapon_models.rs).
             app.add_plugins(weapon_models::WeaponModelsPlugin);
@@ -2274,6 +2417,31 @@ fn main() -> AppExit {
             app.add_plugins(npc_combat::NpcCombatPlugin);
             // NPCs heal with the stimpaks they carry (npc_stimpaks.rs).
             app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
+            // Item animations: B42 Inject and Interact (consume_anims.rs).
+            app.add_plugins(consume_anims::ConsumeAnimsPlugin);
+            // The drinking contest's win shot: the stage camera and its key light (drink_stage.rs).
+            app.add_plugins(drink_stage::DrinkStagePlugin);
+            // Emotes on the player's body and the other players' puppets (emote_play.rs).
+            app.add_plugins(emote_play::EmotePlayPlugin);
+            // The other players' name tags over their drawn heads, seated or not (mate_heads.rs).
+            app.add_plugins(mate_heads::MateHeadsPlugin);
+            // A slot machine played in the world: the body's idles and win celebration, its
+            // own and the other players' (slots_seat.rs, queue item 170).
+            app.add_plugins(slots_seat::SlotsSeatPlugin);
+            // Darts played at the cabinet: the darts' models in the world (darts_world.rs).
+            app.add_plugins(darts_world::DartsWorldPlugin);
+            // Arm wrestling: the wrestlers' right arms posed from the bout (armwrestle_arm.rs).
+            app.add_systems(PostUpdate, armwrestle_arm::arms.before(bevy::transform::TransformSystems::Propagate));
+            // Seated at the arm-wrestling table: forearms rested on the top, under the match's
+            // pose (armwrestle_free_arm.rs).
+            app.add_systems(PostUpdate, armwrestle_free_arm::rest.before(armwrestle_arm::arms));
+            // The match's camera, close over the shoulder onto the clasp (armwrestle_view.rs).
+            app.add_systems(PostUpdate, armwrestle_view::camera.before(bevy::transform::TransformSystems::Propagate));
+            // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).
+            app.add_plugins(pool_world::PoolWorldPlugin);
+            // After a darts or pool match: the winner cheers, the loser is beaten, the camera
+            // in front of the player, a fade back (match_end.rs).
+            app.add_plugins(match_end::MatchEndPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
@@ -2290,7 +2458,7 @@ fn main() -> AppExit {
             // JIP's extra render-to-texture cameras (AttachExtraCamera / ProjectExtraCamera).
             app.add_plugins(extra_camera::ExtraCameraPlugin);
             // kNVSE's replacement animations on the drawn actors (anim_paths.rs).
-            app.add_plugins(anim_paths::AnimPathsPlugin);
+            app.add_plugins((anim_paths::AnimPathsPlugin, anim_overrides::AnimOverridesPlugin));
         }
     }
     if play.is_some() {
@@ -2339,6 +2507,7 @@ fn main() -> AppExit {
             app.insert_resource(r)
                 .add_systems(Startup, residents::log_startup)
                 .add_systems(Update, residents::drive.after(world::stream).after(readahead::read_ahead).after(nvf_play::PlaySet::Scripts).before(nav::drive))
+                .add_systems(Update, residents::one_body_each.after(residents::drive))
                 .add_systems(Update, residents::melee_knockback::arrange.after(residents::drive).run_if(resource_exists::<nvf_play::MeleeKnockbackAid>))
                 .add_systems(Last, residents::report.after(bevy::window::ExitSystems));
             // Patrols and sandboxes go on after a load where the save had them.
@@ -2473,15 +2642,23 @@ fn main() -> AppExit {
         console_toggles::register(&mut app);
         app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate), handoff::hold_restore.after(handoff::reveal)));
         handoff::add_end_now(&mut app);
+        // Every run: a load's new run lowers the old window's cover, and any run that ends
+        // split screen lowers the screen it held (`handoff::cover::up_over_screen`); a run
+        // started without `--handoff` kept that one up for good [observed: the End Split
+        // check of 2026-11-22, item 215].
+        app.add_systems(Last, handoff::lower_cover);
         if let Some(why) = load_failed {
             app.insert_resource(handoff::LoadFailed(why)).add_systems(Update, handoff::tell_load_failed);
         }
         if let Some(file) = args.handoff.clone() {
+            if let Some(old) = handoff::OldRun::open(&file) {
+                app.insert_resource(old);
+            }
             match &handoff_marked {
                 Some(Err(e)) => warn!("handoff: started as the new run, but cannot tell the old run so ({}: {e}); it ends after {} s", handoff::started_marker(&file).display(), handoff::JOIN_WAIT_SECS),
                 _ => info!("handoff: started as the new run (ready file {})", file.display()),
             }
-            app.insert_resource(handoff::Hidden::new(file, args.window_maximized));
+            app.insert_resource(handoff::Hidden::new(file, args.window_maximized)).add_systems(First, handoff::watch_old_run).add_systems(Startup, handoff::log_before_gpu);
             // The save waits from the first frame, not only once `hold_restore` has run:
             // the first frame's Update takes seconds (7.2 s observed), long enough for the
             // script data to come in during it, and `run_scripts` took it, putting the
@@ -2518,6 +2695,8 @@ fn main() -> AppExit {
             s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
         });
     }
+    heap_stats::mark("app built");
+    app.add_systems(Last, heap_stats::log_system);
     let exit = app.run();
     // The app and its renderer are gone; Streamline shut down before the device and instance it
     // used (dlss/, "Shutdown"). Nothing when Streamline was not loaded.
@@ -3073,6 +3252,16 @@ mod tests {
         let args = parse(&["--play", "--menu"]);
         assert!(args.play && args.menu);
         assert!(Args::try_parse_from(["nvforever", "--explore", "--play"]).is_err());
+    }
+
+    /// A guest in split screen (player 2 joins its host through it): a load's new run has
+    /// `--join` and `--split` both, and must start [the 19:23 three-window check: clap
+    /// refused the pair, so a guest's load could not start its new run].
+    #[test]
+    fn a_guest_in_split_screen_starts_again_with_join_and_split() {
+        let args = parse(&["--play", "--join", "127.0.0.1:47971", "--split", "--load", "x.nvfsave"]);
+        assert!(args.split && args.join.as_deref() == Some("127.0.0.1:47971"));
+        assert!(Args::try_parse_from(["nvforever", "--play", "--split", "--split-p2", "dir"]).is_err());
     }
 
     #[test]

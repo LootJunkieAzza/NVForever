@@ -520,7 +520,10 @@ impl Blend {
                 self.prev = None;
             }
         }
-        let sets_off = self.set_off_at_once && choice.mv.is_moving() && !self.cur.mv.is_moving();
+        // People too set off at once from a turn on the spot (queue item 189: Benny slid
+        // on TurnRight at 46-77 units/s as he turned off his spot to walk to the suite);
+        // from the idle they keep the eased fade [design].
+        let sets_off = choice.mv.is_moving() && !self.cur.mv.is_moving() && (self.set_off_at_once || self.cur.mv.is_turn());
         if (self.prev.is_none() || sets_off) && choice.mv != self.cur.mv {
             if let Some(new) = info(choice.mv) {
                 let phase = match info(self.cur.mv) {
@@ -914,11 +917,18 @@ mod tests {
         // A change between moves still waits for the fade (cross_fade_weights).
         b.step(Choice { mv: Move::Backward, rate: 1.0 }, 0.02, info);
         assert_eq!(b.cur.mv, Move::Forward);
-        // People (no set_off_at_once) wait for the standing fade as before.
+        // People (no set_off_at_once) set off at once from a turn on the spot too
+        // (queue item 189)...
         let mut p = Blend::new(Move::Idle, 0.0);
         p.step(Choice { mv: Move::TurnLeft, rate: 1.0 }, 0.02, info);
         p.step(Choice { mv: Move::Forward, rate: 1.0 }, 0.02, info);
-        assert_eq!(p.cur.mv, Move::TurnLeft);
+        assert_eq!((p.cur.mv, p.prev.map(|p| p.mv)), (Move::Forward, Some(Move::TurnLeft)));
+        // ...but wait for a fade back into the idle as before.
+        let mut q = Blend::new(Move::TurnLeft, 0.0);
+        q.step(Choice { mv: Move::Idle, rate: 1.0 }, 0.02, info);
+        assert_eq!((q.cur.mv, q.prev.map(|p| p.mv)), (Move::Idle, Some(Move::TurnLeft)));
+        q.step(Choice { mv: Move::Forward, rate: 1.0 }, 0.02, info);
+        assert_eq!(q.cur.mv, Move::Idle);
     }
 
     #[test]

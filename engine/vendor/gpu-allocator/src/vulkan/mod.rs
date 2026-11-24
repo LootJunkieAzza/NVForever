@@ -696,7 +696,7 @@ impl MemoryType {
         // allocation, or a block supporting sub-allocations that is not the last one (ensuring
         // there's always at least one block/allocator readily available).
         let is_dedicated_or_not_last_general_block = !mem_block.sub_allocator.supports_general_allocations()
-            || (self.active_general_blocks > 1 && empty_general_others >= KEEP_EMPTY_GENERAL_BLOCKS);
+            || (self.active_general_blocks > 1 && empty_general_others >= keep_empty_general_blocks());
         if mem_block.sub_allocator.is_empty() && is_dedicated_or_not_last_general_block {
             let block = self.memory_blocks[block_idx]
                 .take()
@@ -714,8 +714,25 @@ impl MemoryType {
 }
 
 /// Empty general blocks kept per memory type for reuse besides the one upstream keeps
-/// (NVForever patch, see `MemoryType::free`).
+/// (NVForever patch, see `MemoryType::free`), unless the game sets another number.
 const KEEP_EMPTY_GENERAL_BLOCKS: usize = 2;
+
+/// A host-visible device-local heap smaller than this is the small BAR window of a card
+/// without Resizable BAR (NVForever, queue item 99).
+const SMALL_BAR_HEAP: vk::DeviceSize = 1 << 30;
+
+static KEEP_EMPTY: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(KEEP_EMPTY_GENERAL_BLOCKS);
+
+/// NVForever (#gpu-vram): how many emptied general blocks of each memory type are kept for
+/// reuse besides the one upstream keeps. The driver counts kept blocks as the process's
+/// use, so a GPU with a small memory budget keeps none (nvforever `memory_budget.rs`).
+pub fn set_keep_empty_general_blocks(n: usize) {
+    KEEP_EMPTY.store(n, core::sync::atomic::Ordering::Relaxed);
+}
+
+fn keep_empty_general_blocks() -> usize {
+    KEEP_EMPTY.load(core::sync::atomic::Ordering::Relaxed)
+}
 
 /// NVForever (#1429): a vkAllocateMemory at least this long (milliseconds) is logged.
 const SLOW_ALLOCATE_MS: f64 = 1.0;
@@ -864,6 +881,23 @@ impl Allocator {
                 self.find_memorytype_index(&desc.requirements, mem_loc_required_bits);
         }
 
+        // NVForever (engine/vendor/README.md, queue item 99): CPU-to-GPU memory stays out
+        // of a small host-visible device-local heap (the 256 MB window a card without
+        // Resizable BAR has, shared with every other program), in plain host-visible
+        // memory instead.
+        if desc.location == MemoryLocation::CpuToGpu {
+            if let Some(i) = memory_type_index_opt {
+                let ty = &self.memory_types[i as usize];
+                if ty.memory_properties.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+                    && self.memory_heaps[ty.heap_index].size < SMALL_BAR_HEAP
+                {
+                    if let Some(host) = self.host_memorytype_index(&desc.requirements) {
+                        memory_type_index_opt = Some(host);
+                    }
+                }
+            }
+        }
+
         let memory_type_index = match memory_type_index_opt {
             Some(x) => x as usize,
             None => return Err(AllocationError::NoCompatibleMemoryTypeFound),
@@ -976,6 +1010,19 @@ impl Allocator {
                     && memory_type.memory_properties.contains(flags)
             })
             .map(|memory_type| memory_type.memory_type_index as _)
+    }
+
+    /// A host-visible, host-coherent memory type on a heap that is not device-local.
+    fn host_memorytype_index(&self, memory_req: &vk::MemoryRequirements) -> Option<u32> {
+        let flags = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+        self.memory_types
+            .iter()
+            .find(|t| {
+                (1 << t.memory_type_index) & memory_req.memory_type_bits != 0
+                    && t.memory_properties.contains(flags)
+                    && !self.memory_heaps[t.heap_index].flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL)
+            })
+            .map(|t| t.memory_type_index as _)
     }
 
     pub fn generate_report(&self) -> AllocatorReport {

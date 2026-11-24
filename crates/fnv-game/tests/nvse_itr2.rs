@@ -470,6 +470,87 @@ fn recipes_containers_duplicates_races_and_menus() {
     assert_eq!(num(&mut g, "CenterOnCellAlt \"CellB\""), 1.0);
 }
 
+/// ListAddForm of a form already on the list adds nothing and returns -1, with or
+/// without `checkForDupes` (owner decision 2026-11-06: JAM joins MCM's list twice);
+/// another form still goes on.
+#[test]
+fn a_form_already_on_a_list_is_not_added_again() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(num(&mut g, "ListGetCount GunList"), 1.0);
+    assert_eq!(num(&mut g, "ListAddForm GunList Gun"), -1.0);
+    assert_eq!(num(&mut g, "ListAddForm GunList Gun -2 1"), -1.0);
+    assert_eq!(num(&mut g, "ListGetCount GunList"), 1.0);
+    assert_eq!(num(&mut g, "ListAddForm GunList Scrap"), 1.0);
+    assert_eq!(num(&mut g, "ListAddForm GunList Scrap"), -1.0);
+    assert_eq!(num(&mut g, "ListGetCount GunList"), 2.0);
+}
+
+/// ListAddForm's edits are the session's: a game taken over after a load
+/// (`Game::take_session` / `put_session`, as `restore_save` does) keeps them. MCM's list
+/// keeps the mods that joined it in the main menu before the save was loaded (owner's
+/// runs of 2026-11-11: MCM missing after a load).
+#[test]
+fn list_edits_outlast_a_load() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(num(&mut g, "ListAddForm GunList Scrap"), 1.0);
+    assert_eq!(num(&mut g, "ListGetCount GunList"), 2.0);
+    let session = g.take_session();
+    let mut loaded = game(&f);
+    loaded.put_session(session);
+    assert_eq!(num(&mut loaded, "ListGetCount GunList"), 2.0);
+    assert_eq!(num(&mut loaded, "ListAddForm GunList Scrap"), -1.0, "still on it");
+}
+
+/// GetNifBlockTranslation with `getWorld` 1 gives the node's place in the world, not its
+/// own offset (JVO's marker over an actor's head); either form of the call. The world
+/// place is composed from the nodes' own transforms and the reference's place (upstream's
+/// route, shared with GetNifBlockTranslationAlt): TestNpcRef stands at (100, 0, 0).
+#[test]
+fn a_nif_block_translation_in_the_world() {
+    use fnv_game::nif_blocks::SceneNode;
+    let f = fixture();
+    let mut g = game(&f);
+    let node = |name: &str, parent, translation, world| SceneNode { name: name.into(), parent, translation, rotation: [0.0; 3], scale: 1.0, flags: 0, world, material: None, info: None };
+    g.scene.set_tree(FormId(NPC_REF), vec![node("Bip01", None, [0.0, 0.0, 60.0], [100.0, 0.0, 60.0]), node("Bip01 Head", Some(0), [5.59, 0.0, 60.0], [105.59, 0.0, 120.0])]);
+    assert_eq!(num(&mut g, "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" X"), f64::from(5.59f32));
+    assert_eq!(num(&mut g, "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" Z 1"), 120.0);
+    assert_eq!(get(&mut g, "", "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" 1", "[0]"), XVal::Num(f64::from(5.59f32 + 100.0)));
+    assert_eq!(get(&mut g, "", "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\"", "[0]"), XVal::Num(f64::from(5.59f32)));
+}
+
+/// The quest scripts read as active is the one the Pip-Boy marks (JAM's JVO followed the
+/// last forced quest after the player picked another).
+#[test]
+fn the_active_quest_is_the_pip_boys() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.ui.active_quest = Some(FormId(0x900));
+    assert_eq!(form(&mut g, "GetActiveQuest"), 0x900);
+    g.ui.shown_quest = Some(FormId(0x901));
+    assert_eq!(form(&mut g, "GetActiveQuest"), 0x901);
+    assert_eq!(form(&mut g, "GetCurrentQuest"), 0x901);
+}
+
+/// Co-op's live Pip-Boy: the MenuMode function answers for it (JAM's loot menu and JVO
+/// hide on it) while the game stays unpaused and in game mode.
+#[test]
+fn a_live_menu_answers_menu_mode_without_pausing() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(num(&mut g, "MenuMode"), 0.0);
+    g.live_menu = Some(1002);
+    assert_eq!(num(&mut g, "MenuMode"), 1.0);
+    assert_eq!(num(&mut g, "MenuMode 1002"), 1.0);
+    assert_eq!(num(&mut g, "MenuMode 1"), 1.0);
+    assert_eq!(num(&mut g, "MenuMode 1009"), 0.0);
+    assert_eq!(num(&mut g, "GetActiveMenuMode"), 1002.0);
+    assert!(!g.in_menu() && !g.paused());
+    g.live_menu = None;
+    assert_eq!(num(&mut g, "MenuMode"), 0.0);
+}
+
 /// ObjectUnderReticle casts the crosshair's ray between its two ranges, out to 50000
 /// units, and gives the first reference it meets [documented: ObjectUnderReticle].
 #[test]

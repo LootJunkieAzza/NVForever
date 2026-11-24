@@ -188,7 +188,10 @@ const HAIR_GROUPS: [&str; 2] = ["Beard", "Eyebrows"];
 pub enum Row {
     Sex,
     Race,
-    /// The race's starting faces (NPC_ "Is CharGen Face Preset").
+    /// The character's voice (docs/design/player-voices.md): None or a voice set.
+    Voice,
+    /// The race's starting faces (NPC_ "Is CharGen Face Preset"), then the named presets
+    /// of the sex (`RaceMenuPresets\*.preset` files).
     Preset,
     /// Which group of the tab's sliders is shown.
     Group,
@@ -274,8 +277,68 @@ pub struct Model {
     pub view: View,
     /// Which function opened the menu: what may be changed.
     pub kind: RaceMenu,
+    /// Every voice installed (`crate::player_voice`); the row offers those that fit the
+    /// look's race and sex ([`Model::fitting_voices`]).
+    pub voices: Vec<VoiceOption>,
+    /// The chosen voice's id (`None`: silent).
+    pub voice: Option<String>,
+    /// A preview of the chosen voice is asked for (P, the test aid's `preview`).
+    pub preview: bool,
     /// The player's tweak: a woman may have facial hair too [design: docs/design/tweaks.md].
     pub female_beards: bool,
+}
+
+/// A voice the creator offers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VoiceOption {
+    pub id: String,
+    pub name: String,
+    /// `female`, `male`, `other`.
+    pub sex: String,
+    /// `human` or `ghoul` (`fnv_game::player_voice::race_kind`).
+    pub race: String,
+}
+
+/// The name the Preset row shows for a race's starting face: the records have none
+/// (FULL is `raceCaucasianF06` and the like [observed: FalloutNV.esm CGPreset NPC_]),
+/// so NVForever names them itself [owner 2026-11-07: "give them all names"], by the race
+/// and sex and the face's place in the race's list. A list that runs out numbers its names.
+pub fn face_name(race_edid: &str, female: bool, i: usize) -> String {
+    const NAMES: [(&str, [&str; 10], [&str; 10]); 4] = [
+        (
+            "caucasian",
+            ["Walter", "Harold", "Eugene", "Frank", "Clyde", "Russell", "Lloyd", "Vernon", "Earl", "Douglas"],
+            ["Dorothy", "Betty", "Margaret", "Evelyn", "Lorraine", "Shirley", "Peggy", "Ruth", "Doris", "Marjorie"],
+        ),
+        (
+            "africanamerican",
+            ["Marcus", "Isaiah", "Clarence", "Otis", "Solomon", "Roscoe", "Thaddeus", "Cornelius", "Jerome", "Wendell"],
+            ["Hattie", "Josephine", "Loretta", "Odessa", "Mae", "Coretta", "Beatrice", "Ida", "Ernestine", "Lucille"],
+        ),
+        (
+            "asian",
+            ["Kenji", "Haruto", "Wei", "Jun", "Minh", "Tak", "Kazuo", "Sung", "Ming", "Hideo"],
+            ["Mei", "Yuki", "Lan", "Akiko", "Hana", "Mai", "Sumi", "Kyoko", "Lin", "Noriko"],
+        ),
+        (
+            "hispanic",
+            ["Mateo", "Rafael", "Diego", "Ernesto", "Joaquin", "Alejandro", "Ramon", "Luis", "Arturo", "Esteban"],
+            ["Rosa", "Elena", "Lucia", "Marisol", "Carmen", "Inez", "Pilar", "Graciela", "Beatriz", "Paloma"],
+        ),
+    ];
+    const OTHER: ([&str; 10], [&str; 10]) = (
+        ["Gus", "Mort", "Abe", "Cy", "Hank", "Rudy", "Sal", "Wes", "Ike", "Lou"],
+        ["Edna", "Mabel", "Opal", "Pearl", "Vera", "Hazel", "Myrtle", "Agnes", "Iris", "Fern"],
+    );
+    let e = race_edid.to_ascii_lowercase();
+    // A ghoul race takes the general list.
+    let (m, f) = NAMES
+        .iter()
+        .find(|(k, ..)| e.contains(k) && !e.contains("ghoul"))
+        .map_or((&OTHER.0, &OTHER.1), |(_, m, f)| (m, f));
+    let list = if female { f } else { m };
+    let name = list[i % list.len()];
+    if i < list.len() { name.to_string() } else { format!("{name} {}", i / list.len() + 1) }
 }
 
 fn tab_index(t: Tab) -> usize {
@@ -301,7 +364,12 @@ impl Model {
 
     /// The menu as the function that opened it has it: the character creator opens on
     /// Basics framed on the face; the barber on its Hair tab, framed for the hair.
-    pub fn of_kind(data: Arc<Creator>, look: Look, kind: RaceMenu) -> Model {
+    pub fn of_kind(data: Arc<Creator>, mut look: Look, kind: RaceMenu) -> Model {
+        // A save's or an older version's look younger than an adult opens as one (queue
+        // item 110); Reset goes back to that.
+        if let Some(was) = data.adult(&mut look) {
+            bevy::log::info!("creator: the look read {was:.0} years: raised to {}", creator::MIN_AGE);
+        }
         let tab = if kind == RaceMenu::Barber { Tab::Hair } else { Tab::Basics };
         Model {
             data,
@@ -317,7 +385,43 @@ impl Model {
             on_actions: None,
             view: if kind == RaceMenu::Barber { View::default() } else { View::face_on(Tab::Basics) },
             kind,
+            voices: Vec::new(),
+            voice: None,
+            preview: false,
             female_beards: false,
+        }
+    }
+
+    /// The voices offered, and the one the character has (`None`: silent).
+    /// A saved voice that does not fit the character (another race or sex) is not kept.
+    pub fn with_voices(mut self, voices: Vec<VoiceOption>, chosen: Option<&str>) -> Model {
+        self.voices = voices;
+        self.voice = chosen.map(str::to_string);
+        self.drop_unfitting_voice();
+        self
+    }
+
+    /// The chosen voice's id (`None`: silent); never one that does not fit the look.
+    pub fn voice_id(&self) -> Option<&str> {
+        let id = self.voice.as_deref()?;
+        self.fitting_voices().into_iter().find(|v| v.id == id).map(|v| v.id.as_str())
+    }
+
+    /// What the look's race is for the voices: `human` or `ghoul`.
+    pub fn race_kind(&self) -> &'static str {
+        fnv_game::player_voice::race_kind(self.race().map_or("", |r| r.edid.as_str()))
+    }
+
+    /// The voices the row offers: those of the look's race kind and sex [owner 2026-11-06].
+    pub fn fitting_voices(&self) -> Vec<&VoiceOption> {
+        let kind = self.race_kind();
+        self.voices.iter().filter(|v| fnv_game::player_voice::voice_fits(&v.sex, &v.race, kind, self.look.female)).collect()
+    }
+
+    /// A voice chosen for another race or sex goes back to None.
+    fn drop_unfitting_voice(&mut self) {
+        if self.voice.is_some() && self.voice_id().is_none() {
+            self.voice = None;
         }
     }
 
@@ -413,7 +517,12 @@ impl Model {
                 r
             }
             Tab::Basics => {
-                let mut r = vec![Row::Sex, Row::Race, Row::Preset];
+                let mut r = vec![Row::Sex, Row::Race];
+                // The character creator only, and only with voices installed.
+                if self.kind == RaceMenu::Creator && !self.voices.is_empty() {
+                    r.push(Row::Voice);
+                }
+                r.push(Row::Preset);
                 r.extend(age.map(Row::Slider));
                 r
             }
@@ -566,6 +675,15 @@ impl Model {
                 let f = self.slider_fraction(i);
                 return self.set_slider(i, f + f64::from(by) * step);
             }
+            // Not part of the look: Undo and Reset leave it.
+            Row::Voice => {
+                let fit = self.fitting_voices();
+                let n = fit.len() + 1;
+                let at = self.voice_id().and_then(|id| fit.iter().position(|v| v.id == id)).map_or(0, |i| i + 1);
+                let next = cycle(at, by, n).checked_sub(1).map(|i| fit[i].id.clone());
+                self.voice = next;
+                return n > 1;
+            }
             _ => {}
         }
         self.remember(row);
@@ -577,9 +695,13 @@ impl Model {
                 // A face shaped for one sex reads as that sex on the other's head
                 // [observed: the record's male values on the female head, smoke run
                 // screenshot]: the other sex starts from the race's first starting face.
-                if let Some(p) = self.data.catalogue.presets(self.look.race, self.look.female).first() {
+                // A voice is offered to its own sex only.
+                self.drop_unfitting_voice();
+                let data = self.data.clone();
+                if let Some(p) = data.catalogue.presets(self.look.race, self.look.female).first() {
                     self.look.facegen = p.facegen.clone();
                     self.preset = 1;
+                    self.choose_preset_voice(p);
                 }
             }
             Row::Race => {
@@ -589,12 +711,22 @@ impl Model {
                     self.look.race = r.id;
                 }
                 self.fit_to_race();
+                // A ghoul has only ghoul voices, a human only human ones.
+                self.drop_unfitting_voice();
             }
             Row::Preset => {
-                let presets = self.data.catalogue.presets(self.look.race, self.look.female);
+                let data = self.data.clone();
+                let presets = self.preset_list(&data);
                 let n = presets.len() + 1;
                 self.preset = cycle(self.preset, by, n);
-                if let Some(p) = self.preset.checked_sub(1).and_then(|i| presets.get(i)) {
+                if let Some(&p) = self.preset.checked_sub(1).and_then(|i| presets.get(i)) {
+                    if p.race != self.look.race && self.kind != RaceMenu::Surgeon {
+                        // A named preset brings its race: the list is the new race's.
+                        self.look.race = p.race;
+                        let now = self.preset_list(&data);
+                        self.preset = now.iter().position(|q| std::ptr::eq(*q, p)).map_or(0, |i| i + 1);
+                    }
+                    self.choose_preset_voice(p);
                     self.look.facegen = p.facegen.clone();
                     self.look.eyes = p.eyes.or(self.look.eyes);
                     if self.kind == RaceMenu::Surgeon {
@@ -644,9 +776,35 @@ impl Model {
                     self.look.eyes = Some(e.id);
                 }
             }
-            Row::Group | Row::Slider(_) => {}
+            Row::Group | Row::Slider(_) | Row::Voice => {}
         }
+        self.adult("a starting face or preset");
         self.look != before || row == Row::Preset
+    }
+
+    /// The Preset row's entries: the race's starting faces, then the named presets of the
+    /// sex (the surgeon, who keeps the race, only those of the look's race).
+    fn preset_list<'a>(&self, data: &'a Creator) -> Vec<&'a fnv_actor::creator::AuthoredFace> {
+        let c = &data.catalogue;
+        let mut l = c.presets(self.look.race, self.look.female);
+        l.extend(c.named_presets(self.look.female).into_iter().filter(|f| self.kind != RaceMenu::Surgeon || f.race == self.look.race));
+        l
+    }
+
+    /// Every preset comes with a voice [owner 2026-11-07]: one of the fitting voices,
+    /// picked by the preset (the same preset gives the same voice), in the creator only.
+    fn choose_preset_voice(&mut self, p: &fnv_actor::creator::AuthoredFace) {
+        if self.kind != RaceMenu::Creator {
+            return;
+        }
+        let fit = self.fitting_voices();
+        if fit.is_empty() {
+            return;
+        }
+        let key = p.name.as_deref().filter(|_| p.npc == FormId(0)).map_or_else(|| p.npc.0.to_string(), str::to_string);
+        // FNV-1a: stable across runs and builds.
+        let h = key.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193));
+        self.voice = Some(fit[h as usize % fit.len()].id.clone());
     }
 
     /// The look as SexChange with reset leaves the player (`fnv_game::appearance`): fitted
@@ -661,6 +819,20 @@ impl Model {
             self.look.hair_color = p.hair_color.or(self.look.hair_color);
             self.look.head_parts = p.head_parts.clone();
             self.preset = 1;
+        }
+        self.adult("the race's first starting face");
+    }
+
+    /// The look's age reading (years), if the controls have an age control.
+    pub fn age(&self) -> Option<f64> {
+        self.sliders().iter().find(|s| s.label == AGE_LABEL).map(|s| s.value(&self.look.facegen, self.race_facegen()))
+    }
+
+    /// No face younger than an adult (`fnv_actor::creator::MIN_AGE`, queue item 110):
+    /// a random blend or an authored face that reads younger is raised to it.
+    fn adult(&mut self, what: &str) {
+        if let Some(was) = self.data.adult(&mut self.look) {
+            bevy::log::info!("creator: {what} read {was:.0} years: raised to {}", creator::MIN_AGE);
         }
     }
 
@@ -742,6 +914,7 @@ impl Model {
             creator::set_part(&mut self.look, &beards, None);
         }
         self.preset = 0;
+        self.adult("a random face");
     }
 
     pub fn undo(&mut self) -> bool {
@@ -781,15 +954,33 @@ impl Model {
         let choice = |label: &str, value: String, at: usize, of: usize| RowView::Choice { label: label.into(), value, at, of };
         match row {
             Row::Sex => choice("Sex", if self.look.female { "Female".into() } else { "Male".into() }, sex + 1, 2),
+            Row::Voice => {
+                let fit = self.fitting_voices();
+                let at = self.voice_id().and_then(|id| fit.iter().position(|v| v.id == id));
+                let value = match at.map(|i| fit[i]) {
+                    Some(v) => match v.sex.as_str() {
+                        "female" => format!("{} (F)", v.name),
+                        "male" => format!("{} (M)", v.name),
+                        _ => v.name.clone(),
+                    },
+                    None => "None".to_string(),
+                };
+                choice("Voice", value, at.map_or(0, |i| i + 1), fit.len() + 1)
+            }
             Row::Race => {
                 let races = &self.data.catalogue.races;
                 let i = races.iter().position(|r| r.id == self.look.race);
                 choice("Origin", race.map_or_else(|| self.look.race.to_string(), |r| r.name.clone()), i.map_or(0, |i| i + 1), races.len())
             }
             Row::Preset => {
-                let n = self.data.catalogue.presets(self.look.race, self.look.female).len();
-                let value = if self.preset == 0 { "Your own".to_string() } else { format!("Face {}", self.preset) };
-                choice("Starting face", value, self.preset, n)
+                let race_faces = self.data.catalogue.presets(self.look.race, self.look.female).len();
+                let list = self.preset_list(&self.data);
+                let value = match self.preset.checked_sub(1).and_then(|i| list.get(i).map(|p| (i, p))) {
+                    None => "Your own".to_string(),
+                    Some((i, _)) if i < race_faces => face_name(race.map_or("", |r| r.edid.as_str()), self.look.female, i),
+                    Some((_, p)) => p.name.clone().unwrap_or_default(),
+                };
+                choice("Preset", value, self.preset, list.len())
             }
             Row::Group => {
                 let g = self.groups(self.tab);
@@ -937,8 +1128,9 @@ mod tests {
             brows: vec![ch(50, "EyebrowM")],
             hair_colours: vec![([75, 50, 24], 9), ([10, 10, 10], 4)],
             faces: vec![face(100, 2.0), face(101, -2.0)],
+            named: vec![],
         };
-        Arc::new(Creator { catalogue, sliders: [sliders.clone(), sliders], ctl_problem: None, player: None })
+        Arc::new(Creator { catalogue, sliders: [sliders.clone(), sliders], ctl_problem: None, player: None, preset_log: Vec::new() })
     }
 
     fn look() -> Look {
@@ -962,6 +1154,64 @@ mod tests {
         // Each part's shading under its row, no Region switch.
         let hair = vec![Row::Hair, Row::HairColour, Row::HairTone(0), Row::HairTone(1), Row::HairTone(2)];
         assert_eq!(m.rows(), [hair, vec![Row::FacialHair, Row::Slider(6), Row::Brows, Row::Slider(7)]].concat());
+    }
+
+    #[test]
+    fn the_voice_row_cycles_through_none_and_the_voices_and_leaves_the_look() {
+        let v = |id: &str, name: &str, sex: &str| VoiceOption { id: id.into(), name: name.into(), sex: sex.into(), race: "human".into() };
+        let voices = vec![v("vanilla.arcade", "Arcade", "male"), v("vanilla.boone", "Boone", "male")];
+        let mut m = Model::new(data(), look()).with_voices(voices.clone(), Some("vanilla.boone"));
+        assert_eq!(m.rows(), vec![Row::Sex, Row::Race, Row::Voice, Row::Preset, Row::Slider(0)]);
+        assert_eq!(m.voice_id(), Some("vanilla.boone"));
+        assert_eq!(m.view(Row::Voice), RowView::Choice { label: "Voice".into(), value: "Boone (M)".into(), at: 2, of: 3 });
+        let before = m.look.clone();
+        assert!(m.adjust_row(Row::Voice, 1, false));
+        assert_eq!(m.voice_id(), None, "after the last voice comes None");
+        assert!(m.adjust_row(Row::Voice, 1, false));
+        assert_eq!(m.voice_id(), Some("vanilla.arcade"));
+        assert_eq!(m.look, before, "the voice is no part of the look");
+        // Without voices installed there is no row; the barber never has it.
+        assert!(!Model::new(data(), look()).rows().contains(&Row::Voice));
+        assert!(!Model::of_kind(data(), look(), RaceMenu::Surgeon).with_voices(voices, None).rows().contains(&Row::Voice));
+    }
+
+    #[test]
+    fn the_voice_row_offers_the_looks_race_and_sex_only() {
+        // A third race, a ghoul one, beside the two human ones.
+        let mut d = (*data()).clone();
+        let mut ghoul = d.catalogue.races[0].clone();
+        (ghoul.id, ghoul.name, ghoul.edid) = (FormId(3), "Ghoul".into(), "Ghoul".into());
+        d.catalogue.races.push(ghoul);
+        let v = |id: &str, sex: &str, race: &str| VoiceOption { id: id.into(), name: id.into(), sex: sex.into(), race: race.into() };
+        let voices = vec![v("cass", "female", "human"), v("boone", "male", "human"), v("arcade", "male", ""), v("raul", "male", "ghoul"), v("beatrix", "female", "ghoul")];
+        let ids = |m: &Model| m.fitting_voices().iter().map(|v| v.id.clone()).collect::<Vec<_>>();
+        // A human man: the human men (an untagged voice is human).
+        let mut m = Model::new(Arc::new(d), look()).with_voices(voices.clone(), Some("boone"));
+        assert_eq!(ids(&m), ["boone", "arcade"]);
+        assert_eq!(m.view(Row::Voice), RowView::Choice { label: "Voice".into(), value: "boone (M)".into(), at: 1, of: 3 });
+        // To a woman: the human women, and Boone's voice is gone.
+        assert!(m.adjust_row(Row::Sex, 1, false));
+        assert_eq!(ids(&m), ["cass"]);
+        assert_eq!(m.voice_id(), None);
+        assert!(m.adjust_row(Row::Voice, 1, false));
+        assert_eq!(m.voice_id(), Some("cass"));
+        // To a ghoul (Caucasian, Hispanic, Ghoul): the ghoul women; Cass's voice is gone.
+        assert!(m.adjust_row(Row::Race, 2, false));
+        assert_eq!(m.race_kind(), "ghoul");
+        assert_eq!(ids(&m), ["beatrix"]);
+        assert_eq!(m.voice_id(), None);
+        assert!(m.adjust_row(Row::Voice, 1, false));
+        assert_eq!(m.voice_id(), Some("beatrix"));
+        // Back to a man: Raul.
+        assert!(m.adjust_row(Row::Sex, 1, false));
+        assert_eq!((ids(&m), m.voice_id()), (vec!["raul".to_string()], None));
+        // Back to human: the voice chosen is never kept across, even by switching back.
+        assert!(m.adjust_row(Row::Voice, 1, false));
+        assert!(m.adjust_row(Row::Race, 1, false));
+        assert_eq!(m.voice_id(), None);
+        // A saved voice that does not fit the character is dropped on opening.
+        let m = Model::new(data(), look()).with_voices(voices, Some("raul"));
+        assert_eq!((m.voice_id(), m.voice.as_deref()), (None, None));
     }
 
     #[test]
@@ -1016,12 +1266,48 @@ mod tests {
     }
 
     #[test]
+    fn a_named_preset_brings_its_race_face_and_a_voice() {
+        let mut c = (*data()).clone();
+        c.catalogue.named.push(AuthoredFace {
+            npc: FormId(0),
+            preset: true,
+            name: Some("Kiri".into()),
+            race: FormId(2),
+            female: false,
+            facegen: FaceGen { fggs: vec![3.0; 50], fgga: vec![0.0; 30], fgts: vec![0.0; 50] },
+            hair: Some(FormId(10)),
+            hair_color: Some([1, 2, 3]),
+            eyes: Some(FormId(30)),
+            head_parts: vec![],
+        });
+        let v = |id: &str| VoiceOption { id: id.into(), name: id.into(), sex: "male".into(), race: "human".into() };
+        let mut m = Model::new(Arc::new(c), look()).with_voices(vec![v("a"), v("b"), v("c")], None);
+        // Two starting faces of the race, then the named one.
+        assert!(m.adjust_row(Row::Preset, -1, false));
+        assert_eq!(m.look.race, FormId(2));
+        assert_eq!(m.look.facegen.fggs[0], 3.0);
+        assert_eq!(m.look.hair_color, Some([1, 2, 3]));
+        assert_eq!(m.view(Row::Preset), RowView::Choice { label: "Preset".into(), value: "Kiri".into(), at: 1, of: 1 });
+        let voice = m.voice_id().map(str::to_string);
+        assert!(voice.is_some(), "a preset comes with a voice");
+        // The same preset gives the same voice.
+        m.adjust_row(Row::Preset, -1, false);
+        m.adjust_row(Row::Preset, 1, false);
+        assert_eq!(m.voice_id().map(str::to_string), voice);
+        // A starting face comes with a voice too.
+        m.voice = None;
+        m.adjust_row(Row::Race, -1, false);
+        m.adjust_row(Row::Preset, 1, false);
+        assert!(m.voice_id().is_some());
+    }
+
+    #[test]
     fn a_preset_brings_its_face_and_hair() {
         let mut m = Model::new(data(), look());
         assert!(m.adjust_row(Row::Preset, 1, false));
         assert_eq!(m.look.facegen.fggs[3], 2.0);
         assert_eq!((m.look.hair, m.look.eyes), (Some(FormId(11)), Some(FormId(31))));
-        assert_eq!(m.view(Row::Preset), RowView::Choice { label: "Starting face".into(), value: "Face 1".into(), at: 1, of: 2 });
+        assert_eq!(m.view(Row::Preset), RowView::Choice { label: "Preset".into(), value: "Walter".into(), at: 1, of: 2 });
         // Back to "Your own": the face the menu opened with.
         m.adjust_row(Row::Preset, -1, false);
         assert_eq!(m.look.facegen.fggs[3], 0.0);

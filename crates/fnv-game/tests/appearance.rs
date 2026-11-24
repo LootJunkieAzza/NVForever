@@ -29,6 +29,10 @@ const SWORD: u32 = 0x601;
 const BLADES: u32 = 0x610;
 const POWER_ARMOR: u32 = 0x620;
 const LEATHER: u32 = 0x621;
+const PLAYER_VOICE_MALE: u32 = 0x700;
+const PLAYER_VOICE_FEMALE: u32 = 0x701;
+const MALE_GHOUL_VOICE: u32 = 0x702;
+const FEMALE_GHOUL_VOICE: u32 = 0x703;
 
 const P: FormId = FormId::PLAYER_REF;
 
@@ -40,6 +44,7 @@ const SET_LEVEL: u16 = 0x1133;
 const GET_LEVEL: u16 = 0x1050;
 const GET_ITEM_COUNT: u16 = 0x102F;
 const SET_PC_CAN_USE_POWER_ARMOR: u16 = 0x1229;
+const GET_IS_VOICE_TYPE: u16 = 0x11AB;
 
 fn race(fid: u32, edid: &str, older: Option<u32>, younger: Option<u32>, child: bool) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid))];
@@ -117,7 +122,7 @@ fn plugin_bytes() -> Vec<u8> {
         ],
     );
     let npcs = [
-        npc(0x7, "Player", HUMAN, vec![]),
+        npc(0x7, "Player", HUMAN, vec![sub(b"VTCK", PLAYER_VOICE_MALE.to_le_bytes().to_vec())]),
         // Confidence 2 (Average): with no AIDT his confidence reads 0, Cowardly, and a coward
         // flees every fight from its start (#2520), so he would not stand as the adult
         // that fights in `a_child_in_a_fight_only_flees`.
@@ -125,12 +130,17 @@ fn plugin_bytes() -> Vec<u8> {
         npc(GHOUL_NPC, "Gus", GHOUL, vec![]),
     ]
     .concat();
+    let vtyps = [(PLAYER_VOICE_MALE, "PlayerVoiceMale"), (PLAYER_VOICE_FEMALE, "PlayerVoiceFemale"), (MALE_GHOUL_VOICE, "MaleGenericGhoul"), (FEMALE_GHOUL_VOICE, "FemaleGenericGhoul")]
+        .iter()
+        .flat_map(|&(fid, edid)| record(b"VTYP", 0, fid, &[sub(b"EDID", z(edid))]))
+        .collect::<Vec<u8>>();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let refs = [placed(JOE_REF, JOE), placed(GHOUL_REF, GHOUL_NPC)].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
         top(b"RACE", &races),
+        top(b"VTYP", &vtyps),
         top(b"MISC", &[misc(KNIFE, "Knife"), misc(SWORD, "Sword")].concat()),
         top(b"ARMO", &[armo(POWER_ARMOR, "T45", 0x20 | 0x80), armo(LEATHER, "Leather", 0x08)].concat()),
         top(b"LVLI", &lvli),
@@ -354,6 +364,32 @@ fn match_race_copies_the_race_the_source_has_now() {
     // On an NPC: the ghoul takes Joe's.
     call(&mut g, Some(FormId(GHOUL_REF)), MATCH_RACE, &[form(JOE_REF)]);
     assert!(is_race(&mut g, FormId(GHOUL_REF), HUMAN_OLD));
+}
+
+/// The player's own lines are said in its own voice type, by sex and race (overnight
+/// item 21): PlayerVoiceMale, PlayerVoiceFemale after SexChange, the generic ghoul voices
+/// for a ghoul; GetIsVoiceType on the player reads the same. An NPC keeps its record's.
+#[test]
+fn the_players_own_voice_follows_sex_and_race() {
+    let f = fixture();
+    let mut g = game(&f);
+    let is_voice = |g: &mut Game, on: Option<FormId>, v: u32| call(g, on, GET_IS_VOICE_TYPE, &[form(v)]) == 1.0;
+    assert_eq!(g.player_own_voice_type(), Some(FormId(PLAYER_VOICE_MALE)));
+    assert!(is_voice(&mut g, Some(P), PLAYER_VOICE_MALE));
+    assert!(!is_voice(&mut g, Some(P), PLAYER_VOICE_FEMALE));
+    call(&mut g, None, SEX_CHANGE, &[num(1.0), num(0.0)]);
+    assert_eq!(g.player_own_voice_type(), Some(FormId(PLAYER_VOICE_FEMALE)));
+    assert!(is_voice(&mut g, Some(P), PLAYER_VOICE_FEMALE));
+    assert!(!is_voice(&mut g, Some(P), PLAYER_VOICE_MALE));
+    // A line the player says (no voice set) is said in that voice; an NPC's is not moved.
+    assert_eq!(g.line_voice_type(P, FormId(0x1234)), Some(FormId(PLAYER_VOICE_FEMALE)));
+    assert_eq!(g.line_voice_type(FormId(JOE_REF), FormId(0x1234)), None);
+    g.player.race = Some(FormId(GHOUL));
+    assert!(g.player_is_ghoul());
+    assert_eq!(g.player_own_voice_type(), Some(FormId(FEMALE_GHOUL_VOICE)));
+    call(&mut g, None, SEX_CHANGE, &[num(0.0), num(0.0)]);
+    assert_eq!(g.player_own_voice_type(), Some(FormId(MALE_GHOUL_VOICE)));
+    assert!(is_voice(&mut g, Some(P), MALE_GHOUL_VOICE));
 }
 
 /// ShowOff's BaseCopyFaceGenFrom `to from`: every reference of NPC base `to` has

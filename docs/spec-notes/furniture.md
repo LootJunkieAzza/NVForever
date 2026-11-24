@@ -318,6 +318,15 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   entry point. In first person the view is the body's eye and the body is not drawn
   (with `--first-person-body` it is, and the view is held to a neck's reach:
   docs/design/player-body.md §1.5).
+- **An NPC's weapon on furniture**: out of a fight, an NPC getting on, sitting on or
+  getting off furniture puts its weapon away, even under a package's Weapon Drawn flag
+  (`nvforever` alert.rs) [owner 2026-11-13: "weapon isnt away", a Mercenary seated with
+  a machete in hand; hypothesis: the original does the same]. In a fight the weapon
+  rule is unchanged. The rules agree (`Game::wants_weapon_out`): IsWeaponOut reads 0 for
+  a seated actor whether or not the engine draws it [documented: catalogue notes of
+  IsWeaponOut, the value follows the weapon on the weapon node]. What the original
+  answers for a seated NPC whose package has Weapon Drawn is not observed
+  (observer-checks.md).
 - **The player on a bed** [owner request 2026-10-10; engineering choices, the original's
   player never lies down]. Activating a bed is a use like any other: the entry point is
   the nearest enabled marker (IDs 1–6), the clips are the ones the IDLE tree names under
@@ -377,6 +386,14 @@ game]:
   when turned there, the body's own shoulder and arm at the limit towards the feet, and
   never the inside of the body or the mattress. Before the view was adapted the picture
   lying down was the mattress or the inside of the body, in both modes.
+
+**Furniture the game created** [design: queue item 199]: the arm-wrestling chairs
+(`fnv_game::armwrestle_table`) are references the game makes, not placed in the plugins.
+`nvforever` furniture.rs plans a use of one from the simulation's state of it (base,
+position, angles, scale) when the plugins have no placement for it (`placed_at`); the
+player sits on one by activating it, an actor through its AI. An actor can be sent to a seat over its package
+(`RefExtra::seat_override`, read by `fnv_ai`: its package begins again with the seat as
+its goal and its furniture, and again when the override is cleared).
 
 ## 8. Fidgets on furniture (value 3 of §3)
 

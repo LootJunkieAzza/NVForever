@@ -870,6 +870,28 @@ Joe Cobb and Trudy (below).
   to GOODBYE, and of the 1,965 Conversation lines that link nowhere (no Link To, no
   follow-up) 959 carry the Goodbye flag [observed: `fnvtool dialogue lines --all`]. So
   whether random conversations (not modelled) get a GOODBYE added stays open.
+- **A SayTo line whose next speaker is Self** (`Game::continue_own_line`): when it ends
+  and its end result has run, the speaker goes on with its next line of the same topic
+  (the first later line, in the topic's order, it can say to the same target), unless
+  the line has the Goodbye flag [hypothesis: data fit, Honest Hearts' Zion arrival:
+  Stella's StellaForceGreetTOPIC (02011185, HonestHearts.esm at index 02) has line
+  1118A (next speaker Self) then 1118B (Goodbye, its end sets iJedConvo 4 on the
+  arrival box script), and nothing else moves iJedConvo past 3, so without the
+  continuation the scene stalls with Jed's SayToDone running every frame; overnight
+  queue item 26, 2026-11-07]. Package SayTo (`fnv-ai` talk) says one line; the
+  continuation is the dialogue's. Correction (2026-11-07, later): the claim that
+  nothing else moves iJedConvo past 3 was wrong. 1118A's end runs
+  `NVDLC02StellaREF.ResetAI`, so her Dialogue package begins again and says the next
+  Say Once line. That is the data's own way, and Jed's Pt2 lines use it with next
+  speaker Target: 01011187 and 01011188 end with `NVDLC02JedREF.ResetAI`, and 01011189
+  sets NVDLC02MQ01 5 [observed: HonestHearts.esm INFO SCTX]. The Self rule stays a
+  [hypothesis]; at Zion both ways give the same order.
+- **ResetAI begins a Dialogue package again** (`fnv-ai` carry: the walker's talk is
+  Done, but the game's goal-met mark is cleared while the package stays the same,
+  which only ResetAI does). The package talks again. Its Say Once lines are said, so the
+  next line comes [documented: GECK wiki ResetAI, "clears the actor's current AI
+  behaviour"; observed: the Zion arrival lines above]. Without this, Jed said 01011187
+  and stopped there with the controls off (smoke `zion-arrival`, 2026-11-07).
 - **Cut.** A line cut off (its speaker starts another line, is disabled or dies) ends
   the conversation without its end result [hypothesis, as for SayTo].
 - **Trace**: `actor_conversation_started` {speaker, target, topic}, then `line_started`

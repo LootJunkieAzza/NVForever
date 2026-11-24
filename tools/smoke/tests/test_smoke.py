@@ -20,7 +20,8 @@ sys.path.insert(0, str(HERE))
 from smoke import choose, cli, front  # noqa: E402
 from smoke.expect import Expect, ScenarioError, check_forbid, check_one, check_order  # noqa: E402
 from smoke.plan import merge, plan, shift  # noqa: E402
-from smoke.runner import FROM_SCRIPTS, Locks, Queue, aid_free_environ, game_env, judge  # noqa: E402
+from smoke.runner import (FROM_SCRIPTS, HOME, SETTINGS, Locks, Queue, aid_free_environ, fresh_settings, game_env,  # noqa: E402
+                          home_for, judge, smoke_home)
 from smoke.scenarios import Timed, load, load_text  # noqa: E402
 
 LOG = [
@@ -544,6 +545,36 @@ class GameEnvTests(unittest.TestCase):
             self.assertNotIn(FROM_SCRIPTS, aid_free_environ({}))
         finally:
             del os.environ[FROM_SCRIPTS]
+
+    def test_a_game_without_a_home_of_its_own_gets_the_smoke_home_not_the_players(self):
+        # The player's NVFOREVER_HOME (the owner's user environment) must not reach a smoke
+        # game: its saved settings won over the test aids (god-mode=0, Activate=F).
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            os.environ[HOME] = str(repo / "players-home")
+            try:
+                env = aid_free_environ(home_for({"NVF_PLAY_TEST_GOD": "1"}, repo))
+            finally:
+                del os.environ[HOME]
+            self.assertEqual(env[HOME], str(smoke_home(repo)))
+            own = home_for({HOME: "save-home"}, repo)
+            self.assertEqual(own[HOME], "save-home")  # a scenario's own home stays
+
+    def test_each_game_in_the_smoke_home_starts_from_default_settings(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            home = smoke_home(repo)
+            home.mkdir(parents=True)
+            (home / SETTINGS).write_text("[Settings]\ngod-mode=0\n")
+            (home / "saves").mkdir()
+            fresh_settings(home_for({}, repo), repo)
+            self.assertFalse((home / SETTINGS).exists())
+            self.assertTrue((home / "saves").is_dir())  # only the settings go
+            own = repo / "save-home"
+            own.mkdir()
+            (own / SETTINGS).write_text("kept")
+            fresh_settings({HOME: str(own)}, repo)
+            self.assertTrue((own / SETTINGS).exists())  # a scenario's own home is left alone
 
 
 class PlatformTests(unittest.TestCase):

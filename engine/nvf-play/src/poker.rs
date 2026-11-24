@@ -20,7 +20,11 @@
 //! `open`), `open[:<casino letter>]`, `check`, `call`, `raise:<to>`, `allin`, `fold`, `auto`
 //! (the player's seat plays by the opponents' rules), `next`, `exit`. At exit, when the
 //! table was asked for: "poker summary: …".
+//!
+//! In co-op (`coop`): the first to open a table owns it; others near it who open poker sit
+//! down at the next hand in an opponent's place, and play the owner's table.
 
+pub mod coop;
 pub mod screen;
 pub mod sound;
 
@@ -30,7 +34,9 @@ use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
-use fnv_game::poker::{self as rules, Action, Event, Seat, Street, Style, Table};
+use crate::coop_tables::{game::POKER, Tables};
+use coop::{PeerView, PokerAction, TableView, GONE_SECONDS, JOIN_EVERY, NOBODY};
+use fnv_game::poker::{self as rules, Action, Event, Legal, Seat, Street, Style, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
@@ -134,13 +140,16 @@ impl Casino {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct OpenPoker {
     pub casino: Casino,
+    /// The poker table in the world it was opened at (`crate::poker_tables`), if any.
+    pub table: Option<FormId>,
 }
 
 /// The table's picture, drawn by the engine while it is open; `anchors`: where each seat's
 /// label goes, as fractions of the view from its top left (the engine projects the seats).
+/// No picture: the table stands at a table in the world, seen by the game's own camera.
 #[derive(Resource, Clone, Debug)]
 pub struct PokerView {
-    pub image: Handle<Image>,
+    pub image: Option<Handle<Image>>,
     pub anchors: Vec<Vec2>,
 }
 
@@ -170,12 +179,63 @@ pub struct Session {
     next_hand: Option<f32>,
     /// Sounds to play (`sound`): when (aid seconds) and which record.
     pub cues: Vec<(f32, &'static str)>,
+    /// Hands won by a person at the table, to show as highlights then (item 125).
+    pub wins: Vec<(f32, String)>,
+    /// The people's reactions to the last hand, when their time comes (item 127): who
+    /// (`None` this player) and whether they won it.
+    pub moods: Vec<(f32, Option<u8>, bool)>,
     /// Hands played and won by the player, for the summary.
     hands: u32,
     won: u32,
+    /// In co-op: this table's owner and the people at it, or the owner's table this player
+    /// sits at.
+    pub coop: Option<Coop>,
+    /// The poker table in the world this was opened at (`crate::poker_tables`): the engine
+    /// draws the table there, the room around it.
+    pub table_ref: Option<FormId>,
+}
+
+/// A co-op table's side (`coop`).
+pub enum Coop {
+    Owner { me: u8, humans: Vec<Human>, waiting: Vec<(u8, u32)> },
+    Guest(Guest),
+}
+
+/// A person at the owner's table.
+pub struct Human {
+    pub seat: usize,
+    pub player: u8,
+    /// When their view was last heard (aid seconds).
+    pub seen: f32,
+    pub left: bool,
+}
+
+/// A guest at another player's table.
+pub struct Guest {
+    pub owner: u8,
+    pub me: u8,
+    /// The owner's seat this player sits in.
+    pub seat: Option<usize>,
+    /// What this player may do, on its turn (the owner's table says).
+    pub legal: Option<Legal>,
+    /// When the owner's table was last heard, a seat last asked for.
+    pub heard: f32,
+    pub asked: f32,
+    /// A choice sent and not yet seen played: the hand, the seat to act then, when.
+    pub sent: Option<(u32, Option<usize>, f32)>,
 }
 
 impl Session {
+    /// The people at the table this screen knows, by seat: (seat, `None` for this player,
+    /// else the player's id). The owner knows every person; a guest itself and the owner.
+    pub fn people(&self) -> Vec<(usize, Option<u8>)> {
+        match &self.coop {
+            None => vec![(PLAYER, None)],
+            Some(Coop::Owner { humans, .. }) => std::iter::once((PLAYER, None)).chain(humans.iter().filter(|h| !h.left).map(|h| (h.seat, Some(h.player)))).collect(),
+            Some(Coop::Guest(g)) => g.seat.map(|s| (s, None)).into_iter().chain(std::iter::once((PLAYER, Some(g.owner)))).collect(),
+        }
+    }
+
     /// When a seat's `k`th hole card is dealt: one card each from the small blind round,
     /// then the second (aid seconds).
     pub fn card_time(&self, seat: usize, k: usize) -> f32 {
@@ -204,12 +264,62 @@ impl Session {
     }
 
     pub fn players_turn(&self) -> bool {
-        self.table.to_act == Some(PLAYER) && !self.auto && self.leaving.is_none() && self.ended.is_none()
+        let guest_ready = match &self.coop {
+            Some(Coop::Guest(g)) => g.seat.is_some() && g.sent.is_none() && g.legal.is_some(),
+            _ => true,
+        };
+        self.table.to_act == Some(PLAYER) && !self.auto && self.leaving.is_none() && self.ended.is_none() && guest_ready
     }
 
-    /// What the player keeps on leaving now: the stack, less what is in the pot.
+    /// At another player's table.
+    pub fn is_guest(&self) -> bool {
+        matches!(self.coop, Some(Coop::Guest(_)))
+    }
+
+    /// What the player may do now (a guest: as the owner's table says on its turn).
+    pub fn legal(&self) -> Legal {
+        match &self.coop {
+            Some(Coop::Guest(g)) => g.legal.unwrap_or_else(|| {
+                let p = self.player();
+                Legal { to_call: self.table.current_bet.saturating_sub(p.bet).min(p.stack), raise: None }
+            }),
+            _ => self.table.legal(PLAYER),
+        }
+    }
+
+    /// What the player keeps on leaving now: the stack, less what is in the pot (a guest
+    /// never seated: the buy-in).
     pub fn stack_on_leaving(&self) -> u32 {
-        self.player().stack
+        match &self.coop {
+            Some(Coop::Guest(g)) if g.seat.is_none() => self.buy_in,
+            _ => self.player().stack,
+        }
+    }
+
+    /// What this player's table sends the others in co-op (table id and blob).
+    pub fn coop_view(&self, tables: &Tables) -> Option<(u32, Vec<u8>)> {
+        let id = self.casino.deck() as u32;
+        match self.coop.as_ref()? {
+            Coop::Guest(g) => Some((id, PeerView::Guest { owner: g.owner }.encode())),
+            Coop::Owner { me, humans, .. } => {
+                let mut players = vec![NOBODY; self.table.seats.len()];
+                players[PLAYER] = *me;
+                for h in humans.iter().filter(|h| !h.left) {
+                    players[h.seat] = h.player;
+                }
+                let ended = (self.ended.is_some() || self.leaving.is_some()).then_some("The table closed");
+                let v = TableView::of(*me, self.casino.deck(), &self.table, &players, &tables.name(*me), ended);
+                Some((id, PeerView::Table(v).encode()))
+            }
+        }
+    }
+
+    fn end(&mut self, now: f32, why: &str) {
+        if self.ended.is_none() {
+            info!("poker: the game is over: {why}");
+            self.status = Some(why.to_string());
+            self.ended = Some((now, why.to_string()));
+        }
     }
 
     pub fn fade(&self, now: f32) -> f32 {
@@ -344,7 +454,7 @@ fn run_aid(time: AidTime, mut aid: ResMut<PokerAid>, mut sim: ResMut<SimState>, 
         info!("test aid NVF_PLAY_TEST_POKER: {step:?}");
         match step {
             AidStep::Open(casino) => {
-                open.write(OpenPoker { casino });
+                open.write(OpenPoker { casino, table: None });
             }
             AidStep::Seed(s) => aid.seed = Some(s),
             AidStep::Caps(n) => {
@@ -389,7 +499,7 @@ fn open(
     mut sim: ResMut<SimState>,
     mut aid: ResMut<PokerAid>,
     time: AidTime,
-    (mut stats, mut corner): (ResMut<PokerStats>, Option<ResMut<crate::corner_messages::CornerMessages>>),
+    (mut stats, mut corner, tables): (ResMut<PokerStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, Option<Res<Tables>>),
 ) {
     let now = time.elapsed_secs();
     if let Some(r) = requests.read().last().copied() {
@@ -416,9 +526,34 @@ fn open(
         }
         return;
     }
+    let buy_in = have.min(BUY_IN);
+    // In co-op, a table near is joined; otherwise this player's own is the one others join.
+    if let Some(t) = tables.as_deref().filter(|t| t.on) {
+        let me = t.me.unwrap_or(0);
+        let near = t.near.iter().find_map(|p| match t.view(*p) {
+            Some((_, POKER, blob)) => match PeerView::decode(blob) {
+                Some(PeerView::Table(v)) if v.ended.is_none() && v.owner == *p => Some(v),
+                _ => None,
+            },
+            _ => None,
+        });
+        if let Some(v) = near {
+            let casino = Casino::from_letter(&v.casino.to_string()).unwrap_or(asked.casino);
+            let (table, _) = coop::mirror(&v, me, (SMALL_BLIND, BIG_BLIND));
+            info!("poker: joining {}'s table at {} (buy-in {buy_in} of {have} caps); a seat at the next hand", t.name(v.owner), casino.title());
+            stats.opened += 1;
+            let mut s = new_session(table, casino, buy_in, now);
+            s.next_hand = None;
+            s.status = Some(format!("Waiting for a seat at {}'s table", t.name(v.owner)));
+            s.coop = Some(Coop::Guest(Guest { owner: v.owner, me, seat: None, legal: None, heard: now, asked: f32::NEG_INFINITY, sent: None }));
+            s.table_ref = asked.table;
+            screen.0 = Some(s);
+            next.set(PlayState::Menu);
+            return;
+        }
+    }
     let seed = aid.seed.unwrap_or_else(|| seed_now(now));
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0x5EA7);
-    let buy_in = have.min(BUY_IN);
     let mut seats = vec![Seat::new("You", buy_in, Style { tightness: 0.5, aggression: 0.5, bluff: 0.05 })];
     for i in 1..=OPPONENTS {
         let (lo, hi) = OPPONENT_STACK;
@@ -432,9 +567,19 @@ fn open(
         table.seats[1..].iter().map(|s| format!("{} {} (tight {:.2}, aggressive {:.2}, bluff {:.2})", s.name, s.stack, s.style.tightness, s.style.aggression, s.style.bluff)).collect::<Vec<_>>().join(", ")
     );
     stats.opened += 1;
-    screen.0 = Some(Session {
+    let mut s = new_session(table, asked.casino, buy_in, now);
+    s.table_ref = asked.table;
+    if let Some(t) = tables.as_deref().filter(|t| t.on) {
+        s.coop = Some(Coop::Owner { me: t.me.unwrap_or(0), humans: Vec::new(), waiting: Vec::new() });
+    }
+    screen.0 = Some(s);
+    next.set(PlayState::Menu);
+}
+
+fn new_session(table: Table, casino: Casino, buy_in: u32, now: f32) -> Session {
+    Session {
         table,
-        casino: asked.casino,
+        casino,
         buy_in,
         status: None,
         raise_to: 2 * BIG_BLIND,
@@ -447,10 +592,13 @@ fn open(
         next_choice: None,
         next_hand: Some(now + 1.0),
         cues: Vec::new(),
+        wins: Vec::new(),
+        moods: Vec::new(),
         hands: 0,
         won: 0,
-    });
-    next.set(PlayState::Menu);
+        coop: None,
+        table_ref: None,
+    }
 }
 
 fn keys(keys: crate::pad::ActionButtons<KeyCode>, scroll: Option<Res<AccumulatedMouseScroll>>, screen: Res<PokerScreen>, mut out: MessageWriter<PokerInput>) {
@@ -573,6 +721,22 @@ fn log_events(s: &mut Session, events: &[Event], now: f32) {
                 if *seat == PLAYER {
                     s.cues.push((now + 0.1, sound::WIN));
                 }
+                // A person's win is a highlight on every screen at the table (item 125):
+                // this player's seat, the owner's (`PLAYER`) and the other people's.
+                let mine = match &s.coop {
+                    Some(Coop::Guest(g)) => g.seat == Some(*seat),
+                    _ => *seat == PLAYER,
+                };
+                let person = mine
+                    || match &s.coop {
+                        Some(Coop::Owner { humans, .. }) => humans.iter().any(|h| h.seat == *seat && !h.left),
+                        Some(Coop::Guest(_)) => *seat == PLAYER,
+                        None => false,
+                    };
+                if person {
+                    let text = if mine { "YOU WIN THE HAND".to_string() } else { format!("{} WINS THE HAND", name(*seat).to_uppercase()) };
+                    s.wins.push((now + 0.3, text));
+                }
                 let who = if *seat == PLAYER { "You win".to_string() } else { format!("{} wins", name(*seat)) };
                 let line = format!("{who} {amount}{with}");
                 s.status = Some(match &s.status {
@@ -585,6 +749,15 @@ fn log_events(s: &mut Session, events: &[Event], now: f32) {
             }
             Event::Out { seat } => info!("poker: {} is out of chips", name(*seat)),
             Event::HandOver => {
+                // Every person dealt in: the winners cheer, the others look beaten.
+                for (seat, who) in s.people() {
+                    let Some(x) = s.table.seats.get(seat) else { continue };
+                    if x.out {
+                        continue;
+                    }
+                    let won = s.table.winners.iter().any(|w| w.0 == seat);
+                    s.moods.push((now + 0.4, who, won));
+                }
                 // Beaten at the showdown.
                 if s.table.showdown && s.player().in_hand() && !s.table.winners.iter().any(|w| w.0 == PLAYER) {
                     s.cues.push((now + 0.1, sound::LOSE));
@@ -597,7 +770,7 @@ fn log_events(s: &mut Session, events: &[Event], now: f32) {
     }
 }
 
-fn apply(mut input: MessageReader<PokerInput>, mut screen: ResMut<PokerScreen>, time: AidTime) {
+fn apply(mut input: MessageReader<PokerInput>, mut screen: ResMut<PokerScreen>, time: AidTime, mut tables: Option<ResMut<Tables>>) {
     let now = time.elapsed_secs();
     for &cmd in input.read() {
         let Some(s) = screen.0.as_mut() else { return };
@@ -607,8 +780,12 @@ fn apply(mut input: MessageReader<PokerInput>, mut screen: ResMut<PokerScreen>, 
         match cmd {
             PokerInput::Exit => {
                 let why = if s.table.street != Street::Over && s.player().in_hand() { "the player left in the middle of a hand" } else { "the player left" };
+                if let (Some(Coop::Guest(g)), Some(t)) = (&s.coop, tables.as_deref_mut()) {
+                    t.send(s.casino.deck() as u32, POKER, PokerAction::Leave { owner: g.owner }.encode());
+                }
                 s.begin_leaving(now, why);
             }
+            PokerInput::Next | PokerInput::Auto if s.is_guest() => {}
             PokerInput::Next => {
                 if s.next_hand.is_some() {
                     s.next_hand = Some(now);
@@ -636,6 +813,15 @@ fn apply(mut input: MessageReader<PokerInput>, mut screen: ResMut<PokerScreen>, 
                     PokerInput::AllIn => Action::AllIn,
                     _ => Action::Fold,
                 };
+                if let Some(Coop::Guest(g)) = s.coop.as_mut() {
+                    // The owner's table plays it; the next view shows it.
+                    if let Some(t) = tables.as_deref_mut() {
+                        t.send(s.casino.deck() as u32, POKER, PokerAction::Act { owner: g.owner, hand: s.table.hand, action }.encode());
+                        g.sent = Some((s.table.hand, s.table.to_act, now));
+                        info!("poker: the player chooses {action:?} (sent to the owner)");
+                    }
+                    continue;
+                }
                 match s.table.act(PLAYER, action) {
                     Ok(ev) => log_events(s, &ev, now),
                     Err(e) => {
@@ -649,7 +835,7 @@ fn apply(mut input: MessageReader<PokerInput>, mut screen: ResMut<PokerScreen>, 
 }
 
 /// The table's frame: opponents' choices, the next deal, the game's end, leaving.
-fn step(time: AidTime, mut screen: ResMut<PokerScreen>, mut next: ResMut<NextState<PlayState>>, mut stats: ResMut<PokerStats>) {
+fn step(time: AidTime, mut screen: ResMut<PokerScreen>, mut next: ResMut<NextState<PlayState>>, mut stats: ResMut<PokerStats>, mut tables: Option<ResMut<Tables>>) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
     if let Some(since) = s.leaving {
@@ -664,6 +850,13 @@ fn step(time: AidTime, mut screen: ResMut<PokerScreen>, mut next: ResMut<NextSta
             s.begin_leaving(now, "the game is over");
         }
         return;
+    }
+    if let Some(t) = tables.as_deref_mut() {
+        match s.coop {
+            Some(Coop::Guest(_)) => return guest_step(s, t, now),
+            Some(Coop::Owner { .. }) => owner_step(s, t, now),
+            None => {}
+        }
     }
     if s.table.street == Street::Over {
         // The game is over when the player is out or every opponent is.
@@ -697,6 +890,11 @@ fn step(time: AidTime, mut screen: ResMut<PokerScreen>, mut next: ResMut<NextSta
         s.clamp_raise();
         return;
     }
+    if let Some(Coop::Owner { humans, .. }) = &s.coop {
+        if humans.iter().any(|h| h.seat == seat) {
+            return;
+        }
+    }
     let Some(at) = s.next_choice else {
         let (lo, hi) = THINK_SECONDS;
         s.next_choice = Some(now + lo + (hi - lo) * rules::unit(&mut s.table.rng));
@@ -710,6 +908,176 @@ fn step(time: AidTime, mut screen: ResMut<PokerScreen>, mut next: ResMut<NextSta
     match s.table.act(seat, action) {
         Ok(ev) => log_events(s, &ev, now),
         Err(e) => warn!("poker: {}'s {action:?} refused: {e}", s.table.seats[seat].name),
+    }
+}
+
+/// The owner's side each frame: the guests' asks and choices, who is still there, seats
+/// given at a hand's end.
+fn owner_step(s: &mut Session, tables: &mut Tables, now: f32) {
+    let Some(Coop::Owner { me, mut humans, mut waiting }) = s.coop.take() else { return };
+    for (from, _, blob) in tables.take_actions(POKER) {
+        let Some(a) = PokerAction::decode(&blob) else { continue };
+        if a.owner() != me {
+            continue;
+        }
+        let human = humans.iter_mut().find(|h| h.player == from && !h.left);
+        match a {
+            PokerAction::Join { buy_in, .. } => {
+                if human.is_none() && !waiting.iter().any(|w| w.0 == from) {
+                    info!("poker: {} asks for a seat (buy-in {buy_in})", tables.name(from));
+                    waiting.push((from, buy_in));
+                }
+            }
+            PokerAction::Leave { .. } => {
+                waiting.retain(|w| w.0 != from);
+                if let Some(h) = human {
+                    info!("poker: {} leaves the table", tables.name(from));
+                    h.left = true;
+                }
+            }
+            PokerAction::Act { hand, action, .. } => {
+                let Some(seat) = human.map(|h| h.seat) else { continue };
+                if hand != s.table.hand || s.table.to_act != Some(seat) {
+                    info!("poker: {}'s {action:?} came late", tables.name(from));
+                    continue;
+                }
+                match s.table.act(seat, action) {
+                    Ok(ev) => log_events(s, &ev, now),
+                    Err(e) => info!("poker: {}'s {action:?} refused: {e}", tables.name(from)),
+                }
+            }
+        }
+    }
+    // A guest not heard for a while has gone.
+    for h in humans.iter_mut().filter(|h| !h.left) {
+        let here = matches!(tables.view(h.player), Some((_, POKER, b)) if PeerView::decode(b) == Some(PeerView::Guest { owner: me }));
+        if here {
+            h.seen = now;
+        } else if now - h.seen > GONE_SECONDS {
+            info!("poker: {} is gone from the table", tables.name(h.player));
+            h.left = true;
+        }
+    }
+    if s.table.street == Street::Over {
+        // The seats of those who left empty; those waiting sit down in an opponent's place
+        // (one out of chips first, else the shortest stack) [design].
+        humans.retain(|h| {
+            if h.left {
+                let seat = &mut s.table.seats[h.seat];
+                seat.stack = 0;
+                seat.out = true;
+                seat.hole.clear();
+            }
+            !h.left
+        });
+        for (player, buy_in) in std::mem::take(&mut waiting) {
+            let free = (0..s.table.seats.len()).filter(|&i| i != PLAYER && !humans.iter().any(|h| h.seat == i));
+            let Some(seat) = free.min_by_key(|&i| (!s.table.seats[i].out, s.table.seats[i].stack)) else { break };
+            let name = tables.name(player);
+            info!("poker: {name} sits down at seat {seat} with {buy_in} (in place of {})", s.table.seats[seat].name);
+            s.table.seats[seat] = Seat::new(&name, buy_in, Style { tightness: 0.5, aggression: 0.5, bluff: 0.05 });
+            humans.push(Human { seat, player, seen: now, left: false });
+        }
+    } else if let Some(seat) = humans.iter().find(|h| h.left && s.table.to_act == Some(h.seat)).map(|h| h.seat) {
+        // Someone gone folds on their turn.
+        if let Ok(ev) = s.table.act(seat, Action::Fold) {
+            log_events(s, &ev, now);
+        }
+    }
+    s.coop = Some(Coop::Owner { me, humans, waiting });
+}
+
+/// A guest's frame: the owner's table copied in, its changes heard and seen.
+fn guest_step(s: &mut Session, tables: &mut Tables, now: f32) {
+    let id = s.casino.deck() as u32;
+    let buy_in = s.buy_in;
+    let Some(Coop::Guest(g)) = s.coop.as_mut() else { return };
+    let view = match tables.view(g.owner) {
+        Some((_, POKER, b)) => match PeerView::decode(b) {
+            Some(PeerView::Table(v)) => Some(v),
+            _ => None,
+        },
+        _ => None,
+    };
+    let Some(v) = view else {
+        if now - g.heard > GONE_SECONDS {
+            s.end(now, "The table closed");
+        }
+        return;
+    };
+    g.heard = now;
+    let seat = v.seat_of(g.me);
+    let mut seated_now = false;
+    if seat.is_none() {
+        if g.seat.is_some() {
+            // Let go by the owner's table (counted gone): the last stack stands.
+            s.end(now, "You left the table");
+            return;
+        }
+        if now - g.asked >= JOIN_EVERY {
+            tables.send(id, POKER, PokerAction::Join { owner: g.owner, buy_in }.encode());
+            g.asked = now;
+        }
+    } else if g.seat.is_none() {
+        info!("poker: seated at {}'s table", tables.name(g.owner));
+        seated_now = true;
+    }
+    g.seat = seat;
+    g.legal = if seat.is_some() && v.to_act.map(|a| a as usize) == seat { v.legal } else { None };
+    let (m, _) = coop::mirror(&v, g.me, (SMALL_BLIND, BIG_BLIND));
+    if let Some((hand, to, at)) = g.sent {
+        if hand != m.hand || to != m.to_act || now - at > 2.0 {
+            g.sent = None;
+        }
+    }
+    if seated_now {
+        s.status = None;
+    }
+    let seated = seat.is_some();
+    let ended = v.ended.is_some();
+    let old = std::mem::replace(&mut s.table, m);
+    // What changed, as the owner's table tells it: the same events its own table gave.
+    let t = &s.table;
+    let mut ev = Vec::new();
+    let new_hand = t.hand != old.hand;
+    if new_hand && t.street != Street::Over && seated {
+        ev.push(Event::HandStarted { number: t.hand, button: t.button });
+    }
+    let had = if new_hand { 0 } else { old.community.len() };
+    for (street, from, upto) in [(Street::Flop, 0, 3), (Street::Turn, 3, 4), (Street::River, 4, 5)] {
+        if had < upto && t.community.len() >= upto {
+            ev.push(Event::Street { street, cards: t.community[from..upto].to_vec() });
+        }
+    }
+    let mut cues = Vec::new();
+    for (i, seat) in t.seats.iter().enumerate() {
+        if seat.last.is_some() && old.seats.get(i).is_none_or(|o| o.last != seat.last) {
+            cues.push(match seat.last.as_deref() {
+                Some("Fold") => sound::FOLD,
+                Some("Check") => sound::CHECK,
+                _ => sound::CHIPS,
+            });
+        }
+    }
+    if t.street == Street::Over && (old.street != Street::Over || new_hand) && !t.winners.is_empty() && seated {
+        for (i, seat) in t.seats.iter().enumerate() {
+            if t.showdown && seat.in_hand() {
+                if let Some(value) = t.best_hand(i) {
+                    ev.push(Event::Shown { seat: i, value });
+                }
+            }
+        }
+        for &(seat, amount, value) in &t.winners {
+            ev.push(Event::Won { seat, amount, value });
+        }
+        ev.push(Event::HandOver);
+    }
+    s.cues.extend(cues.into_iter().map(|c| (now, c)));
+    log_events(s, &ev, now);
+    if seated && s.player().out && s.table.street == Street::Over {
+        s.end(now, "You are out of chips");
+    } else if ended {
+        s.end(now, "The table closed");
     }
 }
 
@@ -774,6 +1142,10 @@ pub fn report_progress_fixture(step: usize) -> PokerScreen {
         cues: vec![],
         hands: 0,
         won: 0,
+        wins: vec![],
+        moods: vec![],
+        coop: None,
+        table_ref: None,
     }))
 }
 

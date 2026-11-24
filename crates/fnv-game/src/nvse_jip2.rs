@@ -50,8 +50,11 @@ pub struct PlayerTold {
 #[derive(Debug, Default)]
 pub struct Jip2State {
     pub told: PlayerTold,
-    /// AssignKeyword's keywords, lower case, by base form.
+    /// AssignKeyword's keywords, lower case, by base form, with those of the KEYWORDS
+    /// lists ([`keyword_lists`]).
     pub keywords: HashMap<FormId, HashSet<String>>,
+    /// The KEYWORDS lists were read into [`Self::keywords`].
+    pub keyword_lists_read: bool,
     /// SetHardcoreStageThreshold's thresholds.
     pub stage_thresholds: HashMap<FormId, u32>,
     pub hardcore_tracking_off: bool,
@@ -303,6 +306,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "assignkeyword" | "haskeyword" | "removekeyword" => {
             let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
             let k = text(args, 1).to_ascii_lowercase();
+            read_keyword_lists(g);
             let targets: Vec<FormId> = if g.data.sig(f) == Some(*b"FLST") { crate::functions::list_members(g, f) } else { vec![base(g, f)] };
             match name {
                 "haskeyword" => return Some(Ok(yes(g.has_keyword(f, &k)))),
@@ -551,4 +555,59 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     let _ = (ArrayKind::List, XKey::Num(0.0));
     Some(Ok(v))
+}
+
+/// One KEYWORDS list (`KEYWORDS\*.ini`): `<EditorID>=<keyword>` lines under any section,
+/// `;` comments: (EditorID, keyword), lower case [observed: Another Millenia's
+/// `KEYWORDS\arcWeapPKM.ini` gives `arcWeapPKM = HasBelt`, which ln_BulletBeltFramework
+/// tests with `HasKeyword ... "HasBelt"`; Idle Variety's lists].
+pub fn keyword_lists(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with(';') && !l.starts_with('['))
+        .filter_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            let v = v.split(';').next()?.trim();
+            (!k.trim().is_empty() && !v.is_empty()).then(|| (k.trim().to_ascii_lowercase(), v.to_ascii_lowercase()))
+        })
+        .collect()
+}
+
+/// Read the Data folder's KEYWORDS lists into the keywords once the folder is known, each
+/// EditorID's base form given its keyword (an EditorID no loaded plugin has is left out)
+/// [hypothesis: the lists are the keyword framework's data and HasKeyword sees them as it
+/// sees AssignKeyword's].
+pub(crate) fn read_keyword_lists(g: &mut Game) {
+    if g.jip2.keyword_lists_read || crate::mod_files::data_dir().is_none() {
+        return;
+    }
+    g.jip2.keyword_lists_read = true;
+    let (mut n, mut missing) = (0usize, 0usize);
+    for file in crate::mod_files::files_in("KEYWORDS") {
+        if !file.to_ascii_lowercase().ends_with(".ini") {
+            continue;
+        }
+        let Some(bytes) = crate::mod_files::read_loose(&format!("KEYWORDS\\{file}")) else { continue };
+        for (edid, kw) in keyword_lists(&String::from_utf8_lossy(&bytes)) {
+            match g.data.by_edid(&edid) {
+                Some(f) => {
+                    g.jip2.keywords.entry(f).or_default().insert(kw);
+                    n += 1;
+                }
+                None => missing += 1,
+            }
+        }
+    }
+    if n + missing > 0 {
+        tracing::info!("keywords: {n} from the KEYWORDS lists ({missing} for EditorIDs no plugin has)");
+    }
+}
+
+#[cfg(test)]
+mod keyword_list_tests {
+    #[test]
+    fn a_keywords_list_reads_editor_ids_and_keywords() {
+        let v = super::keyword_lists("[0]\narcWeapPKM = HasBelt\n; arcWeapX = No\narcWeapPKMU1 = HasBelt ; belt\n");
+        assert_eq!(v, [("arcweappkm".to_string(), "hasbelt".to_string()), ("arcweappkmu1".to_string(), "hasbelt".to_string())]);
+    }
 }

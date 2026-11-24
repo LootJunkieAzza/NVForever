@@ -129,6 +129,9 @@ fn no_errors(g: &Game) {
     );
 }
 
+/// Quick Trade's guard shape. "Improved Console" is reported installed
+/// (`fnv_script::vm::jip::PLUGINS`), so its guard passes; a plugin nothing reports still
+/// stops the guard before registration.
 #[test]
 fn improved_console_guard_passes_and_missing_plugin_guard_still_stops() {
     let f = fixture(false);
@@ -153,6 +156,13 @@ fn improved_console_guard_passes_and_missing_plugin_guard_still_stops() {
             "SetFunctionValue (GetPluginVersion (\"Improved Console\") >= 1)"
         ),
         XVal::Num(1.0)
+    );
+    assert_eq!(
+        query(
+            &mut g,
+            "SetFunctionValue (IsPluginInstalled (\"No Such Plugin\"))"
+        ),
+        XVal::Num(0.0)
     );
     // Negative control: a genuinely missing plugin still stops before registration.
     query(&mut g,"if eval !(IsPluginInstalled (\"NoSuchConsolePlugin\"))\nSetModLocalData \"owned.missing_guard\" 1\nreturn\nendif\nSetModLocalData \"owned.missing_after\" 1");

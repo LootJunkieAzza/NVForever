@@ -248,12 +248,57 @@ impl Game<'_> {
     fn say_combat(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) -> Option<FormId> {
         let data = self.data;
         let t = data.by_edid(topic).filter(|t| data.topic_defs.contains_key(t))?;
-        let line = self.say(actor, about, t, false);
+        // The voice's own companion, when here, takes half the player's lines.
+        if actor == FormId::PLAYER_REF {
+            if let Some(line) = self.companion_takes(t) {
+                self.combat_lines.said.push((topic, actor, Some(line)));
+                return Some(line);
+            }
+        }
+        // The player's voice set says its own line for the topic (crate::player_voice).
+        let sent = self.quip.out.len();
+        let quip = if actor == FormId::PLAYER_REF { self.player_quip(topic) } else { None };
+        let line = match quip {
+            Some(info) => {
+                self.say_line(actor, about, t, info, crate::game::LineKind::Say);
+                Some(info)
+            }
+            None => match self.own_voice_line(actor, about, t) {
+                Some(info) => {
+                    self.say_line(actor, about, t, info, crate::game::LineKind::Say);
+                    Some(info)
+                }
+                None => self.say(actor, about, t, false),
+            },
+        };
         self.combat_lines.said.push((topic, actor, line));
+        if let (FormId::PLAYER_REF, Some(info)) = (actor, line) {
+            self.share_own_line(info, sent);
+        }
         if line.is_some() {
             self.queue_response(actor, topic);
         }
         line
+    }
+
+    /// The line of `topic` the player says in its own voice type
+    /// ([`Game::player_own_voice_type`]) when the topic's lines are picked only among
+    /// those that voice has a file for: a ghoul player has no GenericPlayer files, so it
+    /// says the generic ghoul voice's Hit, PowerAttack and Death lines [observed:
+    /// Voices1.bsa; design]. A human player keeps the plain pick (every GenericPlayer
+    /// line has a file in both player voices [observed]). `None` (the plain pick) for
+    /// another actor, a human player, without the voice files, or when no line has a file.
+    fn own_voice_line(&mut self, actor: FormId, about: Option<FormId>, topic: FormId) -> Option<FormId> {
+        if actor != FormId::PLAYER_REF || !self.player_is_ghoul() {
+            return None;
+        }
+        let vt = self.player_own_voice_type()?;
+        let voice = self.voice.clone()?;
+        let lines: Vec<FormId> = self.data.lines_tried(topic).into_iter().filter(|&i| voice.voice_type_seconds(i, 0, vt).is_some()).collect();
+        if lines.is_empty() {
+            return None;
+        }
+        self.select_line_from(actor, about.or(Some(FormId::PLAYER_REF)), &lines)
     }
 
     /// `speaker` said a line of `topic`: when the topic is one of [`ANSWERS`], the nearest
@@ -364,13 +409,18 @@ impl Game<'_> {
         let topics: &[&'static str] = if topic == "Attack" { &["Attack"] } else { &[topic, "Attack"] };
         for &name in topics {
             let Some(t) = data.by_edid(name).filter(|t| data.topic_defs.contains_key(t)) else { continue };
-            let Some(info) = self.select_line(actor, listener, t) else {
+            let sent = self.quip.out.len();
+            let quip = if actor == FormId::PLAYER_REF { self.player_quip(name) } else { None };
+            let Some(info) = quip.or_else(|| self.select_line(actor, listener, t)) else {
                 self.emit(crate::trace::EventKind::NoLine { speaker: actor, topic: t });
                 self.combat_lines.said.push((name, actor, None));
                 continue;
             };
             self.cut_line(actor);
             self.say_line(actor, target, t, info, crate::game::LineKind::Say);
+            if actor == FormId::PLAYER_REF {
+                self.share_own_line(info, sent);
+            }
             self.combat_lines.said.push((name, actor, Some(info)));
             self.queue_response(actor, name);
             return Some(info);

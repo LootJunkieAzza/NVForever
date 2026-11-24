@@ -17,6 +17,16 @@ pub enum SpecialMenu {
     Set(i32),
 }
 
+impl UiRequests {
+    /// The player's active quest as scripts read it (GetActiveQuest, GetCurrentQuest,
+    /// GetCurrentObjective, GetCurrentQuestObjectiveTeleportLinks): the Pip-Boy's, else
+    /// the last forced [design: the Pip-Boy keeps the player's pick; JAM's JVO kept
+    /// pointing at the last forced quest's target after the player made another active].
+    pub fn current_quest(&self) -> Option<FormId> {
+        self.shown_quest.or(self.active_quest)
+    }
+}
+
 /// What scripts asked of the menus, for the engine to take.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UiRequests {
@@ -24,6 +34,10 @@ pub struct UiRequests {
     /// times a quest was forced (the Pip-Boy takes each new count once).
     pub active_quest: Option<FormId>,
     pub active_quest_count: u64,
+    /// The quest the Pip-Boy marks active now (the player's pick, a ForceActiveQuest, or
+    /// the first quest running), told by the engine a few times a second; the active
+    /// quest scripts read ([`UiRequests::current_quest`]).
+    pub shown_quest: Option<FormId>,
     /// The rules of the next S.P.E.C.I.A.L. menu (`crate::chargen::SpecialSheet::for_menu`).
     pub special: Option<SpecialMenu>,
     /// AddTagSkills: skills to tag in the next tag-skill menu besides those tagged

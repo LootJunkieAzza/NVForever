@@ -487,10 +487,13 @@ pub(crate) fn show_screen(
     mut visibility: Query<&mut Visibility>,
     mut materials: ResMut<Assets<NifMaterial>>,
     mut swapped: Local<Swapped>,
+    glance: Option<Res<nvf_play::pipboy::glance::Glance>>,
     worn: Option<ResMut<MenusWorn>>,
 ) {
     let Some(mut screen) = screen else { return };
-    let shown = pip.on_arm() && (body.first_person_drawn() || (pip.warming.is_some() && body.first_person_root().is_some()));
+    // The glance (`nvf_play::pipboy::glance`) draws on the same screen.
+    let glancing = glance.is_some_and(|g| g.shown());
+    let shown = (pip.on_arm() || glancing) && (body.first_person_drawn() || (pip.warming.is_some() && body.first_person_root().is_some()));
     let model_has_screen = parts.iter().any(|(_, p, _)| *p == PipBoyPart::Screen);
     screen.on_model = shown && model_has_screen;
     // [design: this file] Compare Copied.source after resolving any Stealth Boy copy.

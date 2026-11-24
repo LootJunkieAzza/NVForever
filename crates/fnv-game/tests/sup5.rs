@@ -57,7 +57,11 @@ fn folders() -> (PathBuf, PathBuf) {
     static DIRS: std::sync::OnceLock<(PathBuf, PathBuf)> = std::sync::OnceLock::new();
     DIRS.get_or_init(|| {
         use fnv_game::mod_files::{set_roots, Roots};
-        let base = std::env::temp_dir().join(format!("nvf-sup5-{}", std::process::id()));
+        // The pid alone is reused on Windows, and a reused folder held an earlier run's
+        // workbook (its sheet already renamed): the pid plus the start time, cleared first.
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let base = std::env::temp_dir().join(format!("nvf-sup5-{}-{nanos}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
         let (game, layer) = (base.join("game"), base.join("layer"));
         // Windows reuses process ids: an earlier run's folder of the same id would hand
         // this run its workbooks (a renamed sheet, an erased one) and fail the Excel test.

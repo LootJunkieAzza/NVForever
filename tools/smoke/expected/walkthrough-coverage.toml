@@ -26,6 +26,13 @@ set_calls_quest_by_variable = 0
 
 [summary.scripts]
 total = 3488
+# 1194 -> 1176, blocks.run 1645 -> 1622, actors.touched 267 -> 266 (overnight queue item
+# 141, bisected to fd31eeb16): a disabled actor runs OnLoad at its Enable, not at its cell's
+# load [documented: GECK wiki OnLoad, "when the object's 3D is loaded"]. The 24 blocks no
+# longer run (a net 23) are all OnLoad blocks of actors placed disabled that no chain enables (GSVictorDisabled,
+# SSHQJacklyn, the Hoover Dam battle's reserves...); 18 of those scripts ran nothing else.
+# lines.said rose 2467 -> 2474 on the same base (1940e8d8b) by other commits, not traced
+# line by line; Jacklyn's OnLoad line (INFO 0x106502) is among the ones no longer said.
 # 1199 -> 1194 (blocks.run 1652 -> 1647, lines.said 2490 -> 2477, actors.touched 268 -> 267):
 # issue 2157 takes back what issue 1606 added (b1a391568: +5, +5, +13, +1). A chosen Goodbye
 # line holds the player again, so game time stands still while it is said and the five quest
@@ -34,6 +41,8 @@ total = 3488
 # teacher and Dog say the extra lines. Every chain's own mq-* scenario passes.
 # 1194 -> 1195: #2687's new chain there-stands-the-grass-spore-purge (Keely's line 0x000F43F8 said,
 # V22TrapGasSCRIPT 0x000EF405's OnHitWith and OnDestructionStageChange run on the purge gas).
+# merge-080 (ship23 + upstream v0.8.0): NOT measured; upstream v0.8.0's value, and ours
+# (ship16 sum, also unmeasured) differs. Measure on the merge and replace.
 touched = 1195
 
 [summary.blocks]
@@ -47,6 +56,8 @@ total = 5690
 # (+4) and Mobius's (+3) lines, and NVDLC03MobiusIntercomSCRIPT runs one more block.
 # 1647 -> 1649: #2687's new chain there-stands-the-grass-spore-purge (Keely's line 0x000F43F8 said,
 # V22TrapGasSCRIPT 0x000EF405's OnHitWith and OnDestructionStageChange run on the purge gas).
+# merge-080 (ship23 + upstream v0.8.0): NOT measured; upstream v0.8.0's value, and ours
+# (ship16 sum, also unmeasured) differs. Measure on the merge and replace.
 run = 1649
 
 [summary.lines]
@@ -70,12 +81,16 @@ total = 28896
 # same with and without the change [measured 2026-11-14, lonesome-road-launch, fnvtool script run].
 # 2489 -> 2491: #2687's new chain there-stands-the-grass-spore-purge (Keely's line 0x000F43F8 said,
 # V22TrapGasSCRIPT 0x000EF405's OnHitWith and OnDestructionStageChange run on the purge gas).
+# merge-080 (ship23 + upstream v0.8.0): NOT measured; upstream v0.8.0's value, and ours
+# (ship16 sum, also unmeasured) differs. Measure on the merge and replace.
 said = 2491
 
 [summary.actors]
 with_lines = 704
 # 267 -> 268: #2687's new chain there-stands-the-grass-spore-purge (Keely's line 0x000F43F8 said,
 # V22TrapGasSCRIPT 0x000EF405's OnHitWith and OnDestructionStageChange run on the purge gas).
+# merge-080 (ship23 + upstream v0.8.0): NOT measured; upstream v0.8.0's value, and ours
+# (ship16 sum, also unmeasured) differs. Measure on the merge and replace.
 touched = 268
 
 [summary.results.info]

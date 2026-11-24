@@ -155,6 +155,9 @@ pub enum RecipeInput {
 }
 
 pub struct Open {
+    /// The recipes made since the menu opened, oldest first: the crafting animations
+    /// take them (`consume_anims.rs` in the game).
+    pub made: Vec<FormId>,
     category: FormId,
     station: Option<FormId>,
     /// 0: all; else the subcategory at this place of the view's filters, less one.
@@ -373,13 +376,17 @@ fn scripts_open(
     mut sounds: MessageWriter<UiSound>,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    // Over a conversation too: a line's ShowRepairMenu / ShowRecipeMenu opens the menu when
+    // the line ends, and closing it goes back to the choices (Major Knight's "I need
+    // repairs.", queue item 143) [documented: GECK wiki ShowRepairMenu, called from a
+    // topic's result script].
     let here = matches!(*state.get(), PlayState::Playing | PlayState::Dialogue);
     if rt.game.recipe_requests.is_empty() || !here || menu.is_open() || active.0.is_some() {
         return;
     }
     let Some(r) = rt.game.recipe_requests.pop() else { return };
     rt.game.recipe_requests.clear();
-    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: 0 };
+    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, made: Vec::new(), pointer_pick: false, navigated: 0 };
     let v = view(rt, &mut sim, &open);
     let name = rt.game.data.recipe_categories.get(&r.category).map_or_else(|| r.category.to_string(), |c| c.name.clone());
     let first: Vec<&str> = v.rows.iter().take(6).map(|r| r.label.as_str()).collect();
@@ -483,7 +490,9 @@ fn keys(
             open.quantity = None;
             let chosen = v.rows.get(open.selected.min(v.rows.len().saturating_sub(1))).map(|r| r.recipe);
             if let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) {
-                make_recipe(rt, &mut sim, recipe, to as u32, &mut sounds, corner.as_deref_mut());
+                if make_recipe(rt, &mut sim, recipe, to as u32, &mut sounds, corner.as_deref_mut()) {
+                    open.made.push(recipe.form);
+                }
                 follow_made(rt, &mut sim, open, recipe.form);
             }
             open.drawn = None;
@@ -569,7 +578,9 @@ fn keys(
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Opened });
             return;
         }
-        make_recipe(rt, &mut sim, recipe, 1, &mut sounds, corner.as_deref_mut());
+        if make_recipe(rt, &mut sim, recipe, 1, &mut sounds, corner.as_deref_mut()) {
+            open.made.push(recipe.form);
+        }
         follow_made(rt, &mut sim, open, recipe.form);
         // What the player has changed: draw it again.
         open.drawn = None;
@@ -588,8 +599,8 @@ fn follow_made(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &mut O
 }
 
 /// Make `recipe` `times` times: the ingredients go, the outputs come, an "added" line
-/// each in the corner (module notes).
-fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &RecipeDef, times: u32, sounds: &mut MessageWriter<UiSound>, corner: Option<&mut crate::corner_messages::CornerMessages>) {
+/// each in the corner (module notes). Whether it was made.
+fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &RecipeDef, times: u32, sounds: &mut MessageWriter<UiSound>, corner: Option<&mut crate::corner_messages::CornerMessages>) -> bool {
     let forms = sim.forms;
     let made = crate::script::with_world(rt, sim, |rt| {
         let skill = recipe.skill.map_or(0.0, |(av, _)| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av));
@@ -654,10 +665,12 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
                     c.push(if k > 1 { trf("{name} ({count}) added", &[("name", &name), ("count", &k)]) } else { trf("{name} added", &[("name", &name)]) }.into());
                 }
             }
+            true
         }
         Err(why) => {
             info!("recipe menu: cannot make {:?}: {why}", recipe.name);
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Refused });
+            false
         }
     }
 }
@@ -817,7 +830,7 @@ fn forget_closed(menu: Res<RecipeMenu>, script: Option<ResMut<ScriptState>>, mut
 #[allow(clippy::too_many_arguments)]
 fn spawn_prompt(root: &mut ChildSpawnerCommands, (amount, most): (i32, i32), words: &[String; 2], kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
     let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
-    let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount };
+    let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount, label: None };
     root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc, glyphs, None));
 }
 
@@ -953,7 +966,7 @@ fn close(mut commands: Commands, mut menu: ResMut<RecipeMenu>, roots: Query<Enti
 #[cfg(feature = "report-test-support")]
 #[doc(hidden)]
 pub fn report_progress_fixture(step: usize) -> RecipeMenu {
-    let mut o = Open { category: FormId(42), station: None, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: step as u32 };
+    let mut o = Open { category: FormId(42), station: None, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, made: Vec::new(), pointer_pick: false, navigated: step as u32 };
     if step >= 1 {
         o.selected = 1;
     }
@@ -1113,7 +1126,7 @@ mod tests {
         let rt = script.rt.as_mut().unwrap();
         let mut sim = SimState { forms: rt.game.world.forms, refs: rt.game.world.placed, world: fnv_sim::World::new(rt.game.world.forms, rt.game.world.placed, fnv_sim::SimConfig::default()) };
 
-        let mut open = Open { category: FormId(CAT), station: None, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: 0 };
+        let mut open = Open { category: FormId(CAT), station: None, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: 0, made: Vec::new() };
         let initial = view(rt, &mut sim, &open);
         assert_eq!(initial.rows.iter().map(|r| (r.recipe, r.ready)).collect::<Vec<_>>(), vec![(FormId(RCPE_B), true), (FormId(RCPE_A), false)]);
         open.selected = 0;

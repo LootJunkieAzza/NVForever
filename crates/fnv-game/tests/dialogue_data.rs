@@ -67,8 +67,33 @@ fn the_masters_dialogue() {
     the_intro_walk_through_talks_its_way_to_the_end(&l);
     sunny_opens_conversations_with_conversation_lines(&l);
     a_dim_player_gets_the_dumb_responses_and_lines(&l);
+    a_guest_changes_chips_at_every_cashier(&l);
     powder_ganger_hellos_keep_their_shared_random_pool(&l);
     vms07_shared_greetings_remain_selectable_with_controlled_eligibility(&mut l);
+}
+
+/// A co-op guest's lines (`Game::guest_lines`) hold the casino cashiers' chip exchange
+/// (owner 2026-11-05): the 17 lines of vDialogueCasinoCashier that buy chips for caps, NCR
+/// or Legion money or cash them in, shared by every casino's cashier by faction, and the 5
+/// that lead to them (the Tops cashier's greeting, the "how many chips" and "which
+/// currency" menus) [observed: FalloutNV.esm, `fnvtool script decompile`]. The lines that
+/// only hand chips out (Benny's, Gomorrah's comps, Vikki and Vance's manager) are not.
+fn a_guest_changes_chips_at_every_cashier(l: &Loaded) {
+    use fnv_game::game::{Game, GameConfig};
+    use fnv_sim::{SimConfig, World};
+    let world = World::new(&l.forms, &l.refs, SimConfig::default());
+    let g = Game::new(&l.data, world, GameConfig::default());
+    let lines = g.guest_lines();
+    let cashier = l.data.by_edid("vDialogueCasinoCashier").expect("vDialogueCasinoCashier");
+    let of_cashier = lines.iter().filter(|i| l.data.infos[i].quest == Some(cashier)).count();
+    assert_eq!(of_cashier, 22);
+    // Cash in for Legion money, buy chips with an NCR $100 or 1000 caps, the menus.
+    for i in [0x00145C76, 0x00145C7F, 0x00151DC0, 0x00145C75, 0x00151DC3, 0x00144F25] {
+        assert!(lines.contains(&FormId(i)), "0x{i:08X}");
+    }
+    for i in [0x0011985F, 0x00154479, 0x00163183] {
+        assert!(!lines.contains(&FormId(i)), "0x{i:08X}");
+    }
 }
 
 /// [observed: fnvtool dialogue topics/lines over FalloutNV.esm, issue #1895] The eligible

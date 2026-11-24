@@ -107,6 +107,30 @@ Transparent Small, Transparent Small Anim) still takes the crosshair, but a livi
 to talk to just behind it is the target when nothing else is offered (#3233,
 docs/spec-notes/simulation.md §5 "Talking through bars").
 
+## 6. Placed volumes (REFR XPRM)
+
+A reference with a placed primitive (XPRM, a box or a sphere) is a volume: a trigger, a
+collision marker, a room or portal [documented: xEdit wbDefinitionsFNV.pas REFR XPRM].
+Its base can still name a model: 64 trigger references in FalloutNV.esm (Vault 34's
+`v34AmbushVolume`, `RSCharlieQuestTrigger`, `AbandonedSewerValve01`) place an activator
+whose model is `Architecture\Wasteland\WaterTowerPipes01.NIF` [observed 2026-11-05: every
+REFR with XPRM in FalloutNV.esm and its base's MODL], and no water tower pipes stand in
+those corridors in the original [hypothesis: the editor's trigger tool keeps the base it
+was made from; the game draws the primitive, never the model]. Simple Open Strip's two Tops
+promoter triggers (`NVStripTopsPromoter1Trigger`, `…2Trigger`) do the same with
+`Architecture\Strip\NVStripLightPollution.NIF`, the Strip's distant light-pollution haze,
+in boxes up to 5,380 units long across the street [observed]; drawn, it was the blinding
+haze wall with a hard edge on the kerb (playtest-bugs 2026-11-04).
+
+So a reference with XPRM draws nothing from its base (`fnv_world::placed::Placement::primitive`,
+`draws_base_model`;
+nvforever `world.rs` `spawn_ref`, nvf-play `script_draw.rs`). Its trigger and collision
+uses (script_trigger.rs, rooms.rs, fnv-phys `primitive`) are unchanged. Nor is it solid:
+fnv-phys `ref_collision_with` adds none of the model's collision (`refs.counts.primitive_model`,
+level-design.md §4.1);
+before 2026-11-05 Vault 34's ambush triggers stood as solid, unseen pipes [observed:
+`fnvtool phys cell --cell Vault34b --list-refs`, six `v34AmbushVolume` refs on the Static
+layer].
 **Helipad ladder targeting diagnostics (#2528).** [design:
 `engine/nvf-play/src/activate.rs::find_target`, `activate/pick.rs::choose`]
 Activation considers visible render bounds before the first collision surface as

@@ -343,6 +343,8 @@ fn runtime(
         .init_resource::<nvf_play::pause::Page>()
         .init_resource::<nvf_play::loading::Loading>()
         .init_resource::<nvf_play::tiles::mods::ModsPage>()
+        // The fork's hardcore consume animations, which `run_scripts` reads.
+        .init_resource::<nvf_play::ConsumeAnims>()
         .init_resource::<nvf_play::tutorial_menu::TutorialView>()
         .init_resource::<nvf_play::control::ControlLocks>()
         .init_resource::<nvf_play::control::LockStats>()
@@ -416,6 +418,7 @@ fn test_streamer(interior: Option<u32>) -> Streamer {
         waiting: default(),
         model_overrides: default(),
         travels: 0,
+        coop_areas: Vec::new(),
     }
 }
 
@@ -455,6 +458,8 @@ fn live_imagespace_traits_refresh_while_set_cell_image_space_waits_for_next_load
 
     let mut a = App::new();
     a.insert_resource(Time::<()>::default())
+        // The co-op duel sweep in `update_grade` reads the real clock.
+        .insert_resource(Time::<bevy::time::Real>::default())
         .insert_resource(world)
         .insert_resource(test_streamer(Some(CELL_INT)))
         .insert_resource(sky)
@@ -789,6 +794,8 @@ fn live_set_worldspace_imagespace_and_exterior_cell_imagespace_precedence() {
 
     let mut a = App::new();
     a.insert_resource(Time::<()>::default())
+        // The co-op duel sweep in `update_grade` reads the real clock.
+        .insert_resource(Time::<bevy::time::Real>::default())
         .insert_resource(world)
         .insert_resource(streamer)
         .insert_resource(authored_session_sky())
@@ -881,6 +888,8 @@ fn live_weather_rgb_colors_adapters_and_transition_override_reach_sky_and_grade(
 
     let mut a = App::new();
     a.insert_resource(Time::<()>::default())
+        // The co-op duel sweep in `update_grade` reads the real clock.
+        .insert_resource(Time::<bevy::time::Real>::default())
         .insert_resource(world)
         .insert_resource(test_streamer(None))
         .insert_resource(sky)
@@ -1003,6 +1012,8 @@ fn on_cell_enter_script_updates_cell_lighting_fog_and_imagespace_live() {
 
     let mut a = App::new();
     a.insert_resource(Time::<()>::default())
+        // The co-op duel sweep in `update_grade` reads the real clock.
+        .insert_resource(Time::<bevy::time::Real>::default())
         .insert_resource(world)
         .insert_resource(test_streamer(Some(CELL_INT_LIGHT)))
         .insert_resource(sky)

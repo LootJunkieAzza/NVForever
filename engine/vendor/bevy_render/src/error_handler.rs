@@ -112,6 +112,15 @@ pub(crate) enum RenderState {
 
 wgpu_wrapper!(struct WgpuError(wgpu::Error));
 
+/// NVForever (engine/vendor/README.md): set once any render device reports it was lost.
+static DEVICE_LOST: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Whether a render device was lost in this run (NVForever; set from wgpu's callback,
+/// before the [`RenderErrorHandler`] hears of it).
+pub fn device_was_lost() -> bool {
+    DEVICE_LOST.load(core::sync::atomic::Ordering::SeqCst)
+}
+
 /// Resource to allow polling wgpu error handlers.
 #[derive(Resource)]
 pub(crate) struct DeviceErrorHandler {
@@ -131,9 +140,17 @@ impl DeviceErrorHandler {
             let device = device.wgpu_device();
             // we log errors as soon as they are captured so they stay chronological in logs
             // and only keep the first error, as it often causes other errors downstream
+            // NVForever (engine/vendor/README.md): the flag is set at once, on whichever
+            // thread wgpu calls back on, so the game knows before the next extract; and a
+            // second report is kept rather than asserted against (upstream asserts, a
+            // panic on the device's thread).
             device.set_device_lost_callback(move |reason, str| {
                 bevy_log::error!("Caught DeviceLost error: {reason:?} {str}");
-                assert!(device_lost.lock().unwrap().replace((reason, str)).is_none());
+                DEVICE_LOST.store(true, core::sync::atomic::Ordering::SeqCst);
+                let mut slot = device_lost.lock().unwrap_or_else(|e| e.into_inner());
+                if slot.is_none() {
+                    *slot = Some((reason, str));
+                }
             });
             device.on_uncaptured_error(Arc::new(move |e| {
                 bevy_log::error!("Caught rendering error: {e}");

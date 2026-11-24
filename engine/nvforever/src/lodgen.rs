@@ -329,6 +329,17 @@ pub fn chunk_mesh(heights: &[Option<&[f32]>], keep: &[bool], step: usize) -> Opt
     Some(mesh)
 }
 
+/// Per-cell heights for [`chunk_mesh`]. A cell without LAND is drawn flat at the
+/// worldspace's default land height (WRLD DNAM), as the game's own terrain LOD fills it
+/// (the shipped level-4 meshes show that fill, e.g. Lonesome Road and Honest Hearts
+/// [observed]), so the generated chunk has no hole there showing water or sky through
+/// it, and no skirt hanging into it. Its texels keep the no-base colour (`bake_diffuse`).
+/// Without a default land height the cell stays out.
+pub fn chunk_heights(cells: &ChunkCells, default_land: Option<f32>) -> Vec<Option<Vec<f32>>> {
+    let fill = default_land.filter(|h| h.is_finite() && h.abs() < 1.0e6);
+    cells.iter().map(|c| c.as_ref().map(|c| c.heights.clone()).or_else(|| fill.map(|h| vec![h; SIDE * SIDE]))).collect()
+}
+
 /// 64-bit FNV-1a, stable across runs and builds (cache keys).
 pub fn fnv1a(bytes: &[u8], mut h: u64) -> u64 {
     for &b in bytes {
@@ -487,7 +498,8 @@ impl GenJob {
         if cells.iter().all(Option::is_none) {
             return Ok(None);
         }
-        let heights = cells.iter().map(|c| c.as_ref().map(|c| c.heights.clone())).collect();
+        let land = self.index.worldspaces.get(&self.world).and_then(|w| w.default_land_height);
+        let heights = chunk_heights(&cells, land);
         if let Some((diffuse, normals)) = cached {
             return Ok(Some(Baked { heights, diffuse, normals, baked: false }));
         }
@@ -697,6 +709,22 @@ mod tests {
         let cut = chunk_mesh(&heights, &keep, 2).unwrap();
         assert_eq!(cut.count_vertices(), 15 * n * n + border_skirt_verts + 4 * (n - 1) * 2);
         assert!(chunk_mesh(&heights, &[false; 16], 2).is_none());
+    }
+
+    #[test]
+    fn no_land_cells_filled_at_default_height() {
+        let mut cells: ChunkCells = vec![None; 16];
+        cells[0] = Some(cell(1500.0));
+        let hs = chunk_heights(&cells, Some(1000.0));
+        assert_eq!(hs[0].as_deref(), Some(&[1500.0; SIDE * SIDE][..]));
+        assert!(hs[1..].iter().all(|h| h.as_deref() == Some(&[1000.0; SIDE * SIDE][..])));
+        // The whole chunk is one surface: skirts only on the chunk border, none inside.
+        let r: Vec<Option<&[f32]>> = hs.iter().map(|h| h.as_deref()).collect();
+        let n = 17;
+        assert_eq!(chunk_mesh(&r, &[true; 16], 2).unwrap().count_vertices(), 16 * n * n + 16 * (n - 1) * 2);
+        // No default land height (or the sentinel): those cells stay out, as before.
+        assert!(chunk_heights(&cells, None)[1..].iter().all(Option::is_none));
+        assert!(chunk_heights(&cells, Some(-2.0e9))[1..].iter().all(Option::is_none));
     }
 
     #[test]

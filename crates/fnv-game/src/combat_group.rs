@@ -580,6 +580,11 @@ impl Game<'_> {
             let combat = c.to == State::Combat;
             // "If a faction is flagged as Special Combat, members can attack one another
             // without sending a combat alarm" [documented: GECK wiki Category:Factions].
+            // A fight a script forced on a foe that has not fought back calls no one
+            // (`Game::fight_only_forced`) [hypothesis].
+            if self.fight_only_forced(c.actor, about) {
+                continue;
+            }
             if let Some(faction) = self.special_combat_faction(c.actor, about) {
                 self.awareness.tactics.notes.push(GroupNote::SpecialCombat { sender: c.actor, about, faction });
                 continue;
