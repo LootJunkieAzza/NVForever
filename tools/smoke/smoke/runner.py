@@ -686,11 +686,15 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
     started = time.monotonic()
     if launch.kind == GAME:
         aids = {}
-        for key, value in home_for(game_env(launch), env.repo).items():
+        launch_env = game_env(launch)
+        for key, value in launch_env.items():
             expanded = expand_game_value(value)
             if expanded is None:
                 return None, f"{key}: needs {value}", 0.0
             aids[key] = expanded.replace("{repo}", str(env.repo))
+        # The smoke home only once nothing was refused: finding it runs git, and a refused
+        # launch starts no process at all.
+        aids = home_for(aids, env.repo) if not launch_env.get(HOME) else aids
         with serving(launch_serve(launch)) as served:
             # `{repo}` in an argument: the repository (a fixture's path).
             args = [a.replace("{repo}", str(env.repo)) for a in launch.args]
