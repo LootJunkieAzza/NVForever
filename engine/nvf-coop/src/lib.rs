@@ -9,6 +9,7 @@ pub mod code;
 pub mod net;
 pub mod noise;
 pub mod online;
+pub mod portmap;
 pub mod reach;
 pub mod rel;
 pub mod repl;

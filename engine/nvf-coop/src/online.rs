@@ -32,6 +32,7 @@ use nvf_signal::client::{GuestClient, GuestEvent, HostClient, HostEvent};
 use nvf_signal::code::Code;
 use nvf_signal::wire::{key_hex, CreateLobby, PeerNo, WIRE_VERSION};
 
+use crate::portmap::{MapEvent, PortMap};
 use crate::signal_io::{self, FromIo, SignalIo};
 
 pub const KIND_PROBE: u8 = 0xE5;
@@ -98,6 +99,8 @@ pub struct Online {
     events: Vec<OnlineEvent>,
     /// The socket closed while hosting: when to open it again.
     reopen_at: Option<Instant>,
+    /// This player's router asked to open the IPv4 socket's port ([`crate::portmap`]).
+    portmap: Option<PortMap>,
 }
 
 impl Online {
@@ -132,7 +135,8 @@ impl Online {
 
     fn new(service: &str, io: Option<SignalIo>, side: Side, locals: Vec<SocketAddr>) -> Self {
         let found = locals.iter().map(|a| Candidate::new(Kind::Host, *a)).collect();
-        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None }
+        let portmap = locals.iter().find(|a| a.is_ipv4()).and_then(|a| PortMap::start(*a, Instant::now()));
+        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap }
     }
 
     /// The host key the service gave a guest: the only key its Noise session may have.
@@ -198,9 +202,23 @@ impl Online {
                 }
             }
         }
+        if let Some(pm) = &mut self.portmap {
+            send.extend(pm.tick(now));
+            for e in pm.take_events() {
+                match e {
+                    MapEvent::Mapped(at) => self.found(Candidate::new(Kind::Mapped, at)),
+                    MapEvent::Note(n) => self.events.push(OnlineEvent::Note(n)),
+                }
+            }
+        }
         send.extend(self.poll_agents(now));
         self.flush();
         send
+    }
+
+    /// A datagram from `from` that may be the router's answer about the port: whether it was.
+    pub fn on_router(&mut self, from: SocketAddr, bytes: &[u8], now: Instant) -> bool {
+        self.portmap.as_mut().is_some_and(|pm| pm.on_packet(from, bytes, now))
     }
 
     fn flush(&mut self) {
@@ -502,14 +520,16 @@ impl Online {
         self.locals.iter().find(|l| l.is_ipv4() == from.is_ipv4()).copied().unwrap_or(from)
     }
 
-    /// Leaving: the service is told (a host's lobby ends).
-    pub fn bye(&mut self) {
+    /// Leaving: the service is told (a host's lobby ends) and the router's port is closed:
+    /// the packet that closes it, to send from the game's IPv4 socket.
+    pub fn bye(&mut self) -> Option<(SocketAddr, Vec<u8>)> {
         match &mut self.side {
             Side::Host { client: Some(c), .. } => c.bye(),
             Side::Guest { client: Some(c), .. } => c.bye(),
             _ => {}
         }
         self.flush();
+        self.portmap.take().and_then(|mut pm| pm.release())
     }
 }
 

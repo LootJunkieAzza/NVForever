@@ -16,6 +16,10 @@ log = "0.4"
 # The IPv6 socket is bound IPv6-only (transport.rs), so it never takes the IPv4 socket's
 # port; std cannot set that before binding. MIT/Apache.
 socket2 = "0.6"
+# The router's address (the default gateway), which PCP and NAT-PMP are asked at
+# (online.rs port mapping, docs/design/coop-networking.md phase 4); std cannot read the
+# routing table. Gateway lookup only. MIT.
+netdev = { version = "0.48", default-features = false, features = ["gateway"] }
 # Noise (noise.rs, docs/design/coop-networking.md §4): every co-op packet encrypted and
 # authenticated, a key per player in place of the plaintext session token. Apache-2.0/MIT.
 snow = "0.10"

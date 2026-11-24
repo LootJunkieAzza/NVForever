@@ -1927,6 +1927,9 @@ impl Session {
                     }
                     continue;
                 }
+                if o.on_router(from, &bytes, now) {
+                    continue;
+                }
             }
             self.wire_in(&bytes, from, now);
         }
@@ -2481,8 +2484,8 @@ impl Session {
     /// lost packet does not leave the others waiting (queue item 90: a host that ends
     /// the lobby must reach every guest).
     fn bye(&mut self) {
-        if let Some(o) = &mut self.online {
-            o.bye();
+        if let Some((to, b)) = self.online.as_mut().and_then(Online::bye) {
+            self.net.send(&b, to);
         }
         for i in 0..BYE_COPIES {
             if i > 0 {

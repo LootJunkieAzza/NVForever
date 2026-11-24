@@ -236,16 +236,17 @@ fn run(service: &str, start: Start, out: &Sender<FromIo>, cmds: &Receiver<ToIo>)
 const TRIES: usize = 3;
 /// The wait before each try after the first, when no Retry-After says otherwise (seconds).
 const BACKOFF: [u64; TRIES - 1] = [1, 2];
-/// The longest Retry-After waited for (seconds); the service's block lasts 10
-/// [documented: docs/design/coop-signal-wire.md, rate limit].
+/// The longest Retry-After waited for (seconds): the zone's block lasts 10; the Worker's own
+/// lookup limit asks 60, longer than a player should stare at "joining", so that one ends
+/// the tries at once [documented: docs/design/coop-signal-wire.md, rate limit].
 const RETRY_AFTER_MAX: u64 = 30;
 /// The wait after a 429 that carried no readable Retry-After (seconds): the block's length.
 const RETRY_AFTER_DEFAULT: u64 = 10;
 
 /// The wait a 429's Retry-After asks for (seconds, as a number; an HTTP date or nothing
-/// gives [`RETRY_AFTER_DEFAULT`]), at most [`RETRY_AFTER_MAX`].
-fn retry_after(header: Option<&str>) -> u64 {
-    header.and_then(|h| h.trim().parse::<u64>().ok()).unwrap_or(RETRY_AFTER_DEFAULT).min(RETRY_AFTER_MAX)
+/// gives [`RETRY_AFTER_DEFAULT`]); `None` past [`RETRY_AFTER_MAX`]: no more tries.
+fn retry_after(header: Option<&str>) -> Option<u64> {
+    Some(header.and_then(|h| h.trim().parse::<u64>().ok()).unwrap_or(RETRY_AFTER_DEFAULT)).filter(|w| *w <= RETRY_AFTER_MAX)
 }
 
 /// A request, tried again after a connection error (as [`connect`]) and after a 429 (too
@@ -259,7 +260,8 @@ fn tries(mut request: impl FnMut() -> Result<ureq::http::Response<ureq::Body>, u
         let last = n + 1 == TRIES;
         match request() {
             Ok(r) if r.status().as_u16() == 429 && !last => {
-                wait = retry_after(r.headers().get("retry-after").and_then(|v| v.to_str().ok()));
+                let Some(w) = retry_after(r.headers().get("retry-after").and_then(|v| v.to_str().ok())) else { return Ok(r) };
+                wait = w;
                 log::info!("co-op: the matchmaking service asks to wait (429); trying again in {wait} s");
             }
             Ok(r) => return Ok(r),
@@ -286,7 +288,10 @@ fn connect(url: &str) -> tungstenite::Result<WebSocket<MaybeTlsStream<TcpStream>
         match tungstenite::connect(url) {
             Ok((ws, _)) => return Ok(ws),
             Err(tungstenite::Error::Http(resp)) if resp.status().as_u16() == 429 && !last => {
-                wait = retry_after(resp.headers().get("retry-after").and_then(|v| v.to_str().ok()));
+                let Some(w) = retry_after(resp.headers().get("retry-after").and_then(|v| v.to_str().ok())) else {
+                    return Err(tungstenite::Error::Http(resp));
+                };
+                wait = w;
                 log::info!("co-op: the matchmaking service asks to wait (429); opening the lobby's connection again in {wait} s");
             }
             Err(e @ tungstenite::Error::Http(_)) => return Err(e),
@@ -334,14 +339,15 @@ mod tests {
         }
     }
 
-    /// A 429's Retry-After: seconds as given, capped; a date, junk or none waits the block.
+    /// A 429's Retry-After: seconds as given; past the cap, no wait; a date, junk or none waits
+    /// the block.
     #[test]
     fn retry_after_reads_seconds() {
-        assert_eq!(retry_after(Some("7")), 7);
-        assert_eq!(retry_after(Some(" 3 ")), 3);
-        assert_eq!(retry_after(Some("600")), RETRY_AFTER_MAX);
-        assert_eq!(retry_after(Some("Wed, 21 Oct 2026 07:28:00 GMT")), RETRY_AFTER_DEFAULT);
-        assert_eq!(retry_after(None), RETRY_AFTER_DEFAULT);
+        assert_eq!(retry_after(Some("7")), Some(7));
+        assert_eq!(retry_after(Some(" 3 ")), Some(3));
+        assert_eq!(retry_after(Some("60")), None, "the Worker's minute is not waited out");
+        assert_eq!(retry_after(Some("Wed, 21 Oct 2026 07:28:00 GMT")), Some(RETRY_AFTER_DEFAULT));
+        assert_eq!(retry_after(None), Some(RETRY_AFTER_DEFAULT));
     }
 
     /// Against the live service (run by hand: `--ignored --nocapture`): opens the lobby
