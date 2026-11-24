@@ -8814,11 +8814,11 @@ run_seconds = 10
 expect = [
   { re = 'lights: display-value lighting sum installed', label = "apply_pbr_lighting sums the light in display values" },
   { re = 'lights: display values shown clipped', label = "the main view clips in Tony McMapface's place" },
-  { re = 'lights: game attenuation installed', label = "lights fall off as the game's" },
+  { re = 'lights: game attenuation and display-value Fresnel installed', label = "lights fall off as the game's" },
   { re = 'light colour lines not found|apply_pbr_lighting not as expected|Tony McMapface not found|atmospheric fog not found', count = 0, label = "no patch missed its Bevy lines (a CRLF checkout once broke them all, #946)" },
   { re = 'failed to process shader', count = 0, label = "every shader builds (grass.wgsl needs the patched pbr_functions)" },
-  { re = "lights: the highlight's Fresnel factor stays at F0 in world views", label = "the lights' highlight takes F = F0 in world views (#2266)" },
-  { re = "the highlight's Fresnel line not found", count = 0, label = "the Fresnel patch found its Bevy line (#2266)" },
+  { re = 'lights: game attenuation and display-value Fresnel installed', label = "the lights' highlight takes F = F0 in world views (#2266)" },
+  { re = 'expected anchors not found', count = 0, label = "the Fresnel patch found its Bevy line (#2266)" },
 ]
 
 [[scenario]]
@@ -8831,8 +8831,8 @@ args = ["--play", "--world", "WastelandNV", "--pos=-53782.6,-52327.9,5828", "--h
 run_seconds = 12
 manual = "primm_barrel_no_streak.png: no orange glossy band on the shaded sidewalk between the camera and the barrel (#2266)"
 expect = [
-  { re = "lights: the highlight's Fresnel factor stays at F0 in world views", label = "primm: the lights' highlight takes F = F0 in world views" },
-  { re = "the highlight's Fresnel line not found", count = 0, label = "primm: the Fresnel patch found its Bevy line" },
+  { re = 'lights: game attenuation and display-value Fresnel installed', label = "primm: the lights' highlight takes F = F0 in world views" },
+  { re = 'expected anchors not found', count = 0, label = "primm: the Fresnel patch found its Bevy line" },
   { re = 'failed to process shader', count = 0, label = "primm: the patched lighting shader builds" },
   { re = 'Screenshot saved to .*primm_barrel_no_streak\.png', label = "primm: the frame was written" },
 ]
