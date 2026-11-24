@@ -579,7 +579,12 @@ struct PeerRelay {
     peer: u32,
     allowed: VecDeque<SocketAddr>,
     addr: Option<SocketAddr>,
+    /// When it was taken on, or its traffic last came: silent for [`PEER_IDLE`], it left.
+    heard: Instant,
 }
+
+/// A relayed player silent this long has left (or found another path): its slot frees.
+const PEER_IDLE: Duration = Duration::from_secs(60);
 
 /// The addresses of a relayed player kept ([`PeerRelay`]).
 const PEER_ADDRS: usize = 4;
@@ -1121,7 +1126,7 @@ impl Session {
             }
             None => return false,
         };
-        self.peer_relays[slot] = Some(PeerRelay { peer, allowed: VecDeque::new(), addr: None });
+        self.peer_relays[slot] = Some(PeerRelay { peer, allowed: VecDeque::new(), addr: None, heard: Instant::now() });
         true
     }
 
@@ -1161,6 +1166,7 @@ impl Session {
         let i = self.peer_relays.iter().position(|r| r.as_ref().is_some_and(|r| r.allowed.contains(&from)))?;
         if let Some(r) = &mut self.peer_relays[i] {
             r.addr = Some(from);
+            r.heard = Instant::now();
         }
         Some(PEER_SUB + i as u8)
     }
@@ -1239,6 +1245,14 @@ impl Session {
         }
     }
 
+    /// The host's answer to player `peer` asking to join (an online code's join approval,
+    /// [`OnlineEvent::JoinAsk`]).
+    pub fn admit(&mut self, peer: u32, yes: bool) {
+        if let Some(o) = &mut self.online {
+            o.admit(peer, yes);
+        }
+    }
+
     /// A host started again (a load) takes its lobby's online code back.
     pub fn go_online_again(&mut self, service: &str, code: &str, secret: &str) {
         if self.is_host() {
@@ -1270,6 +1284,15 @@ impl Session {
     /// The matchmaking service's part of a tick: its packets go from the game's sockets, and
     /// what it found is acted on.
     fn online_tick(&mut self, now: Instant) {
+        // Relayed players gone quiet: their slots free, here and in the checks' count.
+        for slot in &mut self.peer_relays {
+            if let Some(r) = slot.take_if(|r| Instant::now().saturating_duration_since(r.heard) >= PEER_IDLE) {
+                if let Some(o) = &mut self.online {
+                    o.relay_ended(r.peer);
+                }
+                self.events.push(Event::Online(OnlineEvent::RelayEnd(r.peer)));
+            }
+        }
         let key = self.secure.get_mut().identity().public();
         let Some(o) = self.online.as_mut() else { return };
         let send = o.tick(now, &key);
@@ -2692,6 +2715,11 @@ impl Link {
     /// [`Session::go_online_again`].
     pub fn go_online_again(&self, service: &str, code: &str, secret: &str) {
         self.with(|s| s.go_online_again(service, code, secret));
+    }
+
+    /// [`Session::admit`].
+    pub fn admit(&self, peer: u32, yes: bool) {
+        self.with(|s| s.admit(peer, yes));
     }
 
     /// [`Session::close_to_others`].

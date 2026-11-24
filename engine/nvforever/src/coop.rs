@@ -378,6 +378,7 @@ impl Plugin for CoopPlugin {
             opened: false,
             reaching: None,
             online_pending: false,
+            asking: Vec::new(),
             join_code: None,
             joining: Joining::Idle,
             finding_since: None,
@@ -604,6 +605,8 @@ pub(crate) struct Coop {
     reaching: Option<Mutex<Receiver<Reach>>>,
     /// The matchmaking service is making this host's online code.
     online_pending: bool,
+    /// Players asking to join (join approval): the service's number for each, and its name.
+    asking: Vec<(u32, String)>,
     /// Joining: the code looked for, how the search goes, and since when it has looked
     /// (None: not yet timed; set on the first frame).
     join_code: Option<String>,
@@ -1148,6 +1151,12 @@ fn lobby(
                 say(format!("Friendly fire {}", if on { "on: players can hurt each other" } else { "off: players can't hurt each other" }));
             }
             LobbyRequest::FriendlyFire(_) => say("Only the host sets friendly fire".into()),
+            LobbyRequest::Admit { peer, yes } => {
+                if let Some(link) = &coop.link {
+                    link.admit(*peer, *yes);
+                }
+                coop.asking.retain(|(p, _)| p != peer);
+            }
             LobbyRequest::Find(code) => {
                 if coop.is_host() {
                     say("Close your own lobby to join another".into());
@@ -1248,7 +1257,7 @@ fn lobby(
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone() });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
         None => "NVForever".to_string(),
@@ -2380,6 +2389,15 @@ fn online_event(coop: &mut Coop, e: nvf_coop::online::OnlineEvent, corner: &mut 
         OnlineEvent::RelayFor(peer) => info!("co-op: relaying for guest {peer}, who cannot reach the host"),
         OnlineEvent::RelayAt { peer, addr } => info!("co-op: guest {peer}, relayed, is at {addr}"),
         OnlineEvent::RelayEnd(peer) => info!("co-op: no longer relaying for guest {peer}"),
+        OnlineEvent::JoinAsk { peer, name } => {
+            info!("co-op: {name} asks to join (guest {peer}): the host decides in the Co-op Lobby");
+            if let Some(c) = corner.as_mut() {
+                c.push(format!("{name} wants to join: open the Co-op Lobby to let them in").into());
+            }
+            coop.asking.retain(|(p, _)| *p != peer);
+            coop.asking.push((peer, name));
+        }
+        OnlineEvent::JoinAskOver(peer) => coop.asking.retain(|(p, _)| *p != peer),
         OnlineEvent::Note(n) => info!("co-op: online: {n}"),
     }
 }

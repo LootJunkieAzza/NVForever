@@ -14,7 +14,8 @@
 //!
 //! Test aid `NVF_PLAY_TEST_LOBBY="<seconds>:<action>,..."` (real seconds from the start):
 //! `code=<code>` types a code, `join`, `open` (the lobby as the pause menu opens it),
-//! `create`, `close`, `back`, `pick=<n>` (the n-th
+//! `create`, `close`, `back`, `admit` / `turn-away` (the first player asking to join),
+//! `pick=<n>` (the n-th
 //! save that can join, from 0), `shot=<file>` (a screenshot); for the Emotes menu,
 //! `emotes` (open it), `slot=<n>` (1-8: choose a slot), `equip=<emote>` (put the emote,
 //! by key, in the slot chosen), `empty` (empty it).
@@ -73,6 +74,8 @@ pub enum LobbyRequest {
     Cancel,
     /// Load this save and join the host found.
     Load { path: PathBuf, name: String },
+    /// The host's answer to player `peer` asking to join (join approval).
+    Admit { peer: u32, yes: bool },
 }
 
 /// The host's lobby.
@@ -111,6 +114,9 @@ pub struct LobbyState {
     pub guest: bool,
     /// Friendly Fire, as the host set it (item 122; off by default).
     pub friendly_fire: bool,
+    /// Players asking to join the host's lobby (join approval): the service's number for
+    /// each, and its name.
+    pub asking: Vec<(u32, String)>,
 }
 
 /// A save on the guest's list.
@@ -197,6 +203,10 @@ enum Act {
     Equip(usize),
     /// Empty the slot chosen.
     Empty,
+    /// Let the player asking to join in (the service's number for it).
+    Admit(u32),
+    /// Turn it away.
+    TurnAway(u32),
 }
 
 pub struct LobbyPlugin;
@@ -236,7 +246,7 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
         Some(Mode::Host) => match state.hosting {
             Hosting::Off => vec![Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back],
             Hosting::Opening => vec![Act::Back],
-            Hosting::Open { .. } => vec![Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back],
+            Hosting::Open { .. } => state.asking.iter().flat_map(|(p, _)| [Act::Admit(*p), Act::TurnAway(*p)]).chain([Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]).collect(),
         },
         Some(Mode::Join) => match (&state.joining, &screen.saves) {
             (Joining::Found, Some(saves)) => saves.iter().enumerate().filter(|(_, s)| s.ok).map(|(i, _)| Act::Save(i)).chain([Act::Back]).collect(),
@@ -333,6 +343,8 @@ fn input(
                     Some(Act::Create)
                 }
                 "close" => Some(Act::Close),
+                "admit" => state.asking.first().map(|(p, _)| Act::Admit(*p)),
+                "turn-away" => state.asking.first().map(|(p, _)| Act::TurnAway(*p)),
                 "leave" => Some(Act::Leave),
                 "friendly-fire" => Some(Act::FriendlyFire),
                 "back" => Some(Act::Back),
@@ -468,6 +480,12 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
         Act::Create => {
             asks.write(LobbyRequest::Create);
         }
+        Act::Admit(peer) => {
+            asks.write(LobbyRequest::Admit { peer, yes: true });
+        }
+        Act::TurnAway(peer) => {
+            asks.write(LobbyRequest::Admit { peer, yes: false });
+        }
         Act::Close => {
             asks.write(LobbyRequest::Close);
         }
@@ -575,6 +593,11 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     v.push(Line("Tell your friends this code. It is also in lobby-code.txt in the NVForever folder.".into(), Shade::Dim));
                     if let Some(n) = note {
                         v.push(Line(n.clone(), Shade::Bright));
+                    }
+                    for (peer, name) in &state.asking {
+                        v.push(Line(format!("{name} wants to join."), Shade::Bright));
+                        v.push(Button(Act::Admit(*peer), format!("Let {name} In")));
+                        v.push(Button(Act::TurnAway(*peer), "Turn Away".into()));
                     }
                     players(&mut v, state);
                     v.push(Button(Act::Close, "Close Lobby".into()));
@@ -808,6 +831,19 @@ mod tests {
         assert!(p.contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: Off".into())));
         let on = LobbyState { friendly_fire: true, ..state };
         assert!(pieces(&screen, &on).contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: On".into())));
+    }
+
+    /// Join approval: a player asking to join is named, with a button to let it in and one
+    /// to turn it away, first on the host's list.
+    #[test]
+    fn the_host_lets_a_player_asking_in_or_turns_it_away() {
+        let screen = opened(Mode::Host);
+        let state = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, players: vec!["Veronica (host, you)".into()], asking: vec![(4, "Cass".into())], ..default() };
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Line("Cass wants to join.".into(), Shade::Bright)));
+        assert!(p.contains(&Piece::Button(Act::Admit(4), "Let Cass In".into())));
+        assert!(p.contains(&Piece::Button(Act::TurnAway(4), "Turn Away".into())));
+        assert_eq!(acts(&screen, &state), vec![Act::Admit(4), Act::TurnAway(4), Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]);
     }
 
     #[test]

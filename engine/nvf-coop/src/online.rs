@@ -45,6 +45,12 @@ pub const KIND_RELAY_PROBE: u8 = 0xE7;
 pub const KIND_RELAY_ANSWER: u8 = 0xE8;
 /// Turns relaying for other players off (`0`): the "Relay for other players" setting.
 pub const RELAY_ENV: &str = "NVF_COOP_RELAY";
+/// Turns join approval off (`0`): the "Ask before players join" setting. On by default for
+/// an online code (docs/design/coop-networking.md §15.2, the recommended default).
+pub const ASK_ENV: &str = "NVF_COOP_ASK";
+/// A player asking to join that the host has not answered by then is turned away.
+const ASK_FOR: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Test aid: a guest ignores the host's candidates (`1`), so its direct checks fail and
 /// the peer relay is tried, as for a player whose network lets nothing in.
 pub const NO_DIRECT_ENV: &str = "NVF_COOP_TEST_NO_DIRECT";
@@ -74,6 +80,18 @@ pub enum OnlineEvent {
     RelayAt { peer: PeerNo, addr: SocketAddr },
     /// Stop relaying for player `peer`.
     RelayEnd(PeerNo),
+    /// Player `peer` asks to join the host's lobby: let it in or not ([`Online::admit`]).
+    JoinAsk { peer: PeerNo, name: String },
+    /// The ask of player `peer` is over (answered, timed out, or it gave up).
+    JoinAskOver(PeerNo),
+}
+
+/// A player asking to join, waiting for the host's answer.
+struct Asking {
+    name: String,
+    key: [u8; 32],
+    candidates: Vec<Candidate>,
+    since: Instant,
 }
 
 /// The peer relay's state on a guest: as the player that cannot reach the host (C: the
@@ -117,6 +135,8 @@ enum Side {
     Host {
         client: Option<HostClient>,
         peers: HashMap<PeerNo, Peer>,
+        /// Players asking to join (join approval).
+        asking: HashMap<PeerNo, Asking>,
         secret: Option<String>,
         /// The lobby's code, compact, once the service said it.
         code: Option<String>,
@@ -164,12 +184,12 @@ impl Online {
             host_key: key_hex(key),
             name: info.name.clone(),
         };
-        Self::new(service, Some(SignalIo::create(service, body)), Side::Host { client: None, peers: HashMap::new(), secret: None, code: None }, locals)
+        Self::new(service, Some(SignalIo::create(service, body)), Side::Host { client: None, peers: HashMap::new(), asking: HashMap::new(), secret: None, code: None }, locals)
     }
 
     /// A host taking its lobby back after a restart: the same code and secret.
     pub fn host_again(service: &str, code: &str, secret: &str, locals: Vec<SocketAddr>) -> Self {
-        let mut o = Self::new(service, Some(SignalIo::resume(service, code)), Side::Host { client: None, peers: HashMap::new(), secret: Some(secret.into()), code: Some(code.replace('-', "")) }, locals);
+        let mut o = Self::new(service, Some(SignalIo::resume(service, code)), Side::Host { client: None, peers: HashMap::new(), asking: HashMap::new(), secret: Some(secret.into()), code: Some(code.replace('-', "")) }, locals);
         o.start_stun(&default_stun(), Instant::now());
         o
     }
@@ -260,6 +280,7 @@ impl Online {
                 }
             }
         }
+        self.ask_timeouts(now);
         send.extend(self.poll_agents(now));
         send.extend(self.poll_relays(now));
         self.flush();
@@ -357,7 +378,7 @@ impl Online {
     fn on_text(&mut self, t: &str, now: Instant) {
         let locals = self.locals.clone();
         match &mut self.side {
-            Side::Host { client: Some(c), peers, secret, code: kept, .. } => {
+            Side::Host { client: Some(c), peers, asking, secret, code: kept, .. } => {
                 let Ok(evs) = c.on_text(t) else { return };
                 for e in evs {
                     match e {
@@ -371,11 +392,17 @@ impl Online {
                                 c.decline(peer, "bad_key");
                                 continue;
                             };
-                            // Join approval is phase 4: every guest is let in, and the game's own
-                            // link still turns a full lobby away.
-                            c.accept(peer);
-                            self.events.push(OnlineEvent::Note(format!("{name} (guest {peer}) asks to join: let in")));
-                            peers.insert(peer, Peer { key, remotes: candidates, agent: None });
+                            // Join approval: the host is asked, unless it turned that off. The
+                            // game's own link still turns a full lobby away.
+                            if std::env::var(ASK_ENV).is_ok_and(|v| v.trim() == "0") {
+                                c.accept(peer);
+                                self.events.push(OnlineEvent::Note(format!("{name} (guest {peer}) asks to join: let in")));
+                                peers.insert(peer, Peer { key, remotes: candidates, agent: None });
+                            } else {
+                                self.events.push(OnlineEvent::Note(format!("{name} (guest {peer}) asks to join: asking the host")));
+                                self.events.push(OnlineEvent::JoinAsk { peer, name: name.clone() });
+                                asking.insert(peer, Asking { name, key, candidates, since: now });
+                            }
                         }
                         HostEvent::Candidates { peer, candidates } => {
                             if let Some(p) = peers.get_mut(&peer) {
@@ -404,6 +431,9 @@ impl Online {
                         HostEvent::Connected { peer, path } => self.events.push(OnlineEvent::Note(format!("guest {peer}'s path: {path}"))),
                         HostEvent::Left { peer } => {
                             peers.remove(&peer);
+                            if asking.remove(&peer).is_some() {
+                                self.events.push(OnlineEvent::JoinAskOver(peer));
+                            }
                         }
                         HostEvent::Closed { reason } => self.events.push(OnlineEvent::Failed(format!("The matchmaking service closed the lobby ({reason})."))),
                         HostEvent::Error { error, message } => self.events.push(OnlineEvent::Note(format!("the service: {error}: {message}"))),
@@ -447,7 +477,12 @@ impl Online {
                             *agent = Some(Box::new(a));
                         }
                         GuestEvent::Declined { reason } => {
-                            self.events.push(OnlineEvent::Failed(format!("The host's game turned this one away ({reason}).")));
+                            let why = match reason.as_str() {
+                                "declined" => "The host turned your request to join away.".to_string(),
+                                "no_answer" => "The host did not answer your request to join: try again, and tell them to look at their Co-op Lobby.".to_string(),
+                                _ => format!("The host's game turned this one away ({reason})."),
+                            };
+                            self.events.push(OnlineEvent::Failed(why));
                         }
                         GuestEvent::Closed { reason } => {
                             self.events.push(OnlineEvent::Failed(format!("The lobby closed ({reason}).")));
@@ -555,6 +590,37 @@ impl Online {
         send
     }
 
+    /// The host's answer to player `peer` asking to join.
+    pub fn admit(&mut self, peer: PeerNo, yes: bool) {
+        if let Side::Host { client: Some(c), peers, asking, .. } = &mut self.side {
+            let Some(a) = asking.remove(&peer) else { return };
+            if yes {
+                c.accept(peer);
+                peers.insert(peer, Peer { key: a.key, remotes: a.candidates, agent: None });
+                self.events.push(OnlineEvent::Note(format!("{} (guest {peer}): let in", a.name)));
+            } else {
+                c.decline(peer, "declined");
+                self.events.push(OnlineEvent::Note(format!("{} (guest {peer}): turned away", a.name)));
+            }
+            self.events.push(OnlineEvent::JoinAskOver(peer));
+        }
+        self.flush();
+    }
+
+    /// Asks the host has not answered in [`ASK_FOR`]: turned away.
+    fn ask_timeouts(&mut self, now: Instant) {
+        if let Side::Host { client: Some(c), asking, .. } = &mut self.side {
+            let late: Vec<PeerNo> = asking.iter().filter(|(_, a)| now.saturating_duration_since(a.since) >= ASK_FOR).map(|(p, _)| *p).collect();
+            for p in late {
+                if let Some(a) = asking.remove(&p) {
+                    c.decline(p, "no_answer");
+                    self.events.push(OnlineEvent::Note(format!("{} (guest {p}): no answer from the host; turned away", a.name)));
+                    self.events.push(OnlineEvent::JoinAskOver(p));
+                }
+            }
+        }
+    }
+
     /// The peer relay, once a tick: the planner's steps (C) and the checks with helpers or
     /// relayed players (both sides).
     fn poll_relays(&mut self, now: Instant) -> Vec<(SocketAddr, Vec<u8>)> {
@@ -649,6 +715,11 @@ impl Online {
             }
         }
         send
+    }
+
+    /// This game stopped relaying for `peer` (it went quiet): its checks end.
+    pub fn relay_ended(&mut self, peer: PeerNo) {
+        self.relays.serving.remove(&peer);
     }
 
     /// A relay check's probe or answer from `from` (C and A both): the answer to send back.
@@ -875,7 +946,7 @@ mod tests {
 
     #[test]
     fn a_probe_for_no_check_is_not_answered() {
-        let mut o = Online::new("http://127.0.0.1:1", None, Side::Host { client: None, peers: HashMap::new(), secret: None, code: None }, vec!["192.168.1.2:47960".parse().unwrap()]);
+        let mut o = Online::new("http://127.0.0.1:1", None, Side::Host { client: None, peers: HashMap::new(), asking: HashMap::new(), secret: None, code: None }, vec!["192.168.1.2:47960".parse().unwrap()]);
         assert_eq!(o.on_probe(&probe(KIND_PROBE, 3, 9), "203.0.113.9:5000".parse().unwrap(), Instant::now()), None);
     }
 
@@ -950,10 +1021,18 @@ mod tests {
 
     #[test]
     fn a_host_checks_with_a_guest_it_let_in() {
-        let mut o = Online::new("http://127.0.0.1:1", None, Side::Host { client: Some(HostClient::new("s")), peers: HashMap::new(), secret: Some("s".into()), code: None }, vec!["192.168.1.2:47960".parse().unwrap()]);
+        let mut o = Online::new("http://127.0.0.1:1", None, Side::Host { client: Some(HostClient::new("s")), peers: HashMap::new(), asking: HashMap::new(), secret: Some("s".into()), code: None }, vec!["192.168.1.2:47960".parse().unwrap()]);
         let now = Instant::now();
         let key = "ab".repeat(32);
+        // Join approval: the host is asked first, and lets this one in.
+        o.on_text(&format!(r#"{{"type":"join","peer":2,"name":"Late","key":"{key}","candidates":[]}}"#), now);
+        assert!(o.take_events().contains(&OnlineEvent::JoinAsk { peer: 2, name: "Late".into() }));
+        o.tick(now + Duration::from_secs(61), &[0; 32]);
+        assert!(o.take_events().contains(&OnlineEvent::JoinAskOver(2)), "unanswered: turned away");
         o.on_text(&format!(r#"{{"type":"join","peer":1,"name":"G","key":"{key}","candidates":[{{"kind":"host","addr":"192.168.1.3:50000"}}]}}"#), now);
+        assert!(o.take_events().contains(&OnlineEvent::JoinAsk { peer: 1, name: "G".into() }));
+        o.admit(1, true);
+        assert!(o.take_events().contains(&OnlineEvent::JoinAskOver(1)));
         o.on_text(r#"{"type":"go","peer":1}"#, now);
         let sent = o.tick(now, &[0; 32]);
         assert!(sent.iter().any(|(to, b)| to.to_string() == "192.168.1.3:50000" && parse_probe(b).is_some_and(|(k, p, _)| k == KIND_PROBE && p == 1)), "{sent:?}");
