@@ -114,8 +114,13 @@ enum Dep {
 pub struct Item {
     source: String,
     destination: String,
+    /// The installer's own `priority` (0 when it gives none). Copied lowest first.
     priority: i32,
     folder: bool,
+    /// The item's place in the plan (`Wizard::plan`): between equal priorities, a later one
+    /// is copied later and kept. Kept apart from `priority`, so no number of files moves an
+    /// item past a higher priority.
+    order: usize,
 }
 
 struct When {
@@ -452,14 +457,9 @@ impl Wizard {
     fn plan(&self) -> Vec<Item> {
         let visible = self.visible_steps();
         let kinds = self.kinds();
-        let mut items = Vec::new();
-        let mut order = 0i32;
-        for item in &self.required {
-            let mut item = item.clone();
-            item.priority = item.priority.saturating_mul(1000).saturating_add(order);
-            order += 1;
-            items.push(item);
-        }
+        // In plan order: the required files, the chosen options' files by step, group and
+        // option, then the conditional installs by pattern. Sorted by priority, then that order.
+        let mut items: Vec<Item> = self.required.clone();
         for (s, step) in self.steps.iter().enumerate() {
             if !visible[s] {
                 continue;
@@ -469,28 +469,20 @@ impl Wizard {
                     if !self.chosen[s][g][p] || kinds[s][g][p] == Kind::NotUsable {
                         continue;
                     }
-                    for item in &plug.files {
-                        let mut item = item.clone();
-                        item.priority = item.priority.saturating_mul(1000).saturating_add(order);
-                        order += 1;
-                        items.push(item);
-                    }
+                    items.extend(plug.files.iter().cloned());
                 }
             }
         }
         let flags = self.flags();
         for when in &self.patterns {
-            if !when.when.holds(&flags, &self.facts) {
-                continue;
-            }
-            for item in &when.files {
-                let mut item = item.clone();
-                item.priority = item.priority.saturating_mul(1000).saturating_add(order);
-                order += 1;
-                items.push(item);
+            if when.when.holds(&flags, &self.facts) {
+                items.extend(when.files.iter().cloned());
             }
         }
-        items.sort_by(|a, b| a.priority.cmp(&b.priority).then(std::cmp::Ordering::Equal));
+        for (order, item) in items.iter_mut().enumerate() {
+            item.order = order;
+        }
+        items.sort_by_key(|item| (item.priority, item.order));
         items
     }
 
@@ -940,7 +932,7 @@ fn parse_items(el: &Elem) -> Vec<Item> {
             }
             let destination = attr(child, "destination").unwrap_or("").to_string();
             let priority = attr(child, "priority").and_then(|s| s.parse().ok()).unwrap_or(0);
-            items.push(Item { source, destination, priority, folder: child.name.eq_ignore_ascii_case("folder") });
+            items.push(Item { source, destination, priority, folder: child.name.eq_ignore_ascii_case("folder"), order: 0 });
         }
     }
     items
@@ -995,7 +987,7 @@ fn sort_by<T>(items: &mut [T], order: &str, name: impl Fn(&T) -> &str) {
 
 fn copy_items(root: &Path, dest: &Path, items: &[Item]) -> Result<(), String> {
     let mut items = items.to_vec();
-    items.sort_by_key(|item| item.priority);
+    items.sort_by_key(|item| (item.priority, item.order));
     for item in items {
         let rel = rel_path(&item.source)?;
         let src = root.join(&rel);
@@ -2132,6 +2124,34 @@ mod tests {
         assert!(mods.join(&name).join("A.esp").is_file());
         assert!(!mods.join(&name).join("B.esp").exists());
         assert!(mods.join(&name).join("readme.txt").is_file());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_higher_priority_wins_however_many_files_come_between() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-priority-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        for (name, body) in [("high.esp", "high"), ("low.esp", "low"), ("first.esp", "first"), ("second.esp", "second"), ("filler.txt", "x")] {
+            std::fs::write(t.join(name), body).unwrap();
+        }
+        // The higher priority comes first; more than a thousand files come between it and the
+        // lower one, which once moved the lower one past it.
+        let mut files = String::from(r#"<file source="high.esp" destination="Mod.esp" priority="1"/>"#);
+        for n in 0..1001 {
+            files.push_str(&format!(r#"<file source="filler.txt" destination="filler/{n}.txt"/>"#));
+        }
+        files.push_str(r#"<file source="low.esp" destination="Mod.esp" priority="0"/>"#);
+        // Equal priority: the later file is kept.
+        files.push_str(r#"<file source="first.esp" destination="Tie.esp"/><file source="second.esp" destination="Tie.esp"/>"#);
+        let xml = format!("<config><moduleName>Priority</moduleName><requiredInstallFiles>{files}</requiredInstallFiles></config>");
+        let facts = Facts { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let mut w = parse_wizard(&xml, &t, None, "Priority", facts).unwrap();
+        let mods = t.join("mods");
+        std::fs::create_dir_all(&mods).unwrap();
+        let name = w.install(&mods).unwrap();
+        assert_eq!(std::fs::read_to_string(mods.join(&name).join("Mod.esp")).unwrap(), "high");
+        assert_eq!(std::fs::read_to_string(mods.join(&name).join("Tie.esp")).unwrap(), "second");
         let _ = std::fs::remove_dir_all(&t);
     }
 
