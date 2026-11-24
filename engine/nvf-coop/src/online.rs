@@ -614,7 +614,9 @@ impl Online {
                             Action::SendProbe { to, check_id, .. } => send.push((to, probe(KIND_PROBE, *me, check_id))),
                             Action::Selected { remote, .. } => {
                                 let hosted_path = crate::transport::is_hosted_standin(remote);
-                                let path = if hosted_path { "relay" } else if is_lan(remote.ip()) { "lan" } else { "direct" };
+                                // The service passes any word of up to 16 characters on to the host; only "direct" and
+                                // "lan" make a guest a helper [documented: docs/design/coop-signal-wire.md].
+                                let path = if hosted_path { "hosted-relay" } else if is_lan(remote.ip()) { "lan" } else { "direct" };
                                 let how = a.selected_candidate().map_or(report::Path::Open, report::Path::of);
                                 log::info!("{}", Connect { host: false, path: how, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
                                 if let Some(c) = client {
