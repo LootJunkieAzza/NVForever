@@ -2240,8 +2240,12 @@ culls, extracts and queues every face view every frame.
     all its faces once it is more than 8 units (about 11 cm) from where its maps were last
     marked or drawn in full (`LIGHT_MOVE_EPS`) [engineering choice, 2026-11-18: a light
     an animation or script sways by a few units is not drawn again each frame].
-  - Shapes and skeletons count as moved once they are 4 units (about 6 cm) from where
-    they last marked (`MOVE_EPS`). Small moves add up until they reach it.
+  - Static shapes count as moved once their bounds' centre is 4 units (about 6 cm) from
+    where it last marked (`MOVE_EPS`). Dynamic shapes count from a probe off the centre
+    (half the bounds' half-size along each axis) and skeletons from their joints and
+    each joint's tip 6 units along it, both at 1.25 units (about 2 cm,
+    `DYNAMIC_MOVE_EPS`), so a head turning in place in dialogue redraws its lamp shadow
+    [engineering choice, 2026-11-23]. Small moves add up until they reach it.
   - Something removed (a taken item) marks the lights around the camera in full.
   - Every light is redrawn in full every 600 frames on Quality and 1,200 on Performance
     anyway, each at its own time.
@@ -2383,8 +2387,14 @@ culls, extracts and queues every face view every frame.
   - A spot light draws one layer of the sun's shadow texture, at the sun's side: each slot
     of the spot room (in fours) costs a layer of 2048² or 4096² (16 or 64 MiB at 32 bits
     a texel), the price of keeping the room from changing as spot lights come and go.
-  - Bias: Bevy's defaults. `NVF_LIGHT_SHADOW_BIAS=<depth>,<normal>` and
+  - Bias: depth 2.4 game units (about 3.4 cm; Bevy's point-light default, 0.08, is about
+    1 mm at this scale and banded curved faces and necks with self-shadow acne) and
+    normal 0.35 texels (`DEFAULT_DEPTH_BIAS`, `DEFAULT_NORMAL_BIAS`) [engineering choice,
+    2026-11-23]. `NVF_LIGHT_SHADOW_BIAS=<depth>,<normal>` and
     `NVF_LIGHT_SHADOW_NEAR=<units>` override them for a run.
+  - The parts inside an actor's head (mouth, teeth, tongue, eyes) cast no shadow, from
+    a lamp or the sun, so none is thrown outward through the lips and lids onto the face
+    (`actors::is_internal_head_part`).
   - `NVF_PLAY_TEST_LIGHT_SHADOW_HOLD=0` draws every map every frame, for comparing.
 
 **Cost** [observed 2026-11-18: RTX 5090, 1280 × 720, the Prospector Saloon at 22:00, 24

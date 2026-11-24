@@ -235,10 +235,13 @@ pub const KEEP: f32 = 1.25;
 /// than 16 let the light through].
 pub const NEAR_Z: f32 = 8.0;
 
-/// Default depth and normal shadow biases for casting point and spot lights in game units
-/// (`1 m = 70 units`, so `2.4` units ≈ 3.4 cm; Bevy's upstream default `0.08` is 1.1 mm
-/// in game units and causes contour-band self-shadow acne on curved faces and necks).
+/// The casting point and spot lights' depth bias, in game units (about 3.4 cm) [engineering
+/// choice, 2026-11-23: Bevy's point-light default of 0.08 is about 1 mm at this scale and
+/// banded curved faces and necks under a lamp with self-shadow acne; 2.4 removes the bands].
 pub const DEFAULT_DEPTH_BIAS: f32 = 2.4;
+/// Their normal bias, in shadow-map texels (Bevy scales it by the texel size at the
+/// fragment's distance; its defaults are 0.6 for point and 1.8 for spot lights)
+/// [engineering choice, 2026-11-23: set together with the depth bias above].
 pub const DEFAULT_NORMAL_BIAS: f32 = 0.35;
 
 /// A shape or a skeleton counts as moved for the lamps' maps once it is this far from where
@@ -247,8 +250,10 @@ pub const DEFAULT_NORMAL_BIAS: f32 = 0.35;
 /// mouth, hat) marked about 116 times a frame, every lamp near an actor every frame].
 pub const MOVE_EPS: f32 = 4.0;
 
-/// Movement threshold (game units) for dynamic actor parts and skeletons so head turns and
-/// nods in dialogue redraw nearby lamp shadow faces without waiting for the periodic refresh.
+/// [`MOVE_EPS`] for dynamic shapes and skeletons (game units, about 2 cm), measured at a
+/// probe off a shape's centre and at each joint's tip, so a head that turns in place in
+/// dialogue counts as moved [engineering choice, 2026-11-23: at 4 units from the centre a
+/// turning head left its lamp shadow where it was until the periodic full redraw].
 pub const DYNAMIC_MOVE_EPS: f32 = 1.25;
 
 /// A casting light counts as moved once it is this far from where its maps were last
