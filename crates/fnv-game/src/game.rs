@@ -5819,9 +5819,14 @@ impl<'a> Game<'a> {
     /// JIP LN `uNPCPerks=2`: when enabled, automatically give a human NPC 1 random starting
     /// Trait and 1 random Perk per 3 levels (up to 10 perks max), and sync their perk
     /// abilities [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini` `uNPCPerks`]. Filtering
-    /// to playable non-hidden traits/perks (`min_level <= level`) and using integer floor
-    /// division `(level / 3).min(10)` are [hypothesis]; deterministic FormID seeding is
-    /// [design]. Returns the number of perks/traits newly assigned.
+    /// to human NPCs only (`CREA` excluded) and playable non-hidden traits/perks
+    /// (`min_level <= level`) with integer floor division `level / 3` are [observed: Fallout:
+    /// New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-24, 10 official base masters, isolated
+    /// clean-room staging, JIP LN 57.30 + `jip_nvse.ini` `uNPCPerks=0/1/2`, GSDocMitchellHouse
+    /// & Goodsprings, Wave 4E black-box probe `w4e_c03_jip_unpcperks_0_1_2`:
+    /// `u2(lv1=1[tr=1,pk=0,bad=0],lv5=2,crea=-1)`; zero DLL/PDB/source consulted];
+    /// deterministic FormID seeding is [design]. Returns the number of perks/traits newly
+    /// assigned.
     pub fn apply_npc_jip_perks(&mut self, actor: FormId) -> usize {
         if self.jip_ini.npc_perks < 2 || actor == FormId::PLAYER_REF {
             return 0;

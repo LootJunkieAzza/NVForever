@@ -32,7 +32,11 @@ pub struct JipGamePatches {
     /// `bLocalizedDTDR` (JIP shipped default `0`): head hits use worn head-armor DT/DR only;
     /// body hits use worn body-armor DT/DR only (requires `ignore_dt_dr_fix`) [documented:
     /// JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]. Full worn armor on explosions and actor
-    /// innate DT/DR (AV 76/18) applying everywhere are `[hypothesis]`.
+    /// innate DT/DR (AV 76/18) applying everywhere are [observed: Fallout: New Vegas
+    /// 1.4.0.525 + xNVSE 6.4.9, 2026-11-24, 10 official base masters, isolated clean-room
+    /// staging, JIP LN 57.30 + `jip_nvse.ini` `bIgnoreDTDRFix=1 bLocalizedDTDR=1` vs `0`,
+    /// Goodsprings (`0x000CDF51`), Wave 4E black-box probe
+    /// `w4e_c02_jip_localized_dtdr_explosions_innate`; zero DLL/PDB/source consulted].
     pub localized_dt_dr: bool,
     /// `bQttSelectShortKeys` (JIP shipped default `1`): Shift transfers/drops the entire stack
     /// and Ctrl transfers/drops 1 item in Inventory, Container, and Barter menus, skipping
@@ -42,7 +46,13 @@ pub struct JipGamePatches {
     pub qtt_select_short_keys: bool,
     /// `bNPCWeaponMods` (JIP shipped default `0`): NPCs have a level-scaled chance for their
     /// main weapon to include weapon mods [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`].
-    /// Restricting to human NPCs (`NPC_` / `LVLN` -> `NPC_`) is `[hypothesis]`.
+    /// Restricting to human NPCs (`NPC_` / `LVLN` -> `NPC_`, excluding weapon-wielding `CREA`)
+    /// is [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-24, 10 official base
+    /// masters, isolated clean-room staging, JIP LN 57.30 + `jip_nvse.ini` `bNPCWeaponMods=1`
+    /// `uWMChanceMin=100` `uWMChanceMax=100`, Goodsprings, Wave 4E black-box probe
+    /// `w4e_c04_jip_npc_weapon_mods_human_only`: human NPCs `mf=(2,4,7)` vs
+    /// `FoxtrotSuperMutantRanger` `CREA` x3 Hunting Rifle `modFlags=(0,0,0)`; zero
+    /// DLL/PDB/source consulted].
     pub npc_weapon_mods: bool,
     /// `uWMChancePerLevel` (JIP shipped default `2`): percent chance increase per NPC level
     /// [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]; clamped to `0..=100` `[design]`.
@@ -67,8 +77,14 @@ pub struct JipGamePatches {
     /// `2` also auto-assigns 1 random starting Trait and 1 random Perk per 3 levels up to 10
     /// max to human NPCs [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`]. Keeping
     /// `uNPCPerks=0` identical to `1` for script perk commands is `[design]` (preserving
-    /// `nvse_jip10.rs` `[hypothesis: NVForever gives them]`); floor division `(level / 3).min(10)`
-    /// and playable/non-hidden/`min_level` filters are `[hypothesis]`.
+    /// `nvse_jip10.rs` `[hypothesis: NVForever gives them]`, whereas JIP LN 57.30 refuses
+    /// `AddPerk` on non-teammate NPCs at `uNPCPerks=0`); floor division `(level / 3)` and
+    /// playable/non-hidden/`min_level <= level` human-NPC-only (`CREA=-1`) filters are
+    /// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-24, 10 official base
+    /// masters, isolated clean-room staging, JIP LN 57.30 + `jip_nvse.ini` `uNPCPerks=0/1/2`,
+    /// GSDocMitchellHouse & Goodsprings, Wave 4E black-box probe `w4e_c03_jip_unpcperks_0_1_2`:
+    /// `u0(fail)|u1(add=1,auto=0)|u2(lv1=1[tr=1,pk=0,bad=0],lv5=2,crea=-1)`; zero
+    /// DLL/PDB/source consulted].
     pub npc_perks: u8,
     /// `bVoiceModulationFix` (JIP shipped default `1`): adds voice modulation for talking
     /// activators and holotapes [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`].
@@ -230,7 +246,9 @@ impl JipGamePatches {
 
     /// Number of random non-trait perks auto-assigned to a human NPC of `level` under
     /// `uNPCPerks=2`: 1 per 3 levels, capped at 10 [documented: JIP LN 57.30 / INI v56.24
-    /// `jip_nvse.ini`; floor division `(level / 3).min(10)` is `[hypothesis]`].
+    /// `jip_nvse.ini`; integer floor division `level / 3` observed in Wave 4E black-box probe
+    /// `w4e_c03_jip_unpcperks_0_1_2` (`lv=1 -> 1 trait + 0 perks = 1`, `lv=5 -> 1 trait +
+    /// floor(5/3)=1 perk = 2`, `CREA lv=12 -> -1`); zero DLL/PDB/source consulted].
     /// Returns `0` when `uNPCPerks < 2`.
     pub fn npc_auto_perk_count(&self, level: u16) -> usize {
         if self.npc_perks < 2 {

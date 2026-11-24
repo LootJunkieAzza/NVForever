@@ -167,8 +167,14 @@ impl CombatForms {
     /// DT and DR (percent) of worn armour covering `zone`, for JIP LN's `bLocalizedDTDR`:
     /// head hits benefit only from worn head-armour (`covers_head`) and body hits only from
     /// worn body-armour (`covers_body`) [documented: JIP LN 57.30 / INI v56.24 `jip_nvse.ini`
-    /// `bLocalizedDTDR`]; `Zone::All` sums all worn armour for explosions [hypothesis: blast
-    /// hits have no single hit zone].
+    /// `bLocalizedDTDR`]; `Zone::All` sums all worn armour for explosions [observed: Fallout:
+    /// New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-24, 10 official base masters, isolated
+    /// clean-room staging, JIP LN 57.30 + `jip_nvse.ini` `bIgnoreDTDRFix=1 bLocalizedDTDR=1`
+    /// vs `0`, Goodsprings (`0x000CDF51`), Wave 4E black-box probe
+    /// `w4e_c02_jip_localized_dtdr_explosions_innate`: `MineFragExplosion` applies full worn
+    /// body+head armor (`naked=150.00|body15=127.50|helm3=145.50|both18=123.00`) and innate
+    /// actor DT (`innate15=127.50`) identically under `1` and `0`; zero DLL/PDB/source
+    /// consulted].
     pub fn armor_values_worn_in_zone_with(&self, worn: &[(FormId, f32)], penalty: f32, zone: Zone) -> (f32, f32) {
         self.armor_values_worn_in_zone_with_lookup(worn, penalty, zone, |id| self.armor.get(&id).cloned())
     }

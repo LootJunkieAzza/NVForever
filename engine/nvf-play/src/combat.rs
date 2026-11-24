@@ -4141,9 +4141,13 @@ pub(crate) fn target_armor(c: &Combat, script: Option<&mut ScriptState>, sim: &m
 /// prerequisite `bIgnoreDTDRFix`) are active: head hits use worn head-armour DT/DR only and
 /// body hits use worn body-armour DT/DR only [documented: JIP LN 57.30 / INI v56.24
 /// `jip_nvse.ini` `bLocalizedDTDR`]; explosions apply full worn armour (`Zone::All`) and
-/// innate actor DT/DR (AV 76 / 18) still applies everywhere [hypothesis: INI specifies worn
-/// head-armour and worn body-armour only]. When `bLocalizedDTDR` is inactive or `zone` is
-/// `None`, sums all worn armour identically to vanilla.
+/// innate actor DT/DR (AV 76 / 18) still applies everywhere [observed: Fallout: New Vegas
+/// 1.4.0.525 + xNVSE 6.4.9, 2026-11-24, 10 official base masters, isolated clean-room
+/// staging, JIP LN 57.30 + `jip_nvse.ini` `bIgnoreDTDRFix=1 bLocalizedDTDR=1` vs `0`,
+/// Goodsprings (`0x000CDF51`), Wave 4E black-box probe
+/// `w4e_c02_jip_localized_dtdr_explosions_innate`; zero DLL/PDB/source consulted]. When
+/// `bLocalizedDTDR` is inactive or `zone` is `None`, sums all worn armour identically to
+/// vanilla.
 pub(crate) fn target_armor_for_zone(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId, zone: Option<Zone>) -> (f32, f32) {
     // The player's tweak: how fast worn-down armour loses its DT and DR [design: docs/design/tweaks.md].
     let penalty = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.tweaks.armor_condition_penalty as f32);
