@@ -25,6 +25,46 @@ pub const YSI_DEFAULT_TEMPLATE: &str = "ySIDefault";
 pub const YSI_NO_TAG_TEMPLATE: &str = "ySINoTag";
 /// Default instantiated icon child tile name.
 pub const YSI_IMAGE_TILE: &str = "ySIImage";
+/// Private trait tracking which template built an instantiated [`YSI_IMAGE_TILE`] child.
+const YSI_TEMPLATE_TRAIT: &str = "_ysi_template";
+
+/// Resolved ySI sorting tag, icon texture filename, and XML template name for an item form
+/// [design: `docs/spec-notes/ysi-filename.md`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct YsiItemDisplay {
+    /// Sorting tag (session `ySISetTrait "tag"` override or JSON rule match).
+    pub tag: Option<String>,
+    /// Icon DDS path under `textures\` (session `ySISetTrait "icon"` override or JSON icon rule).
+    pub icon: Option<String>,
+    /// Icon template name (`ySIDefault`, `ySINoTag`, or a custom template named by the icon rule).
+    pub template: String,
+}
+
+/// Picks the icon template name: explicit non-empty rule template, else `ySIDefault` when
+/// tagged/icon-bearing or `ySINoTag` otherwise [design: `docs/spec-notes/ysi-filename.md`].
+pub fn row_template_or_default(template: Option<&str>, has_icon_or_tag: bool) -> String {
+    if let Some(t) = template.map(str::trim).filter(|s| !s.is_empty()) {
+        return t.to_string();
+    }
+    if has_icon_or_tag {
+        YSI_DEFAULT_TEMPLATE.to_string()
+    } else {
+        YSI_NO_TAG_TEMPLATE.to_string()
+    }
+}
+
+/// Whether the menu root owning `tile` has `ySI` injected (a direct `ySI` tile or either
+/// core `ySIDefault`/`ySINoTag` template). Returns `false` when `menus/ySI/ySI.xml` is absent.
+pub fn menu_has_ysi(ui: &Ui, tile: TileId) -> bool {
+    if !ui.is_live(tile) {
+        return false;
+    }
+    let root = ui.root_of(tile);
+    ui.is_live(root)
+        && (has_direct_child(ui, root, YSI_ROOT_TILE).is_some()
+            || has_template(ui, root, YSI_DEFAULT_TEMPLATE)
+            || has_template(ui, root, YSI_NO_TAG_TEMPLATE))
+}
 
 /// Menu class code of `HUDMainMenu` (`fnv_ui::value::MENU_CLASSES`).
 const HUD_MENU_CODE: u16 = 1004;
@@ -150,6 +190,79 @@ pub fn instantiate_icon(
     ui.add_from_template(files, parent_path, template_name, Some(target_name))
 }
 
+/// Attach or update the [`YSI_IMAGE_TILE`] child on a live list `row_tile` when its owning
+/// menu has `ySI` injected (`menus/ySI/ySI.xml`).
+///
+/// - When `ySI` is not installed on the menu, this is a complete no-op (`false`).
+/// - When `display` provides a non-empty `icon`, instantiates (or reuses) `ySIImage` from
+///   `display.template` (falling back to `ySIDefault` then `ySINoTag` if a custom template
+///   is absent), writes `filename`, and makes the tile visible.
+/// - When `display` is `None` or has no icon, instantiates `ySINoTag` when available (for
+///   `_ySIBlanks` alignment) or hides any previously instantiated `ySIImage` tile cleanly.
+pub fn apply_row_icon(
+    ui: &mut Ui,
+    files: &dyn Source,
+    row_tile: TileId,
+    display: Option<&YsiItemDisplay>,
+) -> bool {
+    if !menu_has_ysi(ui, row_tile) {
+        return false;
+    }
+    let icon_path = display
+        .and_then(|d| d.icon.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let chosen_template: Option<String> = if let Some(d) = display.filter(|_| icon_path.is_some()) {
+        let mut candidates = [d.template.as_str(), YSI_DEFAULT_TEMPLATE, YSI_NO_TAG_TEMPLATE]
+            .into_iter()
+            .filter(|s| !s.trim().is_empty());
+        candidates
+            .find(|tpl| find_valid_template_body(ui, row_tile, tpl).is_some())
+            .map(str::to_string)
+    } else if find_valid_template_body(ui, row_tile, YSI_NO_TAG_TEMPLATE).is_some() {
+        Some(YSI_NO_TAG_TEMPLATE.to_string())
+    } else {
+        None
+    };
+
+    let Some(template_name) = chosen_template else {
+        if let Some(existing) = has_direct_child(ui, row_tile, YSI_IMAGE_TILE) {
+            ui.set_trait(existing, "visible", fnv_ui::Value::Num(0.0));
+        }
+        return false;
+    };
+
+    if let Some(existing) = has_direct_child(ui, row_tile, YSI_IMAGE_TILE) {
+        let same_tpl = ui
+            .tile(existing)
+            .get(YSI_TEMPLATE_TRAIT)
+            .is_some_and(|v| v.text().eq_ignore_ascii_case(&template_name));
+        if !same_tpl {
+            ui.unload_tile(existing);
+        }
+    }
+
+    let tile = if let Some(existing) = has_direct_child(ui, row_tile, YSI_IMAGE_TILE) {
+        existing
+    } else {
+        let row_path = ui.path_of(row_tile);
+        let Some(created) =
+            ui.add_code_tile_from_template(files, &row_path, &template_name, Some(YSI_IMAGE_TILE))
+        else {
+            return false;
+        };
+        ui.set_trait(created, YSI_TEMPLATE_TRAIT, fnv_ui::Value::Str(template_name));
+        created
+    };
+
+    if let Some(filename) = icon_path {
+        ui.set_trait(tile, "filename", fnv_ui::Value::Str(filename.to_string()));
+        ui.set_trait(tile, "visible", fnv_ui::Value::Num(1.0));
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,5 +371,60 @@ mod tests {
         assert!(instantiate_icon(&mut ui, &src, "HUDMainMenu/Row", "TraitOnlyTpl", None).is_none());
         assert_eq!(ui.get_float("HUDMainMenu/Row/width"), Some(100.0));
         assert!(ui.tile(ui.find_tile("HUDMainMenu/Row").unwrap()).children.is_empty());
+    }
+
+    #[test]
+    fn apply_row_icon_populates_updates_switches_templates_and_stays_noop_without_ysi() {
+        let base_xml = r#"<menu name="InventoryMenu"><class>&InventoryMenu;</class><rect name="Row"><text name="ListItemText"><string>Item</string></text></rect></menu>"#;
+        // Without ySI.xml: complete no-op even when display data is passed.
+        let plain_src = MemSource::default().with("menus/inv.xml", base_xml);
+        let mut plain_ui = Ui::new();
+        let _ = plain_ui.load_menu(&plain_src, "menus/inv.xml").unwrap();
+        let plain_row = plain_ui.find_tile("InventoryMenu/Row").unwrap();
+        let tagged = YsiItemDisplay {
+            tag: Some("(a01)".into()),
+            icon: Some("icons\\pistol.dds".into()),
+            template: YSI_DEFAULT_TEMPLATE.into(),
+        };
+        assert!(!apply_row_icon(&mut plain_ui, &plain_src, plain_row, Some(&tagged)));
+        assert!(plain_ui.find_tile("InventoryMenu/Row/ySIImage").is_none());
+
+        // With ySI.xml injected: tagged rows get ySIDefault + filename, updates reuse the tile,
+        // unknown custom templates fall back to ySIDefault, and untagged rows switch to ySINoTag.
+        let src = MemSource::default()
+            .with("menus/inv.xml", base_xml)
+            .with(YSI_XML_PATH, SYNTHETIC_YSI_XML);
+        let mut ui = Ui::new();
+        let inv = ui.load_menu(&src, "menus/inv.xml").unwrap();
+        assert!(publish_for_menu(&mut ui, &src, inv, Some(menus::INVENTORY)));
+        let row = ui.find_tile("InventoryMenu/Row").unwrap();
+
+        assert!(apply_row_icon(&mut ui, &src, row, Some(&tagged)));
+        ui.update();
+        let first_id = ui.find_tile("InventoryMenu/Row/ySIImage").unwrap();
+        assert_eq!(ui.get_string("InventoryMenu/Row/ySIImage/filename").as_deref(), Some("icons\\pistol.dds"));
+        assert_eq!(ui.get_float("InventoryMenu/Row/ySIImage/width"), Some(32.0));
+
+        let updated = YsiItemDisplay {
+            tag: Some("(a02)".into()),
+            icon: Some("icons\\rifle.dds".into()),
+            template: "MissingCustomTemplate".into(),
+        };
+        assert!(apply_row_icon(&mut ui, &src, row, Some(&updated)));
+        ui.update();
+        assert_eq!(ui.find_tile("InventoryMenu/Row/ySIImage"), Some(first_id));
+        assert_eq!(ui.get_string("InventoryMenu/Row/ySIImage/filename").as_deref(), Some("icons\\rifle.dds"));
+
+        // Switching to untagged swaps cleanly to ySINoTag without duplicating children.
+        assert!(apply_row_icon(&mut ui, &src, row, None));
+        ui.update();
+        let images = ui
+            .tile(row)
+            .children
+            .iter()
+            .filter(|&&c| ui.is_live(c) && ui.tile(c).name.eq_ignore_ascii_case(YSI_IMAGE_TILE))
+            .count();
+        assert_eq!(images, 1);
+        assert_eq!(ui.get_string("InventoryMenu/Row/ySIImage/filename").as_deref(), Some("icons\\untagged_item.dds"));
     }
 }

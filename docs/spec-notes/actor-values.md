@@ -203,6 +203,19 @@ gives one [documented], else the masters' value [observed].
   [documented: ActorValue].
 - Something that is no actor has no attributes (reading one is an error) and 0 for the
   rest, 100 for limb conditions.
+- **Damage Resistance from abilities** (18): an ability's Damage Resistance counts
+  twice, in the base value and again as the effect [observed 2026-11-21, issue #3219,
+  the AI observer]. A placed `CrSuperMutantNightkin` (its only source the ability
+  NightkinToughness, +15) read GetActorValue 30, GetBaseActorValue 15 and
+  GetPermanentActorValue 15 from its third game loop on, and its hits lost 30 %; nine
+  nightkin the world places read the same. `WestsideMeanSonofabitch` (PerkToughness,
+  +10) read 20 with a base of 10, `MQ08Fawkes` (MQ08FawkesDR, +50) 100 with a base of
+  50. Restraining it, turning its AI off, moving it or setting its Health changed
+  nothing. An ability's Damage Threshold counts once: the alpha deathclaw
+  (AlphaMotherDeathclawDT, +15) read 15 with a base of 0. NVForever: the base value of
+  Damage Resistance is what the actor's active abilities give, for everyone but the
+  player [hypothesis: the player, an actor with two such abilities and the other
+  resistances were not measured].
 
 ## 6. Who reads the values
 

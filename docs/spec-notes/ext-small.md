@@ -55,6 +55,7 @@ game, so nothing here is `[observed]`. Changes last for the session.
 | TTW_GetEquippedWeaponSkill `skill` | 1 when the equipped weapon's skill (DNAM, an actor value code) is that one [documented] |
 | TTW_GetPlugins | `[name, version, description]` per loaded plugin [documented]: the version is the TES4 HEDR version (as GetPluginHeaderVersion), the description "" [decision]. Until 2026-11-08 the version was 0, and TTW's start-up check (a plugin below 1.3 is an unconverted Fallout 3 mod) showed its "Fallout 3 mods installed" message for every load order |
 | TTW_ShowGeneProjector | opens the race menu (1036), NVForever's character creator, as ShowRaceMenu does [observed: TTW's scripts wait in `MenuMode 1036` after it; design: owner 2026-11-02] |
+| `TTW.ini` `[Karma Titles]` | optional per-level karma title overrides (`sKarmicTitle<Good\|Neutral\|Evil><level>`, levels `1..=50`, `1..=60`, and higher) read from `Data\NVSE\Plugins\TTW.ini` (`fnv_game::karma_titles::TtwKarmaTitles`) and wired into `GetPlayerKarmaTitle` and the Pip-Boy Stats page (both hand-built and tile-drawn `StatsMenu`) [documented: ROOGNVSE Plugin / TTW NVSE Plugin (Nexus Mods ID 77415, `https://www.nexusmods.com/newvegas/mods/77415`, author Roy Batty / RoyBatterian, versions 3.3.2 / 3.3.3; bundled in Tale of Two Wastelands 3.3.x as `ttw_nvse.dll`) public description ("Karma Title Expansion: Set custom titles for each level of Karma (Good, Neutral, Evil) via INI") and shipped `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` schema (`sKarmicTitleGood<N>`, `sKarmicTitleNeutral<N>`, `sKarmicTitleEvil<N>`, e.g. levels `1..=60` in TTW 3.3.3 / Consistent Karma Titles - ESPless, Nexus Mods ID 89822, `https://www.nexusmods.com/newvegas/mods/89822`, author VeryLastKiss); DLL/source not consulted; hypothesis: ASCII case-insensitive section/key matching, optional leading-zero digits, `;`/`#` comments and one optional surrounding quote pair stripped, blank values ignored; design: levels below `1` clamp to `1`, levels above `30` with no exact entry clamp to the highest defined `TTW.ini` level when `>= 30`, sparse overrides below `30` fall back to GMST/vanilla, lazy `OnceLock` cache on `ModFiles`]. Absent or empty leaves vanilla karma titles unchanged |
 | StewieGetValue `"key:section"` (StewVal) | [documented: StewieGetValue] Reads a setting. [design] After handoff, the mapped [critical](stewie-stat-profile.md) and [inventory](#live-inventory-settings) keys read NVForever choices. Other keys and unbound games keep the layered `Data\NVSE\Plugins\nvse_stewie_tweaks.ini` lookup: a number when it reads as one, otherwise text, or 0 when absent. |
 | GetCellRegions `cell` | an exterior cell's regions (XCLR); none for an interior [documented] |
 | SetWorldspaceMapBounds `world nwX nwY seX seY` | the WRLD MNAM cells, read by every reader of the record (`Game::world_map_bounds`) [documented; follow-up: the engine's map reads its bounds once] |
@@ -83,6 +84,7 @@ added. [hypothesis] The original plugin matches names the same way; not observed
 | `bKeepPipboyLightOnCellChange:Tweaks` | `1` when bound; NVForever already keeps the Pip-Boy light on across cell changes ([tweaks](../design/tweaks.md)) |
 | `bWeightlessWornArmor:Tweaks` | `Tweaks::weightless_worn_armor`; worn armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
 | `bWeightlessWornPowerArmor:Tweaks` | `Tweaks::weightless_worn_power_armor`; worn power armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
+| `bArmorConditionLabel:Tweaks` | `Tweaks::armor_condition`; shows the worn body armour's condition bar on the HUD |
 
 [hypothesis] The ammo query retains the child choice while its parent is disabled,
 as the plugin's own file keeps both keys; not observed in the original game. Its answer
@@ -139,3 +141,73 @@ Compiler, runtime, strict-lint and hosted checks on the corrected integration re
 UNRUN. The historical six ordinary and three opt-in results do not qualify this
 candidate. Identical-fixture baselines, original-game and installed-workload
 comparisons, native profile semantics and full Stewie compatibility remain open.
+
+## 4. Sky plugin INI configs (`MoonlightNVSE.ini` and `CloudUpgrade.ini`)
+
+Built in `engine/nvforever/src/sky_ini.rs` and wired into `engine/nvforever/src/sky.rs`,
+`worldspace.rs`, `cloud_shadows.rs`, and `main.rs`.
+
+**Provenance.** Neither plugin's DLL nor source code was ever consulted or disassembled.
+Section/key names, install paths, and default values come strictly from the public Nexus
+Mods pages and shipped INI files of:
+- **MoonlightNVSE v2.00** (by WallSoGB): `https://www.nexusmods.com/newvegas/mods/77683`,
+  shipped `Data\nvse\plugins\MoonlightNVSE.ini`;
+- **Cloud Upgrade NVSE v1.0** (by doodlum): `https://www.nexusmods.com/newvegas/mods/79612`,
+  shipped `Data\NVSE\Plugins\CloudUpgrade.ini`.
+
+Exact third-party runtime internals are unknown: the 8-phase moon mapping remains
+`[hypothesis]`, and NVForever's VFS loading, clamping, omitted-key fallback, and
+**CloudUpgrade cloud speed modulation formula/mapping are NVForever's own `[design]`,
+not the Cloud Upgrade NVSE plugin's implementation**.
+
+- **Vanilla invariance `[design]`:** Both INI files are discovered case-insensitively
+  through the engine VFS at startup (`Data\NVSE\Plugins\MoonlightNVSE.ini` [documented:
+  MoonlightNVSE v2.00 shipped `nvse\plugins\MoonlightNVSE.ini`] and
+  `Data\NVSE\Plugins\CloudUpgrade.ini` [documented: Cloud Upgrade NVSE v1.0 shipped
+  `NVSE\Plugins\CloudUpgrade.ini`]) and carried across worldspace/climate sky rebuilds
+  (`worldspace::carry_sky`). When either file is absent or unreadable, the corresponding
+  option stays `None` and vanilla sky lighting and cloud animation remain bit-for-bit
+  unchanged. Neither plugin is added to `IsPluginInstalled` / `GetPluginVersion`
+  reporting (`ext-version.md`).
+- **Shared INI parsing `[design]`:** Lossy UTF-8 decoding with optional leading UTF-8 BOM
+  stripped; `;` and `#` comments ignored (full-line and inline); section and key names
+  matched ASCII case-insensitively; unknown sections/keys and non-finite or malformed
+  values ignored without aborting loading; duplicate keys take the last valid value.
+- **`MoonlightNVSE.ini`:**
+  - `[documented: MoonlightNVSE v2.00 (https://www.nexusmods.com/newvegas/mods/77683),
+    public Nexus page and shipped Data\nvse\plugins\MoonlightNVSE.ini]` `[Main]` contains
+    `bMoonPhaseBrightness=1` (toggle enabling dynamic nighttime brightness by moon phase)
+    and `fMoonMult0=0`, `fMoonMult1=0.33`, `fMoonMult2=0.5`, `fMoonMult3=0.9`,
+    `fMoonMult4=1` (multipliers from new moon = `0` to full moon = `4`).
+  - `[design]` When `MoonlightNVSE.ini` is present and an individual key is omitted or
+    invalid, NVForever falls back to those exact shipped v2.00 INI defaults
+    (`bMoonPhaseBrightness=1`, `fMoonMult0..=fMoonMult4 = [0.0, 0.33, 0.5, 0.9, 1.0]`).
+  - `[hypothesis]` The 8-phase lunar cycle (`fnv_world::sky::MOON_PHASES`: `full`,
+    `three_wan`, `half_wan`, `one_wan`, `new`, `one_wax`, `half_wax`, `three_wax`) maps
+    symmetrically onto `fMoonMult4` (full), `fMoonMult3` (gibbous), `fMoonMult2` (half),
+    `fMoonMult1` (crescent), and `fMoonMult0` (new).
+  - `[design]` Multipliers are clamped to `0.0..=10.0` (so negative presets produce pitch
+    dark directional moonlight without negative PBR illuminance). Scaling multiplies
+    `MOON_SHARE` inside `sky::aim_sun` only outdoors when the sun is below the horizon and
+    the active climate displays a moon (`Climate::has_moon()`); daytime directional light,
+    interiors, and `bMoonPhaseBrightness=0` stay bit-for-bit equal to vanilla.
+- **`CloudUpgrade.ini`:**
+  - `[documented: Cloud Upgrade NVSE v1.0 (https://www.nexusmods.com/newvegas/mods/79612),
+    public Nexus page and shipped Data\NVSE\Plugins\CloudUpgrade.ini]` `[Global]` defines
+    `Speed = 100.0`, `MaxSpeed = 5.0`, and `Volatility = 5.0`; `[Layer 1]`..`[Layer 4]`
+    define per-layer `SubSpeed` (`0.2`, `1.0`, `0.7`, `0.3`) and `SubVolatility` (`0.2`,
+    `0.3`, `0.4`, `0.5`) for the four WTHR cloud layers (`0..4`).
+  - `[design]` When `CloudUpgrade.ini` is present and an individual key is omitted or
+    invalid, NVForever falls back to those exact shipped v1.0 INI defaults.
+  - `[design: NVForever's own cloud speed modulation formula and mapping, not the Cloud
+    Upgrade NVSE plugin's]` Parsed values are clamped (`Speed` `0..=10000`, `MaxSpeed`
+    `0..=50`, `SubSpeed` `0..=50`, `Volatility`/`SubVolatility` `0..=100`). Effective
+    layer scroll scale is `(Speed / 100.0) * SubSpeed` capped at `MaxSpeed`. Because
+    vanilla WTHR horizon layers commonly store `ONAM` speed `0`, active
+    `CloudUpgrade.ini` uses a fallback base rate of `32 * CLOUD_SCROLL_PER_UNIT` for
+    `ONAM == 0` layers (while `Speed == 0`, `MaxSpeed == 0`, or `SubSpeed == 0` stops the
+    layer). Non-zero `Volatility * SubVolatility` applies NVForever's own smooth, bounded
+    cosine speed modulation (`amplitude = 0.5 * vol / (vol + 5.0)`, distinct per-layer
+    periods `[180, 145, 115, 90]` s, peak rate capped at `base * MaxSpeed`) integrated
+    analytically in `f64` so UV scroll offsets remain monotonic, stateless, deterministic,
+    and synced with `cloud_shadows`.

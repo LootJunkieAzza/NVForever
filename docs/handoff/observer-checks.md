@@ -121,7 +121,9 @@ engine if needed, and delete the item here.
    or it starts alerted. Answers #1341's question.
 3. **Damage numbers.** Ours:
    - Power attacks do 3× standing and 2× moving.
-   - A damage type uses its resistance in place of DR (capped at 85 %, after DT).
+   - A damage type uses its resistance (capped at 85 %, after DT) as well as DR. That DR
+     cuts laser and plasma hits is answered [observed 2026-11-21: damage-armour.md §4,
+     #3218]; whether the resistance itself cuts them is still open.
    - Rippers, Chainsaw and Thermic Lance ignore DT/DR.
    - `fCombatPlayerLimbDamageMult` halves damage to the player's limbs.
    - Difficulty multipliers are 2/1.5/1/0.75/0.5 dealt and the inverse taken, including
@@ -4571,3 +4573,102 @@ capture setup, so every part of a check that needs an interior is still open.
      come back? Note also whether the generic Goodbye is offered at all, as his only
      flagged entry is the game of Caravan. Jerry the Punk (reference 001413BF) has the
      other line, 0014C483; in Fallout 3, Pronto (Paradise Falls) has 000384CF.
+
+## Added 2026-11-23 (fast travel from an interior, #3434)
+
+285. **Does an interior refuse fast travel, and does CELL DATA bit 2 turn that round?**
+     (P2: #3434; fast-travel.md §2.) Ours: every interior refuses with the map's box and
+     `sNoFastTravelCell`'s text [documented: GECK wiki EnableFastTravel]; with bit 2 set
+     an interior allows travel and an exterior refuses it [hypothesis: "Invert Fast
+     Travel Behavior" on the wiki's GetCellFlag page, against the editor's "Can't Travel
+     From Here"]. No cell of the masters sets the bit, so set it by script.
+     - Needs xNVSE, JIP LN and ShowOff; a save in Goodsprings with no hostile near, the
+       player not over-encumbered. First `EnableFastTravel 1` and `ShowMap` with
+       canTravel 1 on Primm's marker (000CDF46), then `coc GSGeneralStore` (001057F1).
+     - (a) **Unflagged interior**: read `GetCellFlag` 2 and 7 of the cell (expect 0, 0)
+       and `GetPCCanFastTravel`; then open the Pip-Boy's World Map, click Primm, and take
+       a screenshot: the question, or a refusal? If a refusal, its text, whether it is a
+       box with a button or a corner message, and whether the map stays up; compare with
+       `GetGameSetting sNoFastTravelCell`. Expect 0 and that text.
+     - (b) **Flagged interior**: `SetCellFlag GSGeneralStore 2 1`, read both again and
+       click Primm again. Expect 1 and the question; 0 and the refusal mean the bit does
+       not invert. Answer No. If (b) reads as (a), leave by the door, come back with the
+       flag still set and read once more (it may be read only on entry). Clear the flag.
+     - (c) **Flagged exterior**: in Goodsprings read `GetPCCanFastTravel` (expect 1), set
+       the bit on the player's parent cell, read again, click Primm and take a
+       screenshot; clear it. Expect 0 and the same text.
+     - (d) **Fake exterior**: in GSGeneralStore with bit 2 clear, `SetCellFlag
+       GSGeneralStore 7 1` (leave and re-enter if nothing changes) and read
+       `GetPCCanFastTravel`. Ours: 1 [hypothesis]. With Dead Money loaded,
+       `coc NVDLC01stealthTest` (bit 7 in its record) reads the same with no script.
+
+## Added 2026-11-23 (unlit shapes faded by vertex alpha alone, #3443)
+
+286. **Is an unlit shape with a fading vertex alpha, no texture and no NiAlphaProperty
+     see-through?** (P3: #3443; nif.md §6 "Unlit shapes faded by vertex alpha alone".)
+     Ours [hypothesis]: yes, blended by its vertex alpha. Two places in the original:
+     - base game: a bare gurney in the Camp McCarran Concourse (`CampMCTermInt01`,
+       `gurney01.nif`, 000FBA8F at 4032, -616, 18240), from standing height beside it. Its
+       shape `Gurney01:2` is a black sheet of 144 × 64 units lying under it, alpha 0.6 to 0
+       towards the edges. Say whether the floor under the gurney shows a soft dark patch, a
+       hard-edged black rectangle or nothing.
+     - Lonesome Road: the end of the silo lift (`NVDLC04Silo2Elevator`), from -87, 3502,
+       2069 facing 167°. Ride the lift, or play `Right` on
+       `NVDLC04SiloElevatorShaft01Ref` to `06Ref` and enable
+       `NVDLC04SiloElevatorLightsEndREF`. Say whether the cone of light (350 units wide,
+       500 high, from 0, 3126, 2575 down) lets the hall behind it through, how bright it
+       is, and whether it lightens the floor under it.
+
+## Added 2026-11-23 (a thrown Lobber with gravity 0, #3441)
+
+289. **Does a thrown Nuka-grenade arc like a frag grenade?** (P2; #3441, combat-rules.md
+     "A Lobber whose gravity is 0".) Its PROJ (`NVDLC05GrenadeNukaProjectile`, GRA) is a
+     Lobber with gravity 0.0; the frag grenade's (`GrenadeFragProjectile` 000043F9) has
+     1.0. Ours [hypothesis]: a Lobber of 0 falls under the full gravity, so both arcs
+     match at the same speed. On flat open ground (the Goodsprings playground), aim level
+     and throw one of each: does the Nuka-grenade drop and land at about the frag's
+     distance, or fly straight on? Throw a plasma mine (`MinePlasmaProjectile`, also 0)
+     and a frag mine (1.0) the same way and say whether they land at the same distance.
+
+## Added 2026-11-23 (the meal on the table eating idles, #3610)
+
+290. **Where is the plate of a table eating idle?** (P3; #3610, idles.md §10 "Objects
+     hung from the accumulation root".) Ours [hypothesis]: `aogenericmeal.nif` hangs from
+     `Bip01` in its bind pose, so the plate sits about 70 units in front of the seated
+     actor and 71 above the floor. In Primm's NCR tent (cell PrimmTentsHayes), when Lt.
+     Hayes (PrimmHayesREF) sits at the table and plays `SitTableChairEatB` (or
+     `PrimmHayesREF.PlayIdle SitTableChairEatB` once he is seated), say whether a plate
+     of food appears on the table in front of him, and roughly where it sits relative to
+     his chest and to the table top. A student's `aostudenttestpaper.nif` hangs the same
+     way, if one is easier to find.
+
+## Added 2026-11-23 (how long the quest lines stay, #3436)
+
+291. **How long do "Quest added", "Quest completed" and "Location discovered" stay on
+     screen, and how do they come and go?** (P2; #3436, quest-messages.md §5–§6, hud.md
+     "Location discovered".) Ours [design]: each banner 4 s, an objective list 4 s and
+     1.5 s more for each objective after the first, each fading in and out over 0.25 s,
+     the name's letters coming in over 0.6 s; a player found them too fast against the
+     original (#3436). The data does not say: `hud_main_menu.xml` gives the HUD's
+     `menufade` 0.25 and no times for `QuestReminder`, and `fDefaultNoticeTextDisplayTime`
+     (0.5) is not known to apply. Record at 60 fps, from the first frame a line shows to
+     the last: (a) the first "Quest added" of a new game (Ain't That a Kick in the Head, at
+     Doc Mitchell's); (b) its
+     objective line after the banner, and a list of two or more objectives; (c) "Quest
+     completed"; (d) "Location discovered" with its name and "+10 XP" (walk into
+     Goodsprings Source from the town). For each: when the words appear, when the name
+     has fully come in (and whether it comes letter by letter or fades), when it starts
+     to go and how long the fade lasts, and the gap before the next line.
+
+## Added 2026-11-23 (HasFriendDisposition's friend level, #3615)
+
+292. **At what disposition does HasFriendDisposition turn 1, and towards whom?** (P3;
+     #3615, `crates/fnv-game/src/functions/actor.rs` `FRIEND_DISPOSITION`.) Ours
+     [hypothesis]: 1 when the actor's disposition towards the player is 70 or more. The
+     GECK wiki speaks of a "friend disposition game setting" without naming it, and no
+     GMST in FalloutNV.esm is one. In the console, select an NPC (Sunny Smiles in the
+     Prospector Saloon), `SetDisposition player 100`, then `GetDisposition player` and
+     `HasFriendDisposition`; lower it in steps (`SetDisposition player 80`, 70, 60, 50 ...)
+     and note the lowest value at which it still reads 1. Then `SetDisposition` towards
+     another actor at 100 with the player's at 0: does it read 1 (not towards the player
+     only)?

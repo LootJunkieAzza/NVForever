@@ -444,3 +444,28 @@ colon-qualified `:formType` events using the canonical `form_type_code` mapping.
 block-vs-handler ordering, exact calling reference, and whether `GetPlayerGrabbedRef`
 still reports the released ref inside `OnPlayerRelease` have not been measured in
 original-game captures.
+
+## Image space modifier events (`OnApplyIMOD`, `OnRemoveIMOD`)
+
+[documented: GECK wiki, [NVSE Event Handling](https://geckwiki.com/index.php?title=NVSE_Event_Handling)]
+`OnApplyIMOD` and `OnRemoveIMOD` are built-in xNVSE events (already listed in
+`nvse_handler_lists::KNOWN`) triggered when an image space modifier (`IMAD`) is applied
+to or removed from the screen.
+
+[hypothesis] NVForever dispatches `OnApplyIMOD` from `Game::apply_image_modifier` (after
+updating `Game::image_modifiers` so `IsImageSpaceActive` reads `1` inside the callback)
+and `OnRemoveIMOD` from `Game::remove_image_modifier` (only when the modifier was active)
+and `Game::update_image_modifiers` (when an animatable modifier's duration expires, with
+`IsImageSpaceActive` already reading `0`). Both pass the `IMAD` form as the single first
+argument (`vec![XVal::Ref(modifier.0)]`, matched by `"first"::` in `SetEventHandler` and
+`1::` in `SetEventHandlerAlt`) with `on = None` (an `IMAD` is a base form, not a placed
+reference). Re-applying an already active modifier dispatches `OnApplyIMOD` again;
+applying an invalid non-`IMAD` form or removing an inactive modifier does not dispatch;
+restoring a snapshot assigns `Game::image_modifiers` directly without firing
+`OnApplyIMOD`. Exact argument count (1 vs 2 with trailing 0), re-apply dispatch, and
+whether natural duration expiry dispatches `OnRemoveIMOD` have not been measured in
+original-game captures.
+
+[design] Both dispatch sites check `Game::handled("onapplyimod")` /
+`Game::handled("onremoveimod")` before allocating an argument vector, leaving unmodded
+vanilla gameplay unchanged. No extender DLL, PDB, or C++ source code was consulted.

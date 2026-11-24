@@ -75,13 +75,15 @@ pub enum Kw {
 }
 
 /// The assignments the Let macro takes without `let` [documented: Let Macro: `=`, `+=`,
-/// `-=`, `*=`; observed: `/=`, JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting
-/// …` (JBTOnFireWeaponUDF) with compiled bytes, so the original's compiler takes it; `:=`,
-/// thirteen units of the owner's Blue Moon list (TLD_Travelers.esm `doOnce := 1`,
-/// DryWellsReloaded.esm `Quest.iObjectivePoint := 1`, DefenderRifle.esp `rContainer :=
-/// GetContainer`, …) ship compiled bytes where the line is the same Let as with `let`
-/// (#2275)].
-const MACRO_OPS: [&str; 6] = ["=", ":=", "+=", "-=", "*=", "/="];
+/// `-=`, `*=`; NVSE Expressions: `:=`, `/=`, `%=`, `^=`, `|=`, `&=`; observed: `/=`,
+/// JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting …` (JBTOnFireWeaponUDF)
+/// with compiled bytes, so the original's compiler takes it; `:=`, thirteen units of the
+/// owner's Blue Moon list (TLD_Travelers.esm `doOnce := 1`, DryWellsReloaded.esm
+/// `Quest.iObjectivePoint := 1`, DefenderRifle.esp `rContainer := GetContainer`, …) ship
+/// compiled bytes where the line is the same Let as with `let` (#2275); `%=`, `^=`, `|=`,
+/// `&=`, `<<=`, `>>=` in bare Let-macro form: hypothesis matching `let` compound
+/// assignments].
+const MACRO_OPS: [&str; 12] = ["=", ":=", "+=", "-=", "*=", "/=", "%=", "^=", "|=", "&=", "<<=", ">>="];
 
 /// A line of the extender's grammar, by its first words.
 fn extender(l: &Line) -> Option<Kw> {
@@ -227,7 +229,7 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
                         Some(eq)
                             if x.get(1).is_some_and(|t| t.kind == XKind::Word)
                                 && eq.kind == XKind::Op
-                                && (MACRO_OPS.contains(&eq.text.as_str()) || ["^=", "|=", "&=", "%="].contains(&eq.text.as_str())) =>
+                                && MACRO_OPS.contains(&eq.text.as_str()) =>
                         {
                             Kw::Decl { ty, names: vec![x[1].text.clone()], init: Some(x[1..].to_vec()) }
                         }

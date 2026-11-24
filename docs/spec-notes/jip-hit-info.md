@@ -104,3 +104,29 @@ record, which fnv-esm decodes; SetWeaponOnHitSetting changes it for the session.
 - Still to observe: a melee hit and a projectile hit, by a scripted fight (an NPC set
   to attack the player) or StartCombat. They give values for attacker, weapon, location
   and 3D data that a placed explosion leaves empty.
+
+## 6. NVForever implementation notes
+
+- `GetHitProjectile`: returns the hit's live projectile reference (`PROJ`, created by
+  `Game::projectile_fired`) on projectile impacts, the hit's live explosion reference
+  (`EXPL`, created by `Game::explosion_placed`) on explosion hits, and `0` (`Ref(0)`) on
+  melee, unarmed, or non-projectile hits. `[design]` NVForever currently dispatches one
+  `SetOnHitEventHandler` firing per blast (with the explosion reference and flag 8 set)
+  rather than emitting the original's preceding zero-damage firing.
+- `GetHitBaseWeaponDamage`: returns the weapon's damage after attacker skill and weapon
+  condition (`fnv_combat::damage::Damage::base`, before ammo effects, perks, limb
+  multiplier, and armour) `[documented: GetHitBaseWeaponDamage]`; `0` on explosions
+  `[hypothesis: explosion damage comes from EXPL rather than the weapon formula]`.
+- `GetHitFatigueDamage`: returns fatigue damage dealt by the hit (from ammo `Fatigue Mod`
+  effects or scripted `FakeHitEx` fatigue damage), or `0` when none.
+- `GetHit3DData`: type `0` returns `[x, y, z]` impact position, type `1` returns
+  `[rx, ry, rz]` Euler angles in degrees (`[hypothesis: pitch about X and
+  clockwise-from-north heading about Z derived from the incoming direction vector, roll 0;
+  unmeasured in the original]`), and type `2` returns all six elements. Explosion hits
+  return all zeros (`[0, 0, 0]` / six zeros) `[documented: GetHit3DData; observed:
+  jip-hits]`. Actors with no hit, hits with no finite 3D coordinates, and `dataType`
+  values outside `0..=2` return an empty list array `[design]`.
+- `GetHitExtendedFlag`: bits `0` (blocking), `1` (critical), `2` (fatal), `5` (limb
+  crippled), `7` (sneak attack), and `8` (explosion hit) are populated; bits `3`
+  (limb dismembered), `4` (limb exploded), and `6` (target's weapon broke) are not built
+  yet `[not built]`.

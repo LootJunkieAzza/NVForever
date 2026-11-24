@@ -462,6 +462,22 @@ impl ProjectileStats {
         self.flags.iter().any(|f| f == flag)
     }
 
+    /// The share of the world's gravity the projectile flies under. `gravity` is the
+    /// PROJ's field as read; a Lobber whose field is 0 falls under the full gravity
+    /// [hypothesis, #3441: the Nuka-grenade, the MFC grenade, the MFC mine cluster and
+    /// the bottlecap, plasma and pulse mines are the load order's Lobbers with 0, every
+    /// other has 1 or more (1.5 for the timed 25mm grenade); a player saw the thrown
+    /// Nuka-grenade fly dead straight with the field as a multiplier, and nothing says
+    /// the original throws it unlike the frag grenade; observer check 289]. Every other
+    /// type keeps the field: a missile of 0 flies straight.
+    pub fn fall(&self) -> f32 {
+        if self.gravity == 0.0 && self.kind.as_deref() == Some("Lobber") {
+            1.0
+        } else {
+            self.gravity
+        }
+    }
+
     /// Project a session `DATA/flags` bitmask (e.g. from `SetProjectileFlag`) onto this
     /// projectile's named `flags` list so `has`, `explodes`, `lands_as_weapon`,
     /// `mine::is_mine`, and `projectile::Projectile::spawn` see live script edits [design].

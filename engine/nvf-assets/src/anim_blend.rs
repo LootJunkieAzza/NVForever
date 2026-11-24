@@ -48,6 +48,16 @@ pub enum Mode {
     Synced,
 }
 
+/// Additive pose configuration for a layer (`SetAnimAdditive`, docs/design/knvse-anim.md):
+/// delta transforms relative to `reference` sampled at `ref_time` (or each bone's rest/bind
+/// pose when `reference` is `None`) are added on top of the blended base pose
+/// [documented: GECK wiki SetAnimAdditive; design].
+#[derive(Debug, Clone)]
+pub struct AdditivePose {
+    pub reference: Option<Arc<Clip>>,
+    pub ref_time: f32,
+}
+
 /// One clip playing on the skeleton.
 #[derive(Debug, Clone)]
 pub struct Layer {
@@ -57,6 +67,12 @@ pub struct Layer {
     pub sequence_priority: i32,
     /// Explicit deactivation easing; ordinary body clips keep DEFAULT_FADE.
     pub fade_out: f32,
+    /// When true (script-requested kNVSE sequences), `weight` also scales how much of a
+    /// bone this priority group claims over lower tiers so `SetAnimWeight` blends a solo
+    /// sequence against underlying clips (0.0 yields 100% to lower layers) [design].
+    pub weight_as_blend: bool,
+    /// Optional additive pose applied on top of the non-additive blend (`SetAnimAdditive`).
+    pub additive: Option<AdditivePose>,
     /// The caller's name for the role the clip plays (two roles may play one clip).
     pub tag: u32,
     pub mode: Mode,
@@ -631,6 +647,8 @@ impl Animator {
             clip: clip.clone(),
             sequence_priority: 0,
             fade_out: DEFAULT_FADE,
+            weight_as_blend: false,
+            additive: None,
             tag,
             mode,
             bound,
@@ -810,10 +828,17 @@ impl Animator {
             if ease <= 0.0 || ease.is_nan() {
                 continue;
             }
+            if l.additive.is_some() {
+                continue;
+            }
+            let take_ease = if l.weight_as_blend { ease * l.weight.clamp(0.0, 1.0) } else { ease };
+            if take_ease <= 0.0 || !take_ease.is_finite() {
+                continue;
+            }
             for (slot, &(bone, track, priority)) in l.bound.iter().enumerate() {
                 // An extra node's tie goes to a `parts_over` clip ([`Layer::parts_over`]).
                 let priority = if l.parts_over && bone as usize >= parts_from { priority.saturating_add(1) } else { priority };
-                self.scratch.push(Contribution { bone, priority: (l.sequence_priority, priority), weight: l.weight * ease, ease, layer: li as u16, track, slot: slot as u16 });
+                self.scratch.push(Contribution { bone, priority: (l.sequence_priority, priority), weight: l.weight * ease, ease: take_ease, layer: li as u16, track, slot: slot as u16 });
             }
         }
         self.scratch.sort_unstable_by_key(|c| (c.bone, Reverse(c.priority)));
@@ -894,6 +919,70 @@ impl Animator {
             // Finite samples far enough apart can still overflow the sum: the rest pose then.
             if posed.translation.is_finite() && posed.rotation.is_finite() && posed.scale.is_finite() {
                 self.locals[bone] = posed;
+            }
+        }
+        // Apply additive layers (`SetAnimAdditive`) on top of the non-additive blend
+        // [documented: GECK wiki SetAnimAdditive; design].
+        let n_skel = self.skel.locals.len();
+        for l in &self.layers {
+            let Some(add) = &l.additive else { continue };
+            if l.ease <= 0.0 {
+                continue;
+            }
+            let eff = (l.weight * l.shown_ease()).clamp(0.0, 1.0);
+            if eff <= 0.0 || !eff.is_finite() {
+                continue;
+            }
+            let time = l.sample_time(phase);
+            let cycles = l.cycles();
+            let ref_time = add.reference.as_ref().map(|rc| cycle_time(add.ref_time, rc.start, rc.stop, rc.cycle_type));
+            for &(bone, track_idx, _) in &l.bound {
+                let bone = bone as usize;
+                let bind = self
+                    .rest
+                    .iter()
+                    .find(|(n, _)| *n == bone)
+                    .map(|(_, p)| *p)
+                    .unwrap_or_else(|| {
+                        if self.held.contains(&bone) {
+                            Transform::IDENTITY
+                        } else if bone < n_skel {
+                            self.skel.locals[bone]
+                        } else {
+                            self.extra.get(bone - n_skel).map_or(Transform::IDENTITY, |x| x.bind)
+                        }
+                    });
+                let (track_name, track) = &l.clip.tracks[track_idx as usize];
+                let (ref_t, ref_r, ref_s) = match (&add.reference, ref_time) {
+                    (Some(rc), Some(rt)) => match rc.tracks.iter().find(|(n, _)| n == track_name) {
+                        Some((_, rtrack)) => (
+                            rtrack.translation.sample(rt).map_or(bind.translation, Vec3::from_array),
+                            rtrack.rotation_at(rt).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize()),
+                            rtrack.scale.sample(rt).map_or(bind.scale.x, |[x]| x),
+                        ),
+                        None => (bind.translation, bind.rotation, bind.scale.x),
+                    },
+                    _ => (bind.translation, bind.rotation, bind.scale.x),
+                };
+                let sample_t = track.translation.sample(time).map_or(ref_t, Vec3::from_array);
+                let sample_r = track.rotation_after(time, cycles).map_or(ref_r, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                let sample_s = track.scale.sample(time).map_or(ref_s, |[x]| x);
+                let dt = sample_t - ref_t;
+                let mut dr = sample_r * ref_r.inverse();
+                if dr.w < 0.0 {
+                    dr = -dr;
+                }
+                let dr = dr.normalize();
+                let ds = if ref_s.abs() > 1e-6 { sample_s / ref_s } else { 1.0 };
+                let cur = self.locals[bone];
+                let posed = Transform {
+                    translation: cur.translation + dt * eff,
+                    rotation: (Quat::IDENTITY.slerp(dr, eff) * cur.rotation).normalize(),
+                    scale: cur.scale * Vec3::splat(1.0 + (ds - 1.0) * eff),
+                };
+                if posed.translation.is_finite() && posed.rotation.is_finite() && posed.scale.is_finite() {
+                    self.locals[bone] = posed;
+                }
             }
         }
     }
@@ -1783,5 +1872,63 @@ mod tests {
         // Real frame on zero dt still shows the untouched pre-warm pose (1.0).
         a.pose();
         assert!((a.locals[2].translation.x - 1.0).abs() < 1e-5, "seam history was not overwritten by warm pose");
+    }
+
+    #[test]
+    fn script_weight_as_blend_and_additive_pose_compose_over_base_layers() {
+        let mut a = animator();
+        let base = clip(&[("A", [10.0, 0.0, 0.0], 50)], 1.0);
+        let overlay = clip(&[("A", [30.0, 0.0, 0.0], 1)], 1.0);
+        a.begin();
+        a.want(&base, 0, 1.0, Mode::Loop, 0.0);
+        let slot = a.want(&overlay, 0x4000_0001, 0.25, Mode::Once, 0.0);
+        a.layers[slot].sequence_priority = 2;
+        a.layers[slot].weight_as_blend = true;
+        a.end();
+        a.pose();
+        assert!((a.locals[2].translation.x - 15.0).abs() < 1e-5, "25% blend over base: {:?}", a.locals[2].translation);
+
+        // Weight 0.0 yields 100% to the base clip.
+        a.layers[slot].weight = 0.0;
+        a.pose();
+        assert!((a.locals[2].translation.x - 10.0).abs() < 1e-5, "0% blend restores base: {:?}", a.locals[2].translation);
+
+        // Vanilla layer (weight_as_blend = false) still owns its priority tier even at small weight.
+        a.layers[slot].weight_as_blend = false;
+        a.layers[slot].weight = 0.25;
+        a.pose();
+        assert!((a.locals[2].translation.x - 30.0).abs() < 1e-5, "vanilla layer keeps full priority share");
+
+        // Additive with bind-pose reference (A bind is x=1.0; add clip at x=5.0 -> delta +4.0).
+        a.cut(0x4000_0001);
+        let add_clip = clip(&[("A", [5.0, 0.0, 0.0], 1)], 1.0);
+        a.begin();
+        a.want(&base, 0, 1.0, Mode::Loop, 0.0);
+        let add_slot = a.want(&add_clip, 0x4000_0002, 0.5, Mode::Once, 0.0);
+        a.layers[add_slot].additive = Some(AdditivePose { reference: None, ref_time: 0.0 });
+        a.end();
+        a.pose();
+        assert!((a.locals[2].translation.x - 12.0).abs() < 1e-5, "bind-delta +4 * 0.5 over 10 = 12, got {:?}", a.locals[2].translation);
+
+        // Additive with explicit reference clip (ref at x=3.0; add clip at x=5.0 -> delta +2.0 * 1.0 over 10 = 12).
+        let ref_clip = clip(&[("A", [3.0, 0.0, 0.0], 1)], 1.0);
+        a.layers[add_slot].weight = 1.0;
+        a.layers[add_slot].additive = Some(AdditivePose { reference: Some(ref_clip), ref_time: 0.0 });
+        a.pose();
+        assert!((a.locals[2].translation.x - 12.0).abs() < 1e-5, "ref-delta +2 * 1.0 over 10 = 12, got {:?}", a.locals[2].translation);
+
+        // Additive rotation delta over a turned base clip.
+        let base_rot = turning("A", 30.0f32.to_radians(), 50);
+        let add_rot = turning("A", 40.0f32.to_radians(), 1);
+        let ref_rot = turning("A", 10.0f32.to_radians(), 1);
+        a.layers.clear();
+        a.begin();
+        a.want(&base_rot, 0, 1.0, Mode::Loop, 0.0);
+        let rslot = a.want(&add_rot, 0x4000_0003, 0.5, Mode::Once, 0.0);
+        a.layers[rslot].additive = Some(AdditivePose { reference: Some(ref_rot), ref_time: 0.0 });
+        a.end();
+        a.pose();
+        let expected = Quat::from_rotation_z(45.0f32.to_radians());
+        assert!(a.locals[2].rotation.angle_between(expected).to_degrees() < 0.1, "expected 45 deg, diff {} deg", a.locals[2].rotation.angle_between(expected).to_degrees());
     }
 }

@@ -129,11 +129,11 @@ fn no_errors(g: &Game) {
     );
 }
 
-/// Quick Trade's guard shape. "Improved Console" is reported installed (the fork's
-/// Nuclear Sunset list, `fnv_script::vm::jip::PLUGINS`), so the missing plugin here is one
-/// nothing reports.
+/// Quick Trade's guard shape. "Improved Console" is reported installed
+/// (`fnv_script::vm::jip::PLUGINS`), so its guard passes; a plugin nothing reports still
+/// stops the guard before registration.
 #[test]
-fn missing_plugin_guard_still_stops_before_registration() {
+fn improved_console_guard_passes_and_missing_plugin_guard_still_stops() {
     let f = fixture(false);
     let mut g = game(&f);
     assert_eq!(
@@ -146,15 +146,37 @@ fn missing_plugin_guard_still_stops_before_registration() {
     assert_eq!(
         query(
             &mut g,
+            "SetFunctionValue (GetPluginVersion (\"Improved Console\"))"
+        ),
+        XVal::Num(3.0)
+    );
+    assert_eq!(
+        query(
+            &mut g,
+            "SetFunctionValue (GetPluginVersion (\"Improved Console\") >= 1)"
+        ),
+        XVal::Num(1.0)
+    );
+    assert_eq!(
+        query(
+            &mut g,
             "SetFunctionValue (IsPluginInstalled (\"No Such Plugin\"))"
         ),
         XVal::Num(0.0)
     );
-    query(&mut g,"if eval !(IsPluginInstalled (\"No Such Plugin\"))\nSetModLocalData \"owned.guard\" 1\nreturn\nendif\nSetEventHandlerAlt \"ShowOff:OnPreActivate\" OwnedZero\nSetModLocalData \"owned.after_guard\" 1");
-    assert_eq!(num(&mut g, "owned.guard"), 1.0);
-    assert_eq!(num(&mut g, "owned.after_guard"), 0.0);
+    // Negative control: a genuinely missing plugin still stops before registration.
+    query(&mut g,"if eval !(IsPluginInstalled (\"NoSuchConsolePlugin\"))\nSetModLocalData \"owned.missing_guard\" 1\nreturn\nendif\nSetModLocalData \"owned.missing_after\" 1");
+    assert_eq!(num(&mut g, "owned.missing_guard"), 1.0);
+    assert_eq!(num(&mut g, "owned.missing_after"), 0.0);
+    // Positive control: the Improved Console guard now passes and registers the handler.
+    query(&mut g,"if eval !(IsPluginInstalled (\"Improved Console\"))\nSetModLocalData \"owned.guard\" 1\nreturn\nendif\nSetEventHandlerAlt \"ShowOff:OnPreActivate\" OwnedZero\nSetModLocalData \"owned.after_guard\" 1");
+    assert_eq!(num(&mut g, "owned.guard"), 0.0);
+    assert_eq!(num(&mut g, "owned.after_guard"), 1.0);
     let trader = target(&mut g, "owned.trader");
-    assert!(g.default_activation_by_hand(trader).unwrap().is_some());
+    assert!(
+        g.default_activation_by_hand(trader).unwrap().is_none(),
+        "registered preactivation handler cancels hand activation"
+    );
     no_errors(&g);
 }
 
@@ -316,18 +338,21 @@ fn scripted_activate_dispatches_showoff_on_pre_scripted_activate_with_flag_and_v
                  SetModLocalData \"owned.regular_calls\" ((GetModLocalData \"owned.regular_calls\") + 1)\n\
                  SetFunctionValue 0\n\
                  End)\n\
-                 SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" (Begin Function {{ref actor, int allowed, int blockFlag}}\n\
+                 SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" (Begin Function {{ref actor, int blockFlag, int allowed}}\n\
                  SetModLocalData \"owned.scripted_calls\" ((GetModLocalData \"owned.scripted_calls\") + 1)\n\
                  SetModLocalData \"owned.scripted_target\" ThisAlt\n\
                  SetModLocalData \"owned.scripted_actor\" actor\n\
-                 SetModLocalData \"owned.scripted_allowed\" allowed\n\
                  SetModLocalData \"owned.scripted_flag\" blockFlag\n\
+                 SetModLocalData \"owned.scripted_allowed\" allowed\n\
                  {}\n\
                  End) \"priority\"::2 1::player\n\
-                 SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" (Begin Function {{ref actor, int allowed, int blockFlag}}\n\
+                 SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" (Begin Function {{ref actor, int blockFlag, int allowed}}\n\
+                 SetModLocalData \"owned.block_only_calls\" ((GetModLocalData \"owned.block_only_calls\") + 1)\n\
+                 End) \"priority\"::1 2::1\n\
+                 SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" (Begin Function {{ref actor, int blockFlag, int allowed}}\n\
                  SetModLocalData \"owned.after_veto_saw_allowed\" allowed\n\
                  SetFunctionValue 1\n\
-                 End) \"priority\"::1 2::0",
+                 End) \"priority\"::1 3::0",
                 if cancels { "SetFunctionValue 0" } else { "" }
             ),
         );
@@ -341,8 +366,9 @@ fn scripted_activate_dispatches_showoff_on_pre_scripted_activate_with_flag_and_v
         assert_eq!(num(&mut g, "owned.scripted_calls"), 1.0);
         assert_eq!(target(&mut g, "owned.scripted_target"), trader);
         assert_eq!(target(&mut g, "owned.scripted_actor"), FormId::PLAYER_REF);
-        assert_eq!(num(&mut g, "owned.scripted_allowed"), 1.0);
         assert_eq!(num(&mut g, "owned.scripted_flag"), f64::from(flag));
+        assert_eq!(num(&mut g, "owned.scripted_allowed"), 1.0);
+        assert_eq!(num(&mut g, "owned.block_only_calls"), f64::from(flag));
         if cancels {
             assert_eq!(num(&mut g, "owned.block"), 0.0, "explicit 0 veto must cancel scripted Activate");
             assert_eq!(num(&mut g, "owned.after_veto_saw_allowed"), 0.0);
@@ -361,7 +387,7 @@ fn scripted_activate_dispatches_showoff_on_pre_scripted_activate_with_flag_and_v
     let mut g = game(&f);
     query(
         &mut g,
-        "SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" (Begin Function {ref actor, int allowed, int blockFlag}\n\
+        "SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" (Begin Function {ref actor, int blockFlag, int allowed}\n\
          SetModLocalData \"owned.scripted_on_hand\" 1\n\
          SetFunctionValue 0\n\
          End)",

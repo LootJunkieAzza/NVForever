@@ -549,6 +549,10 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                 }
                 _ => false,
             };
+            if changed {
+                let live = m.text.clone();
+                with_game(script, sim, |g| g.set_text_input_live_text(&live));
+            }
             st.dirty |= changed;
             None
         }

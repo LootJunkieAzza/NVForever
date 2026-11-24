@@ -898,6 +898,13 @@ impl Entry {
             Entry::Quit => "Quit",
         }
     }
+
+    fn label_with(self, console_label: &str) -> std::borrow::Cow<'static, str> {
+        match self {
+            Entry::Console if console_label != CONSOLE_LABEL => std::borrow::Cow::Owned(console_label.to_string()),
+            _ => std::borrow::Cow::Borrowed(self.label()),
+        }
+    }
 }
 
 /// The quit question and its choices [observed: the owner's screenshot of the original's
@@ -1501,7 +1508,7 @@ struct Drawn {
     notes: Vec<Option<String>>,
     status: String,
     /// The column's labels and whether each can be taken.
-    column: Vec<(&'static str, bool)>,
+    column: Vec<(std::borrow::Cow<'static, str>, bool)>,
     /// Under the main menu (its entries make the column; no pause screen).
     under_main: bool,
     /// The Mods page shows a mod's own window with its own Back (MCM's): ours is not
@@ -5453,7 +5460,10 @@ fn drawn_now(world: &mut World) -> Drawn {
         let now = world.get_resource::<Time<Real>>().map_or(0.0, |t| t.elapsed_secs_f64());
         (list.get(p.row).map_or("choice", |s| s.label), p.left(now), world.resource::<PauseView>().keep_selected)
     });
-    let main = world.get_resource::<crate::main_menu::MainMenu>().filter(|m| m.open).map(|m| m.column());
+    let main: Option<Vec<(std::borrow::Cow<'static, str>, bool)>> = world
+        .get_resource::<crate::main_menu::MainMenu>()
+        .filter(|m| m.open)
+        .map(|m| m.column().into_iter().map(|(l, ok)| (std::borrow::Cow::Borrowed(l), ok)).collect());
     let stand_ins: Vec<(RowId, Vec<String>)> = {
         let view = world.resource::<PauseView>();
         let ids = match view.scope {
@@ -5487,7 +5497,13 @@ fn drawn_now(world: &mut World) -> Drawn {
         mod_window: page == Page::Mods && world.get_resource::<crate::tiles::mods::ModsPage>().is_some_and(|m| m.mcm_open),
         column: main.unwrap_or_else(|| {
             let split = crate::split_screen::SplitScreen::entry(world.get_resource::<crate::split_screen::SplitScreen>());
-            entries_with(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.help_is_console), split).iter().map(|e| (e.label(), true)).collect()
+            let tweaks = world.get_resource::<crate::tweaks::TweakSettings>();
+            let console_on = tweaks.is_some_and(|t| t.help_is_console);
+            let console_label = tweaks.map_or(CONSOLE_LABEL, crate::tweaks::TweakSettings::console_label);
+            entries_with(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), console_on, split)
+                .iter()
+                .map(|e| (e.label_with(console_label), true))
+                .collect()
         }),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
@@ -7205,7 +7221,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, column: entries(false, false).iter().map(|e| (e.label(), true)).collect(), device: ("Keyboard and Mouse", false), rumble: true, sensitivity: 1.0, view_w: VIEW_W as u32, ..default() };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, column: entries(false, false).iter().map(|e| (std::borrow::Cow::Borrowed(e.label()), true)).collect(), device: ("Keyboard and Mouse", false), rumble: true, sensitivity: 1.0, view_w: VIEW_W as u32, ..default() };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>, glyphs: Res<crate::pad::PadGlyphs>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list, &glyphs), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &Boxed)>();
@@ -7615,5 +7631,43 @@ mod tests {
         app.update();
         assert!(texts(&mut app).contains(&("Large".to_string(), color(Shade::Dim))));
         assert_eq!(row_state(&mut app), "1920x1080");
+    }
+
+    #[test]
+    fn console_entry_uses_custom_label_or_default() {
+        let mut app = App::new();
+        app.add_plugins(PausePlugin);
+        app.insert_resource(crate::tweaks::TweakSettings {
+            help_is_console: true,
+            help_console_label: "Dev Console".to_string(),
+            ..Default::default()
+        });
+        let custom = drawn_now(app.world_mut());
+        assert!(custom.column.iter().any(|(l, ok)| l == "Dev Console" && *ok), "{:?}", custom.column);
+        assert!(!custom.column.iter().any(|(l, _)| l == CONSOLE_LABEL), "{:?}", custom.column);
+
+        app.world_mut().resource_mut::<crate::tweaks::TweakSettings>().help_console_label = "   ".to_string();
+        let fallback = drawn_now(app.world_mut());
+        assert!(fallback.column.iter().any(|(l, ok)| l == CONSOLE_LABEL && *ok), "{:?}", fallback.column);
+    }
+
+    #[test]
+    fn console_entry_reads_custom_label_from_nvforever_ini() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("nvf-pause-console-label-{}-{stamp}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "[Settings]\ntweak-help-is-console=1\ntweak-help-console-label=Command Prompt\n").unwrap();
+
+        let mut app = App::new();
+        app.add_plugins((crate::tweaks::TweaksPlugin, PausePlugin));
+        app.insert_resource(crate::settings::SettingsFile(Some(path.clone())));
+        crate::settings::apply_stored(app.world_mut());
+        app.world_mut().run_system_cached(crate::tweaks::read_help_console_label).unwrap();
+        let drawn = drawn_now(app.world_mut());
+        assert!(drawn.column.iter().any(|(l, ok)| l == "Command Prompt" && *ok), "{:?}", drawn.column);
+        assert!(!drawn.column.iter().any(|(l, _)| l == CONSOLE_LABEL), "{:?}", drawn.column);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

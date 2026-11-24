@@ -1483,6 +1483,23 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // `[armor]`: 1 light, 2 medium, 3 heavy; with no armor given, the calling actor's
+        // UpperBody armour's; 0 without one, or for a form that is no armour [documented:
+        // GECK wiki GetArmorClass, alias GetAC]. A class SetArmorClass gave is read back.
+        "getarmorclass" | "getac" => {
+            use fnv_sim::forms::ArmorClass;
+            let class = match form(args, 0) {
+                Some(a) if g.is_armo(a) => Some(crate::armor_overrides::armor_class_from_flags(g.armo_general_flags(a))),
+                Some(_) => None,
+                None => subject.and_then(|r| g.body_armor(r)).map(|(_, c)| c),
+            };
+            XVal::Num(match class {
+                Some(ArmorClass::Light) => 1.0,
+                Some(ArmorClass::Medium) => 2.0,
+                Some(ArmorClass::Heavy) => 3.0,
+                None => 0.0,
+            })
+        }
         // `armor path`: the ragdoll constraint template (BMCT) [documented: SetArmorRCT].
         "setarmorrct" => {
             if let (Some(a), Some(path)) = (of_sig(g, form(args, 0), b"ARMO"), text(args, 1)) {

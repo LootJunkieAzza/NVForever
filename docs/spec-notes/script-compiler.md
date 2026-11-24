@@ -110,7 +110,12 @@ of a form the unit's plugin can see (the plugin and its masters, the last defini
 wins); then an 8-digit hex FormID, stored file-local [observed: scripts.md §3.4]. A quoted
 Editor ID names its form. In an enum position (actor values, animation groups) a name is a
 spelling from encodings.json `enums`. `Head.var` is variable `var` of the script that
-`Head` runs: a quest's script, or a reference's base form's script.
+`Head` runs: a quest's script, or a reference's base form's script. When a reference's base
+actor (`NPC_`/`CREA`) has `ACBS` template flag `Use Script` (bit 9) set and a `TPLT`
+pointing to a visible actor record [documented: GECK wiki Template Data, "Use Script";
+`schemas/fnv/gameplay.json` NPC_/CREA `ACBS.template_flags`], `LoadOrderIndex` /
+`PluginEnv::script_vars` and `ScriptIndex::script_of` follow the `TPLT` chain to resolve
+that script's variables, matching `Game::ref_script` and `GameData::base_template_source`.
 
 [observed: original installed plugin records, inspected through SCVR declarations
 and each plugin's master table] A master script can declare a variable which a later

@@ -344,3 +344,18 @@ fn get_refs_in_cell_leaves_out_the_references_beyond_max_distance() {
     assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0 100 45)"), 4.0);
     assert_eq!(n(&mut g, "ar_Size (TestPromptRef.GetRefsInCell TestRoom 0 0 0 0)"), 5.0);
 }
+
+#[test]
+fn get_threshold_av_resolves_bare_perception_and_caps_special_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV Perception"), 5.0);
+    q(&mut g, "PlayerREF.SetActorValue Perception 8");
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV Perception"), 8.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdedActorValue Perception"), 8.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV \"Perception\""), 8.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV 6"), 8.0);
+    // SPECIAL values above 10 threshold to 10 [documented: GetThresholdedActorValue].
+    q(&mut g, "PlayerREF.ModActorValue Perception 5");
+    assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV Perception"), 10.0);
+}

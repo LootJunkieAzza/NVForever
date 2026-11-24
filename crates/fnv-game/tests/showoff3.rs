@@ -282,10 +282,13 @@ fn small_getters_run() {
     assert!(sorted(&mut g, "TopicInfoGetResponseStrings TestHat").is_empty());
     assert_eq!(n(&mut g, "ModNumericINISetting \"fNoSuchSetting:General\" 1"), 0.0);
     assert_eq!(n(&mut g, "GetChallengeProgress TestHat"), 0.0);
-    // Level 1, the menu closed: the points of level 2, a perk level
-    // (iLevelsPerPerk 2).
+    // Level 1, the menu closed: evaluates `level + 1` (iLevelsPerPerk = 2), including
+    // for explicit nonzero `levelOverride` values (`1/2/3/4` -> `1/0/1/0`).
     assert_eq!(n(&mut g, "GetCalculatedPerkPoints"), 1.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 1"), 1.0);
     assert_eq!(n(&mut g, "GetCalculatedPerkPoints 2"), 0.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 3"), 1.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 4"), 0.0);
     assert!(n(&mut g, "GetCalculatedSkillPoints") >= 10.0);
     assert_eq!(n(&mut g, "player.GetRadiationExtraData"), 0.0);
     assert_eq!(n(&mut g, "player.SetRadiationExtraData 20"), 1.0);

@@ -67,7 +67,7 @@ Back, Defaults, the quit and keep questions), the settings page (its tabs, rows,
 ON / OFF and the names of the choices in its lists and on its choice meters: Off, Auto,
 Amber, Very Hard …), the hacking log and the terminal refusals (#2095), lockpicking and the casino games
 (blackjack, roulette, slots: their buttons, rows, refusals and results, #3146; the
-chips' and casinos' names are the install's), and the Quick Loot list (its keys' words, column heads and `Empty`; the items' and containers' names are the install's). A choice's
+chips' and casinos' names are the install's), and the Quick Loot list (its keys' words, column heads and `Empty`; the items' and containers' names are the install's), and the corner and banner notices NVForever words itself (`Quest added`, `Quest completed`, `Quest failed`, `You have discovered`, `COMPLETED: …`, `Discovered: …`, `… added`, `Map marker added`, #3399; the quests', places' and items' names are the install's). A choice's
 name with no line (a resolution, a display's name, a language's own name) shows as it
 is. A note that names a choice names it as the page shows it, so a translated choice
 name is translated in the notes too.

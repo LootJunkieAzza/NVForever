@@ -146,7 +146,8 @@ impl Game<'_> {
 
     /// Whether the player could fast travel from here now: the checks the Pip-Boy's map
     /// makes before it asks (`nvf_play::pipboy::data::travel::refusal`), but the marker's:
-    /// EnableFastTravel 0, a cell or world flagged against it, in the air, in combat,
+    /// EnableFastTravel 0, an interior or a world flagged against it
+    /// (`crate::fast_travel::place_forbids`), in the air, in combat,
     /// hostiles near, over-encumbered without Long Haul [documented: GetPCCanFastTravel,
     /// "the same check that the game does"]. In the air is the player's IsInAir;
     /// "in combat" the player's combat state, where the map reads the battle music
@@ -157,15 +158,8 @@ impl Game<'_> {
             return false;
         }
         let cell = self.world.peek(p).and_then(|s| s.cell);
-        let flags = |g: &Game, f: FormId| g.data.record_field(f, "DATA", "").and_then(|v| v.as_f64()).map_or(0, |x| x as u32);
-        let place = match cell {
-            Some(c) => match self.world.placed.world_of(c) {
-                Some(w) => flags(self, w) & (1 << 1) != 0,
-                None => flags(self, c) & (1 << 2) != 0,
-            },
-            None => false,
-        };
-        if place {
+        // The player's Fast Travel From Anywhere lifts it, as on the map [design: docs/design/tweaks.md].
+        if !self.tweaks.unsafe_fast_travel && cell.is_some_and(|c| self.place_forbids_travel(Some(c), self.world.placed.world_of(c))) {
             return false;
         }
         if matches!(crate::nvse::call(self, ctx, "isinair", Some(p), &[]), Some(Ok(XVal::Num(x))) if x != 0.0) {

@@ -366,8 +366,9 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
             s.karma = Some((karma, word, picture));
             let setting = |n: &str| karma_titles.get(&n.to_ascii_lowercase()).cloned();
-            s.karma_title = Some(model::karma_title(level as i64, word, setting));
-            s.karma_setting_title = model::karma_title_setting(level as i64, word, setting);
+            let ttw = g.ttw_karma_titles();
+            s.karma_title = Some(model::karma_title_with_ttw(level as i64, word, ttw, setting));
+            s.karma_setting_title = model::karma_title_setting_with_ttw(level as i64, word, ttw, setting);
         }
         // Worn apparel's enchantments taking effect now, as the game holds them: one
         // line per worn item, its Value Modifier effects (`Forms::effect`) at the amounts

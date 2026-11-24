@@ -34,9 +34,10 @@ accepts a reference when its base has the keyword, while
 [EditorIDToFormID](https://geckwiki.com/index.php/EditorIDToFormID) names a form by its
 editor ID. Existing loaded-data lookup, keyword recipient arrays, event filters,
 custom-event dispatch, ShowBarterMenu and OpenTeammateContainer queues provide the
-trade path. This proposal adds no provider/version advertisement. An Improved
-Console presence requirement is not established merely by those existing APIs or
-by the preactivation service; its remaining native feature dependency stays open.
+trade path. The `"Improved Console"` provider entry is registered separately by the
+interactive console implementation (`docs/design/console.md`: persistent console locals
+and transparent expression/statement result printing; `docs/spec-notes/ext-version.md` §5),
+not merely by this preactivation service.
 
 [hypothesis: validation plan] Authored synthetic source controls cover the original
 presence-query guard shape, ordinary Call zero versus explicit setter zero,
@@ -71,16 +72,22 @@ tagged `[hypothesis]` or `[design]` below.
 
 ### `ShowOff:OnPreScriptedActivate`
 
-[hypothesis] Dispatched by `Game::activate` for scripted `Activate` calls
-(`ActMode::Default` and `ActMode::Block`), after `OnActivate` observers and destroyed
-checks and before the `OnActivate` block or default action. Regular hand activation
-(`ActMode::Hand`) continues to dispatch `ShowOff:OnPreActivate` and never fires
-`ShowOff:OnPreScriptedActivate`. The activated reference is the calling reference
-(`this` / `0::`), and the three arguments are `(rActivator, bIsActivationNotPrevented,
-bRunOnActivateBlock)` where `bRunOnActivateBlock` is `1` for `ActMode::Block` and `0`
-for `ActMode::Default`. Dynamic filter matching on `bIsActivationNotPrevented`,
-priority/registration order, snapshot array-filter retention, sticky explicit-zero
-veto, and post-handler destroyed re-check follow `ShowOff:OnPreActivate` via shared
+[observed: Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, 10 official base
+masters (FalloutNV.esm + 9 DLC/pack masters), probes
+`so_31_pre_scripted_activate_args_veto` and `so_31b_pre_scripted_activate_noveto` on a
+placed Bottle Cap (`0xF`) in Doc Mitchell's house, no DLL or source consulted]
+Dispatched by `Game::activate` for scripted `Activate` calls (`ActMode::Default` and
+`ActMode::Block`), after `OnActivate` observers and destroyed checks and before the
+`OnActivate` block or default action. The activated reference is the calling reference
+(`this` / `0::`, `mThis=1`), and the three arguments are `(rActivator,
+bRunOnActivateBlock, bIsActivationNotPrevented)`: `Activate Player 0` passes
+`(Player, 0, 1)` and `Activate Player 1` passes `(Player, 1, 1)`, while returning
+`SetFunctionValue 0` vetoes pickup (`caps=0->0` vs `caps=0->1` without veto).
+[hypothesis] Regular hand activation (`ActMode::Hand`) continues to dispatch
+`ShowOff:OnPreActivate` and never fires `ShowOff:OnPreScriptedActivate`; dynamic filter
+matching on `bIsActivationNotPrevented` (`3::`), priority/registration order, snapshot
+array-filter retention, sticky explicit-zero veto across multiple handlers, and
+post-handler destroyed re-check follow `ShowOff:OnPreActivate` via shared
 `Game::dispatch_pre_event`.
 
 ### `ShowOff:OnPreActivateInventoryItem` and `ShowOff:OnPreActivateInventoryItemAlt`

@@ -51,10 +51,39 @@ JIP block functions.
 The engine tells the camera each frame (`CameraRequests::view`): place, heading, pitch,
 roll, vertical field of view and the width over the height (GetPlayerCamFOV, JohnnyGuitar batch 9, may read it).
 
+**Camera overlay references (`JG_CameraOverlayRef_PreIS`, `JG_CameraOverlayRef_PreUI`).**
+JohnnyGuitar NVSE 5.26 introduced a 3D camera overlay system rendering overlays at
+various render stages [documented: JohnnyGuitar NVSE 5.26 release notes,
+`https://github.com/carxt/JohnnyGuitarNVSE/releases/tag/5.26`, "Add camera overlay
+system; allows for 3D overlays at various render stages"; 5.28 release notes,
+`https://github.com/carxt/JohnnyGuitarNVSE/releases/tag/5.28`, "Fix saving issues
+related to overlay references" / "Don't render camera overlays during loading screen"].
+Those release notes do not print the literal EditorID strings; the two EditorIDs
+`JG_CameraOverlayRef_PreIS` (before image-space, selected when `bImageSpaceEffects` is
+enabled) and `JG_CameraOverlayRef_PreUI` (before UI), looked up via `EditorIDToFormID`
+and passed to `IsFormValid`, `ModelHasBlock`, `AttachModel`, `SetNifTrans`,
+`SetMatrPropVal`, and `RemoveNifBlock`, are observed in an installed mod script
+[observed: Radiation Visuals - ESPless (`https://www.nexusmods.com/newvegas/mods/84917`,
+`MCM/RadiationVisuals.json` `minModVersion: 1.00`, requiring `JohnnyGuitarNVSE` 528),
+`NVSE/user_defined_functions/RadiationVisuals/AttachCamera.gek`; JohnnyGuitar NVSE's
+DLL/source code was not consulted]. NVForever exposes both EditorIDs as engine-owned
+runtime references at `0xFE7F_0001` and `0xFE7F_0002` inside a dedicated
+`[CAMERA_OVERLAY_BASE, LAMBDA_BASE)` (`0xFE7F_0000..0xFE80_0000`) window carved out
+between `TEMP_REF_BASE` (`0xFE40_0000..0xFE7F_0000`, enforced in `Game::temp_ref` and
+`Game::temp_item`) and `LAMBDA_BASE` (`0xFE80_0000..0xFF00_0000`), disjoint from
+`CLONE_BASE` (`0xFE00_0000..0xFE20_0000`), `COMPILED_BASE` (`0xFE20_0000..0xFE40_0000`),
+`FormId::FIRST_DYNAMIC` (`0xFF00_0000..`), and plugin indices `0x00..=0xFD` [design]:
+`EditorIDToFormID`, `GetEditorID`, and `Host::form_sig` all let an explicit `SetEditorID`
+or a loaded plugin record at the same FormID win first, falling back to `REFR` for the
+built-in overlay references so `IsFormValid` and `IsReference` report `1` and
+NIF/particle script calls accept them without raising `NoReference` [hypothesis: exact
+native FormIDs and renderer-side overlay pass behavior are unobserved].
+
 ## 3. Engine follow-ups
 
 The alpha and stencil properties drawn as set; the first-person model's nodes (pc); the
-other sequence slots of GetSequenceAnimGroup.
+other sequence slots of GetSequenceAnimGroup; renderer-side 3D drawing of models attached
+to `JG_CameraOverlayRef_PreIS` and `JG_CameraOverlayRef_PreUI`.
 
 ## 4. Probe answers (set jgnif, run 2026-11-09)
 

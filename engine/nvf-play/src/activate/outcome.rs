@@ -6,6 +6,7 @@
 
 use fnv_sim::world::{Activation, Outcome};
 use fnv_sim::FormId;
+use fnv_util::words::trf;
 use fnv_world::WorldIndex;
 
 /// Lock level meaning "requires a key" [hypothesis, simulation.md §5].
@@ -206,7 +207,7 @@ pub fn effects(a: &Activation, target: u32, name: &str, index: &WorldIndex, name
         Outcome::PickedUp { item, count, .. } => {
             out.push(Effect::RefChanged(target));
             let n = name_of(*item);
-            out.push(Effect::Message(if *count > 1 { format!("{n} ({count}) added") } else { format!("{n} added") }));
+            out.push(Effect::Message(if *count > 1 { trf("{name} ({count}) added", &[("name", &n), ("count", count)]) } else { trf("{name} added", &[("name", &n)]) }));
         }
         Outcome::Disarmed { item, placed } => {
             out.push(Effect::RefChanged(target));

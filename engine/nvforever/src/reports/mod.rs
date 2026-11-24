@@ -915,6 +915,12 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
         }
         return;
     }
+    // What the last frame's log lines found: a GPU error that stops the game (`gpu_error`)
+    // is logged in the frame the game exits in, after `detect` ran (#2758).
+    if exiting {
+        let t_s = c.started.elapsed().as_secs();
+        c.detectors.drain_log(&mut c.summary, &c.here, t_s);
+    }
     bring_up_to_date(c, script.as_deref(), exiting);
     let bytes = c.summary.to_bytes(redact);
     match fnv_install::guard_write(&c.file, None).map_err(|e| e.to_string()).and_then(|()| std::fs::write(&c.file, &bytes).map_err(|e| e.to_string())) {

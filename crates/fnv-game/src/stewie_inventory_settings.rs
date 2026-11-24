@@ -27,6 +27,8 @@ impl Game<'_> {
             self.tweaks.weightless_worn_armor
         } else if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("bWeightlessWornPowerArmor") {
             self.tweaks.weightless_worn_power_armor
+        } else if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("bArmorConditionLabel") {
+            self.tweaks.armor_condition
         } else {
             return None;
         };

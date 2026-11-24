@@ -139,4 +139,87 @@ mod tests {
         assert!(err.to_string().contains("invalid type: null, expected f64"), "unexpected error: {err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn inspect_fos_reports_v2_decoded_counts() {
+        let dir = std::env::temp_dir().join(format!("nvf-save-cmd-inspect-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("minimal.fos");
+        // Build minimal valid FO3SAVEGAME with 1 ECZN changed form.
+        let mut h = Vec::new();
+        h.extend(0x30u32.to_le_bytes());
+        h.push(0x7C);
+        h.extend([0u8; 64]);
+        h.push(0x7C);
+        for v in [0u32, 0, 1] {
+            h.extend(v.to_le_bytes());
+            h.push(0x7C);
+        }
+        for s in ["Test", "Drifter"] {
+            h.extend((s.len() as u16).to_le_bytes());
+            h.push(0x7C);
+            h.extend(s.as_bytes());
+            h.push(0x7C);
+        }
+        h.extend(2u32.to_le_bytes());
+        h.push(0x7C);
+        h.extend((4u16).to_le_bytes());
+        h.push(0x7C);
+        h.extend(b"Room");
+        h.push(0x7C);
+        h.extend((9u16).to_le_bytes());
+        h.push(0x7C);
+        h.extend(b"000.01.00");
+
+        let mut b = b"FO3SAVEGAME".to_vec();
+        b.extend((h.len() as u32).to_le_bytes());
+        b.extend(&h);
+        let mut pl = Vec::new();
+        pl.extend([1u8, 0x7C]);
+        let name = b"FalloutNV.esm";
+        pl.extend((name.len() as u16).to_le_bytes());
+        pl.push(0x7C);
+        pl.extend(name);
+        pl.push(0x7C);
+        b.push(27);
+        b.extend((pl.len() as u32).to_le_bytes());
+        b.extend(&pl);
+        let table_at = b.len();
+        b.extend([0u8; 32 + 78]);
+        let g1 = b.len();
+        let cf = b.len();
+        // 1 ECZN record (ref index 1, bit 31, 17-byte payload).
+        let mut ez = Vec::new();
+        for v in [1u32, 1, 1, 14] {
+            ez.extend(v.to_le_bytes());
+        }
+        ez.push(0x7C);
+        b.extend([0, 0, 1]);
+        b.extend((1u32 << 31).to_le_bytes());
+        b.push(fnv_save::fos::TYPE_ECZN | 0x40);
+        b.push(27);
+        b.extend((ez.len() as u16).to_le_bytes());
+        b.extend(&ez);
+        let g2 = b.len();
+        b.extend(1000u32.to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+        let fid = b.len();
+        b.extend(1u32.to_le_bytes());
+        b.extend(0x0000_0999u32.to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+        let tail = b.len();
+        b.extend([5, 0, 0, 0, 0, 0, 0, 0, 0x7C]);
+        for (i, v) in [fid, tail, g1, cf, g2, 0, 1, 1].iter().enumerate() {
+            b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&(*v as u32).to_le_bytes());
+        }
+        std::fs::write(&path, &b).unwrap();
+
+        let val = run(SaveCmd::InspectFos { input: path }).unwrap();
+        assert_eq!(val["schema"], "fnv.save.fos_inspect/1");
+        assert_eq!(val["decoded_counts"]["encounter_zones"], 1);
+        assert_eq!(val["decoded_counts"]["actor_changes"], 0);
+        assert_eq!(val["decoded_counts"]["ref_extras"], 0);
+        assert_eq!(val["decoded_counts"]["cells"], 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -77,6 +77,9 @@ pub struct CornerMessages {
     waiting: VecDeque<Note>,
     /// The message on screen and the seconds it has been there.
     showing: Option<(Note, f32)>,
+    /// True after [`CornerMessages::clear`] dropped an active message whose HUD entity
+    /// still needs despawning on the next draw pass [design].
+    despawn_needed: bool,
 }
 
 impl CornerMessages {
@@ -90,6 +93,18 @@ impl CornerMessages {
         }
         self.waiting.push_back(note);
         true
+    }
+
+    /// Clear all queued and currently displayed corner messages (`ClearMessageQueue`)
+    /// [documented: GECK wiki ClearMessageQueue; observed: hud1, 0 in its frame and the
+    /// next; design: clears both waiting and active messages and marks the HUD area for
+    /// immediate despawn]. Returns the total number of messages cleared.
+    pub fn clear(&mut self) -> usize {
+        let had_showing = self.showing.take().is_some();
+        let dropped = self.waiting.len() + usize::from(had_showing);
+        self.waiting.clear();
+        self.despawn_needed |= had_showing;
+        dropped
     }
 
     /// Let `dt` seconds pass; `true` when another message (or none) is now on screen.
@@ -117,6 +132,21 @@ impl CornerMessages {
 
     pub fn waiting(&self) -> usize {
         self.waiting.len()
+    }
+
+    /// Total corner messages queued, including the one currently on screen
+    /// (`GetNumQueuedCornerMessages`) [documented: GECK wiki GetNumQueuedCornerMessages;
+    /// observed: hud1].
+    pub fn total(&self) -> usize {
+        self.waiting.len() + usize::from(self.showing.is_some())
+    }
+
+    pub(crate) fn needs_despawn(&self) -> bool {
+        self.despawn_needed
+    }
+
+    pub(crate) fn take_despawn(&mut self) -> bool {
+        std::mem::take(&mut self.despawn_needed)
     }
 
     /// How strongly the message on screen is drawn: it comes during its first moment
@@ -168,10 +198,18 @@ impl Plugin for CornerMessagesPlugin {
 /// One given behind a menu waits for it to close ([`held`]).
 fn note_notices(mut script: Option<ResMut<crate::script::ScriptState>>, mut corner: ResMut<CornerMessages>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    if rt.game.hud.take_corner_clear() {
+        let dropped = corner.clear();
+        info!("corner messages: cleared {dropped} message(s) (ClearMessageQueue)");
+    }
     for note in rt.game.take_note_notices() {
         let text = rt.game.note_notice_text(note);
         info!("note notice: {text}");
         corner.push(Note::from(text));
+    }
+    let total = corner.total();
+    if rt.game.events.is_empty() && (rt.game.hud.corner_queue != total || !rt.game.hud.corner_queue_synced) {
+        rt.game.hud.sync_corner_queue(total);
     }
 }
 
@@ -249,7 +287,7 @@ fn draw(
     // Real time: a message ends after its time on screen even while game time stands
     // still with every player at a table (owner, playtest 119, item 168).
     time: Res<Time<Real>>,
-    mut corner: ResMut<CornerMessages>,
+    (mut corner, mut script): (ResMut<CornerMessages>, Option<ResMut<crate::script::ScriptState>>),
     panel: Res<MessagePanel>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -261,10 +299,24 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     state: Option<Res<State<crate::PlayState>>>,
     driven: Option<Res<crate::player::ViewDriven>>,
-    (kill_cam, vats, hud, script, photo, mut rebuild): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::hud::HudView>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::photo_mode::PhotoMode>>, crate::interface::HudRebuild),
+    (kill_cam, vats, hud, photo, mut rebuild): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::hud::HudView>>, Option<Res<crate::photo_mode::PhotoMode>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        if rt.game.hud.take_corner_clear() {
+            let dropped = corner.clear();
+            info!("corner messages: cleared {dropped} message(s) (ClearMessageQueue)");
+        }
+    }
+    let mut despawned = false;
+    if corner.needs_despawn() {
+        corner.bypass_change_detection().take_despawn();
+        for (e, _) in &roots {
+            commands.entity(e).try_despawn();
+        }
+        despawned = true;
+    }
     // A match's end view holds them as a kill camera does (`HudView::end_view`), and so
     // do the classic VATS style while it plays its queued attacks and a mini-game in the
     // world (`in_world_game`).
@@ -273,19 +325,32 @@ fn draw(
     // rest of the HUD (`crate::photo_mode`; its "Photo saved" is its own).
     let photo = photo.is_some_and(|p| p.on);
     let held = held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut || photo);
-    for (_, mut v) in &mut roots {
-        v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
+    if !despawned {
+        for (_, mut v) in &mut roots {
+            v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
+        }
     }
+    let sync_count = |script: &mut Option<ResMut<crate::script::ScriptState>>, total: usize| {
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            if rt.game.events.is_empty() && (rt.game.hud.corner_queue != total || !rt.game.hud.corner_queue_synced) {
+                rt.game.hud.sync_corner_queue(total);
+            }
+        }
+    };
     if held {
+        sync_count(&mut script, corner.total());
         return;
     }
     // The HUD's scale changed (split screen): the message on screen is drawn again at it.
     let rebuilt = rebuild.stale();
     let changed = corner.bypass_change_detection().step(time.delta_secs()) || rebuilt;
+    sync_count(&mut script, corner.total());
     let strength = corner.strength();
     if changed {
-        for (e, _) in &roots {
-            commands.entity(e).try_despawn();
+        if !despawned {
+            for (e, _) in &roots {
+                commands.entity(e).try_despawn();
+            }
         }
         if let Some(note) = corner.showing() {
             let bc = bc_supported(formats.as_deref());
@@ -410,5 +475,334 @@ mod tests {
             c.push(note(&i.to_string(), None));
         }
         assert_eq!(c.waiting(), MAX_WAITING);
+    }
+
+    #[test]
+    fn clear_drops_showing_and_waiting_and_allows_new_messages() {
+        let mut c = CornerMessages::default();
+        assert_eq!(c.total(), 0);
+        assert!(c.push(note("first", Some(5.0))));
+        assert!(c.push(note("second", Some(5.0))));
+        assert_eq!(c.total(), 2);
+        assert!(c.step(0.0));
+        assert_eq!(c.showing().unwrap().text, "first");
+        assert_eq!(c.waiting(), 1);
+        assert_eq!(c.total(), 2);
+
+        // Clearing drops both active and waiting messages and flags visual despawn.
+        assert_eq!(c.clear(), 2);
+        assert_eq!(c.total(), 0);
+        assert!(c.showing().is_none());
+        assert_eq!(c.waiting(), 0);
+        assert!(c.needs_despawn());
+        // A second clear when already empty preserves the pending despawn flag.
+        assert_eq!(c.clear(), 0);
+        assert!(c.needs_despawn());
+        assert!(c.take_despawn());
+        assert!(!c.needs_despawn());
+
+        // Pushing the same or a new message after clear displays normally.
+        assert!(c.push(note("first", Some(2.0))));
+        assert_eq!(c.total(), 1);
+        assert!(c.step(0.0));
+        assert_eq!(c.showing().unwrap().text, "first");
+    }
+
+    fn run_query_num(world: &mut World, body: &str) -> f64 {
+        let mut script = world.resource_mut::<crate::script::ScriptState>();
+        let rt = script.rt.as_mut().unwrap();
+        let src = format!("Begin Function {{}}\n{body}\nEnd\n");
+        match rt.game.run_query(&src, fnv_game::game::RunCtx::default()).unwrap() {
+            fnv_script::vm::XVal::Num(x) => x,
+            other => panic!("expected number, got {other:?}"),
+        }
+    }
+
+    /// Let `d` pass on both clocks: the corner messages run on real time (`draw`).
+    fn advance(app: &mut App, d: std::time::Duration) {
+        app.world_mut().resource_mut::<Time>().advance_by(d);
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(d);
+    }
+
+    fn corner_test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<crate::PlayState>()
+            .init_resource::<Time>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<MessagePanel>()
+            .insert_resource(crate::script::ScriptState::over_no_plugins())
+            .add_plugins(CornerMessagesPlugin);
+        app
+    }
+
+    #[test]
+    fn engine_messages_sync_and_clear_message_queue_clears_live_hud() {
+        let mut app = corner_test_app();
+
+        // Engine gameplay system pushes two corner notices directly to CornerMessages.
+        {
+            let mut corner = app.world_mut().resource_mut::<CornerMessages>();
+            assert!(corner.push(note("Notice one", Some(4.0))));
+            assert!(corner.push(note("Notice two", Some(4.0))));
+        }
+
+        // First update promotes "Notice one" onto screen, spawns AreaRoot, and syncs count=2.
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Notice one");
+        assert_eq!(app.world().resource::<CornerMessages>().waiting(), 1);
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<AreaRoot>>().iter(app.world()).count(), 1);
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 2.0);
+
+        // Even while held behind a menu, ClearMessageQueue clears CornerMessages, despawns
+        // AreaRoot immediately, and reports 0 in its frame and the next.
+        app.world_mut().resource_mut::<NextState<crate::PlayState>>().set(crate::PlayState::Menu);
+        app.update();
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 2.0);
+        assert_eq!(
+            run_query_num(app.world_mut(), "ClearMessageQueue\nSetFunctionValue (GetNumQueuedCornerMessages)"),
+            0.0
+        );
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().total(), 0);
+        assert!(app.world().resource::<CornerMessages>().showing().is_none());
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<AreaRoot>>().iter(app.world()).count(), 0);
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 0.0);
+
+        // Returning to Playing and queuing a new message displays normally and drops back
+        // to 0 once its display time + fade finishes.
+        app.world_mut().resource_mut::<NextState<crate::PlayState>>().set(crate::PlayState::Playing);
+        app.update();
+        app.world_mut().resource_mut::<CornerMessages>().push(note("After clear", Some(2.0)));
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "After clear");
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<AreaRoot>>().iter(app.world()).count(), 1);
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 1.0);
+
+        // Advance past display time + fade: message expires and GetNumQueuedCornerMessages returns 0.
+        advance(&mut app, std::time::Duration::from_secs_f32(2.5));
+        app.update();
+        assert!(app.world().resource::<CornerMessages>().showing().is_none());
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<AreaRoot>>().iter(app.world()).count(), 0);
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 0.0);
+    }
+
+    #[test]
+    fn vanilla_corner_messages_without_script_calls_behave_identically() {
+        let mut app = corner_test_app();
+        {
+            let mut corner = app.world_mut().resource_mut::<CornerMessages>();
+            corner.push(note("Vanilla one", Some(2.0)));
+            corner.push(note("Vanilla two", Some(2.0)));
+        }
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Vanilla one");
+        assert_eq!(app.world().resource::<CornerMessages>().waiting(), 1);
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<AreaRoot>>().iter(app.world()).count(), 1);
+
+        // Held behind a menu keeps the message paused and hidden without clearing it.
+        app.world_mut().resource_mut::<NextState<crate::PlayState>>().set(crate::PlayState::Menu);
+        app.update();
+        advance(&mut app, std::time::Duration::from_secs_f32(10.0));
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Vanilla one");
+        assert_eq!(app.world().resource::<CornerMessages>().waiting(), 1);
+
+        // Back in Playing, reset the frame delta before unpausing, then advance past
+        // display time + fade so "Vanilla two" takes over.
+        advance(&mut app, std::time::Duration::ZERO);
+        app.world_mut().resource_mut::<NextState<crate::PlayState>>().set(crate::PlayState::Playing);
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Vanilla one");
+        advance(&mut app, std::time::Duration::from_secs_f32(2.5));
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Vanilla two");
+        assert_eq!(app.world().resource::<CornerMessages>().waiting(), 0);
+    }
+
+    fn run_scripts_test_app() -> App {
+        use crate::script::{run_scripts, ScriptState};
+        use crate::sim::SimState;
+        use std::sync::LazyLock;
+
+        static SCHEMA: LazyLock<fnv_esm::Schema> = LazyLock::new(|| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/fnv");
+            fnv_esm::Schema::load_dir(root).unwrap()
+        });
+        static LO: LazyLock<fnv_esm::LoadOrder<'static>> = LazyLock::new(|| fnv_esm::LoadOrder::new(&[]).unwrap());
+        static INDEX: LazyLock<fnv_world::WorldIndex> = LazyLock::new(|| fnv_world::WorldIndex::build(&LO, &SCHEMA));
+
+        let script_state = ScriptState::over_no_plugins();
+        let (forms, refs) = {
+            let rt = script_state.rt.as_ref().unwrap();
+            (rt.game.world.forms, rt.game.world.placed)
+        };
+        let sim = SimState {
+            forms,
+            refs,
+            world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()),
+        };
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<crate::PlayState>()
+            .insert_resource(crate::PlayWorld(crate::PlayData {
+                lo: &LO,
+                schema: &SCHEMA,
+                index: &INDEX,
+                world: 0,
+                interior: None,
+                eye: [0.0; 3],
+                heading_deg: 0.0,
+                pitch_deg: 0.0,
+                auto_walk: 0.0,
+                start_at_cell_spot: false,
+                packages: false,
+            }))
+            .insert_resource(crate::Location { world: 0, interior: None })
+            .insert_resource(sim)
+            .insert_resource(script_state)
+            .init_resource::<Time>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<MessagePanel>()
+            .init_resource::<crate::pause::PlayClock>()
+            .init_resource::<crate::pause::Paused>()
+            .init_resource::<crate::pause::Page>()
+            .init_resource::<crate::loading::Loading>()
+            .init_resource::<crate::tiles::mods::ModsPage>()
+            .init_resource::<crate::phys::PhysState>()
+            .init_resource::<crate::script_hud::ScriptHud>()
+            .init_resource::<CornerMessages>()
+            .init_resource::<crate::quest_messages::QuestMessages>()
+            .add_message::<crate::RefChanged>()
+            .add_message::<crate::fade::RefFade>()
+            .add_message::<crate::RefRepose>()
+            .add_message::<crate::loading::TravelRequest>()
+            .add_message::<crate::OpenContainer>()
+            .add_message::<crate::ItemUsed>()
+            .add_message::<crate::furniture::UseFurniture>()
+            .add_message::<crate::terminal::OpenTerminal>()
+            .add_message::<crate::save::LoadRefused>()
+            .add_systems(Update, (run_scripts, note_notices, draw).chain());
+
+        let _ = app.world_mut().resource_mut::<crate::phys::PhysState>().place_player([0.0; 3], 60.0, 1000.0);
+        app
+    }
+
+    #[test]
+    fn run_scripts_syncs_engine_messages_and_intra_frame_clear_message_queue() {
+        use crate::script::ScriptState;
+
+        let mut app = run_scripts_test_app();
+
+        // Frame 1: an engine system queues a corner notice before scripts run.
+        app.world_mut().resource_mut::<CornerMessages>().push(note("Engine notice", Some(5.0)));
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Engine notice");
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 1.0);
+
+        // Frame 2: console runs MessageEx -> ClearMessageQueue -> MessageEx in one frame.
+        let call = |line: &str| crate::console::ConsoleCall { line: line.into(), selected: None, active_quest: None };
+        {
+            let mut script = app.world_mut().resource_mut::<ScriptState>();
+            script.console.push(call("MessageEx \"pre-clear\""));
+            script.console.push(call("ClearMessageQueue"));
+            script.console.push(call("MessageEx \"post-clear\""));
+        }
+        advance(&mut app, std::time::Duration::from_millis(16));
+        app.update();
+
+        // Only "post-clear" survives in CornerMessages and GetNumQueuedCornerMessages reads 1.
+        let corner = app.world().resource::<CornerMessages>();
+        assert_eq!(corner.total(), 1);
+        assert_eq!(corner.showing().unwrap().text, "post-clear");
+        assert_eq!(corner.waiting(), 0);
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 1.0);
+    }
+
+    #[test]
+    fn ui_clear_preserves_event_watermark_and_count_until_run_scripts_drains_events() {
+        let mut app = run_scripts_test_app();
+
+        // Frame 1: an existing corner message is showing on screen.
+        app.world_mut().resource_mut::<CornerMessages>().push(note("Old message", Some(5.0)));
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Old message");
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<AreaRoot>>().iter(app.world()).count(), 1);
+
+        // Simulate a PlaySet::Ui script (e.g. terminal result script) running
+        // MessageEx "pre" -> ClearMessageQueue -> MessageEx "post" while leaving
+        // Game::events undrained until next frame's run_scripts.
+        let count = run_query_num(
+            app.world_mut(),
+            "MessageEx \"pre\"\nClearMessageQueue\nMessageEx \"post\"\nSetFunctionValue (GetNumQueuedCornerMessages)",
+        );
+        assert_eq!(count, 1.0);
+
+        // Run only note_notices + draw (before run_scripts): "Old message" is cleared and
+        // its AreaRoot despawned, while the event watermark and pending count=1 stay intact.
+        let mut ui_schedule = Schedule::default();
+        ui_schedule.add_systems((note_notices, draw).chain());
+        ui_schedule.run(app.world_mut());
+        assert!(app.world().resource::<CornerMessages>().showing().is_none());
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<AreaRoot>>().iter(app.world()).count(), 0);
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 1.0);
+        assert_eq!(app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.hud.corner_clear_event_index, Some(1));
+
+        // Next frame's run_scripts drains Game::events: "pre" is suppressed and only "post" shows.
+        advance(&mut app, std::time::Duration::from_millis(16));
+        app.update();
+        let corner = app.world().resource::<CornerMessages>();
+        assert_eq!(corner.total(), 1);
+        assert_eq!(corner.showing().unwrap().text, "post");
+        assert_eq!(corner.waiting(), 0);
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 1.0);
+    }
+
+    #[test]
+    fn run_scripts_preserves_pre_script_clear_and_message_counts() {
+        use crate::script::ScriptState;
+
+        let mut app = run_scripts_test_app();
+        let call = |line: &str| crate::console::ConsoleCall { line: line.into(), selected: None, active_quest: None };
+
+        // Frame 1: two messages sit in CornerMessages from the prior frame.
+        {
+            let mut corner = app.world_mut().resource_mut::<CornerMessages>();
+            corner.push(note("Stale one", Some(5.0)));
+            corner.push(note("Stale two", Some(5.0)));
+        }
+        app.update();
+        assert_eq!(app.world().resource::<CornerMessages>().total(), 2);
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 2.0);
+
+        // Simulate a pre-run_scripts script (PlaySet::Activation / dialogue) calling
+        // ClearMessageQueue before run_scripts runs in the same frame.
+        assert_eq!(
+            run_query_num(app.world_mut(), "ClearMessageQueue\nSetFunctionValue (GetNumQueuedCornerMessages)"),
+            0.0
+        );
+        app.world_mut().resource_mut::<ScriptState>().console.push(call("SetModLocalData \"after_clear\" (GetNumQueuedCornerMessages)"));
+        advance(&mut app, std::time::Duration::from_millis(16));
+        app.update();
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetModLocalData \"after_clear\")"), 0.0);
+        assert_eq!(app.world().resource::<CornerMessages>().total(), 0);
+
+        // Now push one message into CornerMessages, then simulate a pre-run_scripts
+        // MessageEx before run_scripts runs: run_scripts must read 2, not stale 1.
+        app.world_mut().resource_mut::<CornerMessages>().push(note("Existing", Some(5.0)));
+        app.update();
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 1.0);
+        assert_eq!(
+            run_query_num(app.world_mut(), "MessageEx \"from activate\"\nSetFunctionValue (GetNumQueuedCornerMessages)"),
+            2.0
+        );
+        app.world_mut().resource_mut::<ScriptState>().console.push(call("SetModLocalData \"after_msg\" (GetNumQueuedCornerMessages)"));
+        advance(&mut app, std::time::Duration::from_millis(16));
+        app.update();
+        assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetModLocalData \"after_msg\")"), 2.0);
+        assert_eq!(app.world().resource::<CornerMessages>().total(), 2);
     }
 }

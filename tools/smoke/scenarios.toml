@@ -6567,7 +6567,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NV
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
 run_seconds = 21
 expect = [
-  { re = 'player Third rig: Move\(Stand, false, false, Left, Some\("2hr"\), false\) plays .*locomotion\\h2hleft\.kf', label = "the rifle side-steps left with the fists' h2hleft.kf, body square" },
+  { re = 'player Third rig: Move\(Stand, false, false, Left, Some\("2hr"\), false, false\) plays .*locomotion\\h2hleft\.kf', label = "the rifle side-steps left with the fists' h2hleft.kf, body square" },
   { re = 'player sights: upper body turned back to the sights clip.s facing by up to (?P<n>[\d.]+)°', range = [0, 10], label = "down the sights, the body is turned back only a little (h2hleft.kf's 2.7°; mtleft.kf needed 87.5°)" },
 ]
 
@@ -8988,6 +8988,22 @@ expect = [{ re = 'actor materials: reference [0-9A-F]+ shape screen01:0 driven b
 manual = "securitron_face_bright.png: Victor's cowboy face plain and bright on his screen, not burnt white and not dim"
 
 [[scenario]]
+name = "silo-light-cone"
+source = "#3443 (player report R-F8KPPE34); docs/spec-notes/nif.md section 6 \"Unlit shapes faded by vertex alpha alone\": the cone of light at the end of Lonesome Road's silo lift (nvdlc04_silo-elevator-shaft06.nif, Object03:0: unlit, Vertex_Alpha, no texture, no NiAlphaProperty) is blended by its vertex alpha"
+note = "The state at the end of the ride (NVDLC04Silo1ElevatorSCRIPT, 75 s) without the ride: the end's collision and lights on, and the six shaft models play Right, which brings the end hall to the lift. Needs LonesomeRoad.esm; everything is named by Editor ID, so its place in the load order does not matter."
+areas = ["renderer", "effects", "lonesome-road"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_material*"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:NVDLC04SiloElevatorShaftCollisionREF.disable;NVDLC04SiloElevatorEndCollisionREF.enable;NVDLC04SiloElevatorLightsEndREF.enable 0;9:NVDLC04SiloElevatorShaft01Ref.playgroup right 1;NVDLC04SiloElevatorShaft02Ref.playgroup right 1;NVDLC04SiloElevatorShaft03Ref.playgroup right 1;10:NVDLC04SiloElevatorShaft04Ref.playgroup right 1;NVDLC04SiloElevatorShaft05Ref.playgroup right 1;NVDLC04SiloElevatorShaft06Ref.playgroup right 1;11:close", NVF_PLAY_TEST_LOOK = "12:167:10", NVF_PLAY_TEST_SHOTS = "18:silo_light_cone.png" }
+args = ["--cell", "NVDLC04Silo2Elevator", "--play", "--pos=-87,3502,2069", "--heading", "167", "--pitch", "10", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 21
+manual = "silo_light_cone.png: a see-through cone of light from the ceiling to the floor, the hall's walls and doors seen through it; not a flat white cone"
+expect = [
+  { text = "playgroup: NVDLC04SiloElevatorShaft06Ref plays Right", label = "the end hall is brought to the lift" },
+  { re = 'unlit shapes blended by their vertex alpha alone: (?P<n>\d+) material', range = [1, 10000], label = "the cone's material is blended" },
+  { re = 'test aid: screenshot .*silo_light_cone\.png', label = "the frame is saved" },
+]
+
+[[scenario]]
 name = "strip-bright-views"
 source = "#1540; docs/spec-notes/nif.md §6 \"Unlit shapes that are pictures, and cut-out signs\": the Tops marquee and Lucky 38 stair lights at night, with the light glow on"
 areas = ["renderer", "effects", "lights"]
@@ -9652,10 +9668,10 @@ order = [[
 [[scenario]]
 name = "perk-khan-trick-stun"
 source = "owner 2026-10-24: Khan Trick forces its target's hit reaction (docs/spec-notes/perk-entry-points.md §11.4)"
-note = "perk-unarmed-moves' NCR trooper fist fight with the perk KhanTrick alone from 3 s; three power attacks to the right (Use held 1.5 s, the right key held from 0.05 s before to 0.75 s after, the swing starting about 0.5 s in, then aimed at the trooper again 1 s in) at 6.9, 9.9 and 12.9 s, the trooper put 90 units north each 0.9 s before: one that lands forces the reaction (with the key held 1.4 s the player strafed out of reach and both blows of a run missed) (a first try inside perk-unarmed-moves had its one blow lost to a 3 s stall, and the trooper killed by the fiend dogs about)"
+note = "perk-unarmed-moves' NCR trooper fist fight with the perk KhanTrick alone from 3 s; three power attacks to the right (Use held 1.5 s, the right key held from 0.05 s before to 0.75 s after, the swing starting about 0.5 s in, then aimed at the trooper again 1 s in) at 6.9, 9.9 and 12.9 s, the trooper put 90 units north each 0.9 s before: one that lands forces the reaction (with the key held 1.4 s the player strafed out of reach and both blows of a run missed) (a first try inside perk-unarmed-moves had its one blow lost to a 3 s stall, and the trooper killed by the fiend dogs about); the trooper's Health is set to 5000 at 4.5 s so the dogs cannot kill it before a blow lands (with the armour rules of #3220 they did, 2 runs of 2)"
 areas = ["combat", "perks", "melee"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/deaths.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:KhanTrick,4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "6.85:0:1,7.65:0:0,9.85:0:1,10.65:0:0,12.85:0:1,13.65:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,7.9:aimnpc,8.4:fire,9.8:aimnpc,9.9:fire,10.9:aimnpc,11.4:fire,12.8:aimnpc,12.9:fire,13.9:aimnpc,14.4:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:KhanTrick,4:combat:0x000F36F5:player,4.5:set_av:0x000F36F5:Health:5000,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "6.85:0:1,7.65:0:0,9.85:0:1,10.65:0:0,12.85:0:1,13.65:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,7.9:aimnpc,8.4:fire,9.8:aimnpc,9.9:fire,10.9:aimnpc,11.4:fire,12.8:aimnpc,12.9:fire,13.9:aimnpc,14.4:fire" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
 run_seconds = 20
 order = [[
@@ -10712,7 +10728,7 @@ forbid = [{ re = 'style weapon: .* takes up .*(Van Graff|001251CD)', label = "an
 
 [[scenario]]
 name = "energy-resist-hit"
-source = "ESM gap audit medium group 2 (docs/spec-notes/weapon-data-fields.md §3): a weapon's damage type (WEAP Resist) takes the target's resistance of that kind in place of DR"
+source = "ESM gap audit medium group 2 (docs/spec-notes/weapon-data-fields.md §3): a weapon's damage type (WEAP Resist) takes the target's resistance of that kind as well as DR (DR cutting such hits is the original's, docs/spec-notes/damage-armour.md §4, #3218)"
 note = "GSGeneralStore: Chet is given Energy Resistance 50 at the console; the player (GOD) shoots him with a laser pistol (00004335, Energy Resistance)"
 areas = ["combat"]
 paths = ["crates/fnv-combat/src/damage.rs", "engine/nvf-play/src/combat.rs"]
@@ -10720,7 +10736,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_T
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 24
 expect = [
-  { re = 'combat: \S+ takes WeapLaserPistol damage less 50 % \(Energy Resistance\) in place of DR', label = "the laser hit is cut by Chet's Energy Resistance" },
+  { re = 'combat: \S+ takes WeapLaserPistol damage less 50 % \(Energy Resistance\) as well as DR', label = "the laser hit is cut by Chet's Energy Resistance" },
 ]
 
 [[scenario]]
@@ -13517,10 +13533,10 @@ expect = [
   { re = 'limping: GSChetRef 0x00104C79 limps on a crippled leg', label = "Chet limps" },
   { re = 'limping: GSChetRef 0x00104C79 walks normally again', label = "Chet walks normally once healed" },
   "combat: player's left leg crippled",
-  { re = 'player Third rig: limping Idle\(Stand, true\) plays meshes.characters._male.locomotion.hurt.mtidle\.kf', label = "the player's body stands on the limping idle" },
-  { re = 'player Third rig: limping Move\(Stand, \w+, false, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtforward_hurt\.kf', label = "the player's body limps walking" },
-  { re = 'player Third rig: limping Move\(Stand, \w+, true, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtfastforward_hurt\.kf', label = "... and running" },
-  { re = 'player First rig: limping Move\(Stand, \w+, \w+, Forward, None, true\) plays meshes.characters._1stperson.locomotion.hurt.mt\w*forward_hurt\.kf', label = "the arms rig limps" },
+  { re = 'player Third rig: limping Idle\(Stand, true, false\) plays meshes.characters._male.locomotion.hurt.mtidle\.kf', label = "the player's body stands on the limping idle" },
+  { re = 'player Third rig: limping Move\(Stand, \w+, false, Forward, None, true, false\) plays meshes.characters._male.locomotion.hurt.mtforward_hurt\.kf', label = "the player's body limps walking" },
+  { re = 'player Third rig: limping Move\(Stand, \w+, true, Forward, None, true, false\) plays meshes.characters._male.locomotion.hurt.mtfastforward_hurt\.kf', label = "... and running" },
+  { re = 'player First rig: limping Move\(Stand, \w+, \w+, Forward, None, true, false\) plays meshes.characters._1stperson.locomotion.hurt.mt\w*forward_hurt\.kf', label = "the arms rig limps" },
   { re = 'limping summary: actors started limping (?P<n>\d+) times and walked normally again (?P<m>\d+) times', range = [1, 1000], label = "limping summary" },
   { re = 'limping: GSChetRef 0x00104C79 moves at 85% of its speed', label = "Chet slows on a crippled leg (fMoveOneCrippledLegSpeedMult, crippled-limbs.md §4)" },
   { re = 'limping: GSChetRef 0x00104C79 moves at 100% of its speed', label = "... and is quick again once healed" },
@@ -13549,7 +13565,7 @@ source = "crippled limbs (docs/spec-notes/crippled-limbs.md §3): with the torso
 note = "the console cripples the player's and Chet's torso; the hit aid hits Chet on the torso (staggers him: torso crippled), then his right arm on a part of 1 % of his health (he drops his revolver); Chet is set on the player, whose hits on the player make it flinch"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/deaths.rs", "crates/fnv-combat/src/damage.rs", "engine/nvf-play/src/knockouts.rs", "engine/nvforever/src/weapons.rs", "engine/nvforever/src/outfits.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV EnduranceCondition 1000;10.2:GSChetRef.DamageAV EnduranceCondition 1000;10.5:close", NVF_PLAY_TEST_SCRIPT = "12:combat:GSChetRef:player", NVF_PLAY_TEST_HIT = "14:GSChetRef:1,22:GSChetRef:2:limb=RightAttackCondition" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:tgm;10.1:player.DamageAV EnduranceCondition 1000;10.15:tgm;10.2:GSChetRef.DamageAV EnduranceCondition 1000;10.5:close", NVF_PLAY_TEST_SCRIPT = "12:combat:GSChetRef:player", NVF_PLAY_TEST_HIT = "14:GSChetRef:1,22:GSChetRef:2:limb=RightAttackCondition" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 28
 expect = [
@@ -16113,6 +16129,24 @@ run_seconds = 22
 order = [[
   { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \(Place\)', label = "refused: the worldspace forbids fast travel" },
   'fast travel: answered "OK"',
+]]
+
+[[scenario]]
+name = "fast-travel-interior"
+source = "#3434 (docs/spec-notes/fast-travel.md §2): no fast travel from an interior cell, and GetPCCanFastTravel agrees; CELL DATA bit 2 (Invert Fast Travel Behavior), set by SetCellFlag, allows it there"
+note = "the Goodsprings general store 0x001057F1; Primm 0x000CDF46 made a travel target by ShowMap; EnableFastTravel 1 does not lift the interior's refusal; the cell flag is set at 18 s, between the two asks; the question is answered No"
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "crates/fnv-game/src/fast_travel.rs", "crates/fnv-game/src/nvse_showoff5.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,6.5:call:-:EnableFastTravel:1,7:call:-:GetPCCanFastTravel,18:call:-:SetCellFlag:0x001057F1:2:1,18.5:call:-:GetPCCanFastTravel", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=000CDF46,17:key=use,20:travel=000CDF46,21:key=down,22:key=use,24:close" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 28
+order = [[
+  { text = "script: test aid calls GetPCCanFastTravel = Num(0.0)", label = "the script check says no indoors" },
+  { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Place\)', label = "refused: an interior" },
+  'fast travel: answered "OK"',
+  { text = "script: test aid calls GetPCCanFastTravel = Num(1.0)", label = "the inverted cell allows it" },
+  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: answered "No"',
 ]]
 
 [[scenario]]
@@ -21083,6 +21117,39 @@ expect = [
 ]
 forbid = [
   { re = 'actor 00104C0F stuck at', label = "Doc Mitchell moved on by the stuck rule" },
+]
+
+[[scenario]]
+name = "car-wreck-jumps"
+source = "issue #3611 (player report R-BRQX496D): running and jumping on the Primm car wrecks bobbed the view, and one landing was logged at 0 units/s; a jump caught on a wreck near the top of its arc comes down with almost no fall, and that is no landing (no clip, no view dip) [engineering choice: LAND_MIN_FALL, 30 units/s]"
+note = "the player starts on the Car01HulkBodyStatic at (-59371, -52907) by the report's place, runs over the wrecks jumping every 1.5 s, then sideways and back; on 2026-11-23 one jump came down after 0.42 s at 7 units/s and the real landings were 144 to 362 units/s, as in the report"
+areas = ["movement", "animation"]
+paths = ["engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "8:1:0,30:0:0,31:0:1,40:0:0,41:-1:0,55:0:0", NVF_PLAY_TEST_CONTROL = "9:jump,10.5:jump,12:jump,13.5:jump,15:jump,16.5:jump,18:jump,19.5:jump,21:jump,22.5:jump,24:jump,25.5:jump,27:jump,32:jump,34:jump,36:jump,38:jump,42:jump,44:jump,46:jump,48:jump,50:jump" }
+args = ["--play", "--world", "WastelandNV", "--pos=-59371,-52907,5990", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 58
+expect = [
+  { re = 'player view: landed at (?P<n>\d+) units/s', range = [30, 100000], label = "the jumps land" },
+]
+forbid = [
+  { re = 'player view: landed at ([0-9]|[12][0-9]) units/s', label = "a landing with almost no fall (the report's 0 units/s)" },
+]
+
+[[scenario]]
+name = "seated-holstered-rifle"
+source = "issue #3612 (player report R-DNBYBM6D): seated with a Caravan Shotgun holstered, the gun stood up through the player's head; the seat clips have no Weapon track and the player's body dropped the holster clip's, so the Weapon node went back to its bind transform (its place under the right hand) under the holster bone"
+note = "the Caravan Shotgun (000CD53A, 2hr: holstered on Bip01 Spine2) equipped and holstered, the player sits on Doc Mitchell's couch (00103E55) as in doc-chair-player-seated, the view then put in third person; the frame seated_rifle.png is for a look by eye"
+areas = ["furniture", "animation"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000CD53A", NVF_PLAY_TEST_FACE = "9:00103E55", NVF_PLAY_TEST_LOOK = "9.5:283:-35", NVF_PLAY_TEST_ACTIVATE = "10", NVF_PLAY_TEST_KEYS = "14:f", NVF_PLAY_TEST_SHOTS = "18:seated_rifle.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 20
+order = [[
+  { text = "furniture: the player is on 00103E55", label = "the player sits on the couch" },
+  { text = "player body: on furniture, the weapon hangs from Bip01 Spine2 at the holster clip's place", label = "the holstered shotgun keeps its place on the back" },
+]]
+forbid = [
+  { re = "player body: on furniture, the weapon hangs from .* at its bind transform", label = "the holstered weapon back at its bind transform (under the right hand)" },
 ]
 
 [[scenario]]

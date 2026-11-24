@@ -171,13 +171,18 @@ green and blue and byte 3 against alpha. So in an English install the two are th
 picture, the `.tex` with 8 bits a channel. The files are 1 048 584 bytes, 8 more than
 512 x 512 x 4.
 
-**What NVForever draws** [design, #1439]: a font's `.tex` when its `.dds` is there too,
-else the `.dds` (`interface::font_tex`). This draws a Russian install's letters (§2.1),
-and an English install's fonts change only in getting 8 bits of alpha instead of 4.
-Which file the original reads is not known [hypothesis: the `.tex`, since a localized
-release changed only it]. A font with a `.tex` alone (font 9) is left undrawn, as §3.1
-says the original does. A `.tex` that does not parse (wrong size for its header) is
-skipped with a warning, and the `.dds` is drawn.
+**What NVForever draws** [design, #1439]: a font's `.tex` first (with or without a
+sibling `.dds`), else the `.dds` (`interface::font_tex`). This draws a Russian
+install's letters (§2.1), lets modded `.fnt` + `.tex` fonts without a `.dds` load, and
+an English install's fonts change only in getting 8 bits of alpha instead of 4. Which
+file the original reads is not known [hypothesis: the `.tex`, since a localized release
+changed only it and modded font packs ship `.tex` alone]. Font 9 (`NVFont_Test`,
+`FONT_FILES[8]`) is kept unloaded as the stand-in inside the shared `interface::face`
+loader (covering `tiles::draw::FontKit`, `credits::start`, `loading_look::fit_tip`, and
+all other face callers), matching the original game's unloaded font 9 (§3.1;
+`nvse_sup6::LOADED_FONTS = 8`, `GetFontFile 9` returning `""`). A `.tex` that does not
+parse (wrong size for its header) is skipped with a warning, and the `.dds` is drawn when
+present.
 
 ### 2.3 Missing CJK characters
 
@@ -285,9 +290,9 @@ texture, texture middles decoded from each font's `.dds`)]
   size].
 - [observed: the archives] Font 9 (`NVFont_Test`) has its `.fnt` and a `.tex` but no
   `.dds`; in the original its tiles get no `width` or `height` and draw nothing.
-  NVForever draws a font-9 text in Bevy's stand-in font (`interface::face` finds no
-  texture), on font 7's line, and a font-9 tile among the texts whose widths the tile
-  HUD writes stops those writes (`FontKit::game_fonts`) [design: not yet the original's
+  NVForever draws a font-9 text in Bevy's stand-in font (`interface::face` keeps font 9
+  unloaded), on font 7's line, and a font-9 tile among the texts whose widths the tile HUD
+  writes stops those writes (`FontKit::game_fonts`) [design: not yet the original's
   nothing].
 - Not determined: an empty string's measure. The message box's empty title read 14 x 38
   in font 6, one space wide and one line high; NVForever's `measure` gives 0 wide and

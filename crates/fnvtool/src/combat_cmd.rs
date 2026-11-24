@@ -421,7 +421,7 @@ fn survey(c: &CombatForms) -> Value {
             (false, true) => proj_t.note("explosion set without the Explosion flag", label),
             _ => {}
         }
-        if p.gravity != 0.0 && !p.has("Hitscan") {
+        if p.fall() != 0.0 && !p.has("Hitscan") {
             proj_t.note("simulated in flight (gravity, not hitscan)", label);
         }
     }

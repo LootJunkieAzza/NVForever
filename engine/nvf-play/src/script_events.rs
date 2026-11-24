@@ -264,10 +264,23 @@ pub fn activation_from_json(v: &serde_json::Value) -> Option<Activation> {
 /// which `activate.rs` turns into effects as before scripts existed): they are traced
 /// but not applied twice.
 pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) -> Vec<ScriptEffect> {
+    effects_with_corner_clear(events, skip, 0, ctx)
+}
+
+/// Like [`effects`], dropping corner-message [`ScriptEffect::Notify`] items from events
+/// at indices below `clear_before` (emitted before a same-frame `ClearMessageQueue` call)
+/// while preserving all other effects and notifications emitted at or after `clear_before`
+/// [design].
+pub fn effects_with_corner_clear(events: &[Event], skip: &BTreeSet<usize>, clear_before: usize, ctx: &dyn EffectCtx) -> Vec<ScriptEffect> {
     let mut out = Vec::new();
     let mut added: Vec<(FormId, i32)> = Vec::new();
     let mut removed: Vec<(FormId, i32)> = Vec::new();
     let player = FormId::PLAYER_REF;
+    let push_notify = |out: &mut Vec<ScriptEffect>, idx: usize, note: Note| {
+        if idx >= clear_before {
+            out.push(ScriptEffect::Notify(note));
+        }
+    };
     // Objectives this batch shows, by quest: the game's state already has them, so
     // whether a quest was listed before is asked without them.
     let shown = |q: FormId| -> Vec<i32> {
@@ -335,7 +348,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                     Destination::Interior(c) => (None, Some(c)),
                     Destination::Exterior { world } => (Some(world), None),
                     Destination::Unknown => {
-                        out.push(ScriptEffect::Notify("A script moved the player to an unknown cell".into()));
+                        push_notify(&mut out, i, "A script moved the player to an unknown cell".into());
                         continue;
                     }
                 };
@@ -365,7 +378,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                         // A pickup's "added" line comes from its ItemAdded event
                         // (`Game::default_activation` emits both), not twice.
                         Effect::Message(_) if matches!(a.outcome, Outcome::PickedUp { .. }) => {}
-                        Effect::Message(m) if *by == player => out.push(ScriptEffect::Notify(m.into())),
+                        Effect::Message(m) if *by == player => push_notify(&mut out, i, m.into()),
                         _ => {}
                     }
                 }
@@ -375,17 +388,17 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             // §4); a fatigue knockout shows nothing [owner request 2026-10-17].
             // The player's tweak keeps this line off [design: docs/design/tweaks.md].
             EventKind::KnockedOut { cause: "essential", .. } | EventKind::TalkedToUnconscious { .. } if ctx.tweaks().is_some_and(|t| t.no_unconscious_message) => {}
-            EventKind::KnockedOut { actor, cause: "essential" } | EventKind::TalkedToUnconscious { actor } => out.push(ScriptEffect::Notify(unconscious_line(ctx, *actor).into())),
+            EventKind::KnockedOut { actor, cause: "essential" } | EventKind::TalkedToUnconscious { actor } => push_notify(&mut out, i, unconscious_line(ctx, *actor).into()),
             EventKind::MessageShown { message, text, buttons, hidden } => {
                 let text = text.clone().unwrap_or_default();
                 if !buttons.is_empty() || ctx.is_message_box(*message) {
                     out.push(ScriptEffect::MessageBox(BoxMessage { message: message.0, text, buttons: buttons.clone(), hidden: hidden.clone() }));
                 } else if !text.trim().is_empty() {
                     let (icon, seconds) = ctx.message_look(*message);
-                    out.push(ScriptEffect::Notify(Note { text, icon, seconds }));
+                    push_notify(&mut out, i, Note { text, icon, seconds });
                 }
             }
-            EventKind::NoteShown { text, icon, seconds } if !text.trim().is_empty() => out.push(ScriptEffect::Notify(Note { text: text.clone(), icon: icon.clone(), seconds: Some(*seconds) })),
+            EventKind::NoteShown { text, icon, seconds } if !text.trim().is_empty() => push_notify(&mut out, i, Note { text: text.clone(), icon: icon.clone(), seconds: Some(*seconds) }),
             // The first objective of a quest to be shown adds the quest [documented: GECK
             // wiki SetObjectiveDisplayed]; an objective without text or a quest without a
             // name is not shown [hypothesis] (quest-messages.md §5).
@@ -416,9 +429,11 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                 // Caps a script gave: their pick-up sound, as caps taken by hand
                 // [hypothesis: the original plays it; player report R-BR8PUBD2, #3095].
                 caps_sound |= *item == CAPS && !picked_up.contains(&CAPS);
-                match added.iter_mut().find(|(i, _)| i == item) {
-                    Some((_, n)) => *n += count,
-                    None => added.push((*item, *count)),
+                if i >= clear_before {
+                    match added.iter_mut().find(|(i, _)| i == item) {
+                        Some((_, n)) => *n += count,
+                        None => added.push((*item, *count)),
+                    }
                 }
             }
             // A skill book read: "<Skill> increased to <value>" with the default corner
@@ -430,12 +445,18 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             EventKind::BookRead { actor, points, .. } if *actor == player && *points == 0.0 && ctx.tweaks().is_some_and(|t| t.no_book_message_without_gain) => {}
             EventKind::BookRead { actor, value, skill, .. } if *actor == player => {
                 let name = ctx.skill_name(*skill);
-                out.push(ScriptEffect::Notify(Note { text: format!("{name} increased to {}", value.round()), icon: None, seconds: None }));
+                push_notify(&mut out, i, Note { text: format!("{name} increased to {}", value.round()), icon: None, seconds: None });
             }
-            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => match removed.iter_mut().find(|(i, _)| i == item) {
-                Some((_, n)) => *n += count,
-                None => removed.push((*item, *count)),
-            },
+            // Gathered for the one-line-or-many lines below; a line cleared by a same-frame
+            // ClearMessageQueue is not gathered (as `added`).
+            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => {
+                if i >= clear_before {
+                    match removed.iter_mut().find(|(i, _)| i == item) {
+                        Some((_, n)) => *n += count,
+                        None => removed.push((*item, *count)),
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -841,9 +862,15 @@ pub fn delay_late_aids(aids: &mut [TimedAid], now: f32) -> Option<f32> {
     Some(late)
 }
 
+/// The first piece of a reference name that holds a colon (`fnv_game::runner::resolve`:
+/// `scripted:<SCPT>`, `placed:<base>`, and `created:<base>`, the newest reference made at
+/// run time from a base, whose FormID is not known ahead).
+const NAME_PREFIXES: [&str; 3] = ["scripted", "placed", "created"];
+
 /// Parse `<when>:<op>[:<args>]` items separated by commas; `<when>` is `<seconds>` or
 /// `<seconds>@<quest>=<stage>`. Names are Editor IDs, hex FormIDs, `player` or the
-/// runner's `scripted:<SCPT>` / `placed:<base>`, resolved when the step runs.
+/// runner's `scripted:<SCPT>` / `placed:<base>` / `created:<base>`, resolved when the
+/// step runs.
 pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
     v.split(',')
         .map(str::trim)
@@ -860,7 +887,21 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
             };
             let at: f32 = t.trim().parse().map_err(|_| format!("{item:?}: bad seconds {t:?}"))?;
             let rest = rest.trim();
-            let parts: Vec<&str> = rest.split(':').map(str::trim).collect();
+            // A reference name may hold a colon itself (`scripted:<SCPT>`, `placed:<base>`,
+            // `created:<base>`): its two pieces are one part, in any step.
+            let pieces: Vec<&str> = rest.split(':').map(str::trim).collect();
+            let mut joined: Vec<String> = Vec::with_capacity(pieces.len());
+            let mut k = 0;
+            while k < pieces.len() {
+                if k > 0 && k + 1 < pieces.len() && NAME_PREFIXES.contains(&pieces[k]) {
+                    joined.push(format!("{}:{}", pieces[k], pieces[k + 1]));
+                    k += 2;
+                } else {
+                    joined.push(pieces[k].to_string());
+                    k += 1;
+                }
+            }
+            let parts: Vec<&str> = joined.iter().map(String::as_str).collect();
             let int = |s: &str| s.parse::<i32>().map_err(|_| format!("{rest:?}: bad number {s:?}"));
             // A reference name may hold colons itself (`scripted:<SCPT>`, `placed:<base>`).
             let whole = rest.split_once(':').map(|(_, r)| r.trim().to_string());
@@ -1162,6 +1203,31 @@ mod tests {
         assert_eq!(lines, 1);
     }
 
+    #[test]
+    fn corner_clear_drops_earlier_notifications_and_keeps_other_effects_and_later_notices() {
+        let events = vec![
+            ev(EventKind::MessageShown { message: FormId(0), text: Some("before clear".into()), buttons: vec![], hidden: vec![] }),
+            ev(EventKind::NoteShown { text: "alt before clear".into(), icon: None, seconds: 2.0 }),
+            ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: CAPS, count: 5, silent: false }),
+            ev(EventKind::MessageShown { message: FormId(0xBB), text: Some("Box survives".into()), buttons: vec![], hidden: vec![] }),
+            ev(EventKind::QuestCompleted { quest: QUEST }),
+            // ClearMessageQueue ran here (index 5).
+            ev(EventKind::MessageShown { message: FormId(0), text: Some("after clear".into()), buttons: vec![], hidden: vec![] }),
+            ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 1, silent: false }),
+        ];
+        let got = effects_with_corner_clear(&events, &BTreeSet::new(), 5, &Fake);
+        assert_eq!(
+            got,
+            vec![
+                ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Box survives".into(), buttons: vec![], hidden: vec![] }),
+                ScriptEffect::Quest(QuestNotice::Completed("Back in the Saddle".into())),
+                ScriptEffect::Notify("after clear".into()),
+                ScriptEffect::ItemAddedSound(CAPS),
+                ScriptEffect::Notify("form 15169 added".into()),
+            ]
+        );
+    }
+
     /// #3095: caps a script gives the player sound once per batch; caps picked up by an
     /// activation (sounded by `world_sounds`) and silent adds do not.
     #[test]
@@ -1437,6 +1503,14 @@ mod tests {
             vec![TimedAid { at: 1.0, after: Some(("VCG01".into(), 80)), aid: ScriptAid::Var("scripted:0x001055B4".into(), "bRunTimer".into(), 1.0) }]
         );
         assert!(parse_aids("3:var:bRunTimer:1").is_err());
+        // A name with a colon in any step: a target made by PlaceAtMe a moment before
+        // (tools/capture/damage_parity.py), a placed reference by its base.
+        let aids = parse_aids("5:set_av:created:0x0002E29D:Health:5000,5:moveto:created:0x0002E29D:player:0:300:0,6:call:created:NVCrGecko:SetAngle:z:0,7:damage:placed:GSTrudy:Health:0,8:kill:scripted:0x001055B4").unwrap();
+        assert_eq!(aids[0].aid, ScriptAid::SetAv("created:0x0002E29D".into(), "Health".into(), 5000.0));
+        assert_eq!(aids[1].aid, ScriptAid::MoveTo("created:0x0002E29D".into(), "player".into(), [0.0, 300.0, 0.0]));
+        assert_eq!(aids[2].aid, ScriptAid::Call("created:NVCrGecko".into(), "SetAngle".into(), vec!["z".into(), "0".into()]));
+        assert_eq!(aids[3].aid, ScriptAid::Damage("placed:GSTrudy".into(), "Health".into(), 0.0));
+        assert_eq!(aids[4].aid, ScriptAid::Kill("scripted:0x001055B4".into()));
         assert!(parse_aids("3:stage:VCG01").is_err());
         assert_eq!(parse_aids("2:message:VMS18VancesGunMessage").unwrap()[0].aid, ScriptAid::Message("VMS18VancesGunMessage".into()));
         assert_eq!(parse_aids("12:play_idle:0x00104C6D:NPCSmokingIdle").unwrap()[0].aid, ScriptAid::PlayIdle("0x00104C6D".into(), "NPCSmokingIdle".into()));

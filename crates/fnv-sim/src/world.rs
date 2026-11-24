@@ -1900,26 +1900,33 @@ impl<'a> World<'a> {
     }
 
     /// A game setting's number: a run-time change ([`World::change_setting`]), else the
-    /// record's.
+    /// record's, else a seeded built-in engine default ([`crate::settings::builtin_default`]).
     pub fn setting_f32(&self, edid: &str) -> Option<f32> {
-        match self.setting_changes.get(&edid.to_ascii_lowercase()) {
-            Some(v) => v.as_f32(),
-            None => self.forms.setting_f32(edid),
-        }
+        self.setting_value(edid)?.as_f32()
     }
 
-    /// A game setting as it is now: a run-time change, else the record's.
+    /// A game setting as it is now: a run-time change, else the record's, else a seeded
+    /// built-in engine default.
     pub fn setting_value(&self, edid: &str) -> Option<&crate::settings::Setting> {
         let k = edid.to_ascii_lowercase();
-        self.setting_changes.get(&k).or_else(|| self.forms.settings.get(&k))
+        self.setting_changes
+            .get(&k)
+            .or_else(|| self.forms.settings.get(&k))
+            .or_else(|| crate::settings::builtin_default(&k))
     }
 
-    /// Change a game setting for this run. It must exist, and the value must be of its
-    /// kind (its Editor ID's first letter: `f`, `i`, `s`).
+    /// Change a game setting for this run. It must exist (in the load order or in the
+    /// seeded built-in engine defaults), and the value must be of its kind (its Editor
+    /// ID's first letter: `f`, `i`, `s`).
     pub fn change_setting(&mut self, edid: &str, value: crate::settings::Setting) -> Result<(), SimError> {
         use crate::settings::Setting;
         let k = edid.to_ascii_lowercase();
-        let old = self.forms.settings.get(&k).ok_or_else(|| SimError::MissingSetting(edid.into()))?;
+        let old = self
+            .forms
+            .settings
+            .get(&k)
+            .or_else(|| crate::settings::builtin_default(&k))
+            .ok_or_else(|| SimError::MissingSetting(edid.into()))?;
         let fits = matches!((old, &value), (Setting::Float(_), Setting::Float(_)) | (Setting::Int(_), Setting::Int(_)) | (Setting::Str(_), Setting::Str(_)));
         if !fits {
             return Err(SimError::SettingKind(edid.into()));
@@ -2188,6 +2195,13 @@ impl<'a> World<'a> {
         let now = self.calendar()?.days_passed;
         self.detached_cells.insert(cell, now);
         Ok(())
+    }
+
+    /// Record a saved cell detach timestamp (`GameDaysPassed`, offline save import).
+    pub fn set_cell_detached_at(&mut self, cell: FormId, days_passed: f32) {
+        if days_passed.is_finite() && days_passed >= 0.0 {
+            self.detached_cells.insert(cell, days_passed);
+        }
     }
 
     /// GameDaysPassed when `cell` was last unloaded ([`World::detach_cell`]), while it

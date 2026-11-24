@@ -337,10 +337,11 @@ impl XTok {
     }
 }
 
-/// Operators of the extender's expressions, longest first [documented: NVSE Expressions].
-const XOPS: [&str; 33] = [
-    "<-", "=>", ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&", "||", ":", "|",
-    "&", "+", "-", "*", "/", "%", "^", "<", ">", "=",
+/// Operators of the extender's expressions, longest first [documented: NVSE Expressions;
+/// `<<=` and `>>=` compound shift assignments, hypothesis].
+const XOPS: [&str; 35] = [
+    "<<=", ">>=", "<-", "=>", ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&",
+    "||", ":", "|", "&", "+", "-", "*", "/", "%", "^", "<", ">", "=",
 ];
 
 /// Tokens of a line in the extender's grammar. Words and numbers as in [`tokens`]; `!`,
@@ -364,12 +365,19 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
         if word_char(c) {
             let n = cs[i..].iter().take_while(|&&w| word_char(w)).count();
             let text: String = cs[i..i + n].iter().collect();
+            if let Some(prev) = out.last_mut() {
+                if prev.kind == XKind::Word && prev.text.ends_with('.') && !is_number(&prev.text) && (c.is_ascii_alphabetic() || c == '_') {
+                    prev.text.push_str(&text);
+                    i += n;
+                    continue;
+                }
+            }
             let kind = if is_number(&text) { XKind::Num } else { XKind::Word };
             out.push(XTok { kind, text, sign: false });
             i += n;
             continue;
         }
-        let rest: String = cs[i..(i + 2).min(cs.len())].iter().collect();
+        let rest: String = cs[i..(i + 3).min(cs.len())].iter().collect();
         if let Some(op) = XOPS.iter().find(|o| rest.starts_with(**o)) {
             let spaced = i > 0 && cs[i - 1].is_whitespace();
             // `*` and `&` with a space before and a name or `(` right after are the unbox
@@ -440,6 +448,8 @@ mod tests {
         assert_eq!(t, ["let", "a", "[", "0", "]", ":=", "b", "->", "key", "+", "$", "c", "::", "2", "!=", "!", "d"]);
         let t = xtokens("x += 1.5, \"s\"");
         assert_eq!(t.iter().map(|t| t.kind).collect::<Vec<_>>(), [XKind::Word, XKind::Op, XKind::Num, XKind::Comma, XKind::Str]);
+        let t: Vec<String> = xtokens("let SomeRef. Flag := 1").into_iter().map(|t| t.text).collect();
+        assert_eq!(t, ["let", "SomeRef.Flag", ":=", "1"]);
     }
 
     #[test]

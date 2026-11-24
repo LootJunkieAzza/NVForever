@@ -854,6 +854,12 @@ pub(crate) struct WorldParts {
     /// outside the window too (the hand-built page leaves them out, [`MapShown::marks`]), so a pan
     /// keeps their rows; none on the World Map, whose rows are its marks.
     pub(crate) rows: Option<Vec<MapMark>>,
+    /// The World Map's companions (`map_companions`): each teammate's FormID, texture
+    /// coordinates, display name, and knocked-out state; empty on the Local Map.
+    pub(crate) companions: Vec<(u32, [f32; 2], String, bool)>,
+    /// The font number for companion names on the World Map (2 by default, 1 with
+    /// `bCompanionsUseLocationFontOnMap`).
+    pub(crate) companion_font: u8,
 }
 
 impl MapShown {
@@ -3227,7 +3233,7 @@ const LOCATION_FONT: usize = 1;
 /// the arrow].
 pub const COMPANION_MIN_DISTANCE: f32 = 4096.0;
 /// How far above its place a companion's name stands (canvas units) [design].
-const COMPANION_NAME_RISE: f32 = 14.0;
+pub(crate) const COMPANION_NAME_RISE: f32 = 14.0;
 /// How near the highlight box's middle a companion's place must be for a click to summon it,
 /// under the player's Map Selectable Companions tweak (canvas units) [design].
 const SUMMON_REACH: f32 = 24.0;
@@ -3261,22 +3267,29 @@ struct MapCompanion {
 
 /// The player's companions (teammates) in an exterior cell, with their worldspace; those
 /// within [`COMPANION_MIN_DISTANCE`] of `player` (worldspace, place) left out when it is
-/// given, and the knocked-out ones unless `show_down`.
+/// given, and the knocked-out ones unless `show_down`. Unmaterialized placed teammates
+/// fall back to their placement cell and position (`sim.refs`), as `quest_targets` does.
 fn map_companions(game: &Game, player: Option<(u32, [f32; 3])>, show_down: bool) -> Vec<MapCompanion> {
     let (Some(rt), Some(sim)) = (game.script.as_ref().and_then(|s| s.rt.as_ref()), game.sim.as_ref()) else { return Vec::new() };
     let mut out = Vec::new();
     for id in rt.game.teammates() {
-        let Some(s) = sim.world.peek(id) else { continue };
-        let Some(world) = s.cell.and_then(|c| sim.refs.cell_world.get(&c)).map(|w| w.0) else { continue };
+        let (cell, pos) = match sim.world.peek(id) {
+            Some(s) => (s.cell, s.pos),
+            None => match sim.refs.get(id) {
+                Some(p) => (p.cell, p.pos),
+                None => continue,
+            },
+        };
+        let Some(world) = cell.and_then(|c| sim.refs.cell_world.get(&c)).map(|w| w.0) else { continue };
         let down = rt.game.knockout(id).is_some();
         if (down && !show_down) || !sim.present(id.0) {
             continue;
         }
-        if player.is_some_and(|(w, p)| w == world && (s.pos[0] - p[0]).hypot(s.pos[1] - p[1]) < COMPANION_MIN_DISTANCE) {
+        if player.is_some_and(|(w, p)| w == world && (pos[0] - p[0]).hypot(pos[1] - p[1]) < COMPANION_MIN_DISTANCE) {
             continue;
         }
         let name = sim.ref_name(Some(&rt.game), id.0).map(str::to_string).unwrap_or_else(|| rt.game.data.name(id));
-        out.push(MapCompanion { form: id, world, pos: s.pos, name, down });
+        out.push(MapCompanion { form: id, world, pos, name, down });
     }
     out
 }
@@ -3405,11 +3418,14 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let (no_min, show_down, location_font) = tw.unwrap_or_default();
     let summon = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.map_summon_companions, rt.game.tweaks.summon_unconscious));
     let mut companions = Vec::new();
+    let mut companion_uvs = Vec::new();
     let mut forms_shown = Vec::new();
     for c in map_companions(game, player.filter(|_| !no_min).map(|(p, _)| (world, p)), show_down) {
         let Some(projection) = map_for(st, game, c.world).filter(|p| p.root == m.root) else { continue };
+        let uv = projection.uv(c.pos[0], c.pos[1]);
         forms_shown.push((c.form, c.down));
-        companions.push((on_map(projection.uv(c.pos[0], c.pos[1])), c.name, c.down));
+        companions.push((on_map(uv), c.name.clone(), c.down));
+        companion_uvs.push((c.form.0, uv, c.name, c.down));
     }
     // The player's Map Selectable Companions tweak: the companions under the highlight box,
     // which a click summons [design: docs/design/tweaks.md].
@@ -3426,9 +3442,10 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         st.companions_logged = Some(companions.len());
         info!("pipboy data: world map shows {} companions", companions.len());
     }
+    let companion_font = if location_font { LOCATION_FONT } else { COMPANION_FONT };
     MapShown {
         companions,
-        companion_font: if location_font { LOCATION_FONT } else { COMPANION_FONT },
+        companion_font,
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
         outline: None,
         reset_cells: Arc::default(),
@@ -3441,7 +3458,20 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         cursor,
         label,
         detail,
-        world: Some(WorldParts { view, texture: m.texture.clone(), mag, quests: target_uvs, custom: custom_uv, arrow: arrow_uv, ends, outline: None, rows: None, want: st.cursor[WORLD].unwrap_or(view.mid()) }),
+        world: Some(WorldParts {
+            view,
+            texture: m.texture.clone(),
+            mag,
+            quests: target_uvs,
+            custom: custom_uv,
+            arrow: arrow_uv,
+            ends,
+            outline: None,
+            rows: None,
+            want: st.cursor[WORLD].unwrap_or(view.mid()),
+            companions: companion_uvs,
+            companion_font: companion_font as u8,
+        }),
     }
 }
 
@@ -3804,7 +3834,20 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     st.custom_on_map[LOCAL] = custom.map(|c| on_map(c.pos[0], c.pos[1]));
     let custom_uv = custom.map(|c| view.local_uv(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels, rows: st.tile_rows.then_some(rows), want: st.cursor[LOCAL].unwrap_or(view.mid()) };
+    let world = WorldParts {
+        view,
+        texture: String::new(),
+        mag,
+        quests: target_uvs,
+        custom: custom_uv,
+        arrow: Some((view.local_uv(feet[0], feet[1]), heading)),
+        ends: Vec::new(),
+        outline: outline_texels,
+        rows: st.tile_rows.then_some(rows),
+        want: st.cursor[LOCAL].unwrap_or(view.mid()),
+        companions: Vec::new(),
+        companion_font: COMPANION_FONT as u8,
+    };
     MapShown { picture: None, outline, reset_cells: Arc::new(reset_cells), marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) , companions: Vec::new(), companion_font: COMPANION_FONT }
 }
 
@@ -7269,6 +7312,139 @@ mod tests {
             let game = state.get_mut(&mut world).unwrap();
             assert_eq!(known(&st, &game, &m_vis_only), Some(true));
             assert_eq!(known(&st, &game, &m_travel_only), Some(true));
+        }
+    }
+
+    #[test]
+    fn world_map_discovers_materialized_and_placed_teammates_and_excludes_inactive() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        const WORLD_ID: u32 = 0x800;
+        const EXT_CELL: u32 = 0x801;
+        const NPC_A: u32 = 0x810;
+        const NPC_B: u32 = 0x811;
+        const NPC_DEAD: u32 = 0x812;
+        const NPC_DISABLED: u32 = 0x813;
+        const NPC_NON_TEAM: u32 = 0x814;
+        const NPC_NEAR: u32 = 0x815;
+        const REF_PLACED_ONLY: u32 = 0x820;
+        const REF_MATERIALIZED: u32 = 0x821;
+        const REF_DEAD: u32 = 0x822;
+        const REF_DISABLED: u32 = 0x823;
+        const REF_NON_TEAM: u32 = 0x824;
+        const REF_NEAR: u32 = 0x825;
+
+        let sub = |sig: &[u8; 4], data: &[u8]| [sig.as_slice(), &(data.len() as u16).to_le_bytes(), data].concat();
+        let rec = |sig: &[u8; 4], flags: u32, id: u32, subs: &[Vec<u8>]| {
+            let body: Vec<u8> = subs.iter().flat_map(|s| s.iter().copied()).collect();
+            [sig.as_slice(), &(body.len() as u32).to_le_bytes(), &flags.to_le_bytes(), &id.to_le_bytes(), &0u32.to_le_bytes(), &0u32.to_le_bytes(), &body].concat()
+        };
+        let grp = |label: [u8; 4], kind: u32, body: &[u8]| [b"GRUP".as_slice(), &((24 + body.len()) as u32).to_le_bytes(), &label, &kind.to_le_bytes(), &0u64.to_le_bytes(), body].concat();
+        let top = |sig: &[u8; 4], body: &[u8]| grp(*sig, 0, body);
+        let pos_bytes = |x: f32, y: f32, z: f32| [x, y, z, 0.0, 0.0, 0.0].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>();
+        let npc = |id: u32, edid: &[u8], full: &[u8]| rec(b"NPC_", 0, id, &[sub(b"EDID", edid), sub(b"FULL", full)]);
+        let achr = |id: u32, flags: u32, edid: &[u8], base: u32, pos: [f32; 3]| {
+            rec(b"ACHR", flags, id, &[sub(b"EDID", edid), sub(b"NAME", &base.to_le_bytes()), sub(b"DATA", &pos_bytes(pos[0], pos[1], pos[2]))])
+        };
+
+        let tes4 = rec(b"TES4", 0, 0, &[sub(b"HEDR", &[1.34f32.to_le_bytes().as_slice(), &0u32.to_le_bytes(), &0x800u32.to_le_bytes()].concat())]);
+        let npcs = [
+            npc(0x7, b"Player\0", b"Player\0"),
+            npc(NPC_A, b"PlacedMate\0", b"Scout Alpha\0"),
+            npc(NPC_B, b"MatMate\0", b"Scout Bravo\0"),
+            npc(NPC_DEAD, b"DeadMate\0", b"Fallen Scout\0"),
+            npc(NPC_DISABLED, b"DisMate\0", b"Hidden Scout\0"),
+            npc(NPC_NON_TEAM, b"Bystander\0", b"Town Drifter\0"),
+            npc(NPC_NEAR, b"NearMate\0", b"Close Scout\0"),
+        ]
+        .concat();
+        let persistent = [
+            achr(REF_PLACED_ONLY, 0x400, b"PlacedMateRef\0", NPC_A, [8000.0, 0.0, 0.0]),
+            achr(REF_MATERIALIZED, 0x400, b"MatMateRef\0", NPC_B, [-8000.0, 2048.0, 0.0]),
+            achr(REF_DEAD, 0x400, b"DeadMateRef\0", NPC_DEAD, [9000.0, 0.0, 0.0]),
+            achr(REF_DISABLED, 0x400 | 0x800, b"DisMateRef\0", NPC_DISABLED, [10000.0, 0.0, 0.0]),
+            achr(REF_NON_TEAM, 0x400, b"BystanderRef\0", NPC_NON_TEAM, [11000.0, 0.0, 0.0]),
+            achr(REF_NEAR, 0x400, b"NearMateRef\0", NPC_NEAR, [500.0, 0.0, 0.0]),
+        ]
+        .concat();
+        let wrld = [
+            rec(b"WRLD", 0, WORLD_ID, &[sub(b"EDID", b"TestWasteland\0")]),
+            grp(
+                WORLD_ID.to_le_bytes(),
+                1,
+                &[
+                    rec(b"CELL", 0, EXT_CELL, &[sub(b"EDID", b"TestExtCell\0"), sub(b"DATA", &[0])]),
+                    grp(EXT_CELL.to_le_bytes(), 6, &grp(EXT_CELL.to_le_bytes(), 8, &persistent)),
+                ]
+                .concat(),
+            ),
+        ]
+        .concat();
+        let bytes = [tes4, top(b"NPC_", &npcs), top(b"WRLD", &wrld)].concat();
+        let plugin = fnv_esm::Plugin::parse(&bytes, "CompanionMap.esm".into()).unwrap();
+        let mut script = crate::script::ScriptState::over_plugins(&[plugin]);
+
+        // Build matching SimState from the same plugin.
+        let sim_plugin = fnv_esm::Plugin::parse(&bytes, "CompanionMap.esm".into()).unwrap();
+        let plugins: &'static [fnv_esm::Plugin] = Box::leak(Box::new([sim_plugin]));
+        let lo = fnv_esm::LoadOrder::new(plugins).unwrap();
+        let schema = fnv_esm::Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(fnv_sim::FormStore::build(&lo, &schema)));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(fnv_sim::RefTable::build(&lo, &schema)));
+        let mut sim = SimState { forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()) };
+
+        // Materialize only REF_MATERIALIZED (moving it to a new exterior position); leave REF_PLACED_ONLY unmaterialized!
+        sim.world.get(FormId(REF_MATERIALIZED)).unwrap().pos = [-9000.0, 4096.0, 0.0];
+        assert!(sim.world.peek(FormId(REF_PLACED_ONLY)).is_none(), "REF_PLACED_ONLY must remain unmaterialized");
+
+        // Mark teammates in script state (leaving REF_NON_TEAM untagged, REF_DEAD dead, REF_DISABLED initially disabled).
+        {
+            let g = &mut script.rt.as_mut().unwrap().game;
+            for r in [REF_PLACED_ONLY, REF_MATERIALIZED, REF_DEAD, REF_DISABLED, REF_NEAR] {
+                g.extra.entry(FormId(r)).or_default().teammate = true;
+            }
+            g.extra.entry(FormId(REF_DEAD)).or_default().dead = true;
+        }
+
+        let root = WorldMap { root: WORLD_ID, transform: MapTransform::default(), texture: "world.dds".into(), usable: [2048.0; 2], nw: [-4, 4], se: [4, -4] };
+        let mut st = DataState {
+            tile_rows: true,
+            maps: [(WORLD_ID, Some(root))].into_iter().collect(),
+            markers: Some(Vec::new()),
+            ..DataState::default()
+        };
+
+        let mut world = World::new();
+        world.insert_resource(Location { world: WORLD_ID, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        world.insert_resource(script);
+        world.insert_resource(sim);
+        let mut state = SystemState::<Game>::new(&mut world);
+
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let shown = world_map(&mut st, &game, None, false);
+            let names: Vec<&str> = shown.companions.iter().map(|c| c.1.as_str()).collect();
+            assert_eq!(names, vec!["Scout Alpha", "Scout Bravo"], "discovers both unmaterialized and materialized exterior teammates; excludes dead, disabled, non-teammate, and too-near");
+            let parts = shown.world.as_ref().expect("world parts");
+            assert_eq!(parts.companion_font, COMPANION_FONT as u8);
+            assert_eq!(parts.companions.iter().map(|c| (c.0, c.2.as_str(), c.3)).collect::<Vec<_>>(), vec![(REF_PLACED_ONLY, "Scout Alpha", false), (REF_MATERIALIZED, "Scout Bravo", false)]);
+        }
+
+        // Enabling bNoMinCompanionMapDistance + bCompanionsUseLocationFontOnMap reveals the nearby teammate and switches to font 1.
+        {
+            let mut script = world.resource_mut::<crate::script::ScriptState>();
+            let g = &mut script.rt.as_mut().unwrap().game;
+            g.tweaks.no_min_companion_distance = true;
+            g.tweaks.companions_location_font = true;
+        }
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let shown = world_map(&mut st, &game, None, false);
+            let names: Vec<&str> = shown.companions.iter().map(|c| c.1.as_str()).collect();
+            assert_eq!(names, vec!["Scout Alpha", "Scout Bravo", "Close Scout"]);
+            assert_eq!(shown.world.as_ref().unwrap().companion_font, LOCATION_FONT as u8);
         }
     }
 }

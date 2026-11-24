@@ -836,6 +836,19 @@ impl Game {
         }
     }
 
+    /// Preview all six caravan values and track winners after applying `m` for `by`,
+    /// without mutating `self` [design: BetterCaravan `bPreviewMoveResult`].
+    pub fn preview_move(&self, by: usize, m: Move) -> Option<MovePreview> {
+        let mut after = self.clone();
+        after.apply(by, m).ok()?;
+        let values = [
+            std::array::from_fn(|t| after.sides[PLAYER].caravans[t].value()),
+            std::array::from_fn(|t| after.sides[OPPONENT].caravans[t].value()),
+        ];
+        let winners = std::array::from_fn(|t| after.track_winner(t));
+        Some(MovePreview { values, winners })
+    }
+
     /// A Joker on the card at `at` (side, track, place): on an ace every other numbered
     /// card of its suit, on 2–10 every other card of its value, leaves the table with its
     /// face cards (caravan.md §5).
@@ -905,6 +918,301 @@ pub fn evaluate(g: &Game, side: usize) -> f32 {
     s + 0.5 * g.sides[side].cards_left() as f32
 }
 
+/// Resulting caravan values and track winners from hovering/previewing a legal move
+/// [design: BetterCaravan `bPreviewMoveResult`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MovePreview {
+    /// Resulting caravan values `[side][track]`.
+    pub values: [[u32; TRACKS]; 2],
+    /// Resulting track winner per track (`Some(PLAYER)`, `Some(OPPONENT)`, or `None`).
+    pub winners: [Option<usize>; TRACKS],
+}
+
+/// How `iModCardMode` modifies the player's deck at game start when `iModCardCount > 0`
+/// [documented: Better Caravan v1.9 (`https://www.nexusmods.com/newvegas/mods/81002`),
+/// shipped `Data\NVSE\Plugins\BetterCaravan.ini` comments: `0 = add`, `1 = remove`,
+/// `2 = replace`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ModCardMode {
+    #[default]
+    Add,
+    Remove,
+    Replace,
+}
+
+impl ModCardMode {
+    fn from_ini(n: i64) -> Self {
+        match n {
+            1 => Self::Remove,
+            2 => Self::Replace,
+            _ => Self::Add,
+        }
+    }
+}
+
+/// Clean-room configuration parsed from `Data\NVSE\Plugins\BetterCaravan.ini`
+/// [documented: Better Caravan v1.9 (`https://www.nexusmods.com/newvegas/mods/81002`),
+/// shipped `Data\NVSE\Plugins\BetterCaravan.ini`, section `[Better Caravan]` and its 16
+/// commented keys; plugin DLL and source code were never consulted], with an NVForever
+/// fallback lookup at `Data\Config\BetterCaravan.ini` [design: NVForever fallback path,
+/// not stated in Better Caravan v1.9].
+///
+/// Note that `bAiFixes` and `bImprovedAI` drive NVForever's own clean-room scoring
+/// heuristics in [`choose_with_config`], not Better Caravan's AI implementation [design].
+///
+/// When neither INI file exists, every option defaults to off (`false` / `0` / `None`) so
+/// unmodded vanilla Caravan rules, visuals, bindings, and AI remain unchanged [design].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BetterCaravanConfig {
+    pub ai_fixes: bool,
+    pub improved_ai: bool,
+    pub preview_move_result: bool,
+    pub highlight_winning_caravans: bool,
+    pub mod_card_mode: ModCardMode,
+    pub mod_card_count: usize,
+    pub debug: bool,
+    pub view_npc_cards: bool,
+    pub description_jack: Option<String>,
+    pub description_queen: Option<String>,
+    pub description_king: Option<String>,
+    pub description_joker: Option<String>,
+    pub key_up: Option<String>,
+    pub key_down: Option<String>,
+    pub key_left: Option<String>,
+    pub key_right: Option<String>,
+}
+
+/// VFS lookup paths for `BetterCaravan.ini` in priority order:
+/// `NVSE\Plugins\BetterCaravan.ini` [documented: Better Caravan v1.9
+/// (`https://www.nexusmods.com/newvegas/mods/81002`), archive install path] followed by
+/// `Config\BetterCaravan.ini` [design: NVForever fallback lookup path, not in Better
+/// Caravan v1.9's shipped layout].
+pub const BETTER_CARAVAN_INI_PATHS: [&str; 2] = [
+    "NVSE\\Plugins\\BetterCaravan.ini",
+    "Config\\BetterCaravan.ini",
+];
+
+impl BetterCaravanConfig {
+    /// Load `BetterCaravan.ini` from `g.mod_files` / Data VFS (`NVSE\Plugins\BetterCaravan.ini`,
+    /// falling back to `Config\BetterCaravan.ini`). Returns `(Default, None)` when absent.
+    pub fn load_from_game(g: &Rules) -> (Self, Option<&'static str>) {
+        Self::load_from_mod_files(&g.mod_files)
+    }
+
+    /// Load `BetterCaravan.ini` from `mod_files` / Data VFS in priority order.
+    pub fn load_from_mod_files(mod_files: &crate::mod_files::ModFiles) -> (Self, Option<&'static str>) {
+        for path in BETTER_CARAVAN_INI_PATHS {
+            if let Some(text) = mod_files.read_text(path) {
+                return (Self::parse(&text), Some(path));
+            }
+            if let Some(bytes) = crate::mod_files::read_data_file(path) {
+                return (Self::parse_bytes(&bytes), Some(path));
+            }
+        }
+        (Self::default(), None)
+    }
+
+    /// Parse raw INI bytes (strips UTF-8 BOM if present; falls back to Latin-1 for non-UTF-8
+    /// bytes) [design].
+    pub fn parse_bytes(bytes: &[u8]) -> Self {
+        let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+        match std::str::from_utf8(bytes) {
+            Ok(s) => Self::parse(s),
+            Err(_) => {
+                let text: String = bytes.iter().map(|&b| b as char).collect();
+                Self::parse(&text)
+            }
+        }
+    }
+
+    /// Parse `[Better Caravan]` INI text (BOM-safe, case-insensitive section and keys,
+    /// `;` and `#` comment lines ignored) [design].
+    pub fn parse(text: &str) -> Self {
+        let decoded = decode_ini_bom(text);
+        let mut cfg = Self::default();
+        let mut in_section = false;
+        for raw_line in decoded.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix('[') {
+                if let Some((sec, _)) = rest.split_once(']') {
+                    in_section = sec.trim().eq_ignore_ascii_case("better caravan");
+                }
+                continue;
+            }
+            if !in_section {
+                continue;
+            }
+            let Some((raw_key, raw_val)) = line.split_once('=') else {
+                continue;
+            };
+            let key = raw_key.trim().to_ascii_lowercase();
+            match key.as_str() {
+                "baifixes" => {
+                    if let Some(b) = parse_ini_bool(raw_val) {
+                        cfg.ai_fixes = b;
+                    }
+                }
+                "bimprovedai" => {
+                    if let Some(b) = parse_ini_bool(raw_val) {
+                        cfg.improved_ai = b;
+                    }
+                }
+                "bpreviewmoveresult" => {
+                    if let Some(b) = parse_ini_bool(raw_val) {
+                        cfg.preview_move_result = b;
+                    }
+                }
+                "bhighlightwinningcaravans" => {
+                    if let Some(b) = parse_ini_bool(raw_val) {
+                        cfg.highlight_winning_caravans = b;
+                    }
+                }
+                "imodcardmode" => {
+                    if let Some(n) = parse_ini_int(raw_val) {
+                        cfg.mod_card_mode = ModCardMode::from_ini(n);
+                    }
+                }
+                "imodcardcount" => {
+                    if let Some(n) = parse_ini_int(raw_val) {
+                        cfg.mod_card_count = n.max(0) as usize;
+                    }
+                }
+                "bdebug" => {
+                    if let Some(b) = parse_ini_bool(raw_val) {
+                        cfg.debug = b;
+                    }
+                }
+                "bviewnpccards" => {
+                    if let Some(b) = parse_ini_bool(raw_val) {
+                        cfg.view_npc_cards = b;
+                    }
+                }
+                "sdescriptionjack" => cfg.description_jack = parse_ini_string(raw_val),
+                "sdescriptionqueen" => cfg.description_queen = parse_ini_string(raw_val),
+                "sdescriptionking" => cfg.description_king = parse_ini_string(raw_val),
+                "sdescriptionjoker" => cfg.description_joker = parse_ini_string(raw_val),
+                "skeyup" => cfg.key_up = parse_ini_token(raw_val),
+                "skeydown" => cfg.key_down = parse_ini_token(raw_val),
+                "skeyleft" => cfg.key_left = parse_ini_token(raw_val),
+                "skeyright" => cfg.key_right = parse_ini_token(raw_val),
+                _ => {}
+            }
+        }
+        cfg
+    }
+
+    /// Face-card reminder configured for `rank`, if any.
+    pub fn face_description(&self, rank: Rank) -> Option<&str> {
+        match rank {
+            Rank::Jack => self.description_jack.as_deref(),
+            Rank::Queen => self.description_queen.as_deref(),
+            Rank::King => self.description_king.as_deref(),
+            Rank::Joker => self.description_joker.as_deref(),
+            Rank::Num(_) => None,
+        }
+    }
+}
+
+fn decode_ini_bom(text: &str) -> std::borrow::Cow<'_, str> {
+    if let Some(rest) = text.strip_prefix('\u{feff}') {
+        return std::borrow::Cow::Borrowed(rest);
+    }
+    // `ModFiles::read_text` decodes raw bytes as Latin-1, so a UTF-8 BOM arrives as three
+    // Latin-1 code points (`\u{00EF}\u{00BB}\u{00BF}`).
+    if let Some(rest) = text.strip_prefix("\u{00ef}\u{00bb}\u{00bf}") {
+        if rest.chars().all(|c| (c as u32) <= 0xFF) {
+            let bytes: Vec<u8> = rest.chars().map(|c| c as u8).collect();
+            if let Ok(utf8) = String::from_utf8(bytes) {
+                return std::borrow::Cow::Owned(utf8);
+            }
+        }
+        return std::borrow::Cow::Borrowed(rest);
+    }
+    std::borrow::Cow::Borrowed(text)
+}
+
+fn strip_inline_comment(val: &str) -> &str {
+    val.split([';', '#']).next().unwrap_or(val).trim()
+}
+
+fn parse_ini_bool(raw: &str) -> Option<bool> {
+    let v = strip_inline_comment(raw).trim_matches('"').trim();
+    if v.is_empty() {
+        return None;
+    }
+    if v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes") || v.eq_ignore_ascii_case("on") {
+        return Some(true);
+    }
+    if v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("no") || v.eq_ignore_ascii_case("off") {
+        return Some(false);
+    }
+    v.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n != 0.0)
+}
+
+fn parse_ini_int(raw: &str) -> Option<i64> {
+    let v = strip_inline_comment(raw).trim_matches('"').trim();
+    if v.is_empty() {
+        return None;
+    }
+    v.parse::<i64>().ok().or_else(|| v.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n.trunc() as i64))
+}
+
+fn parse_ini_string(raw: &str) -> Option<String> {
+    let v = raw.trim();
+    let v = v.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(v).trim();
+    (!v.is_empty()).then(|| v.to_string())
+}
+
+fn parse_ini_token(raw: &str) -> Option<String> {
+    let v = strip_inline_comment(raw);
+    let v = v.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(v).trim();
+    (!v.is_empty()).then(|| v.to_string())
+}
+
+/// Randomly modify the player's dealt deck at minigame start according to BetterCaravan's
+/// `iModCardMode` and `iModCardCount` [design].
+///
+/// When `count == 0`, returns `deck` unchanged without advancing `rng`.
+/// For [`ModCardMode::Remove`], preserves at least [`MIN_DECK`] cards whenever `deck`
+/// starts with at least [`MIN_DECK`] cards (or `1` card for smaller synthetic decks).
+pub fn apply_deck_mod(deck: &[FormId], owned: &[FormId], mode: ModCardMode, count: usize, rng: &mut ChaCha8Rng) -> Vec<FormId> {
+    let mut out = deck.to_vec();
+    if count == 0 {
+        return out;
+    }
+    match mode {
+        ModCardMode::Add => {
+            let mut pool: Vec<FormId> = owned.iter().copied().filter(|f| !out.contains(f)).collect();
+            shuffle(&mut pool, rng);
+            let n = count.min(pool.len());
+            out.extend(pool.into_iter().take(n));
+        }
+        ModCardMode::Remove => {
+            let floor = if out.len() >= MIN_DECK { MIN_DECK } else { 1.min(out.len()) };
+            let removable = out.len().saturating_sub(floor);
+            let n = count.min(removable);
+            for _ in 0..n {
+                let idx = (rng.next_u32() as usize) % out.len();
+                out.remove(idx);
+            }
+        }
+        ModCardMode::Replace => {
+            let mut pool: Vec<FormId> = owned.iter().copied().filter(|f| !out.contains(f)).collect();
+            shuffle(&mut pool, rng);
+            let n = count.min(out.len()).min(pool.len());
+            let mut indices: Vec<usize> = (0..out.len()).collect();
+            shuffle(&mut indices, rng);
+            for (slot, replacement) in indices.into_iter().take(n).zip(pool.into_iter().take(n)) {
+                out[slot] = replacement;
+            }
+        }
+    }
+    out
+}
+
 /// The side's choice: the best move by [`evaluate`] after it, with noise and fewer attacks
 /// the lower the skill [design; caravan.md §6]. `None` when the side cannot move.
 pub fn choose(g: &Game, side: usize, skill: f32, rng: &mut ChaCha8Rng) -> Option<Move> {
@@ -920,6 +1228,105 @@ pub fn choose(g: &Game, side: usize, skill: f32, rng: &mut ChaCha8Rng) -> Option
         let mut score = evaluate(&after, side) + noise;
         if attack {
             score -= 25.0 * (1.0 - skill);
+        }
+        if best.is_none_or(|(b, _)| score > b) {
+            best = Some((score, m));
+        }
+    }
+    best.map(|(_, m)| m)
+}
+
+/// Choose a move honoring [`BetterCaravanConfig::ai_fixes`] and
+/// [`BetterCaravanConfig::improved_ai`] [design: NVForever's own scoring heuristics, not
+/// Better Caravan's AI implementation; caravan.md §9].
+///
+/// When both flags are off, delegates directly to [`choose`] so vanilla AI decisions and
+/// RNG draws remain bit-for-bit unchanged.
+pub fn choose_with_config(g: &Game, side: usize, skill: f32, cfg: &BetterCaravanConfig, rng: &mut ChaCha8Rng) -> Option<Move> {
+    if !cfg.ai_fixes && !cfg.improved_ai {
+        return choose(g, side, skill, rng);
+    }
+    let skill = skill.clamp(0.0, 1.0);
+    let other = Game::other(side);
+    let base_my_wins = (0..TRACKS).filter(|&t| g.track_winner(t) == Some(side)).count();
+    let base_other_wins = (0..TRACKS).filter(|&t| g.track_winner(t) == Some(other)).count();
+    let mut best: Option<(f32, Move)> = None;
+    for m in g.moves_for(side) {
+        let mut after = g.clone();
+        if after.apply(side, m).is_err() {
+            continue;
+        }
+        if after.winner.is_some_and(|(w, _)| w == side) {
+            let my_tracks = (0..TRACKS).filter(|&t| after.track_winner(t) == Some(side)).count() as f32;
+            let margin: f32 = (0..TRACKS).map(|t| after.sides[side].caravans[t].value() as f32).sum();
+            let score = 1.0e6 + my_tracks * 100.0 + margin;
+            if best.is_none_or(|(b, _)| score > b) {
+                best = Some((score, m));
+            }
+            continue;
+        }
+        if after.winner.is_some_and(|(w, _)| w != side) {
+            let score = -1.0e6;
+            if best.is_none_or(|(b, _)| score > b) {
+                best = Some((score, m));
+            }
+            continue;
+        }
+
+        let mut score = evaluate(&after, side);
+        if cfg.ai_fixes {
+            for t in 0..TRACKS {
+                if after.sides[other].caravans[t].over() {
+                    score += 20.0;
+                }
+                if g.track_winner(t) == Some(side) && after.track_winner(t) != Some(side) {
+                    score -= 80.0;
+                }
+            }
+            match m {
+                Move::DiscardTrack { track } if !g.sides[side].caravans[track].over() => {
+                    score -= 45.0;
+                }
+                Move::Play { side: target_side, track, on: Some(_), .. } if target_side == other => {
+                    let before_o = &g.sides[other].caravans[track];
+                    let after_o = &after.sides[other].caravans[track];
+                    let helped_win = g.track_winner(track) != Some(other) && after.track_winner(track) == Some(other);
+                    let unbusted = before_o.over() && !after_o.over();
+                    let boosted_in_range = !after_o.over() && after_o.value() > before_o.value() && after_o.value() >= SOLD_MIN;
+                    if helped_win || unbusted || boosted_in_range {
+                        score -= 90.0;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if cfg.improved_ai {
+            let after_my_wins = (0..TRACKS).filter(|&t| after.track_winner(t) == Some(side)).count();
+            let after_other_wins = (0..TRACKS).filter(|&t| after.track_winner(t) == Some(other)).count();
+            if base_other_wins >= 2 && after_other_wins < base_other_wins {
+                score += 160.0;
+            }
+            if after_other_wins >= 2 {
+                score -= 120.0;
+            }
+            if after_my_wins >= 2 && after_my_wins > base_my_wins {
+                score += 90.0;
+            }
+            for t in 0..TRACKS {
+                if after.track_winner(t) == Some(side) {
+                    let v = after.sides[side].caravans[t].value();
+                    score += 3.0 * v.saturating_sub(SOLD_MIN) as f32;
+                }
+            }
+        }
+
+        let noise_scale = if cfg.improved_ai { 20.0 } else { 40.0 };
+        let attack_penalty = if cfg.improved_ai { 10.0 } else { 25.0 };
+        let noise = (rng.next_u32() as f32 / u32::MAX as f32 * 2.0 - 1.0) * noise_scale * (1.0 - skill);
+        let attack = matches!(m, Move::Play { side: s, on: Some(_), .. } if s != side);
+        score += noise;
+        if attack {
+            score -= attack_penalty * (1.0 - skill);
         }
         if best.is_none_or(|(b, _)| score > b) {
             best = Some((score, m));
@@ -1163,6 +1570,237 @@ mod tests {
         for _ in 0..20 {
             let d = randomize(&owned, &mut rng);
             assert!((MIN_DECK..=54).contains(&d.len()));
+        }
+    }
+
+    #[test]
+    fn better_caravan_absent_ini_preserves_exact_vanilla_behavior() {
+        let cfg = BetterCaravanConfig::default();
+        assert_eq!(cfg, BetterCaravanConfig::parse(""));
+        assert!(!cfg.ai_fixes && !cfg.improved_ai && !cfg.preview_move_result && !cfg.highlight_winning_caravans && !cfg.debug && !cfg.view_npc_cards);
+        assert_eq!(cfg.mod_card_count, 0);
+        assert_eq!(cfg.face_description(Rank::King), None);
+
+        let empty_files = crate::mod_files::ModFiles::default();
+        assert_eq!(BetterCaravanConfig::load_from_mod_files(&empty_files), (BetterCaravanConfig::default(), None));
+
+        // Deck mod with count 0 does not alter deck or advance RNG.
+        let deck: Vec<FormId> = (1..=30).map(FormId).collect();
+        let owned: Vec<FormId> = (1..=50).map(FormId).collect();
+        let mut rng_a = ChaCha8Rng::seed_from_u64(77);
+        let mut rng_b = ChaCha8Rng::seed_from_u64(77);
+        assert_eq!(apply_deck_mod(&deck, &owned, ModCardMode::Replace, 0, &mut rng_a), deck);
+        assert_eq!(rng_a.next_u32(), rng_b.next_u32());
+
+        // AI with both flags off matches vanilla `choose` and RNG stream bit-for-bit.
+        let game = war(&["9h", "Kc", "Jd", "5s"], [&["10h", "8h"], &["6s"], &["4c"]], [&["10d", "9d", "5d"], &["8c", "7c"], &["9s"]]);
+        for seed in 0..10 {
+            let mut r1 = ChaCha8Rng::seed_from_u64(seed);
+            let mut r2 = ChaCha8Rng::seed_from_u64(seed);
+            let m1 = choose(&game, PLAYER, 0.3, &mut r1);
+            let m2 = choose_with_config(&game, PLAYER, 0.3, &cfg, &mut r2);
+            assert_eq!(m1, m2);
+            assert_eq!(r1.next_u32(), r2.next_u32());
+        }
+    }
+
+    #[test]
+    fn better_caravan_ini_parses_bom_comments_case_and_all_keys() {
+        let raw = "\u{feff}; header comment\r\n\
+            [Other Section]\r\n\
+            bAiFixes = 0\r\n\
+            # ignored comment\r\n\
+            [bEtTeR cArAvAn] ; trailing comment\r\n\
+            baifixes = 1 ; inline comment\r\n\
+            BImprovedAI = true\r\n\
+            bPreviewMoveResult = 1\r\n\
+            bHighlightWinningCaravans = 1\r\n\
+            iModCardMode = 2 # replace\r\n\
+            iModCardCount = 4\r\n\
+            bDebug = 1\r\n\
+            bViewNpcCards = 1\r\n\
+            sDescriptionJack = Jack - Removes card and attached faces.\r\n\
+            sDescriptionQueen = Queen - Reverses direction and suit.\r\n\
+            sDescriptionKing = King - Doubles value e.g. 4 + two kings = 16.\r\n\
+            sDescriptionJoker = Joker - Clears value, or suit on Ace.\r\n\
+            sKeyUp = i ; up\r\n\
+            sKeyDown = K\r\n\
+            sKeyLeft = j\r\n\
+            sKeyRight = l\r\n";
+
+        let cfg = BetterCaravanConfig::parse(raw);
+        assert!(cfg.ai_fixes);
+        assert!(cfg.improved_ai);
+        assert!(cfg.preview_move_result);
+        assert!(cfg.highlight_winning_caravans);
+        assert_eq!(cfg.mod_card_mode, ModCardMode::Replace);
+        assert_eq!(cfg.mod_card_count, 4);
+        assert!(cfg.debug);
+        assert!(cfg.view_npc_cards);
+        assert_eq!(cfg.face_description(Rank::Jack), Some("Jack - Removes card and attached faces."));
+        assert_eq!(cfg.face_description(Rank::Queen), Some("Queen - Reverses direction and suit."));
+        assert_eq!(cfg.face_description(Rank::King), Some("King - Doubles value e.g. 4 + two kings = 16."));
+        assert_eq!(cfg.face_description(Rank::Joker), Some("Joker - Clears value, or suit on Ace."));
+        assert_eq!(cfg.face_description(Rank::Num(7)), None);
+        assert_eq!(cfg.key_up.as_deref(), Some("i"));
+        assert_eq!(cfg.key_down.as_deref(), Some("K"));
+        assert_eq!(cfg.key_left.as_deref(), Some("j"));
+        assert_eq!(cfg.key_right.as_deref(), Some("l"));
+
+        // Raw UTF-8 BOM bytes parse identically.
+        let mut bytes = vec![0xEF, 0xBB, 0xBF];
+        bytes.extend_from_slice(raw.trim_start_matches('\u{feff}').as_bytes());
+        assert_eq!(BetterCaravanConfig::parse_bytes(&bytes), cfg);
+
+        // Negative count clamps to 0; invalid mode falls back to Add; non-finite floats
+        // (`NaN`/`inf`) are ignored; empty value clears earlier key.
+        let edge = "[Better Caravan]\nbAiFixes = NaN\nbImprovedAI = inf\niModCardMode = 99\niModCardCount = -5\niModCardCount = inf\nsKeyUp = i\nsKeyUp =\n";
+        let edge_cfg = BetterCaravanConfig::parse(edge);
+        assert!(!edge_cfg.ai_fixes);
+        assert!(!edge_cfg.improved_ai);
+        assert_eq!(edge_cfg.mod_card_mode, ModCardMode::Add);
+        assert_eq!(edge_cfg.mod_card_count, 0);
+        assert_eq!(edge_cfg.key_up, None);
+    }
+
+    #[test]
+    fn better_caravan_load_from_game_prefers_nvse_plugins_over_config_fallback() {
+        let bytes = crate::common::tes4();
+        let plugins = [fnv_esm::Plugin::parse(&bytes, "BetterCaravanTest.esm".into()).unwrap()];
+        let lo = fnv_esm::LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = fnv_esm::Schema::load_dir(root.join("fnv")).unwrap();
+        let path = root.join("script/functions.json");
+        let catalog = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let forms = fnv_sim::FormStore::build(&lo, &schema);
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let data = crate::GameData::build(&lo, &schema, fnv_script::FunctionTable::load(&path).unwrap(), &catalog, &refs);
+        let mut g = crate::game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        assert_eq!(BetterCaravanConfig::load_from_game(&g), (BetterCaravanConfig::default(), None));
+
+        // Config fallback works when NVSE\Plugins copy is absent (including UTF-8 BOM bytes).
+        let mut config_bytes = vec![0xEF, 0xBB, 0xBF];
+        config_bytes.extend_from_slice(b"[Better Caravan]\nbHighlightWinningCaravans = 1\nsKeyUp = i\n");
+        assert!(g.mod_files.write_bytes("Config/BetterCaravan.ini", &config_bytes));
+        let (cfg, src) = BetterCaravanConfig::load_from_game(&g);
+        assert_eq!(src, Some("Config\\BetterCaravan.ini"));
+        assert!(cfg.highlight_winning_caravans);
+        assert!(!cfg.preview_move_result);
+        assert_eq!(cfg.key_up.as_deref(), Some("i"));
+
+        // NVSE\Plugins\BetterCaravan.ini takes precedence over Config fallback.
+        assert!(g.mod_files.write_bytes("NVSE/Plugins/BetterCaravan.ini", b"[Better Caravan]\nbPreviewMoveResult = 1\nbHighlightWinningCaravans = 0\n"));
+        let (cfg, src) = BetterCaravanConfig::load_from_game(&g);
+        assert_eq!(src, Some("NVSE\\Plugins\\BetterCaravan.ini"));
+        assert!(cfg.preview_move_result);
+        assert!(!cfg.highlight_winning_caravans);
+    }
+
+    #[test]
+    fn better_caravan_deck_mod_add_remove_and_replace() {
+        let owned: Vec<FormId> = (1..=40).map(FormId).collect();
+        let base_34: Vec<FormId> = (1..=34).map(FormId).collect();
+        let mut rng = ChaCha8Rng::seed_from_u64(19);
+
+        // Add: adds 4 distinct cards not already in deck.
+        let added = apply_deck_mod(&base_34, &owned, ModCardMode::Add, 4, &mut rng);
+        assert_eq!(added.len(), 38);
+        assert!(added.iter().skip(34).all(|f| (35..=40).contains(&f.0)));
+
+        // Add beyond pool size stops at owned count without duplicates.
+        let added_all = apply_deck_mod(&base_34, &owned, ModCardMode::Add, 99, &mut rng);
+        assert_eq!(added_all.len(), 40);
+
+        // Remove: removes up to count, never dropping below MIN_DECK (30).
+        let removed_2 = apply_deck_mod(&base_34, &owned, ModCardMode::Remove, 2, &mut rng);
+        assert_eq!(removed_2.len(), 32);
+        let removed_floor = apply_deck_mod(&base_34, &owned, ModCardMode::Remove, 10, &mut rng);
+        assert_eq!(removed_floor.len(), MIN_DECK);
+
+        // Replace: preserves deck length and swaps cards from unused owned pool.
+        let replaced = apply_deck_mod(&base_34, &owned, ModCardMode::Replace, 3, &mut rng);
+        assert_eq!(replaced.len(), base_34.len());
+        let new_cards = replaced.iter().filter(|f| !base_34.contains(f)).count();
+        assert_eq!(new_cards, 3);
+    }
+
+    #[test]
+    fn better_caravan_preview_move_handles_numbers_kings_jacks_jokers_and_discard_track() {
+        // Numbered card selling track 0 and winning over opponent's 21.
+        let g = war(&["6h", "Ks", "Jd", "Jo"], [&["10h", "8h"], &["4s", "7c"], &["5d"]], [&["10d", "6d", "5d"], &["10c", "9c", "4c"], &["7s", "8s"]]);
+        let before = g.clone();
+        let p_num = g.preview_move(PLAYER, Move::Play { card: 0, side: PLAYER, track: 0, on: None }).unwrap();
+        assert_eq!(p_num.values[PLAYER][0], 24);
+        assert_eq!(p_num.winners[0], Some(PLAYER));
+        assert_eq!(g.sides, before.sides, "preview must not mutate the game");
+
+        // King on opponent's 10c (track 1: 10+9+4=23 -> 20+9+4=33 bust!).
+        let p_king = g.preview_move(PLAYER, Move::Play { card: 1, side: OPPONENT, track: 1, on: Some(0) }).unwrap();
+        assert_eq!(p_king.values[OPPONENT][1], 33);
+        assert_eq!(p_king.winners[1], None);
+
+        // Jack on opponent's 10d (track 0: 10+6+5=21 -> 11).
+        let p_jack = g.preview_move(PLAYER, Move::Play { card: 2, side: OPPONENT, track: 0, on: Some(0) }).unwrap();
+        assert_eq!(p_jack.values[OPPONENT][0], 11);
+        assert_eq!(p_jack.winners[0], None);
+
+        // Joker on player's 7c (track 1) removes opponent's 7s on track 2!
+        let p_joker = g.preview_move(PLAYER, Move::Play { card: 3, side: PLAYER, track: 1, on: Some(1) }).unwrap();
+        assert_eq!(p_joker.values[PLAYER][1], 11);
+        assert_eq!(p_joker.values[OPPONENT][2], 8);
+
+        // DiscardTrack zeroes the chosen track.
+        let p_track = g.preview_move(PLAYER, Move::DiscardTrack { track: 0 }).unwrap();
+        assert_eq!(p_track.values[PLAYER][0], 0);
+    }
+
+    #[test]
+    fn better_caravan_ai_fixes_and_improved_ai_detect_wins_and_threats() {
+        // Immediate win: OPPONENT already wins tracks 0 & 1 (24 & 25), track 2 is at 18 vs 10.
+        // Playing 5h on track 2 wins immediately even at skill 0.0.
+        let mut g_win = war(&["2c"], [&["10d", "9d"], &["8d", "7d"], &["10c"]], [&["10h", "9h", "5h"], &["10s", "9s", "6s"], &["10c", "8c"]]);
+        g_win.turn = OPPONENT;
+        g_win.sides[OPPONENT].hand = vec![c("5c"), c("2h"), c("3d")];
+        let cfg_fix = BetterCaravanConfig { ai_fixes: true, ..Default::default() };
+        for seed in 0..8 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let m = choose_with_config(&g_win, OPPONENT, 0.0, &cfg_fix, &mut rng).unwrap();
+            let mut after = g_win.clone();
+            after.apply(OPPONENT, m).unwrap();
+            assert_eq!(after.winner, Some((OPPONENT, End::Sold)), "seed {seed}: ai_fixes must always take immediate win");
+        }
+
+        // Threat detection: PLAYER holds 2 winning tracks (24 and 25). OPPONENT has a King
+        // that can bust PLAYER's 10h on track 0 (24 -> 34) vs weak plays.
+        let mut g_threat = war(&["2c"], [&["10h", "9h", "5h"], &["10s", "9s", "6s"], &["6c"]], [&["5d"], &["4d"], &["7d"]]);
+        g_threat.turn = OPPONENT;
+        g_threat.sides[OPPONENT].hand = vec![c("Kc"), c("2h")];
+        let cfg_imp = BetterCaravanConfig { ai_fixes: true, improved_ai: true, ..Default::default() };
+        for seed in 0..8 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let m = choose_with_config(&g_threat, OPPONENT, 0.0, &cfg_imp, &mut rng).unwrap();
+            assert!(
+                matches!(m, Move::Play { card: 0, side: PLAYER, track: 0 | 1, on: Some(_) }),
+                "seed {seed}: improved_ai should disrupt player's 2-track lead, got {m:?}"
+            );
+        }
+
+        // Full games with both AI flags on finish cleanly.
+        let deck: Vec<Card> = (1..=10)
+            .flat_map(|n| ["h", "s", "c", "d"].map(|s| c(&format!("{}{s}", if n == 1 { "A".into() } else { n.to_string() }))))
+            .chain(["Kh", "Qs", "Jd", "Jo"].map(c))
+            .collect();
+        for seed in 0..20 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed + 100);
+            let mut g = Game::new(deck.clone(), deck.clone(), &mut rng);
+            let mut turns = 0;
+            while g.phase != Phase::Over {
+                let by = g.turn;
+                let m = choose_with_config(&g, by, 0.5, &cfg_imp, &mut rng).expect("a move");
+                g.apply(by, m).unwrap();
+                turns += 1;
+                assert!(turns < 500, "seed {seed}: improved AI game never ended");
+            }
         }
     }
 }

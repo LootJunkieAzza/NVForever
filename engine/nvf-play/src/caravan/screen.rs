@@ -20,7 +20,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
-use fnv_game::caravan::{Caravan, Game, Move, Phase, OPPONENT, PLAYER, SOLD_MAX, SOLD_MIN, TRACKS};
+use fnv_game::caravan::{Caravan, Game, Move, MovePreview, Phase, OPPONENT, PLAYER, SOLD_MAX, SOLD_MIN, TRACKS};
 use fnv_sim::FormId;
 use nvf_assets::GameData;
 use std::collections::HashMap;
@@ -120,6 +120,14 @@ pub fn value_colour(v: u32, normal: Color) -> Color {
         _ => normal,
     }
 }
+/// A winning caravan (21–26, ahead of the opponent) highlighted in white when
+/// BetterCaravan's `bHighlightWinningCaravans` is enabled [documented: Better Caravan
+/// v1.9 (`https://www.nexusmods.com/newvegas/mods/81002`), shipped
+/// `Data\NVSE\Plugins\BetterCaravan.ini` comment "; highlight winning caravans in white"].
+const WINNING: Color = Color::WHITE;
+/// A previewed caravan value that changes under the hovered move when BetterCaravan's
+/// `bPreviewMoveResult` is enabled [design].
+const PREVIEW: Color = Color::srgb(1.0, 0.96, 0.72);
 
 #[derive(Component)]
 pub struct CaravanRoot;
@@ -136,7 +144,7 @@ fn view_key(s: &Session, view_w: f32, table: bool) -> String {
         format!("{}:{}:{}:{}:{}:{:?}", side(0), side(1), g.sides[0].hand.len(), g.sides[1].hand.len(), g.sides[0].deck.len() * 100 + g.sides[1].deck.len(), g.turn)
     });
     format!(
-        "{:?}:{:?}:{:?}:{}:{}:{:?}:{:?}:{}:{:?}:{}:{}:{}:{view_w:.0}:{:?}",
+        "{:?}:{:?}:{:?}:{}:{}:{:?}:{:?}:{}:{:?}:{}:{}:{}:{}:{}:{}:{view_w:.0}:{:?}",
         s.stage,
         s.bet,
         s.deck,
@@ -149,6 +157,9 @@ fn view_key(s: &Session, view_w: f32, table: bool) -> String {
         s.players_turn(),
         s.record.won,
         s.leaving.is_some(),
+        s.better.highlight_winning_caravans,
+        s.better.preview_move_result,
+        s.better.view_npc_cards,
         crate::pad::labels(),
     ) + &s.guide()
         + if table { ":3d" } else { "" }
@@ -373,6 +384,9 @@ fn deck(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     button(p, c, "Add", &s.hint(&[KeyCode::KeyW]), 600.0, 862.0, CaravanInput::Add, here.is_some_and(|f| !s.in_deck(f)));
     button(p, c, "Remove", &s.hint(&[KeyCode::KeyA]), 1330.0, 862.0, CaravanInput::Remove, here.is_some_and(|f| s.in_deck(f)));
     button(p, c, "Play Caravan", &s.hint(&[KeyCode::KeyF]), BUTTONS_RIGHT, 862.0, CaravanInput::PlayDeck, s.deck.len() >= fnv_game::caravan::MIN_DECK);
+    if let Some(desc) = active_face_description(s) {
+        c.text_in(p, FontKind::Menu, desc, 40.0, 915.0, false, b);
+    }
     status(p, c, s, 10.0);
 }
 
@@ -541,7 +555,7 @@ pub fn table_cards(s: &Session) -> Vec<TableCard> {
     };
     let (ox, oy, ostep) = OPPONENT_HAND;
     for (i, (card_, key)) in g.sides[OPPONENT].hand.iter().zip(hand_keys(&g.sides[OPPONENT].hand, OPPONENT)).enumerate() {
-        push(key, card_.form, false, Vec2::new(ox + ostep * i as f32, oy), CARD, false);
+        push(key, card_.form, npc_cards_shown(s), Vec2::new(ox + ostep * i as f32, oy), CARD, false);
     }
     if let Some(top) = g.sides[OPPONENT].deck.last() {
         push(format!("d{OPPONENT}"), top.form, false, Vec2::new(OPPONENT_DECK.0, OPPONENT_DECK.1), CARD, false);
@@ -561,10 +575,88 @@ pub fn table_cards(s: &Session) -> Vec<TableCard> {
     out
 }
 
+/// The opponent's hand shown face up: BetterCaravan's `bViewNpcCards`, against the game's
+/// opponent only, never another player's hand.
+fn npc_cards_shown(s: &Session) -> bool {
+    s.better.view_npc_cards && s.pvp.is_none()
+}
+
 /// The hand's card a place is being picked for.
 fn chosen_card(s: &Session) -> Option<usize> {
     match &s.pick {
         Pick::Place { moves, .. } => moves.first().and_then(|m| if let Move::Play { card, .. } = m { Some(*card) } else { None }),
+        _ => None,
+    }
+}
+
+/// Previewed caravan values and winners for the currently highlighted move when
+/// `BetterCaravanConfig::preview_move_result` is enabled [design].
+pub(crate) fn active_preview(s: &Session) -> Option<MovePreview> {
+    if !s.better.preview_move_result || !s.players_turn() {
+        return None;
+    }
+    let g = s.game.as_ref()?;
+    let m = match &s.pick {
+        Pick::Place { moves, at } => *moves.get(*at)?,
+        Pick::Track { tracks, at } => Move::DiscardTrack { track: *tracks.get(*at)? },
+        Pick::Hand => return None,
+    };
+    g.preview_move(PLAYER, m)
+}
+
+/// Displayed text and colour for a caravan's value on `(side, track)`, honoring optional
+/// `preview` (`bPreviewMoveResult`) and `highlight_winning` (`bHighlightWinningCaravans`).
+/// When both are off/absent, returns the original's text and colour ([`value_colour`]:
+/// white in the sold range, `OVER` red past it, else amber).
+pub(crate) fn value_display(g: &Game, side: usize, track: usize, preview: Option<&MovePreview>, highlight_winning: bool) -> (String, Color) {
+    let current = g.sides[side].caravans[track].value();
+    let b = amber(255.0);
+    if let Some(p) = preview {
+        let next = p.values[side][track];
+        let winning = highlight_winning && p.winners[track] == Some(side);
+        let text = if next != current { format!("{current}->{next}") } else { current.to_string() };
+        let color = if next > SOLD_MAX {
+            OVER
+        } else if winning {
+            WINNING
+        } else if next != current {
+            PREVIEW
+        } else {
+            value_colour(current, b)
+        };
+        (text, color)
+    } else {
+        let winning = highlight_winning && g.track_winner(track) == Some(side);
+        let color = if current > SOLD_MAX {
+            OVER
+        } else if winning {
+            WINNING
+        } else {
+            value_colour(current, b)
+        };
+        (current.to_string(), color)
+    }
+}
+
+/// Face-card reminder configured in `BetterCaravan.ini` (`sDescriptionJack/Queen/King/Joker`)
+/// for the card the player is currently viewing in `Deck` or `Play`, or `None` [design].
+pub(crate) fn active_face_description(s: &Session) -> Option<&str> {
+    match s.stage {
+        Stage::Deck => {
+            let f = s.owned.get(s.cursor)?;
+            let rank = *s.card_ranks.get(f)?;
+            s.better.face_description(rank)
+        }
+        Stage::Play => {
+            let g = s.game.as_ref()?;
+            let idx = match &s.pick {
+                Pick::Place { moves, .. } => moves.first().and_then(|m| if let Move::Play { card, .. } = m { Some(*card) } else { None })?,
+                Pick::Hand => s.hand,
+                Pick::Track { .. } => return None,
+            };
+            let card = g.sides[PLAYER].hand.get(idx)?;
+            s.better.face_description(card.rank)
+        }
         _ => None,
     }
 }
@@ -577,14 +669,15 @@ pub fn card_texture(s: &Session, f: FormId, face: bool) -> String {
 fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: bool) {
     let Some(g) = s.game.as_ref() else { return };
     let b = amber(255.0);
+    let preview = active_preview(s);
     // The carved names and the caravans' values.
     for t in 0..TRACKS {
         for (side, row, names) in [(OPPONENT, OPPONENT_ROW, OPPONENT_NAMES), (PLAYER, PLAYER_ROW, PLAYER_NAMES)] {
             c.text_in(p, FontKind::Menu, names[t], NAME_X[t], row, false, CARVED);
-            let k = &g.sides[side].caravans[t];
-            let v = k.value();
-            // Both sides, against the game's opponent or another player (the same screen).
-            c.text_in(p, FontKind::Menu, &v.to_string(), VALUE_X[t], row, true, value_colour(v, b));
+            // Both sides, against the game's opponent or another player (the same screen);
+            // BetterCaravan's preview and winning highlight over the original's colours.
+            let (text, color) = value_display(g, side, t, preview.as_ref(), s.better.highlight_winning_caravans);
+            c.text_in(p, FontKind::Menu, &text, VALUE_X[t], row, true, color);
         }
     }
     // The opponent's caravans are drawn first: the player's lie over them.
@@ -599,7 +692,7 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
     let (ox, oy, ostep) = OPPONENT_HAND;
     if flat {
         for (i, card_) in g.sides[OPPONENT].hand.iter().enumerate() {
-            card(p, c, &texture(s, card_.form, false), ox + ostep * i as f32, oy, CARD, dim);
+            card(p, c, &texture(s, card_.form, npc_cards_shown(s)), ox + ostep * i as f32, oy, CARD, dim);
         }
         if let Some(top) = g.sides[OPPONENT].deck.last() {
             card(p, c, &texture(s, top.form, false), OPPONENT_DECK.0, OPPONENT_DECK.1, CARD, dim);
@@ -645,6 +738,9 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
     let labels = rows.iter().map(|r| c.text_width(FontKind::Menu, r.0)).fold(0.0, f32::max);
     for ((label, key, cmd, on), top) in all.into_iter().zip(PLAY_BUTTONS) {
         button(p, c, label, &key, BUTTONS_RIGHT, top, cmd, on);
+    }
+    if let Some(desc) = active_face_description(s) {
+        c.text_in(p, FontKind::Menu, desc, 40.0, 16.0, false, b);
     }
     // The guide (item 163) in its box, in place of the short messages; with the guide
     // off, or nothing to say, the game's own line. The box is as wide whoever's turn it is.

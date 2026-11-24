@@ -77,8 +77,8 @@ struct Tk {
     line: usize,
 }
 
-const OPS: [&str; 39] = [
-    "::", "->", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "+=", "-=", "*=", "/=", "%=", "^=", "|=", "&=", "++", "--", ":=", "+", "-", "*", "/", "%", "^", "<",
+const OPS: [&str; 41] = [
+    "<<=", ">>=", "::", "->", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "+=", "-=", "*=", "/=", "%=", "^=", "|=", "&=", "++", "--", ":=", "+", "-", "*", "/", "%", "^", "<",
     ">", "=", "!", "$", "#", "&", "|", ":", "?", "~", ".",
 ];
 
@@ -190,7 +190,7 @@ fn lex(src: &str, first_line: usize) -> Result<Vec<Tk>, Diag> {
                 continue;
             }
             _ => {
-                let rest: String = c[i..(i + 2).min(c.len())].iter().collect();
+                let rest: String = c[i..(i + 3).min(c.len())].iter().collect();
                 let Some(op) = OPS.iter().find(|o| rest.starts_with(*o)) else { return Err(err(line, format!("unexpected {ch}"))) };
                 push(&mut out, T::Op(op.to_string()));
                 i += op.chars().count();
@@ -574,7 +574,7 @@ impl Parser {
             }
             self.i += 1;
             let right = self.expr(rb)?;
-            left = if matches!(op.as_str(), "=" | ":=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^=" | "|=" | "&=") {
+            left = if matches!(op.as_str(), "=" | ":=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^=" | "|=" | "&=" | "<<=" | ">>=") {
                 E::Assign(if op == "=" { ":=".into() } else { op }, Box::new(left), Box::new(right))
             } else {
                 E::Bin(op, Box::new(left), Box::new(right))
@@ -724,7 +724,7 @@ fn binding(op: &str) -> Option<(u8, u8)> {
         "=" | ":=" => r(0),
         "||" => l(1),
         "&&" => l(2),
-        "+=" | "-=" | "*=" | "/=" | "^=" | "|=" | "&=" | "%=" => r(2),
+        "+=" | "-=" | "*=" | "/=" | "^=" | "|=" | "&=" | "<<=" | ">>=" | "%=" => r(2),
         ":" | "::" => l(3),
         "==" | "!=" => l(4),
         "<" | ">" | "<=" | ">=" => l(5),

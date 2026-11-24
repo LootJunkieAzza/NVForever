@@ -268,3 +268,93 @@ Misc statistics: Caravan Games Won and Caravan Games Lost are counted (misc-stat
   labels, in the table frame's units, scaled into the view (`help_clear`,
   `lockpick::help::box_rect`); at full size it ran through both (issue #1663) [design: the
   original's placement over this menu is not captured].
+
+## 9. Better Caravan INI compatibility
+
+Clean-room support for `BetterCaravan.ini` (`crates/fnv-game/src/caravan.rs`,
+`engine/nvf-play/src/caravan.rs`, `engine/nvf-play/src/caravan/screen.rs`).
+
+**Sources and provenance.** All 16 key names, `[Better Caravan]` section name, install
+path (`Data\NVSE\Plugins\BetterCaravan.ini`), and key meanings come strictly from
+**Better Caravan v1.9** (by lStewieAl), Nexus Mods
+`https://www.nexusmods.com/newvegas/mods/81002`, specifically the public Nexus mod page
+and the shipped `Data\NVSE\Plugins\BetterCaravan.ini` file with its inline `;` comments
+[documented: Better Caravan v1.9, `https://www.nexusmods.com/newvegas/mods/81002`,
+shipped `Data\NVSE\Plugins\BetterCaravan.ini`]. The third-party plugin's DLL/binary and
+source code were never consulted.
+
+- **Lookup and vanilla-unchanged default:** when opening the Caravan menu,
+  `BetterCaravanConfig::load_from_game` reads `Data\NVSE\Plugins\BetterCaravan.ini`
+  first [documented: Better Caravan v1.9 archive install path
+  `Data\NVSE\Plugins\BetterCaravan.ini`] and falls back to
+  `Data\Config\BetterCaravan.ini` [design: NVForever fallback lookup path, not stated in
+  Better Caravan v1.9's shipped package or Nexus page] through `ModFiles` and the Data
+  VFS. When neither file exists, every option defaults to off (`false` / `0` / `None`),
+  leaving unmodded vanilla Caravan rules, visuals, key bindings, RNG draws, and AI
+  bit-for-bit unchanged [design].
+- **INI syntax** [design]: UTF-8 BOM safe (both UTF-8 `\u{FEFF}` and Latin-1-decoded
+  `0xEF 0xBB 0xBF` bytes from `ModFiles`), ASCII case-insensitive section (`[Better Caravan]`)
+  and key matching, `;` and `#` comment lines skipped, inline comments stripped on boolean,
+  integer, and key-name values, and full trimmed text preserved (including `=` characters)
+  for `sDescription*` strings.
+- **AI options** (`bAiFixes`, `bImprovedAI`) [documented: key names and comments in
+  Better Caravan v1.9 shipped `Data\NVSE\Plugins\BetterCaravan.ini` ("; fix various
+  oversights in the AI", "; make various changes to improve NPC win detection");
+  **design: `bAiFixes` and `bImprovedAI` are NVForever's own scoring heuristics on top of
+  §6's `evaluate`/`choose`, NOT Better Caravan's AI implementation**]:
+  - When both are off, `choose_with_config` delegates directly to vanilla `choose`.
+  - `bAiFixes` [design: NVForever heuristic]: deterministically prefers immediate wins
+    and avoids immediate losses without noise/attack penalties overriding them; rewards
+    busting an opponent caravan over 26 and penalizes sabotaging one's own winning
+    caravan, discarding a non-busted track, or playing a face card that helps/un-busts
+    an opponent's caravan.
+  - `bImprovedAI` [design: NVForever heuristic]: adds table-state win-threat detection
+    (heavily rewards breaking an opponent's 2-track lead, penalizes leaving the opponent
+    at 2 winning tracks, rewards securing a 2nd winning track and stronger 21–26 totals,
+    and lowers low-skill noise and attack hesitation).
+- **Move preview and winning highlight** (`bPreviewMoveResult`,
+  `bHighlightWinningCaravans`) [documented: Better Caravan v1.9 shipped
+  `Data\NVSE\Plugins\BetterCaravan.ini` comments ("; show the resulting caravan values
+  when hovering over a move", "; highlight winning caravans in white"); design: NVForever
+  display formatting]:
+  - `bHighlightWinningCaravans`: renders any caravan currently winning its track (21–26
+    and ahead of the opponent) in white (`Color::WHITE`) instead of amber.
+  - `bPreviewMoveResult`: previews the resulting values and track winners of all six
+    caravans for the highlighted placement or track discard (`Game::preview_move`) as
+    `old->new` ASCII text (red if busting over 26, white if winning with
+    `bHighlightWinningCaravans`, warm highlight otherwise), updating both on keyboard
+    navigation and on pointer hover over a placement mark.
+- **Deck modification at match start** (`iModCardMode`, `iModCardCount`) [documented:
+  Better Caravan v1.9 shipped `Data\NVSE\Plugins\BetterCaravan.ini` comments ("; randomly
+  modifies your deck when starting the minigame", `0 = add`, `1 = remove`, `2 = replace`,
+  "; number of cards to randomly modidy"); design: match-only deck mutation and
+  `MIN_DECK` floor]:
+  - Active only when `iModCardCount > 0`; leaves the saved deck untouched and modifies
+    only the dealt match deck (`apply_deck_mod`). `Add` adds up to `count` unused owned
+    cards, `Remove` removes up to `count` cards while keeping at least `MIN_DECK` (30)
+    cards when the deck starts at or above `MIN_DECK`, and `Replace` swaps up to `count`
+    deck cards with unused owned cards.
+- **Opponent cards face up** (`bViewNpcCards`) [documented: Better Caravan v1.9 shipped
+  `Data\NVSE\Plugins\BetterCaravan.ini` comment ("; deal opponent cards face up (cheat)")]:
+  draws cards in the opponent's hand face up when non-zero; face down otherwise.
+- **Face-card reminders** (`sDescriptionJack`, `sDescriptionQueen`, `sDescriptionKing`,
+  `sDescriptionJoker`) [documented: Better Caravan v1.9 shipped
+  `Data\NVSE\Plugins\BetterCaravan.ini` comments ("; reminder shown when viewing a
+  Jack/Queen/King/Joker"); design: banner placement]: displays the configured reminder
+  text while viewing a matching face card in the Deck builder or Play hand
+  (`active_face_description`).
+- **Additional directional keys** (`sKeyUp`, `sKeyDown`, `sKeyLeft`, `sKeyRight`)
+  [documented: Better Caravan v1.9 shipped `Data\NVSE\Plugins\BetterCaravan.ini` comments
+  ("; additional key for the up/down/left/right input"); design: key mapping and vertical
+  track stepping]: parsed case-insensitively (`parse_better_caravan_key`) and
+  deduplicated against all vanilla keys bound in that stage (so overlapping configs such
+  as WASD never fire conflicting actions). In `Deck`, Left/Right scroll cards and Up/Down
+  map to Add/Remove. In `Play`, Left/Right step horizontally across hand cards or
+  destinations, Up lifts a hand card onto the table or moves upward along a track (player
+  cards to opponent cards), and Down moves downward along a track or returns to the hand
+  from the bottom (`step_vertical`).
+- **Debug logging** (`bDebug`) [documented: Better Caravan v1.9 shipped
+  `Data\NVSE\Plugins\BetterCaravan.ini` comment ("; print various debug statements to
+  help test the minigame"); design: log lines]: emits `caravan [BetterCaravan debug]: …`
+  `info!` lines for loaded config path/flags, deck modification, and AI move choices;
+  silent when off.

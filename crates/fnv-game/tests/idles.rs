@@ -295,7 +295,7 @@ const ADD_SCRIPT_PACKAGE: u16 = 0x1097;
 const REMOVE_SCRIPT_PACKAGE: u16 = 0x1098;
 
 fn asked(g: &mut Game) -> Vec<(u32, u32, IdleSource)> {
-    std::mem::take(&mut g.idle_requests).into_iter().map(|IdleRequest { actor, idle, source }| (actor.0, idle.0, source)).collect()
+    std::mem::take(&mut g.idle_requests).into_iter().map(|IdleRequest { actor, idle, source, .. }| (actor.0, idle.0, source)).collect()
 }
 
 #[test]
@@ -717,4 +717,32 @@ fn temp_cloned_idles_admit_force_play_idle_and_preserve_clone_identity_and_paths
     let own_clone = FormId(own_clone_raw);
     assert!(g.idle_allowed(actor, own_clone));
     assert!(!g.idle_allowed(FormId::PLAYER_REF, own_clone));
+}
+
+#[test]
+fn force_play_and_stop_idle_respect_player_pov_argument() {
+    use fnv_game::idles::IdlePov;
+    use fnv_script::vm::XVal;
+
+    let f = fixture();
+    let mut g = game(&f);
+    let me = FormId::PLAYER_REF;
+    let idle = FormId(IDLE_SIT);
+
+    // ForcePlayIdle with omitted POV keeps None (vanilla auto-routing); 1 -> Third, 2 -> First.
+    fnv_game::nvse::call(&mut g, &Default::default(), "forceplayidle", Some(me), &[XVal::Ref(idle.0)]).unwrap().unwrap();
+    fnv_game::nvse::call(&mut g, &Default::default(), "forceplayidle", Some(me), &[XVal::Ref(idle.0), XVal::Num(1.0)]).unwrap().unwrap();
+    fnv_game::nvse::call(&mut g, &Default::default(), "forceplayidle", Some(me), &[XVal::Ref(idle.0), XVal::Num(2.0)]).unwrap().unwrap();
+    let povs: Vec<Option<IdlePov>> = std::mem::take(&mut g.idle_requests).into_iter().map(|r| r.pov).collect();
+    assert_eq!(povs, [None, Some(IdlePov::Third), Some(IdlePov::First)]);
+
+    // ForceStopIdle with explicit playerPOV 1/2 records POV-scoped stops without queuing a full stop.
+    fnv_game::nvse::call(&mut g, &Default::default(), "forcestopidle", Some(me), &[XVal::Num(2.0)]).unwrap().unwrap();
+    fnv_game::nvse::call(&mut g, &Default::default(), "forcestopidle", Some(me), &[XVal::Num(1.0)]).unwrap().unwrap();
+    assert_eq!(g.gaps.idle_stop_pov, vec![(me, IdlePov::First), (me, IdlePov::Third)]);
+    assert!(g.gaps.idle_stops.is_empty());
+
+    // ForceStopIdle without playerPOV (or StopIdle) queues a normal full stop.
+    fnv_game::nvse::call(&mut g, &Default::default(), "forcestopidle", Some(me), &[]).unwrap().unwrap();
+    assert_eq!(g.gaps.idle_stops, vec![me]);
 }
