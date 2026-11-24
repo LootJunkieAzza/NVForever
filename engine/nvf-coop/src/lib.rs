@@ -6,9 +6,11 @@
 pub mod code;
 pub mod net;
 pub mod noise;
+pub mod online;
 pub mod reach;
 pub mod rel;
 pub mod repl;
+pub mod signal_io;
 pub mod steam;
 pub mod story;
 pub mod transport;

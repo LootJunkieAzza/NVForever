@@ -1,0 +1,10 @@
+[package]
+name = "nvf-nat"
+description = "Co-op NAT traversal without a server in the game path: STUN Binding, NAT-PMP and PCP port mapping, and an ICE-style candidate and connectivity-check agent, all sans-IO; plus natsim, an in-process NAT simulator for tests (#3795)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# The in-process NAT simulator (`natsim`), for other crates' tests. Its own tests always have it.
+natsim = []

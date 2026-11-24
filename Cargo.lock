@@ -2443,9 +2443,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-nat"
+version = "0.8.1"
+
+[[package]]
 name = "nvf-settings-layout"
 version = "0.8.1"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nvf-signal"
+version = "0.8.1"
+dependencies = [
+ "nvf-nat",
  "serde",
  "serde_json",
 ]

@@ -224,6 +224,9 @@ pub const FRIENDLY_FIRE_ENV: &str = "NVF_COOP_FRIENDLY_FIRE";
 const ALONE_NEAR: f32 = 8192.0;
 /// A puppet holds its aim this long after an attack, aimed or not (seconds).
 const AIM_AFTER_ATTACK: f32 = 1.5;
+/// A host's online lobby secret across the restarts loads cause (the service gives the same
+/// code back to the same secret within 120 s, `nvf_coop::online`). Never written to a file.
+pub const SECRET_ENV: &str = "NVF_COOP_SECRET";
 /// The file in a game's home that keeps its co-op key pair (`nvf_coop::noise::Identity`):
 /// the private key, then the public key, in hex.
 const KEY_FILE: &str = "coop-identity.key";
@@ -246,7 +249,7 @@ pub const RELAY_ENV: &str = "NVF_SPLIT_RELAY_PORT";
 const CODE_FILE: &str = "lobby-code.txt";
 /// A guest looking for its host gives up after this long without an answer (seconds; a
 /// Steam route can take a few to set up).
-const FIND_FOR: f32 = 20.0;
+const FIND_FOR: f32 = 30.0;
 
 /// What the command line asked for.
 #[derive(Clone)]
@@ -375,6 +378,7 @@ impl Plugin for CoopPlugin {
             note: None,
             opened: false,
             reaching: None,
+            online_pending: false,
             join_code: None,
             joining: Joining::Idle,
             finding_since: None,
@@ -466,6 +470,26 @@ static STORY_PLUGINS: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
 pub fn set_story_plugins(plugins: &[String], masters: &[&str]) {
     let story = plugins.iter().enumerate().filter(|(_, p)| masters.iter().any(|m| m.eq_ignore_ascii_case(p))).map(|(i, _)| i as u8).collect();
     let _ = STORY_PLUGINS.set(story);
+    let _ = LOAD_ORDER_HASH.set(load_order_hash(plugins));
+}
+
+/// The load order's hash, given to the matchmaking service by a host and compared by a guest
+/// before it connects (`nvf_coop::online`).
+static LOAD_ORDER_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// FNV-1a (64-bit) of the plugins' names, lower case, one per line, in order, in hex: the same
+/// load order gives the same hash on every PC.
+fn load_order_hash(plugins: &[String]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in plugins.iter().flat_map(|p| p.to_ascii_lowercase().into_bytes().into_iter().chain(std::iter::once(b'\n'))) {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+fn this_load_order() -> String {
+    LOAD_ORDER_HASH.get().cloned().unwrap_or_default()
 }
 
 /// The host's session on `port`. A load restarts the game: the run before may hold the
@@ -492,6 +516,17 @@ fn host_session(port: u16, local: bool) -> Option<Link> {
 
 /// A guest's session with the host a code or an address names.
 fn guest_session(at: &str, name: &str) -> Result<Link, String> {
+    // An online code: the matchmaking service says where the host is.
+    if let (Some(nvf_signal::code::JoinForm::Online(code)), Some(service)) = (nvf_signal::code::JoinForm::parse(at), nvf_coop::signal_io::service()) {
+        return match Session::join_online(&service, code, name, &this_load_order()) {
+            Ok(s) => {
+                let s = s.with_identity(identity());
+                info!("co-op: joining online code {at} through {service} as {name} (encrypted; this game's key {})", s.identity().fingerprint());
+                Ok(Link::new(s))
+            }
+            Err(e) => Err(format!("Cannot open a connection: {e}")),
+        };
+    }
     let (candidates, key) = match Lobby::decode(at) {
         Some(l) => (l.candidates(reach::local_ip()), l.key()),
         None if at.contains('.') || at.contains(':') => (resolve(at).into_iter().collect(), 0),
@@ -580,6 +615,8 @@ pub(crate) struct Coop {
     note: Option<String>,
     opened: bool,
     reaching: Option<Mutex<Receiver<Reach>>>,
+    /// The matchmaking service is making this host's online code.
+    online_pending: bool,
     /// Joining: the code looked for, how the search goes, and since when it has looked
     /// (None: not yet timed; set on the first frame).
     join_code: Option<String>,
@@ -828,6 +865,29 @@ impl Coop {
         if local {
             return;
         }
+        // An online code (the matchmaking service), unless it is turned off or cannot be
+        // reached ([`Event::Online`] `Failed` falls back to [`Coop::reach_out`]). After a
+        // restart, the code friends were given, from the same secret.
+        if let Some(service) = nvf_coop::signal_io::service() {
+            let again = std::env::var(CODE_ENV).ok().zip(std::env::var(SECRET_ENV).ok()).filter(|(c, _)| nvf_signal::code::Code::parse(c).is_some());
+            if let Some(link) = &self.link {
+                match &again {
+                    Some((code, secret)) => {
+                        link.go_online_again(&service, code, secret);
+                        self.code = Some(code.clone());
+                        self.opened = true;
+                        info!("co-op: the online lobby {code} again, through {service}");
+                        return;
+                    }
+                    None => {
+                        link.go_online(&service, nvf_coop::online::HostInfo { name: self.name.clone(), load_order_hash: this_load_order() });
+                        self.online_pending = true;
+                        info!("co-op: asking {service} for an online code");
+                        return;
+                    }
+                }
+            }
+        }
         // After a restart the lobby's code is the one friends were given.
         if let Some((code, lobby)) = std::env::var(CODE_ENV).ok().and_then(|c| Some((c.clone(), Lobby::decode(&c)?))).filter(|(_, l)| l.port == port) {
             if let Some(link) = &self.link {
@@ -900,7 +960,9 @@ impl Coop {
                 self.note = None;
                 self.opened = false;
                 self.reaching = None;
+                self.online_pending = false;
                 std::env::remove_var(CODE_ENV);
+                std::env::remove_var(SECRET_ENV);
                 std::env::set_var(HOST_LOCAL_ENV, "1");
                 info!("co-op: the lobby closes to online players ({} dropped); it is this PC's only again, player 2 stays", dropped.len());
                 true
@@ -960,8 +1022,10 @@ impl Coop {
         self.note = None;
         self.opened = false;
         self.reaching = None;
+        self.online_pending = false;
         std::env::remove_var(HOST_ENV);
         std::env::remove_var(CODE_ENV);
+        std::env::remove_var(SECRET_ENV);
         std::env::remove_var(HOST_LOCAL_ENV);
         self.forget_peers(commands, fighters);
     }
@@ -1173,7 +1237,7 @@ fn lobby(
             coop.joining = Joining::Failed(why.into());
         }
     }
-    let hosting = match (&coop.code, coop.is_host(), coop.reaching.is_some()) {
+    let hosting = match (&coop.code, coop.is_host(), coop.reaching.is_some() || coop.online_pending) {
         (Some(code), true, _) => Hosting::Open { code: code.clone(), note: coop.note.clone() },
         (_, true, true) => Hosting::Opening,
         _ => Hosting::Off,
@@ -1975,6 +2039,7 @@ fn take_events(
     let is_host = link.is_host();
     let mut notes = Vec::new();
     let mut refused = false;
+    let mut online = Vec::new();
     // The host's quest messages, once this game's scripts are there to name them (a quest
     // heard while the game still loaded is told then).
     if let (Some(told), Some(rt)) = (coop.quest_untold.as_ref(), rt.as_deref()) {
@@ -1988,6 +2053,7 @@ fn take_events(
     }
     for e in link.events() {
         match e {
+            Event::Online(o) => online.push(o),
             Event::Welcomed(id) => {
                 // Keep this game as the guest's own before the host's world reaches it.
                 if !is_host {
@@ -2287,6 +2353,49 @@ fn take_events(
         coop.link = None;
         coop.left_lobby = true;
         coop.joining = Joining::Failed("The host's game is full.".into());
+    }
+    for o in online {
+        online_event(coop, o, &mut corner);
+    }
+}
+
+/// What the matchmaking service and its checks said (`nvf_coop::online`).
+fn online_event(coop: &mut Coop, e: nvf_coop::online::OnlineEvent, corner: &mut Option<ResMut<nvf_play::corner_messages::CornerMessages>>) {
+    use nvf_coop::online::OnlineEvent;
+    match e {
+        OnlineEvent::Code { code, secret } => {
+            info!("co-op: lobby code {code} (online: the matchmaking service introduces players; the game's traffic goes between the games)");
+            std::env::set_var(CODE_ENV, &code);
+            std::env::set_var(SECRET_ENV, &secret);
+            if let Some(f) = fnv_install::EngineHome::default_root().map(|h| h.join(CODE_FILE)) {
+                if let Err(e) = std::fs::write(&f, format!("{code}\n")) {
+                    warn!("co-op: cannot write {}: {e}", f.display());
+                }
+            }
+            if let Some(c) = corner.as_mut() {
+                c.push(format!("Lobby open: code {code}").into());
+            }
+            coop.code = Some(code);
+            coop.online_pending = false;
+            coop.opened = true;
+            coop.note = None;
+        }
+        OnlineEvent::Failed(why) if coop.is_host() => {
+            warn!("co-op: online code: {why}");
+            if std::mem::take(&mut coop.online_pending) {
+                info!("co-op: no online code: a code of this PC's address instead");
+                let port = coop.port;
+                coop.reach_out(port);
+            }
+        }
+        OnlineEvent::Failed(why) => {
+            warn!("co-op: {why}");
+            coop.link = None;
+            coop.left_lobby = true;
+            coop.joining = Joining::Failed(why);
+        }
+        OnlineEvent::HostAt(at) => info!("co-op: the host is at {at}: saying hello there"),
+        OnlineEvent::Note(n) => info!("co-op: online: {n}"),
     }
 }
 

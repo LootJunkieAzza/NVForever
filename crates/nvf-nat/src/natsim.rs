@@ -1,0 +1,381 @@
+//! An in-process NAT simulator for tests (#3795 section 12): LANs behind the usual NAT kinds,
+//! two public STUN servers that answer Binding requests, and packet routing between them, all
+//! on a queue with no sockets and no clock. Run whole connections through it with the real
+//! [`crate::stun::Gather`] and [`crate::ice::Agent`].
+//!
+//! The NAT kinds, by how they map and filter (the classic names, RFC 3489's, with RFC 4787's
+//! terms) [design: a model, not a measurement of any router]:
+//!
+//! | Kind | Public port | Lets in |
+//! |---|---|---|
+//! | `Open` | none needed: the machine has a public address | anything |
+//! | `FullCone` | one per socket (endpoint-independent) | anything to that port |
+//! | `Restricted` | one per socket | from an IP the socket has sent to |
+//! | `PortRestricted` | one per socket | from an IP and port the socket has sent to |
+//! | `Symmetric` | a new one per destination | only from that destination |
+//! | `Blocked` | no UDP out or in (the LAN itself still works) | nothing |
+//!
+//! No hairpinning: a packet to the LAN's own public address is dropped, as on many routers.
+
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+use crate::stun;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NatKind {
+    Open,
+    FullCone,
+    Restricted,
+    PortRestricted,
+    Symmetric,
+    Blocked,
+}
+
+impl NatKind {
+    pub const ALL: [NatKind; 6] =
+        [NatKind::Open, NatKind::FullCone, NatKind::Restricted, NatKind::PortRestricted, NatKind::Symmetric, NatKind::Blocked];
+}
+
+pub type LanId = usize;
+
+/// A datagram as the receiver sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Packet {
+    pub from: SocketAddr,
+    pub to: SocketAddr,
+    pub data: Vec<u8>,
+}
+
+struct Binding {
+    internal: SocketAddr,
+    sent_to: HashSet<SocketAddr>,
+}
+
+struct Lan {
+    kind: NatKind,
+    public: Ipv4Addr,
+    hosts: u8,
+    next_port: u16,
+    /// (internal, destination for symmetric) -> public port.
+    map: HashMap<(SocketAddr, Option<SocketAddr>), u16>,
+    bindings: HashMap<u16, Binding>,
+}
+
+/// The simulated internet. See the module notes.
+pub struct Sim {
+    lans: Vec<Lan>,
+    endpoints: HashMap<SocketAddr, LanId>,
+    stun: Vec<SocketAddr>,
+    queue: Vec<Packet>,
+}
+
+impl Default for Sim {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Sim {
+    /// A world with two STUN servers, at 198.51.100.1:3478 and 198.51.100.2:3478 (a
+    /// documentation range, RFC 5737).
+    pub fn new() -> Self {
+        Sim {
+            lans: Vec::new(),
+            endpoints: HashMap::new(),
+            stun: vec![SocketAddr::from(([198, 51, 100, 1], 3478)), SocketAddr::from(([198, 51, 100, 2], 3478))],
+            queue: Vec::new(),
+        }
+    }
+
+    pub fn stun_servers(&self) -> &[SocketAddr] {
+        &self.stun
+    }
+
+    /// A LAN behind a NAT of `kind`, with public address 203.0.113.(n+1).
+    pub fn add_lan(&mut self, kind: NatKind) -> LanId {
+        let n = self.lans.len();
+        self.lans.push(Lan {
+            kind,
+            public: Ipv4Addr::new(203, 0, 113, n as u8 + 1),
+            hosts: 0,
+            next_port: 40000,
+            map: HashMap::new(),
+            bindings: HashMap::new(),
+        });
+        n
+    }
+
+    /// A socket on a machine on `lan`, at 192.168.(lan+1).(n+2):`port`, or on the public
+    /// address for an `Open` LAN (one machine only).
+    pub fn add_socket(&mut self, lan: LanId, port: u16) -> SocketAddr {
+        let l = &mut self.lans[lan];
+        let ip = if l.kind == NatKind::Open {
+            assert_eq!(l.hosts, 0, "an open LAN holds one machine");
+            l.public
+        } else {
+            Ipv4Addr::new(192, 168, lan as u8 + 1, l.hosts + 2)
+        };
+        l.hosts += 1;
+        let addr = SocketAddr::new(IpAddr::V4(ip), port);
+        self.endpoints.insert(addr, lan);
+        addr
+    }
+
+    /// Sends a datagram from one of the sockets. It arrives on the next [`Sim::deliver`], or
+    /// is dropped where a real network would drop it.
+    pub fn send(&mut self, from: SocketAddr, to: SocketAddr, data: Vec<u8>) {
+        let Some(&src_lan) = self.endpoints.get(&from) else { return };
+        // Same LAN: straight there.
+        if self.endpoints.get(&to) == Some(&src_lan) {
+            self.queue.push(Packet { from, to, data });
+            return;
+        }
+        if crate::candidate::is_lan(to.ip()) {
+            return; // someone else's private address
+        }
+        let Some(ext) = self.outbound(src_lan, from, to) else { return };
+        if self.stun.contains(&to) {
+            if let Ok(msg) = stun::decode(&data) {
+                if msg.kind == stun::BINDING_REQUEST {
+                    let answer = stun::binding_success(msg.tx, ext);
+                    self.inbound(to, ext, answer);
+                }
+            }
+            return;
+        }
+        if self.lans[src_lan].public == to.ip() && self.lans[src_lan].kind != NatKind::Open {
+            return; // no hairpinning
+        }
+        self.inbound(ext, to, data);
+    }
+
+    /// The source address a packet leaves the LAN with.
+    fn outbound(&mut self, lan: LanId, from: SocketAddr, to: SocketAddr) -> Option<SocketAddr> {
+        let l = &mut self.lans[lan];
+        let key = match l.kind {
+            NatKind::Open => return Some(from),
+            NatKind::Blocked => return None,
+            NatKind::Symmetric => (from, Some(to)),
+            _ => (from, None),
+        };
+        let port = match l.map.get(&key) {
+            Some(&p) => p,
+            None => {
+                let p = l.next_port;
+                l.next_port += 1;
+                l.map.insert(key, p);
+                l.bindings.insert(p, Binding { internal: from, sent_to: HashSet::new() });
+                p
+            }
+        };
+        l.bindings.get_mut(&port).unwrap().sent_to.insert(to);
+        Some(SocketAddr::new(IpAddr::V4(l.public), port))
+    }
+
+    /// A packet from the internet (`from`, already public) arriving at public address `to`.
+    fn inbound(&mut self, from: SocketAddr, to: SocketAddr, data: Vec<u8>) {
+        let Some(lan) = self.lans.iter().position(|l| IpAddr::V4(l.public) == to.ip()) else { return };
+        let l = &self.lans[lan];
+        let internal = match l.kind {
+            NatKind::Open => {
+                if !self.endpoints.contains_key(&to) {
+                    return;
+                }
+                to
+            }
+            NatKind::Blocked => return,
+            kind => {
+                let Some(b) = l.bindings.get(&to.port()) else { return };
+                let allowed = match kind {
+                    NatKind::FullCone => true,
+                    NatKind::Restricted => b.sent_to.iter().any(|s| s.ip() == from.ip()),
+                    _ => b.sent_to.contains(&from),
+                };
+                if !allowed {
+                    return;
+                }
+                b.internal
+            }
+        };
+        self.queue.push(Packet { from, to: internal, data });
+    }
+
+    /// Every datagram that has arrived since the last call.
+    pub fn deliver(&mut self) -> Vec<Packet> {
+        std::mem::take(&mut self.queue)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::candidate::{Candidate, Kind};
+    use crate::ice::{Action, Agent, Config, Role};
+    use crate::stun::Gather;
+    use std::time::{Duration, Instant};
+
+    const PORT: u16 = 47960;
+    const TICK: Duration = Duration::from_millis(10);
+
+    /// Gathers each socket's candidates through the sim's STUN servers.
+    fn gather(sim: &mut Sim, sockets: &[SocketAddr], t0: Instant) -> Vec<Vec<Candidate>> {
+        let servers: Vec<_> = sim.stun_servers().to_vec();
+        let mut gathers: Vec<Gather> = sockets
+            .iter()
+            .enumerate()
+            .map(|(i, _)| Gather::new(&[(servers[0], [i as u8; 12]), (servers[1], [i as u8 + 100; 12])], t0))
+            .collect();
+        let mut now = t0;
+        while !gathers.iter().all(|g| g.done(now)) {
+            for (g, &s) in gathers.iter_mut().zip(sockets) {
+                for (to, bytes) in g.poll(now) {
+                    sim.send(s, to, bytes);
+                }
+            }
+            for p in sim.deliver() {
+                if let Some(i) = sockets.iter().position(|&s| s == p.to) {
+                    gathers[i].on_packet(p.from, &p.data);
+                }
+            }
+            now += TICK;
+        }
+        gathers
+            .iter()
+            .zip(sockets)
+            .map(|(g, &s)| {
+                let mut c = vec![Candidate::new(Kind::Host, s)];
+                for a in g.result().reflexive() {
+                    if a != s {
+                        c.push(Candidate::new(Kind::ServerReflexive, a));
+                    }
+                }
+                c
+            })
+            .collect()
+    }
+
+    /// Runs a host and a guest through the checks. Returns both chosen paths, or None.
+    fn connect(sim: &mut Sim, host: SocketAddr, guest: SocketAddr) -> Option<(SocketAddr, SocketAddr)> {
+        let t0 = Instant::now();
+        let cands = gather(sim, &[host, guest], t0);
+        let mut agents = [Agent::new(Role::Host, &[host], Config::default()), Agent::new(Role::Guest, &[guest], Config::default())];
+        for c in &cands[1] {
+            agents[0].add_remote(*c);
+        }
+        for c in &cands[0] {
+            agents[1].add_remote(*c);
+        }
+        let sockets = [host, guest];
+        let start = t0 + Duration::from_secs(5);
+        agents.iter_mut().for_each(|a| a.start(start));
+        let mut now = start;
+        let mut done = [false, false];
+        while now < start + Duration::from_secs(12) && done != [true, true] {
+            for (i, a) in agents.iter_mut().enumerate() {
+                for act in a.poll(now) {
+                    match act {
+                        Action::SendProbe { from, to, check_id, .. } => {
+                            let mut d = vec![b'P'];
+                            d.extend_from_slice(&check_id.to_be_bytes());
+                            sim.send(from, to, d);
+                        }
+                        Action::Selected { local, remote, .. } => {
+                            done[i] = true;
+                            if a.role() == Role::Guest {
+                                sim.send(local, remote, vec![b'N']);
+                            }
+                        }
+                        Action::Failed => return None,
+                        Action::Keepalive { .. } | Action::PathLost => {}
+                    }
+                }
+            }
+            for p in sim.deliver() {
+                let Some(i) = sockets.iter().position(|&s| s == p.to) else { continue };
+                match p.data[0] {
+                    b'P' => {
+                        agents[i].on_probe_received(p.to, p.from, now);
+                        let mut d = p.data.clone();
+                        d[0] = b'R';
+                        sim.send(p.to, p.from, d);
+                    }
+                    b'R' => {
+                        let id = u64::from_be_bytes(p.data[1..9].try_into().unwrap());
+                        agents[i].on_probe_result(id, p.to, p.from, now);
+                    }
+                    b'N' => agents[i].on_peer_selected(p.to, p.from, now),
+                    _ => {}
+                }
+            }
+            now += TICK;
+        }
+        if done != [true, true] {
+            return None;
+        }
+        let (h, g) = (agents[0].selected()?, agents[1].selected()?);
+        // The two ends must agree: what the host sends to is where the guest's packets come from.
+        Some((h.1, g.1))
+    }
+
+    /// Which kinds can reach each other with STUN and hole punching alone [design: the
+    /// textbook result for these models; port-restricted against symmetric and symmetric
+    /// against symmetric need port prediction, #3795 section 7.2's phase 5].
+    fn expected(a: NatKind, b: NatKind) -> bool {
+        use NatKind::*;
+        !matches!(
+            (a, b),
+            (Blocked, _) | (_, Blocked) | (Symmetric, Symmetric) | (Symmetric, PortRestricted) | (PortRestricted, Symmetric)
+        )
+    }
+
+    #[test]
+    fn matrix() {
+        let mut wrong = Vec::new();
+        for host_kind in NatKind::ALL {
+            for guest_kind in NatKind::ALL {
+                let mut sim = Sim::new();
+                let (hl, gl) = (sim.add_lan(host_kind), sim.add_lan(guest_kind));
+                let (h, g) = (sim.add_socket(hl, PORT), sim.add_socket(gl, PORT));
+                let got = connect(&mut sim, h, g).is_some();
+                if got != expected(host_kind, guest_kind) {
+                    wrong.push((host_kind, guest_kind, got));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "(host, guest, connected) not as expected: {wrong:?}");
+    }
+
+    #[test]
+    fn same_lan_connects_behind_any_nat() {
+        for kind in [NatKind::Symmetric, NatKind::Blocked, NatKind::PortRestricted] {
+            let mut sim = Sim::new();
+            let lan = sim.add_lan(kind);
+            let (h, g) = (sim.add_socket(lan, PORT), sim.add_socket(lan, PORT));
+            let (to_guest, to_host) = connect(&mut sim, h, g).unwrap_or_else(|| panic!("{kind:?}"));
+            assert_eq!((to_guest, to_host), (g, h), "{kind:?}: the LAN path, not the internet");
+        }
+    }
+
+    #[test]
+    fn symmetric_guest_found_as_peer_reflexive() {
+        let mut sim = Sim::new();
+        let (hl, gl) = (sim.add_lan(NatKind::FullCone), sim.add_lan(NatKind::Symmetric));
+        let (h, g) = (sim.add_socket(hl, PORT), sim.add_socket(gl, PORT));
+        let (to_guest, _) = connect(&mut sim, h, g).unwrap();
+        // The guest's NAT gave the host's address a port of its own, which neither STUN
+        // server saw.
+        assert_eq!(to_guest.ip(), IpAddr::V4(Ipv4Addr::new(203, 0, 113, 2)));
+        assert!(to_guest.port() >= 40002, "{to_guest}");
+    }
+
+    #[test]
+    fn stun_sees_public_address() {
+        let mut sim = Sim::new();
+        let lan = sim.add_lan(NatKind::PortRestricted);
+        let s = sim.add_socket(lan, PORT);
+        let c = gather(&mut sim, &[s], Instant::now());
+        assert_eq!(c[0][1], Candidate::new(Kind::ServerReflexive, "203.0.113.1:40000".parse().unwrap()));
+        assert_eq!(c[0].len(), 2, "one public port for both servers");
+    }
+}

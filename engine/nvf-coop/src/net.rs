@@ -77,6 +77,7 @@ use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6, UdpSocket};
 use crate::rel::{Frame, Reliable};
 use crate::repl::ActorPose;
 use crate::noise::{Identity, Opened, Secure};
+use crate::online::{HostInfo, Online, OnlineEvent};
 use crate::steam::Steam;
 use crate::transport::{Scope, Transport};
 use crate::story::{self, StoryEntry, StoryPager, StoryValue};
@@ -741,6 +742,8 @@ impl LineView {
 pub enum Event {
     /// This guest was let in as peer `id` (guests only; again after the host restarted).
     Welcomed(u8),
+    /// What the matchmaking service and the checks it starts said ([`crate::online`]).
+    Online(OnlineEvent),
     /// The host had no free slot (guests only).
     Refused,
     /// A peer joined (`name` is empty when only its state has been seen).
@@ -898,6 +901,8 @@ pub struct Session {
     /// When the host last answered an unknown session from each address (once a
     /// [`HINT_EVERY`]).
     hinted: HashMap<SocketAddr, Instant>,
+    /// The matchmaking service and the checks it starts, for a lobby with an online code.
+    online: Option<Online>,
     role: Role,
     /// The host's guests, or the other peers a guest has heard of (the host among them).
     peers: Vec<Peer>,
@@ -1123,7 +1128,7 @@ impl Session {
         if let Role::Guest { lobby, .. } = &role {
             secure.set_lobby(Some(*lobby));
         }
-        Ok(Self { net, secure: RefCell::new(secure), hinted: HashMap::new(), role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None })
+        Ok(Self { net, secure: RefCell::new(secure), hinted: HashMap::new(), online: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -1143,6 +1148,71 @@ impl Session {
     /// This game's key pair.
     pub fn identity(&self) -> Identity {
         self.secure.borrow().identity().clone()
+    }
+
+    /// This PC's addresses at this session's ports, for the other side's checks.
+    fn local_candidates(&self) -> Vec<SocketAddr> {
+        let v4 = self.net.local_addr().ok().filter(SocketAddr::is_ipv4).map(|a| a.port());
+        let v6 = self.net.local_addr_v6().map(|a| a.port());
+        crate::online::local_addrs(v4, v6)
+    }
+
+    /// A host's lobby gets an online code from the matchmaking `service`
+    /// ([`Event::Online`] `Code` says it).
+    pub fn go_online(&mut self, service: &str, info: HostInfo) {
+        if self.is_host() {
+            let key = self.secure.get_mut().identity().public();
+            self.online = Some(Online::host(service, info, &key, self.local_candidates()));
+        }
+    }
+
+    /// A host started again (a load) takes its lobby's online code back.
+    pub fn go_online_again(&mut self, service: &str, code: &str, secret: &str) {
+        if self.is_host() {
+            self.online = Some(Online::host_again(service, code, secret, self.local_candidates()));
+        }
+    }
+
+    /// Join the lobby with an online `code`: the service says where the host is, and checks
+    /// find the path ([`crate::online`]).
+    pub fn join_online(service: &str, code: nvf_signal::code::Code, name: &str, load_order_hash: &str) -> std::io::Result<Self> {
+        let role = Role::Guest {
+            candidates: Vec::new(),
+            host: None,
+            lobby: 0,
+            name: truncate(name),
+            id: None,
+            last_heard: Instant::now(),
+            last_hello: None,
+            host_lost: false,
+            asked: false,
+            gone: false,
+        };
+        let mut s = Self::with(Transport::guest_anywhere()?, role)?;
+        let locals = s.local_candidates();
+        s.online = Some(Online::guest(service, code, name, load_order_hash, locals));
+        Ok(s)
+    }
+
+    /// The matchmaking service's part of a tick: its packets go from the game's sockets, and
+    /// what it found is acted on.
+    fn online_tick(&mut self, now: Instant) {
+        let key = self.secure.get_mut().identity().public();
+        let Some(o) = self.online.as_mut() else { return };
+        let send = o.tick(now, &key);
+        let events = o.take_events();
+        for (to, b) in send {
+            self.net.send(&b, to);
+        }
+        for e in events {
+            if let (OnlineEvent::HostAt(at), Role::Guest { candidates, host, last_hello, .. }) = (&e, &mut self.role) {
+                if host.is_none() {
+                    *candidates = vec![*at];
+                    *last_hello = None;
+                }
+            }
+            self.events.push(Event::Online(e));
+        }
     }
 
     /// The host's NPCs as it draws them now; [`Session::tick`] sends them at [`NPC_HZ`].
@@ -1526,6 +1596,7 @@ impl Session {
     /// a guest has no answer, and mark quiet peers lost or gone.
     pub fn tick(&mut self, now: Instant) {
         self.receive(now);
+        self.online_tick(now);
         self.relay_up(now);
         self.check_peers(now);
         self.secure.get_mut().prune(now);
@@ -1539,9 +1610,13 @@ impl Session {
             if id.is_some() && !*host_lost && silent >= LOST_AFTER {
                 *host_lost = true;
                 self.events.push(Event::HostLost);
-                // The host may have dropped the session (or started again): a new one.
+                // The host may have dropped the session (or started again): a new one, and
+                // with an online code, new checks too.
                 if let Some(h) = host {
                     self.secure.get_mut().forget(*h);
+                }
+                if let Some(o) = &mut self.online {
+                    o.path_lost();
                 }
             }
             if silent >= GRACE {
@@ -1855,6 +1930,19 @@ impl Session {
         self.net.recv(|bytes, from| got.push((bytes.to_vec(), from)));
         for (bytes, from) in got {
             *self.heard.entry(from).or_default() += bytes.len() as u64 + crate::transport::overhead(from);
+            // STUN answers and the checks' probes share the socket with the game's packets.
+            if let Some(o) = &mut self.online {
+                if nvf_nat::stun::is_stun(&bytes) {
+                    o.on_stun(from, &bytes);
+                    continue;
+                }
+                if crate::online::is_probe(&bytes) {
+                    if let Some((to, b)) = o.on_probe(&bytes, from, now) {
+                        self.net.send(&b, to);
+                    }
+                    continue;
+                }
+            }
             self.wire_in(&bytes, from, now);
         }
     }
@@ -1868,6 +1956,21 @@ impl Session {
             Opened::Handshake { send, made } => {
                 for (to, p) in send {
                     self.route(p, to);
+                }
+                if let Some(at) = made {
+                    let key = self.secure.get_mut().remote_key(at);
+                    // With an online code, the host is the key the service gave: no other.
+                    let pinned = self.online.as_ref().and_then(Online::host_key);
+                    if let (Some(want), Some(got), false) = (pinned, key, self.is_host()) {
+                        if want != got {
+                            self.secure.get_mut().forget(at);
+                            self.events.push(Event::Online(OnlineEvent::Note(format!("{at} answered with key {}, not the host's {}: ignored", crate::noise::fingerprint(&got), crate::noise::fingerprint(&want)))));
+                            return;
+                        }
+                    }
+                    if let (Some(o), Some(k)) = (self.online.as_mut(), key) {
+                        o.session_made(&k);
+                    }
                 }
                 // A guest with a session at last: its Hello at once, there.
                 if let (Some(at), Role::Guest { host: None, lobby, name, .. }) = (made, &self.role) {
@@ -2392,7 +2495,10 @@ impl Session {
     /// [`BYE_COPIES`] times, [`BYE_GAP`] apart, as a hit is sent more than once, so one
     /// lost packet does not leave the others waiting (queue item 90: a host that ends
     /// the lobby must reach every guest).
-    fn bye(&self) {
+    fn bye(&mut self) {
+        if let Some(o) = &mut self.online {
+            o.bye();
+        }
         for i in 0..BYE_COPIES {
             if i > 0 {
                 std::thread::sleep(BYE_GAP);
@@ -2473,6 +2579,16 @@ impl Link {
             s.set_steam(steam);
             Ok(())
         })
+    }
+
+    /// [`Session::go_online`].
+    pub fn go_online(&self, service: &str, info: HostInfo) {
+        self.with(|s| s.go_online(service, info));
+    }
+
+    /// [`Session::go_online_again`].
+    pub fn go_online_again(&self, service: &str, code: &str, secret: &str) {
+        self.with(|s| s.go_online_again(service, code, secret));
     }
 
     /// [`Session::close_to_others`].
@@ -3758,6 +3874,57 @@ mod tests {
         let addr: SocketAddr = format!("127.0.0.1:{}", host.local_addr().unwrap().port()).parse().unwrap();
         let guests = (0..n).map(|i| Session::join(&[addr], 0, &format!("G{i}")).unwrap()).collect();
         (host, guests, addr)
+    }
+
+    /// Phase 3, against the live matchmaking service (run by hand: `--ignored --nocapture`):
+    /// a host makes a lobby, a guest joins by its code, the checks find a path, and the guest
+    /// is welcomed over an encrypted session with the host key the service gave.
+    #[test]
+    #[ignore]
+    fn live_join_by_online_code() {
+        let svc = nvf_signal::DEFAULT_SERVICE;
+        let mut host = Session::host(0).unwrap();
+        host.go_online(svc, HostInfo { name: "Probe host".into(), load_order_hash: String::new() });
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        let mut code = None;
+        let mut log = Vec::new();
+        for _ in 0..1500 {
+            clock += step;
+            host.tick(clock);
+            for e in host.take_events() {
+                if let Event::Online(OnlineEvent::Code { code: c, .. }) = &e {
+                    code = Some(c.clone());
+                }
+                log.push(format!("host: {e:?}"));
+            }
+            if code.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let code = code.unwrap_or_else(|| panic!("no code: {log:#?}"));
+        println!("code {code}");
+        let mut guest = Session::join_online(svc, nvf_signal::code::Code::parse(&code).unwrap(), "Probe guest", "").unwrap();
+        for _ in 0..3000 {
+            clock += step;
+            for (who, s) in [("host", &mut host), ("guest", &mut guest)] {
+                s.tick(clock);
+                for e in s.take_events() {
+                    if !matches!(e, Event::State { .. } | Event::Npcs(_)) {
+                        log.push(format!("{who}: {e:?}"));
+                    }
+                }
+            }
+            if guest.id().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        for l in &log {
+            println!("{l}");
+        }
+        assert!(guest.id().is_some(), "the guest was never welcomed");
     }
 
     /// Phase 2 of docs/design/coop-networking.md: a game that sends plain messages (the

@@ -91,6 +91,14 @@ impl Transport {
         Ok(Self { v4, v6, steam: None })
     }
 
+    /// A guest's sockets before it knows where its host is (an online code): IPv4 on every
+    /// address, and IPv6 when the PC has it.
+    pub fn guest_anywhere() -> io::Result<Self> {
+        let v4 = bind_v4(Ipv4Addr::UNSPECIFIED, 0)?;
+        let _ = v4.set_broadcast(true);
+        Ok(Self { v4: Some(v4), v6: bind_v6(Ipv6Addr::UNSPECIFIED, 0).ok(), steam: None })
+    }
+
     /// Talk over Steam too from now on, or not.
     pub fn set_steam(&mut self, steam: Option<&'static Steam>) {
         self.steam = steam;
