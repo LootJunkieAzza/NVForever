@@ -2,8 +2,14 @@
 //! as the unofficial DLSS 5 builds (RenoDX, Neural Forge) expose them. The values persist in
 //! `nr-settings.ini` in the engine home; the environment variables are the start-up defaults.
 
+use bevy::camera::{Camera, RenderTarget};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy::window::PrimaryWindow;
+use bevy_egui::input::{EguiContextImeState, EguiContextPointerPosition, EguiContextPointerTouchId};
+use bevy_egui::{
+    egui, EguiContext, EguiContextSettings, EguiContexts, EguiFullOutput, EguiGlobalSettings, EguiInput, EguiOutput, EguiPlugin, EguiRenderOutput, EguiSchedule,
+    EguiZoomFactor, PrimaryEguiContext,
+};
 
 /// The network's settings, main world; extracted to the render world every frame.
 #[derive(Resource, Clone, Debug)]
@@ -77,24 +83,79 @@ impl Plugin for NrOverlayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NrSettings>()
             .add_plugins(EguiPlugin::default())
-            .add_systems(Update, (toggle_key, persist).chain())
+            // bevy_egui's auto-attach puts the context on the FIRST camera ever spawned; a
+            // handoff run (save load / back to menu) spawns its loading cover first, and the
+            // context would stay on that inactive camera forever. Place it ourselves instead.
+            .insert_resource(EguiGlobalSettings { auto_create_primary_context: false, ..default() })
+            .add_systems(Update, (place_primary_context, toggle_key, persist).chain())
             // The window draws inside the egui pass: adding a system to this schedule is also
             // what creates it (the context loop runs it per frame).
             .add_systems(bevy_egui::EguiPrimaryContextPass, draw);
     }
 }
 
-fn toggle_key(keys: Res<ButtonInput<KeyCode>>, mut s: ResMut<NrSettings>) {
-    if keys.just_pressed(KeyCode::F11) {
-        s.show = !s.show;
+/// Keeps the primary egui context on the active camera that draws the primary window, moving it
+/// when the engine switches cameras (loading cover -> game, game -> menu).
+fn place_primary_context(
+    mut commands: Commands,
+    windows: Query<Entity, With<PrimaryWindow>>,
+    cameras: Query<(Entity, &Camera, &RenderTarget)>,
+    existing: Query<Entity, With<EguiContext>>,
+) {
+    let Ok(win) = windows.single() else { return };
+    let on_window = |cam: &Camera, rt: &RenderTarget| {
+        cam.is_active
+            && match rt {
+                RenderTarget::Window(bevy::window::WindowRef::Primary) => true,
+                RenderTarget::Window(bevy::window::WindowRef::Entity(w)) => *w == win,
+                _ => false,
+            }
+    };
+    if let Some(old) = existing.iter().next() {
+        if cameras.get(old).is_ok_and(|(_, cam, rt)| on_window(cam, rt)) {
+            return;
+        }
+        commands.entity(old).remove::<(
+            EguiContext,
+            PrimaryEguiContext,
+            EguiSchedule,
+            EguiContextSettings,
+            EguiInput,
+            EguiZoomFactor,
+            EguiContextPointerPosition,
+            EguiContextPointerTouchId,
+            EguiContextImeState,
+            EguiFullOutput,
+            EguiRenderOutput,
+            EguiOutput,
+        )>();
+    }
+    if let Some(target) = cameras.iter().find(|(_, cam, rt)| on_window(cam, rt)).map(|(e, _, _)| e) {
+        commands.entity(target).insert((EguiContext::default(), PrimaryEguiContext));
     }
 }
 
-fn draw(mut contexts: EguiContexts, mut s: ResMut<NrSettings>) {
+fn toggle_key(keys: Res<ButtonInput<KeyCode>>, mut s: ResMut<NrSettings>) {
+    if keys.just_pressed(KeyCode::F11) {
+        s.show = !s.show;
+        info!("NR overlay: F11 pressed, show={}", s.show);
+    }
+}
+
+fn draw(mut contexts: EguiContexts, mut s: ResMut<NrSettings>, mut warned: Local<bool>) {
     if !s.show {
         return;
     }
-    let Ok(ctx) = contexts.ctx_mut() else { return };
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            if !*warned {
+                warn!("NR overlay: no egui context: {e:?}");
+                *warned = true;
+            }
+            return;
+        }
+    };
     egui::Window::new("DLSS 5 — Neural Rendering")
         .resizable(true)
         .default_width(360.0)
