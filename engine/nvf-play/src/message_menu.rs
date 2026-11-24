@@ -362,13 +362,15 @@ fn draw(
     roots: Query<Entity, With<BoxRoot>>,
     mut frames: Query<(&Frame, &mut Visibility)>,
     mut faces: Local<Option<Faces>>,
-    (mut shown, mut was_tiled): (Local<Option<PanelView>>, Local<bool>),
+    (mut shown, mut was_tiled, mut font_revision): (Local<Option<PanelView>>, Local<bool>, Local<u32>),
     (menus, script): (Option<Res<crate::tiles::vanilla::TileMenus>>, Option<Res<crate::script::ScriptState>>),
 ) {
     // T15a: the box drawn from its tiles spawns nothing here.
     let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::message_tiled(menus.as_ref().is_some_and(|m| m.message), &rt.game));
-    if panel.view != *shown || tiled != *was_tiled {
+    let revision = crate::cjk_font::revision();
+    if panel.view != *shown || tiled != *was_tiled || *font_revision != revision {
         *was_tiled = tiled;
+        *font_revision = revision;
         for e in &roots {
             commands.entity(e).despawn();
         }
@@ -523,5 +525,28 @@ People like you.", &["Ok"]);
         p.set(Some(view(None, "z", &["a", "b"])));
         p.key(1, false);
         assert_eq!(p.selected, 1);
+    }
+
+    /// `bPopupMenusDontMoveCursor`: opening a popup message box leaves the OS window cursor
+    /// position untouched (NVForever never warps the cursor on popup open).
+    #[test]
+    fn opening_a_popup_leaves_the_window_cursor_position_unchanged() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>().add_plugins(MessageMenuPlugin);
+        let mut window = Window::default();
+        let initial = Vec2::new(123.0, 456.0);
+        window.set_cursor_position(Some(initial));
+        let win_entity = app.world_mut().spawn(window).id();
+
+        app.world_mut().resource_mut::<MessagePanel>().set(Some(view(Some("Confirm"), "Proceed?", &["No", "Yes"])));
+        app.update();
+
+        let spawned = app.world_mut().query_filtered::<Entity, With<BoxRoot>>().iter(app.world()).count();
+        assert_eq!(spawned, 1, "popup box spawned");
+        assert_eq!(
+            app.world().get::<Window>(win_entity).unwrap().cursor_position(),
+            Some(initial),
+            "popup open must not warp the cursor"
+        );
     }
 }

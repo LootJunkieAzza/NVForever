@@ -177,7 +177,8 @@ impl Swapping<'_, '_> {
                                 fd.retarget(&copy);
                             }
                             models.materials.remove(f.copy());
-                            commands.entity(e).insert(MeshMaterial3d(copy)).remove::<Fading>();
+                            // The entity may go with its cell before this is applied (#2757).
+                            commands.entity(e).try_insert(MeshMaterial3d(copy)).try_remove::<Fading>();
                         }
                         (also_faded, Some(_)) => {
                             if let Some(fd) = also_faded {
@@ -219,6 +220,24 @@ mod tests {
     /// actor's alpha after it; the game declares no order between the last two), a synthetic
     /// texture and one named shape wearing its own material.
     fn overlap_app() -> (App, impl Sized, Entity, Handle<NifMaterial>) {
+        overlap_app_ordered(AlphaOrder::AfterFade)
+    }
+
+    /// Where the actor alpha's sync runs against the fade's systems (`PlaySet::Sync`).
+    #[derive(Clone, Copy, Debug)]
+    enum AlphaOrder {
+        /// After them, their commands applied first: the production order (#3017).
+        AfterFade,
+        /// After them in the same frame without their commands applied: the fade's copy is
+        /// already removed while the mesh still wears the alpha's copy.
+        AfterFadeUnapplied,
+    }
+
+    fn alpha_sync(alpha: Res<Alphas>, mut drawing: crate::effect_shaders::AlphaDrawing) {
+        drawing.sync(&alpha.0);
+    }
+
+    fn overlap_app_ordered(order: AlphaOrder) -> (App, impl Sized, Entity, Handle<NifMaterial>) {
         let (mut app, _files) = crate::outfits::tests::asset_fixture();
         let forms: &'static fnv_sim::FormStore = Box::leak(Box::default());
         let refs: &'static fnv_sim::RefTable = Box::leak(Box::default());
@@ -232,8 +251,11 @@ mod tests {
             .add_plugins(nvf_play::fade::FadePlugin)
             .add_systems(Update, (
                 (|swaps: Res<Swaps>, sim: Res<nvf_play::sim::SimState>, world: Res<crate::world::WorldData>, mut drawing: super::Swapping| drawing.sync(&swaps.0, &sim, &world)).before(nvf_play::PlaySet::Sync),
-                (|alpha: Res<Alphas>, mut drawing: crate::effect_shaders::AlphaDrawing| { drawing.sync(&alpha.0); }).after(nvf_play::PlaySet::Sync),
             ));
+        match order {
+            AlphaOrder::AfterFade => app.add_systems(Update, alpha_sync.after(nvf_play::PlaySet::Sync)),
+            AlphaOrder::AfterFadeUnapplied => app.add_systems(Update, alpha_sync.after_ignore_deferred(nvf_play::PlaySet::Sync)),
+        };
         // [documented: engine/nvf-assets/src/texture.rs tests::dds] A synthetic
         // one-block DDS offered to the normal texture loader, no game files.
         let texture = TEXTURE;
@@ -265,15 +287,15 @@ mod tests {
     /// finds them, so a change to either system shows here.
     #[test]
     fn a_swap_under_both_fades_copies_the_mesh_own_material_in_either_start_order() {
-        // Not held, both without a swap: the alpha started first and released first (the fade's
-        // end puts the alpha's copy back), and the fade started first and ended first (the
-        // alpha's release puts back the fade copy the fade removed).
-        // Both are known bugs, older than #2981 and not this change's subject: the intended
-        // result is the mesh given back whole in all eight orders. When either starts to
-        // hold, add it here.
+        // Not held, without a swap: the alpha started first and released first (the fade's
+        // end puts the alpha's copy back), a known bug older than #2981 and not this change's
+        // subject: the intended result is the mesh given back whole in all eight orders. When
+        // it starts to hold, add it here. The fade started first and ended first holds since
+        // #3017: the alpha's copy takes the material the fade gives back as its original.
         const HELD: &[&str] = &[
             "swap false, alpha first true, alpha released first false",
             "swap false, alpha first false, alpha released first true",
+            "swap false, alpha first false, alpha released first false",
             "swap true, alpha first true, alpha released first true",
             "swap true, alpha first true, alpha released first false",
             "swap true, alpha first false, alpha released first true",
@@ -378,8 +400,8 @@ mod tests {
         app.update();
         app.update();
         assert!(app.world().get::<nvf_play::fade::Fading>(e).is_none(), "the first fade is over");
-        let stale = app.world().get::<crate::effect_shaders::Faded>(e).expect("alpha still on").original.clone();
-        assert!(app.world().resource::<Assets<NifMaterial>>().get(&stale).is_none(), "the alpha's stored original is the first fade's removed copy");
+        let stored = app.world().get::<crate::effect_shaders::Faded>(e).expect("alpha still on").original.clone();
+        assert_eq!(stored, own, "#3017: the alpha's original is the mesh's own material, which the first fade gave back (no longer its removed copy)");
         fade(&mut app);
         assert!(app.world().get::<nvf_play::fade::Fading>(e).is_some(), "the second fade runs");
         {
@@ -395,6 +417,38 @@ mod tests {
         let m = app.world().resource::<Assets<NifMaterial>>().get(&copy).unwrap();
         assert!(m.base.base_color_texture.is_some(), "the new diffuse");
         assert_eq!(m.base.base_color.alpha(), 1.0, "no fade's alpha baked in");
+    }
+
+    /// #3017: an actor alpha started while a fade in draws the mesh copies the fade's copy;
+    /// at the fade's end the fade removes that copy at once and gives the mesh its own
+    /// material back by a command. In the production order (the alpha after the fade, the
+    /// commands applied between) and with the commands not yet applied, the alpha's copy is
+    /// made again from the mesh's own material, and the release gives that back, opaque.
+    #[test]
+    fn an_alpha_copy_made_during_a_fade_takes_the_material_the_fade_gives_back() {
+        for order in [AlphaOrder::AfterFade, AlphaOrder::AfterFadeUnapplied] {
+            let (mut app, _files, e, own) = overlap_app_ordered(order);
+            app.world_mut().write_message(nvf_play::fade::RefFade { form_id: REFERENCE, fade_in: true });
+            app.update();
+            app.world_mut().resource_mut::<Alphas>().0.insert(FormId(REFERENCE), 0.7);
+            app.update();
+            let fade_copy = app.world().get::<crate::effect_shaders::Faded>(e).unwrap().original.clone();
+            assert_ne!(fade_copy, own, "{order:?}: copied from the fade's copy");
+            app.world_mut().resource_mut::<Time<Virtual>>().advance_by(std::time::Duration::from_secs_f32(3.0));
+            app.update();
+            app.update();
+            assert!(app.world().get::<nvf_play::fade::Fading>(e).is_none(), "{order:?}: the fade is over");
+            assert_eq!(app.world().get::<crate::effect_shaders::Faded>(e).unwrap().original, own, "{order:?}: the own material is the original");
+            let worn = app.world().get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0.clone();
+            let materials = app.world().resource::<Assets<NifMaterial>>();
+            let m = materials.get(&worn).unwrap_or_else(|| panic!("{order:?}: the worn material exists"));
+            assert!((m.base.base_color.alpha() - 0.7).abs() < 1e-6, "{order:?}: one 0.7 copy, not a copy of a copy");
+            app.world_mut().resource_mut::<Alphas>().0.clear();
+            app.update();
+            app.update();
+            assert_eq!(app.world().get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, own, "{order:?}: the release gives back the own material");
+            assert_eq!(app.world().resource::<Assets<NifMaterial>>().get(&own).unwrap().base.base_color.alpha(), 1.0);
+        }
     }
 
     #[test]

@@ -98,8 +98,12 @@ raise SystemExit(completed.returncode)
     environment.insert("NVF_DEATH_HANDOFF_ROOT".into(), root.0.as_os_str().to_owned());
     environment.insert("NVF_DEATH_HANDOFF_SAVE".into(), save.as_os_str().to_owned());
     let report = root.0.join("delivered.json");
-    let mut command = std::process::Command::new(if cfg!(windows) { "python" } else { "python3" });
-    command.arg("-c").arg(recorder).arg(std::env::current_exe().unwrap())
+    let Some(python) = python3() else {
+        println!("skipped: no Python 3 runs here (set NVF_PYTHON to one)");
+        return;
+    };
+    let mut command = std::process::Command::new(&python[0]);
+    command.args(&python[1..]).arg("-c").arg(recorder).arg(std::env::current_exe().unwrap())
         .arg("handoff::death_smoke_tests::unaided_successor_child").arg(&report).args(&args)
         .current_dir(&root.0).env_clear().envs(&environment)
         .stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
@@ -157,4 +161,30 @@ fn handoff_retains_existing_exit_and_measuring_exceptions() {
     let values: std::collections::BTreeMap<_, _> = command.get_envs().collect();
     for key in [EXIT_AID, "NVF_PLAY_TEST_SAMPLE", "NVFOREVER_HOME"] { assert_eq!(values[std::ffi::OsStr::new(key)], Some(std::ffi::OsStr::new("sentinel"))); }
     for key in ["NVF_PLAY_TEST_CONSOLE", "NVF_PLAY_AIDS_FROM_SCRIPTS"] { assert_eq!(values[std::ffi::OsStr::new(key)], None); }
+}
+
+/// A Python 3 that runs, as a command and its first arguments: `NVF_PYTHON` (or `PYTHON`)
+/// when set, else `py -3` (Windows), `python`, `python3`. Each is asked for its major
+/// version, so Windows' App Execution Alias stub (`python` that prints "Python was not
+/// found" and fails) is passed over (#3275). `None`: none runs.
+fn python3() -> Option<Vec<std::ffi::OsString>> {
+    let mut tries: Vec<Vec<std::ffi::OsString>> = Vec::new();
+    for key in ["NVF_PYTHON", "PYTHON"] {
+        if let Some(p) = std::env::var_os(key).filter(|p| !p.is_empty()) {
+            tries.push(vec![p]);
+        }
+    }
+    if cfg!(windows) {
+        tries.push(vec!["py".into(), "-3".into()]);
+    }
+    tries.push(vec!["python".into()]);
+    tries.push(vec!["python3".into()]);
+    tries.into_iter().find(|t| {
+        std::process::Command::new(&t[0])
+            .args(&t[1..])
+            .args(["-c", "import sys; print(sys.version_info[0])"])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "3")
+    })
 }

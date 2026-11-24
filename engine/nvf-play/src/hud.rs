@@ -143,7 +143,7 @@ const ENEMY_MIDDLE: f32 = ENEMY_BRACKET_AT.x + (ENEMY_MARKS.0 + ENEMY_MARKS.1) /
 /// picture to the end of the last one's, leaving out the empty room after the last letter
 /// that `Line::width` counts (and the room before the first) [design: #1826].
 fn centred_x(font: &Font, line: &fnv_font::Line, middle: f32) -> f32 {
-    let drawn = line.glyphs.iter().map(|p| (p, font.glyph(p.code))).filter(|(_, g)| g.drawn());
+    let drawn = line.glyphs.iter().map(|p| (p, font.bitmap_glyph(p))).filter(|(_, g)| g.drawn());
     let (left, right) = drawn.fold((f32::INFINITY, f32::NEG_INFINITY), |(l, r), (p, g)| (l.min(p.x + g.before), r.max(p.x + g.before + g.width)));
     if left > right {
         // Nothing drawn (stand-in font, spaces): its set width.
@@ -573,7 +573,7 @@ fn gather(
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();
     }
     // The player's tweak: the body armour's condition [design: docs/design/tweaks.md].
-    now.armor = combat.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.armor_condition)).and_then(|c| c.hud_armor(&mut sim));
+    now.armor = combat.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.game.armor_condition)).and_then(|c| c.hud_armor(&mut sim));
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);
         if let Some(v) = &vats {
@@ -767,6 +767,7 @@ fn place_name(
     mut face_: Local<Option<Face>>,
     (mut shown, mut region): (Local<(Option<String>, Option<String>)>, Local<(Option<fnv_sim::FormId>, Option<String>)>),
     text: Query<Entity, With<PlaceNameText>>,
+    mut font_revision: Local<u32>,
 ) {
     let _hud = crate::interface::hud_units();
     let Ok(e) = text.single() else { return };
@@ -775,7 +776,8 @@ fn place_name(
         let (st, loc, player) = (markers.as_deref()?, location.as_deref().filter(|l| l.interior.is_none())?, player.as_deref()?);
         let heading = control.as_deref().map_or(player.heading, |c| c.view_heading(player.heading)).to_degrees();
         let range = crate::compass::place_range();
-        let list = st.named_markers_of(loc.world);
+        let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+        let list = st.named_markers_of(loc.world, game);
         let list = list.iter().filter(|m| sim.present(m.0)).map(|m| ([m.1[0], m.1[1]], m.2, m.3));
         place_ahead(list, [player.feet[0], player.feet[1]], heading, range, t.marker_name_angle, t.marker_name_hide_unfound, t.marker_name_units)
     })();
@@ -791,7 +793,9 @@ fn place_name(
         region.1.clone()
     })();
     let now = (region_words, words);
-    if *shown == now {
+    let revision = crate::cjk_font::revision();
+    let font_changed = std::mem::replace(&mut *font_revision, revision) != revision;
+    if *shown == now && !font_changed {
         return;
     }
     if now.0 != shown.0 {
@@ -959,6 +963,12 @@ struct Strip(StripNode);
 #[derive(Component)]
 pub struct CompassMarks;
 
+/// The actors' ticks, under the bracket and the strip: the original draws both over them,
+/// their dark halos shading the bar's top and end [observed: hud.md §11]. As
+/// [`CompassMarks`] otherwise.
+#[derive(Component)]
+pub struct CompassTicks;
+
 /// The lower row of the right piece: the condition's label and bar.
 #[derive(Component)]
 struct ConditionRow;
@@ -1014,6 +1024,9 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
         root.spawn((HpPiece, piece, DrawnByTiles)).with_children(|p| {
+            let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
+            marks.overflow = Overflow::clip_x();
+            p.spawn((CompassTicks, marks.clone()));
             spawn_bracket(p, &art.left_bracket, 0.0, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
@@ -1051,8 +1064,6 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
                     });
                 }
             });
-            let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
-            marks.overflow = Overflow::clip_x();
             p.spawn((CompassMarks, marks));
             p.spawn((PlaceNameText, at(0.0, 0.0, HP_PANEL.x, 0.0)));
         });

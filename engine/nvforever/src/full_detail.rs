@@ -78,7 +78,7 @@ use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_esm::LoadOrder;
-use fnv_world::placed::{base_object, placement, placement_visible_when_distant, BaseObject, Placement};
+use fnv_world::placed::{base_object, placement_visible_when_distant, BaseObject, Placement};
 use fnv_world::CELL_SIZE;
 use nvf_assets::model::ModelCtx;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -854,7 +854,7 @@ enum Spawned {
 #[allow(clippy::too_many_arguments)]
 fn spawn_ring_ref(commands: &mut Commands, ctx: &RefCtx, sp: Target, kept: &mut Kept, r: u32, models: &mut ModelCtx, emittance: &mut EmittanceState, trees: &mut crate::tree::TreeCtx, ring: &mut FullDetailRing) -> Spawned {
     let world = ctx.world;
-    let Some(p) = placement(world.lo, world.schema, r) else { return Spawned::Done };
+    let Some(p) = world.index.placement(world.lo, world.schema, r) else { return Spawned::Done };
     let enabled = world.enabled(&p, 0);
     // Not enabled at the start: drawn when the game runs (its simulation hides it while it
     // is disabled, `activate::sync_visuals`), else (the viewer) left out; deleted: out.

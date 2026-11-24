@@ -53,6 +53,17 @@ own rules are not known]:
   opened inside it; when none of that name is open it closes the innermost open element
   whatever its name; with nothing open it is dropped. Both MCM spots need this pair of
   rules to come out as MCM evidently works in the original (one needs each rule);
+- [hypothesis] an attributeless non-empty start tag `<T>` that is neither a tile/template
+  container, `include`, nor an operator closes an open trait of the same name `<T>` when
+  that trait already holds non-blank content and only operators (if any) are open inside
+  it (mending a forgotten `/` on closing tags such as `<height><copy .../><height>`, with
+  a warning);
+- [hypothesis] when an enclosing container end tag (a tile or `<template>`) or end-of-file
+  implicitly closes an unclosed trait or operator element that has non-blank content
+  before one or more contiguous trailing non-operator elements (sibling traits, tiles,
+  `include` or `template`), those trailing elements are hoisted onto the enclosing parent
+  so they are not dropped as unknown operators (explicitly closed traits keep unknown
+  inner tags inside the trait and still warn);
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
 - a start tag cut short by `<` ends there, open (its own end tag follows);
@@ -129,6 +140,23 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
 - `&hudmain;` 1, `&hudalt;` 2 [observed: private job hud_jip file_0032;
   hud_hardcore2 hc2-hc5; hud.md §14.8];
 - every other constant reads 0 as a number [hypothesis].
+
+Scripts writing entity-shaped strings via `SetUIString` (e.g. `"&false"`, `"&true"`,
+`"&center"`) store the string verbatim without resolving it to a numeric entity constant:
+`GetUIFloat` reads `0` for all three (`&false`, `&true`, and `&center`, overwriting the
+prior numeric value) while `GetUIString` reads `"&false"` verbatim [observed: Fallout:
+New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, `w4d_43_nif_selector_and_ui_entities`
+(`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+`HUDMainMenu/ReticleCenter/visible` `ret=64` -> `SetUIString "&false"` => `f=0 [&false]`,
+`SetUIString "&true"` => `t=0`, `SetUIString "&center"` => `c=0`; no DLL or source
+consulted]. Accordingly, `Value::Str` parses only numeric text in `Value::num()` (so
+`GetUIFloat` / `GetUIFloatAlt` return `0.0` for `"&true"` as well as `"&false"` and
+`"&center"`), while static XML entities parsed as `Value::Sym` keep their numeric values
+(`&true;` -> `1`, menu classes -> their IDs). NVForever still matches standalone `&name` /
+`&name;` ASCII identifier strings (excluding `&-sName;` game-string placeholders and mixed
+prose) against `Value::Sym` for `truthy()`, `eq`, `justify`, and suffix-`<copy>` lookup
+while keeping the written `Value::Str` verbatim for `GetUIString` [design: `fnv_ui::value`].
 
 ### 2.4 Game setting strings
 
@@ -208,6 +236,22 @@ The tree records each name it read and whether it had text (`Ui::game_strings_re
 engine logs `ui: game strings: N read, M without text` at start for the menus it keeps
 loaded (with the vanilla files, `sModffects` of `item_stats_display.xml` is the one name
 without text there).
+
+**Unprefixed game-string entities (`&sName;` without `-`)** [observed: MCM 1.5's
+`Scale.xml` writes `<string> &sAccept; </string>` and `<string> &sCancel; </string>`,
+#2270]: mod menu files sometimes omit the leading `-` on game-setting string entities.
+Previously, `fnv_ui::expr::literal` turned any lone entity without `-` straight into
+`Value::Sym`, rendering raw `&saccept;` / `&scancel;`, and left unprefixed entities raw in
+compound text. [design: `fnv_ui::expr::literal_with`, `fnv_ui::tree::Ui::put_trait`] When
+an unprefixed entity is not a known numeric or menu-class constant (`sym_number`),
+NVForever checks `Source::game_string` (load-order GMSTs first, then `BUILT_IN`, without
+case) for both lone entities and compound text; when found, it expands to that text and
+records the read in `game_strings_read` (and `built_in_label` for lone built-in labels).
+When not found, it stays a named constant `Value::Sym` (or literal `&name;` in compound
+text) without recording a missing game-string read [hypothesis: whether the original reads
+an unknown unprefixed `&sName;` as empty or literal text has not been observed; keeping
+unmatched unprefixed entities as symbols preserves unknown UI constants such as `&center;`
+and `&scale;`].
 
 The names with no record in the vanilla masters, by spelling:
 
@@ -879,13 +923,19 @@ this change.
    ```
 
    [observed: those lists] Both `:` and `::` separate include, target and optional
-   tile name. Targets are menu names in mixed case or `@Prefabs\...` paths. `;`
+   tile name. Targets are menu names in mixed case or `@...` paths relative to `menus\`
+   (`@Prefabs\...`, `@globals.xml`, etc.) [documented: UIO Nexus mod-author guide,
+   "Adding support for your mod"; no plugin DLL or source read]. `;`
    lines and blank lines separate groups. Conditions contain `true`, `?plugin`,
    `#path`, `!`, `&&`, and also `||` (the MCM alternative in supported.txt).
    [observed: Just Assorted Mods/Menus/Prefabs/JHM/JHM.xml;
    MCM Extender/Menus/Prefabs/MCMExtender/ListRect/text.xml;
    UI Improvements/menus/prefabs/UII/CharGenBox.xml] Include names resolve below
-   `menus\prefabs`. [observed: UI Improvements/menus/prefabs/UII/PerkBrowser.xml;
+   `menus\prefabs` with `.` and `..` segments collapsed so sibling paths under `menus\`
+   resolve identically in `<include>` and UIO lists [design]. `@` targets that are empty
+   or escape `menus\` via `..` are rejected as malformed (`unknown prefab target`), and
+   untargeted `@` patches on a menu file append inside its `<menu>` root while prefab
+   fragments and `globals.xml` append to top-level nodes [design]. [observed: UI Improvements/menus/prefabs/UII/PerkBrowser.xml;
    Pip-Boy UI Tweaks/UIO/Public/PipBoyUITweaks.txt] The `#UII\PerkBrowser.xml`
    operand names an existing file there. The advrecon/primaryneedshud/filmgrain
    operands of supported.txt have no matching files in the inspected mod folders.
@@ -895,9 +945,32 @@ this change.
 
    [observed: MCMExtender.txt and supported.txt; directory listing of the installed
    mods' uio/public files] `darnui` is used both positive and negated; no
-   `uio\public\darnui.txt` was found. [hypothesis] Its meaning remains unknown;
-   NVForever treats the atom as false and logs it even in a short-circuited branch
-   (`!darnui` therefore evaluates true). No filename-based alias is assumed.
+   `uio\public\darnui.txt` was found. [observed: `PipBoyUITweaks.txt`, `ItemCards.txt`,
+   `MCMExtender.txt`, and `supported.txt` in public UIO mod manifests] Public lists
+   also use `darn` alongside `darnui` for DarNified UI and `vui+` for Vanilla UI Plus
+   (for example `vui+`, `vui+ || darn`, `vui+ && #..\ySI\ySI.xml`, and
+   `!vui+ && !darn && #..\ySI\ySI.xml`). [hypothesis] UIO's Nexus Mods 57174 mod-author
+   guide does not publish the built-in condition detection rules, and UIO's DLL and
+   source code were not consulted; NVForever evaluates `vui+` as true when
+   `Vanilla UI Plus.esp` is active or `menus\prefabs\vui+\settings.xml` or
+   `menus\prefabs\vui+\hudcenteredtext.xml` exists, and evaluates `darn`/`darnui` as
+   true when `DarNifiedUINV.esp` is active or `menus\prefabs\duinvsettings.xml` or
+   `menus\prefabs\darn\text_box.xml` exists (excluding standalone font packs such as
+   `menus\prefabs\DarN_Fonts\*`). Literal `false` evaluates false without warning
+   [design]. Any other unrecognized bare word remains `Condition::Unknown`: NVForever
+   treats the atom as false and logs it even in a short-circuited branch. No
+   filename-based alias is assumed.
+
+   [observed: `AimCollisionIndicator.txt`, `Colorful Icons Support - ySI.txt`, and
+   `ySIAssortedFixes.txt` in public UIO mod manifests] Some public lists ship 3-line
+   entries pairing an include/target line and a condition line (such as `#JDC\JDC.xml`,
+   `#JLM\JLM.xml`, or `!#VUI+\hudcenteredtext.xml`) with a trailing `true` line.
+   [hypothesis] UIO's public Nexus Mods 57174 guide documents only the 2-line format
+   and UIO's DLL and source code were not consulted; NVForever consumes at most one
+   optional trailing `true` line after a valid 2-line entry while retaining line 2's
+   condition. Extra trailing lines beyond a single `true`, standalone `true` lines not
+   following a valid entry, and unobserved 3rd-line tokens (such as `false`) still
+   emit `malformed include/target` warnings [design].
 
    [design] `fnv_ui::uio::{Lists, Condition, Report}` parses forgivingly, records
    malformed lines with list/line locations, and evaluates against a `Source` plus
@@ -1089,7 +1162,10 @@ Implemented consumers and remaining exclusions:
   scrolled how) are not known [hypothesis]. Textures are decoded
   only up to `repeat::MAX_TEXELS`, read from the file's header first, by these bakes and
   by `crate::repeat`'s (the tiled pictures, the compass strip), whose oversized textures
-  keep Bevy's drawing. An offset that changes alone re-bakes the kept image, or moves the
+  keep Bevy's drawing; when a source texture exceeds `repeat::MAX_TEXELS` (such as a
+  4096 x 4096 modded UI atlas), `crate::repeat` and `compass_strip` decode only the
+  requested sub-rectangle directly from level 0 when that region fits within
+  `repeat::MAX_TEXELS` [design]. An offset that changes alone re-bakes the kept image, or moves the
   compass strip on, in place (same nodes and handle), only when it is another texel
   shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to three
   largest images, the most one bake costs: its output and both textures decoded again, or
@@ -1375,10 +1451,85 @@ centre is written to `_MapOriginX`/`_MapOriginY`. The file's own tint (`systemco
 `brightness`) colours it. Engine design choices: the camera draws the world layer only
 (not the player's body or the water's own layer), without fog, clearing to black, with
 no MSAA; it draws to 20,000 units below its height over the player; when `_CameraOffset`
-does not read, it uses the file's 10,000.
+does not read, it uses the file's 10,000. At startup, `nvforever::minimap_render` reads
+`NVSE\Plugins\ModernMinimap.ini` case-insensitively through the VFS ([documented: Modern
+Minimap - ESPless v4.2.1 (by Stentorious & xConfused,
+`https://www.nexusmods.com/newvegas/mods/90574`), shipped
+`Data\NVSE\Plugins\ModernMinimap.ini`, comment `"; Controls the texture size of the
+minimap render"`, default `[General] textureSize=1024`; no DLL or plugin source
+consulted]) using a BOM-, comment-, and UTF-8-safe byte parser [design]; positive finite
+`[General] textureSize` values are clamped to `256..=2048` and snapped to the nearest
+power of two (`256`, `512`, `1024`, `2048`) [design], driving both the render-target
+`Image` extent and the size published to `RuntimeImages`. When the INI is absent, omits
+`textureSize`, or specifies a non-finite / `< 1` / invalid value, NVForever defaults to
+`1024` so unmodded vanilla behavior is unchanged [design].
 
-[hypothesis] The plugin's camera is orthographic with north up, and its picture is 1024
-texels square (`textureSize=1024`, taken to be the plugin INI's default). Neither has
-been observed in the original game. Open: the plugin's
-exact look (classic mode's shading, interiors under a ceiling 10,000 over the player)
-and the INI's other settings are not read; the picture is the lit scene from above.
+[hypothesis] The plugin's camera is orthographic with north up. This has not been observed
+in the original game. Open: the plugin's exact look (classic mode's shading, interiors
+under a ceiling 10,000 over the player) and any other INI settings future versions may add
+are not read; the picture is the lit scene from above.
+
+## 12. BookMenu layout variants and JIP TextInput layout (`BookMenu`, `TextEditMenu`)
+
+No third-party plugin DLL or source code was consulted; this section relies solely on
+NVForever's existing menu-index rules, public GECK wiki documentation, and public XML
+menu layouts.
+
+### 12.1 `BookMenu` layout variants (`fnv_ui::MenuIndex`)
+
+- [documented: `menus\book_menu.xml`, audio.md; GECK wiki Hardcoded UI Shortcuts,
+  revision 39903 (`BookMenu` class ID 1026)] The base game defines `BookMenu` in
+  `menus\book_menu.xml` with `<menu name="BookMenu"><class>&BookMenu;</class>`.
+- [design: `crates/fnv-ui/src/index.rs`] Book-display mods (such as BookMenuRestored)
+  ship additional alternate-background `<menu name="BookMenu"><class>&BookMenu;</class>`
+  XML files directly under `menus\` beside `menus\book_menu.xml`. Because ASCII sorting
+  places `menus\book_menu.xml` (`_` = 95) before names like `menus\bookbackground1.xml`
+  (`b` = 98), the generic later-sorted-path-wins rule previously clobbered
+  `menus\book_menu.xml` and emitted two duplicate warnings per variant. When canonical
+  `menus\book_menu.xml` is present alongside alternate `BookMenu` XML files,
+  `MenuIndex::build` keeps `menus\book_menu.xml` as the primary `files` and `classes`
+  entry regardless of alphabetical order, records the alternate paths in sorted order
+  under `MenuIndex::variants("BookMenu")`, and suppresses duplicate-menu / duplicate-class
+  warnings for those variants. When `menus\book_menu.xml` is absent, or for any other menu
+  name/class, `MenuIndex::build` retains its existing later-sorted-path-wins and duplicate
+  warning behavior. Unmodded vanilla (`menus\book_menu.xml` alone) is unchanged.
+
+### 12.2 `TextEditMenu` and JIP `ShowTextInputMenu` (`fnv_game::ui_text_input`)
+
+- [documented: `menus\dialog\texteditmenu.xml`, chargen.md §5; GECK wiki Hardcoded UI
+  Shortcuts, revision 39903 (`TextEditMenu` class ID 1051)] Vanilla `GetPlayerName` /
+  `ShowNameMenu` opens menu `1051` (`menus::NAME`) with `menus\dialog\texteditmenu.xml`
+  (`TEM_MainRect/textedit_prompt`, `TEM_MainRect/textedit_text`,
+  `TEM_MainRect/textedit_button_ok`).
+- [observed: JIP LN NVSE Plugin 57.30 (`JIP LN NVSE Plugin-58277-57-30-1716662080`),
+  shipped `NVSE\Plugins\textinput\texteditmenu.xml` read directly; only the XML layout
+  was read, not the DLL or source] JIP LN 57.30 ships
+  `NVSE\Plugins\textinput\texteditmenu.xml` declaring
+  `<menu name="TextEditMenu"><class>&TextEditMenu;</class>` with root numeric traits
+  `user0` (width, default 400), `user1` (height, default 200), `user2` (x offset,
+  default 0), and `user3` (y offset, default 0), plus `NOGLOW_BRANCH/TEM_TitleText`,
+  `NOGLOW_BRANCH/TEM_TextInputBox/TEM_InputText`, and `NOGLOW_BRANCH/TEM_OKButton`.
+- [design: `crates/fnv-game/src/ui_text_input.rs`, `crates/fnv-game/src/ui_loading.rs`,
+  `crates/fnv-game/src/nvse_jip12.rs`, `engine/nvf-play/src/chargen.rs`]
+  - While `ShowTextInputMenu` is active (`Game::text_input().is_some()`),
+    `ui_loading::sync` prefers `nvse\plugins\textinput\texteditmenu.xml` when present in
+    the VFS, falling back to the indexed `TextEditMenu` class path
+    (`menus\dialog\texteditmenu.xml`) when absent. Vanilla `GetPlayerName` /
+    `ShowNameMenu` (`Game::text_input().is_none()`) always loads the vanilla indexed path
+    with no extra trait writes.
+  - `MenuLifetime::unavailable` keys by `(menu_code, jip_text_input)` so a missing vanilla
+    `TextEditMenu` XML does not block a present `textinput\texteditmenu.xml` (or vice
+    versa), and switching layouts directly while menu `1051` stays open unloads the stale
+    root and rebuilds from the active layout.
+  - On build and on `SetTextInputExtendedProps` / `SetTextInputString` / live typing in
+    `nvf_play::chargen`, `ui_text_input` writes only traits that already exist in the
+    loaded XML (`Ui::set_existing`): `user0`/`user1` when positive dimensions are given,
+    `user2`/`user3` offsets, title string (`TEM_TitleText` or `textedit_prompt`), and live
+    input string (`TEM_InputText` or `textedit_text`). Live text updates touch only the
+    input text tile so script `SetUIFloat`/`SetUIString` writes on other traits are not
+    overwritten.
+- [hypothesis] Whether JIP LN's original plugin updates `TEM_InputText/string` on every
+  keystroke immediately or on a deferred menu tick, and whether it uses additional internal
+  `user*` traits on `TEM_InputText` for scrollbar line math (`user0`/`user1`/`user2`),
+  have not been observed in the original game; NVForever does not render `TextEditMenu`
+  from its XML tiles yet (the hand-built `chargen::name` box continues to draw it).

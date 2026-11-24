@@ -43,6 +43,8 @@ pub mod repair_cards;
 pub mod repair_menu;
 pub mod repair_services_menu;
 pub mod runtime_images;
+pub mod local_map_service;
+pub mod projected_ui;
 pub mod modern_minimap;
 mod item_menu;
 pub mod dialog_menu;
@@ -122,7 +124,21 @@ impl MenuFiles<'_, '_> {
         }));
     }
 
+    /// Seed SUP/JIP window and cursor state from the primary window before the first
+    /// startup/load scripts run (`PreUpdate` ran before `ScriptState::rt` existed) [design].
+    pub(crate) fn sync_window_and_cursor(&self, game: &mut fnv_game::Game<'_>) {
+        if let Ok(window) = self.windows.single() {
+            game.sup.window = (f64::from(window.physical_width()), f64::from(window.physical_height()));
+            if let Some(p) = window.physical_cursor_position() {
+                game.sup.mouse.pos = (f64::from(p.x), f64::from(p.y));
+            }
+            game.other.jip9.window = Some((f64::from(window.width()), f64::from(window.height())));
+            game.other.jip9.cursor_px = window.cursor_position().map(|p| (f64::from(p.x), f64::from(p.y)));
+        }
+    }
+
     pub(crate) fn load(&self, game: &mut fnv_game::Game<'_>, world: &fnv_sim::World<'_>) {
+        self.sync_window_and_cursor(game);
         let Some(data) = self.data.as_ref() else { return };
         let files = UiFiles::new(data.vfs.clone(), world);
         let paths = files.menu_paths();
@@ -592,7 +608,7 @@ impl MenuTiles<'_, '_> {
             || barter_menu::tiled(switch.barter, game, barter_menu::is_barter(shown))
             || self.inventory.as_ref().is_some_and(|i| i.ready.is_some()));
         let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game, true, container_tiled));
-        let prompt = quantity.and_then(|q| game.ui_tree.menu(menus::QUANTITY_MENU).map(|m| (m, q)));
+        let prompt = game.ui_tree.menu(menus::QUANTITY_MENU).zip(quantity);
         // Which showing the box on screen is (counted up for every box shown, one alike
         // included): its rows are made again for another (`menus::another_box`).
         let showing = game.front_box().map(|b| b.serial);
@@ -1037,6 +1053,8 @@ impl Plugin for TilesPlugin {
         vats_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
             .init_resource::<runtime_images::RuntimeImages>()
+            .init_resource::<local_map_service::LocalMapService>()
+            .init_resource::<projected_ui::ProjectedUiTargets>()
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
@@ -1067,7 +1085,9 @@ impl Plugin for TilesPlugin {
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
             .add_systems(Update, global_image_metrics::update_globals.after(PlaySet::Scripts).before(update))
+            .add_systems(Update, local_map_service::system.after(PlaySet::Scripts).before(update))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
+            .add_systems(Update, projected_ui::reconcile.after(update).before(PlaySet::Ui))
             .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
             // The Pip-Boy's STATS page: written after the tile input and before the scripts;
             // again after its keys and decided before the frame and the tile drawing read it.
@@ -1108,6 +1128,7 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, vats_menu::write_system.after(PlaySet::Scripts).after(crate::vats_mode::VatsUpdate).before(update))
             // After the character menus' sync, so the trait menu's decision reads this frame's.
             .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui).after(crate::pipboy::frame::draw).after(crate::chargen::ChargenSet))
+            .add_systems(Update, projected_ui::draw.in_set(PlaySet::Ui).after(draw::draw))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }
 }

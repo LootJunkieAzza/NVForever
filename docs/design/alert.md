@@ -59,6 +59,21 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
   a waiting state, preserving the return to the actor's package after Normal.
 - Both timers count a target as detected while a member of the actor's combat group in
   Combat still detects it (#972, docs/spec-notes/combat-groups.md §3) [hypothesis].
+- **A target no longer measured** counts as hidden [design, #3390: `Game::lose_unmeasured`].
+  Only a measurement moves a target's band, and only pairs of the loaded area within
+  detection reach are measured (detection.md §2), so an enemy left in a cell that has
+  unloaded, or out of reach, kept the player as a detected target and stayed in Combat for
+  good ([DANGER] on the HUD, companions sent after it). When its pair has left the
+  detection table (not measured for 1 s of game time; a round measures every pair within
+  reach, so none misses a round by waiting its turn) the target is hidden: Lost and
+  Normal follow on the timers below.
+  Out of the loaded area the AI carries out no search (`fnv_ai` process.rs), so a Lost
+  actor there gives a target up once hidden for `forget_target`, as outside a search. Kept as
+  they are: a target a script's StartCombat set and no round has measured since
+  (`Awareness::scripted`, saved as `scripted_combat`; in a save from before it, a forced
+  pair's target still holding the value StartCombat gave it counts), actors with their AI off, the player as a
+  target under `tdetect`, and every fight where nothing is measured (headless runs). What
+  the original does with a fighter whose cell unloads: observer check 281.
 - An event heard while searching puts its owner on the target list, undetected
   [documented].
 - Back in Normal the lists are cleared.
@@ -69,7 +84,7 @@ settings (seconds of `Game::time`):
 | Timer | Game setting | Fallback |
 |---|---|---|
 | `lost` | `fCombatDetectionLostTime` | 15 s |
-| `forget_target` (outside an active Lost search) | `fCombatTargetLostRemoveTime` | 30 s |
+| `forget_target` (outside an active Lost search; a Lost actor out of the loaded area has none) | `fCombatTargetLostRemoveTime` | 30 s |
 
 `fDetectionEventExpireTime` (10 in the #2010 capture [observed]) is not read: by its name it is how
 long an event itself can be heard [hypothesis: the setting's name], and our events are
@@ -86,7 +101,8 @@ not a claim of matching the original's timing. Noticed, hurt, ally and heard-eve
 retain our existing 20 s expiry [design: `Awareness::alarm`]. The never-detected 10-in-20 s
 exception documented by Combat Search is separate from Lost searches; this change
 adds no new never-detected policy [documented: GECK wiki Combat Search; design, #2010].
-The state is not saved; the engine measures again after loading [design: `Awarenesses`].
+Saves keep the actors in a fight, with their lists, and StartCombat's pairs (#971); the
+engine measures again after loading [design: `Awarenesses`].
 
 [design, #2010] `LOST_SEARCH_STALL_SECONDS` is 300 s without a completed share. A
 LostTarget alarm uses that safety deadline, renewed by each completed share, instead

@@ -222,5 +222,10 @@ fn race_flags_and_faction_members() {
     // Each bit as its value; the other bits are set too [observed: jg4].
     assert_eq!((n(&mut g, "GetRaceFlag TestRace 0"), n(&mut g, "GetRaceFlag TestRace 1"), n(&mut g, "GetRaceFlag TestRace 2")), (0.0, 2.0, 4.0));
     assert_eq!(forms(&mut g, "GetFactionMembers TestFaction"), vec![NPC_A, NPC_B]);
+    assert_eq!(forms(&mut g, "GetFactionMembers TestFaction -1"), vec![NPC_A, NPC_B]);
     assert_eq!(forms(&mut g, "GetFactionMembers TestFaction 1"), vec![NPC_B]);
+    // Only -1 (or omitted) means any rank; -2 and -5 return empty [observed: Wave 4
+    // jg_11_faction_members_neg_rank, JohnnyGuitarNVSE 528].
+    assert!(forms(&mut g, "GetFactionMembers TestFaction -2").is_empty());
+    assert!(forms(&mut g, "GetFactionMembers TestFaction -5").is_empty());
 }

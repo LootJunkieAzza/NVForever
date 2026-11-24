@@ -78,6 +78,16 @@
 //! the renderer's tangent-space normal mapping read the map as model-space normals. The
 //! untextured second shape in each chunk (flat at the water height) is not drawn; the
 //! water planes cover it [hypothesis: a water LOD surface].
+//!
+//! Diffuse textures (#3096) [design]: a game terrain chunk is spawned, and counts as
+//! covering the chunks it replaces, only once no shape it draws waits for its diffuse
+//! ([`Surface`]); until then the old chunks stay drawn. A shape whose diffuse is missing
+//! (not named, or its file failed to load, a failure that is not retried) would draw
+//! white, so it is drawn with a neutral fallback colour instead ([`fallback_material`]:
+//! a copy owned by the shape's entity alone, released with it), logged once per chunk
+//! when spawned, with the texture's path and error, and the chunk counts as covering like
+//! any other. A player's report showed distant hills flat white at night
+//! [observed: report R-ZXT6AC4J's screenshot]; its cause is not confirmed.
 
 use crate::fade;
 use crate::lodgen::{self, Baker, GenJob};
@@ -91,7 +101,7 @@ use bevy::prelude::*;
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::texture::dds_image;
-use nvf_assets::{nif_material, NifMaterial, PreparedModel};
+use nvf_assets::{nif_material, NifMaterial, PreparedModel, PreparedShape};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -329,6 +339,12 @@ pub struct LodState {
     pub terrain_rebuilds: usize,
     /// What the object-block loop did since the start (logged at the exit).
     pub block_stats: BlockStats,
+    /// What the diffuse checks did since the start (#3096, logged at the exit).
+    pub surfaces: SurfaceStats,
+    /// Chunks already logged as drawn with the fallback colour, and as drawn while a
+    /// diffuse was still on its way.
+    warned: HashSet<Chunk>,
+    unguarded: HashSet<Chunk>,
 }
 
 /// Object-block work over a run, for the exit log (stress runs and smoke read it).
@@ -361,6 +377,29 @@ pub struct BlockStats {
     pub update_slowest_ms: f32,
     pub blocks_slowest_ms: f32,
     pub slow_updates: usize,
+}
+
+/// The diffuse checks of game terrain chunks over a run (#3096), for the exit log.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct SurfaceStats {
+    /// Chunks drawn with the fallback colour for a missing diffuse (each counted once), and
+    /// the shapes spawned with it.
+    pub fallback_chunks: usize,
+    pub fallback_shapes: usize,
+    /// Frames a chunk waited for its diffuse to reach the image store (one per chunk and
+    /// frame).
+    pub texture_waits: usize,
+    /// Terrain shapes spawned while their diffuse was still on its way (0 expected).
+    pub drawn_without_diffuse: usize,
+}
+
+impl SurfaceStats {
+    pub fn describe(&self) -> String {
+        format!(
+            "{} chunks drawn with the fallback colour ({} shapes), {} waits for a chunk's textures, {} shapes drawn without a diffuse texture",
+            self.fallback_chunks, self.fallback_shapes, self.texture_waits, self.drawn_without_diffuse
+        )
+    }
 }
 
 /// An LOD update this long (ms) counts as slow in [`BlockStats`]: twice the budget.
@@ -559,6 +598,9 @@ impl LodState {
             blocks: 0,
             terrain_rebuilds: 0,
             block_stats: BlockStats::default(),
+            surfaces: SurfaceStats::default(),
+            warned: HashSet::new(),
+            unguarded: HashSet::new(),
         }
     }
 
@@ -732,6 +774,134 @@ fn open_edges(idx: &[u32]) -> Vec<(u32, u32)> {
     out
 }
 
+/// Whether [`terrain_mesh`] draws a shape with this mesh: positions, UVs and a triangle
+/// list (the untextured water shape has no UVs).
+fn drawable(mesh: &Mesh) -> bool {
+    matches!(mesh.attribute(Mesh::ATTRIBUTE_POSITION), Some(VertexAttributeValues::Float32x3(_))) && mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some() && mesh.indices().is_some()
+}
+
+/// Where a terrain shape's diffuse texture stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Diffuse {
+    /// In the image store: the shape draws textured.
+    Ready,
+    /// Named, not in the image store yet (decoded on a worker, put in by the main thread);
+    /// the renderer skips such a material until it is.
+    Loading,
+    /// None: not named, or it failed to load (cached, not tried again). The material
+    /// would draw with Bevy's white fallback image.
+    Missing,
+}
+
+fn diffuse_of(material: Option<&NifMaterial>, images: &Assets<Image>) -> Diffuse {
+    match material.map(|m| &m.base.base_color_texture) {
+        // Not in the store yet (a model's materials go in with it).
+        None => Diffuse::Loading,
+        Some(None) => Diffuse::Missing,
+        Some(Some(h)) if images.contains(h.id()) => Diffuse::Ready,
+        Some(Some(_)) => Diffuse::Loading,
+    }
+}
+
+/// Where a game terrain chunk's textures stand, its model prepared (#3096, module docs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Surface {
+    /// Every shape it draws has its diffuse.
+    Ready,
+    /// A shape's diffuse is on its way: not spawned yet, the old chunks stay drawn.
+    Pending,
+    /// Nothing to draw: no textured shape, or every one cut out by the loaded cells.
+    Empty,
+    /// A shape it draws has no diffuse: drawn with the fallback colour (why).
+    Failed(String),
+}
+
+/// The surface of a chunk whose drawable shapes are `shapes`. `cut_away`: the loaded cells
+/// cut every triangle of the shape out, so it draws nothing whatever its textures (asked
+/// only of shapes not ready).
+fn surface<S>(shapes: &[S], diffuse: impl Fn(&S) -> Diffuse, cut_away: impl Fn(&S) -> bool) -> Surface {
+    let mut drawn = false;
+    let mut loading = false;
+    let mut missing = false;
+    for s in shapes {
+        let d = diffuse(s);
+        if d != Diffuse::Ready && cut_away(s) {
+            continue;
+        }
+        drawn = true;
+        loading |= d == Diffuse::Loading;
+        missing |= d == Diffuse::Missing;
+    }
+    if loading {
+        Surface::Pending
+    } else if missing {
+        Surface::Failed("a shape it draws has no diffuse texture (none named, or it failed to load)".into())
+    } else if drawn {
+        Surface::Ready
+    } else {
+        Surface::Empty
+    }
+}
+
+/// [`surface`] of a game chunk's prepared model, drawn with the fully drawn cells `trim`
+/// cut out (`None`: whole).
+fn chunk_surface(model: &PreparedModel, materials: &Assets<NifMaterial>, images: &Assets<Image>, trim: Option<&HashSet<Grid>>) -> Surface {
+    let shapes: Vec<&PreparedShape> = model.shapes.iter().filter(|s| s.cpu.as_deref().is_some_and(drawable)).collect();
+    surface(
+        &shapes,
+        |s| diffuse_of(materials.get(&s.material), images),
+        |s| {
+            let (Some(full), Some(m)) = (trim, s.cpu.as_deref()) else { return false };
+            terrain_mesh(m, Some((&(model.root * s.transform), full)), 0.0).is_none()
+        },
+    )
+}
+
+/// Whether a chunk with this surface is spawned now (and so counts as covering the chunks
+/// it replaces): all but one whose diffuse is still on its way (#3096).
+fn admit(surface: &Surface) -> bool {
+    *surface != Surface::Pending
+}
+
+/// Whether the chosen chunks over outgoing chunk `o` are all spawned (`spawned`): only
+/// then does it go.
+fn covered(o: Chunk, chosen: &[Chunk], spawned: impl Fn(&Chunk) -> bool) -> bool {
+    chosen.iter().filter(|&&ch| chunks_overlap(ch, o)).all(spawned)
+}
+
+/// The material a terrain shape whose diffuse is missing is drawn with (#3096): its own,
+/// with the generated LOD's colour for a missing base texture (`lodgen::NO_BASE_SRGB`, as
+/// terrain.rs draws one) as its base colour and no base texture, instead of white.
+fn fallback_material(m: &NifMaterial) -> NifMaterial {
+    let mut f = m.clone();
+    let [r, g, b] = lodgen::NO_BASE_SRGB;
+    f.base.base_color = Color::srgba(r, g, b, m.base.base_color.alpha());
+    f.base.base_color_texture = None;
+    f
+}
+
+/// A new fallback copy of material `src` ([`fallback_material`]) for one spawned shape:
+/// its handle is the copy's only owner, so the copy (and the textures it holds) goes with
+/// the entity, and nothing outlives the source material's own eviction.
+fn fallback_for(materials: &mut Assets<NifMaterial>, src: &Handle<NifMaterial>) -> Option<Handle<NifMaterial>> {
+    let f = materials.get(src).map(fallback_material)?;
+    Some(materials.add(f))
+}
+
+/// A material's base colour (sRGB) and base texture, for the log.
+fn describe_base(m: &StandardMaterial) -> String {
+    let c = m.base_color.to_srgba();
+    let tex = if m.base_color_texture.is_some() { "a base texture" } else { "no base texture" };
+    format!("base colour sRGB {:.2} {:.2} {:.2}, {tex}", c.red, c.green, c.blue)
+}
+
+/// "<path>: <error>" for a diffuse a model named and could not load (`path`, resolved as
+/// the texture cache resolves it): the error the cache reported for it, if any.
+fn texture_failure(failures: &[String], path: &str) -> String {
+    let prefix = format!("{}: ", path.to_ascii_lowercase());
+    failures.iter().rev().find(|f| f.to_ascii_lowercase().starts_with(&prefix)).cloned().unwrap_or_else(|| format!("{path}: not loaded"))
+}
+
 /// The masks of the level-4 squares holding `cells` (cell, fully drawn; on the grid from
 /// `o`): cells fully drawn, cells drawn at all (bit `y * 4 + x`, [`chunk_bit`]).
 pub(crate) fn block_masks(cells: &[(Grid, bool)], o: Grid) -> HashMap<Grid, (u16, u16)> {
@@ -750,6 +920,7 @@ pub(crate) fn block_masks(cells: &[(Grid, bool)], o: Grid) -> HashMap<Grid, (u16
 /// Distant LOD each frame. The cells it gives way to are the loaded ones and, with the
 /// full-detail ring on, the ring's (`crate::full_detail::DrawnCells`): both cut the LOD
 /// terrain out and hide their object-block segments alike.
+#[allow(clippy::too_many_arguments)]
 pub fn update_lod(
     mut commands: Commands,
     drawn: crate::full_detail::DrawnCells,
@@ -757,6 +928,7 @@ pub fn update_lod(
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
+    pace: Res<crate::stream_pace::StreamPace>,
     mut contents: ResMut<BlockContents>,
 ) {
     if !lod.enabled {
@@ -814,7 +986,9 @@ pub fn update_lod(
     let mut changed = false;
     let started = std::time::Instant::now();
     let mut rebuilt = 0usize;
-    let over_budget = |rebuilt: usize| rebuilt > 0 && started.elapsed().as_secs_f32() * 1000.0 >= REBUILD_BUDGET_MS;
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let budget_ms = pace.time(std::time::Duration::from_secs_f32(REBUILD_BUDGET_MS / 1000.0)).as_secs_f32() * 1000.0;
+    let over_budget = |rebuilt: usize| rebuilt > 0 && started.elapsed().as_secs_f32() * 1000.0 >= budget_ms;
     let chosen = std::mem::take(&mut lod.chosen);
     for &chunk in &chosen {
         let mut cut: Vec<Grid> = full.iter().filter(|&&c| in_chunk(c, chunk)).copied().collect();
@@ -827,12 +1001,23 @@ pub fn update_lod(
             continue;
         }
         // The game's chunk model is prepared on a worker thread, as object blocks' are
-        // (below); the old chunk stays drawn until it is.
+        // (below), and its diffuse textures must be in the image store (#3096); the old
+        // chunk stays drawn until they are. A missing diffuse is drawn with the fallback
+        // colour (spawn_terrain).
         if !generated {
             let tp = lod.terrain_path(chunk);
-            if models.data.vfs.exists(&tp) && models.model_with_cpu_ready(&tp).is_none() {
-                lod.block_stats.terrain_waited += 1;
-                continue;
+            if models.data.vfs.exists(&tp) {
+                let Some(model) = models.model_with_cpu_ready(&tp) else {
+                    lod.block_stats.terrain_waited += 1;
+                    continue;
+                };
+                // A model that did not load draws nothing, as before.
+                let trim = (!key.full.is_empty()).then_some(&full);
+                let surface = model.as_deref().map_or(Surface::Empty, |m| chunk_surface(m, &models.materials, &models.images, trim));
+                if !admit(&surface) {
+                    lod.surfaces.texture_waits += 1;
+                    continue;
+                }
             }
         }
         if over_budget(rebuilt) {
@@ -850,8 +1035,7 @@ pub fn update_lod(
     // Drop the outgoing chunks whose area the chosen chunks now cover.
     if !lod.outgoing.is_empty() {
         let terrain = &lod.terrain;
-        let covered = |o: Chunk| chosen.iter().filter(|&&ch| chunks_overlap(ch, o)).all(|ch| terrain.contains_key(ch));
-        let done: Vec<Chunk> = lod.outgoing.keys().copied().filter(|&o| covered(o)).collect();
+        let done: Vec<Chunk> = lod.outgoing.keys().copied().filter(|&o| covered(o, &chosen, |ch| terrain.contains_key(ch))).collect();
         for ch in done {
             if let Some(t) = lod.outgoing.remove(&ch) {
                 despawn_all(&mut commands, t.entities);
@@ -942,6 +1126,9 @@ pub fn update_lod(
         }
     }
     lod.squares = squares;
+    if rebuilt > 0 {
+        pace.spent(started.elapsed());
+    }
     let ms = |t: std::time::Instant| t.elapsed().as_secs_f32() * 1000.0;
     let (blocks_ms, update_ms) = (ms(blocks_started), ms(update_started));
     let st = &mut lod.block_stats;
@@ -1030,7 +1217,34 @@ fn spawn_terrain(
                 mat.base.flip_normal_map_y = false;
             }
         }
-        out.entities.push(spawn_entity(commands, root, mesh, s.material.clone(), Transform::from_matrix(Mat4::from(st)), None));
+        // A missing diffuse would draw white: the fallback colour instead (#3096). The gate
+        // in `update_lod` leaves none still on its way; one would be counted (0 expected).
+        let material = match diffuse_of(models.materials.get(&s.material), &models.images) {
+            Diffuse::Ready => s.material.clone(),
+            Diffuse::Missing => {
+                let Some(h) = fallback_for(&mut models.materials, &s.material) else { continue };
+                lod.surfaces.fallback_shapes += 1;
+                if lod.warned.insert(chunk) {
+                    lod.surfaces.fallback_chunks += 1;
+                    // What the entity is bound to, read back from the store.
+                    let bound = models.materials.get(&h).map_or_else(|| "not in the store".to_string(), |m| describe_base(&m.base));
+                    let missing = s.missing_diffuse.as_deref().map_or_else(
+                        || "no diffuse named".to_string(),
+                        |raw| texture_failure(&models.textures.failures, &nvf_assets::texture::resolved_path(raw, |p| models.data.vfs.exists(p))),
+                    );
+                    warn!("distant LOD: terrain chunk level {level} x{cx} y{cy} drawn with the fallback colour (shape {i} bound to {bound}): {missing}");
+                }
+                h
+            }
+            Diffuse::Loading => {
+                lod.surfaces.drawn_without_diffuse += 1;
+                if lod.unguarded.insert(chunk) {
+                    warn!("distant LOD: terrain chunk level {level} x{cx} y{cy} drawn without its diffuse texture (shape {i}, still loading)");
+                }
+                s.material.clone()
+            }
+        };
+        out.entities.push(spawn_entity(commands, root, mesh, material, Transform::from_matrix(Mat4::from(st)), None));
     }
     out.drawn = Some(false);
     out
@@ -1588,6 +1802,149 @@ mod tests {
         let id = Affine3A::IDENTITY;
         let m = terrain_mesh(&quad(true), Some((&id, &square((0, 0), (0, 0)))), 0.0).unwrap();
         assert_eq!(m.indices().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn diffuse_states_from_the_material() {
+        let mut images = Assets::<Image>::default();
+        let loaded = images.add(Image::default());
+        let on_its_way = images.reserve_handle();
+        let with = |t: Option<Handle<Image>>| nif_material(StandardMaterial { base_color_texture: t, ..default() });
+        assert_eq!(diffuse_of(Some(&with(Some(loaded))), &images), Diffuse::Ready);
+        assert_eq!(diffuse_of(Some(&with(Some(on_its_way))), &images), Diffuse::Loading);
+        assert_eq!(diffuse_of(Some(&with(None)), &images), Diffuse::Missing, "the white fallback");
+        assert_eq!(diffuse_of(None, &images), Diffuse::Loading, "material not in the store yet");
+    }
+
+    /// A shape for [`surface`]: its diffuse, and whether the loaded cells cut it all out.
+    type Fake = (Diffuse, bool);
+
+    fn surface_of(shapes: &[Fake]) -> Surface {
+        surface(shapes, |s: &Fake| s.0, |s: &Fake| s.1)
+    }
+
+    #[test]
+    fn surface_of_a_chunk() {
+        use Diffuse::*;
+        assert_eq!(surface_of(&[(Ready, false), (Ready, false)]), Surface::Ready);
+        assert_eq!(surface_of(&[(Ready, false), (Loading, false)]), Surface::Pending);
+        assert_eq!(surface_of(&[(Loading, false), (Missing, false)]), Surface::Pending, "waits for what is on its way first");
+        assert!(matches!(surface_of(&[(Missing, false), (Ready, false)]), Surface::Failed(_)));
+        // Nothing textured to draw: empty, not failed.
+        assert_eq!(surface_of(&[]), Surface::Empty);
+        // Fully trimmed by the loaded cells: empty whatever its diffuse, never failed.
+        assert_eq!(surface_of(&[(Missing, true), (Loading, true)]), Surface::Empty);
+        // Partly trimmed: the cut shape no longer matters, the drawn one does.
+        assert_eq!(surface_of(&[(Missing, true), (Ready, false)]), Surface::Ready);
+        assert!(matches!(surface_of(&[(Missing, false), (Ready, true)]), Surface::Failed(_)));
+    }
+
+    #[test]
+    fn chunk_surface_reads_the_prepared_shapes() {
+        let mut images = Assets::<Image>::default();
+        let mut materials = Assets::<NifMaterial>::default();
+        let mat = |materials: &mut Assets<NifMaterial>, t: Option<Handle<Image>>| materials.add(nif_material(StandardMaterial { base_color_texture: t, ..default() }));
+        let shape = |m: Mesh, material: Handle<NifMaterial>| PreparedShape {
+            mesh: Handle::default(),
+            material,
+            transform: Affine3A::IDENTITY,
+            name: None,
+            ancestors: Vec::new(),
+            node: None,
+            own: Affine3A::IDENTITY,
+            cpu: Some(Arc::new(m)),
+            segments: Vec::new(),
+            external_emittance: false,
+            look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+            missing_diffuse: None,
+        };
+        let white = mat(&mut materials, None);
+        let textured = mat(&mut materials, Some(images.add(Image::default())));
+        let loading = mat(&mut materials, Some(images.reserve_handle()));
+        // The untextured water shape (no UVs) is never drawn, so its lack of a diffuse
+        // does not count.
+        let model = PreparedModel { shapes: vec![shape(quad(true), textured.clone()), shape(quad(false), white.clone())], ..default() };
+        assert_eq!(chunk_surface(&model, &materials, &images, None), Surface::Ready);
+        let model = PreparedModel { shapes: vec![shape(quad(true), loading)], ..default() };
+        assert_eq!(chunk_surface(&model, &materials, &images, None), Surface::Pending);
+        let model = PreparedModel { shapes: vec![shape(quad(true), white.clone())], ..default() };
+        assert!(matches!(chunk_surface(&model, &materials, &images, None), Surface::Failed(_)));
+        // Cell (0, 0) loaded: the quad's east triangle still draws.
+        let cell = square((0, 0), (0, 0));
+        assert!(matches!(chunk_surface(&model, &materials, &images, Some(&cell)), Surface::Failed(_)));
+        // Cells (0, 0) to (2, 0) loaded: every triangle is cut out, nothing is drawn.
+        let cells = square((0, 0), (2, 0));
+        assert_eq!(chunk_surface(&model, &materials, &images, Some(&cells)), Surface::Empty);
+    }
+
+    /// The camera comes closer: a level-16 chunk gives way to four level-8 quarters. One
+    /// whose diffuse is on its way is not spawned, so the level-16 chunk stays drawn (no
+    /// untextured quarter, no hole); one whose diffuse failed is spawned (with the fallback
+    /// colour) and counts as covering, as a ready one does (#3096).
+    #[test]
+    fn loading_keeps_the_outgoing_chunk_failed_covers() {
+        use Diffuse::*;
+        let coarse: Chunk = (16, 0, 0);
+        let quarters = [(8, 0, 0), (8, 8, 0), (8, 0, 8), (8, 8, 8)];
+        let spawn_with = |of: &dyn Fn(Chunk) -> Surface| -> HashSet<Chunk> { quarters.iter().copied().filter(|&q| admit(&of(q))).collect() };
+        let ready = |_: Chunk| surface_of(&[(Ready, false)]);
+        let one_loading = |q: Chunk| if q == quarters[1] { surface_of(&[(Loading, false)]) } else { ready(q) };
+        let spawned = spawn_with(&one_loading);
+        assert!(!spawned.contains(&quarters[1]), "not spawned while its diffuse loads");
+        assert!(!covered(coarse, &quarters, |c| spawned.contains(c)), "the outgoing chunk stays drawn");
+        let one_failed = |q: Chunk| if q == quarters[1] { surface_of(&[(Missing, false)]) } else { ready(q) };
+        let spawned = spawn_with(&one_failed);
+        assert!(spawned.contains(&quarters[1]), "a failed diffuse is drawn (fallback colour)");
+        assert!(covered(coarse, &quarters, |c| spawned.contains(c)), "and covers like a ready one");
+        let one_trimmed = |q: Chunk| if q == quarters[1] { surface_of(&[(Missing, true)]) } else { ready(q) };
+        assert_eq!(one_trimmed(quarters[1]), Surface::Empty);
+        assert!(covered(coarse, &quarters, |c| spawn_with(&one_trimmed).contains(c)));
+    }
+
+    #[test]
+    fn fallback_colour_is_not_white() {
+        let mut images = Assets::<Image>::default();
+        let normal = images.add(Image::default());
+        let m = nif_material(StandardMaterial { base_color_texture: None, normal_map_texture: Some(normal.clone()), ..default() });
+        let f = fallback_material(&m);
+        assert!(f.base.base_color_texture.is_none());
+        assert_ne!(f.base.base_color, Color::WHITE, "never Bevy's white");
+        let c = f.base.base_color.to_srgba();
+        let [r, g, b] = lodgen::NO_BASE_SRGB;
+        assert!((c.red - r).abs() < 1e-6 && (c.green - g).abs() < 1e-6 && (c.blue - b).abs() < 1e-6, "the generated LOD's missing-base colour");
+        assert_eq!(f.base.normal_map_texture, Some(normal), "the normal map still shades it");
+        assert_eq!(f.base.depth_bias, m.base.depth_bias);
+    }
+
+    #[test]
+    fn texture_failure_names_the_shapes_own_texture() {
+        let failures = vec![
+            "textures\\landscape\\lod\\wastelandnv\\normals\\wastelandnv.n.level8.x-16.y0.dds: bad".to_string(),
+            "textures\\landscape\\lod\\wastelandnv\\diffuse\\wastelandnv.n.level8.x-16.y0.dds: not in any archive".to_string(),
+        ];
+        let f = texture_failure(&failures, "textures\\landscape\\lod\\wastelandnv\\diffuse\\wastelandnv.n.level8.x-16.y0.dds");
+        assert!(f.ends_with("diffuse\\wastelandnv.n.level8.x-16.y0.dds: not in any archive"), "{f}");
+        // A path the cache reported nothing for is still named.
+        assert_eq!(texture_failure(&failures, "textures\\a.dds"), "textures\\a.dds: not loaded");
+    }
+
+    /// Each spawned shape gets its own fallback copy, owned by its handle alone: despawning
+    /// the entity drops the last handle and releases the copy; the source material is not
+    /// held by it, so it can be evicted as before.
+    #[test]
+    fn fallback_copy_is_owned_by_the_entity() {
+        let mut materials = Assets::<NifMaterial>::default();
+        let src = materials.add(nif_material(StandardMaterial::default()));
+        let a = fallback_for(&mut materials, &src).unwrap();
+        let b = fallback_for(&mut materials, &src).unwrap();
+        assert_ne!(a.id(), b.id(), "no shared cache entry");
+        for h in [&a, &b, &src] {
+            let Handle::Strong(arc) = h else { panic!("strong handle") };
+            assert_eq!(Arc::strong_count(arc), 1, "only the entity's handle holds it");
+        }
+        assert!(materials.get(&a).is_some_and(|m| m.base.base_color_texture.is_none() && m.base.base_color != Color::WHITE));
+        assert!(describe_base(&materials.get(&a).unwrap().base).starts_with("base colour sRGB 0.45 0.42 0.38, no base texture"));
+        assert!(fallback_for(&mut materials, &Handle::default()).is_none(), "no source material: none");
     }
 
     #[test]

@@ -192,11 +192,39 @@ pub fn type_icon(kind: ItemKind, skill: Option<&str>) -> &'static str {
     }
 }
 
-/// An item's hotkey icon, by its kind and (a weapon's) skill.
-pub fn icon_of(id: FormId, sim: &SimState, combat: Option<&crate::combat::Combat>) -> Option<&'static str> {
+/// An item's hotkey icon: its `SetItemHotkeyIconPath` override when set, else its hotkey
+/// type icon by kind and (a weapon's) skill [documented: SetItemHotkeyIconPath; observed:
+/// the original's boxes show type icons by default].
+pub fn icon_of(id: FormId, sim: &SimState, combat: Option<&crate::combat::Combat>, script: Option<&crate::script::ScriptState>) -> Option<String> {
     let kind = sim.forms.item(id)?.kind;
+    if let Some(over) = crate::hotkeys::icon_override(id, script) {
+        return Some(over);
+    }
     let skill = combat.and_then(|c| c.forms.weapons.get(&id)).and_then(|w| w.skill.as_deref());
-    Some(type_icon(kind, skill))
+    Some(type_icon(kind, skill).to_string())
+}
+
+/// The resolved icon paths currently shown on the hotkey panel (the pointed-at centre icon
+/// and each non-Ammo-Swap slot box), used to trigger live redraws when
+/// `SetItemHotkeyIconPath` updates an icon while the panel is open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelIcons {
+    pub centre: Option<String>,
+    pub slots: [Option<String>; crate::hotkeys::SLOTS],
+}
+
+/// Resolve the hotkey panel's centre icon and eight slot icons for change tracking and tests.
+pub fn panel_icons(hotkeys: &Hotkeys, hold: &HotkeyHold, pointed: Option<&Row>, sim: &SimState, combat: Option<&crate::combat::Combat>, script: Option<&crate::script::ScriptState>) -> PanelIcons {
+    let pointed = hold.controller.as_ref().or(pointed);
+    let centre = pointed.and_then(|r| icon_of(r.item, sim, combat, script));
+    let slots = std::array::from_fn(|slot| {
+        if slot == AMMO_SWAP {
+            None
+        } else {
+            hotkeys.0[slot].and_then(|s| icon_of(FormId(s.item), sim, combat, script))
+        }
+    });
+    PanelIcons { centre, slots }
 }
 
 /// The slot whose key is held now, by the player's bindings (keys only).
@@ -257,15 +285,16 @@ pub fn assign_row(hotkeys: &mut Hotkeys, slot: usize, r: &Row, deselect: bool) -
 }
 
 /// The panel, at the menus' rectangle's `IM_HotKeyWheel`.
-pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: &HotkeyHold, pointed: Option<&Row>, sim: &SimState, combat: Option<&crate::combat::Combat>) {
+#[allow(clippy::too_many_arguments)]
+pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: &HotkeyHold, pointed: Option<&Row>, sim: &SimState, combat: Option<&crate::combat::Combat>, script: Option<&crate::script::ScriptState>) {
     let pointed = hold.controller.as_ref().or(pointed);
     let o = MAIN.min + PANEL.min;
     let (line, bright) = (amber(LINE), c.bright());
     let rose = Rect::from_corners(o + ROSE_AT.min, o + ROSE_AT.max);
     c.image(p, ROSE, at(rose.min.x, rose.min.y, rose.width(), rose.height()), bright);
-    if let Some(icon) = pointed.and_then(|r| icon_of(r.item, sim, combat)) {
+    if let Some(icon) = pointed.and_then(|r| icon_of(r.item, sim, combat, script)) {
         let r = Rect::from_corners(o + CENTRE_ICON.min, o + CENTRE_ICON.max);
-        c.image(p, icon, at(r.min.x, r.min.y, r.width(), r.height()), bright);
+        c.image(p, &icon, at(r.min.x, r.min.y, r.width(), r.height()), bright);
     }
     for (slot, &key) in hotkeys.0.iter().enumerate() {
         let b = o + box_at(slot);
@@ -281,8 +310,8 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         }
         let inner = Rect::from_corners(b + Vec2::splat(INSET), b + Vec2::splat(BOX - INSET));
         c.boxed(p, inner, line, None);
-        if let Some(icon) = key.and_then(|s| icon_of(FormId(s.item), sim, combat)) {
-            c.image(p, icon, at(inner.min.x + THICK, inner.min.y + THICK, inner.width() - 2.0 * THICK, inner.height() - 2.0 * THICK), bright);
+        if let Some(icon) = key.and_then(|s| icon_of(FormId(s.item), sim, combat, script)) {
+            c.image(p, &icon, at(inner.min.x + THICK, inner.min.y + THICK, inner.width() - 2.0 * THICK, inner.height() - 2.0 * THICK), bright);
         }
         // The number at the box's right foot: its bottom 5 under the box's [documented:
         // `HK_Number` y = height - its height + 5].
@@ -308,35 +337,39 @@ pub fn draw_over_tiles(
     tiles: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
     roots: Query<Entity, With<PanelOverTiles>>,
     (hold, hotkeys, active): (Res<HotkeyHold>, Res<Hotkeys>, Res<crate::menu::ActiveMenu>),
-    (sim, combat): (Res<SimState>, Option<Res<crate::combat::Combat>>),
+    (sim, combat, script): (Res<SimState>, Option<Res<crate::combat::Combat>>, Option<Res<crate::script::ScriptState>>),
     mut kit: ResMut<Kit>,
     data: Option<Res<nvf_assets::GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
     glyphs: Res<crate::pad::PadGlyphs>,
+    mut drawn_icons: Local<Option<PanelIcons>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     let slot = hold.slot.filter(|_| tiles.is_some_and(|t| t.ready.is_some()));
     let (Some(slot), Some(screen)) = (slot, screen) else {
+        *drawn_icons = None;
         for e in &roots {
             commands.entity(e).despawn();
         }
         return;
     };
-    if !roots.is_empty() && !hold.is_changed() && !hotkeys.is_changed() && !active.is_changed() {
+    let pointed = active.0.as_ref().and_then(|m| m.selected_row(crate::menu::model::Side::Player));
+    let icons = panel_icons(&hotkeys, &hold, pointed, &sim, combat.as_deref(), script.as_deref());
+    if !roots.is_empty() && !hold.is_changed() && !hotkeys.is_changed() && !active.is_changed() && drawn_icons.as_ref() == Some(&icons) {
         return;
     }
+    *drawn_icons = Some(icons);
     for e in &roots {
         commands.entity(e).despawn();
     }
     info!("pipboy hotkeys: panel drawn, key {} chosen{}", slot + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
-    let pointed = active.0.as_ref().and_then(|m| m.selected_row(crate::menu::model::Side::Player));
     let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y) };
     commands
         .spawn((PanelOverTiles, root, UiTargetCamera(screen.camera), GlobalZIndex(crate::tiles::draw::PIPBOY_TILES_Z), Pickable::IGNORE, Name::new("Hotkey panel over the page")))
-        .with_children(|p| draw(p, &mut c, &hotkeys, &hold, pointed, &sim, combat.as_deref()));
+        .with_children(|p| draw(p, &mut c, &hotkeys, &hold, pointed, &sim, combat.as_deref(), script.as_deref()));
 }
 
 /// The line under the panel: what the last click did, else what the held slot holds.
@@ -355,7 +388,7 @@ mod tests {
     use super::*;
 
     fn row(kind: ItemKind) -> Row {
-        Row { item: FormId(1), at: None, name: "Test tool".into(), count: 1, weight: None, value: None, kind: Some(kind), equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 3, mods_value: 0, folder: None, reference: None, live: false }
+        Row { item: FormId(1), at: None, name: "Test tool".into(), count: 1, weight: None, value: None, kind: Some(kind), equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 3, mods_value: 0, folder: None, reference: None, live: false, ysi: None }
     }
 
     #[test]
@@ -530,5 +563,117 @@ mod tests {
             assert!(type_icon(k, None).ends_with(".dds"));
         }
         assert!(type_icon(ItemKind::Weapon, Some("MeleeWeapons")).contains("melee"));
+    }
+
+    #[test]
+    fn hotkey_icon_override_updates_panel_icons_and_triggers_live_redraw() {
+        use fnv_game::game::RunCtx;
+        use fnv_sim::forms::{BaseData, BaseForm, FormStore, Item};
+
+        const WEAPON: FormId = FormId(0x0000_434F);
+        const AID: FormId = FormId(0x0001_5169);
+
+        let make_item = |kind: ItemKind| Item {
+            kind,
+            value: Some(10),
+            money: None,
+            weight: Some(1.0),
+            slots: None,
+            projectile: None,
+            health: None,
+            non_playable: false,
+            cant_drop: false,
+            armor_class: Default::default(),
+            power_armor: false,
+            armor_dr: None,
+            armor_dt: None,
+            weapon_damage: None,
+            weight_mods: [0.0; 3],
+            drawable: false,
+            not_for_npcs: false,
+            thrown: false,
+            quest_item: false,
+            icon: Some("Interface\\Icons\\PipboyImages\\Weapons\\test_weap.dds".into()),
+            placed_count: None,
+            teaches: None,
+            cant_be_taken: false,
+            modulates_voice: false,
+            weapon_traits: None,
+        };
+        let mut forms = FormStore::default();
+        forms.bases.insert(WEAPON, BaseForm { id: WEAPON, sig: *b"WEAP", edid: Some("TestWeap".into()), name: Some("Test Weap".into()), script: None, prompt: None, voice_filter: false, data: BaseData::Item(make_item(ItemKind::Weapon)) });
+        forms.bases.insert(AID, BaseForm { id: AID, sig: *b"ALCH", edid: Some("TestAid".into()), name: Some("Test Aid".into()), script: None, prompt: None, voice_filter: false, data: BaseData::Item(make_item(ItemKind::Aid)) });
+
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let sim = SimState { forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()) };
+        let mut hotkeys = Hotkeys::default();
+        hotkeys.0[0] = Some(Slot { item: WEAPON.0, mods: 0 });
+        hotkeys.0[3] = Some(Slot { item: AID.0, mods: 0 });
+        let pointed = Row { item: WEAPON, ..row(ItemKind::Weapon) };
+        let hold = HotkeyHold { slot: Some(0), ..default() };
+        let mut script = crate::script::ScriptState::over_no_plugins();
+
+        // Vanilla (no override): panel uses type_icon (unchanged) and slot 2 is None (Ammo Swap).
+        assert_eq!(icon_of(WEAPON, &sim, None, None).as_deref(), Some(type_icon(ItemKind::Weapon, None)));
+        let baseline = panel_icons(&hotkeys, &hold, Some(&pointed), &sim, None, Some(&script));
+        assert_eq!(baseline.centre.as_deref(), Some(type_icon(ItemKind::Weapon, None)));
+        assert_eq!(baseline.slots[0].as_deref(), Some(type_icon(ItemKind::Weapon, None)));
+        assert_eq!(baseline.slots[AMMO_SWAP], None);
+        assert_eq!(baseline.slots[3].as_deref(), Some(type_icon(ItemKind::Aid, None)));
+
+        // Custom SetItemHotkeyIconPath overrides both centre icon and slot box, normalised.
+        let run = |script: &mut crate::script::ScriptState, body: &str| {
+            script.rt.as_mut().unwrap().game.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), RunCtx::default()).unwrap();
+        };
+        run(&mut script, &format!(r#"SetItemHotkeyIconPath {} "Textures/Interface/Icons/CustomPanel.dds""#, WEAPON.0));
+        let custom = panel_icons(&hotkeys, &hold, Some(&pointed), &sim, None, Some(&script));
+        assert_eq!(custom.centre.as_deref(), Some("interface\\icons\\custompanel.dds"));
+        assert_eq!(custom.slots[0].as_deref(), Some("interface\\icons\\custompanel.dds"));
+        assert_eq!(custom.slots[3].as_deref(), Some(type_icon(ItemKind::Aid, None)));
+
+        // Verify live ECS redraw in draw_over_tiles when SetItemHotkeyIconPath updates and clears.
+        let mut app = App::new();
+        let camera = app.world_mut().spawn_empty().id();
+        let mut tiles = crate::tiles::inventory_menu::InventoryTiles::default();
+        tiles.ready = Some(fnv_ui::Ui::new().screen());
+        app.insert_resource(super::super::PipBoyScreen { image: Handle::default(), camera, on_model: false, pointer: None, scale: 1.0 })
+            .insert_resource(tiles)
+            .insert_resource(hold)
+            .insert_resource(hotkeys)
+            .insert_resource(crate::menu::ActiveMenu(None))
+            .insert_resource(sim)
+            .insert_resource(script)
+            .init_resource::<Kit>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<crate::pad::PadGlyphs>()
+            .add_systems(Update, draw_over_tiles);
+
+        let root_entity = |app: &mut App| -> Entity {
+            let mut q = app.world_mut().query_filtered::<Entity, With<PanelOverTiles>>();
+            let entities: Vec<Entity> = q.iter(app.world()).collect();
+            assert_eq!(entities.len(), 1);
+            entities[0]
+        };
+
+        app.update();
+        let first = root_entity(&mut app);
+        // Idle frame with no change: panel is NOT needlessly respawned.
+        app.update();
+        assert_eq!(root_entity(&mut app), first);
+
+        // Live SetItemHotkeyIconPath update: panel respawns to show the new icon.
+        run(app.world_mut().resource_mut::<crate::script::ScriptState>().as_mut(), &format!(r#"SetItemHotkeyIconPath {} "interface\icons\live_update.dds""#, WEAPON.0));
+        app.update();
+        let second = root_entity(&mut app);
+        assert_ne!(second, first, "draw_over_tiles must redraw when SetItemHotkeyIconPath changes live");
+
+        // Clearing with "" respawns again and restores default type_icon.
+        run(app.world_mut().resource_mut::<crate::script::ScriptState>().as_mut(), &format!(r#"SetItemHotkeyIconPath {} """#, WEAPON.0));
+        app.update();
+        let third = root_entity(&mut app);
+        assert_ne!(third, second, "draw_over_tiles must redraw when SetItemHotkeyIconPath clears");
+        let after_clear = icon_of(WEAPON, app.world().resource::<SimState>(), None, Some(app.world().resource::<crate::script::ScriptState>()));
+        assert_eq!(after_clear.as_deref(), Some(type_icon(ItemKind::Weapon, None)));
     }
 }

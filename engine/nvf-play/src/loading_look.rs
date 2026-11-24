@@ -562,4 +562,38 @@ mod tests {
         close(sequence_time(1006.5, 1.0, 5.0), 2.5, 1e-3);
         assert_eq!(sequence_time(3.0, 2.0, 0.0), 2.0);
     }
+
+    #[test]
+    fn fit_tip_keeps_font_9_unloaded_and_loads_tex_only_slot_6() {
+        use crate::interface::font_tex_tests::{synthetic_fnt, synthetic_tex, OwnedFontFiles};
+        let files = OwnedFontFiles::new(&[
+            ("glow_monofonto_vl_dialogs.fnt", synthetic_fnt("Glow_Monofonto_VL_Dialogs")),
+            ("Glow_Monofonto_VL_Dialogs.Tex", synthetic_tex(4, 2, [255, 255, 255, 255])),
+            ("nvfont_test.fnt", synthetic_fnt("NVFont_Test_0_Lod_A")),
+            ("nvfont_test_0_lod_a.tex", synthetic_tex(4, 4, [255, 255, 255, 255])),
+        ]);
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<Look>()
+            .insert_resource(files.data())
+            .add_systems(Update, fit_tip);
+        app.world_mut().spawn((
+            Window { resolution: bevy::window::WindowResolution::new(1280, 720), ..default() },
+            PrimaryWindow,
+        ));
+        app.world_mut().spawn(Tip {
+            text: "Slot 6 tip".into(),
+            style: TipStyle { font: 6, ..TipStyle::FALLBACK },
+            drawn_for: None,
+        });
+        app.world_mut().spawn(Tip {
+            text: "Slot 9 tip".into(),
+            style: TipStyle { font: 9, ..TipStyle::FALLBACK },
+            drawn_for: None,
+        });
+        app.update();
+        let look = app.world().resource::<Look>();
+        assert!(look.faces.get(&6).is_some_and(|f| f.image.is_some()), "tex-only slot 6 should load");
+        assert!(look.faces.get(&9).is_some_and(|f| f.image.is_none()), "font 9 must stay unloaded through loading_look");
+    }
 }

@@ -35,30 +35,32 @@ fewer arguments than it is given.
 | SetJohnnyOnSleepWaitEventHandler `[mode]` | the hours of the wait menu starting to pass (`Game::begin_rest`) | 1 wait, 2 sleep; filter 0 both [documented] |
 | SetOnGeneralSubtitleEventHandler `[speaker]` | a line said outside the player's conversation (Say, SayTo, greetings, `Game::say_line`) | speaker, the first response's text, topic [hypothesis: the page gives no arguments] |
 | SetJohnnyOnCrosshairEventHandler `[form] [form type]` | the activation reach coming onto a reference (`nvf-play` activate.rs) | the reference [documented]; the type filter is the base's form type code (`functions::items::form_type_code`) |
-| SetJohnnyOnSettingsUpdateEventHandler | `Game::jg8_settings_closed`, for the engine's settings menu | none [documented] |
-| SetJohnnyOnKeyboardControllerSelectionChangeEventHandler `[menu]`, SetJohnnyOnRadioPostSoundAttachEventHandler, SetOnTakeBackItemEventHandler `[form] [form]` | kept; nothing fires them yet (follow-up) | delta; radio, mode; [hypothesis] item, count |
+| SetJohnnyOnSettingsUpdateEventHandler (SetOnSettingsUpdateEventHandler) | `Game::jg8_settings_closed`, for the engine's settings menu | none [documented] |
+| SetJohnnyOnKeyboardControllerSelectionChangeEventHandler (SetOnKBCTrlUIDeltaHandler) `[menu]` | keyboard/controller navigation moving tile highlight in `ui_input::step` (`Game::jg8_keyboard_selection`); compiles, accepts `0` as the menu filter on register/unregister, and returns `0` [observed: 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `w4c_b3_08_jg8_event_regs` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3678 / PR #3679), registering and unregistering a helper UDF with filter `0`: `limb=0,seen=0,proc=0,sub=0,kb=0`; no DLL or source consulted]; `MenuID` `0` or omitted matching any menu at dispatch time remains [hypothesis: menu ID filter 0 = any] | menu ID [hypothesis: mod UI handlers take `{iMenuID}` alongside `SetOnMouseoverChangeEventHandler`; observer check] |
+| SetJohnnyOnRadioPostSoundAttachEventHandler, SetOnTakeBackItemEventHandler `[form] [form]` | kept; nothing fires them yet (follow-up) | radio, mode; [hypothesis] item, count |
 
 ## 2. Other functions
 
 | Function | NVForever |
 |---|---|
 | SetCustomMapMarker `x y z` | kept with the player's worldspace (or interior cell), 1; 0 with the player in no cell [hypothesis] (`Game::custom_map_marker`): the Pip-Boy's one custom marker, which both maps show and Place Marker sets, moves and removes, kept in saves (pipboy.md §5.3, #1954) |
-| ClearCustomMapMarker | 1 when there was one, then none [hypothesis]. GetCustomMapMarker (`nvse_gaps`) stays a null reference: NVForever's marker is no reference [observed there: plugins2, 00000000 without one] |
+| ClearCustomMapMarker | clears the custom marker and returns 1 even when no custom marker was set [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_29_custom_map_marker_set_clear_ret (SetCustomMapMarker/ClearCustomMapMarker): 1,1,1,1; no DLL or source consulted]. GetCustomMapMarker (`nvse_gaps`) stays a null reference: NVForever's marker is no reference [observed there: plugins2, 00000000 without one] |
 | MD5File, SHA1File `path` | the hash of a file "relative to the Fallout folder" as upper-case hex [documented; observed: the case, probe set jg8], "" when it cannot be read. `Data\…` reads through NVForever's mod files (archives too), other paths the game folder, read only; no drive, leading slash or `..` |
 | IsBSALoaded `name` | 1 for an archive the host loaded, by file name, any case [documented]; with `Data\` before the name, 0 [observed: probe set jg8]; the host's list (`mod_files::Roots::archives`: the engine's and fnvtool's archives) |
 | GetTextureWidth, GetTextureHeight, GetTextureMipMapCount, GetTextureFormat `path` | from the DDS header of `Data\Textures\<path>`, loose or archived [documented]; format 1-5 for DXT1-DXT5, 0 for another [hypothesis]; 0 without the file |
 | GetPixelFromBMP `path rOut gOut bOut x y` | a 24-bit BMP's pixel into three variables [documented]; x and y counted from the top-left [hypothesis]; 0 0 0 without the file or pixel |
 | Ar_Shuffle `array` | a new list in random order (the game's random source) [documented]. The VM hands array functions it does not know to the host now |
-| Ar_SortEditor `array [reverse]` | a new list of the forms by editor ID, reversed with 1 [documented]; IDs compared without case, forms without one first [hypothesis] |
-| GetSystemColor `id`, GetSystemColorAlt `id rOut gOut bOut` | 1 HUD, 2 HUD alt, 3 terminal, 4 Pip-Boy, 5 main menu [documented]: SetSystemColor's colour (`nvse_jip9`), else FFB642 for 1, 4 and 5, FF432A for 2 and 21E779 for 3 [observed: probe set jg8 on the owner's install; hypothesis: these are the owner's interface colour settings, which NVForever does not read]. GetSystemColor packs 0xRRGGBB [hypothesis]; 0 for another id |
+| Ar_SortEditor `array [reverse]` | a new list of the forms by editor ID, reversed with 1 [documented]; IDs compared without case [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_30_ar_sort_editor_case_order (Ar_SortEditor): 0000000F,00015169,0000434F ; 0000434F,00015169,0000000F; no DLL or source consulted], forms without one first [hypothesis] |
+| GetSystemColor `id`, GetSystemColorAlt `id rOut gOut bOut` | 1 HUD, 2 HUD alt, 3 terminal, 4 Pip-Boy, 5 main menu [documented]: SetSystemColor's colour (`nvse_jip9`), else FFB642 for 1, 4 and 5, FF432A for 2 and 21E779 for 3 [observed: probe set jg8 on the owner's install; hypothesis: these are the owner's interface colour settings, which NVForever does not read]. GetSystemColor packs 0xRRGGBB and returns 0 for another id [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_31_get_system_color_packed (GetSystemColor): 1.31071e+07,1.67289e+07,2.22194e+06,1.29761e+07,1.67583e+07,0; no DLL or source consulted] |
 | GetSleepWaitMenuState | 0 closed, 1 wait, 2 sleep [documented]; the engine marks the sleep as it opens menu 1012 (`nvf-play` wait.rs) |
 | TuneRadioRef `[station]` | kept for the radio reference [documented]; the engine's radios do not read it yet |
 | IsRadioRefPlaying | 0 [decision: the page says it "is currently broken and will crash the game", so no script relies on an answer] |
 
 ## 3. Follow-ups (engine)
 
-Fire the keyboard selection, radio sound and take-back handlers, and call
-`jg8_settings_closed` when the settings menu closes after a change; draw the custom map
+Fire the radio sound and take-back handlers, call `jg8_settings_closed` when the
+settings menu closes after a change, and fire `jg8_keyboard_selection` from any
+hand-built menus not stepped through `ui_input::step`; draw the custom map
 marker on the Pip-Boy map; let the radios read TuneRadioRef. The sound-by-path family
 (PlaySoundFile, PlaySoundFromPath, PlaySound3DFromPath, PlaySoundFade, the Stop… calls,
 StopSoundLooping, PlayHolotape, StopHolotape) is the next batch: it needs the engine's

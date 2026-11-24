@@ -474,6 +474,9 @@ pub struct NifSurfaceBlendColour {
     /// terrain_repeat`, `anti_tiling`), as the ordinary type's uniform and key carry them.
     pub terrain_repeat: f32,
     pub anti_tiling: bool,
+    /// The source's authored metal gain (nif_material.rs `NifSurface::metal_gain`, #2981), in
+    /// the ordinary uniform's place (`terrain.y`).
+    pub metal_gain: f32,
     pub blended_cutout: Option<f32>,
     pub holes: Vec4,
     pub holes_edge: Vec4,
@@ -511,7 +514,8 @@ pub struct NifSurfaceBlendUniform {
     pub soft: Vec4,
     pub pipboy_a: Vec4,
     pub pipboy_b: Vec4,
-    /// The ordinary uniform's `terrain` (nif_material.rs `NifSurfaceUniform`), in its place.
+    /// The ordinary uniform's `terrain` (nif_material.rs `NifSurfaceUniform`: x the repeat,
+    /// y the metal gain), in its place.
     pub terrain: Vec4,
     pub mesh_terrain: Vec4,
     /// xy immutable publication origin, z enabled coverage (nine bits), w reserved.
@@ -521,7 +525,7 @@ pub struct NifSurfaceBlendUniform {
 
 impl From<&NifSurfaceBlendColour> for NifSurfaceBlendUniform {
     fn from(s: &NifSurfaceBlendColour) -> Self {
-        NifSurfaceBlendUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, 0.0, 0.0, 0.0), mesh_terrain: s.mesh_terrain, mesh_terrain_origin: s.mesh_terrain_origin, mesh_terrain_widths: s.mesh_terrain_widths }
+        NifSurfaceBlendUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, s.metal_gain, 0.0, 0.0), mesh_terrain: s.mesh_terrain, mesh_terrain_origin: s.mesh_terrain_origin, mesh_terrain_widths: s.mesh_terrain_widths }
     }
 }
 
@@ -686,6 +690,7 @@ impl NifSurfaceBlendColour {
             pipboy_b: source.pipboy_b,
             terrain_repeat: source.terrain_repeat,
             anti_tiling: source.anti_tiling,
+            metal_gain: source.metal_gain,
             blended_cutout: source.blended_cutout,
             holes: source.holes,
             holes_edge: source.holes_edge,
@@ -746,7 +751,7 @@ mod tests {
             assert_eq!(descriptor.fragment.as_ref().unwrap().shader_defs.contains(&"MESH_TERRAIN_BLEND".into()), !prepass);
         }}
         assert_eq!(NifSurfaceBlendUniform::min_size().get(), 192, "the ordinary rows up to #2551's terrain row (144 bytes), then three vec4s");
-        assert_eq!(crate::nif_material::NifSurfaceUniform::min_size().get(), 160, "the ordinary uniform: the same 144 bytes, then #2462's env row, which the blend type has not");
+        assert_eq!(crate::nif_material::NifSurfaceUniform::min_size().get(), 176, "the ordinary uniform: the same 144 bytes, then #2462's env row and #2841's env_how row, which the blend type has not");
     }
 
     fn textures(descriptor: &BindlessDescriptor) -> usize {

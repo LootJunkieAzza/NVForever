@@ -184,6 +184,31 @@ fn place_frame<T: Copy>(want: &[T], may: bool, mut spent: impl FnMut() -> std::t
 /// keeps to the navmesh surface for this long, seconds [our choice].
 const PHYSICS_RETRY: f32 = 8.0;
 
+/// An actor left to the navmesh walker for a while: until when (elapsed seconds), and
+/// whether only because the walker took the last stretch of a walk (residents' `walk`,
+/// [`LAST_STRETCH`]). That one does not hold an actor that is fighting now: a creature
+/// handed to the walker for the last few units of a search, just before its fight began,
+/// ran its whole charge on the walker, which meets nobody, and ended inside the other
+/// creature it ran past (#3341: two radscorpions 47 units apart where their blocks keep
+/// them 113 apart). The other skips (stuck, fallen out of the world, nowhere to move it
+/// on to) hold a fighter too.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Skip {
+    until: f32,
+    last_stretch: bool,
+}
+
+impl Skip {
+    fn retry(until: f32) -> Skip {
+        Skip { until, last_stretch: false }
+    }
+
+    /// Whether the actor is left to the walker at `now`; `fighting`: it is in a fight.
+    fn holds(&self, now: f32, fighting: bool) -> bool {
+        now < self.until && !(fighting && self.last_stretch)
+    }
+}
+
 /// A stuck actor is moved on this far along its path (game units) [our choice: more than
 /// a brahmin's length, the longest of the common actors].
 const SKIP_AHEAD: f32 = 160.0;
@@ -407,8 +432,8 @@ struct PhysMover<'a> {
     doors: &'a mut nvf_play::doors::Doors,
     phys: Option<&'a mut PhysState>,
     unstuck: &'a mut HashMap<u32, Unstuck>,
-    /// Actors left to the walker until this time (elapsed seconds).
-    skip_until: &'a mut HashMap<u32, f32>,
+    /// Actors left to the walker until this time, and why ([`Skip`]).
+    skip_until: &'a mut HashMap<u32, Skip>,
     /// The ledge each actor last went over (its path's leg and the hop's take-off point):
     /// counted and logged once.
     hopped: &'a mut HashMap<u32, (usize, usize)>,
@@ -431,6 +456,10 @@ struct PhysMover<'a> {
     /// Actors searching for a foe they lost or noticed (`fnv_ai::alert`): not moved on
     /// past what blocks them.
     searching: &'a HashSet<u32>,
+    /// Creatures in Combat (`fighting` has people only, `Core::aims`): physics walks them
+    /// to the end of their walks too, and the walker's last stretch given before the fight
+    /// no longer holds them ([`Skip`], #3341).
+    creatures_fighting: &'a HashSet<u32>,
 }
 
 /// An actor walking on with its AI off (SetActorsAI 0): where it was when the AI went
@@ -489,7 +518,12 @@ impl Mover for PhysMover<'_> {
         }
         let phys = self.phys.as_deref_mut()?;
         let here = in_loaded_space(walker, phys);
-        let skipped = self.skip_until.get(&id).is_some_and(|t| self.now < *t);
+        let fighting = self.fighting.contains_key(&actor) || self.creatures_fighting.contains(&id);
+        if let Some(s) = self.skip_until.get(&id).copied().filter(|s| self.now < s.until && fighting && s.last_stretch) {
+            info!("actor {id:08X} fights: back to the character controller from the walker's last stretch ({:.1} s of it left)", s.until - self.now);
+            self.skip_until.remove(&id);
+        }
+        let skipped = self.skip_until.get(&id).is_some_and(|s| s.holds(self.now, fighting));
         if !here || skipped || walker.follower.is_none() || !phys.ready_at(walker.feet) {
             phys.remove_npc(id);
             return None;
@@ -512,7 +546,7 @@ impl Mover for PhysMover<'_> {
         };
         // Fallen out of the world, or far off the path's height.
         if (feet[2] - walker.feet[2]).abs() > 400.0 {
-            self.skip_until.insert(id, self.now + PHYSICS_RETRY);
+            self.skip_until.insert(id, Skip::retry(self.now + PHYSICS_RETRY));
             self.stats[1] += 1;
             give_up(phys, walker, f);
             return None;
@@ -580,18 +614,20 @@ impl Mover for PhysMover<'_> {
             // to chairs, beds and markers, which the character cannot stand in. Not a
             // fighter's: its posts (cover, a peek point, a flank) are places to stand, and
             // the walker, which keeps to the navmesh and not the collision, left it half
-            // inside walls by its cover (owner's screenshot 2026-10-23) [design].
+            // inside walls by its cover (owner's screenshot 2026-10-23) [design]. Nor a
+            // fighting creature's: the walker meets nobody, and a radscorpion running at the
+            // player on it ran into the other one it passed (#3341).
             // On a mismatch the walker would end the walk on the navmesh under the feet, or
             // where there is none lift it towards the goal's height: a new path from here
             // first, as above.
-            Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() && !self.fighting.contains_key(&actor) => {
+            Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() && !self.fighting.contains_key(&actor) && !self.creatures_fighting.contains(&id) => {
                 match (judged && !f.fits_goal(feet)).then(|| walker.off_path(nav, feet, &f)).flatten() {
                     Some(new) => {
                         f = new;
                         (WalkEvent::Moved, [0.0, 0.0])
                     }
                     None => {
-                        self.skip_until.insert(id, self.now + 4.0);
+                        self.skip_until.insert(id, Skip { until: self.now + 4.0, last_stretch: true });
                         walker.feet = feet;
                         give_up(phys, walker, f);
                         return None;
@@ -688,7 +724,7 @@ impl Mover for PhysMover<'_> {
                         if rounds >= SKIP_REFUSED_ROUNDS {
                             info!("actor {id:08X} still has nowhere to be moved on to after {rounds} tries: on the navmesh surface for a while");
                             self.refusals.forget(id);
-                            self.skip_until.insert(id, self.now + PHYSICS_RETRY);
+                            self.skip_until.insert(id, Skip::retry(self.now + PHYSICS_RETRY));
                             self.unstuck.remove(&id);
                             self.stats[1] += 1;
                             walker.feet = feet;
@@ -703,7 +739,7 @@ impl Mover for PhysMover<'_> {
                 },
                 // Stuck: the navmesh surface from here, for a while.
                 _ => {
-                    self.skip_until.insert(id, self.now + PHYSICS_RETRY);
+                    self.skip_until.insert(id, Skip::retry(self.now + PHYSICS_RETRY));
                     self.unstuck.remove(&id);
                     self.stats[1] += 1;
                     walker.feet = feet;
@@ -1149,7 +1185,7 @@ struct Core {
     /// The character controller's stuck detection per actor, and who is left to the
     /// walker until when.
     unstuck: HashMap<u32, Unstuck>,
-    skip_until: HashMap<u32, f32>,
+    skip_until: HashMap<u32, Skip>,
     hopped: HashMap<u32, (usize, usize)>,
     barred: HashMap<u32, u32>,
     coasting: HashMap<u32, Coasting>,
@@ -1817,7 +1853,14 @@ impl Core {
     fn take_moved(&mut self, game: &mut Game, all: bool, mut phys: Option<&mut PhysState>) {
         let refs = game.world.placed;
         for (id, ours) in self.ai.moved_by_scripts(game) {
-            if !is_actor(refs, id) {
+            // An actor a script made (PlaceAtMe) is in no plugin's table of placed
+            // references, yet the AI looks after it (`ours`): it is moved as any other.
+            // Left out here, its character stayed where it was made, and the walker, which
+            // reads its place from its character, went on from there: a radscorpion made
+            // at the player and moved 600 units out 0.2 s later fought from beside the
+            // player in about half the runs, whenever its character already existed
+            // [observed: smoke `radscorpions-spacing-cadence`, 21 probe runs, #3366].
+            if !ours && !is_actor(refs, id) {
                 continue;
             }
             if let Some(run) = self.knocks.get_mut(&id.0) {
@@ -2504,7 +2547,8 @@ impl Core {
         }
         let mut moved = [0usize; 6];
         let searching: HashSet<u32> = self.ai.agents.iter().filter(|(_, a)| a.search.is_some()).map(|(f, _)| f.0).collect();
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, barred: &mut self.barred, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims, searching: &searching };
+        let creatures_fighting: HashSet<u32> = self.list.iter().filter(|r| r.creature && game.awareness.get(r.actor).is_some_and(|x| x.state == fnv_game::awareness::State::Combat)).map(|r| r.actor.0).collect();
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, barred: &mut self.barred, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims, searching: &searching, creatures_fighting: &creatures_fighting };
         {
             // Every high-process actor's update and the low-process ones due (package,
             // goal and walk; path searches are `nav::find_path` inside).
@@ -3242,6 +3286,7 @@ type Moves<'w, 's> = (
     Option<MessageReader<'w, 's, nvf_play::combat::Knockback>>,
     Option<MessageReader<'w, 's, nvf_play::Travel>>,
     Option<ResMut<'w, nvf_play::loading::Loading>>,
+    Option<MessageReader<'w, 's, nvf_play::loading::TravelRequest>>,
 );
 
 type Held<'w, 's> = (
@@ -3263,7 +3308,7 @@ pub fn drive(
     mut nav: ResMut<NavState>,
     world: Res<WorldData>,
     streamer: Res<Streamer>,
-    (actor_world, mut ahead): (Option<Res<ActorWorld>>, ResMut<crate::readahead::ReadAhead>),
+    (actor_world, mut ahead, pace): (Option<Res<ActorWorld>>, ResMut<crate::readahead::ReadAhead>, Res<crate::stream_pace::StreamPace>),
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
@@ -3272,7 +3317,7 @@ pub fn drive(
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, mut sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches, fighters, idle_holds, mut refusals, stances): Held,
-    (mut door_fades, mut door_sounds, mut travel, mut knocks, trips, mut screen): Moves,
+    (mut door_fades, mut door_sounds, mut travel, mut knocks, trips, mut screen, asked): Moves,
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
@@ -3296,7 +3341,12 @@ pub fn drive(
     // travel (not a script's MoveTo: `Loading::arriving`): who was in the loaded area
     // shortly before stays put; the others near the destination are put at their
     // package's place (`Core::arrive`).
-    if trips.is_some_and(|mut t| t.read().count() > 0) {
+    // A travel asked for this frame counts too: a door whose script runs Activate (Gomorrah's
+    // inner door, SCPT 0x00127959) asks in the scripts' pass, and its trip is sent only
+    // after this system has run; the guard started its weapons check in that frame again
+    // (#2835, pilot sweep 2026-11-18).
+    let asked = asked.is_some_and(|mut t| t.read().count() > 0);
+    if trips.is_some_and(|mut t| t.read().count() > 0) || asked {
         let arriving = screen.is_some_and(|mut s| std::mem::take(&mut s.arriving));
         if arriving {
             res.core.begin_trip();
@@ -3445,7 +3495,8 @@ pub fn drive(
         nav.lead = core.list.first().and_then(|r| core.ai.agents.get(&r.actor)).map(|a| Lead { space: a.walker.space, feet: a.walker.feet, heading: a.walker.heading });
     }
     let on_furniture: HashSet<u32> = seated.iter().map(|v| v.0).collect();
-    let mut budget = SPAWNS_PER_FRAME;
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let mut budget = pace.count(SPAWNS_PER_FRAME);
     let _span = info_span!("ai::draw_and_place").entered();
     for r in core.list.iter_mut().filter(|r| r.joined && !r.failed) {
         // Furniture: sit once drawn; get up before leaving.
@@ -3987,6 +4038,20 @@ mod tests {
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::{HashMap, HashSet};
+    use super::Skip;
+
+    /// #3341: the last stretch's skip lets a fighter go back to physics; a stuck one's
+    /// holds it, fighting or not, and every skip ends at its time.
+    #[test]
+    fn a_last_stretch_skip_does_not_hold_a_fighter() {
+        let stretch = Skip { until: 4.0, last_stretch: true };
+        assert!(stretch.holds(1.0, false));
+        assert!(!stretch.holds(1.0, true));
+        assert!(!stretch.holds(4.0, false));
+        let stuck = Skip::retry(8.0);
+        assert!(stuck.holds(1.0, false) && stuck.holds(1.0, true));
+        assert!(!stuck.holds(8.0, true));
+    }
 
     /// #2432, #2434: Freeside's worldspaces lie on the same grid squares. Going through a
     /// door from one into another (FreesideWorld to FreesideNorthWorld, that to

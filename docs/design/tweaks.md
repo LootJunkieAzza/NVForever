@@ -152,7 +152,7 @@ saves load, and the frame's sync sets them from the settings again.
 |---|---|---|
 | Action Points per Kill (0–50) | `bKillsRewardAP` | `Game` hit outcome, beside the kill XP |
 | Action Points per Jump (0–50) | `bJumpingCostsAP` | `tweaks::ap_costs` (after the input, before physics) |
-| Action Points per Second Running (0–20) | `bRunningCostsAP` | `tweaks::ap_costs` |
+| Action Points per Second Running (0–20) | `bRunningCostsAP` | `tweaks::ap_costs`, plus sneak-running base (`tweak-sneak-run-ap-cost`, 0–20) and Endurance factor (`tweak-sneak-run-ap-endurance`, -1.0 to +1.0) using `fSneakAPDrainCostBase + fSneakRunAPEnduranceMult * (Endurance - 5)` [documented: Stewie Tweaks v10.05 generated `nvse_stewie_tweaks.ini` `[Running Costs AP]` comment, Readme & `AllTweaks.json`; hypothesis: sign vs. the v10.05 Readme's `(5 - Endurance)` standing-run formula is unobserved in the original binary; design: clamp at 0, off when base is 0, Endurance fallback of 5] |
 | No Travel on a Crippled Leg | `bNoFastTravelIfLegsCrippled` | `travel::answer`, `Refusal::CrippledLeg` (own text) |
 | Wait Only When Seated | `bOnlyAllowWaitWhileSitting` | `wait::refusal`, `Refusal::NotSeated` (own text) |
 
@@ -210,7 +210,7 @@ saves load, and the frame's sync sets them from the settings again.
 | Row | INI key | Where |
 |---|---|---|
 | Aid at Full Health | `bAllowAidAtMaxHealth` | `pipboy::stats::model::refusal_with` |
-| Grabbing Is Stealing | `bGrabbingItemsIsCrime` | `grab::grab` (`Game::player_stole`) |
+| Grabbing Is Stealing (+ Min Value, 0–500 caps) | `bGrabbingItemsIsCrime` (`fMinValue`) | `grab::grab` (`Game::grab_triggers_theft`, `Game::player_stole`) |
 | Merchants Keep to Their Lists | `bBarterCheckActorBuySellFlags` | `MenuModel::refresh_trade` (`vendor_lists_both`) |
 | Name the Key | `bLockNeedsKeyShowName` | `lockpick::open` refusal line |
 | No Skill Tags | `bNoSkillTags` | `dialogue` topic tags |
@@ -237,7 +237,7 @@ saves load, and the frame's sync sets them from the settings again.
 | Quiet Theft | `bStealingSendsNoAlarm` | `Game::player_stole` |
 | No XP for Companion Kills | `bNoCompanionKillXP` | `Game::kill_earns_xp` |
 | Companions Keep Their Weapons | `bNoDisarmCompanions` | `combat::hit_actor` |
-| Own Blasts Spare the Player | `bNoSelfExplosionDamage` | `combat::fly` blast loop |
+| Own Blasts Spare the Player (+ Non-Hostiles) | `bNoSelfExplosionDamage` | `combat::fly` blast loop (`Game::own_explosion_spares`) |
 | Sneak Criticals Melee Only | `bSneakCriticalsOnlyMeleeWeapons` | `combat::fly` shots |
 | Meltdown for Companions | `bAllowTeammatesUseMeltdown` | `combat::meltdown` |
 | Speed Scales the Jump | `bSpeedMultScalesJumpHeight` | `player::step` jump height |
@@ -427,7 +427,7 @@ unless the player binds them, so nothing changes until then.
 | Agility Scales Jump Height (0–0.2) | `bAgilityScalesJumpHeight` | `combat::stat_speed` puts 1 + mult x (Agility − 1) in `player::StatSpeed`'s second number, a factor on the jump height (the tweak's own formula) |
 | Force Lock Near the Sweet Spot (0–50 %) | `bLockpickForceBonusNearSweetSpot` | `lockpick::Picking::force_chance` adds `Settings::force_near_bonus` × (1 − distance / 90°); the falloff is ours (the tweak's formula is not all known) |
 | Contact Mines (Player), (Others) | `bContactMines` | `mines::tick`: an actor that sets a mine off within `CONTACT_DISTANCE` (24 units, ours) of its axis gets no fuse |
-| Sleep Healing Min Duration (0–12 h) | `bSleepHealingMinDuration` | `aid::hour_passed` calls `Game::pass_hours_healing` with healing held until the hour; every bed counts (who owns the bed is not known there); `bMiscStatRequiresSleepDuration` is not done |
+| Sleep Healing Min Duration (0–12 h, + Stat Needs Full Duration) | `bSleepHealingMinDuration` (`bMiscStatRequiresSleepDuration`) | `aid::hour_passed` calls `Game::pass_hours_healing` with healing held until the hour; every bed counts (who owns the bed is not known there); `Game::begin_rest` gates `TIMES_SLEPT` on `sleep_misc_stat_requires_duration` |
 | Barter Lowers Repair Costs (0–60 %) | `bBarterAffectsRepairCosts` | `repair::view` scales `RepairSettings::cost_mult` by `fnv_game::tweaks::barter_repair_factor` (ours; no perk modifiers) |
 | Armour Condition Penalty (x0–x2) | `bCustomArmorConditionPenalty` | `combat::target_armor` uses `CombatForms::armor_values_worn_with` and `fnv_combat::condition::armor_mult_with`; the repair menus still show DT at the original's x1 |
 | No Pip-Boy In Combat | `bNoPipBoyInCombat` | `menu::open_menus` keeps the inventory request shut while `after_combat::AfterCombat::fighting`, with a corner line (ours). Opening it for Action Points is not done |
@@ -456,7 +456,7 @@ unless the player binds them, so nothing changes until then.
 | Console Key | `iConsoleKey` | a key binding, `bindings::Control::Console` (`` ` `` by default, rebound on Controls > Additional Features like any control) read by `console::toggle` [design: owner 2026-11-16] |
 | Tab Closes Terminals | `bTabClosesTerminals` | `terminal::keys` sends Exit on Tab |
 | Tab Goes Back in the Pause Menu | `bTabBackInStartMenu` | `pause::choose`: Tab is Back on the main page's question and the load list; Settings and Controls keep Tab for their tabs |
-| Fast Travel From Anywhere | `bAllowUnsafeFastTravel` | `pipboy::data::travel::tweak_checks` drops the place refusal (Can't Travel From Here, Can't Fast Travel) |
+| Fast Travel From Anywhere | `bAllowUnsafeFastTravel` | `pipboy::data::travel::tweak_checks` drops the place refusal (an interior, Can't Fast Travel), as does `Game::can_fast_travel` |
 | V.A.T.S. Burst Stops on a Kill | `bVATSStopBurstIfTargetDead` | `vats_mode`: a burst's later rounds are held once the mark's target is dead |
 | Repair Needs the Weapon's Skill | `bRepairRequiresWeaponSkill` | `pipboy::repair::keys` refuses to open the list for a weapon whose `skill_req` is above the player's Repair |
 | Date Format | `iDateFormat` | `wait::model::DATE_STYLES` (as the game, day first, month first, year first; ours), set from `tweaks::sync` and read by the wait menu and the Pip-Boy heading |
@@ -595,7 +595,7 @@ unless the player binds them, so nothing changes until then.
 | Skip Radio Song | `iSkipRadioSongKey` | `bindings::Control::SkipRadioSong` sets `radio::Radio::skip`; the radio puts the received Pip-Boy station's line at its end (`skip_to_end`: its last part's time run out), so the line's end script runs and the station's own order picks the next; a script's conversation is not skipped. The station's programme is shared, so receivers playing it move on too |
 | Per-Bullet Looping Reloads | `bPerBulletLoopingReloads` | `fnv_combat::attack::Cycle::reload_presses` (set each tick from the game's tweaks): a round-by-round reload starts wanting one press's rounds, each Reload press while it opens or loads queues more (`queue_press`, up to the most), and it closes once that many are in |
 | Doors on the Compass | `bShowDoorsOnCompass` | `compass::doors_of` lists the place's teleport doors (not Hidden From Local Map), cached per space; `gather` adds those present within the reach as `Mark::Door`, drawn with `icon_local_door.dds`, faded by `DOOR_RANGE` under the switch. The tile HUD leaves them out (no door template) |
-| Armor Condition | `bArmorConditionLabel` | `combat::Combat::hud_armor` takes the lowest condition of the worn pieces a body hit strikes; `hud::armor_row` draws an `ARM` bar under the weapon's `CND` one (or in its place with no weapon), shown, red and flashing by `armor_look`'s thresholds |
+| Armor Condition | `bArmorConditionLabel` | `combat::Combat::hud_armor` takes the lowest condition of the worn pieces a body hit strikes; `hud::armor_row` draws an `ARM` bar aligned under the weapon's `CND` column (or in its place with no weapon), shown, red and flashing by `armor_look`'s thresholds; `Tweaks::armor_condition` is also exposed live via `StewVal`/`StewieGetValue` |
 | Barter Prices by Kind | `bUseCustomBarterPriceMultipliers` | `menu::model::BarterKindMults` (set from the tweaks by `tweaks::sync`): `refresh_trade` multiplies each row's worth by its kind's multiplier, buying on the merchant's side and selling on the player's, before the barter multiplier; `WaterPurified` keeps 1 under the water option |
 | More Precise RAD Meter | `bMorePreciseRadMeter` | `radiation::set_rad_decimals` (0 off): `value_text` writes the resisted rads a second with that many places, for the hand-built and tile HUDs both |
 | Hardcore Rules One by One | `bHardcoreTweaks` | ammo: `fnv_sim::inventory::WeightRules::ammo_weight` (the player's, from `Game::sync_perk_weights`) overrides the Hardcore switch in `totals_with`; companions: `functions::actor::essential`; sleep: `Game::pass_hours_healing` |
@@ -608,21 +608,21 @@ unless the player binds them, so nothing changes until then.
 | Exterior and Interior Door Icons | `bInteriorExteriorMapDoorIcon` | `pipboy::data::read::Door::outside` (the destination door stands in a worldspace cell); under the switch a door's `MapMark::outside` picks `iron_exterior_door.dds` / `iron_interior_door.dds`, and when those are not in the load order the plain door, an interior one at `INSIDE_DOOR_DIM` |
 | Fatigue Indicator | `bHUDFatigueIndicator` | `hud_needs::watch` reads the player's Fatigue against its base under the switch; `fatigue_look` gives the word's look, `draw` sets it out as a sixth word at `FATIGUE_X`. The tile HUD's five texts are the file's and stay as they are |
 | Switch Device by Pressing | `bToggleControllerIfAttackPressed` | `tweaks::toggle_device` (PlaySet::Input): with the keyboard working, a pad's South just pressed sets `bindings::Bindings::device` to Controller; with the controller, a left click sets it back; not while the Controls tab listens for a binding |
-| Companions on the World Map | `bNoMinCompanionMapDistance`, `bMapShowUnconsciousCompanions`, `bCompanionsUseLocationFontOnMap` | base: `pipboy::data::map_companions` lists the teammates in exterior cells of the map's family, less those within `COMPANION_MIN_DISTANCE` of the player and the knocked out; `world_map` writes their names in font 2 under the arrow. The switches drop the distance, keep the knocked out (red) and use font 1. Hand-built Pip-Boy only |
+| Companions on the World Map | `bNoMinCompanionMapDistance`, `bMapShowUnconsciousCompanions`, `bCompanionsUseLocationFontOnMap` | base: `pipboy::data::map_companions` lists the teammates in exterior cells of the map's family (materialized or placed), less those within `COMPANION_MIN_DISTANCE` of the player and the knocked out; `world_map` and the tile-drawn `MapMenu` (`tiles::map_menu::map_companion_pieces`) write their names in font 2 under the arrow. The switches drop the distance, keep the knocked out (red) and use font 1 |
 | Summon Companions from the Map | `bMapSelectableCompanions` | `pipboy::data::world_map` keeps the companions within `SUMMON_REACH` of the highlight box (`DataState::companions_under`); a map click on them sends `SummonCompanions` in place of a travel ask, and `summon_companions` calls `Game::summon_teammates`, which places them as `bring_teammates` does (`place_beside_player`) |
 | Weapon poisons, No Poison Confirmation, Show Weapon Poison Effects | `bNoPoisonConfirm`, `bShowWeaponPoisonEffects` | base: `fnv_game::weapon_poison` (`is_poison`, `use_poison`, `take_poison_hit`; `PlayerState::weapon_poisons`, saved); `aid::use_poison` from the script layer's item use gives a refused or asking poison back; `combat::hit_items` adds the poison to a landed player hit's items. The switches: `Tweaks::no_poison_confirm`, `pipboy::items` (the card's line) |
 | Grenade indicator, Hide Grenade Indicator, No Indicator for Harmless Blasts, Mark Objects About to Explode | `bDisableGrenadeIndicator`, `bHideGrenadeIndicatorForNoDamageExplosions`, `bExplodingDestructibleIndicator` | base: `grenade_indicator` draws the menu files' `template_explosive_indicator` for each live grenade (`Combat::live_grenades`) whose blast reaches the player, on the grenade or on the view's edge pointing at it (observer check 190). The switches: `TweakSettings::no_grenade_indicator`, `grenade_indicator_skip_harmless` (explosion damage 0), `grenade_indicator_destructibles` (`Game::burning_explosives`) |
 | Repair Kits in the Repair List | `bUseWeaponRepairKitsInRepairMenu` | `fnv_game::repair` (`is_weapon_repair_kit`, `kit_condition`, the kit script's rule); `pipboy::repair::with_kits` adds the carried kits to a weapon's offer, `Session::after` gives a kit's result, Use takes one kit. The switch: `Tweaks::repair_kits_in_list` |
 | Idle vanity camera, Vanity Camera Returns to First Person | `bVanityCamReturnsToFirstPerson` | base: `vanity` starts the circling camera (`control::Orbit`) after `fVanityModeAutoDelay` (120) s without input and ends it at any input (observer check 191). The switch: `TweakSettings::vanity_returns_first`, read by `vanity::end_view` from `vanity` and from `control::read_controls`'s Toggle POV release |
 | Target Projectiles in V.A.T.S., Mines Too, Your Own Projectiles, Ignores Non-Explosive | `bTargetProjectilesInVATS`, `bVATSTargetPlayerProjectiles`, `bVATSIgnoreNonExplosiveProjectiles` | `vats_mode::projectile_under` picks from `Combat::vats_projectiles` by `ProjectileRules`; `mark_projectile` marks it (target FormId 0, `Spot::projectile`), `follow` tracks it and drops it when it ends; a landed shot asks `Combat::shoot_down`. Mines lying armed are marked as objects (`Mines::is_live`) and set off by the shot as destructibles. The switches: `Tweaks::vats_target_projectiles`, `vats_target_mines`, `vats_target_own_projectiles`, `vats_ignore_non_explosive` |
-| Revive Unconscious Companions | `bReviveUnconsciousCompanions` | `fnv_game::unconscious` (`can_revive`, `revive`: the master's Stimpak used up, then the usual getting up; `essential_down` for the time); `activate::actor_action_in` gives `Action::Revive`, Activate calls `revive`. The switches: `Tweaks::revive_companions`, `revive_down_seconds` |
+| Revive Unconscious Companions (+ On Changing Cells) | `bReviveUnconsciousCompanions` (`bReviveWhenChangingCells`) | `fnv_game::unconscious` (`can_revive`, `revive`: the master's Stimpak used up, then the usual getting up; `essential_down` for the time; `revive_companions_on_cell_change` wired from `tweaks::revive_companions_on_arrival`); `activate::actor_action_in` gives `Action::Revive`, Activate calls `revive`. The switches: `Tweaks::revive_companions`, `revive_down_seconds`, `revive_on_cell_change` |
 | Clicking the Tab Sorts | `bClickingActiveTabTogglesSorting` | `pipboy::apply_input` steps `PipBoy::item_sort` on a click on the open tab; `pipboy::items::keys` hands it to the model (`Command::SetSort`); `menu::model::SortBy::apply` orders the player's list after the category filter. The switch: `TweakSettings::tab_click_sorts` |
 | Repair Items Preview | `bRepairItemsPreview` | `pipboy::repair::keys` opens a `Session` with `preview` when Alt is held (the full-condition and skill checks skipped), and refuses Use in it. The switch: `Tweaks::repair_preview` |
 | Crippled Legs: Pain When Falling | `bCrippledLimbsPlayPainSoundWhenFalling` | `falls::hurt` says the player's `Hit` combat line (`Game::combat_line`) when the fall's height reaches `Tweaks::crippled_fall_pain` and either leg is crippled (`falls::crippled_leg`) |
 | Quantity Menu Respects Companion Carry Cap | `bQuantityMenuRespectsCompanionCarryCap` | `menu::apply_input` sets `MenuModel::companion_carry` (the teammate's CarryWeight) before a store; `asks_quantity` caps the prompt by `menu::model::carry_cap` against the container list's weight. The switch: `Tweaks::quantity_companion_cap` |
 | Skip Death Camera | `bSkipDeathcamHotkey` | nvforever `death_cam::watch` moves the camera's clock to `SKIPPED` (past the fade and the slow motion) on Left Alt or a late left click. The switches: `TweakSettings::skip_death_cam`, `skip_death_cam_attack` |
 | Armor Prevents Blood Decals | `bArmorPreventsBloodDecals` | the projectile hit path in `combat.rs` sets `ImpactFx::no_decal` when `blood_stopped` (the weapon's damage against `target_armor`'s DT); `show_impact` now keeps a decal already refused. The switch: `Tweaks::armor_blocks_blood` |
-| Console in the Pause Menu | `bReplaceHelpWithConsole` | `pause::entries` adds `Entry::Console` after Settings; choosing it sets `Console::open_asked` and asks to resume; `console::toggle` opens it once the world is free. The switch: `TweakSettings::help_is_console` |
+| Console in the Pause Menu | `bReplaceHelpWithConsole` | `pause::entries` adds `Entry::Console` after Settings, labelled from `TweakSettings::console_label` (`[Help Button Replacer] sButtonLabel` [documented: Stewie Tweaks v10.05 Readme & generated `nvse_stewie_tweaks.ini`]; read at startup from `NVForever.ini` `[Settings] tweak-help-console-label` via `tweaks::read_help_console_label`, defaulting to `"Console"` when empty [design]); choosing it sets `Console::open_asked` and asks to resume; `console::toggle` opens it once the world is free. The switch: `TweakSettings::help_is_console` |
 | Robot Companions Heal With Scrap Metal | `bRobotCompanionsHealWithScrapMetal` | `fnv_game::companion_wheel`: `wheel_scrap` (robot, SpareParts carried) turns Use Stimpak's context and use to Scrap Metal; `scrap_heal` restores the health. The switches: `Tweaks::robots_heal_with_scrap`, `robot_heal_base`, `robot_heal_per_repair`, `robot_heal_expert` |
 | D-Pad Changes Weapon | `bWeaponCycleUpDownHotkeys` | `weapon_wheel::read` takes the D-pad's left and right from the controls Hotkey 4 and Ammo Swap and steps as the mouse wheel's tweak does. The switch: `TweakSettings::dpad_cycles_hotkeys` |
 | Location Discovered Sound | `bCustomLocationDiscoveredSound` | a `ChoiceList` row (`tweaks::pick_discovered_sound`) keeps `TweakSettings::discovered_sound`; `quest_messages` plays it for `QuestNotice::Discovered` by Editor ID |
@@ -637,7 +637,7 @@ unless the player binds them, so nothing changes until then.
 | Low-health heartbeat, Heartbeat Fades | `bHeatbeatSoundsFade` | base: `heartbeat` loops `UIHealthHeartbeatALP` under `LOW`; `sfx::LoopScale` sets a loop's share of its volume. The switch: `TweakSettings::heartbeat_fade`, `heartbeat_fade_seconds` (`heartbeat::faded`) |
 | Terminal close fade, Terminal Fade Time | `bTerminalFadeTime` | base: `terminal::close` marks the backdrop and screen `FadeOut`, `fade_out` dims and removes them, `draw` keeps the picture while it fades. The switch: `TweakSettings::terminal_fade`, `terminal_fade_seconds` |
 | Loaded ammo marked, Containers Show Equipped Ammo | `bContainersShowEquippedAmmo` | `MenuModel::current_ammo` (set by `tweaks::sync` from `Combat::player_ammo`) marks `Row::loaded`, drawn as the equipped square (`pipboy::items`, `menu::look`). The switch: `TweakSettings::containers_show_ammo` |
-| Critical-hit message, Name the Limb | `bCriticalHitMessagesIncludeLimbName` | base: `combat::hit_actor` emits a `NoteShown` with the `sCriticalStrikeIcon` icon for the player's critical; the switch `Tweaks::crit_message_limb` adds `limb_name` of the part |
+| Critical-hit message, Name the Limb | `bCriticalHitMessagesIncludeLimbName` | base: `combat::hit_actor` emits a `NoteShown` with the default Vault Boy corner-message icon (`icon: None`, since `sCriticalStrikeIcon` is unused) for the player's critical; the switch `Tweaks::crit_message_limb` adds `limb_name` of the part |
 | Map marker added, Names the Place | `bDescriptiveMarkerAddedMessage` | base: `marker_added::watch` notes markers joining `PlayerState::map_markers` while played; the switch `TweakSettings::descriptive_marker_added` adds the name from `pipboy::data::read::markers` |
 | Hardcore need messages, Disable Needs Messages | `bDisableNeedsMessages` | base: `Game::update_need_stages` shows the masters' sDehydration/sSleepDeprevation Increase, Decrease or NotSick (`needs::need_change`); the switches `Tweaks::no_dehydration_messages`, `no_sleep_messages` |
 | Water Sources Show H2O | `bWaterSourcesShowH2O` | `activate`'s prompt for a water source adds `water_label` with the Dehydration change of its water's effect. The switch: `Tweaks::water_shows_h2o` |
@@ -660,6 +660,7 @@ unless the player binds them, so nothing changes until then.
 | Hold and Release Throws | `bHoldAndReleaseThrowables` | `combat::fire`: the cycle's `WindUp` is not let reach 0 while the trigger is held (`WeaponAnim::throw_held`); nvforever `player_body` keeps the wound-up clip at its `Hit` key (`wound_hit`). The switch: `Tweaks::hold_release_throws` |
 | Enemies Can Disarm You | `bNPCsCanDisarmPlayer` | `hit_actor` pushes the player's crippled arm to `HitFeedback::disarms` (not their own hits); `combat::disarm` drops `Combat::weapon` with `drop_equipped` and says so on the HUD. The switch: `Tweaks::npcs_disarm_player` |
 | NPCs Drop Live Grenades | `bNPCsDropLiveGrenades` | `combat::death_drops`: a held grenade (`is_grenade`) is fired as an `ActorFire` straight down from 60 units up, its holder noted in `Combat::dropped_live`, so `actor_attacks` slows the projectile to `LIVE_DROP_SPEED`. The switch: `Tweaks::npcs_drop_live_grenades` |
+| Keep Chosen Ammo | `tweak-keep-chosen-ammo` | `combat::Combat::chosen_ammo` remembers the player's last chosen ammo type per weapon base form across Ammo Swap, weapon-wheel ammo swaps, holstered swaps, Full Reload Swaps Ammo, and Reload Swaps Spent Ammo, used on `equip_sync` (and weapon-wheel preview) when still in the weapon's ammo list and carried, falling back to `ammo_for` while retaining the remembered choice when temporarily out of stock; persisted in `EngineSnapshot::chosen_ammo` beside `magazine_ammo` (#1574) and remapped on load-order changes [documented: Remember Selected Ammo mod description ("Not let the game forget your selected ammo type after switching, unequipping or dropping the gun"), #3305; design: per weapon base form, player only, off by default, saved with the game] |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -734,7 +735,7 @@ game's Data folder, read-only).
 | `bFreeWildWasteland` | done |  |  | Free Wild Wasteland (editor ID WildWasteland, a trait on offer) |
 | `bFrenzyGrantsPlayerXP` | done |  |  | Frenzied Kills Earn Experience (Aggression 3) |
 | `bGodModePreventsJamAnims` | done |  |  | No Jams in God Mode |
-| `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing (any value; the minimum-value option not built) |
+| `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing with Grabbing Is Stealing: Min Value (`fMinValue`, slider 0–500 caps; stack count × base item value) |
 | `bHardcoreTweaks` | done |  | 3 | Hardcore Rules One by One: Ammo Has Weight, Companions Cannot Die, Sleep Heals, each whatever the mode |
 | `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
 | `bHoldToActivate` | done |  | 9 | Hold to Activate: E held half a second (ours) on containers and bodies, furniture and water, each a switch (bContainers, bFurniture, bWater). Not built: crafting (nothing marks a workbench), taking items while held, the stealing delay |
@@ -800,8 +801,8 @@ game's Data folder, read-only).
 | `bRememberBobbyPinHealth` | done |  |  | Remember Bobby Pin Wear (kept on the player in the save) |
 | `bRepairScalesCraftingCondition` | done |  |  | Crafting Uses Repair (half condition at Repair 0, whole at 100) |
 | `bRepairsRewardXP` | done |  | 1 | Experience per Repair (slider; Pip-Boy repairs) |
-| `bReviveUnconsciousCompanions` | done |  | 3 | Revive Unconscious Companions: a knocked-out companion's prompt is Revive (our word; sPrompt not built, no text field); E uses a Stimpak and they get up at once, else a corner line says one is needed. Revive: Companions Stay Down is fUnconsciousTime (0 keeps our 10 s) |
-| `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
+| `bReviveUnconsciousCompanions` | done |  | 3 | Revive Unconscious Companions: a knocked-out companion's prompt is Revive (our word; sPrompt not built, no text field); E uses a Stimpak and they get up at once, else a corner line says one is needed. Revive: Companions Stay Down is fUnconsciousTime (0 keeps our 10 s), and Revive: On Changing Cells is bReviveWhenChangingCells |
+| `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, flat rate for standing runs) plus Action Points per Second Sneak-Running and Sneak-Running AP: Endurance Factor (`fSneakAPDrainCostBase + fSneakRunAPEnduranceMult * (Endurance - 5)` [documented: Stewie Tweaks v10.05 generated `nvse_stewie_tweaks.ini` `[Running Costs AP]` comment, Readme & `AllTweaks.json`; hypothesis: sign vs. v10.05 Readme `(5 - Endurance)` standing-run formula unobserved in original binary; design: clamp at 0, off when base is 0, Endurance fallback of 5]) |
 | `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
 | `bScaleWeaponVolume` | done |  | 2 | Your Weapon Volume and Others' Weapon Volume (shot sounds scaled, in percent) |
@@ -810,7 +811,7 @@ game's Data folder, read-only).
 | `bSemiAutoQueue` | done |  | 2 | Semi-Auto Shot Queue (slider, up to 0.5 s before the weapon is ready) |
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
 | `bSkipVeryEasyLocksAtMaxSkill` | done |  | 2 | Skip Easy Locks (+ margin; full XP; use again to go through) |
-| `bSleepHealingMinDuration` | done |  | 2 | Sleep Healing Min Duration (hours; every bed, the bed's owner is not known; bMiscStatRequiresSleepDuration not done) |
+| `bSleepHealingMinDuration` | done |  | 2 | Sleep Healing Min Duration (hours; every bed, the bed's owner is not known) with Sleep Healing: Stat Needs Full Duration (`bMiscStatRequiresSleepDuration`, default on) |
 | `bSleepOnChairs` | done |  |  | Sleep on Chairs |
 | `bSlowBreathRegen` | done |  | 2 | Slow Breath Regen (seconds of breath a second at the surface; the meter already stays up until whole) |
 | `bSneakAttackWithoutCrouching` | done |  |  | Sneak Attacks Standing |
@@ -871,7 +872,7 @@ game's Data folder, read-only).
 | `bNoScaleNpcDamageByCondition` | done |  |  | NPC Weapons Hit Whole |
 | `bNoScaleNpcDamageResistanceByCondition` | done |  |  | NPC Armour DR Ignores Condition |
 | `bNoScaleNpcDamageThresholdByCondition` | done |  |  | NPC Armour DT Ignores Condition |
-| `bNoSelfExplosionDamage` | done |  |  | Own Blasts Spare the Player |
+| `bNoSelfExplosionDamage` | done |  | 1 | Own Blasts Spare the Player with Own Blasts Spare Non-Hostiles (spares friendly and neutral living actors too) |
 | `bNoSelfMeltdownDamage` | done |  | 3 | No Self Meltdown Damage (the player and companions; the three sub-options as one) |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
 | `bNoVATSTargetInvisible` | done |  |  | already so: cloaked actors are barred without Enhanced Sensors |
@@ -1010,7 +1011,7 @@ game's Data folder, read-only).
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
 | `bAddRGBSliders` | done | yes | 1 | already a row: Interface tab, hud-red / hud-green / hud-blue |
-| `bArmorConditionLabel` | done |  | 9 | Armor Condition row under the weapon's (Shown Below, Red Below, Flashing Below, In the Weapon's Place); hand-built HUD only, the body pieces' lowest condition |
+| `bArmorConditionLabel` | done |  | 9 | Armor Condition row aligned under the weapon's CND column (Shown Below, Red Below, Flashing Below, In the Weapon's Place; native X alignment covers `bAlignWithWeaponX`; live `StewVal`/`StewieGetValue`); hand-built HUD only, the body pieces' lowest condition |
 | `bEnemyHealthbarShowBuffedHP` | done | yes |  | Health Bars Count Buffs |
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
 | `bColoredHUDBars` | done |  | 2 | Red Health / Action Point Bar Below (two shares) |
@@ -1020,7 +1021,7 @@ game's Data folder, read-only).
 | `bCompassLocationDistanceBasedAlpha` | done |  |  | Fade Places by Distance |
 | `bCompassNPCDistanceBasedAlpha` | done |  |  | Fade Pips by Distance |
 | `bCompassQuestHeightIndicator` | done |  |  | Quest Marker Height (a bar over or under it on the hand-built HUD's compass) |
-| `bCriticalHitMessagesIncludeLimbName` | done |  |  | Critical Hit Messages Name the Limb: NVForever now shows a corner message on the player's critical hits with the masters' sCriticalStrikeIcon (our words, owner-review 70); the tweak adds the limb struck |
+| `bCriticalHitMessagesIncludeLimbName` | done |  |  | Critical Hit Messages Name the Limb: NVForever now shows a corner message on the player's critical hits with the default Vault Boy corner icon (our words, owner-review 70; `sCriticalStrikeIcon` is documented unused on the GECK wiki, #3433); the tweak adds the limb struck |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
 | `bDescriptiveMarkerAddedMessage` | done | yes |  | Map Marker Added Names the Place: NVForever now says "Map marker added" in the corner when a script's ShowMap adds a marker (`marker_added`, our words, owner-review 82); the tweak adds the marker's name |
@@ -1328,7 +1329,7 @@ game's Data folder, read-only).
 | `bRadiationCausesRadioStatic` | done |  | 1 | Radiation Brings Radio Static (whole at 10 rads/s, at most 80%: ours) |
 | `bRadioKeepPositionWhenLoading` | done |  |  | already so: the radio's programmes are not part of a save and run on through a load, so a song playing is never rewound |
 | `bReloadSoundsAffectedByTimescale` | done |  |  | already so: every effect sound, a reload's too, follows the engine's slow motion and SetGlobalTimeMultiplier (`audio_out::SoundSpeed`) |
-| `bReplaceHelpWithConsole` | done |  |  | Console in the Pause Menu: a Console entry where the original has Help (NVForever leaves Help out); it resumes the game and the console opens once the world is played. The label option (sButtonLabel) is not built: the entry says Console |
+| `bReplaceHelpWithConsole` | done |  |  | Console in the Pause Menu: a Console entry where the original has Help (NVForever leaves Help out); it resumes the game and the console opens once the world is played. `[Help Button Replacer] sButtonLabel` [documented: Stewie Tweaks v10.05 Readme & generated `nvse_stewie_tweaks.ini`] is wired via `NVForever.ini` `[Settings] tweak-help-console-label` (`tweaks::read_help_console_label` into `TweakSettings::help_console_label`, defaulting to `Console` when empty; no free-text input widget on the Tweaks tab [design]) |
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |

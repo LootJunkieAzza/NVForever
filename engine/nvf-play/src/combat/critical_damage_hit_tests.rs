@@ -9,7 +9,7 @@ use fnv_sim::{SimConfig, World};
 mod records;
 use records::*;
 
-fn query(a: &mut App, body: &str) -> XVal {
+pub(super) fn query(a: &mut App, body: &str) -> XVal {
     a.world_mut().resource_scope(|world, mut script: Mut<ScriptState>| {
         let mut sim = world.resource_mut::<SimState>();
         with_world(script.rt.as_mut().unwrap(), &mut sim, |rt| {
@@ -19,7 +19,7 @@ fn query(a: &mut App, body: &str) -> XVal {
         })
     })
 }
-fn app() -> App {
+pub(super) fn app() -> App {
     let plugins = Box::leak(vec![plugin()].into_boxed_slice());
     let script = ScriptState::over_plugins(plugins);
     let game = &script.rt.as_ref().unwrap().game;
@@ -107,7 +107,7 @@ fn app() -> App {
     }
     a
 }
-fn tick(a: &mut App) -> Vec<ActorHit> {
+pub(super) fn tick(a: &mut App) -> Vec<ActorHit> {
     a.world_mut()
         .resource_mut::<Time>()
         .advance_by(std::time::Duration::from_secs_f64(1.0 / 60.0));
@@ -116,7 +116,7 @@ fn tick(a: &mut App) -> Vec<ActorHit> {
 }
 // Public compiled getters read the actual JipHit recorded by Game::hit; a positive
 // health-damage assertion also prevents the getters' absent-record defaults passing.
-fn assert_jip_hit(a: &mut App, attacker: FormId, weapon: FormId, damage: f64, critical: bool) {
+fn assert_jip_hit(a: &mut App, attacker: FormId, weapon: FormId, damage: f64, critical: bool) -> f64 {
     let mut recorded = |getter: &str| {
         query(
             a,
@@ -137,6 +137,10 @@ fn assert_jip_hit(a: &mut App, attacker: FormId, weapon: FormId, damage: f64, cr
     assert_eq!(recorded("GetHitExtendedFlag 1"), XVal::Num(f64::from(u8::from(critical))));
     assert_eq!(recorded("GetHitAttacker"), XVal::Ref(attacker.0));
     assert_eq!(recorded("GetHitWeapon"), XVal::Ref(weapon.0));
+    let XVal::Num(base_weapon_damage) = recorded("GetHitBaseWeaponDamage") else {
+        panic!("JIP hit base weapon damage must be numeric")
+    };
+    base_weapon_damage
 }
 fn health(a: &mut App) -> f64 {
     let XVal::Num(h) = query(
@@ -153,7 +157,7 @@ enum Attack {
     PlayerProjectile,
     NpcProjectile,
 }
-fn hit(attack: Attack, value: Option<u16>, critical: bool, neighbor: bool) -> f64 {
+fn hit(attack: Attack, value: Option<u16>, critical: bool, neighbor: bool) -> (f64, f64) {
     let mut a = app();
     let (weapon, name, shooter) = match (attack, neighbor) {
         (Attack::PlayerMelee, _) => (CLUB, "CriticalHitClub", FormId::PLAYER_REF),
@@ -231,7 +235,7 @@ fn hit(attack: Attack, value: Option<u16>, critical: bool, neighbor: bool) -> f6
             (Some(shooter), Some(weapon), 0, critical)
         );
     }
-    assert_jip_hit(&mut a, shooter, weapon, before - after, critical);
+    let base_weapon_damage = assert_jip_hit(&mut a, shooter, weapon, before - after, critical);
     assert_eq!(
         a.world().resource::<Combat>().forms.weapons[&weapon].crit_damage,
         11,
@@ -244,29 +248,45 @@ fn hit(attack: Attack, value: Option<u16>, critical: bool, neighbor: bool) -> f6
         // Its physical flight was checked above; projectiles counts only that cycle.
         _ => assert_eq!((stats.actor_shots, stats.projectiles, stats.actor_hits), (1, 0, 1)),
     }
-    before - after
+    (before - after, base_weapon_damage)
 }
 fn comparisons(attack: Attack) {
-    let baseline = hit(attack, None, true, false);
-    let eleven = hit(attack, Some(11), true, false);
-    let thirty_seven = hit(attack, Some(37), true, false);
+    let (baseline, baseline_base) = hit(attack, None, true, false);
+    let (eleven, eleven_base) = hit(attack, Some(11), true, false);
+    let (thirty_seven, thirty_seven_base) = hit(attack, Some(37), true, false);
     assert!(
         (baseline - eleven).abs() < 0.001,
         "explicit baseline setter retains ordinary record behavior"
     );
     assert!(
+        (baseline_base - eleven_base).abs() < 0.001,
+        "GetHitBaseWeaponDamage matches baseline crit damage"
+    );
+    assert!(
         (thirty_seven - eleven - 26.0).abs() < 0.001,
         "same real hit: critical bonus changes by exactly26"
     );
-    let ordinary_eleven = hit(attack, Some(11), false, false);
-    let ordinary_thirty_seven = hit(attack, Some(37), false, false);
+    assert!(
+        (thirty_seven_base - eleven_base - 26.0).abs() < 0.001,
+        "GetHitBaseWeaponDamage includes SetWeaponCritDamage bonus on crits (+26)"
+    );
+    let (ordinary_eleven, ordinary_eleven_base) = hit(attack, Some(11), false, false);
+    let (ordinary_thirty_seven, ordinary_thirty_seven_base) = hit(attack, Some(37), false, false);
     assert!(
         (ordinary_eleven - ordinary_thirty_seven).abs() < 0.001,
         "noncritical health damage stays unchanged"
     );
     assert!(
+        (ordinary_eleven_base - ordinary_thirty_seven_base).abs() < 0.001,
+        "noncritical GetHitBaseWeaponDamage excludes crit damage"
+    );
+    assert!(
         (eleven - ordinary_eleven - 11.0).abs() < 0.001,
         "critical/ordinary baseline control"
+    );
+    assert!(
+        (eleven_base - ordinary_eleven_base - 11.0).abs() < 0.001,
+        "GetHitBaseWeaponDamage crit minus non-crit equals crit damage (11)"
     );
 }
 #[test]
@@ -276,14 +296,145 @@ fn compiled_critical_setter_reaches_player_melee_health_and_actor_hit() {
 #[test]
 fn compiled_critical_setter_reaches_player_projectile_health_and_actor_hit() {
     comparisons(Attack::PlayerProjectile);
-    let baseline = hit(Attack::PlayerProjectile, None, true, true);
-    let edited_neighbor = hit(Attack::PlayerProjectile, Some(37), true, true);
+    let (baseline, baseline_base) = hit(Attack::PlayerProjectile, None, true, true);
+    let (edited_neighbor, edited_neighbor_base) = hit(Attack::PlayerProjectile, Some(37), true, true);
     assert!(
         (baseline - edited_neighbor).abs() < 0.001,
         "another weapon's source edit must not change this hit"
+    );
+    assert!(
+        (baseline_base - edited_neighbor_base).abs() < 0.001,
+        "another weapon's source edit must not change GetHitBaseWeaponDamage"
     );
 }
 #[test]
 fn compiled_critical_setter_reaches_npc_projectile_health_and_actor_hit() {
     comparisons(Attack::NpcProjectile);
+}
+
+#[test]
+fn projectile_and_melee_hits_populate_jip_hit_projectile_base_damage_and_3d_data() {
+    // 1. Real projectile hit populates GetHitProjectile (live ref), GetHitBaseWeaponDamage (> 0),
+    // GetHit3DData 0/1/2 (3 / 3 / 6 finite values), and clears explosion flag 8.
+    let mut a = app();
+    query(&mut a, "Player.SetAV CriticalChance 0\nPlayer.AddItem CriticalHitGun 10 1\nPlayer.FireWeapon CriticalHitGun");
+    tick(&mut a);
+    let mut hits = Vec::new();
+    for _ in 0..8 {
+        hits.extend(tick(&mut a));
+        if !hits.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(hits.len(), 1, "projectile must land on target");
+    let target_get = |a: &mut App, expr: &str| {
+        query(a, &format!("ref struck\nlet struck := StringToRef \"{:08X}\"\nSetFunctionValue ({expr})", TARGET.0))
+    };
+    let XVal::Ref(proj_ref) = target_get(&mut a, "struck.GetHitProjectile") else {
+        panic!("GetHitProjectile must return a ref");
+    };
+    assert_ne!(proj_ref, 0, "projectile hit must record a live projectile reference");
+    assert_eq!(target_get(&mut a, "IsReference (struck.GetHitProjectile)"), XVal::Num(1.0));
+    let XVal::Num(base_dmg) = target_get(&mut a, "struck.GetHitBaseWeaponDamage") else {
+        panic!("GetHitBaseWeaponDamage must return a number");
+    };
+    assert!(base_dmg > 0.0, "expected positive base weapon damage, got {base_dmg}");
+    assert_eq!(target_get(&mut a, "struck.GetHitFatigueDamage"), XVal::Num(0.0));
+    assert_eq!(target_get(&mut a, "struck.GetHitExtendedFlag 8"), XVal::Num(0.0));
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 0)"), XVal::Num(3.0));
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 1)"), XVal::Num(3.0));
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 2)"), XVal::Num(6.0));
+    let XVal::Num(hit_y) = target_get(&mut a, "(struck.GetHit3DData 0)[1]") else {
+        panic!("3D pos Y must be numeric");
+    };
+    assert!(hit_y.is_finite() && hit_y > 50.0 && hit_y < 110.0, "hit Y near target volume: {hit_y}");
+    // Incoming travel direction from Player (0,0,0) -> Target (0,80,0) is unit +Y (0, 1, 0).
+    let (XVal::Num(dx), XVal::Num(dy), XVal::Num(dz)) = (
+        target_get(&mut a, "(struck.GetHit3DData 1)[0]"),
+        target_get(&mut a, "(struck.GetHit3DData 1)[1]"),
+        target_get(&mut a, "(struck.GetHit3DData 1)[2]"),
+    ) else {
+        panic!("3D dir components must be numeric");
+    };
+    let dir_norm = (dx * dx + dy * dy + dz * dz).sqrt();
+    assert!((dir_norm - 1.0).abs() < 1e-4, "GetHit3DData 1 must be a unit direction vector, got ({dx}, {dy}, {dz}) norm={dir_norm}");
+    assert!(dy > 0.99 && dx.abs() < 0.05 && dz.abs() < 0.05, "South->North shot must point along +Y, got ({dx}, {dy}, {dz})");
+    let (XVal::Num(b3), XVal::Num(b4), XVal::Num(b5)) = (
+        target_get(&mut a, "(struck.GetHit3DData 2)[3]"),
+        target_get(&mut a, "(struck.GetHit3DData 2)[4]"),
+        target_get(&mut a, "(struck.GetHit3DData 2)[5]"),
+    ) else {
+        panic!("GetHit3DData 2[3..6] must be numeric");
+    };
+    assert!((b3 - dx).abs() < 1e-5 && (b4 - dy).abs() < 1e-5 && (b5 - dz).abs() < 1e-5, "GetHit3DData 2[3..6] must equal GetHit3DData 1");
+
+    // 2. Real melee hit clears GetHitProjectile back to 0 while keeping base weapon damage & 3D data.
+    query(&mut a, "Player.AddItem CriticalHitClub 1 1\nPlayer.EquipItem CriticalHitClub 1");
+    tick(&mut a);
+    a.world_mut().resource_mut::<WeaponAnim>().ready = true;
+    a.world_mut().resource_mut::<PlayerControl>().trigger = true;
+    let mut melee_hits = tick(&mut a);
+    a.world_mut().resource_mut::<PlayerControl>().trigger = false;
+    for _ in 0..180 {
+        if !melee_hits.is_empty() {
+            break;
+        }
+        melee_hits.extend(tick(&mut a));
+    }
+    assert_eq!(melee_hits.len(), 1, "melee swing must land on target");
+    assert_eq!(target_get(&mut a, "struck.GetHitProjectile"), XVal::Ref(0));
+    let XVal::Num(melee_base) = target_get(&mut a, "struck.GetHitBaseWeaponDamage") else {
+        panic!("melee base weapon damage must be numeric");
+    };
+    assert!(melee_base > 0.0, "expected positive melee base weapon damage, got {melee_base}");
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 0)"), XVal::Num(3.0));
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 2)"), XVal::Num(6.0));
+}
+
+#[test]
+fn explosion_falloff_reaches_get_hit_base_weapon_damage() {
+    // Wave 4D w4d_13_explosion_falloff_outdoor [observed]: GetHitBaseWeaponDamage on
+    // explosion hits includes distance attenuation (before difficulty scaling).
+    let mut a = app();
+    let expl_id = FormId(0x0000_0A99);
+    a.world_mut().resource_mut::<Combat>().forms.explosions.insert(
+        expl_id,
+        fnv_combat::data::ExplosionStats {
+            edid: Some("TestFalloffExpl".into()),
+            damage: 100.0,
+            radius: 400.0,
+            ..Default::default()
+        },
+    );
+    let target_get = |a: &mut App, expr: &str| {
+        query(a, &format!("ref struck\nlet struck := StringToRef \"{:08X}\"\nSetFunctionValue ({expr})", TARGET.0))
+    };
+
+    // 1. Point-blank blast at target center (0, 80, 50) -> full 100.0 base damage.
+    a.world_mut().resource_mut::<Combat>().boom.push((expl_id, [0.0, 80.0, 50.0], None, Some([0.0, 0.0, 1.0])));
+    let close_hits = tick(&mut a);
+    assert_eq!(close_hits.len(), 1, "point-blank blast must hit target");
+    assert_eq!(target_get(&mut a, "struck.GetHitExtendedFlag 8"), XVal::Num(1.0));
+    let XVal::Num(bd_close) = target_get(&mut a, "struck.GetHitBaseWeaponDamage") else {
+        panic!("close base damage must be numeric");
+    };
+    let XVal::Num(hd_close) = target_get(&mut a, "struck.GetHitHealthDamage") else {
+        panic!("close health damage must be numeric");
+    };
+    assert!((bd_close - 100.0).abs() < 1e-3, "point-blank blast GetHitBaseWeaponDamage must be 100.0, got {bd_close}");
+    assert!((hd_close - bd_close).abs() < 1e-3, "unarmored normal-difficulty health damage must match base ({hd_close} vs {bd_close})");
+
+    // 2. Distant blast at (0, 280, 50) (d ~ 200u within radius 400u) -> attenuated base damage (< 100.0).
+    a.world_mut().resource_mut::<Combat>().boom.push((expl_id, [0.0, 280.0, 50.0], None, Some([0.0, 0.0, 1.0])));
+    let far_hits = tick(&mut a);
+    assert_eq!(far_hits.len(), 1, "distant blast within radius must hit target");
+    assert_eq!(target_get(&mut a, "struck.GetHitExtendedFlag 8"), XVal::Num(1.0));
+    let XVal::Num(bd_far) = target_get(&mut a, "struck.GetHitBaseWeaponDamage") else {
+        panic!("distant base damage must be numeric");
+    };
+    let XVal::Num(hd_far) = target_get(&mut a, "struck.GetHitHealthDamage") else {
+        panic!("distant health damage must be numeric");
+    };
+    assert!(bd_far > 0.0 && bd_far < 99.0, "distant blast GetHitBaseWeaponDamage must include distance falloff (< 100), got {bd_far}");
+    assert!((hd_far - bd_far).abs() < 1e-3, "distant blast health damage must scale from attenuated base ({hd_far} vs {bd_far})");
 }

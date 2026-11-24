@@ -51,6 +51,10 @@ impl Pack {
             // `_orm` alone.
             ("textures/walls/nonormal.dds", dxt1.clone()),
             ("textures/pbr/walls/nonormal_orm.dds", dx10(98, 4, 4, &[0; 16])),
+            // A set whose scalar file sets its metal gain.
+            ("textures/walls/steel.dds", dxt1.clone()),
+            ("textures/pbr/walls/steel_orm.dds", dx10(98, 4, 4, &[0; 16])),
+            ("textures/pbr/walls/steel.toml", b"metal_gain = 3\n".to_vec()),
             // Height only: no authored set.
             ("textures/walls/stone.dds", dxt1.clone()),
             ("textures/pbr/walls/stone_p.dds", legacy(b"BC4U", 4, 4, &[0; 8])),
@@ -136,8 +140,11 @@ fn the_synchronous_source_loads_a_set_by_its_exact_member_paths() {
     };
     let set = authored(source.pbr_set(&key)).expect("authored set");
     assert_eq!(set.stem, r"textures\pbr\walls\brick");
-    assert_eq!(set.scalars, Scalars { parallax_depth: None, roughness_scale: Some(0.5), reflectance: Some(0.25) });
+    assert_eq!(set.scalars, Scalars { parallax_depth: None, roughness_scale: Some(0.5), reflectance: Some(0.25), metal_gain: None });
     assert!(set.height.is_none(), "brick has no _p");
+    if std::env::var_os(METAL_GAIN_ENV).is_none() {
+        assert_eq!(set.metal_gain, fnv_pbr::DEFAULT_METAL_GAIN, "no metal_gain: the default");
+    }
     let normal = set.normal.clone().expect("_n");
     let none = authored(source.pbr_set(&source.resolve("walls/nonormal.dds"))).expect("set without _n");
     assert!(none.normal.is_none());
@@ -225,6 +232,29 @@ fn the_synchronous_source_loads_a_set_by_its_exact_member_paths() {
     // `_p` in the linear role, as unsigned BC4.
     for h in [stone_height, relief_height] {
         assert_eq!(images.get(h.depth_map.as_ref().unwrap()).unwrap().texture_descriptor.format, TextureFormat::Bc4RUnorm);
+    }
+}
+
+#[test]
+fn a_texture_outside_the_shapes_takes_only_its_sets_height_map() {
+    // #3322: the landscape's layers ask for the `_p` alone (TextureCache::authored_height).
+    let pack = Pack::new();
+    let mut cache = TextureCache::default();
+    let mut images = Assets::<Image>::default();
+    // Off: nothing is asked of the index.
+    assert!(cache.authored_height_with(false, "walls/stone.dds", &pack.data, &mut images, None).is_none());
+    assert!(!pack.data.pbr_index_built(), "the index is never built while the setting is off");
+    // A height-only set: its `_p` at the default depth, by the raw path as the layers name it.
+    let (stone, depth) = cache.authored_height_with(true, r"Walls\Stone.dds", &pack.data, &mut images, None).expect("height-only set");
+    assert_eq!(depth, fnv_pbr::DEFAULT_PARALLAX_DEPTH);
+    assert_eq!(images.get(&stone).unwrap().texture_descriptor.format, TextureFormat::Bc4RUnorm);
+    // An authored set: its `_p` at the scalar file's depth, and its `_orm` not loaded.
+    let (_, depth) = cache.authored_height_with(true, "walls/relief.dds", &pack.data, &mut images, None).expect("authored set with _p");
+    assert_eq!(depth, 0.05);
+    assert!(!cache.has_or_ahead(r"textures\pbr\walls\relief_orm.dds"), "only the height map is loaded");
+    // No `_p`, a depth of 0, a refused `_p`, a `_p` that does not load, no set at all: none.
+    for none in ["walls/brick.dds", "walls/flat.dds", "walls/signed.dds", "walls/brokenheight.dds", "walls/plain.dds"] {
+        assert!(cache.authored_height_with(true, none, &pack.data, &mut images, None).is_none(), "{none}");
     }
 }
 
@@ -616,4 +646,198 @@ fn alpha_tested_and_blended_shapes_are_refused_apart() {
     }
     assert_eq!(height_alpha(AlphaMode::Mask(0.5), false), Err(HeightSkip::AlphaTested));
     assert_eq!(height_alpha(AlphaMode::Mask(0.5), true), Ok(()));
+}
+
+/// #2979: the game depth switch takes a depth in the scalar file's range, 0 included (no
+/// game height map); garbage and out-of-range text keep the default.
+#[test]
+fn the_game_depth_switch_takes_0_to_0_08() {
+    assert_eq!(parse_game_parallax_depth("0.05"), Ok(0.05));
+    assert_eq!(parse_game_parallax_depth(" 0 "), Ok(0.0));
+    assert_eq!(parse_game_parallax_depth("0.08"), Ok(0.08));
+    for bad in ["0.1", "-0.01", "NaN", "inf", "deep", ""] {
+        assert!(parse_game_parallax_depth(bad).is_err(), "{bad}");
+    }
+    let depth = |text: Option<&str>| switch_value(GAME_PARALLAX_DEPTH_ENV, text, GAME_PARALLAX_DEPTH, parse_game_parallax_depth, |d| format!("{d}"), |_| false);
+    assert_eq!(depth(None), (GAME_PARALLAX_DEPTH, SwitchLog::Quiet));
+    assert!(matches!(depth(Some("0")), (0.0, SwitchLog::Taken(_))));
+    assert!(matches!(depth(Some("0.5")), (d, SwitchLog::Refused(_)) if d == GAME_PARALLAX_DEPTH));
+    assert!(fnv_pbr::PARALLAX_DEPTH_RANGE.contains(&GAME_PARALLAX_DEPTH) && GAME_PARALLAX_DEPTH > 0.0);
+    if std::env::var_os(GAME_PARALLAX_DEPTH_ENV).is_none() {
+        assert_eq!(game_parallax_depth(), GAME_PARALLAX_DEPTH);
+    }
+}
+
+/// #2979: the game height maps' exit line reads its counts back, and says when the switch
+/// turned them off.
+#[test]
+fn the_game_height_line_names_every_count() {
+    let s = Stats::default();
+    for (c, n) in [(&s.game_height_drawn, 5), (&s.game_height_flat, 2), (&s.game_height_not_loaded, 1), (&s.game_height_replaced, 3), (&s.game_height_dropped, 4)] {
+        for _ in 0..n {
+            Stats::add(c);
+        }
+    }
+    let shape = format!("{}, {} layers", parallax_method_name(parallax_method()), parallax_layers());
+    assert_eq!(
+        s.game_line(0.03),
+        format!("depth 0.03 ({shape}); 2 material builds draw a NIF's own height map (texture-set slot 3, shader flag 11), 3 more had it replaced by an authored _p, 2 left it flat (alpha-tested, blended, double-sided, decal, unlit, refracting, a holes effect or without tangents on the drawn mesh), 1 could not load it; 4 later copies dropped one")
+    );
+    let off = Stats::default();
+    assert_eq!(off.game_line(0.0), format!("off (NVF_GAME_PARALLAX_DEPTH=0) ({shape}); 0 material builds draw a NIF's own height map (texture-set slot 3, shader flag 11), 0 more had it replaced by an authored _p, 0 left it flat (alpha-tested, blended, double-sided, decal, unlit, refracting, a holes effect or without tangents on the drawn mesh), 0 could not load it; 0 later copies dropped one"));
+}
+
+/// #2979 review: the march's step at a grazing view. The divisor stops at
+/// [`PARALLAX_MIN_STEEPNESS`], so a view along the surface gives a finite, bounded shift and
+/// steeper views are as upstream; the vendored shader carries the same clamp (read here).
+#[test]
+fn the_grazing_clamp_bounds_the_parallax_shift() {
+    let d = 0.015;
+    let along = Parallax::full_depth_shift(d, Vec3::new(1.0, 0.0, 0.0));
+    assert!(along.is_finite());
+    assert!((along.x - d / PARALLAX_MIN_STEEPNESS).abs() < 1e-6 && along.y == 0.0, "{along:?}");
+    let grazing = Parallax::full_depth_shift(d, Vec3::new(0.0, (1.0f32 - 0.01).sqrt(), 0.1));
+    assert!((grazing.y + d * (0.99f32).sqrt() / PARALLAX_MIN_STEEPNESS).abs() < 1e-6, "y is flipped and clamped: {grazing:?}");
+    let steep = Parallax::full_depth_shift(d, Vec3::new(0.6, 0.0, 0.8));
+    assert!((steep.x - d * 0.6 / 0.8).abs() < 1e-7, "above the clamp the step is upstream's: {steep:?}");
+    for z in [0.0f32, 0.01, 0.1, 0.15, 0.5, 1.0] {
+        let vt = Vec3::new((1.0 - z * z).sqrt(), 0.0, z);
+        assert!(Parallax::full_depth_shift(d, vt).length() <= d / PARALLAX_MIN_STEEPNESS + 1e-6, "z {z}");
+    }
+    let shader = include_str!("../../../vendor/bevy_pbr/src/render/parallax_mapping.wesl");
+    assert!(shader.contains(&format!("/ max(view_steepness, {PARALLAX_MIN_STEEPNESS});")), "the vendored march clamps at the same steepness");
+}
+
+/// #2979 review: a material made on a copy of a drawn mesh (an actor's texture set, here one
+/// giving a normal map to a shape whose drawn mesh has no tangents) records the drawn mesh's
+/// tangents, so a later swap to a diffuse with a height map puts none on; the same material
+/// built for its own mesh takes it.
+#[test]
+fn a_swap_on_a_copy_of_a_drawn_mesh_uses_the_drawn_meshs_tangents() {
+    use crate::nif_spawn::{shape_material, shape_material_reusing_tangents, Props};
+    use crate::texture::bc5_tests::triangle;
+    let pack = Pack::new();
+    let mut cache = TextureCache::default();
+    let mut images = Assets::<Image>::default();
+    let mut props = Props::default();
+    props.textures = vec![r"walls\plain.dds".into(), r"walls\brick.dds".into()];
+    let mut copy = triangle();
+    let (mut swapped, _) = shape_material_reusing_tangents(&props, &mut copy, &mut cache, &pack.data, &mut images, None);
+    assert!(copy.attribute(Mesh::ATTRIBUTE_TANGENT).is_some(), "the copy gained tangents for the normal map");
+    assert!(!swapped.extension.legacy.as_ref().unwrap().tangents, "the drawn mesh has none");
+    assert_eq!(retexture(&mut swapped, r"walls\stone.dds", &mut cache, &pack.data, &mut images, None), Retextured::HeightOnly);
+    assert!(swapped.base.depth_map.is_none() && !height_on(&swapped), "no height map the GPU would skip");
+    let (mut own, _) = shape_material(&props, &mut triangle(), &mut cache, &pack.data, &mut images, None);
+    assert!(own.extension.legacy.as_ref().unwrap().tangents);
+    assert_eq!(retexture(&mut own, r"walls\stone.dds", &mut cache, &pack.data, &mut images, None), Retextured::HeightOnly);
+    assert!(own.base.depth_map.is_some() && height_on(&own), "its own mesh: the height map goes on");
+}
+
+/// The metal gain override's value: a gain from 1 to 40 (the scalar file's range), nothing for
+/// no value, a reason for anything else (the caller warns once and the sets keep their own).
+#[test]
+fn the_metal_gain_override_takes_a_gain_from_one_to_forty() {
+    assert_eq!(parse_metal_gain(None), Ok(None));
+    assert_eq!(parse_metal_gain(Some("  ")), Ok(None));
+    assert_eq!(parse_metal_gain(Some("1")), Ok(Some(1.0)));
+    assert_eq!(parse_metal_gain(Some(" 2.5 ")), Ok(Some(2.5)));
+    assert_eq!(parse_metal_gain(Some("40")), Ok(Some(40.0)));
+    assert!(parse_metal_gain(Some("0.5")).is_err_and(|e| e.contains("outside 1 to 40")));
+    assert!(parse_metal_gain(Some("41")).is_err());
+    assert!(parse_metal_gain(Some("NaN")).is_err(), "not in the range");
+    assert!(parse_metal_gain(Some("bright")).is_err_and(|e| e.contains("not a number")));
+    // The tests run without the variable: no override.
+    if std::env::var_os(METAL_GAIN_ENV).is_none() {
+        assert_eq!(metal_gain_override(), None);
+    }
+}
+
+/// A set's gain: the override over the file over the default (12).
+#[test]
+fn a_sets_metal_gain_is_the_override_the_file_or_the_default() {
+    let none = Scalars::default();
+    let six = Scalars { metal_gain: Some(6.0), ..Scalars::default() };
+    assert_eq!(set_metal_gain(&none, None), 12.0, "the default");
+    assert_eq!(set_metal_gain(&six, None), 6.0, "the file wins over the default");
+    assert_eq!(set_metal_gain(&six, Some(20.0)), 20.0, "the run's override wins over everything");
+    assert_eq!(set_metal_gain(&none, Some(1.0)), 1.0);
+}
+
+/// The CPU mirror of the shader's lift (nif_material.wesl `nvf_metal_base`): one gain on all
+/// channels, limited so the brightest reaches 1 (hue kept), never below the base, by the
+/// metallic; gain 1 and metallic 0 leave the base as it is.
+#[test]
+fn the_metal_lift_keeps_the_hue_and_stops_at_one() {
+    let near = |a: Vec3, b: Vec3| a.distance(b) < 1e-5;
+    let minigun = Vec3::new(0.03, 0.02, 0.015);
+    // Under the limit: the plain gain.
+    assert!(near(lifted_base(minigun, 12.0, 1.0), minigun * 12.0));
+    // Over it: the brightest channel reaches exactly 1 and the ratios stay.
+    let bronze = Vec3::new(0.4, 0.3, 0.2);
+    let l = lifted_base(bronze, 12.0, 1.0);
+    assert!((l.max_element() - 1.0).abs() < 1e-6, "{l}");
+    assert!(near(l / l.x, bronze / bronze.x), "hue kept: {l}");
+    assert!(near(l, Vec3::new(1.0, 0.75, 0.5)));
+    // The experiment's per-channel clip would have shifted it: min(base x 12, 1) is white.
+    assert!(near((bronze * 12.0).min(Vec3::ONE), Vec3::ONE));
+    // No lift: gain 1, metallic 0, or a base already at 1.
+    assert!(near(lifted_base(bronze, 1.0, 1.0), bronze));
+    assert!(near(lifted_base(bronze, 40.0, 0.0), bronze));
+    assert!(near(lifted_base(Vec3::new(1.0, 0.5, 0.1), 12.0, 1.0), Vec3::new(1.0, 0.5, 0.1)));
+    // Half metallic: half way.
+    assert!(near(lifted_base(bronze, 12.0, 0.5), (bronze + Vec3::new(1.0, 0.75, 0.5)) * 0.5));
+    // Never below the base (a base colour above 1, a gain lane of 0 on a material without a set).
+    assert!(near(lifted_base(Vec3::new(2.0, 1.0, 0.5), 12.0, 1.0), Vec3::new(2.0, 1.0, 0.5)));
+    assert!(near(lifted_base(bronze, 0.0, 1.0), bronze));
+    // Black stays black (the 1e-4 floor keeps the division finite).
+    assert!(lifted_base(Vec3::ZERO, 40.0, 1.0).is_finite() && near(lifted_base(Vec3::ZERO, 40.0, 1.0), Vec3::ZERO));
+}
+
+/// The metal gain lane (`NifSurface::metal_gain`, the uniform's `terrain.y`): a build with a
+/// set carries its gain, a build without one 0; a swap carries the new set's gain and the
+/// legacy look's 0; restore, make_legacy and an unlit copy clear it.
+#[test]
+fn the_metal_gain_lane_follows_the_set_on_the_material() {
+    use crate::nif_material::NifSurfaceUniform;
+    use crate::nif_spawn::{shape_material, Props};
+    use crate::texture::bc5_tests::triangle;
+    if std::env::var_os(METAL_GAIN_ENV).is_some() {
+        return; // an override replaces every set's gain
+    }
+    let pack = Pack::new();
+    let mut cache = TextureCache::default();
+    let mut images = Assets::<Image>::default();
+    let props = |t: &str| {
+        let mut p = Props::default();
+        p.textures = vec![t.into()];
+        p
+    };
+    let lane = |m: &crate::NifMaterial| (m.extension.metal_gain, NifSurfaceUniform::from(&m.extension).terrain.y);
+    let (brick, _) = shape_material(&props(r"walls\brick.dds"), &mut triangle(), &mut cache, &pack.data, &mut images, None);
+    let (steel, _) = shape_material(&props(r"walls\steel.dds"), &mut triangle(), &mut cache, &pack.data, &mut images, None);
+    let (plain, _) = shape_material(&props(r"walls\plain.dds"), &mut triangle(), &mut cache, &pack.data, &mut images, None);
+    assert_eq!(lane(&brick), (12.0, 12.0), "no metal_gain in brick's file: the default");
+    assert_eq!(lane(&steel), (3.0, 3.0), "the scalar file's");
+    assert_eq!(lane(&plain), (0.0, 0.0), "no set");
+    // Swaps: the new set's gain, the legacy look's 0, back again.
+    let mut m = plain.clone();
+    assert_eq!(retexture(&mut m, r"walls\steel.dds", &mut cache, &pack.data, &mut images, None), Retextured::Authored);
+    assert_eq!(lane(&m), (3.0, 3.0));
+    assert_eq!(retexture(&mut m, r"walls\brick.dds", &mut cache, &pack.data, &mut images, None), Retextured::Authored);
+    assert_eq!(lane(&m), (12.0, 12.0), "never the old set's");
+    assert_eq!(retexture(&mut m, r"walls\plain.dds", &mut cache, &pack.data, &mut images, None), Retextured::Legacy);
+    assert_eq!(lane(&m), (0.0, 0.0));
+    // A copy carries the lane (it is a field of the material).
+    let copy = steel.clone();
+    assert_eq!(lane(&copy), (3.0, 3.0));
+    // Restore, make_legacy, an unlit copy: cleared.
+    let mut restored = steel.clone();
+    restore(&mut restored, steel.extension.legacy.as_ref().unwrap());
+    assert_eq!(lane(&restored), (0.0, 0.0));
+    let mut legacy_for_good = steel.clone();
+    assert!(make_legacy(&mut legacy_for_good));
+    assert_eq!(lane(&legacy_for_good), (0.0, 0.0));
+    let mut unlit = steel.clone();
+    clear_for_unlit_copy(&mut unlit);
+    assert_eq!(lane(&unlit), (0.0, 0.0));
 }

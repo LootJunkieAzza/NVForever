@@ -249,6 +249,11 @@ words (§8) are NVForever's own and are shown in the chosen language (`lang/READ
   at 600, 20 under the header; a line 10 under it as long as the text is wide; the list 10
   under that, 700 wide, 12 rows, each "> " and the item's text; at the bottom 30 above the
   edge a ">" prompt and, 34 right of it, the last result text.
+- Blank lines in the welcome text (`DESC`) and in a note body each take one row of line
+  height (`LINE`, 25 units) rather than two (#3478) [hypothesis: screenshots of a
+  translated terminal in #3478 show roughly half NVForever's previous double-counted gap
+  between the welcome text and the separator; an original-game observer check of blank
+  welcome lines and first-page note row count is still open].
 - Items listed: those whose conditions hold, run on the terminal reference with the
   player as target [hypothesis: 244 of the conditions run on the subject, 115 on the
   linked reference, which only makes sense from the terminal]. The list is read again
@@ -265,7 +270,7 @@ words (§8) are NVForever's own and are shown in the chosen language (`lang/READ
   script) runs the block instead of opening; ShowHackingMiniGame; Lock / Unlock and
   GetLocked / GetLockLevel on terminals (they use the reference's lock data, which
   terminals do not have); the hacking XP (`iXPRewardHackComputer*` are in the plugins);
-  the typing-out of text and its sounds; image notes; the Alternate Colors and Hide Welcome
+  the typing-out's sounds (the typing itself, §7); image notes; the Alternate Colors and Hide Welcome
   flags; saving which terminals were hacked.
 
 ## 7. Drawing and keys
@@ -344,7 +349,22 @@ after each adjustment:
   Down choose a menu item, Enter or E takes it; Tab or Backspace go back; Esc leaves. The
   pointer lights what it is on and a click enters it. The first key or the pointer shows
   the cursor.
+- A note longer than the screen (#3409) [hypothesis: the player's memory of the original,
+  observer check 255]: Up / Down scroll it a line, no further than its last lines; Enter,
+  E or a click anywhere on the screen turns to the next page (the line after the last one
+  shown; the last page shows the note's last lines), and on the last page does nothing.
+  Tab goes back to the list.
 - Times [design]: 2 s of the wait message before the menu; 1.5 s before the lockout screen.
+- Typing out (#3327) [hypothesis: the original types a page's text out as it comes up
+  (the player's report and video); its rate and order are not measured, observer check
+  254]: each page's lines type out one after another in the order the page draws them,
+  each line left to right, at 600 characters a second (`screen::TYPE_RATE`, [design]: about
+  a second for a menu page, two for the hacking screen). A line is drawn whole within a clip
+  that widens; the chosen row's box comes with its text. A page is the hacking screen, the
+  lockout screen, or a menu, sub menu or note: moving the selection, scrolling a note or
+  entering a word goes on typing where it was, and does not start again. The blocks of
+  attempts, the separator and the cursor are drawn at once. No key skips it. Its sounds
+  (`UIHackingCharSingle` / `…Multiple`, below) are not played.
 
 ## 8. Words not in the plugins
 

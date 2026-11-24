@@ -28,7 +28,7 @@ use crate::terrain::TerrainMaterial;
 use crate::world::{bevy_to_game, game_to_bevy, Streamer, WorldData};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::{visibility::RenderLayers, Hdr, RenderTarget, ScalingMode};
-use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::image::ImageSampler;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
@@ -200,12 +200,16 @@ pub enum CaptureDraw { Folded(Box<TerrainMaterial>), Single(SurfaceCaptureMateri
 /// returns the base colour only), no scorch, no fog. Round 10a review (second round):
 /// without the normal maps, which that colour never reads, so a removed normal map (a
 /// detail dependency, which masks and rebakes the cell) cannot keep the copy from being
-/// prepared and the replacement's receipt from ever arriving.
+/// prepared and the replacement's receipt from ever arriving. #3322: without the height maps
+/// and parallax for the same reason; the bake keeps the unshifted surface.
 fn bake_copy(material: &mut TerrainMaterial) {
     let e = &mut material.extension;
     e.surface_bake = true;
     e.burn = None;
     for normal in [&mut e.normal0, &mut e.normal1, &mut e.normal2, &mut e.normal3, &mut e.normal4, &mut e.normal5] { *normal = None; }
+    for height in [&mut e.height0, &mut e.height1, &mut e.height2, &mut e.height3, &mut e.height4, &mut e.height5] { *height = None; }
+    e.parallax = false;
+    e.parallax_depths = [0.0; crate::terrain::FOLDED_LAYERS];
     material.base.fog_enabled = false;
     material.base.normal_map_texture = None;
 }
@@ -1448,9 +1452,25 @@ pub fn refresh_captures(
     ordinary: Res<Assets<nvf_assets::NifMaterial>>,
     folded_events: Option<Res<Messages<AssetEvent<TerrainMaterial>>>>,
     ordinary_events: Option<Res<Messages<AssetEvent<nvf_assets::NifMaterial>>>>,
+    parallax_edits: Option<Res<crate::terrain::ParallaxEdits>>,
     mut cursors: Local<CaptureEvents>,
 ) {
-    let folded_changed: HashSet<_> = folded_events.as_ref().map(|e| cursors.folded.read(e).filter_map(modified_asset).collect()).unwrap_or_default();
+    // Each changed folded material, and whether something other than this frame's parallax
+    // flips changed it (a removal, or more Modified events than the flips made).
+    let mut modified: HashMap<AssetId<TerrainMaterial>, u32> = HashMap::new();
+    let mut removed: HashSet<AssetId<TerrainMaterial>> = HashSet::new();
+    if let Some(events) = folded_events.as_ref() {
+        for event in cursors.folded.read(events) {
+            match event {
+                AssetEvent::Modified { id } => *modified.entry(*id).or_default() += 1,
+                AssetEvent::Removed { id } => { removed.insert(*id); }
+                _ => {}
+            }
+        }
+    }
+    let flips = |id: &AssetId<TerrainMaterial>| parallax_edits.as_deref().and_then(|p| p.0.get(id)).copied().unwrap_or(0);
+    let generic: HashSet<AssetId<TerrainMaterial>> = modified.iter().filter(|(id, n)| **n > flips(id)).map(|(id, _)| *id).chain(removed.iter().copied()).collect();
+    let folded_changed: HashSet<AssetId<TerrainMaterial>> = modified.keys().copied().chain(removed.iter().copied()).collect();
     let ordinary_changed: HashSet<_> = ordinary_events.as_ref().map(|e| cursors.ordinary.read(e).filter_map(modified_asset).collect()).unwrap_or_default();
     for mut cell in &mut cells {
         // Component edits/replacement also refresh the derived dependency list. Preserve
@@ -1458,6 +1478,14 @@ pub fn refresh_captures(
         if cell.is_changed() { cell.bypass_change_detection().refresh_dependencies(); }
         let dirty = cell.sources.iter().any(|s| match s { CaptureSource::Folded(h) => folded_changed.contains(&h.id()), CaptureSource::Single(h, _) => ordinary_changed.contains(&h.id()) });
         if !dirty { continue; }
+        // #3322 review: the terrain parallax switch's own edits (and nothing else this frame)
+        // leave the cell untouched when what it is made from compares equal (the bake copy
+        // drops the switch, the detail never reads it); any other edit remakes it as before.
+        let parallax_only = cell.sources.iter().all(|s| match s {
+            CaptureSource::Folded(h) => !generic.contains(&h.id()),
+            CaptureSource::Single(h, _) => !ordinary_changed.contains(&h.id()),
+        });
+        if parallax_only && captured_inputs_unchanged(&cell, &folded, &ordinary) { continue; }
         let sources = cell.sources.clone();
         let mut missing = false;
         for (source, (_, draw)) in sources.iter().zip(&mut cell.quadrants) {
@@ -1504,6 +1532,28 @@ pub fn resolve_detail(base: &DetailBase, overflow: &[Handle<nvf_assets::NifMater
         DetailBase::Single(h) => { let m = ordinary.get(h).ok_or(UNRESOLVED)?; ResolvedDetail::from_materials(&m.base, Some(&m.extension), None, &overflow, layers) }
     }
 }
+/// Whether a cell's capture would come out the same from its source materials as they are
+/// now: every bake copy as it is kept (compared whole, by its debug form: every field, every
+/// texture handle) and every detail's resolution [design, #3322 review: compared inputs, not
+/// remembered edits, so no edit is ever taken for another].
+fn captured_inputs_unchanged(cell: &SurfaceCell, folded: &Assets<TerrainMaterial>, ordinary: &Assets<nvf_assets::NifMaterial>) -> bool {
+    let draws = cell.sources.iter().zip(&cell.quadrants).all(|(source, (_, kept))| {
+        let fresh = match source {
+            CaptureSource::Folded(h) => folded.get(h).map(|m| {
+                let mut m = m.clone();
+                bake_copy(&mut m);
+                CaptureDraw::Folded(Box::new(m))
+            }),
+            CaptureSource::Single(h, layer) => ordinary.get(h).map(|m| CaptureDraw::Single(SurfaceCaptureMaterial::from_source(m, *layer))),
+        };
+        fresh.is_some_and(|f| format!("{f:?}") == format!("{kept:?}"))
+    });
+    draws && cell.detail.iter().all(|d| match d {
+        DetailCapture::Layers(detail) => resolve_detail(&detail.base, &detail.overflow, detail.opacity.len(), folded, ordinary) == detail.resolved,
+        _ => true,
+    })
+}
+
 fn modified_asset<A: Asset>(event: &AssetEvent<A>) -> Option<AssetId<A>> {
     match event { AssetEvent::Modified { id } | AssetEvent::Removed { id } => Some(*id), _ => None }
 }
@@ -1771,7 +1821,9 @@ pub fn update_cache(
             Camera3d::default(), bevy::render::view::NoIndirectDrawing,
             BakeView { receipt, height: height.clone(), resources_ready: default(), transfers, expected, complete: default(), drawn: default(), submitted: cache.submitted.clone() },
             Camera { order: -10, is_active, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
-            target, Hdr, Tonemapping::None, Msaa::Off,
+            // [design] Unlit surface-bake target: no dither, which Bevy warns of beside
+            // `Tonemapping::None` every frame it sees the camera (#2757).
+            target, Hdr, Tonemapping::None, DebandDither::Disabled, Msaa::Off,
             Projection::Orthographic(OrthographicProjection {
                 scaling_mode: ScalingMode::Fixed { width: 12288.0, height: 12288.0 },
                 near: 0.0, far: 200.0, ..OrthographicProjection::default_3d()
@@ -3838,5 +3890,31 @@ pub(crate) mod tests {
                 assert_eq!((d.tint.len(), d.normal.len()), (QUAD_SIDE * QUAD_SIDE, QUAD_SIDE * QUAD_SIDE));
             }
         }
+    }
+
+    /// [design] #2757: the bake camera renders an unlit RGBA16F atlas with `Tonemapping::None`
+    /// and must attach `DebandDither::Disabled` in both active-bake and copy-only configurations
+    /// so Bevy does not emit a per-frame warning.
+    #[test]
+    fn bake_camera_disables_deband_dither_beside_tonemapping_none() {
+        let (mut app, _files) = cache_fixture();
+        move_camera(&mut app, (1, 0));
+        tick(&mut app);
+        let mut cameras = app.world_mut().query_filtered::<(&Tonemapping, &DebandDither, &Msaa), With<BakeView>>();
+        let (tonemapping, dither, msaa) = cameras.single(app.world()).unwrap();
+        assert_eq!((*tonemapping, *dither, *msaa), (Tonemapping::None, DebandDither::Disabled, Msaa::Off));
+
+        let (mut app, _files) = cache_fixture();
+        for y in -1..=1 {
+            let entity = app.world().resource::<Streamer>().loaded[&(2, y)];
+            let mut cell = app.world_mut().get_mut::<SurfaceCell>(entity).unwrap();
+            cell.quadrants.clear();
+            cell.paths = [CapturePath::HeightOnly("missing-base-mesh"); 4];
+        }
+        move_camera(&mut app, (1, 0));
+        tick(&mut app);
+        let mut cameras = app.world_mut().query_filtered::<(&Tonemapping, &DebandDither, &Msaa), With<BakeView>>();
+        let (tonemapping, dither, msaa) = cameras.single(app.world()).unwrap();
+        assert_eq!((*tonemapping, *dither, *msaa), (Tonemapping::None, DebandDither::Disabled, Msaa::Off));
     }
 }

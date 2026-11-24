@@ -142,10 +142,10 @@ pub trait EffectCtx {
     /// The icon file and the seconds of a message that is not a box, as [`Note`] has
     /// them.
     fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>);
-    /// A skill's name and icon file (its AVIF record's FULL and ICON), for the line of a
-    /// skill book read.
-    fn skill_look(&self, code: u16) -> (String, Option<String>) {
-        (fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string(), None)
+    /// A skill's display name (its AVIF record's FULL, else the canonical actor-value
+    /// name), for the line of a skill book read.
+    fn skill_name(&self, code: u16) -> String {
+        fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string()
     }
     /// References whose enable parent chain leads to `r` (their presence follows it).
     fn enable_children(&self, r: FormId) -> Vec<FormId>;
@@ -264,9 +264,22 @@ pub fn activation_from_json(v: &serde_json::Value) -> Option<Activation> {
 /// which `activate.rs` turns into effects as before scripts existed): they are traced
 /// but not applied twice.
 pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) -> Vec<ScriptEffect> {
+    effects_with_corner_clear(events, skip, 0, ctx)
+}
+
+/// Like [`effects`], dropping corner-message [`ScriptEffect::Notify`] items from events
+/// at indices below `clear_before` (emitted before a same-frame `ClearMessageQueue` call)
+/// while preserving all other effects and notifications emitted at or after `clear_before`
+/// [design].
+pub fn effects_with_corner_clear(events: &[Event], skip: &BTreeSet<usize>, clear_before: usize, ctx: &dyn EffectCtx) -> Vec<ScriptEffect> {
     let mut out = Vec::new();
     let mut added: Vec<(FormId, i32)> = Vec::new();
     let player = FormId::PLAYER_REF;
+    let push_notify = |out: &mut Vec<ScriptEffect>, idx: usize, note: Note| {
+        if idx >= clear_before {
+            out.push(ScriptEffect::Notify(note));
+        }
+    };
     // Objectives this batch shows, by quest: the game's state already has them, so
     // whether a quest was listed before is asked without them.
     let shown = |q: FormId| -> Vec<i32> {
@@ -334,7 +347,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                     Destination::Interior(c) => (None, Some(c)),
                     Destination::Exterior { world } => (Some(world), None),
                     Destination::Unknown => {
-                        out.push(ScriptEffect::Notify("A script moved the player to an unknown cell".into()));
+                        push_notify(&mut out, i, "A script moved the player to an unknown cell".into());
                         continue;
                     }
                 };
@@ -364,7 +377,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                         // A pickup's "added" line comes from its ItemAdded event
                         // (`Game::default_activation` emits both), not twice.
                         Effect::Message(_) if matches!(a.outcome, Outcome::PickedUp { .. }) => {}
-                        Effect::Message(m) if *by == player => out.push(ScriptEffect::Notify(m.into())),
+                        Effect::Message(m) if *by == player => push_notify(&mut out, i, m.into()),
                         _ => {}
                     }
                 }
@@ -374,30 +387,32 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             // §4); a fatigue knockout shows nothing [owner request 2026-10-17].
             // The player's tweak keeps this line off [design: docs/design/tweaks.md].
             EventKind::KnockedOut { cause: "essential", .. } | EventKind::TalkedToUnconscious { .. } if ctx.tweaks().is_some_and(|t| t.no_unconscious_message) => {}
-            EventKind::KnockedOut { actor, cause: "essential" } | EventKind::TalkedToUnconscious { actor } => out.push(ScriptEffect::Notify(unconscious_line(ctx, *actor).into())),
+            EventKind::KnockedOut { actor, cause: "essential" } | EventKind::TalkedToUnconscious { actor } => push_notify(&mut out, i, unconscious_line(ctx, *actor).into()),
             EventKind::MessageShown { message, text, buttons, hidden } => {
                 let text = text.clone().unwrap_or_default();
                 if !buttons.is_empty() || ctx.is_message_box(*message) {
                     out.push(ScriptEffect::MessageBox(BoxMessage { message: message.0, text, buttons: buttons.clone(), hidden: hidden.clone() }));
                 } else if !text.trim().is_empty() {
                     let (icon, seconds) = ctx.message_look(*message);
-                    out.push(ScriptEffect::Notify(Note { text, icon, seconds }));
+                    push_notify(&mut out, i, Note { text, icon, seconds });
                 }
             }
-            EventKind::NoteShown { text, icon, seconds } if !text.trim().is_empty() => out.push(ScriptEffect::Notify(Note { text: text.clone(), icon: icon.clone(), seconds: Some(*seconds) })),
+            EventKind::NoteShown { text, icon, seconds } if !text.trim().is_empty() => push_notify(&mut out, i, Note { text: text.clone(), icon: icon.clone(), seconds: Some(*seconds) }),
             // The first objective of a quest to be shown adds the quest [documented: GECK
             // wiki SetObjectiveDisplayed]; an objective without text or a quest without a
             // name is not shown [hypothesis] (quest-messages.md §5).
             EventKind::ObjectiveDisplayed { quest, index, on: true } => {
                 let Some(text) = ctx.objective_text(*quest, *index).filter(|t| !t.trim().is_empty()) else { continue };
+                let Some(name) = ctx.quest_title(*quest).filter(|n| !n.trim().is_empty()) else { continue };
                 if announced.insert(*quest) && !ctx.quest_listed(*quest, &shown(*quest)) {
-                    if let Some(name) = ctx.quest_title(*quest) {
-                        out.push(ScriptEffect::Quest(QuestNotice::Added(name)));
-                    }
+                    out.push(ScriptEffect::Quest(QuestNotice::Added(name)));
                 }
                 out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: quest.0, text, completed: false }])));
             }
             EventKind::ObjectiveCompleted { quest, index, on: true, silent: false } => {
+                if ctx.quest_title(*quest).is_none_or(|n| n.trim().is_empty()) {
+                    continue;
+                }
                 if let Some(text) = ctx.objective_text(*quest, *index).filter(|t| !t.trim().is_empty()) {
                     out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: quest.0, text, completed: true }])));
                 }
@@ -413,23 +428,27 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                 // Caps a script gave: their pick-up sound, as caps taken by hand
                 // [hypothesis: the original plays it; player report R-BR8PUBD2, #3095].
                 caps_sound |= *item == CAPS && !picked_up.contains(&CAPS);
-                match added.iter_mut().find(|(i, _)| i == item) {
-                    Some((_, n)) => *n += count,
-                    None => added.push((*item, *count)),
+                if i >= clear_before {
+                    match added.iter_mut().find(|(i, _)| i == item) {
+                        Some((_, n)) => *n += count,
+                        None => added.push((*item, *count)),
+                    }
                 }
             }
-            // A skill book read: "<Skill> increased to <value>" with the skill's icon
-            // [hypothesis: wording and icon NVForever's, the original's line is not in
-            // the plugins; docs/spec-notes/skill-books.md §5].
+            // A skill book read: "<Skill> increased to <value>" with the default corner
+            // icon (`icon: None` -> `glow_message_vaultboy_neutral.dds`) rather than the
+            // 256x256 Pip-Boy `AVIF` skill illustration [hypothesis: wording and icon
+            // NVForever's, no MESG or GMST in the masters names a book read;
+            // docs/spec-notes/skill-books.md §5].
             // The player's tweak: no line for a book that gave nothing [design: docs/design/tweaks.md].
             EventKind::BookRead { actor, points, .. } if *actor == player && *points == 0.0 && ctx.tweaks().is_some_and(|t| t.no_book_message_without_gain) => {}
             EventKind::BookRead { actor, value, skill, .. } if *actor == player => {
-                let (name, icon) = ctx.skill_look(*skill);
-                out.push(ScriptEffect::Notify(Note { text: format!("{name} increased to {}", value.round()), icon, seconds: None }));
+                let name = ctx.skill_name(*skill);
+                push_notify(&mut out, i, Note { text: format!("{name} increased to {}", value.round()), icon: None, seconds: None });
             }
             EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => {
                 let n = ctx.name(*item);
-                out.push(ScriptEffect::Notify(if *count > 1 { format!("{n} ({count}) removed") } else { format!("{n} removed") }.into()));
+                push_notify(&mut out, i, if *count > 1 { format!("{n} ({count}) removed") } else { format!("{n} removed") }.into());
             }
             _ => {}
         }
@@ -533,6 +552,30 @@ impl TriggerShape {
             TriggerKind::Box { half_extents: h } => (0..3).all(|i| l[i].abs() <= h[i]),
             TriggerKind::Sphere { radius } => l.iter().map(|v| v * v).sum::<f32>() <= radius * radius,
         }
+    }
+
+    /// The point of the volume nearest `p`, `inset` units inside its faces (a box) or its
+    /// surface (a sphere) where it is that large: where a walk into it from `p` aims.
+    pub fn nearest_inside(&self, p: [f32; 3], inset: f32) -> [f32; 3] {
+        let l = self.local(p);
+        let s = self.scale_or_one();
+        let n = match self.kind {
+            TriggerKind::Box { half_extents: h } => std::array::from_fn(|i| {
+                let e = (h[i] - inset / s).max(0.0);
+                l[i].clamp(-e, e)
+            }),
+            TriggerKind::Sphere { radius } => {
+                let len = l.iter().map(|v| v * v).sum::<f32>().sqrt();
+                let r = (radius - inset / s).max(0.0);
+                if len <= r || len < 1e-6 { l } else { l.map(|v| v * r / len) }
+            }
+        };
+        let r = &self.rot;
+        [
+            self.pos[0] + s * (r[0] * n[0] + r[1] * n[1] + r[2] * n[2]),
+            self.pos[1] + s * (r[3] * n[0] + r[4] * n[1] + r[5] * n[2]),
+            self.pos[2] + s * (r[6] * n[0] + r[7] * n[1] + r[8] * n[2]),
+        ]
     }
 }
 
@@ -796,9 +839,15 @@ pub fn delay_late_aids(aids: &mut [TimedAid], now: f32) -> Option<f32> {
     Some(late)
 }
 
+/// The first piece of a reference name that holds a colon (`fnv_game::runner::resolve`:
+/// `scripted:<SCPT>`, `placed:<base>`, and `created:<base>`, the newest reference made at
+/// run time from a base, whose FormID is not known ahead).
+const NAME_PREFIXES: [&str; 3] = ["scripted", "placed", "created"];
+
 /// Parse `<when>:<op>[:<args>]` items separated by commas; `<when>` is `<seconds>` or
 /// `<seconds>@<quest>=<stage>`. Names are Editor IDs, hex FormIDs, `player` or the
-/// runner's `scripted:<SCPT>` / `placed:<base>`, resolved when the step runs.
+/// runner's `scripted:<SCPT>` / `placed:<base>` / `created:<base>`, resolved when the
+/// step runs.
 pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
     v.split(',')
         .map(str::trim)
@@ -815,7 +864,21 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
             };
             let at: f32 = t.trim().parse().map_err(|_| format!("{item:?}: bad seconds {t:?}"))?;
             let rest = rest.trim();
-            let parts: Vec<&str> = rest.split(':').map(str::trim).collect();
+            // A reference name may hold a colon itself (`scripted:<SCPT>`, `placed:<base>`,
+            // `created:<base>`): its two pieces are one part, in any step.
+            let pieces: Vec<&str> = rest.split(':').map(str::trim).collect();
+            let mut joined: Vec<String> = Vec::with_capacity(pieces.len());
+            let mut k = 0;
+            while k < pieces.len() {
+                if k > 0 && k + 1 < pieces.len() && NAME_PREFIXES.contains(&pieces[k]) {
+                    joined.push(format!("{}:{}", pieces[k], pieces[k + 1]));
+                    k += 2;
+                } else {
+                    joined.push(pieces[k].to_string());
+                    k += 1;
+                }
+            }
+            let parts: Vec<&str> = joined.iter().map(String::as_str).collect();
             let int = |s: &str| s.parse::<i32>().map_err(|_| format!("{rest:?}: bad number {s:?}"));
             // A reference name may hold colons itself (`scripted:<SCPT>`, `placed:<base>`).
             let whole = rest.split_once(':').map(|(_, r)| r.trim().to_string());
@@ -1110,6 +1173,31 @@ mod tests {
         assert_eq!(lines, 1);
     }
 
+    #[test]
+    fn corner_clear_drops_earlier_notifications_and_keeps_other_effects_and_later_notices() {
+        let events = vec![
+            ev(EventKind::MessageShown { message: FormId(0), text: Some("before clear".into()), buttons: vec![], hidden: vec![] }),
+            ev(EventKind::NoteShown { text: "alt before clear".into(), icon: None, seconds: 2.0 }),
+            ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: CAPS, count: 5, silent: false }),
+            ev(EventKind::MessageShown { message: FormId(0xBB), text: Some("Box survives".into()), buttons: vec![], hidden: vec![] }),
+            ev(EventKind::QuestCompleted { quest: QUEST }),
+            // ClearMessageQueue ran here (index 5).
+            ev(EventKind::MessageShown { message: FormId(0), text: Some("after clear".into()), buttons: vec![], hidden: vec![] }),
+            ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 1, silent: false }),
+        ];
+        let got = effects_with_corner_clear(&events, &BTreeSet::new(), 5, &Fake);
+        assert_eq!(
+            got,
+            vec![
+                ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Box survives".into(), buttons: vec![], hidden: vec![] }),
+                ScriptEffect::Quest(QuestNotice::Completed("Back in the Saddle".into())),
+                ScriptEffect::Notify("after clear".into()),
+                ScriptEffect::ItemAddedSound(CAPS),
+                ScriptEffect::Notify("form 15169 added".into()),
+            ]
+        );
+    }
+
     /// #3095: caps a script gives the player sound once per batch; caps picked up by an
     /// activation (sounded by `world_sounds`) and silent adds do not.
     #[test]
@@ -1124,10 +1212,98 @@ mod tests {
         assert_eq!(sounds(&picked), vec![]);
     }
 
+    /// #3433: skill-book and iconless `NoteShown` (e.g. critical-hit) corner notifications
+    /// use `icon: None` (default Vault Boy corner icon), while explicit `MESG` icons are
+    /// preserved.
+    #[test]
+    fn book_read_and_iconless_notes_use_default_corner_icon() {
+        let e = run(vec![
+            EventKind::BookRead { actor: FormId::PLAYER_REF, book: FormId(0x1234), skill: 41, points: 3.0, value: 53.0, perks: vec![] },
+            EventKind::NoteShown { text: "Critical hit on Giant Soldier Ant".into(), icon: None, seconds: 2.0 },
+            EventKind::MessageShown { message: FormId(0xAA), text: Some("With icon.".into()), buttons: vec![], hidden: vec![] },
+        ]);
+        assert_eq!(
+            e,
+            vec![
+                ScriptEffect::Notify(Note { text: "Guns increased to 53".into(), icon: None, seconds: None }),
+                ScriptEffect::Notify(Note { text: "Critical hit on Giant Soldier Ant".into(), icon: None, seconds: Some(2.0) }),
+                ScriptEffect::Notify(Note { text: "With icon.".into(), icon: Some("icons\\pain.dds".into()), seconds: Some(10.0) }),
+            ]
+        );
+    }
+
     #[test]
     fn hidden_or_late_objectives_say_nothing() {
         let e = effects(&[ev(EventKind::ObjectiveCompleted { quest: QUEST, index: 10, on: true, silent: true })], &BTreeSet::new(), &Fake);
         assert_eq!(e, vec![]);
+    }
+
+    #[test]
+    fn empty_objective_text_and_nameless_quests_show_no_objective_notices() {
+        const NAMELESS: FormId = FormId(0x78);
+        const BLANK_TITLE: FormId = FormId(0x79);
+        struct EmptyCtx;
+        impl EffectCtx for EmptyCtx {
+            fn name(&self, form: FormId) -> String {
+                Fake.name(form)
+            }
+            fn objective_text(&self, quest: FormId, index: i32) -> Option<String> {
+                match (quest, index) {
+                    (QUEST, 1) => Some("".into()),
+                    (QUEST, 2) => Some("   \t\n ".into()),
+                    (NAMELESS, 1) => Some("Hidden behind nameless quest".into()),
+                    (BLANK_TITLE, 1) => Some("Hidden behind blank-title quest".into()),
+                    _ => Fake.objective_text(quest, index),
+                }
+            }
+            fn quest_title(&self, quest: FormId) -> Option<String> {
+                match quest {
+                    NAMELESS => None,
+                    BLANK_TITLE => Some("   ".into()),
+                    _ => Fake.quest_title(quest),
+                }
+            }
+            fn quest_listed(&self, quest: FormId, besides: &[i32]) -> bool {
+                Fake.quest_listed(quest, besides)
+            }
+            fn is_message_box(&self, message: FormId) -> bool {
+                Fake.is_message_box(message)
+            }
+            fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>) {
+                Fake.message_look(message)
+            }
+            fn enable_children(&self, r: FormId) -> Vec<FormId> {
+                Fake.enable_children(r)
+            }
+            fn pops_in(&self, r: FormId) -> bool {
+                Fake.pops_in(r)
+            }
+            fn player_heading_deg(&self) -> f32 {
+                Fake.player_heading_deg()
+            }
+            fn player_pitch_deg(&self) -> Option<f32> {
+                Fake.player_pitch_deg()
+            }
+            fn destination(&self, cell: Option<FormId>) -> Destination {
+                Fake.destination(cell)
+            }
+            fn activation_effects(&self, a: &Activation, target: FormId) -> Vec<Effect> {
+                Fake.activation_effects(a, target)
+            }
+            fn is_terminal(&self, r: FormId) -> bool {
+                Fake.is_terminal(r)
+            }
+        }
+        let events = [
+            ev(EventKind::ObjectiveDisplayed { quest: QUEST, index: 1, on: true }),
+            ev(EventKind::ObjectiveDisplayed { quest: QUEST, index: 2, on: true }),
+            ev(EventKind::ObjectiveCompleted { quest: QUEST, index: 2, on: true, silent: false }),
+            ev(EventKind::ObjectiveDisplayed { quest: NAMELESS, index: 1, on: true }),
+            ev(EventKind::ObjectiveCompleted { quest: NAMELESS, index: 1, on: true, silent: false }),
+            ev(EventKind::ObjectiveDisplayed { quest: BLANK_TITLE, index: 1, on: true }),
+            ev(EventKind::ObjectiveCompleted { quest: BLANK_TITLE, index: 1, on: true, silent: false }),
+        ];
+        assert!(effects(&events, &BTreeSet::new(), &EmptyCtx).is_empty());
     }
 
     #[test]
@@ -1164,6 +1340,27 @@ mod tests {
         let v = InvView::of(Some(&inv));
         assert_eq!(v.counts.get(&FormId(7)), Some(&3));
         assert!(v.equipped.contains(&FormId(7)));
+    }
+
+    #[test]
+    fn the_nearest_point_inside_a_volume() {
+        // A box turned a quarter, 200 x 50 x 100 half extents: from outside its long side
+        // the walk aims just inside that side, level with the player.
+        let t = TriggerShape {
+            pos: [0.0, 0.0, 0.0],
+            rot: ref_rotation([0.0, 0.0, std::f32::consts::FRAC_PI_2]),
+            scale: 1.0,
+            kind: TriggerKind::Box { half_extents: [200.0, 50.0, 100.0] },
+        };
+        let from = [300.0, 20.0, 0.0];
+        let at = t.nearest_inside(from, 10.0);
+        assert!(t.contains(at), "{at:?}");
+        assert!((at[0] - 40.0).abs() < 0.5 && (at[1] - 20.0).abs() < 0.5, "{at:?}");
+        // From inside it stays where it is.
+        assert_eq!(t.nearest_inside([5.0, 5.0, 5.0], 10.0).map(|v| v.round()), [5.0, 5.0, 5.0]);
+        let ball = TriggerShape { kind: TriggerKind::Sphere { radius: 50.0 }, ..t };
+        let on = ball.nearest_inside([200.0, 0.0, 0.0], 10.0);
+        assert!(ball.contains(on) && (on[0] - 40.0).abs() < 0.5, "{on:?}");
     }
 
     #[test]
@@ -1276,6 +1473,14 @@ mod tests {
             vec![TimedAid { at: 1.0, after: Some(("VCG01".into(), 80)), aid: ScriptAid::Var("scripted:0x001055B4".into(), "bRunTimer".into(), 1.0) }]
         );
         assert!(parse_aids("3:var:bRunTimer:1").is_err());
+        // A name with a colon in any step: a target made by PlaceAtMe a moment before
+        // (tools/capture/damage_parity.py), a placed reference by its base.
+        let aids = parse_aids("5:set_av:created:0x0002E29D:Health:5000,5:moveto:created:0x0002E29D:player:0:300:0,6:call:created:NVCrGecko:SetAngle:z:0,7:damage:placed:GSTrudy:Health:0,8:kill:scripted:0x001055B4").unwrap();
+        assert_eq!(aids[0].aid, ScriptAid::SetAv("created:0x0002E29D".into(), "Health".into(), 5000.0));
+        assert_eq!(aids[1].aid, ScriptAid::MoveTo("created:0x0002E29D".into(), "player".into(), [0.0, 300.0, 0.0]));
+        assert_eq!(aids[2].aid, ScriptAid::Call("created:NVCrGecko".into(), "SetAngle".into(), vec!["z".into(), "0".into()]));
+        assert_eq!(aids[3].aid, ScriptAid::Damage("placed:GSTrudy".into(), "Health".into(), 0.0));
+        assert_eq!(aids[4].aid, ScriptAid::Kill("scripted:0x001055B4".into()));
         assert!(parse_aids("3:stage:VCG01").is_err());
         assert_eq!(parse_aids("2:message:VMS18VancesGunMessage").unwrap()[0].aid, ScriptAid::Message("VMS18VancesGunMessage".into()));
         assert_eq!(parse_aids("12:play_idle:0x00104C6D:NPCSmokingIdle").unwrap()[0].aid, ScriptAid::PlayIdle("0x00104C6D".into(), "NPCSmokingIdle".into()));

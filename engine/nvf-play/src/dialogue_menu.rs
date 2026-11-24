@@ -313,7 +313,7 @@ fn crop_x(width: f32) -> f32 {
 /// on: the greatest ascent, and the greatest of height less ascent (the glyph's own
 /// numbers, `fnv_font::Glyph`); [`STAND_IN_INK`] where none is drawn.
 fn glyph_ink(line: &Line, font: &Font) -> (f32, f32) {
-    let drawn: Vec<_> = line.glyphs.iter().map(|p| font.glyph(p.code)).filter(|g| g.drawn()).collect();
+    let drawn: Vec<_> = line.glyphs.iter().map(|p| font.bitmap_glyph(p)).filter(|g| g.drawn()).collect();
     if drawn.is_empty() {
         return STAND_IN_INK;
     }
@@ -591,12 +591,11 @@ fn spawn_menu(commands: &mut Commands, view: &MenuView, l: &Layout, kit: &Kit, s
 }
 
 /// What the drawn menu was made from: the menu's view, the first choice shown, the width
-/// in units and the "Goodbye hint" switch. The menu is rebuilt when it changes, so a
-/// flip of the switch shows at once.
-type MenuKey = (MenuView, usize, u32, bool, crate::pad::Labels);
+/// in units, the "Goodbye hint" switch, the button labels and the current font revision.
+type MenuKey = (MenuView, usize, u32, bool, crate::pad::Labels, u32);
 
 fn menu_key(view: Option<&MenuView>, creating: bool, first: usize, width: f32, hint: bool) -> Option<MenuKey> {
-    view.filter(|_| !creating).map(|v| (v.clone(), first, width.round() as u32, hint, crate::pad::labels()))
+    view.filter(|_| !creating).map(|v| (v.clone(), first, width.round() as u32, hint, crate::pad::labels(), crate::cjk_font::revision()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -644,7 +643,7 @@ fn draw(
         for e in &roots {
             commands.entity(e).despawn();
         }
-        if let Some((view, first, _, hint_on, _)) = &key {
+        if let Some((view, first, _, hint_on, _, _)) = &key {
             let l = layout(view, *first, selected, width, *hint_on, &kit.body.font, &kit.name.font, &glyphs);
             // One line when the hint appears, or when the switch holds it back.
             let was = shown.as_ref().and_then(|s| s.0.goodbye.then_some(s.3));

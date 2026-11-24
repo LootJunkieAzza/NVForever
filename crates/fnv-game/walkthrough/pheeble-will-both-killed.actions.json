@@ -196,6 +196,36 @@
    "label": "VMS18HeckGundersonREF dead"
   },
   {
+   "op": "note",
+   "text": "Ted Gunderson is held in the Ultra-Luxe's kitchen, behind VULGourmandToKitchen (00118AC9, lock 25, key VMS18KitchenKey) and VULCasinoToSecretMessHall (001182E0, lock 255, key VMS18MembersOnlyKey), and he is disabled until a Beyond the Beef line enables him: INFO 0x0010FB10 (begin), 0x00125ACD and 0x00126909 (end) run VMS18TedGundersonREF.Enable, and 0x00126909 also gives the kitchen key [observed: decompiled]. Beyond the Beef is not played here (and the pilot does not pick the Easy lock). Stand-in: both keys and Ted enabled, as those lines leave him."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "VMS18KitchenKey",
+   "count": 1
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "VMS18MembersOnlyKey",
+   "count": 1
+  },
+  {
+   "op": "note",
+   "text": "Ted is behind the freezer door 001199D4 (lock 255, key VMS18TedGundersonKey 0x001199DD), opened by the freezer terminal 0x001199DC (Very Easy) or the key, which Gunderson's lines INFO 0x00125ACD / 0x00126909 give [observed: round 12 triage]. Stand-in: the key."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "VMS18TedGundersonKey",
+   "count": 1
+  },
+  {
+   "op": "enable",
+   "target": "VMS18TedGundersonREF"
+  },
+  {
    "op": "move_player",
    "to": "VMS18TedGundersonREF"
   },

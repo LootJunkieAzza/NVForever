@@ -3,7 +3,8 @@
 Only decisions that change how the game plays and that need **you**: design choices,
 feel, and places where NVForever chose to differ from the original. Most important first.
 Anything that asks "what does the original do here?" is not here: the observer can
-answer it, and it is in [observer-checks.md](handoff/observer-checks.md).
+answer it, and it is in [observer-checks.md](handoff/observer-checks.md) or, the newer ones,
+in [observer-checks/](handoff/observer-checks/README.md).
 
 Condensed 2026-10-24 from the full running log (8,300 lines, 2026-10-09 to 2026-10-23).
 Merge records, tooling, look-only guesses and items already ruled were dropped. The full
@@ -17,12 +18,26 @@ and 2026-10-25 were folded in below (items 27-32). That last full copy is
 in their spec notes.
 
 **Adding an item:** one bullet in the right tier, what was chosen and what changes if you
-rule otherwise, with its spec link. If the original game can answer it, add it to
-observer-checks.md instead. **Ruling on one:** delete the bullet and note the ruling in
-the spec it links to.
+rule otherwise, with its spec link. If the original game can answer it, add a file to
+[observer-checks/](handoff/observer-checks/README.md) instead. **Ruling on one:** delete
+the bullet and note the ruling in the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
+- **A melee creature barely faster than you cannot keep hitting you when you back away
+  (#3256).** [observed: runs on the Searchlight Airport runway, main 069ef9bde,
+  2026-11-21, the player backing away at a run for 12 s, 20,000 health, no god mode]
+  A feral ghoul (runs 384 units/s against your 273) lands 11 to 12 blows, a coyote (366)
+  6 to 7, about what they land on a standing player. A young gecko (286) lands 2 to 3,
+  with 4 to 5.5 s between blows, against 10 on a standing player. The cause is not the
+  chase: every blow that lands knocks you back about 50 units (the knockback rule), and
+  at a 13 units/s advantage the gecko needs about 4 s to make that up. Three ways to
+  change it, none built: (a) such a creature begins its forward lunge from as far as the
+  lunge carries it (tried: it then lunges every 1.7 s, but half the lunges miss and the
+  blows that land do not go up); (b) no knockback on the player from a creature's
+  ordinary blow; (c) leave it, if the original is the same. Observer check 253 asks the
+  original. Until you rule, nothing changes
+  ([combat rules](spec-notes/combat-rules.md), "Knockback").
 - **Automatic device switching (#2200).** [design, #2200] Switch the saved two-device
   choice on fresh use, default ON with a Controls/INI opt-out; ignore only the switching
   press edge, preserve all releases, and require the old device idle at frame start with
@@ -73,6 +88,8 @@ the spec it links to.
    - [design, #2010] A Lost search with no completed share for 300 s gives up, even
      with shares still pending; each completed share renews that safety deadline.
      A different bound changes how long unavailable navigation/AI holds combat.
+     Out of the loaded area nobody searches: it gives up once its target has been
+     hidden for 30 s (#3390).
      ([alert section 2](design/alert.md))
    - Fire only with the target within 30° ahead, turning at 240°/s.
    - Creatures start blows on the run from up to 200 units beyond reach (minimum
@@ -451,6 +468,11 @@ the spec it links to.
   property, and ruling otherwise means a per-model exception. Check the storm in game at
   night in HVDustStorm ([activators section 6.1](spec-notes/activators.md)).
 
+- **Map markers on the compass use a fixed range (#2348).** [design, owner 2026-11-18]
+  The maintainer chose `iMapMarkerVisibleDistance` (10,000 units by default) for found
+  and unfound places, replacing the Perception-based range from playtest list 5 item 12.
+  Quest targets remain visible at any distance. ([hud §11](spec-notes/hud.md); observer check 227)
+
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
     allows leaving? ([dialogue](design/dialogue.md))
@@ -485,13 +507,10 @@ the spec it links to.
     Slash, Mauler, Lights Out, Grand Slam: WEAP VATS/VANM) need a choice per mark, which
     VATS mode does not have, so they are not built. Wanted, and how would you pick one
     (a key cycling the mark's attack)? ([weapon-data-fields §7](spec-notes/weapon-data-fields.md))
-31a. **Which VATS style V starts (a contribution from the fork h9x000,
-    2026-11-11).** A classic style is built: the original's flow, the world stopped, a
-    target and a body part chosen from their chances, a queue of attacks, cameras as
-    they play. It is one row away on the settings page ("V.A.T.S. style"); Dead Eye,
-    your VATS mode ("Mark and Fire" on that page, a name of ours for you to change),
-    stays what V starts until you say otherwise (the fork's owner plays Classic as the
-    default). What Dead Eye shares with it and so changes too: marks on a dead target
+31a. **The classic VATS style's other choices (a contribution from the fork h9x000,
+    2026-11-11).** You ruled on 2026-11-24 that Classic is what V starts; Dead Eye
+    ("Mark and Fire" on the settings page, a name of ours for you to change) stays one
+    row away. What Dead Eye shares with Classic and so changes too: marks on a dead target
     are dropped and the mode ends 2 s later, the HUD hides from the first shot, the
     enemy bar is at the top, explosives hold the mode's end, and every kill camera's
     last shot is held 3 s longer (vats-classic.md §13).

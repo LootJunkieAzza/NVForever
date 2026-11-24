@@ -105,6 +105,9 @@ pub struct VigorMenu {
     ready: Option<Machine>,
     /// [`warm`] has run in this run (once at most).
     warmed: bool,
+    /// [design] The current `LOVE_TESTER` opening already failed to draw the 3D machine,
+    /// so later frames while the menu stays open do not retry or repeat the warning.
+    open_failed: bool,
 }
 
 /// The two models, spawned and hidden: their roots and named objects (the activate
@@ -151,6 +154,7 @@ impl VigorMenu {
             clips: None,
             ready: None,
             warmed: false,
+            open_failed: false,
         }
     }
     pub fn is_open(&self) -> bool {
@@ -206,6 +210,7 @@ fn open_close(
 ) {
     let code = crate::chargen::open_code(&script);
     if code != Some(menus::LOVE_TESTER) {
+        menu.open_failed = false;
         if let Some(o) = menu.open.take() {
             for e in o.roots {
                 ctx.commands.entity(e).despawn();
@@ -219,7 +224,7 @@ fn open_close(
         }
         return;
     }
-    if menu.open.is_some() {
+    if menu.open.is_some() || menu.open_failed {
         return;
     }
     let Ok((cam, _)) = camera.single() else { return };
@@ -229,7 +234,10 @@ fn open_close(
         menu.clips = Some(Arc::new(read_clips(&ctx.data)));
     }
     let warmed = menu.ready.is_some();
-    let Some(Machine { roots: [ra, rc], nodes }) = menu.ready.take().or_else(|| spawn_machine(&mut ctx)) else { return };
+    let Some(Machine { roots: [ra, rc], nodes }) = menu.ready.take().or_else(|| spawn_machine(&mut ctx)) else {
+        menu.open_failed = true;
+        return;
+    };
     if warmed {
         info!("vigor tester: the machine made ready behind the loading screen is used");
     }
@@ -261,18 +269,50 @@ fn open_close(
     menu.open = Some(OpenMenu { vigor, roots: [ra, rc], nodes, flip, materials: HashMap::new(), shown: HashMap::new(), keyed_row: false, fov_before: None, aid_from: None });
 }
 
+/// [design] Whether both Vigor Tester NIFs exist in the mounted VFS.
+fn models_present(data: &GameData) -> bool {
+    data.vfs.exists(ACTIVATE) && data.vfs.exists(CABINET)
+}
+
 /// Spawn the two models, hidden until `draw` has put the shapes on the machine's layer
 /// (or the main camera would draw them for a frame in the room's light), not yet under
 /// the camera.
+///
+/// [design] Checks VFS presence before spawning and despawns any partial root if the
+/// second model fails, so a missing or broken NIF never leaks an orphan entity tree.
 fn spawn_machine(ctx: &mut SpawnCtx) -> Option<Machine> {
-    let (act, cab) = match (ctx.spawn_nif(ACTIVATE, None), ctx.spawn_nif(CABINET, None)) {
-        (Ok(a), Ok(c)) => (a, c),
-        (a, c) => {
-            warn!("vigor tester: model not drawn: {:?} {:?}", a.err(), c.err());
+    let missing_act = (!ctx.data.vfs.exists(ACTIVATE)).then(|| format!("{ACTIVATE} not found"));
+    let missing_cab = (!ctx.data.vfs.exists(CABINET)).then(|| format!("{CABINET} not found"));
+    if missing_act.is_some() || missing_cab.is_some() {
+        warn!("vigor tester: model not drawn: {:?} {:?}", missing_act, missing_cab);
+        return None;
+    }
+    let act = match ctx.spawn_nif(ACTIVATE, None) {
+        Ok(a) => a,
+        Err(e) => {
+            warn!("vigor tester: model not drawn: {:?} {:?}", Some(e), Option::<String>::None);
             return None;
         }
     };
-    let (Some(ra), Some(rc)) = (act.root, cab.root) else { return None };
+    let cab = match ctx.spawn_nif(CABINET, None) {
+        Ok(c) => c,
+        Err(e) => {
+            if let Some(ra) = act.root {
+                ctx.commands.entity(ra).despawn();
+            }
+            warn!("vigor tester: model not drawn: {:?} {:?}", Option::<String>::None, Some(e));
+            return None;
+        }
+    };
+    let (Some(ra), Some(rc)) = (act.root, cab.root) else {
+        if let Some(ra) = act.root {
+            ctx.commands.entity(ra).despawn();
+        }
+        if let Some(rc) = cab.root {
+            ctx.commands.entity(rc).despawn();
+        }
+        return None;
+    };
     let mut nodes = act.nodes;
     for (k, v) in cab.nodes {
         nodes.entry(k).or_insert(v);
@@ -307,6 +347,13 @@ fn warm(
         return;
     }
     menu.warmed = true;
+    // [design] Skip speculative pre-warming quietly when either Vigor Tester NIF is absent
+    // from the mounted archives/loose files (e.g., FO3/TTW start or modded asset layout):
+    // avoids emitting a warning or spawning partial entities when the menu is never opened.
+    if !models_present(&ctx.data) {
+        debug!("vigor tester: skipping pre-warm; model asset not present in data");
+        return;
+    }
     let t = std::time::Instant::now();
     if menu.clips.is_none() {
         menu.clips = Some(Arc::new(read_clips(&ctx.data)));
@@ -624,4 +671,234 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<VigorStats>) {
         "vigor tester summary: opened {} times, {} changes, {} page turns, {} clicks on its buttons, done {} times",
         stats.opened, stats.changes, stats.turns, stats.clicks, stats.done
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::loading::{Loading, LoadingPlugin, StartCover};
+    use crate::script::NewGame;
+    use crate::{Location, PlayState, Travel};
+    use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+    use nvf_assets::{NifRoot, TextureCache};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let id = NEXT.fetch_add(1, Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("nvf-vigor-test-{}-{}-{id}", std::process::id(), tag));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Build a minimal valid NIF 20.2.0.7 containing a single named `NiNode`.
+    fn minimal_nif(node_name: &str) -> Vec<u8> {
+        let words = |out: &mut Vec<u8>, xs: &[u32]| {
+            for &x in xs {
+                out.extend(x.to_le_bytes());
+            }
+        };
+        let string = |out: &mut Vec<u8>, s: &str| {
+            words(out, &[s.len() as u32]);
+            out.extend(s.as_bytes());
+        };
+        // NiNode (BS version 34): name_index (0), num_extra_data (0), controller (-1), flags (14u32),
+        // translation (0,0,0), rotation (identity 3x3), scale (1.0),
+        // num_properties (0), collision (-1), num_children (0), num_effects (0).
+        let mut node = Vec::new();
+        words(&mut node, &[0, 0, u32::MAX, 14]);
+        for f in [0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0] {
+            node.extend(f.to_le_bytes());
+        }
+        words(&mut node, &[0, u32::MAX, 0, 0]);
+
+        let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
+        words(&mut out, &[0x1402_0007]);
+        out.push(1);
+        words(&mut out, &[11, 1, 34]);
+        out.extend([1, 0, 1, 0, 1, 0]);
+        out.extend(1u16.to_le_bytes());
+        string(&mut out, "NiNode");
+        out.extend(0u16.to_le_bytes());
+        words(&mut out, &[node.len() as u32]);
+        words(&mut out, &[1, node_name.len() as u32]);
+        string(&mut out, node_name);
+        words(&mut out, &[0]);
+        out.extend(&node);
+        words(&mut out, &[1, 0]);
+        out
+    }
+
+    fn vigor_test_app(tag: &str, files: &[(&str, Vec<u8>)], with_new_game_loading: bool) -> (App, TempDir, Entity) {
+        let dir = TempDir::new(tag);
+        for (rel, bytes) in files {
+            let path = dir.0.join(rel.replace('\\', "/"));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let schema_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif");
+        let vfs = fnv_vfs::Vfs::open(&dir.0, &[]).unwrap();
+        let schema = fnv_nif::Schema::load_dir(&schema_dir).unwrap();
+        let data = GameData::new(Arc::new(vfs), Arc::new(schema));
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .insert_resource(Location { world: 0xDA726, interior: None })
+            .init_state::<PlayState>()
+            .add_message::<Travel>()
+            .configure_sets(Update, (PlaySet::Input, PlaySet::Scripts, PlaySet::Sync).chain())
+            .add_plugins(LoadingPlugin)
+            .insert_resource(data)
+            .insert_resource(ScriptState::over_no_plugins())
+            .insert_resource(SimState::over_placed([]))
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<NifMaterial>>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .init_resource::<TextureCache>()
+            .init_resource::<VigorMenu>()
+            .init_resource::<VigorStats>()
+            .add_systems(Update, (warm, open_close).chain().in_set(PlaySet::Scripts));
+        if with_new_game_loading {
+            app.insert_resource(StartCover).insert_resource(NewGame);
+        }
+        let cam = app.world_mut().spawn((PlayerCamera, Projection::Perspective(PerspectiveProjection::default()))).id();
+        (app, dir, cam)
+    }
+
+    fn set_open_menu(app: &mut App, code: Option<u16>) {
+        let mut script = app.world_mut().resource_mut::<ScriptState>();
+        script.rt.as_mut().unwrap().game.menu = code;
+    }
+
+    #[test]
+    fn present_nifs_prewarm_behind_loading_screen_and_open_vanilla_machine() {
+        let files = [
+            (ACTIVATE, minimal_nif("ActivateNode")),
+            (CABINET, minimal_nif("CabinetNode")),
+        ];
+        let (mut app, _dir, cam) = vigor_test_app("present", &files, true);
+
+        // First update brings StartCover up (Loading::starting() becomes true); second runs warm.
+        app.update();
+        assert!(app.world().resource::<Loading>().starting(), "start loading screen is active");
+        app.update();
+
+        {
+            let menu = app.world().resource::<VigorMenu>();
+            assert!(menu.warmed, "warm ran once behind the loading screen");
+            assert!(!menu.open_failed);
+            let ready = menu.ready.as_ref().expect("both models pre-warmed behind loading screen");
+            assert!(ready.nodes.contains_key("ActivateNode"));
+            assert!(ready.nodes.contains_key("CabinetNode"));
+            assert!(menu.clips.is_some());
+        }
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<VigorPart>>().iter(app.world()).count(), 2);
+        for vis in app.world_mut().query_filtered::<&Visibility, With<VigorPart>>().iter(app.world()) {
+            assert_eq!(*vis, Visibility::Hidden, "pre-warmed parts stay hidden until opened");
+        }
+
+        // Opening LOVE_TESTER takes the pre-warmed machine and attaches both roots to PlayerCamera.
+        set_open_menu(&mut app, Some(menus::LOVE_TESTER));
+        app.update();
+
+        {
+            let menu = app.world().resource::<VigorMenu>();
+            assert!(menu.is_open());
+            assert!(menu.ready.is_none(), "warmed machine consumed on open");
+            assert!(!menu.open_failed);
+        }
+        assert_eq!(app.world().resource::<VigorStats>().opened, 1);
+        let children = app.world().get::<Children>(cam).expect("roots parented to PlayerCamera");
+        assert_eq!(children.len(), 2);
+
+        // Closing LOVE_TESTER despawns both roots cleanly.
+        set_open_menu(&mut app, None);
+        app.update();
+        assert!(!app.world().resource::<VigorMenu>().is_open());
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<VigorPart>>().iter(app.world()).count(), 0);
+    }
+
+    #[test]
+    fn missing_activate_nif_skips_prewarm_and_guards_open_without_spam_or_leaks() {
+        // Only the cabinet NIF is present; the activate NIF is missing (e.g., FO3/TTW or modded layout).
+        let files = [(CABINET, minimal_nif("CabinetNode"))];
+        let (mut app, _dir, _cam) = vigor_test_app("missing-activate", &files, true);
+
+        app.update();
+        assert!(app.world().resource::<Loading>().starting());
+        for _ in 0..3 {
+            app.update();
+        }
+
+        {
+            let menu = app.world().resource::<VigorMenu>();
+            assert!(menu.warmed, "warm marked complete");
+            assert!(menu.ready.is_none(), "no partial machine stored");
+            assert!(menu.clips.is_none(), "clips not read when activate NIF is absent");
+            assert!(!menu.open_failed);
+        }
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<NifRoot>>().iter(app.world()).count(), 0, "cabinet NIF must not be spawned/leaked when activate NIF is missing");
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<VigorPart>>().iter(app.world()).count(), 0);
+
+        // Even if LOVE_TESTER is opened for multiple frames while the activate NIF is missing,
+        // open_close records open_failed on the first frame and does not retry or leak entities.
+        set_open_menu(&mut app, Some(menus::LOVE_TESTER));
+        for _ in 0..7 {
+            app.update();
+            let menu = app.world().resource::<VigorMenu>();
+            assert!(!menu.is_open());
+            assert!(menu.open_failed, "failure latched so later frames do not retry");
+        }
+        assert_eq!(app.world().resource::<VigorStats>().opened, 0);
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<NifRoot>>().iter(app.world()).count(), 0);
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<VigorPart>>().iter(app.world()).count(), 0);
+
+        // Closing LOVE_TESTER clears open_failed for any later opening.
+        set_open_menu(&mut app, None);
+        app.update();
+        assert!(!app.world().resource::<VigorMenu>().open_failed);
+    }
+
+    #[test]
+    fn corrupt_cabinet_nif_cleans_up_spawned_activate_root_and_latches_failure() {
+        let files = [
+            (ACTIVATE, minimal_nif("ActivateNode")),
+            (CABINET, b"not a valid nif".to_vec()),
+        ];
+        let (mut app, _dir, _cam) = vigor_test_app("corrupt-cabinet", &files, false);
+
+        set_open_menu(&mut app, Some(menus::LOVE_TESTER));
+        app.update();
+        assert!(!app.world().resource::<VigorMenu>().is_open());
+        assert!(app.world().resource::<VigorMenu>().open_failed);
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<VigorPart>>().iter(app.world()).count(), 0);
+        assert!(
+            !app.world_mut().query_filtered::<&Name, With<NifRoot>>().iter(app.world()).any(|n| n.as_str() == ACTIVATE),
+            "spawned activate root is despawned when cabinet fails"
+        );
+        let roots_after_first_frame = app.world_mut().query_filtered::<Entity, With<NifRoot>>().iter(app.world()).count();
+
+        // Subsequent frames while LOVE_TESTER remains open must not re-attempt spawn_nif.
+        for _ in 0..6 {
+            app.update();
+        }
+        assert_eq!(
+            app.world_mut().query_filtered::<Entity, With<NifRoot>>().iter(app.world()).count(),
+            roots_after_first_frame,
+            "latched open_failed prevents per-frame retries"
+        );
+    }
 }

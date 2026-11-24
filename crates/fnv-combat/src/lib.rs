@@ -25,6 +25,7 @@
 
 pub mod attack;
 pub mod body_weapon;
+pub mod bullet_snap;
 pub mod burst;
 pub mod condition;
 pub mod damage;
@@ -34,6 +35,7 @@ pub mod fx;
 pub mod melee;
 pub mod mine;
 pub mod projectile;
+pub mod projectile_overrides;
 pub mod rng;
 pub mod shot;
 pub mod spread;

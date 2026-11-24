@@ -171,13 +171,30 @@ pub struct Op {
 }
 
 /// A literal from text and entities: a lone entity is its constant, or the game string
-/// it names (`&-sName;`, looked up by `string`); otherwise the text with any game
-/// strings put in.
+/// it names (`&-sName;`, or an unprefixed `&sName;` when not a numeric/menu-class
+/// constant and `string` answers it); otherwise the text with any game strings put in.
 pub fn literal(nodes: &[Node], string: &dyn Fn(&str) -> Option<String>) -> Value {
+    literal_with(nodes, &|name, _| string(name))
+}
+
+/// Like [`literal`], telling `string` whether the entity carried the explicit `&-`
+/// game-string prefix so callers can record explicit misses without polluting missing-read
+/// tables with ordinary UI constants (`&center;`, `&scale;`, …).
+pub(crate) fn literal_with(nodes: &[Node], string: &dyn Fn(&str, bool) -> Option<String>) -> Value {
+    let unprefixed_string = |e: &str| {
+        let lower = e.to_ascii_lowercase();
+        if crate::value::sym_number(&lower).is_some() {
+            return None;
+        }
+        string(e, false)
+    };
     let pieces: Vec<&Node> = nodes.iter().filter(|n| !matches!(n, Node::Text(t) if t.trim().is_empty())).collect();
     if let [Node::Entity(e)] = pieces.as_slice() {
         if !e.starts_with('-') {
-            return Value::Sym(e.to_ascii_lowercase());
+            return match unprefixed_string(e) {
+                Some(found) => Value::literal(&found),
+                None => Value::Sym(e.to_ascii_lowercase()),
+            };
         }
     }
     let mut text = String::new();
@@ -185,8 +202,11 @@ pub fn literal(nodes: &[Node], string: &dyn Fn(&str) -> Option<String>) -> Value
         match n {
             Node::Text(t) => text.push_str(t),
             Node::Entity(e) => match e.strip_prefix('-') {
-                Some(name) => text.push_str(&string(name).unwrap_or_default()),
-                None => text.push_str(&format!("&{e};")),
+                Some(name) => text.push_str(&string(name, true).unwrap_or_default()),
+                None => match unprefixed_string(e) {
+                    Some(found) => text.push_str(&found),
+                    None => text.push_str(&format!("&{e};")),
+                },
             },
             Node::Element(_) => {}
         }
@@ -198,36 +218,40 @@ pub fn literal(nodes: &[Node], string: &dyn Fn(&str) -> Option<String>) -> Value
 /// operator. Text before the first operator is a starting `copy` [hypothesis: the files
 /// always start with an explicit `<copy>`].
 pub fn ops_of(nodes: &[Node], string: &dyn Fn(&str) -> Option<String>, warn: &mut dyn FnMut(String)) -> Vec<Op> {
+    ops_of_with(nodes, &|name, _| string(name), warn)
+}
+
+pub(crate) fn ops_of_with(nodes: &[Node], string: &dyn Fn(&str, bool) -> Option<String>, warn: &mut dyn FnMut(String)) -> Vec<Op> {
     let mut ops = Vec::new();
     let lead: Vec<Node> = nodes.iter().take_while(|n| !matches!(n, Node::Element(_))).cloned().collect();
     if lead.iter().any(|n| match n {
         Node::Text(t) => !t.trim().is_empty(),
         _ => true,
     }) {
-        ops.push(Op { kind: OpKind::Copy, arg: Arg::Const(literal(&lead, string)) });
+        ops.push(Op { kind: OpKind::Copy, arg: Arg::Const(literal_with(&lead, string)) });
     }
     for n in nodes {
         let Node::Element(e) = n else { continue };
         match OpKind::from_tag(&e.name) {
-            Some(kind) => ops.push(Op { kind, arg: arg_of(e, string, warn) }),
+            Some(kind) => ops.push(Op { kind, arg: arg_of_with(e, string, warn) }),
             None => warn(format!("line {}: <{}> is no operator; ignored", e.line, e.name)),
         }
     }
     ops
 }
 
-fn arg_of(e: &Element, string: &dyn Fn(&str) -> Option<String>, warn: &mut dyn FnMut(String)) -> Arg {
+fn arg_of_with(e: &Element, string: &dyn Fn(&str, bool) -> Option<String>, warn: &mut dyn FnMut(String)) -> Arg {
     if let Some(src) = e.attr("src") {
         return Arg::Ref { src: Src::parse(src), name: e.attr("trait").unwrap_or("").to_string() };
     }
     if e.elements().next().is_some() {
-        return Arg::Seq(ops_of(&e.children, string, warn));
+        return Arg::Seq(ops_of_with(&e.children, string, warn));
     }
     let blank = e.children.iter().all(|n| matches!(n, Node::Text(t) if t.trim().is_empty()));
     if blank {
         Arg::None
     } else {
-        Arg::Const(literal(&e.children, string))
+        Arg::Const(literal_with(&e.children, string))
     }
 }
 
@@ -282,12 +306,26 @@ mod tests {
 
     #[test]
     fn game_strings_and_constants() {
-        let s = |n: &str| (n == "sHowMany").then(|| "How many?".to_string());
+        let s = |n: &str| match n.to_ascii_lowercase().as_str() {
+            "showmany" => Some("How many?".to_string()),
+            "saccept" => Some("Accept".to_string()),
+            "scancel" => Some("Cancel".to_string()),
+            "true" => Some("bogus".to_string()),
+            _ => None,
+        };
         let e = first("<string> &-sHowMany; </string>");
         assert_eq!(literal(&e.children, &s), Value::Str("How many?".into()));
+        let e = first("<string> &sAccept; </string>");
+        assert_eq!(literal(&e.children, &s), Value::Str("Accept".into()));
+        let e = first("<string> &sAccept; / &sCancel; </string>");
+        assert_eq!(literal(&e.children, &s), Value::Str("Accept / Cancel".into()));
         let e = first("<visible>&false;</visible>");
         assert_eq!(literal(&e.children, &s), Value::Sym("false".into()));
+        let e = first("<visible>&true;</visible>");
+        assert_eq!(literal(&e.children, &s), Value::Sym("true".into()));
         let e = first("<a> x &true; </a>");
         assert_eq!(literal(&e.children, &s), Value::Str("x &true;".into()));
+        let e = first("<justify> &center; </justify>");
+        assert_eq!(literal(&e.children, &s), Value::Sym("center".into()));
     }
 }

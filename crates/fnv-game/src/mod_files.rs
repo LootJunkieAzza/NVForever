@@ -14,7 +14,8 @@ use crate::game::Game;
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The host's answer for a path in the archives too: 0 none, 1 a loose file, 2 inside an
 /// archive.
@@ -39,11 +40,18 @@ pub struct Roots {
 }
 
 static ROOTS: Mutex<Option<Roots>> = Mutex::new(None);
+static ROOTS_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// Monotonic revision bumped whenever process-wide file roots change.
+pub(crate) fn roots_generation() -> u64 {
+    ROOTS_GEN.load(Ordering::Relaxed)
+}
 
 /// Set the roots for the games made after this (the engine, `fnvtool --config`).
 pub fn set_roots(r: Roots) {
     if let Ok(mut g) = ROOTS.lock() {
         *g = Some(r);
+        ROOTS_GEN.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -52,6 +60,7 @@ pub fn set_roots(r: Roots) {
 pub fn update_roots(f: impl FnOnce(&mut Roots)) {
     if let Ok(mut g) = ROOTS.lock() {
         f(g.get_or_insert_with(Roots::default));
+        ROOTS_GEN.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -170,6 +179,10 @@ pub struct ModFiles {
     /// Files written this session, by lower-case Data path (the disk copy, if any, is
     /// written too).
     written: HashMap<String, String>,
+    /// Exact bytes written this session, by the same keys as [`Self::written`], so UTF-8
+    /// text and binary readers both observe lossless bytes without Latin-1 corruption
+    /// [design].
+    written_bytes: HashMap<String, Vec<u8>>,
     /// ShowOff's cached INI files, by lower-case Data path: key -> value, read once.
     cache: HashMap<String, HashMap<String, String>>,
     /// ShowOff's cached JSON files (ReadFromJSON, WriteToJSON with useCache), by the
@@ -177,8 +190,12 @@ pub struct ModFiles {
     showoff_json: HashMap<String, serde_json::Value>,
     /// Folders CreateFolder made this session (under the game's folder, lower case).
     folders: std::collections::HashSet<String>,
-    /// SUP's JSONGetValue files read with iCached, by lower-case path (`crate::nvse_sup5`).
-    pub(crate) json: HashMap<String, serde_json::Value>,
+    /// Monotonic counter bumped whenever this session's written files change.
+    generation: u64,
+    /// Cached `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (`OnceLock` so
+    /// `&Game` readers stay allocation-free and `Send + Sync`; cleared on session writes)
+    /// [design].
+    ttw_karma_titles: OnceLock<crate::karma_titles::TtwKarmaTitles>,
 }
 
 /// The folder of NVForever's layer standing for the game's own folder.
@@ -367,6 +384,11 @@ fn norm(p: &str) -> String {
 }
 
 impl ModFiles {
+    /// Monotonic counter bumped on session file writes and deletes.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// [`ModFiles::read`] for the other files of the crate: a Data file's text, this
     /// session's write first.
     pub(crate) fn read_text(&self, rel: &str) -> Option<String> {
@@ -446,8 +468,40 @@ impl ModFiles {
                 return false;
             }
         }
+        self.invalidate_plugin_ini_cache(&key);
+        self.written_bytes.insert(key.clone(), bytes.to_vec());
         self.written.insert(key, text);
+        self.generation = self.generation.wrapping_add(1);
         true
+    }
+
+    fn invalidate_plugin_ini_cache(&mut self, norm_key: &str) {
+        if norm_key == "nvse\\plugins\\ttw.ini" {
+            let _ = self.ttw_karma_titles.take();
+        }
+    }
+
+    /// Read a plugin INI under `Data` (case-insensitive across read roots and VFS
+    /// archives), preferring session writes first.
+    fn read_plugin_ini(&self, rel: &str) -> Option<String> {
+        let key = norm(rel);
+        if let Some(b) = self.written_bytes.get(&key) {
+            return Some(String::from_utf8(b.clone()).unwrap_or_else(|e| latin1(e.as_bytes())));
+        }
+        if let Some(t) = self.written.get(&key) {
+            return Some(t.clone());
+        }
+        let bytes = read_data_file(rel)?;
+        Some(String::from_utf8(bytes).unwrap_or_else(|e| latin1(e.as_bytes())))
+    }
+
+    /// Loaded `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (empty when absent).
+    pub fn ttw_karma_titles(&self) -> &crate::karma_titles::TtwKarmaTitles {
+        self.ttw_karma_titles.get_or_init(|| {
+            self.read_plugin_ini("NVSE\\Plugins\\TTW.ini")
+                .map(|text| crate::karma_titles::TtwKarmaTitles::parse(&text))
+                .unwrap_or_default()
+        })
     }
 
     /// [`ModFiles::read_root`] for the other files of the crate.
@@ -460,10 +514,52 @@ impl ModFiles {
         self.write_root(rel, text)
     }
 
-    /// A file under the game's own folder as bytes ([`ModFiles::read_root`]; SUP's Excel
-    /// files).
+    /// A file under the game's own folder as raw bytes: this session's write, else
+    /// NVForever's `GameRoot` layer (case-insensitive), else for `Data\...` paths
+    /// session/layer/VFS Data files (`read_data_file`), else the game folder
+    /// (case-insensitive) [design].
     pub(crate) fn read_root_bytes(&self, rel: &str) -> Option<Vec<u8>> {
-        self.read_root(rel).map(|t| t.chars().map(|c| c as u8).collect())
+        on_disk(Path::new(""), rel)?;
+        let key = format!("<root>\\{}", norm(rel));
+        if let Some(b) = self.written_bytes.get(&key) {
+            return Some(b.clone());
+        }
+        if let Some(t) = self.written.get(&key) {
+            return Some(t.as_bytes().to_vec());
+        }
+        let rel = rel.replace('/', "\\");
+        let r = roots();
+        if let Some(p) = r.write.as_ref().and_then(|w| find_file(&w.join(GAME_ROOT), &rel)) {
+            if let Ok(b) = std::fs::read(p) {
+                return Some(b);
+            }
+        }
+        let lower = rel.to_ascii_lowercase();
+        if let Some(rest) = lower.strip_prefix("data\\").map(|_| &rel[5..]).filter(|s| !s.is_empty()) {
+            let data_key = norm(rest);
+            if let Some(b) = self.written_bytes.get(&data_key) {
+                return Some(b.clone());
+            }
+            if let Some(b) = read_data_file(rest) {
+                return Some(b);
+            }
+        }
+        r.read
+            .last()
+            .and_then(|d| d.parent())
+            .and_then(|d| find_file(d, &rel))
+            .and_then(|p| std::fs::read(p).ok())
+    }
+
+    /// A file under the game's own folder decoded as UTF-8 with any leading UTF-8 BOM
+    /// removed, for JSON readers (`ReadFromJSON`, `WriteToJSON`, `nvse_json`) [design].
+    pub(crate) fn read_root_utf8(&self, rel: &str) -> Option<String> {
+        let bytes = self.read_root_bytes(rel)?;
+        let slice = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+        Some(match std::str::from_utf8(slice) {
+            Ok(s) => s.to_owned(),
+            Err(_) => String::from_utf8_lossy(slice).into_owned(),
+        })
     }
 
     /// Write a binary file of the game's own folder into NVForever's layer
@@ -483,11 +579,17 @@ impl ModFiles {
         if on_disk(Path::new(""), rel).is_none() {
             return false;
         }
-        let mut gone = self.written.remove(&norm(rel)).is_some();
+        let key = norm(rel);
+        self.invalidate_plugin_ini_cache(&key);
+        let mut gone = self.written.remove(&key).is_some();
+        gone |= self.written_bytes.remove(&key).is_some();
         if let Some(p) = roots().write.and_then(|w| find_file(&w, rel)) {
             if may_write(&p) && std::fs::remove_file(&p).is_ok() {
                 gone = true;
             }
+        }
+        if gone {
+            self.generation = self.generation.wrapping_add(1);
         }
         gone
     }
@@ -497,7 +599,13 @@ impl ModFiles {
     /// ([`ModFiles::read_root`]'s order). A session-only write has no disk file.
     pub(crate) fn root_file(&self, rel: &str) -> Option<(u64, Option<PathBuf>)> {
         on_disk(Path::new(""), rel)?;
-        if let Some(t) = self.written.get(&format!("<root>\\{}", norm(rel))) {
+        let key = format!("<root>\\{}", norm(rel));
+        if let Some(b) = self.written_bytes.get(&key) {
+            let r = roots();
+            let disk = r.write.and_then(|w| find_file(&w.join(GAME_ROOT), rel));
+            return Some((b.len() as u64, disk));
+        }
+        if let Some(t) = self.written.get(&key) {
             let r = roots();
             let disk = r.write.and_then(|w| find_file(&w.join(GAME_ROOT), rel));
             return Some((t.chars().count() as u64, disk));
@@ -853,14 +961,17 @@ fn json_set(root: &mut serde_json::Value, pointer: &str, value: serde_json::Valu
     false
 }
 
-/// A JSON file under the game's folder: the cache's copy, else the file parsed. Every
-/// parser mode reads standard JSON [hypothesis: JAXN (1) and TaoConfig (2) extend it;
-/// their extensions are not read, so such a file fails to parse].
-fn json_file(g: &Game, path: &str) -> Option<serde_json::Value> {
-    if let Some(v) = g.mod_files.showoff_json.get(&norm(path)) {
-        return Some(v.clone());
+/// A JSON file under the game's folder: with `use_cache`, the cache's copy when present;
+/// otherwise the UTF-8 file parsed fresh (UTF-8 BOM stripped). Every parser mode reads
+/// standard JSON [hypothesis: JAXN (1) and TaoConfig (2) extend it; their extensions are
+/// not read, so such a file fails to parse].
+fn json_file(g: &Game, path: &str, use_cache: bool) -> Option<serde_json::Value> {
+    if use_cache {
+        if let Some(v) = g.mod_files.showoff_json.get(&norm(path)) {
+            return Some(v.clone());
+        }
     }
-    let text = g.mod_files.read_root(path)?;
+    let text = g.mod_files.read_root_utf8(path)?;
     serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()
 }
 
@@ -1229,8 +1340,9 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         "readfromjson" => {
             let path = text(args, 0).unwrap_or_default();
             let pointer = text(args, 1).unwrap_or_default();
-            let Some(root) = json_file(g, &path) else { return Some(Err(format!("ReadFromJSON: no JSON file {path}"))) };
-            if num(args, 3, 0.0) != 0.0 {
+            let use_cache = num(args, 3, 0.0) != 0.0;
+            let Some(root) = json_file(g, &path, use_cache) else { return Some(Err(format!("ReadFromJSON: no JSON file {path}"))) };
+            if use_cache {
                 g.mod_files.showoff_json.insert(norm(&path), root.clone());
             }
             match root.pointer(&pointer) {
@@ -1250,22 +1362,29 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         "writetojson" => {
             let Some(value) = args.first() else { return Some(Ok(zero)) };
             let path = text(args, 1).unwrap_or_default();
-            if path.trim().is_empty() {
+            if path.trim().is_empty() || on_disk(Path::new(""), &path).is_none() {
                 return Some(Ok(zero));
             }
             let pointer = text(args, 2).unwrap_or_default();
+            let use_cache = num(args, 4, 0.0) != 0.0;
+            let save_file = num(args, 5, 1.0) != 0.0;
             let new = xval_to_json(g, value, 0);
-            let mut root = json_file(g, &path).unwrap_or(serde_json::Value::Null);
+            let mut root = json_file(g, &path, use_cache).unwrap_or(serde_json::Value::Null);
             if !json_set(&mut root, &pointer, new) {
                 return Some(Ok(zero));
             }
-            if num(args, 4, 0.0) != 0.0 {
-                g.mod_files.showoff_json.insert(norm(&path), root.clone());
+            let key = norm(&path);
+            if use_cache {
+                g.mod_files.showoff_json.insert(key.clone(), root.clone());
             }
             let mut ok = true;
-            if num(args, 5, 1.0) != 0.0 {
+            if save_file {
                 let body = if num(args, 6, 0.0) != 0.0 { serde_json::to_string(&root) } else { serde_json::to_string_pretty(&root) }.unwrap_or_default();
                 ok = g.mod_files.write_root(&path, body);
+                if ok && !use_cache {
+                    // Drop any stale cached document so a later cached read observes the new file [design].
+                    g.mod_files.showoff_json.remove(&key);
+                }
             }
             XVal::Num(f64::from(u8::from(ok)))
         }

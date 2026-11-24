@@ -2,6 +2,7 @@
   "format": "fnv.script.actions/1",
   "title": "Headless I Hear You Knocking (VMS32): Lucius's broken howitzer, a firing mechanism from the Boomers' workshop at Nellis, the gun mended at the Fort (stage 100)",
   "given": [
+    {"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}},
     {"kind": "quest", "quest": "VDialogueCaesar", "vars": {"FirstTalk": 1}},
     {"kind": "reputation", "rep": "RepNVBoomer", "fame": 100}
   ],

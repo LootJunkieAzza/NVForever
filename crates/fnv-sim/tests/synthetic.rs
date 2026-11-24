@@ -2592,6 +2592,49 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     assert!(!back.power_armor_training());
 }
 
+/// Session-only zone overrides (`set_zone_min_level`, `set_zone_match_level`,
+/// `set_cell_zone`, `set_ref_zone`) reach `enter_zone` and `level_at`, stay out of
+/// `Snapshot`, reset on fresh-run restore, and survive same-run `World::put_session`
+/// (#2272).
+#[test]
+fn session_zone_overrides_reach_entry_level_at_and_world_session() {
+    let f = levels_fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // Authored baseline: LOCK_ZONE has min_level 11, ROOM has no zone.
+    assert_eq!(w.level_at(id(ZONED_CHEST), 3).level, 11);
+    assert_eq!(w.level_at(id(LEVELED_CHEST), 3).level, 3);
+    assert!(w.take_session().is_empty());
+
+    // Lower LOCK_ZONE min_level to 6 and assign ROOM -> LOCK_ZONE.
+    w.set_zone_min_level(id(LOCK_ZONE), 6);
+    w.set_cell_zone(id(ROOM), Some(id(LOCK_ZONE)));
+    assert_eq!(w.level_at(id(ZONED_CHEST), 3).level, 6);
+    assert_eq!(w.level_at(id(LEVELED_CHEST), 3).level, 6);
+
+    // Enabling Match PC Below Minimum Level makes a level-3 player stay at 3.
+    w.set_zone_match_level(id(LOCK_ZONE), true);
+    assert_eq!(w.level_at(id(ZONED_CHEST), 3).level, 3);
+
+    // Not saved in Snapshot: fresh-run restore reverts to authored min_level 11 & ROOM=None.
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    let mut fresh = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(fresh.level_at(id(ZONED_CHEST), 3).level, 11);
+    assert_eq!(fresh.level_at(id(LEVELED_CHEST), 3).level, 3);
+    assert_eq!(fresh.enter_zone(id(LOCK_ZONE), 3), Some(11));
+
+    // Same-run restore with put_session preserves all zone overrides and makes WorldSession non-empty.
+    let session = w.take_session();
+    assert!(!session.is_empty());
+    assert!(w.take_session().is_empty());
+    let mut same_run = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    same_run.put_session(session);
+    assert_eq!(same_run.cell_zone_of(id(ROOM)), Some(id(LOCK_ZONE)));
+    assert_eq!(same_run.level_at(id(LEVELED_CHEST), 3).level, 3);
+    same_run.set_zone_match_level(id(LOCK_ZONE), false);
+    assert_eq!(same_run.enter_zone(id(LOCK_ZONE), 3), Some(6));
+    assert_eq!(same_run.level_at(id(LEVELED_CHEST), 3).level, 6);
+}
+
 // ---- a second plugin moving and deleting the master's references (#999) -----------
 
 /// A plugin over Test.esm (master index 0) that moves STIM_REF from CELL_A to CELL_B,
@@ -2766,4 +2809,71 @@ fn a_created_actor_keeps_where_it_was_made_across_a_save() {
     // And the next save keeps it.
     let again = World::restore(&f.forms, &f.refs, &back.snapshot()).unwrap();
     assert_eq!(again.peek(g).unwrap().made_at, Some((Some(id(CELL_A)), walked_to)));
+}
+
+#[test]
+fn builtin_default_gmsts_resolve_mutate_and_yield_to_esm_overrides() {
+    use fnv_sim::settings::Setting;
+
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+
+    // Absent from the synthetic ESM, all 7 seeded engine defaults resolve and mutate.
+    assert_eq!(w.setting_value("fCombatEnvironmentBloodChance"), Some(&Setting::Float(0.75)));
+    assert_eq!(w.setting_value("iDismemberBloodDecalCount"), Some(&Setting::Int(10)));
+    assert_eq!(w.setting_value("fGunWobbleChaseDriftTime"), Some(&Setting::Float(0.75)));
+    assert_eq!(w.setting_value("fIronSightsFOVTimeChange"), Some(&Setting::Float(0.25)));
+    assert_eq!(w.setting_value("fKnockbackForceMax"), None);
+    assert_eq!(w.setting_value("FCharacterDefaultTurningSpeed"), Some(&Setting::Float(90.0)));
+    assert_eq!(w.setting_value("fcharacterdefaultturningspeed"), Some(&Setting::Float(90.0)));
+    assert_eq!(w.setting_value("iAntiCheatDuration"), Some(&Setting::Int(60)));
+    assert_eq!(w.setting_value("fSeenDataUpdateRadius"), Some(&Setting::Float(1024.0)));
+
+    // Session mutation works case-insensitively and enforces setting kind.
+    w.change_setting("fCombatEnvironmentBloodChance", Setting::Float(0.35)).unwrap();
+    assert_eq!(w.setting_f32("FCOMBATENVIRONMENTBLOODCHANCE"), Some(0.35));
+    w.change_setting("fcharacterdefaultturningspeed", Setting::Float(180.0)).unwrap();
+    assert_eq!(w.setting_f32("FCharacterDefaultTurningSpeed"), Some(180.0));
+    w.change_setting("iAntiCheatDuration", Setting::Int(0)).unwrap();
+    assert_eq!(w.setting_value("iAntiCheatDuration"), Some(&Setting::Int(0)));
+
+    assert!(matches!(
+        w.change_setting("iAntiCheatDuration", Setting::Float(1.5)),
+        Err(SimError::SettingKind(_))
+    ));
+    assert!(matches!(
+        w.change_setting("fCombatEnvironmentBloodChance", Setting::Int(1)),
+        Err(SimError::SettingKind(_))
+    ));
+    assert!(matches!(
+        w.change_setting("fNotABuiltinOrEsmSetting", Setting::Float(1.0)),
+        Err(SimError::MissingSetting(_))
+    ));
+
+    // Session edits on seeded defaults stay session-only (not saved in Snapshot, carried by put_session).
+    let snap = w.snapshot();
+    let mut restored = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(restored.setting_f32("fCombatEnvironmentBloodChance"), Some(0.75));
+    restored.put_session(w.take_session());
+    assert_eq!(restored.setting_f32("fCombatEnvironmentBloodChance"), Some(0.35));
+
+    // An ESM GMST record (including uppercase-prefixed `FCharacterDefaultTurningSpeed`)
+    // always overrides the seeded engine default.
+    let gmsts = [
+        record(b"GMST", 0, 0x901, &[sub(b"EDID", z("fCombatEnvironmentBloodChance")), sub(b"DATA", 0.25f32.to_le_bytes().to_vec())]),
+        record(b"GMST", 0, 0x902, &[sub(b"EDID", z("FCharacterDefaultTurningSpeed")), sub(b"DATA", 135.0f32.to_le_bytes().to_vec())]),
+    ]
+    .concat();
+    let bytes = [tes4(), top(b"GMST", &gmsts)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "gmst-override.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let s = schema();
+    let forms = FormStore::build(&lo, &s);
+    let refs = RefTable::build(&lo, &s);
+    assert!(forms.issues.is_empty(), "uppercase GMST prefix should decode without issues: {:?}", forms.issues.to_json());
+    let mut w_esm = World::new(&forms, &refs, SimConfig::default());
+    assert_eq!(w_esm.setting_value("fCombatEnvironmentBloodChance"), Some(&Setting::Float(0.25)));
+    assert_eq!(w_esm.setting_value("FCharacterDefaultTurningSpeed"), Some(&Setting::Float(135.0)));
+    w_esm.change_setting("FCharacterDefaultTurningSpeed", Setting::Float(225.0)).unwrap();
+    assert_eq!(w_esm.setting_f32("fCharacterDefaultTurningSpeed"), Some(225.0));
 }

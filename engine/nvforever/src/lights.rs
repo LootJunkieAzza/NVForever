@@ -31,7 +31,13 @@ const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wesl";
 
 mod display_shader;
 pub(crate) use self::display_shader::display_patched;
+#[cfg(test)]
+pub(crate) use self::display_shader::{
+    flashlight_display_scale, flashlight_specular_scale, FIRST_PERSON_FLASHLIGHT_DIFFUSE,
+    FIRST_PERSON_FLASHLIGHT_SPECULAR,
+};
 pub use self::display_shader::unix_lines;
+pub(crate) mod reflection_gate;
 
 /// A light colour of a world view as display values (bytes / 255, or a model's stored
 /// colour): handed to Bevy unconverted, for the display-value sum (`display_shader`).
@@ -145,12 +151,14 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     let bevy::shader::Source::Wesl(source) = &shader.source else {
         error!("{PBR_FUNCTIONS}: not WESL; surfaces keep Bevy's linear lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        reflection_gate_failed();
         return;
     };
     let source = unix_lines(source);
     let Some(patched) = display_patched(&source) else {
         error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        reflection_gate_failed();
         return;
     };
     // The sun visibility's hook goes into the same function, after these edits; it acts
@@ -172,13 +180,41 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
             (patched, false)
         }
     };
+    // The reflection gate last (lights/reflection_gate.rs): the view's environment map light
+    // reaches only fragments that opt in. Made whether or not reflections are on in this run;
+    // without the opt-in def its text compiles to what Bevy's did without a cube.
+    let (patched, gated) = match reflection_gate::gate_patched(&patched) {
+        Some(gated) => (gated, true),
+        None => (patched, false),
+    };
     let patched = crate::fog::with_source(shader, patched);
-    let _ = shaders.insert(&state.handle, patched);
+    // Nothing is published as installed unless the patched shader is in place: a gate
+    // reported installed over Bevy's ungated text would hand the cube to every lit shader.
+    if let Err(e) = shaders.insert(&state.handle, patched) {
+        error!("{PBR_FUNCTIONS}: the patched shader could not be stored ({e:?}); surfaces keep Bevy's lighting sum");
+        crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        reflection_gate_failed();
+        return;
+    }
     info!("lights: display-value lighting sum installed");
     if ao_hooked {
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Installed);
         info!("lights: ambient occlusion hook installed");
     }
+    if gated {
+        nvf_assets::reflection_cube::set_gate_state(nvf_assets::reflection_cube::GateState::Installed);
+        info!("lights: reflection gate installed (the environment map light reaches opted-in fragments only)");
+    } else {
+        reflection_gate_failed();
+    }
+}
+
+/// The reflection gate could not be made: no reflection cube is ever attached in this run
+/// (nvf_assets reflection_cube.rs), since an ungated `pbr_functions` would give it to every
+/// lit shader.
+fn reflection_gate_failed() {
+    nvf_assets::reflection_cube::set_gate_state(nvf_assets::reflection_cube::GateState::Failed);
+    error!("{PBR_FUNCTIONS}: the reflection gate's anchors not found (Bevy changed?); reflections on authored materials stay off (no cube is attached)");
 }
 
 /// How a light's brightness moves by itself: LIGH DATA flags 3 "Flicker", 6 "Flicker
@@ -1128,5 +1164,91 @@ mod tests {
             assert_eq!(app.world().resource::<crate::sky::SkyState>().hour, hour);
             assert_eq!(instances(&mut app), 2);
         }
+    }
+
+    /// The vendored `pbr_functions` with every edit lights.rs makes before the gate.
+    fn chain_before_gate() -> String {
+        let path = format!("{}/../vendor/bevy_pbr/src/render/pbr_functions.wesl", env!("CARGO_MANIFEST_DIR"));
+        let source = unix_lines(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}")));
+        let display = display_patched(&source).expect("display patch applies");
+        let sun = crate::sun_visibility::hook_patched(&display).expect("sun hook applies");
+        crate::ssao_lighting::hook::hook_patched(&sun).expect("ambient occlusion hook applies")
+    }
+
+    /// The gate applies after the other edits, leaves no plain `@if(ENVIRONMENT_MAP)` block
+    /// (only the module's import), puts both blocks under the opt-in, keeps the braces
+    /// balanced, and removing exactly its added text gives the input back.
+    #[test]
+    fn reflection_gate_applies_after_the_other_edits_and_gates_both_blocks() {
+        use reflection_gate::{gate_patched, ungated_blocks, GATE_EDITS};
+        let input = chain_before_gate();
+        assert_eq!(ungated_blocks(&input).len(), 2, "Bevy's two environment blocks, before the gate");
+        let gated = gate_patched(&input).expect("the gate's anchors match");
+        assert!(ungated_blocks(&gated).is_empty());
+        assert_eq!(gated.matches(&format!("@if(ENVIRONMENT_MAP && {}) {{", nvf_assets::reflection_cube::REFLECT_DEF)).count(), 2, "the def the NIF pipelines set");
+        assert_eq!(gated.matches("    if specular_occlusion > 0.0 {\n").count(), 2, "both cube lookups skipped at weight 0, the reflection and the transmitted light");
+        assert_eq!(gated.matches("    var transmitted_environment_light: environment_map::EnvironmentMapLight;\n").count(), 1);
+        assert!(crate::sun_visibility::tests::balanced(&gated));
+        // Undo: each replacement back to its anchor, in order, gives the input.
+        let mut undone = gated.clone();
+        for (anchor, text) in GATE_EDITS {
+            let at = undone.find(text).expect("each replacement present once");
+            undone.replace_range(at..at + text.len(), anchor);
+        }
+        assert_eq!(undone, input);
+        // Applied twice it refuses (its anchors are gone): never doubled.
+        assert!(gate_patched(&gated).is_none());
+    }
+
+    /// A source with an extra plain environment block (a later Bevy's) is refused.
+    #[test]
+    fn reflection_gate_refuses_a_source_with_another_ungated_block() {
+        let input = chain_before_gate().replace("// Total light\n", "// Total light\n@if(ENVIRONMENT_MAP) {\n}\n");
+        assert!(reflection_gate::gate_patched(&input).is_none());
+    }
+
+    /// Issue #3121: on `FIRST_PERSON_DEPTH` shapes only, the player's flashlight (the light
+    /// with the lightmapped-diffuse flag cleared, spot or point, with shadows or without:
+    /// #3280) takes the diffuse and specular scales in `lights/display_shader.rs`, matching
+    /// the Rust constants, while `!FIRST_PERSON_DEPTH` keeps full strength and the full
+    /// shader-patch chain stays balanced.
+    #[test]
+    fn first_person_flashlight_patch_scales_the_flashlight_only() {
+        let chained = reflection_gate::gate_patched(&chain_before_gate())
+            .expect("full pbr_functions patch chain applies");
+        assert!(crate::sun_visibility::tests::balanced(&chained));
+        let diffuse_lit = format!(
+            "let nvf_fp_scale = select(1.0, {:.2}, nvf_is_flashlight(light_id));",
+            FIRST_PERSON_FLASHLIGHT_DIFFUSE,
+        );
+        let spec_lit = format!(
+            "direct_light += light_contrib * (shadow * select(1.0, {:.2}, nvf_is_flashlight(light_id)));",
+            FIRST_PERSON_FLASHLIGHT_SPECULAR,
+        );
+        assert_eq!(chained.matches(&diffuse_lit).count(), 1, "diffuse scale matches Rust constant once");
+        // Point and spot loops alike: a point flashlight is scaled as a spot one is.
+        assert_eq!(chained.matches(&spec_lit).count(), 2, "specular scale matches Rust constant in both loops");
+        assert_eq!(
+            chained.matches("nvf_first_person_diffuse(light_id) * view_bindings::view.exposure").count(),
+            1,
+            "nvf_point_display, which nvf_spot_display goes through, takes the diffuse scale",
+        );
+        assert_eq!(
+            chained
+                .matches("(view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_AFFECTS_LIGHTMAPPED_MESH_DIFFUSE_BIT) == 0u")
+                .count(),
+            1,
+            "the flashlight is known by its mark, not by its shadows",
+        );
+        assert_eq!(
+            chained.matches("@if(!FIRST_PERSON_DEPTH)\n    let nvf_fp_scale = 1.0;").count(),
+            1,
+            "world and third-person spot diffuse stay at 1.0",
+        );
+        assert_eq!(
+            chained.matches("@if(!FIRST_PERSON_DEPTH)\n        direct_light += light_contrib * shadow;").count(),
+            2,
+            "world and third-person point and spot specular stay unmodified",
+        );
     }
 }

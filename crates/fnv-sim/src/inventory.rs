@@ -596,13 +596,23 @@ impl Inventory {
 
     /// [`Inventory::totals`] with a carrier's [`WeightRules`].
     pub fn totals_with(&self, forms: &FormStore, hardcore: bool, rules: &WeightRules) -> Totals {
+        self.totals_with_overrides(forms, hardcore, rules, |id| forms.item(id).map(|i| (i, None, i.power_armor)))
+    }
+
+    /// [`Inventory::totals_with`] using a caller-supplied item resolver for runtime
+    /// `TempCloneForm` items and live `weight`/`power_armor` overrides.
+    pub fn totals_with_overrides<'a, F>(&self, _forms: &'a FormStore, hardcore: bool, rules: &WeightRules, lookup: F) -> Totals
+    where
+        F: Fn(FormId) -> Option<(&'a crate::forms::Item, Option<f32>, bool)>,
+    {
         let hardcore = rules.ammo_weight.unwrap_or(hardcore);
         let mut t = Totals::default();
         for (id, s) in &self.items {
             let (id, n) = (*id, s.total());
-            match forms.item(id) {
-                Some(i) => {
-                    match i.weight {
+            match lookup(id) {
+                Some((i, weight_ov, power_armor)) => {
+                    let eff_weight = weight_ov.or(i.weight);
+                    match eff_weight {
                         _ if i.kind == ItemKind::Ammo && !hardcore => {}
                         // The records have no weight field; in game they weigh nothing,
                         // like caps [observed by the owner, inventory screen, 2026-10-08].
@@ -610,9 +620,14 @@ impl Inventory {
                             i.kind,
                             ItemKind::Note | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard
                         ) => {}
-                        Some(_) => {
+                        Some(base_w) => {
+                            let mod_delta = |mods: u8| {
+                                let orig = i.weight.unwrap_or(base_w);
+                                orig - i.weight_with_mods(mods).unwrap_or(orig)
+                            };
                             for &(e, c) in &s.groups {
-                                t.weight += rules.effective_unit(i.weight_with_mods(e.mods).unwrap_or(0.0), i.kind, e.equipped, i.power_armor) as f64 * c as f64;
+                                let unit = (base_w - mod_delta(e.mods)).max(0.0);
+                                t.weight += rules.effective_unit(unit, i.kind, e.equipped, power_armor) as f64 * c as f64;
                             }
                         }
                         None => t.unknown_weight.push(id),

@@ -42,11 +42,12 @@ pub const DOCTORS_BAG: usize = 1;
 pub const RADAWAY: usize = 2;
 
 /// Why the CND page does not use a hint's item, or `None` when it does [design: owner's
-/// request 2026-10-23]: none carried; a Stimpak on the body at full health, or on a limb
+/// request 2026-10-23, #3431]: none carried; a Stimpak on the body at full health, or on a limb
 /// that is whole; a Stimpak on a limb in Hardcore mode, where it mends no limb
 /// [observed: FalloutNV.esm's help text, "In Hardcore Mode, a Doctor's Bag or an actual
-/// doctor is required"]; a Doctor's Bag when no limb is hurt. `hp` is current and whole,
-/// `limbs` each part's condition from 0 to 1 (as [`Snapshot::limbs`]).
+/// doctor is required"]; a Doctor's Bag on a limb that is whole, or on the body when no limb
+/// is hurt. `hp` is current and whole, `limbs` each part's condition from 0 to 1 (as
+/// [`Snapshot::limbs`]).
 pub fn refusal(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64), limbs: &[f64; 6], hardcore: bool) -> Option<String> {
     refusal_with(hint, limb, count, hp, limbs, hardcore, false)
 }
@@ -62,7 +63,8 @@ pub fn refusal_with(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64)
         (STIMPAK, Some(_)) if hardcore => Some("a Stimpak mends no limb in Hardcore mode".into()),
         (STIMPAK, Some(i)) if !at_full && limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
         (STIMPAK, None) if !at_full && hp.0 >= hp.1 - 1e-6 => Some("health is full".into()),
-        (DOCTORS_BAG, _) if !at_full && limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
+        (DOCTORS_BAG, Some(i)) if !at_full && limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
+        (DOCTORS_BAG, None) if !at_full && limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
         (STIMPAK | DOCTORS_BAG, _) => None,
         _ => Some("not used from the STATS page".into()),
     }
@@ -83,7 +85,7 @@ pub use fnv_game::item_text::{avif_form, changes_text, whole, Change};
 
 // The karma's alignment, the titles and their columns live with the rules
 // (`fnv_game::karma_titles`), which GetPlayerKarmaTitle reads too.
-pub use fnv_game::karma_titles::{karma_alignment, karma_column, karma_title, KARMA_TITLES};
+pub use fnv_game::karma_titles::{karma_alignment, karma_column, karma_title, karma_title_with_ttw, TtwKarmaTitles, KARMA_TITLES};
 
 /// The setting alone, without the table, for a view drawn from the menu's file. Unlike [`karma_title`] it also finds the two-digit names.
 pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
@@ -91,6 +93,17 @@ pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -
     // FalloutNV.esm spells levels below 10 with two digits (`sKarmicTitleNeutral01`) [documented: `fnvtool esm inventory`].
     let column = ["Good", "Neutral", "Evil"][karma_column(alignment)];
     [format!("sKarmicTitle{column}{level:02}"), format!("sKarmicTitle{column}{level}")].iter().find_map(|name| setting(name).filter(|s| !s.is_empty()))
+}
+
+/// [`karma_title_setting`] with optional `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]`
+/// overrides checked first (the INI file belongs to the player's installed data, not a
+/// repo fallback table). When `ttw` is empty, behaves identically to
+/// [`karma_title_setting`].
+pub fn karma_title_setting_with_ttw(level: i64, alignment: &str, ttw: &TtwKarmaTitles, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
+    if let Some(title) = ttw.resolve(level, alignment) {
+        return Some(title.to_string());
+    }
+    karma_title_setting(level, alignment, setting)
 }
 
 /// The title of a reputation from the levels (0–3) of fame and infamy
@@ -317,10 +330,14 @@ mod tests {
         // None carried; this CND refusal helper does not handle the RAD actions.
         assert_eq!(refusal(STIMPAK, None, 0, (10.0, 100.0), &arm, false).as_deref(), Some("none carried"));
         assert!(refusal(2, None, 5, (10.0, 100.0), &arm, false).is_some());
-        // Hardcore: a Stimpak on a limb is refused, on the body it is not.
+        // Hardcore: a Stimpak on a limb is refused, on the body it is not; a Doctor's Bag on
+        // a hurt limb is allowed and on a whole limb is refused (unless Aid at Full Health).
         assert_eq!(refusal(STIMPAK, Some(2), 3, (60.0, 100.0), &arm, true).as_deref(), Some("a Stimpak mends no limb in Hardcore mode"));
         assert_eq!(refusal(STIMPAK, None, 3, (60.0, 100.0), &arm, true), None);
         assert_eq!(refusal(DOCTORS_BAG, None, 1, (100.0, 100.0), &arm, true), None);
+        assert_eq!(refusal(DOCTORS_BAG, Some(2), 1, (100.0, 100.0), &arm, true), None);
+        assert_eq!(refusal(DOCTORS_BAG, Some(3), 1, (100.0, 100.0), &arm, true).as_deref(), Some("the right arm is not hurt"));
+        assert_eq!(refusal_with(DOCTORS_BAG, Some(3), 1, (100.0, 100.0), &arm, true, true), None);
         assert_eq!(hint_text("RadAway", 0), "RadAway");
     }
 

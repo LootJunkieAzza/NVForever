@@ -418,3 +418,27 @@ fn a_summoned_teammate_comes_to_the_players_side() {
     let at = g.world.peek(companion()).unwrap().pos;
     assert!((at[0] - p[0]).hypot(at[1] - p[1]) < 400.0, "{at:?} beside {p:?}");
 }
+
+/// #3335: why an actor goes for the companion is named. A stranger with a grudge against
+/// the player attacks the player's teammate as it would the player, and the reason says so
+/// (the `alert:` log's `fights` line); with no grudge neither has a reason.
+#[test]
+fn the_reason_a_stranger_attacks_the_companion_names_the_player() {
+    use fnv_game::awareness::Hostile;
+    let f = fixture();
+    let mut g = game(&f);
+    let (c, other) = (companion(), FormId(OTHER_REF));
+    g.extra.entry(c).or_default().teammate = true;
+    assert_eq!(g.hostility_reason(other, c), None);
+    assert_eq!(g.hostility_reason(c, other), None);
+    assert!(g.hostility_text(other, c).is_none());
+    assert!(g.attacked_by(other, FormId::PLAYER_REF));
+    assert_eq!(g.hostility_reason(other, FormId::PLAYER_REF), Some(Hostile::Grudge));
+    assert_eq!(g.hostility_reason(other, c), Some(Hostile::AsAgainstThePlayer));
+    let text = g.hostility_text(other, c).unwrap();
+    assert!(text.contains("is the player's teammate, and it would attack the player: it holds a grudge against"), "{text}");
+    // The companion, aggressive, defends the player against it.
+    g.store(fnv_game::game::InstKey::Ref { reference: c }, Some(FormId(SCRIPT)), AGGRESSIVE, fnv_script::vm::Value::Num(1.0), "test", false);
+    assert_eq!(g.hostility_reason(c, other), Some(Hostile::DefendsThePlayer));
+    assert_eq!(g.would_attack(c, other), g.hostility_reason(c, other).is_some());
+}

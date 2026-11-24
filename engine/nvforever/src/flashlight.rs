@@ -18,7 +18,13 @@
 //!   casts none (owner 2026-10-22: aiming in third person the arms shaded the cone). The
 //!   first-person arms and weapon (`sky::ARMS_LAYER`), the seen third-person body and its
 //!   weapon (`sky::BODY_LAYER`) and the unseen body (`sky::SHADOW_LAYER`) are on layers
-//!   of their own. It still lights them: a light lights every view its layers meet.
+//!   of their own. It still lights them: a light lights every view its layers meet. On
+//!   first-person shapes (`FIRST_PERSON_DEPTH`, `lights/display_shader.rs`) the flashlight
+//!   is scaled down (`FIRST_PERSON_FLASHLIGHT_DIFFUSE`, `FIRST_PERSON_FLASHLIGHT_SPECULAR`)
+//!   [design, #3121] so aiming down sights into the beam's inner core does not wash the
+//!   held weapon and hand out to white, whatever its Type and Shadows rows (the shader
+//!   knows it by its mark, [`made`]), while world surfaces, third-person body/weapon
+//!   (`BODY_LAYER`) and the world's lights (`LIGH`) keep full strength.
 //! - Detection does not count it (`detection.rs`).
 //! - The Tweaks tab's Flashlight rows ([`FlashlightLook`], registered in `settings.rs`)
 //!   set its colour, its type (Bevy's `SpotLight` or `PointLight`), whether it casts
@@ -221,8 +227,38 @@ fn sync(
     let color = crate::lights::display_color(beam.colour);
     let intensity = crate::lights::lumens(beam.brightness, crate::sky::light_unit());
     let mut e = commands.spawn((Name::new("Flashlight"), PlayerFlashlight, MadeWith(beam), place));
+    match made(&beam, color, intensity) {
+        Made::Spot(l) => e.insert(l),
+        Made::Point(l) => e.insert(l),
+    };
+}
+
+/// Bevy's light for a [`Beam`].
+#[derive(Debug)]
+enum Made {
+    Spot(SpotLight),
+    Point(PointLight),
+}
+
+impl Made {
+    /// Whether the light carries the flashlight's mark for the first-person shapes.
+    #[cfg(test)]
+    fn marks_flashlight(&self) -> bool {
+        match self {
+            Made::Spot(l) => !l.affects_lightmapped_mesh_diffuse,
+            Made::Point(l) => !l.affects_lightmapped_mesh_diffuse,
+        }
+    }
+}
+
+/// The light for `beam`. Each one, spot or point, with shadows or without, clears Bevy's
+/// `affects_lightmapped_mesh_diffuse`: NVForever draws no lightmaps, so the flag changes
+/// nothing else, and it is how the first-person shapes' shader tells the flashlight from
+/// the world's lights (`lights/display_shader.rs`, `nvf_is_flashlight`; #3121, #3280)
+/// [design].
+fn made(beam: &Beam, color: Color, intensity: f32) -> Made {
     match beam.kind {
-        LightKind::Spot => e.insert(SpotLight {
+        LightKind::Spot => Made::Spot(SpotLight {
             color,
             intensity,
             range: beam.range,
@@ -231,18 +267,20 @@ fn sync(
             shadow_maps_enabled: beam.shadows,
             shadow_map_near_z: NEAR,
             shadow_depth_bias: SPOT_DEPTH_BIAS,
+            affects_lightmapped_mesh_diffuse: false,
             ..default()
         }),
-        LightKind::Point => e.insert(PointLight {
+        LightKind::Point => Made::Point(PointLight {
             color,
             intensity,
             range: beam.range,
             shadow_maps_enabled: beam.shadows,
             shadow_map_near_z: NEAR,
             shadow_depth_bias: POINT_DEPTH_BIAS,
+            affects_lightmapped_mesh_diffuse: false,
             ..default()
         }),
-    };
+    }
 }
 
 #[cfg(test)]
@@ -301,5 +339,141 @@ mod tests {
         assert_eq!(LightKind::ALL.map(LightKind::name), ["Spot", "Point"]);
         assert_eq!(LightKind::from_name(" point "), Some(LightKind::Point));
         assert_eq!(LightKind::from_name("Area"), None);
+    }
+
+    /// The light `sync` makes for `look` (the Pip-Boy's colour amber).
+    fn made_for(look: FlashlightLook) -> Made {
+        let beam = look.beam(AMBER);
+        made(&beam, crate::lights::display_color(beam.colour), 1.0)
+    }
+
+    /// CPU mirror of `nvf_point_display`/`nvf_spot_display` with `nvf_first_person_diffuse`
+    /// (`lights/display_shader.rs`) and `GAME_ATTENUATION` (`lights.rs`): the display-value
+    /// diffuse light of the flashlight `look` at `light` on a surface at `target` (Bevy world
+    /// space) facing `normal`. The scale is read off the light `sync` makes, so it is the
+    /// flashlight's mark that the first-person shapes go by.
+    fn diffuse_display(look: FlashlightLook, light: &Transform, target: Vec3, normal: Vec3, first_person: bool) -> [f32; 3] {
+        let beam = look.beam(AMBER);
+        let to_light = light.translation - target;
+        let d2 = to_light.length_squared();
+        let attenuation = (1.0 - d2 / (beam.range * beam.range)).clamp(0.0, 1.0);
+        let dir_to_light = to_light * d2.max(0.0001).sqrt().recip();
+        let n_dot_l = normal.normalize().dot(dir_to_light).clamp(0.0, 1.0);
+        let cone = match beam.kind {
+            LightKind::Point => 1.0,
+            LightKind::Spot => {
+                let cd = (-light.forward().as_vec3()).dot(dir_to_light);
+                let cos_outer = beam.outer_deg.to_radians().cos();
+                let cos_inner = beam.inner_deg.to_radians().cos();
+                let c = ((cd - cos_outer) / (cos_inner - cos_outer)).clamp(0.0, 1.0);
+                c * c
+            }
+        };
+        let scale = crate::lights::flashlight_display_scale(first_person, made_for(look).marks_flashlight());
+        let factor = beam.brightness * attenuation * n_dot_l * cone * scale;
+        beam.colour.map(|c| c * factor)
+    }
+
+    /// Final clipped linear diffuse colour (`lights/display_shader.rs` + `GAME_CLIP`).
+    fn lit_clipped_linear(albedo: f32, ambient: f32, direct: [f32; 3]) -> [f32; 3] {
+        direct.map(|d| (albedo * (ambient + d).max(0.0).powf(2.2)).min(1.0))
+    }
+
+    /// Every Type and Shadows choice of the Flashlight rows, the other rows at their defaults.
+    fn every_kind_and_shadows() -> impl Iterator<Item = FlashlightLook> {
+        LightKind::ALL
+            .into_iter()
+            .flat_map(|kind| [true, false].map(|shadows| FlashlightLook { kind, shadows, ..FlashlightLook::default() }))
+    }
+
+    #[test]
+    fn every_flashlight_marks_itself_for_the_first_person_shapes() {
+        for look in every_kind_and_shadows() {
+            let made = made_for(look);
+            assert!(made.marks_flashlight(), "{look:?}");
+            match (look.kind, &made) {
+                (LightKind::Spot, Made::Spot(l)) => assert_eq!(l.shadow_maps_enabled, look.shadows),
+                (LightKind::Point, Made::Point(l)) => assert_eq!(l.shadow_maps_enabled, look.shadows),
+                _ => panic!("{look:?} made as {made:?}"),
+            }
+            assert_eq!(crate::lights::flashlight_display_scale(true, made.marks_flashlight()), crate::lights::FIRST_PERSON_FLASHLIGHT_DIFFUSE);
+            assert_eq!(crate::lights::flashlight_specular_scale(true, made.marks_flashlight()), crate::lights::FIRST_PERSON_FLASHLIGHT_SPECULAR);
+        }
+        // The world's lights keep Bevy's default, so they are not taken for the flashlight.
+        assert!(SpotLight::default().affects_lightmapped_mesh_diffuse && PointLight::default().affects_lightmapped_mesh_diffuse);
+    }
+
+    #[test]
+    fn aimed_in_first_person_weapons_and_hand_do_not_wash_out() {
+        // Player at origin facing north (+y game, -z Bevy), level, indoors with typical dim ambient.
+        let eye = [0.0, 0.0, 120.0];
+        let light = placement(eye, 0.0, 0.0);
+        let ambient = 0.25;
+        // Aimed-in weapon & gloved hand sit directly ahead of the flashlight inside its 14 deg
+        // inner core (25 units past the light), facing back toward the light.
+        let aimed_pos = light.translation + light.forward().as_vec3() * 25.0;
+        let facing_light = -light.forward().as_vec3();
+        // Lit world wall in the same beam 300 and 1200 units ahead.
+        let near_wall = light.translation + light.forward().as_vec3() * 300.0;
+        let far_wall = light.translation + light.forward().as_vec3() * 1200.0;
+
+        // Every Type and Shadows setting (#3280 review): a point light, or a light without
+        // shadows, is the flashlight as much as the default shadow-casting spot.
+        for look in every_kind_and_shadows() {
+            let unscaled_direct = diffuse_display(look, &light, aimed_pos, facing_light, false);
+            let fp_direct = diffuse_display(look, &light, aimed_pos, facing_light, true);
+            let wall_near_direct = diffuse_display(look, &light, near_wall, facing_light, false);
+            let wall_far_direct = diffuse_display(look, &light, far_wall, facing_light, false);
+
+            // Reproduce the #3121 failing boundary: without the first-person scale, a bright
+            // revolver (Ranger Sequoia silver, albedo 0.55) and gloved hand (0.35) blow out to white.
+            assert_eq!(lit_clipped_linear(0.55, ambient, unscaled_direct)[0], 1.0, "{look:?}: unscaled revolver clipped");
+            assert_eq!(lit_clipped_linear(0.35, ambient, unscaled_direct)[0], 1.0, "{look:?}: unscaled hand clipped");
+
+            // With the fix, aimed-in revolver (0.55), energy weapon (0.45), gloved hand (0.35),
+            // and rifle (0.25) all stay well below white clipping, receive gentle warm fill above
+            // flashlight-off, and remain strictly dimmer than the lit world wall ahead.
+            for (label, albedo) in [("revolver", 0.55), ("energy", 0.45), ("hand", 0.35), ("rifle", 0.25)] {
+                let off = lit_clipped_linear(albedo, ambient, [0.0; 3]);
+                let on = lit_clipped_linear(albedo, ambient, fp_direct);
+                let wall_near = lit_clipped_linear(albedo, ambient, wall_near_direct);
+                let wall_far = lit_clipped_linear(albedo, ambient, wall_far_direct);
+                for c in 0..3 {
+                    assert!(on[c] < 0.75, "{look:?} {label} channel {c} must not wash out: {on:?}");
+                    assert!(on[c] > off[c], "{look:?} {label} channel {c} keeps subtle warm fill over off: {on:?} vs {off:?}");
+                    assert!(
+                        on[c] < wall_near[c] && on[c] < wall_far[c],
+                        "{look:?} {label} channel {c} stays dimmer than lit world wall: {on:?} vs near {wall_near:?} / far {wall_far:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn non_aimed_third_person_world_and_world_spot_controls_hold() {
+        let eye = [0.0, 0.0, 120.0];
+        let light = placement(eye, 0.0, 0.0);
+        let facing_light = -light.forward().as_vec3();
+        let look = FlashlightLook::default();
+
+        // Non-aimed hip-held weapon sits off to the right and below the beam axis: weaker than aimed-in.
+        let aimed_pos = light.translation + light.forward().as_vec3() * 25.0;
+        let hip_pos = light.translation + light.forward().as_vec3() * 25.0 + light.right().as_vec3() * 11.0 - light.up().as_vec3() * 6.0;
+        let aimed = diffuse_display(look, &light, aimed_pos, facing_light, true);
+        let hip = diffuse_display(look, &light, hip_pos, facing_light, true);
+        assert!(hip[0] < aimed[0] && hip[0] >= 0.0, "hip {hip:?} weaker than aimed {aimed:?}");
+
+        // Third-person body/weapon (BODY_LAYER) and world surfaces (!FIRST_PERSON_DEPTH)
+        // keep full flashlight diffuse and specular strength.
+        assert_eq!(crate::lights::flashlight_display_scale(false, true), 1.0);
+        assert_eq!(crate::lights::flashlight_specular_scale(false, true), 1.0);
+        let world_wall = diffuse_display(look, &light, light.translation + light.forward().as_vec3() * 200.0, facing_light, false);
+        assert!(world_wall[0] > BRIGHTNESS * 0.98, "world illumination unchanged: {world_wall:?}");
+
+        // The world's own lights (LIGH records, with shadows or not) still light first-person
+        // weapons and hands at full strength.
+        assert_eq!(crate::lights::flashlight_display_scale(true, false), 1.0);
+        assert_eq!(crate::lights::flashlight_specular_scale(true, false), 1.0);
     }
 }

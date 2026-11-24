@@ -457,6 +457,10 @@ Seen [observed 2026-10-11, Goodsprings]: a shot bottle falling off the fence,
 collision material 30 BABY_RATTLE) rolling, `PHYBabyRattle`. `PHYTumbleweed` exists but
 nothing links it to the tumbleweed (its MSTT has no `SNAM`) [observed].
 
+Mods may supply per-form collision sound overrides via
+`Data\NVSE\Plugins\SoundExtender\` (`*.json` / `*.txt`, `sound-extender.md`); when no
+overrides are present, knocks take the material table above unchanged.
+
 ### 11.3 Items, containers, activators
 
 | Record | Fields [documented: xEdit] | Records | Naming a pick-up / drop sound [observed] |
@@ -787,6 +791,31 @@ Counts are of FalloutNV.esm alone [observed] unless they say otherwise.
    [hypothesis].
 8. Intro, outro and incidental sounds go through `crate::sfx` at the listener (the
    effects volume) and are not played with music off [design].
+9. **The Pip-Boy radio** (#3311): while it plays its station the place's music (its
+   marker's set, else the cell's or worldspace's type, and its outgoing crossfades) is
+   turned down to silence over 3 s; it plays on unheard, so when the radio stops it
+   fades back in over 3 s where it has got to. "Plays its station"
+   (`radio::pipboy_holds_music`, `radio::pipboy_line_seen`): on, tuned to a station
+   received here, sound on and the player's Radio volume above 0, not at the poker
+   table, the radios not held (the Esc menu, a loading screen), and one of that
+   station's lines or songs heard now or within the last 8 s (the gaps between lines, a
+   file still being read). Heard means played at a level above 0 after the volumes, the
+   Radio While Talking tweak and reception's static; a line at no level, or the
+   programme muted outright even between lines (a volume or that tweak at 0, the station
+   all static), lets the music back at once, and retuning or switching off forgets the
+   last station's line, which only counts for the station tuned. Static
+   alone (a station saying nothing, one whose lines have no file, a station all static
+   at the edge of its range) and a station out of reception leave the music alone. Only the level the mixer
+   is given changes: the player's Music volume, SetMusicState's pause and the layers
+   stay as they were. A world receiver (a placed radio, a jukebox, an actor made a
+   radio) does not turn the music down. Battle music keeps its level over the radio: a
+   battle set's loop, and a dungeon set's battle stem, which comes in and goes by its
+   own fade while the explore and suspense stems stay down; so do script music (item 7)
+   and the death and level-up music. Incidental phrases (item 6) are not changed
+   [hypothesis: a player's report says the music should stop while the radio is on;
+   battle music, how fast it goes, whether it resumes or starts again, and static or
+   out of range are observer check 266; design: the 3 s fades, the 8 s hold, resumed
+   rather than started again].
 
 Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
 - Standing next to Violet (`--cell Goodsprings --pos=-46800,65000,4600 --hour 12`):
@@ -816,6 +845,10 @@ Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
   a group, and whether the original plays the intro before the loop or over it.
 - What a dungeon set's "suspense" answers to, and how a controller with both dungeon
   sets and a battle list chooses.
+- What the Pip-Boy radio does to the music (§13.2 item 9): whether battle music cuts in
+  over it, whether the place's music fades or stops, whether it comes back when the
+  radio is turned off, and what static at the edge of a station's radius or a station
+  out of reception does (observer check 266).
 
 ### 13.5 Fallout 3 music (owner, list 5 item 69)
 
@@ -1460,3 +1493,38 @@ run-long `MixBus`):
   mix's overloads stay counted), `post` after it (M should be 0 and Q at most 0.98), K
   the frames it played below unity. It works on the 48 kHz bus; what the device's own
   conversion does after it is not measured here.
+
+## 19. BulletSnap.ini pass-by snap audio
+
+Clean-room native support for the `BulletSnap.ini` configuration schema (`fnv_combat::bullet_snap`, `nvf_play::bullet_snap`, wired from `nvf_play::combat::fly` and `nvforever::own_sounds`).
+
+**Sources and provenance.** Only the public Nexus Mods page, the shipped INI file comments, and the loose sound-folder hierarchy of **Bullet Snap - ReRedux v1.2** (by LowbeeBob, `https://www.nexusmods.com/newvegas/mods/89474`) were consulted; the third-party plugin's DLL/binary and source code were never consulted.
+
+- **Vanilla unchanged when absent** [design]: when `Data\NVSE\Plugins\BulletSnapConfig\BulletSnap.ini` is absent from the VFS (or when no BulletSnap audio folders exist under `Data\Sound\fx\`), `BulletSnap` remains inactive: no folders are scanned, no synthetic SOUN records are registered, no snap audio is emitted, and vanilla `PROJ` `Supersonic` whizzes (`own_sounds.rs`, §15.5) behave identically to unmodded vanilla.
+- **INI location, sections, keys and defaults** [documented: Bullet Snap - ReRedux v1.2 (`https://www.nexusmods.com/newvegas/mods/89474`), shipped `Data\NVSE\Plugins\BulletSnapConfig\BulletSnap.ini` and its inline `;` comments]:
+  - Path: `Data\NVSE\Plugins\BulletSnapConfig\BulletSnap.ini` (case-insensitive VFS lookup).
+  - `[General]`:
+    - `ImpactedPlayerSnap = 0`: whether to play a snap when a projectile hits the player (`; Snap when hit player`).
+    - `DistancedBasedSnap = 1`: whether to classify pass-by snaps into the four `[DistanceBased]` bands (`; Will check distance between projectile and player when bullet pass by player when enable`).
+    - `Subsonic = 1`: whether projectiles slower than `SubsonicThresholdSpeed` play subsonic pass-by audio (`; enable subsonic bullet pass sound`).
+    - `SubsonicThresholdSpeed = 21000`: projectile speed threshold (game units/s) dividing subsonic from supersonic snaps (`; Will do subsonic 'snap' when projectiles' speed lower than this value`).
+    - `SnapAngle = 75`: threshold angle in degrees between the projectile's flight direction and the vector from the projectile to the player camera (`; Check the angle between projectiles and player camera / ; Greater than this angle will do snap. / ; 90 Means that the projs' direction is perpendicular to the vector of proj to player's camera`).
+  - `[DistanceBased]` (active when `DistancedBasedSnap = 1`; `; Setting the max distance for each snap sounds.`):
+    - `VeryClose = 768`, `Close = 1536`, `Distance = 4092`, `Far = 8192` (maximum distance in game units for each band).
+  - `[DamageBased]`:
+    - Key names and defaults `middledmg = 32`, `highdmg = 46` [documented: Bullet Snap - ReRedux v1.2 shipped `BulletSnap.ini`]. Because the shipped INI and public mod page do not state which damage value `middledmg`/`highdmg` measure (base weapon damage vs. ammo-modified or effective damage), comparing them against weapon `base_damage` to select the medium/high-caliber (`HCCloseMid`) and very-high-caliber (`VeryHighCaliber`) supersonic audio tiers is `[hypothesis]`.
+- **Parsing and clamping** [design]: parsed directly from raw bytes (`&[u8]`) with optional UTF-8 BOM stripping, `;`/`#` comment stripping, ASCII case-insensitive section/key matching, and finite monotonic clamping (`SnapAngle` in `0..=180`, non-negative speed/damage thresholds, `VeryClose <= Close <= Distance <= Far`, `middledmg <= highdmg`), so non-ASCII or legacy Windows-1252 bytes in comments or unknown keys never panic.
+- **Pass-by detection and eligibility** [hypothesis/design]:
+  - Non-player-owned ballistic projectiles (`Motion::Missile`, excluding mines, remote-detonated charges, beams, flames, lobbers, and non-supersonic explosive rockets) are tracked across swept movement segments (including hitscan `Ghost` flights).
+  - A projectile must approach the listener (`dot(dir, eye - from) > 0`, angle `< 90°`) before crossing `angle > SnapAngle`; it snaps at most once per pass-by at the closest point on that segment to the player's eye (`closest_on_segment`).
+  - When a projectile hits the player, `ImpactedPlayerSnap = 0` suppresses snapping for that projectile; `ImpactedPlayerSnap = 1` triggers one snap at the impact point.
+  - When active, `BulletSnap` suppresses the duplicate vanilla `PROJ` `Supersonic` whiz (`FXBulletWhiz`) in `own_sounds::projectiles` while leaving non-supersonic looping projectile sounds unchanged [design].
+- **Sound folder layout and playback**:
+  - Loose `.wav` folder hierarchy under `Data\Sound\fx\` [observed: Bullet Snap - ReRedux v1.2 (`https://www.nexusmods.com/newvegas/mods/89474`) release archive loose directory layout — 10 folders: `SubSonic\Close` (10 files), `SubSonic\Mid` (18), `GeneralCloseMid\Close` (10), `GeneralCloseMid\Mid` (12), `GeneralFar` (26), `HCCloseMid\Close` (23), `HCCloseMid\Mid` (15), `VeryHighCaliber\Close` (12), `VeryHighCaliber\Mid` (12), `VeryHighCaliber\Far` (8)]:
+  - Tier/band folder selection [hypothesis/design]:
+    - Subsonic (`speed < SubsonicThresholdSpeed` with `Subsonic = 1`): `SubSonic\Close` (`VeryClose`/`Close`), `SubSonic\Mid` (`Distance`/`Far`).
+    - Supersonic General (`damage < middledmg`): `GeneralCloseMid\Close` (`VeryClose`/`Close`), `GeneralCloseMid\Mid` (`Distance`), `GeneralFar` (`Far`).
+    - Supersonic High-Caliber (`middledmg <= damage < highdmg`): `HCCloseMid\Close` (`VeryClose`/`Close`), `HCCloseMid\Mid` (`Distance`), falling back to `GeneralFar` (`Far`).
+    - Supersonic Very-High-Caliber (`damage >= highdmg`): `VeryHighCaliber\Close` (`VeryClose`/`Close`), `VeryHighCaliber\Mid` (`Distance`), `VeryHighCaliber\Far` (`Far`).
+  - Synthetic `SOUN` FormID allocation [design]: each non-empty folder is registered once on `Sfx` inside the reserved audio-only subrange `0xFE7E_0000..0xFE7F_0000` (`fnv_game::game::BULLET_SNAP_SOUND_BASE..fnv_game::game::CAMERA_OVERLAY_BASE`), recorded in `docs/spec-notes/callable-identity.md` and strictly disjoint from `TEMP_REF_BASE..BULLET_SNAP_SOUND_BASE` (`0xFE40_0000..0xFE7E_0000`, enforced in `Game::temp_ref` and `Game::temp_item`), `CAMERA_OVERLAY_BASE` (`0xFE7F_0000..0xFE80_0000`), `LAMBDA_BASE`/`MADE_PACKAGE_BASE` (`0xFE80_0000..0xFF00_0000`), `FormId::FIRST_DYNAMIC` (`0xFF00_0000..`), `CLONE_BASE`/`COMPILED_BASE` (`0xFE00_0000..0xFE40_0000`), and normal plugin indices (`0x00..=0xFD`). Registration never overwrites an existing entry in `Sfx::forms.sounds`: if a loaded `SOUN` record already occupies a preferred slot, the loaded record wins untouched and BulletSnap selects the next free ID in `0xFE7E_000A..0xFE7F_0000`. Registered sounds use reach `max(Far, 8192) * 1.25` and attenuation curve `[100, 80, 60, 40, 15]`, played via `ScaledSound` with per-band gain (`VeryClose` 1.0, `Close` 0.85, `Distance` 0.65, `Far` 0.45; `1.0` with `Close` folder within `8192` units when `DistancedBasedSnap = 0`) so snaps get 3D panning, reverb, volume sliders, and voice limits through the existing `Sfx` pipeline.
+

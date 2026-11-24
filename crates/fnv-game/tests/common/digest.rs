@@ -55,7 +55,7 @@ pub fn data_lines(d: &GameData) -> Vec<String> {
         image_modifiers, station_flags, perks, actor_value_infos, recipes, camera_paths, camera_shots, recipe_categories, casinos, caravan_cards, caravan_decks,
         need_stages, water_effects, drink_waters, water_damage, radiation_markers, class_services, unit_by_key,
     );
-    value_fields!(out, d, load_order, plugin_versions, quests, lines_moved_by_previous, top_level, greeting, goodbye, ini_texts, scripted_by_cell, default_objects, issues);
+    value_fields!(out, d, load_order, plugin_versions, quests, lines_moved_by_previous, top_level, greeting, goodbye, ini_texts, scripted_by_cell, template_scripted_by_cell, default_objects, issues);
     // In order, with each unit's whole text: the units' ids are their places in this list.
     out.push(format!("units: {} {:016x}", d.units.len(), text_digest(&d.units.iter().map(|c| format!("{:?} {:?} {} {}", c.unit, c.program, c.raw, c.key())).collect::<Vec<_>>())));
     out.push(format!("read_issues: {:016x} {:016x}", ordered(&d.read_issues.counts), ordered(&d.read_issues.samples)));

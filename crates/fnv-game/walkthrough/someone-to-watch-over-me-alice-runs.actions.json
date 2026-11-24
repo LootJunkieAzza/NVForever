@@ -408,6 +408,16 @@
    "text": "Stand-in for the search of the building: the player picks up the henchman's message to Andy (the turf quest script sees the note: 60)."
   },
   {
+   "op": "note",
+   "text": "The henchman's note lies behind VOVNVAndyScabbDoorREF (000FD862), locked at level 50, its key VOVNVTheGrayAndyDoorKey carried only by AndyREF, and no script unlocks it [observed: pilot rerun step 78, decompiled scripts]. A player picks the Average lock (Lockpick 50); the pilot does not pick locks. Stand-in: the player is given Andy's Room Key."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "VOVNVTheGrayAndyDoorKey",
+   "count": 1
+  },
+  {
    "op": "move_player",
    "to": "placed:VOVNVAndyScabbNote01"
   },

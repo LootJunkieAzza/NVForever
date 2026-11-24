@@ -88,8 +88,8 @@ fn the_mouse() {
     assert_eq!(s(&mut g, "\"\"\nGetMouseMovement fX fY 0\nlet sOut := sv_Construct \"%g %g\" fX fY"), "3 -2");
     assert_eq!(n(&mut g, "GetMouseWheelMovement 1"), 1.0);
     g.loading = false;
-    // For the engine [documented: FakeMouseMovement].
-    q(&mut g, "FakeMouseMovement 1 2");
+    // For the engine [documented: FakeMouseMovement]; non-finite deltas are ignored [design].
+    q(&mut g, "FakeMouseMovement 1 2\nFakeMouseMovement (IsNumberNAN) 5");
     assert_eq!(g.sup.fake_moves, vec![(1.0, 2.0)]);
 }
 

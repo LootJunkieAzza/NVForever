@@ -698,7 +698,14 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
 
 ### 7.1 Script instances
 
-One instance per scripted reference (its base form's `SCRI`), per running quest's script,
+One instance per scripted reference (its base form's `SCRI`; for an actor whose base has
+the template flag "Script", its template's, through a leveled list the reference's pick
+[documented: GECK wiki Template Data, "Use Script: Uses the Script of the ActorBase"]. An
+actor scripted only through its template gets the lifecycle blocks OnLoad and OnReset
+through the lifecycle index [design, #3228]. Existing per-frame and directed events
+continue to read the script through `Game::ref_script`. The current pick decides which
+script runs, and a reset whose new pick runs another script starts a fresh instance,
+`GameData::script_through_template`, dead-on-spawn.md §4.1, #3228), per running quest's script,
 and per scripted item in an inventory (holder, item). Instances are created on first use
 (an event that runs the script, or a variable access): an instance never touched has all
 variables 0, so this is the same state as creating it when the reference is materialised.
@@ -928,9 +935,13 @@ faction of the actor. GetPCSleepHours reads the hours of a sleep in progress, 0 
 awake or waiting. SetLastExtDoorActivated sets the door GetPCLastExteriorDoor reads.
 SetPCYoung, SetPCToddler, SetNoActivationSound / ClearNoActivationSound and
 SetLocationSpecificLoadScreensOnly are kept in `PlayerState` (`young`, `toddler`,
-`no_activation_sound`, `location_load_screens_only`), but nothing draws, animates or
-plays by them yet: the child's default hair, the toddler's walk, the refused-activation
-sound and the load screen choice are not built.
+`no_activation_sound`, `location_load_screens_only`). `SetPCYoung` forces the
+race's default hair and suppresses face attachments in the actor resolver and
+rebuilds the player body (`appearance.rs`, `fnv_actor::resolve`); `SetPCToddler`
+switches player locomotion clips to the toddler walk set, forces walking pace
+(blocking sprint), and follows the toddler walk clip's root speed when loaded
+(`pc-toddler-young.md`). The refused-activation sound and the load screen choice
+are not built yet.
 
 The rest of the audit's §1 (2026-11-03, same module, opcodes the same way; Wait 0x10B7
 and IsWaiting 0x106F come with StopWaiting). Two opcodes have no catalogue name and

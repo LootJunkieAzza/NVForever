@@ -96,6 +96,37 @@ fn yes(b: bool) -> XVal {
 }
 
 impl Game<'_> {
+    /// Whether JIP LN's `IsInCharGen` reports the player as in character generation:
+    /// `CharGenMenu` / TagSkills (`1048`), `LoveTesterMenu` (`1074`), or `TraitMenu` (`1084`)
+    /// is open — NOT bare `SetInCharGen 1`, `ShowNameMenu` (`1051`), or
+    /// `ShowRaceMenu`/`ShowBarberMenu`/`ShowPlasticSurgeonMenu` (`1036`)
+    /// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+    /// 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, probes
+    /// `w4c_a02_set_in_chargen_menus`, `w4c_a02_chargen_all_menus`, `w4c_a02b_set_in_chargen_xp`
+    /// (`wave4c_extenders.json`), and `w4d_01_tagskills_chargen` (`wave4d_extenders.json`)].
+    pub fn is_in_chargen(&self) -> bool {
+        use crate::game::menus;
+        self.menu_open(menus::TAG_SKILLS)
+            || self.menu_open(menus::LOVE_TESTER)
+            || self.menu_open(menus::TRAITS)
+    }
+
+    /// Whether `form` (its base form, or `TempCloneForm` origin) carries JIP keyword
+    /// `keyword` (case-insensitive, shared by `HasKeyword` and `HasKeywordCond`)
+    /// [documented: GECK wiki HasKeyword, HasKeywordCond; observed: jip-n7].
+    pub fn has_keyword(&self, form: FormId, keyword: &str) -> bool {
+        if keyword.is_empty() {
+            return false;
+        }
+        let k = keyword.to_ascii_lowercase();
+        let b = crate::functions::base_of(self, form).unwrap_or(form);
+        if self.jip2.keywords.get(&b).is_some_and(|s| s.contains(&k)) {
+            return true;
+        }
+        let orig = self.unclone(b);
+        orig != b && self.jip2.keywords.get(&orig).is_some_and(|s| s.contains(&k))
+    }
+
     /// GetActorVelocity's followed actors move on (`Game::tick`).
     pub(crate) fn track_velocity(&mut self) {
         let dt = self.time - self.jip2.velocity_time;
@@ -227,14 +258,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Live kill-camera state reported each frame by the engine (`KillCam::kill_playing`)
         // [documented: GECK wiki IsInKillCam; design: classic VATS attack cameras are excluded].
         "isinkillcam" => yes(g.jip2.told.kill_cam),
-        "isincharGen" | "isinchargen" => zero,
+        // Character-generation state
+        // [observed: JIP LN 57.30 `w4c_a02_chargen_all_menus` + `w4d_01_tagskills_chargen`:
+        // CharGenMenu/TagSkills (1048), LoveTesterMenu (1074), and TraitMenu (1084) return 1].
+        "isincharGen" | "isinchargen" => yes(g.is_in_chargen()),
         // In water: the physics' swimming state [hypothesis: wading is not told];
         // immersion 1 when swimming, else 0 [hypothesis].
         "isinwater" | "getwaterimmersionperc" => {
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             yes(g.senses.motion.get(&a).is_some_and(|m| m.swimming))
         }
-        "isinair" => zero,
+        // In the air: the physics' airborne state (neither grounded nor swimming)
+        // [documented: GECK wiki IsInAir; hypothesis: swimming counts as not in air].
+        "isinair" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            yes(g.senses.motion.get(&a).is_some_and(|m| m.in_air))
+        }
         // Units per second on the axis (none given: the speed), measured frame to frame
         // from the first call on [hypothesis: the first call gives 0].
         "getactorvelocity" => {
@@ -266,7 +305,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let k = text(args, 1).to_ascii_lowercase();
             let targets: Vec<FormId> = if g.data.sig(f) == Some(*b"FLST") { crate::functions::list_members(g, f) } else { vec![base(g, f)] };
             match name {
-                "haskeyword" => return Some(Ok(yes(g.jip2.keywords.get(&base(g, f)).is_some_and(|s| s.contains(&k))))),
+                "haskeyword" => return Some(Ok(yes(g.has_keyword(f, &k)))),
                 "assignkeyword" => {
                     for t in targets {
                         g.jip2.keywords.entry(t).or_default().insert(k.clone());
@@ -452,9 +491,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(a + (b - a) * t)
         }
         // The Pip-Boy's mode: 0 closed, 1/2 opening, 3 opened, 4/5 closing [documented:
-        // GECK wiki GetPipBoyMode]. NVForever reports 3 whenever any Pip-Boy page is open
-        // (`Game::menu_open(menus::PIPBOY)`, including underneath a tutorial overlay) and
-        // 0 otherwise [hypothesis: opening/closing animation modes 1/2/4/5 are not emitted].
+        // GECK wiki GetPipBoyMode; observed: 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE
+        // 528 + JIP LN 57.30 with the 10 official base masters, clean-room script probe
+        // `w4c_b3_06_toggle_pipboy_tab` (`tools/capture/nvse/catalogs/wave4c_extenders.json`,
+        // #3678 / PR #3679): `init(pb=0)|open1003(mm=1003,pb=2)|close(mm=1003,pb=3)|reopenNoArg(mm=0,pb=0)`;
+        // no DLL or source consulted]. NVForever reports 3 whenever any Pip-Boy page is
+        // open (`Game::menu_open(menus::PIPBOY)`, including underneath a tutorial overlay)
+        // and 0 otherwise [not built: opening/closing animation transition modes 1/2/4/5].
         "getpipboymode" => XVal::Num(if g.menu_open(crate::game::menus::PIPBOY) { 3.0 } else { 0.0 }),
         // [observed: an unknown stat is -1, and ModExtraMiscStat did not create one]
         "getextramiscstat" => XVal::Num(g.jip2.misc_stats.get(&text(args, 0).to_ascii_lowercase()).copied().unwrap_or(-1.0)),

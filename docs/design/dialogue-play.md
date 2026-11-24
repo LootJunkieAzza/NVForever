@@ -65,7 +65,8 @@ original unless it carries a tag.
    when the player falls short [documented: Category:Dialogue "AV/Perk"; where the two
    numbers come from is the runtime's hypothesis, dialogue.md §3.3]; the frame of one
    the player falls short of is red (dialogue-menu.md §3).
-4. **The end.** A chosen line with the Goodbye flag is said on the dialogue screen like
+4. **The end.** A chosen line with the Goodbye flag (or the GOODBYE topic's line without
+   it, #3477, dialogue.md §5) is said on the dialogue screen like
    the lines before it, the player held, and ends the conversation when it is over
    [owner statement 2026-11-11, issue #2157: the last line of a conversation must hold
    the player; said in the world, a quest's line can be interrupted in play]. The

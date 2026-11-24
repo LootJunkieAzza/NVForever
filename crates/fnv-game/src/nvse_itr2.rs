@@ -454,7 +454,7 @@ impl Game<'_> {
 
     /// GetPerkEligibility's answer for one perk (module notes, ext-itr.md §11).
     fn eligibility(&mut self, p: FormId, d: &Delta, flags: i64) -> Option<Eligibility> {
-        let def = self.data.perks.get(&p)?;
+        let def = self.perk_def(p)?;
         let (is_trait, hidden, playable, min_level, max) = (def.is_trait, def.hidden, def.playable, def.min_level, def.ranks.max(1));
         let conds = def.conditions.clone().unwrap_or_default();
         let owned = self.perk_rank(p, d);
@@ -559,14 +559,15 @@ impl Game<'_> {
 
     /// Every perk, by least level then name (the level-up menu's order).
     fn perks_in_order(&self) -> Vec<FormId> {
-        let mut ps: Vec<(u8, String, FormId)> = self.data.perks.iter().map(|(&id, d)| (d.min_level, d.name.to_lowercase(), id)).collect();
+        let mut ps: Vec<(u8, String, FormId)> =
+            self.data.perks.keys().filter_map(|&id| self.perk_def(id).map(|d| (d.min_level, d.name.to_lowercase(), id))).collect();
         ps.sort();
         ps.into_iter().map(|(_, _, id)| id).collect()
     }
 
     /// GetPerkConditions' entries for one perk.
     fn perk_conditions(&mut self, p: FormId) -> Vec<XVal> {
-        let Some(def) = self.data.perks.get(&p) else { return Vec::new() };
+        let Some(def) = self.perk_def(p) else { return Vec::new() };
         let (min_level, is_trait, hidden, playable) = (def.min_level, def.is_trait, def.hidden, def.playable);
         let conds = def.conditions.clone().unwrap_or_default();
         let entries: Vec<EntryFilters> = def
@@ -845,12 +846,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
             let limb_damage = if ex { finite(num(args, 3, 0.0)).max(0.0) } else { 0.0 };
             let limb = (ex && (1..=6).contains(&loc) && limb_damage > 0.0).then_some(LimbHit { condition, health_percent: 0.0, damage: limb_damage, points: true });
+            let fatigue = if ex { finite(num(args, 2, 0.0)) } else { 0.0 };
             if skip {
                 g.effect_health_damage(target, damage, attacker);
             } else {
-                g.hit(target, damage, HitInfo { attacker, weapon, location, critical: false, limb });
+                g.hit(target, damage, HitInfo { attacker, weapon, location, critical: false, fatigue_damage: fatigue.max(0.0), limb, ..HitInfo::default() });
             }
-            let fatigue = if ex { finite(num(args, 2, 0.0)) } else { 0.0 };
             if fatigue > 0.0 {
                 crate::functions::add_actor_value_damage(g, target, crate::actor_values::FATIGUE, fatigue);
             }
@@ -1197,7 +1198,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let mut perks: Vec<FormId> = g.data.perks.keys().copied().collect();
             perks.sort();
             for p in perks {
-                let Some(def) = g.data.perks.get(&p) else { continue };
+                let Some(def) = g.perk_def(p) else { continue };
                 let mut matches = Vec::new();
                 for e in &def.entries {
                     let crate::data::PerkEffect::EntryPoint(ep) = &e.effect else { continue };
@@ -1237,7 +1238,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 // out unless owned [documented: "Owned relevant perks are returned"].
                 // Traits are listed [observed: itr probes, Fast Shot and Trigger
                 // Discipline read "blocked"]; the other gates leave a perk out.
-                if el.owned == 0 && el.gated && !g.data.perks.get(&p).is_some_and(|d| d.is_trait) {
+                if el.owned == 0 && el.gated && !g.perk_def(p).is_some_and(|d| d.is_trait) {
                     continue;
                 }
                 let all_contextual = matches.iter().all(|m| m.6);

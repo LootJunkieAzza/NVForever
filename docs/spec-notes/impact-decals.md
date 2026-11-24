@@ -135,6 +135,64 @@ turned with the capsule.
 - Log at exit: `decals: on actors, <n> hits whose line met no drawn shape left none, <m>
   were left out by the actor limits`. Smoke `impact-decals-blood`.
 
+## 4a. Blood on the world behind a shot actor (#3318)
+
+A player's report (v0.8.1): shooting someone left blood on the body but none on the walls
+or floor near them. Cause: the shot's impact went to the actor's body only (§4;
+`engine/nvf-play/src/combat.rs`, `fly`, the one `show_impact` of an actor hit, before
+#3318); nothing put blood on the world.
+
+- **What the original does** [documented: GECK wiki ITR:OnWoundSpray, an extender's event
+  page]: after a hit on an actor, when the game setting `fCombatEnvironmentBloodChance`
+  rolls in favour, the engine casts from the impact point in the projectile's direction
+  and paints one blood splatter, the hit body part's impact, on the first valid wall,
+  floor or other static surface within 512 units; at most one a hit. It does not when
+  the actor cannot have blood, wears power armour (torso; helmet for head and torso
+  hits), is too far off or out of view, or over a cap of combat actors. Distinct from
+  the decals of a limb severed or blown apart (dismemberment.md; §5).
+- **Ours** (`nvf_play::combat::world_blood` and `splatter_impact`, sent from the shot's
+  impact in `fly`, whether or not the weapon's impact data set names an impact for the
+  actor): a shot (not a melee blow [design]) on an actor rolls its own random numbers
+  against the chance unless:
+  - the shot is harmless (a scripted Do No Damage shot, #2433);
+  - the actor's own blood decal is suppressed for this hit: flagged No Blood Decal
+    (actor-flags.md §2) or stopped by the Armor Prevents Blood Decals tweak (read from the actor
+    and the tweak, not from the weapon's impact). The limits of §4 (three alive, one each 0.3 s) are not suppression: a
+    follow-up torso shot within the body decal's 0.3 s remains eligible to roll;
+  - the hit is on the held weapon or a gore piece, whatever the tweaks;
+  - the actor's Impact Material Type is not organic (organic, organic bug, organic glow)
+    [design]: a robot's oil is not built;
+  - the struck body part (its BPTD part, from the actor's published posed parts; a hit on
+    the whole volume of an actor with published parts reads the first part [design]; an
+    actor without published parts, one whose skeleton gives no limb chains, gets none)
+    has no blood spurt / decal impact data set (the
+    severable one, else the explodable [hypothesis: observer check 263]) [documented:
+    GECK wiki Body Part]. Its impact for the actor's material is the splatter, not the
+    weapon's impact data set's, whose organic slot can hold another effect (a flamer's
+    scorch).
+
+  On a win, a line is cast from the hit along the shot, within 512 units, against the
+  world only (walls, rocks, the ground, wrecks: what shields from a blast, not bodies,
+  clutter, small or see-through things or trees); if it meets nothing, a second line
+  straight down from the hit [hypothesis: the wiki names only the projectile's direction
+  and a loop of casts; observer check 263]. The first surface met gets the splatter as a
+  decal only (`ImpactFx::splatter`): no model, no sound, no noise. It is placed as any
+  world decal (§2, §3): its cell, the placement radius, the frame cap, the life and the
+  global cap.
+- **The chance**: `fCombatEnvironmentBloodChance`, a fraction held to 0..1; FalloutNV.esm
+  does not set it, so its default 0.75 holds [documented: GECK wiki
+  FCombatEnvironmentBloodChance, "Default = 0.7500", "the chance blood sprays from a actor
+  will lay blood on the environment"]. The log says the chance and the setting's value at
+  the first roll (`combat: blood on the world behind shot actors: chance ...`).
+- Not built: the power-armour, distance, view and combat-actor-cap exceptions; melee;
+  robots; actors without published body parts (their BPTD is not looked up apart from
+  the posed colliders).
+- Log: `decals: <IPCT> splatters blood (<TXST>) on the world behind a shot actor at ...`
+  for the first; at exit `combat summary: blood on the world: <n> shots on actors rolled,
+  <w> won the roll, <s> met a wall or floor`, one line per actor struck (`combat summary: blood
+  on the world behind <ref>: <s> splatters from <n> rolled hits`) and `decals: blood on the world behind shot
+  actors: <s> splatters sent, <p> placed`. Smoke `impact-decals-blood`.
+
 ## 5. Not built, open
 
 - **Angle threshold** ("how far around in degrees a decal renders"): read as the largest

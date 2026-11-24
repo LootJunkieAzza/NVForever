@@ -112,16 +112,59 @@ impl Game<'_> {
     }
 
     /// HideItemBarterEx's flag for `item` at `vendor`: 0 shown, 1 shown on the player's
-    /// side only, 2 on the vendor's only, 3 hidden on both [documented]; the vendor's own
-    /// entry first, then the one for every vendor [hypothesis].
+    /// side only, 2 on the vendor's only, 3 hidden on both [documented]; the vendor
+    /// reference's own entry first, then its base form's, then the one for every vendor
+    /// [hypothesis].
     pub fn barter_hide_flag(&self, item: FormId, vendor: Option<FormId>) -> i64 {
         let h = &self.other.jg7.barter_hidden;
-        h.get(&(item, vendor)).or_else(|| h.get(&(item, None))).copied().unwrap_or(0)
+        let vendor_base = vendor.and_then(|v| self.world.placed.get(v).map(|p| p.base));
+        h.get(&(item, vendor))
+            .or_else(|| vendor_base.and_then(|b| h.get(&(item, Some(b)))))
+            .or_else(|| h.get(&(item, None)))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Active non-zero `HideItemBarterEx` flags for a barter session with `vendor`.
+    pub fn barter_hidden_for(&self, vendor: FormId) -> std::collections::BTreeMap<FormId, i64> {
+        let mut out = std::collections::BTreeMap::new();
+        for &(item, _) in self.other.jg7.barter_hidden.keys() {
+            if out.contains_key(&item) {
+                continue;
+            }
+            let flag = self.barter_hide_flag(item, Some(vendor));
+            if flag != 0 {
+                out.insert(item, flag);
+            }
+        }
+        out
     }
 
     /// Whether a script has disabled saving (ToggleDisableSaves) [documented].
     pub fn saves_disabled(&self) -> bool {
         !self.other.jg7.saves_disabled_by.is_empty()
+    }
+
+    /// Whether the level-up menu is enabled (`ToggleLevelUpMenu`, on by default) [documented].
+    pub fn level_up_menu_enabled(&self) -> bool {
+        !self.other.jg7.level_up_menu_off
+    }
+
+    /// The `SOUN` FormID set by `SetUIUpdateSound` for notification `kind` (`1` quest
+    /// failed, `2` quest added, `3` quest completed, `4` location discovered) [documented].
+    pub fn ui_update_sound(&self, kind: i64) -> Option<FormId> {
+        self.other.jg7.ui_sounds.get(&kind).copied()
+    }
+
+    /// The quest pushed to the top of the Pip-Boy quest list (`PushUIQuestToTop`) [documented].
+    pub fn top_ui_quest(&self) -> Option<FormId> {
+        self.other.jg7.top_quest
+    }
+
+    /// The custom map marker texture path set for `r` by `SetCustomMapMarkerIcon`,
+    /// if any (non-empty) [documented: SetCustomMapMarkerIcon].
+    pub fn custom_map_marker_icon(&self, r: FormId) -> Option<&str> {
+        self.other.jg7.marker_icons.get(&r).map(String::as_str).filter(|p| !p.trim().is_empty())
     }
 }
 
@@ -252,9 +295,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         "getyieldtimer" => XVal::Num(g.other.jg7.yield_timer.map_or(0.0, |(v, at)| (v - (g.time - at)).max(0.0))),
-        // 0 is the default [documented: Get/SetViewmodelClipDistance].
+        // 0 is the default [documented: Get/SetViewmodelClipDistance]; stores raw finite
+        // values including negatives without clamping to 0 [observed: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, clean-room script probe
+        // jg_25_yield_timer_and_viewmodel_clip_neg: -5.00; no DLL or source consulted].
         "setviewmodelclipdistance" => {
-            g.other.jg7.viewmodel_clip = num(args, 0, 0.0).max(0.0);
+            let v = num(args, 0, 0.0);
+            if v.is_finite() {
+                g.other.jg7.viewmodel_clip = v;
+            }
             zero
         }
         "getviewmodelclipdistance" => XVal::Num(g.other.jg7.viewmodel_clip),
@@ -406,13 +455,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `marker|list path`: a map marker reference, or each one of a form list
-        // [documented: SetCustomMapMarkerIcon], for the session.
+        // [documented: SetCustomMapMarkerIcon], for the session. An empty path clears the
+        // override back to the marker's type icon [hypothesis].
         "setcustommapmarkericon" => {
             let (Some(f), Some(p)) = (form(args, 0), text(args, 1)) else { return Some(Ok(zero)) };
             let list = crate::functions::list_members(g, f);
             let markers = if list.is_empty() { vec![f] } else { list };
             for m in markers {
-                g.other.jg7.marker_icons.insert(m, p.clone());
+                if p.trim().is_empty() {
+                    g.other.jg7.marker_icons.remove(&m);
+                } else {
+                    g.other.jg7.marker_icons.insert(m, p.clone());
+                }
             }
             zero
         }
@@ -423,8 +477,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // reference that is no map marker [hypothesis].
         "getcustommapmarkericon" => {
             let Some(r) = subject else { return Some(Ok(XVal::Str(String::new()))) };
-            let p = g.other.jg7.marker_icons.get(&r).cloned().or_else(|| {
-                let kind = g.world.placed.get(r)?.map_marker.as_ref()?.kind;
+            let p = g.custom_map_marker_icon(r).map(str::to_string).or_else(|| {
+                let kind = g.marker_kind(r)?;
                 let name = MAP_MARKER_ICONS.get(kind as usize).copied().unwrap_or("settlement");
                 Some(format!("Interface\\Icons\\World Map\\icon_map_{name}.dds"))
             });

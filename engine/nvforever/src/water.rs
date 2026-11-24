@@ -92,17 +92,23 @@ impl Plugin for WaterPlugin {
             .init_resource::<WaterCache>()
             .init_resource::<DistantWater>()
             .init_resource::<WaterRemaps>()
-            .add_systems(
-                Update,
-                (
-                    sync_remaps.before(crate::world::stream),
-                    update_water_sky.after(crate::sky::update_sky),
-                    // After the LOD chose its chunks this frame (the water covers them).
-                    distant_water.after(crate::world::stream).after(crate::lod::update_lod),
-                ),
-            )
             .add_plugins(crate::underwater::UnderwaterFogPlugin);
+        add_update_systems(app);
     }
+}
+
+pub(crate) fn add_update_systems(app: &mut App) {
+    app.add_systems(
+        Update,
+        (
+            sync_remaps.before(crate::world::stream),
+            // After streaming and distant water so newly created materials get the
+            // current sky, sun, and water-effects params on their first frame.
+            update_water_sky.after(crate::sky::update_sky).after(crate::world::stream).after(distant_water),
+            // After the LOD chose its chunks this frame (the water covers them).
+            distant_water.after(crate::world::stream).after(crate::lod::update_lod),
+        ),
+    );
 }
 
 #[derive(Clone, Copy, Debug, Default, ShaderType)]
@@ -123,8 +129,8 @@ pub struct WaterParams {
     /// Shore fade: the depth falloff's start and end in units of water crossed, and 1
     /// when the type has one (`fnv_world::sky::Water::edge_falloff`).
     pub edge: Vec4,
-    /// Bevy y of the water whose drawn pixels are counted ([`WaterMaterial::seen`]), and 1
-    /// while counting (`crate::reflection`, #1060).
+    /// Visibility probe: Bevy y of the plane, whether to count it, and the two 16-bit
+    /// halves of the probe generation (`crate::reflection`, #1060).
     pub seen_plane: Vec4,
     /// Direction toward the outdoor sun (Bevy axes) and daylight strength.
     pub water_sun: Vec4,
@@ -146,11 +152,9 @@ pub struct WaterMaterial {
     /// R32Float ripple heights (not filterable: the shader interpolates).
     #[texture(5, sample_type = "float", filterable = false)]
     pub ripples: Option<Handle<Image>>,
-    /// One u32 the shader adds to for drawn water pixels at `seen_plane`'s height that no
-    /// opaque surface hides (one pixel in 16), shared by every water material and read back
-    /// by `crate::reflection` (#1060). It only grows (wrapping): water was drawn between
-    /// two readbacks when the value changed. A storage buffer in the fragment stage: the
-    /// desktop adapters NVForever runs on have them; WebGL2 does not [design].
+    /// Shared visibility packet: an atomic fragment count followed by the probe
+    /// generation, source frame and source time written by `crate::reflection`.
+    /// It requires storage buffers in the fragment stage (not available in WebGL2).
     #[storage(6, visibility(fragment))]
     pub seen: Handle<ShaderBuffer>,
 }
@@ -320,8 +324,8 @@ pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool,
         .cache
         .seen
         .get_or_insert_with(|| {
-            let mut b = ShaderBuffer::from(vec![0u32]);
-            b.buffer_usage |= BufferUsages::COPY_SRC;
+            let mut b = ShaderBuffer::from(vec![0u32; 4]);
+            b.buffer_usage |= BufferUsages::COPY_SRC | BufferUsages::COPY_DST;
             buffers.add(b)
         })
         .clone();
@@ -415,6 +419,8 @@ impl DistantWater {
         self.want.clear();
         self.want_for = None;
         self.built_for = None;
+        self.loaded_seen.clear();
+        self.loaded_now.clear();
     }
 
     /// The drawn worldspace's [`water_candidates`], found on first use.
@@ -526,6 +532,7 @@ pub fn distant_water(
     mut dw: ResMut<DistantWater>,
     mut models: ModelCtx,
     mut water: WaterCtx,
+    pace: Res<crate::stream_pace::StreamPace>,
 ) {
     let Ok(root) = root.single() else { return };
     let on = lod.enabled && streamer.interior.is_none();
@@ -536,6 +543,9 @@ pub fn distant_water(
         return;
     }
     dw.built_for = Some(want_key);
+    let _spending = pace.spending();
+    // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
+    let reads_a_frame = pace.count(SURFACE_READS_PER_FRAME);
     // The cells with water under the terrain chunks chosen now (none while the LOD is off
     // or nothing is chosen), redone only when the choice changes.
     if dw.want_for != Some(want_key) {
@@ -568,7 +578,7 @@ pub fn distant_water(
         // of one frame [observed 2026-11-19, `profile hitch`]). At most
         // `SURFACE_READS_PER_FRAME` are read a frame, the rest the frames after.
         if !dw.surface_known(c) {
-            if reads >= SURFACE_READS_PER_FRAME {
+            if reads >= reads_a_frame {
                 dw.built_for = None;
                 continue;
             }

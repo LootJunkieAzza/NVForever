@@ -82,7 +82,11 @@ SetActorFullNameAlt) also changes the base form, and the change is **permanent a
 in the save**, unlike SetName and LNSetName [documented: SetFullNameAlt]. SetRefName
 names one reference (read back by LNGetName). SetFormDescription, SetObjectiveText,
 SetBodyPartName, SetMapMarkerName, SetStringSetting, SetLoadScreenTexture and
-SetProjectileMuzzleFlash replace the field the matching getter reads. The texts of
+SetProjectileMuzzleFlash replace the field the matching getter reads; `SetMapMarkerName`
+(`Game::map_marker_name_override`) also reaches the Pip-Boy World and Local Maps,
+discovery notices, and HUD marker names, and `SetMapMarkerRep`
+(`Game::map_marker_reputation_override`) reaches the World Map reputation line
+(clearing it when set to `0` or a non-`REPU` form) [design]. The texts of
 SetFormDescription and SetObjectiveText are formatted strings (up to 20 values)
 [documented: their pages]. Whether the others last past a reload is not documented
 [hypothesis: no, like base-game form changes without a save record]. Probing this needs

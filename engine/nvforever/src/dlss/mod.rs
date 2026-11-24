@@ -29,7 +29,12 @@
 //!   plus what Streamline's `vkCreateDevice` always adds: Bevy can fall back from any adapter
 //!   it is asked for to wgpu's own pick [documented: vendor/bevy_render/src/renderer/mod.rs:
 //!   166-194, 304], so no GPU is left out. Any GPU short of it, or none at all, and `slShutdown`
-//!   runs and the stock path follows, before `set_vulkan_library`.
+//!   runs and the stock path follows, before `set_vulkan_library`. With an NVIDIA GPU beside
+//!   another maker's (a CPU's integrated graphics, #2921), a second snapshot is taken with the
+//!   loader limited to NVIDIA's driver (`VK_LOADER_DRIVERS_SELECT`, `win::narrowed_probe`);
+//!   when every GPU fails and that one passes, showing the same NVIDIA GPUs and nothing else,
+//!   the filter is kept for the run so the renderer sees only what was checked. A filter or
+//!   `WGPU_ADAPTER_NAME` the player set stands.
 //!   [`loader_state`] says what the loader ended in.
 //!   Clearing the two update flags does not stop Streamline starting NVIDIA's updater, and a
 //!   driver override can still pick downloaded plugins [documented: `src/pluginManager.cpp:

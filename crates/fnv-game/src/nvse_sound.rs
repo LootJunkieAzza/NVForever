@@ -11,6 +11,8 @@
 use crate::game::Game;
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
+use serde_json::Value as Json;
+use std::collections::HashMap;
 
 /// A sound a script asked for.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +45,8 @@ pub struct SoundState {
     /// nothing [engineering choice; hypothesis: what the original does with that order in
     /// one frame is not known, docs/spec-notes/audio.md §11.5, observer check 82].
     pub stops: Vec<(FormId, u32)>,
+    /// Session `SetSoundFlag` bitmask overrides (and `TempCloneForm` snapshots), by `SOUN`.
+    pub flags: HashMap<FormId, u32>,
 }
 
 impl SoundState {
@@ -111,6 +115,71 @@ impl SoundState {
     }
 }
 
+/// Number of documented `SOUN` `SNDD`/`SNDX` flag IDs (`0..=13`) [documented: GECK wiki
+/// GetSoundFlag, SetSoundFlag; xEdit wbDefinitionsFNV.pas SOUN].
+pub const SOUND_FLAG_COUNT: u8 = 14;
+
+impl Game<'_> {
+    /// The session `SetSoundFlag` bitmask override directly stored for `sound` (including
+    /// any override snapshotted at `TempCloneForm` creation time).
+    pub fn sound_flags_override(&self, sound: FormId) -> Option<u32> {
+        self.gaps.sounds.flags.get(&sound).copied()
+    }
+
+    /// Effective `SNDD`/`SNDX` flag bitmask for `sound` (`SOUN` or `TempCloneForm` `SOUN`):
+    /// direct session override first, else authored `SNDD`/`SNDX` flags on `unclone(sound)`.
+    pub fn sound_flags(&self, sound: FormId) -> Option<u32> {
+        let orig = self.unclone(sound);
+        if self.data.sig(orig) != Some(*b"SOUN") {
+            return None;
+        }
+        if let Some(&bits) = self.gaps.sounds.flags.get(&sound) {
+            return Some(bits);
+        }
+        let raw = self
+            .data
+            .record_field(orig, "SNDD", "flags")
+            .or_else(|| self.data.record_field(orig, "SNDX", "flags"))
+            .and_then(Json::as_u64)
+            .unwrap_or(0);
+        Some(raw as u32)
+    }
+
+    /// Effective value of `SOUN` flag bit `flag_id` (`0..=13`) (`GetSoundFlag`).
+    pub fn sound_flag(&self, sound: FormId, flag_id: u8) -> bool {
+        flag_id < SOUND_FLAG_COUNT && self.sound_flags(sound).is_some_and(|bits| (bits & (1u32 << flag_id)) != 0)
+    }
+
+    /// Override `SOUN` flag bit `flag_id` (`0..=13`) on `sound` for the session
+    /// (`SetSoundFlag`). Returns `true` when `sound` resolves to a `SOUN` and
+    /// `flag_id < 14`; returns `false` without mutating state otherwise.
+    pub fn set_sound_flag(&mut self, sound: FormId, flag_id: u8, on: bool) -> bool {
+        if flag_id >= SOUND_FLAG_COUNT {
+            return false;
+        }
+        let Some(now) = self.sound_flags(sound) else { return false };
+        let next = if on { now | (1u32 << flag_id) } else { now & !(1u32 << flag_id) };
+        self.gaps.sounds.flags.insert(sound, next);
+        true
+    }
+
+    /// Snapshot any active session `SetSoundFlag` override from `source` onto `clone` at
+    /// `TempCloneForm` creation time. Pre-clone edits carry onto `clone`, while post-clone
+    /// edits on `source` stay isolated from already-created clones.
+    pub(crate) fn snapshot_sound_flags(&mut self, source: FormId, clone: FormId) {
+        if let Some(&bits) = self.gaps.sounds.flags.get(&source) {
+            self.gaps.sounds.flags.insert(clone, bits);
+        }
+    }
+}
+
+fn flag_id(args: &[XVal], k: usize) -> Option<u8> {
+    match args.get(k)? {
+        XVal::Num(x) if x.is_finite() && x.fract() == 0.0 && (0.0..f64::from(SOUND_FLAG_COUNT)).contains(x) => Some(*x as u8),
+        _ => None,
+    }
+}
+
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
     match args.get(k)? {
         XVal::Ref(r) if *r != 0 => Some(FormId(*r)),
@@ -157,6 +226,19 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // sound1, a PlaySound3D on the player still playing 6 frames on; hypothesis: it
         // stops only sounds the game attached to the reference itself].
         "stopsoundalt" => zero,
+        // JIP's `sound flagID [newValue]` (`0..=13`, SNDD/SNDX flags) [documented: GECK
+        // wiki GetSoundFlag, SetSoundFlag; observed: gaps4, SetSoundFlag returns 0].
+        "getsoundflag" => {
+            let (Some(s), Some(bit)) = (form(args, 0), flag_id(args, 1)) else { return Some(Ok(zero)) };
+            yes(g.sound_flag(s, bit))
+        }
+        "setsoundflag" => {
+            if let (Some(s), Some(bit)) = (form(args, 0), flag_id(args, 1)) {
+                let on = args.get(2).is_some_and(XVal::truthy);
+                g.set_sound_flag(s, bit, on);
+            }
+            zero
+        }
         // `sound`: the references a placed (3D) playing of the sound is at; none is no
         // array [observed: sound1, ar_Size -1 for a PlaySound sound, 1 for PlaySound3D on
         // the player].

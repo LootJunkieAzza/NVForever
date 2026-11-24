@@ -827,7 +827,7 @@ fn stewie_pipboy_queries_keep_unbound_fallback_and_follow_current_choices_after_
     };
     g.bind_stewie_stat_settings(&chosen);
     let version = q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")");
-    assert_eq!(version, n(941.0));
+    assert_eq!(version, n(945.0));
     for name in ["StewVal", "StewieGetValue"] {
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bDisableStealthEffectInPipboy : Tweaks \")")), n(0.0));
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bKeepPipboyLightOnCellChange : Tweaks \")")), n(1.0));
@@ -868,7 +868,7 @@ fn stewie_worn_armor_weightless_queries_follow_handoff_and_keep_item_mask_fallba
         ..Default::default()
     };
     g.bind_stewie_stat_settings(&chosen);
-    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), n(941.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), n(945.0));
     for name in ["StewVal", "StewieGetValue"] {
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bWeightlessWornArmor : Tweaks \")")), n(0.0));
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \" bWeightlessWornPowerArmor : Tweaks \")")), n(1.0));
@@ -892,4 +892,297 @@ fn stewie_worn_armor_weightless_queries_follow_handoff_and_keep_item_mask_fallba
     restored.bind_stewie_stat_settings(&chosen);
     assert_eq!(q(&mut restored, "SetFunctionValue (StewVal \"bWeightlessWornArmor:Tweaks\")"), n(0.0));
     assert_eq!(q(&mut restored, "SetFunctionValue (StewieGetValue \"bWeightlessWornPowerArmor:Tweaks\")"), n(1.0));
+}
+
+#[test]
+fn hnvse_merge_region_lists_unions_overridden_cell_regions_when_enabled() {
+    files();
+    fn tes4_with_masters(masters: &[&str]) -> Vec<u8> {
+        let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+        let mut subs = vec![sub(b"HEDR", hedr)];
+        for m in masters {
+            subs.push(sub(b"MAST", z(m)));
+            subs.push(sub(b"DATA", 0u64.to_le_bytes().to_vec()));
+        }
+        record(b"TES4", 0, 0, &subs)
+    }
+    fn u32s(v: &[u32]) -> Vec<u8> {
+        v.iter().flat_map(|x| x.to_le_bytes()).collect()
+    }
+    fn map_regn(id: u32, edid: &str, map_name: &str) -> Vec<u8> {
+        // RDAT: type 4 (Map), flags 0, priority 50, pad.
+        let rdat = [4u32.to_le_bytes().as_slice(), &[0, 50, 0, 0]].concat();
+        record(b"REGN", 0, id, &[sub(b"EDID", z(edid)), sub(b"RDAT", rdat), sub(b"RDMP", z(map_name))])
+    }
+
+    const EXT_WORLD: u32 = 0x0000_0810;
+    const EXT_CELL: u32 = 0x0000_0820;
+    const INT_CELL: u32 = 0x0000_0821;
+    const REG_MASTER_MAP: u32 = 0x0000_0830;
+    const REG_MASTER_AUDIO: u32 = 0x0000_0831;
+    const REG_P1_LOCAL: u32 = 0x0100_0840; // global 0x0100_0840
+    const REG_P2_LOCAL: u32 = 0x0100_0850; // global 0x0200_0850 (1 master: Master.esm)
+    const PLAYER_X: [u8; 24] = [0; 24];
+
+    let player_ref = record(
+        b"ACHR",
+        0,
+        FormId::PLAYER_REF.0,
+        &[sub(b"NAME", FormId::PLAYER_BASE.0.to_le_bytes().to_vec()), sub(b"DATA", PLAYER_X.to_vec())],
+    );
+    let cell_p0 = record(
+        b"CELL",
+        0,
+        EXT_CELL,
+        &[sub(b"EDID", z("ExtCell")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[0, 0])), sub(b"XCLR", u32s(&[REG_MASTER_MAP, REG_MASTER_AUDIO]))],
+    );
+    let cell_int = record(
+        b"CELL",
+        0,
+        INT_CELL,
+        &[sub(b"EDID", z("IntCell")), sub(b"DATA", vec![1]), sub(b"XCLR", u32s(&[REG_MASTER_MAP]))],
+    );
+    let cell_children = group(EXT_CELL.to_le_bytes(), 6, &group(EXT_CELL.to_le_bytes(), 9, &player_ref));
+    let wrld_p0 = [
+        record(b"WRLD", 0, EXT_WORLD, &[sub(b"EDID", z("MergeWorld")), sub(b"FULL", z("Merge World"))]),
+        group(EXT_WORLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &[cell_p0, cell_children].concat()))),
+    ]
+    .concat();
+    let p0 = [
+        tes4_with_masters(&[]),
+        top(b"REGN", &[map_regn(REG_MASTER_MAP, "RegMasterMap", "Master Valley"), record(b"REGN", 0, REG_MASTER_AUDIO, &[sub(b"EDID", z("RegMasterAudio"))])].concat()),
+        top(b"NPC_", &record(b"NPC_", 0, FormId::PLAYER_BASE.0, &[sub(b"EDID", z("Player"))])),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell_int))),
+        top(b"WRLD", &wrld_p0),
+    ]
+    .concat();
+
+    // Plugin 1 overrides EXT_CELL, adding its own region and duplicating REG_MASTER_AUDIO.
+    let cell_p1 = record(
+        b"CELL",
+        0,
+        EXT_CELL,
+        &[sub(b"EDID", z("ExtCell")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[0, 0])), sub(b"XCLR", u32s(&[REG_P1_LOCAL, REG_MASTER_AUDIO]))],
+    );
+    let p1 = [
+        tes4_with_masters(&["Master.esm"]),
+        top(b"REGN", &record(b"REGN", 0, REG_P1_LOCAL, &[sub(b"EDID", z("RegWeather"))])),
+        top(b"WRLD", &group(EXT_WORLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cell_p1)))),
+    ]
+    .concat();
+
+    // Plugin 2 overrides EXT_CELL with only its own non-map region (wiping master regions in vanilla).
+    let cell_p2 = record(
+        b"CELL",
+        0,
+        EXT_CELL,
+        &[sub(b"EDID", z("ExtCell")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[0, 0])), sub(b"XCLR", u32s(&[REG_P2_LOCAL]))],
+    );
+    let p2 = [
+        tes4_with_masters(&["Master.esm"]),
+        top(b"REGN", &record(b"REGN", 0, REG_P2_LOCAL, &[sub(b"EDID", z("RegLighting"))])),
+        top(b"WRLD", &group(EXT_WORLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cell_p2)))),
+    ]
+    .concat();
+
+    let plugins = vec![
+        Plugin::parse(&p0, "Master.esm".into()).unwrap(),
+        Plugin::parse(&p1, "Weather.esp".into()).unwrap(),
+        Plugin::parse(&p2, "Lighting.esp".into()).unwrap(),
+    ];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let mut data = GameData::build(&lo, &schema, table, &j, &refs);
+    // Absent hNVSE.ini: GameData::build must NOT walk overridden CELLs at startup.
+    assert!(!data.hnvse_merge_region_lists);
+    assert!(data.merged_cell_regions.is_empty());
+
+    // [General] bMergeRegionLists=1 and [Main] bMergeRegionLists=0 are both ignored / disabled
+    // (observed in hNVSE 120: only [Main] is read) and leave merged_cell_regions empty.
+    assert!(!data.load_hnvse_region_merge(&lo, &schema, Some(b"[General]\nbMergeRegionLists=1\n")));
+    assert!(!data.load_hnvse_region_merge(&lo, &schema, Some(b"[Main]\nbMergeRegionLists=0\n")));
+    assert!(!data.hnvse_merge_region_lists);
+    assert!(data.merged_cell_regions.is_empty());
+
+    let regions_of = |g: &mut Game, edid: &str| -> Vec<u32> {
+        let len = match q(g, &format!("array_var a\nlet a := GetCellRegions {edid}\nSetFunctionValue (ar_Size a)")) {
+            XVal::Num(n) => n as usize,
+            other => panic!("expected number, got {other:?}"),
+        };
+        (0..len)
+            .map(|i| match q(g, &format!("array_var a\nlet a := GetCellRegions {edid}\nSetFunctionValue a[{i}]")) {
+                XVal::Ref(r) => r,
+                other => panic!("expected ref at {i}, got {other:?}"),
+            })
+            .collect()
+    };
+
+    {
+        let mut g = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig { strict: true, ..GameConfig::default() });
+        g.new_game();
+
+        // Disabled at load: vanilla last-writer-wins (Lighting.esp only; no master map region).
+        let vanilla = regions_of(&mut g, "ExtCell");
+        assert_eq!(vanilla.len(), 1);
+        assert!(!vanilla.contains(&REG_MASTER_MAP));
+        assert_eq!(fnv_game::nvse_jg5::player_region_name(&g), None);
+        assert_eq!(q(&mut g, "SetFunctionValue (player.GetLocationName)"), XVal::Str("Merge World".into()));
+
+        // Writing hNVSE.ini from a script mid-session does NOT re-read the switch, so
+        // the script side and the world side always agree on the load-time setting.
+        assert!(g.mod_files.write_bytes("NVSE/Plugins/hNVSE.ini", b"[Main]\nbMergeRegionLists=1\n"));
+        assert_eq!(regions_of(&mut g, "ExtCell"), vanilla);
+        assert_eq!(fnv_game::nvse_jg5::player_region_name(&g), None);
+    }
+
+    // [Main] bMergeRegionLists=1 at load: computes merged_cell_regions in
+    // overriding-plugin-first deduplicated order (observed in hNVSE 120).
+    assert!(data.load_hnvse_region_merge(&lo, &schema, Some(b"[Main]\nbMergeRegionLists = 1\n")));
+    assert!(data.hnvse_merge_region_lists);
+    assert!(!data.merged_cell_regions.is_empty());
+
+    let mut g_merged = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig { strict: true, ..GameConfig::default() });
+    g_merged.new_game();
+    assert_eq!(
+        regions_of(&mut g_merged, "ExtCell"),
+        vec![0x0200_0850, 0x0100_0840, REG_MASTER_AUDIO, REG_MASTER_MAP]
+    );
+    assert_eq!(fnv_game::nvse_jg5::player_region_name(&g_merged).as_deref(), Some("Master Valley"));
+    assert_eq!(q(&mut g_merged, "SetFunctionValue (player.GetLocationName)"), XVal::Str("Master Valley".into()));
+    // Interior cells still return empty.
+    assert!(regions_of(&mut g_merged, "IntCell").is_empty());
+    // Writing bMergeRegionLists=0 from a script mid-session does NOT toggle the load-time switch.
+    assert!(g_merged.mod_files.write_bytes("NVSE/Plugins/hNVSE.ini", b"[Main]\nbMergeRegionLists=0\n"));
+    assert_eq!(
+        regions_of(&mut g_merged, "ExtCell"),
+        vec![0x0200_0850, 0x0100_0840, REG_MASTER_AUDIO, REG_MASTER_MAP]
+    );
+}
+
+#[test]
+fn knvse_transition_duration_view_weights_additive_and_non_finite_dest_frame() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    g.senses.first_person = false;
+
+    // CrossFadeAnims forwards explicit first-person view, ease time, priority and weight.
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1 2 1 0.8 0.1)"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.CrossFadeAnims \"test\\a.kf\" \"test\\b.kf\" 1 0.45 5 1 0.65)"), n(1.0));
+    let src = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\a.kf".into())).unwrap();
+    assert!(src.stopped.is_some());
+    assert!((src.ease_out - 0.45).abs() < 1e-6);
+    let dst = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\b.kf".into())).unwrap();
+    assert!(dst.stopped.is_none());
+    assert_eq!(dst.priority, 5);
+    assert!((dst.weight - 0.65).abs() < 1e-6);
+    assert_eq!(dst.ease_in, Some(0.45));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.GetAnimWeight \"test\\b.kf\")"), n(f64::from(0.65f32)));
+
+    // BlendToAnim forwards duration, priority, source weight and dest frame on the requested view.
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.BlendToAnim \"test\\b.kf\" \"test\\c.kf\" 1 0.35 0.5 0.2 0.75 7)"), n(1.0));
+    let b = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\b.kf".into())).unwrap();
+    assert!(b.stopped.is_none(), "positive source weight keeps source active");
+    assert!((b.weight - 0.2).abs() < 1e-6);
+    let c = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\c.kf".into())).unwrap();
+    assert_eq!(c.priority, 7);
+    assert_eq!(c.ease_in, Some(0.35));
+    assert!((c.weight - 0.75).abs() < 1e-6);
+    assert!((g.script_sequence_time_for(FormId::PLAYER_REF, "test\\c.kf", true) - 0.5).abs() < 1e-6);
+
+    // BlendToAnimFromPose forwards view, duration, dest frame and priority.
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.BlendToAnimFromPose \"test\\d.kf\" 1 0.25 0.4 9)"), n(1.0));
+    let d = g.anim_paths.sequences.get(&(FormId::PLAYER_REF, true, "test\\d.kf".into())).unwrap();
+    assert_eq!(d.priority, 9);
+    assert_eq!(d.ease_in, Some(0.25));
+    assert!((g.script_sequence_time_for(FormId::PLAYER_REF, "test\\d.kf", true) - 0.4).abs() < 1e-6);
+
+    // SetAnimAdditive keeps first- and third-person additive configs isolated per view.
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.SetAnimAdditive \"test\\d.kf\" 1 \"test\\a.kf\" 0.2)"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.SetAnimAdditive \"test\\d.kf\" 0 \"test\\b.kf\" 0.8)"), n(1.0));
+    assert_eq!(g.sequence_additive(FormId::PLAYER_REF, true, "test\\d.kf"), Some(("test\\a.kf", 0.2)));
+    assert_eq!(g.sequence_additive(FormId::PLAYER_REF, false, "test\\d.kf"), Some(("test\\b.kf", 0.8)));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.IsAnimAdditive \"test\\d.kf\")"), n(1.0));
+
+    // Non-finite destFrame in BlendToAnim / BlendToAnimFromPose is rejected without activating or poisoning clock_offset.
+    const INF: &str = "(Pow 10 400)";
+    const NEG_INF: &str = "(-1 * (Pow 10 400))";
+    const NAN: &str = "((Pow 10 400) - (Pow 10 400))";
+    for bad in [NAN, INF, NEG_INF] {
+        assert_eq!(
+            q(&mut g, &format!("SetFunctionValue (PlayerREF.BlendToAnim \"test\\d.kf\" \"test\\a.kf\" 0 0.2 {bad} 0 1 2)")),
+            n(0.0),
+            "BlendToAnim must reject non-finite destFrame {bad}"
+        );
+        assert!(!g.anim_paths.sequences.contains_key(&(FormId::PLAYER_REF, false, "test\\a.kf".into())));
+        assert_eq!(
+            q(&mut g, &format!("SetFunctionValue (PlayerREF.BlendToAnimFromPose \"test\\b.kf\" 0 0.2 {bad} 2)")),
+            n(0.0),
+            "BlendToAnimFromPose must reject non-finite destFrame {bad}"
+        );
+        assert!(!g.anim_paths.sequences.contains_key(&(FormId::PLAYER_REF, false, "test\\b.kf".into())));
+    }
+    assert!(g.script_sequence_time_for(FormId::PLAYER_REF, "test\\d.kf", true).is_finite());
+
+    // timeSync in CrossFadeAnims, BlendToAnim, and BlendToAnimFromPose:
+    // - aligns destination clock by normalized phase when both SequenceInfo spans are known;
+    // - copies sync clock directly when SequenceInfo spans are absent;
+    // - never refuses and still runs the transition when timeSync is not currently playing.
+    let mut g_sync = game(&f);
+    g_sync.senses.first_person = true;
+    g_sync.set_sequence_info(
+        "test\\a.kf",
+        fnv_game::nvse_knvse::SequenceInfo {
+            name: "a".into(),
+            accum_root: "Bip01".into(),
+            frequency: 1.0,
+            begin: 0.0,
+            end: 2.0,
+            cycle: 0,
+            text_keys: Vec::new(),
+        },
+    );
+    g_sync.set_sequence_info(
+        "test\\b.kf",
+        fnv_game::nvse_knvse::SequenceInfo {
+            name: "b".into(),
+            accum_root: "Bip01".into(),
+            frequency: 1.0,
+            begin: 0.0,
+            end: 4.0,
+            cycle: 0,
+            text_keys: Vec::new(),
+        },
+    );
+    assert_eq!(q(&mut g_sync, "SetFunctionValue (PlayerREF.ActivateAnim \"test\\a.kf\" 1 1 1 1 0.1)"), n(1.0));
+    q(&mut g_sync, "PlayerREF.SetAnimCurrentTime \"test\\a.kf\" 0.5");
+    g_sync.tick();
+    let a_time = g_sync.script_sequence_time_for(FormId::PLAYER_REF, "test\\a.kf", true);
+    assert!((a_time - (0.5 + g_sync.cfg.frame_seconds)).abs() < 1e-6);
+    // CrossFadeAnims with timeSync = source ("test\\a.kf", span 2.0) scales "test\\b.kf" (span 4.0) by normalized phase.
+    let expected_b = (a_time / 2.0).rem_euclid(1.0) * 4.0;
+    assert_eq!(
+        q(&mut g_sync, "SetFunctionValue (PlayerREF.CrossFadeAnims \"test\\a.kf\" \"test\\b.kf\" 1 0.2 3 1 0.9 \"test\\a.kf\")"),
+        n(1.0)
+    );
+    assert!((g_sync.script_sequence_time_for(FormId::PLAYER_REF, "test\\b.kf", true) - expected_b).abs() < 1e-6);
+
+    // BlendToAnim with playing timeSync without SequenceInfo on destination copies sync clock directly.
+    assert_eq!(
+        q(&mut g_sync, "SetFunctionValue (PlayerREF.BlendToAnim \"test\\b.kf\" \"test\\c.kf\" 1 0.25 0 0 0.8 4 \"test\\b.kf\")"),
+        n(1.0)
+    );
+    assert!((g_sync.script_sequence_time_for(FormId::PLAYER_REF, "test\\c.kf", true) - expected_b).abs() < 1e-6);
+
+    // BlendToAnimFromPose with a non-playing timeSync still succeeds (returns 1) and honors destFrame (0.35).
+    assert_eq!(
+        q(&mut g_sync, "SetFunctionValue (PlayerREF.BlendToAnimFromPose \"test\\d.kf\" 1 0.2 0.35 5 \"test\\a.kf\")"),
+        n(1.0)
+    );
+    assert!((g_sync.script_sequence_time_for(FormId::PLAYER_REF, "test\\d.kf", true) - 0.35).abs() < 1e-6);
 }

@@ -839,6 +839,62 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   0.036. The same power as additive shapes; the share behind is kept so smoke still
   hides as much of the room as before. Lit blended shapes (glass, hair edges) are not
   changed. Open: no frame was measured against the game's yet.
+- **Unlit shapes faded by vertex alpha alone** (2026-11-23, #3443). The cone of light at
+  the end of Lonesome Road's silo lift (`NVDLC04Silo2Elevator`, placed by
+  `NVDLC04SiloElevatorShaft06Ref`) is `Object03:0` of
+  `nvdlc04\dungeons\silo\silo_elevator\nvdlc04_silo-elevator-shaft06.nif` [observed,
+  `fnvtool nif decode`]: 113 vertices, a cone 506 units high with an outer and an inner
+  side and a disc on the floor, all white, alpha 1 at the lamp, 0.1 just under it, 0 at
+  the cone's foot, 0.16 falling to 0 across the disc; BSShaderNoLightingProperty, flags
+  0x82000048 (Vertex_Alpha and bit 6), no file name; emissive white × 3, material alpha 1.
+  No controller drives its material; the sequences `Forward` and `Right` only move the
+  nodes above it. It has no NiAlphaProperty, nor has any node above it, so it was drawn
+  opaque, and being opaque, unlit and without External Emittance as a picture with its
+  light held to 1: a flat white cone (player report R-F8KPPE34).
+
+  The archive has the same shape a second time, in an unsplit model of the whole shaft
+  (`nvdlc04_silo-elevator-shaft.nif`, `Object03`, not placed in that cell): vertices,
+  normals, colours, strips, material and shader property are equal, and there it stores a
+  NiAlphaProperty 0x10ED (blend SRC_ALPHA / INV_SRC_ALPHA, no test) [observed, both
+  decoded and compared]. The property was lost with the split [hypothesis].
+
+  Survey of the visible BSShaderNoLightingProperty shapes of every archive of the base
+  game and the add-ons (7,409, editor markers left out) [observed]: 1,528 name no texture,
+  set Vertex_Alpha and have a vertex alpha below 1. 1,507 of those store a
+  NiAlphaProperty, 1,458 SRC_ALPHA / INV_SRC_ALPHA, 41 SRC_ALPHA / ONE, 8 others. 21 store
+  none:
+  - black patches (14, 13 of them with decal flags): the dark under the gurneys
+    (`clutter\hospital\gurney01.nif`, `gurney01pad01`, `gurney01pad02`,
+    `gurney02broken01`, `gurney02broken01pad01`; 58 placed), at tunnel mouths
+    (`metroexttunnelexitb01` and its Pitt copy, `mettunneltranstoext01` and Old World
+    Blues' copy), under Lonesome Road's elevated rails (`metroexrailstr01`, `02`), in the
+    planetarium's domes (`planetariumstardome01`, `02`) and the Tops' courtyard
+    (`nv_thetops-casino02courtyard.nif`);
+  - the purifier's fog shells (`ppurityfxtankfog01.nif`, `dlc03ppurityfxtankrun.nif`, two
+    shapes each; none placed in this game);
+  - two shapes named after light beams in static collections (`scolcasding04glow.nif`
+    `FXLightBeamW02001`, 28 placed in the Tops casino, 11 units across, and
+    `scolstripmaplanter.nif` `FXLightBeam01001`, 2 on the Strip): orange, 48 and 24
+    vertices, the vertex colours of the beams' editor markers (`EditorMarker:0`: 24
+    vertices, (1, 0.5, 0), alpha 0 to 1), so probably those, merged in [hypothesis];
+  - the silo's cone.
+
+  With no texture, one colour over all vertices and no light, the vertex alpha is the only
+  picture such a shape has. The GECK wiki says of bit 6, beside switching on the falloff,
+  that it "also enables alpha effects" [documented: GECK wiki "NIF Shader Properties",
+  "Empty"]; 13 of the 21 set it, so it does not mark the class. The wiki gives decals no
+  blend of their own.
+
+  What the renderers do [hypothesis, `nif_spawn::fades_by_vertex_alpha`]: an unlit shape
+  with no NiAlphaProperty, no texture, Vertex_Alpha and some vertex alpha below 1 is
+  blended SRC_ALPHA / INV_SRC_ALPHA, as its twin asks, and takes every rule of such blends
+  (the stored multiplier, the view-angle falloff, the √alpha scale above, no shadow).
+  Bit 3 itself is asked for, not Dynamic_Alpha (bit 19), which also takes the vertex alpha
+  ("Vertex colours"): no unlit shape, hidden ones and editor markers included, has bit 19
+  without bit 3, no texture and no NiAlphaProperty [observed, the same survey].
+  Textured ones stay opaque (the lit map boards, `nv_pleximap01.nif`, alpha 0.75 all over;
+  the Lucky 38's light bands), and so do shapes whose vertex alpha is 1 throughout. Open:
+  whether the original blends the 21 (observer-checks.md 286).
 - **Soft intersections** (unlit effect shapes that meet an opaque surface). The Strip's
   street lamp beam `effects\ambient\fxlightbeamnvstrip.nif` [observed, `fnvtool nif
   decode`, `fnvtool world refs --world TheStripWorldNew`] is two crossed vertical panels
@@ -1150,6 +1206,45 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   corr(G, dH/dy) from −0.24 to −0.93, the sign of a downward green axis. Bevy assumes
   upward green (glTF), so the renderers set `flip_normal_map_y`. Unflipped, bumps were
   lit from below: rock faces looked inside-out and glistened at the wrong edges.
+- **Parallax height maps** (#2979).
+  *The format.* Texture-set slot 3 holds the height map [documented: nif.xml
+  BSShaderTextureSet; GECK wiki "Texture Set", "NIF Shader Properties": "Height Map
+  (Parallax) (Needs 'Parallax Shader Index 15' shader flag set)"]. nif.xml names
+  BSShaderFlags bit 11 "Parallax_Shader_Index_15" and bit 28 "Parallax_Occlusion", and
+  gives BSShaderPPLightingProperty `parallax_max_passes` and `parallax_scale` after the
+  refraction fields (bs_version > 24) [documented]. The maps are heights, brighter =
+  higher (above, "Normal maps").
+  *The shipped data* (asset-survey results, not game runs) [observed: a per-shape survey
+  of the base game and DLC meshes, 66,539 triangle shapes, run for upstream issue #2979
+  (its text gives the counts; the tables stay private)]: 510 shapes in 281 models have a
+  slot-3 texture, all 510 set bit 11, no shape sets bit 11 without one, and none sets bit
+  28; they use 20 distinct height textures, 397 of the shapes under `meshes\dungeons` and
+  64 under `meshes\architecture`. One texture replacer sets slot 3 on 2,037 of its 4,970
+  shapes [observed: the same survey run over that replacer].
+  *How the original renders them: not known.* The GECK wiki describes bit 11's effect as
+  "pretty weak" unless combined with bit 28 (parallax occlusion), the passes as "the total
+  number of parallax passes ... decent around 60" and the scale as "a multiplier for the
+  strength" [documented: GECK wiki "NIF Shader Properties"; a community description, not
+  checked]. Not known: how deep the original's relief is, whether it is one offset or
+  stepped, whether it fades with distance, how the two fields enter, whether the DXT1
+  maps are read as one channel or as luminance, and which shapes it leaves flat (observer
+  check #265).
+  *What NVForever implements* [design; the depth and method are **provisional**
+  [hypothesis] until observer check #265 and a frame-cost measurement]: a
+  BSShaderPPLightingProperty with bit 11 and a non-empty slot 3 draws that texture as its
+  height map (`nif_spawn::game_height_slot`; bit 28 is not asked), whatever the Authored
+  materials setting, read from the red channel by the march authored `_p` maps use, **on
+  by default** at a depth of 0.015 UV units (`authored::GAME_PARALLAX_DEPTH`; switch
+  `NVF_GAME_PARALLAX_DEPTH=<0..0.08>`, 0 off), with the authored height maps' method and
+  layers (`relief:4`, 8 layers; their switches). The shapes: by default **opaque only**,
+  single-sided, not a decal, lit, not refracting, no effect shader's holes, and with
+  tangents on the drawn mesh (an actor's texture-swap copy takes it only when the mesh it
+  draws already has them: armour whose drawn mesh starts without tangents and gains a
+  slot-3 map only through a record's texture set (TXST TX04) stays flat, a known limit);
+  alpha-tested shapes draw it too under the development switch
+  `NVF_PBR_PARALLAX_MASK=1` (docs/spec-notes/pbr-materials.md "Height maps").
+  `parallax_scale` and `parallax_max_passes` are decoded and not used. An authored `_p`
+  for the same diffuse replaces the game's map.
 - **Stored tangents** (2026-11-19). A shape-data block with bit 12 of its flags set stores
   "Tangents" then "Bitangents", one vector per vertex each, after its normals
   [documented: nif.xml NiGeometryData, condition `Has Normals` and `(Data Flags | BS Data
@@ -1270,7 +1365,9 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   with bright cracked regions, mean 80/255) showed the mask as a frosted grey-white
   sheen, brighter at night with the brighter night ambient; in game the panes are dark
   [observed, owner's screenshot]. The windows' environment map (slot 4
-  `shinybright_e.dds`, mask slot 5 `_m`, window-environment flag) is not drawn yet.
+  `shinybright_e.dds`, mask slot 5 `_m`, window-environment flag) is drawn since #2462
+  ("Window glass and environment maps" below; shapes without the window flag since
+  #2841, "Environment maps on other shapes").
 - **Hair** [observed, `characters\hair\hairbun.nif`]: both shapes have a
   NiMaterialProperty with specular colour (0, 0, 0) and glossiness 10, and a
   BSShaderPPLightingProperty with shader flags 0x82040101 — Specular (bit 0), Alpha
@@ -1398,8 +1495,188 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
     (x, z, y) [hypothesis: unverified against the original; on a blurry 32-texel cube it
     only places the streaks].
   - Shapes with Environment_Mapping alone (metal, most bottles: 1,663 PP files carry bit
-    7 in all) are left as they were [design: the scope of #2462; reflections on all of
-    them would change the look of much of the clutter and want their own check].
+    7 in all) were left as they were by #2462 [design: its scope]; since #2841 they reflect
+    too (next bullet), and the distance fade described there applies to window shapes as
+    well.
+- **Environment maps on other shapes** (#2841). What is documented about the effect:
+  - "Environment Mapping: Enables environment mapping on the object"; the texture set's
+    "Texture 5: Environment Map (Cubemap) (Needs "Environment Mapping" shader flag set)"
+    and "Texture 6: Environment Mask (Needs "Environment Mapping" shader flag set)"
+    (slots 4 and 5 counted from 0, as nif.xml's BSShaderTextureSet; "Texture-set slots"
+    above); "Environment Map Scale: Only used by BSShaderPPLightingProperty and
+    Lighting30ShaderProperty if environment mapping is enabled. Controls the brightness
+    multiplier of the cubemap" [documented: GECK wiki "NIF Shader Properties"].
+  - "Window Environment Mapping: Broken from how it worked in Oblivion, simply flips the
+    cubemap orientation in Fallout 3 and New Vegas" [documented: same page]. Which axis
+    flips is not stated. Lighting30ShaderProperty: "cubemap orientation is flipped",
+    "Cubemap lighting breaks on weather transition" [documented: same page].
+  - Shader Flags 2 "Env Map Fade: Fades the cubemap's brightness based on the distance to
+    the nearest light. Makes environment mapped objects not "glow" at all times"
+    [documented: same page; the bit is 15, nif.xml `envmap_light_fade`, schemas/nif
+    scene.json]. "Eye Environment Mapping: Different form of environment mapping, light
+    doesn't fade" [documented: same page]. Whether a shape without bit 15 depends on light
+    at all, and the fade's curve, are not stated.
+  - `fEnvMapLOD1` 1500, "Distance at which Environment mapping effects (fake environment
+    reflections) start to fade on objects", and `fEnvMapLOD2` 1800, "Max distance to render
+    Environment mapping effects (fake environment reflections) on objects" [documented:
+    GECK wiki "INI Settings", Display]. "Stinger Prop" (Shader Flags 2) "Disables distance
+    related limitations (specular, env mapping fades)" [documented: GECK wiki "NIF Shader
+    Properties"]; its bit is not in nif.xml's names (bits 23-31 are unknown there), so it
+    is not read.
+  - Nothing documents what a shape with the flag and a cube but no slot-5 mask does,
+    which channel of the mask is read, or whether the diffuse colour, the Specular flag or
+    the glossiness changes the reflection.
+
+  Counted in the data files [documented: asset survey, 2026-11-16: every visible,
+  textured BSShaderPPLightingProperty shape of the base and DLC archives' models, decoded
+  with fnv-nif's schema reader and its texture sets resolved through the archives (DDS
+  headers read for cube and channel facts); a count of the data, not something seen
+  running; the survey's tables are not committed]: 5,437 shapes in 2,251 models set
+  Environment_Mapping without the window flag (940 shapes in 558 models set both). Of the
+  5,437, 5,207 (95.8 %) name a slot-4 file that is a cube map; 214 name none (the wine
+  bottle `clutter\food\winebottle01.nif`, dog eyes, the Pimp-Boy), 6 name a flat
+  texture and 10 a file not in the archives. Four cubes cover 94.8 % of them:
+  `textures\effects\shinybright_e.dds` (2,410 shapes), `chrome_e.dds` (1,368),
+  `bronze_e.dds` (788) and `shinydull_e.dds` (587), each 32 × 32 DXT1 faces. 4,427 (81.4
+  %) name a slot-5 mask, 287 of the 316 masks found are grey and 29 have an alpha
+  channel (`weapons\1handpistol\10mmpistol_m.dds`); 1,010 name none (the whiskey bottles,
+  the cafeteria drinking glass, the milk bottle). `environment_map_scale` is 1 on 91.9 %
+  (29 values from 0.1 to 10; the Sunset Sarsaparilla bottles `ssbottle02.nif` 1.2 and
+  `ssbottle01.nif` 0.5, the Sierra Madre chip 2). 299 are skinned (robots, armour); 41 %
+  of the weapons' shapes are such shapes, 88.9 % of those masked. 337 lit files set Env
+  Map Fade, among them `clutter\junk\sodabottle01.nif` (gap audit §2.1).
+
+  What captures of the original showed (jobs envmap, envmap2 … envmap5, run 2026-11-16 at
+  Primm, first person, 1280 × 720; measured in linear light; the pictures stay private).
+  Exteriors only: interior shots fail in the capture setup, so nothing here is observed
+  indoors.
+  - The bright patches are fixed in the world [observed, firm]: a cooking pot turned in
+    place keeps its bright patches where they were while its painted dirt turns with it
+    (envmap4), and the held 10mm Pistol's sheen changes with the player's heading (mean
+    0.05 facing north or east, 0.22 facing south or west, envmap4). That this is the cube
+    lookup is a hypothesis: whether the cube or the sun's own highlight makes those patches
+    cannot be told, and no cube content (horizon, sky) can be recognised.
+  - A streak's place does not follow the light's direction, its colour does [observed]: a
+    narrow streak on a static Sunset Sarsaparilla bottle (`ssbottle01.nif`) keeps its
+    screen place under the sun, a fire and the moon, is warm by day and nearly neutral at
+    night, and is not painted (its ratio to the glass beside it goes from 6.1 to 3.2-3.4)
+    (envmap2, envmap3). That the view sets its place is an inference [hypothesis]: the
+    camera did not move in those shots.
+  - It dims with the scene light [observed for that one static bottle; hypothesis as a
+    rule]: from day to night its excess over the glass falls to 0.33×, the glass beside it
+    to 0.70×, the ground to 0.07-0.10× (envmap2's day shot, with the sun and a fire lit,
+    against envmap3's night shots). Fitted against NVForever's unscaled term at the same
+    cameras, the original needs 3.75-7.75 times that term by day and about none at night
+    on that bottle [hypothesis, medium: the fit trades the term against a free gain on the
+    rest].
+  - Env Map Fade (flags 2 bit 15): no visible difference in these scenes [observed]: a
+    fire-made highlight vanished with the fire on the flagged Nuka-Cola bottle and the 10mm
+    Pistol as on unflagged bottles and on the no-cube wine bottle (envmap3), and the
+    flagged bottle did not lose more than an unflagged one as the fire got farther
+    (envmap2).
+  - No clear "glow in the dark" [observed]: at night the env-mapped bottles kept about the
+    no-cube control's share of their day brightness, some somewhat more: the Sarsaparilla
+    bottles 1.1-2.0× of the control's night/day ratio, the Nuka-Cola bottle 0.7-1.1×
+    (confounded by the night light lighting upright sides about three times more, and on
+    the blended bottle by the darkening ground seen through it); the control is the wine
+    bottle, which has the Environment_Mapping flag but no cube (envmap, envmap3).
+  - Strength: by day the fit asks for 1 to 8.5 times NVForever's strength-1 term,
+    depending on the object (Nuka-Cola bottle about 1, the Sarsaparilla bottles 3.5-8.5)
+    [hypothesis, medium: the same fit]; the absolute strength and whether
+    `environment_map_scale` applies are **open** (the two Sarsaparilla bottles' glass
+    differs in colour, 4.0-4.6× under moonlight, so their scales 1.2 and 0.5 cannot be read
+    off them).
+  - Alpha weighting on blended shapes: **open** (the test glass, the cafeteria
+    `drinkingglass01.nif` placed in the air, drew opaque, transmission below about 0.1,
+    envmap4).
+  - Distance fade: **open**. The running original reported `fEnvMapLOD1` 1500 and
+    `fEnvMapLOD2` 1800 (envmap, GetNumericINISetting); setting both to 1 in memory changed
+    no picture at 51-1,200 units (envmap5); a crate at 600-1,900 units showed no sheen to
+    lose (envmap4).
+
+  Separate from this change, it limits any fit of the strength: the original lights the
+  sides of small upright objects much more than NVForever does. The no-cube wine bottle is
+  1.4-1.7× NVForever main's by day and 3.3-3.8× at night at the same cameras, while the
+  ground is 0.86-0.91× and 0.63-0.66× [observed: envmap against NVForever main].
+
+  What the renderers draw (nvf_assets `env_map.rs`, `nif_spawn::shape_env`): a lit shape
+  with Environment_Mapping, a slot-4 file that loads as a cube map and a scale above 0
+  reflects that cube the way window shapes do (previous bullet), whether or not the
+  window flag is set [design, #2841]. Shapes with the flag but no usable cube are drawn as
+  before, as are unlit shapes [design: the wiki gives the scale to the lit shaders only],
+  and so is object LOD block geometry (LOD_Building) without the window flag, which
+  stands beyond the loaded cells, farther than `fEnvMapLOD2` [design]; window shapes keep
+  #2462's gate there too. A slot-4 file that is a flat texture (6 shapes) is reported once
+  as an info line, not a warning; one flagged as a cube map without six faces is a
+  warning [design]. A reflecting exterior STAT or SCOL shape is not given
+  the opt-in mesh-terrain blend (off by default in both looks), which has no
+  environment bindings: the reflection, the original's own effect, wins over
+  NVForever's addition [design; docs/design/graphics-enhanced.md "Selection"]. The window flag stays a property of its own on the
+  material, so the two sets can take different cube orientations. The same wiki page says
+  Lighting30ShaderProperty, "a pixel shader 3.0 upgrade to BSShaderPPLightingProperty",
+  also has its "cubemap orientation … flipped", and that it is "Used by the engine for
+  decals, hair and advanced effect combinations (e.g. parallax + cube mapping)"
+  [documented: GECK wiki "NIF Shader Properties"]. No model stores that block (the schema
+  has none), but the engine may switch PPLighting shapes with parallax and a cube to it
+  at run time, flipping their cube [hypothesis]; one more reading for observer
+  check 273. Choices, each tagged, with the observer check that would settle it:
+  - Strength and view: the cube read along the view reflected about the normal-mapped
+    normal (world-fixed, which fits the bright patches observed), × the scale × the mask,
+    added to the lit colour, as for windows [hypothesis for the lookup, the strength and
+    the scale; observer check 271]. By day L (next bullet) is at most 1, so the default
+    can only dim the strength-1 term, while the fit asks for up to 8.5 times the term on
+    some objects (a Sarsaparilla bottle): the day strength is **open** and deliberately left at 1.
+  - Light: × the scene light L, per channel the ambient colour plus the sun's or moon's
+    (indoors the cell's ambient plus directional colour), as display values without any
+    N·L, held to 1 (`env_map::scene_light`, `env_scene_light` in nif_material.wesl)
+    [hypothesis, from the dimming and the light colour observed on the static bottle;
+    observer check 275]. The shader takes them from the view's light uniforms, which in a
+    world view hold the colours NVForever lights with: outdoors the weather's colours ×
+    `AMBIENT_SHARE` 0.9, `SUN_SHARE` 0.75, `MOON_SHARE` 0.5 (sky.rs) with the sunlight's
+    fade and the lightning flash, not the records' bytes as stored; indoors XCLL's ambient
+    and directional colours × the directional fade. Point lights are not in L (no evidence
+    either way). L follows the sun light's fade near the horizon, so for a few degrees of
+    sun height around sunrise and sunset the reflection dips towards the ambient part
+    alone, as the lit surfaces do. Window shapes keep #2462's unscaled term by default
+    (`NVF_PLAY_DEBUG_ENV_LIGHT_WINDOW=scene` scales them too). Views without the world
+    view's display-value lights (the minigame views) keep the term unscaled.
+  - No slot-5 mask: full strength [hypothesis; observer check 272].
+  - Cube orientation: the same lookup as window shapes, (x, z, y) of the game-space
+    reflection [hypothesis: the wiki says the two differ by a flip; observer check 273].
+  - A blended shape without the window flag keeps its blend, so its reflection is
+    weighted by its alpha like the rest of its colour; window shapes stay premultiplied
+    (#2462) [hypothesis, the conservative choice: hair, cell fades, blended cut-outs and
+    material animation key on the blend mode; observer check 274]. A blended cut-out (a
+    tested shape whose texture is a mask, `nif_spawn::blended_cutout`) stays blended
+    whether or not it has the window flag, so its reflection is added inside the blend
+    [design, as merged with #2669].
+  - Env Map Fade (flags 2 bit 15) changes nothing [hypothesis, from no difference
+    observed in the exterior captures, against the wiki's documented fade; observer check
+    275].
+  - Camera distance: no fade by default [design, #2841: a fade would apply to window
+    shapes too and change #2462's pictures, and it is unobserved; a follow-up change
+    takes it up]. Under `NVF_PLAY_DEBUG_ENV_DISTANCE_FADE=1`: whole up to 1500 units, none
+    from 1800, linear between, by the distance to the shape node's origin (the mesh
+    instance's translation, usually the reference's), so a long shape fades as a whole,
+    while a model whose parts sit under nodes of their own (the HELIOS One reflector row,
+    its reflectors about 240 units apart [documented: `heliosone_solarreflector_row.nif`
+    node translations, read with `fnvtool`]) fades part by part; on window shapes too
+    [hypothesis for the curve and the origin, documented distances, the fade unobserved;
+    observer check 276]. A blended window shape (drawn premultiplied) keeps its colour ×
+    alpha even where its reflection has faded out or its strength is 0 [design].
+  - A shape with the flag and no slot-4 file reflects nothing (no default cube)
+    [hypothesis; observer check 277].
+  - The mask's red channel is read, as for windows [hypothesis; only the 29 masks with
+    an alpha channel could differ].
+
+  Debug switches `NVF_PLAY_DEBUG_ENV_*` vary each of these from the same build, for
+  comparing frames with the original's (`env_map.rs` module docs: strength, no-mask rule,
+  orientation per set, blend per set, light per set (scene light, none, or a
+  received-light stand-in), the distance fade (off unless set), and
+  `NVF_PLAY_DEBUG_ENV_NON_WINDOW=0` for
+  #2462's set alone). The model log names each model's reflecting shapes without the
+  window flag ("N shape(s) with an environment map, no window flag: …", model.rs); smoke
+  `env-maps-saloon`, `env-maps-saloon-before`.
 
 ## 7. Coverage status
 

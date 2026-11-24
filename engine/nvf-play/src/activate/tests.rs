@@ -13,9 +13,12 @@ use fnv_sim::refs::{Lock, PlacedRef, Teleport};
 use fnv_sim::{FormStore, RefTable, SimConfig, World};
 use fnv_world::{Cell, WorldIndex};
 
+mod crosshair_bars_tests;
+mod crosshair_bed_item_tests;
 mod crosshair_prompt_tests;
 mod crosshair_sleeper_tests;
 mod crosshair_water_tests;
+mod reticle_limb_tests;
 
 const STIMPAK: u32 = 0x100;
 const KEY: u32 = 0x101;
@@ -27,6 +30,7 @@ const CHAIR: u32 = 0x150;
 const LEVER: u32 = 0x160; // a named activator with a model
 const BED: u32 = 0x152;
 const SETTLER: u32 = 0x170; // an NPC
+const NPC: u32 = 0x171; // a living NPC behind bars (#3233)
 const CELL_EXT: u32 = 0x200;
 const CELL_INT: u32 = 0x201;
 const WORLD: u32 = 0x3C;
@@ -41,6 +45,7 @@ const LEVER_REF: u32 = 0x308;
 const LEVER_TRIGGER_REF: u32 = 0x309; // LEVER placed as a box primitive (a trigger)
 const BED_REF: u32 = 0x30A;
 const SETTLER_REF: u32 = 0x30B; // ACHR of SETTLER
+const NPC_REF: u32 = 0x30C; // a living NPC (ACHR of NPC)
 
 fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
     BaseForm { id: FormId(id), sig: *b"MISC", edid: Some(format!("Edid{id:X}")), name: name.map(Into::into), script: None, prompt: None, voice_filter: false, data }
@@ -104,6 +109,7 @@ fn sim() -> SimState {
         base(LEVER, Some("Lever"), BaseData::Activator),
         base(BED, Some("Bed"), BaseData::Furniture),
         BaseForm { sig: *b"NPC_", ..base(SETTLER, Some("Settler"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })) },
+        BaseForm { sig: *b"NPC_", ..base(NPC, Some("Rick Lancer"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })) },
         base(FormId::PLAYER_BASE.0, Some("Courier"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })),
     ] {
         // [design, #2538] World::lock_source identifies doors through FormStore::sig.
@@ -131,6 +137,7 @@ fn sim() -> SimState {
     let settler = PlacedRef { sig: *b"ACHR", ..placed(SETTLER_REF, SETTLER, CELL_EXT) };
     refs.refs.insert(settler.id, settler);
     let box_trigger = PlacedRef { primitive: Some(fnv_sim::refs::Primitive { sphere: false, bounds: [30.0, 25.0, 31.0] }), ..placed(LEVER_TRIGGER_REF, LEVER, CELL_EXT) };
+    refs.refs.insert(FormId(NPC_REF), PlacedRef { sig: *b"ACHR", ..placed(NPC_REF, NPC, CELL_EXT) });
     for r in [stim, safe, door, sealed, prompted, hidden, hidden_travel, hidden_prompted, box_trigger, placed(LEVER_REF, LEVER, CELL_EXT), placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT), placed(BED_REF, BED, CELL_EXT)] {
         refs.refs.insert(r.id, r);
     }
@@ -252,7 +259,7 @@ fn describe_by_type_lock_and_destination() {
     assert_eq!(describe(&sim, ix, TRIGGER_REF), None, "unnamed activators are not offered");
     // With an Activation Prompt it is offered, by the prompt alone (#2160).
     assert_eq!(describe(&sim, ix, 0x777C), Some((String::new(), Action::Activate)));
-    let t = Targeted { form_id: 0x777C, name: String::new(), action: Action::Activate, distance: 50.0, source: pick::Source::Bounds, crime: false, empty: false };
+    let t = Targeted { form_id: 0x777C, name: String::new(), action: Action::Activate, distance: 50.0, source: pick::Source::Bounds, crime: false, empty: false, through: None };
     let p = crate::reticle::Prompt::of(&t, &sim);
     assert_eq!((p.action.as_str(), p.name.as_str()), ("Activate", ""));
     assert_eq!(describe(&sim, ix, 0x7779), None, "nor an unnamed door leading nowhere (#1598)");

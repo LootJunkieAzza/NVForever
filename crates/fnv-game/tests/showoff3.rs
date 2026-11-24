@@ -282,10 +282,13 @@ fn small_getters_run() {
     assert!(sorted(&mut g, "TopicInfoGetResponseStrings TestHat").is_empty());
     assert_eq!(n(&mut g, "ModNumericINISetting \"fNoSuchSetting:General\" 1"), 0.0);
     assert_eq!(n(&mut g, "GetChallengeProgress TestHat"), 0.0);
-    // Level 1, the menu closed: the points of level 2, a perk level
-    // (iLevelsPerPerk 2).
+    // Level 1, the menu closed: evaluates `level + 1` (iLevelsPerPerk = 2), including
+    // for explicit nonzero `levelOverride` values (`1/2/3/4` -> `1/0/1/0`).
     assert_eq!(n(&mut g, "GetCalculatedPerkPoints"), 1.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 1"), 1.0);
     assert_eq!(n(&mut g, "GetCalculatedPerkPoints 2"), 0.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 3"), 1.0);
+    assert_eq!(n(&mut g, "GetCalculatedPerkPoints 4"), 0.0);
     assert!(n(&mut g, "GetCalculatedSkillPoints") >= 10.0);
     assert_eq!(n(&mut g, "player.GetRadiationExtraData"), 0.0);
     assert_eq!(n(&mut g, "player.SetRadiationExtraData 20"), 1.0);
@@ -317,7 +320,7 @@ fn calculated_equipped_weight_honors_weightless_tweaks_and_perks() {
     use fnv_sim::inventory::{WeightRules, WEIGHTLESS_ARMOR, WEIGHTLESS_WEAPONS};
     let f = fixture();
     let mut g = game(&f);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
 
     // Equip gun (6.0), power armor (20.0), and hat (1.0).
     let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();
@@ -361,4 +364,83 @@ fn calculated_equipped_weight_honors_weightless_tweaks_and_perks() {
     // Gun: 6 * 0.5 = 3.0; Hat: 1 * 0.5 = 0.5; Power Suit: 0.0.
     assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 3.5);
     assert_eq!(n(&mut g, "player.GetInventoryWeight"), 3.5);
+}
+
+#[test]
+fn weapon_flag_overrides_sync_getters_playability_and_equipment() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
+    dressed(&mut g);
+
+    let gun = FormId(GUN);
+    assert_eq!(g.weapon_flags1_override(gun), None);
+    assert_eq!(g.weapon_flags1(gun), Some(0));
+    assert!(!g.weapon_is_automatic(gun) && !g.weapon_cant_drop(gun));
+    assert!(g.is_item_playable(gun) && !g.is_item_non_playable(gun));
+    assert_eq!(n(&mut g, "IsPlayable TestGun"), 1.0);
+    assert_eq!(n(&mut g, "LNIsPlayable TestGun"), 1.0);
+    assert_eq!(n(&mut g, "player.IsEquippedWeaponScoped"), 0.0);
+
+    // Set Is Automatic (1), Has Scope (2), Can't Drop (3) via SetWeaponFlag and alias SetWeaponHasFlag.
+    q(&mut g, "SetWeaponFlag 1 1 TestGun");
+    q(&mut g, "SetWeaponHasFlag 2 1 TestGun");
+    q(&mut g, "player.SetWeaponFlag 3 1");
+    let want = (1u8 << 1) | (1u8 << 2) | (1u8 << 3);
+    assert_eq!(g.weapon_flags1_override(gun), Some(want));
+    assert_eq!(g.weapon_flags1(gun), Some(want));
+    assert!(g.weapon_is_automatic(gun) && g.weapon_cant_drop(gun));
+    assert_eq!(n(&mut g, "WeaponHasFlag 1 TestGun"), 1.0);
+    assert_eq!(n(&mut g, "GetWeaponHasFlag 2 TestGun"), 1.0);
+    assert_eq!(n(&mut g, "player.WeaponHasFlag 3"), 1.0);
+    assert_eq!(n(&mut g, "GetWeaponFlags1 TestGun"), f64::from(want));
+    assert_eq!(n(&mut g, "GetWeaponIsAutomatic TestGun"), 1.0);
+    assert_eq!(n(&mut g, "GetWeaponHasScope TestGun"), 1.0);
+    assert_eq!(n(&mut g, "player.IsEquippedWeaponScoped"), 1.0);
+
+    // Calling SetWeaponFlag / WeaponHasFlag on an inventory reference resolves the underlying WEAP.
+    q(&mut g, "ref ir\nlet ir := player.GetEquippedWeaponRef\nir.SetWeaponFlag 0 1");
+    assert_eq!(n(&mut g, "WeaponHasFlag 0 TestGun"), 1.0);
+    assert_eq!(q(&mut g, "ref ir\nlet ir := player.GetEquippedWeaponRef\nSetFunctionValue (ir.WeaponHasFlag 0)"), XVal::Num(1.0));
+
+    // Toggling Non-Playable (bit 7) updates IsPlayable, LNIsPlayable, GetEquippedItems, and GetAllItemRefs.
+    q(&mut g, "SetWeaponFlag 7 1 TestGun");
+    assert!(!g.is_item_playable(gun) && g.is_item_non_playable(gun));
+    assert_eq!(n(&mut g, "IsPlayable TestGun"), 0.0);
+    assert_eq!(n(&mut g, "LNIsPlayable TestGun"), 0.0);
+    assert!(!sorted(&mut g, "player.GetEquippedItems").contains(&f64::from(GUN)));
+    assert!(sorted(&mut g, "player.GetEquippedItems 32").contains(&f64::from(GUN)), "explicit slot mask still includes non-playable weapon");
+    assert_eq!(sorted(&mut g, "player.GetAllItemRefs 40 1").len(), 0, "noNonPlayable filters weapon out");
+
+    // LNSetIsPlayable 1 clears bit 7 and stays in sync with WeaponHasFlag 7 and GetWeaponFlags1.
+    q(&mut g, "LNSetIsPlayable 1 TestGun");
+    assert!(g.is_item_playable(gun));
+    assert_eq!(n(&mut g, "WeaponHasFlag 7 TestGun"), 0.0);
+    assert_eq!(n(&mut g, "IsPlayable TestGun"), 1.0);
+    assert!(sorted(&mut g, "player.GetEquippedItems").contains(&f64::from(GUN)));
+    assert_eq!(sorted(&mut g, "player.GetAllItemRefs 40 1").len(), 1);
+
+    // SetIsPlayable on a WEAP remains a no-op (observed: nvse-fourth).
+    q(&mut g, "SetIsPlayable 0 TestGun");
+    assert_eq!(n(&mut g, "IsPlayable TestGun"), 1.0);
+
+    // TempCloneForm inherits original flags1 and isolates clone-specific edits.
+    let clone_inherited = match q(&mut g, "SetFunctionValue (TempCloneForm TestGun)") {
+        XVal::Ref(r) => FormId(r),
+        v => panic!("TempCloneForm: {v:?}"),
+    };
+    assert_eq!(g.weapon_flags1_override(clone_inherited), g.weapon_flags1_override(gun));
+    let clone_edited = match q(&mut g, "ref c\nlet c := TempCloneForm TestGun\nSetWeaponFlag 7 1 c\nSetFunctionValue c") {
+        XVal::Ref(r) => FormId(r),
+        v => panic!("TempCloneForm edit: {v:?}"),
+    };
+    assert!(!g.is_item_playable(clone_edited));
+    assert!(g.is_item_playable(gun), "clone edit does not mutate original");
+
+    // Non-weapon forms are refused without polluting field_overrides.
+    q(&mut g, "SetWeaponFlag 1 1 TestHat");
+    assert_eq!(n(&mut g, "WeaponHasFlag 1 TestHat"), 0.0);
+    assert_eq!(g.weapon_flags1_override(FormId(HAT)), None);
+    assert_eq!(g.weapon_flags1(FormId(HAT)), None);
+    assert_eq!(g.num_field(FormId(HAT), "DNAM", "flags1"), 0.0);
 }

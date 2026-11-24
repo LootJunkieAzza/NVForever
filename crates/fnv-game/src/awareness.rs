@@ -16,6 +16,8 @@
 //! - detection events (CreateDetectionEvent, impacts and explosions the engine raises,
 //!   [`Game::queue_detection_event`]) that the actor hears ([`Game::hear_event`]), and
 //!   being hurt by a hostile ([`Game::hurt_by`]): an alarm at where it happened;
+//! - [`Game::lose_unmeasured`], in each round of the engine's measurements: a target
+//!   whose pair is measured no more counts as hidden (#3390);
 //! - [`Game::settle_awareness`], after each round of measurements: alarms and targets
 //!   time out, and the state follows the documented transitions.
 //!
@@ -33,7 +35,7 @@ use crate::package::flags;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const AGGRESSION: u16 = crate::actor_values::AGGRESSION;
 
@@ -311,7 +313,16 @@ pub struct Awareness {
     pub prefer_player: bool,
     #[serde(default)]
     pub rolled_for: Option<FormId>,
+    /// Targets a script's StartCombat gave it that the engine has not measured since:
+    /// not being measured yet does not hide them ([`Awareness::lose_unmeasured`]). Saved
+    /// as `GameSnapshot::scripted_combat`.
+    #[serde(skip)]
+    pub scripted: BTreeSet<FormId>,
 }
+
+/// The detection value StartCombat gives its target, until it is measured
+/// ([`Game::start_combat`]) [engineering choice].
+const STARTED_VALUE: f64 = 100.0;
 
 /// A fighter keeps its target while it detects it, unless another detected one is more
 /// than this above it in detection value [design: owner 2026-10-16, NCR troopers
@@ -350,6 +361,7 @@ pub struct Change {
 impl Awareness {
     /// A measurement of a hostile `target`, at `at`.
     pub fn observe(&mut self, target: FormId, det: &Detection, at: [f32; 3], now: f64, t: &Timers) {
+        self.scripted.remove(&target);
         match det.band {
             Band::Detected => {
                 let e = self.targets.entry(target).or_insert(Target { band: det.band, value: det.value, at, detected: None, hidden_since: None });
@@ -374,6 +386,39 @@ impl Awareness {
                 }
             }
         }
+    }
+
+    /// Every target that is not `measured` any more counts as hidden from `now`: the
+    /// engine's round has no measurement of the pair (the actor or the target left the
+    /// loaded area, or they are out of detection reach), and nothing but a measurement
+    /// moves a target's band, so it would stay detected, and the actor in Combat, for good
+    /// (#3390) [design: an actor that perceives nothing of a target does not detect it;
+    /// documented: Category:Detection, Combat to Lost "whenever all my targets are
+    /// undetected"]. The timers go on as for a target measured hidden. A target a
+    /// StartCombat gave it and not measured since is kept as the script set it.
+    pub fn lose_unmeasured(&mut self, now: f64, measured: impl Fn(FormId) -> bool) {
+        for (id, x) in &mut self.targets {
+            // Detected in this round: measured.
+            if x.band == Band::Hidden || x.detected == Some(now) || self.scripted.contains(id) || measured(*id) {
+                continue;
+            }
+            x.band = Band::Hidden;
+            x.hidden_since.get_or_insert(now);
+        }
+    }
+
+    /// A Lost actor out of the loaded area, where the AI carries out no search (`fnv_ai`
+    /// process.rs), gives each target up once it has been hidden for
+    /// [`Timers::forget_target`], as outside an active search [design, #3390: the search's
+    /// own bound, [`LOST_SEARCH_STALL_SECONDS`], would have an enemy left in an unloaded
+    /// cell hunt the player for 5 more minutes].
+    pub fn give_up_search(&mut self, now: f64, t: &Timers) {
+        if self.state != State::Lost {
+            return;
+        }
+        let targets = &self.targets;
+        let over = |o: &FormId| targets.get(o).is_none_or(|x| x.hidden_since.is_some_and(|h| now - h >= t.forget_target));
+        self.alarms.retain(|a| a.cause != Cause::LostTarget || !over(&a.owner));
     }
 
     /// Put an alarm on the alert list, or refresh the one of the same owner and cause.
@@ -402,6 +447,7 @@ impl Awareness {
     pub fn forget(&mut self, who: FormId) {
         self.targets.remove(&who);
         self.shared.remove(&who);
+        self.scripted.remove(&who);
         self.alarms.retain(|a| a.owner != who);
     }
 
@@ -449,6 +495,7 @@ impl Awareness {
                 || shared.get(id).is_some_and(|s| now - s < t.forget_target)
         });
         self.shared.retain(|id, _| self.targets.contains_key(id));
+        self.scripted.retain(|id| self.targets.contains_key(id));
         // Called by an ally and not fighting yet: it takes the alarm's owner, the first of
         // the foe's side to start, while it detects it (§2).
         if self.fighting.is_none() {
@@ -515,6 +562,7 @@ impl Awareness {
             self.fighting = None;
             self.committed = false;
             self.shared.clear();
+            self.scripted.clear();
         }
         Some(Change { actor, from, to, time: now, about, cause, at, value })
     }
@@ -531,7 +579,7 @@ pub struct DetectionEvent {
 }
 
 /// Every actor's [`Awareness`], the events not yet heard and the changes not yet told.
-/// Not part of the saved state: the engine measures again.
+/// Saves keep the actors in a fight and `forced` (#971); the rest the engine measures again.
 #[derive(Debug, Clone, Default)]
 pub struct Awarenesses {
     pub actors: BTreeMap<FormId, Awareness>,
@@ -607,6 +655,46 @@ pub(crate) fn position(g: &Game, r: FormId) -> Option<[f32; 3]> {
     g.world.peek(r).map(|s| s.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos))
 }
 
+/// What [`Game::would_attack`]'s rule decided for a pair, and by which of its rules: the
+/// first that held, in the order the rule asks them. Only [`Hostile::No`] is not hostile.
+/// For the log of a fight's start ([`Game::hostility_text`]): a player's report showed an
+/// actor going for the companion with nothing in the log saying why (#3335).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hostile {
+    No,
+    /// StartCombat made the pair hostile.
+    Forced,
+    /// `actor` holds a grudge against `other` (it was attacked, `crate::provocation`).
+    Grudge,
+    /// `other` is the player's teammate, and `actor` would attack the player.
+    AsAgainstThePlayer,
+    /// `actor` is the player's teammate and `other` would attack the player.
+    DefendsThePlayer,
+    /// `actor` is a passive teammate and `other` fights the player's side.
+    FightsThePlayersSide,
+    /// The player's crimes made `actor` an enemy (GetActorCrimePlayerEnemy).
+    CrimeEnemy,
+    /// The player is an enemy of one of `actor`'s factions (GetActorFactionPlayerEnemy).
+    FactionFlag,
+    /// `actor`'s Aggression against its relation to `other` (`GetFactionRelation`'s codes:
+    /// 0 neutral, 1 enemy, 2 ally, 3 friend).
+    Aggression { aggression: i64, relation: i64 },
+}
+
+impl Hostile {
+    pub fn is(self) -> bool {
+        self != Hostile::No
+    }
+
+    fn of(hostile: bool, why: Hostile) -> Hostile {
+        if hostile {
+            why
+        } else {
+            Hostile::No
+        }
+    }
+}
+
 /// What [`Game::kin`] reads of one actor (kept by `detection::Round::kin`).
 #[derive(Debug, Clone)]
 pub(crate) struct KinFacts {
@@ -671,7 +759,8 @@ impl Game<'_> {
         if self.data.actors.get(&base).is_some_and(|d| &d.sig == b"NPC_") {
             return false;
         }
-        self.template_source(base, r, |d| d.template_base).is_some_and(|(_, d)| d.is_ghost)
+        self.template_source(base, r, |d| d.template_base)
+            .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::IS_GHOST, |d| d.is_ghost))
     }
 
     /// `target` is a ghost that `detector` would otherwise attack: such an enemy does not
@@ -703,7 +792,70 @@ impl Game<'_> {
         self.keep_kin_facts(actor);
         self.keep_kin_facts(other);
         let aggression = |r: FormId| (r == actor).then_some(of_actor).or((r == other).then_some(of_other));
-        self.hostility(actor, other, &aggression).unwrap_or(false)
+        self.hostility(actor, other, &aggression).is_some_and(Hostile::is)
+    }
+
+    /// Why `actor` would attack `other` now, for the log ([`Hostile`]); `None` when it
+    /// would not. Worked out afresh, outside any detection round's kept answers.
+    pub fn hostility_reason(&mut self, actor: FormId, other: FormId) -> Option<Hostile> {
+        if self.is_ghost(other) {
+            return None;
+        }
+        let (of_actor, of_other) = (self.aggression_kept(actor), self.aggression_kept(other));
+        let aggression = |r: FormId| (r == actor).then_some(of_actor).or((r == other).then_some(of_other));
+        self.hostility(actor, other, &aggression).filter(|h| h.is())
+    }
+
+    /// [`Game::hostility_reason`] in words, for the `hostility:` log line: the rule, and for a
+    /// faction's flag which factions and since when; for a teammate, the reason against
+    /// the player too.
+    pub fn hostility_text(&mut self, actor: FormId, other: FormId) -> Option<String> {
+        let why = self.hostility_reason(actor, other)?;
+        let name = |g: &Game, r: FormId| g.data.name(r);
+        Some(match why {
+            Hostile::No => unreachable!("filtered"),
+            Hostile::Forced => "StartCombat made them hostile".to_string(),
+            Hostile::Grudge => format!("it holds a grudge against {} (it was attacked)", name(self, other)),
+            Hostile::AsAgainstThePlayer => {
+                let inner = self.hostility_text(actor, FormId::PLAYER_REF).unwrap_or_else(|| "?".to_string());
+                format!("{} is the player's teammate, and it would attack the player: {inner}", name(self, other))
+            }
+            Hostile::DefendsThePlayer => {
+                let inner = self.hostility_text(other, FormId::PLAYER_REF).unwrap_or_else(|| "?".to_string());
+                format!("it is the player's teammate, and {} would attack the player: {inner}", name(self, other))
+            }
+            Hostile::FightsThePlayersSide => format!("a passive teammate, and {} fights the player's side", name(self, other)),
+            Hostile::CrimeEnemy => {
+                let since = self.player.crime_enemy_since.get(&actor).copied();
+                let days = since.zip(self.game_days()).map_or(String::new(), |(d, now)| format!(", {:.2} days ago", now - d));
+                format!("the player's crimes made it an enemy{days}")
+            }
+            Hostile::FactionFlag => {
+                let now = self.game_days();
+                let flags: Vec<String> = crate::functions::actor::factions_of(self, actor)
+                    .into_iter()
+                    .filter(|f| self.player.enemy_of.contains(f))
+                    .map(|f| {
+                        let by = match (self.player.enemy_of_crimes.get(&f), self.player.enemy_of_script.contains(&f)) {
+                            (Some(&d), _) => now.map_or("a crime's flag".to_string(), |n| format!("a crime's flag, {:.2} days old", n - d)),
+                            (None, true) => "a script's flag (or one kept from a save made before crimes were dated)".to_string(),
+                            (None, false) => "flagged".to_string(),
+                        };
+                        format!("{} ({by})", name(self, f))
+                    })
+                    .collect();
+                format!("the player is an enemy of its faction {}", flags.join(", "))
+            }
+            Hostile::Aggression { aggression, relation } => {
+                let rel = match relation {
+                    1 => "enemy",
+                    2 => "ally",
+                    3 => "friend",
+                    _ => "neutral",
+                };
+                format!("its Aggression {aggression} against its relation {rel} ({relation}) to {}", name(self, other))
+            }
+        })
     }
 
     /// Whether `r` is a fixture that never fights: a creature flagged Immobile whose AI
@@ -724,7 +876,11 @@ impl Game<'_> {
     /// ghost while sealed (its script's SetGhost 1) and House's body killable once the
     /// terminal unseals it (owner ruling 2026-11-13).
     pub fn is_fixture(&self, r: FormId) -> bool {
-        if r == FormId::PLAYER_REF || !self.base_data_def(r).is_some_and(|d| d.immobile && &d.sig == b"CREA") {
+        if r == FormId::PLAYER_REF
+            || !self
+                .base_data_source(r)
+                .is_some_and(|(id, d)| &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::IMMOBILE, |d| d.immobile))
+        {
             return false;
         }
         let calm = self.def_following(r, |d| d.template_ai).is_some_and(|d| d.aggression == Some(0) && d.assistance == Some(0));
@@ -751,22 +907,25 @@ impl Game<'_> {
 
     /// The rule of [`Game::hostile_to`], read-only: `aggression` gives an actor's
     /// Aggression; `None` when it gives none for an actor the rule asks about.
-    fn hostility(&self, actor: FormId, other: FormId, aggression: &dyn Fn(FormId) -> Option<i64>) -> Option<bool> {
+    fn hostility(&self, actor: FormId, other: FormId, aggression: &dyn Fn(FormId) -> Option<i64>) -> Option<Hostile> {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
-            return Some(false);
+            return Some(Hostile::No);
         }
         // A fixture or combat-disabled actor never fights (issue #2431; SetCombatDisabled).
         if self.is_fixture(actor) || self.combat_disabled(actor) {
-            return Some(false);
+            return Some(Hostile::No);
         }
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
         // A knocked-down player stays a target (unconscious.md §5.4) [design].
         let player_down = other == FormId::PLAYER_REF && self.extra.get(&other).is_some_and(|e| e.knocked_out.is_some() && !e.unconscious && !e.restrained);
         if out(self, actor) || (out(self, other) && !player_down) || self.is_dead(other) {
-            return Some(false);
+            return Some(Hostile::No);
         }
-        if self.awareness.forced.contains(&(actor, other)) || self.provocations.holds(actor, other) {
-            return Some(true);
+        if self.awareness.forced.contains(&(actor, other)) {
+            return Some(Hostile::Forced);
+        }
+        if self.provocations.holds(actor, other) {
+            return Some(Hostile::Grudge);
         }
         // The player's teammates "act and react as if in the player faction for the
         // purposes of combat. Other actors will treat the actor as if he were in the
@@ -777,51 +936,53 @@ impl Game<'_> {
         // Boone's for the Legion] (`crate::followers`).
         let (mate, other_mate) = (self.is_teammate(actor), self.is_teammate(other));
         if mate && (other_mate || other == FormId::PLAYER_REF) {
-            return Some(false);
+            return Some(Hostile::No);
         }
         if other_mate {
-            return self.hostility(actor, FormId::PLAYER_REF, aggression);
+            return Some(Hostile::of(self.hostility(actor, FormId::PLAYER_REF, aggression)?.is(), Hostile::AsAgainstThePlayer));
         }
         // A companion set passive on the wheel (`FollowerSwitchAggressive` 0) leaves alone
         // whoever does not fight the player's side, its own enmities too; a grudge (a hit)
         // counted above [hypothesis: the wheel's Passive "follows your lead",
         // docs/spec-notes/companion-wheel.md §4].
         if mate && self.is_passive_teammate(actor) {
-            return Some(self.fights_the_players_side(other));
+            return Some(Hostile::of(self.fights_the_players_side(other), Hostile::FightsThePlayersSide));
         }
-        if mate && self.hostility(other, FormId::PLAYER_REF, aggression)? {
-            return Some(true);
+        if mate && self.hostility(other, FormId::PLAYER_REF, aggression)?.is() {
+            return Some(Hostile::DefendsThePlayer);
         }
         if other == FormId::PLAYER_REF {
             if self.extra.get(&actor).is_some_and(|e| e.teammate) {
-                return Some(false);
+                return Some(Hostile::No);
             }
-            // The player's crimes (`crate::crime`).
+            // The player's crimes (`crate::crime`): its own crime enmity, else a flag on
+            // one of its factions.
             if self.crime_enemy(actor) {
-                return Some(true);
+                return Some(if self.player.crime_enemies.contains(&actor) { Hostile::CrimeEnemy } else { Hostile::FactionFlag });
             }
         } else {
             if !self.world.is_enabled(other).unwrap_or(false) {
-                return Some(false);
+                return Some(Hostile::No);
             }
             if self.kin_in_round(actor, other) {
-                return Some(false);
+                return Some(Hostile::No);
             }
             // "Defensive Combat": "The actor will not attack an NPC or creature, unless he
             // is attacked first" [documented: GECK wiki Packages, Flags tab]; being
             // attacked is a grudge, which counts above.
             if self.package_has(actor, flags::DEFENSIVE_COMBAT) {
-                return Some(false);
+                return Some(Hostile::No);
             }
         }
         let relation = self.relation_in_round(actor, other);
         let aggression = aggression(actor)?;
-        Some(match aggression {
+        let hostile = match aggression {
             a if a >= 3 => true,
             2 => relation != 2 && relation != 3,
             1 => relation == 1,
             _ => false,
-        })
+        };
+        Some(Hostile::of(hostile, Hostile::Aggression { aggression, relation }))
     }
 
     /// Whether `actor`'s current package keeps it out of Alert: the package flag "No
@@ -958,6 +1119,31 @@ impl Game<'_> {
         let now = self.time;
         self.awareness.actors.entry(actor).or_default().alarm(by, at, 0.0, Cause::Hurt, now, &t);
         true
+    }
+
+    /// After a round's pairs, before [`Game::settle_awareness`], with the old pairs
+    /// forgotten (`Detections::forget_older_than`): a target whose pair is not in the table
+    /// counts as hidden ([`Awareness::lose_unmeasured`]), and a Lost actor that is not
+    /// among `drawn` (the actors this round measured: the loaded area) gives its search up
+    /// in time ([`Awareness::give_up_search`]) (#3390). Only the engine's rounds call this,
+    /// and a round measures every pair within reach (none waits its turn): without them
+    /// (headless runs) nothing is ever measured, and that hides nobody.
+    ///
+    /// Left as they are: actors with their AI off (SetActorsAI 0, `tai`), which measure
+    /// nothing and do not search; and the player as a target while nobody's sight of the
+    /// player is measured (`tdetect`, the test aid that leaves the player unseen).
+    pub fn lose_unmeasured(&mut self, drawn: &BTreeSet<FormId>) {
+        let t = self.awareness_timers();
+        let now = self.time;
+        let ids: Vec<FormId> = self.awareness.actors.keys().copied().filter(|&id| !self.ai_off(id)).collect();
+        let detection = &self.detection;
+        for id in ids {
+            let Some(a) = self.awareness.actors.get_mut(&id) else { continue };
+            a.lose_unmeasured(now, |o| (o == FormId::PLAYER_REF && !detection.measures_player) || detection.pairs.contains_key(&(id, o)));
+            if !drawn.contains(&id) {
+                a.give_up_search(now, &t);
+            }
+        }
     }
 
     /// After a round of measurements: every actor's alarms and targets time out and its
@@ -1169,7 +1355,7 @@ impl Game<'_> {
         if let Some(&h) = kept.get(&(actor, other)) {
             return Some(h);
         }
-        self.hostility(actor, other, &|r| round.aggression.get(&r).copied())
+        self.hostility(actor, other, &|r| round.aggression.get(&r).copied()).map(Hostile::is)
     }
 
     /// Keep answers of [`Game::round_hostility`] for the rest of the round's hostility.
@@ -1219,6 +1405,27 @@ impl Game<'_> {
 }
 
 impl Game<'_> {
+    /// The StartCombat targets not measured since, for a save.
+    pub(crate) fn scripted_combat(&self) -> BTreeSet<(FormId, FormId)> {
+        self.awareness.actors.iter().flat_map(|(&a, x)| x.scripted.iter().map(move |&t| (a, t))).collect()
+    }
+
+    /// [`Game::scripted_combat`] from a save, after its actors and forced pairs. `None`: a
+    /// save from before it was kept (#3390). There a forced pair's target counts as not
+    /// measured while it still has what StartCombat gave it, the value above all: a
+    /// measurement overwrites it, and a measured value (a sum of unclamped terms,
+    /// `Settings::evaluate`) is exactly that only by coincidence. So an enemy a script set
+    /// on the player that was measured and then left behind is not taken for one [design].
+    pub(crate) fn restore_scripted_combat(&mut self, saved: Option<&BTreeSet<(FormId, FormId)>>) {
+        let untouched = |x: &Target| x.band == Band::Detected && x.value == STARTED_VALUE && x.detected.is_some() && x.hidden_since.is_none();
+        for &(actor, target) in saved.unwrap_or(&self.awareness.forced) {
+            let Some(a) = self.awareness.actors.get_mut(&actor) else { continue };
+            if a.targets.get(&target).is_some_and(|x| saved.is_some() || untouched(x)) {
+                a.scripted.insert(target);
+            }
+        }
+    }
+
     /// `actor.StartCombat target`: the actor fights `target` from now on, whatever the
     /// records say of hostility, until StopCombat [documented: catalogue notes, "Forces
     /// the calling actor to start combat with a target actor"]. It counts as detecting the
@@ -1236,7 +1443,8 @@ impl Game<'_> {
         let now = self.time;
         let at = position(self, target).unwrap_or_default();
         let a = self.awareness.actors.entry(actor).or_default();
-        a.targets.insert(target, Target { band: Band::Detected, value: 100.0, at, detected: Some(now), hidden_since: None });
+        a.targets.insert(target, Target { band: Band::Detected, value: STARTED_VALUE, at, detected: Some(now), hidden_since: None });
+        a.scripted.insert(target);
         if let Some(c) = a.settle(actor, now, &t, true) {
             self.awareness.changes.push(c);
             if let Some(topic) = c.from.topic_to(c.to) {

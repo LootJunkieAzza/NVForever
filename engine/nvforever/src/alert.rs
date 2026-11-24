@@ -41,7 +41,10 @@ pub struct AlertPlugin;
 impl Plugin for AlertPlugin {
     fn build(&self, app: &mut App) {
         // [design, #2512] Flush package hiding before weapon-part visibility is composed.
-        app.add_systems(Update, show.after(nvf_play::PlaySet::Scripts).before(crate::weapons::reparent));
+        // After the warnings of the turn are told (`provoked::log_notes`): the draw a
+        // warning causes is logged after that warning, not before it in the same frame as
+        // an order left open between the two systems had it (#3403).
+        app.add_systems(Update, show.after(nvf_play::PlaySet::Scripts).after(crate::provoked::log_notes).before(crate::weapons::reparent));
     }
 }
 

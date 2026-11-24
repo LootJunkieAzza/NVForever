@@ -178,6 +178,28 @@ pub fn targets(ui: &Ui, t: TileId) -> bool {
     flag(ui, t, "target")
 }
 
+/// The tile a script click (`ClickMenuTile`) acts on: `t` itself when its own `target` is
+/// true, else the nearest `<hotrect>` above it whose `target` is true [documented:
+/// Hotrect, "Hotrect with Target set to 1 will enforce it to its childs even if child
+/// Target is set 0"; ClickMenuTile, "should work with any interactable UI tile"].
+pub fn clickable_target(ui: &Ui, t: TileId) -> Option<TileId> {
+    if !ui.is_live(t) {
+        return None;
+    }
+    if targets(ui, t) {
+        return Some(t);
+    }
+    let mut at = ui.tile(t).parent;
+    while let Some(id) = at {
+        let tile = ui.tile(id);
+        if tile.kind == "hotrect" && targets(ui, id) {
+            return Some(id);
+        }
+        at = tile.parent;
+    }
+    None
+}
+
 /// The tile itself, or the nearest above it, whose own `target` is true.
 fn event_tile(ui: &Ui, t: TileId) -> Option<TileId> {
     let mut at = Some(t);
@@ -225,9 +247,9 @@ fn place(ui: &Ui, t: TileId, parent: Place, measure: &Measure<'_>) -> Place {
             area.width = num(ui, t, "width", w);
             area.height = num(ui, t, "height", h);
         }
-        area.left -= match tile.get("justify") {
-            Some(Value::Sym(s)) if s == "center" => area.width / 2.0,
-            Some(Value::Sym(s)) if s == "right" => area.width,
+        area.left -= match tile.get("justify").and_then(Value::sym_name).as_deref() {
+            Some("center") => area.width / 2.0,
+            Some("right") => area.width,
             _ => 0.0,
         };
     }
@@ -642,9 +664,12 @@ impl Pointer {
                 report.clicks.push(c);
                 return;
             } else if trait_name.eq_ignore_ascii_case(MOUSEOVER) {
+                let before = self.over;
                 self.highlight(ui, Some(t), report);
                 self.keyed = true;
-                report.over_by_key = report.over.is_some();
+                if self.over != before {
+                    report.over_by_key = true;
+                }
                 return;
             }
             report.unfollowed.push(format!("{name}: ref to {trait_name} not followed"));
@@ -1031,10 +1056,17 @@ mod tests {
         assert_eq!(p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure).over, None);
         assert_eq!(p.over, Some(cancel));
         // Cancel's xup goes back; then the pointer moving takes the highlight again.
-        p.step(&mut ui, &[menu], &Input { pads: vec!["xup".into()], ..at(120.0, 115.0) }, &no_measure);
+        let r = p.step(&mut ui, &[menu], &Input { pads: vec!["xup".into()], ..at(120.0, 115.0) }, &no_measure);
+        assert!(r.over_by_key);
         assert_eq!(p.over, Some(ok));
-        p.step(&mut ui, &[menu], &at(220.0, 140.0), &no_measure);
+        let r = p.step(&mut ui, &[menu], &at(220.0, 140.0), &no_measure);
+        assert!(!r.over_by_key, "pure pointer highlight move is not a key navigation");
         assert_eq!(p.over, Some(cancel));
+        // A same-frame pointer move from Cancel onto Ok paired with Ok's xdown
+        // navigates Ok -> Cancel by pad, so over_by_key is true.
+        let r = p.step(&mut ui, &[menu], &Input { pads: vec!["xdown".into()], ..at(120.0, 115.0) }, &no_measure);
+        assert_eq!(r.over, Some((Some(cancel), Some(cancel))));
+        assert!(r.over_by_key, "xdown moved Ok -> Cancel after pointer moved Cancel -> Ok");
     }
 
     #[test]
@@ -1132,6 +1164,16 @@ mod tests {
         assert!(hit(&ui, &[menu], (86.0, 5.0), &measure).is_some());
         assert!(hit(&ui, &[menu], (116.0, 5.0), &measure).is_none());
         assert!(hit(&ui, &[menu], (86.0, 5.0), &no_measure).is_none());
+        // Entity strings written via SetUIString/SetUIStringAlt behave like Value::Sym.
+        let word = ui.find_tile("T/Word").unwrap();
+        ui.set_trait(word, "justify", Value::Str("&right".into()));
+        // 30 wide, right-justified on x 100: 70 to 100.
+        assert!(hit(&ui, &[menu], (71.0, 5.0), &measure).is_some());
+        assert!(hit(&ui, &[menu], (101.0, 5.0), &measure).is_none());
+        ui.set_trait(word, "visible", Value::Str("&false".into()));
+        assert!(hit(&ui, &[menu], (71.0, 5.0), &measure).is_none());
+        ui.set_trait(word, "visible", Value::Str("&true".into()));
+        assert!(hit(&ui, &[menu], (71.0, 5.0), &measure).is_some());
     }
 
     #[test]

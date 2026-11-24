@@ -20,6 +20,7 @@ use super::{Hacking, MenuView, Page, Session};
 use crate::interface::{at, face, line_anchor, plain_font, set_line, set_marked, texture, u, Face};
 use bevy::prelude::*;
 use fnv_font::{Font, Line};
+use fnv_sim::FormId;
 use fnv_game::data::NoteDef;
 use fnv_game::hacking::{Puzzle, Target, ROWS, ROW_CHARS};
 use nvf_assets::GameData;
@@ -185,6 +186,36 @@ pub const LIST_ROWS: usize = 12;
 /// the screenshot shows one item only].
 pub const LIST_ROW: f32 = 30.0;
 pub const NOTE_LINES: usize = 16;
+
+/// What the screen drew that the input reads back: the menu's rows on the canvas (for the
+/// pointer) and an open note's window (for paging it, #3409).
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct Drawn {
+    pub rows: Vec<(usize, Rect)>,
+    pub note: Option<NoteWindow>,
+}
+
+/// The lines of an open note on the screen: `shown` of its `total` from line `first`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoteWindow {
+    pub note: FormId,
+    pub first: usize,
+    pub shown: usize,
+    pub total: usize,
+}
+
+impl NoteWindow {
+    /// The scroll that shows the note's last lines (the most it scrolls).
+    pub fn last_first(&self) -> usize {
+        self.total.saturating_sub(self.shown)
+    }
+
+    /// The scroll of the next page: the line after the last one shown, kept to
+    /// [`NoteWindow::last_first`]; `None` on the last page.
+    pub fn next_page(&self) -> Option<usize> {
+        (self.first + self.shown < self.total).then(|| (self.first + self.shown).min(self.last_first()))
+    }
+}
 /// The result's prompt: 30 above the bottom; its text 34 right of the prompt.
 pub const RESULT_GAP: f32 = 30.0;
 pub const RESULT_X: f32 = 34.0;
@@ -548,18 +579,88 @@ pub fn spawn_backdrop(commands: &mut Commands, under: Under) {
 #[derive(Component)]
 pub struct Blink;
 
+/// The characters a second the screen's text types out at, in reading order as the page draws
+/// its lines [hypothesis: the original types a page's text out as it comes up (#3327, the
+/// player's report and video); its rate is not measured, observer check 254; this is about a
+/// second for a menu page].
+pub const TYPE_RATE: f32 = 600.0;
+/// How far a typing line's clip reaches left of the line and past its end, canvas units: a
+/// glyph's ink may stand a little out of its advance [design].
+const TYPE_MARGIN: f32 = 4.0;
+
+/// A line of text that types out (#3327): its clip widens from nothing to the whole line,
+/// `chars` characters at [`TYPE_RATE`], from `start` seconds after its page came up.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Typed {
+    pub start: f32,
+    pub chars: f32,
+    pub width: f32,
+}
+
+impl Typed {
+    /// The clip's width `elapsed` seconds after the page came up.
+    pub fn shown(&self, elapsed: f32) -> f32 {
+        ((elapsed - self.start) * TYPE_RATE / self.chars.max(1.0)).clamp(0.0, 1.0) * self.width
+    }
+
+    /// Whether the line is typed out by `elapsed`.
+    pub fn done(&self, elapsed: f32) -> bool {
+        elapsed >= self.start + self.chars / TYPE_RATE
+    }
+}
+
+thread_local! {
+    /// While [`spawn`] draws a page: the seconds since the page came up and the characters
+    /// drawn before the line being drawn (the lines type out one after another).
+    static TYPING: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((f32::INFINITY, 0.0)) };
+}
+
+/// The [`Typed`] of the next line of `chars` characters `width` wide, in the order drawn.
+fn next_typed(chars: usize, width: f32) -> (Typed, f32) {
+    TYPING.with(|t| {
+        let (elapsed, before) = t.get();
+        t.set((elapsed, before + chars as f32));
+        (Typed { start: before / TYPE_RATE, chars: chars as f32, width: width + 2.0 * TYPE_MARGIN }, elapsed)
+    })
+}
+
+/// Draw a line that types out: `draw` puts it at `x` within a clip that starts
+/// [`TYPE_MARGIN`] left of it (its own left edge), as wide as [`Typed::shown`] says.
+fn typed_line(p: &mut ChildSpawnerCommands, line: &Line, x: f32, draw: impl FnOnce(&mut ChildSpawnerCommands, f32)) {
+    typed_span(p, line.glyphs.len(), line.width, x, draw);
+}
+
+/// [`typed_line`] for `chars` characters over `width` (what is drawn may be wider than the
+/// text, as the chosen row's box).
+fn typed_span(p: &mut ChildSpawnerCommands, chars: usize, width: f32, x: f32, draw: impl FnOnce(&mut ChildSpawnerCommands, f32)) {
+    let (typed, elapsed) = next_typed(chars, width);
+    let clip = Node { overflow: Overflow::clip(), ..at(x - TYPE_MARGIN, 0.0, typed.shown(elapsed), CANVAS.y) };
+    p.spawn((clip, typed)).with_children(|c| draw(c, TYPE_MARGIN));
+}
+
+/// [`set_line`], typing out ([`typed_line`]).
+fn typed_set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color) {
+    typed_line(p, line, x, |c, x| set_line(c, face, line, x, base, color));
+}
+
 /// One line of text from its top.
 fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, color: Color) -> f32 {
     let Some(line) = face.font.lines(s, None).into_iter().next() else { return 0.0 };
-    set_line(p, face, &line, x, top + BASE, color);
+    typed_set_line(p, face, &line, x, top + BASE, color);
     line.width
 }
 
 /// A line of text whose characters have colours of their own, by the column each stands
 /// in (every character of font 5 is [`CHAR`] wide): the lit cells of the dump.
+/// The addresses, puzzle words and filler are ASCII (`fnv_game::hacking`).
 /// `is_lit` explicitly selects the dark colour, `lit`'s picture (the same layout as
 /// `face`'s), and the ordering above fills.
 fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Line, x: f32, top: f32, is_lit: impl Fn(usize) -> bool) {
+    typed_line(p, line, x, |p, x| text_colored_now(p, face, lit, line, x, top, is_lit));
+}
+
+/// [`text_colored`]'s line, drawn at once.
+fn text_colored_now(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Line, x: f32, top: f32, is_lit: impl Fn(usize) -> bool) {
     let base = top + BASE;
     let bright = bright();
     let Some((image, size)) = &face.image else {
@@ -598,10 +699,14 @@ fn centred(p: &mut ChildSpawnerCommands, face: &Face, s: &str, width: f32, top: 
 }
 
 /// Draw the screen into the picture `camera` renders; returns the menu's rows on the
-/// canvas, for the pointer.
+/// canvas, for the pointer, and an open note's window ([`Drawn`]).
 /// `read`: the entries drawn dimmer (the Grey Read Notes tweak on).
-pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool, read: Option<&super::ReadEntries>) -> Vec<(usize, Rect)> {
-    let mut rows = Vec::new();
+/// `typed_for`: the seconds since the page came up, how far its text has typed out
+/// ([`Typed`]).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, game: &fnv_game::Game, cursor_on: bool, read: Option<&super::ReadEntries>, typed_for: f32) -> Drawn {
+    TYPING.with(|t| t.set((typed_for, 0.0)));
+    let mut rows = Drawn::default();
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
         // [design] Keep the texture/vignette, accounting for its contribution in the
@@ -703,8 +808,67 @@ pub fn note_text(n: Option<&NoteDef>) -> String {
     }
 }
 
+/// Menu choices and the result prompt have a single row. Keep long CJK text within it.
+fn fit_cjk_line<'a>(font: &Font, text: &'a str, room: f32) -> std::borrow::Cow<'a, str> {
+    if crate::cjk_font::enabled() && text.chars().any(fnv_font::is_cjk) {
+        crate::pause::fit_text(|s| font.width(s), text, room).into()
+    } else {
+        text.into()
+    }
+}
+
+/// Set a terminal welcome or note text in wrapped lines at [`WELCOME_WRAP`].
+///
+/// Each `\n`-separated paragraph produces at least one line (an empty or whitespace-only
+/// paragraph produces one empty [`Line`] from [`Font::lines`], counting as one row — #3478
+/// [hypothesis: original-game screenshots in #3478 show roughly half NVForever's previous
+/// double-counted gap; observer check pending]).
+pub(crate) fn wrapped_lines(font: &Font, text: &str) -> Vec<Line> {
+    font.lines(&text.replace('\r', ""), Some(WELCOME_WRAP))
+}
+
+/// Vertical placement of the terminal menu's welcome block and separator on the canvas.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct WelcomeLayout {
+    pub top: f32,
+    pub rows: usize,
+    pub widest: f32,
+    pub separator_y: f32,
+    pub body_y: f32,
+}
+
+/// Lay out the welcome text under the three-line terminal header.
+pub(crate) fn welcome_layout(font: &Font, welcome: &str) -> (Vec<Line>, WelcomeLayout) {
+    let top = MENU_HEADER_Y + 3.0 * LINE + 20.0;
+    let lines = wrapped_lines(font, welcome);
+    let widest = lines.iter().fold(0.0f32, |w, l| w.max(l.width));
+    let rows = lines.len();
+    // [documented] The separator 10 under the welcome text, as long as it is wide.
+    let separator_y = top + rows as f32 * LINE + 10.0;
+    let body_y = separator_y + 12.0;
+    (lines, WelcomeLayout { top, rows, widest, separator_y, body_y })
+}
+
+/// How many note lines fit below `body_y` above the result line, capped at [`NOTE_LINES`].
+pub(crate) fn note_page_room(body_y: f32) -> usize {
+    // [documented] At most 16 lines at a time; here no more than stand above the
+    // result line [design], from the line scrolled to.
+    let room = (((CANVAS.y - LINE - RESULT_GAP) - (body_y + 10.0)) / LINE).floor().max(1.0) as usize;
+    NOTE_LINES.min(room)
+}
+
+/// Lay out a terminal note below `body_y` and compute its visible [`NoteWindow`].
+pub(crate) fn note_layout(font: &Font, note: FormId, text: &str, scroll: usize, body_y: f32) -> (Vec<Line>, NoteWindow) {
+    let lines = wrapped_lines(font, text);
+    let page = note_page_room(body_y);
+    let first = scroll.min(lines.len().saturating_sub(page));
+    let window = NoteWindow { note, first, shown: page.min(lines.len()), total: lines.len() };
+    (lines, window)
+}
+
 #[allow(clippy::too_many_arguments)]
-fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, rows: &mut Vec<(usize, Rect)>, read: Option<&super::ReadEntries>) {
+fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, game: &fnv_game::Game, cursor_on: bool, drawn: &mut Drawn, read: Option<&super::ReadEntries>) {
+    let rows = &mut drawn.rows;
     let bright = bright();
     let data = game.data;
     let Some(t) = data.terminals.get(&m.terminal) else { return };
@@ -713,44 +877,27 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
         centred(c, face, line, CANVAS.x, y, bright);
         y += LINE;
     }
-    y += 20.0;
     // The welcome text (the top terminal's, or the sub menu's own when it has one).
     // Its player string codes expanded (`fnv_game::text_codes`; the top's is already).
     let own = game.expand_codes(&t.welcome);
     let welcome = if t.welcome.trim().is_empty() { &m.welcome } else { &own };
-    let mut widest: f32 = 0.0;
-    for para in welcome.replace('\r', "").split('\n') {
-        for line in face.font.lines(para, Some(WELCOME_WRAP)) {
-            widest = widest.max(line.width);
-            set_line(c, face, &line, MENU_X, y + BASE, bright);
-            y += LINE;
-        }
-        if para.trim().is_empty() {
-            y += LINE;
+    let (welcome_lines, layout) = welcome_layout(&face.font, welcome);
+    for (i, line) in welcome_lines.iter().enumerate() {
+        if !line.glyphs.is_empty() {
+            typed_set_line(c, face, line, MENU_X, layout.top + i as f32 * LINE + BASE, bright);
         }
     }
     // [documented] The separator 10 under the welcome text, as long as it is wide.
-    y += 10.0;
-    c.spawn((at(MENU_X, y, widest.max(1.0), 2.0), BackgroundColor(bright), OVER_LINES));
-    y += 12.0;
+    c.spawn((at(MENU_X, layout.separator_y, layout.widest.max(1.0), 2.0), BackgroundColor(bright), OVER_LINES));
+    let y = layout.body_y;
     match m.note {
         Some(n) => {
             let text = game.expand_codes(&note_text(data.notes.get(&n)));
-            let mut lines = Vec::new();
-            for para in text.split('\n') {
-                let l = face.font.lines(para, Some(WELCOME_WRAP));
-                if l.is_empty() {
-                    lines.push(None);
-                }
-                lines.extend(l.into_iter().map(Some));
-            }
-            // [documented] At most 16 lines at a time; here no more than stand above the
-            // result line [design], from the line scrolled to.
-            let room = (((CANVAS.y - LINE - RESULT_GAP) - (y + 10.0)) / LINE).floor().max(1.0) as usize;
-            let first = m.scroll.min(lines.len().saturating_sub(room.min(NOTE_LINES)));
-            for (i, line) in lines.into_iter().skip(first).take(NOTE_LINES.min(room)).enumerate() {
-                if let Some(line) = line {
-                    set_line(c, face, &line, MENU_X, y + 10.0 + i as f32 * LINE + BASE, bright);
+            let (lines, window) = note_layout(&face.font, n, &text, m.scroll, y);
+            drawn.note = Some(window);
+            for (i, line) in lines.into_iter().skip(window.first).take(window.shown).enumerate() {
+                if !line.glyphs.is_empty() {
+                    typed_set_line(c, face, &line, MENU_X, y + 10.0 + i as f32 * LINE + BASE, bright);
                 }
             }
         }
@@ -762,12 +909,16 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
                 rows.push((row, Rect::new(MENU_X, top, MENU_X + LIST_WIDTH, top + LIST_ROW)));
                 c.spawn(at(MENU_X, top, LIST_WIDTH, LIST_ROW)).with_children(|b| {
                     let s = format!("> {label}");
+                    let s = fit_cjk_line(&face.font, &s, LIST_WIDTH - CHAR);
                     let w = face.font.width(&s);
                     if lit {
-                        // [documented] A filled box (224 of 255) behind the chosen row.
-                        b.spawn((at(0.0, 2.0, w + CHAR, LIST_ROW - 4.0), BackgroundColor(bright.with_alpha(224.0 / 255.0)), OVER_LINES));
+                        // [documented] A filled box (224 of 255) behind the chosen row; it types
+                        // out with its text [design].
                         if let Some(line) = face.font.lines(&s, None).into_iter().next() {
-                            set_marked(b, lit_face, &line, 0.0, (LIST_ROW - LINE) / 2.0 + BASE, lit_text(), ON_FILLS);
+                            typed_span(b, line.glyphs.len(), w + CHAR, 0.0, |b, x| {
+                                b.spawn((at(x, 2.0, w + CHAR, LIST_ROW - 4.0), BackgroundColor(bright.with_alpha(224.0 / 255.0)), OVER_LINES));
+                                set_marked(b, lit_face, &line, x, (LIST_ROW - LINE) / 2.0 + BASE, lit_text(), ON_FILLS);
+                            });
                         }
                     } else {
                         let was_read = read.zip(m.items.get(row)).is_some_and(|(r, &item)| r.has(m.terminal, item));
@@ -780,7 +931,9 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
     // The result line at the bottom: the prompt, the last result, the cursor.
     let top = CANVAS.y - LINE - RESULT_GAP;
     text(c, face, ">", MENU_X, top, bright);
-    let w = text(c, face, &m.result, MENU_X + RESULT_X, top, bright);
+    let result_room = CANVAS.x - 2.0 * MENU_X - RESULT_X - CHAR - BLOCK;
+    let result = fit_cjk_line(&face.font, &m.result, result_room);
+    let w = text(c, face, &result, MENU_X + RESULT_X, top, bright);
     let x = MENU_X + RESULT_X + if m.result.is_empty() { 0.0 } else { w + CHAR };
     c.spawn((Blink, at(x, top + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), OVER_LINES, if cursor_on { Visibility::Inherited } else { Visibility::Hidden }));
 }
@@ -794,6 +947,44 @@ pub fn lit(p: &Puzzle, cursor: usize, index: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #3327: a page's lines type out one after another in the order drawn, each widening
+    /// to its whole width; a page drawn again (the selection moved) types on from where it was.
+    #[test]
+    fn lines_type_out_one_after_another() {
+        TYPING.with(|t| t.set((0.5, 0.0)));
+        let (a, elapsed) = next_typed(300, 600.0);
+        let (b, _) = next_typed(60, 120.0);
+        assert_eq!(elapsed, 0.5);
+        assert_eq!((a.start, b.start), (0.0, 300.0 / TYPE_RATE));
+        assert_eq!(a.shown(0.0), 0.0);
+        assert!((a.shown(150.0 / TYPE_RATE) - a.width / 2.0).abs() < 1e-3, "half the line by half its time");
+        assert_eq!(a.shown(1.0), a.width);
+        assert!(a.done(300.0 / TYPE_RATE) && !b.done(300.0 / TYPE_RATE));
+        assert_eq!(b.shown(300.0 / TYPE_RATE), 0.0, "the next line waits for the one before");
+        assert_eq!(b.width, 120.0 + 2.0 * TYPE_MARGIN);
+        // A page drawn again later starts counting from its first line again.
+        TYPING.with(|t| t.set((9.0, 0.0)));
+        assert_eq!(next_typed(300, 600.0), (a, 9.0));
+    }
+
+    #[test]
+    fn cjk_terminal_labels_fit_on_one_row() {
+        let mut font = plain_font(25.0, 10.0);
+        let glyph = fnv_font::Glyph {
+            width: 18.0,
+            ..default()
+        };
+        for c in "甲乙丙丁".chars() {
+            font.extra.insert(c, glyph);
+        }
+        assert_eq!(fit_cjk_line(&font, "甲乙丙丁甲", 66.0), "甲乙丙丁甲");
+        crate::cjk_font::with_enabled_for_test(|| {
+            assert_eq!(fit_cjk_line(&font, "甲乙", 66.0), "甲乙");
+            assert_eq!(fit_cjk_line(&font, "甲乙丙丁甲", 66.0), "甲乙...");
+            assert_eq!(fit_cjk_line(&font, "abcdefghi", 66.0), "abcdefghi");
+        });
+    }
 
     #[test]
     fn composed_layers_match_the_measured_screen_in_both_modes() {
@@ -1088,5 +1279,249 @@ mod tests {
         assert_eq!(shown.len(), 15);
         assert_eq!(shown.last().map(String::as_str), Some(">19"));
         assert_eq!(shown_log(&log[..3]).len(), 3);
+    }
+
+    #[test]
+    fn soft_faces_loads_tex_only_font_without_dds() {
+        use crate::interface::font_tex_tests::{synthetic_fnt, synthetic_tex, OwnedFontFiles};
+        let files = OwnedFontFiles::new(&[
+            ("term_tex.fnt", synthetic_fnt("Term_Tex_Only")),
+            ("Term_Tex_Only.Tex", synthetic_tex(32, 64, [255, 255, 255, 220])),
+        ]);
+        let data = files.data();
+        let mut images = Assets::<Image>::default();
+        let (text, lit) = soft_faces("textures\\fonts\\term_tex.fnt", &data, &mut images)
+            .expect("terminal soft_faces should load .tex-only font without .dds");
+        assert!(text.image.is_some() && lit.image.is_some());
+    }
+
+    #[test]
+    fn welcome_blank_lines_count_as_one_row_each() {
+        let font = plain_font(LINE, CHAR);
+        let (_, base) = welcome_layout(&font, "Welcome");
+        assert_eq!(base.rows, 1);
+        assert_eq!(base.separator_y, base.top + LINE + 10.0);
+        assert_eq!(base.body_y, base.separator_y + 12.0);
+        assert_eq!(base.widest, 7.0 * CHAR);
+
+        // N trailing blank lines (both LF and CRLF) leave N rows between the welcome text
+        // and the separator (#3478), without changing widest.
+        for (text, expected_rows) in [
+            ("Welcome\n", 2),
+            ("Welcome\r\n", 2),
+            ("Welcome\n\n", 3),
+            ("Welcome\r\n\r\n", 3),
+            ("Welcome\n\n\n\n", 5),
+            ("Welcome\r\n\r\n\r\n\r\n", 5),
+            ("\nWelcome", 2),
+            ("\r\n\r\nWelcome", 3),
+        ] {
+            let (_, layout) = welcome_layout(&font, text);
+            assert_eq!(layout.rows, expected_rows, "{text:?}");
+            assert_eq!(layout.separator_y - base.separator_y, (expected_rows - 1) as f32 * LINE, "{text:?}");
+            assert_eq!(layout.widest, base.widest, "{text:?}");
+        }
+
+        // Consecutive interior blank lines and whitespace-only lines each take one row.
+        for (text, expected_rows) in [
+            ("Line 1\n\n\nLine 2", 4),
+            ("Line 1\r\n\r\n\r\nLine 2", 4),
+            ("Line 1\n   \nLine 2", 3),
+            ("Line 1\r\n   \r\nLine 2", 3),
+            ("Line 1\n\t\nLine 2", 3),
+        ] {
+            let (_, layout) = welcome_layout(&font, text);
+            assert_eq!(layout.rows, expected_rows, "{text:?}");
+        }
+
+        // Wrapped paragraphs followed by blank lines keep their wrapped row count plus one
+        // row per blank line. At CHAR = 17 and WELCOME_WRAP = 600, 35 chars fit on one line.
+        let long = "alpha beta gamma delta epsilon zeta eta theta";
+        assert_eq!(wrapped_lines(&font, long).len(), 2);
+        let (_, wrapped_interior) = welcome_layout(&font, &format!("{long}\n\nNext"));
+        assert_eq!(wrapped_interior.rows, 4);
+        let (_, wrapped_trailing) = welcome_layout(&font, &format!("{long}\r\n\r\n\r\n"));
+        assert_eq!(wrapped_trailing.rows, 5);
+
+        // An empty welcome text occupies one row (not two) and widest stays 0.
+        let (_, empty) = welcome_layout(&font, "");
+        assert_eq!(empty.rows, 1);
+        assert_eq!(empty.widest, 0.0);
+    }
+
+    #[test]
+    fn note_pagination_and_blank_lines_match_welcome_row_budget() {
+        let font = plain_font(LINE, CHAR);
+        let note_id = FormId(0x0000_1234);
+
+        // CRLF and LF note bodies with consecutive, leading, trailing, and wrapped blank lines
+        // produce identical row counts (one row per blank line).
+        let long = "alpha beta gamma delta epsilon zeta eta theta";
+        let note_lf = format!("Title\n=====\n\n{long}\n\n\nTail\n");
+        let note_crlf = note_lf.replace('\n', "\r\n");
+        let lines_lf = wrapped_lines(&font, &note_lf);
+        let lines_crlf = wrapped_lines(&font, &note_crlf);
+        // Title (1) + ===== (1) + blank (1) + long (2) + 2 blanks (2) + Tail (1) + trailing blank (1) = 9
+        assert_eq!(lines_lf.len(), 9);
+        assert_eq!(lines_lf, lines_crlf);
+
+        // With a 2-line welcome and 0 trailing blank lines, room hits the 16-line cap.
+        let (_, no_blanks) = welcome_layout(&font, "Welcome line 1\nWelcome line 2");
+        assert_eq!(no_blanks.rows, 2);
+        assert_eq!(note_page_room(no_blanks.body_y), NOTE_LINES);
+
+        // With 4 trailing blank lines after a 2-line welcome, the welcome occupies 6 rows
+        // instead of 10, leaving 13 note rows on page one instead of 9 (#3478).
+        let (_, four_blanks) = welcome_layout(&font, "Welcome line 1\r\nWelcome line 2\r\n\r\n\r\n\r\n");
+        assert_eq!(four_blanks.rows, 6);
+        assert_eq!(note_page_room(four_blanks.body_y), 13);
+
+        let long_note = (1..=30).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+        let (_, page1) = note_layout(&font, note_id, &long_note, 0, four_blanks.body_y);
+        assert_eq!(page1, NoteWindow { note: note_id, first: 0, shown: 13, total: 30 });
+        assert_eq!(page1.next_page(), Some(13));
+        let (_, page2) = note_layout(&font, note_id, &long_note, 13, four_blanks.body_y);
+        assert_eq!(page2, NoteWindow { note: note_id, first: 13, shown: 13, total: 30 });
+        assert_eq!(page2.next_page(), Some(17));
+        let (_, page3) = note_layout(&font, note_id, &long_note, 17, four_blanks.body_y);
+        assert_eq!(page3, NoteWindow { note: note_id, first: 17, shown: 13, total: 30 });
+        assert_eq!(page3.next_page(), None);
+    }
+
+    #[test]
+    fn spawn_menu_page_counts_welcome_blank_lines_once_for_notes_and_rows() {
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(6 + data.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body: Vec<u8> = subs.iter().flat_map(|s| s.iter().copied()).collect();
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&[0u8; 8]);
+            out.extend_from_slice(&body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(b"GRUP");
+            out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&[0u8; 12]);
+            out.extend_from_slice(body);
+            out
+        }
+
+        let term_id = FormId(0x0000_0D70);
+        let note_id = FormId(0x0000_0D71);
+        let welcome_desc = "Welcome line 1\r\nWelcome line 2\r\n\r\n\r\n\r\n";
+        let note_body = (1..=20).map(|i| if i % 5 == 0 { String::new() } else { format!("Note row {i}") }).collect::<Vec<_>>().join("\r\n");
+
+        let mut bytes = rec(b"TES4", 0, &[sub(b"HEDR", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0])]);
+        bytes.extend(top(
+            b"TERM",
+            &rec(
+                b"TERM",
+                term_id.0,
+                &[
+                    sub(b"EDID", b"BlankWelcomeTerm\0"),
+                    sub(b"FULL", b"Test Terminal\0"),
+                    sub(b"DESC", [welcome_desc.as_bytes(), &[0]].concat().as_slice()),
+                    sub(b"DNAM", &[0, 2, 8, 0]),
+                ],
+            ),
+        ));
+        bytes.extend(top(
+            b"NOTE",
+            &rec(
+                b"NOTE",
+                note_id.0,
+                &[
+                    sub(b"EDID", b"LongTerminalNote\0"),
+                    sub(b"FULL", b"Long Note\0"),
+                    sub(b"DATA", &[1]),
+                    sub(b"TNAM", [note_body.as_bytes(), &[0]].concat().as_slice()),
+                ],
+            ),
+        ));
+
+        let plugins = vec![fnv_esm::Plugin::parse(&bytes, "TermLayout.esm".into()).unwrap()];
+        let lo = fnv_esm::LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = fnv_esm::Schema::load_dir(root.join("fnv")).unwrap();
+        let functions = root.join("script/functions.json");
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
+        let forms = fnv_sim::FormStore::build(&lo, &schema);
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let data = fnv_game::GameData::build(&lo, &schema, fnv_script::FunctionTable::load(&functions).unwrap(), &json, &refs);
+        let game = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+
+        let font = plain_font(LINE, CHAR);
+        let faces = Faces {
+            text: Face { font: font.clone(), image: None, vector: None },
+            lit: Face { font: font.clone(), image: None, vector: None },
+            background: None,
+            scanlines: None,
+            scan_kept: 1.0,
+        };
+        let (_, expected_welcome) = welcome_layout(&font, welcome_desc);
+
+        // 1. Open note view: drawn.note gets the full 13 lines (not 9).
+        let mut world = World::new();
+        let camera = world.spawn_empty().id();
+        let note_session = Session {
+            reference: FormId(0x0000_0D72),
+            base: term_id,
+            page: Page::Menu(MenuView {
+                terminal: term_id,
+                parents: Vec::new(),
+                items: vec![0],
+                labels: vec!["Read Note".into()],
+                selected: 0,
+                hidden: false,
+                result: String::new(),
+                note: Some(note_id),
+                scroll: 0,
+                server: 8,
+                welcome: welcome_desc.into(),
+            }),
+        };
+        let drawn_note = {
+            let mut commands = world.commands();
+            spawn(&mut commands, camera, &faces, &note_session, &game, true, None, f32::INFINITY)
+        };
+        assert_eq!(drawn_note.note, Some(NoteWindow { note: note_id, first: 0, shown: 13, total: 20 }));
+
+        // 2. Menu list view: the first menu row starts directly at expected_welcome.body_y.
+        let list_session = Session {
+            reference: FormId(0x0000_0D72),
+            base: term_id,
+            page: Page::Menu(MenuView {
+                terminal: term_id,
+                parents: Vec::new(),
+                items: vec![0, 1],
+                labels: vec!["First Entry".into(), "Second Entry".into()],
+                selected: 0,
+                hidden: false,
+                result: String::new(),
+                note: None,
+                scroll: 0,
+                server: 8,
+                welcome: welcome_desc.into(),
+            }),
+        };
+        let drawn_list = {
+            let mut commands = world.commands();
+            spawn(&mut commands, camera, &faces, &list_session, &game, true, None, f32::INFINITY)
+        };
+        assert_eq!(drawn_list.rows.len(), 2);
+        assert_eq!(drawn_list.rows[0].1.min.y, expected_welcome.body_y);
+        assert_eq!(drawn_list.rows[1].1.min.y, expected_welcome.body_y + LIST_ROW);
     }
 }

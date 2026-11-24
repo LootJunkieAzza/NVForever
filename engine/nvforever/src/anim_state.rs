@@ -43,6 +43,7 @@ use bevy::prelude::*;
 use fnv_actor::weapon::Stage;
 use fnv_game::anim_state::{AnimAction, AnimState, MoveDir};
 use fnv_game::idles::IdleSource;
+use fnv_game::nvse_knvse::SequenceInfo;
 use fnv_sim::FormId;
 use nvf_play::combat::{Combat, WeaponAnim};
 use nvf_play::control::PlayerControl;
@@ -146,10 +147,32 @@ fn group(dir: MoveDir, fast: bool) -> &'static str {
     }
 }
 
+/// Strip a leading `meshes\` prefix and normalize slashes for kNVSE sequence paths.
+fn strip_meshes(path: &str) -> String {
+    let p = path.replace('/', "\\");
+    match p.get(..7) {
+        Some(head) if head.eq_ignore_ascii_case("meshes\\") => p[7..].to_string(),
+        _ => p,
+    }
+}
+
+fn sequence_info_of(clip: &nvf_assets::anim_play::Clip) -> SequenceInfo {
+    SequenceInfo {
+        name: clip.name.clone(),
+        accum_root: clip.accum_root.clone().unwrap_or_default(),
+        frequency: f64::from(clip.frequency),
+        begin: f64::from(clip.start),
+        end: f64::from(clip.stop),
+        cycle: clip.cycle_type,
+        text_keys: clip.text_keys.iter().map(|(t, s)| (f64::from(*t), s.clone())).collect(),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn tell(
     time: Res<Time>,
     mut script: Option<ResMut<ScriptState>>,
+    mut sim: Option<ResMut<nvf_play::sim::SimState>>,
     actors: Query<Body>,
     combat: Option<Res<Combat>>,
     weapon: Option<Res<WeaponAnim>>,
@@ -160,12 +183,14 @@ fn tell(
     mut stats: ResMut<AnimStats>,
     mut told: Local<HashSet<u32>>,
     mut throw_began: Local<Option<(f32, bool)>>,
+    mut told_info: Local<HashSet<String>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    let g = &mut rt.game;
     let dt = time.delta_secs().min(0.1);
     let clock = time.elapsed_secs();
     let mut now = HashSet::new();
+    let mut updates: Vec<(FormId, AnimState)> = Vec::new();
+    let mut new_info: Vec<(String, SequenceInfo)> = Vec::new();
     for (rig, vis, lo, hold, pose, idle, flinch, dying) in &actors {
         if rig.reference == FormId::PLAYER_REF.0 || !vis.get() || dying {
             continue;
@@ -200,11 +225,12 @@ fn tell(
         // The clip its body plays, without the `meshes\` its path starts with (kNVSE's
         // sequence paths are under meshes).
         let clip = lo.and_then(|l| l.set.clips.get(&l.blend.cur.mv)).map(|c| {
-            let p = c.path.replace('/', "\\");
-            match p.get(..7) {
-                Some(head) if head.eq_ignore_ascii_case("meshes\\") => p[7..].to_string(),
-                _ => p,
+            let rel = strip_meshes(&c.path);
+            let k = rel.to_ascii_lowercase();
+            if !k.is_empty() && told_info.insert(k) {
+                new_info.push((rel.clone(), sequence_info_of(&c.bound.clip)));
             }
+            rel
         });
         let st = AnimState { action, moving, group, iron_sights: false, throwing: false, mine: false, forced_hit, at: 0.0, clip };
         if !told.contains(&rig.reference) && stats.actors.contains(&rig.reference) {
@@ -214,7 +240,7 @@ fn tell(
             }
         }
         stats.note(rig.reference, &st);
-        g.set_anim_state(FormId(rig.reference), st);
+        updates.push((FormId(rig.reference), st));
         now.insert(rig.reference);
     }
     // The player.
@@ -241,16 +267,40 @@ fn tell(
     let throwing = clock - began < fnv_game::anim_state::THROW_ACTION_SECONDS;
     // IsPlayerActionActive 4 instead of 2 for a mine (a land mine or mine drop weapon).
     let mine = throwing && combat.as_deref().is_some_and(|c| c.player_weapon_is_mine());
-    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, throwing, mine, forced_hit: false, at: 0.0, clip: None };
+    let first_person = control.as_deref().is_none_or(|c| !c.third_person_view());
+    let player_clip = body.as_deref().and_then(|b| b.active_clip(first_person)).map(|(path, clip)| {
+        let rel = strip_meshes(path);
+        let k = rel.to_ascii_lowercase();
+        if !k.is_empty() && told_info.insert(k) {
+            new_info.push((rel.clone(), sequence_info_of(clip)));
+        }
+        rel
+    });
+    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, throwing, mine, forced_hit: false, at: 0.0, clip: player_clip };
     stats.note(FormId::PLAYER_REF.0, &st);
-    g.set_anim_state(FormId::PLAYER_REF, st);
-    // Actors no longer drawn are forgotten (they read as doing nothing).
-    for gone in told.difference(&now) {
-        g.forget_anim_state(FormId(*gone));
+    updates.push((FormId::PLAYER_REF, st));
+    let gone_list: Vec<u32> = told.difference(&now).copied().collect();
+    for &gone in &gone_list {
         stats.forgotten += 1;
         if stats.forgotten <= LOGGED_CHANGES {
             info!("anim state: {gone:08X} no longer told (not drawn, hidden or dying)");
         }
+    }
+    let apply = |g: &mut fnv_game::game::Game<'_>| {
+        for (path, info) in new_info {
+            g.set_sequence_info(&path, info);
+        }
+        for (actor, st) in updates {
+            g.set_anim_state(actor, st);
+        }
+        for gone in gone_list {
+            g.forget_anim_state(FormId(gone));
+        }
+    };
+    if let Some(sim) = sim.as_deref_mut() {
+        nvf_play::script::with_world(rt, sim, |rt| apply(&mut rt.game));
+    } else {
+        apply(&mut rt.game);
     }
     *told = now;
 }

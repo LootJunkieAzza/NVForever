@@ -379,9 +379,16 @@ fn level_up(
     };
     if !experience::level_up_due(&rt.game) {
         *since_sound = None;
-        // Earned, but held by SetInCharGen 1: say so once, it holds the menu for good.
-        let held = rt.game.player.in_chargen && experience::standing(&rt.game).due();
-        note_wait(&mut waiting, held.then(|| "the game is in character generation (SetInCharGen 1)".to_string()));
+        // Earned, but held by SetInCharGen 1 or ToggleLevelUpMenu 0: say so once.
+        let due = experience::standing(&rt.game).due();
+        let reason = if due && rt.game.player.in_chargen {
+            Some("the game is in character generation (SetInCharGen 1)".to_string())
+        } else if due && !rt.game.level_up_menu_enabled() {
+            Some("a script disabled the level-up menu (ToggleLevelUpMenu 0)".to_string())
+        } else {
+            None
+        };
+        note_wait(&mut waiting, reason);
         return;
     }
     if *state.get() != PlayState::Playing || !view.shown {

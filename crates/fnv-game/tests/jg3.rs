@@ -39,14 +39,17 @@ fn edid(sig: &[u8; 4], fid: u32, name: &str, rest: &[fnv_esm::raw::Subrecord]) -
 /// EFSH DATA: 308 bytes [documented: schemas/fnv/effects.json EFSH DATA, from xEdit]:
 /// flags 9 (No Membrane Shader, No Particle Shader), membrane source blend 5, fill alpha
 /// fade in 0.25 s, edge fall off 1.5, particle lifetime 3, scale key 2 time 0.75, fill
-/// colour (1, 2, 3), colour key 1 (4, 5, 6).
+/// colour (1, 2, 3), colour key 1 (4, 5, 6), colour key 2 (7, 8, 9), colour key 3
+/// (10, 11, 12), colour key 1 alpha 1.0.
 fn efsh_data() -> Vec<u8> {
     let mut d = vec![0u8; 308];
     d[0] = 9;
     d[4..8].copy_from_slice(&5u32.to_le_bytes());
     d[16..19].copy_from_slice(&[1, 2, 3]);
     d[188..191].copy_from_slice(&[4, 5, 6]);
-    for (at, v) in [(20, 0.25f32), (52, 1.5), (132, 3.0), (184, 0.75)] {
+    d[192..195].copy_from_slice(&[7, 8, 9]);
+    d[196..199].copy_from_slice(&[10, 11, 12]);
+    for (at, v) in [(20, 0.25f32), (52, 1.5), (132, 3.0), (184, 0.75), (200, 1.0)] {
         d[at..at + 4].copy_from_slice(&v.to_le_bytes());
     }
     d
@@ -170,11 +173,15 @@ fn effect_shader_traits_and_textures() {
     for (t, want) in [(0, 9.0), (1, 5.0), (5, 0.25), (13, 1.5), (33, 3.0), (46, 0.75), (2, 0.0)] {
         assert_eq!(n(&mut g, &format!("GetEffectShaderTraitNumeric TestShader {t}")), want, "trait {t}");
     }
-    // The colours as one number (red × 65536 + green × 256 + blue); 47 is colour key 1;
-    // past it 0 [observed: jg3].
+    // The colours as one number (red × 65536 + green × 256 + blue); 47-49 are colour
+    // keys 1-3 and 50 is colour key 1 alpha [observed: jg3; Wave 4
+    // jg_03_efsh_trait_beyond_47 confirmed traits 47, 48, 50 and -1].
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 66051.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 14"), 0.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 47"), 263430.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 48"), 460809.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 49"), 658188.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 50"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader -1"), 0.0);
     // The setter returns 1 and takes every trait the getter reads, past 42 too.
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 13 2.5"), 1.0);
@@ -183,7 +190,11 @@ fn effect_shader_traits_and_textures() {
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 46"), 9.0);
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 4 255"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 255.0);
-    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 48 1"), 0.0);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 48 65536"), 1.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 48"), 65536.0);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 50 0.5"), 1.0);
+    assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 50"), 0.5);
+    assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 51 1"), 0.0);
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 1 7.9"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 1"), 7.0, "an enum keeps a whole number");
     // Textures: 0 fill (ICON), 1 particle (ICO2, none here), 2 holes (NAM7).
@@ -248,35 +259,72 @@ fn casino_chip_and_winnings() {
 }
 
 #[test]
-fn casino_level_source_reaches_the_table_ban_and_saved_standing_without_changing_earnings() {
+fn casino_level_source_noop_on_untouched_and_writes_quarter_earnings_on_tracked_casino() {
     use fnv_game::casino::{opening, Closed};
-    let f = fixture(); let mut g = game(&f);
+    let f = fixture();
+    let mut g = game(&f);
     g.player.casino_levels.insert(FormId(0xABC), 2);
-    for level in 0..=4 {
+
+    // Untouched casino: SetCasinoWinningsLevel 1..=4 is a no-op (leaves earnings and level
+    // absent/0, matching the 2026-11-22 live probe on Atomic Wrangler, #3474).
+    for level in 1..=4 {
         q(&mut g, &format!("SetCasinoWinningsLevel TestCasino {level}"));
-        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), f64::from(level));
-        assert_eq!(opening(&g, FormId(CSNO), 10, 1000), if level == 4 { Err(Closed::Banned) } else { Ok(()) });
+        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), 0.0);
+        assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), 0.0);
         assert_eq!(g.player.casino_earnings.get(&FormId(CSNO)), None);
+        assert_eq!(g.player.casino_levels.get(&FormId(CSNO)), None);
+        assert_eq!(opening(&g, FormId(CSNO), 10, 1000), Ok(()));
         assert_eq!(g.player.casino_levels[&FormId(0xABC)], 2);
     }
+
+    // Tracked casino (max_winnings = 1000): SetCasinoWinningsLevel writes net earnings
+    // `level * max_winnings / 4` and updates saved standing (#3474).
+    q(&mut g, "SetCasinoWinnings TestCasino 1000");
+    assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), 1000.0);
+    assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), 4.0);
+    for (level, want_earnings) in [(2, 500i64), (4, 1000), (1, 250), (3, 750), (0, 0), (4, 1000)] {
+        q(&mut g, &format!("SetCasinoWinningsLevel TestCasino {level}"));
+        assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), f64::from(level));
+        assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), want_earnings as f64);
+        assert_eq!(g.player.casino_earnings[&FormId(CSNO)], want_earnings);
+        assert_eq!(g.player.casino_levels[&FormId(CSNO)], level);
+        assert_eq!(opening(&g, FormId(CSNO), 10, 1000), if level == 4 { Err(Closed::Banned) } else { Ok(()) });
+        assert_eq!(g.player.casino_levels[&FormId(0xABC)], 2);
+    }
+
     let saved = g.checked_snapshot().unwrap();
     let world = World::restore(&f.forms, &f.refs, &saved.sim).unwrap();
     let mut back = Game::restore(&f.data, world, g.cfg, &saved).unwrap();
     assert_eq!(n(&mut back, "GetCasinoWinningsLevel TestCasino"), 4.0);
+    assert_eq!(n(&mut back, "GetCasinoWinnings TestCasino"), 1000.0);
+    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Err(Closed::Banned));
+
+    // Under bNoCasinoBans, SetCasinoWinningsLevel 4 still writes max earnings (1000) and raw
+    // level 4 while GetCasinoWinningsLevel reports 3 and table opening remains allowed.
+    back.tweaks.no_casino_bans = true;
+    q(&mut back, "SetCasinoWinningsLevel TestCasino 2");
+    assert_eq!(n(&mut back, "GetCasinoWinnings TestCasino"), 500.0);
+    assert_eq!(n(&mut back, "GetCasinoWinningsLevel TestCasino"), 2.0);
+    q(&mut back, "SetCasinoWinningsLevel TestCasino 4");
+    assert_eq!(n(&mut back, "GetCasinoWinnings TestCasino"), 1000.0);
+    assert_eq!(back.player.casino_levels[&FormId(CSNO)], 4);
+    assert_eq!(n(&mut back, "GetCasinoWinningsLevel TestCasino"), 3.0);
+    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Ok(()));
+
+    // With bNoCasinoBans off, lowering the level lowers net earnings too and lifts the ban.
+    back.tweaks.no_casino_bans = false;
     assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Err(Closed::Banned));
     q(&mut back, "SetCasinoWinningsLevel TestCasino 1");
-    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Ok(()));
-    fnv_game::casino::add_earnings(&mut back, FormId(CSNO), 1000, 1000);
-    q(&mut back, "SetCasinoWinningsLevel TestCasino 0");
-    assert_eq!(back.player.casino_earnings[&FormId(CSNO)], 1000);
-    assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Err(Closed::Banned), "earnings ban remains");
-    back.tweaks.no_casino_bans = true;
+    assert_eq!(back.player.casino_earnings[&FormId(CSNO)], 250);
+    assert_eq!(back.player.casino_levels[&FormId(CSNO)], 1);
     assert_eq!(opening(&back, FormId(CSNO), 10, 1000), Ok(()));
 }
 
 #[test]
 fn casino_level_source_rejects_invalid_forms_and_levels_without_mutating_standing() {
-    let f = fixture(); let mut g = game(&f);
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetCasinoWinnings TestCasino 500");
     q(&mut g, "SetCasinoWinningsLevel TestCasino 2");
     for args in ["TestNote 4", "0 4", "TestCasino -1", "TestCasino 5", "TestCasino 1.5", "TestCasino (Pow10 400)", "TestCasino"] {
         let before = g.checked_snapshot().unwrap();
@@ -325,12 +373,15 @@ fn no_casino_bans_source_and_actual_dialogue_condition_follow_the_table_opening_
 fn no_casino_bans_preserves_reward_stages_and_existing_missing_entry_behavior() {
     let f = fixture();
     let mut g = game(&f);
+    // Seed TestCasino so it is tracked before stepping through reward stages 0..=3 (#3474).
+    q(&mut g, "SetCasinoWinnings TestCasino 0");
     for enabled in [false, true] {
         g.tweaks.no_casino_bans = enabled;
         for stage in 0..=3 {
             q(&mut g, &format!("SetCasinoWinningsLevel TestCasino {stage}"));
             assert_eq!(n(&mut g, "GetCasinoWinningsLevel TestCasino"), f64::from(stage));
             assert_eq!(n(&mut g, "GetCasinoWinningStage TestCasino"), f64::from(stage));
+            assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), f64::from(stage * 250));
             assert_eq!(g.player.casino_levels[&FormId(CSNO)], stage);
         }
         let before = g.player.casino_levels.clone();
@@ -349,7 +400,7 @@ fn no_casino_bans_changes_real_source_reward_and_ban_branch_outputs_without_vers
         q(&mut g, "if (GetCasinoWinningsLevel TestCasino) == 4\nPlayerREF.AddItem TestChip 1\nelseif (GetCasinoWinningsLevel TestCasino) == 3\nPlayerREF.AddItem TestChip2 1\nendif");
         assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), if enabled { 0 } else { 1 });
         assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP2)).unwrap(), if enabled { 1 } else { 0 });
-        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
         assert_eq!(g.player.casino_earnings[&FormId(CSNO)], 1000);
     }
 }
@@ -436,7 +487,7 @@ fn casino_menu_close_events_fire_on_documented_menu_codes_1080_1081_1082() {
     g.open_menu(fnv_game::caravan::MENU_CODE);
     assert_eq!(g.close_menu(), Some(fnv_game::caravan::MENU_CODE));
     assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), 1080 + 1081 + 1082);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
 }
 
 #[test]

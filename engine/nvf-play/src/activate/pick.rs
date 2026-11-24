@@ -5,9 +5,12 @@
 //! target is the activatable reference nearest along the view within [`REACH`] of the eye.
 //! Candidates are the reference whose collision the ray hits first, and references whose
 //! render bounds (a mesh's box in its own space, i.e. an oriented box in the world) the
-//! ray enters before the first collision hit of any kind (walls, floors and tables hide
-//! what is behind them). Many small items have no collision, so the bounds are what make
-//! them pickable. A box the eye is inside does not count.
+//! ray enters before the first collision hit of any kind, or within [`SURFACE_SLACK`]
+//! behind it (walls, floors and tables hide what is behind them; an item resting on one
+//! does not sink out of reach). Many small items have no collision, so the bounds are what
+//! make them pickable. A box the eye is inside does not count, nor one that encloses
+//! another candidate's along the ray (a bed's around the suitcase lying on it,
+//! [`set_aside_enclosing`]).
 
 use bevy::math::{Affine3A, Vec3};
 
@@ -32,6 +35,18 @@ pub struct RayHit {
 /// (0x00130CFF), so the door was never targeted (#1339) [observed 2026-11-01; design:
 /// the reach].
 pub const DOOR_SLACK: f32 = 16.0;
+
+/// How far behind the ray's first collision hit a reference's render box may be entered
+/// and still be a candidate, game units. A collision surface lies a little above its
+/// triangles (the shape's shell, its convex radius), so a small item resting on it can
+/// have its whole box under the surface the ray stops at: Goodsprings Home's safe key
+/// (VZKeyDirtyGSHome2SafeKey 0x001767AB, box 0.78 units thick, its top at z 2314.39) lies
+/// on the bottom board of a broken shelf (0x0010B1E7) whose surface the ray meets at
+/// z 2314.6, the board's 0.7-unit shell, and it was never the target (#3333) [observed:
+/// FalloutNV.esm and the meshes, `fnvtool phys cell --ray`, the key on screen under the
+/// crosshair]. Walls are far thicker than this, so what is behind them stays hidden
+/// [design]. The first hit is still nearer, so it wins whenever it can be activated.
+pub const SURFACE_SLACK: f32 = 2.0;
 
 /// The collision hit the target is chosen from: the first hit, or a door found within
 /// [`DOOR_SLACK`] behind it when the first hit is not something the player can
@@ -61,7 +76,8 @@ pub struct Pick {
 }
 
 /// Choose the target from the collision hit and the render-bounds hits (reference,
-/// entry distance). `accept` says whether a reference can be activated now (present in
+/// entry distance; boxes entered beyond the collision hit by more than [`SURFACE_SLACK`]
+/// are hidden by it). `accept` says whether a reference can be activated now (present in
 /// the simulation, of an activatable type); it is asked only for candidates that would
 /// win. Ties go to the collision hit.
 pub fn choose(
@@ -70,7 +86,7 @@ pub fn choose(
     reach: f32,
     mut accept: impl FnMut(u32) -> bool,
 ) -> Option<Pick> {
-    let limit = hit.map_or(reach, |h| h.distance.min(reach));
+    let limit = hit.map_or(reach, |h| (h.distance + SURFACE_SLACK).min(reach));
     let mut best = hit
         .and_then(|h| Some((h.form_id?, h.distance)))
         .filter(|&(id, d)| d <= reach && accept(id))
@@ -107,6 +123,49 @@ pub fn choose_precise_first(
         return precise;
     }
     choose(hit, all.iter().map(|b| (b.0, b.1)), reach, accept)
+}
+
+/// Render boxes (reference, entry, exit, rough) without those of a bed (`bed`: furniture
+/// to sleep on) when one of its boxes holds, along the ray, the whole stretch through
+/// another reference's precise box (not an actor's rough one, [`choose_precise_first`])
+/// that is itself a candidate (entered before `hit`, the first collision hit as the ray
+/// met it, or within [`SURFACE_SLACK`] behind it, as [`choose`] takes it; within `reach`) and can be activated (`accept`): every box of that bed is set
+/// aside (a bed drawn as several meshes yields whole), the thing lying in it stays
+/// [design, #3323]. A bed's box runs from the floor to the top of its headboard and
+/// encloses what lies on the mattress, so the ray enters it before a suitcase lying there
+/// and the bed, nearest, won though the suitcase was what the crosshair was on. Full
+/// containment decides only this setting aside; everything else is [`choose`]'s nearest
+/// rule. Only a bed yields: a chair, or an activator's box (a switch panel), keeps
+/// priority over a smaller activator behind it. Never a collision hit: the mattress still
+/// picks the bed, and a wall in front still hides the suitcase. `hit` is the raw first
+/// hit, not a door promoted from behind it (`door_behind`), so nothing behind the wall
+/// sets a box aside. A box of the reference that `hit` strikes counts as entered before it
+/// whatever its entry: the ray demonstrably meets that reference, and its mesh's box may
+/// begin a hair past its collision (the Bison Steve suitcase: hit at 98.15, box from
+/// 98.2). Two boxes over the same stretch both stay; a sleeper's rough box
+/// sets no bed's aside, so [`to_occupant`] still sees the bed; nor does another bed's box
+/// (two beds never set each other aside). The result is
+/// [`choose_precise_first`]'s input.
+pub fn set_aside_enclosing(
+    hit: Option<RayHit>,
+    boxes: &[(u32, f32, f32, bool)],
+    reach: f32,
+    bed: impl Fn(u32) -> bool,
+    mut accept: impl FnMut(u32) -> bool,
+) -> Vec<(u32, f32, bool)> {
+    let limit = hit.map_or(reach, |h| (h.distance + SURFACE_SLACK).min(reach));
+    let mut yielding: Vec<u32> = Vec::new();
+    for &(id, enter, exit, _) in boxes {
+        if yielding.contains(&id) || !bed(id) {
+            continue;
+        }
+        let candidate = |other: u32, e: f32| (0.0..=limit).contains(&e) || (e >= 0.0 && e <= reach && hit.is_some_and(|h| h.form_id == Some(other)));
+        let holds = |&&(other, e, x, r): &&(u32, f32, f32, bool)| other != id && !r && !bed(other) && candidate(other, e) && enter <= e && x <= exit && (enter < e || x < exit);
+        if boxes.iter().filter(holds).any(|b| accept(b.0)) {
+            yielding.push(id);
+        }
+    }
+    boxes.iter().filter(|b| !yielding.contains(&b.0)).map(|&(id, enter, _, rough)| (id, enter, rough)).collect()
 }
 
 /// A bed an actor lies on (or is getting onto or off) yields the crosshair to that actor
@@ -152,6 +211,11 @@ pub fn box_distance(p: Vec3, to_world: &Affine3A, center: Vec3, half: Vec3) -> O
 /// given in an entity's own space (`center`, `half` extents) placed by `to_world`. `None`
 /// when the ray misses, the box is behind, or `origin` is inside the box.
 pub fn ray_box(origin: Vec3, dir: Vec3, to_world: &Affine3A, center: Vec3, half: Vec3) -> Option<f32> {
+    ray_box_span(origin, dir, to_world, center, half).map(|s| s.0)
+}
+
+/// [`ray_box`]'s entry distance and the distance at which the ray leaves the box.
+pub fn ray_box_span(origin: Vec3, dir: Vec3, to_world: &Affine3A, center: Vec3, half: Vec3) -> Option<(f32, f32)> {
     if to_world.matrix3.determinant().abs() < 1e-12 {
         return None;
     }
@@ -172,7 +236,7 @@ pub fn ray_box(origin: Vec3, dir: Vec3, to_world: &Affine3A, center: Vec3, half:
         t0 = t0.max(a.min(b));
         t1 = t1.min(a.max(b));
     }
-    (t0 <= t1 && t0 >= 0.0).then_some(t0)
+    (t0 <= t1 && t0 >= 0.0).then_some((t0, t1))
 }
 
 /// A sphere around the placed box (world centre, radius), for a cheap range test first.
@@ -212,6 +276,27 @@ mod tests {
         let table = RayHit { form_id: Some(100), distance: 95.0 };
         let p = choose(Some(table), [(4, 90.0)], REACH, |id| id != 100).unwrap();
         assert_eq!((p.form_id, p.source), (4, Source::Bounds));
+    }
+
+    /// #3333: the safe key lies on a shelf's board, its box just under the board's
+    /// collision surface (the shape's shell): the key is the target. Further behind the
+    /// surface, or behind a hit the player can activate, it is not.
+    #[test]
+    fn an_item_resting_in_a_surface_s_shell_is_picked() {
+        let shelf = RayHit { form_id: Some(100), distance: 126.0 };
+        let not_shelf = |id| id != 100;
+        let p = choose(Some(shelf), [(7, 126.3)], REACH, not_shelf).unwrap();
+        assert_eq!(p, Pick { form_id: 7, distance: 126.3, source: Source::Bounds });
+        // The ground (no reference) too.
+        let ground = RayHit { form_id: None, distance: 80.0 };
+        assert_eq!(choose(Some(ground), [(7, 81.5)], REACH, ANY).unwrap().form_id, 7);
+        // More than the slack behind: hidden.
+        assert!(choose(Some(shelf), [(7, 126.0 + SURFACE_SLACK + 0.1)], REACH, not_shelf).is_none());
+        // A container's lid the key rests on: the container, nearer, is the target.
+        let crate_ = RayHit { form_id: Some(100), distance: 126.0 };
+        assert_eq!(choose(Some(crate_), [(7, 126.3)], REACH, ANY).unwrap(), Pick { form_id: 100, distance: 126.0, source: Source::Collision });
+        // Still within reach only.
+        assert!(choose(Some(RayHit { form_id: None, distance: REACH - 0.5 }), [(7, REACH + 0.5)], REACH, ANY).is_none());
     }
 
     #[test]
@@ -285,6 +370,98 @@ mod tests {
         assert_eq!(to_occupant(None, at(72.0), REACH, ANY), None);
     }
 
+    /// #3323: a suitcase lying on a bed at the Bison Steve. Along the ray the bed's box
+    /// (20) runs from 60 to 140, the suitcase's (5) from 98 to 102, the mattress's
+    /// collision is hit at 110.
+    #[test]
+    fn a_suitcase_lying_in_a_bed_s_box_wins_over_the_bed() {
+        const BED: u32 = 20;
+        const SUITCASE: u32 = 5;
+        let lyons = 8;
+        let (bed_box, case_box) = ((BED, 60.0, 140.0, false), (SUITCASE, 98.0, 102.0, false));
+        let at = |id: u32, distance: f32| Some(RayHit { form_id: Some(id), distance });
+        let bed = |id: u32| id == BED;
+        let pick = |hit: Option<RayHit>, boxes: &[(u32, f32, f32, bool)], accept: fn(u32) -> bool| {
+            choose_precise_first(hit, set_aside_enclosing(hit, boxes, REACH, bed, accept), REACH, accept)
+        };
+        // Before: the bed's box, entered first, won.
+        let all = [bed_box, case_box].map(|b| (b.0, b.1, b.3));
+        assert_eq!(choose_precise_first(at(BED, 110.0), all, REACH, ANY).unwrap().form_id, BED);
+        // Now the suitcase, whether it has collision of its own or not.
+        assert_eq!(pick(at(BED, 110.0), &[bed_box, case_box], ANY), Some(Pick { form_id: SUITCASE, distance: 98.0, source: Source::Bounds }));
+        assert_eq!(pick(at(SUITCASE, 99.0), &[bed_box, case_box], ANY).unwrap().form_id, SUITCASE);
+        assert_eq!(pick(None, &[case_box, bed_box], ANY).unwrap().form_id, SUITCASE);
+        // The bare mattress beside it: the bed, by its collision or its box.
+        assert_eq!(pick(at(BED, 110.0), &[bed_box], ANY), Some(Pick { form_id: BED, distance: 60.0, source: Source::Collision }));
+        assert_eq!(pick(None, &[bed_box], ANY).unwrap().form_id, BED);
+        // A wall at 80 hides the suitcase, which then sets nothing aside.
+        let wall = Some(RayHit { form_id: None, distance: 80.0 });
+        assert_eq!(pick(wall, &[bed_box, case_box], ANY).unwrap().form_id, BED);
+        assert!(pick(wall, &[bed_box, case_box], |id| id != BED).is_none());
+        // A suitcase that cannot be taken leaves the bed.
+        assert_eq!(pick(at(BED, 110.0), &[bed_box, case_box], |id| id != SUITCASE).unwrap().form_id, BED);
+        // Over the same stretch, or only overlapping, neither is set aside: the nearest.
+        assert_eq!(pick(None, &[(BED, 98.0, 102.0, false), case_box], ANY).unwrap().form_id, BED);
+        assert_eq!(pick(None, &[bed_box, (SUITCASE, 98.0, 150.0, false)], ANY).unwrap().form_id, BED);
+        // A sleeper's rough box inside the bed's sets nothing aside: the bed is picked and
+        // yields to the sleeper (#3231).
+        let picked = pick(None, &[bed_box, (lyons, 80.0, 130.0, true)], ANY);
+        assert_eq!(picked.unwrap().form_id, BED);
+        let p = to_occupant(picked, |id| (id == BED).then_some((lyons, 90.0)), REACH, ANY).unwrap();
+        assert_eq!((p.form_id, p.source), (lyons, Source::Occupant));
+        // Only a bed yields: a switch panel's box (30, an activator) or a chair's back (32)
+        // from 50 to 130 keeps priority over a smaller activator's (31) behind it.
+        assert_eq!(pick(None, &[(30, 50.0, 130.0, false), (31, 80.0, 90.0, false)], ANY).unwrap().form_id, 30);
+        assert_eq!(pick(None, &[(32, 50.0, 130.0, false), (31, 80.0, 90.0, false)], ANY).unwrap().form_id, 32);
+        // A bed drawn as two meshes (60 to 140 and 70 to 90) yields whole: its second box
+        // does not win at 70 over the suitcase hit at 99.
+        let two = [bed_box, (BED, 70.0, 90.0, false), case_box];
+        assert_eq!(pick(at(SUITCASE, 99.0), &two, ANY).unwrap().form_id, SUITCASE);
+        assert_eq!(pick(at(BED, 110.0), &two[..2], ANY).unwrap().form_id, BED);
+        // Two beds of two meshes each, each with a box inside the other's (21: 60-100
+        // and 115-125; 22: 70-80 and 105-140): neither sets the other aside, the nearest.
+        let beds = |id: u32| id == 21 || id == 22;
+        let boxes = [(21, 60.0, 100.0, false), (22, 70.0, 80.0, false), (22, 105.0, 140.0, false), (21, 115.0, 125.0, false)];
+        let kept = set_aside_enclosing(None, &boxes, REACH, beds, ANY);
+        assert_eq!(kept.len(), 4);
+        assert_eq!(choose_precise_first(None, kept, REACH, ANY).unwrap().form_id, 21);
+    }
+
+    /// #3323, the smoke run at the Bison Steve (pick log): the suitcase's collision is
+    /// hit at 98.15, its box entered at 98.2, a hair past it, inside the bed's box
+    /// (96.9 to 189.6). The struck reference's box still counts: the suitcase wins.
+    #[test]
+    fn the_struck_reference_s_box_counts_though_it_begins_past_the_hit() {
+        let (bed, suitcase) = (0x000D72C7, 0x000AFA24);
+        let hit = Some(RayHit { form_id: Some(suitcase), distance: 98.15 });
+        let boxes = [(suitcase, 111.7, 130.8, false), (suitcase, 98.2, 114.8, false), (suitcase, 103.9, 104.0, false), (0x000E4B99, 186.5, 187.1, false), (bed, 96.9, 189.6, false), (bed, 130.8, 130.8, false), (0x000D7302, 188.4, 188.4, false)];
+        let kept = set_aside_enclosing(hit, &boxes, REACH, |id| id == bed, ANY);
+        assert!(kept.iter().all(|k| k.0 != bed), "{kept:?}");
+        assert_eq!(choose_precise_first(hit, kept, REACH, ANY), Some(Pick { form_id: suitcase, distance: 98.15, source: Source::Collision }));
+        // Another reference's box beginning more than SURFACE_SLACK past the hit is still
+        // hidden by it (a wall at 96, the suitcase's box from 98.2); within the slack it is
+        // a candidate, as `choose` takes it (#3333), and the bed yields.
+        let wall = Some(RayHit { form_id: None, distance: 96.0 });
+        assert_eq!(set_aside_enclosing(wall, &boxes, REACH, |id| id == bed, ANY).len(), boxes.len());
+        let wall = Some(RayHit { form_id: None, distance: 98.15 });
+        assert!(set_aside_enclosing(wall, &boxes, REACH, |id| id == bed, ANY).iter().all(|k| k.0 != bed));
+    }
+
+    /// #3323 review: the cutoff for setting a box aside is the raw first hit (a wall at
+    /// 80), not the door promoted from 94 behind it (`door_behind`): a suitcase box behind
+    /// the wall (85 to 90) inside a door's box (a bed here, 65 to 120) leaves the door.
+    #[test]
+    fn nothing_behind_the_wall_sets_a_box_aside() {
+        const DOOR: u32 = 2;
+        let (raw, door) = (Some(RayHit { form_id: None, distance: 80.0 }), Some(RayHit { form_id: Some(DOOR), distance: 94.0 }));
+        let boxes = [(DOOR, 65.0, 120.0, false), (5, 85.0, 90.0, false)];
+        let kept = set_aside_enclosing(raw, &boxes, REACH, |id| id == DOOR, ANY);
+        assert_eq!(choose_precise_first(door, kept, REACH, ANY), Some(Pick { form_id: DOOR, distance: 65.0, source: Source::Collision }));
+        assert_eq!(set_aside_enclosing(raw, &boxes, REACH, |id| id == DOOR, ANY).len(), 2, "the raw hit sets nothing aside");
+        // With the promoted hit as the cutoff the door's box would be set aside.
+        assert_eq!(set_aside_enclosing(door, &boxes, REACH, |id| id == DOOR, ANY).len(), 1);
+    }
+
     #[test]
     fn distances_to_a_bone_and_to_a_placed_box() {
         let (a, b) = (Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0));
@@ -305,6 +482,8 @@ mod tests {
         let t = Affine3A::from_scale_rotation_translation(Vec3::splat(2.0), Quat::from_rotation_y(std::f32::consts::FRAC_PI_4), Vec3::new(0.0, 0.0, -100.0));
         let half = Vec3::splat(5.0);
         let d = ray_box(Vec3::ZERO, Vec3::NEG_Z, &t, Vec3::ZERO, half).unwrap();
+        let (_, out) = ray_box_span(Vec3::ZERO, Vec3::NEG_Z, &t, Vec3::ZERO, half).unwrap();
+        assert!((out - (100.0 + 10.0 * 2f32.sqrt())).abs() < 1e-3, "{out}");
         // Corner first: 10 · √2 from the centre after scaling.
         assert!((d - (100.0 - 10.0 * 2f32.sqrt())).abs() < 1e-3, "{d}");
         // Off to the side, behind, and from inside.

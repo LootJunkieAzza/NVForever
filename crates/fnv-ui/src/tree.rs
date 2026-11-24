@@ -166,10 +166,71 @@ pub struct TileId {
 /// The number the next [`Ui::new`] takes, so each tree's ids are its own.
 static NEXT_TREE: AtomicU32 = AtomicU32::new(1);
 
-/// Updates in a row that each followed a change of the tree's shape (so worked every
-/// expression out) before [`Ui::take_reshape_warning`] answers [design: #1061, about two
-/// seconds of frames; loading a menu takes a few].
+/// Updates in a row that each followed a change of the tree's shape before
+/// [`Ui::take_reshape_warning`] answers [design: #1061, about two seconds of frames;
+/// loading a menu takes a few].
 const RESHAPED_RUN_WARNING: u32 = 120;
+
+/// Sentinel id for [`DEAD`] tiles in `const` contexts [design].
+const DEAD_ID: TileId = TileId { tree: 0, index: 0, gen: 0 };
+
+/// Deterministic case-insensitive 64-bit FNV-1a hash of a tile name for scoped
+/// structural invalidation [design]. A hash collision can only trigger an extra
+/// re-evaluation, never a missed invalidation.
+fn name_key(name: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in name.bytes() {
+        h ^= u64::from(b.to_ascii_lowercase());
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+fn bump_name_version(versions: &mut HashMap<u64, u64>, key: u64) {
+    *versions.entry(key).or_insert(0) += 1;
+}
+
+/// Structural equality on XML node slices ignoring source line numbers; top-level
+/// whitespace-only text nodes in `<template>` bodies are ignored because [`Ui::fill`]
+/// skips non-element nodes [design].
+fn nodes_same(a: &[Node], b: &[Node], ignore_ws_text: bool) -> bool {
+    let keep = |n: &&Node| !(ignore_ws_text && matches!(n, Node::Text(t) if t.trim().is_empty()));
+    let mut ia = a.iter().filter(keep);
+    let mut ib = b.iter().filter(keep);
+    loop {
+        match (ia.next(), ib.next()) {
+            (None, None) => return true,
+            (Some(Node::Text(tx)), Some(Node::Text(ty))) if tx == ty => {}
+            (Some(Node::Entity(ex)), Some(Node::Entity(ey))) if ex == ey => {}
+            (Some(Node::Element(ex)), Some(Node::Element(ey)))
+                if ex.name == ey.name && ex.attrs == ey.attrs && nodes_same(&ex.children, &ey.children, ignore_ws_text && is_tile(ex)) => {}
+            _ => return false,
+        }
+    }
+}
+
+/// A structural resolution condition relied on when evaluating an expression [design].
+/// While every recorded condition and every recorded trait source still holds, re-running
+/// [`Ui::eval_reading`] resolves the same tiles and traits and produces the same value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StructDep {
+    /// `Src::Child(_)`, `Src::Sibling(_)` under a parent, or bare `child`/`sibling`
+    /// fallback: valid while `tile` is live and `tile.children_changed == seen`.
+    Children { tile: TileId, seen: u64 },
+    /// Structural `childcount` fallback on `tile` (no explicit `childcount` trait):
+    /// valid while `tile` is live, has no explicit `childcount` trait, and
+    /// `tile.children_changed <= tr.evaluated`.
+    ChildCount { tile: TileId },
+    /// Trait lookup on `tile` returned `None`: valid while `tile` is live and
+    /// `tile.traits_shape == seen_traits`.
+    MissingTrait { tile: TileId, seen_traits: u64 },
+    /// `Src::Sibling(Some(name))` on a menu root, or `Src::Named(name)` that reached
+    /// `root_named(name)`: valid while `root_name_version(key) == seen`.
+    RootName { key: u64, seen: u64 },
+    /// `Src::Named(name)` inside `root`: valid while `root` is live and
+    /// `descendant_name_version(root, key) == seen`.
+    DescendantName { root: TileId, key: u64, seen: u64 },
+}
 
 impl TileId {
     /// The tile's slot: the same for a later tile made there, so not an identity.
@@ -234,16 +295,33 @@ pub struct Trait {
     /// wrote it (`&-sName;` alone, no plugin defining the name); none once anything writes it.
     /// [`Ui::built_in_label`].
     pub built_in_label: Option<String>,
-    /// The traits (tile, index) the expression read when last worked out, valid while the
-    /// tree's shape is still `seen` (0: not known): with none of them changed since
-    /// `evaluated`, [`Ui::update`] skips it without working it out [design: #1039].
+    /// The traits (tile, index) the expression read when last worked out, together with
+    /// the structural conditions relied on: while all of them still hold and none of the
+    /// trait sources changed since `evaluated`, [`Ui::update`] skips it without working it
+    /// out [design: #1039].
     sources: Vec<(TileId, u32)>,
-    seen: u64,
+    struct_deps: Vec<StructDep>,
+    seen_valid: bool,
+    seen_root_shape: u64,
+    seen_roots_shape: u64,
 }
 
 impl Trait {
     fn new(name: String, value: Value, expr: Option<Vec<Op>>, changed: u64) -> Trait {
-        Trait { name, value, expr, changed, write_serial: None, evaluated: 0, built_in_label: None, sources: Vec::new(), seen: 0 }
+        Trait {
+            name,
+            value,
+            expr,
+            changed,
+            write_serial: None,
+            evaluated: 0,
+            built_in_label: None,
+            sources: Vec::new(),
+            struct_deps: Vec::new(),
+            seen_valid: false,
+            seen_root_shape: 0,
+            seen_roots_shape: 0,
+        }
     }
 }
 
@@ -263,9 +341,24 @@ pub struct Tile {
     pub kind: String,
     pub name: String,
     pub parent: Option<TileId>,
+    /// The root menu (or pseudo-tile) owning this tile, fixed at creation [design].
+    root: TileId,
     pub children: Vec<TileId>,
-    /// Value-generation dependency for an expression's structural childcount fallback.
+    /// Value-generation dependency for an expression's structural childcount fallback and
+    /// `child()`/`sibling()` resolution.
     children_changed: u64,
+    /// Bumped when a trait is added to or removed from this tile (not on in-place value
+    /// or expression updates) [design].
+    traits_shape: u64,
+    /// True when this tile carries an explicit `childcount` trait, superseding the
+    /// structural `children.len()` fallback [design].
+    explicit_childcount: bool,
+    /// On a root tile: bumped when any descendant tile is added or unloaded;
+    /// used as a fast-path guard before consulting per-name structural versions [design].
+    root_shape: u64,
+    /// On a root tile: true once at least one expression under this root has recorded
+    /// structural dependencies during [`Ui::update`] [design].
+    root_evaluated: bool,
     pub traits: Vec<Trait>,
     pub templates: Vec<Template>,
     /// False once unloaded: [`Ui::tile`] answers such a tile for an id kept past its
@@ -283,8 +376,13 @@ impl Tile {
             kind: String::new(),
             name: String::new(),
             parent: None,
+            root: DEAD_ID,
             children: Vec::new(),
             children_changed: 0,
+            traits_shape: 0,
+            explicit_childcount: false,
+            root_shape: 0,
+            root_evaluated: false,
             traits: Vec::new(),
             templates: Vec::new(),
             live: false,
@@ -331,13 +429,21 @@ pub struct Ui {
     /// the order they are made, parents before children, as [`Ui::update`] walks the
     /// slots, so a reopened menu settles in as few passes as when first opened.
     free: BinaryHeap<Reverse<u32>>,
-    /// One up whenever tiles are made, unloaded or changed other than in a value (renamed,
-    /// given a trait or a template): what a source names may have changed, so the sources
-    /// a trait read last are no longer known.
+    /// One up whenever tiles are made, unloaded, renamed, or given/stripped of traits or
+    /// templates [design].
     shape: u64,
-    /// First descendant of each name in each root's file order. Shape changes
-    /// invalidate the index; trait value writes leave name resolution unchanged.
-    named_sources: OnceLock<HashMap<TileId, HashMap<String, TileId>>>,
+    /// Bumped whenever a root tile is added, unloaded, or renamed; fast-path guard for
+    /// cross-menu [`StructDep::RootName`] checks [design].
+    roots_shape: u64,
+    /// Per-root-name structural versions (keyed by [`name_key`]) for cross-menu lookups
+    /// (`sibling(Menu)` on a root, or `Named(Menu)` falling through to `root_named`) [design].
+    root_name_versions: HashMap<u64, u64>,
+    /// Per-root descendant-name structural versions (keyed by [`name_key`]), populated
+    /// only after a root has evaluated expressions and removed when the root unloads [design].
+    descendant_name_versions: HashMap<TileId, HashMap<u64, u64>>,
+    /// First descendant of each lower-case name per root in file order, invalidated only
+    /// for the root whose tiles changed [design].
+    root_names: HashMap<TileId, OnceLock<HashMap<String, TileId>>>,
     /// This tree's number, in every [`TileId`] it makes ([`Ui::new`]).
     tree: u32,
     /// The shape when [`Ui::update`] last ran, the updates in a row that found it changed,
@@ -471,16 +577,6 @@ impl Ui {
         self.shape
     }
 
-    /// A loaded tile to change (made, unloaded, renamed, its file traits or templates):
-    /// the tree is worked out again at the next [`Ui::update`], every expression in it
-    /// (the shape changed). Value writes go through `set_at`.
-    fn tile_mut(&mut self, id: TileId) -> &mut Tile {
-        self.dirty = true;
-        self.reshape();
-        let i = self.slot(id).expect("a loaded tile");
-        &mut self.tiles[i]
-    }
-
     /// A public call that may change the shape starts: what it is and where it was called
     /// from, kept for [`Ui::take_reshape_warning`].
     #[track_caller]
@@ -488,18 +584,41 @@ impl Ui {
         self.op = Some((what, Location::caller()));
     }
 
-    /// The shape changes: what a source names may have changed, so every expression is
-    /// worked out at the next update.
-    fn reshape(&mut self) {
+    /// Records a real structural shape change (tile/trait/template addition, removal, or
+    /// tile rename) without invalidating unrelated menus [design].
+    fn bump_shape(&mut self) {
         self.shape += 1;
-        self.named_sources.take();
         self.reshaped_by = self.op;
     }
 
+    fn root_name_version(&self, key: u64) -> u64 {
+        self.root_name_versions.get(&key).copied().unwrap_or(0)
+    }
+
+    fn descendant_name_version(&self, root: TileId, key: u64) -> u64 {
+        self.descendant_name_versions.get(&root).and_then(|m| m.get(&key)).copied().unwrap_or(0)
+    }
+
+    /// Invalidates `root`'s cached name map and bumps structural versions for the mutated
+    /// descendant name keys inside `root` [design].
+    fn invalidate_root_descendants(&mut self, root: TileId, name_keys: &[u64]) {
+        if let Some(cell) = self.root_names.get_mut(&root) {
+            cell.take();
+        }
+        if let Some(r_slot) = self.slot(root) {
+            self.tiles[r_slot].root_shape += 1;
+            if self.tiles[r_slot].root_evaluated && !name_keys.is_empty() {
+                let versions = self.descendant_name_versions.entry(root).or_default();
+                for &key in name_keys {
+                    bump_name_version(versions, key);
+                }
+            }
+        }
+    }
+
     /// [design: #1061] Once, when the shape changed before each of the last
-    /// [`RESHAPED_RUN_WARNING`] updates, so that every update worked every expression out
-    /// (the skip of #1039 lost): a line naming the last call that changed it and where
-    /// from. The engine asks after each update and logs it.
+    /// [`RESHAPED_RUN_WARNING`] updates: a line naming the last call that changed it and
+    /// where from. The engine asks after each update and logs it.
     pub fn take_reshape_warning(&mut self) -> Option<String> {
         if self.reshape_told || self.reshaped_run < RESHAPED_RUN_WARNING {
             return None;
@@ -509,7 +628,7 @@ impl Ui {
             Some((what, at)) => format!("{what} called at {}:{}", at.file(), at.line()),
             None => "unknown".into(),
         };
-        Some(format!("ui tree: its shape changed before each of {} updates in a row, so each worked every expression out; last change: {by}", self.reshaped_run))
+        Some(format!("ui tree: its shape changed before each of {} updates in a row; last change: {by}", self.reshaped_run))
     }
 
     pub fn screen(&self) -> TileId {
@@ -536,7 +655,7 @@ impl Ui {
 
     fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>, origin: Origin) -> TileId {
         self.dirty = true;
-        self.reshape();
+        self.bump_shape();
         let tile = Tile { origin, kind: kind.to_ascii_lowercase(), name: name.to_string(), parent, live: true, ..Tile::dead() };
         let id = match self.free.pop() {
             Some(Reverse(index)) => {
@@ -550,11 +669,20 @@ impl Ui {
             }
         };
         if let Some(p) = parent {
+            let p_slot = self.slot(p).expect("a loaded parent tile");
+            let root = self.tiles[p_slot].root;
+            self.tiles[id.index as usize].root = root;
             self.gen += 1;
             let changed = self.gen;
-            let parent = self.tile_mut(p);
-            parent.children.push(id);
-            parent.children_changed = changed;
+            self.tiles[p_slot].children.push(id);
+            self.tiles[p_slot].children_changed = changed;
+            self.invalidate_root_descendants(root, &[name_key(name)]);
+        } else {
+            self.tiles[id.index as usize].root = id;
+            self.tiles[id.index as usize].root_shape = 1;
+            self.root_names.insert(id, OnceLock::new());
+            self.roots_shape += 1;
+            bump_name_version(&mut self.root_name_versions, name_key(name));
         }
         if self.tile(id).origin.mod_added() {
             self.count_mod_tile(id, true);
@@ -613,7 +741,12 @@ impl Ui {
         let g = self.globals();
         let origin = Origin::file(src, "menus\\globals.xml");
         let counted = self.tile(g).live && self.is_mod_added(g);
-        self.tile_mut(g).origin = origin.clone();
+        if let Some(slot) = self.slot(g) {
+            if self.tiles[slot].origin != origin {
+                self.tiles[slot].origin = origin.clone();
+                self.bump_shape();
+            }
+        }
         if counted != (self.tile(g).live && self.is_mod_added(g)) {
             self.count_mod_tile(g, !counted);
         }
@@ -702,7 +835,7 @@ impl Ui {
             }
             let target = match &decision.entry.tile {
                 Some(name) => named_nodes(&mut doc.nodes, name),
-                None => Some(&mut doc.nodes),
+                None => untargeted_nodes(&mut doc.nodes),
             };
             if let Some(nodes) = target {
                 nodes.push(uio_include(&decision.entry.include));
@@ -724,7 +857,12 @@ impl Ui {
             } else if e.is("template") {
                 let name = e.attr("name").unwrap_or("").to_string();
                 let body = self.expand_includes(src, &e.children, depth);
-                self.tile_mut(tile).templates.push(Template { name, body });
+                let slot = self.slot(tile).expect("a loaded tile");
+                // Re-injecting an identical template is a no-op [design].
+                if !self.tiles[slot].templates.iter().any(|tp| tp.name.eq_ignore_ascii_case(&name) && nodes_same(&tp.body, &body, true)) {
+                    self.tiles[slot].templates.push(Template { name, body });
+                    self.bump_shape();
+                }
             } else if e.is("include") {
                 let file = e.attr("src").unwrap_or("");
                 if depth >= MAX_INCLUDE_DEPTH {
@@ -792,16 +930,18 @@ impl Ui {
     /// trait the including file set too depend on it].
     fn put_trait(&mut self, src: &dyn Source, tile: TileId, e: &Element) {
         let asked = RefCell::new(Vec::new());
-        let string = |n: &str| {
+        let string = |n: &str, explicit: bool| {
             let text = src.game_string(n);
-            asked.borrow_mut().push((n.to_ascii_lowercase(), text.is_some()));
+            if explicit || text.is_some() {
+                asked.borrow_mut().push((n.to_ascii_lowercase(), text.is_some()));
+            }
             text
         };
         let mut warns = Vec::new();
         let (value, expr) = if expr::has_ops(e) {
-            (Value::default(), Some(expr::ops_of(&e.children, &string, &mut |w| warns.push(w))))
+            (Value::default(), Some(expr::ops_of_with(&e.children, &string, &mut |w| warns.push(w))))
         } else {
-            (expr::literal(&e.children, &string), None)
+            (expr::literal_with(&e.children, &string), None)
         };
         let asked = asked.into_inner();
         let built_in_label = match asked.as_slice() {
@@ -814,16 +954,63 @@ impl Ui {
         for w in warns {
             self.warnings.push(format!("<{}>: {w}", e.name));
         }
-        self.gen += 1;
-        let gen = self.gen;
+        let existing = self.tile(tile).trait_index(&e.name);
         let write_serial = self.next_write_serial();
-        let t = self.tile_mut(tile);
-        let mut new = Trait::new(e.name.clone(), value, expr, gen);
-        new.write_serial = write_serial;
-        new.built_in_label = built_in_label;
-        match t.trait_index(&e.name) {
-            Some(k) => t.traits[k] = new,
-            None => t.traits.push(new),
+        let slot = self.slot(tile).expect("a loaded tile");
+        match existing {
+            // Updating an existing trait slot in-place does not change tile hierarchy,
+            // names, or trait existence/indices, so it avoids reshaping the tree [design].
+            Some(k) => match expr {
+                Some(ops) => {
+                    self.gen += 1;
+                    let gen = self.gen;
+                    let old = &mut self.tiles[slot].traits[k];
+                    old.name = e.name.clone();
+                    old.value = Value::default();
+                    old.expr = Some(ops);
+                    old.changed = gen;
+                    old.write_serial = write_serial;
+                    old.evaluated = 0;
+                    old.built_in_label = built_in_label;
+                    old.sources.clear();
+                    old.struct_deps.clear();
+                    old.seen_valid = false;
+                    self.dirty = true;
+                }
+                None => {
+                    let differs = value.differs(&self.tiles[slot].traits[k].value);
+                    let old = &mut self.tiles[slot].traits[k];
+                    old.name = e.name.clone();
+                    old.value = value;
+                    old.expr = None;
+                    old.write_serial = write_serial;
+                    old.evaluated = 0;
+                    old.built_in_label = built_in_label;
+                    old.sources.clear();
+                    old.struct_deps.clear();
+                    old.seen_valid = false;
+                    if differs {
+                        self.gen += 1;
+                        let gen = self.gen;
+                        self.tiles[slot].traits[k].changed = gen;
+                        self.dirty = true;
+                    }
+                }
+            },
+            None => {
+                self.gen += 1;
+                let gen = self.gen;
+                let mut new = Trait::new(e.name.clone(), value, expr, gen);
+                new.write_serial = write_serial;
+                new.built_in_label = built_in_label;
+                self.tiles[slot].traits.push(new);
+                self.tiles[slot].traits_shape += 1;
+                if e.name.eq_ignore_ascii_case("childcount") {
+                    self.tiles[slot].explicit_childcount = true;
+                }
+                self.dirty = true;
+                self.bump_shape();
+            }
         }
     }
 
@@ -835,26 +1022,40 @@ impl Ui {
         if !self.is_live(id) {
             return;
         }
+        let root = self.root_of(id);
+        let parent = self.tile(id).parent;
+        let root_key = name_key(&self.tile(id).name);
         // Counted off while the tiles are all there: a tile's root is found through them.
         let mut stack = vec![id];
         let mut gone = Vec::new();
+        let mut gone_name_keys = Vec::new();
         while let Some(t) = stack.pop() {
             if self.is_mod_added(t) {
                 self.count_mod_tile(t, false);
             }
+            if parent.is_some() {
+                gone_name_keys.push(name_key(&self.tile(t).name));
+            }
             stack.extend(self.tile(t).children.iter().copied());
             gone.push(t);
         }
-        if let Some(p) = self.tile(id).parent {
+        if let Some(p) = parent {
             self.gen += 1;
             let changed = self.gen;
-            let parent = self.tile_mut(p);
-            parent.children.retain(|&c| c != id);
-            parent.children_changed = changed;
+            if let Some(p_slot) = self.slot(p) {
+                self.tiles[p_slot].children.retain(|&c| c != id);
+                self.tiles[p_slot].children_changed = changed;
+            }
+            self.invalidate_root_descendants(root, &gone_name_keys);
+        } else {
+            self.roots.retain(|&r| r != id);
+            self.root_names.remove(&id);
+            self.descendant_name_versions.remove(&id);
+            self.roots_shape += 1;
+            bump_name_version(&mut self.root_name_versions, root_key);
         }
-        self.roots.retain(|&r| r != id);
         self.dirty = true;
-        self.reshape();
+        self.bump_shape();
         for &t in &gone {
             let i = t.index as usize;
             self.tiles[i] = Tile::dead();
@@ -1005,11 +1206,11 @@ impl Ui {
     }
 
     /// The menu (or pseudo-tile) a tile is in.
-    pub fn root_of(&self, mut id: TileId) -> TileId {
-        while let Some(p) = self.tile(id).parent {
-            id = p;
+    pub fn root_of(&self, id: TileId) -> TileId {
+        match self.slot(id) {
+            Some(i) => self.tiles[i].root,
+            None => id,
         }
-        id
     }
 
     // ---- reading and changing traits (the UI functions' ground) ---------------------
@@ -1076,9 +1277,15 @@ impl Ui {
         let k = match self.tile(tile).trait_index(name) {
             Some(k) => k,
             None => {
-                let t = self.tile_mut(tile);
-                t.traits.push(Trait::new(name.to_string(), Value::default(), None, 0));
-                t.traits.len() - 1
+                let slot = self.slot(tile).expect("a loaded tile");
+                self.tiles[slot].traits.push(Trait::new(name.to_string(), Value::default(), None, 0));
+                self.tiles[slot].traits_shape += 1;
+                if name.eq_ignore_ascii_case("childcount") {
+                    self.tiles[slot].explicit_childcount = true;
+                }
+                self.dirty = true;
+                self.bump_shape();
+                self.tiles[slot].traits.len() - 1
             }
         };
         self.set_at(tile, k, v);
@@ -1167,7 +1374,7 @@ impl Ui {
         // read last may have changed before this write, so the next update works it out
         // to learn its sources again.
         tr.evaluated = gen;
-        tr.seen = 0;
+        tr.seen_valid = false;
     }
 
     /// Takes a trait off a tile, as if it had never had it (an engine's own write undone
@@ -1199,8 +1406,13 @@ impl Ui {
                 tr.sources.retain(|&(s, j)| !(read && s == tile && j == k32));
             }
         }
-        // `tile_mut` marks the tree's shape changed: the sources kept by index are read again.
-        self.tile_mut(tile).traits.remove(k);
+        let slot = self.slot(tile).expect("a loaded tile");
+        self.tiles[slot].traits.remove(k);
+        self.tiles[slot].traits_shape += 1;
+        if name.eq_ignore_ascii_case("childcount") {
+            self.tiles[slot].explicit_childcount = false;
+        }
+        self.bump_shape();
         self.gen += 1;
         self.dirty = true;
         true
@@ -1263,19 +1475,25 @@ impl Ui {
     fn add_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>, origin: Origin) -> Option<TileId> {
         let parent = self.find_tile(at)?;
         let mut look = Some(parent);
-        let body = loop {
+        let mut body = loop {
             let t = look?;
             if let Some(tp) = self.tile(t).templates.iter().find(|tp| tp.name.eq_ignore_ascii_case(template)) {
                 break tp.body.clone();
             }
             look = self.tile(t).parent;
         };
+        if let Some(n) = name {
+            if let Some(Node::Element(first)) = body.iter_mut().find(|node| matches!(node, Node::Element(e) if is_tile(e))) {
+                if let Some((_, val)) = first.attrs.iter_mut().find(|(k, _)| k.eq_ignore_ascii_case("name")) {
+                    *val = n.to_string();
+                } else {
+                    first.attrs.push(("name".into(), n.to_string()));
+                }
+            }
+        }
         let before = self.tile(parent).children.len();
         self.fill(src, parent, &body, 0, &origin);
         let made = *self.tile(parent).children.get(before)?;
-        if let Some(n) = name {
-            self.tile_mut(made).name = n.to_string();
-        }
         Some(made)
     }
 
@@ -1378,6 +1596,7 @@ impl Ui {
         }
         let mut changed = 0;
         let mut sources = Vec::new();
+        let mut struct_deps = Vec::new();
         #[cfg(test)]
         {
             self.passes = 0;
@@ -1388,20 +1607,38 @@ impl Ui {
                 self.passes += 1;
             }
             let mut this_pass = 0;
+            let roots_shape = self.roots_shape;
             for id in 0..self.tiles.len() {
                 if !self.tiles[id].live {
                     continue;
                 }
                 let tid = self.id_at(id);
+                let root = self.tiles[id].root;
+                let root_slot = self.slot(root);
+                let root_shape = root_slot.map_or(0, |r| self.tiles[r].root_shape);
                 for k in 0..self.tiles[id].traits.len() {
                     let tr = &self.tiles[id].traits[k];
-                    let Some(ops) = tr.expr.as_ref() else { continue };
-                    // What it read last, unchanged since and still what its sources name
-                    // (the same shape): working it out would find the same and skip it.
-                    let skip = tr.evaluated != 0 && tr.seen == self.shape && tr.sources.iter().all(|&(t, j)| self.tiles[t.index as usize].traits[j as usize].changed <= tr.evaluated);
+                    if tr.expr.is_none() {
+                        continue;
+                    }
+                    let root_unchanged = tr.seen_root_shape == root_shape;
+                    let roots_unchanged = tr.seen_roots_shape == roots_shape;
+                    // What it read last (trait sources and structural resolution deps),
+                    // unchanged since: working it out would find the same and skip it.
+                    let skip = tr.evaluated != 0
+                        && tr.seen_valid
+                        && tr.struct_deps.iter().all(|&dep| self.struct_dep_holds(dep, tr.evaluated, root_unchanged, roots_unchanged))
+                        && tr.sources.iter().all(|&(t, j)| {
+                            self.slot(t).is_some_and(|i| self.tiles[i].traits.get(j as usize).is_some_and(|st| st.changed <= tr.evaluated))
+                        });
                     #[cfg(test)]
                     let skip = skip && !self.never_skip;
                     if skip {
+                        if !root_unchanged || !roots_unchanged {
+                            let tr = &mut self.tiles[id].traits[k];
+                            tr.seen_root_shape = root_shape;
+                            tr.seen_roots_shape = roots_shape;
+                        }
                         continue;
                     }
                     #[cfg(test)]
@@ -1410,11 +1647,20 @@ impl Ui {
                     }
                     let mut deps = 0;
                     sources.clear();
-                    let v = self.eval_reading(tid, ops, &mut deps, &mut sources);
-                    let shape = self.shape;
+                    struct_deps.clear();
+                    let v = {
+                        let ops = self.tiles[id].traits[k].expr.as_deref().expect("checked expr.is_some()");
+                        self.eval_reading(tid, ops, &mut deps, &mut sources, Some(&mut struct_deps))
+                    };
+                    if let Some(r) = root_slot {
+                        self.tiles[r].root_evaluated = true;
+                    }
                     let tr = &mut self.tiles[id].traits[k];
                     tr.sources.clone_from(&sources);
-                    tr.seen = shape;
+                    tr.struct_deps.clone_from(&struct_deps);
+                    tr.seen_valid = true;
+                    tr.seen_root_shape = root_shape;
+                    tr.seen_roots_shape = roots_shape;
                     if tr.evaluated != 0 && deps <= tr.evaluated {
                         continue;
                     }
@@ -1440,6 +1686,26 @@ impl Ui {
         changed
     }
 
+    fn struct_dep_holds(&self, dep: StructDep, evaluated: u64, root_unchanged: bool, roots_unchanged: bool) -> bool {
+        match dep {
+            StructDep::Children { tile, seen } => self.slot(tile).is_some_and(|i| self.tiles[i].children_changed == seen),
+            StructDep::ChildCount { tile } => {
+                self.slot(tile).is_some_and(|i| !self.tiles[i].explicit_childcount && self.tiles[i].children_changed <= evaluated)
+            }
+            StructDep::MissingTrait { tile, seen_traits } => self.slot(tile).is_some_and(|i| self.tiles[i].traits_shape == seen_traits),
+            StructDep::RootName { key, seen } => roots_unchanged || self.root_name_version(key) == seen,
+            StructDep::DescendantName { root, key, seen } => root_unchanged || (self.is_live(root) && self.descendant_name_version(root, key) == seen),
+        }
+    }
+
+    fn record_dep(deps: &mut Option<&mut Vec<StructDep>>, dep: StructDep) {
+        if let Some(list) = deps.as_deref_mut() {
+            if !list.contains(&dep) {
+                list.push(dep);
+            }
+        }
+    }
+
     /// Whether [`Ui::update`] has something to work out.
     #[cfg(test)]
     pub(crate) fn dirty(&self) -> bool {
@@ -1448,6 +1714,10 @@ impl Ui {
 
     /// The tile a source names, seen from `me`.
     pub fn resolve(&self, me: TileId, src: &Src) -> Option<TileId> {
+        self.resolve_recording(me, src, None)
+    }
+
+    fn resolve_recording(&self, me: TileId, src: &Src, mut struct_deps: Option<&mut Vec<StructDep>>) -> Option<TileId> {
         let parent = |t: TileId| self.tile(t).parent;
         let child_named = |t: TileId, n: &str| self.tile(t).children.iter().copied().find(|&c| self.tile(c).name.eq_ignore_ascii_case(n));
         match src {
@@ -1455,6 +1725,8 @@ impl Ui {
             Src::Parent => parent(me),
             Src::Grandparent => parent(parent(me)?),
             Src::Ancestor(n) => {
+                // Tiles are never reparented or renamed after creation, so ancestor
+                // lookup for a live tile never changes [design].
                 let mut at = parent(me);
                 while let Some(t) = at {
                     if self.tile(t).name.eq_ignore_ascii_case(n) {
@@ -1464,14 +1736,25 @@ impl Ui {
                 }
                 None
             }
-            Src::Child(None) => self.tile(me).children.first().copied(),
-            Src::Child(Some(n)) => child_named(me, n),
+            Src::Child(None) => {
+                Self::record_dep(&mut struct_deps, StructDep::Children { tile: me, seen: self.tile(me).children_changed });
+                self.tile(me).children.first().copied()
+            }
+            Src::Child(Some(n)) => {
+                Self::record_dep(&mut struct_deps, StructDep::Children { tile: me, seen: self.tile(me).children_changed });
+                child_named(me, n)
+            }
             // A menu's siblings are the other menus [observed: Vanilla UI Plus's start menu
             // reads `<copy src="sibling(HUDMainMenu)" trait="_VUI+"/>` on its root, and its
             // own check shows an "installation error" unless that gives its 1, #2298].
-            Src::Sibling(Some(n)) if parent(me).is_none() => self.root_named(n).filter(|&r| r != me),
+            Src::Sibling(Some(n)) if parent(me).is_none() => {
+                let key = name_key(n);
+                Self::record_dep(&mut struct_deps, StructDep::RootName { key, seen: self.root_name_version(key) });
+                self.root_named(n).filter(|&r| r != me)
+            }
             Src::Sibling(n) => {
                 let p = parent(me)?;
+                Self::record_dep(&mut struct_deps, StructDep::Children { tile: p, seen: self.tile(p).children_changed });
                 let kids = &self.tile(p).children;
                 match n {
                     Some(n) => kids.iter().copied().find(|&c| c != me && self.tile(c).name.eq_ignore_ascii_case(n)),
@@ -1487,6 +1770,7 @@ impl Ui {
             Src::Io => Some(self.root_of(me)),
             Src::Named(n) => {
                 let root = self.root_of(me);
+                let key = name_key(n);
                 // `src="me"`, the brackets left off, is the tile itself when no tile bears
                 // the name [observed: MCM 1.5's Options.xml, `<_x1> <copy src="me"
                 // trait="x"/> <add> 20 </add> </_x1>` on MCM_Options, whose rows stand in
@@ -1499,41 +1783,53 @@ impl Ui {
                 // OptionRect.xml places each option's title by `<copy src="parent"
                 // trait="_y"/>`, and read as a name every title stood at y 0, one over the
                 // other at the top of the screen, the owner's run of 2026-11-13, #2298].
-                self.find_named(root, n).or_else(|| self.root_named(n)).or_else(|| {
-                    let bare = Src::parse(&format!("{n}()"));
-                    match bare {
-                        Src::Me | Src::Parent | Src::Grandparent | Src::Child(None) | Src::Sibling(None) | Src::Globals | Src::Screen | Src::Io | Src::Strings => self.resolve(me, &bare),
-                        _ => None,
+                Self::record_dep(&mut struct_deps, StructDep::DescendantName { root, key, seen: self.descendant_name_version(root, key) });
+                if let Some(found) = self.find_named(root, n) {
+                    return Some(found);
+                }
+                Self::record_dep(&mut struct_deps, StructDep::RootName { key, seen: self.root_name_version(key) });
+                if let Some(found) = self.root_named(n) {
+                    return Some(found);
+                }
+                let bare = Src::parse(&format!("{n}()"));
+                match bare {
+                    Src::Me | Src::Parent | Src::Grandparent | Src::Child(None) | Src::Sibling(None) | Src::Globals | Src::Screen | Src::Io | Src::Strings => {
+                        self.resolve_recording(me, &bare, struct_deps)
                     }
-                })
+                    _ => None,
+                }
             }
         }
     }
 
     /// The first tile of that name under `root`, in file order.
     fn find_named(&self, root: TileId, name: &str) -> Option<TileId> {
-        let roots = self.named_sources.get_or_init(|| {
-            let mut roots = HashMap::new();
-            for &root in &self.roots {
-                let mut names = HashMap::new();
-                let mut stack = vec![root];
-                while let Some(t) = stack.pop() {
-                    #[cfg(test)]
-                    self.named_source_visits.fetch_add(1, Ordering::Relaxed);
-                    if t != root {
-                        names.entry(self.tile(t).name.to_ascii_lowercase()).or_insert(t);
-                    }
-                    stack.extend(self.tile(t).children.iter().rev().copied());
+        let names = self.root_names.get(&root)?.get_or_init(|| {
+            let mut names = HashMap::new();
+            let mut stack = vec![root];
+            while let Some(t) = stack.pop() {
+                #[cfg(test)]
+                self.named_source_visits.fetch_add(1, Ordering::Relaxed);
+                if t != root {
+                    names.entry(self.tile(t).name.to_ascii_lowercase()).or_insert(t);
                 }
-                roots.insert(root, names);
+                stack.extend(self.tile(t).children.iter().rev().copied());
             }
-            roots
+            names
         });
-        roots.get(&root)?.get(&name.to_ascii_lowercase()).copied()
+        names.get(&name.to_ascii_lowercase()).copied()
     }
 
-    fn read_trait(&self, me: TileId, src: &Src, name: &str, deps: &mut u64, sources: &mut Vec<(TileId, u32)>) -> Value {
-        let Some(t) = self.resolve(me, src) else { return Value::default() };
+    fn read_trait(
+        &self,
+        me: TileId,
+        src: &Src,
+        name: &str,
+        deps: &mut u64,
+        sources: &mut Vec<(TileId, u32)>,
+        mut struct_deps: Option<&mut Vec<StructDep>>,
+    ) -> Value {
+        let Some(t) = self.resolve_recording(me, src, struct_deps.as_deref_mut()) else { return Value::default() };
         match self.tile(t).trait_index(name) {
             Some(k) => {
                 let tr = &self.tile(t).traits[k];
@@ -1545,30 +1841,43 @@ impl Ui {
             // Do not insert a trait: absence also guards pause-column initialization.
             None if name.eq_ignore_ascii_case("childcount") => {
                 let tile = self.tile(t);
+                Self::record_dep(&mut struct_deps, StructDep::ChildCount { tile: t });
                 *deps = (*deps).max(tile.children_changed);
                 Value::Num(tile.children.len() as f64)
             }
             // A trait not there reads 0 [hypothesis].
-            None => Value::default(),
+            None => {
+                let tile = self.tile(t);
+                Self::record_dep(&mut struct_deps, StructDep::MissingTrait { tile: t, seen_traits: tile.traits_shape });
+                Value::default()
+            }
         }
     }
 
     /// Works out an operator list on tile `me`; `deps` takes the latest change count of
     /// anything read.
     pub fn eval(&self, me: TileId, ops: &[Op], deps: &mut u64) -> Value {
-        self.eval_reading(me, ops, deps, &mut Vec::new())
+        self.eval_reading(me, ops, deps, &mut Vec::new(), None)
     }
 
-    /// [`Ui::eval`], and the traits read (tile, index) put in `sources`. What it reads
-    /// depends only on the tree's shape and the values read (`_filename_<n>` on a value
-    /// worked out before), so while neither changed it reads the same.
-    fn eval_reading(&self, me: TileId, ops: &[Op], deps: &mut u64, sources: &mut Vec<(TileId, u32)>) -> Value {
+    /// [`Ui::eval`], and the traits read (tile, index) put in `sources` (plus structural
+    /// resolution conditions in `struct_deps`). What it reads depends only on those
+    /// conditions and the values read (`_filename_<n>` on a value worked out before), so
+    /// while none changed it reads the same.
+    fn eval_reading(
+        &self,
+        me: TileId,
+        ops: &[Op],
+        deps: &mut u64,
+        sources: &mut Vec<(TileId, u32)>,
+        mut struct_deps: Option<&mut Vec<StructDep>>,
+    ) -> Value {
         let mut acc = Value::default();
         for (k, op) in ops.iter().enumerate() {
             let arg = match &op.arg {
                 Arg::None => Value::default(),
                 Arg::Const(v) => v.clone(),
-                Arg::Seq(inner) => self.eval_reading(me, inner, deps, sources),
+                Arg::Seq(inner) => self.eval_reading(me, inner, deps, sources, struct_deps.as_deref_mut()),
                 Arg::Ref { src, name } => {
                     // `<copy … trait="_filename_"/>` after a number reads `_filename_<n>`
                     // [hypothesis: the meter and barter files pick a picture so]; after a
@@ -1579,10 +1888,13 @@ impl Ui {
                     // `_filename_0`/`_Filename_1` are the two pictures; T15a].
                     let name = match (&acc, name.ends_with('_')) {
                         (Value::Num(n), true) if op.kind == OpKind::Copy => format!("{name}{}", *n as i64),
-                        (Value::Sym(s), true) if op.kind == OpKind::Copy && crate::value::sym_number(s).is_some() => format!("{name}{}", acc.num() as i64),
+                        (v, true) if op.kind == OpKind::Copy => match v.sym_name().as_deref().and_then(crate::value::sym_number) {
+                            Some(n) => format!("{name}{}", n as i64),
+                            None => name.clone(),
+                        },
                         _ => name.clone(),
                     };
-                    self.read_trait(me, src, &name, deps, sources)
+                    self.read_trait(me, src, &name, deps, sources, struct_deps.as_deref_mut())
                 }
             };
             acc = apply(op.kind, acc, arg, me, k);
@@ -1617,10 +1929,33 @@ fn named_nodes<'a>(nodes: &'a mut [Node], name: &str) -> Option<&'a mut Vec<Node
     None
 }
 
+fn untargeted_nodes(nodes: &mut Vec<Node>) -> Option<&mut Vec<Node>> {
+    match nodes.iter().position(|n| matches!(n, Node::Element(e) if e.is("menu"))) {
+        Some(i) => match &mut nodes[i] {
+            Node::Element(e) => Some(&mut e.children),
+            _ => unreachable!(),
+        },
+        None => Some(nodes),
+    }
+}
+
 /// An include's file: under `menus\prefabs\` [observed: every vanilla include names a
-/// file there; MCM's `MCM\MCM.xml` a file in a folder under it].
+/// file there; MCM's `MCM\MCM.xml` a file in a folder under it], collapsing `.` and
+/// `..` path segments so sibling paths under `menus\` (such as `..\sibling\file.xml`)
+/// match UIO's path resolution while preserving authored case [design].
 fn prefab_path(file: &str) -> String {
-    format!("menus\\prefabs\\{}", file.trim().replace('/', "\\"))
+    let raw = format!("menus\\prefabs\\{}", file.trim().replace('/', "\\"));
+    let mut parts = Vec::new();
+    for part in raw.split('\\') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|p| *p != "..") => {
+                parts.pop();
+            }
+            _ => parts.push(part),
+        }
+    }
+    parts.join("\\")
 }
 
 fn split(path: &str) -> Vec<&str> {

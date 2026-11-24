@@ -330,6 +330,11 @@ impl Anims {
         self.stances.lock().expect("stances").entry(key).or_insert(s).clone()
     }
 
+    /// Whether the stance `prefix` of `skeleton` is loaded (or known not to load).
+    pub fn stance_loaded(&self, skeleton: &str, prefix: &str) -> bool {
+        self.stances.lock().expect("stances").contains_key(&(fnv_vfs::normalize(skeleton), prefix.to_string()))
+    }
+
     /// Whether the standing set of `skeleton` and `body` and the stance `prefix` (if any)
     /// are loaded (or known not to load), and the stances of its body weapons `arms`.
     pub fn loaded(&self, skeleton: &str, body: Body, prefix: Option<&str>, arms: &[&str]) -> bool {
@@ -880,8 +885,10 @@ pub fn spawn_creature_body(
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 lo.idle_under = true;
-                // A creature sets off at once from a standing fade (actors.md §8.10).
+                // A creature sets off at once from a standing fade (actors.md §8.10), as
+                // every actor does (`Locomotion::new`, #3670).
                 lo.blend.set_off_at_once = true;
+                lo.set_off_across_sets = true;
                 lo.hurt = world.anims.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
                 lo.swim = world.anims.swim_set(ctx, &c.skeleton, &skel, Body::Male, &set);
                 // Some creatures move otherwise when alert (`creature_pace.rs`), and limp

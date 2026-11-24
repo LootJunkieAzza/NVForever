@@ -95,8 +95,8 @@ pub struct Checks {
     pub target: bool,
     /// EnableFastTravel 0 holds.
     pub script_block: bool,
-    /// The worldspace's Can't Fast Travel flag outdoors, the cell's Can't Travel From
-    /// Here flag indoors.
+    /// The place forbids it: an interior, or a worldspace flagged against it
+    /// (`fnv_game::fast_travel::place_forbids`).
     pub place: bool,
     pub in_air: bool,
     pub combat: bool,
@@ -115,7 +115,7 @@ pub fn tweak_checks(c: &mut Checks, t: &crate::tweaks::TweakSettings) {
     c.in_air &= !t.midair_fast_travel;
     c.hostiles_near &= !t.fast_travel_enemies_nearby;
     c.encumbered &= !t.fast_travel_overencumbered;
-    c.place &= !t.unsafe_fast_travel;
+    c.place &= !t.game.unsafe_fast_travel;
 }
 
 /// The first refusal that applies, if any.
@@ -143,11 +143,6 @@ fn travel_bottle(sim: &mut SimState) -> Option<FormId> {
     let bottles: Vec<FormId> = TRAVEL_BOTTLES.iter().filter_map(|e| sim.forms.by_edid(e)).collect();
     bottles.into_iter().find(|&b| sim.world.item_count(FormId::PLAYER_REF, b).is_ok_and(|n| n > 0))
 }
-
-/// The CELL `DATA` flag "Can't Travel From Here" and the WRLD `DATA` flag "Can't Fast
-/// Travel" [documented: xEdit, schemas/fnv/world.json].
-pub const CELL_NO_TRAVEL: u8 = 1 << 2;
-pub const WORLD_NO_TRAVEL: u8 = 1 << 1;
 
 /// The question [observed: the owner's screenshot, "Do you want to travel to
 /// Goodsprings?"]; a plugin's `sTravelQuestion` with `%s` takes the name there, one
@@ -242,13 +237,16 @@ fn setting_f32(sim: &SimState, name: &str) -> Option<f32> {
 /// Whether the player may travel to `m` by the scripts' and the markers' word: found,
 /// flagged Can Travel To, or made a target by ShowMap or ShowAllMapMarkers.
 fn travel_target(st: &DataState, script: Option<&ScriptState>, m: &read::Marker) -> bool {
-    let by_script = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| {
-        let p = &rt.game.player;
-        p.travel_markers.contains(&FormId(m.form)) || p.all_markers.is_some_and(|a| a.shown && a.travel)
-    });
-    // LU's SetMapMarkerTravel over the record's flag (`fnv_game::nvse_lu2`).
-    let flags = script.and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.marker_flags(FormId(m.form))).unwrap_or(m.flags);
-    st.discovered.contains(&m.form) || flags & 2 != 0 || by_script
+    if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
+        let id = FormId(m.form);
+        if rt.game.marker_flags(id).is_some() {
+            if rt.game.marker_flag_override(id, fnv_game::nvse_lu2::MARKER_TRAVEL) == Some(false) {
+                return false;
+            }
+            return st.discovered.contains(&m.form) || rt.game.marker_travel(id);
+        }
+    }
+    st.discovered.contains(&m.form) || (m.flags & 3 == 3)
 }
 
 /// What the refusals look at: the player's body, where they are, the actors near, the
@@ -277,12 +275,18 @@ pub fn answer(
         return;
     };
     let indoors = location.interior.is_some();
-    let place = match location.interior {
-        Some(c) => world.index.cells.get(&c).is_some_and(|c| c.data_flags & CELL_NO_TRAVEL != 0),
-        None => read::world_flags(world.lo, world.schema, location.world) & WORLD_NO_TRAVEL != 0,
-    };
     let player = phys.player.as_ref();
     let feet = player.map(|c| c.feet);
+    let outdoors = (!indoors).then_some(location.world);
+    let cell = location.interior.or_else(|| sim.refs.world_cell_at(FormId(location.world), feet?).map(|c| c.0));
+    let place = match script.as_ref().and_then(|s| s.rt.as_ref()) {
+        // As the scripts left the flags (SetCellFlag, SetWorldspaceFlag).
+        Some(rt) => rt.game.place_forbids_travel(cell.map(FormId), outdoors.map(FormId)),
+        None => fnv_game::fast_travel::place_forbids(
+            cell.and_then(|c| world.index.cells.get(&c)).map_or(0, |c| c.data_flags.into()),
+            outdoors.map(|w| read::world_flags(world.lo, world.schema, w).into()),
+        ),
+    };
     let distance = setting_f32(&sim, ["fHostileActorExteriorDistance", "fHostileActorInteriorDistance"][usize::from(indoors)]).unwrap_or(HOSTILE_DISTANCE[usize::from(indoors)]);
     let script_block = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.player.fast_travel.travel_disabled);
     let mut hostile = None;
@@ -495,6 +499,12 @@ mod tests {
         let t = crate::tweaks::TweakSettings { midair_fast_travel: true, fast_travel_enemies_nearby: true, fast_travel_overencumbered: true, ..Default::default() };
         tweak_checks(&mut c, &t);
         assert_eq!(refusal(&c), Some(Refusal::Combat), "combat itself still refuses");
+        let mut indoors = Checks { target: true, place: true, ..Checks::default() };
+        tweak_checks(&mut indoors, &t);
+        assert_eq!(refusal(&indoors), Some(Refusal::Place));
+        let anywhere = fnv_game::tweaks::Tweaks { unsafe_fast_travel: true, ..Default::default() };
+        tweak_checks(&mut indoors, &crate::tweaks::TweakSettings { game: anywhere, ..Default::default() });
+        assert_eq!(refusal(&indoors), None, "Fast Travel From Anywhere");
         let mut open = Checks { target: true, ..Checks::default() };
         tweak_checks(&mut open, &crate::tweaks::TweakSettings { disable_fast_travel: true, ..Default::default() });
         assert_eq!(refusal(&open), Some(Refusal::Script));

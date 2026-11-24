@@ -319,16 +319,18 @@ per unchanged lock. The detectors are registered only while reports are enabled.
 | Anomaly | When |
 |---|---|
 | fell out of world | the player or an actor is below the land height by > 500 units, or outside the cell grid |
+| object fell through | a dropped item or a corpse sank through the land and the engine put it back (#2753, #2758) |
+| GPU error | a GPU error stopped the game: out of GPU memory or a lost device (#2754, #2758) |
 | player stuck | movement input held for 5 s with < 16 units moved, not in a menu |
 | controls locked (`controls_locked`) | [design, #2403] unchanged dialogue, menu or scripted control groups for 60 real seconds, with at least 5 key/mouse/controller button press edges in the trailing 60 seconds |
 | path failure | pathfinding fails 3 times in a row for one actor |
 | script loop | one script runs > 5 ms in a frame, or the same script errors 100 times |
 | hitch | a frame > 250 ms outside a load |
 | slow load | a load > 20 s; it says where the time went: each wait's end, the longest frame, the files read and the time in the reads (docs/design/loading-screen.md §1 step 7, #2407) |
-| memory | RAM or VRAM within 10 % of the budget |
-| missing asset | the first failure of each path |
+| memory | RAM or VRAM within 10 % of the budget, once a game is loaded (not at the start, when the RAM in use is other programs') |
+| missing asset | the first failure of each path. For a model or an actor file that a plugin's record names, the event says the `plugin` (the winning record's; a mod's over the game's own when both name it). A file the base game's or an add-on's own record names and no archive has is not reported: it is the data's own dangling name (`meshes\creatures\ghoul\mmm_ghoulvariant_v1.nif`, in FalloutNV.esm creatures' model lists, 11 of 49 installs of build 0.8.0) [observed, #3045; `reports/asset_sources.rs`]. A file of the game's that is there and does not read is still reported. Textures and particles have no record of their own and are reported as before |
 | save trouble | a save that fails to write, or a load that falls back (#1360) |
-| audio | the device lost or a voice file missing for a spoken line |
+| audio | the device lost or a voice file missing for a spoken line (a line with no words, such as `...`, has none by design) |
 | soft lock | the player is held and nothing moves on to let them go: scripts hold the movement controls (or the player is restrained) for 30 s with no story event; a conversation with no line and no choice for 5 s; one response said for 120 s; a menu set under a conversation that never opens (`fnv_game::softlock`, #2365) |
 
 [design, #2403 / file refs: `reports/controls.rs`, `reports/anomaly.rs`]

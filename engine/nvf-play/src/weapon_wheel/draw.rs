@@ -7,10 +7,11 @@
 //! - The eight slices and the hub: annular sectors drawn by a small shader
 //!   ([`SliceMaterial`], `slice.wesl`), near-black with a dim amber outline, the picked one
 //!   amber with a full outline and a bright arc outside the rim.
-//! - Each slot's picture: its item's own (`ICON`, the Pip-Boy's), tinted with the
-//!   interface colour, else the game's hotkey type icon for its kind
-//!   (`interface\icons\typeicons\hot_keys_icon_*.dds`); slot 2 the Ammo Swap icon. Its
-//!   number by the hub, its count (ammunition carried, or items) under the picture.
+//! - Each slot's picture: its `SetItemHotkeyIconPath` override when set, else its item's
+//!   own (`ICON`, the Pip-Boy's), tinted with the interface colour, else the game's hotkey
+//!   type icon for its kind (`interface\icons\typeicons\hot_keys_icon_*.dds`); slot 2 the
+//!   Ammo Swap icon. Its number by the hub, its count (ammunition carried, or items) under
+//!   the picture.
 //! - The hub: the picked slot's kind and name, its figures as bars (DAM, DPS, WG, VAL, CND
 //!   of a weapon; DT … of apparel), its ammunition; for slot 2 the equipped weapon's
 //!   ammunition choices and what of each is carried.
@@ -183,7 +184,7 @@ fn ammo_name(c: &crate::combat::Combat, id: FormId) -> String {
 }
 
 /// The slices and the hub for what the slots hold now.
-fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Combat>, picked: usize, width: i32) -> Shown {
+fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Combat>, script: Option<&crate::script::ScriptState>, keep_chosen: bool, picked: usize, width: i32) -> Shown {
     let count = |sim: &SimState, id: Option<FormId>| crate::combat::player_count(sim, id);
     let in_hand = combat.and_then(|c| c.player_weapon());
     let mut slices = Vec::new();
@@ -200,10 +201,13 @@ fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::C
         let item = sim.forms.item(id);
         let (carried, _) = crate::hotkeys::carried(&mut sim.world, *slot);
         let weapon = combat.and_then(|c| c.forms.weapons.get(&id));
-        let icon = item.and_then(|it| it.icon.clone()).filter(|p| !p.trim().is_empty()).or_else(|| item.map(|it| crate::pipboy::hotkey_panel::type_icon(it.kind, weapon.and_then(|w| w.skill.as_deref())).to_string()));
+        let icon = item
+            .and_then(|_| crate::hotkeys::icon_override(id, script))
+            .or_else(|| item.and_then(|it| it.icon.clone()).filter(|p| !p.trim().is_empty()))
+            .or_else(|| item.map(|it| crate::pipboy::hotkey_panel::type_icon(it.kind, weapon.and_then(|w| w.skill.as_deref())).to_string()));
         let n = match (item.map(|i| i.kind), combat, weapon) {
             (Some(ItemKind::Weapon), Some(c), Some(w)) if !c.forms.ammo_choices(w).is_empty() => {
-                let ammo = if in_hand == Some(id) { c.player_ammo() } else { c.forms.ammo_for(id, |a| count(sim, Some(a)) > 0) };
+                let ammo = if in_hand == Some(id) { c.player_ammo() } else { c.preferred_ammo_for(id, keep_chosen, |a| count(sim, Some(a)) > 0) };
                 Some(count(sim, ammo).to_string())
             }
             (Some(ItemKind::Weapon), _, _) if carried > 1 => Some(carried.to_string()),
@@ -212,11 +216,11 @@ fn shown(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::C
         };
         slices.push(SliceView { icon, count: n, empty: false, gone: carried <= 0 });
     }
-    let hub = hub(hotkeys, sim, combat, picked);
+    let hub = hub(hotkeys, sim, combat, keep_chosen, picked);
     Shown { picked, slices, hub, width }
 }
 
-fn hub(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Combat>, picked: usize) -> HubView {
+fn hub(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Combat>, keep_chosen: bool, picked: usize) -> HubView {
     if picked == AMMO_SWAP {
         let mut h = HubView { kind: "Ammo".into(), name: "Ammo Swap".into(), ..default() };
         let w = combat.and_then(|c| Some((c, c.player_weapon()?)));
@@ -253,7 +257,7 @@ fn hub(hotkeys: &Hotkeys, sim: &mut SimState, combat: Option<&crate::combat::Com
                         let a = c.player_ammo();
                         let (loaded, besides) = c.hud_weapon(sim).ammo.unwrap_or((0, 0));
                         h.ammo = Some((a.map_or_else(String::new, |a| ammo_name(c, a)), format!("{loaded} / {}", loaded + besides)));
-                    } else if let Some(a) = c.forms.ammo_for(id, |a| crate::combat::player_count(sim, Some(a)) > 0) {
+                    } else if let Some(a) = c.preferred_ammo_for(id, keep_chosen, |a| crate::combat::player_count(sim, Some(a)) > 0) {
                         h.ammo = Some((ammo_name(c, a), crate::combat::player_count(sim, Some(a)).to_string()));
                     }
                 }
@@ -316,10 +320,12 @@ fn draw(
     hotkeys: Res<Hotkeys>,
     mut sim: ResMut<SimState>,
     combat: Option<Res<crate::combat::Combat>>,
+    script: Option<Res<crate::script::ScriptState>>,
     roots: Query<Entity, With<WheelRoot>>,
     mut darken: Query<(Entity, &mut BackgroundColor), With<Darken>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     (data, formats): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SliceMaterial>>,
     mut view: ResMut<WheelView>,
@@ -335,7 +341,8 @@ fn draw(
         (Err(_), false) => {}
     }
     let width = windows.single().map_or(1280.0, |w| 960.0 * w.width() / w.height().max(1.0));
-    let now = wheel.open.map(|o| shown(&hotkeys, &mut sim, combat.as_deref(), o.picked, width.round() as i32));
+    let keep_chosen = tweaks.as_deref().is_some_and(|t| t.keep_chosen_ammo);
+    let now = wheel.open.map(|o| shown(&hotkeys, &mut sim, combat.as_deref(), script.as_deref(), keep_chosen, o.picked, width.round() as i32));
     if now == view.shown {
         return;
     }
@@ -641,5 +648,83 @@ mod tests {
         assert_eq!(texts(&weapon), ["WEAPONS", "Sturdy Caravan", "Shotgun", "<  20ga  >", "2 / 40"]);
         assert_eq!(hub_layout(&weapon, &large, &medium, r).iter().filter(|p| matches!(p, Piece::Bar { .. })).count(), 5);
         assert!(texts(&empty).iter().all(|l| !l.ends_with("...")), "{:?}", texts(&empty));
+    }
+
+    #[test]
+    fn hotkey_icon_override_updates_and_restores_weapon_wheel_slice_icon() {
+        use fnv_game::game::RunCtx;
+        use fnv_sim::forms::{BaseData, BaseForm, FormStore, Item};
+
+        const PISTOL: FormId = FormId(0x0000_434F);
+        const AID: FormId = FormId(0x0001_5169);
+
+        let mut forms = FormStore::default();
+        let make_item = |kind: ItemKind, icon: Option<&str>| Item {
+            kind,
+            value: Some(10),
+            money: None,
+            weight: Some(1.0),
+            slots: None,
+            projectile: None,
+            health: None,
+            non_playable: false,
+            cant_drop: false,
+            armor_class: Default::default(),
+            power_armor: false,
+            armor_dr: None,
+            armor_dt: None,
+            weapon_damage: None,
+            weight_mods: [0.0; 3],
+            drawable: false,
+            not_for_npcs: false,
+            thrown: false,
+            quest_item: false,
+            icon: icon.map(str::to_string),
+            placed_count: None,
+            teaches: None,
+            cant_be_taken: false,
+            modulates_voice: false,
+            weapon_traits: None,
+        };
+        forms.bases.insert(PISTOL, BaseForm { id: PISTOL, sig: *b"WEAP", edid: Some("TestPistol".into()), name: Some("Test Pistol".into()), script: None, prompt: None, voice_filter: false, data: BaseData::Item(make_item(ItemKind::Weapon, Some("Interface\\Icons\\PipboyImages\\Weapons\\test_pistol.dds"))) });
+        forms.bases.insert(AID, BaseForm { id: AID, sig: *b"ALCH", edid: Some("TestAid".into()), name: Some("Test Aid".into()), script: None, prompt: None, voice_filter: false, data: BaseData::Item(make_item(ItemKind::Aid, None)) });
+
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut sim = SimState { forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()) };
+        let mut hotkeys = Hotkeys::default();
+        hotkeys.0[0] = Some(crate::hotkeys::Slot { item: PISTOL.0, mods: 0 });
+        hotkeys.0[2] = Some(crate::hotkeys::Slot { item: AID.0, mods: 0 });
+
+        let mut script = crate::script::ScriptState::over_no_plugins();
+
+        // Vanilla (no override): slot 1 uses ICON, slot 2 stays Ammo Swap, slot 3 uses type_icon.
+        let baseline = shown(&hotkeys, &mut sim, None, Some(&script), false, 0, 1280);
+        assert_eq!(baseline.slices[0].icon.as_deref(), Some("Interface\\Icons\\PipboyImages\\Weapons\\test_pistol.dds"));
+        assert_eq!(baseline.slices[AMMO_SWAP].icon.as_deref(), Some(SWAP));
+        assert_eq!(baseline.slices[2].icon.as_deref(), Some(crate::pipboy::hotkey_panel::type_icon(ItemKind::Aid, None)));
+        assert_eq!(shown(&hotkeys, &mut sim, None, None, false, 0, 1280), baseline);
+
+        // SetItemHotkeyIconPath with leading textures/ and forward slashes normalises cleanly.
+        let run = |script: &mut crate::script::ScriptState, body: &str| {
+            script.rt.as_mut().unwrap().game.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), RunCtx::default()).unwrap();
+        };
+        run(&mut script, &format!(r#"SetItemHotkeyIconPath {} "Textures/Interface/Icons/CustomWheel.dds""#, PISTOL.0));
+        let custom = shown(&hotkeys, &mut sim, None, Some(&script), false, 0, 1280);
+        assert_ne!(custom, baseline, "live wheel redraw triggers on override");
+        assert_eq!(custom.slices[0].icon.as_deref(), Some("interface\\icons\\customwheel.dds"));
+        assert_eq!(custom.slices[AMMO_SWAP].icon.as_deref(), Some(SWAP));
+        assert_eq!(custom.slices[2].icon.as_deref(), Some(crate::pipboy::hotkey_panel::type_icon(ItemKind::Aid, None)));
+
+        // Live update replaces the icon immediately.
+        run(&mut script, &format!(r#"SetItemHotkeyIconPath {} "\\interface\\icons\\updated_wheel.dds""#, PISTOL.0));
+        let updated = shown(&hotkeys, &mut sim, None, Some(&script), false, 0, 1280);
+        assert_ne!(updated, custom);
+        assert_eq!(updated.slices[0].icon.as_deref(), Some("interface\\icons\\updated_wheel.dds"));
+
+        // Clearing via "" restores the item's default icon.
+        run(&mut script, &format!(r#"SetItemHotkeyIconPath {} """#, PISTOL.0));
+        let restored = shown(&hotkeys, &mut sim, None, Some(&script), false, 0, 1280);
+        assert_eq!(restored, baseline);
     }
 }

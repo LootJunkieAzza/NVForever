@@ -3,7 +3,7 @@
 use super::{base_of, none, yes, Args, Ctx};
 use crate::game::{ActMode, Game};
 use crate::trace::EventKind;
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArgValue, Value, XVal};
 use fnv_sim::FormId;
 
 /// `ref.Enable [FadeIn]`: the reference is drawn and its actor's AI runs again; it fades
@@ -72,6 +72,10 @@ pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String>
     if r == FormId::PLAYER_REF {
         tracing::info!("script: Disable of the player ignored: the player stays enabled (doors.md §6)");
         return none();
+    }
+    // A dead actor disabled forgets when it died (GetTimeDead).
+    if let Some(e) = g.extra.get_mut(&r) {
+        e.died_day = None;
     }
     let held = g.script_looks.fading_out.contains_key(&r);
     if fade && held {
@@ -303,13 +307,14 @@ pub fn get_in_worldspace(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
 
 /// `ref.GetInZone zone`: 1 when the calling reference is in a cell attached to the
 /// encounter zone [documented: GECK wiki GetInZone, "Returns 1 if FredRef is currently in
-/// a cell attached to the ParadiseFallsZone"]: its current cell's zone (CELL XEZN, else
-/// the worldspace's; docs/spec-notes/encounter-zones.md §1) [hypothesis: a reference's
-/// own XEZN does not count; the wiki speaks of cells].
+/// a cell attached to the ParadiseFallsZone"]: its current cell's effective zone
+/// (`World::cell_zone_of`: session `SetCellEncounterZone`, else CELL XEZN, else
+/// `SetWorldspaceEncounterZone` / WRLD XEZN; docs/spec-notes/encounter-zones.md §1)
+/// [hypothesis: a reference's own XEZN does not count; the wiki speaks of cells].
 pub fn get_in_zone(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let zone = a.form(0)?;
-    yes(g.cell_of(r).and_then(|c| g.world.placed.cell_zone(c)) == Some(zone))
+    yes(g.cell_of(r).and_then(|c| g.world.cell_zone_of(c)) == Some(zone))
 }
 
 pub fn get_in_same_cell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -584,9 +589,9 @@ pub fn list_members(g: &Game, list: FormId) -> Vec<FormId> {
 }
 
 /// The items that can repair `item`: the members of its repair list (WEAP/ARMO `REPL`),
-/// authored and added at run time (docs/spec-notes/repair.md §5).
+/// authored, overridden by `SetRepairList`, and added at run time (docs/spec-notes/repair.md §5).
 pub fn repair_list(g: &Game, item: FormId) -> Vec<FormId> {
-    g.data.repair_lists.get(&item).map(|&l| list_members(g, l)).unwrap_or_default()
+    g.effective_repair_list_form(item).map(|l| list_members(g, l)).unwrap_or_default()
 }
 
 /// 1 when the caller's base form is in the list.
@@ -651,6 +656,51 @@ pub fn get_open_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
     }
     let open = g.world.get(r).map_err(|e| e.to_string())?.open;
     Ok(Value::Num(if open { 1.0 } else { 3.0 }))
+}
+
+/// `ref.GetDefaultOpen`: 1 if the calling reference's default state is open, else 0
+/// (`0x10D7`, CTDA condition index `215`) [documented: GECK wiki GetDefaultOpen].
+pub fn get_default_open(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let open = g.world.check_default_open(r).map_err(|e| e.to_string())?;
+    Ok(Value::Num(if open { 1.0 } else { 0.0 }))
+}
+
+/// Catalogue-unnumbered vanilla reference functions handled as named source calls
+/// (docs/spec-notes/default-open.md).
+pub(crate) fn handles_source(name: &str) -> bool {
+    name.eq_ignore_ascii_case("SetDefaultOpen")
+}
+
+/// Execute a catalogue-unnumbered vanilla reference source call (`SetDefaultOpen`).
+/// An explicit empty or unknown receiver fails rather than falling back to `ctx.self_ref`.
+pub(crate) fn call_source(
+    g: &mut Game,
+    ctx: &Ctx,
+    receiver: Option<Value>,
+    name: &str,
+    values: &[XVal],
+) -> Option<Result<XVal, String>> {
+    if !name.eq_ignore_ascii_case("setdefaultopen") {
+        return None;
+    }
+    Some((|| {
+        let r = match receiver {
+            Some(value) => value.as_form().map(FormId).ok_or("invalid calling reference")?,
+            None => ctx.self_ref.ok_or("SetDefaultOpen requires a calling reference")?,
+        };
+        if values.len() != 1 {
+            return Err("setdefaultopen expects 1 argument".into());
+        }
+        let arg = match &values[0] {
+            XVal::Num(n) if n.is_finite() => ArgValue::Value(Value::Num(*n)),
+            _ => return Err("SetDefaultOpen expects a numeric defaultOpen argument".into()),
+        };
+        let args = [arg];
+        let open = Args(&args).int(0)? != 0;
+        g.world.set_default_open(r, open).map_err(|e| e.to_string())?;
+        Ok(XVal::Num(0.0))
+    })())
 }
 
 /// A trigger-enter event on the calling trigger, by the given reference [documented:

@@ -26,10 +26,9 @@ use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
-// The checked admission API is a prerequisite; a recipient adapter is not wired yet.
-#[allow(dead_code)]
-mod grid;
-use grid::OutlineGrid;
+pub(crate) mod grid;
+pub use grid::Rejected;
+pub(crate) use grid::{Basis, CheckedGrid, Limits, OutlineGrid, Request as GridRequest};
 
 /// The local map's scale indoors, game units to a canvas unit at a magnification of 1
 /// [design: outdoors it is 28, fitted to the owner's screenshot; a house at that scale is
@@ -109,6 +108,23 @@ impl Outline {
     pub fn new(interior: Option<u32>, world: u32, centre: [f32; 2], feet: f32, window: Vec2, scale: f32) -> Outline {
         let o = Outline::sized(interior, world, centre, feet, window, scale);
         Outline { heights: Vec::with_capacity(o.size[0] * o.size[1]), ..o }
+    }
+
+    /// A grid constructed from a pre-validated [`CheckedGrid`] descriptor, allocating the
+    /// sample buffer only after all limits and integer bounds have been checked [design].
+    pub(crate) fn from_checked(checked: CheckedGrid) -> Outline {
+        let g = checked.grid();
+        let size = g.size();
+        Outline {
+            key: g.key(),
+            origin: g.origin(),
+            step: g.step(),
+            size,
+            interior: g.key().0.is_some(),
+            feet: g.feet(),
+            heights: Vec::with_capacity(size[0] * size[1]),
+            image: None,
+        }
     }
 
     /// [`Outline::new`]'s grid with no room made for its samples.
@@ -215,6 +231,12 @@ impl Outline {
         let mut image = Image::new(size, TextureDimension::D2, rgba, TextureFormat::Rgba8Unorm, RenderAssetUsages::default());
         image.sampler = ImageSampler::linear();
         image
+    }
+
+    /// Write this outline's RGBA texels into an existing `Image` in place so a registered
+    /// recipient can retain one stable `Handle<Image>` across updates [design].
+    pub(crate) fn write_picture_into(&self, dst: &mut Image) {
+        *dst = self.picture();
     }
 
     /// How many samples landed somewhere.

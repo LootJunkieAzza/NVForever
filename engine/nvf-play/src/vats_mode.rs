@@ -2246,7 +2246,9 @@ fn spot_on(v: &VatsMode, combat: &Combat, parts: &ActorParts, script: Option<&mu
         (None, None) => "whole".to_string(),
     };
     let condition = bp.as_ref().and_then(|b| b.actor_value.as_deref()).and_then(fnv_game::combat::limb_condition);
-    let name = sim.base_of(actor).and_then(|b| sim.name(b).map(str::to_string)).unwrap_or_else(|| "?".into());
+    // The name the health bar shows (`crate::hud_target`): the template chain's, through the
+    // leveled list to the entry picked for this actor, and never an Editor ID (#3445).
+    let name = sim.ref_shown_name(script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), actor).unwrap_or_default().to_string();
     // The part's base chance (§17.2): its BPTD To Hit Chance; an actor without
     // parts, or the weapon it holds, our own.
     let (base, size) = match (part, bp.as_ref()) {
@@ -3668,7 +3670,7 @@ mod tests {
     fn the_wait_for_explosives_counts_from_the_last_one_sent() {
         use crate::combat::VatsBlast;
         let flying = |toward| VatsBlast { toward, off: 0, went_off: 0 };
-        let mut v = VatsMode::default();
+        let mut v = VatsMode { style: VatsStyle::DeadEye, ..Default::default() };
         // The first of a long queue flies.
         assert!(v.blast_holds(flying(1)));
         // Eleven seconds on another leaves: the patience starts over.
@@ -3740,7 +3742,7 @@ mod tests {
     fn a_preview_figure_is_the_marks_chance() {
         let gun = InHand { id: FormId(1), reach: REACH, style: AttackStyle::Single, melee_reach: 0.0, sight_fov: 0.0, skill: 45.0, hit: HitTuning::default(), special: None };
         let head = Spot { point: [900.0, 0.0, 60.0], part: "Head".into(), base: 30.0, size: 0.4, ..Default::default() };
-        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), weapon: Some(gun.clone()), ..Default::default() };
+        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), weapon: Some(gun.clone()), style: VatsStyle::DeadEye, ..Default::default() };
         let previewed = chance_of(&head, &gun, [0.0; 3], Some(1.5));
         v.preview = Preview { health: None, actor: Some(7), parts: vec![PreviewPart { part: Some(1), spot: Spot { chance: previewed, ..head.clone() }, shown: true, under: true, queued: 0, condition: None, damage: 0.0 }], built_at: 0.0 };
         // Marked, the part's chance is worked out again the marks' way: the same figure.
@@ -3888,7 +3890,7 @@ mod tests {
 
     #[test]
     fn the_reservation_shrinks_as_shots_are_fired() {
-        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(26.0, 1, 6), ..Default::default() };
+        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(26.0, 1, 6), style: VatsStyle::DeadEye, ..Default::default() };
         v.queue.push(FormId(1), None, 92.0).unwrap();
         v.queue.push(FormId(2), Some(1), 92.0).unwrap();
         assert_eq!(v.reserved(), 52.0);
@@ -3996,7 +3998,7 @@ mod tests {
 
     #[test]
     fn the_melee_mark_is_the_one_being_swung_at_while_firing() {
-        let mut v = VatsMode { phase: Phase::Firing, queue: MarkQueue::new(20.0, 1, 100), ..Default::default() };
+        let mut v = VatsMode { phase: Phase::Firing, queue: MarkQueue::new(20.0, 1, 100), style: VatsStyle::DeadEye, ..Default::default() };
         v.queue.push(FormId(7), None, 92.0).unwrap();
         v.spots.push(Spot { point: [1.0, 2.0, 3.0], name: "dog".into(), part: "whole".into(), ..Default::default() });
         v.weapon = Some(InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0, sight_fov: 0.0, skill: 50.0, hit: HitTuning::default(), special: None });

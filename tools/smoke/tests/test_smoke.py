@@ -1006,3 +1006,29 @@ class ChildProcessTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SessionLockedTest(unittest.TestCase):
+    """#3277: a locked Windows session (LogonUI.exe running) is told apart."""
+
+    def run_with(self, stdout, code=0):
+        from unittest import mock
+        from smoke import runner
+        done = subprocess.CompletedProcess([], code, stdout=stdout, stderr="")
+        with mock.patch.object(runner.os, "name", "nt"), mock.patch.object(runner.subprocess, "run", return_value=done):
+            return runner.session_locked()
+
+    def test_logonui_running_is_locked(self):
+        self.assertTrue(self.run_with('"LogonUI.exe","1234","Console","1","40,000 K"\n'))
+
+    def test_no_logonui_is_unlocked(self):
+        self.assertFalse(self.run_with("INFO: No tasks are running which match the specified criteria.\n"))
+
+    def test_a_failed_list_tells_nothing(self):
+        self.assertIsNone(self.run_with("", code=1))
+
+    def test_not_windows_tells_nothing(self):
+        from unittest import mock
+        from smoke import runner
+        with mock.patch.object(runner.os, "name", "posix"):
+            self.assertIsNone(runner.session_locked())

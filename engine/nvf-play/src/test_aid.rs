@@ -103,13 +103,36 @@
 //!   placed reference with a dynamic body for that long after its cell loads — offsets,
 //!   turns, speeds and the overlaps found after the first step (physics.md §4.3.1).
 //!
+//! - `NVF_PLAY_TEST_PBR_MOUNT_PACK=1` (nvf-assets pbr_field/reflect.rs) and
+//!   `NVF_PLAY_TEST_PBR_GROUND_PACK=1` (nvf-assets pbr_field/ground.rs, with nvforever
+//!   terrain.rs `ground_pack_diffuses`): generated authored sets written into a fresh folder
+//!   of the run under an explicit `NVFOREVER_HOME` and mounted over every other loose layer
+//!   for that run only; the ground pack gives every landscape texture the load order names a
+//!   height-only set (a ridged `_p` from a formula, depth 0.08) for the terrain parallax
+//!   (#3322).
+//! - `NVF_PLAY_TEST_TERRAIN_PARALLAX_AB=<seconds>[:hold][:grazing|head-on][,...]` (nvforever
+//!   terrain_parallax_ab.rs): three screenshots at each time, the Terrain parallax switch
+//!   off, on, off (or left alone with `hold`), optionally from its own pose on a spot of
+//!   ground the march moves, and log lines for what lies under the view's centre and how the
+//!   ground's texture there moved between them (`moved`, `still`, `bare`, ...).
+//! - `NVF_PLAY_TEST_PICK_LOG=1` (activate.rs): each new crosshair target is logged with
+//!   what it was picked from: the raw first collision hit, every render box the view ray
+//!   enters (entry and exit distances, rough, bed) and the boxes set aside (#3323).
+//!
+//! - `NVF_PLAY_TEST_POSE_WATCH=[<seconds>:]<text>[,<text>...]` (nvforever's
+//!   `swimming.rs`): from that time on, a line whenever what a watched actor plays
+//!   changes (its name contains a text, any case): its base layer's and fading layer's
+//!   clips and weights, its set, its idle layers, whether it has a character and whether
+//!   that swims and rests on the bed (#2980). It only measures.
+//!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
 //! view (as with `--auto-walk`). Not the aids that only measure ([`MEASURING_AIDS`]:
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
 //! `NVF_PLAY_TEST_PROFILE_HITCH_MS`, `NVF_PLAY_TEST_PROFILE_HITCH_SPANS`,
 //! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
-//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`, `NVF_PLAY_TEST_GAME_DIGEST`): with them alone the run is played by
+//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`, `NVF_PLAY_TEST_GAME_DIGEST`,
+//! `NVF_PLAY_TEST_POSE_WATCH`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
@@ -458,7 +481,7 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 /// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
 /// at the name alone, so any value counts, and a load's new run drops it like any driving
 /// aid (`profile-slow-frames`).
-pub const MEASURING_AIDS: [&str; 10] = [
+pub const MEASURING_AIDS: [&str; 11] = [
     "NVF_PLAY_TEST_SAMPLE",
     "NVF_PLAY_TEST_PROFILE",
     "NVF_PLAY_TEST_PROFILE_COUNTS",
@@ -471,6 +494,8 @@ pub const MEASURING_AIDS: [&str; 10] = [
     crate::mod_log::ENV,
     // Logs digests of the game's state at given times (nvforever game_digest.rs).
     "NVF_PLAY_TEST_GAME_DIGEST",
+    // Logs what watched actors play (nvforever swimming.rs pose watch, #2980).
+    "NVF_PLAY_TEST_POSE_WATCH",
 ];
 
 /// Whether this environment variable is a test aid that drives the run (any

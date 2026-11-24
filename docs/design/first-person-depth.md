@@ -54,6 +54,21 @@ module notes "First-person depth"; `first_person_depth.wesl`):
   shadow-casting light has `ARMS_LAYER` (the flashlight casts from layer 0 only).
   Prepasses with colour targets (normals, motion vectors) are left alone; the main camera
   has a depth-only prepass.
+- Flashlight washout attenuation [design, #3121]: because the player flashlight
+  (`flashlight.rs`, brightness 2.0, range 2800, 14° inner core) sits 14 units ahead of the
+  eye and flat game attenuation (`1 - (d / r)^2`) leaves it near 1.0 at weapon distance,
+  aiming down sights placed the held weapon and hand inside the full-strength core and blew
+  bright or shiny weapons out to white. In `lights/display_shader.rs`, under
+  `@if(FIRST_PERSON_DEPTH)`, the flashlight is scaled to
+  `FIRST_PERSON_FLASHLIGHT_DIFFUSE` (0.15) for display-value diffuse and
+  `FIRST_PERSON_FLASHLIGHT_SPECULAR` (0.10) for specular, whatever its Tweaks › Flashlight
+  Type (spot or point) and Shadows rows (#3280): the shader knows it by Bevy's
+  lightmapped-diffuse flag, which only the flashlight clears (`flashlight.rs` `made`;
+  NVForever draws no lightmaps, so the flag does nothing else). World surfaces,
+  third-person body/weapon (`BODY_LAYER`, no `FIRST_PERSON_DEPTH`), and the world's lights
+  (`LIGH`, with shadows or without) are unchanged. Live 1280×720 GPU before/after screenshot acceptance
+  across weapon classes (revolver, rifle, energy weapon, melee) remains to be verified on a
+  live GPU build.
 
 Kept as it was: one camera, so lighting, sun shadows, the shade light, fog, the image
 space grade, MSAA and the depth prepass users all work unchanged; the nodes and the world

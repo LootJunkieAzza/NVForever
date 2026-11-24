@@ -36,8 +36,9 @@
 //!   place from above is not drawn). Indoors the map is drawn closer
 //!   ([`outline::INTERIOR_SCALE`]).
 //! - **Place Marker** (#1954, [`marker`]): the maps' X button (X, the controller's X, a
-//!   click on its hint) asks, in the same question box, whether to set the player's one
-//!   custom marker at the highlight box, or to move, remove or keep the one placed. Both
+//!   click on its hint; a click on a map away from any marker, #3324) asks, in the same
+//!   question box, whether to set the player's one custom marker at the highlight box,
+//!   or to move, remove or keep the one placed. Both
 //!   maps show it (the game keeps it, `fnv_game::Game::custom_map_marker`, so scripts'
 //!   SetCustomMapMarker shows too, and it is saved), and the World Map draws dotted lines
 //!   from the player's arrow to it and to the active quest's targets.
@@ -61,7 +62,7 @@
 
 pub mod marker;
 mod model;
-mod outline;
+pub(crate) mod outline;
 pub(crate) mod read;
 pub mod travel;
 pub mod view;
@@ -491,6 +492,10 @@ pub struct DataState {
     drag_from: Option<Vec2>,
     /// The Local Map's outline of the place, as far as it is made.
     outline: Option<Outline>,
+    /// The last outline finished of the same place and floor, shown while [`DataState::outline`]
+    /// is made after a pan took the map off it (#3326: outdoors a grid takes several frames, and
+    /// the map blinked empty each time a drag passed a quarter of it).
+    outline_last: Option<Outline>,
     /// The landscape surfaces of the cells the outline read (by grid square; `None` for a
     /// square without land), smoothed or stored as the run draws and collides them
     /// (`crate::smooth_terrain`, #2149), kept while one outline is made.
@@ -510,9 +515,14 @@ pub struct DataState {
     /// The boxes of the buttons at the right as last drawn, and their tab
     /// ([`button_boxes`], [`on_button`]).
     button_rects: (usize, Vec<Rect>),
-    /// Where the left button went down on the World Map, and how far the pointer has
-    /// moved since (a click asks to travel, a drag does not).
+    /// Where the left button went down on a map, and how far the pointer has moved since
+    /// (a click asks to travel or places the custom marker, a drag does neither).
     press: Option<(Vec2, f32)>,
+    /// A click on map tab `.0` this frame ([`travel_ask`], #3324), resolved once the map is laid
+    /// out for good against the highlight box as drawn then ([`take_click`]): companions
+    /// summoned, a fast-travel question for the World Map's marker under it, else Place Marker's
+    /// question of the place under it.
+    map_click: Option<usize>,
     /// The question box over the map: fast travel's (`travel`) or Place Marker's.
     popup: Option<Popup>,
     /// The pointer on the page this frame, whatever the input device (the question box's
@@ -618,6 +628,9 @@ pub(crate) struct Button {
 pub(crate) struct MapMark {
     /// A map marker's type and whether the player has been there; `None` for a door.
     pub(crate) icon: Option<(u8, bool)>,
+    /// Optional custom icon texture path set by `SetCustomMapMarkerIcon` (applied when
+    /// discovered, falling back to `model::marker_icon` when absent or unreadable).
+    pub(crate) custom_icon: Option<String>,
     pub(crate) highlighted: bool,
     /// The marker's middle in the map's window.
     pub(crate) at: Vec2,
@@ -641,7 +654,14 @@ pub(crate) struct MapMark {
 impl MapMark {
     pub(crate) fn picture(&self) -> String {
         match self.icon {
-            Some((kind, found)) => model::marker_icon(kind, found),
+            Some((kind, found)) => {
+                if found {
+                    if let Some(custom) = self.custom_icon.as_deref().filter(|p| !p.trim().is_empty()) {
+                        return custom.to_string();
+                    }
+                }
+                model::marker_icon(kind, found)
+            }
             None => match self.outside {
                 Some(true) => DOOR_ICON_OUTSIDE.into(),
                 Some(false) => DOOR_ICON_INSIDE.into(),
@@ -718,6 +738,12 @@ pub(crate) struct WorldParts {
     /// outside the window too (the hand-built page leaves them out, [`MapShown::marks`]), so a pan
     /// keeps their rows; none on the World Map, whose rows are its marks.
     pub(crate) rows: Option<Vec<MapMark>>,
+    /// The World Map's companions (`map_companions`): each teammate's FormID, texture
+    /// coordinates, display name, and knocked-out state; empty on the Local Map.
+    pub(crate) companions: Vec<(u32, [f32; 2], String, bool)>,
+    /// The font number for companion names on the World Map (2 by default, 1 with
+    /// `bCompanionsUseLocationFontOnMap`).
+    pub(crate) companion_font: u8,
 }
 
 impl MapShown {
@@ -900,7 +926,11 @@ pub fn draw(
         let tab = match (body, st.prepared.as_ref()) {
             (Some((_, b)), Some(p)) if p.view.tab == b.tab => b.tab,
             _ => {
-                // Drawn from its tiles (or not shown): its refit, if any, is done.
+                // Drawn from its tiles (or not shown): its refit, if any, is done, so the frame's
+                // click is taken now, against the highlight box as laid out for good (#3324).
+                if let Some(s) = take_click(st, &mut game, input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])) {
+                    input.summon.write(s);
+                }
                 flush_travel(st, &mut input);
                 return;
             }
@@ -909,15 +939,18 @@ pub fn draw(
         // (the tile page fell back this frame): gathered again in the hand-built window, so what
         // is drawn and where the pointer is read agree. No input is taken again.
         let pointer = screen.as_deref().and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
-        let view = match refit_hand_built(st, tab, &game, pointer) {
-            Some(v) => {
-                if let Some(p) = st.prepared.as_mut() {
-                    p.view = v.clone();
-                }
-                v
-            }
+        let mut view = match refit_hand_built(st, tab, &game, pointer) {
+            Some(v) => v,
             None => st.prepared.as_ref().map(|p| p.view.clone()).unwrap_or_else(|| unreachable!()),
         };
+        // The frame's click, against the map as drawn here (#3324).
+        if let Some(s) = take_click(st, &mut game, input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])) {
+            input.summon.write(s);
+        }
+        view.popup = st.popup.clone();
+        if let Some(p) = st.prepared.as_mut() {
+            p.view = view.clone();
+        }
         flush_travel(st, &mut input);
         view
     } else {
@@ -988,6 +1021,11 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
         st.note_shown = None;
         st.travel_marker = None;
         st.bar_drag = None;
+        // A press held while the page closes (another page, the Pip-Boy down) is let go with it:
+        // no click or drag on the map the page comes back to (#3324).
+        st.press = None;
+        st.drag_from = None;
+        st.map_click = None;
         input.wheel.clear();
         input.menu.clear();
         return None;
@@ -997,6 +1035,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
         st.boxed = false;
         st.popup = None;
         st.travel_marker = None;
+        st.press = None;
     }
     if !st.was_open {
         st.was_open = true;
@@ -1031,7 +1070,17 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     // Over a button at the right the pointer is off the map: the highlight box stays where
     // it was, and with it the Travel hint's marker (#1897).
     let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
-    let view = build(st, tab, &lists, game, on_map, pointer.is_some());
+    let mut view = build(st, tab, &lists, game, on_map, pointer.is_some());
+    // A click on a map is resolved against the highlight box as drawn for good (#3324): here for
+    // the hand-built page; the page drawn from the file may lay the map out again (its refit,
+    // `DataState::refit_map`, or the fall back to the hand-built window), so with the early
+    // preparation [`draw`] takes it once that is done.
+    if early.is_none() {
+        if let Some(s) = take_click(st, game, input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])) {
+            input.summon.write(s);
+        }
+        view.popup = st.popup.clone();
+    }
     // The hints are logged when they change from what was last shown: the hand-built drawing's
     // last view, or with the early preparation the last one prepared.
     let last = if early.is_some() { st.last_view.as_ref() } else { st.shown.as_ref() };
@@ -1299,18 +1348,32 @@ impl DataState {
         st.discovered = found;
     }
 
-    /// The markers found since the last call, with their names.
-    pub fn take_newly_found(&mut self) -> Vec<(u32, String)> {
+    /// The markers found since the last call, with their effective names (respecting
+    /// `SetMapMarkerName` when the script runtime is present).
+    pub fn take_newly_found(&mut self, game: Option<&fnv_game::Game>) -> Vec<(u32, String)> {
         let new = std::mem::take(&mut self.newly_found);
-        let name = |f: u32| self.markers.as_ref().and_then(|ms| ms.iter().find(|m| m.form == f)).map(|m| m.name.clone()).unwrap_or_default();
+        let name = |f: u32| {
+            game.and_then(|g| g.map_marker_name_override(FormId(f)))
+                .map(str::to_string)
+                .or_else(|| self.markers.as_ref().and_then(|ms| ms.iter().find(|m| m.form == f)).map(|m| m.name.clone()))
+                .unwrap_or_default()
+        };
         new.into_iter().map(|f| (f, name(f))).collect()
     }
 
     /// The named map markers of worldspace `world` the plugins place (read once the DATA
-    /// page first tracked the player): reference, place and whether the player found it.
-    /// The markers of `world` with their names: FormID, place, name, found.
-    pub fn named_markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], &str, bool)> {
-        self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, m.name.as_str(), self.discovered.contains(&m.form))).collect()
+    /// page first tracked the player): reference, place, effective name, and whether the
+    /// player found it.
+    pub fn named_markers_of<'a>(&'a self, world: u32, game: Option<&'a fnv_game::Game>) -> Vec<(u32, [f32; 3], &'a str, bool)> {
+        self.markers
+            .iter()
+            .flatten()
+            .filter(|m| m.world == world)
+            .map(|m| {
+                let name = game.and_then(|g| g.map_marker_name_override(FormId(m.form))).unwrap_or(m.name.as_str());
+                (m.form, m.pos, name, self.discovered.contains(&m.form))
+            })
+            .collect()
     }
 
     pub fn markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], bool)> {
@@ -1318,14 +1381,22 @@ impl DataState {
     }
 
     /// The markers of `world` not found yet that the map does not show either (no
-    /// Visible flag, not shown by a script), for the compass's Hide Unmapped Places tweak
-    /// [design: docs/design/tweaks.md].
+    /// Visible flag, not shown by a script), for the compass's Hide Unmapped Places
+    /// tweak [design: docs/design/tweaks.md].
     pub fn unmapped_of(&self, world: u32, game: Option<&fnv_game::Game>) -> std::collections::HashSet<u32> {
         self.markers
             .iter()
             .flatten()
-            .filter(|m| m.world == world && !self.discovered.contains(&m.form) && m.flags & 1 == 0)
-            .filter(|m| !game.is_some_and(|g| g.map_marker_shown(FormId(m.form), m.flags & 4 != 0)))
+            .filter(|m| {
+                if m.world != world || self.discovered.contains(&m.form) {
+                    return false;
+                }
+                let flags = game.and_then(|g| g.marker_flags(FormId(m.form))).unwrap_or(m.flags);
+                if flags & fnv_game::nvse_lu2::MARKER_VISIBLE != 0 {
+                    return false;
+                }
+                !game.is_some_and(|g| g.map_marker_shown(FormId(m.form), flags & fnv_game::nvse_lu2::MARKER_HIDDEN != 0))
+            })
             .map(|m| m.form)
             .collect()
     }
@@ -1500,7 +1571,7 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         .filter(|(q, s)| listed(g, **q, s) && !(g.tweaks.hide_completed_quests && (s.completed || s.failed)))
         .map(|(q, s)| QuestKey { seen: st.seen.get(&q.0).copied().unwrap_or(st.seen_count + 1), form: q.0, done: s.completed || s.failed })
         .collect();
-    model::sort_quests(&mut out.quests);
+    model::sort_quests_with_top(&mut out.quests, g.top_ui_quest().map(|q| q.0));
     // A script's ForceActiveQuest makes its quest the active one [documented: GECK wiki
     // ForceActiveQuest]; the player's pick afterwards wins again.
     if g.ui.active_quest_count != st.forced_seen {
@@ -1766,13 +1837,9 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     // asks to travel there (`travel`); so does the controller's A (the confirm button) on a
     // highlighted marker [observed: the original; docs/design/controller.md §3].
     let mouse = (input.buttons.just_pressed(MouseButton::Left), input.buttons.just_released(MouseButton::Left));
-    // The player's Map Selectable Companions tweak: a click on companions summons them,
-    // not a travel [design: docs/design/tweaks.md].
-    let summon_click = tab == WORLD && mouse.1 && !st.companions_under.is_empty() && !on_button(st, tab, pointer) && st.press.is_some_and(|(_, moved)| moved <= CLICK_SLOP);
-    if summon_click {
-        st.press = None;
-        input.summon.write(SummonCompanions(st.companions_under.clone()));
-    } else if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
+    // A click on the map is taken once it is drawn ([`take_click`]): the Map Selectable
+    // Companions tweak's summon, a travel or Place Marker.
+    if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
         st.travel_pending = Some(m);
     }
     // Dragging a map moves the point at its middle: the left button held down on it (not
@@ -2115,6 +2182,18 @@ fn choose(p: &mut Popup, hold: &mut BoxHold, pointer: Option<Vec2>, b: &BoxInput
 /// ([`marker::Words`]). Under the player's No Place Marker Popup tweak it answers at once
 /// ([`marker::quick`]) [design: docs/design/tweaks.md].
 fn place_marker(st: &mut DataState, tab: usize, game: &mut Game, shift: bool) {
+    // A map that cannot be drawn now (no place, or a worldspace without map data: entered on
+    // this frame, before the map was built) has nothing under its box, whatever another map left
+    // there (#3324).
+    let shown = game.location.is_some()
+        && match tab {
+            WORLD => map_of(st, game).is_some(),
+            LOCAL => game.player.is_some(),
+            _ => false,
+        };
+    if !shown {
+        blank_map(st, tab);
+    }
     let Some(at) = st.spot.get(tab).copied().flatten() else {
         info!("pipboy map: Place Marker: no place under the highlight box");
         return;
@@ -2131,6 +2210,58 @@ fn place_marker(st: &mut DataState, tab: usize, game: &mut Game, shift: bool) {
     let (text, buttons) = marker::Words::of(ask, |(name, ours)| super::labels::label(name, ours).to_string());
     info!("pipboy map: Place Marker asks {text:?} ({} answers) for ({:.0}, {:.0}) in {}", buttons.len(), at.pos[0], at.pos[1], FormId(at.space));
     st.popup = Some(Popup::marker(ask, text, buttons));
+}
+
+/// A click on a map this frame ([`DataState::map_click`]), taken once the map is laid out for
+/// good, so it reads the highlight box as drawn on the frame the button was let go (#3324):
+/// - on the World Map with companions under the box and the player's Map Selectable
+///   Companions tweak on, it summons them (returned for the caller to send) [design:
+///   docs/design/tweaks.md];
+/// - else on the World Map with a marker under the box it asks to travel there and makes it the
+///   Travel target;
+/// - else (the Local Map: anywhere) it drops the Travel target and asks Place Marker's question
+///   of the place under the box ([`place_marker`]); a map with no place under the box (a
+///   worldspace without map data) takes no click.
+///
+/// The click wins over Enter (or A, the Travel hint) in the same frame: the travel those asked
+/// is dropped, or becomes the click's own, so one question is asked [design]. The original's
+/// mouse gesture is a hypothesis (docs/handoff/observer-checks.md).
+fn take_click(st: &mut DataState, game: &mut Game, shift: bool) -> Option<SummonCompanions> {
+    let tab = st.map_click.take()?;
+    if !(tab == LOCAL || tab == WORLD) || st.popup.is_some() {
+        return None;
+    }
+    let name = if tab == WORLD { "world" } else { "local" };
+    let under = if tab == WORLD { st.cursor_marker } else { None };
+    if tab == WORLD && !st.companions_under.is_empty() {
+        drop_travel(st);
+        return Some(SummonCompanions(st.companions_under.clone()));
+    }
+    if tab == WORLD {
+        st.travel_marker = under;
+    }
+    match under {
+        Some(m) => st.travel_pending = Some(m),
+        None => {
+            drop_travel(st);
+            if st.spot[tab].is_none() {
+                info!("pipboy map: a click on the {name} map: no place under the highlight box");
+            } else {
+                info!("pipboy map: a click on the {name} map away from any marker: Place Marker");
+                place_marker(st, tab, game, shift);
+            }
+        }
+    }
+    None
+}
+
+/// A fast-travel question asked this frame (Enter, A, the Travel hint) not sent: a click took
+/// the frame ([`take_click`]).
+fn drop_travel(st: &mut DataState) {
+    if let Some(m) = st.travel_pending.take() {
+        info!("pipboy data: fast travel to {} not asked: a click on the map took the frame", FormId(m));
+    }
+    st.travel_redrawn = false;
 }
 
 /// Do what the answer to Place Marker's question says, on the game's marker (the one
@@ -2489,13 +2620,15 @@ fn travel_target(kept: Option<u32>, under: Option<u32>, aiming: bool, shown: &[u
     under.or(kept.filter(|_| aiming)).filter(|m| shown.contains(m))
 }
 
-/// The marker the World Map asks to travel to this frame, at most one (#1897): a click on
-/// the map (the left button let go, `mouse.1`, near where it went down, `mouse.0`) on a
-/// marker, or `travel` (Enter, the controller's A, the Travel hint's click) to the Travel
-/// target ([`travel_target`]). A press on a button at the right is the button's, never a
-/// map click; a click on the map away from any marker drops the Travel target.
+/// The marker the World Map asks to travel to this frame by `travel` (Enter, the controller's
+/// A, the Travel hint's click): the Travel target ([`travel_target`]). A click on a map (the
+/// left button let go, `mouse.1`, near where it went down, `mouse.0`) sets
+/// [`DataState::map_click`], resolved once the map is drawn against the highlight box as
+/// drawn on that frame ([`take_click`], #1897, #3324): a marker under it asks to travel there,
+/// none asks Place Marker's question. A press on a button at the right is the button's, never
+/// a map click; a press that moved more than [`CLICK_SLOP`] before it was let go is a drag.
 fn travel_ask(st: &mut DataState, tab: usize, pointer: Option<Vec2>, (pressed, released): (bool, bool), travel: bool) -> Option<u32> {
-    if tab != WORLD {
+    if !(tab == WORLD || tab == LOCAL) {
         st.press = None;
         return None;
     }
@@ -2505,16 +2638,14 @@ fn travel_ask(st: &mut DataState, tab: usize, pointer: Option<Vec2>, (pressed, r
     } else if let (Some((from, moved)), Some(p)) = (st.press.as_mut(), pointer) {
         *moved = moved.max(p.distance(*from));
     }
-    let mut clicked = None;
     if released {
         if let Some((_, moved)) = st.press.take().filter(|_| !over_button) {
-            if moved <= CLICK_SLOP {
-                st.travel_marker = st.cursor_marker;
-                clicked = st.cursor_marker;
+            if moved <= CLICK_SLOP && in_window(map_window(st, tab), pointer).is_some() {
+                st.map_click = Some(tab);
             }
         }
     }
-    clicked.or(st.travel_marker.filter(|_| travel))
+    st.travel_marker.filter(|_| travel && tab == WORLD)
 }
 
 /// The highlight box: at the pointer while it is over the map, else where it was left
@@ -2541,24 +2672,80 @@ pub(crate) fn nearest(places: impl Iterator<Item = Vec2>, want: Vec2) -> Option<
 }
 
 /// Whether the player knows a marker (`Some`), and whether it is drawn as discovered
-/// (`true`): found within its radius, or made a travel target by ShowMap's or
-/// ShowAllMapMarkers' canTravel (owner 2026-10-23: `tmm 1` shows every marker with its own
-/// icon). Known also when shown by ShowMap, ShowAllMapMarkers (which leaves out markers
-/// flagged "Show All" Hidden, FNAM bit 4 [documented: xEdit's flag names,
-/// schemas/fnv/world.json], when asked to) or by its Visible flag [hypothesis]; those
-/// keep the undiscovered icon.
+/// (`true`): found within its radius, made a travel target by ShowMap's or
+/// ShowAllMapMarkers' canTravel (owner 2026-10-23: `tmm 1` shows every marker with its
+/// own icon), explicitly enabled as a travel target by a script's `SetMapMarkerTravel 1`
+/// once visible/shown, or authored with both Visible and Can Travel To (`FNAM=3`, drawn
+/// as discovered with its own icon [hypothesis: mirrors observed `GetMapMarkerVisible=2`
+/// / `GetMapMarkerTravel=1` script values from observer check 252 (#3468) and the
+/// 2026-11-22 live map-marker probe without an observed Pip-Boy icon capture]). The
+/// authored Can Travel To flag (`FNAM` bit 2) alone does not mark an undiscovered marker
+/// as known or discovered. Known also when shown by ShowMap, ShowAllMapMarkers (which
+/// leaves out markers flagged "Show All" Hidden, FNAM bit 4 or `SetMapMarkerHidden`
+/// [documented: xEdit's flag names, schemas/fnv/world.json], when asked to) or by its
+/// Visible flag (`FNAM` bit 1 or `SetMapMarkerVisible`) [hypothesis]; those keep the
+/// undiscovered icon.
 fn known(st: &DataState, game: &Game, m: &read::Marker) -> Option<bool> {
-    let hidden = m.flags & 4 != 0;
     let rt = game.script.as_ref().and_then(|s| s.rt.as_ref());
-    let shown = rt.is_some_and(|rt| rt.game.map_marker_shown(FormId(m.form), hidden));
-    let by_script = shown
-        && rt.is_some_and(|rt| {
-            let p = &rt.game.player;
-            p.travel_markers.contains(&FormId(m.form)) || p.all_markers.is_some_and(|a| a.shown && a.travel)
-        });
-    let found = st.discovered.contains(&m.form) || by_script;
+    let id = FormId(m.form);
+    let flags = rt.and_then(|rt| rt.game.marker_flags(id)).unwrap_or(m.flags);
+    let hidden = flags & fnv_game::nvse_lu2::MARKER_HIDDEN != 0;
+    let visible_flag = flags & fnv_game::nvse_lu2::MARKER_VISIBLE != 0;
+    let script_visible = rt.and_then(|rt| rt.game.marker_flag_override(id, fnv_game::nvse_lu2::MARKER_VISIBLE));
+    let script_travel = rt.and_then(|rt| rt.game.marker_flag_override(id, fnv_game::nvse_lu2::MARKER_TRAVEL));
+    let shown = rt.is_some_and(|rt| rt.game.map_marker_shown(id, hidden));
     let enabled = game.sim.as_ref().is_none_or(|s| s.present(m.form));
-    (enabled && (found || shown || m.flags & 1 != 0)).then_some(found)
+    let discovered = st.discovered.contains(&m.form);
+    let visible = match script_visible {
+        Some(false) => shown,
+        _ => discovered || shown || visible_flag,
+    };
+    if !(enabled && visible) {
+        return None;
+    }
+    let travel = if let Some(rt) = rt.filter(|rt| rt.game.marker_flags(id).is_some()) {
+        if script_travel == Some(false) {
+            false
+        } else {
+            discovered || rt.game.marker_travel(id)
+        }
+    } else {
+        let by_script = shown
+            && script_travel != Some(false)
+            && rt.is_some_and(|rt| {
+                let p = &rt.game.player;
+                p.travel_markers.contains(&id) || p.all_markers.is_some_and(|a| a.shown && a.travel)
+            });
+        discovered || by_script || (m.flags & 3 == 3)
+    };
+    Some(travel)
+}
+
+fn marker_kind(rt: Option<&crate::script::Runtime>, m: &read::Marker) -> u8 {
+    rt.and_then(|rt| rt.game.marker_kind(FormId(m.form))).unwrap_or(m.kind)
+}
+
+fn marker_custom_icon(rt: Option<&crate::script::Runtime>, m: &read::Marker) -> Option<String> {
+    rt.and_then(|rt| rt.game.custom_map_marker_icon(FormId(m.form))).map(str::to_string)
+}
+
+fn marker_name(rt: Option<&crate::script::Runtime>, m: &read::Marker) -> String {
+    rt.and_then(|rt| rt.game.map_marker_name_override(FormId(m.form))).map(str::to_string).unwrap_or_else(|| m.name.clone())
+}
+
+fn marker_reputation(rt: Option<&crate::script::Runtime>, m: &read::Marker) -> Option<(u32, String)> {
+    match rt.and_then(|rt| rt.game.map_marker_reputation_override(FormId(m.form))) {
+        Some(Some(rep)) => {
+            let g = &rt?.game;
+            if g.data.sig(rep) != Some(*b"REPU") {
+                return None;
+            }
+            let name = g.data.full_names.get(&rep).filter(|s| !s.trim().is_empty())?;
+            Some((rep.0, name.clone()))
+        }
+        Some(None) => None,
+        None => m.reputation.clone(),
+    }
 }
 
 /// The original's companions on the World Map: their names, in font 2 [documented: Stewie's
@@ -2576,7 +2763,7 @@ const LOCATION_FONT: usize = 1;
 /// the arrow].
 pub const COMPANION_MIN_DISTANCE: f32 = 4096.0;
 /// How far above its place a companion's name stands (canvas units) [design].
-const COMPANION_NAME_RISE: f32 = 14.0;
+pub(crate) const COMPANION_NAME_RISE: f32 = 14.0;
 /// How near the highlight box's middle a companion's place must be for a click to summon it,
 /// under the player's Map Selectable Companions tweak (canvas units) [design].
 const SUMMON_REACH: f32 = 24.0;
@@ -2610,29 +2797,36 @@ struct MapCompanion {
 
 /// The player's companions (teammates) in an exterior cell, with their worldspace; those
 /// within [`COMPANION_MIN_DISTANCE`] of `player` (worldspace, place) left out when it is
-/// given, and the knocked-out ones unless `show_down`.
+/// given, and the knocked-out ones unless `show_down`. Unmaterialized placed teammates
+/// fall back to their placement cell and position (`sim.refs`), as `quest_targets` does.
 fn map_companions(game: &Game, player: Option<(u32, [f32; 3])>, show_down: bool) -> Vec<MapCompanion> {
     let (Some(rt), Some(sim)) = (game.script.as_ref().and_then(|s| s.rt.as_ref()), game.sim.as_ref()) else { return Vec::new() };
     let mut out = Vec::new();
     for id in rt.game.teammates() {
-        let Some(s) = sim.world.peek(id) else { continue };
-        let Some(world) = s.cell.and_then(|c| sim.refs.cell_world.get(&c)).map(|w| w.0) else { continue };
+        let (cell, pos) = match sim.world.peek(id) {
+            Some(s) => (s.cell, s.pos),
+            None => match sim.refs.get(id) {
+                Some(p) => (p.cell, p.pos),
+                None => continue,
+            },
+        };
+        let Some(world) = cell.and_then(|c| sim.refs.cell_world.get(&c)).map(|w| w.0) else { continue };
         let down = rt.game.knockout(id).is_some();
         if (down && !show_down) || !sim.present(id.0) {
             continue;
         }
-        if player.is_some_and(|(w, p)| w == world && (s.pos[0] - p[0]).hypot(s.pos[1] - p[1]) < COMPANION_MIN_DISTANCE) {
+        if player.is_some_and(|(w, p)| w == world && (pos[0] - p[0]).hypot(pos[1] - p[1]) < COMPANION_MIN_DISTANCE) {
             continue;
         }
         let name = sim.ref_name(Some(&rt.game), id.0).map(str::to_string).unwrap_or_else(|| rt.game.data.name(id));
-        out.push(MapCompanion { form: id, world, pos: s.pos, name, down });
+        out.push(MapCompanion { form: id, world, pos, name, down });
     }
     out
 }
 
 fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: bool) -> MapShown {
-    let Some(world) = game.location.as_ref().map(|l| l.world) else { return empty_map() };
-    let Some(m) = map_of(st, game) else { return empty_map() };
+    let Some(world) = game.location.as_ref().map(|l| l.world) else { return blank_map(st, WORLD) };
+    let Some(m) = map_of(st, game) else { return blank_map(st, WORLD) };
     let mag = st.magnify[WORLD].max(ZOOM.0);
     let player = player_at(st, game, world);
     let centre = *st.centre[WORLD].get_or_insert_with(|| player.map_or([0.5, 0.5], |(p, _)| m.uv(p[0], p[1])));
@@ -2644,10 +2838,12 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let mut names = Vec::new();
     let mut forms = Vec::new();
     let mut details = Vec::new();
-    let show_distance = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_marker_distance);
+    let rt = game.script.as_ref().and_then(|s| s.rt.as_ref());
+    let show_distance = rt.is_some_and(|rt| rt.game.tweaks.map_marker_distance);
     let mut total = 0;
     let mut drawn_other = 0;
-    let red_recent = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.recent_markers_red);
+    let red_recent = rt.is_some_and(|rt| rt.game.tweaks.recent_markers_red);
+    let rep_off = rt.is_some_and(|rt| rt.game.tweaks.hide_marker_reputation);
     let all = markers(st, game).cloned().unwrap_or_default();
     for mk in &all {
         let Some(projection) = map_for(st, game, mk.world).filter(|p| p.root == m.root) else { continue };
@@ -2656,14 +2852,17 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         drawn_other += usize::from(mk.world != world);
         let recent = red_recent && st.found_this_run.contains(&mk.form);
         let uv = projection.uv(mk.pos[0], mk.pos[1]);
-        let detail = mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
-        let (name, tile_detail) = if st.tile_rows { (mk.name.clone(), detail.clone()) } else { (String::new(), None) };
-        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(uv), form: mk.form, uv: Some(uv), name, detail: tile_detail, recent, outside: None });
-        names.push(mk.name.clone());
+        let kind = marker_kind(rt, mk);
+        let custom_icon = marker_custom_icon(rt, mk);
+        let label_name = marker_name(rt, mk);
+        let marker_rep = marker_reputation(rt, mk);
+        let detail = marker_rep.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
+        let (name, tile_detail) = if st.tile_rows { (label_name.clone(), detail.clone()) } else { (String::new(), None) };
+        marks.push(MapMark { icon: Some((kind, found)), custom_icon, highlighted: false, at: on_map(uv), form: mk.form, uv: Some(uv), name, detail: tile_detail, recent, outside: None });
+        names.push(label_name);
         forms.push(mk.form);
         // The player's tweak leaves the reputation line out [design: docs/design/tweaks.md].
-        let rep_off = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.hide_marker_reputation);
-        let rep = mk.reputation.as_ref().filter(|_| !rep_off).map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
+        let rep = marker_rep.as_ref().filter(|_| !rep_off).map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
         // The player's tweak: how far the marker is, on the same line [design: docs/design/tweaks.md].
         let far = player.filter(|_| show_distance && mk.world == world).map(|(p, _)| model::distance_text(((mk.pos[0] - p[0]).powi(2) + (mk.pos[1] - p[1]).powi(2)).sqrt()));
         details.push(match (rep, far) {
@@ -2735,11 +2934,14 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let (no_min, show_down, location_font) = tw.unwrap_or_default();
     let summon = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.map_summon_companions, rt.game.tweaks.summon_unconscious));
     let mut companions = Vec::new();
+    let mut companion_uvs = Vec::new();
     let mut forms_shown = Vec::new();
     for c in map_companions(game, player.filter(|_| !no_min).map(|(p, _)| (world, p)), show_down) {
         let Some(projection) = map_for(st, game, c.world).filter(|p| p.root == m.root) else { continue };
+        let uv = projection.uv(c.pos[0], c.pos[1]);
         forms_shown.push((c.form, c.down));
-        companions.push((on_map(projection.uv(c.pos[0], c.pos[1])), c.name, c.down));
+        companions.push((on_map(uv), c.name.clone(), c.down));
+        companion_uvs.push((c.form.0, uv, c.name, c.down));
     }
     // The player's Map Selectable Companions tweak: the companions under the highlight box,
     // which a click summons [design: docs/design/tweaks.md].
@@ -2756,9 +2958,10 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         st.companions_logged = Some(companions.len());
         info!("pipboy data: world map shows {} companions", companions.len());
     }
+    let companion_font = if location_font { LOCATION_FONT } else { COMPANION_FONT };
     MapShown {
         companions,
-        companion_font: if location_font { LOCATION_FONT } else { COMPANION_FONT },
+        companion_font,
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
         outline: None,
         reset_cells: Arc::default(),
@@ -2771,7 +2974,20 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         cursor,
         label,
         detail,
-        world: Some(WorldParts { view, texture: m.texture.clone(), mag, quests: target_uvs, custom: custom_uv, arrow: arrow_uv, ends, outline: None, rows: None, want: st.cursor[WORLD].unwrap_or(view.mid()) }),
+        world: Some(WorldParts {
+            view,
+            texture: m.texture.clone(),
+            mag,
+            quests: target_uvs,
+            custom: custom_uv,
+            arrow: arrow_uv,
+            ends,
+            outline: None,
+            rows: None,
+            want: st.cursor[WORLD].unwrap_or(view.mid()),
+            companions: companion_uvs,
+            companion_font: companion_font as u8,
+        }),
     }
 }
 
@@ -2810,6 +3026,20 @@ fn standing(game: &Game, rep: u32) -> Option<&'static str> {
     Some(crate::reputation::title(fnv_game::functions::reputation_level(fame, scale), fnv_game::functions::reputation_level(infamy, scale)))
 }
 
+/// A map that cannot be drawn (no place, or a worldspace without map data): nothing under its
+/// highlight box, so Place Marker and a click find no place left from another map, and no
+/// marker to travel to (#3324).
+fn blank_map(st: &mut DataState, tab: usize) -> MapShown {
+    st.spot[tab] = None;
+    st.custom_on_map[tab] = None;
+    if tab == WORLD {
+        st.cursor_marker = None;
+        st.travel_marker = None;
+        st.companions_under.clear();
+    }
+    empty_map()
+}
+
 fn empty_map() -> MapShown {
     MapShown { picture: None, outline: None, reset_cells: Arc::default(), marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None, world: None, companions: Vec::new(), companion_font: COMPANION_FONT }
 }
@@ -2839,7 +3069,12 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     let centre = st.centre[LOCAL].unwrap_or([feet[0], feet[1]]);
     let key = Outline::key_for(interior, world, centre, feet[2], MAP.size(), scale);
     if st.outline.as_ref().is_none_or(|o| o.key != key) {
-        st.outline = Some(Outline::new(interior, world, centre, feet[2], MAP.size(), scale));
+        let old = st.outline.replace(Outline::new(interior, world, centre, feet[2], MAP.size(), scale));
+        // The picture on screen stays until the new one is made, if it shows the same place.
+        if let Some(old) = old.filter(|o| o.image.is_some()) {
+            st.outline_last = Some(old);
+        }
+        st.outline_last = st.outline_last.take().filter(|o| same_place(&o.key, &key));
         st.outline_land.clear();
     }
     let Some(o) = st.outline.as_mut().filter(|o| !o.done()) else { return };
@@ -2869,6 +3104,7 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     }
     if o.done() {
         o.image = Some(images.add(o.picture()));
+        st.outline_last = None;
         info!(
             "pipboy data: local map outline {}x{} samples {} apart, {} landed ({})",
             o.size[0],
@@ -2880,31 +3116,43 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     }
 }
 
+/// Whether two outlines' keys are of the same place and floor (the interior, the worldspace
+/// and the feet's step), whatever their anchors.
+fn same_place(a: &outline::OutlineKey, b: &outline::OutlineKey) -> bool {
+    a.0 == b.0 && a.1 == b.1 && a.2[2] == b.2[2]
+}
+
+/// The outline the Local Map shows: the one being made once its picture is, until then the last
+/// one finished of the same place ([`DataState::outline_last`]).
+fn shown_outline(st: &DataState) -> Option<&Outline> {
+    st.outline.as_ref().filter(|o| o.image.is_some()).or_else(|| st.outline_last.as_ref().filter(|l| st.outline.as_ref().is_none_or(|o| same_place(&l.key, &o.key))))
+}
+
 /// The local map: the player's surroundings at [`local_scale`], the outline of the place,
 /// the doors leading elsewhere and the known map markers [design: the scale; the outline
 /// stands for the original's picture from above].
 fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown {
-    let (Some(loc), Some(player)) = (game.location.as_ref(), game.player.as_ref()) else { return empty_map() };
+    let (Some(loc), Some(player)) = (game.location.as_ref(), game.player.as_ref()) else { return blank_map(st, LOCAL) };
     let (feet, heading) = (player.feet, player.heading);
     let mag = st.magnify[LOCAL].max(ZOOM.0);
     let centre = *st.centre[LOCAL].get_or_insert([feet[0], feet[1]]);
     let scale = local_scale(loc.interior.is_some());
-    // The frame the picture covers: the outline's grid (made before this, `advance_outline`), or
-    // the one it would make.
-    let frame = match st.outline.as_ref() {
+    // The frame the picture covers: the shown outline's grid (made before this, `advance_outline`;
+    // while a new one is made, the last one's), the one being made, or the one it would make.
+    let frame = match shown_outline(st).or(st.outline.as_ref()) {
         Some(o) => (o.origin, Vec2::new(o.size[0] as f32, o.size[1] as f32) * o.step),
         None => Outline::frame_for(loc.interior, loc.world, centre, feet[2], MAP.size(), scale),
     };
     // The one viewport both drawings paint from and the pointer is read in.
     let view = MapView::local(map_window(st, LOCAL), view::LocalProjection { centre, mag, scale, origin: frame.0, extent: frame.1 });
     let on_map = |x: f32, y: f32| view.place(x, y);
-    let outline = st.outline.as_ref().and_then(|o| {
+    let outline = shown_outline(st).and_then(|o| {
         let image = o.image.clone()?;
         let top_left = on_map(o.origin[0], o.origin[1]);
         let size = Vec2::new(o.size[0] as f32, o.size[1] as f32) * o.step * mag / scale;
         Some((image, Rect::from_corners(top_left, top_left + size)))
     });
-    let outline_texels = st.outline.as_ref().and_then(|o| Some((o.image.clone()?, Vec2::new(o.size[0] as f32, o.size[1] as f32))));
+    let outline_texels = shown_outline(st).and_then(|o| Some((o.image.clone()?, Vec2::new(o.size[0] as f32, o.size[1] as f32))));
     let extent = view.extent();
     let inside = |p: Vec2| p.x >= -MARKER && p.y >= -MARKER && p.x <= extent.x + MARKER && p.y <= extent.y + MARKER;
     let grid = ((centre[0] / model::CELL).floor() as i32, (centre[1] / model::CELL).floor() as i32);
@@ -2956,11 +3204,11 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         let at = on_map(d.pos[0], d.pos[1]);
         let uv = Some(view.local_uv(d.pos[0], d.pos[1]));
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: String::new(), detail: None, recent: false, outside: door_kinds.then_some(d.outside) });
+            marks.push(MapMark { icon: None, custom_icon: None, highlighted: false, at, form: d.form, uv, name: String::new(), detail: None, recent: false, outside: door_kinds.then_some(d.outside) });
             names.push(d.name.clone());
         }
         if st.tile_rows {
-            rows.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: d.name.clone(), detail: None, recent: false, outside: door_kinds.then_some(d.outside) });
+            rows.push(MapMark { icon: None, custom_icon: None, highlighted: false, at, form: d.form, uv, name: d.name.clone(), detail: None, recent: false, outside: door_kinds.then_some(d.outside) });
         }
     }
     if loc.interior.is_none() {
@@ -2969,12 +3217,15 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
             let uv = Some(view.local_uv(mk.pos[0], mk.pos[1]));
+            let kind = marker_kind(rt, mk);
+            let custom_icon = marker_custom_icon(rt, mk);
+            let label_name = marker_name(rt, mk);
             if inside(at) {
-                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: String::new(), detail: None, recent: false, outside: None });
-                names.push(mk.name.clone());
+                marks.push(MapMark { icon: Some((kind, found)), custom_icon: custom_icon.clone(), highlighted: false, at, form: mk.form, uv, name: String::new(), detail: None, recent: false, outside: None });
+                names.push(label_name.clone());
             }
             if st.tile_rows {
-                rows.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: mk.name.clone(), detail: None, recent: false, outside: None });
+                rows.push(MapMark { icon: Some((kind, found)), custom_icon, highlighted: false, at, form: mk.form, uv, name: label_name, detail: None, recent: false, outside: None });
             }
         }
     }
@@ -3002,7 +3253,20 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     st.custom_on_map[LOCAL] = custom.map(|c| on_map(c.pos[0], c.pos[1]));
     let custom_uv = custom.map(|c| view.local_uv(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels, rows: st.tile_rows.then_some(rows), want: st.cursor[LOCAL].unwrap_or(view.mid()) };
+    let world = WorldParts {
+        view,
+        texture: String::new(),
+        mag,
+        quests: target_uvs,
+        custom: custom_uv,
+        arrow: Some((view.local_uv(feet[0], feet[1]), heading)),
+        ends: Vec::new(),
+        outline: outline_texels,
+        rows: st.tile_rows.then_some(rows),
+        want: st.cursor[LOCAL].unwrap_or(view.mid()),
+        companions: Vec::new(),
+        companion_font: COMPANION_FONT as u8,
+    };
     MapShown { picture: None, outline, reset_cells: Arc::new(reset_cells), marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) , companions: Vec::new(), companion_font: COMPANION_FONT }
 }
 
@@ -3864,10 +4128,14 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
             // The player's tweak draws a marker found in this run red [design: docs/design/tweaks.md].
             let colour = if mk.recent { Color::srgb(1.0, 0.25, 0.2).with_alpha(amber(brightness).alpha()) } else { amber(brightness) };
             let node = at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size);
-            if c.image(p, &mk.picture(), node.clone(), colour).is_none() && mk.outside.is_some() {
-                // The tweak's own pictures missing: the plain door, an interior one dimmer.
-                let colour = if mk.outside == Some(false) { colour.with_alpha(colour.alpha() * INSIDE_DOOR_DIM) } else { colour };
-                c.image(p, DOOR_ICON, node, colour);
+            if c.image(p, &mk.picture(), node.clone(), colour).is_none() {
+                if let Some((kind, found)) = mk.icon.filter(|_| mk.custom_icon.is_some()) {
+                    c.image(p, &model::marker_icon(kind, found), node, colour);
+                } else if mk.outside.is_some() {
+                    // The tweak's own pictures missing: the plain door, an interior one dimmer.
+                    let colour = if mk.outside == Some(false) { colour.with_alpha(colour.alpha() * INSIDE_DOOR_DIM) } else { colour };
+                    c.image(p, DOOR_ICON, node, colour);
+                }
             }
         };
         for mk in m.marks.iter().filter(|mk| !mk.highlighted) {
@@ -4010,7 +4278,7 @@ mod tests {
     /// Exterior and Interior Door Icons: each kind its picture; off, the plain door.
     #[test]
     fn doors_take_their_kind_s_picture_under_the_tweak() {
-        let door = |outside| MapMark { icon: None, highlighted: false, at: Vec2::ZERO, form: 0, uv: None, name: String::new(), detail: None, recent: false, outside };
+        let door = |outside| MapMark { icon: None, custom_icon: None, highlighted: false, at: Vec2::ZERO, form: 0, uv: None, name: String::new(), detail: None, recent: false, outside };
         assert_eq!(door(None).picture(), DOOR_ICON);
         assert_eq!(door(Some(true)).picture(), DOOR_ICON_OUTSIDE);
         assert_eq!(door(Some(false)).picture(), DOOR_ICON_INSIDE);
@@ -4544,12 +4812,23 @@ mod tests {
             let texels = Vec2::new(o.size[0] as f32, o.size[1] as f32);
             st.outline = Some(o);
             let parts = local_map(&mut st, &game, None).world.unwrap();
-            assert_eq!(parts.outline, Some((handle, texels)));
+            assert_eq!(parts.outline, Some((handle.clone(), texels)));
+            // A pan far off it (#3326): the new grid's picture is not made yet, so the last one
+            // stays, in its own frame; once the new one is made, it is shown in its frame.
+            let old_origin = st.outline.as_ref().unwrap().origin;
             let moved = outline::Outline::new(interior, 1, [50000.0, -40000.0], 0.0, MAP.size(), p.scale);
             let new_origin = moved.origin;
-            st.outline = Some(moved);
+            st.outline_last = st.outline.replace(moved);
             let parts = local_map(&mut st, &game, None).world.unwrap();
-            assert_eq!((parts.outline, parts.view.local.unwrap().origin), (None, new_origin), "the new grid's frame, its picture not made yet");
+            assert_eq!((parts.outline, parts.view.local.unwrap().origin), (Some((handle.clone(), texels)), old_origin), "the last picture kept while the new one is made");
+            let made = Assets::<Image>::default().add(Image::default());
+            st.outline.as_mut().unwrap().image = Some(made.clone());
+            let parts = local_map(&mut st, &game, None).world.unwrap();
+            assert_eq!((parts.outline.map(|o| o.0), parts.view.local.unwrap().origin), (Some(made), new_origin), "the new picture, in the new grid's frame");
+            // Another floor (or place): nothing of the last one.
+            st.outline = Some(outline::Outline::new(interior, 1, [50000.0, -40000.0], 900.0, MAP.size(), p.scale));
+            let parts = local_map(&mut st, &game, None).world.unwrap();
+            assert_eq!(parts.outline, None, "another floor's grid, its picture not made yet");
         }
     }
 
@@ -4796,20 +5075,408 @@ mod tests {
         // A release over the button alone asks nothing.
         assert_eq!(travel_ask(&mut st, WORLD, over, (false, true), false), None);
         assert_eq!(st.travel_marker, Some(5));
-        // On the map, a click on the marker under the box.
+        // On the map, a click on the marker under the box (as drawn on the release's frame:
+        // the box is not drawn here, so the marker it was on), taken once the map is drawn.
         let on_map = Some(MAIN.min + MAP.min + Vec2::new(100.0, 300.0));
         assert!(!on_button(&st, WORLD, on_map));
+        let (mut world, mut game) = blank_game();
+        let mut game = game.get_mut(&mut world).unwrap();
         assert_eq!(travel_ask(&mut st, WORLD, on_map, (true, false), false), None);
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), Some(7));
-        assert_eq!(st.travel_marker, Some(7));
+        assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), None);
+        take_click(&mut st, &mut game, false);
+        assert_eq!((st.travel_pending.take(), st.travel_marker), (Some(7), Some(7)));
         // Enter in the same frame as that click still asks once.
         assert_eq!(travel_ask(&mut st, WORLD, on_map, (true, false), false), None);
         assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), true), Some(7));
+        take_click(&mut st, &mut game, false);
+        assert_eq!(st.travel_pending.take(), Some(7));
         // A click away from any marker drops the target.
         st.cursor_marker = None;
         travel_ask(&mut st, WORLD, on_map, (true, false), false);
         assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), None);
-        assert_eq!(st.travel_marker, None);
+        take_click(&mut st, &mut game, false);
+        assert_eq!((st.travel_pending, st.travel_marker), (None, None));
+    }
+
+    /// A game with nothing in it: no location, no player, no scripts.
+    fn blank_game() -> (World, bevy::ecs::system::SystemState<Game<'static>>) {
+        let mut world = World::new();
+        let state = bevy::ecs::system::SystemState::<Game>::new(&mut world);
+        (world, state)
+    }
+
+    /// #3324: a press and release on a map within the slop is a click ([`DataState::map_click`])
+    /// on either map, resolved later against the box as drawn; a press that moved more than the
+    /// slop before it was let go (the move seen in the release's own frame too) is a drag; a
+    /// press on a hint is the hint's; the other tabs have no map to click; the Local Map never
+    /// travels by Enter.
+    #[test]
+    fn a_click_away_from_any_marker_places_the_custom_marker() {
+        let at = MAIN.min + MAP.min + Vec2::new(100.0, 300.0);
+        let p = Some(at);
+        let moved = Some(MAIN.min + MAP.min + Vec2::new(100.0 + CLICK_SLOP + 4.0, 300.0));
+        let mut st = DataState::default();
+        assert_eq!(travel_ask(&mut st, WORLD, p, (true, false), false), None);
+        assert_eq!(st.map_click, None, "the press alone is no click");
+        assert_eq!(travel_ask(&mut st, WORLD, p, (false, true), false), None);
+        assert_eq!(st.map_click, Some(WORLD), "the click, taken once the map is drawn");
+        st.map_click = None;
+        // A drag: moved past the slop while held, or in the release's frame.
+        travel_ask(&mut st, WORLD, p, (true, false), false);
+        travel_ask(&mut st, WORLD, moved, (false, false), false);
+        travel_ask(&mut st, WORLD, p, (false, true), false);
+        assert_eq!(st.map_click, None, "moved away and back: a drag");
+        travel_ask(&mut st, LOCAL, p, (true, false), false);
+        travel_ask(&mut st, LOCAL, moved, (false, true), false);
+        assert_eq!(st.map_click, None, "the pointer moved in the release's frame: a drag");
+        // The Local Map: a click, and Enter never travels there.
+        st.travel_marker = Some(5);
+        travel_ask(&mut st, LOCAL, p, (true, false), false);
+        assert_eq!(travel_ask(&mut st, LOCAL, p, (false, true), true), None);
+        assert_eq!(st.map_click, Some(LOCAL));
+        st.map_click = None;
+        // A press on a hint over the map is the hint's.
+        let hint = Rect::from_center_size(at, Vec2::splat(40.0));
+        st.button_rects = (WORLD, vec![hint]);
+        travel_ask(&mut st, WORLD, p, (true, false), false);
+        travel_ask(&mut st, WORLD, p, (false, true), false);
+        assert_eq!(st.map_click, None);
+        // No map on Quests.
+        travel_ask(&mut st, QUESTS, p, (true, false), false);
+        travel_ask(&mut st, QUESTS, p, (false, true), false);
+        assert!(st.map_click.is_none() && st.press.is_none());
+    }
+
+    /// The page's frame as `draw` runs it with `MapMenu` off (the hand-built page; open while the
+    /// Pip-Boy shows DATA, as its body is there then), or with it on `prepare` and then `draw`
+    /// (no body: the tile page drew, and the frame's click and travel are taken there).
+    fn page_frame(w: &mut World, tiles: bool) {
+        page_prepare(w, tiles);
+        page_finish(w, tiles);
+    }
+
+    /// The first half of [`page_frame`]: the preparation (with `MapMenu` on, before the tile page
+    /// lays the map out).
+    fn page_prepare(w: &mut World, tiles: bool) {
+        use bevy::ecs::system::RunSystemOnce;
+        fn hand_built(mut st: ResMut<DataState>, pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, mut game: Game, mut input: Input, mut images: ResMut<Assets<Image>>) {
+            let open = (pip.open() && pip.page == Page::Data).then(|| pip.tab());
+            step(&mut st, open, screen.as_deref(), &mut game, &mut input, &mut images, None);
+        }
+        if tiles {
+            w.run_system_once(prepare).unwrap();
+        } else {
+            w.run_system_once(hand_built).unwrap();
+        }
+    }
+
+    /// The second half of [`page_frame`]: with `MapMenu` on `draw` after the tile page; then the
+    /// frame's input is let go.
+    fn page_finish(w: &mut World, tiles: bool) {
+        use bevy::ecs::system::RunSystemOnce;
+        if tiles {
+            w.run_system_once(draw).unwrap();
+        }
+        w.resource_mut::<ButtonInput<MouseButton>>().clear();
+        w.resource_mut::<ButtonInput<KeyCode>>().clear();
+    }
+
+    /// The fast-travel question asked: still pending (the hand-built frame here sends nothing),
+    /// or sent by `draw`; taken.
+    fn travel_asked(w: &mut World) -> Option<u32> {
+        let sent: Vec<FastTravelAsk> = w.resource_mut::<Messages<FastTravelAsk>>().drain().collect();
+        w.resource_mut::<DataState>().travel_pending.take().or(sent.last().map(|a| a.0))
+    }
+
+    /// A page world on the World Map of worldspace 1 (a 2048 picture, the player at its middle,
+    /// `markers` the known map markers), the pointer at `at`; with `tiles` the page drawn from the
+    /// file, which published `window`.
+    fn map_world(tiles: bool, window: Rect, at: Vec2, markers: Vec<read::Marker>) -> World {
+        let mut w = page_world(tiles, data_open(WORLD));
+        let map = WorldMap { root: 1, transform: model::MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        let discovered = markers.iter().map(|m| m.form).collect();
+        w.insert_resource(DataState { maps: [(1, Some(map))].into_iter().collect(), markers: Some(markers), discovered, map_window: tiles.then_some((WORLD, window)), ..DataState::default() });
+        w.insert_resource(Location { world: 1, interior: None });
+        w.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: MAP_FEET, body_eye: None, body_view: None, placed: None });
+        w.insert_resource(PipBoyScreen { image: Handle::default(), camera: Entity::PLACEHOLDER, on_model: false, pointer: Some(at), scale: 1.0 });
+        w
+    }
+
+    /// Where [`map_world`]'s player stands: the picture's middle.
+    const MAP_FEET: [f32; 3] = [0.0, 3.0 * model::CELL, 100.0];
+
+    /// The map window for the layout: the page drawn from the file publishes its own, 30 right
+    /// and 20 down of the hand-built one here, so a click is read where that page draws the map.
+    fn layout_window(tiles: bool) -> Rect {
+        let shift = if tiles { Vec2::new(30.0, 20.0) } else { Vec2::ZERO };
+        Rect::from_corners(hand_built_window().min + shift, hand_built_window().max + shift)
+    }
+
+    fn mouse(w: &mut World, down: bool) {
+        let mut b = w.resource_mut::<ButtonInput<MouseButton>>();
+        if down {
+            b.press(MouseButton::Left);
+        } else {
+            b.release(MouseButton::Left);
+        }
+    }
+
+    /// #3324 through the page's own frame with real mouse button input, on both layouts: the
+    /// hand-built page and the page drawn from the file (`prepare`, its published window). A press
+    /// and release 50 right of the map window's middle, the map on the player, puts up Place
+    /// Marker's question for the world position there (what the frame's view carries too); with
+    /// the box up another click places nothing; Y places it there. A press dragged past the slop
+    /// pans the map and asks nothing; a press on a hint over the map asks nothing.
+    #[test]
+    fn a_real_click_on_the_map_asks_place_marker_at_the_point_clicked() {
+        let x = 50.0 / 2048.0 / model::MAP_SPAN * 4.0 * model::CELL;
+        for tiles in [false, true] {
+            let window = layout_window(tiles);
+            let at = window.min + MAP_MID + Vec2::new(50.0, 0.0);
+            let mut w = map_world(tiles, window, at, Vec::new());
+            // The page comes up (the maps centre on the player); then the press and release.
+            page_frame(&mut w, tiles);
+            mouse(&mut w, true);
+            page_frame(&mut w, tiles);
+            assert!(w.resource::<DataState>().popup.is_none(), "tiles {tiles}: the press alone asks nothing");
+            mouse(&mut w, false);
+            page_frame(&mut w, tiles);
+            let st = w.resource::<DataState>();
+            let (ask, answers) = asked(st);
+            let marker::MarkerAsk::Set(spot) = ask else { panic!("tiles {tiles}: {ask:?}") };
+            assert_eq!(answers, 2);
+            assert!((spot.pos[0] - x).abs() < 0.5 && (spot.pos[1] - MAP_FEET[1]).abs() < 0.5 && spot.space == 1, "tiles {tiles}: {spot:?}");
+            // The box is modal: a click under it places nothing more.
+            mouse(&mut w, true);
+            page_frame(&mut w, tiles);
+            mouse(&mut w, false);
+            page_frame(&mut w, tiles);
+            assert!(w.resource::<DataState>().custom.is_none(), "tiles {tiles}");
+            assert!(matches!(asked(w.resource::<DataState>()).0, marker::MarkerAsk::Set(s) if s == spot), "tiles {tiles}: the same question");
+            // Y: placed there.
+            w.resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyY);
+            page_frame(&mut w, tiles);
+            let st = w.resource::<DataState>();
+            assert!(st.popup.is_none());
+            assert_eq!(st.custom, Some(spot), "tiles {tiles}");
+            // A drag: the press moved 40 before it was let go pans the map and asks nothing.
+            let centre = w.resource::<DataState>().centre[WORLD];
+            mouse(&mut w, true);
+            page_frame(&mut w, tiles);
+            w.resource_mut::<PipBoyScreen>().pointer = Some(at + Vec2::new(40.0, 0.0));
+            page_frame(&mut w, tiles);
+            mouse(&mut w, false);
+            page_frame(&mut w, tiles);
+            let st = w.resource::<DataState>();
+            assert!(st.popup.is_none(), "tiles {tiles}: a drag asks nothing");
+            assert_ne!(st.centre[WORLD], centre, "tiles {tiles}: the drag panned the map");
+            // A press and release on a hint over the map: the hint's, not the map's.
+            let hint = Rect::from_center_size(at, Vec2::splat(40.0));
+            w.resource_mut::<PipBoyScreen>().pointer = Some(at);
+            w.resource_mut::<DataState>().button_rects = (WORLD, vec![hint]);
+            mouse(&mut w, true);
+            page_frame(&mut w, tiles);
+            mouse(&mut w, false);
+            page_frame(&mut w, tiles);
+            assert!(w.resource::<DataState>().popup.is_none(), "tiles {tiles}: the hint's click");
+        }
+    }
+
+    /// #3324 (review): a click is resolved against the highlight box as drawn on the frame the
+    /// button is let go, across the snap boundary both ways. A map marker at the player (the
+    /// window's middle): pressed 38 right of it (the box on the marker), let go 43 right (within
+    /// the slop; the box off it) asks Place Marker's question and no travel; pressed 43 right, let
+    /// go 38 right asks to travel to the marker and puts up no question. Both layouts.
+    #[test]
+    fn a_click_reads_the_highlight_as_drawn_when_the_button_is_let_go() {
+        let marker = read::Marker { form: 0x42, world: 1, pos: MAP_FEET, name: "Here".into(), kind: 1, flags: 0, radius: 0.0, reputation: None };
+        for tiles in [false, true] {
+            let window = layout_window(tiles);
+            let mid = window.min + MAP_MID;
+            for (down, up, travels) in [(38.0, 43.0, false), (43.0, 38.0, true)] {
+                let mut w = map_world(tiles, window, mid + Vec2::new(down, 0.0), vec![marker.clone()]);
+                page_frame(&mut w, tiles);
+                mouse(&mut w, true);
+                page_frame(&mut w, tiles);
+                assert_eq!(w.resource::<DataState>().cursor_marker, (down < SNAP).then_some(0x42), "tiles {tiles}: the box as pressed");
+                w.resource_mut::<PipBoyScreen>().pointer = Some(mid + Vec2::new(up, 0.0));
+                mouse(&mut w, false);
+                page_frame(&mut w, tiles);
+                let travel = travel_asked(&mut w);
+                let st = w.resource::<DataState>();
+                assert_eq!(st.cursor_marker, travels.then_some(0x42), "tiles {tiles}: the box as let go");
+                if travels {
+                    assert_eq!(travel, Some(0x42), "tiles {tiles}: pressed off the marker, let go on it: travel");
+                    assert!(st.popup.is_none(), "tiles {tiles}: and no Place Marker question");
+                } else {
+                    assert_eq!(travel, None, "tiles {tiles}: pressed on the marker, let go off it: no travel");
+                    assert!(matches!(asked(st).0, marker::MarkerAsk::Set(_)), "tiles {tiles}: Place Marker's question");
+                }
+            }
+        }
+    }
+
+    /// #3324 (review): a worldspace without map data draws a blank World Map, and nothing is left
+    /// under its highlight box from the map shown before: a click there places nothing and asks
+    /// no travel, and Place Marker finds no place.
+    #[test]
+    fn a_blank_world_map_takes_no_click() {
+        for tiles in [false, true] {
+            let window = layout_window(tiles);
+            let at = window.min + MAP_MID + Vec2::new(50.0, 0.0);
+            let marker = read::Marker { form: 0x42, world: 1, pos: MAP_FEET, name: "Here".into(), kind: 1, flags: 0, radius: 0.0, reputation: None };
+            let mut w = map_world(tiles, window, at, vec![marker]);
+            page_frame(&mut w, tiles);
+            assert!(w.resource::<DataState>().spot[WORLD].is_some(), "tiles {tiles}: worldspace 1's map, a place under the box");
+            w.resource_mut::<DataState>().cursor_marker = Some(0x42);
+            w.resource_mut::<DataState>().travel_marker = Some(0x42);
+            w.resource_mut::<DataState>().companions_under = vec![FormId(9)];
+            // Worldspace 2 has no map data.
+            w.resource_mut::<DataState>().maps.insert(2, None);
+            w.resource_mut::<Location>().world = 2;
+            page_frame(&mut w, tiles);
+            let st = w.resource::<DataState>();
+            assert_eq!((st.spot[WORLD], st.cursor_marker, st.travel_marker), (None, None, None), "tiles {tiles}: nothing left from worldspace 1");
+            assert!(st.companions_under.is_empty(), "tiles {tiles}: no companions left under the box");
+            mouse(&mut w, true);
+            page_frame(&mut w, tiles);
+            mouse(&mut w, false);
+            page_frame(&mut w, tiles);
+            let travel = travel_asked(&mut w);
+            let st = w.resource::<DataState>();
+            assert!(st.popup.is_none() && st.custom.is_none() && travel.is_none(), "tiles {tiles}: the click takes nothing");
+        }
+    }
+
+    /// #3324 (review): a press held while DATA closes (another page and back, the button still
+    /// down, let go where it went down) is no click on the map it comes back to, and no drag.
+    #[test]
+    fn a_press_held_across_leaving_data_is_no_click() {
+        for tiles in [false, true] {
+            let window = layout_window(tiles);
+            let at = window.min + MAP_MID + Vec2::new(50.0, 0.0);
+            let mut w = map_world(tiles, window, at, Vec::new());
+            page_frame(&mut w, tiles);
+            mouse(&mut w, true);
+            page_frame(&mut w, tiles);
+            assert!(w.resource::<DataState>().press.is_some());
+            w.resource_mut::<PipBoy>().page = Page::Stats;
+            page_frame(&mut w, tiles);
+            let st = w.resource::<DataState>();
+            assert!(st.press.is_none() && st.drag_from.is_none(), "tiles {tiles}: let go as DATA closed");
+            w.resource_mut::<PipBoy>().page = Page::Data;
+            page_frame(&mut w, tiles);
+            let centre = w.resource::<DataState>().centre[WORLD];
+            // Moved 3 (within the slop) while still held, then let go where it went down.
+            w.resource_mut::<PipBoyScreen>().pointer = Some(at + Vec2::new(3.0, 0.0));
+            page_frame(&mut w, tiles);
+            w.resource_mut::<PipBoyScreen>().pointer = Some(at);
+            mouse(&mut w, false);
+            page_frame(&mut w, tiles);
+            let travel = travel_asked(&mut w);
+            let st = w.resource::<DataState>();
+            assert!(st.popup.is_none() && travel.is_none(), "tiles {tiles}: no click");
+            assert_eq!(st.centre[WORLD], centre, "tiles {tiles}: no drag");
+        }
+    }
+
+    /// #3324 (review): with `MapMenu` on, the tile page may lay the map out again after the
+    /// preparation (its refit, `DataState::refit_map`, here crossing the snap boundary), so the
+    /// click is taken after that: let go 43 right of a marker (off it as prepared) and refitted
+    /// onto it, it asks to travel and puts up no question; let go 38 right (on it as prepared) and
+    /// refitted off it, it asks Place Marker's question and no travel.
+    #[test]
+    fn a_click_reads_the_highlight_after_the_tile_refit() {
+        let marker = read::Marker { form: 0x42, world: 1, pos: MAP_FEET, name: "Here".into(), kind: 1, flags: 0, radius: 0.0, reputation: None };
+        let window = layout_window(true);
+        let mid = window.min + MAP_MID;
+        for (off, refit_on, travels) in [(43.0, true, true), (38.0, false, false)] {
+            let mut w = map_world(true, window, mid + Vec2::new(off, 0.0), vec![marker.clone()]);
+            page_frame(&mut w, true);
+            mouse(&mut w, true);
+            page_frame(&mut w, true);
+            mouse(&mut w, false);
+            page_prepare(&mut w, true);
+            assert_eq!(w.resource::<DataState>().cursor_marker, (off < SNAP).then_some(0x42), "as prepared");
+            assert!(w.resource::<DataState>().popup.is_none(), "nothing asked before the tile page laid the map out");
+            // The tile page's refit: the box picked again in the window it drew.
+            {
+                let mut st = w.resource_mut::<DataState>();
+                let view = MapView::world(window, st.centre[WORLD].unwrap(), Vec2::splat(2048.0), st.magnify[WORLD].max(ZOOM.0));
+                let want = MAP_MID + Vec2::new(off, 0.0);
+                let (cursor, picked) = if refit_on { (MAP_MID, Some(0x42)) } else { (want, None) };
+                st.refit_map(WORLD, view, want, cursor, picked, &[0x42]);
+            }
+            page_finish(&mut w, true);
+            let travel = travel_asked(&mut w);
+            let st = w.resource::<DataState>();
+            if travels {
+                assert_eq!(travel, Some(0x42), "refitted onto the marker: travel");
+                assert!(st.popup.is_none(), "and no Place Marker question");
+            } else {
+                assert_eq!(travel, None, "refitted off the marker: no travel");
+                assert!(matches!(asked(st).0, marker::MarkerAsk::Set(_)), "Place Marker's question");
+            }
+        }
+    }
+
+    /// #3324 (review): the Map Selectable Companions tweak's summon is the same click, taken with
+    /// the box as drawn: companions under it are summoned, before a travel or Place Marker, and
+    /// the travel Enter asked in the frame is dropped; a blank map has no companions under it.
+    #[test]
+    fn a_click_on_companions_summons_them_as_drawn() {
+        let (mut world, mut game) = blank_game();
+        let mut game = game.get_mut(&mut world).unwrap();
+        let mut st = DataState { map_click: Some(WORLD), companions_under: vec![FormId(9)], cursor_marker: Some(7), travel_pending: Some(5), ..DataState::default() };
+        let summoned = take_click(&mut st, &mut game, false);
+        assert_eq!(summoned.map(|s| s.0), Some(vec![FormId(9)]));
+        assert_eq!((st.travel_pending, st.map_click), (None, None));
+        assert!(st.popup.is_none());
+        // No click this frame: nothing summoned.
+        assert!(take_click(&mut st, &mut game, false).is_none());
+        blank_map(&mut st, WORLD);
+        assert!(st.companions_under.is_empty());
+    }
+
+    /// #3324 (review): Enter and a click on an empty spot in the same frame (the Travel target
+    /// kept from a marker the box left): the click wins, Place Marker asks and no travel is
+    /// asked [design]. Both layouts.
+    #[test]
+    fn a_click_wins_over_enter_in_the_same_frame() {
+        let marker = read::Marker { form: 0x42, world: 1, pos: MAP_FEET, name: "Here".into(), kind: 1, flags: 0, radius: 0.0, reputation: None };
+        for tiles in [false, true] {
+            let window = layout_window(tiles);
+            let mut w = map_world(tiles, window, window.min + MAP_MID + Vec2::new(80.0, 0.0), vec![marker.clone()]);
+            page_frame(&mut w, tiles);
+            w.resource_mut::<DataState>().travel_marker = Some(0x42);
+            mouse(&mut w, true);
+            page_frame(&mut w, tiles);
+            assert_eq!(w.resource::<DataState>().travel_marker, Some(0x42), "tiles {tiles}: the Travel target kept");
+            mouse(&mut w, false);
+            w.resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+            page_frame(&mut w, tiles);
+            assert_eq!(travel_asked(&mut w), None, "tiles {tiles}: Enter's travel dropped");
+            assert!(matches!(asked(w.resource::<DataState>()).0, marker::MarkerAsk::Set(_)), "tiles {tiles}: the click's question");
+        }
+    }
+
+    /// #3324 (review): X on the first frame in a worldspace without map data (before its blank map
+    /// is built) finds no place, not the one the map shown before left. Both layouts.
+    #[test]
+    fn place_marker_on_the_first_frame_of_a_blank_map_finds_no_place() {
+        for tiles in [false, true] {
+            let window = layout_window(tiles);
+            let mut w = map_world(tiles, window, window.min + MAP_MID + Vec2::new(50.0, 0.0), Vec::new());
+            page_frame(&mut w, tiles);
+            assert!(w.resource::<DataState>().spot[WORLD].is_some());
+            w.resource_mut::<DataState>().maps.insert(2, None);
+            w.resource_mut::<Location>().world = 2;
+            w.resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyX);
+            page_frame(&mut w, tiles);
+            let st = w.resource::<DataState>();
+            assert!(st.popup.is_none() && st.custom.is_none(), "tiles {tiles}: no question, nothing placed");
+            assert_eq!(st.spot[WORLD], None);
+        }
     }
 
     #[test]
@@ -4819,6 +5486,9 @@ mod tests {
         fn read(mut st: ResMut<DataState>, mut game: Game, mut input: Input) {
             take_input(&mut st, WORLD, &Lists::default(), &mut game, &mut input,
                 Some(MAIN.min + MAP.min + Vec2::new(100.0, 300.0)), false);
+            // As `step` takes the click once the map is drawn (not drawn here: the marker stays
+            // under the box).
+            take_click(&mut st, &mut game, false);
         }
         let (mut app, pad) = playing_app(InputDevice::KeyboardMouse);
         app.insert_resource(DataState { cursor_marker: Some(7), ..default() })
@@ -5485,5 +6155,551 @@ mod tests {
         let gone = fnv_save::PluginRemap::from_names(&saved, &["FalloutNV.esm".into()]);
         assert_eq!(marker_from_save(&v, Some(&gone)), None);
         assert_eq!(marker_from_save(&serde_json::to_value(m).unwrap(), Some(&gone)), Some(m));
+    }
+
+    #[test]
+    fn script_map_marker_overrides_reach_world_local_discovery_compass_and_hud() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(6 + data.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body = subs.concat();
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&[0u8; 8]);
+            out.extend_from_slice(&body);
+            out
+        }
+        fn grp(label: [u8; 4], kind: u32, body: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(b"GRUP");
+            out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+            out.extend_from_slice(&label);
+            out.extend_from_slice(&kind.to_le_bytes());
+            out.extend_from_slice(&[0u8; 8]);
+            out.extend_from_slice(body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            grp(*sig, 0, body)
+        }
+
+        const STAT: u32 = 0x800;
+        const REPU_A: u32 = 0x810;
+        const REPU_B: u32 = 0x811;
+        const ROOM: u32 = 0x900;
+        const MARKER_A: u32 = 0x910;
+        const MARKER_B: u32 = 0x911;
+
+        let bytes = [
+            rec(b"TES4", 0, &[sub(b"HEDR", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0])]),
+            top(b"STAT", &rec(b"STAT", STAT, &[sub(b"EDID", b"OwnedMarkerStat\0")])),
+            top(
+                b"REPU",
+                &[
+                    rec(b"REPU", REPU_A, &[sub(b"EDID", b"OwnedRepA\0"), sub(b"FULL", b"Ridge Runners\0")]),
+                    rec(b"REPU", REPU_B, &[sub(b"EDID", b"OwnedRepB\0"), sub(b"FULL", b"Canyon Guild\0")]),
+                ]
+                .concat(),
+            ),
+            top(b"NPC_", &rec(b"NPC_", 0x7, &[sub(b"EDID", b"Player\0")])),
+            top(
+                b"CELL",
+                &grp(
+                    0i32.to_le_bytes(),
+                    2,
+                    &grp(
+                        0i32.to_le_bytes(),
+                        3,
+                        &[
+                            rec(b"CELL", ROOM, &[sub(b"EDID", b"OwnedRoom\0"), sub(b"DATA", &[1])]),
+                            grp(
+                                ROOM.to_le_bytes(),
+                                6,
+                                &grp(
+                                    ROOM.to_le_bytes(),
+                                    9,
+                                    &[
+                                        // Marker A: Visible (1), not travelable yet, type 2 (Settlement), rep A.
+                                        rec(
+                                            b"REFR",
+                                            MARKER_A,
+                                            &[
+                                                sub(b"EDID", b"OwnedMarkerA\0"),
+                                                sub(b"NAME", &STAT.to_le_bytes()),
+                                                sub(b"XMRK", &[]),
+                                                sub(b"FNAM", &[1]),
+                                                sub(b"FULL", b"Alpha Camp\0"),
+                                                sub(b"TNAM", &[2, 0]),
+                                                sub(b"WMI1", &REPU_A.to_le_bytes()),
+                                                sub(b"DATA", &[0; 24]),
+                                            ],
+                                        ),
+                                        // Marker B: hidden/unmapped (flags 0), type 5 (Cave).
+                                        rec(
+                                            b"REFR",
+                                            MARKER_B,
+                                            &[
+                                                sub(b"EDID", b"OwnedMarkerB\0"),
+                                                sub(b"NAME", &STAT.to_le_bytes()),
+                                                sub(b"XMRK", &[]),
+                                                sub(b"FNAM", &[0]),
+                                                sub(b"FULL", b"Beta Cave\0"),
+                                                sub(b"TNAM", &[5, 0]),
+                                                sub(b"DATA", &[0; 24]),
+                                            ],
+                                        ),
+                                    ]
+                                    .concat(),
+                                ),
+                            ),
+                        ]
+                        .concat(),
+                    ),
+                ),
+            ),
+        ]
+        .concat();
+        let plugin = fnv_esm::Plugin::parse(&bytes, "OwnedMarkers.esm".into()).unwrap();
+        let mut script = crate::script::ScriptState::over_plugins(&[plugin]);
+
+        let run = |script: &mut crate::script::ScriptState, body: &str| {
+            script.rt.as_mut().unwrap().game.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap();
+        };
+
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 1], se: [1, -2] };
+        let mut st = DataState {
+            tile_rows: true,
+            maps: [(1, Some(root))].into_iter().collect(),
+            markers: Some(vec![
+                read::Marker { form: MARKER_A, world: 1, pos: [0.0; 3], name: "Alpha Camp".into(), kind: 2, flags: 1, radius: 10.0, reputation: Some((REPU_A, "Ridge Runners".into())) },
+                read::Marker { form: MARKER_B, world: 1, pos: [4096.0, 0.0, 0.0], name: "Beta Cave".into(), kind: 5, flags: 0, radius: 10.0, reputation: None },
+            ]),
+            ..DataState::default()
+        };
+
+        // Undiscovered custom icon stays icon_map_undiscovered.dds until discovered/travelable;
+        // type, name, reputation, visibility, and hidden flags all take effect immediately.
+        run(
+            &mut script,
+            r#"
+            SetCustomMapMarkerIcon OwnedMarkerA "Interface\Icons\Owned\custom_alpha.dds"
+            OwnedMarkerA.SetMapMarkerType 14
+            OwnedMarkerA.SetMapMarkerName "Renamed Outpost"
+            OwnedMarkerA.SetMapMarkerRep OwnedRepB
+            "#,
+        );
+
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        world.insert_resource(script);
+        let mut state = SystemState::<Game>::new(&mut world);
+
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let g = &game.script.as_ref().unwrap().rt.as_ref().unwrap().game;
+            assert_eq!(st.unmapped_of(1, Some(g)), [MARKER_B].into_iter().collect());
+            assert_eq!(st.named_markers_of(1, Some(g))[0].2, "Renamed Outpost");
+            st.newly_found.push(MARKER_A);
+            assert_eq!(st.take_newly_found(Some(g)), vec![(MARKER_A, "Renamed Outpost".to_string())]);
+
+            let shown = world_map(&mut st, &game, None, false);
+            assert_eq!(shown.marks.len(), 1, "Marker B starts unmapped");
+            assert_eq!(shown.marks[0].icon, Some((14, false)));
+            assert_eq!(shown.marks[0].picture(), model::marker_icon(14, false), "undiscovered marker keeps undiscovered icon");
+            assert_eq!(shown.marks[0].name, "Renamed Outpost");
+            assert_eq!(shown.label.as_deref(), Some("Renamed Outpost"));
+            assert_eq!(shown.detail.as_deref(), Some("Canyon Guild: Neutral"));
+            assert_eq!(shown.marks[0].detail.as_deref(), Some("Canyon Guild: Neutral"));
+
+            let local = local_map(&mut st, &game, None);
+            assert_eq!(local.marks.len(), 1);
+            assert_eq!(local.marks[0].icon, Some((14, false)));
+            assert_eq!(local.label.as_deref(), Some("Renamed Outpost"));
+        }
+
+        // Making Marker A travelable (discovered) activates its custom icon on both World and Local maps;
+        // making Marker B visible brings it onto the map and removes it from unmapped_of.
+        run(
+            world.resource_mut::<crate::script::ScriptState>().as_mut(),
+            r#"
+            OwnedMarkerA.SetMapMarkerTravel 1
+            OwnedMarkerB.SetMapMarkerVisible 1
+            "#,
+        );
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let g = &game.script.as_ref().unwrap().rt.as_ref().unwrap().game;
+            assert!(st.unmapped_of(1, Some(g)).is_empty());
+
+            let shown = world_map(&mut st, &game, None, false);
+            assert_eq!(shown.marks.len(), 2);
+            assert_eq!(shown.marks[0].icon, Some((14, true)));
+            assert_eq!(shown.marks[0].picture(), "Interface\\Icons\\Owned\\custom_alpha.dds");
+            assert_eq!(shown.marks[1].icon, Some((5, false)));
+
+            let local = local_map(&mut st, &game, None);
+            assert_eq!(local.marks[0].picture(), "Interface\\Icons\\Owned\\custom_alpha.dds");
+        }
+
+        // Clearing custom icon with "" restores SetMapMarkerType's icon (Vault); clearing rep with 0
+        // hides the reputation line; SetMapMarkerVisible 0 + SetMapMarkerHidden 1 hides Marker B
+        // even under ShowAllMapMarkers 1 1 1 (skipHidden = 1).
+        run(
+            world.resource_mut::<crate::script::ScriptState>().as_mut(),
+            r#"
+            SetCustomMapMarkerIcon OwnedMarkerA ""
+            OwnedMarkerA.SetMapMarkerRep 0
+            OwnedMarkerB.SetMapMarkerVisible 0
+            OwnedMarkerB.SetMapMarkerHidden 1
+            ShowAllMapMarkers 1 1 1
+            "#,
+        );
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let g = &game.script.as_ref().unwrap().rt.as_ref().unwrap().game;
+            assert_eq!(st.unmapped_of(1, Some(g)), [MARKER_B].into_iter().collect());
+
+            let shown = world_map(&mut st, &game, None, false);
+            assert_eq!(shown.marks.len(), 1, "Hidden Marker B is skipped by ShowAllMapMarkers(skipHidden=1)");
+            assert_eq!(shown.marks[0].picture(), model::marker_icon(14, true));
+            assert_eq!(shown.detail, None, "SetMapMarkerRep 0 clears reputation line");
+            assert_eq!(shown.marks[0].detail, None);
+        }
+    }
+
+    #[test]
+    fn authored_can_travel_to_does_not_discover_or_unmap_before_player_finds_marker() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        const STAT: u32 = 0x800;
+        const ROOM: u32 = 0x900;
+        const MARKER_VIS_TRAVEL: u32 = 0x910;
+        const MARKER_TRAVEL_ONLY: u32 = 0x911;
+        const MARKER_VIS_ONLY: u32 = 0x912;
+
+        let sub = |sig: &[u8; 4], data: &[u8]| [sig.as_slice(), &(data.len() as u16).to_le_bytes(), data].concat();
+        let rec = |sig: &[u8; 4], id: u32, subs: &[Vec<u8>]| {
+            let body: Vec<u8> = subs.iter().flat_map(|s| s.iter().copied()).collect();
+            [sig.as_slice(), &(body.len() as u32).to_le_bytes(), &0u32.to_le_bytes(), &id.to_le_bytes(), &0u32.to_le_bytes(), &0u32.to_le_bytes(), &body].concat()
+        };
+        let grp = |label: [u8; 4], kind: u32, body: &[u8]| [b"GRUP".as_slice(), &((24 + body.len()) as u32).to_le_bytes(), &label, &kind.to_le_bytes(), &0u64.to_le_bytes(), body].concat();
+        let top = |sig: &[u8; 4], body: &[u8]| grp(*sig, 0, body);
+        let tes4 = rec(b"TES4", 0, &[sub(b"HEDR", &[1.34f32.to_le_bytes().as_slice(), &0u32.to_le_bytes(), &0x800u32.to_le_bytes()].concat())]);
+        let bytes = [
+            tes4,
+            top(b"STAT", &rec(b"STAT", STAT, &[sub(b"EDID", b"VanillaMarkerStat\0")])),
+            top(b"NPC_", &rec(b"NPC_", 0x7, &[sub(b"EDID", b"Player\0")])),
+            top(
+                b"CELL",
+                &grp(
+                    0i32.to_le_bytes(),
+                    2,
+                    &grp(
+                        0i32.to_le_bytes(),
+                        3,
+                        &[
+                            rec(b"CELL", ROOM, &[sub(b"EDID", b"VanillaRoom\0"), sub(b"DATA", &[1])]),
+                            grp(
+                                ROOM.to_le_bytes(),
+                                6,
+                                &grp(
+                                    ROOM.to_le_bytes(),
+                                    9,
+                                    &[
+                                        // Undiscovered marker authored Visible | Can Travel To (FNAM = 1 | 2).
+                                        rec(
+                                            b"REFR",
+                                            MARKER_VIS_TRAVEL,
+                                            &[
+                                                sub(b"EDID", b"VanillaVisTravelRef\0"),
+                                                sub(b"NAME", &STAT.to_le_bytes()),
+                                                sub(b"XMRK", &[]),
+                                                sub(b"FNAM", &[1 | 2]),
+                                                sub(b"FULL", b"Visible Ridge\0"),
+                                                sub(b"TNAM", &[5, 0]),
+                                                sub(b"DATA", &[0; 24]),
+                                            ],
+                                        ),
+                                        // Undiscovered marker authored Can Travel To only (FNAM = 2), as typical vanilla locations.
+                                        rec(
+                                            b"REFR",
+                                            MARKER_TRAVEL_ONLY,
+                                            &[
+                                                sub(b"EDID", b"VanillaTravelOnlyRef\0"),
+                                                sub(b"NAME", &STAT.to_le_bytes()),
+                                                sub(b"XMRK", &[]),
+                                                sub(b"FNAM", &[2]),
+                                                sub(b"FULL", b"Hidden Valley Camp\0"),
+                                                sub(b"TNAM", &[2, 0]),
+                                                sub(b"DATA", &[0; 24]),
+                                            ],
+                                        ),
+                                        // Undiscovered marker authored Visible only (FNAM = 1).
+                                        rec(
+                                            b"REFR",
+                                            MARKER_VIS_ONLY,
+                                            &[
+                                                sub(b"EDID", b"VanillaVisOnlyRef\0"),
+                                                sub(b"NAME", &STAT.to_le_bytes()),
+                                                sub(b"XMRK", &[]),
+                                                sub(b"FNAM", &[1]),
+                                                sub(b"FULL", b"Lookout Ridge\0"),
+                                                sub(b"TNAM", &[3, 0]),
+                                                sub(b"DATA", &[0; 24]),
+                                            ],
+                                        ),
+                                    ]
+                                    .concat(),
+                                ),
+                            ),
+                        ]
+                        .concat(),
+                    ),
+                ),
+            ),
+        ]
+        .concat();
+        let plugin = fnv_esm::Plugin::parse(&bytes, "VanillaMarkers.esm".into()).unwrap();
+        let script = crate::script::ScriptState::over_plugins(&[plugin]);
+
+        let run = |script: &mut crate::script::ScriptState, body: &str| {
+            script.rt.as_mut().unwrap().game.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap();
+        };
+
+        let m_vis_travel = read::Marker { form: MARKER_VIS_TRAVEL, world: 1, pos: [0.0; 3], name: "Visible Ridge".into(), kind: 5, flags: 1 | 2, radius: 10.0, reputation: None };
+        let m_travel_only = read::Marker { form: MARKER_TRAVEL_ONLY, world: 1, pos: [4096.0, 0.0, 0.0], name: "Hidden Valley Camp".into(), kind: 2, flags: 2, radius: 10.0, reputation: None };
+        let m_vis_only = read::Marker { form: MARKER_VIS_ONLY, world: 1, pos: [-4096.0, 0.0, 0.0], name: "Lookout Ridge".into(), kind: 3, flags: 1, radius: 10.0, reputation: None };
+        let root = WorldMap { root: 1, transform: MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 1], se: [1, -2] };
+        let mut st = DataState {
+            tile_rows: true,
+            maps: [(1, Some(root))].into_iter().collect(),
+            markers: Some(vec![m_vis_travel.clone(), m_travel_only.clone(), m_vis_only.clone()]),
+            ..DataState::default()
+        };
+
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        world.insert_resource(script);
+        let mut state = SystemState::<Game>::new(&mut world);
+
+        // Before discovery (#3468 check 252 + 2026-11-22 live map-marker probe for script
+        // values; Pip-Boy drawing an undiscovered FNAM=3 marker as discovered with its own
+        // icon is [hypothesis]):
+        // - Visible | Can Travel To (FNAM=3) is known and travelable (Some(true)).
+        // - Visible alone (FNAM=1) is known as undiscovered (Some(false)).
+        // - Can Travel To alone (FNAM=2) is unknown (None) and stays in unmapped_of (Hide Unmapped Places).
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let g = &game.script.as_ref().unwrap().rt.as_ref().unwrap().game;
+            assert_eq!(known(&st, &game, &m_vis_travel), Some(true), "authored FNAM=3 starts travelable (2)");
+            assert_eq!(known(&st, &game, &m_vis_only), Some(false), "authored FNAM=1 starts undiscovered (1)");
+            assert_eq!(known(&st, &game, &m_travel_only), None, "authored FNAM=2 alone stays hidden before discovery");
+            assert_eq!(st.unmapped_of(1, Some(g)), [MARKER_TRAVEL_ONLY].into_iter().collect(), "Hide Unmapped Places keeps authored Can Travel To-only marker");
+            assert_eq!(st.unmapped_of(1, None), [MARKER_TRAVEL_ONLY].into_iter().collect());
+
+            let shown = world_map(&mut st, &game, None, false);
+            assert_eq!(shown.marks.len(), 2);
+            assert_eq!(shown.marks[0].icon, Some((5, true)));
+            assert_eq!(shown.marks[0].picture(), model::marker_icon(5, true));
+            assert_eq!(shown.marks[1].icon, Some((3, false)));
+            assert_eq!(shown.marks[1].picture(), model::marker_icon(3, false));
+        }
+
+        // SetMapMarkerTravel 0 on FNAM=3 drops it to undiscovered (Some(false));
+        // ShowAllMapMarkers 1 0 0 (Explorer perk) reveals the Can Travel To-only marker as undiscovered (not discovered).
+        run(
+            world.resource_mut::<crate::script::ScriptState>().as_mut(),
+            r#"
+            VanillaVisTravelRef.SetMapMarkerTravel 0
+            VanillaVisTravelRef.SetMapMarkerHidden 1
+            ShowAllMapMarkers 1 0 0
+            "#,
+        );
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let g = &game.script.as_ref().unwrap().rt.as_ref().unwrap().game;
+            assert_eq!(known(&st, &game, &m_vis_travel), Some(false), "SetMapMarkerTravel 0 drops FNAM=3 to undiscovered");
+            assert_eq!(known(&st, &game, &m_travel_only), Some(false), "Explorer ShowAllMapMarkers 1 0 0 shows FNAM=2 marker undiscovered");
+            assert!(st.unmapped_of(1, Some(g)).is_empty());
+        }
+
+        // Clearing ShowAllMapMarkers restores Hide Unmapped Places for the Can Travel To-only marker;
+        // SetMapMarkerVisible 0 on Visible | Can Travel To moves it into unmapped_of and off the map.
+        run(
+            world.resource_mut::<crate::script::ScriptState>().as_mut(),
+            r#"
+            ShowAllMapMarkers 0
+            VanillaVisTravelRef.SetMapMarkerVisible 0
+            "#,
+        );
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let g = &game.script.as_ref().unwrap().rt.as_ref().unwrap().game;
+            assert_eq!(known(&st, &game, &m_vis_travel), None);
+            assert_eq!(st.unmapped_of(1, Some(g)), [MARKER_VIS_TRAVEL, MARKER_TRAVEL_ONLY].into_iter().collect());
+        }
+
+        // Discovering a marker or ShowMap with canTravel=1 marks it travelable (Some(true));
+        // subsequent ShowMap 0 leaves it at Some(true).
+        st.discovered.insert(MARKER_VIS_ONLY);
+        run(
+            world.resource_mut::<crate::script::ScriptState>().as_mut(),
+            r#"
+            ShowMap VanillaTravelOnlyRef 1
+            ShowMap VanillaTravelOnlyRef 0
+            "#,
+        );
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            assert_eq!(known(&st, &game, &m_vis_only), Some(true));
+            assert_eq!(known(&st, &game, &m_travel_only), Some(true));
+        }
+    }
+
+    #[test]
+    fn world_map_discovers_materialized_and_placed_teammates_and_excludes_inactive() {
+        use bevy::ecs::system::SystemState;
+        use model::MapTransform;
+
+        const WORLD_ID: u32 = 0x800;
+        const EXT_CELL: u32 = 0x801;
+        const NPC_A: u32 = 0x810;
+        const NPC_B: u32 = 0x811;
+        const NPC_DEAD: u32 = 0x812;
+        const NPC_DISABLED: u32 = 0x813;
+        const NPC_NON_TEAM: u32 = 0x814;
+        const NPC_NEAR: u32 = 0x815;
+        const REF_PLACED_ONLY: u32 = 0x820;
+        const REF_MATERIALIZED: u32 = 0x821;
+        const REF_DEAD: u32 = 0x822;
+        const REF_DISABLED: u32 = 0x823;
+        const REF_NON_TEAM: u32 = 0x824;
+        const REF_NEAR: u32 = 0x825;
+
+        let sub = |sig: &[u8; 4], data: &[u8]| [sig.as_slice(), &(data.len() as u16).to_le_bytes(), data].concat();
+        let rec = |sig: &[u8; 4], flags: u32, id: u32, subs: &[Vec<u8>]| {
+            let body: Vec<u8> = subs.iter().flat_map(|s| s.iter().copied()).collect();
+            [sig.as_slice(), &(body.len() as u32).to_le_bytes(), &flags.to_le_bytes(), &id.to_le_bytes(), &0u32.to_le_bytes(), &0u32.to_le_bytes(), &body].concat()
+        };
+        let grp = |label: [u8; 4], kind: u32, body: &[u8]| [b"GRUP".as_slice(), &((24 + body.len()) as u32).to_le_bytes(), &label, &kind.to_le_bytes(), &0u64.to_le_bytes(), body].concat();
+        let top = |sig: &[u8; 4], body: &[u8]| grp(*sig, 0, body);
+        let pos_bytes = |x: f32, y: f32, z: f32| [x, y, z, 0.0, 0.0, 0.0].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>();
+        let npc = |id: u32, edid: &[u8], full: &[u8]| rec(b"NPC_", 0, id, &[sub(b"EDID", edid), sub(b"FULL", full)]);
+        let achr = |id: u32, flags: u32, edid: &[u8], base: u32, pos: [f32; 3]| {
+            rec(b"ACHR", flags, id, &[sub(b"EDID", edid), sub(b"NAME", &base.to_le_bytes()), sub(b"DATA", &pos_bytes(pos[0], pos[1], pos[2]))])
+        };
+
+        let tes4 = rec(b"TES4", 0, 0, &[sub(b"HEDR", &[1.34f32.to_le_bytes().as_slice(), &0u32.to_le_bytes(), &0x800u32.to_le_bytes()].concat())]);
+        let npcs = [
+            npc(0x7, b"Player\0", b"Player\0"),
+            npc(NPC_A, b"PlacedMate\0", b"Scout Alpha\0"),
+            npc(NPC_B, b"MatMate\0", b"Scout Bravo\0"),
+            npc(NPC_DEAD, b"DeadMate\0", b"Fallen Scout\0"),
+            npc(NPC_DISABLED, b"DisMate\0", b"Hidden Scout\0"),
+            npc(NPC_NON_TEAM, b"Bystander\0", b"Town Drifter\0"),
+            npc(NPC_NEAR, b"NearMate\0", b"Close Scout\0"),
+        ]
+        .concat();
+        let persistent = [
+            achr(REF_PLACED_ONLY, 0x400, b"PlacedMateRef\0", NPC_A, [8000.0, 0.0, 0.0]),
+            achr(REF_MATERIALIZED, 0x400, b"MatMateRef\0", NPC_B, [-8000.0, 2048.0, 0.0]),
+            achr(REF_DEAD, 0x400, b"DeadMateRef\0", NPC_DEAD, [9000.0, 0.0, 0.0]),
+            achr(REF_DISABLED, 0x400 | 0x800, b"DisMateRef\0", NPC_DISABLED, [10000.0, 0.0, 0.0]),
+            achr(REF_NON_TEAM, 0x400, b"BystanderRef\0", NPC_NON_TEAM, [11000.0, 0.0, 0.0]),
+            achr(REF_NEAR, 0x400, b"NearMateRef\0", NPC_NEAR, [500.0, 0.0, 0.0]),
+        ]
+        .concat();
+        let wrld = [
+            rec(b"WRLD", 0, WORLD_ID, &[sub(b"EDID", b"TestWasteland\0")]),
+            grp(
+                WORLD_ID.to_le_bytes(),
+                1,
+                &[
+                    rec(b"CELL", 0, EXT_CELL, &[sub(b"EDID", b"TestExtCell\0"), sub(b"DATA", &[0])]),
+                    grp(EXT_CELL.to_le_bytes(), 6, &grp(EXT_CELL.to_le_bytes(), 8, &persistent)),
+                ]
+                .concat(),
+            ),
+        ]
+        .concat();
+        let bytes = [tes4, top(b"NPC_", &npcs), top(b"WRLD", &wrld)].concat();
+        let plugin = fnv_esm::Plugin::parse(&bytes, "CompanionMap.esm".into()).unwrap();
+        let mut script = crate::script::ScriptState::over_plugins(&[plugin]);
+
+        // Build matching SimState from the same plugin.
+        let sim_plugin = fnv_esm::Plugin::parse(&bytes, "CompanionMap.esm".into()).unwrap();
+        let plugins: &'static [fnv_esm::Plugin] = Box::leak(Box::new([sim_plugin]));
+        let lo = fnv_esm::LoadOrder::new(plugins).unwrap();
+        let schema = fnv_esm::Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(fnv_sim::FormStore::build(&lo, &schema)));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(fnv_sim::RefTable::build(&lo, &schema)));
+        let mut sim = SimState { forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()) };
+
+        // Materialize only REF_MATERIALIZED (moving it to a new exterior position); leave REF_PLACED_ONLY unmaterialized!
+        sim.world.get(FormId(REF_MATERIALIZED)).unwrap().pos = [-9000.0, 4096.0, 0.0];
+        assert!(sim.world.peek(FormId(REF_PLACED_ONLY)).is_none(), "REF_PLACED_ONLY must remain unmaterialized");
+
+        // Mark teammates in script state (leaving REF_NON_TEAM untagged, REF_DEAD dead, REF_DISABLED initially disabled).
+        {
+            let g = &mut script.rt.as_mut().unwrap().game;
+            for r in [REF_PLACED_ONLY, REF_MATERIALIZED, REF_DEAD, REF_DISABLED, REF_NEAR] {
+                g.extra.entry(FormId(r)).or_default().teammate = true;
+            }
+            g.extra.entry(FormId(REF_DEAD)).or_default().dead = true;
+        }
+
+        let root = WorldMap { root: WORLD_ID, transform: MapTransform::default(), texture: "world.dds".into(), usable: [2048.0; 2], nw: [-4, 4], se: [4, -4] };
+        let mut st = DataState {
+            tile_rows: true,
+            maps: [(WORLD_ID, Some(root))].into_iter().collect(),
+            markers: Some(Vec::new()),
+            ..DataState::default()
+        };
+
+        let mut world = World::new();
+        world.insert_resource(Location { world: WORLD_ID, interior: None });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        world.insert_resource(script);
+        world.insert_resource(sim);
+        let mut state = SystemState::<Game>::new(&mut world);
+
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let shown = world_map(&mut st, &game, None, false);
+            let names: Vec<&str> = shown.companions.iter().map(|c| c.1.as_str()).collect();
+            assert_eq!(names, vec!["Scout Alpha", "Scout Bravo"], "discovers both unmaterialized and materialized exterior teammates; excludes dead, disabled, non-teammate, and too-near");
+            let parts = shown.world.as_ref().expect("world parts");
+            assert_eq!(parts.companion_font, COMPANION_FONT as u8);
+            assert_eq!(parts.companions.iter().map(|c| (c.0, c.2.as_str(), c.3)).collect::<Vec<_>>(), vec![(REF_PLACED_ONLY, "Scout Alpha", false), (REF_MATERIALIZED, "Scout Bravo", false)]);
+        }
+
+        // Enabling bNoMinCompanionMapDistance + bCompanionsUseLocationFontOnMap reveals the nearby teammate and switches to font 1.
+        {
+            let mut script = world.resource_mut::<crate::script::ScriptState>();
+            let g = &mut script.rt.as_mut().unwrap().game;
+            g.tweaks.no_min_companion_distance = true;
+            g.tweaks.companions_location_font = true;
+        }
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let shown = world_map(&mut st, &game, None, false);
+            let names: Vec<&str> = shown.companions.iter().map(|c| c.1.as_str()).collect();
+            assert_eq!(names, vec!["Scout Alpha", "Scout Bravo", "Close Scout"]);
+            assert_eq!(shown.world.as_ref().unwrap().companion_font, LOCATION_FONT as u8);
+        }
     }
 }

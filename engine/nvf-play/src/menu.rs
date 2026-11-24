@@ -203,6 +203,7 @@ impl Plugin for MenuPlugin {
                     open_menus,
                     keep_menu_state,
                     sync_cards,
+                    sync_refresh_items_list,
                     publish_menu_picks,
                     publish_jip_menus,
                     (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
@@ -419,7 +420,11 @@ pub(crate) fn open_menus(
             let skill = barter_skill(script.as_deref_mut(), &mut sim);
             info!("menu: barter with {merchant}: stock in {stock}, Barter skill {skill}");
             let sells = vendor_sells(script.as_deref_mut(), &mut sim, merchant);
+            let barter_hidden = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.barter_hidden_for(merchant)).unwrap_or_default();
             MenuModel::open_barter(&mut sim.world, merchant, stock, model::CAPS, skill, b.discount).and_then(|mut m| {
+                if !barter_hidden.is_empty() {
+                    m.set_barter_hidden(&mut sim.world, barter_hidden)?;
+                }
                 if let Some(s) = sells {
                     m.set_sells(&mut sim.world, s)?;
                     let held = m.trade.as_ref().map_or(&[][..], |t| &t.withheld[..]);
@@ -464,6 +469,9 @@ pub(crate) fn open_menus(
             }
             let hidden = if matches!(m.mode, Mode::Inventory) { 0 } else { m.list(Side::Container).hidden };
             info!("menu: open {:?} \"{}\"{}", m.mode, m.title, if hidden > 0 { format!(" ({hidden} non-playable stacks hidden)") } else { String::new() });
+            if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                sync_ysi_model(&mut m, &mut rt.game);
+            }
             // Scripts run MenuMode 1008 / 1002 / 1053 from now on (layer5-play.md).
             crate::script::engine_menu_opened(script, m.mode);
             // The player's tweak: the world (and the player) runs on while the Pip-Boy comes
@@ -791,6 +799,39 @@ fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script:
     }
 }
 
+/// Attach resolved ySI sorting tags and row icons to `m` when ySI is active in `game`
+/// (zero-cost no-op in vanilla sessions without ySI) [design: `docs/spec-notes/ysi-filename.md`].
+fn sync_ysi_model(m: &mut MenuModel, game: &mut fnv_game::Game<'_>) {
+    if game.ysi_active() {
+        m.apply_ysi(|item| game.ysi_item_display(item));
+    }
+}
+
+/// Consume a pending script `RefreshItemsList` request (`fnv_game::nvse_jip3`) and rebuild
+/// any open item/recipe menu's rows without closing the menu or losing valid selection
+/// [documented: GECK wiki RefreshItemsList; design: docs/spec-notes/ext-menus.md].
+pub(crate) fn sync_refresh_items_list(
+    mut active: ResMut<ActiveMenu>,
+    mut recipe: Option<ResMut<crate::crafting::RecipeMenu>>,
+    script: Option<ResMut<crate::script::ScriptState>>,
+    mut sim: ResMut<SimState>,
+) {
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    if !rt.game.take_refresh_items_list() {
+        return;
+    }
+    if let Some(m) = active.0.as_mut() {
+        if let Err(e) = m.refresh(&mut sim.world) {
+            warn!("menu: RefreshItemsList could not refresh active item list: {e}");
+        } else {
+            sync_ysi_model(m, &mut rt.game);
+        }
+    }
+    if let Some(open) = recipe.as_deref_mut().and_then(|r| r.0.as_mut()) {
+        crate::crafting::refresh_open(rt, &mut sim, open);
+    }
+}
+
 /// Tell the scripts' game what the open item menus are about and have highlighted, for
 /// GetMenuTargetRef and GetSelectedItemRef (`fnv_game::game::MenuPicks`, #983): the
 /// container or merchant and the focused column's row (container 1008, inventory 1002,
@@ -875,14 +916,22 @@ fn publish_jip_menus(mut active: ResMut<ActiveMenu>, script: Option<ResMut<crate
     let units = |side: Side| t.offered[side as usize].keys().map(|u| u.0).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
     rt.game.set_barter_view(Some(BarterView { merchant_caps: t.purse[Side::Container as usize], stock: t.stock, bought: units(Side::Container), sold: units(Side::Player), mult: t.mults() }));
     let set = rt.game.barter_price_mults();
-    if m.trade.as_ref().is_some_and(|t| t.mult_set != set) {
+    let hidden = rt.game.barter_hidden_for(t.merchant);
+    let mult_changed = t.mult_set != set;
+    let hidden_changed = t.hidden != hidden;
+    if mult_changed || hidden_changed {
         let Some(m) = active.0.as_mut() else { return };
         if let Some(t) = m.trade.as_mut() {
             t.mult_set = set;
+            t.hidden = hidden;
         }
-        info!("barter: a script set the price multipliers to {set:?}");
+        if mult_changed {
+            info!("barter: a script set the price multipliers to {set:?}");
+        }
         if let Err(e) = crate::script::with_world(rt, &mut sim, |rt| m.refresh(&mut rt.game.world)) {
             warn!("barter: the trade cannot be listed again: {e}");
+        } else {
+            sync_ysi_model(m, &mut rt.game);
         }
     }
 }
@@ -928,6 +977,26 @@ fn apply_input(
             });
             m.companion_carry = cap;
         }
+        // ShowOff:OnPreActivateInventoryItem / OnPreActivateInventoryItemAlt before
+        // inventory item equip/unequip/use (Enter/Space or click on the selected row).
+        let inv_activating = m.mode == Mode::Inventory
+            && m.quantity.is_none()
+            && match cmd {
+                Command::One => true,
+                Command::Select(side, idx) => m.focus == side && m.selected[side as usize] == idx,
+                _ => false,
+            };
+        if inv_activating {
+            let row = m.selected_row(m.focus).filter(|r| r.folder.is_none() && r.kind != Some(fnv_sim::forms::ItemKind::CaravanCard)).cloned();
+            if let (Some(row), Some(rt)) = (row, script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.has_pre_activate_inventory_handlers())) {
+                let allowed = crate::script::with_world(rt, &mut sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, row.item, 0, !row.equipped));
+                if !allowed {
+                    info!("menu: {cmd:?}: {} activation prevented by script", row.name);
+                    let _ = m.refresh(&mut sim.world);
+                    continue;
+                }
+            }
+        }
         // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
         if matches!(cmd, Command::One) && m.mode == Mode::Inventory {
             let item = m.selected_row(m.focus).filter(|r| !r.equipped && r.folder.is_none()).map(|r| r.item);
@@ -957,6 +1026,27 @@ fn apply_input(
         let before = crate::ui_sounds::MenuBefore::of(m);
         let asking = m.quantity.is_some();
         let a = m.apply(&mut sim.world, cmd);
+        let refreshed_rows = a.changed
+            || matches!(
+                cmd,
+                Command::Category(..)
+                    | Command::SetCategory(..)
+                    | Command::SetSort(..)
+                    | Command::Back
+                    | Command::One
+                    | Command::Stack
+                    | Command::TakeAll
+                    | Command::StoreAll
+                    | Command::Drop
+                    | Command::DropStack
+                    | Command::Accept
+                    | Command::AmountOk
+            );
+        if refreshed_rows {
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                sync_ysi_model(m, &mut rt.game);
+            }
+        }
         held.0 |= m.quantity.is_some();
         if let (false, Some(q)) = (asking, m.quantity) {
             info!("menu: {cmd:?}: how many? ({} of {})", q.amount, q.max);

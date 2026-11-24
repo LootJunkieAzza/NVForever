@@ -109,10 +109,17 @@ Copying a class alone would not satisfy that contract.
 
 NVForever's existing SetClass policy is retained: the calling reference's base receives
 the class override, ahead of its Traits template; references sharing that base see the
-override, and the override is saved [hypothesis: this sharing and lifetime have not been
-captured in the original]. Its real service-category consumer is `Game::services` for
-Autocalc Service actors (vendor-services.md). Auto-calc stats and Autocalc Service are
-separate flags; exercising the latter does not demonstrate stat recalculation.
+override, and the override is saved in `.fos` [observed: Fallout: New Vegas 1.4.0.525 +
+xNVSE 6.4.9, 2026-11-24, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`),
+isolated clean-room save/reload probe `w4f_04_set_class`: sibling `PlaceAtMe
+DoctorBarrows` (`0x000156F0`) `s1.SetClass ArcadeClass (0x0017657B)` updated `s1`, `s2`,
+and base `00015679 -> 0017657B` (base-form shared); `DocMitchellREF` (`0x00104C0F`, base
+`0x00104C0C`) baseline `00015679`, mutated `0017657B`, same-process baseline reload
+`00015679`, same-process mutated reload `0017657B`, fresh-process with `.nvse` `0017657B`,
+and fresh-process `.fos`-only `0017657B`; zero DLL/PDB/source consulted]. Its real
+service-category consumer is `Game::services` for Autocalc Service actors
+(vendor-services.md). Auto-calc stats and Autocalc Service are separate flags; exercising
+the latter does not demonstrate stat recalculation.
 
 An omitted source-call receiver still selects the calling reference. An explicit empty
 or non-form receiver is already refused by `fnv-script::vm::host_function` before the

@@ -9,16 +9,18 @@
 //! | kind | when |
 //! |---|---|
 //! | `fell_out_of_world` | the engine put the player back after falling through the land or out of an interior (nvf-play player.rs) |
+//! | `object_fell_through` | the engine caught a dropped item (nvf-play phys.rs) or a corpse (ragdoll.rs) that sank through the land (#2753) |
+//! | `gpu_error` | a GPU error stopped the game: out of GPU memory, a lost device (crash.rs `render_error`) |
 //! | `path_failure` | an actor cannot reach the place of its package (residents.rs) |
 //! | `script_loop` | one script has errored [`SCRIPT_ERRORS`] times |
-//! | `missing_asset` | a model, texture, actor file or particles failed to load (nvf-assets guard.rs) |
+//! | `missing_asset` | a model, texture, actor file or particles failed to load (nvf-assets guard.rs); a model or actor file a plugin's record names says the `plugin`, and one the base game's own data names and no archive has is not reported (asset_sources.rs, #3045) |
 //! | `save_trouble` | a save failed to write, or a load fell back to the main menu |
-//! | `audio` | no audio output device; a spoken line without its voice file |
+//! | `audio` | no audio output device; a spoken line without its voice file (not a line with no words, such as `...`) |
 //! | `hitch` | a frame over [`HITCH_MS`] outside a load and the [`HITCH_SETTLE_SECS`] after one |
 //! | `slow_load` | a loading screen up longer than [`SLOW_LOAD_MS`] |
 //! | `player_stuck` | movement held [`STUCK_SECS`] with under [`STUCK_UNITS`] moved, while playing |
 //! | `controls_locked` | [design, #2403] an unchanged dialogue, menu or script control lock for [`CONTROLS_LOCKED_SECS`] with [`CONTROLS_LOCKED_PRESSES`] recent press edges |
-//! | `memory` | RAM or VRAM in use over [`MEMORY_SHARE`] of the budget (memory_budget.rs) |
+//! | `memory` | RAM or VRAM in use over [`MEMORY_SHARE`] of the budget (memory_budget.rs), once a game is loaded (not in the `viewer` state at the start, when the RAM in use is other programs') |
 //! | `softlock` | the player is held and nothing in the game moves on to let them go: controls off or restrained with no story event, a conversation with no line and no choice, a line that never ends, a menu that never opens (nvf-play softlock.rs, `fnv_game::softlock`) |
 //!
 //! [design / file refs] Actor travel progress and main-quest stall detection are excluded;
@@ -119,6 +121,63 @@ static RECORDER: Mutex<Option<Recorder>> = Mutex::new(None);
 static FROM_LOG: Mutex<Vec<(&'static str, Value)>> = Mutex::new(Vec::new());
 static SCRIPT_ERROR_COUNTS: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
 
+/// Whose record names each model file (asset_sources.rs), once its thread has listed them.
+static MODEL_SOURCES: std::sync::OnceLock<super::asset_sources::Sources> = std::sync::OnceLock::new();
+static MODEL_SOURCES_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How long a `missing_asset` event waits for that list before it goes out without a plugin.
+pub const SOURCES_WAIT_SECS: u64 = 20;
+
+/// List the load order's model files and their plugins, once a session, on a thread of
+/// its own (it reads every base record; nothing waits for it but the events it names).
+pub fn list_model_sources(lo: &'static fnv_esm::LoadOrder<'static>) {
+    if MODEL_SOURCES_ASKED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let spawned = std::thread::Builder::new().name("nvf-report-sources".into()).spawn(move || {
+        let t = Instant::now();
+        let sources = super::asset_sources::Sources::of(lo);
+        bevy::log::info!("reports: {} model files named by the load order's records, listed in {:.0} ms", sources.len(), t.elapsed().as_secs_f64() * 1000.0);
+        let _ = MODEL_SOURCES.set(sources);
+    });
+    if spawned.is_err() {
+        // No list: events go out without a plugin, none is held back.
+        let _ = MODEL_SOURCES.set(Default::default());
+    }
+}
+
+/// What the model sources say of an event found in the log.
+#[derive(Debug, PartialEq)]
+pub enum Sourced {
+    /// Report it as it is.
+    Plain,
+    /// Report it with the plugin whose record names the file.
+    Plugin(String),
+    /// The base game's own data names a file no archive has: no fault to report.
+    GamesOwn(String),
+    /// The list is not made yet: ask again next frame.
+    Wait,
+}
+
+/// Judge one event: only a `missing_asset` for a model or an actor file is looked up.
+/// `sources`: the list when it is made; `listing`: it was asked for; `waited`: seconds
+/// this event has waited for it.
+pub fn sourced(kind: &str, detail: &Value, sources: Option<&super::asset_sources::Sources>, listing: bool, waited: u64) -> Sourced {
+    if kind != "missing_asset" || !matches!(detail["what"].as_str(), Some("model" | "actor file")) {
+        return Sourced::Plain;
+    }
+    let Some(file) = detail["file"].as_str() else { return Sourced::Plain };
+    let Some(sources) = sources else {
+        return if listing && waited < SOURCES_WAIT_SECS { Sourced::Wait } else { Sourced::Plain };
+    };
+    // "<path>: <why>" (nvf-assets guard.rs).
+    let (path, why) = file.split_once(": ").unwrap_or((file, ""));
+    match sources.plugin_of(path) {
+        Some(plugin) if super::asset_sources::official(plugin) && why == "not in any archive" => Sourced::GamesOwn(plugin.to_string()),
+        Some(plugin) => Sourced::Plugin(plugin.to_string()),
+        None => Sourced::Plain,
+    }
+}
+
 /// Every log event the layer sees: into the recorder, and classified.
 pub fn on_log(level: &str, target: &str, msg: &str) {
     let t = start().elapsed().as_secs_f64();
@@ -163,6 +222,17 @@ pub fn classify(level: &str, msg: &str) -> Option<Found> {
     }
     if warn && msg.starts_with("player fell out of interior") {
         return Some(Found::Now("fell_out_of_world", json!({ "space": "interior", "line": cut(msg) })));
+    }
+    if warn && msg.starts_with("dropped 0x") && msg.contains(" fell through the world") {
+        return Some(Found::Now("object_fell_through", json!({ "what": "dropped item", "line": cut(msg) })));
+    }
+    if warn && msg.starts_with("ragdoll: actor ") && msg.contains(" fell through at ") {
+        return Some(Found::Now("object_fell_through", json!({ "what": "corpse", "line": cut(msg) })));
+    }
+    if let Some(rest) = msg.strip_prefix("render: ").filter(|_| level == "ERROR") {
+        if let Some((ty, _)) = rest.split_once(" GPU error, the game stops") {
+            return Some(Found::Now("gpu_error", json!({ "error": ty, "line": cut(msg) })));
+        }
     }
     if let Some((what, rest)) = msg.strip_prefix("softlock: ").filter(|_| warn).and_then(|r| r.split_once(' ')) {
         return Some(Found::Now("softlock", json!({ "what": what, "line": cut(rest) })));
@@ -220,6 +290,8 @@ pub struct Detectors {
     memory_high: bool,
     voice_missing: Option<u64>,
     pub controls_locked: ControlsLocked,
+    /// `missing_asset` events waiting for the model sources ([`sourced`]): since when (s).
+    waiting: Vec<(u64, &'static str, Value)>,
 }
 
 impl Detectors {
@@ -246,8 +318,20 @@ impl Detectors {
     /// The anomalies the log lines found since the last frame.
     pub fn drain_log(&mut self, s: &mut Summary, here: &Here, t_s: u64) {
         let found = std::mem::take(&mut *FROM_LOG.lock().unwrap_or_else(|e| e.into_inner()));
-        for (kind, detail) in found {
-            self.fire(s, here, t_s, kind, detail);
+        let waiting = std::mem::take(&mut self.waiting);
+        let listing = MODEL_SOURCES_ASKED.load(std::sync::atomic::Ordering::Relaxed);
+        for (since, kind, mut detail) in waiting.into_iter().chain(found.into_iter().map(|(kind, detail)| (t_s, kind, detail))) {
+            match sourced(kind, &detail, MODEL_SOURCES.get(), listing, t_s.saturating_sub(since)) {
+                Sourced::Wait => self.waiting.push((since, kind, detail)),
+                Sourced::GamesOwn(plugin) => bevy::log::debug!("reports: {} is named by {plugin} and in no archive: the game's own, not reported", detail["file"]),
+                Sourced::Plugin(plugin) => {
+                    detail["plugin"] = json!(plugin);
+                    self.fire(s, here, t_s, kind, detail);
+                }
+                Sourced::Plain => {
+                    self.fire(s, here, t_s, kind, detail);
+                }
+            }
         }
     }
 
@@ -274,6 +358,11 @@ impl Detectors {
     /// RAM or VRAM share of the budget; fires on crossing [`MEMORY_SHARE`] upward.
     pub fn check_memory(&mut self, s: &mut Summary, here: &Here, t_s: u64, vram: Option<(u64, u64)>, ram_share: Option<f64>) {
         let vram_share = vram.filter(|(_, b)| *b > 0).map(|(u, b)| u as f64 / b as f64);
+        // Before a game is loaded the RAM in use is other programs' (38 of 85 events from
+        // players in 2026-11-12..15 fired there, #2758): not counted.
+        if here.state == "viewer" {
+            return;
+        }
         let high = vram_share.is_some_and(|v| v > MEMORY_SHARE) || ram_share.is_some_and(|r| r > MEMORY_SHARE);
         if high && !self.memory_high {
             self.fire(s, here, t_s, "memory", json!({ "vram_share": vram_share.map(|v| (v * 100.0).round() / 100.0), "ram_share": ram_share.map(|v| (v * 100.0).round() / 100.0) }));
@@ -368,11 +457,36 @@ mod tests {
         assert_eq!(kind("WARN", "player fell out of interior 00106185 at (1, 2, 3), lowest collision z -40: back to where they last stood"), Some("fell_out_of_world"));
         assert_eq!(kind("INFO", "ai [12.0] Sunny: cannot reach the place of 0012AB34: no path"), Some("path_failure"));
         assert_eq!(kind("WARN", "model not loaded: meshes\\x.nif: broken"), Some("missing_asset"));
+        // #3045: whose file a missing model is, and the base game's own dangling names.
+        let mut sources = crate::reports::asset_sources::Sources::default();
+        sources.note("meshes\\creatures\\ghoul\\mmm_ghoulvariant_v1.nif", "FalloutNV.esm");
+        sources.note("meshes\\mod\\gun.nif", "Mod.esp");
+        let event = |what: &str, file: &str| json!({ "what": what, "file": file });
+        let ghoul = event("actor file", "meshes\\creatures\\ghoul\\mmm_ghoulvariant_v1.nif: not in any archive");
+        assert_eq!(sourced("missing_asset", &ghoul, Some(&sources), true, 0), Sourced::GamesOwn("FalloutNV.esm".into()));
+        // The game's own file that is there and does not read is a fault of ours: reported.
+        let broken = event("model", "meshes\\creatures\\ghoul\\mmm_ghoulvariant_v1.nif: footer claims 65670 roots");
+        assert_eq!(sourced("missing_asset", &broken, Some(&sources), true, 0), Sourced::Plugin("FalloutNV.esm".into()));
+        let gun = event("model", "Meshes\\Mod\\Gun.nif: not in any archive");
+        assert_eq!(sourced("missing_asset", &gun, Some(&sources), true, 0), Sourced::Plugin("Mod.esp".into()));
+        assert_eq!(sourced("missing_asset", &event("model", "meshes\\other.nif: not in any archive"), Some(&sources), true, 0), Sourced::Plain);
+        // Textures have no record of their own; other kinds are not looked up.
+        assert_eq!(sourced("missing_asset", &event("texture", "meshes\\mod\\gun.nif: not in any archive"), Some(&sources), true, 0), Sourced::Plain);
+        assert_eq!(sourced("softlock", &gun, Some(&sources), true, 0), Sourced::Plain);
+        // Until the list is made an event waits, for a while; with no list asked for, not at all.
+        assert_eq!(sourced("missing_asset", &gun, None, true, SOURCES_WAIT_SECS - 1), Sourced::Wait);
+        assert_eq!(sourced("missing_asset", &gun, None, true, SOURCES_WAIT_SECS), Sourced::Plain);
+        assert_eq!(sourced("missing_asset", &gun, None, false, 0), Sourced::Plain);
+        assert_eq!(sourced("missing_asset", &event("texture", "x.dds: gone"), None, true, 0), Sourced::Plain);
         assert_eq!(kind("WARN", "save: failed: disk full"), Some("save_trouble"));
         assert_eq!(classify("WARN", "softlock: controls_held for 30 s: scripts hold the controls (movement)"), Some(Found::Now("softlock", json!({ "what": "controls_held", "line": "for 30 s: scripts hold the controls (movement)" }))));
         assert_eq!(kind("WARN", "load: C:\\s.nvfsave: bad header; starting again on the main menu"), Some("save_trouble"));
         assert_eq!(kind("WARN", "audio output: no device (gone); sound runs silent until one appears"), Some("audio"));
         assert_eq!(classify("WARN", "script error in GSScript: bad ref"), Some(Found::ScriptError("GSScript".into())));
+        assert_eq!(kind("WARN", "dropped 0xFF000179 fell through the world: collision removed, put back where it was dropped"), Some("object_fell_through"));
+        assert_eq!(classify("WARN", "ragdoll: actor 001710BB fell through at (-9617, -96521, 10863), terrain z 11015: back above the ground").map(|f| matches!(f, Found::Now(_, ref d) if d["what"] == "corpse")), Some(true));
+        assert_eq!(classify("ERROR", "render: OutOfMemory GPU error, the game stops: "), Some(Found::Now("gpu_error", json!({ "error": "OutOfMemory", "line": "render: OutOfMemory GPU error, the game stops: " }))));
+        assert_eq!(kind("WARN", "render: GPU validation error 1 of 20 let through (most likely a broken file): x"), None, "a validation error let through is no stop");
         assert_eq!(kind("INFO", "model not loaded: x"), None, "only warnings count");
         assert_eq!(kind("WARN", "something else"), None);
     }
@@ -421,5 +535,17 @@ mod tests {
         d.check_memory(&mut s, &h, 2, Some((500, 1000)), None);
         d.check_memory(&mut s, &h, 3, None, Some(0.95));
         assert_eq!(s.events.len(), 2);
+    }
+
+    #[test]
+    fn memory_is_not_counted_before_a_game_is_loaded() {
+        let mut d = Detectors::default();
+        let mut s = Summary::default();
+        let mut h = Here { state: "viewer", ..Default::default() };
+        d.check_memory(&mut s, &h, 0, Some((30, 8000)), Some(0.96));
+        assert!(s.events.is_empty(), "other programs' RAM at the start");
+        h.state = "playing";
+        d.check_memory(&mut s, &h, 60, Some((30, 8000)), Some(0.96));
+        assert_eq!(s.events.len(), 1);
     }
 }

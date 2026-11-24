@@ -36,8 +36,9 @@ These choices are settled; pack authors and later versions can rely on them.
 | Reading members' pixels | `_orm` (linear) and `_n` (two-channel normal role, `TextureUsage::NormalTwoChannel`) **implemented** (stage 3); `_p` (linear, unsigned only) **implemented** (stage 4); `_albedo` stays reserved |
 | Reading BC7 and BC4 files (DDS with the DX10 header, or legacy `BC4U` / `BC4S`) | stage 1 of #2981 (`crates/fnv-dds`) |
 | Drawing a surface with its set (ORM, normal) | **implemented** in source (stage 3) [documented: `engine/nvf-assets/src/nif_spawn.rs` `shape_material`, `authored.rs` `retexture`]; the setting Authored materials (`authored-materials`, on by default, read at the start; `--graphics-only no-authored-materials`). Its check is the field test `pbr-authored-field` (below). A sample pack was drawn in the game with the setting off and on by the main session as of head `bebd7841a` (pictures not committed; they show the pack's own values, and no reference look exists to judge them by); those pictures are owed again after the fixes that followed that head |
-| Height maps (`_p`, parallax) | **implemented** (stage 4, below: "Height maps"). The game's own height slot (#2979) is not read |
-| Metallic | read with the ORM but **held at 0** (stage 3, implemented) until the engine has a reflection source (stage 5) |
+| Height maps (`_p`, parallax) | **implemented** (stage 4, below: "Height maps"). The game's own height slot (#2979) is drawn too, and a set's `_p` replaces it (below: "The game's own height maps") |
+| Height maps on the landscape's texture layers | **implemented** in source, off by default (#3322 stage 1, below: "Terrain layers: parallax"); seen running with the generated ground pack (test aid, 2026-11-22), not yet with a real pack |
+| Metallic | read with the ORM; acts where the view has a reflection cube while the setting Reflections on authored materials is on (`authored-reflections`, on by default, read at the start; `--graphics-only no-authored-reflections`), **held at 0** otherwise (section "Reflections on authored materials") |
 | A pack validator (`fnvtool pbr check`, `fnvtool pbr selftest`) | **implemented** (`crates/fnvtool/src/pbr_check.rs`, docs/cli-contract.md `fnv.pbr.check/1`) |
 
 Sections marked "planned" describe how the engine will use a set once those stages land.
@@ -165,11 +166,13 @@ A TOML file of plain keys, all optional:
 | `parallax_depth` | depth of the height map's darkest point below the surface, in UV units (stage 4); 0 draws no height map | 0 to 0.08 | 0.03 (`fnv_pbr::DEFAULT_PARALLAX_DEPTH`) |
 | `roughness_scale` | multiplies the ORM's roughness; the product is held to 0..1 when drawn, and to 0.089..1 for the highlight's shape (below) | 0 to 2 | 1.0 |
 | `reflectance` | the highlight strength of non-metals; F0 = 0.16 x reflectance² (0 to 16 %) | 0 to 1 | 0.5 (F0 4 %) |
+| `metal_gain` | how much brighter than the base colour a metal's reflectance is drawn, in a view with a reflection cube (section "Metal base colour") | 1 to 40 | 12 [design, owner 2026-11-21, #3237] |
 
 ```toml
 # textures\pbr\walls\brick07.toml
 roughness_scale = 0.9
 reflectance = 0.35
+metal_gain = 8
 ```
 
 [design: banding and wall streaks in the main session's pictures from 0.06 on a 512 map]
@@ -202,8 +205,9 @@ not TOML is ignored whole with a warning. A UTF-8 byte order mark is accepted.
 - **Kept**: the base colour (the diffuse), the glow map, alpha blending and alpha testing (from
   the diffuse's alpha, as before), the decal flag, and environment maps once the engine draws
   them (it does not yet: `engine/nvf-assets/src/nif_material.wesl` header).
-- **Not covered in version 1**: actor skin, hair and FaceGen heads; terrain layers; distant
-  LOD; effects (unlit, additive, refraction, particles); the Pip-Boy and interface textures.
+- **Not covered in version 1**: actor skin, hair and FaceGen heads; terrain layers' `_orm`
+  and `_n` (their `_p` is drawn as parallax: "Terrain layers: parallax" below); distant LOD;
+  effects (unlit, additive, refraction, particles); the Pip-Boy and interface textures.
 
 ## How the engine lights a set
 
@@ -229,10 +233,12 @@ Maps tuned for other renderers need these notes:
   `perceptualRoughnessToRoughness`, `engine/vendor/bevy_pbr/src/render/pbr_lighting.wesl`),
   so a product below 0.089 draws a highlight as narrow as 0.089's. A raw green below 0.089
   can still end above that floor with a scale above 1.
-- **Metallic** will be read but **held at 0** in version 1: with no reflection source in the
-  engine, a metal would draw black except for lamp highlights. Until a later version adds
-  one, a metal surface draws as a dielectric of its diffuse colour with the authored
-  roughness. Author the blue channel correctly anyway; it will be used.
+- **Metallic** acts only where the surface has something to reflect: with the setting
+  Reflections on authored materials on and a reflection cube on the view (the world camera
+  where the mount has authored sets). Elsewhere, and with the setting off, it is **held at
+  0**: a metal surface draws as a dielectric of its diffuse colour with the authored
+  roughness, since without a reflection source it would draw black except for lamp
+  highlights. See "Reflections on authored materials".
 
 ## Where a set does not apply, and checking one (stage 3)
 
@@ -287,11 +293,19 @@ beyond the field test below):
 - Calibration aids, off by default, read at the start [documented: `authored.rs` `PbrView`,
   `metallic_debug`; `engine/nvf-assets/src/nif_material.wesl`]: `NVF_PBR_VIEW` =
   `roughness`, `metallic`, `occlusion`, `normal`, `authored` or (stage 4) `height`
-  draws that input in place of the lit colour of forward-drawn lit NIF surfaces. Refracting shapes return before the
+  draws that input in place of the lit colour of forward-drawn lit NIF surfaces;
+  `reflection` draws, on an authored
+  surface, what a white perfect mirror would write there (the view's reflection cube at
+  level 0 along the mirror direction, times the cube's intensity and the exposure, then
+  tone-mapped as the picture is), so its scale can be judged against the sky in the same
+  frame, and every other surface grey as `authored` does (authored ones orange where the view
+  has no cube or reflections are off; only the opted-in fragment reads the cube).
+  Refracting shapes return before the
   view; additive draws add the view's colour by their alpha and multiplied draws stay
   neutral, so effects fade out of it; depth and coverage are unchanged.
   `NVF_PBR_METALLIC=1` builds authored materials metallic by the ORM's blue channel and keeps
-  a metal's ambient highlight, a preview of a later metallic stage [design].
+  a metal's ambient highlight, a preview of a later metallic stage [design]; retired while
+  Reflections on authored materials is on (below), and working as before while it is off.
 - On the app's exit the log has one line `authored materials summary: ...` (or
   `authored materials summary: off (setting)`): counts of build events, not of visible
   shapes: material builds that applied an ORM set, the distinct ORM set stems seen at those
@@ -349,7 +363,54 @@ game beyond the field test below [documented: `engine/nvf-assets/src/authored.rs
   depth (white deepest). The engine inverts once, in the vendored
   `engine/vendor/bevy_pbr/src/render/parallax_mapping.wesl` `sample_depth_map` (both its
   bindless and its ordinary sample, `1 - r`; engine/vendor/README.md). No other material in
-  the engine sets a depth map.
+  the engine sets a depth map, but for the game's own height maps (below), which are height
+  too.
+- [design] **The game's own height maps** (#2979; docs/spec-notes/nif.md §6 "Parallax height
+  maps", which keeps the format, the asset-survey counts and what is not known of the
+  original apart from this). What NVForever implements: a NIF shape whose
+  BSShaderPPLightingProperty sets BSShaderFlags bit 11 and names a texture in slot 3 draws
+  it as a height map through the same march, with the same method and layers (and their
+  switches), **on by default** at the game depth 0.015. That default and the method are
+  **provisional** [hypothesis]: they stand until observer check #265 (how the original's
+  relief looks) and a frame-cost measurement on a parallax-heavy view; nothing here says the
+  original draws them this way (`authored::GAME_PARALLAX_DEPTH`, switch
+  `NVF_GAME_PARALLAX_DEPTH=<0..0.08>`, 0 draws none and loads none). It takes the same
+  shapes as a set's height map (the gate above: by default **opaque only**; alpha-tested
+  shapes only under `NVF_PBR_PARALLAX_MASK=1`), with tangents on the **drawn** mesh: a copy
+  made from an actor part's kept mesh for a texture swap or a record's texture set
+  (`Tangents::Keep`) takes a height map, the game's or a set's, only when that mesh already
+  has tangents, since the actor draws the original mesh and tangents made on the copy never
+  reach it. The legacy look records the drawn mesh's tangents too, so a later swap
+  (`retexture`) puts no `_n` or `_p` on such a copy either. **Known limit:** an actor's armour
+  whose drawn mesh starts without tangents (no normal map in its own file) and gains a
+  slot-3 map only through a record's texture set (TXST TX04) stays flat, as before #2979;
+  drawing it would need the actor to draw the copy with its new tangents. Parallax at
+  grazing views is bounded by the vendored march's grazing clamp (the step's divisor held
+  at a view steepness of at least 0.15; engine/vendor/README.md). A shape whose tangents
+  could not be made, or that may not draw the map, does not load the file.
+  - [design] **Intentional changes to authored materials too** (#2979, in the shared
+    vendored march; engine/vendor/README.md): the grazing clamp also bounds an authored
+    `_p`'s step (an unflagged floor seen at |Vt.z| = 0.05 now steps a third as far as
+    before), kept for both sources so no view gives runaway or non-finite coordinates;
+    the sampled height is held to 0..1 before the inversion (a signed texture cannot leave
+    the march's layers); and the occlusion method (`NVF_PBR_PARALLAX_METHOD=occlusion`)
+    interpolates only when the march brackets a hit, keeping the last layer otherwise. It applies **whatever the
+  Authored materials setting**, since it is the game's material, not a set's
+  (`authored::apply_game_height`). Precedence: it is put on before the legacy look is taken,
+  so it is that look's parallax baseline (`LegacyLook::parallax`); a set's `_p` (authored or
+  height-only) is put over it as an overlay and **wins**; a set without `_p` leaves it
+  drawn; taking a set off (a swap's `retexture`, `restore`, `make_legacy`) puts it back.
+  Later copies that stop qualifying (fades, cloaks, and any copy with an effect shader's
+  holes set-up for its whole life, 255 included, since the holes then open by animation
+  alone) drop it as they drop an overlay (`recheck_height` acts on any depth map;
+  `height_gate`); unlit copies clear it. The format is not judged: the maps are read as they
+  load, red channel [hypothesis: the shipped maps are grey DXT1]. `NVF_PBR_VIEW=height`
+  shows them like a set's. The exit line `game height maps summary: ...` (printed whatever
+  the setting) gives the depth or "off", then the builds that still draw the game's map,
+  those where a set's `_p` replaced it, those left flat, those that could not load it, and
+  later copies that dropped one; smoke scenarios `game-parallax-vault34` (authored sets off,
+  switches pinned, a non-zero drawn count) and its control `game-parallax-vault34-off`
+  (depth 0, nothing drawn).
 - [design] **Signed `_p` is refused** (one warning per file; an authored set keeps its other
   maps), as `fnvtool pbr check` refuses it ("Compression and sizes"); so is a `_p` whose file
   is in any format other than those the validator allows for it (BC4 unsigned, DXT1/BC1,
@@ -546,6 +607,508 @@ What holds for a texture swap while the shape fades, and what does not:
   This predates stage 3 and needs one
   owner of the drawn material (base opacity x actor alpha x fade); it is left for its own
   issue.
+
+## Reflections on authored materials
+
+[design] Surfaces shaded from an authored set reflect a small cube of the world camera's
+surroundings, blurred by their roughness, and the `_orm`'s metallic channel acts. NVForever's
+own rendering: the original draws no ambient reflection. Legacy materials, terrain, trees,
+grass and water get no direct contribution from the cube (the gate below keeps it from their
+shaders) [documented: `engine/nvforever/src/lights/reflection_gate.rs`]; that is parity of
+the cube's direct contribution, not a pixel comparison with the build before the feature,
+which has not been made (water's own screen trace, for one, shows the authored pixels it
+reflects as they are now drawn). The setting Reflections on authored
+materials (`authored-reflections`, Graphics > Detail and Distance after Authored materials,
+on in both looks [design, owner 2026-11-21, #3237], `--graphics-only no-authored-reflections`) is read once at the start
+(`engine/nvforever/src/main.rs`, `engine/nvf-assets/src/reflection_cube.rs` `set_enabled`);
+it acts only with Authored materials on, and changes no picture without a pack.
+
+- **Who reflects.** [design; documented: the files named] Bevy adds a view's environment map light (its `EnvironmentMapLight`
+  cube) to every lit shader of that view. NVForever patches bevy_pbr's `pbr_functions` at run
+  time so both environment blocks compile only for a fragment that opts in with the shader
+  def `NVF_PBR_REFLECT`, which only the NIF surface's main pass sets while the setting is on
+  (`engine/nvforever/src/lights/reflection_gate.rs`, `engine/nvf-assets/src/nif_material.rs`).
+  Inside it the reflection is weighted by the authored mark, the ORM's occlusion (red) and,
+  under the mesh terrain blend, the mesh's share (1 - w); every other NIF material weighs 0
+  and reads no cube (`nif_material.wesl`). If the patch cannot be made, no cube is ever
+  attached (a log line says so).
+- **Which view.** [design] Only the world camera has a cube, and only when the setting and Authored
+  materials are on, the mount has at least one authored set (`authored::mount_has_sets`)
+  and the patch is installed (`engine/nvforever/src/reflection_sky.rs` `decide`). Bevy's
+  component goes on once the first fill is on the GPU. The water mirror, the scope, the
+  minigame views and the terminal have none.
+- **Metallic.** [design] With the setting on, authored materials are built with metallic 1, so the
+  ORM's blue acts, but the NIF fragment holds it at 0 in any view without a cube of its own
+  on the GPU: the shader def `ENVIRONMENT_MAP` that Bevy sets from the view, and the view's
+  `view_cubemap_index` at 0 or above, since Bevy also sets the def for a view that only sees
+  a light-probe volume and leaves the index at -1 there [documented:
+  `engine/vendor/bevy_pbr/src/light_probe/mod.rs`; `nif_material.wesl` `nvf_view_has_cube`,
+  which the reflection weight, the metal base lift and the mirror debug view ask too]. So
+  those views, and the world camera's first frames, shade an authored metal as with the
+  setting off. No view of the game has a light-probe volume today [documented: no light
+  probe is spawned in the engine's source, per the code review of 2026-11-20]; the reflection field has no probe-only camera (a probe volume would
+  also change what its cube camera draws inside it), so the composition test alone covers it.
+  `NVF_PBR_VIEW=metallic` still shows the ORM's blue.
+- **The ambient highlight.** [design] Bevy's ambient highlight stays removed in full, also from a
+  metal: the cube takes its place. A metal with a black cube and no lamp is black.
+- **The cube.** [design] A specular cube of 32x32 RGBA16F faces with six levels and a black 1x1
+  diffuse cube (the ambient light stays the game's flat colour), written straight into the
+  texture on the GPU after each fill (`reflection_cube.rs`).
+- **What it holds** [design] (`reflection_sky.rs` `SkyContent`), per world direction and level:
+  - outdoors, above the horizon, the sky dome as it is drawn in that direction (clouds, the
+    sun disc and the glare aside): the weather's horizon, sky-lower and sky-upper colours at
+    the hour (blended across a weather fade) mixed as the dome mixes them (`sky.rs`
+    `dome_color`), by the dome's own weights for that height (`atmosphere.nif`'s vertex
+    colours averaged in 16 steps of the sine of elevation, `DomeProfile`), times the sky's
+    display scale (`SkyState::sky_scale`, the image space's LUM Ramp No Tex, as sky.wesl
+    scales the dome);
+  - outdoors, below the horizon, lit ground: an assumed albedo, a neutral warm grey of
+    display value (0.33, 0.30, 0.25), linear about (0.089, 0.073, 0.051), under the light
+    falling on level ground, the ambient light plus the directional light times the sine of
+    its elevation (the light as the sky aims it: the moon's, with its share, at night, and
+    the ambient alone where neither is above the horizon);
+  - a broad glow toward the directional light (the sun, or the moon at night), in its colour
+    and strength, peak 0.5 of it at level 0, added to the sky;
+  - indoors, the cell's ambient colour above, ground of the same albedo under the ambient
+    alone below (the cell's directional light is left out), and the cell's fog colour as a
+    band at the horizon (a Gaussian of half-width 0.2 in sine of elevation), as the water's
+    indoor sky takes the fog colour;
+  - each level is the same function with a wider kernel, not a filter of the level above:
+    each hemisphere mixes toward its mean by level / 5, the edge between sky and ground
+    widens from 0.05 to 0.5 (sine of elevation), and the glow's power, 16 at level 0, halves
+    per level with its total kept. Bevy reads level = perceptual roughness x 5.
+  [design] Every constant is NVForever's choice, chosen by reasoning; none was tuned against
+  pictures.
+- **Units.** [design; the renderer's units documented in the files named] Linear texels and intensity `light_unit()` (Bevy's default exposure's inverse),
+  so a white perfect mirror writes texel x intensity x exposure = the texel into the HDR
+  target at the default exposure. Each texel is what the thing it stands for writes there
+  before tone mapping, so the tone map and the grade treat mirror and original alike:
+  - the sky (`reflection_sky.rs` `sky_texel`): sky.wesl writes the dome's linear colour times
+    `params.x` (= `SkyState::sky_scale`, `engine/nvforever/src/sky.rs` `SkyState::light`
+    and `sky_scale`) through `tony_inverse` (`engine/nvforever/src/sky.wesl`), which is the
+    identity while the main view shows display values clipped (the default,
+    `engine/nvforever/src/lights.rs` `GAME_CLIP`) and the inverse of the Tony McMapface table
+    under `NVF_TONEMAP=tony`; the cube holds the same value, so a mirror shows the dome as
+    drawn;
+  - lit ground (`ground_texel`): the fork's display-value sum writes a diffuse surface as
+    min(diffuse x (ambient + direct)^2.2, 1) (`engine/nvforever/src/lights/display_shader.rs`,
+    the edit before "Total light"), with the ambient as the view's (display value x 0.9) and
+    the light as `nvf_directional_display` gives it for an upward normal;
+  - indoors (`texel`): no sky is drawn, so the ambient-matched identity stays: a display
+    value v with the ambient's share becomes v x max(v, 1e-6)^1.2, so a direction coloured
+    like the ambient reflects the converted ambient, about A^2.2.
+  The two rules conflict outdoors: an ambient-coloured sky is (linear colour x sky scale) by
+  the sky rule and (0.9 x display value)^2.2 by the ambient rule, and outdoors the sky rule
+  wins. The glow is the light's display colour times its strength in display units, taken
+  to linear light by the ambient rule's conversion and added to the sky in the sky's units
+  (exact with the clip; with Tony McMapface the glow goes through the inverse curve on its
+  own, an approximation). Sources add in linear light. A check of the scale by eye:
+  `NVF_PBR_VIEW=reflection` beside the sky in one frame.
+- **Metal base colour** (next section): a metal's reflection is tinted by its base colour,
+  lifted by the set's metal gain in a view with a cube.
+- **When it is written.** [design] A change of room (indoors against outdoors, another
+  interior cell) or a new dome profile refills at once; otherwise the inputs are checked at
+  most four times a second (real time) and the cube rewritten only when one moved past a
+  step from the last fill: a colour by 1/128 in display value, the light's direction by 3
+  degrees [documented: `reflection_sky.rs` `produce`, `room_changed`, `Inputs::moved`]. One log line at
+  the first fill (`reflection sky: first fill ...`, with the level-0 zenith, horizon and
+  nadir texels) and one at exit (`reflection sky summary: N fills (... outdoors, ...
+  indoors), M checks skipped as unchanged`, or `off (reason)`).
+- **Not there.** [documented: `reflection_sky.rs`] No clouds, no sun or moon disc, no stars; no scene objects (nothing near the
+  camera is drawn into the cube); one cube for the whole view, so no room's own reflection
+  and no parallax; no glass or see-through reflection; the game's own environment maps
+  (the shapes with the environment-map flag) are not drawn. The lightning flash and the
+  exterior fog are not in the cube; indoors the cell's fog colour is only the band at the
+  horizon (above).
+- **Checking it.** The smoke scenarios `pbr-reflect-field` and `pbr-reflect-field-off`
+  (`NVF_PLAY_TEST_PBR_REFLECT_FIELD=1`, `engine/nvf-assets/src/pbr_field/reflect.rs`, the
+  setting pinned with `--graphics-only`): thirteen generated panels drawn by a camera of the
+  field's own with a cube of a different colour per world face and by one without, under the
+  production kind of light (world-view ambient, Bevy's default exposure, MSAA). On: tilted
+  smooth metals show the faces their reflections point at, rougher metals lie nearer the
+  cube's mean, the legacy and zero-reflectance controls and every panel of the camera
+  without a cube are unchanged; a dark bronze metal at the default gain is clearly brighter
+  than the same at gain 1 with the same hue. Off: the cube stays on the camera and changes no
+  panel. The world camera's cube never replaces the field's: the field's cameras are its own.
+  [observed: the main session's reflection smoke runs at `8a9abf4a9` passed, with RGB
+  readbacks, before the third row; the comparator's thresholds are set from reasoning and
+  the third row's are not yet confirmed against a readback]
+  `authored-reflections-sky` and `authored-reflections-off` (the test aid
+  `NVF_PLAY_TEST_PBR_MOUNT_PACK=1` writes the field's generated sets into a fresh folder of
+  the run under an explicit, non-empty `NVFOREVER_HOME` (`pbr-mount-pack\run-*`, every file
+  created new, the folder removed again on a failure) and mounts it over every other loose
+  layer for that run only, so the mount has authored sets; no mods folder is written
+  [documented: `pbr_field/reflect.rs` `seed_mount_pack`, `fnv_vfs::Vfs::add_loose_root`]): with the setting on, the world camera's cube is
+  filled from Goodsprings' sky and attached; off, none is made. Log lines only.
+- **Composition.** `engine/nvf-shader-tests/tests/reflection_gate.rs` composes the patched
+  `pbr_functions` for the NIF fragment with and without the opt-in and for Bevy's own
+  fragment, terrain, grass and tree leaves in a view with a cube: only the opted-in NIF
+  fragment reads the cube, and only it compiles the metal base colour's lift.
+
+## Metal base colour
+
+[design] In the physically based model a metal has no diffuse colour: what it shows is its
+reflection, tinted by its base colour, which for a metal is its reflectance (steel about
+linear 0.56). The game's diffuse is not that: it is a painted look with the light already in
+it, and on metal far too dark to be a reflectance [observed: 2026-11-20, the main session's
+measurement of the first-person minigun's metal texels, median linear luminance about 0.02,
+mean 0.035]. Drawn as it is, an authored metal reflects almost nothing: the minigun at noon
+read as near black with reflections on [observed: the main session's pictures of 2026-11-20
+at `8a9abf4a9`, then with the experiment's gains at `8e1f196c6`].
+
+- **The gain.** In a view with a reflection cube (the opted-in NIF main pass, where the
+  ORM's metallic acts) an authored material's base colour for lighting is
+  mix(base, lifted, metallic), with the effective metallic (after the hold in views without
+  a cube and the mesh terrain blend's mix) and lifted = base x min(gain, 1 / brightest
+  channel), never below base: one gain on all three channels, limited so the brightest
+  channel reaches 1, so the hue is kept (`nif_material.wesl` `nvf_metal_base`; its CPU
+  mirror `authored.rs` `lifted_base`). The glow keeps the unlifted colour, alpha is
+  unchanged, and a dielectric (metallic 0) is untouched. Views without a cube, and the
+  setting Reflections on authored materials off, draw the base colour as it is.
+- **Per set.** The gain is the scalar file's `metal_gain` (1 to 40), by default 12
+  [design, owner 2026-11-21, #3237: the maintainer accepted 12 as a design value]. That
+  default was chosen from pictures of **one steel
+  weapon**, the first-person minigun at noon in Goodsprings, which read near black at gain 1,
+  dark bronze at 6, worn steel at 12 and brighter steel at 20 to 30 [observed: the main
+  session's pictures of 2026-11-20 at `8e1f196c6`, with the experiment's per-channel clip];
+  it is not a calibration of steel in general. A metal whose diffuse is already bright is held by the hue-preserving cap (its
+  brightest channel reaches 1) well before the gain, so the gain matters for dark diffuses. It reaches the shader per material in the NIF
+  surface uniform's spare `terrain.y` lane (`NifSurface::metal_gain`, set by `authored.rs`
+  `apply`, 0 on every material without a set, on restore and on unlit copies; a swap takes
+  the new set's).
+- **No `_albedo`.** The base colour stays the game's diffuse: `_albedo` stays reserved
+  [design, owner 2026-11-21, #3237, keeping the decision of 2026-11-20, #3104]; giving it a
+  meaning is a separate proposal.
+- **Tuning by picture.** `NVF_PBR_METAL_GAIN=<1..40>` (read once at the start, logged)
+  replaces every set's gain for the run, whatever its scalar file says; a value
+  that is no number or out of range is warned about once and ignored (`authored.rs`
+  `metal_gain_override`). Not a `NVF_PLAY_TEST_*` aid.
+- **Checking it.** The reflection field's third row (above) and the unit tests of
+  `authored.rs` (the lane through builds, swaps, restore and unlit copies, the gain's
+  defaults, the lift's rule).
+
+## Reflections indoors: the analytic room
+
+[design] Indoors, where a lamp is in reach or a room box is known, the world camera's cube
+holds a lit box around the camera instead of stage 1's ambient, ground and fog band, so an
+authored metal in a room shows the room's lamp-lit walls, floor and ceiling and where the
+lamps are. NVForever's own rendering, nothing of the original's (whose look has no ambient
+reflection); computed on the CPU from what the renderer already lights the room with
+(`engine/nvf-assets/src/reflection_room.rs`, gathered by `engine/nvforever/src/reflection_sky.rs`).
+
+- **The box**, in this order: the room marker the camera is in (the first room box holding
+  it, the test `rooms.rs` uses for the camera's room, only for the interior the markers were
+  read for); else, in play mode, six physics rays from the eye (east, west, north, south, up,
+  down; past actors, moving objects and what a character walks through; at least five must
+  hit within 2048 units, a miss putting that wall 256 units away); else a default box 512 x
+  512 units and 320 high, its floor 120 units under the eye. No half extent is under 16.
+- **The lamps**: the cell's placed lights that are on (lights.rs `SessionLight`, not hidden),
+  with a colour, within 4096 units of the eye and whose sphere of light reaches the box,
+  the nearest 16 to the eye. Each brings its display colour times its steady brightness
+  (a flickering or pulsing light's full intensity), its radius and, for a spot light, its
+  cone as Bevy hands it to the shader.
+- **Lighting a wall.** Toward each direction the eye sees the point where the ray leaves
+  the box: a floor (assumed display albedo 0.33, 0.30, 0.25, stage 1's ground), a wall (0.40,
+  0.38, 0.35) or a ceiling (0.45, 0.45, 0.43). It is lit as the display-value sum lights a
+  diffuse surface: light = the cell's ambient + its directional light x N.L + for each lamp
+  colour x brightness x the game's attenuation saturate(1 - d^2 / radius^2) x N.L (x the
+  cone), and the surface writes min(albedo x light^2.2, 1), the units of stage 1's ground.
+  The renderer's lamps cast no shadows, so neither do these; a lamp behind a wall lights it
+  as on screen. The cell's directional light lights the walls at full (its shadows left
+  out). The cell's fog mixes walls toward its colour by distance as the fog does indoors.
+- **A lamp seen directly**: a lamp inside the box (within 32 units of the wall behind it)
+  adds a small lobe toward itself, its converted colour x 1 at the peak, falling as cos^256
+  of the angle (half at about 4 degrees).
+- **Levels.** Level 0 is the scene at each texel's centre. Each level above is the
+  solid-angle-weighted box average of the level below; where Bevy's lobe for that level is
+  wider than a texel (levels 2 to 5), it is instead the level-2 average convolved with the
+  kernel max(c, 0) x ((1 + c) / 2)^(p / 2), p = 2 / a^2 - 2 for GGX roughness a =
+  (level / 5)^2: a cosine lobe at the last level.
+- **Outdoors near lamps.** Below the horizon, stage 1's lit ground also takes what placed
+  lamps add to level ground under the eye (found by a ray down in play mode, else 120 units
+  under it), for lamps whose sphere reaches the ground and comes within 512 units of the eye,
+  with their lobes; nothing changes without such a lamp. By day the lamps add little beside
+  the sun.
+- **Falls back** to stage 1's interior content exactly when no lamp reaches the box and the
+  box is the default one.
+- **When it is written.** With a room or ground lamps, besides stage 1's steps: the eye moved
+  64 units from the last fill, a box moved 32, another set of lamps, a lamp's colour past
+  1/128 or its place or radius past 8. Indoors against outdoors, another interior cell,
+  another room marker and a new sky dome profile refill at once, without the quarter-second
+  wait. A room fill takes 6,144 level-0 texels x the lamps plus the filter.
+- **Where the fill runs** [design, owner 2026-11-22, #3238: the maintainer asked for the
+  fill off the main thread, since on the main thread it took up to 4.89 ms (9 lamps, Doc
+  Mitchell's house) up to four times a second while walking indoors]. The main thread
+  only gathers the inputs into owned data: the sky's state, the directional light, the
+  placed lamps, the room marker or the six rays (they need the physics world), and compares
+  them with the last ones. The fill itself (the content and every level's texels, a pure
+  function of those inputs) runs on Bevy's async compute pool, every fill alike (stage 1's
+  sky too). The producer looks at it each frame; the cube keeps the last finished fill
+  until the new one is done, and the main thread then only moves the finished bytes into
+  the cube, which the render world uploads as before. At most one fill runs: inputs that
+  move past a step while it runs wait as one request (newer inputs replace it). A fill
+  that finishes is applied even with a request waiting, since it is still newer than what
+  the cube shows, and the waiting one starts in the same frame: no work is thrown away and
+  a stream of changes cannot keep the cube from updating. The trade-off: the cube shows a
+  change one fill later than on the main thread (the fill's few milliseconds, then the next
+  frame's upload), two when a fill was already running. Each fill is applied only to the
+  camera and cube it was asked for: a fill whose camera or cube was replaced meanwhile is
+  discarded, and the replacement asks its own; a light inherited from an older cube is
+  removed as soon as the camera or cube changes (the light of any cube a fill went into,
+  while the camera holds another cube or none). The hemisphere means the first-fill line
+  quotes (a pass over the room's level-0 texels) are taken only for fills asked while
+  the camera's current cube was not the last one filled: its first fill, any queued behind
+  it, and the first fill after a camera or cube comes back from an earlier replacement.
+  Until a camera's first fill is done it has no cube and no environment light, as before
+  the first upload; on entering an interior the outdoor cube stays until the room's first
+  fill is done
+  [documented: `reflection_sky.rs` `produce`, `FillQueue`, `fill`].
+- **Log lines.** `reflection sky: room fill in interior <cell>: box from <room marker
+  <id>|rays|default> (<x> x <y> x <height> game units, x y height), <n> lamps, level 0 toward
+  the nearest lamp [...], filled in <ms> ms on a worker (main thread: gather <ms> ms, apply
+  <ms> ms)` at the first room fill in each interior, or
+  `reflection sky: interior <cell>: no lamp in reach and no room box, so stage 1's interior
+  content`; the exit summary adds the room fills by box source, the ground-lamp fills, the
+  slowest fill on the worker, the refills by reason (mode, cell, room, box, moved, lamps,
+  light, profile), the main thread's slowest gather and slowest apply and the fills
+  discarded for a replaced camera or cube (`...; main thread slowest gather <ms> ms,
+  slowest apply <ms> ms; <n> fills for a replaced camera or cube discarded`). The gather
+  time starts after the room-marker search that keys the wait, which runs every frame.
+- **Not there.** No captured scene: no objects, textures, signs or bulbs' shapes, no
+  actors; uniform walls of assumed albedo; one box per fill, centred on the camera, so it
+  is exact only near the camera (no parallax), and rooms joined without a marker share the
+  rays' or the default box; no shadows from lamps or the directional light; no flicker; no
+  probes. Every constant is a guess, chosen by reasoning and not yet judged in pictures.
+- **Checking it.** Unit tests in `reflection_room.rs` and `reflection_sky.rs` (an empty
+  room is the ambient on each surface, a lamp brightens its wall and its lobe points at it,
+  a lamp out of reach adds nothing, the levels approach the mean, the fallback is stage 1's
+  content exactly, the refill steps; the worker's fill writes the bytes the main thread
+  wrote, the last finished fill stays while one runs, the newest waiting inputs win, and a
+  fill finishing while newer inputs wait is applied with the newer fill started; a fill
+  for a replaced camera or cube is discarded and the inherited light removed at once). The smoke scenario `authored-reflections-room` in Doc
+  Mitchell's house (`GSDocMitchellHouse`, the generated sets of `authored-reflections-sky`):
+  the first room fill line and the summary. Log lines only.
+
+## Terrain layers: parallax (#3322, stage 1)
+
+What the source does with ground height maps, as written; seen running only with the
+generated ground pack (below, "Checking it without a pack"), not with a real pack
+[documented: `engine/nvforever/src/terrain.rs` "Parallax", `TerrainCtx::folded_material`,
+`sync_parallax`, `parallax_def`; `engine/nvforever/src/terrain.wesl` `parallax_shift`;
+`engine/nvf-assets/src/texture.rs` `TextureCache::authored_height`, `authored.rs`
+`find_height`]. The original draws no relief on its landscape: on the ground outside
+Goodsprings at noon, gravel painted over dirt beside cracked dirt, seen at pitch 30 and 70
+degrees while strafing in 4-unit steps, the painted stones and cracks moved as one rigid
+pattern with the ground, no highlight or shadow slid across them and no bump hid texture,
+even at a grazing view [observed: the maintainer's run of observer check 268, 2026-11-22, by
+eye; judged from stills, not measured]. Terrain parallax is therefore an enhancement of
+NVForever's own: it acts only with an authored ground pack (an authored set's `_p`, below)
+and is off by default and in both presets [design].
+
+- [design] **Source.** A landscape layer's height map is the `_p` of the set the index finds
+  for the layer's diffuse path (the LTEX's texture set's diffuse, resolved as a shape's
+  diffuse is: `\xbox\` to `\pc\` where the PC file exists), an authored set's or a
+  height-only set's, at its scalars' `parallax_depth` (the default where unset). Only the
+  `_p` is loaded: a ground texture's `_orm` and `_n` are not used on the landscape in this
+  stage. The same refusals as on shapes apply (signed, wrong format, sides not a multiple of
+  4, depth 0), with the same one warning per file. Loaded with the quadrant's folded
+  material whenever the run's Authored materials state is on, whether the switch is on or
+  not, so the switch flips while the game runs. The data offers no other source:
+  `FalloutNV.esm` has 89 LTEX records, 88 of them with a TNAM, naming 70 distinct texture
+  sets, and none of those names a `TX04` (height) map; of the ESM's texture sets, 11 carry a
+  `TX04` (six `SuburbanRubble01_p` for NIF shapes, five impact decals) [documented:
+  FalloutNV.esm, counted with `fnvtool esm decode` on the test install, 2026-11-21]. An
+  authored set's `_p` is therefore the landscape's only height source.
+- [design] **The base is flat.** A quadrant's base texture takes no height map in this stage:
+  a quadrant without painted layers is drawn by the separate landscape material, which
+  stays unshifted, and a moving base would break at that quadrant's edge.
+- [design] **One march.** Six layers in one draw rule out a march per layer. The folded
+  draw marches once, steep parallax with the relief refinement, as NIF shapes march (the
+  vendored `parallaxed_uv`'s relief method: its steps, view vector, tangent frame, signs and
+  grazing clamp; "The march" below), over one blended depth: the sum over the layers of share x the layer's own depth x (1 - height),
+  the share the layer's ordered share (painted opacity x the layer diffuse's alpha, laid
+  over the earlier layers as the ordinary blend lays them); the base and a layer without a
+  height map add no depth (flat at the surface). Then every texture of the quadrant, the
+  base's and the layers', diffuse and normal map, is read at the one moved coordinate.
+  Flat at the surface rather than mid-height so that the shift falls to nothing as a
+  height-mapped layer's share does.
+- [design] **Weights, once.** The base's and the layers' weights are worked out once, at the
+  plain coordinate: the ordered shares of painted opacity x each layer's alpha, and with
+  Terrain height blending on its weights from the same texels (its heights and references
+  as its drawn path takes them). Both the march and the drawn blend use them: a hole in a
+  layer's texture stays where the march saw it (a pixel that starts in a hole of a dirt
+  overlay marches on the gravel under it and is drawn as gravel, not as displaced dirt), a
+  layer the height blend leaves out of a pixel does not move what is drawn there, and where
+  the shift is nothing the blend is the one without parallax. The cheaper of the consistent
+  rules (alpha and heights at every march step would add up to twelve reads a step); the
+  cost is that a hole's outline, and where the height blend lets a layer through, do not
+  move with the relief.
+- [design] **Filtering.** Every drawn read (the base's diffuse and normal map, each layer's)
+  is made at the moved coordinate with the plain coordinate's screen gradients (one unturned
+  tap through the anti-tiling helpers, `parallax_tap`), so the mip level and anisotropy do
+  not follow the shift's jumps between neighbouring pixels (which implicit derivatives of the
+  moved coordinate would, at relief and hole edges, even where a pixel's own shift is
+  nothing). The surface is set up as anti-tiling sets it up (terrain_pbr.wesl), the
+  occlusion (SSAO's multibounce) from the base's colour before the layers are folded in, as
+  Bevy's set-up takes it on the path without parallax.
+- [design] **The ray.** The march follows the view's own ray (Bevy's `calculate_view`: one
+  direction in an orthographic view, as the minimap's camera); the fade goes by the
+  distance from the camera.
+- [design] **Edges.** Where the shares and heights agree on both sides of a quadrant edge
+  (the painted opacities of one LAND grid, the same textures), the march agrees too: the
+  depth sum is the same (each layer brings its own depth, an unpainted layer adds nothing)
+  and every quadrant marches on the same step grid (next item), so the same narrow ridge is
+  hit or stepped over on both sides alike (the test
+  `a_layer_moves_as_far_whatever_else_its_quadrant_holds`). Not covered: two quadrants whose
+  painted opacities differ along their shared edge, and a layer drawn on its own (below).
+  With height blending on, its weights (worked out from brightness at the plain coordinate,
+  "Weights, once" above) are the march's too: a layer the height blend leaves out of a pixel
+  gives that pixel no displacement (a later stage may let a real height map stand in for
+  brightness in the height blend itself).
+- [design] **Depth and steps.** Each layer keeps its own set's depth (held to the scalar
+  range's end); the march's scale is that end, 0.08 (`PARALLAX_SCALE`), the same for every
+  quadrant, each layer's depth taken over it (`parallax_scales`). A grid from each
+  quadrant's deepest layer, as first written, stepped a 0.02 layer beside an unpainted 0.08
+  one four times as coarsely as alone (0.00625 against 0.025 texture-coordinate units a
+  step at the same view). At most 16 layers (`PARALLAX_LAYERS`), fewer as the view
+  steepens; a shallow layer takes fewer of them (a 0.02 layer about a quarter), the relief
+  search refining between them [design: the price of one grid; to judge in pictures with a
+  pack]. The depth is in texture-coordinate units, as on NIF shapes: one unit is one texture
+  repeat, 256 world units on the landscape, so a layer at 0.08 sinks by about 20 world units
+  and, seen 20 degrees above the ground, moves 0.08 / tan 20 degrees = 0.22 of a repeat
+  (about 56 texels of a 256 map, 225 of a 1024 texture). The height maps are read at the
+  level their screen footprint asks for (not the top level, as the shapes' march reads),
+  with the base texture's sampler.
+- [design] **The march** (round 2 of #3322, after the main session's pictures of the
+  generated ground pack, 2026-11-22: vertical streaks, doubled and stair-stepped stripes,
+  smeared texture and seams with the switch on). Round 1 marched at most 8 layers and
+  refined with the occlusion method (one linear interpolation between the last two layers,
+  parallax occlusion mapping: Tatarchuk, "Dynamic Parallax Occlusion Mapping with
+  Approximate Soft Shadows", I3D 2006), with the step divided by the view's steepness
+  unbounded. Over the ground pack's sharp ridges (a step from low to high, nothing between)
+  the interpolation puts a pixel's hit between the two layers' guesses rather than at the
+  ridge's wall, so each ridge showed once per layer reached (the doubled, stair-stepped
+  bands); at 8 layers a step at 20 degrees (0.039 of a repeat) was longer than a ridge is
+  wide (8/256 = 0.031), so rays also stepped over ridges; and toward the horizon the
+  unbounded divisor threw the samples up to several repeats away (streaks; at 3 degrees a
+  sunk layer moved 1.5 repeats). The march now is the shapes' relief method
+  (`PARALLAX_RELIEF_STEPS`): after the linear search a binary search of 4 halvings between
+  the last layer above the surface and the first below it, so the hit ends within a
+  thirty-second of a step of where the ray meets the surface (Policarpo, Oliveira and Comba,
+  "Real-Time Relief Mapping on Arbitrary Polygonal Surfaces", I3D 2005); a pixel whose plain
+  place is already at the surface is not moved; the step's divisor stops at a steepness of
+  0.15 (`PARALLAX_GRAZING`, the shapes' grazing clamp, #2979), so the full-depth shift stays
+  under about 6.7 x the depth; and 16 layers (Bevy's default count), at which no ridge of
+  the pack's width is stepped over from about 12 degrees up. Checked on a CPU copy of the
+  march (terrain.rs tests `the_march_moves_a_sunk_layer_by_its_depth_over_the_views_slope`,
+  `the_march_is_bounded_at_grazing_views`,
+  `the_march_meets_the_ground_packs_ridges_where_the_ray_does`: over the pack's ridges every
+  one of 512 start points across two ridge periods ends where its ray first meets the
+  surface at 45 to 12 degrees, where round 1's march misplaced 332 of them at 20 degrees).
+  Its frame cost (up to about twice round 1's reads at a 20-degree view) is not measured.
+  Ruled out in that review, from the code: the tangent frame and signs (east +u, Bevy's
+  bitangent -v, the same as the shapes' and as Bevy's tangent generator gives,
+  `tangents_match_the_generator`), per-layer tiling (every layer, the base and the height
+  maps are read at the one coordinate, one repeat per 256 units), and the drawn reads'
+  filtering (the plain place's gradients, "Filtering" above). What the generated pack still
+  shows with a correct march [design expectation, to confirm in pictures]: its ridges are
+  walls 20 units high and 8 wide every 64 with nothing between, and only the textures'
+  place moves (the landscape keeps its own normal map, which knows nothing of the ridges),
+  so a wall's face toward the camera shows the ridge top's strip of texture drawn out down
+  the wall (streaks along the view over much of the ground at 20 degrees), and a ridge
+  running along the view is a seam where the texture beside it moved and its top did not.
+  A real pack's smoother height map with a matching normal map is what the look is to be
+  judged on.
+- [design] **Fade.** Full strength up to 1024 units from the camera, none from 2048
+  (`PARALLAX_FADE`): inside the camera's cell and the near half of the next, well inside
+  the loaded cells. None head-on (the view vector's tangent part is zero).
+- [design] **What stays unshifted.** The depth prepass and the shadows (the main pass alone
+  gets `TERRAIN_PARALLAX`), the collision, the mesh terrain blend's surface bake and detail,
+  the distant landscape LOD, the separate landscape materials: a quadrant without folded
+  layers, every layer where the GPU has no bindless textures (`TerrainMaterials::folds`),
+  and the layers past the folded ones when the texture repeat does not divide the cell
+  (none at the game's 256). A layer drawn on its own over a shifted folded base does not
+  follow the base's shift: a seam that only those configurations show.
+- [design] **Not with anti-tiling.** While Terrain anti-tiling is on, a quadrant draws no
+  parallax (its pipeline key leaves it off): anti-tiling reads every texture at two or three
+  offset and turned places taken from the world, and a march at the plain coordinate would
+  measure other texels than the ones drawn. Sharing the taps would multiply every march
+  step's reads by the taps' count; left for a later stage.
+- [design] **The switch.** Settings row Terrain parallax (`terrain-parallax`, Graphics ›
+  Detail and Distance), off by default and in both presets until its cost is measured
+  (whether a look turns it on is the maintainer's call). In the game its availability follows
+  the run's Authored materials state, not that row's saved value: free while the run has
+  them (also after the row is turned off for the next start: the height maps stay loaded),
+  greyed "After a restart" while the row is on but the run started without them, greyed
+  with the NEEDS words while both are off; the launcher greys it by the saved row, for the
+  next start. `--graphics-only terrain-parallax`. A folded
+  material without a height map keeps its old pipeline with the switch on and is not
+  touched when the switch flips, so without a ground pack nothing changes, the mesh terrain
+  blend's captures included (smoke `terrain-parallax-no-pack`). With a pack, the flips edit
+  only the materials with height maps, noted for that frame (`ParallaxEdits`), and the mesh
+  terrain blend passes over a material's edits only when they are those alone and what the
+  capture is made from compares equal (terrain_surface.rs `captured_inputs_unchanged`: the
+  bake copies, compared whole, and the detail's resolution; the bake copy drops the
+  switch). Any other edit remakes the capture as before, even one that leaves its inputs
+  equal: a height-blending or anti-tiling edit in the same frame, one after a while with the
+  blend off, a generic one (the tests `the_capture_refresh_compares_its_inputs`,
+  `an_edit_after_a_blend_off_interval_still_remakes_the_capture`,
+  `a_generic_edit_remakes_the_capture_even_with_equal_inputs`).
+- [design] **Checking it without a pack.** No data set has ground height maps, so two test
+  aids stand in for a pack. `NVF_PLAY_TEST_PBR_GROUND_PACK=1`
+  (`engine/nvf-assets/src/pbr_field/ground.rs`, the list from nvforever terrain.rs
+  `ground_pack_diffuses`) writes a height-only set for every landscape texture the load
+  order names (each LTEX's texture set's diffuse, and the default ground texture) into a
+  fresh folder of the run under an explicit `NVFOREVER_HOME`, mounted over every other loose
+  layer for that run only, as the reflections' mount pack is: a `_p` (unsigned BC4, 256
+  square, a full mip chain; low almost everywhere, crossed by a grid of raised ridges, from a
+  formula: no game pixel is read) and a scalar file at depth 0.08, nothing else.
+  A plugin's texture path is data: a stem with a parent step, a dot component or a colon gets
+  no set, and the writer checks every path before its first write.
+  `NVF_PLAY_TEST_TERRAIN_PARALLAX_AB=<seconds>[:flip|hold][:view|grazing|head-on]` (nvforever
+  `terrain_parallax_ab.rs`) takes three screenshots with the switch off, on, off (or left
+  alone), each after the pipelines have settled, and logs how the ground's texture in a small
+  box at the centre of the view moved: the best whole-pixel translation from the first to the
+  second shot, the differences between all three, and a verdict (`moved`, `still`, `bare`,
+  `unsettled`, ...). With a pose it first finds its own spot near the player: the nearest
+  landscape vertex where the folded layers with height maps make up nearly all of what shows
+  (terrain.rs `CellCover`: the cell's stitched layers in drawing order, the folded material's
+  height-map bits, the layers past the folded ones drawn over them; each layer texture's alpha
+  taken as 1), with the physics' landscape under it and a grazing line of sight to it, and
+  stands the player there. Before the first shot it logs what the centre's physics ray meets
+  and the share there the march would move; under half is `bare`, so a view on a quadrant's
+  base, on layers drawn over the folded ones or on a placed object never passes as "still".
+  What the scenarios claim [design]: at the grazing pose, `changed` (or `moved`, when one
+  translation explains it): a change the switch alone makes (the two shots with it off agree)
+  that decorrelates the texture at the centre: the normalised cross-correlation (mean
+  brightness and contrast taken out, so a brightening or a contrast change alone does not
+  count) of A with B and of B with C at most 0.7, A with C at least 0.98. Not the direction: relief over the generated ridges warps and
+  stretches the texture rather than sliding it, so the best-fit translation is logged as
+  information only. Head-on, `still` (one rule): no fitted translation at all at the view's
+  centre, a change of at most 0.3 of the texture's spread, A-C within its limits; not an unchanged picture, since the measured box
+  reaches about 2 degrees off the vertical, where the march at depth 0.08 still moves a sunk
+  texel by a few pixels, radially, and the marched relief changes what shows at ridge edges.
+  `terrain-parallax-ground-pack-off` (the switch off, the pack mounted) wants no
+  `TERRAIN_PARALLAX` pipeline and both poses still. [observed, the first run on b76835100,
+  looking down Goodsprings' main street from the start: no shift anywhere on screen; the
+  street turned out not to be a spot the stage-1 march reaches. observed, the run on
+  cc1ee98ea on the aid's spot (-71552, 3200) in cell (-18, 0), shifted share 0.88 to 0.92
+  under the centre: the ridge grid in strong relief with the switch on and none with it off;
+  grazing A-B 12.29, A-C 0.10, B-C 12.29 levels on a contrast of 14.1, translation (0, 0);
+  head-on A-B 5.02, A-C 1.02 on 32.5; held off 0.06 / 0.10 and 1.65 / 1.02. The run on
+  555ace098 repeated them; its saved shots' correlations A-B / A-C: grazing 0.231 / 1.000,
+  head-on 0.945 / 0.998, held off 1.000 / 1.000 and 0.991 / 0.998.] The limits are an
+  engineering policy set from those numbers with margins (the grazing change would pass at
+  three times its correlation, the head-on one at about twice its change):
+  `terrain_parallax_ab.rs`. The cover under the centre is an estimate (the meshes'
+  interpolation of the painted opacities on the stored triangles, layer alpha taken as 1,
+  layers the renderer leaves out skipped), so its limit (half) leaves a margin; the spot
+  itself is chosen at vertices, where no interpolation enters.
+- **Not done in stage 1** (owed): a passing run of the two ground-pack scenarios; the
+  frame-time cost with and without the switch at a ground-heavy and a layer-heavy place;
+  before/after pictures with a ground pack (the readback aid saves its shots); the base's own
+  `_p`; height maps for the separate landscape materials and for the layers past the first
+  six of a quadrant (drawn on their own over the folded draw, unshifted).
 
 ## Load order: per file, so ship complete sets
 

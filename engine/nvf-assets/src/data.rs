@@ -88,6 +88,19 @@ impl GameData {
         Ok(GameData::new(Arc::new(vfs), Arc::new(schema)))
     }
 
+    /// [`GameData::open_for_plugins_in`] with the loose folders `over` indexed over every other
+    /// layer for this run only, the last highest (`fnv_vfs::Vfs::add_loose_root`): the test
+    /// aids' fixture folders (`crate::seed_mount_pack`, `crate::seed_ground_pack`). Nothing is
+    /// written.
+    pub fn open_for_plugins_in_over<S: AsRef<str>>(data_dir: &Path, mods: Option<&Path>, over: &[PathBuf], plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
+        let mut vfs = Vfs::open_for_plugins_in(data_dir, mods, plugins).map_err(|e| e.to_string())?;
+        for root in over {
+            vfs.add_loose_root(root);
+        }
+        let schema = Schema::load_dir(schema_dir).map_err(|e| e.to_string())?;
+        Ok(GameData::new(Arc::new(vfs), Arc::new(schema)))
+    }
+
     /// [`GameData::open_for_plugins`] with loose files of the mods folders `roots` layered
     /// over `Data`, lowest precedence first (#1526, Mod Organizer 2's profile).
     pub fn open_for_plugins_layered<S: AsRef<str>>(data_dir: &Path, roots: &[PathBuf], plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {

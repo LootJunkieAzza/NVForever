@@ -32,6 +32,7 @@ mod exit_watch;
 mod native_crash_unix;
 mod nif_mirror;
 mod nif_attachments;
+mod extra_camera;
 // Authored record builders are loaded once for the engine test binary.
 #[cfg(test)]
 #[path = "../../../crates/fnv-game/tests/common/mod.rs"]
@@ -64,6 +65,7 @@ mod death_cam;
 mod deaths;
 mod decals;
 mod dismember;
+mod distant_lights;
 mod knockouts;
 mod player_knockdown;
 mod detection;
@@ -79,6 +81,7 @@ mod flashlight;
 mod eye_adapt;
 mod fog;
 mod haze;
+mod aerial;
 mod fly;
 mod foot_ik;
 mod anti_lag;
@@ -99,11 +102,15 @@ mod grass_fire_fx;
 mod head_look;
 mod rigid_head_probe;
 mod idles;
+mod light_shadow_casters;
+mod light_shadow_detail;
+mod light_shadows;
 mod lights;
 mod limbs;
 mod lips;
 mod memory_budget;
 mod gpu_poll;
+mod pilot;
 mod pipeline_gate;
 mod pipeline_disk_cache;
 mod pipeline_prewarm;
@@ -151,6 +158,7 @@ mod wrecks;
 mod talk_clips;
 mod readahead;
 mod reflection;
+mod reflection_sky;
 mod minimap_render;
 mod refraction;
 mod residents;
@@ -176,6 +184,7 @@ mod sun_heightfield;
 mod imagespace;
 mod imposters;
 mod sky;
+mod night_sky;
 mod start_times;
 mod sun_visibility;
 mod weather_fx;
@@ -187,10 +196,12 @@ mod ssao_lighting;
 mod taa;
 mod fg_presenter;
 mod ffx_api;
+mod fg_ui_layer;
 mod frame_gen;
 mod fsr;
 mod upscaler;
 mod speech_look;
+mod stream_pace;
 mod stress_sample;
 mod profile;
 mod perf_overlay;
@@ -200,6 +211,7 @@ mod terrain;
 mod terrain_surface;
 mod mesh_terrain_blend;
 mod terrain_lod;
+mod terrain_parallax_ab;
 mod terrain_shadows;
 mod terrain_wireframe;
 mod texture_swap;
@@ -208,12 +220,14 @@ mod effect_shaders;
 mod vats_highlight;
 mod tree;
 mod treelod;
+mod ui_project;
 mod river_flow;
 mod underwater;
 mod underwater_caustics;
 mod vigor_view;
 mod walk_probe;
 mod water;
+mod weapon_models;
 mod window_icon;
 mod window_mode;
 mod world;
@@ -407,6 +421,13 @@ struct Args {
     /// shadow_thin.rs); 0, the default, lets everything cast as far as the shadows reach.
     #[arg(long, default_value_t = shadow_thin::DEFAULT_RATIO)]
     shadow_thin: f32,
+    /// ALC shadows (All Lights Cast): placed lights (lamps, fires, spot lights), muzzle
+    /// flashes and explosions cast shadows within the shadow distance
+    /// (light_shadows.rs): `--light-shadows=performance` draws their maps less often, a
+    /// bare `--light-shadows` or `=quality` the default one, `=off` none (the default).
+    /// Once any setting is saved, NVForever.ini's ALC shadows row wins over this flag.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "quality", require_equals = true)]
+    light_shadows: Option<light_shadows::LightShadowMode>,
     /// Samples per pixel for anti-aliasing: 1 (off), 2, 4 or 8. The cut-out edges of
     /// alpha-tested shapes (plants, fences, hair, grass) are smoothed with it too, like
     /// the game's transparency multisampling; with 1 they are tested per pixel.
@@ -457,7 +478,7 @@ struct Args {
     #[arg(long, default_value = "1280x800")]
     size: String,
     /// The window: `windowed` (of --size) or `borderless` (borderless full screen on the
-    /// display chosen in Display settings, the first display until one is chosen). With
+    /// display chosen in Display settings, the primary display until one is chosen). With
     /// --play the settings page's Display group switches it too.
     #[arg(long, value_enum, default_value_t = window_mode::WindowChoice::Windowed)]
     window: window_mode::WindowChoice,
@@ -568,12 +589,12 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
     /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
     /// The switches on in vanilla are left on unless named off: no-glow, no-eye-adaptation,
-    /// no-neon-glow, no-water-mirror, no-authored-materials.
+    /// no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
     /// Ambient occlusion on at this level whatever the look (--graphics, --graphics-only)
@@ -676,6 +697,45 @@ struct Args {
     /// or jumps up the ledge (docs/spec-notes/actor-jumps.md).
     #[arg(long, requires = "npc_travel")]
     npc_ledges: bool,
+    /// With --play: the quest pilot (pilot.rs, issue #2365) plays this headless
+    /// walkthrough chain (`fnv.script.actions/1`) with the player character, then exits.
+    /// Given several times: the chains are played one after the other in the one game.
+    #[arg(long, requires = "play")]
+    pilot: Vec<PathBuf>,
+    /// The headless trace of the chain at the same place in the list (`fnvtool script
+    /// run --actions`): the pilot's labelled reads are compared with it.
+    #[arg(long, requires = "pilot")]
+    pilot_expect: Vec<PathBuf>,
+    /// The pilot's chains go on from the game's own state (use with --new-game): their
+    /// given states are checked as preconditions, not set.
+    #[arg(long, requires = "pilot")]
+    pilot_campaign: bool,
+    /// With --pilot-campaign: each chain's given state is set as the headless run sets
+    /// it, instead of being checked (a chain no campaign has reached yet).
+    #[arg(long, requires = "pilot_campaign")]
+    pilot_given: bool,
+    /// The pilot's player can be hurt and runs out of ammunition (god mode is on for
+    /// the pilot otherwise).
+    #[arg(long, requires = "pilot")]
+    pilot_no_god: bool,
+    /// Differences from the headless runs known not to be bugs (a JSON list of
+    /// `{chain, label, reason}`): reported apart, not as divergences.
+    #[arg(long, requires = "pilot")]
+    pilot_known: Option<PathBuf>,
+    /// The game's state goes through a save and a load before each milestone is read.
+    #[arg(long, requires = "pilot")]
+    pilot_save_load: bool,
+    /// The run ends after this many minutes of real time, with the report written (a
+    /// game's own `--run-seconds` does not count time in menus and dialogue).
+    #[arg(long, requires = "pilot")]
+    pilot_minutes: Option<f64>,
+    /// The first chain begins at this step (0-based), from the game's state as loaded: a
+    /// stall replayed from a save near it (with --load).
+    #[arg(long, requires = "pilot")]
+    pilot_from: Option<usize>,
+    /// Where the pilot writes its report (`fnv.pilot.report/1`).
+    #[arg(long, requires = "pilot")]
+    pilot_out: Option<PathBuf>,
     /// Walking speed of --npc-travel NPCs, game units per second.
     #[arg(long, default_value_t = nav::WALK_SPEED)]
     npc_speed: f32,
@@ -1113,13 +1173,13 @@ fn main() -> AppExit {
         eprintln!("explore: the free-camera explorer (--explore)");
     }
     let developer_data = args.data.is_some();
-    let code_page_named = match setup::text_code_page() {
-        Ok((c, named)) => {
+    let (code_page_named, cjk_font_path) = match setup::text_code_page() {
+        Ok((c, named, cjk_font_path)) => {
             if c != fnv_util::text::CodePage::default() {
                 eprintln!("setup: game text read as {c}");
             }
             fnv_util::text::set_code_page(c);
-            named
+            (named, cjk_font_path)
         }
         Err(e) => {
             eprintln!("error: {e}");
@@ -1141,7 +1201,7 @@ fn main() -> AppExit {
         }
     };
     args.data = Some(install.data.clone());
-    setup::install_fonts(&install);
+    setup::install_fonts(&install, cjk_font_path);
     // Every `fnv_install::guard_write` from here on refuses writes into this install,
     // also where the writer has none at hand (saves, test aids; #994).
     fnv_install::remember_game(&install);
@@ -1254,6 +1314,24 @@ fn main() -> AppExit {
         }
         None => fnv_install::EngineHome::user().map(|h| h.mods()).into_iter().collect(),
     };
+    // Test aid (reflections, #2981): the PBR reflection field's generated sets written into a
+    // fresh folder of this run under an explicit NVFOREVER_HOME, every file created new, then
+    // mounted over every other loose layer for this run only, so the mount has authored sets
+    // (nvf_assets pbr_field/reflect.rs `seed_mount_pack`). No mods folder is written.
+    let mount_pack: Option<PathBuf> = if nvf_assets::mount_pack_requested() {
+        match nvf_assets::seed_mount_pack() {
+            Ok((dir, n)) => {
+                eprintln!("pbr mount pack: {n} generated files written under {} (this run's own folder, mounted over every other loose layer)", dir.display());
+                Some(dir)
+            }
+            Err(e) => {
+                eprintln!("pbr mount pack: FAIL {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let opened = world::open_plugins(args.data(), &mods, &args.plugins);
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // No setting names the code page: the plugins' own text says it (#1443).
@@ -1333,12 +1411,38 @@ fn main() -> AppExit {
             }
         }
     }
+    // Test aid (terrain parallax, #3322): a generated height-only set for every landscape
+    // texture the load order names, written into a fresh folder of this run under an explicit
+    // NVFOREVER_HOME, every file created new, then mounted over every other loose layer for
+    // this run only (nvf_assets pbr_field/ground.rs `seed_ground_pack`, terrain.rs
+    // `ground_pack_diffuses`). No mods folder is written.
+    let ground_pack: Option<PathBuf> = if nvf_assets::ground_pack_requested() {
+        match terrain::ground_pack_diffuses(&opened.plugins, &args.esm_schema).and_then(|d| nvf_assets::seed_ground_pack(&d)) {
+            Ok((dir, sets, files)) => {
+                eprintln!("pbr ground pack: {sets} height-only sets for the landscape textures ({files} generated files, depth {}) written under {} (this run's own folder, mounted over every other loose layer)", nvf_assets::GROUND_DEPTH, dir.display());
+                Some(dir)
+            }
+            Err(e) => {
+                eprintln!("pbr ground pack: FAIL {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    // The test aids' folders, the last highest.
+    let overs: Vec<PathBuf> = mount_pack.into_iter().chain(ground_pack).collect();
     // The archives beside a plugin in the mods folder are mounted with it. The VFS takes
     // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
     // above, which wants the overwrite folder first.
     let game = match &mo2 {
-        Some(l) => GameData::open_for_plugins_layered(args.data(), &l.mod_roots(), &args.plugins, &args.nif_schema),
-        None => GameData::open_for_plugins_in(args.data(), mods.first().map(|p| p.as_path()), &args.plugins, &args.nif_schema),
+        Some(l) => {
+            // The test aids' folders as the highest layers, for this run only.
+            let mut roots = l.mod_roots();
+            roots.extend(overs.iter().cloned());
+            GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
+        }
+        None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), &overs, &args.plugins, &args.nif_schema),
     };
     let game = match game {
         Ok(g) => g,
@@ -1360,8 +1464,22 @@ fn main() -> AppExit {
         },
         None => None,
     };
+    let bos_sources: Vec<(String, String)> = game
+        .vfs
+        .paths(|p| p.starts_with("baseobjectswapper\\") && p.ends_with(".ini"))
+        .into_iter()
+        .filter_map(|p| {
+            let bytes = game.vfs.read(&p)?.ok()?;
+            Some((p, String::from_utf8_lossy(&bytes).into_owned()))
+        })
+        .collect();
+    let hnvse_merge_region_lists = game
+        .vfs
+        .read("nvse\\plugins\\hnvse.ini")
+        .and_then(Result::ok)
+        .is_some_and(|bytes| fnv_world::audio::parse_hnvse_merge_region_lists(&String::from_utf8_lossy(&bytes)));
     let t0 = std::time::Instant::now();
-    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world) {
+    let mut world = match WorldData::open(&args.esm_schema, opened, &args.world, bos_sources, hnvse_merge_region_lists) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };
@@ -1456,6 +1574,7 @@ fn main() -> AppExit {
     if let Some(saved) = pending.as_ref().and_then(|p| p.body.engine.extra.get(sky::SAVE_HOOK.key)) {
         sky_state.restore_saved(saved);
     }
+    sky_state.load_plugin_inis(&game.vfs);
     sky_state.shadows = (args.sun_shadows.is_some() || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
     let performance_shadows = args.sun_shadows == Some(shadow_rate::SunShadowMode::Performance);
     if performance_shadows {
@@ -1700,6 +1819,23 @@ fn main() -> AppExit {
     let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::authored::set_enabled(authored);
     app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
+    // Reflections on authored materials (#2981): the run's state by the same rule, fixed
+    // before the first NIF pipeline (the opt-in def and the metallic factor); the world
+    // camera's cube is made later, only where the mount has authored sets
+    // (reflection_sky.rs).
+    let reflections = settings::reflections_after_ini(graphics.authored_reflections, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::reflection_cube::set_enabled(reflections && authored);
+    app.add_systems(Startup, move || {
+        info!(
+            "authored reflections: {}",
+            match (reflections, authored) {
+                (true, true) => "on (authored materials reflect the world camera's cube where the mount has authored sets)",
+                (true, false) => "off (Authored materials is off)",
+                _ => "off (setting)",
+            }
+        )
+    });
+    app.add_plugins(reflection_sky::ReflectionSkyPlugin { row: reflections, authored });
     let start_upscaler = {
         let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
         let ini = given.as_ref().and_then(|_| settings::settings_text_at_start()).map(|text| settings::UpscalerIni::read(&text));
@@ -1782,13 +1918,19 @@ fn main() -> AppExit {
     )
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
-    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins(night_sky::NightSkyPlugin)
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
     // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    // Shadows of placed lights, the ALC shadows row (off by default).
+    .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))
+    .add_plugins(light_shadow_detail::LightShadowDetailPlugin)
     .add_plugins(mesh_terrain_blend::MeshTerrainBlendPlugin)
+    // Glows of placed lights beyond the loaded cells at night (the Distant lights switch).
+    .add_plugins(distant_lights::DistantLightsPlugin)
     // The switches the settings page weighs against the INI (`--play` only), for the
     // frame split's start-time decision (perf_overlay/split.rs).
     .add_plugins(perf_overlay::PerfOverlayPlugin(args.fps, play.is_some().then(|| settings::given_switches(&args, &command_line()))))
@@ -1908,6 +2050,9 @@ fn main() -> AppExit {
     .insert_resource(readahead::ReadAhead::from_env())
     .add_systems(Update, readahead::read_ahead.run_if(world::world_not_held).after(world::stream).after(world::draw_waiting_actors))
     .add_systems(Last, readahead::report)
+    .init_resource::<stream_pace::StreamPace>()
+    .add_systems(First, stream_pace::follow)
+    .add_systems(Last, stream_pace::report)
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     .add_systems(Update, particles::sync_idle_materials.after(anim_objects::hold).before(nvf_assets::material_anim::bind_rig_materials))
@@ -2031,6 +2176,8 @@ fn main() -> AppExit {
         app.add_plugins(roulette_view::RouletteViewPlugin);
         // The blackjack table (blackjack_view.rs).
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // Test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: the terrain parallax's readback (#3322).
+        terrain_parallax_ab::install(&mut app);
         // The terminal's monitor (terminal_view.rs).
         app.add_plugins(terminal_view::TerminalViewPlugin);
         // A weapon's scope: its picture, night vision and sway (scope_view.rs).
@@ -2085,6 +2232,8 @@ fn main() -> AppExit {
             // The player knocked down (player_knockdown.rs).
             app.add_plugins(player_knockdown::PlayerKnockdownPlugin);
             app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin, appearance::AppearancePlugin, zones::ZonesPlugin));
+            // Weapon models scripts set, drawn (weapon_models.rs).
+            app.add_plugins(weapon_models::WeaponModelsPlugin);
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {
@@ -2099,6 +2248,8 @@ fn main() -> AppExit {
             app.add_plugins(dialogue_look::DialogueLookPlugin);
             // AttachUIComponent's rects over their model nodes (ui_attach.rs, #1835).
             app.add_plugins(ui_attach::UiAttachPlugin);
+            // ProjectUITile's off-screen textures bound onto target model surfaces (ui_project.rs, #2418).
+            app.add_plugins(ui_project::UiProjectPlugin);
             // Who says a line to someone turns to them (speech_look.rs).
             app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
@@ -2144,12 +2295,14 @@ fn main() -> AppExit {
             app.add_plugins(anim_state::AnimStatePlugin);
             // JIP's NIF block functions on the drawn nodes (nif_mirror.rs).
             app.add_plugins(nif_mirror::NifMirrorPlugin);
+            // JIP's extra render-to-texture cameras (AttachExtraCamera / ProjectExtraCamera).
+            app.add_plugins(extra_camera::ExtraCameraPlugin);
             // kNVSE's replacement animations on the drawn actors (anim_paths.rs).
             app.add_plugins(anim_paths::AnimPathsPlugin);
         }
     }
     if play.is_some() {
-        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game).chain().before(sky::update_sky));
+        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game, sky::sync_weather_fog, sky::sync_weather_visuals).chain().before(sky::update_sky));
         app.add_systems(Update, settings::script_fov.before(nvf_play::PlaySet::Scripts));
         // The weather's sounds, precipitation and lightning (weather_fx.rs).
         app.add_plugins(weather_fx::WeatherFxPlugin);
@@ -2166,7 +2319,7 @@ fn main() -> AppExit {
         app.init_resource::<anim_objects::AnimObjects>()
             .add_systems(Startup, anim_objects::read)
             .add_systems(Update, anim_objects::hold.after(idles::drive).before(advance_animations))
-            .add_systems(Update, idles::play_npc_sequences.after(idles::drive))
+            .add_systems(Update, idles::play_npc_sequences.after(idles::drive).before(locomotion::drive))
             .add_systems(Last, anim_objects::report);
     }
     app.init_resource::<idles::PlayerIdles>();
@@ -2176,6 +2329,9 @@ fn main() -> AppExit {
             .add_systems(Startup, furniture::log_startup)
             .add_systems(Update, (furniture::seat_orders, furniture::drive_actors).chain().after(nav::drive).before(locomotion::walk_test))
             .add_systems(Last, furniture::report);
+    }
+    if !args.pilot.is_empty() {
+        app.add_plugins(pilot::PilotPlugin { chains: args.pilot.clone(), expect: args.pilot_expect.clone(), out: args.pilot_out.clone(), campaign: args.pilot_campaign, set_given: args.pilot_given, god: !args.pilot_no_god, known: args.pilot_known.clone(), save_load: args.pilot_save_load, minutes: args.pilot_minutes, from: args.pilot_from });
     }
     if let Some(n) = nav_state {
         let follow = n.follow;
@@ -2254,6 +2410,7 @@ fn main() -> AppExit {
                 );
                 info!("distant LOD at the end: {}", lod.describe());
                 info!("distant LOD blocks over the run: {}", lod.block_stats.describe());
+                info!("distant LOD terrain surfaces: {}", lod.surfaces.describe());
                 info!("grass at the end: {}, {} generated in total in {:.0} ms", grass.describe(), grass.plants_generated, grass.build_ms);
                 info!(
                     "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame, {} switches of nodes shown and hidden by visibility tracks",

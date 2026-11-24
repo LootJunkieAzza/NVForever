@@ -389,6 +389,281 @@ evening and night, the tours start at noon) [observed, target/stress/tour/*, pri
   - Why material writes stall for 100-500 ms at all (slab growth and reallocation is the
     likeliest) and the 400-430 ms `window::prepare_windows` waits.
 
+## 3.2 Cell crossings with mesh blend on: the material slabs (2026-11-20, 1bf3270a6)
+
+With "Blend meshes into ground" on, every outdoor cell crossing republishes the blend
+surface and each blended shape's material clone is made again for it
+(graphics-enhanced.md §3.14). Since #2956 at most 64 clones a frame are made
+(`mesh_terrain_blend.rs` `CLONE_WORK_PER_FRAME`), which turned one 50-120 ms frame a
+crossing into a run of slower ones.
+
+- **Measured** [observed 2026-11-20: `tools/stress run tour --towns Goodsprings Primm
+  --step 1024`, a player's NVForever.ini (Very High, mesh blend on, DLSS Quality at
+  3840x2160), `--features nvforever/profile`, `NVF_PLAY_TEST_PROFILE_HITCH_MS=20`, Ryzen 9
+  9950X3D and RTX 5090; target/stress/tour/*, private]. Of about 16,600 frames (mean
+  8.5 ms), 113 took 20 ms or more with mesh blend on and 61 with it off; with it on the
+  render app was the longer side of 50 of them and `prepare_erased_assets` the largest
+  span of 54 (up to 28 ms), with it off of none.
+- **Why** [documented: bevy_render 0.20.1 `material_bind_groups.rs`
+  `MaterialBindGroupBindlessAllocator::allocate_unprepared`, `MaterialBindlessSlab::
+  check_allocation`, `insert_resources`, `free`]. A bindless material is offered to every
+  slab of its type in turn, and each slab looks up every resource the material binds
+  before answering. A resource the slab lacks was counted once for each of the material's
+  indices that bind it, but given back once, when its last reference went. A blend clone
+  binds 421 resources, the fallback image at every unused palette index among them
+  (nvf-assets `nif_surface_blend.rs`), so the first clone into a slab nearly filled its
+  count of 512 and every clone that came and went left the count higher. [observed, spans
+  and a count added for the measurement] The `NifSurfaceBlend` slabs went from 6 to 82
+  during the tour, and the allocation was 1,365 of the 1,730 ms `prepare_erased_assets`
+  took in the slow frames. The count grows for the whole session, so does the cost of each
+  new material. An ordinary material that binds one sampler at several indices drifts the
+  same way, more slowly [hypothesis: not measured].
+- **Done** (vendored bevy_render, engine/vendor/README.md "Slab accounting"): a resource
+  takes one slot however many indices bind it, and a slab that cannot take a material
+  answers at the first resource that does not fit. Same tour, the two changes behind a
+  switch in one build, one run each [observed]:
+
+  | | before | after |
+  |---|---|---|
+  | `NifSurfaceBlend` slabs | 6 rising to 82 | 1 |
+  | frames of 20 ms or more | 176 of 16,433 | 79 of 16,961 |
+  | of them, the render app the longer side | 108 | 0 |
+  | `prepare_erased_assets`, longest in a slow frame | 33.0 ms | 4.4 ms |
+  | mean / 1 % low | 8.62 / 25.5 ms | 8.36 / 22.5 ms |
+
+  (That build's spans made "before" slower than the 113 above.) What leads the 79 left:
+  `readahead::read_ahead` (30, up to 17 ms), `world::stream` (20, up to 27 ms),
+  `residents::drive`, `body_weapons::attach` (2, up to 36 ms), `limbs::rig_limbs`: §2 and
+  §3 above.
+- Not done: the clones are still made again at every crossing. Binding what a publication
+  changes (origin, coverage, the two atlases, the palette) once for all clones would end
+  that; with the slabs fixed it no longer shows among the slow frames' largest spans.
+
+## 3.3 The budgets follow the frame rate (2026-11-20, 36d97f158)
+
+With the slabs fixed (§3.2) and #3073, #3088 and #3093 in, the same tour (§3.2's command,
+machine and INI) had 62 frames of 20 ms or more in 16,896, none over 40 ms, and no span
+over 7.3 ms led more than a handful of them.
+
+- **What they are** [observed 2026-11-20, the tour with `NVF_PLAY_TEST_PROFILE_HITCH_SPANS=150`,
+  66 slow frames, mean 24.2 ms]. `Update` took 16.4 ms in them against 4.7 ms in an ordinary
+  frame, and its systems' spans account for all of it: the ordinary 4.7 ms and about 10 ms
+  of streaming jobs that each kept to its own budget. Mean extra in a slow frame:
+  `world::stream` 2.7 ms, `water::distant_water` 1.8, `mesh_terrain_blend::apply_variants`
+  1.1, `residents::drive` 1.0, `treelod::update_distant_trees` 0.6, `lod::update_lod` 0.6,
+  `readahead::read_ahead` 0.6, and on the render side `prepare_erased_assets` 1.5 and the
+  mesh allocator 0.9.
+- **Why** [design]. The budgets (3 ms of spawning, 2 ms of taking models in, 4 ms of actor
+  read-ahead, 4 ms of LOD rebuilds, 12 water surfaces, 24 tree LOD cells, 64 blend clones,
+  3 residents, 400 despawns) were chosen against a 60 fps frame, and at a crossing several
+  jobs have work in the same frame. The same milliseconds are a larger share of a shorter
+  frame: 10 ms on a 16.7 ms frame is a slower frame, on a 7 ms frame it is a stutter.
+- **Done** (`nvforever/src/stream_pace.rs`): a budget is read as work per second at 60 fps.
+  At 60 fps or less it is what it was; above it a frame gets the same share of itself, down
+  to a quarter (240 fps), and a count never under 1. The frame's length is the median of
+  the last 64 frames, each less the streaming work its jobs reported, so a stretch of
+  crossings does not raise its own budgets; frames behind a loading screen and frames over
+  100 ms are left out, the budgets are whole behind a loading screen (no scale, no
+  allowance; the median is kept for after it), and whole until 32 frames are in. Whether
+  the budgets follow the frame rate at all is judged by the median of the whole frames,
+  streaming work included, against 95 % of 1/60 s (`PACED_BELOW`, about 63 fps): a machine
+  held to 60 fps by vsync has 16.7 ms frames whatever its streaming work, and judged by
+  its frames less that work it would scale its budgets at 60 fps (#3132 re-review). The
+  shared allowance below keeps the streaming in a paced frame to about half its own
+  length, so a fast machine's frames stay under the margin while it streams; one at about
+  95 fps that spends its whole allowance in most frames can cross it and is then back to
+  whole budgets (main's behaviour) until the crossings are over [design, not measured]. A machine at
+  150 fps does the streaming work of one at 60 fps a second, in slices 0.4 times the size.
+  Scaled: `world.rs` `SPAWN_BUDGET`, `TAKE_IN_BUDGET`, `DESPAWN_PER_FRAME`; `readahead.rs`
+  `PREPARE_BUDGET`; `lod.rs` `REBUILD_BUDGET_MS`; `water.rs` `SURFACE_READS_PER_FRAME`;
+  `treelod.rs` `CELLS_PER_FRAME`; `mesh_terrain_blend.rs` `CLONE_WORK_PER_FRAME`;
+  `residents.rs` `SPAWNS_PER_FRAME`. Not scaled: the upload limit (24 MiB a frame; the
+  late-mesh marks count frames), generated terrain's bakes (2 a frame), physics cells (1 a
+  frame). `NVF_STREAM_PACE=0` keeps every budget whole; a run ends with `stream pace
+  summary: …` (frames, how many were scaled, the mean and least share).
+- **Measured** [observed 2026-11-20, the same tour, one `profile` build, the aid off and
+  on, one run each, no other build or game running]:
+
+  | | whole budgets | following the frame rate |
+  |---|---|---|
+  | frames of 20 ms or more | 63 of 16,982 | 39 of 16,961 |
+  | of them 25 ms or more | 22 | 9 |
+  | their time together | 1,500 ms | 930 ms |
+  | mean / 1 % low / worst | 8.35 / 19.8 / 39.3 ms | 8.35 / 18.5 / 38.4 ms |
+  | cells loaded, frames they spread over | 224, 258 | 224, 362 |
+  | cells that waited for their read-ahead, or were drawn before it | 0, 0 | 0, 0 |
+
+  The mean share was 0.49 (least 0.42): the profile build's frames are 8.3 ms, a release
+  build's on that machine 6.6 ms.
+- **Left.** In the 39 the jobs run over their smaller budgets on single pieces that are
+  not split: a cell's start in `world::stream` (terrain, grass; up to 5 ms), one tree LOD
+  step (up to 5 ms), one LOD rebuild (up to 4 ms), a physics cell (2 ms). The two points
+  below take these on.
+- **The jobs share the frame** (`stream_pace.rs` `FRAME_SHARE`, `LEAST_SLICE`) [design]. A
+  job that ran over its budget on one piece used to leave the jobs after it their own in
+  full. Above about 63 fps (while the budgets are scaled) all of them together now get half the
+  frame's own length (3.3 ms at 150 fps); at 60 fps or less there is no allowance, since
+  half a 60 fps frame (8.3 ms) is less than the budgets' sum (13 ms) and would hold jobs
+  back that were whole before (#3132 review). A job is given what is left of
+  that or its own budget, whichever is less, and never under a quarter of its own, so a
+  job that runs late in the frame still moves every frame; a count is cut to a quarter (at
+  least 1) once nothing is left. The jobs report their time as they finish
+  (`StreamPace::spent`, `spending`), which is also what the frame's own length is taken
+  without. `NVF_STREAM_PACE=scale` follows the frame rate without the shared allowance;
+  the summary line counts the frames in which a job was held to it. Measured with §3.4.
+
+## 3.4 A cell's start in steps (2026-11-20, 36d97f158)
+
+`world::stream` spawned a cell's terrain and grass in one piece when the cell was begun,
+whatever was left of the frame's spawn budget: `world::cell_start` 1.9 ms on average in the
+slow frames and up to 4.6 ms, of it the terrain 1.2 ms (up to 4.2) and the grass 0.7 ms
+(up to 1.7), against a spawn budget of 1.5 ms at that frame rate [observed 2026-11-20,
+spans added inside `world::stream`: `world::cell_start`, `cell_terrain`, `cell_grass`,
+`cell_refs`, `cell_read_ahead`; that run had another build beside it, so the times are
+high].
+
+- **Done** [design] (`world.rs` `CellStart`, `terrain.rs` `TerrainSpawn`). The start is
+  steps: each of the terrain's four quadrants, then the grass, then the references as
+  before, and `stream` stops between two steps when its budget is spent. A cell is hidden
+  until its last reference is in, so one part-way through its start is not seen; a cell
+  loaded whole (the start's square, behind a loading screen, an interior) takes every step
+  at once. What is spawned is the same: `spawn_terrain_with` is `TerrainSpawn` begun,
+  stepped to the end and finished. `NVF_CELL_START_STEPS=0` takes the start whole in the
+  frame the cell is begun, to compare.
+- **Measured** [observed 2026-11-20: §3.2's tour, machine and INI, one `profile` build,
+  the aids choosing what is on; three runs each in turn, no other build or game running,
+  a fourth of the last after one of its runs came out slow]:
+
+  | frames of 20 ms or more (of about 17,000) | runs | median |
+  |---|---|---|
+  | budgets follow the frame rate (§3.3) | 49, 47, 43 | 47 |
+  | and the jobs share the frame | 39, 39, 39 | 39 |
+  | and a cell's start in steps | 20, 21, 34, 34 | 27.5 |
+
+  1 % low (medians): 18.7, 18.4, 18.2 ms. In every run the 224 cells loaded with none
+  waiting for its read-ahead and none drawn before it; they spread over about 365 frames
+  without the steps and about 405 with them. `world::stream`'s longest span in a slow
+  frame: 6.1 to 6.9 ms, then 3.0 to 3.9 ms with the steps. The two runs of 34 were slower
+  frames throughout (mean 8.5 and 8.7 ms against 8.3 ms in the other eight), with something
+  else on the machine the check for builds and games did not see; each is still under
+  every run without the steps.
+- [observed, not explained] The residents' exit line counted 1 to 3 jumps over an obstacle
+  in ten of these and the earlier runs, 23 in one run without the steps and 46 and 87 in
+  two with them (a resident caught at an obstacle). It comes without the steps too; whether
+  the steps make it likelier was not looked into.
+- **Left.** Residents drawn (`residents::drive`, up to 9 ms; #3101), a creature's first
+  body weapons (15 to 18 ms once or twice a tour), one actor read-ahead piece of 20 ms.
+  Grass placement and its merged meshes are still made on the main thread, now in a step
+  of their own. §3.5 takes the body weapons and the grass on.
+
+## 3.5 Grass, distant trees' lists and body weapons' clips on read threads (2026-11-20, 4c390c686)
+
+Three pieces of streaming work only read records and files, and ran on the main thread.
+
+- **Grass** (`grass.rs` `GrassCtx::begin`, `GrassSeed::grow`, `finish`; `world.rs`
+  `CellSpawn::grown`) [design]. A cell's plants are placed and their meshes merged, by
+  quadrant and type, on the read pool. The main thread does what needs it: the grass types
+  of the landscape's textures and their models (both kept after their first use), then the
+  meshes into the store and the entities. A cell spawned over frames is shown once its
+  grass is in, so the grass comes with the cell as before; a cell loaded whole (the
+  start's square, behind a loading screen) and a cell owed its grass (`grow_owed`) grow it
+  on the main thread as before. Both ways run the same `GrassSeed::grow`.
+- **Distant trees** (`treelod.rs` `trees_of`, `READS_IN_FLIGHT`) [design]. The TREE
+  references of each cell in reach were read from the cell's records in the frame its
+  cards were built, 24 cells a frame. They are read on the read pool, at most 48 cells at
+  once, nearest first; the cards of a cell are built when its list is in.
+- **Body weapons** (`body_weapons.rs` `attach`) [design]. The folders with a creature's
+  own attack clips are listed once, by a look through every file's path; and the stance of
+  each body weapon is read from its clip files the first time a skeleton takes it. Both
+  ran in the frame the first such creature was drawn (the read-ahead warms the stances of
+  creatures in its ring, not of the start's cells). The list is made on a read thread from
+  the system's first frame, a stance not loaded yet is read on a read thread
+  (`Anims::stance_loaded`), and the creature gets its arms the frame both are in.
+- `NVF_STREAM_ON_READ_THREADS=0` runs all three on the main thread as before, to compare.
+- **Measured** [observed 2026-11-20: §3.2's tour, machine and INI, `profile` builds of
+  this change on 4c390c686 (which has #3101 and #3071), three runs each, no other build or
+  game running; the first two rows in turn on one build, the last two in turn on a build
+  with the stances read on a read thread too]:
+
+  | | frames of 20 ms or more | 1 % low | worst frame |
+  |---|---|---|---|
+  | on the main thread | 23, 15, 22 | 17.6, 17.4, 18.0 ms | 62, 56, 50 ms |
+  | on read threads, the stances still read in the frame | 18, 14, 17 | 16.7, 17.0, 17.5 ms | 47, 47, 49 ms |
+  | on read threads | 19, 17, 34 | 17.1, 16.5, 18.3 ms | 39, 40, 41 ms |
+  | and the frame share a third (`NVF_STREAM_FRAME_SHARE=0.33`) | 18, 17, 23 | 17.0, 17.1, 17.5 ms | 40, 40, 49 ms |
+
+  Longest in a slow frame: `body_weapons::attach` 30 to 38 ms, then 0.1 to 0.2 ms;
+  `treelod::update_distant_trees` 1.6 to 2.9 ms, then 0.1 ms; `world::cell_grass` 1.1 to
+  1.5 ms, then 0.1 to 0.2 ms (1.1 ms once, a grass type's model made). 224 cells loaded in
+  every run, none waited for its read-ahead; they spread over about 440 frames instead of
+  407. The run of 34 had slower frames throughout (mean 8.38 ms against 8.2 ms) and one of
+  the stalls below. A third of a frame for the jobs together (§3.3) measured the same as a
+  half, so the half stays.
+- [observed, not explained] About once a run a frame is held 17 to 21 ms in whatever
+  system is running, on the main thread and often the render thread in the same frame:
+  `readahead::list_ring` (1.2 to 2.0 ms in every other slow frame) at 16.5 and 17.2 ms,
+  `readahead::plan` at 18.4 ms, `world::cell_terrain` at 20.3 ms with `queue_submit` at
+  17.7 ms, and earlier `lod::update_lod`, `range::check_visibility_ranges`,
+  `locomotion::drive` and `profile::report` at 19 to 20 ms. It comes with the aid on and
+  off. The "actor read-ahead piece of 20 ms" of §3.4 is this, not the read-ahead's work.
+  Explained and removed in §3.6.
+- [observed] The gecko 00157B3E south-west of Goodsprings (`VSpawnTier2GeckoMed`) jumps an
+  obstacle once or twice in every run; in some it is asked to jump every other frame for
+  about 4 s without leaving the ground (`residents.rs` `hop_or_obstacle`: 13 to 78 "jumps
+  an obstacle" lines). Counted again over every run's log in `target/stress` (#3132
+  review): 4 of 15 runs without the cell start in steps (the first, 52 lines, on
+  2026-11-19 at 23:18 UTC, before any change of this section was in) and 13 of 30 with it;
+  the earlier "1 of 10 against 6 of 16" counted fewer runs. Fisher's exact test gives
+  p = 0.34: no evidence that §3.4 changed it. Runs of the same build differ (the `x*` and
+  `h-*` series: 1 to 53 lines), so when the gecko is given its body against when its cell's
+  collision comes in seems to decide it [hypothesis, not checked in a capture]. The retry
+  is the walkers' own; nothing here changes it.
+
+## 3.6 The stall of 17 to 21 ms: Windows' heap gives memory back under its lock (2026-11-20, d637f7446)
+
+The stall §3.5 left unexplained, on the same machine and settings.
+
+- [observed] It follows the place, not the clock: none with the player standing still;
+  with the tour at half speed (`dwell 2`) it moved from 8 s to 16 s after the first step,
+  the same step of the route. It stayed with sound off, terrain shadows off, cloud shadows
+  off, mesh blend off, the read pool at below-normal priority, the log written straight to
+  a file instead of a pipe, and the game on all 32 logical processors
+  (`--cpu-cache-placement off`): not the processors, not the log, not one feature.
+- [observed] What the threads were doing in the slow frame (a watcher thread suspending
+  each thread and walking its stack every millisecond once the frame was 12 ms old; the
+  allocator timing every call): one thread is inside `NtFreeVirtualMemory`, called by
+  `RtlFreeHeap`, for the whole 17 to 21 ms and on the processor all that time; five to
+  seven others, the main thread among them, wait for the heap's critical section in
+  `RtlAllocateHeap`, `RtlFreeHeap` or `RtlReAllocateHeap` for as long (requests of 224
+  bytes to 131 KB). The block freed is ordinary: a terrain mesh's attribute of 96 KB, on
+  the main thread (`terrain::quadrant_draws`) in one run, on a read thread (the cells
+  left behind, #3082) in another. Over that one call the process's committed memory fell
+  by about 135 MB (5,567 to 5,431 MB, about 7.5 MB a millisecond).
+- So the default heap (the NT heap) keeps freed memory until some free tips it over, then
+  hands it back to the system in one go while holding the heap's lock; every thread that
+  allocates or frees meanwhile waits [hypothesis for the heap's rule: its code was not
+  read; the stacks, the waits and the committed memory are observed]. Which thread makes
+  that free is chance: freeing the cells left behind a piece at a time on a thread of
+  their own (each piece under 0.7 ms) moved the stall to another thread's free and
+  changed nothing else, so that was not kept.
+- The fix: the executable's manifest asks for the segment heap (`heapType`
+  `SegmentHeap`, `engine/nvforever/build.rs`) [documented: Microsoft Learn, "Application
+  manifests", `heapType`: Windows 10 version 2004 and later; an older Windows ignores
+  the element]. No dependency, no code. Three profiled tours each way, taken in turn
+  (Goodsprings-Primm, `--step 1024`, 157 s, 224 cells):
+
+  | | stall of 30 ms or more after the start | cells' main-thread time | 1 % low | frame mean | private bytes, mean |
+  |---|---|---|---|---|---|
+  | NT heap | 38, 33, 41 ms (one a run) | 394, 390, 393 ms | 16.8, 17.1, 17.0 ms | 8.21, 8.26, 8.23 ms | 6,064, 5,863, 5,789 MB |
+  | segment heap | none (longest 24 ms) | 284, 291, 286 ms | 16.4, 16.3, 16.7 ms | 8.17, 8.16, 8.17 ms | 5,955, 5,799, 5,790 MB |
+
+  With the allocator timed in a 45 s run on the segment heap, no heap call of the main
+  thread took 1 ms; the slowest anywhere was a 19.5 MB `realloc` on a read thread (2.9 ms).
+  The frame that stays longest in every run, either heap, is the first one of play
+  (`script::run_scripts` 12 to 15 ms, 33 to 39 ms the frame): not streaming.
+- Not measured: Windows 10 before 2004 (the element is ignored there, so the NT heap and
+  the stall stay), a long session's memory on the segment heap, other machines.
+
 ## 4. Combat and interiors (2026-10-23, 5022d345)
 
 Measured the same way (xperf CPU sampling; `tools/stress run battle`, standing in five
@@ -623,3 +898,38 @@ builds, i9-14900K, RTX 4070, 48 GB, game files in the OS cache [observed, 2026-1
   gave a 28 ms mean and 227 frames over 100 ms): a 6-core laptop running something beside
   the game may be the reports' many 0.5-1.5 s frames [hypothesis]; what the 3.4-3.9 s
   frames are stays open. The next build's reports will say whether the house's count falls.
+
+## 7. Each model file is read and decoded twice: what the second time costs (#3149, 2026-11-21)
+
+A placed object with collision has its NIF read from the archive, parsed and fully decoded
+once to be drawn (`nvf-assets/src/model.rs`, read pool) and once more for its collision
+(`nvf-play/src/phys/prepare.rs`, the physics loader thread); nothing shares the decode.
+The exit's log now has a line for it, `model load times (thread time): drawn: …;
+collision: …` (`nvf-assets/src/load_times.rs`): files, and milliseconds of thread time for
+the read, `NifFile::parse`, `Decoded::new` and the rest of each side's preparing.
+
+[observed: three smoke launches of a release build at a3e540633 plus this line, the bench
+machine, other sessions' work running beside it, one run each]
+
+| Launch | Drawn: files, whole | Collision: files, read / parse / decode / rest | Second read+parse+decode, of both sides |
+|---|---|---|---|
+| `save-write` (Goodsprings start, `--play`) | 713, 3,926 ms (decode 168) | 346, 76 / 1 / 45 / 63 ms | 3.0 % |
+| `console-cow-coe` (Goodsprings, then two travels) | 921, 4,417 ms (decode 170) | 380, 157 / 2 / 66 / 116 ms | 4.7 % |
+| `cell-streaming` (a flight, no `--play`, so no collision) | 1,119, 6,107 ms (decode 189) | none | - |
+
+- The second decode is 45-66 ms of thread time a launch, 1.1-1.4 % of all model loading;
+  with its read and parse, 3.0-4.7 %. Most of that is the archive read, which the operating
+  system's file cache already makes cheap the second time.
+- On the physics loader thread itself the read, parse and decode are 66 % of its work on
+  model files (122 of 185 ms, 225 of 340 ms) and 18-21 % of all it does for the cells: the
+  same launches' `physics streaming` lines give 587 and 1,264 ms, of which building the
+  rapier shapes is 362 and 823 ms (62-65 %).
+- On the drawn side the decode is 3-4 % of a model's preparing; the rest (meshes, tangents,
+  textures) is 83-85 % in the two launches with physics, 67 % in the flight, where the
+  archive reads took 29 %.
+
+So neither a block filter on `Decoded` for the collision reader nor one decode shared by
+both readers is built [design]: the most either could save is about 1 % of the model
+loading's thread time, on a thread that does not hold the frame, and the collision reader
+does need the drawn shapes of a model that can be stood on (`DrawnFloors`). The physics
+side's cost to look at, if any, is the shapes.

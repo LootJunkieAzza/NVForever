@@ -105,6 +105,9 @@ pub struct SmallState {
     /// INI settings that last a session [observed: TaleOfTwoWastelands.esm
     /// TTWGenericHandlerScript, `TTW_EnableRadioFix 1` next to SetNumericINISetting].
     pub ttw_radio_fix: bool,
+    /// `ManOnFireNVSE.ini` cached configuration and per-actor exposure accumulator
+    /// (`crate::man_on_fire`).
+    pub man_on_fire: crate::man_on_fire::ManOnFireState,
 }
 
 /// CRC-32 (the IEEE polynomial, reflected, as zip and PNG use) [decision: the page's
@@ -218,6 +221,70 @@ impl Game<'_> {
     /// ([`SmallState::real_seconds`]).
     pub(crate) fn time_real(&self) -> f64 {
         self.small.real_seconds
+    }
+
+    /// Whether ySI configuration, session `ySISetTrait` overrides, or injected `ySI` UI
+    /// tiles are active in this session. Returns `false` with zero menu overhead in vanilla
+    /// sessions without ySI [design: `docs/spec-notes/ysi-filename.md`].
+    pub fn ysi_active(&mut self) -> bool {
+        !self.small.ysi_tag.is_empty()
+            || !self.small.ysi_icon.is_empty()
+            || !self.small.ysi_icon_by_tag.is_empty()
+            || self.ui_tree.find_tile("HUDMainMenu/ySI").is_some()
+            || self.ui_tree.find_tile("InventoryMenu/ySI").is_some()
+            || crate::ysi_filename::has_loaded_book(self)
+    }
+
+    /// Resolves an item's effective ySI sorting tag, icon texture filename, and XML template
+    /// name using the same precedence as `ySIGetTrait`: session `ySISetTrait` overrides take
+    /// precedence over `menus/ySI/*.json` rules (`ysi_filename`), and a tag's icon applies to
+    /// every form sharing that tag [design: `docs/spec-notes/ysi-filename.md`].
+    pub fn ysi_item_display(&mut self, item: FormId) -> Option<crate::ui_ysi::YsiItemDisplay> {
+        let orig = self.unclone(item);
+        let base = if self.world.forms.item(orig).is_some() {
+            orig
+        } else {
+            self.unclone(crate::functions::base_of(self, item).unwrap_or(item))
+        };
+        let tag = if let Some(override_tag) = self.small.ysi_tag.get(&base) {
+            (!override_tag.is_empty()).then(|| override_tag.clone())
+        } else {
+            crate::ysi_filename::json_tag(self, base).filter(|t| !t.is_empty())
+        };
+        let (icon, rule_template) = match tag.as_deref() {
+            Some(t) => {
+                if let Some(override_icon) = self.small.ysi_icon_by_tag.get(t) {
+                    let icon = (!override_icon.is_empty()).then(|| override_icon.clone());
+                    let tpl = crate::ysi_filename::json_icon_spec(self, t).and_then(|(_, tpl)| tpl);
+                    (icon, tpl)
+                } else if let Some((filename, tpl)) = crate::ysi_filename::json_icon_spec(self, t) {
+                    ((!filename.is_empty()).then_some(filename), tpl)
+                } else {
+                    let icon = self
+                        .small
+                        .ysi_icon
+                        .get(&base)
+                        .filter(|s| !s.is_empty())
+                        .cloned();
+                    (icon, None)
+                }
+            }
+            None => {
+                let icon = self
+                    .small
+                    .ysi_icon
+                    .get(&base)
+                    .filter(|s| !s.is_empty())
+                    .cloned();
+                (icon, None)
+            }
+        };
+        if tag.is_none() && icon.is_none() {
+            return None;
+        }
+        let template =
+            crate::ui_ysi::row_template_or_default(rule_template.as_deref(), tag.is_some() || icon.is_some());
+        Some(crate::ui_ysi::YsiItemDisplay { tag, icon, template })
     }
 }
 
@@ -603,20 +670,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- hNVSE ----
         // `cell`: an exterior cell's regions (CELL XCLR), in record order; an interior's
-        // none [documented: GetCellRegions].
+        // none [documented: GetCellRegions]. When `hNVSE.ini` sets `bMergeRegionLists=1`,
+        // overridden exterior cells return the deduplicated load-order union across
+        // plugins (`Game::cell_regions`).
         "getcellregions" => {
-            let mut out = Vec::new();
-            if let Some(fields) = form(args, 0).and_then(|c| g.data.record_fields.get(&c)) {
-                let interior = fields.iter().find(|(s, _)| s == b"DATA").and_then(|(_, v)| v.as_u64().or_else(|| v.get("value").and_then(|f| f.as_u64()))).is_some_and(|f| f & 1 != 0);
-                if !interior {
-                    for (s, v) in fields {
-                        if s == b"XCLR" {
-                            let ids = v.as_array().cloned().unwrap_or_else(|| vec![v.clone()]);
-                            out.extend(ids.iter().filter_map(json_form).map(|f| XVal::Ref(f.0)));
-                        }
-                    }
-                }
-            }
+            let out = match form(args, 0) {
+                Some(c) if !crate::nvse_jg5::interior(g, c) => g.cell_regions(c).into_iter().map(|f| XVal::Ref(f.0)).collect(),
+                _ => Vec::new(),
+            };
             list(g, out)
         }
         // `world nwX nwY seX seY`: the worldspace's map cells (WRLD MNAM), read by every
@@ -633,24 +694,38 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- yUI ----
         // `"tag"|"icon" [form]` and `trait value [form]`: ySI's sorting tag and icon of the
         // form, else of the calling reference's base [documented: ySIGetTrait,
-        // ySISetTrait]. An icon set on a form with a tag goes to every form of that tag
-        // [documented: "Changing the icon texture of a Form will also change also icon
-        // texture of all Forms with the same sorting tag"]. Not read from ySI's own
-        // files [decision: ySI is not installed]: an unset trait reads "".
+        // ySISetTrait]. Session overrides from ySISetTrait take precedence over the
+        // bounded JSON rule snapshot in `crate::ysi_filename`; an icon set on a tagged
+        // form (whether overridden or JSON-assigned) applies to every form sharing that
+        // tag [documented: "Changing the icon texture of a Form will also change also icon
+        // texture of all Forms with the same sorting tag"]. Unset/unmatched traits read "".
         "ysigettrait" | "ysisettrait" => {
             let set = name == "ysisettrait";
             let trait_name = text(args, 0).to_ascii_lowercase();
             let at = if set { 2 } else { 1 };
-            let f = form(args, at).or(subject).map(|f| crate::functions::base_of(g, f).unwrap_or(f));
+            let f = form(args, at).or(subject).map(|f| {
+                let orig = g.unclone(f);
+                if g.world.forms.item(orig).is_some() {
+                    orig
+                } else {
+                    g.unclone(crate::functions::base_of(g, f).unwrap_or(f))
+                }
+            });
             let Some(f) = f else { return Some(Ok(if set { zero } else { XVal::Str(String::new()) })) };
-            let tag = g.small.ysi_tag.get(&f).cloned();
+            let effective_tag = |g: &mut Game<'_>, base: FormId| -> Option<String> {
+                if let Some(override_tag) = g.small.ysi_tag.get(&base) {
+                    (!override_tag.is_empty()).then(|| override_tag.clone())
+                } else {
+                    crate::ysi_filename::json_tag(g, base).filter(|t| !t.is_empty())
+                }
+            };
             if set {
                 let v = text(args, 1);
                 match trait_name.as_str() {
                     "tag" => {
                         g.small.ysi_tag.insert(f, v);
                     }
-                    "icon" => match tag {
+                    "icon" => match effective_tag(g, f) {
                         Some(t) => {
                             g.small.ysi_icon_by_tag.insert(t, v);
                         }
@@ -663,8 +738,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 zero
             } else {
                 XVal::Str(match trait_name.as_str() {
-                    "tag" => tag.unwrap_or_default(),
-                    "icon" => tag.and_then(|t| g.small.ysi_icon_by_tag.get(&t).cloned()).or_else(|| g.small.ysi_icon.get(&f).cloned()).unwrap_or_default(),
+                    "tag" => effective_tag(g, f).unwrap_or_default(),
+                    "icon" => match effective_tag(g, f) {
+                        Some(t) => g
+                            .small
+                            .ysi_icon_by_tag
+                            .get(&t)
+                            .cloned()
+                            .or_else(|| crate::ysi_filename::json_icon_filename(g, &t))
+                            .or_else(|| g.small.ysi_icon.get(&f).cloned())
+                            .unwrap_or_default(),
+                        None => g.small.ysi_icon.get(&f).cloned().unwrap_or_default(),
+                    },
                     _ => String::new(),
                 })
             }
@@ -680,6 +765,30 @@ fn json_form(v: &serde_json::Value) -> Option<FormId> {
         serde_json::Value::Number(n) => n.as_u64().and_then(|x| u32::try_from(x).ok()).filter(|&x| x != 0).map(FormId),
         serde_json::Value::String(s) => s.strip_prefix("0x").and_then(|h| u32::from_str_radix(h, 16).ok()).filter(|&x| x != 0).map(FormId),
         _ => None,
+    }
+}
+
+impl Game<'_> {
+    /// An exterior cell's `XCLR` region FormIDs: the winning plugin's list by default
+    /// (vanilla behavior), or the deduplicated overriding-plugin-first union across
+    /// overriding plugins when `Data\NVSE\Plugins\hNVSE.ini` enabled
+    /// `[Main] bMergeRegionLists=1` at load time.
+    pub(crate) fn cell_regions(&self, cell: FormId) -> Vec<FormId> {
+        if self.data.hnvse_merge_region_lists {
+            if let Some(merged) = self.data.merged_cell_regions.get(&cell) {
+                return merged.clone();
+            }
+        }
+        let mut out = Vec::new();
+        if let Some(fields) = self.data.record_fields.get(&cell) {
+            for (s, v) in fields {
+                if s == b"XCLR" {
+                    let ids = v.as_array().cloned().unwrap_or_else(|| vec![v.clone()]);
+                    out.extend(ids.iter().filter_map(json_form));
+                }
+            }
+        }
+        out
     }
 }
 

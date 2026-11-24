@@ -28,6 +28,11 @@ const RAD_IMMUNITY: u32 = 0x871;
 const AURA: u32 = 0x872;
 const GHOUL_RAD: u32 = 0x873;
 const REDUCE_PER: u32 = 0x854;
+const MOD_DR: u32 = 0x855;
+const TOUGHNESS: u32 = 0x878;
+const MUTANT: u32 = 0x403;
+const MUTANT_REF: u32 = 0x503;
+const DAMAGE_RESISTANCE: u16 = 18;
 const HEAD_CRIPPLED: u32 = 0x874;
 const ENCH_HAT: u32 = 0x880;
 const ENCH_GLASSES: u32 = 0x881;
@@ -46,6 +51,9 @@ const ROBOT_COPY: u32 = 0x40F;
 const GHOUL: u32 = 0x402;
 const ROBOT_REF: u32 = 0x500;
 const GHOUL_REF: u32 = 0x501;
+/// A second cell, with a ghoul of its own.
+const OTHER_CELL: u32 = 0x201;
+const OTHER_GHOUL_REF: u32 = 0x502;
 
 const P: FormId = FormId::PLAYER_REF;
 const PERCEPTION: u16 = 6;
@@ -159,12 +167,13 @@ fn placed(fid: u32, base: u32) -> Vec<u8> {
 
 fn plugin_bytes() -> Vec<u8> {
     // MGEF flag 2 Recover, 4 Detrimental.
-    let mgefs = [mgef(MOD_DT, "IncDT", 2, 76), mgef(MOD_RAD, "IncRad", 2, 20), mgef(MOD_PER, "IncPer", 2, 6), mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10), mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6)].concat();
+    let mgefs = [mgef(MOD_DT, "IncDT", 2, 76), mgef(MOD_RAD, "IncRad", 2, 20), mgef(MOD_PER, "IncPer", 2, 6), mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10), mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6), mgef(MOD_DR, "IncDR", 2, 18)].concat();
     let spels = [
         spel(DT_ABILITY, "RobotDT", 4, vec![effect(MOD_DT, 15, 76, vec![])]),
         spel(RAD_IMMUNITY, "RadImmunity", 4, vec![effect(MOD_RAD, 100, 20, vec![])]),
         spel(AURA, "Aura", 0, vec![effect(MOD_PER, 1, 6, vec![])]),
         spel(GHOUL_RAD, "GhoulRad", 4, vec![effect(MOD_RAD, 50, 20, vec![])]),
+        spel(TOUGHNESS, "NightkinToughness", 4, vec![effect(MOD_DR, 15, 18, vec![])]),
         spel(HEAD_CRIPPLED, "HeadCrippleEffect", 4, vec![effect(REDUCE_PER, 4, 6, vec![head_crippled()])]),
         spel(PERK_SPELL_1, "PerkSharpEyes1", 4, vec![effect(MOD_PER, 1, 6, vec![])]),
         spel(PERK_SPELL_2, "PerkSharpEyes2", 4, vec![effect(MOD_PER, 2, 6, vec![])]),
@@ -204,11 +213,14 @@ fn plugin_bytes() -> Vec<u8> {
         npc(ROBOT_COPY, "RobotCopy", vec![acbs(0x08), sub(b"TPLT", ROBOT.to_le_bytes().to_vec())]),
         npc(ROBOT_TEMPLATE, "RobotTemplate", vec![acbs(0), splo(DT_ABILITY), splo(RAD_IMMUNITY), splo(AURA)]),
         npc(GHOUL, "Ghoul", vec![acbs(0), sub(b"RNAM", RACE_GHOUL.to_le_bytes().to_vec())]),
+        npc(MUTANT, "Mutant", vec![acbs(0), splo(TOUGHNESS)]),
     ]
     .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let refs = [placed(ROBOT_REF, ROBOT), placed(GHOUL_REF, GHOUL)].concat();
+    let refs = [placed(ROBOT_REF, ROBOT), placed(GHOUL_REF, GHOUL), placed(MUTANT_REF, MUTANT)].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
+    let other = record(b"CELL", 0, OTHER_CELL, &[sub(b"EDID", z("OtherCell"))]);
+    let other_children = group(OTHER_CELL.to_le_bytes(), 6, &group(OTHER_CELL.to_le_bytes(), 9, &placed(OTHER_GHOUL_REF, GHOUL)));
     [
         tes4(),
         top(b"MGEF", &mgefs),
@@ -218,7 +230,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"PERK", &perks),
         top(b"ENCH", &enchs),
         top(b"ARMO", &armos),
-        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children, other, other_children].concat()))),
     ]
     .concat()
 }
@@ -314,13 +326,34 @@ fn authored_abilities_are_effects() {
     assert_eq!(target(&mut g, FormId(GHOUL_REF), GHOUL_RAD), 1.0);
     let base = call(&mut g, FormId(GHOUL_REF), GET_BASE_AV, &[code(RAD_RESIST)]);
     assert_eq!(av(&mut g, FormId(GHOUL_REF), RAD_RESIST), base + 50.0);
-    // Given once: another frame adds nothing.
+    // Given once: a frame after the one that loads every actor adds nothing.
+    g.tick();
     let n = g.effects.len();
     g.tick();
     assert_eq!(g.effects.len(), n);
     assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 15.0);
     // The player has none.
     assert_eq!(target(&mut g, P, RAD_IMMUNITY), 0.0);
+}
+
+/// An ability's Damage Resistance counts twice, in the base value and as the effect: the
+/// original's nightkin (NightkinToughness +15) reads 30 with a base of 15, where an
+/// ability's Damage Threshold counts once (the alpha deathclaw's 15, base 0) [observed
+/// 2026-11-21, #3219]. Dispelled, both go.
+#[test]
+fn an_ability_s_damage_resistance_counts_twice() {
+    let f = fixture();
+    let mut g = game(&f);
+    let mutant = FormId(MUTANT_REF);
+    assert_eq!(target(&mut g, mutant, TOUGHNESS), 1.0);
+    assert_eq!(av(&mut g, mutant, DAMAGE_RESISTANCE), 30.0);
+    assert_eq!(call(&mut g, mutant, GET_BASE_AV, &[code(DAMAGE_RESISTANCE)]), 15.0);
+    assert_eq!(call(&mut g, mutant, GET_PERMANENT_AV, &[code(DAMAGE_RESISTANCE)]), 15.0);
+    // Damage Threshold from an ability: once.
+    assert_eq!(av(&mut g, FormId(ROBOT_REF), DAMAGE_THRESHOLD), 15.0);
+    assert_eq!(call(&mut g, FormId(ROBOT_REF), GET_BASE_AV, &[code(DAMAGE_THRESHOLD)]), 0.0);
+    call(&mut g, mutant, DISPEL, &[form(TOUGHNESS)]);
+    assert_eq!(av(&mut g, mutant, DAMAGE_RESISTANCE), 0.0);
 }
 
 /// The loaded actors get theirs in the frame, without a script asking.
@@ -331,6 +364,41 @@ fn loaded_actors_get_abilities_in_the_frame() {
     g.tick();
     assert!(g.effects.iter().any(|e| e.target == FormId(ROBOT_REF) && e.source == FormId(DT_ABILITY)));
     assert!(g.effects.iter().any(|e| e.target == FormId(GHOUL_REF) && e.source == FormId(GHOUL_RAD)));
+}
+
+#[test]
+fn the_frame_rechecks_actor_presence_with_the_same_loaded_cells() {
+    let f = fixture();
+    let mut g = game(&f);
+    let robot = FormId(ROBOT_REF);
+    let has_effect = |g: &Game| g.effects.iter().any(|e| e.target == robot && e.source == FormId(DT_ABILITY));
+    // Warm the placement list while the robot is disabled and has no effects.
+    g.world.set_enabled(robot, false).unwrap();
+    g.tick();
+    assert!(!has_effect(&g));
+    g.world.set_enabled(robot, true).unwrap();
+    g.tick();
+    assert!(has_effect(&g));
+    g.loaded_cells.clear();
+    g.tick();
+    assert!(!has_effect(&g));
+    g.loaded_cells.insert(FormId(CELL));
+    g.tick();
+    assert!(has_effect(&g));
+}
+
+/// Another loaded cell, as many as before: its own actor gets its abilities in the frame,
+/// and the first cell's lose theirs.
+#[test]
+fn the_frame_follows_the_loaded_cells_to_another_actor() {
+    let f = fixture();
+    let mut g = game(&f);
+    let rad = |g: &Game, r: u32| g.effects.iter().any(|e| e.target == FormId(r) && e.source == FormId(GHOUL_RAD));
+    g.tick();
+    assert!(rad(&g, GHOUL_REF) && !rad(&g, OTHER_GHOUL_REF));
+    g.loaded_cells = [FormId(OTHER_CELL)].into();
+    g.tick();
+    assert!(!rad(&g, GHOUL_REF) && rad(&g, OTHER_GHOUL_REF));
 }
 
 /// Abilities are on an actor only while it is loaded (capture abilities-1: Victor, Rex
@@ -657,6 +725,281 @@ fn player_speed_follows_speed_mult_at_once() {
     assert_eq!(g.move_speed_mult(P), 1.5);
     call(&mut g, P, MOD_AV, &[speed, ArgValue::Value(Value::Num(-100.0))]);
     assert_eq!(g.move_speed_mult(P), 0.5);
+}
+
+fn object_effect_fixture() -> Fixture {
+    const PLAIN_HOOD: u32 = 0x893;
+    const ENCH_BURN: u32 = 0x883;
+    const ENCH_SHOCK: u32 = 0x884;
+    const PISTOL: u32 = 0x894;
+    const PLAIN_RIFLE: u32 = 0x895;
+    const BLAST: u32 = 0x896;
+    const TIN_CAN: u32 = 0x897;
+
+    let mgefs = [
+        mgef(MOD_PER, "IncPer", 2, 6),
+        mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10),
+        mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6),
+    ]
+    .concat();
+    let enchs = [
+        ench(ENCH_HAT, "EnchHat", 3, vec![effect(MOD_PER, 1, 6, vec![])]),
+        ench(ENCH_METAL, "EnchMetal", 3, vec![effect(REDUCE_AGI, 1, 10, vec![])]),
+        ench(ENCH_BURN, "EnchBurn", 2, vec![effect(REDUCE_PER, 2, 6, vec![])]),
+        ench(ENCH_SHOCK, "EnchShock", 2, vec![effect(REDUCE_AGI, 2, 10, vec![])]),
+    ]
+    .concat();
+    let plain_hood = {
+        let bmdt = [u32s(&[1 << 0]), vec![0; 4]].concat();
+        let data = [u32s(&[1, 100]), f32b(1.0)].concat();
+        record(b"ARMO", 0, PLAIN_HOOD, &[sub(b"EDID", z("PlainHood")), sub(b"BMDT", bmdt), sub(b"DATA", data)])
+    };
+    let armos = [armo(HAT, "Hat", 1 << 0, ENCH_HAT), plain_hood].concat();
+    let weaps = [
+        record(b"WEAP", 0, PISTOL, &[sub(b"EDID", z("TestPistol")), sub(b"EITM", ENCH_BURN.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 15])]),
+        record(b"WEAP", 0, PLAIN_RIFLE, &[sub(b"EDID", z("PlainRifle")), sub(b"DATA", vec![0; 15])]),
+    ]
+    .concat();
+    let expls = record(b"EXPL", 0, BLAST, &[sub(b"EDID", z("TestBlast"))]);
+    let miscs = record(b"MISC", 0, TIN_CAN, &[sub(b"EDID", z("TinCan"))]);
+    let races = record(b"RACE", 0, RACE_HUMAN, &[sub(b"EDID", z("Human"))]);
+    let npcs = npc(0x7, "Player", vec![acbs(0), sub(b"RNAM", RACE_HUMAN.to_le_bytes().to_vec())]);
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let bytes = [
+        tes4(),
+        top(b"MGEF", &mgefs),
+        top(b"RACE", &races),
+        top(b"NPC_", &npcs),
+        top(b"ENCH", &enchs),
+        top(b"ARMO", &armos),
+        top(b"WEAP", &weaps),
+        top(b"EXPL", &expls),
+        top(b"MISC", &miscs),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+    ]
+    .concat();
+    let plugins = [Plugin::parse(&bytes, "ObjectEffects.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+/// SetObjectEffect updates worn enchantments, actor values, GetObjectEffect, and
+/// item_effect_text / GetItemEffectString live — including clearing while worn, adding to
+/// unenchanted armor, and replacing a previously dispelled worn enchantment.
+#[test]
+fn set_object_effect_updates_worn_enchantments_and_item_effect_text_live() {
+    use fnv_script::vm::XVal;
+    const PLAIN_HOOD: u32 = 0x893;
+
+    let f = object_effect_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game<'_>, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("query runs")
+    };
+
+    // Authored baseline on Hat (ARMO EITM = ENCH_HAT, Perception +1).
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect Hat)"), XVal::Ref(ENCH_HAT));
+    assert_eq!(g.item_effect_text(P, FormId(HAT)), "Perception +1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetItemEffectString Hat)"), XVal::Str("Perception +1".into()));
+
+    g.world.add_item(P, FormId(HAT), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(HAT)]);
+    assert_eq!(target(&mut g, P, ENCH_HAT), 1.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+
+    // Clearing Hat's enchantment with omitted 2nd arg removes worn effects immediately.
+    q(&mut g, "SetObjectEffect Hat");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect Hat)"), XVal::Ref(0));
+    assert_eq!(g.object_effect(FormId(HAT)), None);
+    assert_eq!(g.object_effect_override(FormId(HAT)), Some(None));
+    assert_eq!(g.item_effect_text(P, FormId(HAT)), "");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetItemEffectString Hat)"), XVal::Str(String::new()));
+    assert!(g.worn_enchantments(P).is_empty());
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+
+    // Adding an Apparel enchantment to an already-worn plain hood activates immediately.
+    g.world.add_item(P, FormId(PLAIN_HOOD), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(PLAIN_HOOD)]);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    assert_eq!(g.item_effect_text(P, FormId(PLAIN_HOOD)), "");
+
+    q(&mut g, "SetObjectEffect PlainHood EnchHat");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect PlainHood)"), XVal::Ref(ENCH_HAT));
+    assert_eq!(g.item_effect_text(P, FormId(PLAIN_HOOD)), "Perception +1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetItemEffectString PlainHood)"), XVal::Str("Perception +1".into()));
+    assert_eq!(target(&mut g, P, ENCH_HAT), 1.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+
+    // Replacing an enchantment after Dispel clears stale worn_dispelled and applies the new one.
+    call(&mut g, P, DISPEL, &[form(ENCH_HAT)]);
+    g.tick();
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+
+    q(&mut g, "SetObjectEffect PlainHood EnchMetal");
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(target(&mut g, P, ENCH_METAL), 1.0);
+    assert_eq!(av(&mut g, P, AGILITY), 4.0);
+    assert_eq!(g.item_effect_text(P, FormId(PLAIN_HOOD)), "Agility -1");
+}
+
+/// SetObjectEffect supports WEAP and EXPL (Weapon enchantments), keeps weapon enchantments
+/// out of worn_enchantments / apparel card text, and refuses invalid form or enchantment kinds.
+#[test]
+fn set_object_effect_handles_weapons_explosions_and_refuses_invalid_kinds() {
+    use fnv_script::vm::XVal;
+    const ENCH_BURN: u32 = 0x883;
+    const ENCH_SHOCK: u32 = 0x884;
+    const PISTOL: u32 = 0x894;
+    const PLAIN_RIFLE: u32 = 0x895;
+    const BLAST: u32 = 0x896;
+    const TIN_CAN: u32 = 0x897;
+
+    let f = object_effect_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game<'_>, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("query runs")
+    };
+
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(ENCH_BURN));
+    assert_eq!(g.object_effect_override(FormId(PISTOL)), None);
+
+    // Replace and clear on WEAP (both omitted 2nd arg and explicit null 0).
+    q(&mut g, "SetObjectEffect TestPistol EnchShock");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(ENCH_SHOCK));
+    assert_eq!(g.object_effect_override(FormId(PISTOL)), Some(Some(FormId(ENCH_SHOCK))));
+    q(&mut g, "SetObjectEffect TestPistol 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(0));
+    assert_eq!(g.object_effect_override(FormId(PISTOL)), Some(None));
+    q(&mut g, "SetObjectEffect TestPistol EnchBurn");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(ENCH_BURN));
+    q(&mut g, "SetObjectEffect TestPistol");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestPistol)"), XVal::Ref(0));
+    assert_eq!(g.object_effect_override(FormId(PISTOL)), Some(None));
+
+    // Set on EXPL (Weapon enchantment type 2).
+    q(&mut g, "SetObjectEffect TestBlast EnchBurn");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetObjectEffect TestBlast)"), XVal::Ref(ENCH_BURN));
+    assert_eq!(g.object_effect(FormId(BLAST)), Some(FormId(ENCH_BURN)));
+
+    // Equipped WEAP with Weapon enchantment must not leak into worn_enchantments or item_effect_text.
+    q(&mut g, "SetObjectEffect PlainRifle EnchBurn");
+    g.world.add_item(P, FormId(PLAIN_RIFLE), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(PLAIN_RIFLE)]);
+    assert!(g.worn_enchantments(P).is_empty());
+    assert_eq!(g.item_effect_text(P, FormId(PLAIN_RIFLE)), "");
+
+    // Mismatched enchantment kinds, non-form 2nd args, and non-ARMO/WEAP/EXPL forms are refused without mutation.
+    q(&mut g, "SetObjectEffect PlainRifle EnchHat");
+    assert_eq!(g.object_effect(FormId(PLAIN_RIFLE)), Some(FormId(ENCH_BURN)));
+    q(&mut g, "SetObjectEffect Hat EnchBurn");
+    assert_eq!(g.object_effect(FormId(HAT)), Some(FormId(ENCH_HAT)));
+    q(&mut g, "SetObjectEffect Hat TinCan");
+    assert_eq!(g.object_effect(FormId(HAT)), Some(FormId(ENCH_HAT)));
+    q(&mut g, "SetObjectEffect Hat -1");
+    assert_eq!(g.object_effect(FormId(HAT)), Some(FormId(ENCH_HAT)));
+    q(&mut g, "SetObjectEffect TinCan EnchHat");
+    q(&mut g, "SetObjectEffect TinCan EnchBurn");
+    assert_eq!(g.object_effect(FormId(TIN_CAN)), None);
+    assert_eq!(g.object_effect_override(FormId(TIN_CAN)), None);
+}
+
+/// TempCloneForm clones snapshot effective SetObjectEffect overrides at clone time, isolate
+/// post-clone edits in both directions (including clone-of-clone chains), and loaded
+/// base-form overrides carry across take_session / put_session (excluding transient clones).
+#[test]
+fn set_object_effect_isolates_temp_clones_and_persists_base_overrides_in_session() {
+    use fnv_script::vm::XVal;
+    const PLAIN_HOOD: u32 = 0x893;
+    const ENCH_SHOCK: u32 = 0x884;
+    const PISTOL: u32 = 0x894;
+
+    let f = object_effect_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game<'_>, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("query runs")
+    };
+
+    // Clone of an unmodified form snapshots its authored EITM and stays isolated from later base edits.
+    let XVal::Ref(unmod_clone_id) = q(
+        &mut g,
+        "ref rUnmod\nlet rUnmod := TempCloneForm Hat\nSetFunctionValue rUnmod",
+    ) else {
+        panic!("TempCloneForm must return a ref");
+    };
+    let unmod_clone = FormId(unmod_clone_id);
+    assert_eq!(g.object_effect(unmod_clone), Some(FormId(ENCH_HAT)));
+
+    // Pre-clone override on PlainHood carries over to its clone and clone-of-clone.
+    q(&mut g, "SetObjectEffect PlainHood EnchMetal");
+    let XVal::Ref(clone_id) = q(
+        &mut g,
+        "ref rClone\nlet rClone := TempCloneForm PlainHood\nPlayer.AuxVarSetRef \"*clone\" rClone\nSetFunctionValue rClone",
+    ) else {
+        panic!("TempCloneForm must return a ref");
+    };
+    let clone = FormId(clone_id);
+    assert_eq!(g.object_effect(clone), Some(FormId(ENCH_METAL)));
+
+    let XVal::Ref(chain_id) = q(
+        &mut g,
+        "ref rClone\nref rChain\nlet rClone := Player.AuxVarGetRef \"*clone\"\nlet rChain := TempCloneForm rClone\nSetFunctionValue rChain",
+    ) else {
+        panic!("TempCloneForm must return a ref");
+    };
+    let chain = FormId(chain_id);
+    assert_eq!(g.object_effect(chain), Some(FormId(ENCH_METAL)));
+
+    // Override clone independently without mutating base PlainHood or clone-of-clone.
+    q(&mut g, "ref rClone\nlet rClone := Player.AuxVarGetRef \"*clone\"\nSetObjectEffect rClone EnchHat");
+    assert_eq!(g.object_effect(clone), Some(FormId(ENCH_HAT)));
+    assert_eq!(g.object_effect(FormId(PLAIN_HOOD)), Some(FormId(ENCH_METAL)));
+    assert_eq!(g.object_effect(chain), Some(FormId(ENCH_METAL)));
+
+    // Explicit clear on clone stops at clone and does not fall through to base PlainHood.
+    q(&mut g, "ref rClone\nlet rClone := Player.AuxVarGetRef \"*clone\"\nSetObjectEffect rClone");
+    assert_eq!(g.object_effect(clone), None);
+    assert_eq!(g.object_effect(FormId(PLAIN_HOOD)), Some(FormId(ENCH_METAL)));
+    assert_eq!(g.object_effect(chain), Some(FormId(ENCH_METAL)));
+
+    // Post-clone edits on base Hat and PlainHood do not leak into earlier clones.
+    q(&mut g, "SetObjectEffect Hat");
+    q(&mut g, "SetObjectEffect PlainHood EnchHat");
+    q(&mut g, "SetObjectEffect TestPistol EnchShock");
+    assert_eq!(g.object_effect(unmod_clone), Some(FormId(ENCH_HAT)));
+    assert_eq!(g.object_effect(clone), None);
+    assert_eq!(g.object_effect(chain), Some(FormId(ENCH_METAL)));
+
+    // Session handoff carries loaded base-form overrides and excludes transient clones.
+    let session = g.take_session();
+
+    let mut g2 = game(&f);
+    g2.put_session(session);
+    assert_eq!(g2.object_effect(FormId(HAT)), None);
+    assert_eq!(g2.object_effect_override(FormId(HAT)), Some(None));
+    assert_eq!(g2.object_effect(FormId(PLAIN_HOOD)), Some(FormId(ENCH_HAT)));
+    assert_eq!(g2.object_effect(FormId(PISTOL)), Some(FormId(ENCH_SHOCK)));
+    assert_eq!(g2.object_effect_override(clone), None);
+    assert_eq!(g2.object_effect_override(unmod_clone), None);
+    assert_eq!(g2.object_effect_override(chain), None);
+
+    g2.world.add_item(P, FormId(HAT), 1).unwrap();
+    call(&mut g2, P, EQUIP, &[form(HAT)]);
+    assert_eq!(av(&mut g2, P, PERCEPTION), 5.0);
+    assert_eq!(g2.item_effect_text(P, FormId(HAT)), "");
+
+    g2.world.add_item(P, FormId(PLAIN_HOOD), 1).unwrap();
+    call(&mut g2, P, EQUIP, &[form(PLAIN_HOOD)]);
+    assert_eq!(av(&mut g2, P, PERCEPTION), 6.0);
+    assert_eq!(g2.item_effect_text(P, FormId(PLAIN_HOOD)), "Perception +1");
 }
 
 mod add_spell_reentrancy;

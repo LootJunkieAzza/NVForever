@@ -284,6 +284,44 @@ Speech check's line counts Speech Successes when the player meets the level and 
 Failures otherwise; other skills and perks count nothing [hypothesis; misc-stats.md §3,
 observer-checks.md item 70].
 
+**Fallout 3 style percentage speech challenges (`SPEECH_CHALLENGE` flag + DNAM 1–5, #3406):**
+A line carrying `info_flag::SPEECH_CHALLENGE` (0x0080) and a DNAM difficulty code 1–5
+(`Very Easy` … `Very Hard`), with or without `KNAM`, is rolled against the player's
+Speech skill, Charisma, Karma, weapon state, and the speaker's disposition and
+responsibility [documented: GECK wiki Speech Formula (Fallout 3) and Complete List of
+GameSettings; observed: `iSpeechChallengeDifficultyVeryEasy` 10, `Easy` 40, `Average`
+55, `Hard` 70, `VeryHard` 80, `fSpeechChallengeDispositionBase` 30.0,
+`fSpeechChallengeDispositionMultiplier` 1.0, `fSpeechChallengeMultiplier` 2.0,
+`fSpeechAutoSuccessThreshold` 0.9, `fDispTargetCharMult` 10.0 in FalloutNV.esm;
+`fSpeechChallengeSpeechBase` 50.0, `fDispTargetCharOffset` 5.0, `fDispTargetCharBase`
+0.0, `fDispActorRespMult` 1.0, `fDispActorRespBase` −50.0, `fDispTargetKarmaMult` 0.002,
+`fDispTargetWeaponBase` −10.0 from GECK wiki]:
+
+- `Pass Chance = Disposition Value × Speech Value × Difficulty Value`, clamped to `0.0..=1.0`,
+  with each factor floored at `0.0` before multiplication [design: avoids negative × negative].
+- When `SetDisposition`/`ModDisposition` overrode the actor's disposition toward the
+  player, that value replaces `Actor Disposition + Charisma Value` so Charisma is not
+  counted twice [design, matching `functions::actor::get_disposition`].
+- When `Pass Chance > fSpeechAutoSuccessThreshold` (default 0.9), the check always passes
+  [documented: GECK wiki Speech Formula (Fallout 3)] and reports `1.0` (`100%`) [hypothesis].
+- Choice display: the choice carries `Challenge::chance` even when `KNAM` is absent
+  (resolving `AVSpeech` 0x000004BB when present, else `"Speech"` [design]) and `nvf-play`
+  shows `[Speech NN%]` [documented: GECK wiki Category:Dialogue "Speech Challenge" and
+  Fallout Wiki "Speech (Fallout 3)"; hypothesis: nearest-percent rounding and exact
+  FNV/TTW label format not yet captured in-game, §7 item 19].
+- On pass: counts `Speech Successes`, awards `iXPRewardSpeechChallenge<class>` XP, and
+  speaks the challenge line.
+- On failure: counts `Speech Failures` (no XP), marks the challenge line said without
+  speaking it or running its result scripts (so a `Say Once` challenge cannot be retried
+  [documented: Fallout Wiki "Speech (Fallout 3)"; hypothesis: via the line's said state]),
+  and speaks the speaker's line of `SpeechChallengeFailure` (DIAL 0x000000FD) whose Link
+  From names the challenge topic, falling back to an unlinked `SpeechChallengeFailure`
+  line [documented: GECK wiki Topics Tab, SpeechChallengeFailure; observed: Fallout3.esm
+  has 74 linked and 113 unlinked failure lines, #3024; hypothesis: unlinked lines serve as
+  fallback]. If no failure line is sayable, emits `NoLine` and updates/removes the failed
+  choice without speaking the pass line [design]. New Vegas deterministic checks (`KNAM`
+  without `SPEECH_CHALLENGE`) are unchanged.
+
 ### 3.4 Follow-up lines (TCFU)
 
 Not described in our sources beyond xEdit's name "Follow Up" and its target type INFO.
@@ -702,7 +740,28 @@ All of it is in `GameSnapshot`.
   Refusal; always with Always Darken [documented: Category:Dialogue flags].
 - **GOODBYE.** When the topic list holds no Goodbye line, the actor's line of the
   GOODBYE topic is offered last, if it has one [documented: Quest and Dialogue Tutorial;
-  Conversation Tab].
+  Conversation Tab]. **Its line ends the conversation when it is over, with or without
+  the Goodbye flag, unless it leads on: the actor can say a line of one of its own links
+  now, a follow-up, a choice, or a player topic whose line names GOODBYE in its Link
+  From (§3.5)** (`Game::ends_conversation`, issue #3477). The topic list is no link of
+  the line. Only links the actor can say something for count [design]: a Link From names
+  the topic, so it is a link of every actor's GOODBYE, and one actor's reply in a plugin
+  would otherwise bring the topic list back after everyone else's [documented: Quest and Dialogue Tutorial:
+  without a topic flagged Goodbye "the dialog will end with one of those GOODBYEs";
+  Conversation Tab: NPCs use the topic when the player exits the dialogue menu;
+  hypothesis: that this holds for its lines without the flag, observer check 283]. Such
+  an entry counts as a Goodbye (`Choice::goodbye`): Tab picks it. The data [observed:
+  `fnvtool dialogue lines --topic GOODBYE`, 2026-11-23, FalloutNV.esm with its add-ons
+  and Fallout 3's six masters]: 2 of FalloutNV.esm's 274 lines have no flag (Keith's
+  0x0014E019, Jerry the Punk's 0x0014C483), 31 of Fallout3.esm's 861 (17 of quest
+  DialogueParadiseFalls, Pronto's 0x000384CF among them) and 1 of PointLookout.esm's 36;
+  no New Vegas add-on has one. All 34 are Conversation lines with no choices, follow-ups,
+  result scripts or Add Topics, and no line names GOODBYE in its Link From: they lead
+  nowhere, so ending cuts nothing off, and the exception is for plugins. Two of them are between NPCs (Mr. Brotch and
+  Freddie), whose exchange ends for want of links (§5.1). With the flag, 5 lines of
+  Fallout3.esm have choices as well (4 of them between NPCs); the flag ends the player's
+  conversation there, as before. With `GameConfig::goodbye_at_once` an unflagged line is
+  still held until it is over [design: the switch is about the flag].
 - **Known topics.** `AddTopic` and lines' Add Topics lists fill one list, newest first
   (above), kept for the whole game; every actor that can say a line of a known topic offers it [owner
   statement 2026-10-10: every actor has the line while its quest is active and the
@@ -721,10 +780,10 @@ All of it is in `GameSnapshot`.
   of its own.
 - **Not modelled:** IdleChatter (hellos and random conversations are §5.2, scripted
   conversations between actors §5.1), radio, combat and detection barks, the reaction
-  topics (PLAYERFIREWEAPON and the rest), Low/High Intelligence lines and
-  the Dumb Response, the quest flag "Allow Repeated Conversation Topics", the Fallout 3
-  speech-challenge roll and the SpeechChallengeFailure topic, lip sync and emotions on
-  faces.
+  topics (PLAYERFIREWEAPON and the rest), the quest flag "Allow Repeated Conversation
+  Topics", lip sync and emotions on faces. (Low/High Intelligence lines and Dumb Response
+  were added 2026-10-25; the Fallout 3 speech-challenge roll and `SpeechChallengeFailure`
+  routing are in §3.3, #3406.)
 
 ### 5.1 Conversations between two actors (`Game::start_actor_conversation`)
 
@@ -1075,6 +1134,12 @@ up to C and F):
     to finish the line or walks on; what ends the line early (another line, a fight, the
     player out of earshot); whether a StartConversation from its end result waits for the
     line.
+19. Fallout 3 percentage speech challenges in the New Vegas engine (§3.3, #3406): what
+    the original shows on the choice row (exact `[Speech NN%]` wording, rounding vs
+    truncation, whether chances above `fSpeechAutoSuccessThreshold` show `100%` or the
+    raw percentage, and whether low chances use the red failure highlight), and whether
+    `fSpeechChallengeFailureBase`/`fSpeechChallengeFailureMultiplier` have any runtime
+    effect in New Vegas.
 
 ## 8. Tool contracts
 

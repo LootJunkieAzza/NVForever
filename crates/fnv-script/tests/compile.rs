@@ -4,6 +4,8 @@
 
 #[path = "compile/inline_surplus_operands.rs"]
 mod inline_surplus_operands;
+#[path = "compile/extender_params.rs"]
+mod extender_params;
 
 use fnv_script::compile::{compile, Compiled, Env, FormInfo, Seed, PLAYER};
 use fnv_script::unit::RefSlot;
@@ -1054,7 +1056,7 @@ end",
 }
 
 /// Tale of Two Wastelands' start-up checks pass for the plugins built into the engine:
-/// Stewie's Tweaks at TTW's minimum 941 and its own ttw_nvse (ext-version.md §5).
+/// Stewie's Tweaks at 945 (above TTW's minimum 941, #3179) and its own ttw_nvse (ext-version.md §5).
 #[test]
 fn ttws_plugin_checks_find_the_plugins_built_in() {
     let h = run(
@@ -1067,7 +1069,7 @@ let t := IsPluginInstalled \"ttw_nvse\"
 let u := IsPluginInstalled \"Not A Plugin\"
 end",
     );
-    assert_eq!(h.0[&1], Value::Num(941.0));
+    assert_eq!(h.0[&1], Value::Num(945.0));
     assert_eq!(h.0[&2], Value::Num(1.0));
     assert_eq!(h.0[&3], Value::Num(0.0));
 }
@@ -1978,4 +1980,367 @@ fn a_declarations_value_declares_inline_in_a_lambda() {
         let c = fnv_script::compile::compile_mod_runtime(&src, &table(), &World);
         assert_eq!(c.errors().count(), 0, "{body}: {:?}", c.errors().collect::<Vec<_>>());
     }
+}
+
+/// `SetOnPlayGroupEventHandler` parameter index 3 resolves bare known `anim_group` keywords
+/// to `XExpr::Enum`, while leaving quoted strings (including names outside `encodings.json`),
+/// runtime `string_var`s, numeric codes, globals, dotted quest variables, and function calls
+/// as ordinary `ParamEnc::Value` expressions.
+#[test]
+fn set_on_play_group_event_handler_anim_group_arg_forms() {
+    let (_, p) = build(
+        "ref fnH\nstring_var sGrp\nbegin GameMode\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF Idle\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF Equip\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF \"Equip\"\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF \"TurnRight\"\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF sGrp\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF 0\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF 24\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF TestGlobal\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF TestQuest.bDone\n\
+         SetOnPlayGroupEventHandler fnH 1 PlayerREF GetAnimAction\n\
+         end\n",
+    );
+    let fourth_args: Vec<String> = body(&p)
+        .iter()
+        .map(|s| match s {
+            Stmt::Eval { expr } => match expr {
+                XExpr::Call { call } => x(&call.args[3]),
+                other => panic!("expected call, got {other:?}"),
+            },
+            other => panic!("expected eval stmt, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(fourth_args[0], "#0", "bare keyword Idle");
+    assert_eq!(fourth_args[1], "#24", "bare keyword Equip");
+    assert_eq!(fourth_args[2], "\"Equip\"", "quoted string must stay XExpr::Str for runtime normalization");
+    assert_eq!(fourth_args[3], "\"TurnRight\"", "unknown quoted string must compile as XExpr::Str");
+    assert_eq!(fourth_args[4], "v2", "string_var stays a variable reference");
+    assert_eq!(fourth_args[5], "0", "numeric 0");
+    assert_eq!(fourth_args[6], "24", "numeric 24");
+    assert!(fourth_args[7].starts_with('g'), "global variable must stay global var, got {}", fourth_args[7]);
+    assert_eq!(fourth_args[8], "v1", "dotted quest variable must compile as variable, not unknown enum");
+    assert!(fourth_args[9].contains('('), "zero-arg function call must compile as call, got {}", fourth_args[9]);
+}
+
+/// Interactive console sessions compile lines against persistent local variables:
+/// 1-based indices and `ref`-ness carry across lines, no spurious `variable_added`
+/// warning is emitted, and re-declaring a `ref` as another type clears its `ref`-ness.
+#[test]
+fn compile_runtime_with_locals_preserves_slots_and_ref_vars() {
+    use std::collections::HashSet;
+    let t = table();
+    let (c1, refs1) = fnv_script::compile::compile_runtime_with_locals("ref r = player\nint n = 5", &t, &World, &[], &HashSet::new());
+    assert_eq!(c1.errors().count(), 0, "{:?}", c1.diags);
+    assert!(c1.diags.iter().all(|d| d.kind != "variable_added"), "{:?}", c1.diags);
+    assert!(refs1.contains("r"));
+    let r_idx = c1.variables.iter().find(|v| v.name == "r").unwrap().index;
+    let n_idx = c1.variables.iter().find(|v| v.name == "n").unwrap().index;
+
+    let (c2, refs2) = fnv_script::compile::compile_runtime_with_locals("eval (r.GetActorValue Health + n)", &t, &World, &c1.variables, &refs1);
+    assert_eq!(c2.errors().count(), 0, "{:?}", c2.diags);
+    assert_eq!(c2.variables.iter().find(|v| v.name == "r").unwrap().index, r_idx);
+    assert_eq!(c2.variables.iter().find(|v| v.name == "n").unwrap().index, n_idx);
+    assert!(refs2.contains("r"));
+
+    let (c3, refs3) = fnv_script::compile::compile_runtime_with_locals("float r = 1.5", &t, &World, &c2.variables, &refs2);
+    assert_eq!(c3.errors().count(), 0, "{:?}", c3.diags);
+    assert_eq!(c3.variables.iter().find(|v| v.name == "r").unwrap().index, r_idx);
+    assert!(!refs3.contains("r"), "re-declaring ref as float clears ref-ness");
+}
+
+/// Compound bitwise and modulo assignments work in `let`, bare Let-macro, inline
+/// declaration, quest-variable, array-element, and NVSEScript forms (including float
+/// truncation and nested calls shifted before bitwise-OR: `iINITemp |= (Floor (Clamp ...)) << 1`),
+/// while `^=` works in `let` only and `<<=`/`>>=` do not exist in xNVSE 6.4.9.
+#[test]
+fn compound_bitwise_assignments_let_and_macro_match_xnvse() {
+    let h = run(
+        "int a
+int b
+int c
+int d
+int e
+int f
+int g
+int iINITemp
+float fIn
+float fTrunc
+array_var ar
+begin GameMode
+a = 1
+a |= 4
+let a |= 8
+b = 15
+b &= 6
+let b &= 7
+c = 3
+let c ^= 4
+d = 3 << 2
+e = 20 >> 2
+f = 13
+f %= 5
+let f %= 2
+int h |= 5
+ar = ar_List 1, 2
+ar[0] |= 4
+ar[1] &= 3
+g = ar[0] + ar[1]
+fIn = 1.7
+iINITemp = 1
+iINITemp |= (Floor (GetMinOf (GetMaxOf fIn 0) 1)) << 1
+fTrunc = 5.9
+let fTrunc |= 2.8
+end",
+    );
+    assert_eq!(h.0[&1], Value::Num(13.0), "a: 1 | 4 | 8 = 13");
+    assert_eq!(h.0[&2], Value::Num(6.0), "b: 15 & 6 & 7 = 6");
+    assert_eq!(h.0[&3], Value::Num(81.0), "c: 3 ^ 4 = 81 [documented: NVSE ^ is power; observed]");
+    assert_eq!(h.0[&4], Value::Num(12.0), "d: binary 3 << 2 = 12 [observed]");
+    assert_eq!(h.0[&5], Value::Num(5.0), "e: binary 20 >> 2 = 5 [observed]");
+    assert_eq!(h.0[&6], Value::Num(1.0), "f: (13 % 5) % 2 = 1 [observed]");
+    assert_eq!(h.0[&7], Value::Num(7.0), "g: (1 | 4) + (2 & 3) = 7");
+    assert_eq!(h.0[&8], Value::Num(3.0), "iINITemp: 1 | (Floor (GetMinOf (GetMaxOf 1.7 0) 1) << 1) = 3");
+    assert_eq!(h.0[&10], Value::Num(7.0), "fTrunc: 5.9 |= 2.8 -> trunc(5.9) | trunc(2.8) = 7 [observed]");
+    assert_eq!(h.0[&12], Value::Num(5.0), "inline decl int h |= 5");
+
+    // Dotted quest variable and mod-runtime nested Clamp/Floor/GetINIFloat_Cached pattern.
+    let src = "int iINITemp\nbegin GameMode\n\
+        TestQuest.bDone |= 2\n\
+        TestQuest.bDone &= 3\n\
+        TestQuest.bDone %= 5\n\
+        let TestQuest.bDone ^= 2\n\
+        iINITemp |= (Floor (Clamp (GetINIFloat_Cached \"Main:bVisible\" \"Widget.ini\" 1) 0 1)) << 1\n\
+        end\n";
+    let c = fnv_script::compile::compile_mod_runtime(src, &table(), &World);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    let (_, p) = build(src);
+    let b = body(&p);
+    assert!(matches!(&b[0], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitOr, .. } }));
+    assert!(matches!(&b[1], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitAnd, .. } }));
+    assert!(matches!(&b[2], Stmt::Let { expr: XExpr::Assign { op: XAssign::Mod, .. } }));
+    assert!(matches!(&b[3], Stmt::Let { expr: XExpr::Assign { op: XAssign::Pow, .. } }));
+    assert!(matches!(&b[4], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitOr, .. } }));
+
+    // NVSEScript compound bitwise/modulo assignments translate and execute cleanly.
+    let nvse_src = "name BitwiseAssign;\nint a;\nint b;\nGameMode {\n  a = 1;\n  a |= 4;\n  b = 15;\n  b &= 6;\n  b %= 4;\n}\n";
+    let h2 = run(nvse_src);
+    assert_eq!(h2.0[&1], Value::Num(5.0), "NVSEScript: 1 | 4 = 5");
+    assert_eq!(h2.0[&2], Value::Num(2.0), "NVSEScript: (15 & 6) % 4 = 2");
+}
+
+/// Negative compiler checks matching xNVSE 6.4.9: `<<=` and `>>=` do not exist even under
+/// `let` (`Too many operators`, rejected at compile time here [design]), and bare
+/// Let-macro / bare inline typed declarations reject `^=` (requires `let`).
+#[test]
+fn unsupported_shift_assign_and_bare_pow_macro_are_rejected() {
+    for (label, src) in [
+        ("let <<=", "int x\nbegin GameMode\nlet x <<= 2\nend\n"),
+        ("let >>=", "int x\nbegin GameMode\nlet x >>= 2\nend\n"),
+        ("bare <<=", "int x\nbegin GameMode\nx <<= 2\nend\n"),
+        ("bare >>=", "int x\nbegin GameMode\nx >>= 2\nend\n"),
+        ("bare ^=", "int x\nbegin GameMode\nx ^= 4\nend\n"),
+        ("nvsescript <<=", "name BadShl;\nint x;\nGameMode {\n  x <<= 2;\n}\n"),
+        ("nvsescript >>=", "name BadShr;\nint x;\nGameMode {\n  x >>= 2;\n}\n"),
+    ] {
+        let c = fnv_script::compile::compile_mod_runtime(src, &table(), &World);
+        assert!(
+            c.errors().count() > 0,
+            "{label} must fail to compile (matching xNVSE 6.4.9), but compiled with no errors"
+        );
+    }
+    // Bare inline typed declaration (`int x ^= 4`) follows `MACRO_OPS` strictly: no
+    // initialized `XAssign::Pow` statement is emitted without `let`.
+    let lines = fnv_script::compile::lex::lines("int x ^= 4\n", &mut Vec::new());
+    let stmt = fnv_script::compile::parse::statement(&lines[0]).expect("parses as plain decl");
+    assert!(
+        matches!(stmt.kw, fnv_script::compile::parse::Kw::Decl { init: None, .. }),
+        "bare inline `int x ^= 4` must not parse with an initializer, got {:?}",
+        stmt.kw
+    );
+}
+
+/// `dATan2(y, x)` returns exact degrees in [-180, 180] across all four quadrants and axis
+/// edges, with `(0, 0) -> 0.0` [observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9),
+/// Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 (10 official base masters), #3678 / PR #3679
+/// probe `w1_3495_compound_assign_and_datan2`].
+#[test]
+fn datan2_covers_quadrants_and_axes() {
+    let h = run(
+        "float a0
+float a1
+float a2
+float a3
+float q1
+float q2
+float q3
+float q4
+float z
+float d30
+begin GameMode
+let a0 := dATan2 0, 1
+let a1 := dATan2 1, 0
+let a2 := dATan2 0, -1
+let a3 := dATan2 -1, 0
+let q1 := dATan2 1, 1
+let q2 := dATan2 1, -1
+let q3 := dATan2 -1, -1
+let q4 := dATan2 -1, 1
+let z := dATan2 0, 0
+let d30 := dATan2 1, 1.7320508
+end",
+    );
+    for (k, want, tol) in [
+        (1, 0.0, 1e-9),
+        (2, 90.0, 1e-9),
+        (3, 180.0, 1e-9),
+        (4, -90.0, 1e-9),
+        (5, 45.0, 1e-9),
+        (6, 135.0, 1e-9),
+        (7, -135.0, 1e-9),
+        (8, -45.0, 1e-9),
+        (9, 0.0, 1e-9),
+        (10, 30.0, 1e-5),
+    ] {
+        assert!(matches!(h.0[&k], Value::Num(v) if (v - want).abs() < tol), "var {k}: {:?} vs {want}", h.0[&k]);
+    }
+}
+
+#[test]
+fn aim_anim_group_names_have_documented_codes() {
+    // [documented: https://geckwiki.com/index.php?title=AnimGroups]: AimUp (18),
+    // AimDown (19), AimIS (20), AimISUp (21), AimISDown (22).
+    let t = table();
+    for (group, code) in [("AimUp", 18u16), ("AimDown", 19), ("AimIS", 20), ("AimISUp", 21), ("AimISDown", 22)] {
+        let play = compile(&format!("begin GameMode\nPlayGroup {group} 1\nend"), &t, &World, None);
+        assert_eq!(play.errors().count(), 0, "{group}: {:?}", play.diags);
+        assert!(play.bytes.windows(8).any(|w| w[..2] == 0x1013u16.to_le_bytes() && w[6..8] == code.to_le_bytes()), "{group}: {:02X?}", play.bytes);
+        let check = compile(&format!("begin GameMode\nif IsAnimPlaying {group}\nendif\nend"), &t, &World, None);
+        assert_eq!(check.errors().count(), 0, "{group}: {:?}", check.diags);
+        assert!(check.bytes.windows(8).any(|w| w[..2] == 0x1128u16.to_le_bytes() && w[6..8] == code.to_le_bytes()), "{group}: {:02X?}", check.bytes);
+        let (_, p) = build(&format!("ref fnH\nbegin GameMode\nSetOnPlayGroupEventHandler fnH 1 PlayerREF {group}\nend"));
+        let Stmt::Eval { expr: XExpr::Call { call } } = &body(&p)[0] else { panic!("{:?}", body(&p)[0]) };
+        assert_eq!(x(&call.args[3]), format!("#{code}"), "{group}");
+    }
+}
+
+#[test]
+fn plain_declaration_ignores_unseparated_trailing_words() {
+    // A plain declaration without `=` declares only its variable (and any comma-separated
+    // names); unseparated trailing words do not declare a function name as a local that
+    // shadows later calls.
+    let src = "SetEventHandlerAlt \"OwnedA\" (begin Function {}\n\
+               array_var aFirst ar_Construct \"array\"\n\
+               end)\n\
+               SetEventHandlerAlt \"OwnedB\" (begin Function {}\n\
+               array_var aSecond = ar_Construct array\n\
+               end)\n";
+    let c = fnv_script::compile::compile_mod_runtime(src, &table(), &World);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert!(c.variables.iter().any(|v| v.name == "aFirst"), "{:?}", c.variables);
+    assert!(c.variables.iter().any(|v| v.name == "aSecond"), "{:?}", c.variables);
+    assert!(!c.variables.iter().any(|v| v.name.eq_ignore_ascii_case("ar_construct")), "{:?}", c.variables);
+    assert!(warnings(&c, "variable_named_like_a_function").is_empty(), "{:?}", c.diags);
+    // Comma-separated plain declarations still declare every named variable.
+    let (c, _) = build("short iA, iB, iC\nbegin GameMode\nset iA to 1\nset iB to 2\nset iC to 3\nend");
+    assert_eq!(c.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["iA", "iB", "iC"]);
+}
+
+#[test]
+fn braced_argument_lists_pass_multiple_arguments() {
+    // Multiple space- or comma-separated arguments inside `{ ... }` (not followed by `=>`).
+    let (_, p) = mod_ok(
+        "ref fnH\nshort a\nshort b\nbegin Function {}\n\
+         SetFunctionValue (call fnH {a b})\n\
+         call fnH {a, b}\n\
+         call fnH {a + 1, b - 1}\n\
+         call fnH {a -1}\n\
+         call fnH {}\n\
+         end",
+    );
+    let b = body(&p);
+    assert_eq!(b.len(), 5, "{b:?}");
+    let Stmt::Eval { expr: XExpr::Call { call: sfv } } = &b[0] else { panic!("{:?}", b[0]) };
+    let XExpr::Call { call: nested } = &sfv.args[0] else { panic!("{:?}", sfv.args[0]) };
+    assert_eq!(nested.args.len(), 3, "fnH + 2 braced args: {:?}", nested.args);
+    let counts: Vec<usize> = b[1..].iter().map(|s| match s {
+        Stmt::Eval { expr: XExpr::Call { call } } => call.args.len(),
+        other => panic!("{other:?}"),
+    }).collect();
+    assert_eq!(counts, [3, 3, 3, 1]);
+    // Unclosed braced argument list still reports missing `}`.
+    let bad = compile("ref fnH\nshort a\nshort b\nbegin GameMode\ncall fnH {a b\nend", &table(), &World, None);
+    assert!(bad.errors().any(|d| d.kind == "syntax" && d.detail == "missing }"), "{:?}", bad.diags);
+    // Arrow lambda `{params} => expr` stays a lambda.
+    let (_, p) = build("short a\nshort b\nbegin GameMode\nCallWhen ({a, b} => a + b) ({} => 1)\nend");
+    let Stmt::Eval { expr: XExpr::Call { call } } = &body(&p)[0] else { panic!("{:?}", body(&p)[0]) };
+    assert!(matches!(call.args[0], XExpr::Lambda { .. }), "{:?}", call.args[0]);
+    // Unary `&` / `*` (leading, after comma without space, and space-separated) and nested
+    // arrow lambdas inside `{ ... }` keep compiling cleanly.
+    let (_, p) = mod_ok(
+        "ref fnH\nshort a\nshort x\narray_var b\nbegin GameMode\n\
+         call fnH {&a}\n\
+         call fnH {*b}\n\
+         call fnH {a,*b}\n\
+         call fnH {a *b}\n\
+         call fnH {a &b}\n\
+         call fnH {{x} => x + 1}\n\
+         call fnH {a, {x} => x + 1}\n\
+         end",
+    );
+    let b = body(&p);
+    assert_eq!(b.len(), 7, "{b:?}");
+    let arg_counts: Vec<usize> = b.iter().map(|s| match s {
+        Stmt::Eval { expr: XExpr::Call { call } } => call.args.len(),
+        other => panic!("{other:?}"),
+    }).collect();
+    assert_eq!(arg_counts, [2, 2, 3, 3, 3, 2, 3]);
+    let Stmt::Eval { expr: XExpr::Call { call: box_call } } = &b[0] else { panic!() };
+    assert!(matches!(box_call.args[1], XExpr::Unary { op: fnv_script::ir::XUnary::Box, .. }), "{:?}", box_call.args[1]);
+    let Stmt::Eval { expr: XExpr::Call { call: unbox_call } } = &b[1] else { panic!() };
+    assert!(matches!(unbox_call.args[1], XExpr::Unary { op: fnv_script::ir::XUnary::Unbox, .. }), "{:?}", unbox_call.args[1]);
+    let Stmt::Eval { expr: XExpr::Call { call: lam1 } } = &b[5] else { panic!() };
+    assert!(matches!(lam1.args[1], XExpr::Lambda { .. }), "{:?}", lam1.args[1]);
+    let Stmt::Eval { expr: XExpr::Call { call: lam2 } } = &b[6] else { panic!() };
+    assert!(matches!(lam2.args[2], XExpr::Lambda { .. }), "{:?}", lam2.args[2]);
+}
+
+#[test]
+fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
+    // `if TestExpr <type> <var> = <expr>` declares the local, strips its type word, and
+    // keeps the assignment inside `TestExpr` (no `assignment_to_a_value` warning).
+    let h = run(
+        "array_var aSrc\nint hit\nint miss\nint sized\nstring_var sOut\nfloat fInit\n\
+         begin GameMode\n\
+         let aSrc := ar_List 42, 99\n\
+         if TestExpr int iFirst = aSrc[0]\n\
+           let hit := iFirst\n\
+         endif\n\
+         if TestExpr int iMissing = aSrc[9]\n\
+           let miss := 1\n\
+         endif\n\
+         if (int iLen = ar_Size aSrc) == 2\n\
+           let sized := iLen\n\
+         endif\n\
+         eval 1 && let sOut := \"ok\"\n\
+         float fLocal := 3.5\n\
+         let fInit := fLocal\n\
+         end",
+    );
+    assert_eq!(h.0[&2], Value::Num(42.0), "hit");
+    assert_eq!(h.0.get(&3).copied().unwrap_or(Value::Num(0.0)), Value::Num(0.0), "miss");
+    assert_eq!(h.0[&4], Value::Num(2.0), "sized");
+    assert_eq!(h.text(5), "ok");
+    assert_eq!(h.0[&6], Value::Num(3.5), "fInit");
+    // Unparenthesized inline declaration inside a declaration initializer and known remote quest var.
+    let (c, _) = build(
+        "array_var aSrc\nbegin GameMode\n\
+         int ok = TestExpr int iElem = aSrc[0]\n\
+         Let TestQuest.bDone := ok\n\
+         end",
+    );
+    assert!(warnings(&c, "assignment_to_a_value").is_empty(), "{:?}", c.diags);
+    assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
+    assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }

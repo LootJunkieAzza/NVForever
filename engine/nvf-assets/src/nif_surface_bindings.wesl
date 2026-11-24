@@ -54,12 +54,20 @@ struct NifSurface {
     // noise's reach (display values), z the canvas's share of the texture's width; w unused.
     pipboy_b: vec4<f32>,
     // Landscape anti-tiling (nif_material.rs NifSurface::terrain_repeat): x world units per
-    // texture repeat of a landscape material, 0 on every other shape; y, z, w unused.
+    // texture repeat of a landscape material, 0 on every other shape; y an authored set's
+    // metal gain (NifSurface::metal_gain, #2981; 0 on every other material), read by
+    // nif_material.wesl's lift only; z, w unused.
     terrain: vec4<f32>,
-    // Window environment map (nif_material.rs NifSurface::env): x the scale (0: none), y 1
-    // with a mask; z, w unused. After `terrain`, as in NifSurfaceUniform; the blend type
-    // has none (nif_surface_blend.rs: its uniform goes on with its own rows here).
+    // Environment map (nif_material.rs NifSurface::env): x the scale (0: none), y the mask
+    // (0 none, 1 the mask's red, 2 the mask's alpha: the game's normal map bound as the
+    // mask, a debug switch's variant), z and w the fade distances
+    // (both 0: no fade). After `terrain`, as in NifSurfaceUniform; the blend type has none
+    // (nif_surface_blend.rs: its uniform goes on with its own rows here).
     @if(!NIF_SURFACE_BLEND) env: vec4<f32>,
+    // Environment map (NifSurface::env_how): x the cube orientation (0 #2669's lookup),
+    // y 1 scales by received light, 2 by the scene light, z 1 for a window shape, w 1 on
+    // every shape with an environment map. The blend type has none either.
+    @if(!NIF_SURFACE_BLEND) env_how: vec4<f32>,
     // [design] The enabled blend type (nif_surface_blend.rs): band, view, contact shape,
     // shading; the cache's southwest cell in origin.xy; hybrid v2's flat and steep band
     // widths in widths.xy (z, w unused).
@@ -1019,6 +1027,16 @@ fn holes_alpha(instance_index: u32, uv: vec2<f32>) -> f32 {
     @if(BINDLESS) let i = nif_indices[material_slot(instance_index)];
     @if(BINDLESS) return textureSampleLevel(bindless_textures_2d[i.env_mask], bindless_samplers_filtering[i.env_sampler], uv, 0.0).r;
     @if(!BINDLESS) return textureSampleLevel(env_mask, env_sampler, uv, 0.0).r;
+}
+
+// The environment mask's alpha at `uv`, at its top level: in a debug switch's variant
+// (env_map.rs NVF_PLAY_DEBUG_ENV_NO_MASK=normal-alpha) the mask slot holds the game's own
+// normal map (nif_spawn.rs `shape_material_inner`), so an authored set that replaces the
+// drawn normal map does not change what is read here.
+@if(!NIF_SURFACE_BLEND) fn env_mask_alpha(instance_index: u32, uv: vec2<f32>) -> f32 {
+    @if(BINDLESS) let i = nif_indices[material_slot(instance_index)];
+    @if(BINDLESS) return textureSampleLevel(bindless_textures_2d[i.env_mask], bindless_samplers_filtering[i.env_sampler], uv, 0.0).a;
+    @if(!BINDLESS) return textureSampleLevel(env_mask, env_sampler, uv, 0.0).a;
 }
 
 // The size of the FaceGen offset image.

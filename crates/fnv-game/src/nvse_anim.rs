@@ -172,7 +172,7 @@ impl Game<'_> {
         self.playing_sequences_for(a, a == FormId::PLAYER_REF && self.senses.first_person)
     }
 
-    fn playing_sequences_for(&self, a: FormId, first: bool) -> Vec<String> {
+    pub(crate) fn playing_sequences_for(&self, a: FormId, first: bool) -> Vec<String> {
         let current = a != FormId::PLAYER_REF || first == self.senses.first_person;
         let mut v: Vec<String> = self.senses.anim.get(&a).filter(|_|current).and_then(|s| s.clip.clone()).into_iter().collect();
         let mut active:Vec<_> = self.anim_paths.sequences.iter().filter(|((actor,view,_),s)|*actor==a && *view==first && s.stopped.is_none()).map(|(_,s)|s).collect();
@@ -180,6 +180,36 @@ impl Game<'_> {
         v.extend(active.into_iter().map(|s|s.path.clone()));
         v
     }
+}
+
+/// Deactivate `path` on `(a, first)` with explicit ease-out duration `ease`.
+pub(crate) fn deactivate_anim_for(g: &mut Game, a: FormId, first: bool, path: &str, ease: f64) -> bool {
+    if !ease.is_finite() || ease < 0.0 || ease > f64::from(f32::MAX) {
+        return false;
+    }
+    let norm = path.replace('/', "\\").to_ascii_lowercase();
+    let key = (a, first, norm.clone());
+    let resume = g.script_sequence_time_for(a, path, first);
+    let stopped = g.script_sequence_now(a, first);
+    let weight = g.anim_paths.sequences.get(&key).map_or(1.0, |s| s.weight);
+    g.anim_paths.sequence_resume.insert(key.clone(), (resume, weight));
+    let mut changed = false;
+    if let Some(sequence) = g.anim_paths.sequences.get_mut(&key).filter(|s| s.stopped.is_none()) {
+        sequence.ease_out = ease as f32;
+        sequence.stopped = Some(stopped);
+        changed = true;
+    }
+    let other_active = a == FormId::PLAYER_REF
+        && g.anim_paths
+            .sequences
+            .get(&(a, !first, norm))
+            .is_some_and(|s| s.stopped.is_none());
+    if !other_active {
+        if let Some(p) = g.anim_paths.played.get_mut(&a) {
+            p.retain(|x| !same(x, path));
+        }
+    }
+    changed
 }
 
 /// The functions of this file; `None` for any other name.
@@ -263,23 +293,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         "deactivateanim" => {
             let path = text(args, 0);
-            let first = a == FormId::PLAYER_REF && g.senses.first_person;
-            let key = (a, first, path.replace('/', "\\").to_ascii_lowercase());
+            let current_first = a == FormId::PLAYER_REF && g.senses.first_person;
+            let norm = path.replace('/', "\\").to_ascii_lowercase();
+            let first = if g.anim_paths.sequences.get(&(a, current_first, norm.clone())).is_some_and(|s| s.stopped.is_none()) {
+                current_first
+            } else if a == FormId::PLAYER_REF && g.anim_paths.sequences.get(&(a, !current_first, norm)).is_some_and(|s| s.stopped.is_none()) {
+                !current_first
+            } else {
+                current_first
+            };
             let ease = num(args, 1, 0.2);
-            if !ease.is_finite() || ease < 0.0 || ease > f64::from(f32::MAX) { return Some(Ok(zero)); }
-            let resume = g.script_sequence_time(a, &path);
-            let stopped = g.script_sequence_now(a, first);
-            let weight = g.anim_paths.sequences.get(&key).map_or(1.0, |s|s.weight);
-            g.anim_paths.sequence_resume.insert(key.clone(), (resume,weight));
-            let mut changed = false;
-            if let Some(sequence) = g.anim_paths.sequences.get_mut(&key).filter(|s| s.stopped.is_none()) {
-                sequence.ease_out = ease as f32;
-                sequence.stopped = Some(stopped);
-                changed = true;
-            }
-            if let Some(p) = g.anim_paths.played.get_mut(&a) {
-                p.retain(|x| !same(x, &path));
-            }
+            let changed = deactivate_anim_for(g, a, first, &path, ease);
             XVal::Num(f64::from(u8::from(changed)))
         }
         "isanimsequenceplaying" => {

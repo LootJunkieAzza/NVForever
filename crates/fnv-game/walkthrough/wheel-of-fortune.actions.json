@@ -12,6 +12,15 @@
    "text": "Stand-in for the travel between Camp Searchlight and Nipton."
   },
   {
+   "op": "note",
+   "text": "The NCR storage terminal (0x00141392, CampSearchlightNCRStorage) is locked: the game refused the pilot with Science 30, 'You need a Science skill of 50 to hack this terminal.' [observed: pilot rerun log]; its item 2 sets VMS44 HasRadSuitLocation 1, which starts the quest. Stand-in for a player who has the skill: Science 50."
+  },
+  {
+   "op": "set_av",
+   "name": "Science",
+   "value": 50
+  },
+  {
    "op": "move_player",
    "to": "0x00141392"
   },

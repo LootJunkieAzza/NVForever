@@ -3,6 +3,7 @@ use super::*;
 use crate::authored_test_records::{record, sub, tes4, top, z};
 use crate::fly::FlyCam;
 use crate::world::{game_to_bevy, ReadAhead, StreamStats};
+use bevy::ecs::system::RunSystemOnce;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::pbr::DistanceFog;
 use fnv_esm::{LoadOrder, Plugin as EsmPlugin, Schema};
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const WATER: u32 = 0x800;
+const WATER_REMAPPED: u32 = 0x801;
 
 struct EmptyData(PathBuf);
 impl Drop for EmptyData {
@@ -27,19 +29,36 @@ fn setup() -> (App, Entity, EmptyData) {
     visual[44..48].copy_from_slice(&[20, 170, 210, 0]);
     visual[144..148].copy_from_slice(&7_f32.to_le_bytes());
     visual[148..152].copy_from_slice(&321_f32.to_le_bytes());
+    let mut remapped_visual = vec![0; 196];
+    remapped_visual[40..44].copy_from_slice(&[210, 40, 20, 0]);
+    remapped_visual[44..48].copy_from_slice(&[190, 30, 15, 0]);
+    remapped_visual[144..148].copy_from_slice(&11_f32.to_le_bytes());
+    remapped_visual[148..152].copy_from_slice(&444_f32.to_le_bytes());
     let bytes = [
         tes4(),
         top(
             b"WATR",
-            &record(
-                b"WATR",
-                0,
-                WATER,
-                &[
-                    sub(b"EDID", z("AuthoredLifecycleWater")),
-                    sub(b"DNAM", visual),
-                ],
-            ),
+            &[
+                record(
+                    b"WATR",
+                    0,
+                    WATER,
+                    &[
+                        sub(b"EDID", z("AuthoredLifecycleWater")),
+                        sub(b"DNAM", visual),
+                    ],
+                ),
+                record(
+                    b"WATR",
+                    0,
+                    WATER_REMAPPED,
+                    &[
+                        sub(b"EDID", z("AuthoredRemappedWater")),
+                        sub(b"DNAM", remapped_visual),
+                    ],
+                ),
+            ]
+            .concat(),
         ),
     ]
     .concat();
@@ -137,7 +156,9 @@ fn setup() -> (App, Entity, EmptyData) {
         .init_resource::<Assets<ShaderBuffer>>()
         .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
         .init_resource::<ModelCache>()
-        .init_resource::<TextureCache>();
+        .init_resource::<TextureCache>()
+        // Whole budgets, as main's: `distant_water`'s surface reads follow the pace.
+        .insert_resource(crate::stream_pace::StreamPace::new(crate::stream_pace::Mode::Off));
     a.world_mut().spawn((WorldRoot, game_to_bevy()));
     let camera = a
         .world_mut()
@@ -426,4 +447,134 @@ fn leaving_water_into_an_interior_restores_current_lighting_and_preference() {
                 .to_linear()
                 .blue
     );
+}
+
+#[test]
+fn worldspace_clear_resets_loaded_seen_and_rebuilds_planes() {
+    let (mut a, _, _dir) = setup();
+    a.add_systems(Update, distant_water);
+    settle_distant_water(&mut a);
+    let local0 = local_plane(&mut a, (0, 0));
+    a.update();
+    assert!(!a.world().resource::<DistantWater>().planes.contains_key(&(0, 0)));
+    assert_eq!(a.world().resource::<DistantWater>().loaded_seen, vec![(0, 0)]);
+
+    let old_planes: Vec<_> = a.world().resource::<DistantWater>().planes.values().copied().collect();
+    a.world_mut().resource_mut::<Streamer>().loaded.remove(&(0, 0));
+    a.world_mut().despawn(local0);
+    a.world_mut().run_system_once(|mut commands: Commands, mut dw: ResMut<DistantWater>| {
+        dw.clear(&mut commands);
+    }).unwrap();
+    let dw = a.world().resource::<DistantWater>();
+    assert!(dw.planes.is_empty());
+    assert!(dw.loaded_seen.is_empty());
+    assert!(old_planes.iter().all(|e| a.world().get_entity(*e).is_err()));
+
+    settle_distant_water(&mut a);
+    let dw = a.world().resource::<DistantWater>();
+    assert!(dw.planes.contains_key(&(0, 0)));
+    assert_eq!(dw.planes.len(), 3);
+}
+
+#[test]
+fn newly_spawned_water_material_gets_current_sky_in_same_frame() {
+    let (mut a, _, _dir) = setup();
+    let sky = crate::sky::authored_session_sky();
+    let upper = Vec3::from_array(sky.color(ColorType::SkyUpper)).extend(1.0);
+    let horizon = Vec3::from_array(sky.color(ColorType::Horizon)).extend(1.0);
+    assert_ne!(upper, Vec4::ONE, "authored sky must differ from WaterParams placeholder Vec4::ONE");
+    a.insert_resource(sky)
+        .add_systems(Update, (distant_water, update_water_sky.after(distant_water)));
+    settle_distant_water(&mut a);
+    let cache = a.world().resource::<WaterCache>();
+    let mats = a.world().resource::<Assets<WaterMaterial>>();
+    assert_eq!(cache.materials.len(), 1);
+    let mat = mats.get(cache.materials.values().next().unwrap()).unwrap();
+    assert_eq!(mat.params.sky_upper, upper);
+    assert_eq!(mat.params.sky_horizon, horizon);
+}
+
+#[test]
+fn lens_camera_and_hdr_emissive_restore_sync_with_underwater_fog_in_same_frame() {
+    let (mut a, camera, _dir) = fog_setup();
+    let mut screen = crate::imagespace::ScreenModifiers::default();
+    let mut graded_hdr = fnv_world::imagespace::Hdr::default();
+    graded_hdr.v[fnv_world::imagespace::HDR_EMISSIVE_MULT] = 2.0;
+    screen.set_hdr_for_test(fnv_world::imagespace::Hdr::default(), graded_hdr);
+    a.insert_resource(screen)
+        .add_systems(
+            PostUpdate,
+            crate::scope_view::sync_lens_fog.after(crate::underwater::underwater_fog),
+        );
+    let lens = a
+        .world_mut()
+        .spawn((crate::scope_view::LensCamera, DistanceFog::default()))
+        .id();
+
+    a.world_mut().get_mut::<Transform>(camera).unwrap().translation.y = 50.0;
+    a.update();
+    let main_under = a.world().get::<DistanceFog>(camera).unwrap().clone();
+    let lens_under = a.world().get::<DistanceFog>(lens).unwrap().clone();
+    assert!(matches!(
+        main_under.falloff,
+        bevy::pbr::FogFalloff::Linear { start: 7.0, end: 321.0 }
+    ));
+    assert_falloff(&lens_under, &main_under);
+
+    a.world_mut().get_mut::<Transform>(camera).unwrap().translation.y = 200.0;
+    a.update();
+    let sky = a.world().resource::<SkyState>();
+    let rgb = sky.color(fnv_world::sky::ColorType::Fog);
+    let expected = DistanceFog {
+        color: Color::linear_rgba(rgb[0], rgb[1], rgb[2], 1.0),
+        falloff: crate::fog::falloff(17.0, 4500.0, sky.fog_power(), true, sky.emissive_scale() * 2.0),
+        ..Default::default()
+    };
+    assert_falloff(a.world().get::<DistanceFog>(camera).unwrap(), &expected);
+    assert_falloff(a.world().get::<DistanceFog>(lens).unwrap(), &expected);
+}
+
+#[test]
+fn classic_mode_underwater_fog_honors_water_remaps() {
+    let (mut a, camera, _dir) = fog_setup();
+    a.insert_resource(WaterRemaps([(WATER, WATER_REMAPPED)].into_iter().collect()));
+    a.world_mut().get_mut::<Transform>(camera).unwrap().translation.y = 50.0;
+    a.update();
+    let fog = a.world().get::<DistanceFog>(camera).unwrap();
+    assert!(matches!(
+        fog.falloff,
+        bevy::pbr::FogFalloff::Linear { start: 11.0, end: 444.0 }
+    ));
+    assert!(fog.color.to_linear().red > fog.color.to_linear().blue);
+}
+
+#[test]
+fn plugin_schedules_order_water_materials_and_auxiliary_camera_fog_handoffs() {
+    use bevy::ecs::schedule::Schedules;
+    let mut app = App::new();
+    // Register consumers BEFORE producers so order comes strictly from schedule constraints.
+    app.add_plugins((
+        crate::scope_view::ScopeViewPlugin,
+        crate::extra_camera::ExtraCameraPlugin,
+        crate::reflection::ReflectionPlugin,
+        crate::ripples::RipplesPlugin,
+        crate::underwater::UnderwaterFogPlugin,
+    ));
+    add_update_systems(&mut app);
+
+    let mut update = app.world_mut().resource_mut::<Schedules>().remove(Update).unwrap();
+    update.initialize(app.world_mut()).expect("Update schedule builds");
+    let u_names: Vec<String> = update.systems().expect("initialized").map(|(_, s)| s.name().to_string()).collect();
+    let u_at = |n: &str| u_names.iter().position(|s| s.ends_with(n)).unwrap_or_else(|| panic!("{n} not in {u_names:?}"));
+    assert!(u_at("water::distant_water") < u_at("water::update_water_sky"), "{u_names:?}");
+    assert!(u_at("water::distant_water") < u_at("ripples::update_ripples"), "{u_names:?}");
+
+    let mut post = app.world_mut().resource_mut::<Schedules>().remove(PostUpdate).unwrap();
+    post.initialize(app.world_mut()).expect("PostUpdate schedule builds");
+    let p_names: Vec<String> = post.systems().expect("initialized").map(|(_, s)| s.name().to_string()).collect();
+    let p_at = |n: &str| p_names.iter().position(|s| s.ends_with(n)).unwrap_or_else(|| panic!("{n} not in {p_names:?}"));
+    let fog = p_at("underwater::underwater_fog");
+    assert!(fog < p_at("reflection::update_reflection"), "{p_names:?}");
+    assert!(fog < p_at("scope_view::sync_lens_fog"), "{p_names:?}");
+    assert!(fog < p_at("extra_camera::sync"), "{p_names:?}");
 }

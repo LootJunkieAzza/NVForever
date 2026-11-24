@@ -21,6 +21,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use fnv_font::{Font, Line, Placed};
 use fnv_sim::FormId;
+use fnv_util::words::{tr, trf};
 use nvf_assets::GameData;
 use std::collections::{HashMap, VecDeque};
 
@@ -75,17 +76,51 @@ const MAX_WAITING: usize = 32;
 /// is NVForever's by analogy].
 pub(crate) fn label(n: &QuestNotice) -> Option<&'static str> {
     match n {
-        QuestNotice::Added(_) => Some("Quest added"),
-        QuestNotice::Completed(_) => Some("Quest completed"),
-        QuestNotice::Failed(_) => Some("Quest failed"),
+        QuestNotice::Added(_) => Some(tr("Quest added")),
+        QuestNotice::Completed(_) => Some(tr("Quest completed")),
+        QuestNotice::Failed(_) => Some(tr("Quest failed")),
         // [observed: the owner's screenshot "Discovered", the same place and fonts as
         // "Quest added"].
-        QuestNotice::Discovered(_) => Some("You have discovered"),
+        QuestNotice::Discovered(_) => Some(tr("You have discovered")),
         QuestNotice::Objectives(_) => None,
     }
 }
 
 /// The sound a line comes with [hypothesis: by the SOUN records' names, §3].
+/// `SetUIUpdateSound` notification type code [documented: GECK wiki SetUIUpdateSound]:
+/// 1 quest failed, 2 quest added, 3 quest completed, 4 location discovered.
+fn update_sound_kind(n: &QuestNotice) -> Option<i64> {
+    match n {
+        QuestNotice::Failed(_) => Some(1),
+        QuestNotice::Added(_) => Some(2),
+        QuestNotice::Completed(_) => Some(3),
+        QuestNotice::Discovered(_) => Some(4),
+        QuestNotice::Objectives(_) => None,
+    }
+}
+
+/// Resolve the `SOUN` FormID for notice `n`: `SetUIUpdateSound` override first, then
+/// the player's `discovered_sound` tweak on location discovery, else the default EDID.
+fn notice_sound(
+    n: &QuestNotice,
+    script_sound: Option<FormId>,
+    discovered_tweak: Option<&str>,
+    sfx: Option<&Sfx>,
+    sound_forms: &mut HashMap<&'static str, Option<FormId>>,
+) -> Option<FormId> {
+    if let Some(sound) = script_sound {
+        return Some(sound);
+    }
+    let own = discovered_tweak.filter(|s| !s.is_empty() && matches!(n, QuestNotice::Discovered(_)));
+    match (own, sfx) {
+        (Some(name), Some(sfx)) => sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f),
+        _ => sound(n).and_then(|name| {
+            let sfx = sfx?;
+            *sound_forms.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f))
+        }),
+    }
+}
+
 fn sound(n: &QuestNotice) -> Option<&'static str> {
     match n {
         QuestNotice::Added(_) => Some("UIPopUpQuestNew"),
@@ -98,7 +133,7 @@ fn sound(n: &QuestNotice) -> Option<&'static str> {
 
 pub(crate) fn objective_text(o: &Objective) -> String {
     if o.completed {
-        format!("COMPLETED: {}", o.text.trim())
+        trf("COMPLETED: {text}", &[("text", &o.text.trim())])
     } else {
         o.text.trim().to_string()
     }
@@ -259,7 +294,7 @@ pub fn layout(n: &QuestNotice, label_font: &Font, title_font: &Font) -> Vec<Piec
             let line = title_font.lines(&name.trim().to_uppercase(), None).into_iter().next().unwrap_or_default();
             let width = line.width.max(1.0);
             for p in &line.glyphs {
-                let one = Line { glyphs: vec![Placed { code: p.code, ch: p.ch, x: 0.0 }], width: title_font.glyph(p.code).advance() };
+                let one = Line { glyphs: vec![Placed { x: 0.0, ..*p }], width: title_font.bitmap_glyph(p).advance() };
                 out.push(Piece::Text { set: Set { line: one, x: TEXT_X + TITLE_X + p.x, base: TITLE_BASE }, title: true, from: SWEEP * p.x / width });
             }
         }
@@ -431,15 +466,10 @@ fn draw(
             let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
             info!("quest message on screen: {} ({} waiting)", describe(n), quests.waiting());
             spawn_area(&mut commands, n, kit, data.as_deref(), &mut images, bc);
-            // The player's tweak: a discovered place plays the sound it names [design: docs/design/tweaks.md].
-            let own = tweaks.as_ref().map(|t| t.discovered_sound.as_str()).filter(|s| !s.is_empty() && matches!(n, QuestNotice::Discovered(_)));
-            let found = match (own, sfx.as_deref()) {
-                (Some(name), Some(sfx)) => sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f),
-                _ => sound(n).and_then(|name| {
-                    let sfx = sfx.as_deref()?;
-                    *sound_forms.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f))
-                }),
-            };
+            // Script override (`SetUIUpdateSound`), else the player's tweak for a discovered
+            // place [design: docs/design/tweaks.md], else the default sound EDID.
+            let script_sound = update_sound_kind(n).and_then(|k| script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.ui_update_sound(k)));
+            let found = notice_sound(n, script_sound, tweaks.as_ref().map(|t| t.discovered_sound.as_str()), sfx.as_deref(), &mut sound_forms);
             if let Some(sound) = found {
                 sounds.write(PlaySound { sound, at: None });
             }
@@ -621,5 +651,23 @@ mod tests {
     fn log_lines() {
         assert_eq!(describe(&QuestNotice::Added("Ring-a-Ding-Ding!".into())), "Quest added: RING-A-DING-DING!");
         assert_eq!(describe(&objectives(&[("A.", true), ("B.", false)])), "COMPLETED: A. | B.");
+    }
+
+    #[test]
+    fn set_ui_update_sound_overrides_notice_sounds_for_types_1_to_4() {
+        assert_eq!(update_sound_kind(&QuestNotice::Failed("F".into())), Some(1));
+        assert_eq!(update_sound_kind(&QuestNotice::Added("A".into())), Some(2));
+        assert_eq!(update_sound_kind(&QuestNotice::Completed("C".into())), Some(3));
+        assert_eq!(update_sound_kind(&QuestNotice::Discovered("D".into())), Some(4));
+        assert_eq!(update_sound_kind(&objectives(&[("O", false)])), None);
+
+        let custom = FormId(0x0000_0D70);
+        let mut cache = HashMap::new();
+        // Script override wins for QuestFailed (even though default sound(Failed) is None)
+        // and for Discovered (even when the player tweak is also configured).
+        assert_eq!(notice_sound(&QuestNotice::Failed("F".into()), Some(custom), None, None, &mut cache), Some(custom));
+        assert_eq!(notice_sound(&QuestNotice::Discovered("D".into()), Some(custom), Some("CustomTweakSound"), None, &mut cache), Some(custom));
+        // Without a script override or loaded Sfx, no sound is emitted.
+        assert_eq!(notice_sound(&QuestNotice::Failed("F".into()), None, None, None, &mut cache), None);
     }
 }

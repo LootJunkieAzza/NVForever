@@ -122,6 +122,16 @@ pub struct WorldIndex {
     /// Two cells of one worldspace with the same grid square: (world, grid, earlier
     /// cell, later cell by FormID); the later one is used.
     pub grid_conflicts: Vec<(u32, (i32, i32), u32, u32)>,
+    /// Optional compiled Base Object Swapper rules (`Data/BaseObjectSwapper/*.ini`).
+    /// Empty unless populated via [`WorldIndex::apply_bos`].
+    pub bos: crate::bos::BosTable,
+    /// Whether `Data/NVSE/Plugins/hNVSE.ini` enables `bMergeRegionLists=1` so
+    /// exterior `CELL` `XCLR` region lists union across load-order overrides
+    /// instead of last-writer-wins [documented: hNVSE 1.2 (Nexus Mods ID 85748,
+    /// `https://www.nexusmods.com/newvegas/mods/85748`) public changelog and
+    /// shipped `Data\NVSE\Plugins\hNVSE.ini` comments; DLL/PDB/source not
+    /// consulted]. Defaults to `false` (vanilla behavior unchanged).
+    pub merge_region_lists: bool,
 }
 
 /// WRLD PNAM bits [documented: xEdit wbDefinitionsFNV.pas WRLD, schemas/fnv/world.json].
@@ -347,6 +357,29 @@ impl WorldIndex {
             }
         }
         self.cells.values().find(|c| c.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name)))
+    }
+
+    /// Attach a compiled [`crate::bos::BosTable`] so placement consumers sharing this
+    /// index resolve swapped base objects consistently.
+    pub fn apply_bos(&mut self, bos: crate::bos::BosTable) {
+        self.bos = bos;
+    }
+
+    /// Enable or disable `hNVSE.ini` `bMergeRegionLists` exterior `CELL` `XCLR`
+    /// region-list merging across load-order overrides.
+    pub fn set_merge_region_lists(&mut self, enabled: bool) {
+        self.merge_region_lists = enabled;
+    }
+
+    /// Resolve the effective base FormID for placed reference `ref_id` with original
+    /// `orig_base`, applying [`Self::bos`] when non-empty.
+    pub fn resolve_base(&self, ref_id: u32, orig_base: u32) -> u32 {
+        self.bos.resolve(ref_id, orig_base)
+    }
+
+    /// Winning placement of reference `fid` with [`Self::bos`] applied to `base`.
+    pub fn placement(&self, lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<crate::placed::Placement> {
+        crate::placed::placement_with_bos(lo, schema, &self.bos, fid)
     }
 }
 

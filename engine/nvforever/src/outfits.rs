@@ -44,8 +44,10 @@ use fnv_sim::FormId;
 use nvf_assets::actor::{spawn_parts, ActorCtx, ActorParts, SpawnedActor};
 use nvf_assets::anim_play::BlendPlayer;
 use nvf_assets::model::ModelCtx;
+use nvf_play::script::ScriptState;
 use nvf_play::sim::SimState;
 use nvf_play::RefVisual;
+use std::collections::BTreeMap;
 
 use crate::actors::{part_uses, ActorStats, ActorWorld};
 use crate::limbs::ActorRig;
@@ -54,9 +56,18 @@ use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 
 pub struct OutfitsPlugin;
 
+/// Non-`Dressed` `ReloadEquippedModels` masks passed from [`follow_inventory`] to
+/// [`arm_creatures`] within the same frame (unmatched/unloaded actors are dropped at the
+/// end of `arm_creatures`) [design].
+#[derive(Resource, Default)]
+struct PendingCreatureReloads(BTreeMap<FormId, u32>);
+
 impl Plugin for OutfitsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<OutfitStats>().add_systems(Update, (follow_inventory.after(crate::weapons::drop_broken), arm_creatures.after(crate::creature_stance::StanceAttach).after(crate::weapons::drop_broken))).add_systems(Last, report);
+        app.init_resource::<OutfitStats>()
+            .init_resource::<PendingCreatureReloads>()
+            .add_systems(Update, (follow_inventory.after(crate::weapons::drop_broken), arm_creatures.after(follow_inventory).after(crate::creature_stance::StanceAttach).after(crate::weapons::drop_broken)))
+            .add_systems(Last, report);
     }
 }
 
@@ -258,6 +269,9 @@ fn follow_inventory(
     mut commands: Commands,
     world: Option<Res<ActorWorld>>,
     sim: Option<Res<SimState>>,
+    mut script: Option<ResMut<ScriptState>>,
+    creature_reloads: Option<ResMut<PendingCreatureReloads>>,
+    mut deferred_reloads: Local<BTreeMap<FormId, u32>>,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut stats: ResMut<OutfitStats>,
@@ -266,19 +280,31 @@ fn follow_inventory(
     muzzles: Query<(Entity, &Muzzle)>,
 ) {
     let (Some(world), Some(sim)) = (world, sim) else { return };
+    let mut batch = std::mem::take(&mut *deferred_reloads);
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        for (actor, mask) in rt.game.take_npc_equipped_model_reloads() {
+            *batch.entry(actor).or_insert(0) |= mask;
+        }
+    }
     let profiling = crate::profile::interval().is_some();
     let (mut replacements, mut replacement_ms) = (0, 0.0);
     let mut deferred = 0;
     for (entity, rig, mut dressed, mut player, dead) in &mut actors {
+        let reload_mask = batch.remove(&FormId(rig.reference)).unwrap_or(0);
         let Some(equipment) = Equipment::of(&world, Some(&sim.world), rig.reference) else { continue };
         let Equipment { ref worn, weapon, weapon_mods: mods } = equipment;
         let dressed = &mut *dressed;
-        let same_worn = same_worn(&world.actors, worn, weapon, &dressed.worn, dressed.weapon);
-        let same_weapon = weapon == dressed.weapon && mods == dressed.weapon_mods;
+        let force_weapon = (reload_mask & fnv_game::nvse_gaps::EQUIP_SLOT_WEAPON_BIT) != 0;
+        let force_worn = (reload_mask & !fnv_game::nvse_gaps::EQUIP_SLOT_WEAPON_BIT) != 0;
+        let same_worn = !force_worn && same_worn(&world.actors, worn, weapon, &dressed.worn, dressed.weapon);
+        let same_weapon = !force_weapon && weapon == dressed.weapon && mods == dressed.weapon_mods;
         if same_worn && same_weapon {
             continue;
         }
         if replacements >= REDRESS_PER_FRAME {
+            if reload_mask != 0 {
+                *deferred_reloads.entry(FormId(rig.reference)).or_insert(0) |= reload_mask;
+            }
             deferred += 1;
             continue;
         }
@@ -335,10 +361,11 @@ fn follow_inventory(
         }
         let pipboy = pipboy_of(&world, &new);
         let new_keys: Vec<String> = new.parts.iter().map(|p| part_key(&new, p, pipboy)).collect();
-        // Parts no longer drawn come off.
+        // Parts no longer drawn come off (or all parts when ReloadEquippedModels forces
+        // an armour/body reload so updated models/textures respawn fresh).
         let mut kept = Vec::new();
         for (key, shapes) in std::mem::take(&mut dressed.parts) {
-            if new_keys.contains(&key) {
+            if !force_worn && new_keys.contains(&key) {
                 kept.push((key, shapes));
             } else {
                 for e in shapes {
@@ -376,6 +403,9 @@ fn follow_inventory(
         replacements += 1;
         replacement_ms += started.map_or(0.0, |s| s.elapsed().as_secs_f64() * 1000.0);
     }
+    if let Some(mut cr) = creature_reloads {
+        cr.0 = batch;
+    }
     if deferred > 0 {
         stats.deferred += deferred;
         debug!("outfit: {deferred} actor(s) left to dress in a later frame ({REDRESS_PER_FRAME} a frame)");
@@ -394,6 +424,8 @@ fn arm_creatures(
     mut commands: Commands,
     world: Option<Res<ActorWorld>>,
     sim: Option<Res<SimState>>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut creature_reloads: Option<ResMut<PendingCreatureReloads>>,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut stats: ResMut<OutfitStats>,
@@ -402,10 +434,17 @@ fn arm_creatures(
     muzzles: Query<(Entity, &Muzzle)>,
 ) {
     let (Some(world), Some(sim)) = (world, sim) else { return };
+    let mut reloads = creature_reloads.as_deref_mut().map(|c| std::mem::take(&mut c.0)).unwrap_or_default();
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        for (actor, mask) in rt.game.take_npc_equipped_model_reloads() {
+            *reloads.entry(actor).or_insert(0) |= mask;
+        }
+    }
     if world.weapon_mode == crate::weapons::WeaponMode::None {
         return;
     }
     for (entity, rig, mut player, dead, arms) in &mut actors {
+        let force_weapon = (reloads.remove(&FormId(rig.reference)).unwrap_or(0) & fnv_game::nvse_gaps::EQUIP_SLOT_WEAPON_BIT) != 0;
         if dead || rig.reference == FormId::PLAYER_REF.0 || !rig.skeleton.to_ascii_lowercase().contains("creatures") {
             continue;
         }
@@ -413,15 +452,15 @@ fn arm_creatures(
         let Some(items) = sim.world.equipment(FormId(rig.reference)) else { continue };
         let weapon = items.iter().copied().find(|i| world.actors.weapons.get(i).is_some_and(fnv_actor::weapon::drawable));
         let before = arms.and_then(|a| a.weapon);
-        if arms.is_some() && weapon == before {
+        if !force_weapon && arms.is_some() && weapon == before {
             continue;
         }
         commands.entity(entity).insert(CreatureArms { weapon });
-        if arms.is_none() && weapon.is_none() {
+        if !force_weapon && arms.is_none() && weapon.is_none() {
             continue;
         }
         // The old weapon goes (model, muzzle, clips).
-        if before.is_some() {
+        if before.is_some() || force_weapon {
             for (e, _) in held.iter().filter(|(_, h)| h.reference == rig.reference) {
                 commands.entity(e).despawn();
             }
@@ -1169,5 +1208,142 @@ pub(crate) mod tests {
         assert_eq!(unarmed(&mut app), N);
         app.world_mut().run_system_once(follow_inventory).unwrap();
         assert_eq!(app.world().resource::<OutfitStats>().replacements, N, "nothing left to do");
+    }
+
+    #[test]
+    fn reload_equipped_models_weapon_slot_respawns_npc_weapon_one_shot() {
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+        let (mut app, actor, _files) = spawn_fixture(false);
+        let reference = app.world().get::<ActorRig>(actor).unwrap().reference;
+        let before_shapes = dressed_shapes(&app, actor);
+        let before_held = {
+            let w = app.world_mut();
+            w.query_filtered::<Entity, With<HeldWeapon>>().single(w).unwrap()
+        };
+        let mut script = ScriptState::over_plugins(&[]);
+        assert_eq!(
+            script.rt.as_mut().unwrap().game.run_query(
+                "Begin Function {}\nSetFunctionValue (ReloadEquippedModels 5)\nEnd",
+                RunCtx { self_ref: Some(FormId(reference)), ..Default::default() },
+            ),
+            Ok(XVal::Num(0.0))
+        );
+        app.insert_resource(script);
+        app.add_systems(Update, follow_inventory);
+        app.update();
+
+        assert!(app.world().get_entity(before_held).is_err(), "old HeldWeapon entity despawned");
+        let after_held = {
+            let w = app.world_mut();
+            w.query_filtered::<Entity, With<HeldWeapon>>().single(w).unwrap()
+        };
+        assert_ne!(after_held, before_held, "fresh HeldWeapon entity spawned");
+        assert_eq!(dressed_shapes(&app, actor), before_shapes, "slot 5 reload leaves armour shapes untouched");
+        assert_eq!(app.world().resource::<OutfitStats>().replacements, 1);
+        assert_eq!(app.world().resource::<OutfitStats>().weapons_on, 1);
+        assert_eq!(app.world().resource::<OutfitStats>().parts_on, 0);
+        assert_eq!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.equipped_model_reload_mask(FormId(reference)), 0);
+
+        // Next frame: strictly one-shot, no repeat reload.
+        app.update();
+        let still_held = {
+            let w = app.world_mut();
+            w.query_filtered::<Entity, With<HeldWeapon>>().single(w).unwrap()
+        };
+        assert_eq!(still_held, after_held);
+        assert_eq!(app.world().resource::<OutfitStats>().replacements, 1);
+    }
+
+    #[test]
+    fn reload_equipped_models_armor_slot_respawns_npc_parts_one_shot() {
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+        let (mut app, actor, _files) = spawn_fixture(false);
+        let reference = app.world().get::<ActorRig>(actor).unwrap().reference;
+        let before_shapes = dressed_shapes(&app, actor);
+        let before_held = {
+            let w = app.world_mut();
+            w.query_filtered::<Entity, With<HeldWeapon>>().single(w).unwrap()
+        };
+        let mut script = ScriptState::over_plugins(&[]);
+        assert_eq!(
+            script.rt.as_mut().unwrap().game.run_query(
+                "Begin Function {}\nSetFunctionValue (ReloadEquippedModels 2)\nEnd",
+                RunCtx { self_ref: Some(FormId(reference)), ..Default::default() },
+            ),
+            Ok(XVal::Num(0.0))
+        );
+        app.insert_resource(script);
+        app.add_systems(Update, follow_inventory);
+        app.update();
+
+        for e in &before_shapes {
+            assert!(app.world().get_entity(*e).is_err(), "old armour shape {e} despawned");
+        }
+        assert!(new_shapes_refer_to(&app, actor, reference, &before_shapes) > 0, "fresh armour shapes spawned with RefVisual");
+        let after_held = {
+            let w = app.world_mut();
+            w.query_filtered::<Entity, With<HeldWeapon>>().single(w).unwrap()
+        };
+        assert_eq!(after_held, before_held, "slot 2 reload leaves held weapon untouched");
+        assert_eq!(app.world().resource::<OutfitStats>().replacements, 1);
+        assert_eq!(app.world().resource::<OutfitStats>().weapons_on, 0);
+        assert!(app.world().resource::<OutfitStats>().parts_on > 0);
+
+        // Next frame: strictly one-shot.
+        let reloaded_shapes = dressed_shapes(&app, actor);
+        app.update();
+        assert_eq!(dressed_shapes(&app, actor), reloaded_shapes);
+        assert_eq!(app.world().resource::<OutfitStats>().replacements, 1);
+    }
+
+    #[test]
+    fn reload_equipped_models_deferral_spans_frames_under_redress_budget() {
+        use fnv_game::game::RunCtx;
+        use fnv_script::vm::XVal;
+        const N: usize = REDRESS_PER_FRAME + 2;
+        let (mut app, _files) = asset_fixture();
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(actor_forms(vec![])));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::default());
+        let mut sim = fnv_sim::World::new(forms, refs, Default::default());
+        let ids: Vec<FormId> = (0..N).map(|_| {
+            let id = sim.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+            sim.get(id).unwrap().inventory = Some(equipped());
+            id
+        }).collect();
+        app.insert_resource(SimState { forms, refs, world: sim });
+        let parent = app.world_mut().spawn_empty().id();
+        let spawn = ids.iter().map(|i| i.0).collect::<Vec<_>>();
+        app.world_mut().run_system_once(move |mut commands: Commands, world: Res<ActorWorld>, sim: Res<SimState>, mut parts: ResMut<ActorParts>, mut models: ModelCtx| {
+            let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+            let mut stats = ActorStats::default();
+            for &r in &spawn {
+                assert!(crate::actors::spawn(&mut commands, parent, bevy::math::Affine3A::IDENTITY, Vec3::ZERO, r, OTHER.0, &world, Some(&sim.world), &mut ctx, &mut stats, false));
+            }
+        }).unwrap();
+        let mut script = ScriptState::over_plugins(&[]);
+        for &id in &ids {
+            assert_eq!(
+                script.rt.as_mut().unwrap().game.run_query(
+                    "Begin Function {}\nSetFunctionValue (ReloadEquippedModels 5)\nEnd",
+                    RunCtx { self_ref: Some(id), ..Default::default() },
+                ),
+                Ok(XVal::Num(0.0))
+            );
+        }
+        app.insert_resource(script);
+        app.init_resource::<PendingCreatureReloads>();
+        app.add_systems(Update, follow_inventory);
+
+        app.update();
+        assert_eq!(app.world().resource::<OutfitStats>().replacements, REDRESS_PER_FRAME);
+        assert_eq!(app.world().resource::<OutfitStats>().deferred, N - REDRESS_PER_FRAME);
+
+        app.update();
+        assert_eq!(app.world().resource::<OutfitStats>().replacements, N);
+
+        app.update();
+        assert_eq!(app.world().resource::<OutfitStats>().replacements, N, "no extra reloads on frame 3");
     }
 }

@@ -165,7 +165,8 @@ fn step(
         let t = now - a.since;
         if over(rv.0, a) {
             if let Some(f) = fading {
-                commands.entity(e).insert(MeshMaterial3d(f.original.clone())).remove::<Fading>();
+                // The entity may go with its cell before this is applied (#2757).
+                commands.entity(e).try_insert(MeshMaterial3d(f.original.clone())).try_remove::<Fading>();
                 materials.remove(&f.copy);
             }
             let hide = out(rv.0) || culled(rv.0);

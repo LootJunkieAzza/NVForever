@@ -963,13 +963,33 @@ impl PhysWorld {
         }
     }
 
-    /// Update the collision pairs with the ragdolls' contact filter.
+    /// Update user changes, islands, broad phase and narrow phase without advancing time,
+    /// using the ragdolls' contact filter.
+    ///
+    /// A zero-length `PhysicsPipeline::step` registers newly inserted bodies and user
+    /// changes with `islands` before narrow-phase contact transitions run — unlike
+    /// `CollisionPipeline::step`, which omits island registration and both trips rapier
+    /// 0.36.1's `active_island_id != u32::MAX` assertion (`island_manager/manager.rs:141`)
+    /// when new bodies overlap after prior stepping and leaves touching pairs unlinked in
+    /// the persistent islands.
+    ///
+    /// Because rapier 0.36.1's `dt <= 0.0` early return skips joining a deferred BVH
+    /// optimization pass (`BroadPhaseBvh::take_deferred_optimize` temporarily replaces the
+    /// tree with an empty `Bvh`), run one no-op zero-dt pass whenever that happened so
+    /// queries see the completed tree immediately.
     pub(crate) fn detect(&mut self) {
-        if self.ragdolls.is_empty() && self.gore.is_empty() {
-            self.w.detect_collisions(&(), &());
-        } else {
-            let hooks = RagdollHooks { ragdolls: &self.ragdolls, of_body: &self.ragdoll_of, passes: &self.passes_ragdoll };
-            self.w.detect_collisions(&hooks, &());
+        let saved_dt = self.w.integration_parameters.dt;
+        self.w.integration_parameters.dt = 0.0;
+        self.step_world();
+        if self.w.query_pipeline_with_filter(QueryFilter::default()).bvh.is_empty() && !self.w.colliders.is_empty() {
+            // `step_world()` clears `self.w.quarantine()` at the start of `step_inner`,
+            // so flush any quarantine produced by the first zero-dt pass before running
+            // the second pass that joins the deferred BVH optimization tree.
+            if !self.w.quarantine().is_empty() {
+                self.handle_quarantine();
+            }
+            self.step_world();
         }
+        self.w.integration_parameters.dt = saved_dt;
     }
 }

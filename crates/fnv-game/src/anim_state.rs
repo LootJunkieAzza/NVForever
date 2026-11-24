@@ -245,17 +245,68 @@ pub fn swing_action(t: f32, hit: f32, len: f32) -> Option<AnimAction> {
     }
 }
 
+fn is_reload_action(action: Option<AnimAction>) -> bool {
+    matches!(action, Some(AnimAction::Reload | AnimAction::ReloadOpen))
+}
+
 impl Game<'_> {
     /// The engine tells what an actor's body does now (every frame, for the actors it
-    /// draws and the player).
+    /// draws and the player). Entering a reload action (`Reload` or `ReloadOpen`) from a
+    /// non-reload action fires JIP's `SetOnReloadWeaponEventHandler` event once per
+    /// reload with the actor's equipped or held weapon [documented:
+    /// SetOnReloadWeaponEventHandler; hypothesis: `ReloadOpen` -> `Reload` is one reload].
+    /// Also fires JIP's `SetOnAnimActionEventHandler` (`animaction`) on entry into a new
+    /// action and `SetOnPlayGroupEventHandler` (`playgroup`) on entry into a new named
+    /// locomotion group, after recording the snapshot so handlers querying `GetAnimAction`
+    /// or `IsAnimPlaying` see the live state.
     pub fn set_anim_state(&mut self, actor: FormId, mut s: AnimState) {
+        let prev = self.senses.anim.get(&actor);
+        let prev_action = prev.and_then(|p| p.action);
+        let prev_group = prev.and_then(|p| p.group);
+        let was_reloading = is_reload_action(prev_action);
+        let next_action = s.action;
+        let next_group = s.group;
+        let now_reloading = is_reload_action(next_action);
         s.at = self.time;
         self.senses.anim.insert(actor, s);
+        if !was_reloading && now_reloading {
+            let weapon = crate::functions::items::equipped_weapon(self, actor)
+                .or_else(|| self.extra.get(&actor).and_then(|e| e.held_weapon));
+            if let Some(weapon) = weapon {
+                self.weapon_reloaded(actor, weapon);
+            }
+        }
+        if next_action != prev_action {
+            if prev_action == Some(AnimAction::Equip)
+                && !self.extra.get(&actor).is_some_and(|e| e.weapon_out)
+                && !self.hud.weapon_due.get(&actor).is_some_and(|(o, _, _)| *o)
+            {
+                if next_action == Some(AnimAction::Unequip) {
+                    self.showoff.unholster_pending.remove(&actor);
+                } else if let Some(slot) = self.showoff.unholster_pending.get_mut(&actor) {
+                    *slot = Some(self.frame);
+                }
+            }
+            if let Some(action) = next_action {
+                if action == AnimAction::Equip {
+                    self.showoff_begin_unholster(actor);
+                } else if action == AnimAction::Unequip {
+                    self.showoff.unholster_pending.remove(&actor);
+                }
+                self.fire_anim_action(actor, action.code());
+            }
+        }
+        if next_group != prev_group {
+            if let Some(code) = next_group.and_then(|name| self.anim_group_code(name)) {
+                self.fire_play_group(actor, code);
+            }
+        }
     }
 
     /// The actor left the engine's view: forget its body's state.
     pub fn forget_anim_state(&mut self, actor: FormId) {
         self.senses.anim.remove(&actor);
+        self.showoff.unholster_pending.remove(&actor);
     }
 
     /// The actor's body as last told, until the engine forgets it.

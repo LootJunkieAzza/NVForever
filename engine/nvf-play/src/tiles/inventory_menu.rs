@@ -65,7 +65,7 @@ use super::item_card;
 use super::item_menu::{self, on, ListShown, MenuTiles, Paths, Snapshot};
 use super::list::{self, BarPiece, RowTile, Wanted};
 use super::menus::{self, SizesWritten, Tiled};
-use super::stats_menu::{self, find_named, modal_over, shows_whole, FlatChanges, PageFonts};
+use super::stats_menu::{self, find_named, modal_over, resolve_tile, shows_whole, FlatChanges, PageFonts};
 use super::vanilla::TileMenus;
 use crate::hotkeys::Hotkeys;
 use crate::menu::model::{Command, MenuModel, Mode, Side};
@@ -238,7 +238,20 @@ pub fn built(ui: &Ui, cut: Option<&str>) -> Tiled {
             return Tiled::No(format!("{path} missing"));
         }
     }
-    let list_built = item_menu::built(ui, &PATHS, paths, &[("text", ROW_TEXT), ("image", ROW_MARK)]);
+    for path in &paths {
+        if resolve_tile(ui, path).is_none() {
+            return Tiled::No(format!("{path} missing"));
+        }
+    }
+    // Exact vanilla check first (`<image>` marker); accept `<rect>` when a modded row template
+    // implements the equipped marker as a composite container [design].
+    let list_built = match list::template_has(ui, INVENTORY_MENU, TEMPLATE, ROW, &[("text", ROW_TEXT), ("image", ROW_MARK)]) {
+        Tiled::Yes => Tiled::Yes,
+        Tiled::No(reason) if reason == format!("{TEMPLATE}/{ROW}/{ROW_MARK} missing") => {
+            list::template_has(ui, INVENTORY_MENU, TEMPLATE, ROW, &[("text", ROW_TEXT), ("rect", ROW_MARK)])
+        }
+        other => other,
+    };
     if !list_built.yes() {
         return list_built;
     }
@@ -346,7 +359,7 @@ impl Shown {
 /// Sets a trait by path as the game's code does (`Ui::write_changed`): what a script set
 /// meanwhile stands until the model changes.
 fn put(ui: &mut Ui, path: &str, name: &str, v: Value) {
-    if let Some(t) = ui.find_tile(path) {
+    if let Some(t) = resolve_tile(ui, path) {
         ui.write_changed(t, name, v);
     }
 }
@@ -387,7 +400,9 @@ pub fn write_model(ui: &mut Ui, s: &Shown, view: &mut MenuTiles, file_repair_wor
     // No row, no figures, the card rect included [observed: private job run07_inventory, 1280x720].
     put(ui, CARD, "visible", on(card.is_some()));
     if card.is_some_and(|c| c.condition.is_some() || c.beside.is_some()) {
-        item_menu::set(ui, &format!("{CARD}/{}", item_card::EFFECTS), "y", Value::Num(EFFECTS_LOW));
+        if let Some(effects) = resolve_tile(ui, &format!("{CARD}/{}", item_card::EFFECTS)) {
+            ui.set_trait(effects, "y", Value::Num(EFFECTS_LOW));
+        }
     }
     write_buttons(ui, s, file_repair_word);
     put(ui, WHEEL, "visible", on(false));
@@ -398,7 +413,7 @@ pub fn write_model(ui: &mut Ui, s: &Shown, view: &mut MenuTiles, file_repair_wor
 /// table's label: a plugin's setting or a script's word stands (`Ui::built_in_label`).
 fn write_tight_titles(ui: &mut Ui, condition: &str) {
     for (path, word) in TIGHT_TITLES.into_iter().chain([(CONDITION_CARD, condition)]) {
-        let Some(t) = ui.find_tile(path) else { continue };
+        let Some(t) = resolve_tile(ui, path) else { continue };
         if ui.built_in_label(t, "_Title").is_some() {
             ui.set_trait(t, "_Title", text(word));
         }
@@ -430,7 +445,7 @@ fn write_buttons(ui: &mut Ui, s: &Shown, file_repair_word: &mut Option<String>) 
     put(ui, &button_path("IM_ModButton"), "target", on(s.modify_lit));
     // [design, #2312; hotkeys::can_hold] Match the immediate-mode Hotkey hint's light.
     put(ui, &button_path("IM_HotkeyButton"), "target", on(s.hotkey_lit));
-    let Some(button) = ui.find_tile(&path) else { return };
+    let Some(button) = resolve_tile(ui, &path) else { return };
     // The file's word (a setting's, a plugin's) is kept to come back to.
     let file_word = file_repair_word.get_or_insert_with(|| ui.tile(button).get("string").map_or_else(String::new, |v| v.text().to_string()));
     let word = s.repair.word.unwrap_or(file_word.as_str());
@@ -460,7 +475,8 @@ fn ensure_tabs(ui: &mut Ui, tabs: &mut Vec<RowTile<usize>>) -> Result<bool, Stri
     }
     let keys = [0, 1, 2, 3, 4];
     let wanted: Vec<Wanted<'_, usize>> = keys.iter().map(|key| Wanted { key, name: TAB_ROW }).collect();
-    if !list::reconcile(ui, TABLINE, TAB_TEMPLATE, tabs, &wanted) {
+    let tabline = resolve_tile(ui, TABLINE).map(|t| ui.path_of(t)).unwrap_or_else(|| TABLINE.to_string());
+    if !list::reconcile(ui, &tabline, TAB_TEMPLATE, tabs, &wanted) {
         return Err(format!("{TAB_TEMPLATE} made no tab"));
     }
     ui.update();
@@ -515,7 +531,7 @@ pub(super) fn tab_xs(line_width: f64, widths: &[f64]) -> (f64, Vec<f64>) {
 /// and its own `x` follow [documented: the prefabs], and the line's `_LeftLineLength`. On every pass,
 /// as a tab's width follows its measured word.
 fn place_tabs(ui: &mut Ui, tabs: &[RowTile<usize>]) {
-    let Some(line) = ui.find_tile(TABLINE) else { return };
+    let Some(line) = resolve_tile(ui, TABLINE) else { return };
     let widths: Vec<f64> = tabs.iter().map(|r| num(ui, r.tile, "width")).collect();
     let (gap, xs) = tab_xs(num(ui, line, "width"), &widths);
     keep(ui, line, "_LeftLineLength", gap);
@@ -555,7 +571,7 @@ pub fn usable(ui: &Ui, menu: TileId, view: &MenuTiles, tabs: &[RowTile<usize>], 
     let is_text = |x: &&Piece| matches!(x.look, Look::Text { .. });
     let texts: HashMap<TileId, &Piece> = pieces.iter().filter(is_text).map(|x| (x.tile, x)).collect();
     let rows = &view.rows[Side::Player as usize];
-    let scrolls = ui.find_tile(LIST).and_then(|l| list::child(ui, l, list::SCROLLBAR)).and_then(|b| ui.tile(b).get("_number_of_items").map(Value::num)).is_some_and(|n| n > 1.0);
+    let scrolls = resolve_tile(ui, LIST).and_then(|l| list::child(ui, l, list::SCROLLBAR)).and_then(|b| ui.tile(b).get("_number_of_items").map(Value::num)).is_some_and(|n| n > 1.0);
     let mut wanted: Vec<(ItemsTile, (f64, f64))> = Vec::with_capacity(rows.len() + tabs.len());
     for (i, row) in rows.iter().enumerate() {
         let Some(piece) = list::child(ui, row.tile, ROW_TEXT).and_then(|t| texts.get(&t)) else { continue };
@@ -687,7 +703,7 @@ impl Default for InventoryTiles {
 fn check_file(ui: &Ui, cut: Option<&str>) -> Result<Vec<TileId>, String> {
     match built(ui, cut) {
         Tiled::No(reason) => Err(reason),
-        Tiled::Yes => Ok(required_paths().iter().filter_map(|p| ui.find_tile(p)).collect()),
+        Tiled::Yes => Ok(required_paths().iter().filter_map(|p| resolve_tile(ui, p)).collect()),
     }
 }
 
@@ -726,8 +742,8 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut Inve
         let texts = menus::texts(ui, menu);
         tiles.view.settle_shown(ui, &mut |ui: &mut Ui, sizes: &mut SizesWritten| fonts.write_sizes(ui, &texts, sizes));
         place_tabs(ui, &w.tabs);
-        let title = ui.find_tile(TITLE).ok_or("the title is gone")?;
-        let line = ui.find_tile(LINE).ok_or("the heading's line is gone")?;
+        let title = resolve_tile(ui, TITLE).ok_or("the title is gone")?;
+        let line = resolve_tile(ui, LINE).ok_or("the heading's line is gone")?;
         stats_menu::write_frame_of(ui, title, line, device, &mut w.flat);
         item_menu::mark_tiles(ui, &PATHS);
         ui.update();
@@ -1150,8 +1166,14 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     let is_paused = paused.as_ref().is_some_and(|p| p.0);
     let model = active.as_ref().and_then(|a| a.0.as_ref()).filter(|m| m.mode == Mode::Inventory);
     let prompt = model.is_some_and(|m| m.quantity.is_some());
-    let menu = takes(&tiles, *switch, &pip, game, is_paused, closed, prompt).filter(|_| !tiles.others && !out.taken.taken() && out.hold.controller.is_none());
+    let claimed = takes(&tiles, *switch, &pip, game, is_paused, closed, prompt);
+    let menu = claimed.filter(|_| !tiles.others && !out.taken.taken() && out.hold.controller.is_none());
     let (Some(menu), Some(m)) = (menu, model) else {
+        // `tiles::input::feed` skipped `idle` because `takes` claimed this frame; still
+        // drain any queued script clicks (`ClickMenuTile` / `ClickMenuButton`) [design].
+        if claimed.is_some() && !tiles.others {
+            fnv_game::ui_input::idle(game);
+        }
         *state = Feed::default();
         tiles.view.drag = None;
         return;
@@ -1395,7 +1417,7 @@ mod tests {
     const ROW_H: f64 = 40.0;
 
     fn row(item: u32, text: &str) -> item_menu::RowShown {
-        item_menu::RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: item == 1 }
+        item_menu::RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: item == 1, ysi: None }
     }
 
     fn shown(rows: usize, selected: usize) -> Shown {
@@ -2006,5 +2028,68 @@ mod tests {
         ui.set_trait(list_id, "width", Value::Num(15.0));
         ui.update();
         assert_eq!(run(&mut ui, Some(shown(4, 0)), &mut t), Err("no row shows whole".to_string()));
+    }
+
+    #[test]
+    fn nested_icon_mod_button_and_rect_marker_stay_on_tiles_while_vanilla_path_wins() {
+        // Synthetic restructured layout: IM_ItemIcon wrapped in a child rect under IM_MainRect,
+        // IM_ModButton wrapped in a child rect under IM_ButtonRect, and IM_Template_ItemMarker
+        // authored as a composite `<rect>` container in the row template.
+        let restructured = |x: String| {
+            x.replace(
+                r#"<image name="IM_ItemIcon"/>"#,
+                r#"<rect name="IconWrapper"><x>10</x><image name="IM_ItemIcon"/></rect>"#,
+            )
+            .replace(
+                r#"<image name="IM_ModButton"><target>&true;</target><y>90</y><width>70</width><height>20</height><text name="button_text"><string>Go</string></text><text name="PCShortcutLabel"></text></image>"#,
+                r#"<rect name="ModButtonWrapper"><image name="IM_ModButton"><target>&true;</target><y>90</y><width>70</width><height>20</height><text name="button_text"><string>Go</string></text><text name="PCShortcutLabel"></text></image></rect>"#,
+            )
+            .replace(
+                r#"<image name="IM_Template_ItemMarker"/>"#,
+                r#"<rect name="IM_Template_ItemMarker"><image name="MarkerFill"/></rect>"#,
+            )
+        };
+        let (mut ui, mut t) = (tree_changed(restructured), InventoryTiles::default());
+        assert_eq!(built(&ui, None), Tiled::Yes);
+        let mut s = shown(3, 0);
+        s.modify = true;
+        run(&mut ui, Some(s), &mut t).expect("restructured InventoryMenu should stay on tiles");
+        let icon = resolve_tile(&ui, ICON).expect("nested IM_ItemIcon");
+        assert_eq!(ui.path_of(icon), "InventoryMenu/GLOW_BRANCH/IM_MainRect/IconWrapper/IM_ItemIcon");
+        assert_eq!(ui.tile(icon).get("filename").map(Value::text).as_deref(), Some("pics\\item.dds"));
+        assert_eq!(ui.tile(icon).get("visible").map(Value::num), Some(1.0));
+        assert_eq!(ui.tile(icon).get("x").map(Value::num), Some(ICON_PLACE.0));
+        let mod_btn = resolve_tile(&ui, &button_path("IM_ModButton")).expect("nested IM_ModButton");
+        assert_eq!(ui.path_of(mod_btn), "InventoryMenu/GLOW_BRANCH/IM_MainRect/IM_ButtonRect/ModButtonWrapper/IM_ModButton");
+        assert_eq!(ui.tile(mod_btn).get("visible").map(Value::num), Some(1.0));
+        assert_eq!(ui.tile(mod_btn).get("target").map(Value::num), Some(1.0));
+        assert_eq!(ui.tile(mod_btn).get("_PCButtonText").map(Value::text).as_deref(), Some("[X]"));
+        assert_eq!(items_tile(&ui, &t.view, &t.written.tabs, mod_btn), Some(ItemsTile::Button(Button::Mod)));
+        let mark = list::child(&ui, rows(&t)[0].tile, ROW_MARK).expect("rect row marker");
+        assert_eq!(ui.tile(mark).get("visible").map(Value::num), Some(1.0));
+
+        // Exact vanilla direct-child path takes precedence when both direct and nested exist.
+        let both = |x: String| {
+            x.replace(
+                r#"<image name="IM_ItemIcon"/>"#,
+                r#"<rect name="IconWrapper"><image name="IM_ItemIcon"/></rect><image name="IM_ItemIcon"/>"#,
+            )
+        };
+        let (mut ui, mut t) = (tree_changed(both), InventoryTiles::default());
+        run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
+        let exact = ui.find_tile(ICON).unwrap();
+        assert_eq!(resolve_tile(&ui, ICON), Some(exact));
+        assert_eq!(ui.tile(exact).get("filename").map(Value::text).as_deref(), Some("pics\\item.dds"));
+
+        // Missing IM_ItemIcon everywhere (even with wrapper containers present) still falls back cleanly.
+        let missing = |x: String| {
+            x.replace(
+                r#"<image name="IM_ItemIcon"/>"#,
+                r#"<rect name="IconWrapper"><image name="OtherIcon"/></rect>"#,
+            )
+        };
+        let mut ui = tree_changed(missing);
+        assert_eq!(built(&ui, None), Tiled::No(format!("{ICON} missing")));
+        assert_eq!(run(&mut ui, Some(shown(2, 0)), &mut InventoryTiles::default()), Err(format!("{ICON} missing")));
     }
 }

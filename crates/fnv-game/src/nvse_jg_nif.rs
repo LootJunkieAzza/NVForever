@@ -11,6 +11,41 @@ use crate::game::{Game, RunCtx};
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 
+/// Engine-owned runtime reference FormIDs for JohnnyGuitar NVSE's built-in 3D camera
+/// overlay references (`JG_CameraOverlayRef_PreIS` and `JG_CameraOverlayRef_PreUI`),
+/// reserved in `[CAMERA_OVERLAY_BASE, LAMBDA_BASE)` (`0xFE7F_0000..0xFE80_0000`),
+/// disjoint from `CLONE_BASE` (`0xFE00_0000..0xFE20_0000`), `COMPILED_BASE`
+/// (`0xFE20_0000..0xFE40_0000`), `TEMP_REF_BASE` (`0xFE40_0000..0xFE7F_0000`),
+/// `LAMBDA_BASE` / `MADE_PACKAGE_BASE` (`0xFE80_0000..0xFF00_0000`), and
+/// `FormId::FIRST_DYNAMIC` (`0xFF00_0000..`) [design; docs/spec-notes/ext-jg-nif-camera.md].
+pub const CAMERA_OVERLAY_PRE_IS: FormId = FormId(crate::game::CAMERA_OVERLAY_BASE + 1);
+pub const CAMERA_OVERLAY_PRE_UI: FormId = FormId(crate::game::CAMERA_OVERLAY_BASE + 2);
+
+/// Look up a built-in JohnnyGuitar camera overlay reference by EditorID (case-insensitive).
+pub fn camera_overlay_by_edid(id: &str) -> Option<FormId> {
+    if id.eq_ignore_ascii_case("JG_CameraOverlayRef_PreIS") {
+        Some(CAMERA_OVERLAY_PRE_IS)
+    } else if id.eq_ignore_ascii_case("JG_CameraOverlayRef_PreUI") {
+        Some(CAMERA_OVERLAY_PRE_UI)
+    } else {
+        None
+    }
+}
+
+/// Return the EditorID of a built-in JohnnyGuitar camera overlay reference, if `f` is one.
+pub fn camera_overlay_edid(f: FormId) -> Option<&'static str> {
+    match f {
+        CAMERA_OVERLAY_PRE_IS => Some("JG_CameraOverlayRef_PreIS"),
+        CAMERA_OVERLAY_PRE_UI => Some("JG_CameraOverlayRef_PreUI"),
+        _ => None,
+    }
+}
+
+/// Whether `f` is one of JohnnyGuitar's built-in camera overlay references.
+pub fn is_camera_overlay_ref(f: FormId) -> bool {
+    camera_overlay_edid(f).is_some()
+}
+
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
     match args.get(k)? {
         XVal::Ref(0) => None,

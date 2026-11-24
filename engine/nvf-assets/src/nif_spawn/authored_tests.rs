@@ -52,6 +52,9 @@ impl TextureSource for SetTextures {
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         raw_path.contains("mask")
     }
+    fn alpha_is_opaque(&self, _: &str) -> bool {
+        false
+    }
     fn resolve(&self, raw_path: &str) -> String {
         fnv_vfs::texture_path(raw_path)
     }
@@ -67,7 +70,7 @@ impl TextureSource for SetTextures {
 const KEY: &str = r"textures\walls\brick.dds";
 
 fn set(images: &mut Assets<Image>, normal: bool, scalars: Scalars) -> AuthoredSet {
-    AuthoredSet { stem: r"textures\pbr\walls\brick".into(), orm: images.add(Image::default()), normal: normal.then(|| images.add(Image::default())), height: None, scalars }
+    AuthoredSet { stem: r"textures\pbr\walls\brick".into(), orm: images.add(Image::default()), normal: normal.then(|| images.add(Image::default())), height: None, scalars, metal_gain: 7.0 }
 }
 
 /// A lit, masked, glossy shape with the game's diffuse and normal map.
@@ -86,7 +89,7 @@ fn drawn(m: &NifMaterial) -> String {
 #[test]
 fn an_authored_set_fills_its_fields_over_the_legacy_ones() {
     let mut scratch = Assets::<Image>::default();
-    let s = set(&mut scratch, true, Scalars { parallax_depth: None, roughness_scale: Some(0.7), reflectance: Some(0.3) });
+    let s = set(&mut scratch, true, Scalars { parallax_depth: None, roughness_scale: Some(0.7), reflectance: Some(0.3), metal_gain: None });
     let mut source = SetTextures::new(Some((KEY, s.clone())));
     let mut mesh = triangle();
     let (m, missing) = shape_material_with(&wall(), &mut mesh, &mut source, Tangents::Generate);
@@ -102,6 +105,7 @@ fn an_authored_set_fills_its_fields_over_the_legacy_ones() {
     assert!(b.flip_normal_map_y && matches!(b.alpha_mode, AlphaMode::Opaque) && !b.unlit);
     assert_eq!(m.extension.emissive_rule, Vec4::new(0.0, 0.0, 0.0, AUTHORED_MARK));
     assert_eq!(m.extension.soft, Vec4::ZERO, "soft stays zero: terrain blending still takes the material");
+    assert_eq!(m.extension.metal_gain, s.metal_gain, "the set's metal gain in its lane");
     assert_eq!(
         m.extension.legacy,
         Some(LegacyLook { normal: Some(game_normal.clone()), specular: Some(game_normal), roughness: gloss_roughness(50.0), reflectance: 2.0, metallic: 0.0, tangents: true, specular_tint: Color::WHITE, parallax: Parallax::default(), scripted_tint: None })
@@ -123,8 +127,10 @@ fn defaults_apply_without_scalars_and_the_game_normal_stays_without_an_n() {
 
 /// A shape without a normal map that gains one from `_n` gets tangents on the mesh being
 /// built, from the caller's tangent source: generated for a new mesh, and for a copy of a
-/// drawn mesh (`Tangents::Keep`) its own when it has them, generated otherwise, as for the
-/// game's own normal map.
+/// drawn mesh (`Tangents::Keep`) its own when it has them. A copy without them still has them
+/// generated (as for the game's own normal map), but they never reach the mesh the actor
+/// draws, so the legacy look records none and the `_n` is not put on (#2979 review: the
+/// same rule as a height map's).
 #[test]
 fn a_first_normal_from_n_brings_tangents_to_the_mesh() {
     let mut scratch = Assets::<Image>::default();
@@ -140,9 +146,9 @@ fn a_first_normal_from_n_brings_tangents_to_the_mesh() {
     let mut copy = triangle();
     let (m, _) = shape_material_with(&bare, &mut copy, &mut source, Tangents::Keep);
     assert!(copy.attribute(Mesh::ATTRIBUTE_TANGENT).is_some(), "a copy without tangents has them generated");
-    assert_eq!(m.base.normal_map_texture, s.normal);
+    assert_eq!(m.base.normal_map_texture, None, "the drawn mesh has no tangents: no _n (the game gives no normal map)");
     assert_eq!(m.base.metallic_roughness_texture.as_ref(), Some(&s.orm));
-    assert!(m.extension.legacy.unwrap().tangents);
+    assert!(!m.extension.legacy.unwrap().tangents, "the drawn mesh's tangents, not the copy's");
     let (m, _) = shape_material_with(&bare, &mut copy, &mut source, Tangents::Keep);
     assert_eq!(m.base.normal_map_texture, s.normal, "a copy that has tangents keeps them and takes the _n");
 }
@@ -190,7 +196,7 @@ fn shapes_a_set_never_touches_keep_the_game_material_and_ask_nothing() {
 #[test]
 fn off_no_set_and_restored_materials_draw_the_same() {
     let mut scratch = Assets::<Image>::default();
-    let s = set(&mut scratch, true, Scalars { parallax_depth: None, roughness_scale: Some(0.2), reflectance: Some(0.9) });
+    let s = set(&mut scratch, true, Scalars { parallax_depth: None, roughness_scale: Some(0.2), reflectance: Some(0.9), metal_gain: None });
     let bare = Props { textures: vec![wall().textures[0].clone()], ..wall() };
     for (props, mask, gains_tangents) in [(wall(), true, false), (bare, false, true), (wall(), false, false)] {
         let mut source = SetTextures::new(Some((KEY, s.clone())));
@@ -336,7 +342,14 @@ fn height_map_eligibility_honours_the_mask_switch_and_shape_constraints() {
     let mut source = SetTextures::new(Some((KEY, s.clone())));
     let mut copy = triangle();
     let (m, _) = shape_material_with(&bare(), &mut copy, &mut source, Tangents::Keep);
-    assert!(m.base.depth_map.is_some() && copy.attribute(Mesh::ATTRIBUTE_TANGENT).is_some(), "a copy of a drawn mesh without tangents has them generated");
+    // A copy of a drawn mesh without tangents: tangents made on the copy would never reach the
+    // drawn mesh, so the height map stays off and none are made for it (#2979 review).
+    assert!(m.base.depth_map.is_none() && copy.attribute(Mesh::ATTRIBUTE_TANGENT).is_none(), "a copy of a drawn mesh without tangents takes no height map");
+    assert!(m.base.metallic_roughness_texture.is_some(), "the rest of the set still applies");
+    let mut copy = triangle();
+    copy.generate_tangents().unwrap();
+    let (m, _) = shape_material_with(&bare(), &mut copy, &mut source, Tangents::Keep);
+    assert!(m.base.depth_map.is_some(), "a copy of a drawn mesh that has tangents takes it");
     assert_eq!(crate::authored::height_gate(&m, false), Err(crate::authored::HeightSkip::NoTangents), "without tangents on the mesh the gate refuses");
 }
 
@@ -405,3 +418,166 @@ fn the_unlit_cleanup_leaves_parallax_settings_it_did_not_put_on() {
     crate::authored::restore(&mut authored, &look);
     assert_eq!((authored.base.parallax_depth_scale, authored.base.max_parallax_layer_count), (0.2, 32.0));
 }
+
+/// A lit shape whose texture set names a height map in slot 3, with the parallax flag
+/// (BSShaderFlags bit 11) when `flag` (#2979).
+fn flagstones(flag: bool) -> Props {
+    Props {
+        textures: vec![r"architecture\mccarran\flagstone.dds".into(), r"architecture\mccarran\flagstone_n.dds".into(), String::new(), r"architecture\mccarran\flagstone_p.dds".into()],
+        parallax: flag,
+        ..Default::default()
+    }
+}
+
+const FLAGSTONE_KEY: &str = r"textures\architecture\mccarran\flagstone.dds";
+
+/// #2979: slot 3 is drawn as the game's own height map only with the parallax flag, at the
+/// game depth, with the set height maps' method and layers, whatever the Authored materials
+/// setting; it is the game's material (no overlay mark), so the legacy look keeps it. Shapes
+/// that may draw no height map stay flat and load no file; a bare shape gains tangents for it.
+#[test]
+fn the_games_own_height_map_is_drawn_on_flagged_shapes() {
+    let depth = crate::authored::game_parallax_depth();
+    if depth <= 0.0 {
+        return; // NVF_GAME_PARALLAX_DEPTH=0 in this test's environment: nothing to draw.
+    }
+    for on in [true, false] {
+        let mut source = SetTextures::with(None);
+        source.on = on;
+        let (m, _) = shape_material_with(&flagstones(true), &mut triangle(), &mut source, Tangents::Generate);
+        let p = source.handle(r"architecture\mccarran\flagstone_p.dds");
+        assert_eq!(Parallax::of(&m.base), Parallax::game(p.clone()), "setting on={on}: the slot-3 map at the game depth");
+        assert_eq!(m.base.parallax_depth_scale, depth);
+        assert!(!crate::authored::height_on(&m), "the game's own map is no overlay");
+        assert!(!crate::authored::is_authored(&m));
+        assert_eq!(m.extension.legacy.as_ref().map(|l| l.parallax.depth_map.clone()), on.then_some(Some(p)), "the legacy look's baseline holds it");
+    }
+    // No flag, or an empty slot: flat.
+    let mut source = SetTextures::with(None);
+    let (m, _) = shape_material_with(&flagstones(false), &mut triangle(), &mut source, Tangents::Generate);
+    assert!(m.base.depth_map.is_none(), "slot 3 without the flag is not drawn");
+    let mut empty = flagstones(true);
+    empty.textures[3].clear();
+    let (m, _) = shape_material_with(&empty, &mut triangle(), &mut source, Tangents::Generate);
+    assert!(m.base.depth_map.is_none());
+    // The shapes a set's height map is refused on refuse the game's too, without loading it.
+    for (why, props) in [
+        ("alpha blended", Props { alpha: Some((0x10ED, 0)), ..flagstones(true) }),
+        ("double-sided", Props { double_sided: true, ..flagstones(true) }),
+        ("decal", Props { decal: true, ..flagstones(true) }),
+        ("refracting", Props { refraction: Some(0.2), ..flagstones(true) }),
+    ] {
+        let mut source = SetTextures::with(None);
+        let mut mesh = triangle();
+        let (m, _) = shape_material_with(&props, &mut mesh, &mut source, Tangents::Generate);
+        assert!(m.base.depth_map.is_none(), "{why}: flat");
+        assert!(!source.by_path.contains_key(&fnv_vfs::texture_path(r"architecture\mccarran\flagstone_p.dds")), "{why}: the height map is not loaded");
+    }
+    // A shape without a game normal map gains tangents for its height map.
+    let mut bare = flagstones(true);
+    bare.textures[1].clear();
+    let mut mesh = triangle();
+    let (m, _) = shape_material_with(&bare, &mut mesh, &mut SetTextures::with(None), Tangents::Generate);
+    assert!(m.base.depth_map.is_some() && mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some());
+}
+
+/// #2979 and #2981: a set's `_p` wins over the game's slot-3 map; a set without `_p` leaves
+/// the game's map drawn; taking the set off puts the game's map back.
+#[test]
+fn an_authored_height_map_wins_over_the_games_own() {
+    if crate::authored::game_parallax_depth() <= 0.0 {
+        return;
+    }
+    let mut scratch = Assets::<Image>::default();
+    let authored_p = height(&mut scratch, 0.06);
+    let mut with_p = set(&mut scratch, false, Scalars::default());
+    with_p.height = Some(authored_p.clone());
+    for s in [PbrSet::Authored(with_p.clone()), PbrSet::HeightOnly(crate::authored::HeightSet { stem: with_p.stem.clone(), height: authored_p.clone() })] {
+        let mut source = SetTextures::with(Some((FLAGSTONE_KEY, s.clone())));
+        let (mut m, _) = shape_material_with(&flagstones(true), &mut triangle(), &mut source, Tangents::Generate);
+        let game = Parallax::game(source.handle(r"architecture\mccarran\flagstone_p.dds"));
+        assert_eq!(Parallax::of(&m.base), authored_p, "{}: the set's _p is drawn", s.stem());
+        let legacy = m.extension.legacy.clone().unwrap();
+        assert_eq!(legacy.parallax, game, "the game's map is the legacy baseline");
+        crate::authored::take_off(&mut m, &legacy);
+        assert_eq!(Parallax::of(&m.base), game, "taken off: the game's map is back");
+    }
+    let no_p = set(&mut scratch, true, Scalars::default());
+    let mut source = SetTextures::new(Some((FLAGSTONE_KEY, no_p)));
+    let (m, _) = shape_material_with(&flagstones(true), &mut triangle(), &mut source, Tangents::Generate);
+    assert!(crate::authored::is_authored(&m));
+    assert_eq!(m.base.depth_map, Some(source.handle(r"architecture\mccarran\flagstone_p.dds")), "a set without _p keeps the game's map");
+}
+
+/// #2979: copies that stop qualifying (a fade, a cloak) drop the game's own height map as
+/// they drop a set's; an opaque copy keeps it.
+#[test]
+fn copies_that_stop_being_eligible_drop_the_games_own_height_map() {
+    if crate::authored::game_parallax_depth() <= 0.0 {
+        return;
+    }
+    for on in [true, false] {
+        let mut source = SetTextures::with(None);
+        source.on = on;
+        let (m, _) = shape_material_with(&flagstones(true), &mut triangle(), &mut source, Tangents::Generate);
+        let mut kept = m.clone();
+        assert!(!crate::authored::recheck_height(&mut kept), "still opaque");
+        assert!(kept.base.depth_map.is_some());
+        let mut fading = m.clone();
+        fading.base.alpha_mode = AlphaMode::Blend;
+        assert!(crate::authored::recheck_height(&mut fading), "setting on={on}");
+        assert!(fading.base.depth_map.is_none());
+        let mut cloak = m.clone();
+        refraction_material(&mut cloak, 0.2, 0.0);
+        assert!(cloak.base.depth_map.is_none(), "setting on={on}: a refracting copy");
+    }
+}
+
+/// #2979 review: an actor's texture-set copy (`Tangents::Keep`, the actor draws the original
+/// mesh) whose record gives a flagged shape a slot-3 map: the material takes it only where the
+/// drawn mesh has tangents, and no tangents are made on the copy for it; mesh and material
+/// are judged together.
+#[test]
+fn a_copy_of_a_drawn_mesh_takes_the_games_height_map_only_with_its_own_tangents() {
+    if crate::authored::game_parallax_depth() <= 0.0 {
+        return;
+    }
+    // No game normal map, so nothing else asks for tangents.
+    let mut bare = flagstones(true);
+    bare.textures[1].clear();
+    let mut source = SetTextures::with(None);
+    let mut drawn = triangle();
+    let (m, _) = shape_material_with(&bare, &mut drawn, &mut source, Tangents::Keep);
+    assert!(drawn.attribute(Mesh::ATTRIBUTE_TANGENT).is_none(), "no tangents made on the copy");
+    assert!(m.base.depth_map.is_none(), "the drawn mesh has no tangents: no height map");
+    assert!(!source.by_path.contains_key(&fnv_vfs::texture_path(r"architecture\mccarran\flagstone_p.dds")), "and it is not loaded");
+    let mut drawn = triangle();
+    drawn.generate_tangents().unwrap();
+    let (m, _) = shape_material_with(&bare, &mut drawn, &mut source, Tangents::Keep);
+    assert!(drawn.attribute(Mesh::ATTRIBUTE_TANGENT).is_some() && m.base.depth_map.is_some(), "with its own tangents the copy takes it");
+}
+
+/// #2979 review: an effect shader's holes start at 255 (nothing eaten yet) and fall by
+/// animation alone, which asks the height gate no more; a holes copy therefore drops its
+/// height map (the game's or a set's) from the start, whatever the alpha-tested switch.
+#[test]
+fn a_holes_copy_drops_its_height_map_before_the_holes_open() {
+    let mut scratch = Assets::<Image>::default();
+    let h = height(&mut scratch, 0.05);
+    let mut sources: Vec<(SetTextures, Props)> = vec![(SetTextures::with(Some((KEY, PbrSet::HeightOnly(crate::authored::HeightSet { stem: r"textures\pbr\walls\brick".into(), height: h })))), wall())];
+    if crate::authored::game_parallax_depth() > 0.0 {
+        sources.push((SetTextures::with(None), flagstones(true)));
+    }
+    for (mut source, props) in sources {
+        let (m, _) = shape_material_with(&props, &mut triangle(), &mut source, Tangents::Generate);
+        assert!(m.base.depth_map.is_some());
+        for (x, texture) in [(255.0, true), (255.0, false), (-1.0, true)] {
+            let mut holed = m.clone();
+            holed.extension.holes = Vec4::new(x, 4.0, 0.0, 0.0);
+            holed.extension.holes_texture = texture.then(Handle::default);
+            assert_eq!(crate::authored::height_gate(&holed, true), Err(crate::authored::HeightSkip::Other), "holes {x}, texture {texture}");
+            assert!(crate::authored::recheck_height(&mut holed) && holed.base.depth_map.is_none(), "holes {x}, texture {texture}");
+        }
+    }
+}
+

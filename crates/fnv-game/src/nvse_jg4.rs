@@ -268,13 +268,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `faction [rank]`: the base actors whose factions hold the faction, at that rank
         // when one is given [documented: GetFactionMembers]. The factions are the ones the
         // actor has, its template's when the template supplies them [observed: jg4
-        // fact.members.mercfac listed the 16 mercenaries that take NVMercenaryMale's]; a
-        // rank of -1 is no rank [observed: jg4 fact.members.militia.-1; hypothesis: any
-        // negative rank]. In the game's order: the NPC_ records, then the CREA records,
-        // each in the order of the plugins' records [observed: jg4 fact.members.militia,
-        // GSCheyenne (CREA) last; hypothesis: the order across plugins].
+        // fact.members.mercfac listed the 16 mercenaries that take NVMercenaryMale's]; only
+        // -1 (or omitted) means any rank, while -2 and -5 return 0 members [observed:
+        // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, clean-room
+        // script probe jg_11_faction_members_neg_rank: 5,0,0; no DLL or source consulted].
+        // In the game's order: the NPC_ records, then the CREA records, each in the order
+        // of the plugins' records [observed: jg4 fact.members.militia, GSCheyenne (CREA)
+        // last; hypothesis: the order across plugins].
         "getfactionmembers" => {
-            let rank = index(args, 1).filter(|&k| k >= 0);
+            let rank = index(args, 1).filter(|&k| k != -1);
             let mut members: Vec<FormId> = match form(args, 0) {
                 Some(f) => g
                     .data

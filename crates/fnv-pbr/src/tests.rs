@@ -210,7 +210,7 @@ fn first_person_falls_back_to_the_plain_set() {
 #[test]
 fn scalars_valid() {
     let f = parse_scalars(b"parallax_depth = 0.05\nroughness_scale = 0.8\nreflectance = 0\n");
-    assert_eq!(f.scalars, Scalars { parallax_depth: Some(0.05), roughness_scale: Some(0.8), reflectance: Some(0.0) });
+    assert_eq!(f.scalars, Scalars { parallax_depth: Some(0.05), roughness_scale: Some(0.8), reflectance: Some(0.0), metal_gain: None });
     assert!(f.warnings.is_empty(), "{:?}", f.warnings);
     // An empty file, and one with a byte order mark and a comment.
     let empty = parse_scalars(b"");
@@ -227,7 +227,7 @@ fn scalars_valid() {
 #[test]
 fn scalars_unknown_keys_and_wrong_types_warn() {
     let f = parse_scalars(b"normal_strength = 2.0\nReflectance = 0.3\nroughness_scale = \"rough\"\nreflectance = 0.4\n[extra]\nx = 1\n");
-    assert_eq!(f.scalars, Scalars { parallax_depth: None, roughness_scale: None, reflectance: Some(0.4) });
+    assert_eq!(f.scalars, Scalars { parallax_depth: None, roughness_scale: None, reflectance: Some(0.4), metal_gain: None });
     assert_eq!(
         f.warnings,
         [
@@ -245,7 +245,7 @@ fn scalars_unknown_keys_and_wrong_types_warn() {
 #[test]
 fn scalars_out_of_range_are_clamped() {
     let f = parse_scalars(b"parallax_depth = 1.5\nroughness_scale = -1\nreflectance = 1.2\n");
-    assert_eq!(f.scalars, Scalars { parallax_depth: Some(0.08), roughness_scale: Some(0.0), reflectance: Some(1.0) });
+    assert_eq!(f.scalars, Scalars { parallax_depth: Some(0.08), roughness_scale: Some(0.0), reflectance: Some(1.0), metal_gain: None });
     assert_eq!(
         f.warnings,
         ["`parallax_depth` = 1.5 is outside 0 to 0.08: clamped to 0.08", "`reflectance` = 1.2 is outside 0 to 1: clamped to 1", "`roughness_scale` = -1 is outside 0 to 2: clamped to 0",]
@@ -279,4 +279,29 @@ fn scalars_not_toml_are_ignored() {
     let f = parse_scalars(b"reflectance = 0.5\xff\n");
     assert!(f.unreadable);
     assert_eq!((f.scalars, f.warnings), (Scalars::default(), vec!["not UTF-8 text: ignored".to_string()]));
+}
+
+#[test]
+fn scalars_metal_gain_reads_clamps_and_defaults() {
+    let f = parse_scalars(b"metal_gain = 6\n");
+    assert_eq!((f.scalars.metal_gain, f.warnings.len()), (Some(6.0), 0));
+    // Set in the file: the file's; unset: 12.
+    assert_eq!(f.scalars.metal_gain_or_default(), 6.0);
+    assert_eq!(Scalars::default().metal_gain_or_default(), DEFAULT_METAL_GAIN);
+    assert_eq!(DEFAULT_METAL_GAIN, 12.0);
+    assert!(METAL_GAIN_RANGE.contains(&DEFAULT_METAL_GAIN));
+    // Out of range: clamped with a warning; the ends are inside.
+    let low = parse_scalars(b"metal_gain = 0.5\n");
+    assert_eq!(low.scalars.metal_gain, Some(1.0));
+    assert_eq!(low.warnings, ["`metal_gain` = 0.5 is outside 1 to 40: clamped to 1"]);
+    let high = parse_scalars(b"metal_gain = 100\n");
+    assert_eq!(high.scalars.metal_gain, Some(40.0));
+    assert_eq!(high.warnings, ["`metal_gain` = 100 is outside 1 to 40: clamped to 40"]);
+    let ends = parse_scalars(b"metal_gain = 1\n");
+    assert!(ends.warnings.is_empty() && ends.scalars.metal_gain == Some(1.0));
+    assert!(parse_scalars(b"metal_gain = 40.0\n").warnings.is_empty());
+    // Not a number: ignored with a warning, so the default applies.
+    let word = parse_scalars(b"metal_gain = \"steel\"\n");
+    assert_eq!(word.scalars.metal_gain, None);
+    assert_eq!(word.warnings, ["`metal_gain` is a string, not a number: ignored"]);
 }

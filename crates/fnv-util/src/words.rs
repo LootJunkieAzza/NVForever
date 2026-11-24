@@ -183,10 +183,11 @@ pub fn set_language(id_or_name: &str) -> bool {
 /// Russian, the one Cyrillic release of the game [hypothesis: one Russian install looked
 /// at, docs/spec-notes/fonts.md §2.1]. Windows-1250 (Polish or Czech) and 1252 (English,
 /// French, German, Italian, Spanish) are each several languages, so they tell none.
+/// Code page 936 also leaves the interface language at its default.
 pub fn for_code_page(page: CodePage) -> Option<&'static str> {
     match page {
         CodePage::Windows1251 => Some("ru"),
-        CodePage::Windows1250 | CodePage::Windows1252 => None,
+        CodePage::Windows1250 | CodePage::Windows1252 | CodePage::Windows936 => None,
     }
 }
 
@@ -336,6 +337,7 @@ mod tests {
         assert_eq!(for_code_page(CodePage::Windows1251), Some("ru"));
         assert_eq!(for_code_page(CodePage::Windows1250), None);
         assert_eq!(for_code_page(CodePage::Windows1252), None);
+        assert_eq!(for_code_page(CodePage::Windows936), None);
     }
 
     #[test]

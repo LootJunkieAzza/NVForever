@@ -12,6 +12,7 @@
 //! [`dialogue_look`] turns the player's view to the actor they talk to.
 
 pub mod after_combat;
+pub mod game_files;
 pub mod activate;
 pub mod aid;
 pub mod aim_zoom;
@@ -19,6 +20,7 @@ pub mod ambient;
 pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
+pub mod bullet_snap;
 pub mod chargen;
 pub mod clutter_pose;
 pub mod collision_view;
@@ -178,6 +180,8 @@ pub mod voice_filter;
 pub mod wait;
 pub mod world_sounds;
 pub mod xp_meter;
+
+mod cjk_font;
 
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Schema};
@@ -431,6 +435,8 @@ pub struct PlayPlugin(pub PlayData);
 impl Plugin for PlayPlugin {
     fn build(&self, app: &mut App) {
         let d = self.0;
+        // Whose record names a file that is not there (game_files.rs, #2757).
+        game_files::note_load_order(d.lo);
         app.insert_resource(PlayWorld(d))
             .insert_resource(Location { world: d.world, interior: d.interior })
             .insert_resource(sim::SimState::new(d.lo, d.schema, d.index))
@@ -444,10 +450,11 @@ impl Plugin for PlayPlugin {
             .add_message::<world_sounds::DoorPassed>()
             .add_message::<world_sounds::ImpactPicked>()
             .add_message::<ui_sounds::UiSound>()
+            .add_systems(First, cjk_font::update)
             .init_resource::<furniture::PlayerSeat>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
-            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, holotape::HolotapePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
+            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, bullet_snap::BulletSnapPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, holotape::HolotapePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, effect_sounds::EffectSoundsPlugin, reticle::ReticlePlugin, quick_loot::QuickLootPlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin, borders::BordersPlugin))
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, key_repeat::KeyRepeatPlugin, rumble::RumblePlugin, shake::ShakePlugin, script_input::ScriptInputPlugin, aim_assist::AimAssistPlugin))
             .add_plugins(script_switches::ScriptSwitchesPlugin)

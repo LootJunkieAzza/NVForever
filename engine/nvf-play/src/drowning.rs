@@ -168,7 +168,7 @@ fn breathe(
     let hit = pb.rules.damage * HIT_SECONDS;
     while pb.owed >= hit && hit > 0.0 {
         pb.owed -= hit;
-        let info = fnv_game::combat::HitInfo { attacker: None, weapon: None, location: -1, critical: false, limb: None };
+        let info = fnv_game::combat::HitInfo { location: -1, ..Default::default() };
         let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { break };
         if crate::combat::god_mode() {
             info!("drowning: {hit:.1} damage (immune: god mode)");

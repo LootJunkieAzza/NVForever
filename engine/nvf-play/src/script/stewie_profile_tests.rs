@@ -189,7 +189,7 @@ fn application_defaults_ignore_original_ini_at_startup_and_live_choices_reach_re
             &mut rt,
             "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"
         ),
-        XVal::Num(941.0)
+        XVal::Num(945.0)
     );
     let saved = with_world(&mut rt, &mut sim, |rt| rt.game.snapshot());
     let bytes = serde_json::to_vec(&saved).unwrap();

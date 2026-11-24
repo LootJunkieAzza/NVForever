@@ -72,7 +72,7 @@ pub fn carried(forms: &CombatForms, items: impl Iterator<Item = (FormId, i32)>) 
             let proj = forms.chain(id, None)?.projectile?;
             let p = forms.projectiles.get(&proj)?;
             let blast = forms.explosions.get(&p.explodes()?)?.radius;
-            (blast > 0.0 && p.speed > 0.0).then_some(Grenade { weapon: id, speed: p.speed, gravity_mult: p.gravity, blast })
+            (blast > 0.0 && p.speed > 0.0).then_some(Grenade { weapon: id, speed: p.speed, gravity_mult: p.fall(), blast })
         })
         .min_by_key(|g| g.weapon)
 }

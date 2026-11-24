@@ -28,6 +28,7 @@
 //! in the home and passes `fnv_install::guard_write`.
 
 pub mod anomaly;
+pub mod asset_sources;
 pub mod snapshot;
 mod controls;
 mod delete;
@@ -522,7 +523,7 @@ impl Plugin for ReportsPlugin {
                 detectors: Default::default(),
             })
             .add_systems(Startup, (read_gpu, read_window))
-            .add_systems(Update, (collect, track_loads, detect.after(nvf_play::control::enforce_locks)).chain())
+            .add_systems(Update, (collect, track_loads, list_model_sources, detect.after(nvf_play::control::enforce_locks)).chain())
             // After Bevy's window-closed exit (AppExit in Last): else a window closed by the
             // player missed the clean end and the run was sent as a native crash (#2203).
             .add_systems(Last, (controls::detect, write_summary.after(bevy::window::ExitSystems)).chain());
@@ -802,6 +803,14 @@ mod stuck_tests {
     }
 }
 
+/// Whose record names each model file, listed once on a thread of its own as soon as the
+/// load order is there (#3045, asset_sources.rs).
+fn list_model_sources(world: Option<Res<crate::world::WorldData>>) {
+    if let Some(world) = world {
+        anomaly::list_model_sources(world.lo);
+    }
+}
+
 /// The anomaly detectors that read the game's state each frame (anomaly.rs), and the ones
 /// the log lines found since the last frame, given where the player is.
 fn detect(
@@ -900,6 +909,12 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
             info!("reports: no summary for this run (it never reached the world)");
         }
         return;
+    }
+    // What the last frame's log lines found: a GPU error that stops the game (`gpu_error`)
+    // is logged in the frame the game exits in, after `detect` ran (#2758).
+    if exiting {
+        let t_s = c.started.elapsed().as_secs();
+        c.detectors.drain_log(&mut c.summary, &c.here, t_s);
     }
     bring_up_to_date(c, script.as_deref(), exiting);
     let bytes = c.summary.to_bytes(redact);

@@ -1024,6 +1024,86 @@ fn a_teammate_reacts_as_if_in_the_player_faction() {
 }
 
 #[test]
+fn a_teammate_takes_up_only_the_fights_within_its_reach() {
+    // #3456: a foe of the player's in another space, or in the same one but beyond
+    // `ALARM_RADIUS` of both the teammate and the player, gives the teammate no alarm; a
+    // near one does, near the teammate or near the player only.
+    let f = fixture();
+    let (loafer, own, player) = (FormId(LOAFER_REF), FormId(OWN_REF), FormId::PLAYER_REF);
+    let set_up = |g: &mut Game, foe_cell: FormId, foe_at: [f32; 3], mate_at: [f32; 3]| {
+        g.extra.entry(loafer).or_default().teammate = true;
+        assert!(g.attacked_by(own, player));
+        fighting(g, OWN_REF, PLAYER);
+        g.detection.pairs.insert((loafer, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+        let p = g.world.get(player).unwrap();
+        (p.cell, p.pos) = (Some(FormId(CELL)), [0.0; 3]);
+        g.world.get(loafer).unwrap().pos = mate_at;
+        let s = g.world.get(own).unwrap();
+        (s.cell, s.pos) = (Some(foe_cell), foe_at);
+    };
+    let alarmed = |g: &Game| g.awareness.get(loafer).is_some_and(|a| a.alarms.iter().any(|x| x.owner == own && x.cause == Cause::Ally));
+    // In another space (a cell of no known worldspace is a space of its own), right beside it.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(0x00BA_DCE1), [100.0, 0.0, 0.0], [0.0; 3]);
+    assert_eq!(g.teammates_assist(), 0, "another space");
+    assert!(!alarmed(&g));
+    // In the same space, far from both.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(CELL), [50_000.0, 0.0, 0.0], [0.0; 3]);
+    assert_eq!(g.teammates_assist(), 0, "far away");
+    assert!(!alarmed(&g));
+    // Near the teammate and the player.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(CELL), [500.0, 0.0, 0.0], [0.0; 3]);
+    assert_eq!(g.teammates_assist(), 1, "near");
+    assert!(alarmed(&g));
+    // Near the player, the teammate left behind far off in the same space.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(CELL), [500.0, 0.0, 0.0], [30_000.0, 0.0, 0.0]);
+    assert_eq!(g.teammates_assist(), 1, "near the player");
+    // Near the teammate, the player far off.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(CELL), [30_500.0, 0.0, 0.0], [30_000.0, 0.0, 0.0]);
+    assert_eq!(g.teammates_assist(), 1, "near the teammate");
+}
+
+#[test]
+fn a_teammate_does_not_go_for_a_foe_left_behind_for_good() {
+    // #3390: the foe fighting the player is measured no more (its cell unloaded, here within
+    // `ALARM_RADIUS` in the same space). It loses the player and calms down on the timers,
+    // and with it the alarms that send the teammate after it end.
+    let f = fixture();
+    let mut g = game(&f);
+    let (loafer, own, player) = (FormId(LOAFER_REF), FormId(OWN_REF), FormId::PLAYER_REF);
+    g.extra.entry(loafer).or_default().teammate = true;
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, PLAYER);
+    g.detection.measures_player = true;
+    let p = g.world.get(player).unwrap();
+    (p.cell, p.pos) = (Some(FormId(CELL)), [0.0; 3]);
+    g.world.get(loafer).unwrap().pos = [0.0; 3];
+    let s = g.world.get(own).unwrap();
+    (s.cell, s.pos) = (Some(FormId(CELL)), [9000.0, 0.0, 0.0]);
+    let round = |g: &mut Game, dt: f64| {
+        g.time += dt;
+        g.detection.record(loafer, player, Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time);
+        g.detection.forget_older_than(g.time - 1.0);
+        g.lose_unmeasured(&[loafer].into_iter().collect());
+        let given = g.teammates_assist();
+        g.settle_awareness();
+        given
+    };
+    assert_eq!(round(&mut g, 0.0), 1, "the fight is the teammate's too");
+    for _ in 0..80 {
+        round(&mut g, 1.0);
+    }
+    assert_eq!(g.awareness.state(own), State::Normal);
+    assert_eq!(g.awareness.state(loafer), State::Normal);
+    assert!(g.awareness.get(loafer).is_none_or(|a| a.search_alarm().is_none()), "nothing to head for");
+    assert_eq!(round(&mut g, 1.0), 0);
+}
+
+#[test]
 fn an_escort_joins_its_charges_fights() {
     // packages.md §3.1 [documented: GECK wiki Defensive Combat, "if the target is
     // attacked, the actor will join into the combat"]. The helper (a rat, no enemy of the

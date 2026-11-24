@@ -1,12 +1,14 @@
 //! Authored portable player-command consumers; no game data or native parity claim.
 use crate::common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
-use fnv_game::{actor_values as av, functions, game::{GameSnapshot, RunCtx}, trace::EventKind, Game, GameConfig, GameData};
-use fnv_script::{vm::XVal, FunctionTable};
+use fnv_game::{actor_values as av, cond, functions, game::{GameSnapshot, RunCtx}, trace::EventKind, Game, GameConfig, GameData};
+use fnv_script::{vm::{ArgValue, Value, XVal}, FunctionTable};
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 
 const REP: FormId = FormId(0x850);
 const OTHER_REP: FormId = FormId(0x851);
+const EXPELLED_FAC: FormId = FormId(0x870);
+const OTHER_FAC: FormId = FormId(0x871);
 const NPC: FormId = FormId(0x300);
 const ESSENTIAL_NPC: FormId = FormId(0x301);
 const REMOTE_NPC: FormId = FormId(0x302);
@@ -20,6 +22,7 @@ fn fixture() -> Fixture {
         sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![strength, 5, 5, 5, 5, 5, 5]].concat()),
     ]);
     let rep = |id, name| record(b"REPU", 0, id, &[sub(b"EDID", z(name)), sub(b"DATA", 20f32.to_le_bytes().to_vec())]);
+    let fac = |id, name| record(b"FACT", 0, id, &[sub(b"EDID", z(name))]);
     let placed = record(b"ACHR", 0, NPC.0, &[sub(b"EDID", z("ProgressionNeighborRef")), sub(b"NAME", 0x800u32.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
     let placed_essential = record(b"ACHR", 0, ESSENTIAL_NPC.0, &[sub(b"EDID", z("ProgressionEssentialRef")), sub(b"NAME", 0x800u32.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
     let placed_remote = record(b"ACHR", 0, REMOTE_NPC.0, &[sub(b"EDID", z("ProgressionRemoteRef")), sub(b"NAME", 0x800u32.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
@@ -34,6 +37,7 @@ fn fixture() -> Fixture {
     ].concat();
     let bytes = [tes4(),
         top(b"GMST", &settings),
+        top(b"FACT", &[fac(EXPELLED_FAC.0, "ExpelledFaction"), fac(OTHER_FAC.0, "OtherFaction")].concat()),
         top(b"NPC_", &[npc(7, "Player", 5), npc(0x800, "ProgressionNeighbor", 8)].concat()),
         top(b"REPU", &[rep(REP.0, "ProgressionRep"), rep(OTHER_REP.0, "ProgressionOtherRep")].concat()),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children, remote_cell, remote_children].concat()))),
@@ -225,6 +229,7 @@ fn focused_vanilla_census_keeps_source_support_separate_from_native_encoding() {
         ("AdvancePCLevel", "AdvancePCLevel"),
         ("ModPCAttribute", "ModPCAttribute Strength 0"),
         ("RemoveReputationExact", "RemoveReputationExact ProgressionRep 0 0.25"),
+        ("SetPCExpelled", "SetPCExpelled ExpelledFaction 0"),
         ("ShowNameMenu", "ShowNameMenu"),
         ("KillAllActors", "KillAllActors"),
     ] {
@@ -232,13 +237,93 @@ fn focused_vanilla_census_keeps_source_support_separate_from_native_encoding() {
         assert_eq!(g.data.table.by_name(name), None, "native encoding is unmeasured");
         success(&mut g, source);
     }
+    assert_eq!(g.data.table.by_name("GetPCExpelled"), Some(0x10C1));
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
     let catalogue = serde_json::from_str(&std::fs::read_to_string(root).unwrap()).unwrap();
     let (console, other) = functions::console::unhandled_unused(&catalogue);
-    assert_eq!((console.len(), other.len()), (33, 89));
-    for name in ["AdvancePCLevel", "ModPCAttribute", "RemoveReputationExact", "ShowNameMenu", "KillAllActors"] {
+    assert_eq!((console.len(), other.len()), (33, 77));
+    for name in ["AdvancePCLevel", "ModPCAttribute", "RemoveReputationExact", "SetPCExpelled", "GetPCExpelled", "ShowNameMenu", "KillAllActors"] {
         assert!(!console.iter().chain(&other).any(|n| n == name));
     }
+}
+
+#[test]
+fn set_and_get_pc_expelled_track_membership_ctda_persistence_and_guards() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Real catalogue-backed CTDA parse for GetPCExpelled (condition index 193, opcode 0x10C1,
+    // ptFaction) using a nonidentity local-to-load-order FormID map.
+    const LOCAL_FAC: u32 = 0x123;
+    let ctda = |raw: u32| {
+        cond::parse(
+            &serde_json::json!({
+                "type": 0, "function": 193, "comparison_value_raw": 1.0f32.to_bits(),
+                "parameter1_raw": raw, "parameter2_raw": 0, "run_on": 0,
+            }),
+            &g.data.param_types,
+            &|id| (id == LOCAL_FAC).then_some(EXPELLED_FAC.0),
+        )
+        .unwrap()
+    };
+    let c_expelled = ctda(LOCAL_FAC);
+    assert_eq!(c_expelled.opcode(), 0x10C1);
+    assert!(matches!(c_expelled.params.as_slice(), [ArgValue::Value(Value::Ref(id))] if *id == EXPELLED_FAC.0));
+
+    // Initial state: not expelled, snapshot omits empty expelled_from.
+    assert_eq!(success(&mut g, "SetFunctionValue (GetPCExpelled ExpelledFaction)"), XVal::Num(0.0));
+    assert_eq!(g.eval_conditions(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "initial")[0].value, 0.0);
+    assert!(!serde_json::to_string(&g.checked_snapshot().unwrap()).unwrap().contains("expelled_from"));
+
+    // Join ExpelledFaction on both player and neighbor; also keep OtherFaction + enemy_of separate.
+    success(&mut g, "player.AddToFaction ExpelledFaction 2\nProgressionNeighborRef.AddToFaction ExpelledFaction 1\nSetPCEnemyOfFaction OtherFaction 1");
+    assert_eq!(success(&mut g, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(1.0));
+    assert_eq!(success(&mut g, "SetFunctionValue (player.GetFactionRank ExpelledFaction)"), XVal::Num(2.0));
+
+    // Valid explicit receiver still acts on the player, expels membership, and leaves neighbor untouched.
+    success(&mut g, "ProgressionNeighborRef.SetPCExpelled ExpelledFaction 1");
+    assert_eq!(success(&mut g, "SetFunctionValue (GetPCExpelled ExpelledFaction)"), XVal::Num(1.0));
+    assert_eq!(success(&mut g, "SetFunctionValue (GetPCExpelled OtherFaction)"), XVal::Num(0.0));
+    assert_eq!(g.eval_conditions(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "expelled")[0].value, 1.0);
+    assert!(g.conditions_pass(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "expelled pass"));
+    assert_eq!(success(&mut g, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(0.0));
+    assert_eq!(success(&mut g, "SetFunctionValue (player.GetFactionRank ExpelledFaction)"), XVal::Num(-1.0));
+    assert_eq!(success(&mut g, "SetFunctionValue (ProgressionNeighborRef.GetFactionRank ExpelledFaction)"), XVal::Num(1.0));
+    assert_eq!(success(&mut g, "SetFunctionValue (GetPCEnemyOfFaction ExpelledFaction)"), XVal::Num(0.0));
+    assert_eq!(success(&mut g, "SetFunctionValue (GetPCEnemyOfFaction OtherFaction)"), XVal::Num(1.0));
+
+    // Save/restore preserves expelled_from and keeps CTDA & source readback agreeing.
+    let snap: GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.checked_snapshot().unwrap()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut restored = Game::restore(&f.data, world, g.cfg, &snap).unwrap();
+    assert_eq!(success(&mut restored, "SetFunctionValue (GetPCExpelled ExpelledFaction)"), XVal::Num(1.0));
+    assert_eq!(restored.eval_conditions(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "restored")[0].value, 1.0);
+
+    // Clearing the flag via ref expression clears GetPCExpelled without re-adding faction membership.
+    success(&mut restored, "ref rFac\nlet rFac := ExpelledFaction\nSetPCExpelled (rFac) 0");
+    assert_eq!(success(&mut restored, "SetFunctionValue (GetPCExpelled ExpelledFaction)"), XVal::Num(0.0));
+    assert_eq!(restored.eval_conditions(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "cleared")[0].value, 0.0);
+    assert_eq!(success(&mut restored, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(0.0));
+
+    // Receiver and invalid-input boundaries fail cleanly without mutating state.
+    runtime_failure(&mut restored, "ref empty\nempty.SetPCExpelled ExpelledFaction 1", "setpcexpelled called on no reference");
+    runtime_failure(&mut restored, "ref receiver\nlet receiver := 0x123456\nreceiver.SetPCExpelled ExpelledFaction 1", "invalid calling reference");
+    runtime_failure(&mut restored, "SetPCExpelled ProgressionRep 1", "parameter 1 (0x00000850) is not a faction");
+    runtime_failure(&mut restored, "SetPCExpelled NoSuchFaction 1", "unknown faction \"NoSuchFaction\"");
+    // Vanilla opcode GetPCExpelled reports CallFailed and returns 0 on a non-faction form.
+    let before_bad_get = restored.events.len();
+    assert_eq!(query(&mut restored, "SetFunctionValue (GetPCExpelled ProgressionRep)"), Ok(XVal::Num(0.0)));
+    assert!(restored.events[before_bad_get..].iter().any(|e| matches!(
+        &e.kind,
+        EventKind::CallFailed { name, error, .. } if name == "GetPCExpelled" && error == "parameter 1 (0x00000850) is not a faction"
+    )));
+    assert!(restored.player.expelled_from.is_empty());
+
+    // Null-form CTDA shortcut returns 0 without CallFailed.
+    let c_null = ctda(0);
+    let before = restored.events.len();
+    assert_eq!(restored.eval_conditions(std::slice::from_ref(&c_null), Some(FormId::PLAYER_REF), None, "null")[0].value, 0.0);
+    assert!(!restored.events[before..].iter().any(|e| matches!(e.kind, EventKind::CallFailed { .. })));
 }
 
 #[test]

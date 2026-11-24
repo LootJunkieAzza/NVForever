@@ -1,5 +1,5 @@
 //! Shared helpers:
-//! - The game's 8-bit text: [`text`] in the install's code page (Windows-1252 unless set
+//! - The game's encoded text: [`text`] in the install's code page (Windows-1252 unless set
 //!   otherwise, e.g. 1251 for a Russian install), [`cp1252`] always in Windows-1252, via
 //!   `encoding_rs`
 //! - SHA-256 for corpus fingerprints, via `sha2`
@@ -30,26 +30,25 @@ pub mod cp1252 {
     }
 }
 
-/// The game's 8-bit text in the install's code page.
+/// The game's text in the install's code page.
 ///
-/// The original's plugins, string fields, script strings and font glyph tables carry text
-/// as one byte a character. An English install's bytes are Windows-1252 [observed:
-/// docs/spec-notes/esm.md, "Text"]; a localized install is
-/// thought to keep the same one-byte format in its own code page, e.g. Windows-1251 for a
-/// Russian one [hypothesis: no localized data looked at, docs/spec-notes/fonts.md §2.1].
+/// An English install's text is Windows-1252 [observed: docs/spec-notes/esm.md,
+/// "Text"]. Localized text can use a different code page, such as Windows-1251
+/// for Russian. NVForever's code page 936 uses GB18030 for string encoding and
+/// decoding, including GBK and four-byte sequences (docs/spec-notes/fonts.md §2.1).
 ///
 /// The code page is one setting for the whole process ([`set_code_page`], read by
 /// [`code_page`]), chosen once at the start before any text is read: NVForever's own
 /// `NVForever.ini` (`[Text] CodePage=`) or `NVF_CODE_PAGE`. Windows-1252 is the default,
-/// so an English install reads exactly as it did. Every code page here maps all 256
-/// bytes to a character (the WHATWG tables: an undefined slot becomes the C1 control of
-/// the same value), so decoding and encoding again gives the same bytes back.
+/// so an English install reads exactly as it did. The Windows-125x pages round-trip
+/// all 256 single bytes. The single-byte glyph and input slots of 936 cover ASCII.
 pub mod text {
-    use encoding_rs::{Encoding, WINDOWS_1250, WINDOWS_1251, WINDOWS_1252};
+    use encoding_rs::{Encoding, GB18030, WINDOWS_1250, WINDOWS_1251, WINDOWS_1252};
+    use std::borrow::Cow;
     use std::sync::atomic::{AtomicU8, Ordering};
     use std::sync::OnceLock;
 
-    /// A one-byte code page of the game's text.
+    /// A code page of the game's text.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     pub enum CodePage {
         /// Western European; English installs [observed].
@@ -59,24 +58,35 @@ pub mod text {
         Windows1251,
         /// Central European (Polish, Czech); [hypothesis].
         Windows1250,
+        /// Simplified Chinese; uses the GB18030 codec including GBK.
+        Windows936,
     }
 
     impl CodePage {
-        pub const ALL: [CodePage; 3] = [CodePage::Windows1252, CodePage::Windows1251, CodePage::Windows1250];
+        pub const ALL: [CodePage; 4] = [
+            CodePage::Windows1252,
+            CodePage::Windows1251,
+            CodePage::Windows1250,
+            CodePage::Windows936,
+        ];
 
-        /// The code page's number: 1252, 1251, 1250.
+        /// The code page's number.
         pub fn number(self) -> u16 {
             match self {
                 CodePage::Windows1252 => 1252,
                 CodePage::Windows1251 => 1251,
                 CodePage::Windows1250 => 1250,
+                CodePage::Windows936 => 936,
             }
         }
 
         /// The code page a setting names: its number, with or without `cp`, `windows-`
-        /// or `windows` before it (case ignored).
+        /// or `windows` before it, or `gbk`/`gb18030` for 936 (case ignored).
         pub fn from_name(name: &str) -> Option<CodePage> {
             let n = name.trim().to_ascii_lowercase();
+            if matches!(n.as_str(), "gbk" | "gb18030") {
+                return Some(CodePage::Windows936);
+            }
             let digits = ["windows-", "windows", "cp"].iter().find_map(|p| n.strip_prefix(p)).unwrap_or(&n);
             CodePage::ALL.into_iter().find(|c| digits == c.number().to_string())
         }
@@ -86,13 +96,14 @@ pub mod text {
                 CodePage::Windows1252 => WINDOWS_1252,
                 CodePage::Windows1251 => WINDOWS_1251,
                 CodePage::Windows1250 => WINDOWS_1250,
+                CodePage::Windows936 => GB18030,
             }
         }
 
-        /// The characters of the codes 0x80 to 0xFF.
-        fn high(self) -> &'static [char; 128] {
+        /// The high glyph slots of the single-byte code pages.
+        fn high(self) -> Option<&'static [char; 128]> {
             static TABLES: [OnceLock<[char; 128]>; 3] = [OnceLock::new(), OnceLock::new(), OnceLock::new()];
-            TABLES[self as usize].get_or_init(|| {
+            Some(TABLES.get(self as usize)?.get_or_init(|| {
                 let bytes: Vec<u8> = (0x80..=0xFF).collect();
                 let s = self.decode(&bytes);
                 let mut out = ['?'; 128];
@@ -100,12 +111,18 @@ pub mod text {
                     *o = c;
                 }
                 out
-            })
+            }))
         }
 
-        /// Decode; never fails (module notes).
+        /// Decode, replacing malformed sequences with U+FFFD.
         pub fn decode(self, bytes: &[u8]) -> String {
             self.encoding().decode_without_bom_handling(bytes).0.into_owned()
+        }
+
+        /// Decode without replacement. None if any sequence is malformed.
+        pub fn decode_strict(self, bytes: &[u8]) -> Option<Cow<'_, str>> {
+            self.encoding()
+                .decode_without_bom_handling_and_without_replacement(bytes)
         }
 
         /// Decode a zero-terminated string: stops at the first NUL.
@@ -120,24 +137,26 @@ pub mod text {
             (!unmappable).then(|| out.into_owned())
         }
 
-        /// The character of one code.
+        /// The character of one glyph slot, or U+FFFD for an unassigned slot.
         pub fn char_of(self, code: u8) -> char {
             if code < 0x80 {
                 code as char
             } else {
-                self.high()[code as usize - 0x80]
+                let slot = usize::from(code - 0x80);
+                self.high()
+                    .map_or(char::REPLACEMENT_CHARACTER, |high| high[slot])
             }
         }
 
-        /// The code of one character; None if it has none.
+        /// The single-byte glyph code of a character, if it has one.
         pub fn code_of(self, c: char) -> Option<u8> {
             if (c as u32) < 0x80 {
                 return Some(c as u8);
             }
-            self.high().iter().position(|&h| h == c).map(|i| (i + 0x80) as u8)
+            self.high()?.iter().position(|&h| h == c).map(|i| (i + 0x80) as u8)
         }
 
-        /// Whether every character of `s` has a code.
+        /// Whether every character of `s` has a single-byte glyph code.
         pub fn encodable(self, s: &str) -> bool {
             s.chars().all(|c| self.code_of(c).is_some())
         }
@@ -145,7 +164,10 @@ pub mod text {
 
     impl std::fmt::Display for CodePage {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "windows-{}", self.number())
+            match self {
+                CodePage::Windows936 => f.write_str("windows-936 (GB18030/GBK)"),
+                _ => write!(f, "windows-{}", self.number()),
+            }
         }
     }
 
@@ -158,13 +180,29 @@ pub mod text {
     /// `[Text] CodePage` of NVForever.ini) if set, else Windows-1252; Err names a value
     /// that is no code page of [`CodePage::ALL`].
     pub fn chosen(ini: Option<&str>) -> Result<CodePage, String> {
-        let env = std::env::var(ENV).ok().filter(|v| !v.trim().is_empty());
-        let (name, from) = match (&env, ini.filter(|v| !v.trim().is_empty())) {
-            (Some(v), _) => (v.as_str(), ENV),
+        configured(ini).map(Option::unwrap_or_default)
+    }
+
+    /// The explicitly configured page, with the environment taking priority over the INI.
+    pub fn configured(ini: Option<&str>) -> Result<Option<CodePage>, String> {
+        let env = std::env::var(ENV).ok();
+        configured_from(env.as_deref(), ini)
+    }
+
+    pub(super) fn configured_from(
+        env: Option<&str>,
+        ini: Option<&str>,
+    ) -> Result<Option<CodePage>, String> {
+        let env = env.filter(|v| !v.trim().is_empty());
+        let ini = ini.filter(|v| !v.trim().is_empty());
+        let (name, from) = match (env, ini) {
+            (Some(v), _) => (v, ENV),
             (None, Some(v)) => (v, "[Text] CodePage"),
-            (None, None) => return Ok(CodePage::default()),
+            (None, None) => return Ok(None),
         };
-        CodePage::from_name(name).ok_or_else(|| format!("{from}={name} is not a code page NVForever reads (1252, 1251 or 1250)"))
+        CodePage::from_name(name).map(Some).ok_or_else(|| {
+            format!("{from}={name} is not a code page NVForever reads (1252, 1251, 1250 or 936/GB18030/GBK)")
+        })
     }
 
     /// The code page of this run's game text.
@@ -193,7 +231,7 @@ pub mod text {
         code_page().encode(s)
     }
 
-    /// Whether every character of `s` has a code in this run's code page.
+    /// Whether every character of `s` can be typed into the single-byte UI.
     pub fn encodable(s: &str) -> bool {
         code_page().encodable(s)
     }
@@ -353,9 +391,10 @@ mod tests {
     }
 
     #[test]
-    fn every_code_page_roundtrips_all_bytes() {
+    fn single_byte_pages_roundtrip_all_bytes() {
+        use text::CodePage::*;
         let all: Vec<u8> = (0u8..=255).collect();
-        for cp in text::CodePage::ALL {
+        for cp in [Windows1252, Windows1251, Windows1250] {
             let s = cp.decode(&all);
             assert_eq!(s.chars().count(), 256, "{cp}");
             assert_eq!(cp.encode(&s).unwrap(), all, "{cp}");
@@ -395,6 +434,74 @@ mod tests {
         assert_eq!(text::CodePage::from_name("utf-8"), None);
         assert_eq!(text::CodePage::from_name("125"), None);
         assert_eq!(Windows1251.to_string(), "windows-1251");
+        for name in ["936", "CP936", " Windows-936 ", "GBK", "gb18030"] {
+            assert_eq!(text::CodePage::from_name(name), Some(Windows936), "{name}");
+        }
+        assert_eq!(Windows936.number(), 936);
+    }
+
+    #[test]
+    fn explicit_code_page_uses_the_environment_before_the_ini() {
+        use text::configured_from;
+        use text::CodePage::*;
+
+        assert_eq!(configured_from(None, Some("936")), Ok(Some(Windows936)));
+        assert_eq!(
+            configured_from(Some("1251"), Some("936")),
+            Ok(Some(Windows1251))
+        );
+        assert_eq!(
+            configured_from(Some("gbk"), Some("1250")),
+            Ok(Some(Windows936))
+        );
+        assert_eq!(
+            configured_from(Some(" "), Some("936")),
+            Ok(Some(Windows936))
+        );
+        assert_eq!(configured_from(None, Some(" ")), Ok(None));
+        let env_error = configured_from(Some("65001"), Some("936")).unwrap_err();
+        assert!(env_error.starts_with("NVF_CODE_PAGE=65001"));
+        let ini_error = configured_from(None, Some("invalid")).unwrap_err();
+        assert!(ini_error.contains("936/GB18030/GBK"));
+    }
+
+    #[test]
+    fn gb18030_reads_and_writes_ascii_gbk_and_four_byte_text() {
+        use text::CodePage::Windows936;
+
+        let bytes = b"Map:\xd6\xd0\xb9\xfa\x95\x32\x82\x36";
+        let unicode = "Map:中国𠀀";
+        assert_eq!(Windows936.decode(bytes), unicode);
+        assert_eq!(Windows936.decode_strict(bytes).as_deref(), Some(unicode));
+        assert_eq!(
+            Windows936.encode(unicode).as_deref(),
+            Some(bytes.as_slice())
+        );
+        let terminated = [bytes.as_slice(), b"\0ignored"].concat();
+        assert_eq!(Windows936.decode_z(&terminated), unicode);
+
+        for malformed in [b"\x81".as_slice(), b"\x95\x32\x82", b"\xff"] {
+            assert_eq!(Windows936.decode_strict(malformed), None);
+            assert_eq!(Windows936.decode(malformed), "\u{FFFD}");
+        }
+        assert_eq!(Windows936.decode(b"\x81 A"), "\u{FFFD} A");
+    }
+
+    #[test]
+    fn gb18030_keeps_glyph_slots_and_typed_text_single_byte() {
+        use text::CodePage::Windows936;
+
+        for b in 0..=127 {
+            assert_eq!(Windows936.char_of(b), char::from(b));
+            assert_eq!(Windows936.code_of(char::from(b)), Some(b));
+        }
+        for b in 128..=255 {
+            assert_eq!(Windows936.char_of(b), char::REPLACEMENT_CHARACTER);
+        }
+        assert_eq!(Windows936.code_of('中'), None);
+        assert_eq!(Windows936.code_of(char::REPLACEMENT_CHARACTER), None);
+        assert!(Windows936.encodable("Map"));
+        assert!(!Windows936.encodable("Map:中国"));
     }
 
     #[test]
@@ -404,9 +511,17 @@ mod tests {
         text::set_code_page(text::CodePage::Windows1251);
         let s = text::decode_z(&[0xC4, 0xEE, 0xEA, 0]);
         let back = text::encode("Док");
+        text::set_code_page(text::CodePage::Windows936);
+        assert_eq!(text::code_page(), text::CodePage::Windows936);
+        let chinese = text::decode_z(b"\xd6\xd0\0");
+        let gbk = text::encode("中");
+        let fits_in_slot = text::encodable("中");
         text::set_code_page(text::CodePage::Windows1252);
         assert_eq!(s, "Док");
         assert_eq!(back.unwrap(), [0xC4, 0xEE, 0xEA]);
+        assert_eq!(chinese, "中");
+        assert_eq!(gbk.unwrap(), [0xD6, 0xD0]);
+        assert!(!fits_in_slot);
         assert_eq!(text::decode(&[0xC4]), "\u{C4}");
     }
 

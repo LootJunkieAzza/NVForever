@@ -32,8 +32,9 @@ them without changing their producer, fade scheduling, override/release,
 fast-travel hold or `keep_weather_once` behavior. Existing `IsRaining` is unchanged.
 Unrelated classification bits do not manufacture a known class. Existing JIP
 `SetWeatherTraitNumeric` session overrides remain stored and visible to that
-trait getter; their existing renderer-propagation followup is not implemented or
-claimed by this batch.
+trait getter; fog traits `15..=20` propagate live to exterior `sky.rs` fog
+(docs/spec-notes/world.md §6), while non-fog weather traits (`0..=14`) remain
+stored-only for this batch.
 
 ## Report and lifetime
 

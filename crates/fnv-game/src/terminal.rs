@@ -5,7 +5,7 @@
 //! [`crate::hacking`].
 
 use crate::combat::setting;
-use crate::data::{terminal_flag, TerminalDef};
+use crate::data::terminal_flag;
 use crate::functions::actor::actor_value_capped;
 use crate::game::{Game, RunCtx};
 use crate::hacking::{self, Difficulty, Refusal, Settings};
@@ -47,6 +47,15 @@ pub struct Terminals {
     /// Terminals opened at their menu this session: the Show Use Password tweak's prompt
     /// stops once one has been opened with its note [design: docs/design/tweaks.md]. Not saved.
     pub opened: std::collections::BTreeSet<FormId>,
+    /// Session-only `SetPasswordNote` overrides by `TERM` base form (`None`: cleared).
+    /// Carried across same-run loads via `Game::take_session` / `put_session`, not saved
+    /// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+    /// 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room
+    /// save/reload probe `w4f_07_set_password_note` (`SetPasswordNote 0x000151DA
+    /// 0x0001F47D`): baseline `00000000`, mutated `000151DA`, same-process
+    /// baseline/mutated reload `000151DA`, fresh-process with/without `.nvse` `00000000`;
+    /// zero DLL/PDB/source consulted].
+    pub password_notes: BTreeMap<FormId, Option<FormId>>,
 }
 
 /// What activating a terminal does.
@@ -65,10 +74,25 @@ pub fn science(g: &mut Game) -> f32 {
     actor_value_capped(g, FormId::PLAYER_REF, crate::actor_values::SCIENCE) as f32
 }
 
-/// Whether the player holds the terminal's password note: among their notes, or carried
-/// as an item.
-pub fn has_password(g: &mut Game, t: &TerminalDef) -> bool {
-    let Some(note) = t.password_note else { return false };
+/// Password note for terminal base `base`: session `SetPasswordNote` override first
+/// (`None` when cleared), else the authored `TERM PNAM`. Returns `None` for non-terminals.
+pub fn password_note(g: &Game, base: FormId) -> Option<FormId> {
+    let t = g.data.terminals.get(&base)?;
+    g.terminals.password_notes.get(&base).copied().unwrap_or(t.password_note)
+}
+
+/// `SetPasswordNote [note] [terminal]`: override `base`'s password note for the session
+/// when `base` is a `TERM` record (`None` clears it); ignored for non-terminals.
+pub fn set_password_note(g: &mut Game, base: FormId, note: Option<FormId>) {
+    if g.data.terminals.contains_key(&base) {
+        g.terminals.password_notes.insert(base, note);
+    }
+}
+
+/// Whether the player holds terminal base `base`'s password note (including session
+/// `SetPasswordNote` overrides): among their notes, or carried as an item.
+pub fn has_password(g: &mut Game, base: FormId) -> bool {
+    let Some(note) = password_note(g, base) else { return false };
     g.player.notes.contains(&note) || g.world.item_count(FormId::PLAYER_REF, note).is_ok_and(|n| n > 0)
 }
 
@@ -89,7 +113,7 @@ pub fn still_locked(g: &mut Game, reference: FormId, base: FormId) -> Option<Dif
     // [hypothesis, hacking.md §6] The password note opens a terminal without hacking,
     // even one locked out (GECK wiki Lock: the note keeps access); it is checked first.
     let hacked = g.terminals.access.get(&reference) == Some(&Access::Hacked);
-    let with_note = has_password(g, t);
+    let with_note = has_password(g, base);
     if unlocked || hacked || with_note {
         // The player's tweak: the password earns a share of the hack's experience,
         // once (the terminal counts as hacked after) [design: docs/design/tweaks.md].
@@ -123,7 +147,7 @@ pub fn opens_by_password(g: &mut Game, reference: FormId, base: FormId) -> bool 
     if script.is_some_and(|l| !l.locked) || (script.is_none() && t.has(terminal_flag::UNLOCKED)) || g.terminals.access.get(&reference) == Some(&Access::Hacked) {
         return false;
     }
-    has_password(g, t)
+    has_password(g, base)
 }
 
 /// What activating the terminal reference `reference` of base `base` does, for a player

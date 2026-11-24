@@ -54,6 +54,7 @@ use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::start_menu::{color, highlight_colors, Shade, LINE};
 use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
+use fnv_util::words::trf;
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -272,6 +273,47 @@ fn lacks(rt: &mut crate::script::Runtime, r: &RecipeDef) -> Vec<fnv_game::crafti
 /// An output's weight as the WG card says it.
 pub(crate) fn weight_text(w: f32) -> String {
     format!("{w:.1}").trim_end_matches(".0").to_string()
+}
+
+/// Rebuild an open recipe menu after a script called `RefreshItemsList`: clears the
+/// cached `drawn` view so hand-built and tiled renderers redraw immediately, preserves
+/// selection on the same recipe FormID when still listed (clamping otherwise), keeps the
+/// scroll window valid, and clamps or clears any open quantity prompt.
+pub(crate) fn refresh_open(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &mut Open) {
+    let keep = open.drawn.as_ref().and_then(|d| d.rows.get(d.selected)).map(|r| r.recipe);
+    open.drawn = None;
+    let v = view(rt, sim, open);
+    open.selected = keep
+        .and_then(|id| v.rows.iter().position(|r| r.recipe == id))
+        .unwrap_or_else(|| open.selected.min(v.rows.len().saturating_sub(1)));
+    open.first = keep_in_view(open.first, open.selected, v.rows.len(), ROWS);
+    if let Some((amount, _)) = open.quantity {
+        let now_recipe = v.rows.get(open.selected).map(|r| r.recipe);
+        let max_make = now_recipe
+            .filter(|&id| keep.is_none() || Some(id) == keep)
+            .and_then(|id| rt.game.data.recipes.get(&id))
+            .map(|r| {
+                if free_crafting(rt) {
+                    u32::MAX
+                } else {
+                    crate::script::with_world(rt, sim, |rt| {
+                        if lacks(rt, r).is_empty() {
+                            let counts: Vec<(FormId, i64)> = r.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
+                            times_possible(r, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
+                        } else {
+                            0
+                        }
+                    })
+                }
+            })
+            .unwrap_or(0);
+        if max_make > 1 {
+            let most = max_make.min(i32::MAX as u32) as i32;
+            open.quantity = Some((amount.clamp(1, most), most));
+        } else {
+            open.quantity = None;
+        }
+    }
 }
 
 /// What the menu shows for `open`.
@@ -609,7 +651,7 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             if let Some(c) = corner.filter(|_| rt.game.crafting_messages_shown()) {
                 for (i, k) in added {
                     let name = crate::menu::model::display_name(forms, i);
-                    c.push(if k > 1 { format!("{name} ({k}) added") } else { format!("{name} added") }.into());
+                    c.push(if k > 1 { trf("{name} ({count}) added", &[("name", &name), ("count", &k)]) } else { trf("{name} added", &[("name", &name)]) }.into());
                 }
             }
         }
@@ -987,5 +1029,103 @@ mod tests {
         assert_ne!(was, Some(tiled_key(Some((1, 4)))), "a PlayStation pad after an Xbox one: drawn again");
         assert_ne!(tiled_key(Some((1, 4))), tiled_key(Some((2, 4))), "a new amount: drawn again");
         set_labels(Labels::Keys);
+    }
+
+    #[test]
+    fn refresh_open_rebuilds_recipe_rows_and_preserves_selected_recipe() {
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(6 + data.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body = subs.concat();
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&[0u8; 8]);
+            out.extend_from_slice(&body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = Vec::with_capacity(24 + body.len());
+            out.extend_from_slice(b"GRUP");
+            out.extend_from_slice(&((24 + body.len()) as u32).to_le_bytes());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&[0u8; 12]);
+            out.extend_from_slice(body);
+            out
+        }
+
+        const CAT: u32 = 0x800;
+        const ING: u32 = 0x801;
+        const OUT: u32 = 0x802;
+        const RCPE_A: u32 = 0x810;
+        const RCPE_B: u32 = 0x811;
+        // RCPE DATA: skill (-1 none), level (0), category (CAT), subcategory (0).
+        let rcpe_data = [(-1i32).to_le_bytes(), 0u32.to_le_bytes(), CAT.to_le_bytes(), 0u32.to_le_bytes()].concat();
+        let misc = |id: u32, edid: &[u8], full: &[u8]| rec(b"MISC", id, &[sub(b"EDID", edid), sub(b"FULL", full), sub(b"DATA", &[1, 0, 0, 0, 0, 0, 0, 0])]);
+        let bytes = [
+            rec(b"TES4", 0, &[sub(b"HEDR", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0])]),
+            top(b"NPC_", &rec(b"NPC_", 0x7, &[sub(b"EDID", b"Player\0")])),
+            top(b"MISC", &[misc(ING, b"OwnedIng\0", b"Scrap\0"), misc(OUT, b"OwnedOut\0", b"Widget\0")].concat()),
+            top(b"RCCT", &rec(b"RCCT", CAT, &[sub(b"EDID", b"OwnedBench\0"), sub(b"FULL", b"Bench\0")])),
+            top(
+                b"RCPE",
+                &[
+                    // Alpha needs 1 ING (initially NOT ready -> sorts below Beta).
+                    rec(
+                        b"RCPE",
+                        RCPE_A,
+                        &[
+                            sub(b"EDID", b"OwnedAlpha\0"),
+                            sub(b"FULL", b"Alpha Brew\0"),
+                            sub(b"DATA", &rcpe_data),
+                            sub(b"RCIL", &ING.to_le_bytes()),
+                            sub(b"RCQY", &1u32.to_le_bytes()),
+                            sub(b"RCOD", &OUT.to_le_bytes()),
+                            sub(b"RCQY", &1u32.to_le_bytes()),
+                        ],
+                    ),
+                    // Beta needs no ingredients (initially ready -> sorts first at row 0).
+                    rec(
+                        b"RCPE",
+                        RCPE_B,
+                        &[
+                            sub(b"EDID", b"OwnedBeta\0"),
+                            sub(b"FULL", b"Beta Brew\0"),
+                            sub(b"DATA", &rcpe_data),
+                            sub(b"RCOD", &OUT.to_le_bytes()),
+                            sub(b"RCQY", &1u32.to_le_bytes()),
+                        ],
+                    ),
+                ]
+                .concat(),
+            ),
+        ]
+        .concat();
+        let plugin = fnv_esm::Plugin::parse(&bytes, "OwnedCraft.esm".into()).unwrap();
+        let mut script = ScriptState::over_plugins(&[plugin]);
+        let rt = script.rt.as_mut().unwrap();
+        let mut sim = SimState { forms: rt.game.world.forms, refs: rt.game.world.placed, world: fnv_sim::World::new(rt.game.world.forms, rt.game.world.placed, fnv_sim::SimConfig::default()) };
+
+        let mut open = Open { category: FormId(CAT), station: None, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: 0 };
+        let initial = view(rt, &mut sim, &open);
+        assert_eq!(initial.rows.iter().map(|r| (r.recipe, r.ready)).collect::<Vec<_>>(), vec![(FormId(RCPE_B), true), (FormId(RCPE_A), false)]);
+        open.selected = 0;
+        open.drawn = Some(initial);
+
+        // Script adds ING so Alpha becomes ready and sorts alphabetically ahead of Beta.
+        sim.world.add_item(FormId::PLAYER_REF, FormId(ING), 1).unwrap();
+        refresh_open(rt, &mut sim, &mut open);
+        assert!(open.drawn.is_none(), "cached view cleared so hand-built & tile renderers redraw");
+        assert_eq!(open.selected, 1, "selection stays on Beta Brew after Alpha Brew sorts above it");
+        let after = view(rt, &mut sim, &open);
+        assert_eq!(after.rows.iter().map(|r| (r.recipe, r.ready)).collect::<Vec<_>>(), vec![(FormId(RCPE_A), true), (FormId(RCPE_B), true)]);
+        assert_eq!(after.rows[after.selected].recipe, FormId(RCPE_B));
     }
 }

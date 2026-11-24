@@ -9,7 +9,7 @@ milestones and this sweep). Code: `crates/fnvtool/src/quest_sweep.rs`; smoke sce
 The sweep is a **list of places to look**, not a verdict. It never decides a condition it
 cannot read statically, so every check below says which way it errs. A hit means the data
 has the shape; whether the original game gets out of it (a fade ending, a hard-coded rule)
-is a question for the observer (`docs/handoff/observer-checks.md`).
+is a question for the observer (`docs/handoff/observer-checks/`).
 
 ## How it reads the data
 

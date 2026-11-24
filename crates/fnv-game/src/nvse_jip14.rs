@@ -12,6 +12,62 @@ use crate::nif_blocks::node_place;
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+/// Maximum simultaneously attached named extra cameras per session [design].
+pub const EXTRA_CAMERA_MAX: usize = 8;
+/// Default square render-target resolution when `pixelSize` is omitted or `<= 0`
+/// [documented: GECK wiki ProjectExtraCamera].
+pub const EXTRA_CAMERA_DEFAULT_PX: u32 = 256;
+/// Minimum clamped square render-target resolution [design].
+pub const EXTRA_CAMERA_MIN_PX: u32 = 16;
+/// Maximum clamped square render-target resolution [documented: GECK wiki
+/// ProjectExtraCamera discourages >1024; design].
+pub const EXTRA_CAMERA_MAX_PX: u32 = 1024;
+/// Minimum clamped vertical FoV in degrees [design].
+pub const EXTRA_CAMERA_MIN_FOV_DEG: f32 = 0.5;
+/// Maximum clamped vertical FoV in degrees [design].
+pub const EXTRA_CAMERA_MAX_FOV_DEG: f32 = 170.0;
+
+/// Projection target requested by `ProjectExtraCamera` [documented: ProjectExtraCamera; design].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtraCameraTarget {
+    /// A named 3D geometry block (`NiTriShape`/`NiTriStrips`) on `reference`'s drawn model.
+    Geometry { reference: FormId, node: String },
+    /// A UI image tile path (originally prefixed with `*` in `targetGeometry`, stored
+    /// without the leading `*`).
+    UiTile { path: String },
+}
+
+/// Active projection parameters for a named extra camera (`ProjectExtraCamera`)
+/// [documented: ProjectExtraCamera; design].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraCameraProjection {
+    pub target: ExtraCameraTarget,
+    /// Clamped field-of-view angle in degrees (`EXTRA_CAMERA_MIN_FOV_DEG..=EXTRA_CAMERA_MAX_FOV_DEG`).
+    pub fov_deg: f32,
+    /// Clamped square pixel resolution (`EXTRA_CAMERA_MIN_PX..=EXTRA_CAMERA_MAX_PX`).
+    pub pixel_size: u32,
+    /// Non-zero `grayscale` flag from `ProjectExtraCamera`.
+    pub grayscale: bool,
+    /// Monotonic update sequence for engine change detection.
+    pub sequence: u64,
+}
+
+/// An attached named extra camera (`AttachExtraCamera`) [documented: AttachExtraCamera; design].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraCamera {
+    /// Caller-supplied camera name (case-preserving; stored under its ASCII lowercase key).
+    pub name: String,
+    /// Calling reference that owns `parent_node`.
+    pub reference: FormId,
+    /// Optional parent node name on `reference`'s 3D model (`None` anchors at the root).
+    pub parent_node: Option<String>,
+    /// Most recent valid projection request for this camera, if any.
+    pub projection: Option<ExtraCameraProjection>,
+    /// Monotonic revision bumped whenever attach or projection parameters change.
+    pub revision: u64,
+}
 
 /// A primitive a script gave or changed: sphere or box (or a collision plane), half
 /// extents (a sphere's radius first).
@@ -49,6 +105,64 @@ pub struct Jip14State {
     pub item_running: Option<(FormId, FormId)>,
     /// The drawn objects' sequence names (lower case), as the engine tells them.
     pub sequences: BTreeMap<FormId, Vec<String>>,
+    /// Transient one-shot `UpdatePlayer3D` request for the engine's player body rebuild
+    /// (not saved) [design].
+    pub update_player_3d: bool,
+    /// Attached named extra cameras (`AttachExtraCamera` / `ProjectExtraCamera`), keyed
+    /// by ASCII lowercase camera name; session-transient (cleared on restore/new game)
+    /// [documented: AttachExtraCamera, ProjectExtraCamera; design].
+    pub extra_cameras: BTreeMap<String, ExtraCamera>,
+    /// Monotonic counter incremented on any extra-camera attach, detach, projection
+    /// update, or clear [design].
+    pub extra_camera_revision: u64,
+    /// Unique lifetime token for this `Game` instance so engine consumers can detect
+    /// game/save replacement even when camera names match across sessions [design].
+    pub extra_camera_session: Arc<()>,
+}
+
+impl Game<'_> {
+    /// Whether `UpdatePlayer3D` has a pending full player 3D rebuild request.
+    pub fn update_player_3d_pending(&self) -> bool {
+        self.other.jip14.update_player_3d
+    }
+
+    /// Consume the pending `UpdatePlayer3D` request, if any.
+    pub fn take_update_player_3d(&mut self) -> bool {
+        std::mem::take(&mut self.other.jip14.update_player_3d)
+    }
+
+    /// Currently attached named extra cameras (`AttachExtraCamera` / `ProjectExtraCamera`),
+    /// keyed by ASCII lowercase camera name.
+    pub fn extra_cameras(&self) -> &BTreeMap<String, ExtraCamera> {
+        &self.other.jip14.extra_cameras
+    }
+
+    /// Monotonic revision of [`Game::extra_cameras`].
+    pub fn extra_camera_revision(&self) -> u64 {
+        self.other.jip14.extra_camera_revision
+    }
+
+    /// Session token for this `Game` instance's extra-camera table.
+    pub fn extra_camera_session(&self) -> Arc<()> {
+        Arc::clone(&self.other.jip14.extra_camera_session)
+    }
+
+    /// Detach all extra cameras and bump the revision (used on cell/session teardown).
+    pub fn clear_extra_cameras(&mut self) {
+        if !self.other.jip14.extra_cameras.is_empty() {
+            self.other.jip14.extra_cameras.clear();
+            self.other.jip14.extra_camera_revision = self.other.jip14.extra_camera_revision.wrapping_add(1);
+        }
+    }
+}
+
+/// Sanitize an animation sequence frequency override: non-finite values (`NaN`,
+/// `±inf`) are rejected (`None`), and negative values clamp to `0.0` (paused) [design].
+pub fn sanitize_anim_frequency(f: f32) -> Option<f32> {
+    if !f.is_finite() {
+        return None;
+    }
+    Some(if f <= 0.0 { 0.0 } else { f })
 }
 
 fn num(args: &[XVal], k: usize) -> Option<f64> {
@@ -230,8 +344,6 @@ impl<'a> Game<'a> {
         std::mem::take(&mut self.other.jip14.fuse_sets)
     }
 
-    /// SetAnimSequenceFrequency's frequency for a reference's sequence (a lower-case
-    /// name or kf path), else "*"'s; `None`: its own.
     /// The engine's word on a drawn object's sequences (`None`: no longer drawn).
     pub fn set_sequences(&mut self, r: FormId, names: Option<Vec<String>>) {
         match names {
@@ -244,9 +356,37 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// Whether any `SetAnimSequenceFrequency` overrides are active (zero-allocation
+    /// fast path for engine consumers).
+    pub fn has_anim_frequencies(&self) -> bool {
+        !self.other.jip14.anim_freq.is_empty()
+    }
+
+    /// `SetAnimSequenceFrequency`'s sanitized frequency for a reference's sequence
+    /// (case-insensitive sequence name or `.kf` path), falling back to `"*"` for the
+    /// same reference; `None` when unset or non-finite. Negative values clamp to `0.0`
+    /// [documented: GECK wiki SetAnimSequenceFrequency for `"*"`; hypothesis: exact
+    /// sequence takes precedence over `"*"`; design: non-finite rejection and `< 0`
+    /// clamp to `0.0`].
     pub fn anim_frequency(&self, r: FormId, sequence: &str) -> Option<f32> {
         let j = &self.other.jip14.anim_freq;
-        j.get(&(r, sequence.to_ascii_lowercase())).or_else(|| j.get(&(r, "*".to_string()))).copied()
+        if j.is_empty() {
+            return None;
+        }
+        let mut wildcard = None;
+        for ((id, key), &freq) in j.range((r, String::new())..) {
+            if *id != r {
+                break;
+            }
+            if key.eq_ignore_ascii_case(sequence) {
+                if let Some(clean) = sanitize_anim_frequency(freq) {
+                    return Some(clean);
+                }
+            } else if key == "*" {
+                wildcard = sanitize_anim_frequency(freq);
+            }
+        }
+        wildcard
     }
 }
 
@@ -473,7 +613,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- animation sequences ----
         // The frequency a script set; else 1 for a sequence of the drawn model [hypothesis:
         // a sequence's own is 1 unless its file says otherwise]; -1 for a sequence the
-        // model lacks [observed: jip14 seqfreq.doc]. Kept, not yet played at [decision].
+        // model lacks [observed: jip14 seqfreq.doc]. Drawn object sequences are played at
+        // this frequency by `nvforever::object_anims` (actor `.kf` paths remain stored
+        // only [design]).
         // [decision: only drawn objects' sequences are told by the engine; an actor's
         // animation files are not, so an actor's unset sequence is -1]
         "getanimsequencefrequency" | "getanimseqfreq" => {
@@ -486,26 +628,166 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 None => -1.0,
             })
         }
-        // "*" every sequence [documented].
+        // "*" every sequence [documented: GECK wiki SetAnimSequenceFrequency]; non-finite
+        // values are ignored and negative values clamp to 0.0 (paused) [design].
         "setanimsequencefrequency" | "setanimseqfreq" => {
             let (Some(r), Some(s), Some(f)) = (subject, text(args, 0), num(args, 1)) else { return Some(Ok(zero)) };
-            g.other.jip14.anim_freq.insert((r, s.to_ascii_lowercase()), f.max(0.0) as f32);
+            let Some(freq) = sanitize_anim_frequency(f.max(0.0) as f32) else { return Some(Ok(zero)) };
+            g.other.jip14.anim_freq.insert((r, s.to_ascii_lowercase()), freq);
             zero
         }
+        // ---- extra cameras (AttachExtraCamera / ProjectExtraCamera) ----
+        // [documented: GECK wiki AttachExtraCamera, ProjectExtraCamera; design]
+        "attachextracamera" => {
+            let (Some(raw_name), Some(mode)) = (text(args, 0), num(args, 1)) else { return Some(Ok(zero)) };
+            let cam_name = raw_name.trim();
+            if cam_name.is_empty() {
+                return Some(Ok(zero));
+            }
+            let key = cam_name.to_ascii_lowercase();
+            if mode == 0.0 {
+                let removed = g.other.jip14.extra_cameras.remove(&key).is_some();
+                if removed {
+                    g.other.jip14.extra_camera_revision = g.other.jip14.extra_camera_revision.wrapping_add(1);
+                }
+                return Some(Ok(yes(removed)));
+            }
+            let Some(r) = subject.filter(|&r| valid_camera_ref(g, r)) else { return Some(Ok(zero)) };
+            let exists = g.other.jip14.extra_cameras.contains_key(&key);
+            if !exists && g.other.jip14.extra_cameras.len() >= EXTRA_CAMERA_MAX {
+                return Some(Ok(zero));
+            }
+            let parent_node = text(args, 2).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            g.other.jip14.extra_camera_revision = g.other.jip14.extra_camera_revision.wrapping_add(1);
+            let rev = g.other.jip14.extra_camera_revision;
+            match g.other.jip14.extra_cameras.get_mut(&key) {
+                Some(cam) => {
+                    cam.name = cam_name.to_string();
+                    cam.reference = r;
+                    cam.parent_node = parent_node;
+                    cam.revision = rev;
+                }
+                None => {
+                    g.other.jip14.extra_cameras.insert(
+                        key,
+                        ExtraCamera {
+                            name: cam_name.to_string(),
+                            reference: r,
+                            parent_node,
+                            projection: None,
+                            revision: rev,
+                        },
+                    );
+                }
+            }
+            yes(true)
+        }
+        "projectextracamera" => {
+            let (Some(raw_name), Some(raw_target), Some(raw_fov)) = (text(args, 0), text(args, 1), num(args, 2)) else {
+                return Some(Ok(zero));
+            };
+            let cam_name = raw_name.trim();
+            let target_str = raw_target.trim();
+            if cam_name.is_empty() || target_str.is_empty() || raw_fov <= 0.0 {
+                return Some(Ok(zero));
+            }
+            let key = cam_name.to_ascii_lowercase();
+            let Some(cam_ref) = g.other.jip14.extra_cameras.get(&key).map(|c| c.reference) else {
+                return Some(Ok(zero));
+            };
+            if !camera_in_player_area(g, cam_ref) {
+                return Some(Ok(zero));
+            }
+            let target = if let Some(tile) = target_str.strip_prefix('*') {
+                let tile = tile.trim();
+                if tile.is_empty() {
+                    return Some(Ok(zero));
+                }
+                ExtraCameraTarget::UiTile { path: tile.to_string() }
+            } else {
+                let Some(r) = subject.filter(|&r| valid_camera_ref(g, r)) else { return Some(Ok(zero)) };
+                ExtraCameraTarget::Geometry { reference: r, node: target_str.to_string() }
+            };
+            let fov_deg = (raw_fov as f32).clamp(EXTRA_CAMERA_MIN_FOV_DEG, EXTRA_CAMERA_MAX_FOV_DEG);
+            let pixel_size = match num(args, 3) {
+                Some(px) if px > 0.0 => (px.round() as u32).clamp(EXTRA_CAMERA_MIN_PX, EXTRA_CAMERA_MAX_PX),
+                _ => EXTRA_CAMERA_DEFAULT_PX,
+            };
+            let grayscale = num(args, 4).is_some_and(|v| v != 0.0);
+            g.other.jip14.extra_camera_revision = g.other.jip14.extra_camera_revision.wrapping_add(1);
+            let rev = g.other.jip14.extra_camera_revision;
+            if let Some(cam) = g.other.jip14.extra_cameras.get_mut(&key) {
+                cam.projection = Some(ExtraCameraProjection {
+                    target,
+                    fov_deg,
+                    pixel_size,
+                    grayscale,
+                    sequence: rev,
+                });
+                cam.revision = rev;
+            }
+            yes(true)
+        }
         // ---- nothing values by decision ----
-        // [decision: render-to-texture cameras are not built; 0, the pages' failure]
-        "attachextracamera" | "projectextracamera" => zero,
         // [decision: line meshes are not built; 0, the page's failure]
         "attachline" => zero,
-        // [decision: the page is marked Incomplete]
-        "haskeywordcond" => zero,
+        // Condition-compatible variant of HasKeyword: accepts `ref.HasKeywordCond
+        // "keyword"` or `HasKeywordCond form "keyword"` over `Game::has_keyword`
+        // [documented: GECK wiki HasKeywordCond, HasKeyword; hypothesis: both calling
+        // conventions share the session keyword table].
+        "haskeywordcond" => {
+            let (target, keyword) = match (args.first(), args.get(1)) {
+                (Some(XVal::Str(k)), None) => (subject, Some(k.as_str())),
+                (_, Some(XVal::Str(k))) => (form(args, 0).or(subject), Some(k.as_str())),
+                _ => (None, None),
+            };
+            yes(target.zip(keyword).is_some_and(|(f, k)| g.has_keyword(f, k)))
+        }
         // [decision: NVForever does not crash the game on purpose; the page: "don't use
         // this"]
         "freeplayer" | "goodbyeworldspace" => zero,
-        // [decision: NVForever draws the player's 3D from the game each frame; nothing to
-        // reload, as Update3D]
-        "updateplayer3d" => zero,
+        // Queues a full player 3D rig, equipped-model and animation-override reload for
+        // the next engine frame [documented: UpdatePlayer3D; design].
+        "updateplayer3d" => {
+            g.other.jip14.update_player_3d = true;
+            g.refresh_anim_folders_for(FormId::PLAYER_REF);
+            zero
+        }
         _ => return None,
     };
     Some(Ok(v))
+}
+
+fn valid_camera_ref(g: &Game, r: FormId) -> bool {
+    r == FormId::PLAYER_REF || g.world.peek(r).is_some() || g.world.placed.get(r).is_some()
+}
+
+/// Whether `cam_ref` resides in the currently loaded cell grid or shares the player's
+/// interior cell [documented: GECK wiki ProjectExtraCamera].
+fn camera_in_player_area(g: &Game, cam_ref: FormId) -> bool {
+    if cam_ref == FormId::PLAYER_REF {
+        return true;
+    }
+    let cell_of = |id: FormId| {
+        g.world
+            .peek(id)
+            .and_then(|s| s.cell)
+            .or_else(|| g.world.placed.get(id).and_then(|p| p.cell))
+    };
+    let Some(cam_cell) = cell_of(cam_ref) else {
+        return true;
+    };
+    if !g.loaded_cells.is_empty() {
+        return g.loaded_cells.contains(&cam_cell);
+    }
+    let Some(player_cell) = cell_of(FormId::PLAYER_REF) else {
+        return true;
+    };
+    if player_cell == cam_cell {
+        return true;
+    }
+    match (g.world.placed.world_of(player_cell), g.world.placed.world_of(cam_cell)) {
+        (Some(pw), Some(cw)) => pw == cw,
+        _ => false,
+    }
 }

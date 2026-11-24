@@ -291,6 +291,8 @@ struct Person {
     turning: u8,
     /// Its character swims (the physics' word; IsSwimming).
     swimming: bool,
+    /// Its character is airborne (physics: not grounded and not swimming; IsInAir).
+    in_air: bool,
 }
 
 impl Person {
@@ -900,6 +902,7 @@ fn measure(
         sneaking: control.as_deref().is_some_and(|c| c.sneak),
         turning: turning(FormId::PLAYER_REF.0, player.heading, &mut state.headings),
         swimming: phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming),
+        in_air: phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| !c.grounded && !c.swimming),
     });
     // The drawn bodies (dying or dead), measured from the player's camera alone for
     // GetLineOfSight ([`bodies_seen`]), at the point the camera looks for.
@@ -935,6 +938,7 @@ fn measure(
             sneaking: rt.game.sneaks(FormId(rig.reference)),
             turning: turning(rig.reference, flat.x.atan2(flat.y), &mut state.headings),
             swimming: phys.as_deref().and_then(|p| p.npcs.get(&rig.reference)).is_some_and(|n| n.ch.swimming),
+            in_air: phys.as_deref().and_then(|p| p.npcs.get(&rig.reference)).is_some_and(|n| !n.ch.grounded && !n.ch.swimming),
         });
     }
     state.last.retain(|_, (_, t)| now - *t < 5.0);
@@ -1057,7 +1061,7 @@ fn measure(
         for p in &people {
             // The player's speed mode is the Walk toggle, moving or not (IsRunning).
             let run_mode = if p.id == FormId::PLAYER_REF.0 { player_run_mode } else { p.running };
-            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning, run_mode, swimming: p.swimming });
+            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning, run_mode, swimming: p.swimming, in_air: p.in_air });
         }
         // Every two within reach of each other, both ways; the player detects too.
         let feet: Vec<[f32; 3]> = people.iter().map(|p| p.feet).collect();
@@ -1218,6 +1222,10 @@ fn measure(
             }
         }
         g.detection.forget_older_than(g.time - 1.0);
+        // A target out of the round (its cell unloaded, out of reach) is not detected any
+        // more: the fight goes Lost and ends on the timers (#3390).
+        let drawn: BTreeSet<FormId> = people.iter().map(|p| FormId(p.id)).collect();
+        g.lose_unmeasured(&drawn);
 
         // Detection events: impacts, projectiles in flight, explosions (the module
         // notes), CreateDetectionEvent.
@@ -1293,7 +1301,11 @@ fn measure(
         for (topic, who, by) in &held {
             debug!("alert: {} does not say {topic}: {} said a line of that kind {:.0} s ago (group cooldown)", g.data.name(*who), g.data.name(*by), g.awareness.said.iter().rev().find(|s| s.speaker == *by).map_or(0.0, |s| g.time - s.time));
         }
-        (g.awareness.take_changes(), std::mem::take(&mut g.awareness.barks), held.len())
+        let changes = g.awareness.take_changes();
+        // Why each one that went into Combat about someone fights them (#3335: a player's
+        // report showed an actor going for the companion and nothing saying why).
+        let why: Vec<Option<String>> = changes.iter().map(|c| (c.to == State::Combat).then_some(c.about).flatten().and_then(|o| g.hostility_text(c.actor, o))).collect();
+        (changes.into_iter().zip(why).collect::<Vec<_>>(), std::mem::take(&mut g.awareness.barks), held.len())
     });
     if let Some(g) = gauges.as_deref_mut() {
         g.noise = player_noise as f32;
@@ -1392,7 +1404,7 @@ fn measure(
 type Bark = (&'static str, FormId, Option<FormId>);
 
 /// The `alert:` log lines and their counts.
-fn log_alerts(st: &mut Stats, people: &[Person], changes: &[Change], barks: &[Bark], heard: &[(String, DetectionEvent, f64, f32)], events: usize, hurt: usize) {
+fn log_alerts(st: &mut Stats, people: &[Person], changes: &[(Change, Option<String>)], barks: &[Bark], heard: &[(String, DetectionEvent, f64, f32)], events: usize, hurt: usize) {
     let label = |id: FormId| people.iter().find(|p| p.id == id.0).map_or_else(|| format!("{:08X}", id.0), |p| p.label.clone());
     st.events += events;
     st.events_heard += heard.len();
@@ -1400,7 +1412,7 @@ fn log_alerts(st: &mut Stats, people: &[Person], changes: &[Change], barks: &[Ba
     for (who, ev, value, dist) in heard {
         info!("alert: {who} heard a {} event of {} (level {:.0}, value {value:.1}, {dist:.0} units away)", ev.kind.name(), label(ev.owner), ev.level);
     }
-    for c in changes {
+    for (c, why) in changes {
         *st.changes.entry((c.from, c.to)).or_default() += 1;
         if c.to == State::Alert {
             st.alerted.insert(c.actor.0);
@@ -1417,6 +1429,9 @@ fn log_alerts(st: &mut Stats, people: &[Person], changes: &[Change], barks: &[Ba
         };
         let value = c.value.map_or(String::new(), |v| format!(", value {v:.1}"));
         info!("alert: {} {} → {}{what}{value}{away}", label(c.actor), c.from.name(), c.to.name());
+        if let (Some(why), Some(o)) = (why, c.about) {
+            info!("hostility: {} against {}: {why}", label(c.actor), label(o));
+        }
     }
     for (topic, who, line) in barks {
         match line {

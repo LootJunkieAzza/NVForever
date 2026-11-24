@@ -134,8 +134,7 @@ always, as the name says it is broken].
 
 ## 6. SUP's JSON commands (batch 2)
 
-These work on a JSON file under the game folder (a path starting `Data\` reaches Data), by top-level key.
-Probed with a file of our own in the sandbox [observed: sets json1, json2; each command
+These work on a JSON file under the game folder (a path starting `Data\` reaches Data, including NVForever's layer and VFS, decoded as UTF-8 with any UTF-8 BOM stripped [design]), by top-level key, sharing `Game::other.json.cache` with `JSONGetValue` (`nvse_sup5.rs`) [design]. Probed with a file of our own in the sandbox [observed: sets json1, json2; each command
 that crashed ran alone]. In NVForever, files a mod writes go to NVForever's own layer,
 never the game folder (`crate::mod_files`). Code: `crates/fnv-game/src/nvse_json.rs`.
 
@@ -227,11 +226,11 @@ original's answer and changes nothing.
   saved"]. ScriptedNVR2's Script Runner file calls it 1,436 times at the game restart.
 - **GetCasinoDeckTexture** `casino index` (JohnnyGuitar): the deck's back texture, the
   casino's ICO2 entries in order (`terminals\NV_PlayingCards\DeckB\cardB_Back.dds` for the
-  Atomic Wrangler) [observed: rest4.casinodeck.0]. **SetCasinoDeckTexture** was not probed:
+  Atomic Wrangler) [observed: rest4.casinodeck.0; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_37_casino_deck_and_switch_node (GetCasinoDeckTexture/GetSwitchNodeIndex): terminals\NV_PlayingCards\DeckB\cardB_Back.dds,0; no DLL or source consulted]. **SetCasinoDeckTexture** was not probed:
   NVForever answers 1, as JohnnyGuitar's other setters did, and changes nothing, so
   GetCasinoDeckTexture keeps reading the casino's own deck [hypothesis].
 - **GetSwitchNodeIndex** `node [flag]` (JohnnyGuitar): 0 for Doc's `Bip01 Head`, not a
-  switch node [observed: rest4.switchnode]. NVForever answers 0 [hypothesis: the index of
+  switch node [observed: rest4.switchnode; observed: jg_37_casino_deck_and_switch_node: 0]. NVForever answers 0 [hypothesis: the index of
   a switch node's shown child, 0 for any other node].
 
 **Constant answers** (each [observed] for the inputs probed; their meaning is open):

@@ -49,15 +49,21 @@ enum Trait {
     Colour(&'static str),
 }
 
-/// An effect shader trait 0-47 [documented: GetEffectShaderTraitNumeric's table, 0-46]:
-/// the EFSH DATA field. Trait 47, past the table, is the next DATA field, colour key 1
-/// [observed: jg3 efsh.trait.nuke.47 read 1.43523e+07, NukeAtomShader's colour key 1
-/// (218, 255, 202) packed as the colours are]; what lies past 47 is not known (0 here).
+/// An effect shader trait 0-50 [documented: GetEffectShaderTraitNumeric's table, 0-46]:
+/// the EFSH DATA field. Traits 47, 48, and 50 read the next DATA fields: colour key 1,
+/// colour key 2, and colour key 1 alpha [observed: jg3 efsh.trait.nuke.47 read
+/// 1.43523e+07; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528,
+/// clean-room script probe jg_03_efsh_trait_beyond_47: (47, 48, 50, -1) ->
+/// 1.43523e+07, 8.84712e+06, 1, 0; no DLL or source consulted]; trait 49 lies between
+/// them as colour key 3 [hypothesis]; past 50 is not known (0 here).
 fn efsh_trait(id: i64) -> Option<Trait> {
     match id {
         4 => return Some(Trait::Colour("fill_color")),
         14 => return Some(Trait::Colour("edge_color")),
         47 => return Some(Trait::Colour("color_key_1")),
+        48 => return Some(Trait::Colour("color_key_2")),
+        49 => return Some(Trait::Colour("color_key_3")),
+        50 => return Some(Trait::Field("color_key_1_alpha", false)),
         _ => {}
     }
     const NAMES: [&str; 47] = [

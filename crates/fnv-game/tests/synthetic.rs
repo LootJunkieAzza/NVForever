@@ -586,6 +586,35 @@ fn the_quest_timer_runs_at_the_quest_delay_and_sets_the_complete_stage() {
     assert_eq!(g.var(InstKey::Quest { quest: q() }, 1), before);
 }
 
+/// #3465 (VMS49's helper quest): a quest that ran, stopped and is started again with a
+/// timer set runs the timer its full time: the first run's GetSecondsPassed is not the
+/// time the quest stood stopped.
+#[test]
+fn a_quest_started_again_runs_its_timer_from_the_start() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    g.frames(120);
+    assert!(g.quest_state(q()).stages_done.contains(&20), "the first timer ran out");
+    g.stop_quest(q());
+    // Ten seconds stopped.
+    g.frames(600);
+    // A timer of 1 s set, then the quest started (as the trigger script does).
+    let key = InstKey::Quest { quest: q() };
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 1, Value::Num(1.0), "test", true);
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 2, Value::Num(1.0), "test", true);
+    g.start_quest(q());
+    // Half a second on: the timer has not run out.
+    g.frames(30);
+    assert_eq!(g.var(key, 2), Value::Num(1.0), "still running: fTimer {:?}", g.var(key, 1));
+    let Value::Num(left) = g.var(key, 1) else { panic!() };
+    assert!(left > 0.3 && left <= 1.0, "{left}");
+    // And it runs out about a second later.
+    g.frames(90);
+    assert_eq!(g.var(key, 2), Value::Num(0.0), "ran out: fTimer {:?}", g.var(key, 1));
+}
+
 #[test]
 fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
     // OnTrigger runs every frame the player is inside; with `Game::trigger_frame` before
@@ -1700,6 +1729,24 @@ fn the_runner_saves_and_loads_in_place() {
 }
 
 #[test]
+fn a_given_reference_starts_locked_or_unlocked() {
+    let f = fixture();
+    let run = |locked: bool| {
+        let input: fnv_game::runner::Input = serde_json::from_value(json!({
+            "format": "fnv.script.actions/1",
+            "given": [{"kind": "ref", "ref": "TestActivatorREF", "locked": locked}],
+            "actions": [{"op": "get_ref", "ref": "TestActivatorREF", "fields": ["locked"], "label": "given"}]
+        }))
+        .unwrap();
+        let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+        assert_eq!(out["given_errors"], json!([]));
+        out["observations"].as_array().unwrap().iter().find(|o| o["label"] == "given").unwrap()["locked"].clone()
+    };
+    assert_eq!(run(true), json!(true));
+    assert_eq!(run(false), json!(false));
+}
+
+#[test]
 fn the_runner_reads_and_writes_reference_variables_and_activates_with_the_flag() {
     let f = fixture();
     let input: fnv_game::runner::Input = serde_json::from_value(json!({
@@ -2327,7 +2374,7 @@ fn combat_hits_damage_health_kill_and_reward() {
     // An auto-calculated one: Base Health 10 + (Endurance 5 − 1) × 5 + (level 5 − 1) × 5,
     // the original's NCR troopers' 50 (npc-behaviour-compare.md §9).
     assert_eq!(g.max_health(FormId(NPC_AUTO_REF)), 50.0);
-    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: true, limb: None };
+    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), location: 1, critical: true, ..HitInfo::default() };
     let r = g.hit(npc, 30.0, by_player);
     assert_eq!((r.dealt, r.health, r.died), (30.0, 25.0, false));
     assert_eq!(g.extra[&npc].last_hit.map(|h| (h.location, h.critical)), Some((1, true)));
@@ -2361,7 +2408,7 @@ fn a_hired_companions_kill_earns_the_player_xp() {
     use fnv_game::combat::HitInfo;
     let f = fixture();
     let (npc, mate) = (FormId(NPC_REF), FormId(NPC_AUTO_REF));
-    let by_mate = HitInfo { attacker: Some(mate), weapon: None, location: 1, critical: false, limb: None };
+    let by_mate = HitInfo { attacker: Some(mate), location: 1, ..HitInfo::default() };
     // Not hired: no XP.
     let mut g = game(&f);
     g.new_game();
@@ -2399,7 +2446,7 @@ fn only_the_hit_that_killed_is_the_killing_blow() {
         let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(npc), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
         g.call_function(&ctx, args).num()
     };
-    let wound = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 3, critical: true, limb: None };
+    let wound = HitInfo { attacker: Some(FormId::PLAYER_REF), location: 3, critical: true, ..HitInfo::default() };
 
     // A wound, then a KillActor with no cause: no hit killed.
     let mut g = game(&f);
@@ -2469,7 +2516,7 @@ fn a_players_death_earns_no_kill_credit() {
     let mut f = fixture();
     let def = ChallengeDef { form: chal, kind: kind::KILL_CATEGORY, threshold: 100, flags: 0, interval: 0, value1: 0, value2: 0, value3: 0, form1: None, form2: None, name: None, description: None };
     f.data.challenge_defs.insert(chal, def);
-    let by_player = HitInfo { attacker: Some(p), weapon: None, location: 0, critical: false, limb: None };
+    let by_player = HitInfo { attacker: Some(p), location: 0, ..HitInfo::default() };
     let credit = |g: &Game| (g.player.xp, g.misc_stat(PEOPLE_KILLED), g.misc_stat(TOTAL_THINGS_KILLED), g.player.challenges.get(&chal).map_or(0, |c| c.progress));
     let start = || {
         let mut g = game(&f);
@@ -2527,7 +2574,7 @@ fn dismembered_parts_are_kept_and_read_by_scripts() {
     };
     let nums = |v: &[f64]| v.iter().map(|&v| ArgValue::Value(Value::Num(v))).collect::<Vec<_>>();
     assert_eq!(call(&mut g, KILLING_BLOW_LIMB, &[]), -1.0);
-    let head = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: false, limb: None };
+    let head = HitInfo { attacker: Some(FormId::PLAYER_REF), location: 1, ..HitInfo::default() };
     assert!(g.hit(npc, 500.0, head).died);
     assert_eq!(call(&mut g, KILLING_BLOW_LIMB, &[]), 1.0);
     // A hit on the corpse is not the killing blow.
@@ -2567,7 +2614,7 @@ fn a_hit_on_an_object_runs_its_hit_blocks() {
     g.new_game();
     let target = FormId(ACT_REF);
     let hits = |g: &Game| g.var(InstKey::Ref { reference: target }, 2).num();
-    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: -1, critical: false, limb: None };
+    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), location: -1, ..HitInfo::default() };
     // Without a weapon: `OnHit player` only.
     assert!(g.hit_object(target, by_player));
     assert_eq!(hits(&g), 10.0);
@@ -2713,7 +2760,7 @@ fn limb_hits_lower_conditions_and_cripple() {
     let npc = FormId(NPC_REF);
     // Maximum health 55; a leg at 25 %: a pool of 13.75. Left Mobility Condition is code 29.
     let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0, points: false };
-    let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { damage, ..leg }) };
+    let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), location: 7, limb: Some(LimbHit { damage, ..leg }), ..HitInfo::default() };
     let r = g.hit(npc, 5.0, hit(2.75));
     assert_eq!((r.limb, r.crippled), (Some((29, 80.0)), false));
     assert!(!g.is_crippled(npc, 29));
@@ -2781,7 +2828,7 @@ fn limb_damage_in_points() {
     let f = fixture();
     let mut g = game(&f);
     g.new_game();
-    let leg = |damage: f64| HitInfo { attacker: None, weapon: None, location: -1, critical: false, limb: Some(LimbHit { condition: RIGHT_MOBILITY, health_percent: 0.0, damage, points: true }) };
+    let leg = |damage: f64| HitInfo { location: -1, limb: Some(LimbHit { condition: RIGHT_MOBILITY, health_percent: 0.0, damage, points: true }), ..HitInfo::default() };
     for target in [FormId(NPC_REF), FormId::PLAYER_REF] {
         let r = g.hit(target, 49.88, leg(24.94));
         assert_eq!(r.limb.map(|(c, v)| (c, (v * 100.0).round() / 100.0)), Some((RIGHT_MOBILITY, 75.06)));
@@ -2804,7 +2851,7 @@ fn crippled_limbs_slow_and_heal() {
     // fCombatPlayerLimbDamageMult's default: half for the player, all for others.
     assert_eq!(g.limb_damage(FormId::PLAYER_REF, 10.0), 5.0);
     assert_eq!(g.limb_damage(npc, 10.0), 10.0);
-    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0, points: false }) };
+    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), location: 7, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0, points: false }), ..HitInfo::default() };
     assert_eq!(g.leg_speed_mult(npc), 1.0);
     assert!(g.hit(npc, 1.0, hit(LEFT_MOBILITY)).crippled);
     assert_eq!(g.leg_speed_mult(npc), 0.85);
@@ -3577,6 +3624,34 @@ End
     g.menu_under = g.menu;
     g.menu = Some(menus::ITEM_MOD);
     assert_eq!(q(&mut g, "SetFunctionValue (GetSelectedItemRef)"), Ok(XVal::Ref(item.0)));
+}
+
+#[test]
+fn refresh_items_list_sets_one_shot_transient_request() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default())
+    };
+    assert!(!g.refresh_items_list_pending());
+    assert!(!g.take_refresh_items_list());
+
+    // Calling RefreshItemsList returns 0 and latches a pending request; repeated calls coalesce.
+    assert_eq!(q(&mut g, "SetFunctionValue (RefreshItemsList)"), Ok(XVal::Num(0.0)));
+    assert!(g.refresh_items_list_pending());
+    assert_eq!(q(&mut g, "RefreshItemsList"), Ok(XVal::Num(0.0)));
+    assert!(g.refresh_items_list_pending());
+
+    // The request is transient (not carried across snapshot/restore).
+    let snap = g.snapshot();
+    let restored = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), g.cfg, &snap).unwrap();
+    assert!(!restored.refresh_items_list_pending());
+
+    // Engine consumption is one-shot.
+    assert!(g.take_refresh_items_list());
+    assert!(!g.refresh_items_list_pending());
+    assert!(!g.take_refresh_items_list());
 }
 
 #[test]
@@ -5215,7 +5290,7 @@ fn built_in_plugins_report_installed() {
     let f = udf_fixture();
     let mut g = game(&f);
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default());
-    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "sup nvse plugin"] {
+    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "Improved Console", "sup nvse plugin"] {
         assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(1.0)), "{name}");
         let Ok(XVal::Num(v)) = q(&mut g, &format!("GetPluginVersion \"{name}\"")) else { panic!("{name}") };
         assert!(v > 0.0, "{name}: {v}");
@@ -5223,6 +5298,7 @@ fn built_in_plugins_report_installed() {
     // A version a mod asks for "at least" is met where none was read in the original.
     assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"Improved Console\""), Ok(XVal::Num(3.0)));
     for name in ["yUI", "NVTF", "No Such Plugin"] {
         assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
         assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");

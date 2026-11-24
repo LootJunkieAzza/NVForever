@@ -301,7 +301,7 @@ mod tests {
     }
 
     fn row(item: u32, text: &str) -> RowShown {
-        RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: false }
+        RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: false, ysi: None }
     }
 
     fn snapshot(left: &[(u32, &str)], right: &[(u32, &str)], focus: Side, selected: usize) -> Snapshot {
@@ -725,5 +725,63 @@ mod tests {
         assert_eq!(st.row_in(Side::Player, 1, &now(&[1, 3])), None, "another item there");
         assert_eq!(st.row_in(Side::Player, 1, &now(&[1])), None, "the list shorter");
         assert_eq!(st.row_in(Side::Container, 0, &now(&[1])), None, "no such tile");
+    }
+
+    #[test]
+    fn ysi_row_icons_attach_when_ysi_xml_is_present_and_noop_when_absent() {
+        let tagged = fnv_game::ui_ysi::YsiItemDisplay {
+            tag: Some("(a01)".into()),
+            icon: Some("icons\\stimpak.dds".into()),
+            template: fnv_game::ui_ysi::YSI_DEFAULT_TEMPLATE.into(),
+        };
+        let mut s = snapshot(&[(1, "Stimpak"), (2, "Tin Can")], &[], Side::Player, 0);
+        s.lists[Side::Player as usize].rows[0].ysi = Some(tagged);
+
+        // Without ySI.xml: safe fallback, zero ySIImage tiles created.
+        let (mut plain_ui, mut plain_st) = (menu(), ContainerTiles::default());
+        frame(&mut plain_ui, &s, &mut plain_st);
+        let row0 = plain_st.rows[Side::Player as usize][0].tile;
+        assert!(list::child(&plain_ui, row0, fnv_game::ui_ysi::YSI_IMAGE_TILE).is_none());
+
+        // With ySI.xml injected into ContainerMenu: tagged row gets ySIDefault + filename,
+        // untagged row gets ySINoTag, and clicking ySIImage still maps to Row(0).
+        let ysi_xml = r#"
+<rect name="ySI">
+  <_ySI> 1 </_ySI>
+  <_ySIBlanks> 1 </_ySIBlanks>
+  <_ySIWidth> 24 </_ySIWidth>
+  <_ySIHeight> 24 </_ySIHeight>
+</rect>
+<template name="ySIDefault">
+  <image name="ySIImage">
+    <filename> icons\default.dds </filename>
+    <width> <copy src="ySI" trait="_ySIWidth"/> </width>
+    <height> <copy src="ySI" trait="_ySIHeight"/> </height>
+    <visible> 1 </visible>
+  </image>
+</template>
+<template name="ySINoTag">
+  <image name="ySIImage">
+    <filename> icons\blank.dds </filename>
+    <width> <copy src="ySI" trait="_ySIWidth"/> <onlyif src="ySI" trait="_ySIBlanks"/> </width>
+    <height> <copy src="ySI" trait="_ySIHeight"/> </height>
+    <visible> 1 </visible>
+  </image>
+</template>
+"#;
+        let (mut ui, mut st) = (menu(), ContainerTiles::default());
+        let src = MemSource::default().with(fnv_game::ui_ysi::YSI_XML_PATH, ysi_xml);
+        let root = ui.menu(CONTAINER_MENU).unwrap();
+        assert!(fnv_game::ui_ysi::publish_for_menu(&mut ui, &src, root, Some(1008)));
+        frame(&mut ui, &s, &mut st);
+
+        let r0_tile = st.rows[Side::Player as usize][0].tile;
+        let r1_tile = st.rows[Side::Player as usize][1].tile;
+        let img0 = list::child(&ui, r0_tile, fnv_game::ui_ysi::YSI_IMAGE_TILE).expect("tagged row icon");
+        let img1 = list::child(&ui, r1_tile, fnv_game::ui_ysi::YSI_IMAGE_TILE).expect("untagged row icon");
+        assert_eq!(ui.tile(img0).get("filename").map(Value::text).as_deref(), Some("icons\\stimpak.dds"));
+        assert_eq!(ui.tile(img0).get("width").map(Value::num), Some(24.0));
+        assert_eq!(ui.tile(img1).get("filename").map(Value::text).as_deref(), Some("icons\\blank.dds"));
+        assert_eq!(st.clicked(&ui, img0), Some(ContainerTile::Row(Side::Player, 0)));
     }
 }

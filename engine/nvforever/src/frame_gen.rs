@@ -9,10 +9,14 @@
 //! - after FSR ([`crate::fsr::fsr_pass`]): frame interpolation's prepare pass dilates the
 //!   frame's depth and motion (the same inputs FSR gets);
 //! - after the post passes and before the UI: a copy of the frame without the HUD;
-//! - after the UI, before Bevy's upscaling blit: optical flow on the HUD-less frame, then the
-//!   frame halfway between the previous real frame and this one, into a texture of its own.
-//!   AMD's HUD-less mode puts this frame's HUD pixels (wherever the frame with the HUD
-//!   differs from the one without) over it, so the HUD and menus are never interpolated.
+//! - after the UI, before Bevy's upscaling blit: the UI drawn a second time, alone, into a
+//!   texture of its own (`fg_ui_layer.rs`); optical flow on the HUD-less frame, then the frame
+//!   halfway between the previous real frame and this one (from the HUD-less frames only), into
+//!   a texture of its own, and the UI layer drawn over it, so the generated frame carries this
+//!   real frame's HUD exactly and the HUD and menus are never interpolated. With
+//!   `NVF_FG_UI_LAYER=0` (or a frame the layer could not be drawn for) AMD's HUD-less mode puts
+//!   this frame's HUD pixels over it instead, wherever the frame with the HUD differs from the
+//!   one without, weighted by how much: the HUD's faint parts then mix with the scene.
 //! - The window's images are not Bevy's while it runs (the vendored bevy_render's
 //!   `DeferredSwapchain`, 2026-11-08): the frame is drawn into a stand-in texture, and once
 //!   Bevy's `render_system` has submitted the frame's commands (and a screenshot's copy into the
@@ -73,7 +77,7 @@ use bevy::render::{
     view::{prepare_view_targets, prepare_windows, DeferredSwapchain, ExtractedWindow, SurfaceData, ViewTarget, STAND_INS},
     Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
 };
-use bevy::ui_render::ui_pass;
+use bevy::ui_render::{ui_pass, UiCameraView};
 use wgpu_ffx::frameinterpolation::{
     FrameInterpolationContext, FrameInterpolationDispatchInfo, FrameInterpolationFlags, FrameInterpolationPrepareInfo, FrameInterpolationView,
 };
@@ -623,6 +627,12 @@ pub(crate) struct PreparedFrameGen {
     /// This frame may have a generated frame (playing).
     playing: bool,
     logged: AtomicBool,
+    /// The UI drawn alone (`fg_ui_layer.rs`) and its view; `None` with `NVF_FG_UI_LAYER=0`.
+    ui_layer: Option<(wgpu::Texture, wgpu::TextureView)>,
+    /// The pass that draws the UI layer over the generated frame (made the first time).
+    composite: Mutex<Option<crate::fg_ui_layer::Composite>>,
+    /// The UI layer could not be drawn once (said once; that frame used AMD's HUD-less mode).
+    ui_said: AtomicBool,
 }
 
 impl PreparedFrameGen {
@@ -636,7 +646,8 @@ impl PreparedFrameGen {
             output_size,
             hudless: std::array::from_fn(|_| texture("frame_gen_hudless", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC)),
             hudless_at: AtomicUsize::new(0),
-            outputs: std::array::from_fn(|_| texture("frame_gen_output", U::STORAGE_BINDING | U::TEXTURE_BINDING | U::COPY_SRC)),
+            // A render attachment too: the UI layer is drawn over it.
+            outputs: std::array::from_fn(|_| texture("frame_gen_output", U::STORAGE_BINDING | U::TEXTURE_BINDING | U::COPY_SRC | U::RENDER_ATTACHMENT)),
             output_next: AtomicU64::new(0),
             reals: std::sync::OnceLock::new(),
             real_next: AtomicU64::new(0),
@@ -645,9 +656,21 @@ impl PreparedFrameGen {
             history: AtomicBool::new(false),
             playing,
             logged: AtomicBool::new(false),
+            ui_layer: crate::fg_ui_layer::ENABLED.then(|| {
+                let size = wgpu::Extent3d { width: output_size.x, height: output_size.y, depth_or_array_layers: 1 };
+                let layer = crate::fg_ui_layer::layer_texture(device, size, FRAME_FORMAT, "frame_gen_ui_layer");
+                let view = layer.create_view(&wgpu::TextureViewDescriptor::default());
+                (layer, view)
+            }),
+            composite: Mutex::new(None),
+            ui_said: AtomicBool::new(false),
         }
     }
 }
+
+/// The format the frames are generated in (the main texture's, which the HUD-less copy is
+/// copied from).
+const FRAME_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// A display-sized texture in the format the frames are generated in.
 fn frame_texture(device: &wgpu::Device, size: UVec2, label: &str, usage: wgpu::TextureUsages) -> wgpu::Texture {
@@ -657,7 +680,7 @@ fn frame_texture(device: &wgpu::Device, size: UVec2, label: &str, usage: wgpu::T
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba16Float,
+        format: FRAME_FORMAT,
         usage,
         view_formats: &[],
     })
@@ -691,7 +714,7 @@ fn prepare(
         let pair = renderer.0.get_or_insert_with(|| {
             let device = device.wgpu_device();
             let flags = FrameInterpolationFlags::DEPTH_INVERTED | FrameInterpolationFlags::DEPTH_INFINITE | FrameInterpolationFlags::HDR_COLOR_INPUT;
-            (OpticalFlowContext::new(device, true), FrameInterpolationContext::new(device, flags, wgpu::TextureFormat::Rgba16Float))
+            (OpticalFlowContext::new(device, true), FrameInterpolationContext::new(device, flags, FRAME_FORMAT))
         });
         match old {
             Some(mut old) if old.render_size == fsr.render_size && old.output_size == fsr.output_size => {
@@ -758,9 +781,15 @@ fn capture_hudless(view: ViewQuery<(&ViewTarget, &PreparedFrameGen)>, mut ctx: R
 /// the real frame, which Bevy's upscaling draws into the stand-in. Where the render thread
 /// presents (`NVF_FG_PRESENTER=0`), the generated frame goes into the main texture (so Bevy's
 /// upscaling shows it first) and the real one aside for [`show_real`].
-#[allow(clippy::too_many_arguments)]
+///
+/// The HUD: the passes interpolate the frame without it, and the UI drawn alone
+/// (`fg_ui_layer.rs`) is drawn over the generated frame, so it shows this real frame's HUD
+/// exactly. Without the layer (`NVF_FG_UI_LAYER=0`, or it could not be drawn) AMD's HUD-less
+/// mode takes the HUD from where the frame differs from its copy without it.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn generate(
-    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFrameGen, &ExtractedCamera), With<PreparedFsr>>,
+    world: &World,
+    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFrameGen, &ExtractedCamera, Option<&UiCameraView>), With<PreparedFsr>>,
     renderer: Res<FrameGenRenderer>,
     pending: Res<PendingReal>,
     pending_generated: Res<PendingGenerated>,
@@ -771,7 +800,7 @@ fn generate(
     windows: Query<(MainEntity, &ExtractedWindow, Option<&DeferredSwapchain>)>,
     mut ctx: RenderContext,
 ) {
-    let (target, fsr, fg, camera) = view.into_inner();
+    let (target, fsr, fg, camera, ui) = view.into_inner();
     let Some((optical_flow, interpolation)) = &renderer.0 else { return };
     if !fg.prepared.swap(false, Ordering::Relaxed) || !fg.playing {
         // Nothing to interpolate from next frame: it starts again with a reset.
@@ -789,6 +818,19 @@ fn generate(
     use bevy::render::diagnostic::RecordDiagnostics;
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_frame_generation");
     let main: &wgpu::Texture = target.main_texture();
+    // The UI alone, for a frame that gets a generated one; it must match the main texture,
+    // which the UI's pipelines are made for.
+    let ui_layer = fg.ui_layer.as_ref().filter(|(layer, _)| !reset && layer.format() == main.format() && layer.size() == main.size()).and_then(|(_, view)| {
+        match crate::fg_ui_layer::draw(world, ui, camera, &mut ctx, view) {
+            Ok(()) => Some(view),
+            Err(why) => {
+                if !fg.ui_said.swap(true, Ordering::Relaxed) {
+                    warn!("frame generation: {why}; such frames take the HUD from the frame without it (AMD's HUD-less mode) (said once)");
+                }
+                None
+            }
+        }
+    });
     let encoder = ctx.command_encoder();
     // This frame's HUD-less copy ([`capture_hudless`]) and the frame before's; the next frame
     // writes over the older one.
@@ -806,9 +848,12 @@ fn generate(
         min_max_luminance: [0.0, 80.0],
     });
     let frame_id = fg.frame_id.fetch_add(1, Ordering::Relaxed);
+    // With the UI layer the passes see the frame without the HUD only, and the layer goes over
+    // their result.
+    let (current, current_hudless) = if ui_layer.is_some() { (hudless, None) } else { (main, Some(hudless)) };
     interpolation.dispatch(&mut fg.interpolation.lock().unwrap(), encoder, &FrameInterpolationDispatchInfo {
-        current_backbuffer: main,
-        current_backbuffer_hudless: Some(hudless),
+        current_backbuffer: current,
+        current_backbuffer_hudless: current_hudless,
         output,
         optical_flow: &of_view,
         render_size: fsr.render_size.to_array(),
@@ -824,6 +869,12 @@ fn generate(
         previous_source: Some(previous),
     });
     drop(of_view);
+    if let Some(layer) = ui_layer {
+        let mut composite = fg.composite.lock().unwrap();
+        let composite = composite.get_or_insert_with(|| crate::fg_ui_layer::Composite::new(device.wgpu_device(), FRAME_FORMAT));
+        let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+        composite.draw(device.wgpu_device(), encoder, layer, &output_view);
+    }
     fg.history.store(true, Ordering::Relaxed);
     stats.real.fetch_add(1, Ordering::Relaxed);
     // Where the camera draws this frame. A presenter's window: its stand-in. A window the
@@ -842,6 +893,11 @@ fn generate(
         generated.0.fetch_add(1, Ordering::Relaxed);
         if !fg.logged.swap(true, Ordering::Relaxed) {
             info!("frame generation active: {}x{}, generated frame presented first, the real frame second", fg.output_size.x, fg.output_size.y);
+            if ui_layer.is_some() {
+                info!("frame generation: the HUD is the UI drawn alone over each generated frame (premultiplied), not interpolated");
+            } else {
+                info!("frame generation: the HUD is taken from where the frame differs from its copy without it (AMD's HUD-less mode{})", if *crate::fg_ui_layer::ENABLED { "" } else { ", NVF_FG_UI_LAYER=0" });
+            }
         }
     };
     if reset {

@@ -37,6 +37,10 @@
 //! - **Terrain anti-tiling** (`terrain-anti-tiling`, off in both presets, likewise): the
 //!   landscape textures are read at a few offset places hashed from the world and blended,
 //!   so their repeat no longer shows as a grid (terrain.rs "Anti-tiling", #2551).
+//! - **Terrain parallax** (`terrain-parallax`, off in both presets, likewise until its cost
+//!   is measured; it needs Authored materials): the landscape's texture layers whose
+//!   texture pack gives a height map (`_p`) show relief near the camera (terrain.rs
+//!   "Parallax", #3322).
 //! - **Cloud shadows** (`cloud-shadows`, off in both presets: #2670 asked for it "in
 //!   `enhanced`", a row the menu overhaul removed, and its strength is not calibrated yet):
 //!   the weather's cloud layers darken the sun's direct light where their shadow falls
@@ -53,6 +57,14 @@
 //! - **Desert haze** (`desert-haze`, off in every preset): a thin dust haze added to the
 //!   weather's own distance fog, thicker with distance and toward the ground, warmer toward
 //!   the sun, as far as the weather's fog leaves room for it (haze.rs, #2675).
+//! - **Aerial perspective** (`aerial-perspective`, off in every preset): far scenery takes on
+//!   the weather's sky colours with distance, per colour channel and toward the sun, inside the
+//!   weather's own fog (aerial.rs, #2993).
+//! - **Night sky detail** (`night-sky-detail`, off in every preset): the stars twinkle, the
+//!   moon has a glow and the clouds take its light, from the weather's own colours and fog
+//!   (night_sky.rs, #2995).
+//! - **Distant lights** (`distant-lights`, off in both presets): at night, placed lights in
+//!   the cells beyond the loaded ones show as small glows (distant_lights.rs, #3013).
 //!
 //! Another switch is off in both looks and not part of `enhanced`: **Blend meshes into
 //! ground** (`mesh-terrain-blend`, `mesh_terrain_blend.rs`), outdoor roads, rocks and
@@ -202,6 +214,9 @@ pub struct Graphics {
     /// Anti-tiling of the landscape textures (terrain.rs "Anti-tiling"; off in both
     /// presets) [design, #2551].
     pub terrain_anti_tiling: bool,
+    /// Parallax from authored height maps on the landscape's folded texture layers
+    /// (terrain.rs "Parallax"; off in both presets) [design, #3322].
+    pub terrain_parallax: bool,
     /// The weather's clouds shade the sun (cloud_shadows.rs; off in both presets)
     /// [design, #2670].
     pub cloud_shadows: bool,
@@ -218,6 +233,15 @@ pub struct Graphics {
     /// `authored::set_enabled`, main.rs); this field is the settings row's value for the
     /// next start.
     pub authored_materials: bool,
+    /// Authored materials reflect the sky or the room around them (#2981 reflections,
+    /// reflection_sky.rs; docs/spec-notes/pbr-materials.md "Reflections on authored
+    /// materials"; on in both looks: without a pack, or with Authored materials off, nothing
+    /// changes). Read once at the start (nvf_assets `reflection_cube::set_enabled`, main.rs);
+    /// this field is the settings row's value for the next start.
+    pub authored_reflections: bool,
+    /// Glows of placed lights beyond the loaded cells at night (distant_lights.rs; off in
+    /// both presets) [design, #3013].
+    pub distant_lights: bool,
     /// Full models of static scenery in the cells beyond the loaded ones, draw-only
     /// (full_detail.rs; 7 x 7 in `enhanced`, off in vanilla) [design, #2701; maintainer
     /// decision 2026-11-21 on #3048].
@@ -226,15 +250,24 @@ pub struct Graphics {
     /// models by size, beyond the loaded cells and the ring, draw-only (distant_objects.rs;
     /// off in both presets) [design, #3014].
     pub distant_objects: crate::distant_objects::DistantObjects,
+    /// Far scenery takes on the sky's colours in the weather's fog (aerial.rs; off in every
+    /// preset) [design, #2993].
+    pub aerial_perspective: bool,
+    /// Twinkling stars, a moon glow and moonlit clouds (night_sky.rs; off in every preset)
+    /// [design, #2995].
+    pub night_sky_detail: bool,
 }
 
 /// The settings key of the Authored materials row (#2981).
 pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
 
+/// The settings key of the Reflections on authored materials row (#2981).
+pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
+
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
 /// shadow-filter, full-detail and distant-object choices that are not vanilla's, in the
 /// order of [`Graphics::describe`].
-pub const KEYS: [&str; 24] = [
+pub const KEYS: [&str; 28] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -251,6 +284,7 @@ pub const KEYS: [&str; 24] = [
     "shadow-filter-temporal",
     "terrain-height-blend",
     "terrain-anti-tiling",
+    "terrain-parallax",
     "cloud-shadows",
     "terrain-shadows",
     "heat-haze",
@@ -259,6 +293,9 @@ pub const KEYS: [&str; 24] = [
     "full-detail-9x9",
     "distant-objects-8",
     "distant-objects-12",
+    "aerial-perspective",
+    "night-sky-detail",
+    "distant-lights",
 ];
 
 impl Graphics {
@@ -306,6 +343,9 @@ impl Graphics {
             terrain_height_blend: false,
             // The same for anti-tiling [design, #2551].
             terrain_anti_tiling: false,
+            // The same for terrain parallax, whose cost is still to measure [design, #3322;
+            // the maintainer's call].
+            terrain_parallax: false,
             // The same for cloud shadows, whose strength is still to calibrate [design,
             // #2670; the issue's "in enhanced" names a row the overhaul removed].
             cloud_shadows: false,
@@ -318,6 +358,10 @@ impl Graphics {
             desert_haze: false,
             // On in both looks [design, #2981]: without a pack nothing changes.
             authored_materials: true,
+            // On in both looks [design, #2981]: without a pack nothing reflects.
+            authored_reflections: true,
+            // Off in both looks: an addition of our own [design, #3013].
+            distant_lights: false,
             // An addition of our own for machines with GPU headroom: the 7 x 7 ring in
             // `enhanced`, off in vanilla [design, #2701; maintainer decision 2026-11-21 on
             // #3048].
@@ -325,6 +369,10 @@ impl Graphics {
             // Off in both looks: an addition of our own; whether `enhanced` turns it on is
             // the maintainer's call [design, #3014].
             distant_objects: crate::distant_objects::DistantObjects::Off,
+            // Off in every preset: an addition of our own [design, #2993].
+            aerial_perspective: false,
+            // Off in every preset: an addition of our own [design, #2995].
+            night_sky_detail: false,
         }
     }
 
@@ -346,11 +394,16 @@ impl Graphics {
             "mesh-terrain-blend" => &mut self.mesh_terrain_blend,
             "terrain-height-blend" => &mut self.terrain_height_blend,
             "terrain-anti-tiling" => &mut self.terrain_anti_tiling,
+            "terrain-parallax" => &mut self.terrain_parallax,
             "cloud-shadows" => &mut self.cloud_shadows,
             "terrain-shadows" => &mut self.terrain_shadows,
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
+            "aerial-perspective" => &mut self.aerial_perspective,
+            "night-sky-detail" => &mut self.night_sky_detail,
             AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
+            AUTHORED_REFLECTIONS_KEY => &mut self.authored_reflections,
+            "distant-lights" => &mut self.distant_lights,
             _ => return None,
         })
     }
@@ -376,9 +429,10 @@ impl Graphics {
                 "no-neon-glow" => g.neon_glow = false,
                 "no-water-mirror" => g.water_mirror = false,
                 "no-authored-materials" => g.authored_materials = false,
+                "no-authored-reflections" => g.authored_reflections = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-authored-materials", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections", KEYS.join(", "))),
                 },
             }
         }
@@ -408,13 +462,18 @@ impl Graphics {
             (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
             (self.terrain_height_blend, "terrain height blending"),
             (self.terrain_anti_tiling, "terrain anti-tiling"),
+            (self.terrain_parallax, "terrain parallax"),
             (self.cloud_shadows, "cloud shadows"),
             (self.terrain_shadows, "terrain shadows"),
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
             (!self.authored_materials, "no authored materials"),
+            (!self.authored_reflections, "no authored reflections"),
             (self.full_detail != crate::full_detail::FullDetail::Off, self.full_detail.describe()),
             (self.distant_objects != crate::distant_objects::DistantObjects::Off, self.distant_objects.describe()),
+            (self.aerial_perspective, "aerial perspective"),
+            (self.night_sky_detail, "night sky detail"),
+            (self.distant_lights, "distant lights"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -1536,6 +1595,19 @@ mod tests {
     }
 
     #[test]
+    fn authored_reflections_are_on_in_both_looks_and_can_be_switched_off() {
+        assert!(Graphics::preset(Preset::Vanilla).authored_reflections && Graphics::preset(Preset::Enhanced).authored_reflections);
+        let off = Graphics::only(&["no-authored-reflections".into()]).expect("no-authored-reflections");
+        assert!(!off.authored_reflections && off.authored_materials, "the materials row stays on");
+        assert_eq!(off.describe(), "light glow, no authored reflections");
+        let only = Graphics::only(&["authored-materials".into()]).unwrap();
+        assert!(only.authored_reflections, "--graphics-only leaves it on unless told");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch(AUTHORED_REFLECTIONS_KEY).unwrap() = false;
+        assert!(!g.authored_reflections);
+    }
+
+    #[test]
     fn light_glow_is_vanilla_and_can_be_switched_off() {
         let vanilla = Graphics::preset(Preset::Vanilla);
         assert!(vanilla.glow && !vanilla.bloom);
@@ -1625,6 +1697,17 @@ mod tests {
     }
 
     #[test]
+    fn terrain_parallax_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).terrain_parallax && !Graphics::preset(Preset::Enhanced).terrain_parallax);
+        let on = Graphics::only(&["terrain-parallax".into()]).expect("terrain-parallax");
+        assert!(on.terrain_parallax && !on.terrain_anti_tiling && !on.terrain_height_blend);
+        assert_eq!(on.describe(), "light glow, terrain parallax");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("terrain-parallax").expect("settings key") = true;
+        assert_eq!(g, on);
+    }
+
+    #[test]
     fn heat_haze_is_off_in_both_looks_and_has_its_own_key() {
         assert!(!Graphics::preset(Preset::Vanilla).heat_haze && !Graphics::preset(Preset::Enhanced).heat_haze);
         let on = Graphics::only(&["heat-haze".into()]).expect("heat-haze");
@@ -1646,6 +1729,30 @@ mod tests {
         *g.switch("desert-haze").expect("settings key") = true;
         assert_eq!(g, on);
         assert!(!Graphics::preset(Preset::Enhanced).describe().contains("haze"));
+    }
+
+    #[test]
+    fn aerial_perspective_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).aerial_perspective && !Graphics::preset(Preset::Enhanced).aerial_perspective);
+        let on = Graphics::only(&["aerial-perspective".into()]).expect("aerial-perspective");
+        assert!(on.aerial_perspective);
+        assert_eq!(on.describe(), "light glow, aerial perspective");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("aerial-perspective").expect("settings key") = true;
+        assert_eq!(g, on);
+        assert!(!Graphics::preset(Preset::Enhanced).describe().contains("aerial"));
+    }
+
+    #[test]
+    fn night_sky_detail_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).night_sky_detail && !Graphics::preset(Preset::Enhanced).night_sky_detail);
+        let on = Graphics::only(&["night-sky-detail".into()]).expect("night-sky-detail");
+        assert!(on.night_sky_detail);
+        assert_eq!(on.describe(), "light glow, night sky detail");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("night-sky-detail").expect("settings key") = true;
+        assert_eq!(g, on);
+        assert!(!Graphics::preset(Preset::Enhanced).describe().contains("night sky"));
     }
 
     // The guard alone: repeated requests and an earlier registration. Both callers

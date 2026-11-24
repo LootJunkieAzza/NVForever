@@ -55,10 +55,11 @@ game, so nothing here is `[observed]`. Changes last for the session.
 | TTW_GetEquippedWeaponSkill `skill` | 1 when the equipped weapon's skill (DNAM, an actor value code) is that one [documented] |
 | TTW_GetPlugins | `[name, version, description]` per loaded plugin [documented]: the version is the TES4 HEDR version (as GetPluginHeaderVersion), the description "" [decision]. Until 2026-11-08 the version was 0, and TTW's start-up check (a plugin below 1.3 is an unconverted Fallout 3 mod) showed its "Fallout 3 mods installed" message for every load order |
 | TTW_ShowGeneProjector | opens the race menu (1036), NVForever's character creator, as ShowRaceMenu does [observed: TTW's scripts wait in `MenuMode 1036` after it; design: owner 2026-11-02] |
+| `TTW.ini` `[Karma Titles]` | optional per-level karma title overrides (`sKarmicTitle<Good\|Neutral\|Evil><level>`, levels `1..=50`, `1..=60`, and higher) read from `Data\NVSE\Plugins\TTW.ini` (`fnv_game::karma_titles::TtwKarmaTitles`) and wired into `GetPlayerKarmaTitle` and the Pip-Boy Stats page (both hand-built and tile-drawn `StatsMenu`) [documented: ROOGNVSE Plugin / TTW NVSE Plugin (Nexus Mods ID 77415, `https://www.nexusmods.com/newvegas/mods/77415`, author Roy Batty / RoyBatterian, versions 3.3.2 / 3.3.3; bundled in Tale of Two Wastelands 3.3.x as `ttw_nvse.dll`) public description ("Karma Title Expansion: Set custom titles for each level of Karma (Good, Neutral, Evil) via INI") and shipped `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` schema (`sKarmicTitleGood<N>`, `sKarmicTitleNeutral<N>`, `sKarmicTitleEvil<N>`, e.g. levels `1..=60` in TTW 3.3.3 / Consistent Karma Titles - ESPless, Nexus Mods ID 89822, `https://www.nexusmods.com/newvegas/mods/89822`, author VeryLastKiss); DLL/source not consulted; hypothesis: ASCII case-insensitive section/key matching, optional leading-zero digits, `;`/`#` comments and one optional surrounding quote pair stripped, blank values ignored; design: levels below `1` clamp to `1`, levels above `30` with no exact entry clamp to the highest defined `TTW.ini` level when `>= 30`, sparse overrides below `30` fall back to GMST/vanilla, lazy `OnceLock` cache on `ModFiles`]. Absent or empty leaves vanilla karma titles unchanged |
 | StewieGetValue `"key:section"` (StewVal) | [documented: StewieGetValue] Reads a setting. [design] After handoff, the mapped [critical](stewie-stat-profile.md) and [inventory](#live-inventory-settings) keys read NVForever choices. Other keys and unbound games keep the layered `Data\NVSE\Plugins\nvse_stewie_tweaks.ini` lookup: a number when it reads as one, otherwise text, or 0 when absent. |
-| GetCellRegions `cell` | an exterior cell's regions (XCLR); none for an interior [documented] |
+| GetCellRegions `cell` | an exterior cell's regions (XCLR); none for an interior [documented]. When `Data\NVSE\Plugins\hNVSE.ini` sets `[Main] bMergeRegionLists=1` at load time ([documented: hNVSE 1.2 (Nexus Mods ID 85748, `https://www.nexusmods.com/newvegas/mods/85748`, authors DuncanWasHere & A User) public changelog and shipped `Data\NVSE\Plugins\hNVSE.ini` comments ("Force-merges cell region lists (XCLR subrecord in xEdit) during loading"); DLL/PDB/source not consulted]; [observed: FalloutNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + hNVSE 120 on exterior cell `188TradingPost` (`0x000DDF1C`) with a single-record test override ESP: `[Main]` is strictly required (`[General]` is ignored) and merged `XCLR` lists place the overriding plugin's regions first followed by earlier plugins' remaining non-duplicate regions]), overridden exterior cells return the deduplicated overriding-plugin-first union (`fnv_world::audio::cell_regions_merged`, `Game::cell_regions`) [design: read once at load so world and script consumers agree and mid-session INI writes do not toggle it; `GameData::merged_cell_regions` is populated only when enabled at load so startup cost is zero when absent or disabled; per-record `XCLR` order preserved within each plugin; interior cells and deleted overrides skipped]. Absent or `0` leaves vanilla last-writer-wins unchanged |
 | SetWorldspaceMapBounds `world nwX nwY seX seY` | the WRLD MNAM cells, read by every reader of the record (`Game::world_map_bounds`) [documented; follow-up: the engine's map reads its bounds once] |
-| ySIGetTrait / ySISetTrait `"tag"\|"icon" [value] [form]` | ySI's tag and icon, of the form else the calling reference's base; an icon set on a tagged form goes to every form of that tag [documented]; "" until set [decision: ySI's own files are not read] |
+| ySIGetTrait / ySISetTrait `"tag"\|"icon" [value] [form]` | ySI's sorting tag and icon texture path of the form, else the calling reference's base (uncloned), reading session `ySISetTrait` overrides first and falling back to the bounded `menus/ySI/*.json` rule snapshot (`ysi-filename.md`); an icon set on a tagged form (overridden or JSON-tagged) applies to every form of that tag [documented: `YSIGetTrait`, `YSISetTrait`]; "" when unset, cleared, or unmatched [design] |
 
 ### Live inventory settings
 
@@ -83,6 +84,7 @@ added. [hypothesis] The original plugin matches names the same way; not observed
 | `bKeepPipboyLightOnCellChange:Tweaks` | `1` when bound; NVForever already keeps the Pip-Boy light on across cell changes ([tweaks](../design/tweaks.md)) |
 | `bWeightlessWornArmor:Tweaks` | `Tweaks::weightless_worn_armor`; worn armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
 | `bWeightlessWornPowerArmor:Tweaks` | `Tweaks::weightless_worn_power_armor`; worn power armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
+| `bArmorConditionLabel:Tweaks` | `Tweaks::armor_condition`; shows the worn body armour's condition bar on the HUD |
 
 [hypothesis] The ammo query retains the child choice while its parent is disabled,
 as the plugin's own file keeps both keys; not observed in the original game. Its answer
@@ -139,3 +141,142 @@ Compiler, runtime, strict-lint and hosted checks on the corrected integration re
 UNRUN. The historical six ordinary and three opt-in results do not qualify this
 candidate. Identical-fixture baselines, original-game and installed-workload
 comparisons, native profile semantics and full Stewie compatibility remain open.
+
+## 4. Sky plugin INI configs (`MoonlightNVSE.ini` and `CloudUpgrade.ini`)
+
+Built in `engine/nvforever/src/sky_ini.rs` and wired into `engine/nvforever/src/sky.rs`,
+`worldspace.rs`, `cloud_shadows.rs`, and `main.rs`.
+
+**Provenance.** Neither plugin's DLL nor source code was ever consulted or disassembled.
+Section/key names, install paths, and default values come strictly from the public Nexus
+Mods pages and shipped INI files of:
+- **MoonlightNVSE v2.00** (by WallSoGB): `https://www.nexusmods.com/newvegas/mods/77683`,
+  shipped `Data\nvse\plugins\MoonlightNVSE.ini`;
+- **Cloud Upgrade NVSE v1.0** (by doodlum): `https://www.nexusmods.com/newvegas/mods/79612`,
+  shipped `Data\NVSE\Plugins\CloudUpgrade.ini`.
+
+Exact third-party runtime internals are unknown: the 8-phase moon mapping remains
+`[hypothesis]`, and NVForever's VFS loading, clamping, omitted-key fallback, and
+**CloudUpgrade cloud speed modulation formula/mapping are NVForever's own `[design]`,
+not the Cloud Upgrade NVSE plugin's implementation**.
+
+- **Vanilla invariance `[design]`:** Both INI files are discovered case-insensitively
+  through the engine VFS at startup (`Data\NVSE\Plugins\MoonlightNVSE.ini` [documented:
+  MoonlightNVSE v2.00 shipped `nvse\plugins\MoonlightNVSE.ini`] and
+  `Data\NVSE\Plugins\CloudUpgrade.ini` [documented: Cloud Upgrade NVSE v1.0 shipped
+  `NVSE\Plugins\CloudUpgrade.ini`]) and carried across worldspace/climate sky rebuilds
+  (`worldspace::carry_sky`). When either file is absent or unreadable, the corresponding
+  option stays `None` and vanilla sky lighting and cloud animation remain bit-for-bit
+  unchanged. Neither plugin is added to `IsPluginInstalled` / `GetPluginVersion`
+  reporting (`ext-version.md`).
+- **Shared INI parsing `[design]`:** Lossy UTF-8 decoding with optional leading UTF-8 BOM
+  stripped; `;` and `#` comments ignored (full-line and inline); section and key names
+  matched ASCII case-insensitively; unknown sections/keys and non-finite or malformed
+  values ignored without aborting loading; duplicate keys take the last valid value.
+- **`MoonlightNVSE.ini`:**
+  - `[documented: MoonlightNVSE v2.00 (https://www.nexusmods.com/newvegas/mods/77683),
+    public Nexus page and shipped Data\nvse\plugins\MoonlightNVSE.ini]` `[Main]` contains
+    `bMoonPhaseBrightness=1` (toggle enabling dynamic nighttime brightness by moon phase)
+    and `fMoonMult0=0`, `fMoonMult1=0.33`, `fMoonMult2=0.5`, `fMoonMult3=0.9`,
+    `fMoonMult4=1` (multipliers from new moon = `0` to full moon = `4`).
+  - `[design]` When `MoonlightNVSE.ini` is present and an individual key is omitted or
+    invalid, NVForever falls back to those exact shipped v2.00 INI defaults
+    (`bMoonPhaseBrightness=1`, `fMoonMult0..=fMoonMult4 = [0.0, 0.33, 0.5, 0.9, 1.0]`).
+  - `[hypothesis]` The 8-phase lunar cycle (`fnv_world::sky::MOON_PHASES`: `full`,
+    `three_wan`, `half_wan`, `one_wan`, `new`, `one_wax`, `half_wax`, `three_wax`) maps
+    symmetrically onto `fMoonMult4` (full), `fMoonMult3` (gibbous), `fMoonMult2` (half),
+    `fMoonMult1` (crescent), and `fMoonMult0` (new).
+  - `[design]` Multipliers are clamped to `0.0..=10.0` (so negative presets produce pitch
+    dark directional moonlight without negative PBR illuminance). Scaling multiplies
+    `MOON_SHARE` inside `sky::aim_sun` only outdoors when the sun is below the horizon and
+    the active climate displays a moon (`Climate::has_moon()`); daytime directional light,
+    interiors, and `bMoonPhaseBrightness=0` stay bit-for-bit equal to vanilla.
+- **`CloudUpgrade.ini`:**
+  - `[documented: Cloud Upgrade NVSE v1.0 (https://www.nexusmods.com/newvegas/mods/79612),
+    public Nexus page and shipped Data\NVSE\Plugins\CloudUpgrade.ini]` `[Global]` defines
+    `Speed = 100.0`, `MaxSpeed = 5.0`, and `Volatility = 5.0`; `[Layer 1]`..`[Layer 4]`
+    define per-layer `SubSpeed` (`0.2`, `1.0`, `0.7`, `0.3`) and `SubVolatility` (`0.2`,
+    `0.3`, `0.4`, `0.5`) for the four WTHR cloud layers (`0..4`).
+  - `[design]` When `CloudUpgrade.ini` is present and an individual key is omitted or
+    invalid, NVForever falls back to those exact shipped v1.0 INI defaults.
+  - `[design: NVForever's own cloud speed modulation formula and mapping, not the Cloud
+    Upgrade NVSE plugin's]` Parsed values are clamped (`Speed` `0..=10000`, `MaxSpeed`
+    `0..=50`, `SubSpeed` `0..=50`, `Volatility`/`SubVolatility` `0..=100`). Effective
+    layer scroll scale is `(Speed / 100.0) * SubSpeed` capped at `MaxSpeed`. Because
+    vanilla WTHR horizon layers commonly store `ONAM` speed `0`, active
+    `CloudUpgrade.ini` uses a fallback base rate of `32 * CLOUD_SCROLL_PER_UNIT` for
+    `ONAM == 0` layers (while `Speed == 0`, `MaxSpeed == 0`, or `SubSpeed == 0` stops the
+    layer). Non-zero `Volatility * SubVolatility` applies NVForever's own smooth, bounded
+    cosine speed modulation (`amplitude = 0.5 * vol / (vol + 5.0)`, distinct per-layer
+    periods `[180, 145, 115, 90]` s, peak rate capped at `base * MaxSpeed`) integrated
+    analytically in `f64` so UV scroll offsets remain monotonic, stateless, deterministic,
+    and synced with `cloud_shadows`.
+
+## 5. ManOnFireNVSE INI fire spread
+
+Built in `crates/fnv-game/src/man_on_fire.rs`, ticked from `Game::tick` during unpaused,
+non-frozen game mode (`!in_menu && !time_frozen`). Clean-room implementation from the
+public Nexus Mods page and shipped INI file comments only: **Man On Fire NVSE v1.0.1**
+(`https://www.nexusmods.com/newvegas/mods/94962`, shipped `Config\ManOnFireNVSE.ini`
+installed to `Data\Config\ManOnFireNVSE.ini`). The plugin's DLL and source code were
+never consulted.
+
+### Configuration lookup and schema
+
+- **Paths:** `Data\Config\ManOnFireNVSE.ini` primary [documented: Man On Fire NVSE
+  v1.0.1 (`https://www.nexusmods.com/newvegas/mods/94962`), archive install path
+  `Data\Config\ManOnFireNVSE.ini`], falling back to
+  `Data\NVSE\Plugins\ManOnFireNVSE.ini` [design: NVForever fallback lookup path, not
+  stated in the shipped v1.0.1 release]. When neither file is present, no fire-spread
+  logic runs and unmodded vanilla combat is unchanged [design].
+- **Parser:** BOM-safe (UTF-8 `\u{feff}` and Latin-1-decoded UTF-8 BOM), case-insensitive
+  `[Settings]` section and key names, `;` and `#` comments stripped, invalid or
+  non-finite numeric values keep defaults, negative numeric values clamp to `0.0`, and
+  `fMaxRange <= 0` disables spread [design].
+- **`[Settings]` keys and defaults** [documented: Man On Fire NVSE v1.0.1
+  (`https://www.nexusmods.com/newvegas/mods/94962`), shipped
+  `Data\Config\ManOnFireNVSE.ini` and its inline `;` comments; only the public mod page
+  and shipped INI were consulted, never the DLL or source]:
+
+| Key | Default (v1.0.1 INI) | Role (from v1.0.1 shipped INI comments) |
+|---|---|---|
+| `fIgnitionThreshold` | `1.0` | Seconds of exposure to fire before catching fire ("Higher = slower spread") [documented: v1.0.1 INI] |
+| `fDecayRate` | `0.3` | Exposure decay per second when moving away from fire [documented: v1.0.1 INI] |
+| `fMaxRange` | `100.0` | Maximum 3D distance in game units for fire spread ("Closer = faster accumulation") [documented: v1.0.1 INI] |
+| `bUseFireResist` | `1` | Factor in Fire Resistance actor value (code 52, [documented: GECK wiki Actor Value list]) [documented: v1.0.1 INI] |
+| `bPlayerImmune` | `0` | Player immune to fire spread [documented: v1.0.1 INI] |
+| `bCompanionsImmune` | `0` | Companions (`Game::is_teammate` [design]) immune to fire spread [documented: v1.0.1 INI] |
+
+### Spread, decay, and ignition rules
+
+- **Burning source detection:** a loaded actor with an active, non-permanent, non-worn
+  effect whose base effect (`MGEF`) is harmful (`Hostile` or `Detrimental`) and resisted
+  by Fire Resistance (`combat_lines::FIRE_RESISTANCE`, code 52; same test as
+  `hit-effects.md` §3 and `grass-fire.md` §1) [hypothesis]. Multiple fire effects on the
+  same burning actor collapse to one source (highest magnitude) so an item with two
+  fire MGEFs does not double-count [design]. Burning corpses whose burn outlasts death
+  (`No Death Dispel`) remain valid sources while the burn lasts [design].
+- **Proximity accumulation:** for each loaded, living, non-immune, non-burning actor in
+  the same cell/worldspace within `fMaxRange`, each burning source contributes linear
+  distance falloff `clamp(1.0 - dist / fMaxRange, 0.0, 1.0)` per second, summed across
+  nearby burning sources [hypothesis].
+- **Fire Resistance:** when `bUseFireResist` is true, accumulation scales by
+  `clamp(1.0 - FireResist / 100.0, 0.0, 1.0)` (`100%` blocks spread) and ignition
+  applies through the hit-effect resistance path (`Mods::hit = true`) [hypothesis]. When
+  `bUseFireResist` is false, accumulation ignores Fire Resistance and ignition applies
+  with `Mods::hit = false` so resistance does not suppress spread ignition [design].
+- **Decay and bounds:** actors not receiving positive exposure decay by
+  `fDecayRate * dt` per frame and are removed once at `0.0`. Already-burning actors clear
+  spread exposure so two burning actors do not infinitely re-ignite each other [design].
+  Concurrent tracked exposure entries are capped at `MAX_TRACKED_EXPOSURE` (`1024`)
+  [design].
+- **Immunity:** dead, `Game::is_immune` (child, invulnerable, ghost), god-mode player,
+  player when `bPlayerImmune` is true, and hired teammates (`Game::is_teammate`) when
+  `bCompanionsImmune` is true never accumulate exposure or ignite from spread [design].
+- **Ignition:** when exposure reaches `fIgnitionThreshold`, the closest burning source's
+  active fire magic item (all effects when all are fire-resisted, else only its
+  fire-resisted effect indices) is applied to the victim with the source's caster
+  (falling back to the burning actor) and triggers `OnFire` combat lines [hypothesis;
+  design].
+- **Scope note:** verified with synthetic unit and integration controls in `fnv-game`;
+  original-game comparison with the installed plugin remains separate acceptance work.

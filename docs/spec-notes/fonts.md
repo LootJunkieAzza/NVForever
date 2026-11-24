@@ -59,16 +59,17 @@ Russian install showed is in "Seen in a Russian install" below.
   (Windows-1251 for Russian, Windows-1250 for Polish and Czech). So a Cyrillic letter
   is drawn with the glyph at its 1251 code [hypothesis: no localized `.fnt`, texture
   or plugin looked at].
-- **What NVForever does.** All the game's 8-bit text (plugin strings, script strings,
+- **What NVForever does.** The game's encoded text (plugin strings, script strings,
   archive and model names, settings, menu files that are not UTF-8, credits, the
   terminal word list) is read in one code page per run, and a character is set with the
-  glyph at its code in that code page (`fnv_util::text`, `fnv_font::code_of`). Typed
-  text (console, character name) takes only the characters that code page has. Archive
+  glyph at its single-byte code (`fnv_util::text`, `fnv_font::code_of`). Typed
+  text (console, character name, settings search) takes only characters with a
+  single-byte glyph code. With 936 those slots cover ASCII [design]. Archive
   and model names use the same code page as the plugins, so a path in a plugin still
   finds its file [hypothesis: that a localized install's file names use the plugins'
-  code page; every vanilla English name is ASCII, the same in all three code pages].
+  code page; every vanilla English name is ASCII, the same in all supported code pages].
 - **How it is chosen.** `NVF_CODE_PAGE`, else `[Text] CodePage=` in NVForever's own
-  `NVForever.ini` (1252, 1251 or 1250), else read from the plugins' text, else
+  `NVForever.ini` (1252, 1251, 1250 or 936), else read from the plugins' text, else
   Windows-1252 (the English install's, the release this engine targets) [hypothesis].
   No setting of the install names it: a Russian install's `Fallout_default.ini` says
   `sLanguage=ENGLISH` [observed: the owner's Russian install, 2026-11-08]. So the text
@@ -77,18 +78,41 @@ Russian install showed is in "Seen in a Russian install" below.
   is Cyrillic in Windows-1251, where those bytes are the Cyrillic letters [documented:
   WHATWG windows-1251 index], and Western European text has only its few accented
   letters there; 1251 is chosen when such plugins hold more of those bytes than the
-  others [design; hypothesis: one Russian install looked at]. Windows-1250 is not told
-  apart from 1252 this way and is still set by hand. The start's log says when the
+  others [design; hypothesis: one Russian install looked at]. The simplified Chinese
+  check below takes precedence when its plugins hold most of the sampled non-ASCII
+  text [design]. Windows-1250 is still set by hand. The start's log says when the
   plugins chose it. The game's language plugins (`<master>_lang.esp`) are turned on in
   NVForever's plugin list when it first lists them (`fnv_install::plugins`).
   NVForever's own words (`lang/`) follow: a run whose code page is Windows-1251 starts
   in Russian when `lang/ru.toml` is there and NVForever.ini keeps no `language=`
   (`fnv_util::words::follow_code_page`, #1948) [design; hypothesis: 1251 means
-  Russian, the one Cyrillic release; 1250 and 1252 name no language].
-- **Every code page here maps all 256 bytes** to a character (the WHATWG tables in
+  Russian, the one Cyrillic release; 1250, 1252 and 936 name no language].
+- **Each Windows-125x code page maps all 256 bytes** to a character (the WHATWG tables in
   `encoding_rs`; an undefined slot becomes the C1 control of the same value), so text read
   and written again keeps its bytes [documented: WHATWG Encoding Standard, the
   windows-1250/1251/1252 indexes].
+
+**Simplified Chinese.** Microsoft assigns 936 to its simplified Chinese code page and
+54936 to GB18030 [documented: [Microsoft code page identifiers](https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers)].
+Some Simplified Chinese translation plugins use GBK for their text [hypothesis].
+NVForever accepts `936`, `gbk` and `gb18030` for one setting. It uses the GB18030
+codec for ASCII, GBK double-byte characters and GB18030 four-byte characters. Invalid
+sequences decode with a replacement character [design].
+The GBK and GB18030 decoders share the same rules
+[documented: [WHATWG Encoding Standard §10](https://encoding.spec.whatwg.org/#legacy-multi-byte-chinese-(simplified)-encodings)].
+
+For automatic selection, a plugin needs at least 50 valid double-byte pairs and at
+least 90% of its non-ASCII sample bytes must be in fields that decode without errors.
+At least half of its decoded double-byte characters must be Han, and at least one in
+five pairs must contain a byte that Windows-1251 uses for a Cyrillic letter outside
+the Russian alphabet. Ordinary Russian text can otherwise be valid GBK and even
+decode to Han. Those bytes are identified using the
+[WHATWG Windows-1251 index](https://encoding.spec.whatwg.org/index-windows-1251.txt)
+[documented]. These thresholds are an engine heuristic [design; hypothesis: checked
+with authored Chinese and Russian samples]. Set `CodePage=936` if the sample is
+short, ambiguous, or mostly four-byte characters. Also set it for plugins with GBK
+or GB18030 master filenames containing non-ASCII characters. The loader reads master
+names from plugin headers before it can guess the code page [design].
 
 **Seen in a Russian install** [observed: the owner's Russian install, 2026-11-08, read
 with `fnvtool` and looked at as pictures; one install, not a Steam download]:
@@ -147,13 +171,40 @@ green and blue and byte 3 against alpha. So in an English install the two are th
 picture, the `.tex` with 8 bits a channel. The files are 1 048 584 bytes, 8 more than
 512 x 512 x 4.
 
-**What NVForever draws** [design, #1439]: a font's `.tex` when its `.dds` is there too,
-else the `.dds` (`interface::font_tex`). This draws a Russian install's letters (§2.1),
-and an English install's fonts change only in getting 8 bits of alpha instead of 4.
-Which file the original reads is not known [hypothesis: the `.tex`, since a localized
-release changed only it]. A font with a `.tex` alone (font 9) is left undrawn, as §3.1
-says the original does. A `.tex` that does not parse (wrong size for its header) is
-skipped with a warning, and the `.dds` is drawn.
+**What NVForever draws** [design, #1439]: a font's `.tex` first (with or without a
+sibling `.dds`), else the `.dds` (`interface::font_tex`). This draws a Russian
+install's letters (§2.1), lets modded `.fnt` + `.tex` fonts without a `.dds` load, and
+an English install's fonts change only in getting 8 bits of alpha instead of 4. Which
+file the original reads is not known [hypothesis: the `.tex`, since a localized release
+changed only it and modded font packs ship `.tex` alone]. Font 9 (`NVFont_Test`,
+`FONT_FILES[8]`) is kept unloaded as the stand-in inside the shared `interface::face`
+loader (covering `tiles::draw::FontKit`, `credits::start`, `loading_look::fit_tip`, and
+all other face callers), matching the original game's unloaded font 9 (§3.1;
+`nvse_sup6::LOADED_FONTS = 8`, `GetFontFile 9` returning `""`). A `.tex` that does not
+parse (wrong size for its header) is skipped with a warning, and the `.dds` is drawn when
+present.
+
+### 2.3 Missing CJK characters
+
+[documented] Swash reads OpenType fonts and collections and renders outline glyphs
+as masks ([Swash scaling documentation](https://docs.rs/swash/0.2.10/swash/scale/)).
+[documented] Microsoft lists Microsoft YaHei (`msyh.ttc`), SimHei (`simhei.ttf`) and
+SimSun (`simsun.ttc`) among its [Windows fonts](https://learn.microsoft.com/en-us/typography/fonts/windows_11_font_list).
+Apple lists PingFang and Hiragino in its [macOS font list](https://support.apple.com/en-us/127491).
+
+[design] NVForever enables CJK fallback and wrapping when the game's text uses
+code page 936, the current interface language is `zh`, or `[Interface] CjkFontPath`
+in `NVForever.ini` names a font. Otherwise the interface uses its original fonts
+and wrapping.
+
+`CjkFontPath` can name a TrueType or OpenType font or collection. A relative path
+is resolved next to the INI. When fallback is enabled without that setting,
+NVForever tries the Windows fonts above, Noto Sans CJK or WenQuanYi on Linux, and
+PingFang or Hiragino on macOS. The first missing CJK character queues a read and
+parse on the engine's read pool. Layout and drawing use `?` while waiting and
+when no font provides the character. When the font is ready, visible text is measured
+and redrawn. The same cached glyph supplies the advance and image on the primary
+face's baseline, preserving line spacing.
 
 ## 3. Setting text
 
@@ -166,6 +217,11 @@ skipped with a warning, and the `.dds` is drawn.
   a line exactly as wide as the wrap width is not broken [observed: the same line].
   The space at the break is not set [design]. What the game does with a word wider
   than the wrap width is not known; NVForever leaves it whole on its own line.
+- [design] With CJK fallback enabled (§2.3), NVForever also wraps at character
+  boundaries in unspaced CJK text. It keeps opening punctuation with the following
+  character and closing punctuation with the preceding character. Spaces and line breaks retain
+  their existing behavior.
+  [Unicode Standard Annex #14, §6.1](https://www.unicode.org/reports/tr14/) [documented]
 - How far apart the lines are, and where a text's first line stands under its top, is
   with the menu that was measured (`message-menu.md` §3). The interface files' text
   tiles: menu-xml.md §3.1.2, hud.md §14.10 (a line per font, #979).
@@ -234,9 +290,9 @@ texture, texture middles decoded from each font's `.dds`)]
   size].
 - [observed: the archives] Font 9 (`NVFont_Test`) has its `.fnt` and a `.tex` but no
   `.dds`; in the original its tiles get no `width` or `height` and draw nothing.
-  NVForever draws a font-9 text in Bevy's stand-in font (`interface::face` finds no
-  texture), on font 7's line, and a font-9 tile among the texts whose widths the tile
-  HUD writes stops those writes (`FontKit::game_fonts`) [design: not yet the original's
+  NVForever draws a font-9 text in Bevy's stand-in font (`interface::face` keeps font 9
+  unloaded), on font 7's line, and a font-9 tile among the texts whose widths the tile HUD
+  writes stops those writes (`FontKit::game_fonts`) [design: not yet the original's
   nothing].
 - Not determined: an empty string's measure. The message box's empty title read 14 x 38
   in font 6, one space wide and one line high; NVForever's `measure` gives 0 wide and

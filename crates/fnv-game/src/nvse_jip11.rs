@@ -27,6 +27,8 @@ pub struct Jip11State {
     pub set_breath: Option<f32>,
     /// ResetFallTime's actors, for the engine to take.
     pub fall_resets: BTreeSet<FormId>,
+    /// Engine-reported remaining fall time in seconds, by actor (GetFallTimeRemaining).
+    pub fall_time_remaining: BTreeMap<FormId, f32>,
     /// SetActorUnarmedEffect's effects, by the actor base that supplies its effects.
     pub unarmed: BTreeMap<FormId, FormId>,
     /// RemoveNthEffect's removed entries, by magic item: record indices.
@@ -152,6 +154,65 @@ impl Game<'_> {
         std::mem::take(&mut self.other.jip11.fall_resets).into_iter().collect()
     }
 
+    /// Record or clear an actor's remaining fall time in seconds (GetFallTimeRemaining).
+    pub fn set_fall_time_remaining(&mut self, actor: FormId, seconds: Option<f32>) {
+        match seconds.filter(|s| s.is_finite() && *s > 0.0) {
+            Some(s) => {
+                self.other.jip11.fall_time_remaining.insert(actor, s);
+            }
+            None => {
+                self.other.jip11.fall_time_remaining.remove(&actor);
+            }
+        }
+    }
+
+    /// Estimated seconds remaining before `actor` lands (GetFallTimeRemaining)
+    /// [documented: GECK wiki GetFallTimeRemaining; hypothesis: kinematic time to ground
+    /// from ray cast, tracked velocity, and gravity when no direct engine value is set].
+    pub fn fall_time_remaining(&self, actor: FormId) -> f64 {
+        if let Some(&sec) = self.other.jip11.fall_time_remaining.get(&actor) {
+            return f64::from(sec.max(0.0));
+        }
+        let air_time = self.gaps.air_times.get(&actor).copied().unwrap_or(0.0);
+        if air_time <= 0.0 {
+            return 0.0;
+        }
+        let Some(pos) = self.world.peek(actor).map(|s| s.pos).or_else(|| self.world.placed.get(actor).map(|p| p.pos)) else {
+            return 0.0;
+        };
+        let Some(dist) = crate::ray::cast(
+            [pos[0], pos[1], pos[2] + 1.0],
+            [pos[0], pos[1], pos[2] - 100_000.0],
+            crate::ray::CastKind::World,
+        ) else {
+            return 0.0;
+        };
+        let height = f64::from((dist - 1.0).max(0.0));
+        if height <= 0.0 {
+            return 0.0;
+        }
+        // Standard world gravity: 9.81 m/s^2 * 70 game units/m = 686.7 units/s^2
+        // (matching `fnv_combat::projectile` / `fnv-phys`), overridden by SetLocalGravityVector
+        // and scaled by SetActorGravityMult.
+        const WORLD_GRAVITY: f64 = 686.7;
+        let g_base = match self.other.jip13.gravity {
+            Some((gv, cell_opt)) if cell_opt.is_none() || cell_opt == self.cell_of(actor) => f64::from(-gv[2]),
+            _ => WORLD_GRAVITY,
+        };
+        let mult = self.gaps.gravity.get(&actor).copied().unwrap_or(1.0);
+        let g_eff = g_base * mult;
+        let vz = match self.jip2.velocity.get(&actor) {
+            Some(&(_, v)) => f64::from(v[2]),
+            None if g_eff > 0.0 => -g_eff * f64::from(air_time),
+            None => 0.0,
+        };
+        if g_eff <= 0.0 {
+            return if vz < 0.0 { height / (-vz) } else { 0.0 };
+        }
+        let disc = (vz * vz + 2.0 * g_eff * height).max(0.0);
+        ((vz + disc.sqrt()) / g_eff).max(0.0)
+    }
+
     /// The detection value of `target` as ForceActorDetectionValue leaves it: the forced
     /// value, or the value plus the modifier [documented].
     pub fn forced_detection(&self, target: FormId, value: f64) -> f64 {
@@ -201,11 +262,9 @@ impl Game<'_> {
         let place = self.world.peek(r).map(|s| (s.cell, s.pos)).or_else(|| self.world.placed.get(r).map(|p| (p.cell, p.pos)));
         let Some((Some(cell), pos)) = place else { return 0.0 };
         let space = self.world.placed.world_of(cell).unwrap_or(cell);
-        let list = self.data.radiation_markers.get(&space).map(Vec::as_slice).unwrap_or_default();
-        let edited = self.edited_markers(list, space);
-        let list = if self.showoff.radiation.is_empty() { list } else { edited.as_slice() };
+        let list = self.radiation_markers_in(space);
         let world = &self.world;
-        let (m, _) = crate::radiation::marker_level(list, pos, |id| world.is_enabled(id).unwrap_or(true));
+        let (m, _) = crate::radiation::marker_level(&list, pos, |id| world.is_enabled(id).unwrap_or(true));
         let (z, _) = crate::radiation::zone_level(&self.senses.rad_zones, space, pos);
         m.max(z)
     }
@@ -427,9 +486,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
         }
         // ---- falls ----
-        // [decision: the time to the ground needs the ground below a falling actor, which
-        // only the engine's physics knows; 0 until it is passed over, spec note §6.]
-        "getfalltimeremaining" => zero,
+        // Estimated seconds until the falling actor hits the ground, 0 when grounded
+        // [documented: GECK wiki GetFallTimeRemaining; docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md].
+        "getfalltimeremaining" => XVal::Num(subject.map_or(0.0, |r| g.fall_time_remaining(r))),
         // The fall is measured again from where the actor is now [documented]; the
         // engine takes the request (`nvf_play::falls`).
         "resetfalltime" => {
@@ -520,13 +579,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let slots = |g: &Game, f: FormId| field_num(g, f, "BMDT", "biped_flags").map_or(0, |x| x as u64);
             let want = slots(g, a);
             let on = g.world.equipment(r).unwrap_or_default();
-            yes(want != 0 && on.into_iter().filter(|&i| i != a && g.data.sig(i) == Some(*b"ARMO")).any(|i| slots(g, i) & want != 0))
+            yes(want != 0 && on.into_iter().filter(|&i| i != a && g.is_armo(i)).any(|i| slots(g, i) & want != 0))
         }
         // On the inventory reference of an equipped item: the item stays on until a
         // script takes it off (the world's NoUnequip lock, saved) [documented].
         "setnounequip" => {
             let Some((actor, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(zero)) };
-            if !g.world.equipment(actor).unwrap_or_default().contains(&item) {
+            let equipped = g.world.peek(actor).and_then(|s| s.inventory.as_ref()).is_some_and(|inv| inv.is_equipped(item));
+            if !equipped {
                 return Some(Ok(zero));
             }
             let lock = num(args, 0).is_some_and(|x| x != 0.0).then_some(fnv_sim::world::EquipLock::NoUnequip);
@@ -544,7 +604,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "getarmoreffectivedr" | "getarmoreffectivedt" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let (Some(item), cond) = item_condition(g, r) else { return Some(Ok(zero)) };
-            if g.data.sig(item) != Some(*b"ARMO") {
+            if !g.is_armo(item) {
                 return Some(Ok(zero));
             }
             let value = field_num(g, item, "DNAM", if name == "getarmoreffectivedr" { "dr" } else { "dt" }).unwrap_or(0.0);

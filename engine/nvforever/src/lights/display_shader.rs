@@ -1,5 +1,26 @@
 //! Production PBR source preparation shared by LightsPlugin and CPU shader checks.
 
+/// Diffuse and specular scales applied to the player's flashlight (`flashlight.rs`), spot
+/// or point, with shadows or without, on first-person shapes (`FIRST_PERSON_DEPTH`: arms,
+/// held weapon, Pip-Boy) [design, #3121, #3280]. The shader knows the flashlight by Bevy's
+/// lightmapped-diffuse flag, which only the flashlight clears (`flashlight::made`; NVForever
+/// draws no lightmaps). World geometry, third-person body/weapon (`BODY_LAYER`), and the
+/// world's lights (`LIGH`) keep 1.0.
+pub const FIRST_PERSON_FLASHLIGHT_DIFFUSE: f32 = 0.15;
+pub const FIRST_PERSON_FLASHLIGHT_SPECULAR: f32 = 0.10;
+
+/// CPU mirror of the diffuse scale `nvf_first_person_diffuse` gives a point or spot light.
+#[cfg_attr(not(test), allow(dead_code))]
+pub const fn flashlight_display_scale(first_person: bool, flashlight: bool) -> f32 {
+    if first_person && flashlight { FIRST_PERSON_FLASHLIGHT_DIFFUSE } else { 1.0 }
+}
+
+/// CPU mirror of the specular scale `nvf_apply_pbr_lighting` gives a point or spot light.
+#[cfg_attr(not(test), allow(dead_code))]
+pub const fn flashlight_specular_scale(first_person: bool, flashlight: bool) -> f32 {
+    if first_person && flashlight { FIRST_PERSON_FLASHLIGHT_SPECULAR } else { 1.0 }
+}
+
 /// The display-value lighting sum (docs/spec-notes/world.md §8 "Light on surfaces in
 /// display values") [hypothesis, fitted to the original's frames]: the game adds its
 /// lights as display values (colour bytes / 255) — ambient + Σ sun and lights × fade ×
@@ -19,9 +40,30 @@ fn nvf_display_lighting() -> bool {
     return view_bindings::lights.ambient_color.a < 0.0;
 }
 
+// Whether a clustered light is the player's flashlight: the one light with Bevy's
+// lightmapped-diffuse flag cleared (nvforever flashlight.rs `made`; no lightmaps are drawn).
+@if(!PREPASS_FRAGMENT)
+fn nvf_is_flashlight(light_id: u32) -> bool {
+    return (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_AFFECTS_LIGHTMAPPED_MESH_DIFFUSE_BIT) == 0u;
+}
+
+// First-person shapes (`FIRST_PERSON_DEPTH`: arms, weapon, Pip-Boy) sit inside the
+// flashlight's inner core when aimed in; the flashlight, spot or point, with shadows or
+// without, is scaled down there so bright weapons and hands do not wash out to white
+// (#3121, #3280). The diffuse scale for a light; 1 elsewhere.
+@if(!PREPASS_FRAGMENT)
+fn nvf_first_person_diffuse(light_id: u32) -> f32 {
+    @if(!FIRST_PERSON_DEPTH)
+    let nvf_fp_scale = 1.0;
+    @if(FIRST_PERSON_DEPTH)
+    let nvf_fp_scale = select(1.0, 0.15, nvf_is_flashlight(light_id));
+    return nvf_fp_scale;
+}
+
 // A clustered point or spot light's diffuse light on a surface at P facing N, as display
 // values: colour × fade × attenuation × N.L (the uniform holds colour × fade × pi × light
-// unit, nvforever lights.rs `lumens`).
+// unit, nvforever lights.rs `lumens`), the flashlight's scaled on first-person shapes
+// (`nvf_first_person_diffuse`).
 @if(!PREPASS_FRAGMENT)
 fn nvf_point_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
     let light = &view_bindings::clustered_lights.data[light_id];
@@ -29,7 +71,7 @@ fn nvf_point_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
     let d2 = dot(to_light, to_light);
     let attenuation = lighting::getDistanceAttenuation(d2, (*light).color_inverse_square_range.w);
     let n_dot_l = saturate(dot(N, to_light * inverseSqrt(max(d2, 0.0001))));
-    return (*light).color_inverse_square_range.rgb * (attenuation * n_dot_l * view_bindings::view.exposure / 3.14159265);
+    return (*light).color_inverse_square_range.rgb * (attenuation * n_dot_l * nvf_first_person_diffuse(light_id) * view_bindings::view.exposure / 3.14159265);
 }
 
 // The same for a spot light, with Bevy's cone falloff (bevy_pbr::lighting::spot_light).
@@ -85,12 +127,18 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     ),
     (
         "        direct_light += light_contrib * shadow;",
-        "        direct_light += light_contrib * shadow;
+        "        @if(!FIRST_PERSON_DEPTH)
+        direct_light += light_contrib * shadow;
+        @if(FIRST_PERSON_DEPTH)
+        direct_light += light_contrib * (shadow * select(1.0, 0.10, nvf_is_flashlight(light_id)));
         if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow; }",
     ),
     (
         "        direct_light += light_contrib * shadow;",
-        "        direct_light += light_contrib * shadow;
+        "        @if(!FIRST_PERSON_DEPTH)
+        direct_light += light_contrib * shadow;
+        @if(FIRST_PERSON_DEPTH)
+        direct_light += light_contrib * (shadow * select(1.0, 0.10, nvf_is_flashlight(light_id)));
         if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow; }",
     ),
     (

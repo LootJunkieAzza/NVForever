@@ -746,6 +746,9 @@ pub struct Sfx {
     /// machine would otherwise run into it).
     one_shot_wait: Duration,
     reported: HashSet<String>,
+    /// The names of the sounds asked for whose record is the game's own
+    /// (`crate::game_files`): a file of theirs that is not shipped is no warning (#2757).
+    games_own: HashSet<String>,
     pub(crate) rng: SplitMix,
     pub played: u32,
     pub silent: u32,
@@ -821,7 +824,7 @@ impl Sfx {
         self.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(edid))).map(|(f, _)| *f)
     }
 
-    fn new(forms: FxForms) -> Sfx {
+    pub fn new(forms: FxForms) -> Sfx {
         Sfx {
             forms,
             loop_start: HashMap::new(),
@@ -836,6 +839,7 @@ impl Sfx {
             cover_notes: Vec::new(),
             one_shot_wait: MAX_ONE_SHOT_WAIT,
             reported: HashSet::new(),
+            games_own: HashSet::new(),
             rng: SplitMix(0x5f37_59df),
             played: 0,
             silent: 0,
@@ -881,6 +885,48 @@ impl Sfx {
         let s = Sound { edid: Some(name), flags, min_distance: 100.0, max_distance: 2000.0, ..Default::default() };
         self.forms.sounds.insert(id, s);
         self.path_files.insert(id, path.to_string());
+    }
+
+    /// Register a synthetic sound backed by a pre-listed VFS folder of `.wav`/`.ogg`
+    /// files (used by `crate::bullet_snap` when `BulletSnap.ini` is present).
+    ///
+    /// Never overwrites an already-loaded `SOUN` record in `self.forms.sounds`: tries
+    /// `preferred` first and, if occupied, scans `fallback_start..range_end` for the
+    /// first unoccupied `FormId`, returning the assigned `FormId` (or `None` if no slot
+    /// is free) so loaded records always win [design].
+    #[allow(clippy::too_many_arguments)]
+    pub fn register_folder_sound(
+        &mut self,
+        preferred: FormId,
+        fallback_start: u32,
+        range_end: u32,
+        name: &str,
+        fnam_folder: &str,
+        min_distance: f32,
+        max_distance: f32,
+        attenuation_curve: Option<[f32; 5]>,
+        files: Vec<String>,
+    ) -> Option<FormId> {
+        let id = if !self.forms.sounds.contains_key(&preferred) {
+            preferred
+        } else {
+            (fallback_start..range_end)
+                .map(FormId)
+                .find(|candidate| !self.forms.sounds.contains_key(candidate))?
+        };
+        let s = Sound {
+            edid: Some(name.to_string()),
+            file: Some(fnam_folder.to_string()),
+            min_distance,
+            max_distance,
+            attenuation_curve,
+            ..Default::default()
+        };
+        if let Some(folder) = folder_of(&sound_path(fnam_folder)) {
+            self.folders.insert(folder, files);
+        }
+        self.forms.sounds.insert(id, s);
+        Some(id)
     }
 }
 
@@ -1196,15 +1242,22 @@ pub(crate) fn resolve(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, sound: FormId) -> Optio
     if let Some(path) = sfx.path_files.get(&sound) {
         return Some(Resolved { s, name, path: path.clone() });
     }
+    let own = crate::game_files::games_own(sound.0);
+    if own && !sfx.games_own.contains(&name) {
+        sfx.games_own.insert(name.clone());
+    }
     let Some(path) = s.file.as_deref().and_then(|f| pick_file(sfx, vfs, f)) else {
         sfx.failed += 1;
         if sfx.reported.insert(name.clone()) {
-            warn!("sfx: {name}: no file for {:?}", s.file);
+            crate::game_files::say_missing(own, &format!("sfx: {name}: no file for {:?}", s.file));
         }
         return None;
     };
     Some(Resolved { s, name, path })
 }
+
+/// How [`decode_file`]'s error ends for a file no archive has.
+const NOT_IN_THE_ARCHIVES: &str = "not in the archives";
 
 /// Read and decode the sound file at `path` whole (on a worker thread). A panic decoding
 /// a broken file is that file's failure, not the game's (nvf_assets::guard).
@@ -1215,9 +1268,9 @@ fn decode_file(vfs: &fnv_vfs::Vfs, path: &str) -> Result<PcmSound, String> {
             vfs.read(path)
         };
         let bytes = match read {
-            Some(Ok(bytes)) => nvf_assets::data::test_broken(path, bytes).ok_or_else(|| format!("{path}: not in the archives"))?,
+            Some(Ok(bytes)) => nvf_assets::data::test_broken(path, bytes).ok_or_else(|| format!("{path}: {NOT_IN_THE_ARCHIVES}"))?,
             Some(Err(e)) => return Err(format!("{path}: {e}")),
-            None => return Err(format!("{path}: not in the archives")),
+            None => return Err(format!("{path}: {NOT_IN_THE_ARCHIVES}")),
         };
         let _span = info_span!("sfx::decode").entered();
         if path.ends_with(".wav") {
@@ -1327,7 +1380,7 @@ fn collect_files(sfx: &mut Sfx, assets: &mut Assets<PcmSound>) {
     if sfx.decoding.is_empty() {
         return;
     }
-    let Sfx { files, decoding, .. } = sfx;
+    let Sfx { files, decoding, games_own, .. } = sfx;
     decoding.retain(|path| {
         let Some(state) = files.get_mut(path) else { return false };
         let FileState::Decoding(task, name) = state else { return false };
@@ -1335,7 +1388,10 @@ fn collect_files(sfx: &mut Sfx, assets: &mut Assets<PcmSound>) {
         *state = match result {
             Ok(pcm) => FileState::Ready(assets.add(pcm)),
             Err(e) => {
-                warn!("sfx: {name}: {e}");
+                // A file the game's own record names and no archive has is no fault
+                // (#2757); one that is there and does not decode is.
+                let absent = e.ends_with(NOT_IN_THE_ARCHIVES);
+                crate::game_files::say_missing(absent && games_own.contains(name.as_str()), &format!("sfx: {name}: {e}"));
                 FileState::Broken
             }
         };

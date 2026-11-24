@@ -369,6 +369,22 @@ fn weapons() {
     assert_eq!((n(&mut g, "GetWeaponSemiAutoFireDelay TestGun 1"), n(&mut g, "GetWeaponSemiAutoFireDelay TestGun 0")), (0.5, 0.25));
     q(&mut g, "SetWeaponModel TestGun 3 \"weapons\\gun13.nif\"");
     assert_eq!((s(&mut g, "GetWeaponModel TestGun 3"), s(&mut g, "GetWeaponModel TestGun 0")), ("weapons\\gun13.nif".to_string(), "weapons\\gun.nif".to_string()));
+    // The renderer is told (weapon-mods.md §8); no first-person model clears the form, as
+    // WAP's script files call it.
+    let stamp = g.weapon_model_stamp();
+    q(&mut g, "SetWeapon1stPersonModel TestGun 0");
+    assert_ne!(g.weapon_model_stamp(), stamp);
+    let changes = g.weapon_model_changes();
+    let c = &changes[&FormId(WEAP)];
+    assert_eq!((c.world[3].clone(), c.world[0].clone(), c.first_person[0].clone(), c.first_person[3].clone()), (Some(Some("weapons\\gun13.nif".to_string())), None, Some((None, None)), None));
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestGun 0"), 0.0);
+    // A model argument that is no form (an empty reference) changes nothing; no model
+    // argument clears.
+    let set = |g: &mut Game, args: &[XVal]| fnv_game::nvse::call(g, &RunCtx::default(), "setweapon1stpersonmodel", None, args).unwrap().unwrap();
+    set(&mut g, &[XVal::Ref(WEAP), XVal::Num(4.0), XVal::Ref(0)]);
+    set(&mut g, &[XVal::Ref(WEAP), XVal::Num(5.0)]);
+    let changes = g.weapon_model_changes();
+    assert_eq!((changes[&FormId(WEAP)].first_person[4].clone(), changes[&FormId(WEAP)].first_person[5].clone()), (None, Some((None, None))));
     q(&mut g, "SetWeaponModReloadAnim TestGun 8");
     assert_eq!(n(&mut g, "GetWeaponModReloadAnim TestGun"), 8.0);
     // Embedded weapon: the condition actor values 0-6, and the node.
@@ -434,8 +450,8 @@ fn calculated_weapon_damage_and_dps_resolve_inv_and_world_refs() {
     let f = fixture();
     let mut g = game(&f);
 
-    // Keep Stewie plugin gate pinned at 941 while building 945->960 consumers.
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 941.0);
+    // Keep Stewie plugin gate pinned at 945 while building 945->960 consumers.
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 945.0);
 
     // Player: Guns 50 (factor 0.75), CritChance 10 (0.10 * 30 * 2.0 = 6.0 crit contrib).
     // NPC: Guns 100 (factor 1.0), CritChance 0.
@@ -537,3 +553,19 @@ fn calculated_weapon_damage_and_dps_resolve_inv_and_world_refs() {
     }
 }
 
+/// Script-set models are the session's: a load starts from the records again (`Game::restore`
+/// builds a new game), and the Script Runner's `gr_` files set them again after it
+/// (ext-script-runner.md; weapon-mods.md §8).
+#[test]
+fn a_load_drops_the_models_scripts_set() {
+    let f = fixture();
+    let mut g = game(&f);
+    let empty = g.weapon_model_stamp();
+    q(&mut g, r#"SetWeaponModel TestGun 0 "weapons\other.nif"
+SetWeapon1stPersonModel TestGun 0"#);
+    assert_eq!(g.weapon_model_changes().len(), 1);
+    let snapshot = g.snapshot();
+    let back = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..GameConfig::default() }, &snapshot).unwrap();
+    assert!(back.weapon_model_changes().is_empty());
+    assert_eq!(back.weapon_model_stamp(), empty);
+}
