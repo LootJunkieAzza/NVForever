@@ -210,3 +210,174 @@ fn a_guest_claims_into_its_character_and_its_own_world_replays_once() {
     // A replay never offers stages on (it is not the host's world).
     assert!(own_world.take_joint_offers().is_empty());
 }
+
+// A companion handed over by a claimed stage (module notes of `fnv_game::coop_joint`): the
+// shape of Nothin' But a Hound Dog's hand-over, on synthetic records. The quest giver's
+// line sets the stage and SayTos the dog; the giver's hand-over line marks the dog
+// available and has the dog SayTo the player the followers' hire topic; the hire line,
+// conditioned on the dog, hires it.
+mod hand_over {
+    use super::{group, record, schema, sub, top, z, catalogue};
+    use crate::common::{a, ex, le16, set, st, tes4, unit, var};
+    use fnv_esm::raw::Subrecord;
+    use fnv_esm::{LoadOrder, Plugin};
+    use fnv_game::coop_joint::{ClaimedStage, REPLAY_SAY_DEPTH};
+    use fnv_game::game::{Game, GameConfig};
+    use fnv_game::GameData;
+    use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+
+    const G_AVAIL: u32 = 0x810;
+    const G_HIRED: u32 = 0x811;
+    const G_COUNT: u32 = 0x812;
+    const KING: u32 = 0x820;
+    const DOG: u32 = 0x821;
+    const KING_REF: u32 = 0x830;
+    const DOG_REF: u32 = 0x831;
+    const CELL: u32 = 0x832;
+    const DOGQ: u32 = 0x840;
+    const FOLLOWERS: u32 = 0x841;
+    const T_KING: u32 = 0x850;
+    const T_HAND: u32 = 0x851;
+    const T_HIRED: u32 = 0x852;
+    const T_LOOP: u32 = 0x853;
+    const K_HAND: u32 = 0x860;
+    const K_LOOP: u32 = 0x861;
+    const HAND: u32 = 0x862;
+    const HIRE_KING: u32 = 0x863;
+    const HIRE_DOG: u32 = 0x864;
+    const LOOP: u32 = 0x865;
+    const SET_STAGE: u16 = 0x1039;
+    const SAY_TO: u16 = 0x1034;
+    const SET_PLAYER_TEAMMATE: u16 = 0x11C5;
+    /// Condition function indices (opcode - 0x1000).
+    const GET_IS_ID: u16 = 0x48;
+    const GET_GLOBAL_VALUE: u16 = 0x4A;
+
+    fn u32b(v: u32) -> Vec<u8> {
+        v.to_le_bytes().to_vec()
+    }
+    fn r(i: u16) -> Vec<u8> {
+        [vec![b'r'], le16(i)].concat()
+    }
+    fn n(v: i32) -> Vec<u8> {
+        [vec![b'n'], v.to_le_bytes().to_vec()].concat()
+    }
+    fn call(op: u16, params: &[Vec<u8>]) -> Vec<u8> {
+        st(op, &[le16(params.len() as u16), params.concat()].concat())
+    }
+    /// `<SCRO i>.` before a call.
+    fn on(i: u16) -> Vec<u8> {
+        [le16(0x1C), le16(i)].concat()
+    }
+    /// A CTDA: `function(p1) == value`, run on the subject.
+    fn ctda(function: u16, p1: u32, value: f32) -> Subrecord {
+        let mut d = vec![0u8, 0, 0, 0];
+        d.extend(value.to_le_bytes());
+        d.extend(function.to_le_bytes());
+        d.extend([0, 0]);
+        d.extend(p1.to_le_bytes());
+        d.extend([0u8; 12]);
+        sub(b"CTDA", d)
+    }
+    fn info(id: u32, quest: u32, speaker: Option<u32>, conds: Vec<Subrecord>, end: Vec<Subrecord>) -> Vec<u8> {
+        let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
+        let mut s = vec![sub(b"EDID", z(&format!("Line{id:X}"))), sub(b"DATA", vec![0, 0, 0, 0]), sub(b"QSTI", u32b(quest))];
+        s.extend([sub(b"TRDT", trdt), sub(b"NAM1", z("...")), sub(b"NAM2", z("")), sub(b"NAM3", z(""))]);
+        s.extend(conds);
+        s.extend(unit(0, &[], &[], &[]));
+        s.push(sub(b"NEXT", vec![]));
+        s.extend(end);
+        s.extend(speaker.map(|a| sub(b"ANAM", u32b(a))));
+        record(b"INFO", 0, id, &s)
+    }
+    fn topic(id: u32, edid: &str, lines: &[Vec<u8>]) -> Vec<u8> {
+        let dial = record(b"DIAL", 0, id, &[sub(b"EDID", z(edid)), sub(b"FULL", z(edid)), sub(b"PNAM", 50.0f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])]);
+        [dial, group(id.to_le_bytes(), 7, &lines.concat())].concat()
+    }
+    fn quest(id: u32, edid: &str, start: bool, stages: &[i16]) -> Vec<u8> {
+        let mut subs = vec![sub(b"EDID", z(edid)), sub(b"DATA", [vec![start as u8, 50, 0, 0], 0.0f32.to_le_bytes().to_vec()].concat())];
+        for s in stages {
+            subs.push(sub(b"INDX", s.to_le_bytes().to_vec()));
+            subs.push(sub(b"QSDT", vec![0]));
+        }
+        record(b"QUST", 0, id, &subs)
+    }
+    fn glob(id: u32, edid: &str) -> Vec<u8> {
+        record(b"GLOB", 0, id, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0.0f32.to_le_bytes().to_vec())])
+    }
+
+    fn plugin() -> Vec<u8> {
+        let player = FormId::PLAYER_REF.0;
+        // The giver: `SetStage DogQuest 10`, `KingREF.SayTo DogREF TestHandOver`.
+        let k_hand = unit(0, &[call(SET_STAGE, &[r(1), n(10)]), on(2), call(SAY_TO, &[r(3), r(4)])].concat(), &[], &[DOGQ, KING_REF, DOG_REF, T_HAND]);
+        // The giver's hand-over: `set TestDogAvailable to 1`, `DogREF.SayTo player TestHired`.
+        let hand = unit(0, &[set(var(b'G', 1), ex(&[a("1")])), on(2), call(SAY_TO, &[r(3), r(4)])].concat(), &[], &[G_AVAIL, DOG_REF, player, T_HIRED]);
+        // The hire: `set TestDogHired to 1`, `DogREF.SetPlayerTeammate 1`.
+        let hire = unit(0, &[set(var(b'G', 1), ex(&[a("1")])), on(2), call(SET_PLAYER_TEAMMATE, &[n(1)])].concat(), &[], &[G_HIRED, DOG_REF]);
+        // Another follower's hire line in the same topic: not the dog's.
+        let hire_king = unit(0, &set(var(b'G', 1), ex(&[a("5")])), &[], &[G_HIRED]);
+        // A line that SayTos its own topic again: `SetStage DogQuest 20`, `KingREF.SayTo
+        // player TestLoop`; and TestLoop's `set TestCount to TestCount + 1`, the same SayTo.
+        let k_loop = unit(0, &[call(SET_STAGE, &[r(1), n(20)]), on(2), call(SAY_TO, &[r(3), r(4)])].concat(), &[], &[DOGQ, KING_REF, player, T_LOOP]);
+        let lp = unit(0, &[set(var(b'G', 1), ex(&[var(b'G', 1), a("1"), a("+")])), on(2), call(SAY_TO, &[r(3), r(4)])].concat(), &[], &[G_COUNT, KING_REF, player, T_LOOP]);
+        let available = || vec![ctda(GET_GLOBAL_VALUE, G_AVAIL, 1.0), ctda(GET_GLOBAL_VALUE, G_HIRED, 0.0)];
+        let dial = [
+            topic(T_KING, "TestKingTalk", &[info(K_HAND, DOGQ, Some(KING), vec![], k_hand), info(K_LOOP, DOGQ, Some(KING), vec![], k_loop)]),
+            topic(T_HAND, "TestHandOver", &[info(HAND, DOGQ, Some(KING), vec![], hand)]),
+            topic(
+                T_HIRED,
+                "TestHired",
+                &[
+                    info(HIRE_KING, FOLLOWERS, None, [vec![ctda(GET_IS_ID, KING, 1.0)], available()].concat(), hire_king),
+                    info(HIRE_DOG, FOLLOWERS, None, [vec![ctda(GET_IS_ID, DOG, 1.0)], available()].concat(), hire),
+                ],
+            ),
+            topic(T_LOOP, "TestLoop", &[info(LOOP, FOLLOWERS, Some(KING), vec![], lp)]),
+        ]
+        .concat();
+        let npcs = [record(b"NPC_", 0, KING, &[sub(b"EDID", z("TestKing"))]), record(b"NPC_", 0, DOG, &[sub(b"EDID", z("TestDog"))])].concat();
+        let placed = |id: u32, base: u32, edid: &str| record(b"ACHR", 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
+        let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("KingCell"))]);
+        let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(KING_REF, KING, "KingREF"), placed(DOG_REF, DOG, "DogREF")].concat()));
+        [
+            tes4(),
+            top(b"GLOB", &[glob(G_AVAIL, "TestDogAvailable"), glob(G_HIRED, "TestDogHired"), glob(G_COUNT, "TestCount")].concat()),
+            top(b"NPC_", &npcs),
+            top(b"QUST", &[quest(DOGQ, "TestDogQuest", false, &[1, 10, 20]), quest(FOLLOWERS, "TestFollowers", true, &[])].concat()),
+            top(b"DIAL", &dial),
+            top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+        ]
+        .concat()
+    }
+
+    /// The guest claimed stages 10 and 20 through the giver's lines; its own world's
+    /// replay follows the SayTos: the dog is hired (its line, not the other follower's),
+    /// and the line that SayTos itself stops at the bound.
+    #[test]
+    fn a_replayed_stage_hires_the_companion_its_lines_hand_over() {
+        let (table, j) = catalogue();
+        let bytes = plugin();
+        let plugins = vec![Plugin::parse(&bytes, "HandOver.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let schema = schema();
+        let forms = FormStore::build(&lo, &schema);
+        let refs = RefTable::build(&lo, &schema);
+        let data = GameData::build(&lo, &schema, table, &j, &refs);
+        let world = World::new(&forms, &refs, SimConfig::default());
+        let mut own = Game::new(&data, world, GameConfig { strict: true, ..GameConfig::default() });
+        own.new_game();
+        assert!(!own.is_teammate(FormId(DOG_REF)));
+        let stages = own.player.claims.stages.entry(FormId(DOGQ)).or_default();
+        stages.push(ClaimedStage { stage: 10, line: Some((FormId(K_HAND), true)) });
+        stages.push(ClaimedStage { stage: 20, line: Some((FormId(K_LOOP), true)) });
+        let lines = own.replay_claims();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        let q = own.quests.get(&FormId(DOGQ)).unwrap();
+        assert!(q.stages_done.contains(&10) && q.stages_done.contains(&20), "{:?}", q.stages_done);
+        assert_eq!(own.world.global(FormId(G_AVAIL)).unwrap(), 1.0f32, "the hand-over line ran");
+        assert_eq!(own.world.global(FormId(G_HIRED)).unwrap(), 1.0, "the dog's hire line, not the other follower's");
+        assert!(own.is_teammate(FormId(DOG_REF)), "hired");
+        assert_eq!(own.world.global(FormId(G_COUNT)).unwrap(), f32::from(REPLAY_SAY_DEPTH), "the self-repeating line stops at the bound: once per level");
+        assert!(!own.coop_replaying && own.coop_replay_depth == 0);
+    }
+}

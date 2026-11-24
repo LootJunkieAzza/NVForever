@@ -21,10 +21,14 @@
 //!   [`Game::replay_claims`] applies the ledger before the first frame: each claimed stage
 //!   in order, through the dialogue line that set it on the host when one did (the line's
 //!   result script carries choices no stage records: Rex's brain), else
-//!   `SetStage`. A companion a stage hands over through a line of its own (the King's Rex)
-//!   is not hired by the replay yet [design: a follow-up finds the hire line from the
-//!   data; no list of lines is kept]. Rewards already
-//!   given live are muted ([`Game::coop_replaying`]) [design: coop-shared-progress.md §3.5].
+//!   `SetStage`. A replayed script's SayTo says nothing, but the line it would say has its
+//!   result scripts run at once ([`Game::coop_replay_say_to`]), so what the host's world
+//!   did through spoken lines happens in the guest's own: a companion handed over is hired
+//!   (the King's line SayTos Rex, whose line SayTos the player the followers' hire topic)
+//!   [observed: FalloutNV.esm, the INFO result scripts of VMS24 and VNPCFollowers'
+//!   FollowersHired, `fnvtool script decode`; design: no list of lines is kept].
+//!   Rewards already given live are muted ([`Game::coop_replaying`]) [design:
+//!   coop-shared-progress.md §3.5].
 
 use crate::game::Game;
 use crate::quest::QuestState;
@@ -83,6 +87,10 @@ pub fn is_main_story(g: &Game, q: FormId) -> bool {
 /// using the Auto-Doc itself] [observed: OldWorldBlues.esm QUST NVDLC03GenericPerkQUEST,
 /// stages 10 and 11 set its rank and its script keeps the implant stocked].
 pub const PER_PLAYER: &[&str] = &["NVDLC03GenericPerkQUEST"];
+
+/// How many SayTo lines deep a replay follows ([`Game::coop_replay_say_to`]) [design: Rex's
+/// hand-over is two deep; the bound stops a line that SayTos its own topic].
+pub const REPLAY_SAY_DEPTH: u8 = 4;
 
 /// Whether `q`'s stages are each player's own ([`PER_PLAYER`], in any plugin).
 pub fn is_per_player(g: &Game, q: FormId) -> bool {
@@ -352,6 +360,11 @@ impl Game<'_> {
     /// line's speaker if it names one [hypothesis: the scripts replayed name their refs
     /// explicitly (Rex's surgery lines do), so `self` matters little].
     fn replay_line(&mut self, info: FormId, end: bool) {
+        self.replay_line_by(info, end, None);
+    }
+
+    /// [`Game::replay_line`] with the speaker known (`Some`: a SayTo's speaker).
+    fn replay_line_by(&mut self, info: FormId, end: bool, speaker: Option<FormId>) {
         let Some(def) = self.data.infos.get(&info) else {
             tracing::warn!("co-op: replay: line {info} is not in this load order");
             return;
@@ -359,7 +372,28 @@ impl Game<'_> {
         let Some(u) = (if end { def.end } else { def.begin }) else { return };
         // The speaker's placed reference: the speaker is a base form, and companions and
         // quest NPCs are unique, placed once [hypothesis for the lines replayed].
-        let speaker = def.speaker.and_then(|b| self.world.placed.refs.iter().find(|(_, p)| p.base == b).map(|(r, _)| *r)).unwrap_or(FormId::PLAYER_REF);
+        let speaker = speaker.or_else(|| def.speaker.and_then(|b| self.world.placed.refs.iter().find(|(_, p)| p.base == b).map(|(r, _)| *r))).unwrap_or(FormId::PLAYER_REF);
         self.run_result(u, crate::game::RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
+    }
+
+    /// A SayTo while claimed stages replay (`functions::misc::say_to`): nothing is said,
+    /// but the line `speaker` would say to `target` (chosen as a SayTo chooses it, its
+    /// conditions read in this world now) has its begin and end scripts run at once, so a
+    /// SayTo that line makes is followed in turn, at most [`REPLAY_SAY_DEPTH`] deep (module
+    /// notes) [design]. A topic with no line for the speaker now does nothing.
+    pub fn coop_replay_say_to(&mut self, speaker: FormId, target: FormId, topic: FormId) {
+        if self.coop_replay_depth >= REPLAY_SAY_DEPTH {
+            tracing::warn!("co-op: replay: {} SayTo {}: more than {REPLAY_SAY_DEPTH} lines deep, not followed", self.data.name(speaker), self.data.name(topic));
+            return;
+        }
+        let Some(info) = self.choose_said_line(speaker, Some(target), topic, true) else {
+            tracing::debug!("co-op: replay: {} has no line of {} now", self.data.name(speaker), self.data.name(topic));
+            return;
+        };
+        tracing::info!("co-op: replay: {} SayTo {}: line {info}'s scripts run", self.data.name(speaker), self.data.name(topic));
+        self.coop_replay_depth += 1;
+        self.replay_line_by(info, false, Some(speaker));
+        self.replay_line_by(info, true, Some(speaker));
+        self.coop_replay_depth -= 1;
     }
 }

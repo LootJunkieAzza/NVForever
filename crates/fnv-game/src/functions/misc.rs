@@ -289,13 +289,15 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// flag's (still open in the check). The subtitle flag shows the subtitle even out of
 /// hearing, as Say's ForceSubtitles.
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    // Muted while co-op replays claimed stages: given live already, or a scene for a
-    // player who wasn't there (`crate::coop_joint`) [design].
-    if g.coop_replaying {
-        return none();
-    }
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
+    // While co-op replays claimed stages nothing is said (a scene for a player who wasn't
+    // there), but the line the speaker would say still has its effect: its result
+    // scripts run at once (`Game::coop_replay_say_to`, `crate::coop_joint`) [design].
+    if g.coop_replaying {
+        g.coop_replay_say_to(speaker, target, topic);
+        return none();
+    }
     if g.say_by_script(speaker, Some(target), topic, true).is_some() {
         if a.num_or(3, 0.0) != 0.0 {
             g.set_line_look(speaker, LineLook::Speaker);

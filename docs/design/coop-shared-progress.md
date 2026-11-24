@@ -88,8 +88,15 @@ loads (solo or hosting), `Game::replay_claims` applies the ledger before the fir
 stage in order, through the dialogue line that set it on the host when one did (its result
 script carries choices no stage records), else `SetStage`, so the stages' own scripts make the
 world match. Rewards given live are muted while it runs (`Game::coop_replaying`): RewardXP,
-items and caps to the player, AddAchievement, ShowMessage, SayTo, StartConversation. One line
-per quest shows ("From co-op: <quest>"). A ledger is never applied in another host's world.
+items and caps to the player, AddAchievement, ShowMessage, StartConversation. A SayTo says
+nothing, but the line the speaker would say (chosen as a SayTo chooses it, its conditions read
+in the guest's world) has its result scripts run at once, and so on through the SayTos they make,
+at most `coop_joint::REPLAY_SAY_DEPTH` deep. That is how a companion a stage hands over is hired
+in the guest's world: the King's line sets Nothin' But a Hound Dog's stage 10 and SayTos Rex,
+and the line said then marks Rex available and has him SayTo the player the followers' hire
+topic, whose line for Rex hires him [observed: FalloutNV.esm INFO result scripts and
+conditions, `fnvtool script decode` and `dialogue lines`]. No list of lines is kept. One
+line per quest shows ("From co-op: <quest>"). A ledger is never applied in another host's world.
 
 ### 3.6 Reputation and karma inside claimed quests
 

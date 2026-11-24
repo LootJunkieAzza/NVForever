@@ -1865,6 +1865,8 @@ pub struct Game<'a> {
     /// Claimed stages are being replayed (`Game::replay_claims`): rewards to the player
     /// are muted.
     pub coop_replaying: bool,
+    /// How many SayTo lines deep the replay is (`Game::coop_replay_say_to`). Not saved.
+    pub coop_replay_depth: u8,
     /// Which characters were there for each stage the host set (`crate::coop_joint`).
     pub coop_presence: crate::coop_joint::SessionPresence,
     /// This load order's unique quest rewards, computed on first use
@@ -3053,6 +3055,7 @@ impl<'a> Game<'a> {
             coop_joint_out: Vec::new(),
             coop_line: None,
             coop_replaying: false,
+            coop_replay_depth: 0,
             coop_presence: Default::default(),
             coop_uniques_cache: std::sync::OnceLock::new(),
             coop_joint_on: false,
@@ -6001,7 +6004,7 @@ impl<'a> Game<'a> {
     }
 
     /// The line of `topic` `speaker` says to `listener` by Say or SayTo ([`Game::say_with`]).
-    fn choose_said_line(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, in_stead: bool) -> Option<FormId> {
+    pub(crate) fn choose_said_line(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, in_stead: bool) -> Option<FormId> {
         // The fallback is decided from the data, not from select_line's result: a topic
         // with a line the speaker passes the fixed-speaker check for never falls back, so
         // a spent Say Once line or a false condition leaves the call unsaid as before.
