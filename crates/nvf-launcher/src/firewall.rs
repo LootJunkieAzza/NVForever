@@ -1,7 +1,7 @@
 //! The CO-OP page's "Allow co-op through Windows Firewall" (owner via parity 2026-11-23: "launcher
-//! button that removes the pop up would be good"). Online play goes through Steam's relays
-//! (`nvf-coop` steam.rs), outbound, with no rule needed; a direct LAN game without Steam needs
-//! other players' packets let in;
+//! button that removes the pop up would be good"). Online play by code needs no rule: both
+//! games send first (`nvf-coop` online.rs), and the firewall lets the answers in; a LAN game,
+//! or a join by typed address, needs other players' packets let in;
 //! Windows Firewall asks once per program path, and on a network marked Public that prompt is easy
 //! to miss. The button asks Windows to run one elevated PowerShell command, so Windows shows its
 //! own UAC prompt and the player agrees there: the old rules named [`RULE`] are removed (a moved
@@ -77,8 +77,8 @@ pub fn covers(output: &str, exe: &Path) -> bool {
 pub fn status_text(allowed: Option<bool>) -> &'static str {
     match allowed {
         Some(true) => "Firewall: allowed",
-        // Online play goes through Steam's relays (nvf-coop steam.rs), which need no rule.
-        Some(false) => "Firewall: not set (LAN players without Steam may not be able to join you)",
+        // Online play by code needs no rule (nvf-coop online.rs: both games send first).
+        Some(false) => "Firewall: not set (players on your network or joining by address may not be able to join you)",
         None => "Firewall: checking…",
     }
 }
@@ -170,6 +170,6 @@ mod tests {
         assert!(!covers("C:\\Old\\NVForever\\nvforever-coop.exe\n", &exe), "a moved install's old rule does not count");
         assert!(!covers("", &exe));
         assert_eq!(status_text(Some(true)), "Firewall: allowed");
-        assert_eq!(status_text(Some(false)), "Firewall: not set (LAN players without Steam may not be able to join you)");
+        assert_eq!(status_text(Some(false)), "Firewall: not set (players on your network or joining by address may not be able to join you)");
     }
 }

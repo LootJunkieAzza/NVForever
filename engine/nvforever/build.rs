@@ -32,10 +32,4 @@ fn main() {
         res.set_manifest(MANIFEST);
         res.compile().expect("embedding the program icon (needs the Windows SDK's rc.exe)");
     }
-    // Co-op's Steam (private fork; nvf-coop/src/steam.rs): steam_api64.dll is loaded when
-    // co-op first asks for Steam, not at start, so a game without the file still runs.
-    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
-        println!("cargo:rustc-link-arg-bin=nvforever=/DELAYLOAD:steam_api64.dll");
-        println!("cargo:rustc-link-arg-bin=nvforever=delayimp.lib");
-    }
 }

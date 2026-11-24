@@ -13,7 +13,7 @@
 //!
 //! **Split screen's lobbies** (plan split-screen.md §10.1). A lobby opened only for split
 //! screen's player 2 ([`HOST_LOCAL_ENV`]) listens on this PC's loopback: no router port
-//! (UPnP), no Steam, no firewall prompt, no code. Create Lobby on it opens it to online
+//! (UPnP), no firewall prompt, no code. Create Lobby on it opens it to online
 //! players on the same port, and player 2 stays in it (`Session::open_to_all`). A guest
 //! can play split screen too: player 2's game joins this guest's host through this game
 //! (`Session::open_relay`, [`RELAY_ENV`]), as a guest of the host's own.
@@ -161,8 +161,7 @@ use fnv_game::chargen::Look;
 use fnv_sim::FormId;
 use nvf_assets::actor::ActorParts;
 use nvf_assets::model::ModelCtx;
-use nvf_coop::code::{Host, Lobby};
-use nvf_coop::steam;
+use nvf_coop::code::Lobby;
 use crate::locomotion::Dying;
 use crate::residents::{RemotePose, Residents};
 use nvf_coop::net::{self, attack, flag, npc_flag, Event, Link, NpcState, Place, PlayerState, QuestView, Session};
@@ -247,8 +246,8 @@ pub const HOST_LOCAL_ENV: &str = "NVF_COOP_HOST_LOCAL";
 pub const RELAY_ENV: &str = "NVF_SPLIT_RELAY_PORT";
 /// The code is written here in the home too, to be copied.
 const CODE_FILE: &str = "lobby-code.txt";
-/// A guest looking for its host gives up after this long without an answer (seconds; a
-/// Steam route can take a few to set up).
+/// A guest looking for its host gives up after this long without an answer (seconds; an
+/// online code's checks can take ten).
 const FIND_FOR: f32 = 30.0;
 
 /// What the command line asked for.
@@ -497,15 +496,15 @@ fn this_load_order() -> String {
 fn host_session(port: u16, local: bool) -> Option<Link> {
     for attempt in 0..40 {
         match if local { Session::host_local(port) } else { Session::host(port) } {
-            // For this PC only (split screen): no Steam either.
+            // For this PC only (split screen): no router port, no online code.
             Ok(s) if local => {
-                info!("co-op: hosting on UDP port {port}, this PC only (127.0.0.1, split screen): no router port, no Steam");
+                info!("co-op: hosting on UDP port {port}, this PC only (127.0.0.1, split screen): no router port, no online code");
                 return Some(Link::new(s.with_identity(identity())));
             }
             Ok(s) => {
                 let s = s.with_identity(identity());
                 info!("co-op: hosting on UDP port {port} (encrypted; this game's key {})", s.identity().fingerprint());
-                return Some(Link::new(with_steam(s)));
+                return Some(Link::new(s));
             }
             Err(e) if attempt == 39 => error!("co-op: cannot host on UDP port {port}: {e}"),
             Err(_) => std::thread::sleep(Duration::from_millis(250)),
@@ -535,14 +534,11 @@ fn guest_session(at: &str, name: &str) -> Result<Link, String> {
     if candidates.is_empty() {
         return Err("That is not a lobby code: check it with the host.".into());
     }
-    if steam_code(at) && steam::steam().is_none() {
-        warn!("co-op: {at} is a Steam code and Steam is not running: only a host on this network can answer");
-    }
     match Session::join(&candidates, key, name) {
         Ok(s) => {
             let s = s.with_identity(identity());
             info!("co-op: joining {candidates:?} as {name} (encrypted; this game's key {})", s.identity().fingerprint());
-            Ok(Link::new(with_steam(s)))
+            Ok(Link::new(s))
         }
         Err(e) => Err(format!("Cannot open a connection: {e}")),
     }
@@ -558,8 +554,7 @@ fn identity() -> nvf_coop::noise::Identity {
         return id;
     }
     let id = std::env::var(KEY_ENV).ok().and_then(|t| Identity::from_text(&t)).unwrap_or_else(Identity::generate);
-    let kept = file.as_ref().is_some_and(|f| match std::fs::create_dir_all(f.parent().unwrap_or(f)).and_then(|()| std::fs::write(f, format!("{}
-", id.to_text()))) {
+    let kept = file.as_ref().is_some_and(|f| match std::fs::create_dir_all(f.parent().unwrap_or(f)).and_then(|()| std::fs::write(f, format!("{}\n", id.to_text()))) {
         Ok(()) => true,
         Err(e) => {
             warn!("co-op: cannot keep this game's key in {}: {e}", f.display());
@@ -574,17 +569,9 @@ fn identity() -> nvf_coop::noise::Identity {
     id
 }
 
-/// A session that also talks over Steam when this game has it.
-fn with_steam(s: Session) -> Session {
-    match steam::steam() {
-        Some(st) => s.over_steam(st),
-        None => s,
-    }
-}
-
-/// Whether `at` is a code for a host on Steam.
-fn steam_code(at: &str) -> bool {
-    Lobby::decode(at).is_some_and(|l| matches!(l.host, Host::Steam(_)))
+/// Whether `code` is an online code (the matchmaking service's), not an address code.
+fn online_code(code: &str) -> bool {
+    nvf_signal::code::Code::parse(code).is_some()
 }
 
 fn resolve(at: &str) -> Option<SocketAddr> {
@@ -865,6 +852,13 @@ impl Coop {
         if local {
             return;
         }
+        self.ask_code(port);
+    }
+
+    /// The lobby's code: an online code from the matchmaking service, else (turned off,
+    /// unreachable, or after a restart with an address code) the address code
+    /// ([`Coop::reach_out`]).
+    fn ask_code(&mut self, port: u16) {
         // An online code (the matchmaking service), unless it is turned off or cannot be
         // reached ([`Event::Online`] `Failed` falls back to [`Coop::reach_out`]). After a
         // restart, the code friends were given, from the same secret.
@@ -899,24 +893,15 @@ impl Coop {
         self.reach_out(port);
     }
 
-    /// The lobby's code: Steam's when the game has it, else the router asked to open
-    /// `port` (on a thread: it takes seconds).
+    /// The address code: the router asked to open `port` (on a thread: it takes seconds).
     fn reach_out(&mut self, port: u16) {
         let (tx, rx) = mpsc::channel();
-        if let Some(st) = steam::steam() {
-            // Steam's relays let anyone in: no router to ask. Friends on this network still
-            // come by broadcast, to this port.
-            info!("co-op: hosting over Steam too (relays: {})", st.relays());
-            let local = reach::local_ip().unwrap_or(std::net::Ipv4Addr::LOCALHOST);
-            let _ = tx.send(Reach { lobby: Lobby::steam(st.account(), port), local, opened: true, note: None });
-        } else {
-            std::thread::Builder::new()
-                .name("coop-reach".into())
-                .spawn(move || {
-                    let _ = tx.send(reach::open(port));
-                })
-                .ok();
-        }
+        std::thread::Builder::new()
+            .name("coop-reach".into())
+            .spawn(move || {
+                let _ = tx.send(reach::open(port));
+            })
+            .ok();
         self.reaching = Some(Mutex::new(rx));
     }
 
@@ -926,14 +911,14 @@ impl Coop {
     }
 
     /// Create Lobby on a lobby for split screen only: it opens to online players on the
-    /// same port (Steam too, when the game has it), and player 2 stays in it.
+    /// same port, with an online code, and player 2 stays in it.
     fn open_online(&mut self) {
         let Some(link) = &self.link else { return };
-        match link.open_to_all(steam::steam()) {
+        match link.open_to_all() {
             Ok(()) => {
                 std::env::remove_var(HOST_LOCAL_ENV);
                 info!("co-op: the split-screen lobby opens to online players on UDP port {}; player 2 stays", self.port);
-                self.reach_out(self.port);
+                self.ask_code(self.port);
             }
             Err(e) => {
                 warn!("co-op: the split-screen lobby cannot open to online players: {e}");
@@ -952,7 +937,7 @@ impl Coop {
         let Some(link) = &self.link else { return false };
         match link.close_to_others() {
             Ok(dropped) => {
-                if self.opened && !self.code.as_deref().is_some_and(steam_code) {
+                if self.opened && !self.code.as_deref().is_some_and(online_code) {
                     let port = self.port;
                     std::thread::Builder::new().name("coop-reach".into()).spawn(move || reach::close(port)).ok();
                 }
@@ -1014,7 +999,7 @@ impl Coop {
     fn stop_hosting(&mut self, commands: &mut Commands, fighters: &mut Fighters) {
         // Dropping the link says goodbye to the guests.
         self.link = None;
-        if self.opened && !self.code.as_deref().is_some_and(steam_code) {
+        if self.opened && !self.code.as_deref().is_some_and(online_code) {
             let port = self.port;
             std::thread::Builder::new().name("coop-reach".into()).spawn(move || reach::close(port)).ok();
         }
@@ -1229,12 +1214,7 @@ fn lobby(
         } else if now - since > FIND_FOR {
             coop.link = None;
             coop.left_lobby = true;
-            let why = if coop.join_code.as_deref().is_some_and(steam_code) && steam::steam().is_none() {
-                "This code goes through Steam: start Steam, then join again."
-            } else {
-                "No answer from the host: check the code, and that their lobby is open."
-            };
-            coop.joining = Joining::Failed(why.into());
+            coop.joining = Joining::Failed("No answer from the host: check the code, and that their lobby is open.".into());
         }
     }
     let hosting = match (&coop.code, coop.is_host(), coop.reaching.is_some() || coop.online_pending) {
@@ -4550,7 +4530,7 @@ mod tests {
         assert!(link.local_only());
         let at = link.local_addr().unwrap();
         assert!(at.ip().is_loopback());
-        link.open_to_all(None).unwrap();
+        link.open_to_all().unwrap();
         assert!(!link.local_only());
         assert_eq!(link.local_addr().unwrap().port(), at.port());
         // A guest takes no relay of its own lobby: only a guest relays.

@@ -11,10 +11,7 @@ publish = false
 [dependencies]
 # The host's router opens the lobby's port (UPnP IGD; reach.rs); its blocking API. MIT.
 igd-next = { version = "0.18.0", default-features = false, features = ["io_sync"] }
-# Steam's relays (Spacewar, app 480): a guest anywhere reaches a host behind any router,
-# with no port to open. Optional at run time: without Steam the link is plain UDP. MIT/Apache.
-steamworks = "0.13.1"
-# Steam's notes reach the game's log (Bevy's LogPlugin takes `log` records).
+# The co-op crate's notes reach the game's log (Bevy's LogPlugin takes `log` records).
 log = "0.4"
 # The IPv6 socket is bound IPv6-only (transport.rs), so it never takes the IPv4 socket's
 # port; std cannot set that before binding. MIT/Apache.

@@ -1,7 +1,5 @@
-//! The co-op wire: its sockets ([`crate::transport`]: UDP over IPv4 and IPv6, and Steam,
-//! [`crate::steam`], when the game has it), a
-//! host and up to [`MAX_GUESTS`] guests. A peer over Steam has a stand-in address
-//! ([`crate::steam::addr`]): everything here is the same for it.
+//! The co-op wire: its sockets ([`crate::transport`]: UDP over IPv4 and IPv6), a host and up
+//! to [`MAX_GUESTS`] guests.
 //!
 //! The host is the hub: each game sends its own player's [`PlayerState`] to the host
 //! [`SEND_HZ`] times a second, and the host passes every guest's state on to the other
@@ -78,7 +76,6 @@ use crate::rel::{Frame, Reliable};
 use crate::repl::ActorPose;
 use crate::noise::{Identity, Opened, Secure};
 use crate::online::{HostInfo, Online, OnlineEvent};
-use crate::steam::Steam;
 use crate::transport::{Scope, Transport};
 use crate::story::{self, StoryEntry, StoryPager, StoryValue};
 use std::cell::RefCell;
@@ -550,7 +547,7 @@ enum Msg {
 /// sub-channel heard from least lately (player 2's game restarting to load).
 pub const RELAY_GAMES: usize = 4;
 /// The first 64 bits of a relayed game's stand-in address on the host
-/// (`fd52:656c:6179::/64`, private IPv6, unlike Steam's, [`crate::steam::addr`]); the rest
+/// (`fd52:656c:6179::/64`, private IPv6); the rest
 /// is its place in the host's list of relayed games.
 const RELAY_PREFIX: u64 = 0xFD52_656C_6179_0000;
 
@@ -1058,11 +1055,6 @@ impl Session {
         Ok(dropped)
     }
 
-    /// Talk over Steam too from now on (a host for this PC only that opens to all), or not.
-    pub fn set_steam(&mut self, steam: Option<&'static Steam>) {
-        self.net.set_steam(steam);
-    }
-
     /// A guest takes games behind it (split screen's player 2, plan split-screen.md
     /// §10.1): they join this guest's host through this PC's loopback port `port` (0 picks
     /// a free one), which is returned; the same one again if already open.
@@ -1129,13 +1121,6 @@ impl Session {
             secure.set_lobby(Some(*lobby));
         }
         Ok(Self { net, secure: RefCell::new(secure), hinted: HashMap::new(), online: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None })
-    }
-
-    /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
-    /// one.
-    pub fn over_steam(mut self, steam: &'static Steam) -> Self {
-        self.net.set_steam(Some(steam));
-        self
     }
 
     /// This game's key pair from now on (the one kept in its home), in place of the new one
@@ -2572,13 +2557,9 @@ impl Link {
         self.with(|s| s.local_only())
     }
 
-    /// [`Session::open_to_all`], then over Steam too when the game has it.
-    pub fn open_to_all(&self, steam: Option<&'static Steam>) -> std::io::Result<()> {
-        self.with(|s| {
-            s.open_to_all()?;
-            s.set_steam(steam);
-            Ok(())
-        })
+    /// [`Session::open_to_all`].
+    pub fn open_to_all(&self) -> std::io::Result<()> {
+        self.with(|s| s.open_to_all())
     }
 
     /// [`Session::go_online`].
@@ -3818,36 +3799,31 @@ mod tests {
         assert_eq!(host.peers.len(), MAX_GUESTS);
     }
 
-    /// A relayed game's stand-in address: its place in the host's list, never taken for a
-    /// Steam peer's; the wrapper goes to its guest's own address, a Steam stand-in as well
-    /// as a UDP one, so a guest on Steam relays the same way.
+    /// A relayed game's stand-in address: its place in the host's list; the wrapper goes to
+    /// its guest's own address. Only a guest the host knows relays, and never a relay in a
+    /// relay.
     #[test]
-    fn relay_addresses_stand_apart_from_steams() {
+    fn relay_addresses_name_their_place() {
         for i in [0, 1, 7, 255] {
             assert_eq!(relay_index(relay_addr(i)), Some(i));
-            assert_eq!(crate::steam::peer(relay_addr(i)), None);
         }
-        let steam_guest = crate::steam::addr(crate::steam::steam_id(12_345));
-        assert_eq!(relay_index(steam_guest), None);
         assert_eq!(relay_index(SocketAddr::from(([127, 0, 0, 1], 47_960))), None);
-        // The host's list: a game behind a guest on Steam and one behind a guest on UDP.
         let mut host = Session::host_local(0).unwrap();
-        let udp_guest = SocketAddr::from(([192, 168, 1, 20], 50_000));
+        let (a, b) = (SocketAddr::from(([192, 168, 1, 20], 50_000)), SocketAddr::from(([192, 168, 1, 21], 50_000)));
         let now = Instant::now();
-        host.peers.push(Peer { addr: Some(steam_guest), ..Peer::new(1, now) });
-        host.peers.push(Peer { addr: Some(udp_guest), ..Peer::new(2, now) });
+        host.peers.push(Peer { addr: Some(a), ..Peer::new(1, now) });
+        host.peers.push(Peer { addr: Some(b), ..Peer::new(2, now) });
         let hello = encode(&Msg::Hello { lobby: 0, name: "Player 2".into() });
-        host.relayed_up(0, &hello, steam_guest, now);
-        host.relayed_up(0, &hello, udp_guest, now);
+        host.relayed_up(0, &hello, a, now);
+        host.relayed_up(0, &hello, b, now);
         host.relayed_up(1, &hello, relay_addr(0), now);
         let unknown = SocketAddr::from(([10, 0, 0, 9], 1));
         host.relayed_up(0, &hello, unknown, now);
-        assert_eq!(host.relays, vec![(steam_guest, 0), (udp_guest, 0)], "known guests only, no relay in a relay");
-        assert_eq!(crate::steam::peer(host.relays[0].0), Some(crate::steam::steam_id(12_345)), "sent over Steam (Transport::send)");
+        assert_eq!(host.relays, vec![(a, 0), (b, 0)], "known guests only, no relay in a relay");
         // A plain Hello inside is not sealed on a session with the game behind: it joins
         // nobody (the games behind guests join through real sessions in the tests below).
         assert_eq!(host.peers.iter().filter(|p| p.addr.and_then(relay_index).is_some()).count(), 0);
-        host.drop_relayed_via(udp_guest);
+        host.drop_relayed_via(b);
         assert!(host.peers.iter().all(|p| p.addr.and_then(relay_index).is_none()));
     }
 

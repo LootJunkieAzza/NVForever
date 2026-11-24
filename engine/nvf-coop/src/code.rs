@@ -1,11 +1,11 @@
 //! Lobby codes: where the host is, written for a person to read out.
 //!
-//! There is no server of ours between the players: a code is the host's Steam account
-//! number when the host has Steam ([`Host::Steam`], reached through Steam's relays from
-//! anywhere), else the host's own address (its internet one when it is known, else its
-//! local network's; [`Host::Ip`]). Either is 4 bytes, and a check byte against typos
-//! follows (one for an address, another for a Steam account, so a code says which it
-//! is): 5 bytes in Crockford's base32 make 8 characters, two groups of four
+//! These are the address codes: the host's own address (its internet one when it is known,
+//! else its local network's; [`Host::Ip`]), for a host the matchmaking service cannot
+//! reach and for LAN play. Online codes (6 characters) are the service's
+//! (`nvf_signal::code`, docs/design/coop-networking.md §5). An address is 4 bytes, and a
+//! check byte against typos follows: 5 bytes in Crockford's base32 make 8 characters, two
+//! groups of four
 //! (`K7QM-2X9D`). A host not on [`DEFAULT_PORT`] adds the port: 7 bytes, 12 characters
 //! (`K7QM-2X9D-8RTC`). Friends on the host's own network need nothing more: a guest also
 //! asks its network for the code's host ([`Lobby::candidates`]), which answers only to
@@ -32,15 +32,12 @@ pub const HOME_NETWORKS: [u32; 6] = [24, 23, 22, 21, 20, 16];
 pub enum Host {
     /// Where the host can be reached: its internet address, or its local network's.
     Ip(Ipv4Addr),
-    /// The host's Steam account number ([`crate::steam`]).
-    Steam(u32),
 }
 
 impl fmt::Display for Host {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Host::Ip(a) => write!(f, "{a}"),
-            Host::Steam(a) => write!(f, "Steam account {a}"),
         }
     }
 }
@@ -49,32 +46,23 @@ impl fmt::Display for Host {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Lobby {
     pub host: Host,
-    /// The host's UDP port (a Steam host's too: friends on its network come that way).
+    /// The host's UDP port.
     pub port: u16,
 }
-
-/// The check byte of a Steam code is an address code's turned by this.
-const STEAM_CHECK: u8 = 0xA5;
 
 impl Lobby {
     pub fn ip(addr: Ipv4Addr, port: u16) -> Self {
         Lobby { host: Host::Ip(addr), port }
     }
 
-    pub fn steam(account: u32, port: u16) -> Self {
-        Lobby { host: Host::Steam(account), port }
-    }
-
     /// The 4 bytes a code carries.
     fn body(&self) -> [u8; 4] {
         match self.host {
             Host::Ip(a) => a.octets(),
-            Host::Steam(a) => a.to_be_bytes(),
         }
     }
 
-    /// Where a guest tries the host, in turn: the code's address (a Steam host's stand-in
-    /// one, [`crate::steam::addr`]), this PC (a host in
+    /// Where a guest tries the host, in turn: the code's address, this PC (a host in
     /// another window), and the guest's own network by broadcast (`local` is the guest's
     /// address there). Its network's size is not known here, so the broadcast goes to the
     /// broadcast address of each common size ([`HOME_NETWORKS`]): the network's own
@@ -82,11 +70,8 @@ impl Lobby {
     /// Windows sends out of a single adapter only.
     pub fn candidates(&self, local: Option<Ipv4Addr>) -> Vec<SocketAddr> {
         let mut out: Vec<SocketAddr> = Vec::new();
-        let mut ips = vec![Ipv4Addr::LOCALHOST];
-        match self.host {
-            Host::Ip(a) => ips.insert(0, a),
-            Host::Steam(a) => out.push(crate::steam::addr(crate::steam::steam_id(a))),
-        }
+        let Host::Ip(a) = self.host;
+        let mut ips = vec![a, Ipv4Addr::LOCALHOST];
         if let Some(l) = local.filter(|l| l.is_private()) {
             for prefix in HOME_NETWORKS {
                 ips.push(Ipv4Addr::from(u32::from(l) | (u32::MAX >> prefix)));
@@ -107,9 +92,6 @@ impl Lobby {
     pub fn key(&self) -> u32 {
         let mut b = self.body().to_vec();
         b.extend_from_slice(&self.port.to_be_bytes());
-        if let Host::Steam(_) = self.host {
-            b.push(STEAM_CHECK);
-        }
         fnv(&b).max(1)
     }
 
@@ -119,10 +101,7 @@ impl Lobby {
             b.extend_from_slice(&self.port.to_be_bytes());
         }
         let sum = check(&b);
-        b.push(match self.host {
-            Host::Ip(_) => sum,
-            Host::Steam(_) => sum ^ STEAM_CHECK,
-        });
+        b.push(sum);
         // 5 bits to a character, the last character's spare bits zero.
         let mut chars = String::new();
         let (mut acc, mut bits) = (0u32, 0);
@@ -173,18 +152,13 @@ impl Lobby {
         }
         let (body, sum) = b.split_at(bytes - 1);
         let four = [body[0], body[1], body[2], body[3]];
-        let host = if sum[0] == check(body) {
-            Host::Ip(Ipv4Addr::from(four))
-        } else if sum[0] == check(body) ^ STEAM_CHECK {
-            Host::Steam(u32::from_be_bytes(four))
-        } else {
+        if sum[0] != check(body) {
             return None;
-        };
+        }
+        let host = Host::Ip(Ipv4Addr::from(four));
         let port = if bytes == 7 { u16::from_be_bytes([body[4], body[5]]) } else { DEFAULT_PORT };
-        let real = match host {
-            Host::Ip(a) => !a.is_unspecified(),
-            Host::Steam(a) => a != 0,
-        };
+        let Host::Ip(a) = host;
+        let real = !a.is_unspecified();
         (port != 0 && real).then_some(Lobby { host, port })
     }
 }
@@ -205,25 +179,6 @@ mod tests {
 
     fn lobby() -> Lobby {
         Lobby::ip(Ipv4Addr::new(203, 0, 113, 7), DEFAULT_PORT)
-    }
-
-    #[test]
-    fn steam_codes_round_trip_and_differ_from_addresses() {
-        let s = Lobby::steam(0xCB00_7107, DEFAULT_PORT);
-        let code = s.encode();
-        assert_eq!(code.len(), SHORT + 1, "{code}");
-        assert_eq!(Lobby::decode(&code), Some(s));
-        // The same 4 bytes as an address: another code, another key.
-        let a = Lobby::ip(Ipv4Addr::new(0xCB, 0x00, 0x71, 0x07), DEFAULT_PORT);
-        assert_ne!(a.encode(), code);
-        assert_ne!(a.key(), s.key());
-        let other = Lobby::steam(0xCB00_7107, 50_000);
-        assert_eq!(Lobby::decode(&other.encode()), Some(other));
-        // The host's Steam stand-in address first, then this PC and the network.
-        let c = s.candidates(Some(Ipv4Addr::new(192, 168, 1, 20)));
-        assert_eq!(crate::steam::peer(c[0]), Some(crate::steam::steam_id(0xCB00_7107)));
-        assert_eq!(c[1].to_string(), "127.0.0.1:47960");
-        assert!(c[2..].iter().all(|a| crate::steam::peer(*a).is_none()));
     }
 
     #[test]

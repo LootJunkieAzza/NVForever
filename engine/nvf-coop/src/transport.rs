@@ -5,8 +5,6 @@
 //! - An IPv4 address goes over the IPv4 socket.
 //! - An IPv6 address goes over the IPv6 socket. An IPv4-mapped IPv6 address
 //!   (`::ffff:a.b.c.d`) is taken as the IPv4 address it holds.
-//! - A Steam peer's stand-in address ([`crate::steam::addr`]) goes over Steam, when this
-//!   game talks over Steam; without Steam it is dropped.
 //!
 //! A host listens on both families on the same port: IPv4 must bind, IPv6 is added when the
 //! PC has it. The IPv6 socket is IPv6-only, so it never takes the IPv4 port from the
@@ -15,14 +13,12 @@
 //! sockets there are.
 //!
 //! The sockets are non-blocking. [`Transport::recv`] drains everything waiting, on every
-//! socket and Steam.
+//! socket.
 
 use std::io::{self, ErrorKind};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
 use socket2::{Domain, Protocol, Socket, Type};
-
-use crate::steam::Steam;
 
 /// The largest datagram taken: Ethernet's MTU, as before.
 const RECV_MAX: usize = 1500;
@@ -43,7 +39,6 @@ pub enum Scope {
 pub struct Transport {
     v4: Option<UdpSocket>,
     v6: Option<UdpSocket>,
-    steam: Option<&'static Steam>,
 }
 
 impl Transport {
@@ -51,12 +46,12 @@ impl Transport {
     /// it is free there). IPv4 must bind, IPv6 is best effort.
     pub fn host(port: u16, scope: Scope) -> io::Result<Self> {
         match scope {
-            Scope::Loopback => Ok(Self { v4: Some(bind_v4(Ipv4Addr::LOCALHOST, port)?), v6: None, steam: None }),
+            Scope::Loopback => Ok(Self { v4: Some(bind_v4(Ipv4Addr::LOCALHOST, port)?), v6: None }),
             Scope::All => {
                 let v4 = bind_v4(Ipv4Addr::UNSPECIFIED, port)?;
                 let port = v4.local_addr()?.port();
                 let v6 = bind_v6(Ipv6Addr::UNSPECIFIED, port).ok();
-                Ok(Self { v4: Some(v4), v6, steam: None })
+                Ok(Self { v4: Some(v4), v6 })
             }
         }
     }
@@ -64,10 +59,10 @@ impl Transport {
     /// A guest's sockets for reaching `candidates`, on free ports: loopback only when every
     /// candidate is this PC (no firewall prompt), else every address, with broadcast on the
     /// IPv4 socket for a host on the guest's own network. IPv6 is opened when a candidate
-    /// is IPv6 (a Steam stand-in does not count) and is needed only then; IPv4 is always
+    /// is IPv6 and is needed only then; IPv4 is always
     /// opened unless every candidate is IPv6.
     pub fn guest(candidates: &[SocketAddr]) -> io::Result<Self> {
-        let real: Vec<SocketAddr> = candidates.iter().map(|c| canonical(*c)).filter(|c| crate::steam::peer(*c).is_none()).collect();
+        let real: Vec<SocketAddr> = candidates.iter().map(|c| canonical(*c)).collect();
         let want_v6 = real.iter().any(SocketAddr::is_ipv6);
         let want_v4 = real.iter().any(SocketAddr::is_ipv4) || !want_v6;
         let local = !real.is_empty() && real.iter().all(|c| c.ip().is_loopback());
@@ -88,7 +83,7 @@ impl Transport {
         } else {
             None
         };
-        Ok(Self { v4, v6, steam: None })
+        Ok(Self { v4, v6 })
     }
 
     /// A guest's sockets before it knows where its host is (an online code): IPv4 on every
@@ -96,16 +91,7 @@ impl Transport {
     pub fn guest_anywhere() -> io::Result<Self> {
         let v4 = bind_v4(Ipv4Addr::UNSPECIFIED, 0)?;
         let _ = v4.set_broadcast(true);
-        Ok(Self { v4: Some(v4), v6: bind_v6(Ipv6Addr::UNSPECIFIED, 0).ok(), steam: None })
-    }
-
-    /// Talk over Steam too from now on, or not.
-    pub fn set_steam(&mut self, steam: Option<&'static Steam>) {
-        self.steam = steam;
-    }
-
-    pub fn steam(&self) -> Option<&'static Steam> {
-        self.steam
+        Ok(Self { v4: Some(v4), v6: bind_v6(Ipv6Addr::UNSPECIFIED, 0).ok() })
     }
 
     /// The address shown for this game: the IPv4 socket's, else the IPv6 one's.
@@ -129,8 +115,7 @@ impl Transport {
 
     /// A host moves to `scope` on the port it has: the old sockets are let go first, then
     /// the port is bound again. If that fails, the old scope is bound again (best effort)
-    /// and the error returned. Steam is kept for [`Scope::All`] and dropped for
-    /// [`Scope::Loopback`].
+    /// and the error returned.
     pub fn rebind(&mut self, scope: Scope) -> io::Result<()> {
         let port = self.local_addr()?.port();
         let was = if self.local_only() { Scope::Loopback } else { Scope::All };
@@ -140,9 +125,6 @@ impl Transport {
             Ok(t) => {
                 self.v4 = t.v4;
                 self.v6 = t.v6;
-                if scope == Scope::Loopback {
-                    self.steam = None;
-                }
                 Ok(())
             }
             Err(e) => {
@@ -155,15 +137,9 @@ impl Transport {
         }
     }
 
-    /// Send `bytes` to `to` the way its address says. A packet with no way to go (no
-    /// socket of that family, no Steam) is dropped, as UDP drops any.
+    /// Send `bytes` to `to` over the socket of its family. A packet with no way to go (no
+    /// socket of that family) is dropped, as UDP drops any.
     pub fn send(&self, bytes: &[u8], to: SocketAddr) {
-        if let Some(id) = crate::steam::peer(to) {
-            if let Some(s) = self.steam {
-                s.send(id, bytes);
-            }
-            return;
-        }
         let to = canonical(to);
         let sock = if to.is_ipv4() { &self.v4 } else { &self.v6 };
         if let Some(s) = sock {
@@ -171,7 +147,7 @@ impl Transport {
         }
     }
 
-    /// Everything waiting, on every socket and Steam, each packet handed to `take` with
+    /// Everything waiting, on every socket, each packet handed to `take` with
     /// the address it came from (an IPv4-mapped IPv6 address as its IPv4 one).
     pub fn recv(&self, mut take: impl FnMut(&[u8], SocketAddr)) {
         let mut buf = [0u8; RECV_MAX];
@@ -188,20 +164,13 @@ impl Transport {
                 }
             }
         }
-        if let Some(s) = self.steam {
-            let mut got = Vec::new();
-            s.receive(&mut got);
-            for (bytes, from) in got {
-                take(&bytes, from);
-            }
-        }
     }
 }
 
 /// The IP and UDP header bytes of a packet to or from `addr`, for the traffic lines.
 pub fn overhead(addr: SocketAddr) -> u64 {
     match canonical(addr) {
-        SocketAddr::V6(a) if crate::steam::peer(SocketAddr::V6(a)).is_none() => UDP_OVERHEAD_V6,
+        SocketAddr::V6(_) => UDP_OVERHEAD_V6,
         _ => UDP_OVERHEAD_V4,
     }
 }
@@ -330,8 +299,7 @@ mod tests {
     #[test]
     fn a_packet_with_no_way_is_dropped() {
         let t = Transport::host(0, Scope::Loopback).unwrap();
-        // No IPv6 socket, no Steam: nothing happens, nothing panics.
+        // No IPv6 socket: nothing happens, nothing panics.
         t.send(b"x", "[2001:db8::1]:1".parse().unwrap());
-        t.send(b"x", crate::steam::addr(crate::steam::steam_id(1)));
     }
 }
