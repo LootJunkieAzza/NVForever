@@ -39,7 +39,12 @@ Every non-2xx answer has the body `{"error": "<code>", "message": "<text for the
   The game compares `protocol` and `load_order_hash` with its own and explains a mismatch
   before it tries anything.
 - 404 `not_found`.
-- 429: the rate limit. The Worker allows 10 lookups a minute per IP. The stand-in has no limit.
+- 429: the rate limit. A zone rate-limiting rule on `nv-forever.com` allows 10 requests per
+  10 s per IP across every `/v1/lobbies` path, the socket upgrade included. Past that, it blocks
+  the IP for 10 s. Its 429 is Cloudflare's own plain-text answer with `Retry-After`, not the
+  JSON error body: a client treats any 429 as "wait `Retry-After` seconds, then retry" and does
+  not parse the body. The Worker's own limit (10 a minute on lookups and creates) is
+  approximate per location and only a soft first check. The stand-in has no limit.
 
 ### `GET /v1/lobbies/{code}/ws`: the lobby socket
 

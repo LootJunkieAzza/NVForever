@@ -232,41 +232,72 @@ fn run(service: &str, start: Start, out: &Sender<FromIo>, cmds: &Receiver<ToIo>)
     }
 }
 
-/// A request, tried again after a connection error (as [`connect`]); an HTTP answer of any
-/// status is not tried again.
+/// How many times a request or the lobby's socket is tried.
+const TRIES: usize = 3;
+/// The wait before each try after the first, when no Retry-After says otherwise (seconds).
+const BACKOFF: [u64; TRIES - 1] = [1, 2];
+/// The longest Retry-After waited for (seconds); the service's block lasts 10
+/// [documented: docs/design/coop-signal-wire.md, rate limit].
+const RETRY_AFTER_MAX: u64 = 30;
+/// The wait after a 429 that carried no readable Retry-After (seconds): the block's length.
+const RETRY_AFTER_DEFAULT: u64 = 10;
+
+/// The wait a 429's Retry-After asks for (seconds, as a number; an HTTP date or nothing
+/// gives [`RETRY_AFTER_DEFAULT`]), at most [`RETRY_AFTER_MAX`].
+fn retry_after(header: Option<&str>) -> u64 {
+    header.and_then(|h| h.trim().parse::<u64>().ok()).unwrap_or(RETRY_AFTER_DEFAULT).min(RETRY_AFTER_MAX)
+}
+
+/// A request, tried again after a connection error (as [`connect`]) and after a 429 (too
+/// many requests: the service's rate limit), waiting the answer's Retry-After first so a
+/// burst of tries does not keep the block going. Any other HTTP answer is not tried again;
+/// the last 429 goes back to the caller.
 fn tries(mut request: impl FnMut() -> Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
-    let mut last = None;
-    for wait in [0u64, 1, 2] {
+    let mut wait = 0;
+    for n in 0..TRIES {
         std::thread::sleep(Duration::from_secs(wait));
+        let last = n + 1 == TRIES;
         match request() {
-            Ok(r) => return Ok(r),
-            Err(e) => {
-                log::info!("co-op: the matchmaking service's request failed ({e}); trying again");
-                last = Some(e);
+            Ok(r) if r.status().as_u16() == 429 && !last => {
+                wait = retry_after(r.headers().get("retry-after").and_then(|v| v.to_str().ok()));
+                log::info!("co-op: the matchmaking service asks to wait (429); trying again in {wait} s");
             }
+            Ok(r) => return Ok(r),
+            Err(e) if !last => {
+                log::info!("co-op: the matchmaking service's request failed ({e}); trying again");
+                wait = BACKOFF.get(n).copied().unwrap_or_default();
+            }
+            Err(e) => return Err(e),
         }
     }
-    Err(last.expect("three tries"))
+    unreachable!("the last try returns")
 }
 
 /// The lobby's socket, tried again after a connection error: in the game, a TLS handshake
 /// was sometimes reset (os error 10054) where the same request from a test went through
 /// [observed 2026-11-24, 2 of 3 game runs; 15 of 15 test opens]. An HTTP answer (a lobby
-/// that is not there) is not tried again.
+/// that is not there) is not tried again, except a 429 (the rate limit), which waits its
+/// Retry-After as [`tries`] does.
 fn connect(url: &str) -> tungstenite::Result<WebSocket<MaybeTlsStream<TcpStream>>> {
-    let mut last = None;
-    for wait in [0u64, 1, 2] {
+    let mut wait = 0;
+    for n in 0..TRIES {
         std::thread::sleep(Duration::from_secs(wait));
+        let last = n + 1 == TRIES;
         match tungstenite::connect(url) {
             Ok((ws, _)) => return Ok(ws),
-            Err(e @ tungstenite::Error::Http(_)) => return Err(e),
-            Err(e) => {
-                log::info!("co-op: the lobby's connection failed ({e}); trying again");
-                last = Some(e);
+            Err(tungstenite::Error::Http(resp)) if resp.status().as_u16() == 429 && !last => {
+                wait = retry_after(resp.headers().get("retry-after").and_then(|v| v.to_str().ok()));
+                log::info!("co-op: the matchmaking service asks to wait (429); opening the lobby's connection again in {wait} s");
             }
+            Err(e @ tungstenite::Error::Http(_)) => return Err(e),
+            Err(e) if !last => {
+                log::info!("co-op: the lobby's connection failed ({e}); trying again");
+                wait = BACKOFF.get(n).copied().unwrap_or_default();
+            }
+            Err(e) => return Err(e),
         }
     }
-    Err(last.expect("three tries"))
+    unreachable!("the last try returns")
 }
 
 /// Reads give up after [`READ_WAIT`], so the thread can send between them.
@@ -284,6 +315,34 @@ fn set_read_wait(ws: &WebSocket<MaybeTlsStream<TcpStream>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Against the live service (run by hand: `--ignored --nocapture`): fourteen lookups of a
+    /// code that does not exist, past the rate limit (10 in 10 s): the ones past it wait the
+    /// 429's Retry-After inside [`tries`] and then get their 404.
+    #[test]
+    #[ignore]
+    fn live_rate_limit_waits() {
+        let agent = agent();
+        let service = nvf_signal::DEFAULT_SERVICE;
+        for i in 0..14 {
+            let t = std::time::Instant::now();
+            let what = match tries(|| agent.get(format!("{service}/v1/lobbies/ZZZZZZ")).call()) {
+                Ok(r) => format!("http {}", r.status()),
+                Err(e) => format!("error {e}"),
+            };
+            println!("lookup {i}: {what} after {:.1} s", t.elapsed().as_secs_f32());
+        }
+    }
+
+    /// A 429's Retry-After: seconds as given, capped; a date, junk or none waits the block.
+    #[test]
+    fn retry_after_reads_seconds() {
+        assert_eq!(retry_after(Some("7")), 7);
+        assert_eq!(retry_after(Some(" 3 ")), 3);
+        assert_eq!(retry_after(Some("600")), RETRY_AFTER_MAX);
+        assert_eq!(retry_after(Some("Wed, 21 Oct 2026 07:28:00 GMT")), RETRY_AFTER_DEFAULT);
+        assert_eq!(retry_after(None), RETRY_AFTER_DEFAULT);
+    }
 
     /// Against the live service (run by hand: `--ignored --nocapture`): opens the lobby
     /// socket of a code that does not exist ten times and prints how each attempt ended.
