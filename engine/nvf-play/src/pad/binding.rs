@@ -1,5 +1,5 @@
 //! A control's controller binding and how it is worked (docs/design/controller.md §2a)
-//! [design, owner 2026-11-22: "just combos, double tap, and hold"].
+//! [design: three kinds beyond the plain press: combo, double tap and hold].
 //!
 //! The original keeps one controller button per control, the `JJ` byte of its `[Controls]`
 //! values [observed: docs/spec-notes/controls.md §2.1], so every kind here past [`Press`]

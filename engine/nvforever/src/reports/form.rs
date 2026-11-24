@@ -522,7 +522,7 @@ fn keys((mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<nvf_pl
         }
     }
     // A controller's B (or Start) is Esc only as a pressed key (`nvf_play::pad::menu_keys`),
-    // with no typed event: it closes the form too (owner 2026-11-22: the controller backs
+    // with no typed event: it closes the form too ([design]: the controller backs
     // out of every page of the pause menu). A real Esc has closed it above.
     if held.just_pressed(KeyCode::Escape) {
         close(&mut form, &mut commands);

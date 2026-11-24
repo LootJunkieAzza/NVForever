@@ -775,7 +775,7 @@ pub(crate) fn activate(
     // E pressed on something the player can hold: a tap activates it when E comes up,
     // a hold picks it up (`crate::grab`, docs/spec-notes/grab.md §2).
     // With a controller and Grab (Hold) on a binding of its own (`crate::bindings::SPLITS`),
-    // Activate activates at once and that binding grabs [design, owner 2026-11-22].
+    // Activate activates at once and that binding grabs [design: the split holds].
     if queued.is_none() && !fired && !full && !input.bindings.split_moved(crate::bindings::Control::ActivateGrab) {
         if let Some(g) = grab.as_mut().filter(|g| g.holdable(t.form_id) && g.tap.is_none()) {
             let candidate = g.candidate.expect("holdable has a candidate");

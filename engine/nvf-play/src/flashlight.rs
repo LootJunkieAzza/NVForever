@@ -20,7 +20,7 @@
 //! - With a controller, once Toggle Light has a controller binding of its own (the split
 //!   holds, `crate::bindings::SPLITS`, docs/design/controller.md §2a), holding Menu Mode
 //!   switches nothing: Menu Mode opens the inventory when let go, however long it was held,
-//!   and the light follows Toggle Light's binding alone [design, owner 2026-11-22].
+//!   and the light follows Toggle Light's binding alone [design: the split holds].
 //!
 //! Test aid: `NVF_PLAY_TEST_CONTROL=<seconds>:flashlight` toggles it as a hold would.
 

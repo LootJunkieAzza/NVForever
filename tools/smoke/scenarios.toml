@@ -14391,7 +14391,7 @@ expect = [
 
 [[scenario]]
 name = "pad-bindings-write"
-source = "owner 2026-11-22: controller combos, double taps and holds on the Controls tab, the built-in holds split into their own controls (controller only), every overlap warned of and none refused (docs/design/controller.md §2a); the first half of a round trip (pad-bindings-read starts in the same home), run them together"
+source = "controller combos, double taps and holds on the Controls tab, the built-in holds split into their own controls (controller only), every overlap warned of and none refused (docs/design/controller.md §2a); the first half of a round trip (pad-bindings-read starts in the same home), run them together"
 note = "no controller is connected in a smoke run: the gestures' capture and the bindings' acting are covered by the unit tests (pad/capture.rs, pad/resolver.rs); this checks the rows, the aids, the overlap warnings and the INI"
 areas = ["main-menu", "save"]
 paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "crates/nvf-settings-layout/src/lib.rs"]
@@ -14411,13 +14411,13 @@ expect = [
   { text = "pause menu: screenshot pause_controls_hold.png", label = "a frame of the hold's row" },
   { text = "pause menu: screenshot pause_controls_timing.png", label = "a frame of the timing rows" },
   { text = "controls: Double Tap Window 0.25 s", label = "the Double-tap window row is set" },
-  { text = "controls: Combo Window 0.150 s", label = "the Combo window row is set (owner's playtest 2026-11-22: combos pressed nearly together)" },
+  { text = "controls: Combo Window 0.150 s", label = "the Combo window row is set (combos pressed nearly together, as seen in game)" },
 ]
 order = [["controls: input device Controller", "controls: every control back to the game's controller buttons", "controls: Toggle Light bound to controller LB + A", "controls: Holster Weapon bound to controller Double X", "controls: Hold Time 0.50 s"]]
 
 [[scenario]]
 name = "pad-bindings-read"
-source = "owner 2026-11-22: the second half of the binding kinds' round trip: a new start in pad-bindings-write's home takes the combo, the double tap and the three timings it stored"
+source = "the second half of the binding kinds' round trip: a new start in pad-bindings-write's home takes the combo, the double tap and the three timings it stored"
 areas = ["main-menu", "save"]
 paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad/binding.rs"]
 env = { NVFOREVER_HOME = "pad-bindings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
@@ -35461,7 +35461,7 @@ forbid = [
 
 [[scenario]]
 name = "pad-bindings-play"
-source = "owner 2026-11-22: controller holds, double taps and combos act in the game, not only on the Controls page (docs/design/controller.md §2a); and B backs out of Settings a step at a time"
+source = "controller holds, double taps and combos act in the game, not only on the Controls page (docs/design/controller.md §2a); and B backs out of Settings a step at a time"
 note = "the synthetic controller (NVF_PLAY_TEST_KEYS pad-…) through the bindings' resolver (pad/resolver.rs). While paused from 1 to 4.5 s (the pause aid's second number is when it resumes): Controller picked, Toggle Light on Hold Back (Wait keeps Back's tap), Holster Weapon on Double X (Ready / Reload keeps X's tap). A 10mm pistol equipped at 5 s; X tapped once at 6 s draws it, X twice at 8 s holsters it, Back held a second at 10 s lights the light. Start at 13 s, the D-pad and A open Settings, B three times: the rail, the column, the game. Frames in target/smoke (pad_play_*.png)"
 areas = ["main-menu", "controller"]
 paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/control.rs", "engine/nvf-play/src/flashlight.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/key_repeat.rs"]
@@ -35486,7 +35486,7 @@ order = [["Ready Item pressed: the weapon drawn", "Holster Weapon pressed: the w
 
 [[scenario]]
 name = "pause-menu-pad-back"
-source = "owner 2026-11-22: the controller must work the whole pause menu; B backing out of a sub menu in Settings went too far. With a controller B now goes back a step at a time: the rows to the rail, the rail to the column, the column back to the game"
+source = "the controller must work the whole pause menu; B backing out of a sub menu in Settings went too far. With a controller B now goes back a step at a time: the rows to the rail, the rail to the column, the column back to the game"
 note = "only the synthetic controller's buttons (NVF_PLAY_TEST_KEYS pad-…), through crate::pad::menu_keys: Start opens the menu, the D-pad and A pick, RT steps the settings tab, B goes back. Settings opens on its kept tab (Controls in a fresh home)"
 areas = ["main-menu"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/settings_view.rs"]

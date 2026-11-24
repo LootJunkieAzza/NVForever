@@ -301,9 +301,9 @@ pub const DPAD_HOTKEYS: [(Control, GamepadButton); 4] = [
 ];
 
 /// The key of a DirectInput keyboard scan code [documented: Microsoft `DIK_*` values].
-/// The controller's split holds [design, owner 2026-11-22: "break up controller settings
-/// that already exist on those like hold pipboy for light make it possible to make light
-/// something else"; "only for controller though"]: (the split control, its original
+/// The controller's split holds [design: a built-in hold, such as holding the Pip-Boy
+/// button for the light, becomes a control of its own that can be bound elsewhere; for the
+/// controller only]: (the split control, its original
 /// control's name, the original control). Until the player gives the split control a
 /// controller binding of its own its binding is [`PadBinding::BuiltIn`]: the original
 /// control's own hold, as before (holding Menu Mode switches the light, Ready Item
@@ -325,7 +325,7 @@ pub const PAD_ONLY: [Control; 3] = [Control::OrbitCamera, Control::WeaponWheel, 
 
 /// The split controls, whose controller row stands beside its original control on the
 /// Controls tab (`controls:padbind:` in the layout table) rather than with the Tweaks
-/// keys [design, owner 2026-11-22: "Yes, move them"].
+/// keys [design: a split control is found where its original is].
 pub fn pad_placed(c: Control) -> bool {
     SPLITS.iter().any(|(k, _, _)| *k == c)
 }
@@ -587,8 +587,8 @@ impl Bindings {
     /// Bind `p` to `c`; a control that had the same binding gets `c`'s old one (a swap),
     /// unless the Duplicate Binds tweak is on. The controls that gave it up. Bindings that
     /// only overlap (a hold and a press of one button) are kept and warned of
-    /// ([`overlaps`]) [design, owner 2026-11-22: "give warnings when there's duplicate or
-    /// overlapping bindings in any way"]. Only a split control takes
+    /// ([`overlaps`]) [design: every duplicate or overlapping binding is warned of, none
+    /// refused]. Only a split control takes
     /// [`PadBinding::BuiltIn`].
     pub fn rebind_pad_binding(&mut self, c: Control, p: PadBinding) -> Vec<Control> {
         if p == PadBinding::BuiltIn && split_origin(c).is_none() {
@@ -1169,7 +1169,7 @@ pub fn apply_stored(world: &mut World) {
     }
     let what = if changed.is_empty() { String::new() } else { format!(": {}", changed.join(", ")) };
     info!("controls: {found} of {LINES} line(s) read from {}, {} changed{what}; input device {}", path.display(), changed.len(), world.resource::<Bindings>().device.name());
-    // The controller bindings read that overlap: warned of, kept [design, owner 2026-11-22].
+    // The controller bindings read that overlap: warned of, kept [design].
     for o in overlaps(world.resource::<Bindings>()) {
         warn!("controls: warning: {}", o.text);
     }
@@ -1280,8 +1280,7 @@ pub fn set_timing(world: &mut World, row: TimingRow, secs: f32) {
 }
 
 /// An overlap of controller bindings: the controls it touches and what the rows say
-/// [design, owner 2026-11-22: "give warnings when there's duplicate or overlapping
-/// bindings in any way"]. `strong`: a control loses what it does (a held control left a
+/// [design: every duplicate or overlapping binding is warned of, none refused]. `strong`: a control loses what it does (a held control left a
 /// one-frame press).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Overlap {

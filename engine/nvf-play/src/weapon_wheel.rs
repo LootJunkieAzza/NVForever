@@ -108,7 +108,7 @@ pub struct Frame {
     pub no_hold_open: bool,
     /// With a controller, Weapon Wheel's own binding (the split holds,
     /// `crate::bindings::SPLITS`): down now, and gone down this frame. It opens the wheel at
-    /// once, kept open while it is held [design, owner 2026-11-22].
+    /// once, kept open while it is held [design: the split holds].
     pub wheel_key: bool,
     pub wheel_pressed: bool,
 }

@@ -149,8 +149,8 @@ impl ControlRow {
 
     /// The row's name in the layout table (after `controls:`), the same for both devices
     /// (`bind:Jump`), but a split hold's controller row, which stands beside its original
-    /// control (`padbind:Toggle Light`; `crate::bindings::SPLITS`) [design, owner
-    /// 2026-11-22].
+    /// control (`padbind:Toggle Light`; `crate::bindings::SPLITS`)
+    /// [design: a split control is found where its original is].
     pub fn table_name(self) -> String {
         match self {
             ControlRow::Binding(c, InputDevice::Controller) if crate::bindings::pad_placed(c) => format!("padbind:{}", Bindings::name(c)),

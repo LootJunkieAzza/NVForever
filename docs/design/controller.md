@@ -225,10 +225,10 @@ Start cannot be bound.
 
 ## 2a. Binding kinds: hold, double tap, combo; the split holds
 
-[design, owner 2026-11-22: "just combos, double tap, and hold"; "break up controller
-settings that already exist on those like hold pipboy for light"; "only for controller
-though"; "give warnings when there's duplicate or overlapping bindings in any way"; "leave
-all defaults"]. Code: `engine/nvf-play/src/pad/binding.rs` (the kinds, their INI text),
+[design: three binding kinds beyond the plain press (combo, double tap, hold); the
+built-in holds, such as holding the Pip-Boy button for the light, split into controls of
+their own so they can be bound elsewhere, for the controller only; every duplicate or
+overlapping binding warned of; every default left as it was]. Code: `engine/nvf-play/src/pad/binding.rs` (the kinds, their INI text),
 `pad/resolver.rs` (working them out each frame), `pad/capture.rs` (the Controls tab taking
 one by the gesture made), `bindings.rs` (`SPLITS`, `overlaps`).
 
@@ -252,9 +252,9 @@ delay. A press sharing its button with a hold or a double tap acts for one frame
 button is let go (or when the window ends with no second press); a combo uses up its
 button's press, so LB + A does not also Activate.
 
-**The combo window** [design, owner 2026-11-22 playtest: VATS on LB + RB and Sneak on LB
-took Sneak unless both were pressed "perfectly together"; "if there's 8ms between a button
-press in a combo, it still activates the combo bind and ignores the individual inputs"]. A
+**The combo window** [observed: buckallobill, in game: with VATS on LB + RB and Sneak on
+LB, Sneak was taken unless both buttons went down in the same frame; a combo pressed a few
+milliseconds apart should still act as the combo and leave the single bindings alone]. A
 press of any button that is part of a combo (its modifier or its button) waits the Combo
 window before its own binding acts:
 - the partner going down inside the window, in either order, fires the combo, and both
@@ -280,7 +280,8 @@ hotkey's hold opens the wheel, the Weapon Wheel binding opens it at once and a s
 by the stick or a hotkey is used when it is let go). The keyboard keeps every built-in
 hold; Orbit Camera, Weapon Wheel and Grab (Hold) have no key row. With a controller, Toggle
 Light stands under Actions after Menu Mode and Holster Weapon under Combat after Ready Item
-(`controls:padbind:` in the layout table) [owner 2026-11-22: "Yes, move them"].
+(`controls:padbind:` in the layout table) [design: a split control is found where its
+original is].
 
 **Old INIs.** A bare button name reads as a press. An INI written before the kinds
 (no `Binding Kinds=1` line in `[Controller]`) wrote `None` for Toggle Light and Holster
@@ -310,8 +311,8 @@ modifier; each is taken once every button is up. A stick direction is taken at o
   tab's, a Tweaks group's, the Changed list's) to the rail on the tab's line, from the
   rail to the column, from the column to the game. The keyboard's Esc leaves the page at
   once, as before. B also closes the Report a Bug form, which reads typed keys otherwise
-  [design: owner 2026-11-22, "issues backing out ... in a sub menu in settings"; smoke
-  `pause-menu-pad-back`].
+  [design; observed: buckallobill, in game: B left Settings from a sub menu instead of
+  stepping back; smoke `pause-menu-pad-back`].
 - Each menu's own buttons follow the original's menu files (`_xbox_button` of the button
   tiles [documented: the vanilla menu files]) and press the key NVForever's menu gives
   that control (`pad::menu_buttons`, keyed by the open menu's MenuMode code); a menu's

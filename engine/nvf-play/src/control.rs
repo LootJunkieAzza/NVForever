@@ -665,8 +665,8 @@ pub fn read_controls(
             None => time.delta_secs(),
         };
         // With Holster Weapon on a controller binding of its own (the split holds,
-        // `crate::bindings::SPLITS`), Ready Item's hold holsters nothing [design, owner
-        // 2026-11-22].
+        // `crate::bindings::SPLITS`), Ready Item's hold holsters nothing
+        // [design: the split holds].
         if *t >= HOLSTER_HOLD && !input.bindings.split_moved(Control::HolsterWeapon) {
             c.weapon_out = false;
             c.ready_held = None;
@@ -733,7 +733,7 @@ pub fn read_controls(
     // (player::mouse_look turns `orbit` instead of the view). With Orbit Camera on a
     // controller binding of its own (`crate::bindings::SPLITS`), Toggle POV switches the
     // view as it is pressed and Orbit Camera's binding circles the camera while held
-    // [design, owner 2026-11-22].
+    // [design: the split holds].
     let orbit_split = input.bindings.split_moved(Control::OrbitCamera);
     let (orbit_key, pov_key) = if orbit_split { (Control::OrbitCamera, None) } else { (Control::TogglePov, Some(Control::TogglePov)) };
     if orbit_split && input.just_pressed(Control::TogglePov) {

@@ -81,7 +81,7 @@
 //! the Changed list, the rows it lists. On the search it is the global Defaults.
 //! Esc or Backspace go back. With a controller B goes back a step at a time: from the rows
 //! to the rail (on the tab's line), and from the rail to the column (`pause menu: back to
-//! the rail (<line>)`) [design: owner 2026-11-22].
+//! the rail (<line>)`) [design].
 //!
 //! **The search** [design: #1953 point 5]: the rail's Search line (a click, or Enter on it
 //! with the keys on the rail) or Ctrl+F anywhere on the page (not while a key is awaited,
@@ -4635,8 +4635,8 @@ fn choose(
             let back = !in_search && (pressed.any([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back"));
             // With a controller, B goes back a step at a time: from the rows (a tab's, a
             // Tweaks group's, the Changed list's) to the rail on the tab's line, and from the
-            // rail to the column [design: owner 2026-11-22, "issues backing out ... in a sub
-            // menu in settings"]. The keyboard's Esc and a click on Back leave at once.
+            // rail to the column [design; observed: buckallobill, in game: B left Settings
+            // from a sub menu instead of stepping back]. The keyboard's Esc and a click on Back leave at once.
             let to_rail = back && controller && clicked.is_none() && matches!(view.focus, SettingsFocus::Rows);
             if !handled { match clicked {
                 _ if to_rail => {
@@ -5360,8 +5360,8 @@ fn note_of(list: &[Setting], id: RowId, d: &Drawn) -> String {
         let why = fnv_util::words::trf("Greyed out: {why}", &[("why", &tr(why))]);
         note = if note.is_empty() { why } else { format!("{note} {why}") };
     }
-    // A controller binding that overlaps another: the warning, after its note [design,
-    // owner 2026-11-22: warn of every duplicate or overlap, refuse none].
+    // A controller binding that overlaps another: the warning, after its note [design:
+    // warn of every duplicate or overlap, refuse none].
     // It stands in for the row's how-to note, which would push it out of the note's lines.
     if let RowId::Control(c) = id {
         if let Some(w) = d.control_warn(c).filter(|_| d.listening.is_none()) {
@@ -6479,7 +6479,7 @@ mod tests {
 
     #[test]
     fn a_controllers_b_backs_out_of_the_rows_to_the_rail_and_then_to_the_column() {
-        // Owner 2026-11-22: backing out of a sub menu in Settings with the controller.
+        // Backing out of a sub menu in Settings with the controller.
         let mut app = search_app(&SEARCHED, "", SettingsFocus::Rows);
         let mut b = crate::bindings::Bindings::default();
         b.device = crate::bindings::InputDevice::Controller;

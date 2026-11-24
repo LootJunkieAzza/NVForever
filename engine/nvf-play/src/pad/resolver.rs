@@ -18,9 +18,8 @@
 //! - **Combo**: it goes down when its two buttons go down within [`Timing::combo`] of each
 //!   other, in either order, or when its button goes down while its modifier has been held
 //!   longer. Those presses are then *used up* until they come up: no other binding on
-//!   either button acts on them [design, owner 2026-11-22 playtest: "if there's 8ms
-//!   between a button press in a combo, it still activates the combo bind and ignores the
-//!   individual inputs"]. A modifier held past the window is not used up: a held control
+//!   either button acts on them [design; observed: buckallobill, in game: two buttons
+//!   pressed a few milliseconds apart for a combo set off the single bindings too]. A modifier held past the window is not used up: a held control
 //!   on it (Sneak, Block) stays live beside the combo.
 //! - **The combo window**: a press of a button that is part of any combo waits
 //!   [`Timing::combo`] before its own binding acts, so the other button can still come.
@@ -59,9 +58,9 @@ pub const HOLD_TIMES: [f32; 6] = [0.25, 0.3, 0.4, 0.5, 0.6, 0.8];
 /// The Double-tap window row's choices, seconds.
 pub const DOUBLE_TAP_WINDOWS: [f32; 6] = [0.2, 0.25, 0.3, 0.35, 0.4, 0.5];
 /// Default Combo window: two buttons meant together come down some tens of milliseconds
-/// apart (the owner's report: 8 ms apart still split the combo), and a tenth of a second
+/// apart (observed by buckallobill in game: 8 ms apart still split the combo), and a tenth of a second
 /// is about as long as a single press on a combo's button can wait without feeling late
-/// [design; hypothesis, to be tuned by the owner's playtest].
+/// [design; hypothesis, to be tuned in play].
 pub const COMBO_WINDOW: f32 = 0.1;
 /// The Combo window row's choices, seconds (all below the shortest Hold time).
 pub const COMBO_WINDOWS: [f32; 6] = [0.05, 0.075, 0.1, 0.125, 0.15, 0.2];
@@ -567,7 +566,7 @@ mod tests {
         assert!(!log.iter().any(|(c, _)| *c == Control::Hotkey5), "{log:?}");
     }
 
-    /// The owner's playtest (2026-11-22): VATS on LB + RB, Sneak on LB.
+    /// A case seen in game: VATS on LB + RB, Sneak on LB.
     fn vats_on_lb_rb_and_sneak_on_lb() -> [(Control, PadBinding); 2] {
         [(Control::Vats, PadBinding::Combo { modifier: LeftTrigger, button: RightTrigger }), (Control::CrouchSneak, PadBinding::Press(PadInput::Button(LeftTrigger)))]
     }
@@ -624,7 +623,7 @@ mod tests {
 
     #[test]
     fn a_held_control_on_a_combos_button_is_held_not_tapped() {
-        // The owner's playtest (2026-11-22): Toggle POV on LS + RS, Sprint on LS. Sprint
+        // A case seen in game: Toggle POV on LS + RS, Sprint on LS. Sprint
         // must stay held while LS is, whichever of the two the combo took as its modifier.
         for combo in [PadBinding::Combo { modifier: LeftThumb, button: RightThumb }, PadBinding::Combo { modifier: RightThumb, button: LeftThumb }] {
             let binds = [(Control::TogglePov, combo), (Control::Sprint, PadBinding::Press(PadInput::Button(LeftThumb)))];

@@ -157,7 +157,7 @@ pub const SECTIONS: &[Section] = &[
     ),
     // The controller's split holds (`controls:padbind:`, nvf-play `bindings::SPLITS`) stand
     // after the control they came out of; with the keyboard Holster Weapon and Toggle Light
-    // stay with the tweaks' keys below [design, owner 2026-11-22: "Yes, move them"].
+    // stay with the tweaks' keys below [design: a split control is found where its original is].
     section(
         "Controls",
         Some("Combat"),
