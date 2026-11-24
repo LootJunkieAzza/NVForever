@@ -92,7 +92,7 @@ pub struct FlashlightLook {
     pub rgb: [u8; 3],
     /// Whether the light takes the Pip-Boy's colour (`nvf_play::interface::pipboy_rgb`),
     /// following it as it changes, in place of [`Self::rgb`]: the original's Pip-Boy light
-    /// is the Pip-Boy's colour [observed: original Fallout: New Vegas, owner, 2026-11-21
+    /// is the Pip-Boy's colour [observed: buckallobill, in game, FNV 1.4.0.525, 2026-11-21
     /// (#3279): changed the Pip-Boy colour in the original's display settings, turned the
     /// Pip-Boy light on, and in third person saw the light's colour on the world change to
     /// match]. Off by default [design].
