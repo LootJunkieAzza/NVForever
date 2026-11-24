@@ -74,9 +74,11 @@ film's decoder (`infinitier_bik_decoder`, `infinitier_datasource`) GPL-3.0-or-la
 root workspace and, with `--manifest-path engine/Cargo.toml`, the engine workspace (the
 game binary, its own lock) against the same `deny.toml`; CI runs both (#1998). The engine
 adds BSD-2-Clause (`arrayref`), MIT-0 (`encase`) and ISC (`libloading`, `inotify`) to
-the allow-list. One advisory is ignored with its reason: RUSTSEC-2026-0192, `ttf-parser`
+the allow-list. Two advisories are ignored with their reasons: RUSTSEC-2026-0192, `ttf-parser`
 unmaintained, which comes only through winit's Linux window decorations in Bevy 0.20
-(no upgrade available; look again at the next Bevy upgrade).
+(no upgrade available; look again at the next Bevy upgrade), and RUSTSEC-2024-0436, `paste`
+unmaintained, which comes only through `steamworks` 0.13 in `nvf-coop` (no upgrade
+available; look again at the next steamworks release).
 
 ## CI
 

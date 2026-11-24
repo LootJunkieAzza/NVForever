@@ -474,10 +474,10 @@ pub fn arms(
     let (pin_up, pin_down) = pin_sides(&pl, top, line, OPEN);
     let pin = if lean >= 0.0 { pin_up } else { pin_down };
     let theta = lean.clamp(-pin_down, pin_up);
-    for k in 0..2 {
+    for (k, follow) in shown.follow.iter_mut().enumerate() {
         // Side 0 loses towards the down pin, side 1 towards the up one.
         let to = losing(theta, k, if k == 0 { pin_down } else { pin_up });
-        shown.follow[k] += (to - shown.follow[k]) * (dt * BODY_FOLLOW).min(1.0);
+        *follow += (to - *follow) * (dt * BODY_FOLLOW).min(1.0);
     }
     let clasp_now = turned(&pl, theta, pl.clasp);
     let log = (shown.clock * 2.0).fract() < dt * 2.0;

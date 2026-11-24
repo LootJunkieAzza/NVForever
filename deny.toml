@@ -46,6 +46,11 @@ ignore = [
     # ab_glyph), which Bevy 0.20 pins; look again at the next Bevy upgrade
     # (docs/design/dependencies.md).
     { id = "RUSTSEC-2026-0192", reason = "unmaintained, via winit's sctk-adwaita in Bevy 0.20; no upgrade available" },
+    # paste is unmaintained (not a vulnerability), archived by its author. The engine
+    # gets it only through steamworks 0.13 (co-op's Steam lobbies, nvf-coop), whose
+    # latest release still uses it; look again at the next steamworks release
+    # (docs/design/dependencies.md).
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained, via steamworks 0.13 in nvf-coop; no upgrade available" },
 ]
 
 [bans]

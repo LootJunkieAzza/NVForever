@@ -47,8 +47,8 @@ rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis
 # already build (no second copy).
 png = "0.18"
 # Photo mode names its pictures by the local date and time (photo_mode.rs); the version
-# fnv-game already builds.
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# fnv-game already builds (chrono was dropped: it is unmaintained, RUSTSEC-2026-0543).
+jiff = "1"
 
 [features]
 # [design, #2403] Synthetic private-screen fixtures for cross-crate reports tests only.

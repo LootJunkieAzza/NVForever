@@ -1483,9 +1483,10 @@ fn developed(
         let _ = send.send(Err("no NVForever home folder (set NVFOREVER_HOME)".into()));
         return;
     };
-    use chrono::{Datelike, Timelike};
-    let now = chrono::Local::now();
-    let name = photo_file_name((now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second()), &place);
+    // The system's time zone, UTC when it has none.
+    let zone = jiff::tz::TimeZone::try_system().unwrap_or_else(|_| jiff::tz::TimeZone::unknown());
+    let now = jiff::Timestamp::now().to_zoned_datetime(zone);
+    let name = photo_file_name((now.year().into(), now.month() as u32, now.day() as u32, now.hour() as u32, now.minute() as u32, now.second() as u32), &place);
     let dir = photos_dir(&home);
     let path = unique_path(&dir, &name, |p| p.exists());
     let (w, h) = (image.width(), image.height());

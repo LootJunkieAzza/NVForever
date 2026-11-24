@@ -321,6 +321,7 @@ pub fn log_system(time: bevy::prelude::Res<bevy::prelude::Time<bevy::prelude::Re
 }
 
 /// The big allocations live now: (address, size).
+#[cfg(any(windows, test))]
 fn bigs_now() -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     outside(|| {

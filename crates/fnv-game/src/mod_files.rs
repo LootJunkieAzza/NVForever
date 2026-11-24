@@ -388,10 +388,12 @@ impl ModFiles {
         let r = roots();
         let config = r.config.as_ref().and_then(|c| {
             let lower = rel.to_ascii_lowercase();
-            lower.strip_prefix("config\\").and_then(|_| on_disk(c, &rel["config\\".len()..]))
+            lower.strip_prefix("config\\").and_then(|_| on_disk_any_case(c, &rel["config\\".len()..]))
         });
         on_disk(Path::new(""), &rel)?;
-        config.into_iter().chain(r.read.iter().filter_map(|root| on_disk(root, &rel))).find_map(|p| std::fs::read(p).ok()).map(|b| b.iter().map(|&c| c as char).collect())
+        // Each part matched without regard to case: mods name `..\nvse\plugins\JIP_NVSE.ini`
+        // for `NVSE\Plugins\jip_nvse.ini`, which only a case-blind file system finds as is.
+        config.into_iter().chain(r.read.iter().filter_map(|root| on_disk_any_case(root, &rel))).find_map(|p| std::fs::read(p).ok()).map(|b| b.iter().map(|&c| c as char).collect())
     }
 
     /// A file under the game's own folder (JIP's array files): this session's write,

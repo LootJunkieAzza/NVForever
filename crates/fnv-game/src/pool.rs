@@ -322,8 +322,7 @@ impl Table {
         let mut limit = 1600.0_f32;
         limit = limit.min(wall(c, dir));
         let mut target = None;
-        for i in 1..16 {
-            let b = &self.balls[i];
+        for (i, b) in self.balls.iter().enumerate().skip(1) {
             if !b.on {
                 continue;
             }
@@ -685,8 +684,7 @@ pub fn plan(table: &Table, s: ShotStart, in_hand: bool, difficulty: f32, roll: &
     // The safe shot: straight at the nearest legal ball.
     let mut best_d = f32::INFINITY;
     let mut safe = None;
-    for i in 1..16 {
-        let b = &t.balls[i];
+    for (i, b) in t.balls.iter().enumerate().skip(1) {
         if !b.on || !Game::legal_first(s, i) {
             continue;
         }
@@ -927,8 +925,8 @@ mod tests {
         assert_eq!(g.winner, Some(1));
         let mut g = Game { groups: [2, 1], ..Game::new() };
         let mut cleared = Table::rack();
-        for i in 9..16 {
-            cleared.balls[i].on = false;
+        for b in &mut cleared.balls[9..16] {
+            b.on = false;
         }
         let s = g.start(&cleared);
         assert_eq!(s.remaining, 0);

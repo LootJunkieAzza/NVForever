@@ -577,9 +577,9 @@ mod tests {
         for _ in 0..600 {
             s.step(&rig, &driven, &e, 1.0 / 60.0);
         }
-        for i in 1..5 {
-            assert!(s.pos[i].y >= -12.0 + 0.5 - 1e-3);
-            assert!((s.pos[i] - caps[0].closest(s.pos[i])).length() >= 3.5 - 0.05, "bone {i} in the capsule: {:?}", s.pos[i]);
+        for (i, &p) in s.pos.iter().enumerate().take(5).skip(1) {
+            assert!(p.y >= -12.0 + 0.5 - 1e-3);
+            assert!((p - caps[0].closest(p)).length() >= 3.5 - 0.05, "bone {i} in the capsule: {p:?}");
         }
     }
 
@@ -599,8 +599,8 @@ mod tests {
         for _ in 0..600 {
             s.step(&rig, &driven, &e, 1.0 / 60.0);
         }
-        for i in 2..5 {
-            assert!((s.pos[i] - caps[0].closest(s.pos[i])).length() >= 6.5 - 0.05, "bone {i} in the capsule: {:?}", s.pos[i]);
+        for (i, &p) in s.pos.iter().enumerate().take(5).skip(2) {
+            assert!((p - caps[0].closest(p)).length() >= 6.5 - 0.05, "bone {i} in the capsule: {p:?}");
         }
         assert!((s.pos[1] - caps[0].closest(s.pos[1])).length() >= 1.0 - 0.05);
     }
@@ -641,8 +641,8 @@ mod tests {
         for _ in 0..600 {
             s.step(&rig, &driven, &e, 1.0 / 60.0);
         }
-        for i in 1..5 {
-            assert!((s.pos[i] - under[0].a).length() >= 3.5 - 0.05, "bone {i} inside: {:?}", s.pos[i]);
+        for (i, &p) in s.pos.iter().enumerate().take(5).skip(1) {
+            assert!((p - under[0].a).length() >= 3.5 - 0.05, "bone {i} inside: {p:?}");
         }
     }
 

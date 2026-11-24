@@ -45,6 +45,7 @@ pub fn ready() -> bool {
 }
 
 /// What the backdrop says in player 2's half while it waits [design: our own words].
+#[cfg(windows)]
 pub const JOINING: &str = "Player 2 is joining\u{2026}";
 
 /// What the backdrop is to look like this frame.
