@@ -376,8 +376,8 @@ impl Game<'_> {
         if self.coop_gift_done_here(gift) {
             return Ok(0);
         }
-        // A unique reward only for a character that claimed a stage of its quest (plan
-        // §4.1, P5; `crate::coop_uniques`).
+        // A unique reward only for a character that claimed a stage of its quest
+        // (coop-shared-progress.md §4.1, `crate::coop_uniques`).
         if !self.coop_unique_allowed(item) {
             tracing::info!("co-op: the host's hand-out {}: a unique reward of a quest this character claimed no stage of, so not here", self.data.name(item));
             return Ok(0);

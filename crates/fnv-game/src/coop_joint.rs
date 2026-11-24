@@ -148,8 +148,8 @@ impl ClaimLedger {
     }
 }
 
-/// A stage the host set, for each connected guest with joint progression on (plan
-/// §3.8 `Stage`). `prior` is the host's earlier stages of the quest, for continuity.
+/// A stage the host set, for each connected guest with joint progression on
+/// (coop-shared-progress.md §3.1, `nvf_coop::progress::Progress::Stage`). `prior` is the host's earlier stages of the quest, for continuity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageOffer {
     pub quest: FormId,

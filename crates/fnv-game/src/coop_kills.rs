@@ -50,8 +50,8 @@ pub struct KillCredit {
     /// Whether the guest killed it (the kill count and kill challenges are the killer's).
     pub killer: bool,
     /// The infamy the host's world gave for this kill (a seen murder), by reputation: the
-    /// guest's own act, kept for its own save while it has a claimed quest open (plan
-    /// §3.6, `crate::coop_joint`).
+    /// guest's own act, kept for its own save while it has a claimed quest open
+    /// (coop-shared-progress.md §3.6, `crate::coop_joint`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub infamy: Vec<(FormId, f64)>,
 }

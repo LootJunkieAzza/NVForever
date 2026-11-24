@@ -3,6 +3,11 @@
 //! other players drawn, and the host's world shared with its guests. `--host <port>` and
 //! `--join <code>` do the same from the command line.
 //!
+//! **Shared progress** (`progress`, `story`; docs/design/coop-shared-progress.md): quest
+//! rewards, stage offers, kill credit, saves and the host's quest, level and story go
+//! between the games as `nvf_coop::progress` items on the reliable stream, checked on the
+//! host by the rules it registers once its world is loaded (`host_forms`).
+//!
 //! **Off by default.** Nothing here opens a socket until the Co-op switch is on and a
 //! lobby is created or joined [design]; this part opens none (below).
 //! Without a link every system here returns at once, so single player is as it was.
@@ -145,10 +150,12 @@ mod areas;
 pub(crate) mod checks;
 mod far_combat;
 mod leave;
+mod progress;
 mod rejoin;
 mod replication;
 mod revive;
 mod scene;
+mod story;
 mod syncing;
 
 pub use leave::HoldLeave;
@@ -322,6 +329,10 @@ pub(crate) struct Coop {
     /// The host's checks of what guests send against its world ([`checks`]): what each
     /// refused, counted, and the guests' drops and forced resends it keeps count of.
     checks: checks::HostChecks,
+    /// Shared progress's state on this side (`progress`).
+    progress: progress::Shared,
+    /// The host's story for the guests (`story`).
+    story: story::Shared,
 }
 
 impl Coop {
@@ -382,6 +393,8 @@ impl Coop {
             parting: false,
             scene: Default::default(),
             checks: Default::default(),
+            progress: Default::default(),
+            story: Default::default(),
         }
     }
 }
@@ -406,6 +419,7 @@ impl Plugin for CoopPlugin {
         app.insert_resource(coop)
             .init_resource::<HoldLeave>()
             .add_message::<PuppetShot>()
+            .add_plugins(nvf_play::coop_progress::CoopProgressPlugin)
             .add_systems(
                 PostStartup,
                 (move |mut s: ResMut<CoopSwitch>| {
@@ -447,7 +461,8 @@ impl Plugin for CoopPlugin {
             .add_systems(Update, scene::slide_spot.in_set(nvf_play::PlaySet::Physics).before(nvf_play::control::place_camera))
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends)
-            .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test))
+            .add_systems(Update, (progress::progress, story::share_story).chain().after(take_events));
     }
 }
 
@@ -674,6 +689,8 @@ impl Coop {
         self.code = None;
         self.note = None;
         self.forget_peers();
+        self.progress.reset();
+        self.story = Default::default();
     }
 
     /// Join the lobby `at` names: no transport is plugged in here, so none opens.
@@ -695,6 +712,8 @@ impl Coop {
         self.host = None;
         self.host_lost = false;
         self.forget_peers();
+        self.progress.reset();
+        self.story = Default::default();
     }
 
     /// The other players are gone from this game: every body of theirs is taken away on
@@ -754,9 +773,14 @@ fn host_forms(mut coop: ResMut<Coop>, sim: Option<Res<nvf_play::sim::SimState>>)
     }
     let Some(sim) = sim else { return };
     let check: Arc<dyn FormCheck> = Arc::new(HostForms { forms: sim.forms, refs: sim.refs });
+    let coop = &mut *coop;
     if let Some(link) = &coop.link {
         link.set_forms(Some(check));
         nvf_coop::world::add_world_rules(&mut |kind, rule| link.add_rule(kind, rule));
+        // The host's checks on what guests send of shared progress.
+        for (kind, rule) in coop.progress.checks.rules() {
+            link.add_rule(kind, rule);
+        }
         coop.forms_set = true;
         info!("co-op: the host checks guests' forms by its load order, and their world messages by its rules");
     }
@@ -1402,6 +1426,7 @@ fn take_events(
                 }
                 coop.state_logged.remove(&id);
                 coop.checks.forget(id);
+                coop.progress.checks.left(id);
                 if id == 0 {
                     coop.host = None;
                 }
@@ -1603,7 +1628,16 @@ fn take_events(
                 }
             }
             // For `replication::replicate`.
-            e @ (Event::Reliable { .. } | Event::RelReset { .. } | Event::Actors { .. }) => coop.repl.inbox.push(e),
+            // Shared progress (`progress`).
+            Event::Reliable { id, item } if nvf_coop::progress::is_progress_item(&item) => coop.progress.heard.push((id, item)),
+            // For `replication::replicate`; a stream started again also sends the host's
+            // progress views again from the start.
+            e @ (Event::Reliable { .. } | Event::RelReset { .. } | Event::Actors { .. }) => {
+                if matches!(e, Event::RelReset { .. }) {
+                    coop.progress.views.again();
+                }
+                coop.repl.inbox.push(e)
+            }
         }
     }
     note_bad(coop);

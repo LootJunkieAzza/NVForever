@@ -1,6 +1,6 @@
-//! Unique quest rewards in co-op (`fnv_game::coop_uniques`; shared-progression plan
-//! §4.1): the list computed from the data, the hand-out filter for guests that
-//! claimed no stage of the quest, and the item-81 undo keeping a claimer's uniques, on a
+//! Unique quest rewards in co-op (`fnv_game::coop_uniques`;
+//! coop-shared-progress.md §4.1): the list computed from the data, the hand-out filter for
+//! guests that claimed no stage of the quest, and the undo on leaving keeping a claimer's uniques, on a
 //! synthetic plugin built in memory (no game data). Scripts are compiled from source by
 //! NVForever's compiler.
 

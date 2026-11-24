@@ -398,7 +398,7 @@ impl Game<'_> {
         if self.coop_uniques().is_companion_perk(form) {
             return false;
         }
-        // Keys always come (the host's world's doors need them; the item-81 undo takes a
+        // Keys always come (the host's world's doors need them; the undo on leaving takes a
         // quest's key back out of a non-claimer's own save) [design].
         self.data.sig(form).as_ref() == Some(b"KEYM") || self.coop_uniques().quest_of(form).is_none_or(|q| claimed_any(&self.player.claims, q))
     }
