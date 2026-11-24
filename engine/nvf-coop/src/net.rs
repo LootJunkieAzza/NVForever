@@ -772,6 +772,8 @@ pub enum Path {
     Direct,
     /// Through another player's game (the peer relay, or split screen's player 2).
     Relayed,
+    /// Through a relay a player hosts (`nvf-relay`).
+    HostedRelay,
 }
 
 impl Path {
@@ -782,6 +784,7 @@ impl Path {
             Path::Lan => "LAN",
             Path::Direct => "direct",
             Path::Relayed => "through another player",
+            Path::HostedRelay => "through a relay",
         }
     }
 }
@@ -1289,6 +1292,7 @@ impl Session {
             .map(|p| {
                 let path = match p.addr {
                     Some(a) if relay_index(a).is_some() => Path::Relayed,
+                    Some(a) if crate::transport::is_hosted_standin(a) => Path::HostedRelay,
                     Some(a) if nvf_nat::candidate::is_lan(a.ip()) => Path::Lan,
                     Some(_) => Path::Direct,
                     None => Path::Connecting,
@@ -1367,6 +1371,7 @@ impl Session {
     /// The matchmaking service's part of a tick: its packets go from the game's sockets, and
     /// what it found is acted on.
     fn online_tick(&mut self, now: Instant) {
+        self.net.hosted_poll(now);
         // Relayed players gone quiet: their slots free, here and in the checks' count.
         for slot in &mut self.peer_relays {
             if let Some(r) = slot.take_if(|r| Instant::now().saturating_duration_since(r.heard) >= PEER_IDLE) {
@@ -1397,6 +1402,9 @@ impl Session {
                     } else {
                         self.move_host(*at);
                     }
+                }
+                (OnlineEvent::HostedOpen { relay, session, side }, _) => {
+                    self.net.hosted_open(*relay, *session, *side);
                 }
                 (OnlineEvent::RelayFor(peer), _) => {
                     self.relay_for(*peer);
@@ -4047,6 +4055,49 @@ mod tests {
         a.relay_end(7);
         a.relay_end(8);
         assert_eq!(a.relaying(), 0);
+    }
+
+    /// A hosted relay (`nvf-relay`, docs/design/coop-networking.md §9): a relay server on this
+    /// PC's loopback, host and guest each with a session on it, the guest joining the host
+    /// at the session's stand-in address. The guest is welcomed through the relay, sealed
+    /// end to end (the host's key), and the host lists its path as through a relay.
+    #[test]
+    fn a_guest_joins_through_a_hosted_relay() {
+        let relay = UdpSocket::bind("127.0.0.1:0").unwrap();
+        relay.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+        let relay_at = relay.local_addr().unwrap();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopped = stop.clone();
+        let server = std::thread::spawn(move || {
+            let mut srv = nvf_nat::hosted::Server::new(nvf_nat::hosted::ServerConfig::default());
+            let mut buf = [0u8; 1500];
+            let mut forwarded = 0;
+            while !stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Ok((n, from)) = relay.recv_from(&mut buf) {
+                    for (to, b) in srv.on_datagram(from, &buf[..n], Instant::now()) {
+                        let _ = relay.send_to(&b, to);
+                    }
+                }
+                forwarded = srv.stats().forwarded;
+            }
+            forwarded
+        });
+        let mut host = Session::host(0).unwrap();
+        let session = [7u8; 16];
+        let standin = host.net.hosted_open(relay_at, session, nvf_nat::hosted::Side::Host);
+        assert!(crate::transport::is_hosted_standin(standin));
+        let mut guest = Session::join(&[standin], 0, "Relayed").unwrap();
+        assert_eq!(guest.net.hosted_open(relay_at, session, nvf_nat::hosted::Side::Guest), standin, "both sides: the same stand-in");
+        guest.set_state(state(1.0));
+        let host_key = host.secure.borrow().identity().public();
+        let (mut clock, step) = (Instant::now(), Duration::from_millis(20));
+        let seen = run(&mut [&mut host, &mut guest], &mut clock, step, |seen| seen[1].contains(&Event::Welcomed(1)) && seen[0].iter().any(|e| matches!(e, Event::State { id: 1, .. })));
+        assert!(seen[0].iter().any(|e| matches!(e, Event::Joined { id: 1, .. })));
+        assert_eq!(guest.secure.borrow().remote_key(standin), Some(host_key), "sealed end to end");
+        assert!(host.paths().iter().any(|(id, p, _)| *id == 1 && *p == Path::HostedRelay));
+        assert!(host.net.hosted_bound(standin) && guest.net.hosted_bound(standin));
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(server.join().unwrap() > 0, "the relay forwarded");
     }
 
     /// Kick and Ban: the host removes a guest, which hears it was removed and stops; a banned

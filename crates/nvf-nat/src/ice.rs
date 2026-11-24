@@ -13,10 +13,10 @@
 //! [`Agent::on_peer_selected`].
 
 use std::collections::VecDeque;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
-use crate::candidate::{canonical, pair_class, Candidate, Kind};
+use crate::candidate::{canonical, pair_class, Candidate, Kind, RELAYED_CLASS};
 
 /// Which side of the join this agent is on. The guest nominates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,12 +35,20 @@ pub struct Config {
     /// After the first valid pair, how long the guest waits for a better class to answer
     /// before it picks (200 ms). It picks at once when no better class is left to try.
     pub settle: Duration,
+    /// The same wait when the best pair that answered goes through a hosted relay (2 s): a
+    /// relay answers in one round trip, while punching a direct hole can take a few.
+    pub relay_settle: Duration,
     /// A keepalive on the chosen pair this often while nothing else is sent (1 s): many NATs
     /// forget a UDP mapping after about 30 s.
     pub keepalive: Duration,
     /// Nothing heard on the chosen pair for this long: [`Action::PathLost`] (4 s, `net.rs`'s
     /// `LOST_AFTER`).
     pub lost_after: Duration,
+    /// Port prediction against a symmetric NAT (#3795 section 7.2, phase 5): when the other
+    /// side's STUN servers saw two different ports on one address, also probe this many ports
+    /// above the highest, where its NAT's next mappings are likely to land. 0 turns it off,
+    /// the default: it looks like a port scan to some firewalls, so it waits for a setting.
+    pub predict: u16,
 }
 
 impl Default for Config {
@@ -49,8 +57,10 @@ impl Default for Config {
             pace: Duration::from_millis(20),
             give_up: Duration::from_secs(10),
             settle: Duration::from_millis(200),
+            relay_settle: Duration::from_secs(2),
             keepalive: Duration::from_secs(1),
             lost_after: Duration::from_secs(4),
+            predict: 0,
         }
     }
 }
@@ -110,6 +120,8 @@ pub struct Agent {
     last_keepalive: Option<Instant>,
     last_heard: Option<Instant>,
     lost_reported: bool,
+    /// The addresses port prediction has already run for.
+    predicted: Vec<IpAddr>,
     out: Vec<Action>,
 }
 
@@ -135,6 +147,7 @@ impl Agent {
             last_keepalive: None,
             last_heard: None,
             lost_reported: false,
+            predicted: Vec::new(),
             out: Vec::new(),
         }
     }
@@ -159,6 +172,30 @@ impl Agent {
             let local = self.locals[i];
             if local.is_ipv4() == c.addr.is_ipv4() {
                 self.pairs.push(Pair { local, remote: c, class: pair_class(c), state: State::Waiting, checks: VecDeque::new() });
+            }
+        }
+        if c.kind == Kind::ServerReflexive {
+            self.predict(c.addr.ip());
+        }
+    }
+
+    /// Port prediction (see [`Config::predict`]): two server-reflexive ports on one address
+    /// mean a NAT that maps each destination anew, usually to the next free port. The ports
+    /// just above the highest seen are added as candidates, once per address.
+    fn predict(&mut self, ip: IpAddr) {
+        if self.cfg.predict == 0 || self.predicted.contains(&ip) {
+            return;
+        }
+        let ports: Vec<u16> =
+            self.remotes.iter().filter(|r| r.kind == Kind::ServerReflexive && r.addr.ip() == ip).map(|r| r.addr.port()).collect();
+        let (Some(&lo), Some(&hi)) = (ports.iter().min(), ports.iter().max()) else { return };
+        if lo == hi {
+            return;
+        }
+        self.predicted.push(ip);
+        for d in 1..=self.cfg.predict {
+            if let Some(port) = hi.checked_add(d) {
+                self.remote(Candidate::new(Kind::ServerReflexive, SocketAddr::new(ip, port)));
             }
         }
     }
@@ -314,7 +351,8 @@ impl Agent {
             if let Some((id, class)) = best {
                 let better_left =
                     self.pairs.iter().any(|p| p.class < class && !matches!(p.state, State::Succeeded { .. }));
-                let settled = self.first_valid.is_some_and(|t| now.saturating_duration_since(t) >= self.cfg.settle);
+                let wait = if class >= RELAYED_CLASS { self.cfg.relay_settle } else { self.cfg.settle };
+                let settled = self.first_valid.is_some_and(|t| now.saturating_duration_since(t) >= wait);
                 if !better_left || settled || timed_out {
                     self.select(id, now);
                     return std::mem::take(&mut self.out);

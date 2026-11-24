@@ -3,7 +3,9 @@
 //! decides. An environment variable set to `0` (or `off`) still turns a feature off for a
 //! run whatever the setting says (tests and the smoke runner use them).
 
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Mutex;
 
 /// How this game connects to other players: the Co-op connection row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +39,17 @@ static CONNECTION: AtomicU8 = AtomicU8::new(0);
 static PORT_MAPPING: AtomicBool = AtomicBool::new(true);
 static RELAY_FOR_OTHERS: AtomicBool = AtomicBool::new(true);
 static ASK_BEFORE_JOIN: AtomicBool = AtomicBool::new(true);
+static HOSTED_RELAY: Mutex<Option<SocketAddr>> = Mutex::new(None);
+
+/// The relay this player hosts or uses (`[Coop] Relay=host:port` in NVForever.ini,
+/// docs/coop-self-hosting.md): offered to the other side as a last-resort path.
+pub fn hosted_relay() -> Option<SocketAddr> {
+    *HOSTED_RELAY.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+pub fn set_hosted_relay(relay: Option<SocketAddr>) {
+    *HOSTED_RELAY.lock().unwrap_or_else(|e| e.into_inner()) = relay;
+}
 
 fn env_off(key: &str) -> bool {
     std::env::var(key).is_ok_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "off"))

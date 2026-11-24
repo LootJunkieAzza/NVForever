@@ -2445,6 +2445,9 @@ dependencies = [
 [[package]]
 name = "nvf-nat"
 version = "0.8.1"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "nvf-settings-layout"

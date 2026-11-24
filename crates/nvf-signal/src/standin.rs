@@ -40,6 +40,11 @@ pub struct Config {
     /// Seeds the code and secret generator. For tests any number; a real deployment must seed
     /// it from the operating system's random source, since the secrets guard lobbies.
     pub seed: u64,
+    /// Where codes and secrets come from instead, when set: a real deployment's operating
+    /// system random source (`nvf-signal-server`). The seeded generator is splitmix64, whose
+    /// outputs give its state away, so a host that saw its own code and secret could work out
+    /// the next lobby's secret: fine for tests, not for a service.
+    pub random: Option<fn() -> u64>,
 }
 
 impl Default for Config {
@@ -49,6 +54,7 @@ impl Default for Config {
             stun: vec!["stun.cloudflare.com:3478".into(), "stun.l.google.com:19302".into()],
             grace: Duration::from_secs(120),
             seed: 0x6e76_666f_7265_7672,
+            random: None,
         }
     }
 }
@@ -105,6 +111,9 @@ impl StandIn {
 
     /// splitmix64.
     fn random(&mut self) -> u64 {
+        if let Some(f) = self.cfg.random {
+            return f();
+        }
         self.rng = self.rng.wrapping_add(0x9e37_79b9_7f4a_7c15);
         let mut z = self.rng;
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);

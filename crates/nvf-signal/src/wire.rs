@@ -27,7 +27,7 @@ pub fn key_hex(key: &[u8; 32]) -> KeyHex {
     key.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// A candidate on the wire: `{"kind": "host" | "mapped" | "srflx" | "prflx", "addr": "ip:port"}`.
+/// A candidate on the wire: `{"kind": "host" | "mapped" | "srflx" | "prflx" | "relay", "addr": "ip:port"}`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WireCandidate {
     pub kind: String,
@@ -41,6 +41,7 @@ impl From<Candidate> for WireCandidate {
             Kind::Mapped => "mapped",
             Kind::ServerReflexive => "srflx",
             Kind::PeerReflexive => "prflx",
+            Kind::Relayed => "relay",
         };
         WireCandidate { kind: kind.into(), addr: c.addr.to_string() }
     }
@@ -55,6 +56,7 @@ impl WireCandidate {
             "mapped" => Kind::Mapped,
             "srflx" => Kind::ServerReflexive,
             "prflx" => Kind::PeerReflexive,
+            "relay" => Kind::Relayed,
             _ => return None,
         };
         let addr: SocketAddr = self.addr.parse().ok()?;
@@ -245,9 +247,10 @@ mod tests {
             Candidate::new(Kind::Host, "192.168.1.2:47960".parse().unwrap()),
             Candidate::new(Kind::Host, "[2001:db8::2]:47960".parse().unwrap()),
             Candidate::new(Kind::ServerReflexive, "203.0.113.5:40000".parse().unwrap()),
+            Candidate::new(Kind::Relayed, "198.51.100.9:47961".parse().unwrap()),
         ];
         assert_eq!(from_wire(&to_wire(&cands)), cands);
-        let odd = [WireCandidate { kind: "relay".into(), addr: "1.2.3.4:5".into() }, WireCandidate { kind: "host".into(), addr: "nope".into() }];
+        let odd = [WireCandidate { kind: "turn".into(), addr: "1.2.3.4:5".into() }, WireCandidate { kind: "host".into(), addr: "nope".into() }];
         assert!(from_wire(&odd).is_empty());
     }
 

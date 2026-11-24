@@ -26,7 +26,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::time::Instant;
 
 use nvf_nat::candidate::{is_lan, Candidate, Kind};
+use nvf_nat::hosted::{self, SessionId};
 use nvf_nat::ice::{Action, Agent, Config, Role};
+use nvf_nat::report::{self, Connect};
 use nvf_nat::relay::{self, Answer, GiveUp, Helper, Planner, Policy, Refusal};
 use nvf_nat::stun::{self, Gather, Mapping};
 use nvf_signal::client::{GuestClient, GuestEvent, HostClient, HostEvent};
@@ -83,6 +85,9 @@ pub enum OnlineEvent {
     RelayAt { peer: PeerNo, addr: SocketAddr },
     /// Stop relaying for player `peer`.
     RelayEnd(PeerNo),
+    /// Open a session on the hosted relay at `relay` for one pair, as `side`
+    /// ([`crate::transport::Transport::hosted_open`]).
+    HostedOpen { relay: SocketAddr, session: SessionId, side: hosted::Side },
     /// Player `peer` asks to join the host's lobby: let it in or not ([`Online::admit`]).
     JoinAsk { peer: PeerNo, name: String },
     /// The ask of player `peer` is over (answered, timed out, or it gave up).
@@ -174,6 +179,12 @@ pub struct Online {
     portmap: Option<PortMap>,
     /// STUN asked and no server answered: this network likely blocks UDP (§10).
     no_stun: bool,
+    /// This network's NAT as STUN found it, for the `co-op connect:` line.
+    nat: report::Nat,
+    /// This game's key (from the first tick), for the hosted relay's session ids.
+    my_key: Option<[u8; 32]>,
+    /// When the checks began (the service's `go`), for the `co-op connect:` line.
+    go_at: Option<Instant>,
     relays: Relays,
     /// Keys the host banned ([`Online::ban`]).
     banned: Vec<[u8; 32]>,
@@ -210,11 +221,16 @@ impl Online {
     }
 
     fn new(service: &str, io: Option<SignalIo>, side: Side, locals: Vec<SocketAddr>) -> Self {
-        let found = locals.iter().map(|a| Candidate::new(Kind::Host, *a)).collect();
+        let mut found: Vec<Candidate> = locals.iter().map(|a| Candidate::new(Kind::Host, *a)).collect();
+        // A relay this player hosts or uses: the last-resort path, for each peer a session of
+        // its own on it.
+        if let Some(r) = crate::prefs::hosted_relay() {
+            found.push(Candidate::new(Kind::Relayed, r));
+        }
         let portmap = locals.iter().find(|a| a.is_ipv4()).and_then(|a| PortMap::start(*a, Instant::now()));
         // The checks' local sockets: one per family (every address is the same socket).
         let locals: Vec<SocketAddr> = [locals.iter().find(|a| a.is_ipv4()), locals.iter().find(|a| a.is_ipv6())].into_iter().flatten().copied().collect();
-        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, relays: Relays::default(), banned: Vec::new() }
+        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new() }
     }
 
     /// The host key the service gave a guest: the only key its Noise session may have.
@@ -254,6 +270,7 @@ impl Online {
     /// game's sockets.
     pub fn tick(&mut self, now: Instant, my_key: &[u8; 32]) -> Vec<(SocketAddr, Vec<u8>)> {
         let mut send = Vec::new();
+        self.my_key = Some(*my_key);
         if self.reopen_at.is_some_and(|t| now >= t) {
             self.reopen_at = None;
             if let Side::Host { secret: Some(_), code: Some(code), .. } = &self.side {
@@ -276,6 +293,7 @@ impl Online {
                 };
                 self.events.push(OnlineEvent::Note(format!("STUN: public address {:?}; mapping {mapping}", r.reflexive())));
                 self.no_stun = r.reflexive().is_empty();
+                self.nat = report::Nat::from_gather(&r);
                 if self.no_stun {
                     self.events.push(OnlineEvent::Note("no STUN server answered: this network may block UDP".into()));
                 }
@@ -415,7 +433,8 @@ impl Online {
                             if !crate::prefs::ask_before_join() {
                                 c.accept(peer);
                                 self.events.push(OnlineEvent::Note(format!("{name} (guest {peer}) asks to join: let in")));
-                                peers.insert(peer, Peer { key, remotes: candidates, agent: None });
+                                let remotes = hosted_pair(&mut self.events, self.my_key, Some(key), hosted::Side::Host, candidates);
+                                peers.insert(peer, Peer { key, remotes, agent: None });
                             } else {
                                 self.events.push(OnlineEvent::Note(format!("{name} (guest {peer}) asks to join: asking the host")));
                                 self.events.push(OnlineEvent::JoinAsk { peer, name: name.clone() });
@@ -425,6 +444,7 @@ impl Online {
                         HostEvent::Candidates { peer, candidates } => {
                             log::debug!("co-op: guest {peer}'s candidates: {candidates:?}");
                             if let Some(p) = peers.get_mut(&peer) {
+                                let candidates = hosted_pair(&mut self.events, self.my_key, Some(p.key), hosted::Side::Host, candidates);
                                 for c in candidates {
                                     if !p.remotes.contains(&c) {
                                         p.remotes.push(c);
@@ -471,14 +491,16 @@ impl Online {
                         GuestEvent::Accepted { host_key: k, host_name, candidates } => {
                             *host_key = unhex32(&k);
                             self.events.push(OnlineEvent::Note(format!("{host_name}'s game let this one in")));
-                            for c in candidates.into_iter().filter(|_| !no_direct()) {
+                            let candidates = hosted_pair(&mut self.events, *host_key, self.my_key, hosted::Side::Guest, candidates);
+                            for c in candidates.into_iter().filter(|c| !no_direct() || is_hosted(c)) {
                                 if !remotes.contains(&c) {
                                     remotes.push(c);
                                 }
                             }
                         }
                         GuestEvent::Candidates { candidates } => {
-                            for c in candidates.into_iter().filter(|_| !no_direct()) {
+                            let candidates = hosted_pair(&mut self.events, *host_key, self.my_key, hosted::Side::Guest, candidates);
+                            for c in candidates.into_iter().filter(|c| !no_direct() || is_hosted(c)) {
                                 if !remotes.contains(&c) {
                                     remotes.push(c);
                                 }
@@ -488,6 +510,7 @@ impl Online {
                             }
                         }
                         GuestEvent::Go => {
+                            self.go_at = Some(now);
                             let mut a = Agent::new(Role::Guest, &locals, Config::default());
                             for c in remotes.iter() {
                                 a.add_remote(*c);
@@ -590,7 +613,10 @@ impl Online {
                         match act {
                             Action::SendProbe { to, check_id, .. } => send.push((to, probe(KIND_PROBE, *me, check_id))),
                             Action::Selected { remote, .. } => {
-                                let path = if is_lan(remote.ip()) { "lan" } else { "direct" };
+                                let hosted_path = crate::transport::is_hosted_standin(remote);
+                                let path = if hosted_path { "relay" } else if is_lan(remote.ip()) { "lan" } else { "direct" };
+                                let how = a.selected_candidate().map_or(report::Path::Open, report::Path::of);
+                                log::info!("{}", Connect { host: false, path: how, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
                                 if let Some(c) = client {
                                     c.connected(path);
                                 }
@@ -629,7 +655,8 @@ impl Online {
             let Some(a) = asking.remove(&peer) else { return };
             if yes {
                 c.accept(peer);
-                peers.insert(peer, Peer { key: a.key, remotes: a.candidates, agent: None });
+                let remotes = hosted_pair(&mut self.events, self.my_key, Some(a.key), hosted::Side::Host, a.candidates);
+                peers.insert(peer, Peer { key: a.key, remotes, agent: None });
                 self.events.push(OnlineEvent::Note(format!("{} (guest {peer}): let in", a.name)));
             } else {
                 c.decline(peer, "declined");
@@ -719,6 +746,7 @@ impl Online {
                             }
                             *connected = true;
                             self.events.push(OnlineEvent::Note(format!("path to the host: through guest {helper} at {at} (relayed)")));
+                            log::info!("{}", Connect { host: false, path: report::Path::PeerRelay, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
                             self.events.push(OnlineEvent::HostVia(at));
                         }
                     }
@@ -728,8 +756,12 @@ impl Online {
                         *connected = false;
                         self.events.push(OnlineEvent::Note(format!("the relay through guest {helper} stopped working")));
                     }
-                    relay::Action::GiveUp(_) if no_stun => self.events.push(OnlineEvent::Failed(UDP_BLOCKED.into())),
+                    relay::Action::GiveUp(_) if no_stun => {
+                        log::info!("{}", Connect { host: false, path: report::Path::None, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
+                        self.events.push(OnlineEvent::Failed(UDP_BLOCKED.into()));
+                    }
                     relay::Action::GiveUp(why) => {
+                        log::info!("{}", Connect { host: false, path: report::Path::None, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
                         let text = match why {
                             GiveUp::NoHelpers => "Couldn't reach the host from your network, and no other player can relay for you. Ask the host to turn on UPnP on their router or forward UDP port 47960, or join over Tailscale by address.",
                             GiveUp::AllRefused => "Couldn't reach the host from your network, and the other players can't relay for you (their setting is off, or they relay for others).",
@@ -855,8 +887,8 @@ impl Online {
             return self.on_relay_probe(kind, peer, check_id, from, now);
         }
         // Test aid: nothing of the host's checks gets through, as on a network that lets
-        // nothing in.
-        if no_direct() {
+        // nothing in (but a hosted relay's, which is not a direct path).
+        if no_direct() && !crate::transport::is_hosted_standin(from) {
             return None;
         }
         let local = self.local_for(from);
@@ -894,6 +926,42 @@ impl Online {
         self.flush();
         self.portmap.take().and_then(|mut pm| pm.release())
     }
+}
+
+/// A candidate on a hosted relay ([`hosted_pair`]'s stand-in).
+fn is_hosted(c: &Candidate) -> bool {
+    c.kind == Kind::Relayed
+}
+
+/// The other side's candidates as this game uses them, for the pair of `host_key` and
+/// `guest_key` (this game is `side`): a hosted relay's address (theirs, or the one this game
+/// hosts itself) opens a session for the pair on it ([`OnlineEvent::HostedOpen`]) and stands
+/// in as that session's address ([`crate::transport::hosted_standin`]). Before both keys are
+/// known, relay candidates are dropped.
+fn hosted_pair(events: &mut Vec<OnlineEvent>, host_key: Option<[u8; 32]>, guest_key: Option<[u8; 32]>, side: hosted::Side, candidates: Vec<Candidate>) -> Vec<Candidate> {
+    let session = host_key.zip(guest_key).map(|(h, g)| hosted::session_id(&h, &g));
+    let mine = crate::prefs::hosted_relay();
+    let mut out = Vec::new();
+    let mut open = |relay: SocketAddr, out: &mut Vec<Candidate>| {
+        if let Some(s) = session {
+            events.push(OnlineEvent::HostedOpen { relay, session: s, side });
+            let c = Candidate::new(Kind::Relayed, crate::transport::hosted_standin(&s));
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+    };
+    for c in candidates {
+        if c.kind == Kind::Relayed {
+            open(c.addr, &mut out);
+        } else {
+            out.push(c);
+        }
+    }
+    if let Some(r) = mine {
+        open(r, &mut out);
+    }
+    out
 }
 
 /// The service's helpers, round trips unknown.

@@ -41,8 +41,30 @@ fn load_early() {
     }
     if let Some(v) = on(ASK_KEY) {
         prefs::set_ask_before_join(v);
+    }    // Self-hosting (docs/coop-self-hosting.md): `[Coop] SignalUrl=` a matchmaking server of
+    // the player's own (`nvf-signal-server`; NVF_COOP_SIGNAL, when set, wins), `[Coop]
+    // Relay=host:port` a relay (`nvf-relay`) offered as the last-resort path.
+    let coop = |key: &str| fnv_install::ini_get(&text, COOP_SECTION, key).map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    if let Some(url) = coop("SignalUrl") {
+        if std::env::var_os(nvf_coop::signal_io::SERVICE_ENV).is_none() {
+            info!("co-op: matchmaking server {url} ([Coop] SignalUrl)");
+            std::env::set_var(nvf_coop::signal_io::SERVICE_ENV, &url);
+        }
+    }
+    if let Some(relay) = coop("Relay") {
+        use std::net::ToSocketAddrs;
+        match relay.to_socket_addrs().ok().and_then(|mut a| a.find(|a| a.is_ipv4())) {
+            Some(at) => {
+                info!("co-op: hosted relay {relay} ({at}) ([Coop] Relay)");
+                prefs::set_hosted_relay(Some(at));
+            }
+            None => warn!("co-op: [Coop] Relay={relay}: not a host:port this PC can resolve"),
+        }
     }
 }
+
+/// The INI section of the self-hosting keys.
+const COOP_SECTION: &str = "Coop";
 
 pub fn register(app: &mut App) {
     load_early();

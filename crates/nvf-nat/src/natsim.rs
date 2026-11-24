@@ -257,9 +257,19 @@ mod tests {
 
     /// Runs a host and a guest through the checks. Returns both chosen paths, or None.
     fn connect(sim: &mut Sim, host: SocketAddr, guest: SocketAddr) -> Option<(SocketAddr, SocketAddr)> {
+        connect_with(sim, host, guest, &[])
+    }
+
+    /// [`connect`], with `extra` added to the host's candidates.
+    fn connect_with(sim: &mut Sim, host: SocketAddr, guest: SocketAddr, extra: &[Candidate]) -> Option<(SocketAddr, SocketAddr)> {
+        connect_cfg(sim, host, guest, extra, Config::default())
+    }
+
+    fn connect_cfg(sim: &mut Sim, host: SocketAddr, guest: SocketAddr, extra: &[Candidate], cfg: Config) -> Option<(SocketAddr, SocketAddr)> {
         let t0 = Instant::now();
-        let cands = gather(sim, &[host, guest], t0);
-        let mut agents = [Agent::new(Role::Host, &[host], Config::default()), Agent::new(Role::Guest, &[guest], Config::default())];
+        let mut cands = gather(sim, &[host, guest], t0);
+        cands[0].extend_from_slice(extra);
+        let mut agents = [Agent::new(Role::Host, &[host], cfg), Agent::new(Role::Guest, &[guest], cfg)];
         for c in &cands[1] {
             agents[0].add_remote(*c);
         }
@@ -377,5 +387,139 @@ mod tests {
         let c = gather(&mut sim, &[s], Instant::now());
         assert_eq!(c[0][1], Candidate::new(Kind::ServerReflexive, "203.0.113.1:40000".parse().unwrap()));
         assert_eq!(c[0].len(), 2, "one public port for both servers");
+    }
+
+    /// Both ends symmetric, no direct path: through a relay a player hosts (#3795 section 9),
+    /// with the real agent. The relay's address is one more remote candidate on both sides;
+    /// what goes to it is wrapped and what comes from it unwrapped, by session.
+    #[test]
+    fn symmetric_pair_connects_through_a_hosted_relay() {
+        use crate::hosted::{self, Client, Received, Server, ServerConfig, Side};
+        let mut sim = Sim::new();
+        let (hl, gl, rl) = (sim.add_lan(NatKind::Symmetric), sim.add_lan(NatKind::Symmetric), sim.add_lan(NatKind::Open));
+        let (host, guest) = (sim.add_socket(hl, PORT), sim.add_socket(gl, PORT));
+        let relay = sim.add_socket(rl, 47961);
+        let t0 = Instant::now();
+        let mut cands = gather(&mut sim, &[host, guest], t0);
+        let session = hosted::session_id(&[1; 32], &[2; 32]);
+        let mut server = Server::new(ServerConfig::default());
+        let mut clients = [Client::new(relay, session, Side::Host), Client::new(relay, session, Side::Guest)];
+        // The host has `[Coop] Relay=` set and offers it; the guest takes it from the candidates.
+        cands[0].push(Candidate::new(Kind::Relayed, relay));
+        let mut agents = [Agent::new(Role::Host, &[host], Config::default()), Agent::new(Role::Guest, &[guest], Config::default())];
+        cands[1].iter().for_each(|c| agents[0].add_remote(*c));
+        cands[0].iter().for_each(|c| agents[1].add_remote(*c));
+        agents[0].add_remote(Candidate::new(Kind::Relayed, relay));
+        let sockets = [host, guest];
+        let start = t0 + Duration::from_secs(5);
+        agents.iter_mut().for_each(|a| a.start(start));
+        let mut now = start;
+        let mut chosen: [Option<(SocketAddr, SocketAddr)>; 2] = [None, None];
+        let send = |sim: &mut Sim, clients: &[Client; 2], i: usize, from: SocketAddr, to: SocketAddr, d: Vec<u8>| {
+            if to == relay {
+                sim.send(from, to, clients[i].wrap(&d));
+            } else {
+                sim.send(from, to, d);
+            }
+        };
+        while now < start + Duration::from_secs(12) && chosen.iter().any(Option::is_none) {
+            for i in 0..2 {
+                if let Some(b) = clients[i].poll(now) {
+                    sim.send(sockets[i], relay, b);
+                }
+                for act in agents[i].poll(now) {
+                    match act {
+                        Action::SendProbe { from, to, check_id, .. } => {
+                            let mut d = vec![b'P'];
+                            d.extend_from_slice(&check_id.to_be_bytes());
+                            send(&mut sim, &clients, i, from, to, d);
+                        }
+                        Action::Selected { local, remote, .. } => {
+                            chosen[i] = Some((local, remote));
+                            if i == 1 {
+                                send(&mut sim, &clients, i, local, remote, vec![b'N']);
+                            }
+                        }
+                        Action::Failed => panic!("side {i} found no path"),
+                        Action::Keepalive { .. } | Action::PathLost => {}
+                    }
+                }
+            }
+            for p in sim.deliver() {
+                if p.to == relay {
+                    for (to, d) in server.on_datagram(p.from, &p.data, now) {
+                        sim.send(relay, to, d);
+                    }
+                    continue;
+                }
+                let Some(i) = sockets.iter().position(|&s| s == p.to) else { continue };
+                let data = if p.from == relay {
+                    match clients[i].on_datagram(&p.data) {
+                        Received::Data(d) => d.to_vec(),
+                        _ => continue,
+                    }
+                } else {
+                    p.data.clone()
+                };
+                match data[0] {
+                    b'P' => {
+                        agents[i].on_probe_received(p.to, p.from, now);
+                        let mut d = data.clone();
+                        d[0] = b'R';
+                        send(&mut sim, &clients, i, p.to, p.from, d);
+                    }
+                    b'R' => {
+                        let id = u64::from_be_bytes(data[1..9].try_into().unwrap());
+                        agents[i].on_probe_result(id, p.to, p.from, now);
+                    }
+                    b'N' => agents[i].on_peer_selected(p.to, p.from, now),
+                    _ => {}
+                }
+            }
+            now += TICK;
+        }
+        assert_eq!(chosen, [Some((host, relay)), Some((guest, relay))]);
+        assert!(clients.iter().all(Client::bound));
+        assert_eq!(agents[1].selected_candidate().unwrap().kind, Kind::Relayed);
+        assert!(server.stats().forwarded >= 3, "{:?}", server.stats());
+        // The relay answered within a round trip, but the guest gave a direct pair
+        // `relay_settle` to answer first.
+        assert!(now >= start + Config::default().relay_settle);
+    }
+
+    /// With a direct path to be had, a relay offered alongside is not chosen.
+    #[test]
+    fn direct_beats_a_hosted_relay() {
+        let mut sim = Sim::new();
+        let (hl, gl) = (sim.add_lan(NatKind::FullCone), sim.add_lan(NatKind::Symmetric));
+        let (host, guest) = (sim.add_socket(hl, PORT), sim.add_socket(gl, PORT));
+        let relay: SocketAddr = "198.51.100.9:47961".parse().unwrap();
+        let (h, g) = connect_with(&mut sim, host, guest, &[Candidate::new(Kind::Relayed, relay)]).unwrap();
+        assert!(h != relay && g != relay, "{h} {g}");
+    }
+
+    /// Port prediction (phase 5, off by default) reaches a symmetric NAT from a
+    /// port-restricted one, both ways round; symmetric against symmetric still fails.
+    #[test]
+    fn port_prediction_reaches_a_symmetric_nat() {
+        use NatKind::*;
+        let cfg = Config { predict: 8, ..Config::default() };
+        for (h, g, want) in [
+            (Symmetric, PortRestricted, true),
+            (PortRestricted, Symmetric, true),
+            (Symmetric, Restricted, true),
+            (FullCone, Symmetric, true),
+            (Symmetric, Symmetric, false),
+        ] {
+            let mut sim = Sim::new();
+            let (hl, gl) = (sim.add_lan(h), sim.add_lan(g));
+            let (hs, gs) = (sim.add_socket(hl, PORT), sim.add_socket(gl, PORT));
+            assert_eq!(connect_cfg(&mut sim, hs, gs, &[], cfg).is_some(), want, "{h:?} host, {g:?} guest");
+        }
+        // Off, the default: the matrix's answer.
+        let mut sim = Sim::new();
+        let (hl, gl) = (sim.add_lan(Symmetric), sim.add_lan(PortRestricted));
+        let (hs, gs) = (sim.add_socket(hl, PORT), sim.add_socket(gl, PORT));
+        assert!(connect(&mut sim, hs, gs).is_none());
     }
 }
