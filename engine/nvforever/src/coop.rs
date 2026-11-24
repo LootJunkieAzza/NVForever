@@ -2429,6 +2429,8 @@ fn online_event(coop: &mut Coop, e: nvf_coop::online::OnlineEvent, corner: &mut 
             coop.asking.push((peer, name));
         }
         OnlineEvent::JoinAskOver(peer) => coop.asking.retain(|(p, _)| *p != peer),
+        // The link opened the session itself (`Session::online_tick`); the log only.
+        OnlineEvent::HostedOpen { relay, side, .. } => info!("co-op: a session on the hosted relay {relay} ({side:?} side)"),
         OnlineEvent::Note(n) => info!("co-op: online: {n}"),
     }
 }
