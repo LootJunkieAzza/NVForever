@@ -1568,6 +1568,7 @@ fn main() -> AppExit {
     if let Some(saved) = pending.as_ref().and_then(|p| p.body.engine.extra.get(sky::SAVE_HOOK.key)) {
         sky_state.restore_saved(saved);
     }
+    sky_state.load_plugin_inis(&game.vfs);
     sky_state.shadows = (args.sun_shadows.is_some() || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
     let performance_shadows = args.sun_shadows == Some(shadow_rate::SunShadowMode::Performance);
     if performance_shadows {

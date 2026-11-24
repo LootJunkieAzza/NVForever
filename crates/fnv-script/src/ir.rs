@@ -416,6 +416,8 @@ pub enum XAssign {
     Pow,
     BitOr,
     BitAnd,
+    Shl,
+    Shr,
     Mod,
 }
 

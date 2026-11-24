@@ -548,10 +548,25 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // Page marked Incomplete with no summary, arguments or result: 0 [decision: no
         // behaviour to build from; ext-showoff.md §7 asks for the page].
         "isformloading" => zero,
-        // −1 for an actor not fading [observed 2026-11-08: showoff4.fadestate.doc, Doc
-        // Mitchell standing in his house]; NVForever fades no actor in or out the way the
-        // state would track, so always −1 [hypothesis: other states unknown].
-        "getactorfadestate" => XVal::Num(-1.0),
+        // 0 for a loaded actor not fading [observed 2026-11-23: Fallout: New Vegas
+        // 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, 10 official base masters,
+        // `b3_so_01_lvlup_closed_and_status_flags`: `Player.GetActorFadeState` and
+        // `rDoc.GetActorFadeState` both returned `0.0` in Doc Mitchell's house; no DLL
+        // or source consulted]; -1 for an unloaded actor (or non-actor / missing ref)
+        // [observed 2026-11-08: showoff4.fadestate.doc, Doc Mitchell in his unloaded
+        // house while the player stood at the airport test ground; hypothesis: unloaded
+        // / non-actor is the reason, and other fade states are unknown because
+        // NVForever does not fade actors through this state].
+        "getactorfadestate" => {
+            let loaded_actor = subject.is_some_and(|r| {
+                r == FormId::PLAYER_REF
+                    || (crate::functions::base_of(g, r)
+                        .is_some_and(|b| g.template_source(g.unclone(b), r, |_| false).is_some())
+                        && g.present(r)
+                        && crate::functions::refs::in_loaded_cell(g, r))
+            });
+            XVal::Num(if loaded_actor { 0.0 } else { -1.0 })
+        }
         _ => return None,
     };
     Some(Ok(v))

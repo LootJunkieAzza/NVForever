@@ -54,6 +54,7 @@ observe)**; the compile cases settle it from the compiled order.
 | 2 | `&&` | 2 | Logical and (§3). |
 | 2 | `+=` `-=` `*=` `/=` `^=` | 2 | Arithmetic on the left variable or array element, then assign. `^=` raises to a power. |
 | 2 | `\|=` `&=` | 2 | Bitwise or (and) after demoting both sides to integers, then assign. |
+| 2 | `<<=` `>>=` | 2 | Shift left (right) by a number of bits after demoting both sides to integers, then assign [hypothesis: extends documented `<<` and `>>` to compound assignment]. |
 | 2 | `%=` | 2 | Remainder of integer division, then assign. |
 | 3 | `:` | 2 | Range (slice): a substring, or a copy of the array elements in the range; **the upper end is included**; negative string indexes count from the end. |
 | 3 | `::` | 2 | Key–value pair: a number or string key, a value of any type. |
@@ -129,8 +130,10 @@ assigned with `let`, not `set` [documented: Let; SetFunctionValue; Ar List].
 **The let macro** (xNVSE 6.1.0): a line `x = 10`, `x += 10`, `x -= 5`, `x *= 5` with no
 keyword is a `let` [documented: Let Macro]. `x /= 5` is taken too [observed:
 JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting …` in JBTOnFireWeaponUDF with
-compiled bytes, so the original's compiler takes it]. The remaining compound operators
-(`^=`, `%=`, `|=`, `&=`) as a macro: open (the page lists the first four).
+compiled bytes, so the original's compiler takes it]. NVForever also accepts the remaining
+compound assignments (`^=`, `%=`, `|=`, `&=`, `<<=`, `>>=`) in bare Let-macro form
+[hypothesis: extends documented Let Macro and NVSE Expressions compound assignments so bare
+statements match `let`].
 
 **eval / if eval** `if eval expr`, `elseif eval expr`: the condition is compiled as an
 extender expression and reduced to true or false. It is needed when the condition uses
@@ -350,3 +353,18 @@ Under the compiler override, then, a call's argument takes the arithmetic after 
 (`Abs -3 + 1` is 2) but stops at a comparison (`Sin 90 > 0.5` is 1) [observed: both rows;
 the rule is a hypothesis drawn from two cases]. Whether `==`, as in the wiki's example,
 behaves like `>`: open.
+
+## 12. Extender `actor_value` parameter typing
+
+- **Unnumbered extender `actor_value` parameters** (`crates/fnv-script/src/compile/gen/x.rs`):
+  extender functions whose catalogue parameter has `kind: "actor_value"` — including
+  `GetThresholdedActorValue` / `GetThresholdAV` [documented:
+  https://geckwiki.com/index.php?title=GetThresholdedActorValue], `GetActorValueModifier`
+  (`GetAVMod`), `GetActorValueModifierAlt` (`GetAVModAlt`), `GetBaseActorValueAlt`
+  (`GetBaseAVAlt`), `ModBaseActorValue` (`ModBaseAV`), `SetEmbeddedWeaponAV`, `UnforceAV`,
+  `UnsetAV`, `GetActorValueDamage` (`GetAVDamage`), and `GetActorValueName` (`GetAVName`) —
+  resolve a bare known actor-value keyword (when not shadowed by a local variable, a `GLOB`
+  record, or a function name) to `ParamEnc::Enum("actor_value")` (`XExpr::Enum { code }`)
+  without emitting `unquoted_argument` [design]. Quoted strings, numeric codes, local
+  variables, globals, dotted quest variables, function calls, and unknown bare words retain
+  their existing `ParamEnc::Value` handling.

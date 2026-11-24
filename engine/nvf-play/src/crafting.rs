@@ -54,6 +54,7 @@ use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::start_menu::{color, highlight_colors, Shade, LINE};
 use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
+use fnv_util::words::trf;
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -650,7 +651,7 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             if let Some(c) = corner.filter(|_| rt.game.crafting_messages_shown()) {
                 for (i, k) in added {
                     let name = crate::menu::model::display_name(forms, i);
-                    c.push(if k > 1 { format!("{name} ({k}) added") } else { format!("{name} added") }.into());
+                    c.push(if k > 1 { trf("{name} ({count}) added", &[("name", &name), ("count", &k)]) } else { trf("{name} added", &[("name", &name)]) }.into());
                 }
             }
         }

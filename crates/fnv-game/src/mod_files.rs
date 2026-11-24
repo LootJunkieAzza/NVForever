@@ -14,7 +14,7 @@ use crate::game::Game;
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The host's answer for a path in the archives too: 0 none, 1 a loose file, 2 inside an
 /// archive.
@@ -181,6 +181,10 @@ pub struct ModFiles {
     showoff_json: HashMap<String, serde_json::Value>,
     /// Folders CreateFolder made this session (under the game's folder, lower case).
     folders: std::collections::HashSet<String>,
+    /// Cached `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (`OnceLock` so
+    /// `&Game` readers stay allocation-free and `Send + Sync`; cleared on session writes)
+    /// [design].
+    ttw_karma_titles: OnceLock<crate::karma_titles::TtwKarmaTitles>,
 }
 
 /// The folder of NVForever's layer standing for the game's own folder.
@@ -448,9 +452,39 @@ impl ModFiles {
                 return false;
             }
         }
+        self.invalidate_plugin_ini_cache(&key);
         self.written_bytes.insert(key.clone(), bytes.to_vec());
         self.written.insert(key, text);
         true
+    }
+
+    fn invalidate_plugin_ini_cache(&mut self, norm_key: &str) {
+        if norm_key == "nvse\\plugins\\ttw.ini" {
+            let _ = self.ttw_karma_titles.take();
+        }
+    }
+
+    /// Read a plugin INI under `Data` (case-insensitive across read roots and VFS
+    /// archives), preferring session writes first.
+    fn read_plugin_ini(&self, rel: &str) -> Option<String> {
+        let key = norm(rel);
+        if let Some(b) = self.written_bytes.get(&key) {
+            return Some(String::from_utf8(b.clone()).unwrap_or_else(|e| latin1(e.as_bytes())));
+        }
+        if let Some(t) = self.written.get(&key) {
+            return Some(t.clone());
+        }
+        let bytes = read_data_file(rel)?;
+        Some(String::from_utf8(bytes).unwrap_or_else(|e| latin1(e.as_bytes())))
+    }
+
+    /// Loaded `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (empty when absent).
+    pub fn ttw_karma_titles(&self) -> &crate::karma_titles::TtwKarmaTitles {
+        self.ttw_karma_titles.get_or_init(|| {
+            self.read_plugin_ini("NVSE\\Plugins\\TTW.ini")
+                .map(|text| crate::karma_titles::TtwKarmaTitles::parse(&text))
+                .unwrap_or_default()
+        })
     }
 
     /// [`ModFiles::read_root`] for the other files of the crate.
@@ -529,6 +563,7 @@ impl ModFiles {
             return false;
         }
         let key = norm(rel);
+        self.invalidate_plugin_ini_cache(&key);
         let mut gone = self.written.remove(&key).is_some();
         gone |= self.written_bytes.remove(&key).is_some();
         if let Some(p) = roots().write.and_then(|w| find_file(&w, rel)) {

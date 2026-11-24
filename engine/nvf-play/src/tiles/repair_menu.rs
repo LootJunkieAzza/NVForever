@@ -155,6 +155,8 @@ pub struct RowShown {
     /// 1280x720, `user0` read, each value `merged_condition`'s; the item's own row as if merged
     /// with itself].
     pub after: f32,
+    /// Resolved ySI tag/icon/template for this row when ySI is active (`None` otherwise).
+    pub ysi: Option<fnv_game::ui_ysi::YsiItemDisplay>,
 }
 
 /// One whole state of the page: a frame with the same writes nothing but sizes and scroll. A
@@ -183,8 +185,8 @@ impl Shown {
     pub(crate) fn of(s: &Session, on_rows: bool, pointer_pick: bool, navigated: u32, stat_at: &dyn Fn(f32) -> Option<(&'static str, i32)>, w: &Words) -> Self {
         let o = &s.offer;
         let merged = |with: f32| merged_condition(&s.settings, o.condition, with, s.skill);
-        let mut rows = vec![RowShown { key: (o.item, o.extra, true), text: o.name.clone(), equipped: o.extra.equipped, condition: o.condition, after: merged(o.condition) }];
-        rows.extend(o.parts.iter().map(|q| RowShown { key: (q.item, q.extra, false), text: q.name.clone(), equipped: q.extra.equipped, condition: q.condition, after: s.after(q) }));
+        let mut rows = vec![RowShown { key: (o.item, o.extra, true), text: o.name.clone(), equipped: o.extra.equipped, condition: o.condition, after: merged(o.condition), ysi: None }];
+        rows.extend(o.parts.iter().map(|q| RowShown { key: (q.item, q.extra, false), text: q.name.clone(), equipped: q.extra.equipped, condition: q.condition, after: s.after(q), ysi: None }));
         let part = s.selected.checked_sub(1).and_then(|i| o.parts.get(i));
         let to = part.map(|q| s.after(q));
         let now = stat_at(o.condition);
@@ -364,6 +366,7 @@ fn write(ui: &mut Ui, s: &Shown, w: &mut Written) {
                 ui.set_trait(t, "filename", Value::Str(MARK_PICTURE.into()));
             }
         }
+        fnv_game::ui_ysi::apply_row_icon(ui, &fnv_ui::MemSource::default(), row.tile, shown.ysi.as_ref());
     }
     set(ui, LIST, "_num_filtered", Value::Num(0.0));
     set(ui, LIST, "_enabled", on(true));
@@ -617,7 +620,12 @@ fn pass(p: &mut RepairPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     p.tiles.waiting = false;
     p.tiles.follow_model(session.selected);
     let stat_at = |c: f32| crate::pipboy::repair::stat(combat, &session.offer, c);
-    let shown = Shown::of(session, p.tiles.on_rows, p.tiles.pointer_pick, p.tiles.navigated, &stat_at, &Words::read(game));
+    let mut shown = Shown::of(session, p.tiles.on_rows, p.tiles.pointer_pick, p.tiles.navigated, &stat_at, &Words::read(game));
+    if game.ysi_active() {
+        for r in &mut shown.rows {
+            r.ysi = game.ysi_item_display(r.key.0);
+        }
+    }
     Some(page(&mut game.ui_tree, shown, device, late, secs, &mut p.tiles, &mut p.fonts))
 }
 

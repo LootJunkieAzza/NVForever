@@ -362,6 +362,8 @@ pub fn xassign_symbol(op: XAssign) -> &'static str {
         XAssign::Pow => "^=",
         XAssign::BitOr => "|=",
         XAssign::BitAnd => "&=",
+        XAssign::Shl => "<<=",
+        XAssign::Shr => ">>=",
         XAssign::Mod => "%=",
     }
 }

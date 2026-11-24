@@ -402,6 +402,11 @@ pub(crate) struct WorldShown {
     pub want: Vec2,
     pub label: Option<String>,
     pub detail: Option<String>,
+    /// The World Map's companions: each teammate's FormID, texture coordinates, display
+    /// name, and knocked-out state; empty on the Local Map.
+    pub companions: Vec<(u32, [f32; 2], String, bool)>,
+    /// Font number for companion names (2 by default, 1 with `bCompanionsUseLocationFontOnMap`).
+    pub companion_font: u8,
 }
 
 impl WorldShown {
@@ -438,6 +443,8 @@ impl WorldShown {
             want: w.want,
             label: label.map(str::to_string),
             detail: detail.map(str::to_string),
+            companions: if local { Vec::new() } else { w.companions.clone() },
+            companion_font: w.companion_font,
         })
     }
 
@@ -825,6 +832,78 @@ fn with_map_picture(ui: &Ui, mut pieces: Vec<Piece>, picture: Option<Piece>) -> 
         let at = pieces.iter().position(|q| q.depth > p.depth || stats_menu::inside(ui, q.tile, p.tile)).unwrap_or(pieces.len());
         pieces.insert(at, p);
     }
+    pieces
+}
+
+/// The World Map's companion names painted outside the file's tree (`map_menu.xml` has no
+/// companion template [observed: `data.rs`]): centred above each teammate's place on the
+/// map picture, clipped to the map's window, in `s.companion_font` (font 2 by default
+/// [documented: Stewie's Tweaks readme, `bCompanionsUseLocationFontOnMap`], font 1 with
+/// the tweak), red while knocked out (`bMapShowUnconsciousCompanions`), under the player's
+/// arrow [design: mirrors the hand-built World Map in `pipboy::data`].
+fn map_companion_pieces(ui: &Ui, s: &WorldShown) -> Vec<Piece> {
+    if s.local || s.companions.is_empty() {
+        return Vec::new();
+    }
+    let Some(clip) = ui.find_tile(WORLD_CLIP).filter(|&t| shown_up(ui, t)) else { return Vec::new() };
+    let Some(window) = map_window_of(ui, WORLD_CLIP) else { return Vec::new() };
+    let cut = super::layout::Rect {
+        left: f64::from(window.min.x),
+        top: f64::from(window.min.y),
+        width: f64::from(window.width()),
+        height: f64::from(window.height()),
+    };
+    let tile_depth = |t: TileId| {
+        let mut depth = 0.0;
+        let mut at = Some(t);
+        while let Some(id) = at {
+            depth += num(ui, id, "depth");
+            at = ui.tile(id).parent;
+        }
+        depth
+    };
+    let cursor = ui.find_tile(WORLD_CURSOR);
+    let colour_tile = cursor.unwrap_or(clip);
+    let [r, g, bl] = super::draw::base_colour(ui, colour_tile, [1.0, 1.0, 1.0]);
+    let depth = cursor.map(|c| tile_depth(c) - 0.1).unwrap_or_else(|| ui.find_tile(WORLD_PICTURE).map_or(5.5, |p| tile_depth(p) + 5.5));
+    let font = super::draw::font_number(f64::from(s.companion_font));
+    s.companions
+        .iter()
+        .map(|(_, uv, name, down)| {
+            let at = s.view.to_window(*uv);
+            let colour = if *down { [1.0, 0.25, 0.2, 1.0] } else { [r, g, bl, 1.0] };
+            Piece {
+                tile: clip,
+                look: Look::Text { string: name.clone(), font, wrap: None, alignment: super::layout::Alignment::Center },
+                rect: super::layout::Rect {
+                    left: f64::from(window.min.x + at.x),
+                    top: f64::from(window.min.y + at.y - data::COMPANION_NAME_RISE),
+                    width: 0.0,
+                    height: 0.0,
+                },
+                clip: Some(cut),
+                colour,
+                depth,
+                tex: None,
+                turn: None,
+                crop: None,
+            }
+        })
+        .collect()
+}
+
+/// Insert companion name pieces into `pieces` right under the player's arrow (`WORLD_CURSOR`),
+/// or at their depth order when the arrow is absent [design].
+fn with_map_companions(ui: &Ui, mut pieces: Vec<Piece>, companions: Vec<Piece>) -> Vec<Piece> {
+    if companions.is_empty() {
+        return pieces;
+    }
+    let at = ui
+        .find_tile(WORLD_CURSOR)
+        .and_then(|c| pieces.iter().position(|p| p.tile == c))
+        .or_else(|| pieces.iter().position(|p| p.depth > companions[0].depth))
+        .unwrap_or(pieces.len());
+    pieces.splice(at..at, companions);
     pieces
 }
 
@@ -1717,8 +1796,10 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     ui.update();
     if late {
         let mut pieces = fonts.set_out(ui, menu);
-        if let Some(paths) = s.world.as_ref().map(WorldShown::paths) {
+        if let Some(world) = s.world.as_ref() {
+            let paths = world.paths();
             pieces = with_map_picture(ui, pieces, map_picture_piece(ui, paths.clip, paths.picture));
+            pieces = with_map_companions(ui, pieces, map_companion_pieces(ui, world));
         }
         let places = tab_places(ui, &w.tabs);
         if w.places_told.as_ref() != Some(&places) {
@@ -3260,6 +3341,8 @@ mod tests {
                 want: on.unwrap_or(view.mid()),
                 label,
                 detail: Some("Town: Liked".into()),
+                companions: Vec::new(),
+                companion_font: 2,
             }),
             ..shown(0, 0, 0)
         }
@@ -3499,6 +3582,8 @@ mod tests {
                 want: view.place(1000.0, 2000.0),
                 label: Some("Door 7".into()),
                 detail: None,
+                companions: Vec::new(),
+                companion_font: 2,
             }),
             ..shown(0, 0, 0)
         }
@@ -3637,7 +3722,20 @@ mod tests {
         // The prepared Local Map is read with its parts; a Local Map without a place is not drawn.
         let p = data::view::LocalProjection { centre: [0.0, 0.0], mag: 1.0, scale: 8.0, origin: [-100.0, 100.0], extent: Vec2::new(200.0, 200.0) };
         let view = data::MapView::local(WORLD_W, p);
-        let parts = data::WorldParts { view, texture: String::new(), mag: 1.0, quests: Vec::new(), custom: None, arrow: Some(([0.5, 0.5], 0.0)), ends: Vec::new(), outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))), rows: None, want: Vec2::ZERO };
+        let parts = data::WorldParts {
+            view,
+            texture: String::new(),
+            mag: 1.0,
+            quests: Vec::new(),
+            custom: None,
+            arrow: Some(([0.5, 0.5], 0.0)),
+            ends: Vec::new(),
+            outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))),
+            rows: None,
+            want: Vec2::ZERO,
+            companions: Vec::new(),
+            companion_font: 2,
+        };
         let map = data::MapShown::for_test(Vec::new(), Some(parts), Vec2::ZERO, None, None);
         let prepared = |tab, map: data::MapShown| Prepared { view: data::View { tab, place: String::new(), when: String::new(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None }, keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
         let s = Shown::of(&prepared(data::LOCAL, map.clone()), true).unwrap();
@@ -3706,7 +3804,20 @@ mod tests {
     fn the_prepared_world_map_is_read_with_its_parts_and_the_local_map_is_not() {
         let view = data::MapView::world(WORLD_W, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
         let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), custom_icon: None, highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv, detail: None, recent: false, outside: None };
-        let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None, rows: None, want: Vec2::new(5.0, 6.0) };
+        let parts = data::WorldParts {
+            view,
+            texture: "w.dds".into(),
+            mag: 1.0,
+            quests: vec![(9, [0.1, 0.2])],
+            custom: None,
+            arrow: Some(([0.5, 0.5], 1.0)),
+            ends: Vec::new(),
+            outline: None,
+            rows: None,
+            want: Vec2::new(5.0, 6.0),
+            companions: Vec::new(),
+            companion_font: 2,
+        };
         let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts.clone()), Vec2::new(5.0, 6.0), Some("P2"), None);
         let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None };
         let p = |tab, map| Prepared { view: view_of(tab, map), keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
@@ -3994,5 +4105,54 @@ mod tests {
             run(&mut tree_changed(off_canvas), Some(shown(2, 0, 1)), &mut MapTiles::default()),
             Err("the objectives' window does not fit".to_string())
         );
+    }
+
+    #[test]
+    fn the_world_map_draws_companion_names_in_the_tile_tree_clip_window() {
+        let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
+        let mut s = world(1.0, [0.5, 0.5], vec![marker(10, [0.25, 0.5], false)]);
+        {
+            let w = s.world.as_mut().unwrap();
+            w.companions = vec![(0x101, [0.25, 0.5], "Scout Alpha".into(), false), (0x102, [0.75, 0.5], "Scout Bravo".into(), true)];
+            w.companion_font = 2;
+        }
+        run(&mut ui, Some(s.clone()), &mut t).unwrap();
+        let clip = ui.find_tile(WORLD_CLIP).unwrap();
+        let cursor = ui.find_tile(WORLD_CURSOR).unwrap();
+        let comp_pieces: Vec<&Piece> = t.pieces.iter().filter(|p| p.tile == clip && matches!(p.look, Look::Text { .. })).collect();
+        assert_eq!(comp_pieces.len(), 2, "both companions emitted as text pieces on the tiled World Map");
+        assert_eq!(comp_pieces[0].look, Look::Text { string: "Scout Alpha".into(), font: 2, wrap: None, alignment: super::super::layout::Alignment::Center });
+        assert_eq!(comp_pieces[1].look, Look::Text { string: "Scout Bravo".into(), font: 2, wrap: None, alignment: super::super::layout::Alignment::Center });
+        assert_eq!(comp_pieces[1].colour, [1.0, 0.25, 0.2, 1.0], "knocked-out companion drawn in red");
+        assert_ne!(comp_pieces[0].colour, [1.0, 0.25, 0.2, 1.0], "conscious companion uses Pip-Boy colour");
+        let clip_rect = comp_pieces[0].clip.expect("companion text clipped to World Map window");
+        assert_eq!((clip_rect.left, clip_rect.top, clip_rect.width, clip_rect.height), (40.0, 90.0, 855.0, 500.0));
+        // Positioned by the viewport, centred above its map point.
+        let view = s.world.as_ref().unwrap().view;
+        let expected_at = view.to_window([0.25, 0.5]);
+        assert!((comp_pieces[0].rect.left - f64::from(40.0 + expected_at.x)).abs() < 1e-3);
+        assert!((comp_pieces[0].rect.top - f64::from(90.0 + expected_at.y - data::COMPANION_NAME_RISE)).abs() < 1e-3);
+        // Ordered under the player's arrow.
+        let last_comp = t.pieces.iter().rposition(|p| p.tile == clip && matches!(p.look, Look::Text { .. })).unwrap();
+        if let Some(cursor_pos) = t.pieces.iter().position(|p| p.tile == cursor) {
+            assert!(last_comp < cursor_pos, "companion names stand under the player's arrow");
+        }
+        // Location-font tweak switches companion font to 1, and zoom moves the pieces with the viewport.
+        let mut zoomed = world(2.0, [0.5, 0.5], vec![marker(10, [0.25, 0.5], false)]);
+        {
+            let w = zoomed.world.as_mut().unwrap();
+            w.companions = vec![(0x101, [0.25, 0.5], "Scout Alpha".into(), false)];
+            w.companion_font = 1;
+        }
+        run(&mut ui, Some(zoomed.clone()), &mut t).unwrap();
+        let z_pieces: Vec<&Piece> = t.pieces.iter().filter(|p| p.tile == clip && matches!(p.look, Look::Text { .. })).collect();
+        assert_eq!(z_pieces.len(), 1);
+        assert_eq!(z_pieces[0].look, Look::Text { string: "Scout Alpha".into(), font: 1, wrap: None, alignment: super::super::layout::Alignment::Center });
+        let z_at = zoomed.world.as_ref().unwrap().view.to_window([0.25, 0.5]);
+        assert!((z_pieces[0].rect.left - f64::from(40.0 + z_at.x)).abs() < 1e-3);
+        // Local Map emits no companion pieces.
+        let (mut ui_local, mut t_local) = (tree_changed(with_local), MapTiles::default());
+        run(&mut ui_local, Some(local(None, 1.0)), &mut t_local).unwrap();
+        assert!(t_local.pieces.iter().all(|p| !matches!(&p.look, Look::Text { string, .. } if string == "Scout Alpha")));
     }
 }

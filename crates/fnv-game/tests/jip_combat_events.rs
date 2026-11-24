@@ -24,6 +24,7 @@ const PISTOL: u32 = 0x810;
 const SHOTGUN: u32 = 0x811;
 const KNIFE: u32 = 0x812;
 const BULLET: u32 = 0x818;
+const BLAST: u32 = 0x819;
 const TRAP: u32 = 0x820;
 const NPC_LIST: u32 = 0x830;
 const RANGED_LIST: u32 = 0x831;
@@ -94,6 +95,7 @@ fn fixture() -> Fixture {
     let npcs = [npc(0x7, "Player"), npc(GUARD, "TestGuard"), npc(RAIDER, "TestRaider")].concat();
     let weaps = [weap(PISTOL, "TestPistol", 3), weap(SHOTGUN, "TestShotgun", 5), weap(KNIFE, "TestKnife", 1)].concat();
     let proj = record(b"PROJ", 0, BULLET, &[sub(b"EDID", z("TestBullet"))]);
+    let expl = record(b"EXPL", 0, BLAST, &[sub(b"EDID", z("TestBlast"))]);
     let xmarker = record(b"STAT", 0, XMARKER, &[sub(b"EDID", z("XMarker"))]);
     let trap = record(b"ACTI", 0, TRAP, &[sub(b"EDID", z("TestTrap"))]);
     let scpts = [
@@ -139,6 +141,7 @@ fn fixture() -> Fixture {
         top(b"ACTI", &trap),
         top(b"WEAP", &weaps),
         top(b"PROJ", &proj),
+        top(b"EXPL", &expl),
         top(b"NPC_", &npcs),
         top(b"FLST", &lists),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
@@ -388,7 +391,7 @@ fn critical_hit_event_filters_normal_vs_crit_and_hit_location() {
     g.hit(
         GUARD_REF,
         10.0,
-        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 1, critical: false, limb: None },
+        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 1, ..HitInfo::default() },
     );
     assert_eq!(aux_size(&mut g, "*ca_t"), 0.0, "non-critical hit does not fire criticalhit");
     assert_eq!(global(&g, CRIT_WILDCARD_HITS), 0.0);
@@ -399,7 +402,7 @@ fn critical_hit_event_filters_normal_vs_crit_and_hit_location() {
     g.hit(
         GUARD_REF,
         15.0,
-        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 1, critical: true, limb: None },
+        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 1, critical: true, ..HitInfo::default() },
     );
     assert_eq!(aux_size(&mut g, "*ca_t"), 1.0);
     assert_eq!(aux_ref(&mut g, "*ca_t", 0), GUARD_REF);
@@ -417,7 +420,7 @@ fn critical_hit_event_filters_normal_vs_crit_and_hit_location() {
     g.hit(
         RAIDER_REF,
         15.0,
-        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 0, critical: true, limb: None },
+        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 0, critical: true, ..HitInfo::default() },
     );
     assert_eq!(aux_size(&mut g, "*ca_t"), 2.0);
     assert_eq!(aux_ref(&mut g, "*ca_t", 1), RAIDER_REF);
@@ -430,7 +433,7 @@ fn critical_hit_event_filters_normal_vs_crit_and_hit_location() {
     g.hit(
         RAIDER_REF,
         15.0,
-        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 0, critical: true, limb: None },
+        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 0, critical: true, ..HitInfo::default() },
     );
     assert_eq!(aux_size(&mut g, "*ca_t"), 2.0);
     assert_eq!(global(&g, CRIT_WILDCARD_HITS), 2.0);
@@ -440,7 +443,7 @@ fn critical_hit_event_filters_normal_vs_crit_and_hit_location() {
     g.hit(
         GUARD_REF,
         5.0,
-        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 0, critical: true, limb: None },
+        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 0, critical: true, ..HitInfo::default() },
     );
     assert_eq!(aux_size(&mut g, "*ca_t"), 3.0);
     assert_eq!(global(&g, CRIT_WILDCARD_HITS), 2.0, "removed XMarker handler no longer runs");
@@ -467,9 +470,195 @@ fn combat_jip_events_respect_newest_first_and_under_arity_skip() {
     g.hit(
         GUARD_REF,
         10.0,
-        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 0, critical: true, limb: None },
+        HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(FormId(PISTOL)), location: 0, critical: true, ..HitInfo::default() },
     );
     assert_eq!(aux_size(&mut g, "*ord"), 2.0);
     assert_eq!((aux_flt(&mut g, "*ord", 0), aux_flt(&mut g, "*ord", 1)), (2.0, 1.0), "newest-first JIP handler order");
     assert_eq!(aux_size(&mut g, "*under"), 0.0, "handler declaring fewer than 2 parameters is skipped");
+}
+
+#[test]
+fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_data() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Unhit actor returns 0 / null ref / empty 3D array.
+    assert_eq!(q(&mut g, "SetFunctionValue (GuardRef.GetHitProjectile)"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GuardRef.GetHitBaseWeaponDamage)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GuardRef.GetHitFatigueDamage)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 0))"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 1))"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 2))"), XVal::Num(0.0));
+
+    // Register an OnHit handler that captures all JIP hit-info getters before health damage applies.
+    q(
+        &mut g,
+        "SetOnHitEventHandler (Begin Function { }\n\
+           PlayerREF.AuxVarSetRef \"*hi_proj\" (GetHitProjectile) -1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_base\" (GetHitBaseWeaponDamage) -1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_fat\" (GetHitFatigueDamage) -1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_blk\" (GetHitExtendedFlag 0) -1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_snk\" (GetHitExtendedFlag 7) -1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_exp\" (GetHitExtendedFlag 8) -1\n\
+           array_var aPos\n\
+           let aPos := GetHit3DData 0\n\
+           PlayerREF.AuxVarSetFlt \"*hi_p0sz\" (Ar_Size aPos) -1\n\
+           if (Ar_Size aPos) == 3\n\
+             PlayerREF.AuxVarSetFlt \"*hi_px\" (aPos[0]) -1\n\
+             PlayerREF.AuxVarSetFlt \"*hi_py\" (aPos[1]) -1\n\
+             PlayerREF.AuxVarSetFlt \"*hi_pz\" (aPos[2]) -1\n\
+           endif\n\
+           array_var aAng\n\
+           let aAng := GetHit3DData 1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_a1sz\" (Ar_Size aAng) -1\n\
+           if (Ar_Size aAng) == 3\n\
+             PlayerREF.AuxVarSetFlt \"*hi_ax\" (aAng[0]) -1\n\
+             PlayerREF.AuxVarSetFlt \"*hi_az\" (aAng[2]) -1\n\
+           endif\n\
+           array_var aBoth\n\
+           let aBoth := GetHit3DData 2\n\
+           PlayerREF.AuxVarSetFlt \"*hi_b2sz\" (Ar_Size aBoth) -1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_bad\" (Ar_Size (GetHit3DData 3)) -1\n\
+         End) 1 GuardRef",
+    );
+
+    // 1. Projectile hit with fatigue damage, base weapon damage, sneak attack, and 3D data.
+    let proj_ref = g
+        .projectile_fired(FormId(BULLET), FormId::PLAYER_REF, FormId(PISTOL), 24.0, [0.0, 0.0, 50.0])
+        .expect("live projectile ref");
+    let angles = fnv_game::combat::hit_angles_from_dir([1.0, 0.0, 0.0]).expect("east dir angles");
+    g.hit(
+        GUARD_REF,
+        18.0,
+        HitInfo {
+            attacker: Some(FormId::PLAYER_REF),
+            weapon: Some(FormId(PISTOL)),
+            projectile: Some(proj_ref),
+            location: 1,
+            critical: true,
+            sneak_attack: true,
+            base_weapon_damage: 24.0,
+            fatigue_damage: 125.0,
+            hit_pos: Some([12.5, 34.0, 78.25]),
+            hit_angles: Some(angles),
+            ..HitInfo::default()
+        },
+    );
+    assert_eq!(aux_ref(&mut g, "*hi_proj", 0), proj_ref);
+    assert_eq!(aux_flt(&mut g, "*hi_base", 0), 24.0);
+    assert_eq!(aux_flt(&mut g, "*hi_fat", 0), 125.0);
+    assert_eq!(aux_flt(&mut g, "*hi_blk", 0), 0.0);
+    assert_eq!(aux_flt(&mut g, "*hi_snk", 0), 1.0);
+    assert_eq!(aux_flt(&mut g, "*hi_exp", 0), 0.0);
+    assert_eq!(aux_flt(&mut g, "*hi_p0sz", 0), 3.0);
+    assert_eq!((aux_flt(&mut g, "*hi_px", 0), aux_flt(&mut g, "*hi_py", 0), aux_flt(&mut g, "*hi_pz", 0)), (12.5, 34.0, 78.25));
+    assert_eq!(aux_flt(&mut g, "*hi_a1sz", 0), 3.0);
+    assert!(aux_flt(&mut g, "*hi_ax", 0).abs() < 1e-3);
+    assert!((aux_flt(&mut g, "*hi_az", 0) - 90.0).abs() < 1e-3);
+    assert_eq!(aux_flt(&mut g, "*hi_b2sz", 0), 6.0);
+    assert_eq!(aux_flt(&mut g, "*hi_bad", 0), 0.0);
+
+    // 2. Melee blocked hit: no projectile (Ref(0)), flag 0 = 1, flag 8 = 0.
+    g.hit(
+        GUARD_REF,
+        6.0,
+        HitInfo {
+            attacker: Some(FormId::PLAYER_REF),
+            weapon: Some(FormId(KNIFE)),
+            location: 0,
+            blocking: true,
+            base_weapon_damage: 14.0,
+            hit_pos: Some([1.0, 2.0, 3.0]),
+            hit_angles: Some([0.0, 0.0, 0.0]),
+            ..HitInfo::default()
+        },
+    );
+    assert_eq!(aux_size(&mut g, "*hi_proj"), 1.0, "null GetHitProjectile ref does not append to AuxVarSetRef");
+    assert_eq!(q(&mut g, "SetFunctionValue (GuardRef.GetHitProjectile)"), XVal::Ref(0));
+    assert_eq!(aux_flt(&mut g, "*hi_base", 1), 14.0);
+    assert_eq!(aux_flt(&mut g, "*hi_fat", 1), 0.0);
+    assert_eq!(aux_flt(&mut g, "*hi_blk", 1), 1.0);
+    assert_eq!(aux_flt(&mut g, "*hi_snk", 1), 0.0);
+    assert_eq!(aux_flt(&mut g, "*hi_exp", 1), 0.0);
+
+    // 3. Explosion hit: live EXPL ref (GetType == 81, IsReference == 1), flag 8 = 1,
+    // GetHit3DData returns all zeros (3 / 3 / 6).
+    let expl_ref = g
+        .explosion_placed(FormId(BLAST), Some(FormId::PLAYER_REF), [5.0, 6.0, 7.0], 200.0)
+        .expect("live explosion ref");
+    g.hit(
+        GUARD_REF,
+        10.0,
+        HitInfo {
+            projectile: Some(expl_ref),
+            location: -1,
+            explosion: true,
+            ..HitInfo::default()
+        },
+    );
+    assert_eq!(aux_size(&mut g, "*hi_proj"), 2.0);
+    assert_eq!(aux_ref(&mut g, "*hi_proj", 1), expl_ref);
+    assert_eq!(q(&mut g, "SetFunctionValue (IsReference (GuardRef.GetHitProjectile))"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetType (GuardRef.GetHitProjectile))"), XVal::Num(81.0));
+    assert_eq!(aux_flt(&mut g, "*hi_exp", 2), 1.0);
+    assert_eq!(aux_flt(&mut g, "*hi_p0sz", 2), 3.0);
+    assert_eq!(aux_flt(&mut g, "*hi_a1sz", 2), 3.0);
+    assert_eq!(aux_flt(&mut g, "*hi_b2sz", 2), 6.0);
+    assert_eq!((aux_flt(&mut g, "*hi_px", 2), aux_flt(&mut g, "*hi_py", 2), aux_flt(&mut g, "*hi_pz", 2)), (0.0, 0.0, 0.0));
+
+    // 4. Non-finite coordinates are guarded and yield empty 3D arrays rather than NaN.
+    g.hit(
+        GUARD_REF,
+        1.0,
+        HitInfo {
+            location: 0,
+            hit_pos: Some([f32::NAN, 1.0, 2.0]),
+            hit_angles: Some([0.0, f32::INFINITY, 0.0]),
+            ..HitInfo::default()
+        },
+    );
+    assert_eq!(aux_flt(&mut g, "*hi_p0sz", 3), 0.0);
+    assert_eq!(aux_flt(&mut g, "*hi_a1sz", 3), 0.0);
+    assert_eq!(aux_flt(&mut g, "*hi_b2sz", 3), 0.0);
+
+    // 5. ToggleImmortalMode 2 on the player zeroes health damage only (jip-ui-9.md §3);
+    // GetHitFatigueDamage still records the hit's fatigue damage.
+    q(&mut g, "ToggleImmortalMode 2");
+    g.hit(
+        FormId::PLAYER_REF,
+        15.0,
+        HitInfo { attacker: Some(GUARD_REF), fatigue_damage: 90.0, location: 0, ..HitInfo::default() },
+    );
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.GetHitHealthDamage)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.GetHitFatigueDamage)"), XVal::Num(90.0));
+}
+
+#[test]
+fn get_reticle_target_limb_tracks_actor_limb_max_range_and_clear() {
+    use fnv_game::functions::senses::Reticle;
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Headless / no reticle: -1.
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb)"), XVal::Num(-1.0));
+
+    // Hit on a non-actor (limb: None): -1.
+    g.senses.reticle = Some(Reticle { start: [0.0; 3], dir: [0.0, 1.0, 0.0], hit: Some(120.0), limb: None });
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb)"), XVal::Num(-1.0));
+
+    // Actor limb hits (Head 1 = 1, Torso = 0, Brain = 13, Weapon = 14) + optional maxRange.
+    g.senses.reticle = Some(Reticle { start: [0.0; 3], dir: [0.0, 1.0, 0.0], hit: Some(250.0), limb: Some(1) });
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb 0)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb 300)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb 200)"), XVal::Num(-1.0));
+
+    g.senses.reticle = Some(Reticle { start: [0.0; 3], dir: [0.0, 1.0, 0.0], hit: Some(80.0), limb: Some(13) });
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb)"), XVal::Num(13.0));
+
+    // Looking away clears back to -1.
+    g.senses.reticle = Some(Reticle { start: [0.0; 3], dir: [0.0, 1.0, 0.0], hit: None, limb: None });
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb)"), XVal::Num(-1.0));
+    g.senses.reticle = None;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetReticleTargetLimb)"), XVal::Num(-1.0));
 }

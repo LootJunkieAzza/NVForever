@@ -19,7 +19,8 @@ const ARRIVAL_STAT: u32 = 0x800;
 const WRLD: u32 = 0x900;
 const PCELL: u32 = 0x901;
 const EXT: u32 = 0x902;
-const NO_TRAVEL_ROOM: u32 = 0x903;
+const PLAIN_ROOM: u32 = 0x903;
+const INVERTED_ROOM: u32 = 0x904;
 const PLAIN_MARKER: u32 = 0x910;
 const LINKED_MARKER: u32 = 0x911;
 const ARRIVAL_MARKER: u32 = 0x912;
@@ -117,8 +118,12 @@ fn fixture() -> Fixture {
     let ext = record(b"CELL", 0, EXT, &[sub(b"EDID", z("TestExterior")), sub(b"DATA", vec![0]), sub(b"XCLC", u32s(&[0, 0]))]);
     let world_children = group(WRLD.to_le_bytes(), 1, &[pcell, pcell_children, group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &ext))].concat());
 
-    // Interior cell flagged CantFastTravel (bit 2, 1 << 2) alongside Interior (bit 0).
-    let no_travel_room = record(b"CELL", 0, NO_TRAVEL_ROOM, &[sub(b"EDID", z("NoTravelRoom")), sub(b"DATA", vec![1 | (1 << 2)])]);
+    // Interiors (DATA bit 0), one with Invert Fast Travel Behavior (bit 2).
+    let rooms = [
+        record(b"CELL", 0, PLAIN_ROOM, &[sub(b"EDID", z("PlainRoom")), sub(b"DATA", vec![1])]),
+        record(b"CELL", 0, INVERTED_ROOM, &[sub(b"EDID", z("InvertedRoom")), sub(b"DATA", vec![1 | (1 << 2)])]),
+    ]
+    .concat();
 
     let bytes = [
         tes4(),
@@ -126,7 +131,7 @@ fn fixture() -> Fixture {
         top(b"SCPT", &scpts),
         top(b"STAT", &stats),
         top(b"NPC_", &npcs),
-        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &no_travel_room))),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &rooms))),
         top(b"WRLD", &[wrld, world_children].concat()),
     ]
     .concat();
@@ -288,11 +293,17 @@ fn blocked_or_invalid_fast_travel_does_not_fire_event_or_increment_counter() {
     assert!(!g.fast_travel(FormId(PLAIN_MARKER)));
     q(&mut g, "EnableFastTravel 1");
 
-    // Cell flagged CantFastTravel: refused.
+    // An interior, and a worldspace flagged Can't Fast-Travel: refused.
     if let Ok(p) = g.world.get(FormId::PLAYER_REF) {
-        p.cell = Some(FormId(NO_TRAVEL_ROOM));
+        p.cell = Some(FormId(PLAIN_ROOM));
     }
     assert!(!g.fast_travel(FormId(PLAIN_MARKER)));
+    if let Ok(p) = g.world.get(FormId::PLAYER_REF) {
+        p.cell = Some(FormId(EXT));
+    }
+    q(&mut g, "SetWorldspaceFlag TestWorld 1 1");
+    assert!(!g.fast_travel(FormId(PLAIN_MARKER)));
+    q(&mut g, "SetWorldspaceFlag TestWorld 1 0");
 
     // None of the refused attempts fired the event or marked GetPCFastTravelled.
     assert_eq!(aux_size(&mut g, "*ft_b"), 0.0);
@@ -341,4 +352,58 @@ fn fast_travel_event_respects_newest_first_and_under_arity_skip() {
     assert_eq!(aux_size(&mut g, "*ord"), 2.0);
     assert_eq!((aux_flt(&mut g, "*ord", 0), aux_flt(&mut g, "*ord", 1)), (2.0, 1.0), "newest-first JIP handler order");
     assert_eq!(aux_size(&mut g, "*under"), 0.0, "0-parameter handler is skipped when event passes 1 argument");
+}
+
+/// #3434: an interior forbids fast travel, EnableFastTravel 1 or not [documented: GECK wiki
+/// EnableFastTravel]; CELL DATA bit 2 turns round what the cell's kind does [documented:
+/// GetCellFlag, "Invert Fast Travel Behavior"], as SetCellFlag leaves it too.
+#[test]
+fn an_interior_forbids_fast_travel_unless_its_cell_inverts_it() {
+    let f = fixture();
+    let mut g = game(&f);
+    let put = |g: &mut Game, cell: u32| g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(cell));
+    let can = |g: &mut Game| n(g, "GetPCCanFastTravel");
+    assert_eq!(can(&mut g), 1.0, "outdoors");
+    put(&mut g, PLAIN_ROOM);
+    assert_eq!(can(&mut g), 0.0, "an interior");
+    q(&mut g, "EnableFastTravel 1 1 1");
+    assert_eq!(can(&mut g), 0.0, "EnableFastTravel 1 does not lift it");
+    q(&mut g, "SetCellFlag PlainRoom 2 1");
+    assert_eq!(can(&mut g), 1.0, "the flag set by a script");
+    q(&mut g, "SetCellFlag PlainRoom 2 0");
+    q(&mut g, "SetCellFlag PlainRoom 7 1");
+    assert_eq!(can(&mut g), 1.0, "an interior that behaves like an exterior");
+    put(&mut g, INVERTED_ROOM);
+    assert_eq!(can(&mut g), 1.0, "the flag in the data");
+    q(&mut g, "EnableFastTravel 0");
+    assert_eq!(can(&mut g), 0.0, "a script's block still holds there");
+    q(&mut g, "EnableFastTravel 1");
+    put(&mut g, EXT);
+    assert_eq!(can(&mut g), 1.0);
+    q(&mut g, "SetCellFlag TestExterior 2 1");
+    assert_eq!(can(&mut g), 0.0, "the flag on an exterior forbids it");
+}
+
+/// The player's Fast Travel From Anywhere (bAllowUnsafeFastTravel) lifts the place's refusal
+/// for GetPCCanFastTravel and a scripted fast travel, as on the map; a script's block holds.
+#[test]
+fn the_unsafe_travel_tweak_lifts_the_place_for_scripts_too() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.set_found_markers([FormId(PLAIN_MARKER)]);
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(PLAIN_ROOM));
+    assert_eq!(n(&mut g, "GetPCCanFastTravel"), 0.0);
+    assert!(!g.fast_travel(FormId(PLAIN_MARKER)));
+    g.tweaks.unsafe_fast_travel = true;
+    assert_eq!(n(&mut g, "GetPCCanFastTravel"), 1.0);
+    q(&mut g, "EnableFastTravel 0");
+    assert!(!g.fast_travel(FormId(PLAIN_MARKER)), "a script's block holds");
+    q(&mut g, "EnableFastTravel 1");
+    assert!(g.fast_travel(FormId(PLAIN_MARKER)));
+    assert_eq!(n(&mut g, "GetPCFastTravelled"), 1.0);
+    // A worldspace flagged against it is a place too.
+    q(&mut g, "SetWorldspaceFlag TestWorld 1 1");
+    assert_eq!(n(&mut g, "GetPCCanFastTravel"), 1.0);
+    g.tweaks.unsafe_fast_travel = false;
+    assert_eq!(n(&mut g, "GetPCCanFastTravel"), 0.0);
 }

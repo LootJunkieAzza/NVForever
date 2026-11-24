@@ -87,6 +87,8 @@ fn infix(t: &XTok) -> Option<(u8, u8, Infix)> {
         "^=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Pow)),
         "|=" => (r(2).0, r(2).1, Infix::Assign(XAssign::BitOr)),
         "&=" => (r(2).0, r(2).1, Infix::Assign(XAssign::BitAnd)),
+        "<<=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Shl)),
+        ">>=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Shr)),
         "%=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Mod)),
         ":" => (l(3).0, l(3).1, Infix::Bin(XOp::Slice)),
         "::" => (l(3).0, l(3).1, Infix::Bin(XOp::Pair)),
@@ -626,6 +628,18 @@ impl Gen<'_> {
         f.opcode.is_none() && k == 3 && n.eq_ignore_ascii_case("setonplaygroupeventhandler")
     }
 
+    /// An extender function without an opcode whose parameter `k` the catalogue gives as
+    /// an actor value (`kind: "actor_value"`): a bare known actor-value name compiles to
+    /// its numeric code without an `unquoted_argument` warning [documented: GECK wiki
+    /// GetThresholdedActorValue (alias GetThresholdAV), GetActorValueModifier,
+    /// GetActorValueModifierAlt, GetBaseActorValueAlt, ModBaseActorValue,
+    /// SetEmbeddedWeaponAV, UnforceAV, UnsetAV, GetActorValueDamage, GetActorValueName].
+    fn actor_value_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(n) = &f.func else { return false };
+        f.opcode.is_none()
+            && self.table.unnumbered.get(&n.to_ascii_lowercase()).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "actor_value")
+    }
+
     /// The function's parameter `k` takes a form, or is named for a global (the base
     /// game's GetGlobalValue included).
     fn form_param(&self, f: &XFn, k: usize) -> bool {
@@ -806,6 +820,15 @@ impl Gen<'_> {
                             && self.xfunction(&t.text).is_none()
                             && self.enums.get("anim_group").is_some_and(|m| m.contains_key(&t.text.to_ascii_lowercase()))
                     }) => ParamEnc::Enum("anim_group".into()),
+                None if self.actor_value_param(f, args.len())
+                    && p.peek().is_some_and(|t| {
+                        t.kind == XKind::Word
+                            && !t.text.contains('.')
+                            && self.var(&t.text).is_none()
+                            && !self.form(&t.text).is_some_and(|fi| &fi.sig == b"GLOB")
+                            && self.xfunction(&t.text).is_none()
+                            && self.enums.get("actor_value").is_some_and(|m| m.contains_key(&t.text.to_ascii_lowercase()))
+                    }) => ParamEnc::Enum("actor_value".into()),
                 None => ParamEnc::Value,
             };
             // Inside an expression an NVSE-aware function's argument stops at a comparison

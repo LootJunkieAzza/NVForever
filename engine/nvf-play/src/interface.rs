@@ -566,18 +566,18 @@ fn decode_texture(bytes: &[u8], bc: bool, decode_dds: fn(&[u8], bool, bool) -> R
 /// A font's picture from its `.tex` file, read before the `.dds` (docs/spec-notes/fonts.md
 /// §2.2): a Russian install's fonts describe the letters of their `.tex`, while the `.dds`
 /// beside it is the English one [observed: #1439]; in an English install the two are the
-/// same picture. Only where the `.dds` is there too, so a font with a `.tex` alone (font 9)
-/// still draws nothing, as in the original (§3.1). None, with a warning for a broken file,
-/// when there is none.
+/// same picture; modded bitmap fonts often ship `.fnt` + `.tex`/`.Tex` without a sibling
+/// `.dds` [design]. None, with a warning for a broken file, when there is none.
 pub fn font_tex(font: &Font, data: &GameData) -> Option<fnv_font::Tex> {
-    if !data.vfs.exists(&font.texture_path()) {
-        return None;
-    }
     let path = font.tex_path();
     match fnv_font::Tex::parse(&data.read(&path)?) {
         Ok(t) => Some(t),
         Err(e) => {
-            warn!("interface: {path}: {e}; the .dds is drawn instead");
+            if data.vfs.exists(&font.texture_path()) {
+                warn!("interface: {path}: {e}; the .dds is drawn instead");
+            } else {
+                warn!("interface: {path}: {e}");
+            }
             None
         }
     }
@@ -648,9 +648,28 @@ fn font_file_in(path: &str, install: Option<&[Option<String>; 9]>) -> String {
     own.unwrap_or_else(|| path.to_string())
 }
 
+/// Font 9 (`FONT_FILES[8]`, `NVFont_Test`) is not loaded in the original game (fonts 1-8
+/// only [observed: hud_menus capture 2026-10-31, docs/spec-notes/fonts.md §3.1; sup6
+/// `LOADED_FONTS = 8`; `GetFontFile 9` returning `""`]). Keep it unloaded in the shared
+/// [`face`] loader so every caller (`tiles::draw::FontKit`, `credits::start`,
+/// `loading_look::fit_tip`, `wait`, etc.) keeps the vanilla stand-in consistently [design].
+fn is_unloaded_font(path: &str) -> bool {
+    path.len() == FONT_FILES[8].len()
+        && path.bytes().zip(FONT_FILES[8].bytes()).all(|(a, b)| {
+            let a = if a == b'/' { b'\\' } else { a.to_ascii_lowercase() };
+            a == b
+        })
+}
+
 /// The game's font at `path` (the install's own file for it: [`font_file`]), else `stand_in`.
 pub fn face(path: &str, stand_in: Font, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Face {
+    if is_unloaded_font(path) {
+        return Face { font: stand_in, image: None, vector: None };
+    }
     let path = &font_file(path);
+    if is_unloaded_font(path) {
+        return Face { font: stand_in, image: None, vector: None };
+    }
     let read = data.and_then(|d| {
         let font = match Font::parse(&d.read(path)?) {
             Ok(f) => f,
@@ -1151,6 +1170,10 @@ mod layout_tests;
 #[cfg(test)]
 #[path = "interface/bitmap_text_tests.rs"]
 mod bitmap_text_tests;
+
+#[cfg(test)]
+#[path = "interface/font_tex_tests.rs"]
+pub(crate) mod font_tex_tests;
 
 #[cfg(test)]
 #[path = "interface/tga_consumer_tests.rs"]

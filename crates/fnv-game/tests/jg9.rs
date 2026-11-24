@@ -225,3 +225,51 @@ fn markers_moves_and_told_values() {
     assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Neutral");
     assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Drifter");
 }
+
+#[test]
+fn ttw_ini_karma_titles_override_levels_1_through_50() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Without TTW.ini: vanilla titles unchanged (levels above 30 clamp to 30).
+    g.player.level = Some(1);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Drifter");
+    g.player.level = Some(45);
+    fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, fnv_game::actor_values::KARMA, -500.0).unwrap();
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Evil");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Devil");
+    g.player.level = Some(50);
+    fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, fnv_game::actor_values::KARMA, 800.0).unwrap();
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Very Good");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Messiah");
+
+    // Synthetic TTW.ini providing custom level 1..=50 karma titles.
+    let mut ini = String::from("[Karma Titles]\n");
+    for lvl in 1..=50 {
+        ini.push_str(&format!("sKarmicTitleGood{lvl}=TestGood{lvl}\n"));
+        ini.push_str(&format!("sKarmicTitleNeutral{lvl}=TestNeutral{lvl}\n"));
+        ini.push_str(&format!("sKarmicTitleEvil{lvl}=TestEvil{lvl}\n"));
+    }
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/TTW.ini", ini.as_bytes()));
+
+    // Good & Very Good
+    g.player.level = Some(50);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Very Good");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestGood50");
+    g.player.level = Some(1);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestGood1");
+
+    // Neutral
+    fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, fnv_game::actor_values::KARMA, 0.0).unwrap();
+    g.player.level = Some(35);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Neutral");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestNeutral35");
+
+    // Evil & Very Evil (and clamping above 50 to top defined tier 50)
+    fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, fnv_game::actor_values::KARMA, -900.0).unwrap();
+    g.player.level = Some(31);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Very Evil");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestEvil31");
+    g.player.level = Some(55);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestEvil50");
+}

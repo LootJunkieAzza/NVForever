@@ -3,10 +3,15 @@
 use crate::{expr, value::menu_class_name, xml, Source, Value};
 use std::collections::BTreeMap;
 
+/// Canonical vanilla path for `BookMenu` [documented: `menus\book_menu.xml`, audio.md].
+pub const CANONICAL_BOOK_MENU: &str = "menus\\book_menu.xml";
+const BOOK_MENU_KEY: &str = "bookmenu";
+
 #[derive(Default)]
 pub struct MenuIndex {
     files: BTreeMap<String, String>,
     classes: BTreeMap<String, String>,
+    variants: BTreeMap<String, Vec<String>>,
     pub warnings: Vec<String>,
 }
 
@@ -16,6 +21,7 @@ impl MenuIndex {
         let mut paths: Vec<_> = paths.into_iter().map(|p| p.replace('/', "\\").to_ascii_lowercase()).collect();
         paths.sort();
         paths.dedup();
+        let mut entries: Vec<(String, Option<String>, Option<String>)> = Vec::new();
         for path in paths {
             if !path.starts_with("menus\\") || !path.ends_with(".xml") || path.starts_with("menus\\prefabs\\") {
                 continue;
@@ -32,18 +38,57 @@ impl MenuIndex {
             });
             if let Some(menu) = menu {
                 // Only the menu's own class trait, never a child's or a template's [design].
-                if let Some(class) = menu.elements().filter(|e| e.is("class")).last() {
-                    if let Value::Sym(name) = expr::literal(&class.children, &|n| src.game_string(n)) {
-                        if let Some(old) = index.classes.insert(name.clone(), path.clone()) {
-                            index.warnings.push(format!("{path}: duplicate menu class {name}; replaces {old}"));
-                        }
+                let class = menu
+                    .elements()
+                    .filter(|e| e.is("class"))
+                    .last()
+                    .and_then(|c| match expr::literal(&c.children, &|n| src.game_string(n)) {
+                        Value::Sym(name) => Some(name),
+                        _ => None,
+                    });
+                let name = menu.attr("name").filter(|n| !n.is_empty()).map(str::to_owned);
+                entries.push((path, class, name));
+            }
+        }
+        // Book-display mods place alternate `<menu name="BookMenu"><class>&BookMenu;</class>`
+        // background XMLs directly under `menus\` beside vanilla `menus\book_menu.xml`. When
+        // the canonical file is present, keep it as the primary `BookMenu` entry and record
+        // the alternate layouts as variants without duplicate-menu warnings [design: menu-xml.md §12].
+        let has_canonical_book_class = entries
+            .iter()
+            .any(|(p, c, _)| p == CANONICAL_BOOK_MENU && c.as_deref() == Some(BOOK_MENU_KEY));
+        let has_canonical_book_name = entries
+            .iter()
+            .any(|(p, _, n)| p == CANONICAL_BOOK_MENU && n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(BOOK_MENU_KEY)));
+        let push_variant = |variants: &mut BTreeMap<String, Vec<String>>, key: &str, path: &str| {
+            let list = variants.entry(key.to_string()).or_default();
+            if !list.iter().any(|existing| existing == path) {
+                list.push(path.to_string());
+            }
+        };
+        for (path, class, name) in entries {
+            if let Some(class_name) = class {
+                if class_name == BOOK_MENU_KEY && has_canonical_book_class {
+                    if path == CANONICAL_BOOK_MENU {
+                        index.classes.insert(class_name, path.clone());
+                    } else {
+                        push_variant(&mut index.variants, BOOK_MENU_KEY, &path);
                     }
+                } else if let Some(old) = index.classes.insert(class_name.clone(), path.clone()) {
+                    index.warnings.push(format!("{path}: duplicate menu class {class_name}; replaces {old}"));
                 }
-                let Some(name) = menu.attr("name").filter(|n| !n.is_empty()) else { continue };
+            }
+            let Some(menu_name) = name else { continue };
+            let key = menu_name.to_ascii_lowercase();
+            if key == BOOK_MENU_KEY && has_canonical_book_name {
+                if path == CANONICAL_BOOK_MENU {
+                    index.files.insert(key, path);
+                } else {
+                    push_variant(&mut index.variants, BOOK_MENU_KEY, &path);
+                }
+            } else if let Some(old) = index.files.insert(key, path.clone()) {
                 // Later sorted paths win a duplicate name [design].
-                if let Some(old) = index.files.insert(name.to_ascii_lowercase(), path.clone()) {
-                    index.warnings.push(format!("{path}: duplicate menu {name}; replaces {old}"));
-                }
+                index.warnings.push(format!("{path}: duplicate menu {menu_name}; replaces {old}"));
             }
         }
         index
@@ -59,6 +104,12 @@ impl MenuIndex {
 
     pub fn code_path(&self, code: u16) -> Option<&str> {
         self.class_path(menu_class_name(code)?)
+    }
+
+    /// Alternate layout XML paths recorded beside a canonical menu file (such as
+    /// `BookMenu` background variants beside `menus\book_menu.xml`), in sorted order.
+    pub fn variants(&self, name: &str) -> &[String] {
+        self.variants.get(&name.to_ascii_lowercase()).map_or(&[], Vec::as_slice)
     }
 }
 
@@ -106,5 +157,65 @@ mod tests {
         assert_eq!(index.path("Strings"), None);
         assert_eq!(index.path("Outside"), None);
         assert!(index.warnings.is_empty());
+    }
+
+    #[test]
+    fn book_menu_variants_preserve_canonical_path_without_duplicate_warnings() {
+        let book = crate::value::menu_class_number("BookMenu").unwrap();
+        // Unmodded vanilla: single `menus/book_menu.xml`, zero variants and zero warnings.
+        let vanilla = MemSource::default().with("menus/book_menu.xml", r#"<menu name="BookMenu"><class>&BookMenu;</class></menu>"#);
+        let vanilla_idx = MenuIndex::build(&vanilla, vanilla.files.keys().cloned());
+        assert_eq!(vanilla_idx.path("BookMenu"), Some(CANONICAL_BOOK_MENU));
+        assert_eq!(vanilla_idx.class_path("BookMenu"), Some(CANONICAL_BOOK_MENU));
+        assert_eq!(vanilla_idx.code_path(book), Some(CANONICAL_BOOK_MENU));
+        assert!(vanilla_idx.variants("BookMenu").is_empty());
+        assert!(vanilla_idx.warnings.is_empty());
+
+        // Alternate `BookMenu` XMLs sorting both before (`alt_book.xml`) and after
+        // (`BookBackground1..4.xml`) `menus/book_menu.xml` keep canonical `book_menu.xml`
+        // as primary, record all variants in sorted order, and emit no duplicate warnings.
+        let modded = vanilla
+            .with("menus/alt_book.xml", r#"<menu name="BookMenu"><class>&BookMenu;</class></menu>"#)
+            .with("menus/BookBackground1.xml", r#"<menu name="BookMenu"><class>&BookMenu;</class></menu>"#)
+            .with("menus/BookBackground2.xml", r#"<menu name="BookMenu"><class>&BookMenu;</class></menu>"#)
+            .with("menus/BookBackground3.xml", r#"<menu name="BookMenu"><class>&BookMenu;</class></menu>"#)
+            .with("menus/BookBackground4.xml", r#"<menu name="BookMenu"><class>&BookMenu;</class></menu>"#);
+        let modded_idx = MenuIndex::build(&modded, modded.files.keys().cloned());
+        assert_eq!(modded_idx.path("BookMenu"), Some(CANONICAL_BOOK_MENU));
+        assert_eq!(modded_idx.class_path("BookMenu"), Some(CANONICAL_BOOK_MENU));
+        assert_eq!(modded_idx.code_path(book), Some(CANONICAL_BOOK_MENU));
+        assert_eq!(
+            modded_idx.variants("BOOKMENU"),
+            [
+                "menus\\alt_book.xml",
+                "menus\\bookbackground1.xml",
+                "menus\\bookbackground2.xml",
+                "menus\\bookbackground3.xml",
+                "menus\\bookbackground4.xml",
+            ]
+        );
+        assert!(modded_idx.warnings.is_empty(), "unexpected warnings: {:?}", modded_idx.warnings);
+
+        // Non-`BookMenu` duplicate classes/names keep the existing later-wins warning.
+        let dup_other = MemSource::default()
+            .with("menus/a_barter.xml", r#"<menu name="BarterMenu"><class>&BarterMenu;</class></menu>"#)
+            .with("menus/b_barter.xml", r#"<menu name="BarterMenu"><class>&BarterMenu;</class></menu>"#);
+        let dup_idx = MenuIndex::build(&dup_other, dup_other.files.keys().cloned());
+        assert_eq!(dup_idx.path("BarterMenu"), Some("menus\\b_barter.xml"));
+        assert_eq!(dup_idx.class_path("BarterMenu"), Some("menus\\b_barter.xml"));
+        assert_eq!(dup_idx.warnings.len(), 2);
+        assert!(dup_idx.warnings[0].contains("duplicate menu class bartermenu"));
+        assert!(dup_idx.warnings[1].contains("duplicate menu BarterMenu"));
+
+        // Without canonical `menus/book_menu.xml`, two colliding BookMenu XMLs keep the
+        // existing duplicate warning behavior.
+        let no_canonical = MemSource::default()
+            .with("menus/BookBackground1.xml", r#"<menu name="BookMenu"><class>&BookMenu;</class></menu>"#)
+            .with("menus/BookBackground2.xml", r#"<menu name="BookMenu"><class>&BookMenu;</class></menu>"#);
+        let no_can_idx = MenuIndex::build(&no_canonical, no_canonical.files.keys().cloned());
+        assert_eq!(no_can_idx.path("BookMenu"), Some("menus\\bookbackground2.xml"));
+        assert_eq!(no_can_idx.code_path(book), Some("menus\\bookbackground2.xml"));
+        assert!(no_can_idx.variants("BookMenu").is_empty());
+        assert_eq!(no_can_idx.warnings.len(), 2);
     }
 }

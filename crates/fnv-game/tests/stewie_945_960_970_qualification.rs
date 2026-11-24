@@ -358,8 +358,8 @@ fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
     assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 941.0);
 
     // Seed a conflicting INI file to prove live bound engine settings override stale INI
-    // for mapped keys while unmapped keys (bScaleCriticalDamage, bArmorConditionLabel)
-    // honestly retain INI fallback.
+    // for mapped keys (including bArmorConditionLabel) while unrepresented keys
+    // (bScaleCriticalDamage) honestly retain INI fallback.
     assert!(g.mod_files.write_bytes(
         "NVSE/Plugins/nvse_stewie_tweaks.ini",
         b"[Tweaks]\nbKeepPipboyLightOnCellChange=0\nbDisableStealthEffectInPipboy=0\nbIndividialItemStats=0\nbCritChanceIgnoresFireRate=0\nbScaleCriticalDamage=1\nbArmorConditionLabel=1\nbMenuSearch=1\n[Critical Hits]\nfCriticalDamageMult=2.5\n",
@@ -370,6 +370,7 @@ fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
         crit_ignores_fire_rate: true,
         crit_damage_scale: 1.75,
         menu_search: false,
+        armor_condition: false,
         ..Default::default()
     };
     g.bind_stewie_stat_settings(&bound);
@@ -380,10 +381,17 @@ fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bIndividialItemStats:Tweaks""#)), 1.0);
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bCritChanceIgnoresFireRate:Tweaks""#)), 1.0);
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "fCriticalDamageMult:Critical Hits""#)), 1.75);
-        // Documented INI-fallback keys (not fabricated by live consumer bindings):
+        assert_eq!(num(&mut g, &format!(r#"{fn_name} "bArmorConditionLabel:Tweaks""#)), 0.0);
+        // Documented INI-fallback key (no separate boolean enable switch in NVForever):
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bScaleCriticalDamage:Tweaks""#)), 1.0);
+    }
+
+    // Toggling bound armor_condition=true reflects live through both aliases.
+    g.bind_stewie_stat_settings(&Tweaks { armor_condition: true, ..bound.clone() });
+    for fn_name in ["StewVal", "StewieGetValue"] {
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bArmorConditionLabel:Tweaks""#)), 1.0);
     }
+    g.bind_stewie_stat_settings(&bound);
 
     // GetPipBoyMode live tracking: 0 closed -> 3 across Pip-Boy pages -> 0 closed / Barter.
     assert_eq!(num(&mut g, "GetPipBoyMode"), 0.0);

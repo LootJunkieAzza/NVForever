@@ -122,6 +122,13 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 ///   theirs (JIP 57.30 = 57.30, JohnnyGuitar 528 = 5.28, ShowOff 184 ≥ 1.83, kNVSE 37 ≥ 30).
 /// - SUP, JIP PP LN, AnhNVSE, NX and UIO at [`UNOBSERVED_VERSION`]: their pages name no
 ///   version and none was read in the original.
+/// - Improved Console (`"Improved Console"`) at `3.0` [documented: ext-version.md §2a
+///   registered name `"Improved Console"`; observed: Fallout: New Vegas 1.4.0.525 +
+///   xNVSE 6.4.9 + Improved Console v3 (10 official masters), `nvse.log` version `3`,
+///   `GetPluginVersion "Improved Console" == 3`]. It has no script functions of its own:
+///   NVForever provides persistent console locals (`int`/`float`/`ref`/`string_var`/
+///   `array_var`) and transparent expression/statement result printing directly in the
+///   interactive console (`docs/design/console.md`, `docs/spec-notes/ext-version.md` §5).
 ///
 /// UIO has no script functions: the engine reads its `uio\public` lists itself
 /// (`fnv_ui`), which is all the plugin does for a mod that asks whether it is there.
@@ -129,7 +136,7 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// functions are built, its menus are not, and a mod that finds it goes on to read its
 /// tiles), and the plugins whose registered name no page gives (ITR, One111, ppNVSE,
 /// vheyes-nvse and the smaller ones): ext-version.md §6.
-pub const PLUGINS: [(&str, f64); 15] = [
+pub const PLUGINS: [(&str, f64); 16] = [
     ("JIP NVSE Plugin", JIP_VERSION),
     ("JIP LN NVSE", JIP_VERSION),
     ("ShowOffNVSE Plugin", 184.0),
@@ -145,6 +152,7 @@ pub const PLUGINS: [(&str, f64); 15] = [
     ("AnhNVSE", UNOBSERVED_VERSION),
     ("Extensions for NVSE", UNOBSERVED_VERSION),
     ("UI Organizer Plugin", UNOBSERVED_VERSION),
+    ("Improved Console", 3.0),
 ];
 
 /// The version reported for a plugin the engine builds whose own number is neither
@@ -458,9 +466,7 @@ impl Vm<'_, '_> {
                 })))
             }
             // The current or last hit of the actor it is called on (task J7,
-            // jip-hit-info.md §1): nothing, 0 or no form without a hit. Not built yet:
-            // projectiles and explosions (GetHitProjectile gives none, flag 8 0), fatigue
-            // damage, the 3D data.
+            // jip-hit-info.md §1): 0, no form or an empty list array without a hit.
             "gethitattacker" | "gethitweapon" | "gethitprojectile" | "gethithealthdamage" | "gethitlimbdamage" | "gethitfatiguedamage" | "gethitbaseweapondamage" | "gethitextendedflag" | "gethit3ddata" => {
                 let who = match &c.on {
                     Some(e) => self.xeval(e)?.value()?.as_form(),
@@ -471,17 +477,23 @@ impl Vm<'_, '_> {
                 let what = match n {
                     "gethitattacker" => "attacker",
                     "gethitweapon" => "weapon",
+                    "gethitprojectile" => "projectile",
                     "gethithealthdamage" => "health",
                     "gethitlimbdamage" => "limb",
+                    "gethitfatiguedamage" => "fatigue",
+                    "gethitbaseweapondamage" => "base_weapon",
                     "gethitextendedflag" => "flag",
-                    "gethit3ddata" => return self.jlist(Vec::new()).map(Some),
-                    "gethitprojectile" => return Ok(Some(XVal::Ref(0))),
-                    _ => return Ok(Some(XVal::Num(0.0))),
+                    "gethit3ddata" => "3d",
+                    _ => unreachable!("routed by name"),
                 };
-                Ok(Some(self.host.hit_value(who, what, k).unwrap_or(match what {
-                    "attacker" | "weapon" => XVal::Ref(0),
+                if let Some(v) = self.host.hit_value(who, what, k) {
+                    return Ok(Some(v));
+                }
+                Ok(Some(match what {
+                    "attacker" | "weapon" | "projectile" => XVal::Ref(0),
+                    "3d" => self.jlist(Vec::new())?,
                     _ => XVal::Num(0.0),
-                })))
+                }))
             }
             // Names and text fields (jip-strings.md §3): a missing entry is "" [observed].
             "lngetname" => {
@@ -1232,4 +1244,158 @@ fn fast_atan2(y: f64, x: f64) -> f64 {
         a = -a;
     }
     f64::from(a).to_degrees()
+}
+
+#[cfg(test)]
+mod hit_info_tests {
+    use crate::compile::{compile, Env, FormInfo};
+    use crate::vm::{ArgValue, ArrayKind, ExtStore, Host, RunOpts, Value, VarKind, Vm, XKey, XVal};
+    use crate::{decode, FunctionTable, RefIndex, VarDecl, VarRef};
+    use std::collections::HashMap;
+
+    struct NoForms;
+    impl Env for NoForms {
+        fn form(&self, _: &str) -> Option<FormInfo> {
+            None
+        }
+        fn info(&self, _: u32) -> Option<FormInfo> {
+            None
+        }
+        fn editor_id(&self, _: u32) -> Option<String> {
+            None
+        }
+        fn local_form(&self, local: u32) -> Option<u32> {
+            Some(local)
+        }
+        fn script_vars(&self, _: u32) -> Option<Vec<VarDecl>> {
+            None
+        }
+    }
+
+    struct HitHost {
+        ext: ExtStore,
+        vars: HashMap<u16, Value>,
+        calling: Option<u32>,
+        populated: bool,
+    }
+
+    impl Host for HitHost {
+        fn var_kind(&mut self, _: &VarRef) -> VarKind {
+            VarKind::Value
+        }
+        fn ext(&mut self) -> Option<&mut ExtStore> {
+            Some(&mut self.ext)
+        }
+        fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
+            let crate::ir::VarSlot::Local { index, .. } = var.var else { return Ok(Value::Num(0.0)) };
+            Ok(self.vars.get(&index).copied().unwrap_or(Value::Num(0.0)))
+        }
+        fn set_var(&mut self, var: &VarRef, value: Value) -> Result<(), String> {
+            if let crate::ir::VarSlot::Local { index, .. } = var.var {
+                self.vars.insert(index, value);
+            }
+            Ok(())
+        }
+        fn ref_value(&mut self, _: RefIndex) -> Result<Value, String> {
+            Ok(Value::Ref(0))
+        }
+        fn call(&mut self, _: u16, _: Option<Value>, _: &[ArgValue]) -> Result<Value, String> {
+            Ok(Value::Num(0.0))
+        }
+        fn calling_ref(&mut self) -> Option<u32> {
+            self.calling
+        }
+        fn hit_value(&mut self, actor: u32, what: &str, k: i64) -> Option<XVal> {
+            if !self.populated || actor != 0x0000_0014 {
+                return None;
+            }
+            Some(match what {
+                "attacker" => XVal::Ref(0x0000_00AA),
+                "weapon" => XVal::Ref(0x0000_00BB),
+                "projectile" => XVal::Ref(0xFF00_00CC),
+                "health" => XVal::Num(42.0),
+                "limb" => XVal::Num(12.5),
+                "fatigue" => XVal::Num(250.0),
+                "base_weapon" => XVal::Num(35.0),
+                "flag" => XVal::Num(if k == 8 { 1.0 } else { 0.0 }),
+                "3d" => {
+                    let vals: &[f64] = match k {
+                        0 => &[10.0, 20.0, 30.0],
+                        1 => &[-5.0, 0.0, 90.0],
+                        2 => &[10.0, 20.0, 30.0, -5.0, 0.0, 90.0],
+                        _ => return None,
+                    };
+                    let entries = vals.iter().enumerate().map(|(i, &v)| (XKey::Num(i as f64), XVal::Num(v))).collect();
+                    XVal::Array(self.ext.new_array(ArrayKind::List, entries))
+                }
+                _ => return None,
+            })
+        }
+    }
+
+    fn run_block(host: &mut HitHost, decls: &str, body: &str) {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = FunctionTable::load(&p).expect("functions.json loads");
+        let src = format!("{decls}\nbegin GameMode\n{body}\nend\n");
+        let compiled = compile(&src, &table, &NoForms, None);
+        let errors: Vec<_> = compiled.errors().collect();
+        assert!(errors.is_empty(), "compile errors: {errors:?}");
+        let dec = decode(&compiled.bytes, &table);
+        assert!(dec.report.issues.is_empty(), "decode issues: {:?}", dec.report.issues);
+        host.vars.clear();
+        Vm::new(&table, host, RunOpts { strict: true, ..RunOpts::default() })
+            .run(&dec.program.blocks[0].body)
+            .expect("runs");
+    }
+
+    #[test]
+    fn hit_info_queries_route_to_host_and_fall_back_when_absent() {
+        let mut host = HitHost { ext: ExtStore::default(), vars: HashMap::new(), calling: Some(0x0000_0014), populated: false };
+        let decls = "ref rProj\nfloat fFat\nfloat fBase\nfloat fFlag8\nfloat fSz0\nfloat fSz1\nfloat fSz2\nfloat fSzBad\nfloat fP1\nfloat fA2\nfloat fB5";
+        let body = "\
+let rProj := GetHitProjectile
+let fFat := GetHitFatigueDamage
+let fBase := GetHitBaseWeaponDamage
+let fFlag8 := GetHitExtendedFlag 8
+let fSz0 := Ar_Size (GetHit3DData 0)
+let fSz1 := Ar_Size (GetHit3DData 1)
+let fSz2 := Ar_Size (GetHit3DData 2)
+let fSzBad := Ar_Size (GetHit3DData 9)";
+
+        // Absent hit -> null ref, 0.0, empty lists.
+        run_block(&mut host, decls, body);
+        assert_eq!(host.vars[&1], Value::Ref(0));
+        assert_eq!(host.vars[&2], Value::Num(0.0));
+        assert_eq!(host.vars[&3], Value::Num(0.0));
+        assert_eq!(host.vars[&4], Value::Num(0.0));
+        assert_eq!(host.vars[&5], Value::Num(0.0));
+        assert_eq!(host.vars[&6], Value::Num(0.0));
+        assert_eq!(host.vars[&7], Value::Num(0.0));
+        assert_eq!(host.vars[&8], Value::Num(0.0));
+
+        // Populated hit -> routed values from Host::hit_value.
+        host.populated = true;
+        let body_full = format!(
+            "{body}\nlet fP1 := (GetHit3DData 0)[1]\nlet fA2 := (GetHit3DData 1)[2]\nlet fB5 := (GetHit3DData 2)[5]"
+        );
+        run_block(&mut host, decls, &body_full);
+        assert_eq!(host.vars[&1], Value::Ref(0xFF00_00CC));
+        assert_eq!(host.vars[&2], Value::Num(250.0));
+        assert_eq!(host.vars[&3], Value::Num(35.0));
+        assert_eq!(host.vars[&4], Value::Num(1.0));
+        assert_eq!(host.vars[&5], Value::Num(3.0));
+        assert_eq!(host.vars[&6], Value::Num(3.0));
+        assert_eq!(host.vars[&7], Value::Num(6.0));
+        assert_eq!(host.vars[&8], Value::Num(0.0));
+        assert_eq!(host.vars[&9], Value::Num(20.0));
+        assert_eq!(host.vars[&10], Value::Num(90.0));
+        assert_eq!(host.vars[&11], Value::Num(90.0));
+
+        // Different calling ref receives absent defaults.
+        host.calling = Some(0x0000_0099);
+        run_block(&mut host, decls, body);
+        assert_eq!(host.vars[&1], Value::Ref(0));
+        assert_eq!(host.vars[&2], Value::Num(0.0));
+        assert_eq!(host.vars[&5], Value::Num(0.0));
+    }
 }

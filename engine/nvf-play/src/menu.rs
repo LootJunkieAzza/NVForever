@@ -469,6 +469,9 @@ pub(crate) fn open_menus(
             }
             let hidden = if matches!(m.mode, Mode::Inventory) { 0 } else { m.list(Side::Container).hidden };
             info!("menu: open {:?} \"{}\"{}", m.mode, m.title, if hidden > 0 { format!(" ({hidden} non-playable stacks hidden)") } else { String::new() });
+            if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                sync_ysi_model(&mut m, &mut rt.game);
+            }
             // Scripts run MenuMode 1008 / 1002 / 1053 from now on (layer5-play.md).
             crate::script::engine_menu_opened(script, m.mode);
             // The player's tweak: the world (and the player) runs on while the Pip-Boy comes
@@ -796,6 +799,14 @@ fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script:
     }
 }
 
+/// Attach resolved ySI sorting tags and row icons to `m` when ySI is active in `game`
+/// (zero-cost no-op in vanilla sessions without ySI) [design: `docs/spec-notes/ysi-filename.md`].
+fn sync_ysi_model(m: &mut MenuModel, game: &mut fnv_game::Game<'_>) {
+    if game.ysi_active() {
+        m.apply_ysi(|item| game.ysi_item_display(item));
+    }
+}
+
 /// Consume a pending script `RefreshItemsList` request (`fnv_game::nvse_jip3`) and rebuild
 /// any open item/recipe menu's rows without closing the menu or losing valid selection
 /// [documented: GECK wiki RefreshItemsList; design: docs/spec-notes/ext-menus.md].
@@ -812,6 +823,8 @@ pub(crate) fn sync_refresh_items_list(
     if let Some(m) = active.0.as_mut() {
         if let Err(e) = m.refresh(&mut sim.world) {
             warn!("menu: RefreshItemsList could not refresh active item list: {e}");
+        } else {
+            sync_ysi_model(m, &mut rt.game);
         }
     }
     if let Some(open) = recipe.as_deref_mut().and_then(|r| r.0.as_mut()) {
@@ -917,6 +930,8 @@ fn publish_jip_menus(mut active: ResMut<ActiveMenu>, script: Option<ResMut<crate
         }
         if let Err(e) = crate::script::with_world(rt, &mut sim, |rt| m.refresh(&mut rt.game.world)) {
             warn!("barter: the trade cannot be listed again: {e}");
+        } else {
+            sync_ysi_model(m, &mut rt.game);
         }
     }
 }
@@ -1011,6 +1026,27 @@ fn apply_input(
         let before = crate::ui_sounds::MenuBefore::of(m);
         let asking = m.quantity.is_some();
         let a = m.apply(&mut sim.world, cmd);
+        let refreshed_rows = a.changed
+            || matches!(
+                cmd,
+                Command::Category(..)
+                    | Command::SetCategory(..)
+                    | Command::SetSort(..)
+                    | Command::Back
+                    | Command::One
+                    | Command::Stack
+                    | Command::TakeAll
+                    | Command::StoreAll
+                    | Command::Drop
+                    | Command::DropStack
+                    | Command::Accept
+                    | Command::AmountOk
+            );
+        if refreshed_rows {
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                sync_ysi_model(m, &mut rt.game);
+            }
+        }
         held.0 |= m.quantity.is_some();
         if let (false, Some(q)) = (asking, m.quantity) {
             info!("menu: {cmd:?}: how many? ({} of {})", q.amount, q.max);

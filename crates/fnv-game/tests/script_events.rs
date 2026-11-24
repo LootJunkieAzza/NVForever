@@ -394,7 +394,7 @@ fn a_kill_finished_by_an_on_hit_script_is_the_attackers() {
     // ran the block is what killed.
     let f = fixture();
     let mut g = game(&f);
-    let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 0, critical: false, limb: None };
+    let info = HitInfo { attacker: Some(FormId::PLAYER_REF), location: 0, ..HitInfo::default() };
     let r = g.hit(FormId(HIT_REF), 1.0, info);
     assert!(r.died, "{r:?}");
     assert!(r.xp > 0.0, "{r:?}");
@@ -411,7 +411,7 @@ fn a_kill_finished_by_a_hits_script_effect_is_the_attackers() {
     assert_eq!(applied.len(), 1);
     assert!(fnv_game::functions::actor_value(&mut g, FormId(NPC_REF), HEALTH).unwrap() <= 0.0, "the effect took it");
     assert!(!g.is_dead(FormId(NPC_REF)), "the hit that follows decides");
-    let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 0, critical: false, limb: None };
+    let info = HitInfo { attacker: Some(FormId::PLAYER_REF), location: 0, ..HitInfo::default() };
     let r = g.hit(FormId(NPC_REF), 1.0, info);
     assert!(r.died, "{r:?}");
     assert!(r.xp > 0.0, "{r:?}");
@@ -445,7 +445,7 @@ fn an_actor_out_of_the_loaded_cells_runs_its_game_mode_when_processed() {
 fn a_harmless_hit_runs_on_hit_and_deals_no_damage() {
     let f = fixture();
     let mut g = game(&f);
-    let by = HitInfo { attacker: Some(FormId(NPC_REF)), weapon: None, location: -1, critical: false, limb: None };
+    let by = HitInfo { attacker: Some(FormId(NPC_REF)), location: -1, ..HitInfo::default() };
     let health = |g: &mut Game, r: u32| fnv_game::functions::actor_value(g, FormId(r), HEALTH).unwrap();
     // No OnHit block: nothing runs and its Health stays.
     let before = health(&mut g, NPC_REF);
@@ -466,7 +466,7 @@ fn ask(g: &mut Game, on: u32, opcode: u16) -> f64 {
 fn a_hit_finished_by_its_on_hit_script_is_the_killing_hit() {
     let f = fixture();
     let mut g = game(&f);
-    let r = g.hit(FormId(HIT_REF), 1.0, HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 3, critical: false, limb: None });
+    let r = g.hit(FormId(HIT_REF), 1.0, HitInfo { attacker: Some(FormId::PLAYER_REF), location: 3, ..HitInfo::default() });
     assert!(r.died, "{r:?}");
     assert_eq!(ask(&mut g, HIT_REF, GET_KILLING_BLOW_LIMB), 3.0);
     assert_eq!(ask(&mut g, HIT_REF, GET_CAUSE_OF_DEATH), 4.0, "no weapon");
@@ -480,7 +480,7 @@ fn a_hit_finished_by_its_script_effect_is_the_killing_hit() {
     g.apply_hit_effect(FormId(NPC_REF), FormId(HURTING), Some(FormId::PLAYER_REF));
     assert!(fnv_game::functions::actor_value(&mut g, FormId(NPC_REF), HEALTH).unwrap() <= 0.0, "the effect took it");
     assert!(!g.is_dead(FormId(NPC_REF)), "the hit that follows decides");
-    let r = g.hit(FormId(NPC_REF), 1.0, HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 3, critical: false, limb: None });
+    let r = g.hit(FormId(NPC_REF), 1.0, HitInfo { attacker: Some(FormId::PLAYER_REF), location: 3, ..HitInfo::default() });
     assert!(r.died, "{r:?}");
     assert_eq!(ask(&mut g, NPC_REF, GET_KILLING_BLOW_LIMB), 3.0);
 }
@@ -490,7 +490,7 @@ fn a_kill_actor_in_an_on_hit_block_is_no_killing_hit() {
     // A hit is running but did not kill: running is no proof of what killed.
     let f = fixture();
     let mut g = game(&f);
-    let r = g.hit(FormId(KILL_ON_HIT_REF), 1.0, HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 3, critical: false, limb: None });
+    let r = g.hit(FormId(KILL_ON_HIT_REF), 1.0, HitInfo { attacker: Some(FormId::PLAYER_REF), location: 3, ..HitInfo::default() });
     assert!(!r.died && g.is_dead(FormId(KILL_ON_HIT_REF)), "{r:?}");
     assert_eq!(ask(&mut g, KILL_ON_HIT_REF, GET_KILLING_BLOW_LIMB), -1.0);
     assert_eq!(ask(&mut g, KILL_ON_HIT_REF, GET_CAUSE_OF_DEATH), -1.0);

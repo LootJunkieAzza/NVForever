@@ -181,6 +181,10 @@ pub(crate) struct Props {
     /// An actor's part whose material carries an NiAlphaController for the actor's
     /// clips to drive ([`shape_alpha_mode`], [`material_alpha_controlled`]).
     pub(crate) alpha_gated: bool,
+    /// BSShaderFlags bit 3 "Vertex_Alpha" itself, without Dynamic_Alpha's part in
+    /// [`uses_vertex_alpha`], on an unlit shape without a NiAlphaProperty, some stored
+    /// vertex alpha of which is below 1 ([`fades_by_vertex_alpha`]).
+    vertex_faded: bool,
     /// The caller keeps the shape off authored sets (#2981): particle systems, object LOD
     /// (`crate::authored::shape_eligible`).
     pub(crate) no_authored: bool,
@@ -442,6 +446,8 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         let flags = s.int("shader_flags").unwrap_or(0);
         p.specular = flags & 1 != 0;
         p.vertex_alpha = uses_vertex_alpha(ty, flags);
+        // The flag's part; `shape_props` asks the rest of the shape.
+        p.vertex_faded = flags & (1 << 3) != 0;
         p.dynamic_alpha = ty == "BSShaderNoLightingProperty" && flags & (1 << 19) != 0;
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
@@ -588,15 +594,45 @@ pub(crate) const LOD_BUILDING_CUT: f32 = 128.5 / 255.0;
 /// Lost. Drawn opaque whatever the alpha, Yes Man's face covered House's before Yes Man
 /// was uploaded (#1542). Hypothesis: the original skips geometry at material alpha 0 and
 /// draws the rest by depth, as the clips' alphas of 0 and 1 suggest; blending is not
-/// needed for them]. Everything else without the property is opaque.
+/// needed for them]. An unlit shape whose only picture is its vertex alpha ([`fades_by_vertex_alpha`]:
+/// the cone of light at the end of Lonesome Road's silo lift, #3443) is blended by it.
+/// Everything else without the property is opaque.
 pub(crate) fn shape_alpha_mode(props: &Props) -> AlphaMode {
     match props.alpha {
         Some((flags, threshold)) => alpha_mode(flags, threshold),
         None if props.lod_building => AlphaMode::Mask(LOD_BUILDING_CUT),
         None if props.unlit && props.dynamic_alpha && props.animated_alpha => AlphaMode::Blend,
         None if props.unlit && props.dynamic_alpha && props.alpha_gated => AlphaMode::Mask(0.5),
+        None if fades_by_vertex_alpha(props) => AlphaMode::Blend,
         None => AlphaMode::Opaque,
     }
+}
+
+/// Whether a shape is an unlit one whose only picture is its vertex alpha: a
+/// BSShaderNoLightingProperty that names no texture and sets bit 3 "Vertex_Alpha"
+/// (Dynamic_Alpha alone, which also takes the vertex alpha, [`uses_vertex_alpha`], is not
+/// asked for: no shape without texture and NiAlphaProperty has it alone), no
+/// NiAlphaProperty, and some stored vertex alpha below 1. It is blended SRC_ALPHA /
+/// INV_SRC_ALPHA ([`shape_alpha_mode`]) [hypothesis: no frame of the original was compared,
+/// observer check 286; docs/spec-notes/nif.md §6 "Unlit shapes faded by vertex alpha
+/// alone"]. 21 shapes of the base game's and the add-ons' archives are such:
+/// dark patches under gurneys and at tunnel mouths, fog shells, two small orange shapes of
+/// static collections, the silo lift's cone. 1,507 others have the same shader, no texture
+/// and an alpha below 1 and do store the property, 1,458 of them with this blend. The cone,
+/// `Object03:0` of `nvdlc04_silo-elevator-shaft06.nif`, is stored a second time in the
+/// unsplit `nvdlc04_silo-elevator-shaft.nif`: the same vertices, colours, strips, material
+/// and shader, and a NiAlphaProperty 0x10ED [observed, decoded from the archives]. Drawn
+/// opaque it was a flat white cone (player report R-F8KPPE34, #3443).
+pub(crate) fn fades_by_vertex_alpha(props: &Props) -> bool {
+    props.alpha.is_none() && props.unlit && props.vertex_faded && props.textures.iter().all(|t| t.is_empty())
+}
+
+/// Whether a shape's stored vertex colours hold an alpha below 1 (cleaned as they are
+/// drawn, [`clean_vertex_color`]).
+fn vertex_alpha_below_one(dec: &Decoded, shape: usize) -> bool {
+    let data = dec.blocks.get(shape).and_then(|b| b.as_ref().ok()).and_then(|s| s.block_ref("data")).and_then(|r| dec.get(r));
+    let colours = data.and_then(|d| d.floats("vertex_colors"));
+    colours.is_some_and(|f| f.as_chunks::<4>().0.iter().any(|c| clean_vertex_color(*c, true)[3] < 1.0))
 }
 
 /// Whether the NiMaterialProperty that shape block `shape` lists carries an
@@ -661,6 +697,7 @@ pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_blo
             }
         }
     }
+    props.vertex_faded = props.vertex_faded && props.unlit && props.alpha.is_none() && vertex_alpha_below_one(dec, o.block);
     props
 }
 
@@ -1062,6 +1099,16 @@ pub fn blend_opaque_summary() -> String {
     format!("blended shapes drawn opaque: {n} material builds (alpha 1 everywhere: opaque texture, material alpha 1, no vertex alpha){}", if first.is_empty() { String::new() } else { format!("; first textures: {first}") })
 }
 
+/// How many materials were blended by their vertex alpha alone this run
+/// ([`fades_by_vertex_alpha`]; the exit's summary line).
+static VERTEX_ALPHA_BLENDED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The exit's line: how many materials [`fades_by_vertex_alpha`] had blended.
+pub fn vertex_alpha_blended_summary() -> String {
+    let n = VERTEX_ALPHA_BLENDED.load(std::sync::atomic::Ordering::Relaxed);
+    format!("unlit shapes blended by their vertex alpha alone: {n} material builds (no NiAlphaProperty, no texture)")
+}
+
 /// The material for a shape's properties; also returns the base texture path when it
 /// could not be loaded. Adds tangents to `mesh` when a normal map is used.
 pub(crate) fn shape_material(
@@ -1120,6 +1167,9 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
     let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
+    if matches!(alpha_mode, AlphaMode::Blend) && fades_by_vertex_alpha(props) {
+        VERTEX_ALPHA_BLENDED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     // A blended shape that nothing can thin is drawn opaque (#3230).
     let alpha_mode = if blend_is_opaque(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_opaque(t))) {
         note_blend_drawn_opaque(props.textures.first().map_or("", String::as_str));
@@ -2519,6 +2569,122 @@ mod tests {
         assert!(!shaded);
         assert_eq!(shapes["Shape01:0"], (false, true));
         assert_eq!(shapes["Capsule01:0"], (false, true));
+    }
+
+    /// BSShaderNoLightingProperty: SHADER_NOLIGHTING, these shader flags, this file name,
+    /// the default falloff.
+    fn unlit_shader(flags: u32, texture: &str) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        out.extend(1u16.to_le_bytes());
+        words(&mut out, &[33, flags, 1]);
+        floats(&mut out, &[1.0]);
+        words(&mut out, &[3, texture.len() as u32]);
+        out.extend(texture.as_bytes());
+        floats(&mut out, &[1.0, 0.0, 1.0, 0.0]);
+        out
+    }
+
+    /// NiMaterialProperty: black specular, emissive white × 3, alpha 1.
+    fn white_material() -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        floats(&mut out, &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 10.0, 1.0, 3.0]);
+        out
+    }
+
+    /// NiAlphaProperty with these flags, threshold 0.
+    fn alpha_block(flags: u16) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        out.extend(flags.to_le_bytes());
+        out.push(0);
+        out
+    }
+
+    /// [`square`] at height 0 with white vertex colours of these alphas.
+    fn faded_square(alphas: [f32; 4]) -> Vec<u8> {
+        let mut out = square(0.0);
+        // The vertex colour switch follows the group id, vertex count, three bytes, four
+        // positions, the UV count, the normals switch and the bounding sphere.
+        let at = 4 + 2 + 3 + 48 + 2 + 1 + 16;
+        assert_eq!(out[at], 0);
+        out[at] = 1;
+        let mut colours = vec![];
+        for a in alphas {
+            floats(&mut colours, &[1.0, 1.0, 1.0, a]);
+        }
+        out.splice(at + 1..at + 1, colours);
+        out
+    }
+
+    /// The properties and material of the one shape of a synthetic model: an unlit shader
+    /// with these flags and file name, emissive white × 3, these vertex alphas, and a
+    /// NiAlphaProperty with these flags if any.
+    fn faded_model(flags: u32, texture: &str, alphas: [f32; 4], alpha: Option<u16>) -> (Props, NifMaterial) {
+        let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+        let properties: &[u32] = if alpha.is_some() { &[2, 3, 5] } else { &[2, 3] };
+        let mut blocks = vec![
+            ("BSFadeNode", node(0, &[1])),
+            ("NiTriStrips", strips(1, properties, 4)),
+            ("NiMaterialProperty", white_material()),
+            ("BSShaderNoLightingProperty", unlit_shader(flags, texture)),
+            ("NiTriStripsData", faded_square(alphas)),
+        ];
+        blocks.extend(alpha.map(|a| ("NiAlphaProperty", alpha_block(a))));
+        let bytes = nif(&blocks, &["Shaft", "Shaft:0"]);
+        let file = NifFile::parse(&bytes, Some(&schema)).unwrap();
+        let dec = Decoded::new(&file, &bytes, &schema);
+        assert!(dec.blocks.iter().all(|b| b.is_ok()), "the fixture decodes");
+        let objects = scene_objects(&file, &dec);
+        let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+        let shape = objects.iter().find(|o| !o.is_node).expect("the shape");
+        let props = shape_props(&file, &dec, shape, &by_block);
+        let (mut mesh, ..) = build_mesh(dec.get(4).unwrap()).unwrap();
+        let material = shape_material_with(&props, &mut mesh, &mut AllTextures, Tangents::Generate).0;
+        (props, material)
+    }
+
+    /// #3443: the cone of light at the end of Lonesome Road's silo lift. An unlit shape
+    /// with Vertex_Alpha and the falloff bit, no file name, no NiAlphaProperty and an alpha
+    /// that falls across its vertices is blended, as the same shape with the property is;
+    /// anything else without the property stays opaque. Fixtures written for the test.
+    #[test]
+    fn an_unlit_shape_whose_only_picture_is_its_vertex_alpha_is_blended() {
+        const CONE: u32 = 0x8200_0048;
+        let fading = [1.0, 0.1, 0.0, 0.15];
+        let (props, cone) = faded_model(CONE, "", fading, None);
+        assert!(props.alpha.is_none());
+        assert_eq!(shape_alpha_mode(&props), AlphaMode::Blend);
+        assert_eq!(cone.base.alpha_mode, AlphaMode::Blend);
+        // Blended it is no picture: its light is the stored multiplier's, and its edges
+        // fall off by the view angle, as the same shape's with the property.
+        let (_, twin) = faded_model(CONE, "", fading, Some(0x10ED));
+        assert_eq!(twin.base.alpha_mode, AlphaMode::Blend);
+        assert_eq!(cone.base.emissive, LinearRgba::rgb(3.0, 3.0, 3.0));
+        assert_eq!(cone.base.emissive, twin.base.emissive);
+        assert_eq!(cone.extension.falloff, twin.extension.falloff);
+        assert!(cone.extension.falloff != Vec4::ZERO);
+        // The falloff bit is not asked for: some of the dark patches set Vertex_Alpha
+        // without it, with and without the decal bits.
+        for flags in [0x8200_0008, 0x8E00_0008, 0x8E00_0048] {
+            assert_eq!(faded_model(flags, "", fading, None).1.base.alpha_mode, AlphaMode::Blend, "{flags:#x}");
+        }
+        // No Vertex_Alpha, no alpha below 1, or a texture: a picture, opaque as before.
+        assert_eq!(faded_model(0x8200_0040, "", fading, None).1.base.alpha_mode, AlphaMode::Opaque);
+        // Dynamic_Alpha alone takes the vertex alpha, and is not the flag this rule asks for;
+        // with Vertex_Alpha beside it (a fog shell) it does not stand in the way.
+        let (dynamic, opaque) = faded_model(0x8208_0000, "", [0.5; 4], None);
+        assert!(dynamic.vertex_alpha && dynamic.dynamic_alpha);
+        assert_eq!(opaque.base.alpha_mode, AlphaMode::Opaque);
+        assert_eq!(faded_model(0x8208_0008, "", [0.5; 4], None).1.base.alpha_mode, AlphaMode::Blend);
+        assert_eq!(faded_model(CONE, "", [1.0; 4], None).1.base.alpha_mode, AlphaMode::Opaque);
+        assert_eq!(faded_model(CONE, "map.dds", fading, None).1.base.alpha_mode, AlphaMode::Opaque);
+        // Where there is a property its own flags decide.
+        assert_eq!(faded_model(CONE, "", fading, Some(0x100D)).1.base.alpha_mode, AlphaMode::Add);
+        assert_eq!(faded_model(CONE, "", fading, Some(0)).1.base.alpha_mode, AlphaMode::Opaque);
+        // A lit shape has no such rule.
+        assert_eq!(shape_alpha_mode(&Props { unlit: false, ..props }), AlphaMode::Opaque);
     }
 
     #[test]

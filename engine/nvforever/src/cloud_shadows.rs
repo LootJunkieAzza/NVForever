@@ -365,7 +365,20 @@ pub struct LayerInput {
 /// The textured layers the dome draws, weighted as sky.rs `update_clouds` weights its two
 /// sets: the current weather at `fade` and the previous at `1 - fade` while a fade runs,
 /// the current alone at 1 otherwise. `drawn`: the layers the dome has a shape for.
+#[cfg(test)]
 pub fn active_layers(current: &Weather, prev: Option<&Weather>, fade: f32, drawn: [bool; 4]) -> Vec<LayerInput> {
+    active_layers_with(current, prev, fade, drawn, |w, layer| f64::from(w.cloud_scroll(layer)))
+}
+
+/// [`active_layers`] with a caller-supplied per-layer scroll rate (so `CloudUpgrade.ini`
+/// modulation stays in sync with the sky dome's clouds when active).
+pub fn active_layers_with(
+    current: &Weather,
+    prev: Option<&Weather>,
+    fade: f32,
+    drawn: [bool; 4],
+    scroll_of: impl Fn(&Weather, usize) -> f64,
+) -> Vec<LayerInput> {
     let fade = fade.clamp(0.0, 1.0);
     let sets: [(Option<&Weather>, f32); 2] = match prev {
         None => [(Some(current), 1.0), (None, 0.0)],
@@ -379,7 +392,7 @@ pub fn active_layers(current: &Weather, prev: Option<&Weather>, fade: f32, drawn
         }
         for (layer, on) in drawn.iter().enumerate() {
             let Some(texture) = w.cloud_textures[layer].as_ref().filter(|_| *on) else { continue };
-            out.push(LayerInput { texture: texture.clone(), weight, scroll: f64::from(w.cloud_scroll(layer)) });
+            out.push(LayerInput { texture: texture.clone(), weight, scroll: scroll_of(w, layer) });
         }
     }
     out
@@ -903,7 +916,7 @@ pub fn produce_cloud_shadows(
             *d = true;
         }
     }
-    let layers = active_layers(&sky.weather, sky.prev.as_ref(), sky.fade, drawn);
+    let layers = active_layers_with(&sky.weather, sky.prev.as_ref(), sky.fade, drawn, |w, layer| f64::from(sky.cloud_scroll(w, layer)));
     if layers.is_empty() {
         work.go_off("no cloud layers", false, &mut published, &mut images);
         return;

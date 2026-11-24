@@ -28,7 +28,7 @@ use crate::terrain::TerrainMaterial;
 use crate::world::{bevy_to_game, game_to_bevy, Streamer, WorldData};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::{visibility::RenderLayers, Hdr, RenderTarget, ScalingMode};
-use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::image::ImageSampler;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
@@ -1821,7 +1821,9 @@ pub fn update_cache(
             Camera3d::default(), bevy::render::view::NoIndirectDrawing,
             BakeView { receipt, height: height.clone(), resources_ready: default(), transfers, expected, complete: default(), drawn: default(), submitted: cache.submitted.clone() },
             Camera { order: -10, is_active, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
-            target, Hdr, Tonemapping::None, Msaa::Off,
+            // [design] Unlit surface-bake target: no dither, which Bevy warns of beside
+            // `Tonemapping::None` every frame it sees the camera (#2757).
+            target, Hdr, Tonemapping::None, DebandDither::Disabled, Msaa::Off,
             Projection::Orthographic(OrthographicProjection {
                 scaling_mode: ScalingMode::Fixed { width: 12288.0, height: 12288.0 },
                 near: 0.0, far: 200.0, ..OrthographicProjection::default_3d()
@@ -3888,5 +3890,31 @@ pub(crate) mod tests {
                 assert_eq!((d.tint.len(), d.normal.len()), (QUAD_SIDE * QUAD_SIDE, QUAD_SIDE * QUAD_SIDE));
             }
         }
+    }
+
+    /// [design] #2757: the bake camera renders an unlit RGBA16F atlas with `Tonemapping::None`
+    /// and must attach `DebandDither::Disabled` in both active-bake and copy-only configurations
+    /// so Bevy does not emit a per-frame warning.
+    #[test]
+    fn bake_camera_disables_deband_dither_beside_tonemapping_none() {
+        let (mut app, _files) = cache_fixture();
+        move_camera(&mut app, (1, 0));
+        tick(&mut app);
+        let mut cameras = app.world_mut().query_filtered::<(&Tonemapping, &DebandDither, &Msaa), With<BakeView>>();
+        let (tonemapping, dither, msaa) = cameras.single(app.world()).unwrap();
+        assert_eq!((*tonemapping, *dither, *msaa), (Tonemapping::None, DebandDither::Disabled, Msaa::Off));
+
+        let (mut app, _files) = cache_fixture();
+        for y in -1..=1 {
+            let entity = app.world().resource::<Streamer>().loaded[&(2, y)];
+            let mut cell = app.world_mut().get_mut::<SurfaceCell>(entity).unwrap();
+            cell.quadrants.clear();
+            cell.paths = [CapturePath::HeightOnly("missing-base-mesh"); 4];
+        }
+        move_camera(&mut app, (1, 0));
+        tick(&mut app);
+        let mut cameras = app.world_mut().query_filtered::<(&Tonemapping, &DebandDither, &Msaa), With<BakeView>>();
+        let (tonemapping, dither, msaa) = cameras.single(app.world()).unwrap();
+        assert_eq!((*tonemapping, *dither, *msaa), (Tonemapping::None, DebandDither::Disabled, Msaa::Off));
     }
 }

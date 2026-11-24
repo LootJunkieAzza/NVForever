@@ -116,7 +116,7 @@ fn activator_gets_always_hit_harmless_shots_and_shooter_filtered_on_hit() {
     assert_eq!(shots.len(), 3);
     let mut script = world.resource_mut::<ScriptState>();
     let g = &mut script.rt.as_mut().unwrap().game;
-    let info = |attacker| HitInfo { attacker: Some(attacker), weapon: Some(GUN), location: -1, critical: false, limb: None };
+    let info = |attacker| HitInfo { attacker: Some(attacker), weapon: Some(GUN), location: -1, ..HitInfo::default() };
     assert!(!g.harmless_hit(TARGET, info(FormId::PLAYER_REF)), "the OnHit block filters the shooter");
     for shot in shots {
         assert!(shot.harmless);
