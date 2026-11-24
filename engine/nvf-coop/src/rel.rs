@@ -18,8 +18,9 @@ use std::time::{Duration, Instant};
 pub const RESEND: Duration = Duration::from_millis(150);
 /// The most one item takes.
 pub const ITEM_MAX: usize = 1100;
-/// The most item bytes one packet carries.
-pub const PACKET_BUDGET: usize = 1150;
+/// The most item bytes one packet carries: 1150 before the Noise layer, less its 34 bytes
+/// (`crate::noise::OVERHEAD`) and some, so a sealed packet stays near 1200 bytes.
+pub const PACKET_BUDGET: usize = 1110;
 /// An acknowledgement alone goes at most this often when there is nothing to send.
 pub const ACK_EVERY: Duration = Duration::from_millis(30);
 

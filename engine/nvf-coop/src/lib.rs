@@ -5,6 +5,7 @@
 
 pub mod code;
 pub mod net;
+pub mod noise;
 pub mod reach;
 pub mod rel;
 pub mod repl;

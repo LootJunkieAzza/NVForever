@@ -141,9 +141,10 @@
 //!
 //! **Dropouts.** A player whose link goes quiet stays where it was last seen, frozen,
 //! while the link reconnects (net.rs); only a player who quit or stayed away past
-//! `net::GRACE` is removed. A guest's token is kept in [`TOKEN_ENV`] and in its home, so
-//! the game a load restarts (main.rs `restart_args`), or one started again after a
-//! crash, comes back as the same player.
+//! `net::GRACE` is removed. A game's co-op key pair ([`identity`]) is kept in its home
+//! ([`KEY_FILE`]), so the game a load restarts (main.rs `restart_args`), or one started
+//! again after a crash, comes back as the same player: the host knows a guest by its key
+//! (`nvf_coop::noise`).
 
 use crate::actors::ActorWorld;
 use crate::attack_anims::{Move, PlayAttack, Power, SwingPick};
@@ -223,10 +224,12 @@ pub const FRIENDLY_FIRE_ENV: &str = "NVF_COOP_FRIENDLY_FIRE";
 const ALONE_NEAR: f32 = 8192.0;
 /// A puppet holds its aim this long after an attack, aimed or not (seconds).
 const AIM_AFTER_ATTACK: f32 = 1.5;
-/// Where a guest keeps its token across the restarts loads cause.
-pub const TOKEN_ENV: &str = "NVF_COOP_TOKEN";
-/// ... and in this file in its home, across games started by hand.
-const TOKEN_FILE: &str = "coop-token.txt";
+/// The file in a game's home that keeps its co-op key pair (`nvf_coop::noise::Identity`):
+/// the private key, then the public key, in hex.
+const KEY_FILE: &str = "coop-identity.key";
+/// The key pair across the restarts loads cause when the home cannot keep it (the file
+/// could not be written); split screen's player 2 never inherits it.
+pub const KEY_ENV: &str = "NVF_COOP_KEY";
 /// A host's lobby across the restarts loads cause: its port, and its code.
 pub const HOST_ENV: &str = "NVF_COOP_HOST";
 pub const CODE_ENV: &str = "NVF_COOP_CODE";
@@ -473,10 +476,11 @@ fn host_session(port: u16, local: bool) -> Option<Link> {
             // For this PC only (split screen): no Steam either.
             Ok(s) if local => {
                 info!("co-op: hosting on UDP port {port}, this PC only (127.0.0.1, split screen): no router port, no Steam");
-                return Some(Link::new(s));
+                return Some(Link::new(s.with_identity(identity())));
             }
             Ok(s) => {
-                info!("co-op: hosting on UDP port {port}");
+                let s = s.with_identity(identity());
+                info!("co-op: hosting on UDP port {port} (encrypted; this game's key {})", s.identity().fingerprint());
                 return Some(Link::new(with_steam(s)));
             }
             Err(e) if attempt == 39 => error!("co-op: cannot host on UDP port {port}: {e}"),
@@ -496,32 +500,43 @@ fn guest_session(at: &str, name: &str) -> Result<Link, String> {
     if candidates.is_empty() {
         return Err("That is not a lobby code: check it with the host.".into());
     }
-    // The token is kept in the home too, so a game started again by hand (after a crash)
-    // is the same player to the host, not a second one beside its frozen self.
-    let file = fnv_install::EngineHome::default_root().map(|h| h.join(TOKEN_FILE));
-    let parse = |t: &str| u64::from_str_radix(t.trim(), 16).ok();
-    let token = std::env::var(TOKEN_ENV)
-        .ok()
-        .and_then(|t| parse(&t))
-        .or_else(|| file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| parse(&t)))
-        .unwrap_or_else(net::new_token);
-    // Inherited by the game a load restarts.
-    std::env::set_var(TOKEN_ENV, format!("{token:016x}"));
-    if let Some(f) = file {
-        if let Err(e) = std::fs::create_dir_all(f.parent().unwrap_or(&f)).and_then(|()| std::fs::write(&f, format!("{token:016x}\n"))) {
-            warn!("co-op: cannot keep the session token in {}: {e}", f.display());
-        }
-    }
     if steam_code(at) && steam::steam().is_none() {
         warn!("co-op: {at} is a Steam code and Steam is not running: only a host on this network can answer");
     }
-    match Session::join(&candidates, key, name, token) {
+    match Session::join(&candidates, key, name) {
         Ok(s) => {
-            info!("co-op: joining {candidates:?} as {name}");
+            let s = s.with_identity(identity());
+            info!("co-op: joining {candidates:?} as {name} (encrypted; this game's key {})", s.identity().fingerprint());
             Ok(Link::new(with_steam(s)))
         }
         Err(e) => Err(format!("Cannot open a connection: {e}")),
     }
+}
+
+/// This game's co-op key pair: the one its home keeps ([`KEY_FILE`]), else the one a run
+/// before handed on ([`KEY_ENV`]), else a new one, kept in the home (or, when the home
+/// cannot keep it, handed on to the game a load restarts).
+fn identity() -> nvf_coop::noise::Identity {
+    use nvf_coop::noise::Identity;
+    let file = fnv_install::EngineHome::default_root().map(|h| h.join(KEY_FILE));
+    if let Some(id) = file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| Identity::from_text(&t)) {
+        return id;
+    }
+    let id = std::env::var(KEY_ENV).ok().and_then(|t| Identity::from_text(&t)).unwrap_or_else(Identity::generate);
+    let kept = file.as_ref().is_some_and(|f| match std::fs::create_dir_all(f.parent().unwrap_or(f)).and_then(|()| std::fs::write(f, format!("{}
+", id.to_text()))) {
+        Ok(()) => true,
+        Err(e) => {
+            warn!("co-op: cannot keep this game's key in {}: {e}", f.display());
+            false
+        }
+    });
+    if kept {
+        std::env::remove_var(KEY_ENV);
+    } else {
+        std::env::set_var(KEY_ENV, id.to_text());
+    }
+    id
 }
 
 /// A session that also talks over Steam when this game has it.
@@ -1102,8 +1117,8 @@ fn lobby(
             }
             LobbyRequest::Load { path, name } => {
                 let Some(code) = coop.join_code.clone().filter(|_| coop.is_guest()) else { continue };
-                // The game the load starts joins the same host, as the same player (the
-                // token is in TOKEN_ENV); this one leaves without a goodbye, so the host
+                // The game the load starts joins the same host, as the same player (its key
+                // is in the home, `identity`); this one leaves without a goodbye, so the host
                 // keeps its place.
                 std::env::set_var(JOIN_ENV, &code);
                 // A first join: the new run holds the syncing screen (item 186).

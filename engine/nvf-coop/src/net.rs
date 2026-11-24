@@ -7,11 +7,16 @@
 //! [`SEND_HZ`] times a second, and the host passes every guest's state on to the other
 //! guests along with its own (peer 0). Nothing here knows about Bevy.
 //!
+//! **Encrypted.** Every packet between two games goes through a Noise session
+//! ([`crate::noise`]): a guest's first packets to an address are a handshake, and nothing
+//! that does not decrypt on a session is taken. A player is its key: the host knows a guest
+//! by the public key its session proved, not by anything the guest says.
+//!
 //! **Dropouts are not disconnects.** A peer that goes quiet for [`LOST_AFTER`] is only
 //! *lost*: its slot, id and player stay, and it is dropped only after [`GRACE`]. A guest
-//! that stops hearing the host keeps sending Hello with its session token, and the host
-//! gives a known token its old id back, from whatever address it now comes from (a
-//! Wi-Fi blip, a router that changed the port). Only a deliberate Bye drops a peer at once.
+//! that stops hearing the host starts a new session and keeps sending Hello, and the host
+//! gives a known key its old id back, from whatever address it now comes from (a Wi-Fi
+//! blip, a router that changed the port). Only a deliberate Bye drops a peer at once.
 //!
 //! **The host runs the world.** The host's NPCs are the only ones that think: it sends
 //! each one it draws ([`NpcState`]) [`NPC_HZ`] times a second, and the guests draw
@@ -71,6 +76,7 @@ use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6, UdpSocket};
 
 use crate::rel::{Frame, Reliable};
 use crate::repl::ActorPose;
+use crate::noise::{Identity, Opened, Secure};
 use crate::steam::Steam;
 use crate::transport::{Scope, Transport};
 use crate::story::{self, StoryEntry, StoryPager, StoryValue};
@@ -96,14 +102,18 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// 133 was also the co-op flashlight branch's number on its own, and 136 the ship that carried
 /// it. 137 (the 0.8.1 co-op ship, 2026-11-23): split screen and shared progression without
 /// the co-op flashlight's light state, so neither a flashlight game nor 136 joins it. Message
-/// kinds in use: 1-27, 30, 31, each once; `Progress` tags 0-11.
-pub const VERSION: u8 = 137;
+/// kinds in use: 1-27, 30, 31, each once; `Progress` tags 0-11. 138: every packet in a Noise
+/// session ([`crate::noise`], kinds 0xE0-0xE4), and Hello without its token (the key is the
+/// player). Message kinds in use: 1-27, 30, 31; 0xE0-0xE4 are the session layer's.
+pub const VERSION: u8 = 138;
 pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
 pub const LOST_AFTER: Duration = Duration::from_secs(4);
 /// A lost peer that has not come back after this long is dropped, and a guest stops trying.
 pub const GRACE: Duration = Duration::from_secs(120);
+/// How often a host answers data for a session it does not have, per address.
+const HINT_EVERY: Duration = Duration::from_millis(500);
 /// How often a guest sends Hello while it has no answer.
 const HELLO_EVERY: Duration = Duration::from_millis(500);
 /// The network thread's tick.
@@ -461,7 +471,7 @@ impl AnimWire {
 enum Msg {
     /// `lobby` is the code's [`crate::code::Lobby::key`] (0 for a guest that came by
     /// address): a host answers only its own, as a guest asks its whole network.
-    Hello { token: u64, lobby: u32, name: String },
+    Hello { lobby: u32, name: String },
     Welcome { id: u8 },
     Full,
     /// The host does not know the sender: say Hello again.
@@ -816,9 +826,10 @@ pub struct Traffic {
 /// A peer as one side sees it.
 struct Peer {
     id: u8,
-    /// The host's record of a guest: its address and token. Unused for a guest's peers.
+    /// The host's record of a guest: its address and the public key its session proved.
+    /// Unused for a guest's peers.
     addr: Option<SocketAddr>,
-    token: u64,
+    key: [u8; 32],
     last_heard: Instant,
     last_seq: Option<u32>,
     lost: bool,
@@ -835,7 +846,7 @@ struct Peer {
 
 impl Peer {
     fn new(id: u8, now: Instant) -> Self {
-        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None, name: String::new(), hits: VecDeque::new(), rel: Reliable::new(), epoch: 0 }
+        Self { id, addr: None, key: [0; 32], last_heard: now, last_seq: None, lost: false, look: None, name: String::new(), hits: VecDeque::new(), rel: Reliable::new(), epoch: 0 }
     }
 
     /// Keep `look`; whether it is new.
@@ -856,7 +867,6 @@ enum Role {
         /// address it has, and that one is `host`.
         candidates: Vec<SocketAddr>,
         host: Option<SocketAddr>,
-        token: u64,
         lobby: u32,
         name: String,
         id: Option<u8>,
@@ -883,6 +893,11 @@ struct Paged {
 pub struct Session {
     /// The sockets, and Steam for peers with a stand-in address ([`Session::over_steam`]).
     net: Transport,
+    /// The Noise sessions with the peers: every packet is sealed and opened here.
+    secure: RefCell<Secure>,
+    /// When the host last answered an unknown session from each address (once a
+    /// [`HINT_EVERY`]).
+    hinted: HashMap<SocketAddr, Instant>,
     role: Role,
     /// The host's guests, or the other peers a guest has heard of (the host among them).
     peers: Vec<Peer>,
@@ -1004,17 +1019,13 @@ impl Session {
         }
         let here = |a: Option<SocketAddr>| a.is_some_and(|a| a.ip().is_loopback());
         let away: Vec<(u8, SocketAddr)> = self.peers.iter().filter(|p| !here(p.addr)).filter_map(|p| Some((p.id, p.addr?))).collect();
-        let host_bye = encode(&Msg::Bye { id: 0 });
         for i in 0..BYE_COPIES {
             if i > 0 {
                 std::thread::sleep(BYE_GAP);
             }
             for (_, addr) in &away {
-                match relay_index(*addr) {
-                    // A game behind a guest on another PC: through that guest (`sock_send`).
-                    Some(_) => self.sock_send(&Msg::Bye { id: 0 }, *addr),
-                    None => self.net.send(&host_bye, *addr),
-                }
+                // A game behind a guest on another PC goes through that guest (`sock_send`).
+                self.sock_send(&Msg::Bye { id: 0 }, *addr);
             }
         }
         let mut dropped = Vec::new();
@@ -1086,13 +1097,12 @@ impl Session {
     }
 
     /// Join the host at the first of `candidates` that answers; `lobby` is the code's key
-    /// (0 for none), `name` is shown to the others. `token` names this guest to the host
-    /// across dropouts and restarts ([`new_token`] for a new one).
-    pub fn join(candidates: &[SocketAddr], lobby: u32, name: &str, token: u64) -> std::io::Result<Self> {
+    /// (0 for none), `name` is shown to the others. The session's key ([`Session::with_identity`];
+    /// a new one otherwise) names this guest to the host across dropouts and restarts.
+    pub fn join(candidates: &[SocketAddr], lobby: u32, name: &str) -> std::io::Result<Self> {
         let role = Role::Guest {
             candidates: candidates.to_vec(),
             host: None,
-            token,
             lobby,
             name: truncate(name),
             id: None,
@@ -1109,7 +1119,11 @@ impl Session {
     }
 
     fn with(net: Transport, role: Role) -> std::io::Result<Self> {
-        Ok(Self { net, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None })
+        let mut secure = Secure::new(Identity::generate());
+        if let Role::Guest { lobby, .. } = &role {
+            secure.set_lobby(Some(*lobby));
+        }
+        Ok(Self { net, secure: RefCell::new(secure), hinted: HashMap::new(), role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -1117,6 +1131,18 @@ impl Session {
     pub fn over_steam(mut self, steam: &'static Steam) -> Self {
         self.net.set_steam(Some(steam));
         self
+    }
+
+    /// This game's key pair from now on (the one kept in its home), in place of the new one
+    /// a session starts with: a guest's key is the player the host knows again.
+    pub fn with_identity(self, me: Identity) -> Self {
+        self.secure.borrow_mut().set_identity(me);
+        self
+    }
+
+    /// This game's key pair.
+    pub fn identity(&self) -> Identity {
+        self.secure.borrow().identity().clone()
     }
 
     /// The host's NPCs as it draws them now; [`Session::tick`] sends them at [`NPC_HZ`].
@@ -1414,6 +1440,7 @@ impl Session {
     /// (or with none) are answered.
     pub fn set_lobby(&mut self, key: u32) {
         self.lobby = Some(key);
+        self.secure.get_mut().set_lobby(Some(key));
     }
 
     pub fn is_host(&self) -> bool {
@@ -1501,7 +1528,10 @@ impl Session {
         self.receive(now);
         self.relay_up(now);
         self.check_peers(now);
-        if let Role::Guest { candidates, host, token, lobby, name, id, last_heard, last_hello, host_lost, asked, gone } = &mut self.role {
+        self.secure.get_mut().prune(now);
+        let mut hello_to: Vec<SocketAddr> = Vec::new();
+        let mut hello = None;
+        if let Role::Guest { candidates, host, lobby, name, id, last_heard, last_hello, host_lost, asked, gone } = &mut self.role {
             if *gone {
                 return;
             }
@@ -1509,6 +1539,10 @@ impl Session {
             if id.is_some() && !*host_lost && silent >= LOST_AFTER {
                 *host_lost = true;
                 self.events.push(Event::HostLost);
+                // The host may have dropped the session (or started again): a new one.
+                if let Some(h) = host {
+                    self.secure.get_mut().forget(*h);
+                }
             }
             if silent >= GRACE {
                 *gone = true;
@@ -1520,12 +1554,21 @@ impl Session {
             // the host may have dropped this address, or restarted and forgotten everyone.
             if (id.is_none() || *host_lost || *asked) && last_hello.is_none_or(|t| now - t >= HELLO_EVERY) {
                 *asked = false;
-                let hello = encode(&Msg::Hello { token: *token, lobby: *lobby, name: name.clone() });
-                // Until one answers, every address the code gave; then that one.
-                for to in host.iter().chain(candidates.iter().filter(|_| host.is_none())) {
-                    self.net.send(&hello, *to);
-                }
+                hello = Some(Msg::Hello { lobby: *lobby, name: name.clone() });
+                // Until one answers, every address the code gave (once a session is made
+                // with one, that one); then the host.
+                let made = self.secure.get_mut().session_addrs();
+                hello_to = match host {
+                    Some(h) => vec![*h],
+                    None if !made.is_empty() => made,
+                    None => candidates.clone(),
+                };
                 *last_hello = Some(now);
+            }
+        }
+        if let Some(hello) = hello {
+            for to in hello_to {
+                self.hello_to(&hello, to, now);
             }
         }
         let due = self.last_send.is_none_or(|t| now - t >= Duration::from_secs(1) / SEND_HZ);
@@ -1689,18 +1732,39 @@ impl Session {
         }
     }
 
+    /// `msg` to `to`, sealed on its session; dropped when there is none (a guest's Hello
+    /// makes one first: [`Session::hello_to`]).
     fn sock_send(&self, msg: &Msg, to: SocketAddr) {
         let bytes = encode(msg);
+        let Some(packets) = self.secure.borrow_mut().seal(to, &bytes) else { return };
+        for p in packets {
+            self.route(p, to);
+        }
+    }
+
+    /// A packet of the session layer to `to`: a game behind a guest gets it wrapped, to
+    /// that guest, the way any message to it goes (sealed on that guest's session, over UDP
+    /// or Steam); anyone else straight.
+    fn route(&self, bytes: Vec<u8>, to: SocketAddr) {
         *self.sent.borrow_mut().entry(to).or_default() += bytes.len() as u64 + crate::transport::overhead(to);
         match relay_index(to) {
-            // A game behind a guest: wrapped, to that guest, the way any packet to it goes
-            // (UDP or Steam).
             Some(i) => {
                 if let Some(&(via, sub)) = self.relays.get(i) {
-                    self.net.send(&encode(&Msg::Relayed { sub, bytes }), via);
+                    self.sock_send(&Msg::Relayed { sub, bytes }, via);
                 }
             }
             None => self.net.send(&bytes, to),
+        }
+    }
+
+    /// A guest's Hello to `to`: sealed when there is a session there, else the handshake's
+    /// first message (the Hello follows when the session is made).
+    fn hello_to(&self, hello: &Msg, to: SocketAddr, now: Instant) {
+        if self.secure.borrow().has_session(to) {
+            self.sock_send(hello, to);
+        } else {
+            let m1 = self.secure.borrow_mut().initiate(to, now);
+            self.route(m1, to);
         }
     }
 
@@ -1773,7 +1837,7 @@ impl Session {
                 self.relays.len() - 1
             }
         };
-        self.handle(bytes, relay_addr(i), now);
+        self.wire_in(bytes, relay_addr(i), now);
     }
 
     /// The host: the guests behind guest `via` (it left), dropped with it.
@@ -1790,12 +1854,54 @@ impl Session {
         let mut got = Vec::new();
         self.net.recv(|bytes, from| got.push((bytes.to_vec(), from)));
         for (bytes, from) in got {
-            self.handle(&bytes, from, now);
+            *self.heard.entry(from).or_default() += bytes.len() as u64 + crate::transport::overhead(from);
+            self.wire_in(&bytes, from, now);
+        }
+    }
+
+    /// A packet from `from` (a game behind a guest: its stand-in address), opened on its
+    /// session.
+    fn wire_in(&mut self, bytes: &[u8], from: SocketAddr, now: Instant) {
+        let opened = self.secure.get_mut().open(bytes, from, now);
+        match opened {
+            Opened::Message { bytes, from } => self.handle(&bytes, from, now),
+            Opened::Handshake { send, made } => {
+                for (to, p) in send {
+                    self.route(p, to);
+                }
+                // A guest with a session at last: its Hello at once, there.
+                if let (Some(at), Role::Guest { host: None, lobby, name, .. }) = (made, &self.role) {
+                    let hello = Msg::Hello { lobby: *lobby, name: name.clone() };
+                    self.sock_send(&hello, at);
+                }
+            }
+            Opened::UnknownSession { from } => {
+                if self.is_host() && self.hinted.get(&from).is_none_or(|t| now.duration_since(*t) >= HINT_EVERY) {
+                    self.hinted.insert(from, now);
+                    self.route(Secure::unknown_session(), from);
+                }
+            }
+            Opened::ResetHint { from } => {
+                let quiet = !self.secure.get_mut().heard_within(from, now, crate::noise::QUIET);
+                if let Role::Guest { host: Some(h), last_hello, gone: false, .. } = &mut self.role {
+                    if *h == from && quiet {
+                        self.secure.get_mut().forget(from);
+                        *last_hello = None;
+                    }
+                }
+            }
+            Opened::Dropped => {
+                // A game behind a guest hears its host leave from that guest, which cannot
+                // seal for the host: a plain Bye from the host's address, on this PC only.
+                let plain_bye = matches!(decode(bytes), Some(Msg::Bye { id: 0 }));
+                if plain_bye && from.ip().is_loopback() && matches!(&self.role, Role::Guest { host: Some(h), .. } if *h == from) {
+                    self.handle(bytes, from, now);
+                }
+            }
         }
     }
 
     fn handle(&mut self, bytes: &[u8], from: SocketAddr, now: Instant) {
-        *self.heard.entry(from).or_default() += bytes.len() as u64 + crate::transport::overhead(from);
         let msg = match decode(bytes) {
             Some(Msg::Relayed { sub, bytes }) => {
                 if self.is_host() {
@@ -1818,13 +1924,15 @@ impl Session {
 
     fn host_handle(&mut self, msg: Msg, from: SocketAddr, now: Instant) {
         match msg {
-            Msg::Hello { token, lobby, name } => {
+            Msg::Hello { lobby, name } => {
                 // Another lobby's guest asking around its network.
                 if lobby != 0 && self.lobby.is_some_and(|k| k != lobby) {
                     return;
                 }
-                // A known token is a guest coming back, from wherever it now is.
-                if let Some(p) = self.peers.iter_mut().find(|p| p.token == token) {
+                // The guest is the key its session proved, whatever it says.
+                let Some(key) = self.secure.get_mut().remote_key(from) else { return };
+                // A known key is a guest coming back, from wherever it now is.
+                if let Some(p) = self.peers.iter_mut().find(|p| p.key == key) {
                     p.addr = Some(from);
                     p.last_heard = now;
                     // A game started again counts its states from the start.
@@ -1852,11 +1960,11 @@ impl Session {
                 // A stream number unlike a guest's last one in this slot, and unlike the
                 // one a host game before this one gave it (a guest coming back to a host
                 // started again kept that one: queue item 201).
-                let epoch = ((token as u16) ^ (new_token() as u16)) | 1;
+                let epoch = (u16::from_le_bytes([key[0], key[1]]) ^ (new_token() as u16)) | 1;
                 // A new guest in a slot an earlier one had counts from 1 too.
                 self.progress.forget(id);
                 self.anims.forget(id);
-                self.peers.push(Peer { addr: Some(from), token, name: truncate(&name), epoch, ..Peer::new(id, now) });
+                self.peers.push(Peer { addr: Some(from), key, name: truncate(&name), epoch, ..Peer::new(id, now) });
                 self.last_names = None;
                 self.sock_send(&Msg::Welcome { id }, from);
                 self.events.push(Event::Joined { id, name });
@@ -2557,9 +2665,8 @@ fn encode(msg: &Msg) -> Vec<u8> {
     b.extend_from_slice(&MAGIC);
     b.push(VERSION);
     match msg {
-        Msg::Hello { token, lobby, name } => {
+        Msg::Hello { lobby, name } => {
             b.push(1);
-            b.extend_from_slice(&token.to_le_bytes());
             b.extend_from_slice(&lobby.to_le_bytes());
             b.push(name.len() as u8);
             b.extend_from_slice(name.as_bytes());
@@ -2984,13 +3091,12 @@ fn decode(b: &[u8]) -> Option<Msg> {
     let mut r = Reader(rest);
     let msg = match kind {
         1 => {
-            let token = r.u64()?;
             let lobby = r.u32()?;
             let len = r.u8()? as usize;
             if len > NAME_MAX {
                 return None;
             }
-            Msg::Hello { token, lobby, name: String::from_utf8_lossy(r.take(len)?).into_owned() }
+            Msg::Hello { lobby, name: String::from_utf8_lossy(r.take(len)?).into_owned() }
         }
         2 => Msg::Welcome { id: r.u8()? },
         30 => {
@@ -3351,7 +3457,7 @@ mod tests {
     #[test]
     fn messages_round_trip() {
         for msg in [
-            Msg::Hello { token: 0xDEAD_BEEF_0123, lobby: 0x1234_5678, name: "Courier".into() },
+            Msg::Hello { lobby: 0x1234_5678, name: "Courier".into() },
             Msg::Welcome { id: 2 },
             Msg::Names { names: vec![(0, "Alpha".into()), (2, "Bravo".into()), (3, String::new())] },
             Msg::Full,
@@ -3366,7 +3472,7 @@ mod tests {
             Msg::Level(LevelView { level: 20, xp: 23_900 }),
             Msg::Level(LevelView { level: u16::MAX, xp: u32::MAX }),
             Msg::Level(LevelView::default()),
-            Msg::Relayed { sub: 2, bytes: encode(&Msg::Hello { token: 7, lobby: 0, name: "Player 2".into() }) },
+            Msg::Relayed { sub: 2, bytes: encode(&Msg::Hello { lobby: 0, name: "Player 2".into() }) },
             Msg::Relayed { sub: 0, bytes: Vec::new() },
             Msg::Scene(SceneView::default()),
             Msg::Scene(SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x0001_5D2B, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)], swaps: vec![(0x0101_38B2, "nvdlc01_intromovie00:0".into(), "textures/nvdlc01/slide03.dds".into())], waiting: None }),
@@ -3482,7 +3588,7 @@ mod tests {
         let port = host.local_addr().unwrap().port();
         assert!(host.local_addr().unwrap().ip().is_loopback());
         let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-        let mut p2 = Session::join(&[addr], 0, "Player 2", new_token()).unwrap();
+        let mut p2 = Session::join(&[addr], 0, "Player 2").unwrap();
         assert!(p2.local_addr().unwrap().ip().is_loopback(), "a guest of this PC binds the loopback too");
         let (mut clock, step) = (Instant::now(), Duration::from_millis(20));
         p2.set_state(state(1.0));
@@ -3521,7 +3627,7 @@ mod tests {
         assert_eq!(p1.open_relay(0).unwrap(), relay, "open once");
         assert_eq!(p1.relay_port(), Some(relay));
         assert!(host.open_relay(0).is_err(), "a host takes its own guests");
-        let mut p2 = Session::join(&[SocketAddr::from(([127, 0, 0, 1], relay))], 0, "Player 2", new_token()).unwrap();
+        let mut p2 = Session::join(&[SocketAddr::from(([127, 0, 0, 1], relay))], 0, "Player 2").unwrap();
         p2.set_state(state(5.0));
         let level = LevelView { level: 20, xp: 23_900 };
         host.set_level(level);
@@ -3551,19 +3657,19 @@ mod tests {
         let host = Session::host(0).unwrap();
         let at = SocketAddr::from(([127, 0, 0, 1], host.local_addr().unwrap().port()));
         let mut host = host;
-        let token = new_token();
-        let mut p1 = Session::join(&[at], 0, "Player B", token).unwrap();
+        let me = Identity::generate();
+        let mut p1 = Session::join(&[at], 0, "Player B").unwrap().with_identity(me.clone());
         let (mut clock, step) = (Instant::now(), Duration::from_millis(20));
         p1.set_state(state(1.0));
         let relay = p1.open_relay(0).unwrap();
-        let mut p2 = Session::join(&[SocketAddr::from(([127, 0, 0, 1], relay))], 0, "Player 2", new_token()).unwrap();
+        let mut p2 = Session::join(&[SocketAddr::from(([127, 0, 0, 1], relay))], 0, "Player 2").unwrap();
         p2.set_state(state(5.0));
         run(&mut [&mut host, &mut p1, &mut p2], &mut clock, step, |seen| seen[2].contains(&Event::Welcomed(2)));
         // The load's restart: the old run ends at once (no goodbye), and the new run cannot
         // have the old port (held here), so it relays on another.
         drop(p1);
         let held = UdpSocket::bind(("127.0.0.1", relay)).ok();
-        let mut p1 = Session::join(&[at], 0, "Player B", token).unwrap();
+        let mut p1 = Session::join(&[at], 0, "Player B").unwrap().with_identity(me);
         p1.set_state(state(1.0));
         let moved = p1.open_relay(relay).or_else(|_| p1.open_relay(0)).unwrap();
         assert!(held.is_none() || moved != relay);
@@ -3589,7 +3695,7 @@ mod tests {
             run(&mut all, &mut clock, step, |seen| seen.iter().skip(1).all(|s| s.iter().any(|e| matches!(e, Event::Welcomed(_)))));
         }
         let relay = guests[0].open_relay(0).unwrap();
-        let mut p2 = Session::join(&[SocketAddr::from(([127, 0, 0, 1], relay))], 0, "Player 2", new_token()).unwrap();
+        let mut p2 = Session::join(&[SocketAddr::from(([127, 0, 0, 1], relay))], 0, "Player 2").unwrap();
         let mut all: Vec<&mut Session> = std::iter::once(&mut host).chain(guests.iter_mut()).chain(std::iter::once(&mut p2)).collect();
         let seen = run(&mut all, &mut clock, step, |seen| seen[MAX_GUESTS + 1].contains(&Event::Refused));
         assert!(!seen[MAX_GUESTS + 1].iter().any(|e| matches!(e, Event::Welcomed(_))));
@@ -3614,7 +3720,7 @@ mod tests {
         let now = Instant::now();
         host.peers.push(Peer { addr: Some(steam_guest), ..Peer::new(1, now) });
         host.peers.push(Peer { addr: Some(udp_guest), ..Peer::new(2, now) });
-        let hello = encode(&Msg::Hello { token: 9, lobby: 0, name: "Player 2".into() });
+        let hello = encode(&Msg::Hello { lobby: 0, name: "Player 2".into() });
         host.relayed_up(0, &hello, steam_guest, now);
         host.relayed_up(0, &hello, udp_guest, now);
         host.relayed_up(1, &hello, relay_addr(0), now);
@@ -3622,8 +3728,9 @@ mod tests {
         host.relayed_up(0, &hello, unknown, now);
         assert_eq!(host.relays, vec![(steam_guest, 0), (udp_guest, 0)], "known guests only, no relay in a relay");
         assert_eq!(crate::steam::peer(host.relays[0].0), Some(crate::steam::steam_id(12_345)), "sent over Steam (Transport::send)");
-        // The first Hello got an id and a place; the second, the same token, took it over.
-        assert_eq!(host.peers.iter().filter(|p| p.addr.and_then(relay_index).is_some()).count(), 1);
+        // A plain Hello inside is not sealed on a session with the game behind: it joins
+        // nobody (the games behind guests join through real sessions in the tests below).
+        assert_eq!(host.peers.iter().filter(|p| p.addr.and_then(relay_index).is_some()).count(), 0);
         host.drop_relayed_via(udp_guest);
         assert!(host.peers.iter().all(|p| p.addr.and_then(relay_index).is_none()));
     }
@@ -3649,8 +3756,48 @@ mod tests {
     fn host_and(n: usize) -> (Session, Vec<Session>, SocketAddr) {
         let host = Session::host(0).unwrap();
         let addr: SocketAddr = format!("127.0.0.1:{}", host.local_addr().unwrap().port()).parse().unwrap();
-        let guests = (0..n).map(|i| Session::join(&[addr], 0, &format!("G{i}"), new_token()).unwrap()).collect();
+        let guests = (0..n).map(|i| Session::join(&[addr], 0, &format!("G{i}")).unwrap()).collect();
         (host, guests, addr)
+    }
+
+    /// Phase 2 of docs/design/coop-networking.md: a game that sends plain messages (the
+    /// protocol before Noise, or anyone forging them) is never taken: no slot, no state.
+    #[test]
+    fn plain_messages_join_nobody() {
+        let (mut host, _, addr) = host_and(0);
+        let sock = UdpSocket::bind(("127.0.0.1", 0)).unwrap();
+        sock.send_to(&encode(&Msg::Hello { lobby: 0, name: "Forger".into() }), addr).unwrap();
+        sock.send_to(&encode(&Msg::State { id: 1, seq: 1, state: state(1.0) }), addr).unwrap();
+        let mut clock = Instant::now();
+        let mut seen = Vec::new();
+        for _ in 0..50 {
+            clock += Duration::from_millis(10);
+            host.tick(clock);
+            seen.extend(host.take_events());
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(host.peers.is_empty(), "{seen:?}");
+        assert!(!seen.iter().any(|e| matches!(e, Event::Joined { .. } | Event::State { .. })), "{seen:?}");
+    }
+
+    /// The host knows a guest by its key: another game with its own key gets its own slot,
+    /// whatever name it gives, and the same key from a new socket gets the old slot.
+    #[test]
+    fn a_slot_belongs_to_a_key() {
+        let (mut host, _, addr) = host_and(0);
+        let me = Identity::generate();
+        let mut a = Session::join(&[addr], 0, "Courier").unwrap().with_identity(me.clone());
+        let mut b = Session::join(&[addr], 0, "Courier").unwrap();
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let (ida, idb) = (a.id().unwrap(), b.id().unwrap());
+        assert_ne!(ida, idb, "two keys, two players");
+        drop(a);
+        let mut again = Session::join(&[addr], 0, "Someone else").unwrap().with_identity(me);
+        run(&mut [&mut host, &mut again], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        assert_eq!(again.id(), Some(ida), "the same key, the same slot");
+        assert_eq!(host.peers.len(), 2);
     }
 
     /// Replication's streams (docs/design/coop-replication.md): the host's reliable items
@@ -3987,7 +4134,7 @@ mod tests {
         let mut mine = Session::host(0).unwrap();
         mine.set_lobby(9);
         let at = |s: &Session| -> SocketAddr { format!("127.0.0.1:{}", s.local_addr().unwrap().port()).parse().unwrap() };
-        let mut a = Session::join(&[at(&other), at(&mine)], 9, "A", new_token()).unwrap();
+        let mut a = Session::join(&[at(&other), at(&mine)], 9, "A").unwrap();
         let mut clock = Instant::now();
         run(&mut [&mut other, &mut mine, &mut a], &mut clock, Duration::from_millis(10), |seen| seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
         let Role::Guest { host: chosen, .. } = &a.role else { unreachable!() };
@@ -4003,7 +4150,7 @@ mod tests {
         let port = host.local_addr().unwrap().port();
         let dead: SocketAddr = "127.0.0.1:9".parse().unwrap();
         let live: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-        let mut a = Session::join(&[dead, live], 0, "A", new_token()).unwrap();
+        let mut a = Session::join(&[dead, live], 0, "A").unwrap();
         let mut clock = Instant::now();
         run(&mut [&mut host, &mut a], &mut clock, Duration::from_millis(10), |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
         let Role::Guest { host: chosen, .. } = &a.role else { unreachable!() };
@@ -4019,7 +4166,7 @@ mod tests {
         let mut host = Session::host(0).unwrap();
         let port = host.local_addr().unwrap().port();
         let both: [SocketAddr; 2] = [format!("{lan}:{port}").parse().unwrap(), format!("127.0.0.1:{port}").parse().unwrap()];
-        let mut a = Session::join(&both, 0, "A", new_token()).unwrap();
+        let mut a = Session::join(&both, 0, "A").unwrap();
         let mut clock = Instant::now();
         let step = Duration::from_millis(50);
         run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
@@ -4192,9 +4339,8 @@ mod tests {
         assert!(events.contains(&Event::Lost(id)), "{events:?}");
         assert!(!events.contains(&Event::Left(id)), "dropped too soon: {events:?}");
 
-        // It comes back on a fresh socket with the same token.
-        let Role::Guest { token, .. } = a.role else { unreachable!() };
-        let mut back = Session::join(&[addr], 0, "G0", token).unwrap();
+        // It comes back on a fresh socket with the same key.
+        let mut back = Session::join(&[addr], 0, "G0").unwrap().with_identity(a.identity());
         drop(a);
         back.set_state(state(2.0));
         let seen = run(&mut [&mut host, &mut back], &mut clock, step, |seen| {

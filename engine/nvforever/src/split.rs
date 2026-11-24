@@ -1303,7 +1303,7 @@ fn start_p2(dir: &Path, port: u16, (at, size): (IVec2, UVec2), host_save: Option
         .env_remove(crate::coop::HOST_LOCAL_ENV)
         .env_remove(crate::coop::RELAY_ENV)
         .env_remove(crate::coop::CODE_ENV)
-        .env_remove(crate::coop::TOKEN_ENV)
+        .env_remove(crate::coop::KEY_ENV)
         .spawn()
         .map_err(|e| e.to_string())?;
     info!("split: player 2's game started (pid {}) to pick from {made}", child.id());
