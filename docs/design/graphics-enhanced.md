@@ -3565,6 +3565,175 @@ what the feature mostly shows.
   texture each, 32 a job, one job at a time); at most 2,048 units of present-state work a
   frame.
 
+### 3.23 Physical lighting (`physical-pbr`, `ssgi`, `grass-shadows`; off in every preset, #3827)
+
+[design, #3827] An addition of NVForever's own for the enhanced look: not a fact about the
+original game, never a parity item, and never to be used to explain a difference from the
+original's frames. Off in both presets; with every row below off, the picture is the
+display-value lighting of world.md §8 unchanged. Every value in the tables is an
+engineering choice tuned by eye on this machine (`[design]`) unless the row says otherwise.
+
+**Physical PBR lighting** (`physical-pbr`, Graphics > Lighting and Effects;
+`NVF_PHYSICAL_PBR=1` / `0`; read once at the start, so a change applies at the next start).
+The display-value lighting sum (world.md §8) is replaced by linear lighting:
+
+- *Diffuse*: the energy-preserving Oren-Nayar model (EON) [documented: Portsmouth, Kutz
+  and Hill, "EON: A practical energy-preserving rough diffuse BRDF", JCGT 2025; the
+  OpenPBR surface specification's diffuse]. *Specular*: Cook-Torrance with the GGX
+  distribution [documented: Walter et al. 2007, "Microfacet Models for Refraction through
+  Rough Surfaces"] and Bevy's Schlick Fresnel; the perceptual roughness floor is 0.045,
+  Filament's desktop figure, in place of Bevy's mobile 0.089 [documented: Filament's
+  material documentation]. In the display-value mode the highlight keeps F = F0 in world
+  views (#2266, `lights.rs` `FRESNEL_EDIT`); physical PBR takes Bevy's Fresnel on
+  purpose. Code: `lights/display_shader.rs` (`lighting_patched`, `oren_nayar_patched`).
+- *Lamps*: inverse-square falloff with a finite bulb core and a smooth window at the
+  light's radius, `w² · 0.22 / (u + 0.09)` with `u = (d / R)²` and
+  `w = 1 − u²` [design: the inverse-square law with a core and window after Karis 2013,
+  "Real Shading in Unreal Engine 4"; the 0.22 and 0.09 put a lamp's light at about 0.35 R
+  where the display-value falloff had it in the rooms checked]. Light colours are decoded
+  from sRGB to linear light (`PHYSICAL_SPECULAR_EDITS`).
+- *Sky and ambient*: Bevy's flat ambient is replaced in world views by an image-based
+  light from cube maps built each time the sky changes (`physical_ibl.rs`): outdoors the
+  sky dome's zenith, middle and horizon colours, a sunlit ground below and the sun's disc
+  and aureole for the specular; indoors the cell's ambient as ceiling and floor and its
+  directional colour as a lobe.
+- *Sky*: a single-scattering atmosphere (Rayleigh, Mie and ozone) for the sky's colour and
+  the sun's light (`sky.rs`, `sky.wesl`) [documented: Bruneton and Neyret 2008, "Precomputed
+  Atmospheric Scattering"; Hillaire 2020, "A Scalable and Production Ready Sky and
+  Atmosphere Rendering Technique", for the model and the Earth and atmosphere radii].
+- *Fog*: optical depth linear in distance (Beer-Lambert), Rayleigh and Mie in-scatter with
+  a Henyey-Greenstein phase for the sun's side (`fog/shader.rs` `PHYSICAL_FOG`);
+  interiors keep their fog from 900 units out so small rooms stay clear.
+- *Exposure and tone*: Tony McMapface tonemapping stays on; the eye adaptation meters both
+  ways (lifting dark scenes and darkening bright ones) with its own limits
+  (`eye_adapt.rs`).
+- Window light rays (`IndFXLightRays*`, unlit additive meshes) are scaled so thin daytime
+  beams stay visible (`emittance.rs`).
+
+**Screen-space global illumination** (`ssgi`, Graphics > Lighting and Effects; `NVF_SSGI=1`
+/ `0` / `debug`; live). One bounce of diffuse light from the lit picture onto nearby
+surfaces (`ssgi.rs`, `ssgi.wesl`): a half-resolution horizon march over the depth
+[documented: the horizon-based form of Jimenez et al. 2016, "Practical Real-Time
+Strategies for Accurate Indirect Occlusion", as in §3.1.1], a plane-aware bilateral
+denoise, then a depth-aware upsample weighted by the surface's estimated diffuse colour,
+added to the linear picture before bloom and tonemapping. The sky, the Pip-Boy screen and
+first-person shapes are left out.
+
+**Ambient occlusion additions** (with `ambient-occlusion`, §3.1). A second, long-range
+sky-visibility term for architecture (about 3 m) and a short screen-space contact shadow
+for the sun (`ssao.wesl`); a two-stage denoise; foliage counts towards sky visibility.
+
+**Grass shadows** (`grass-shadows`, Graphics > Shadows; needs Sun Shadows; live). Grass
+within the sun's near shadow reach casts the sun's shadow from a prepass that thickens the
+clumps' cores, so a clump casts one soft shadow and its tips stay thin (`grass.rs`,
+`nvf_assets::grass_shadow_prepass`). Tree leaf cards take the sun's shadow from outside
+their crown sphere (`tree.rs`). Lamp shadows (§3.17) get biases in game units, and faces
+cast none from the mouth and eye parts.
+
+| Constant | Value | Tag and basis |
+|---|---|---|
+| `PHYSICAL_ATTENUATION` (display_shader.rs) | `w² · 0.22 / (u + 0.09)` | [design] core of 0.30 R, matched at 0.35 R |
+| roughness floor (`ROUGHNESS_FLOOR_EDIT`) | 0.045 | [documented: Filament] |
+| `PHYSICAL_SUN_GAIN`, `PHYSICAL_MOON_GAIN`, `PHYSICAL_INTERIOR_DIR_GAIN` (sky.rs) | 6.8, 1.2, 0.85 | [design] the display-value shares (world.md §8) carried into linear light |
+| `PHYSICAL_SUN_SOUTH` (sky.rs) | 32° | [design] the sun's path tilted towards a southern Nevada sun; the display-value mode keeps the 9° fitted to the original |
+| `ATMO_RE`, `ATMO_RA` (sky.rs, sky.wesl) | 6360, 6460 km | [documented: Bruneton and Neyret 2008; Hillaire 2020] |
+| `ATMO_H0` | 1.1 km | [hypothesis] the Mojave floor's height above the sea |
+| `ATMO_HR`, `ATMO_HM` | 8.0, 1.0 km | [design] Rayleigh's usual 8 km scale height [documented: Bruneton and Neyret 2008]; Mie lowered from their 1.2 km for desert air |
+| `BETA_R`, `BETA_O` | (4.60, 13.00, 35.50)·10⁻³, (1.10, 2.35, 0.06)·10⁻³ per km | [design] tuned from the published sea-level coefficients for the desert's colour |
+| `ATMO_SUN_IRRADIANCE` | 8.2 | [design] |
+| `PHYSICAL_INTERIOR_FOG_MIN_NEAR`, `_COLOR_SCALE` (sky.rs) | 900 units, 0.35 | [design] |
+| fog shader values (`PHYSICAL_FOG`) | Rayleigh τ (0.052, 0.122, 0.300) per 70,000 units, Mie g 0.72, thick-weather τ 2.2 | [design] |
+| `OUTDOOR_IBL_SCALE`, `INDOOR_IBL_SCALE` (physical_ibl.rs) | 0.62, 0.45 | [design] |
+| cube map sizes (physical_ibl.rs) | 16 (diffuse), 32 with 5 mips (specular), 16-step sky table | [design] cost |
+| `PHYSICAL_LOW_REF`, `PHYSICAL_HIGH_REF` (eye_adapt.rs) | −6.0, −1.2 EV | [design] |
+| `PHYSICAL_LIFT_SLOPE`, `PHYSICAL_MAX_LIFT`, `PHYSICAL_DARKEN_SLOPE`, `PHYSICAL_MAX_DARKEN` | 0.68, 2.6, 0.45, 1.4 | [design] |
+| `PHYSICAL_METER_FILTER` | 10-98 % | [design] the display-value meter's 10-100 % (eye_adapt.rs `METER_FILTER`) less the brightest 2 % |
+| `RAY_MESH_PHYSICAL_BOOST` (emittance.rs) | 1.85 | [design] |
+| `SSGI_RADIUS`, `SSGI_MAX_SCREEN_RADIUS` (ssgi.rs) | 900 units, 260 px | [design] |
+| `SSGI_FADE_START`, `SSGI_FADE_END` | 3,500, 6,500 units | [design] |
+| `SSGI_STRENGTH_OUTDOORS`, `SSGI_STRENGTH_INDOORS` | 2.40, 0.75 | [design] |
+| ssgi.wesl: slices, steps, horizon bias, denoise tolerances, plane weights, sparse limits, soft pull | 4, 8, 0.04, 0.03 / 0.05, 1.0 / 2.0, 3 / 8, 0.4 / 0.65 | [design] |
+| `MACRO_RADIUS`, `MACRO_STEPS` (ssao.wesl) | 220 units, 8 | [design] about 3 m of architecture |
+| `MACRO_HORIZON_BIAS`, `MACRO_FALLOFF_START`, `MACRO_THIN_RISE`, `MACRO_THIN_DECAY` | 0.04, 0.35, 0.22, 0.55 | [design] |
+| `MACRO_FADE_START`, `MACRO_FADE_END` | 3,200, 6,500 units | [design] |
+| `CONTACT_STEPS`, `CONTACT_LENGTH`, `CONTACT_FADE_START`, `CONTACT_FADE_END` | 12, 24 units, 160, 380 units | [design] |
+| `GRASS_SHADOW_DISTANCE` (grass.rs) | 1,500 units | [design] about the near cascade's reach |
+| `DEFAULT_DEPTH_BIAS`, `DEFAULT_NORMAL_BIAS` (light_shadows.rs) | 2.4, 0.35 units | [design] about 3.4 cm at 70 units per metre [hypothesis, combat-rules.md]; Bevy's 0.08 drew acne bands on faces and necks |
+| `DYNAMIC_MOVE_EPS` (light_shadows.rs) | 1.25 units | [design] head turns in dialogue redraw nearby lamp shadows |
+
+- **Cost**: not measured yet (to be measured as in §5, the Goodsprings and Prospector
+  Saloon frames, each row alone).
+
+### 3.24 Skin, eyes and hair (with `subsurface-scattering`; off in every preset, #1503)
+
+[design, #1503] An addition of NVForever's own, as §3.23: not a fact about the original,
+never a parity item. All of it is behind **Subsurface scattering**
+(`subsurface-scattering`, Graphics > Lighting and Effects; `NVF_SSS=1` / `0`; read once at
+the start); the screen-space skin pass and the hair also need Physical PBR. Which shapes
+count is read from the data: skin from the skin shader and FaceGen heads, eyes from the
+eye shapes (`nif_spawn::is_eye_shape`), hair from the Hair shader flag (BSShaderFlags bit
+18: hair, beards, brows) [documented: nif.xml BSShaderFlags; nif.md §6 "Hair"]. No Skyrim
+Community Shaders code was read or used (the clean-room rule of #1503).
+
+- **Skin, pre-integrated**: the diffuse of each direct light is looked up across the skin's
+  curvature [documented: Penner and Borshukov 2011, "Pre-Integrated Skin Shading", GPU
+  Pro 2], from the six-Gaussian skin diffusion profile [documented: d'Eon and Luebke 2007,
+  "Advanced Techniques for Realistic Real-Time Skin Rendering", GPU Gems 3 ch. 14; the
+  variances 0.0064 to 7.41 mm² and their RGB weights]. The curvature is per vertex, from
+  the mesh (`skin_curvature.rs`). Shadow edges take a warm penumbra, red scattering
+  farthest. Light through thin parts (ears, nostrils) comes from the shadow map's
+  thickness.
+- **Skin, screen-space** (with Physical PBR and no multisampling; `NVF_SSSS=0` keeps the
+  pre-integration): every diffuse light on the skin, the sky's and the ambient included,
+  is blurred across the skin after the opaque pass by the same profile, in two
+  one-dimensional passes sized by depth [documented: Jimenez, Sundstedt and Gutierrez
+  2009, "Screen-Space Perceptual Rendering of Human Skin"; Jimenez et al. 2015,
+  "Separable Subsurface Scattering"] (`sss/screen.rs`, `sss_screen.wesl`).
+- **Eyes**: a clear coat for the cornea, through which the iris is seen refracted and
+  shifting with the view; a dark limbal ring; the sky's reflection shut out by the lids
+  and brow except through the eye's opening; the upper lid's and the corners' shading
+  (nif_material.wesl `NVF_EYE`). The iris's place on the texture and the eye mesh's
+  frame are observed (the table).
+- **Hair**: a strand BSDF (sss.wesl `NVF_HAIR`): the R and TRT lobes [documented:
+  Marschner et al. 2003, "Light Scattering from Human Hair Fibers"] in the closed forms
+  of Karis 2016 [documented: "Physically Based Hair Shading in Unreal", SIGGRAPH course
+  notes], with no TT lobe, since the hair is a shell on the head and the light it would
+  carry ends in the head; a wrapped diffuse mixed with a third of Kajiya and Kay's
+  [documented: Kajiya and Kay 1989, "Rendering fur with three dimensional textures"],
+  tinted by the hair's colour in shadow. Both lobes fall with the shell's N·L, since a
+  single fibre's lobes have no surface normal: without it a sun behind the camera put
+  them at their peak over the whole hair, outline included (6.8 times Lambert at
+  N·V 0.15 for dark brown hair), a grey sheen through which the hair looked see-through
+  (owner's frames, 2026-11-24). The strand direction comes from the texture's painted
+  strokes, as nif.md §6 "Hair strand direction" says.
+
+| Constant | Value | Tag and basis |
+|---|---|---|
+| skin profile (`sss/screen.rs` `PROFILE`, `sss.rs` tests `GAUSSIANS`) | six Gaussians, 0.0064-7.41 mm² | [documented: d'Eon and Luebke 2007, GPU Gems 3 ch. 14] |
+| `MM_PER_UNIT` (skin_curvature.rs, sss/screen.rs, sss_screen.wesl) | 14.3 mm | [hypothesis] 70 units per metre, as combat-rules.md |
+| `REACH_MM`, `TAPS`, `MAX_STEP_PX` (sss/screen.rs) | 8 mm, 17, 96 px | 8 mm: three σ of the widest Gaussian, under 1 % of red past it [checked: tests]; the rest [design] |
+| `NVF_SKIN_PENUMBRA_SIGMA` (sss.wesl) | (0.20, 0.10, 0.06) penumbra widths | [design] red widest, blue narrowest, in the profile's order |
+| skin roughness (nif_spawn.rs) | 0.58-0.72 | [design] |
+| `EYE_IRIS_CENTRE`, `EYE_IRIS_RADIUS` (nif_material.wesl) | (0.50, 0.44), 0.19 | [observed: `eyelefthuman.nif`, `eyeblue.dds`, `eyedarkbrown.dds`] |
+| `EYE_IRIS_DEPTH` | 0.17 units | [hypothesis] about 2.5 mm, the human anterior chamber |
+| `EYE_CORNEA_ETA` | 1 / 1.376 | [hypothesis] the textbook cornea index |
+| `EYE_CORNEA_ROUGHNESS` (nif_spawn.rs), eye roughness | 0.06, 0.28-0.45 | [design] |
+| `EYE_LIMBUS_DARKEN`, `EYE_LIMBUS_WIDTH` | 0.35, 0.12 iris radii | [design] |
+| `EYE_SKY_OPEN`, `EYE_SKY_CLOSED` | 0.8, 0.08 | [design] the sky's reflection through the eye's opening and into the brow (owner's screenshot, 2026-11-23) |
+| `EYE_LID_V`, `EYE_LID_CLEAR_V`, `EYE_LID_DARKEN` | 0.30, 0.50, 0.45 | [design] darkest at the lower edge of the lid band the eye textures paint |
+| `EYE_CORNER_U`, `EYE_CORNER_DEEP_U`, `EYE_CORNER_DARKEN` | 0.20, 0.36, 0.30 | [design] |
+| `NVF_HAIR_F0` (sss.wesl) | 0.0465 | [documented: keratin's index 1.55, Marschner et al. 2003 §4] |
+| `NVF_HAIR_SHIFT` | 0.035 rad | [documented: Karis 2016, after Marschner's 3°]; R shifted by −2×, TRT by 4× |
+| `NVF_HAIR_WRAP` | 0.5 | [design] light reaches 60° past the terminator |
+| `NVF_HAIR_R_SHARE` | 0.3 | [design] the glint's mean a quarter of the diffuse for dark brown hair; at 1 the owner's frames of 2026-11-24 read wet and grey |
+| Kajiya-Kay share, half-Lambert | a third; `0.5 · (N·L + 1)` | [design] |
+| `HAIR_ROUGHNESS` (nif_spawn.rs) | 0.35-0.5 | [documented: lobe widths of 5-10° measured for real fibres, Marschner et al. 2003 Table 1] widened to 7-14° for the meshes' few strands [design] |
+| strand direction mip (nif_material.wesl `hair_strand`) | about 128 texels across | [design] at 256 the direction turned from stroke to stroke (owner's frames, 2026-11-24) |
+
+- **Cost**: not measured yet (to be measured as in §5: a face filling the screen in the
+  Prospector Saloon, and Goodsprings by day, each part alone).
+- **Screenshots**: before and after, for the owner, still to be taken.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on

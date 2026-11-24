@@ -14,7 +14,7 @@
 //! neighbours' mean, because low-polygon heads give a jagged field otherwise.
 //!
 //! Units: mesh positions are game units, taken as 14.3 mm each, the figure `sss.wesl`
-//! already uses for its shadow-map thickness [hypothesis: 1 unit ≈ 1/70 yard]. A shape
+//! already uses for its shadow-map thickness [hypothesis: 70 units per metre, the scale combat-rules.md's gravity uses]. A shape
 //! scaled by its node keeps its unscaled curvature (skin shapes are at scale 1 in the
 //! heads, bodies and hands checked [hypothesis]).
 
