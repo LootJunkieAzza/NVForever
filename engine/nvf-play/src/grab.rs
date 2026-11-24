@@ -85,6 +85,8 @@ pub struct Candidate {
 pub enum By {
     GrabKey,
     Activate,
+    /// Grab (Hold)'s own controller binding (the split holds, `crate::bindings::SPLITS`).
+    ActivateGrab,
     /// The test aid.
     Aid,
 }
@@ -381,7 +383,8 @@ fn grab(
     // other presses are handed here by `activate::activate`), and the aid's press.
     let activate_down = input.pressed(Control::Activate) || g.aid_now.is_some_and(|a| a.activate);
     if let (Some(c), true) = (g.candidate, playing) {
-        let pressed_e = (input.just_pressed(Control::Activate) && !crate::quick_loot::holds_input() && target.0.as_ref().is_none_or(|t| t.form_id != c.on.form_id())) || aid_press == Some(true);
+        let grab_split = input.bindings.split_moved(Control::ActivateGrab);
+        let pressed_e = (!grab_split && input.just_pressed(Control::Activate) && !crate::quick_loot::holds_input() && target.0.as_ref().is_none_or(|t| t.form_id != c.on.form_id())) || aid_press == Some(true);
         if pressed_e && g.tap.is_none() {
             let t = target.0.clone().filter(|t| t.form_id == c.on.form_id() && aid_press != Some(true));
             g.tap = Some(Tap { target: t, candidate: c, held: 0.0 });
@@ -401,6 +404,14 @@ fn grab(
             g.tap = None;
         } else if !activate_down && tap.target.is_none() {
             g.tap = None;
+        }
+    }
+    // Grab (Hold) moved off Activate to a controller binding of its own: that binding
+    // picks up while held, as Activate's hold did.
+    if g.held.is_none() && start.is_none() && playing && input.bindings.split_moved(Control::ActivateGrab) && input.just_pressed(Control::ActivateGrab) && !crate::quick_loot::holds_input() {
+        match g.candidate {
+            Some(c) => start = Some((c, By::ActivateGrab)),
+            None => info!("grab: nothing under the crosshair to pick up ({})", found.as_ref().err().map_or("", |e| e.as_str())),
         }
     }
     if g.held.is_none() && playing && (input.just_pressed(Control::Grab) || aid_press == Some(false)) {
@@ -467,6 +478,7 @@ fn grab(
     let key_down = match h.by {
         By::GrabKey => input.pressed(Control::Grab),
         By::Activate => input.pressed(Control::Activate),
+        By::ActivateGrab => input.pressed(Control::ActivateGrab),
         By::Aid => !aid_release,
     };
     let throw = (h.by != By::Aid && input.just_pressed(Control::Use)) || aid_throw;

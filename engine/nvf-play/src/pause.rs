@@ -79,7 +79,9 @@
 //! (`crate::settings::StartStates`; without it, as the page was first shown in this run);
 //! on the Controls tab, the controls' keys (or buttons) and the tab's controller rows; on
 //! the Changed list, the rows it lists. On the search it is the global Defaults.
-//! Esc or Backspace go back.
+//! Esc or Backspace go back. With a controller B goes back a step at a time: from the rows
+//! to the rail (on the tab's line), and from the rail to the column (`pause menu: back to
+//! the rail (<line>)`) [design].
 //!
 //! **The search** [design: #1953 point 5]: the rail's Search line (a click, or Enter on it
 //! with the keys on the rail) or Ctrl+F anywhere on the page (not while a key is awaited,
@@ -954,6 +956,11 @@ const AUTOMATIC_INPUT_ROW: &str = "Automatic Input Switching";
 const AUTOMATIC_INPUT_NOTE: &str = "On: a controller button, stick or trigger selects Controller; a key or mouse click selects Keyboard and Mouse (mouse motion does not). Off: choose Input Device yourself.";
 /// The Controls tab's last row with a controller chosen (`crate::rumble`).
 const RUMBLE_ROW: &str = "Rumble";
+/// The controller's Hold bindings' time, Double-tap bindings' window and Combo bindings'
+/// window (docs/design/controller.md §2a) [design].
+const HOLD_TIME_ROW: &str = "Hold time";
+const DOUBLE_TAP_ROW: &str = "Double-tap window";
+const COMBO_WINDOW_ROW: &str = "Combo window";
 /// The Controls tab's row after the controls (`bInvertYValues`).
 const INVERT_ROW: &str = "Invert Y";
 /// The Controls tab's slider after Invert Y, with keyboard and mouse and with a controller.
@@ -1460,6 +1467,16 @@ struct Drawn {
     /// Why each control's row is greyed now, in `GAME_CONTROLS`' order
     /// (`crate::stance::binding_greyed`: Sprint with its switch off).
     controls_greyed: Vec<Option<&'static str>>,
+    /// The controller bindings' overlap warning for each control, in `GAME_CONTROLS`' order
+    /// (`crate::bindings::overlap_note`), with a controller.
+    controls_warn: Vec<Option<String>>,
+    /// The controller gesture a waiting row has so far ("Hold X", "LB + A";
+    /// `crate::pad::capture`).
+    capture: Option<String>,
+    /// The Hold time, Double-tap window and Combo window, seconds.
+    hold_time: f32,
+    double_tap: f32,
+    combo_window: f32,
     /// The device in use: its name, and whether it is a controller.
     device: (&'static str, bool),
     automatic_input: bool,
@@ -1513,6 +1530,13 @@ impl Drawn {
         let ControlRow::Binding(k, _) = c else { return None };
         let at = crate::bindings::GAME_CONTROLS.iter().position(|(x, _, _)| *x == k)?;
         self.controls_greyed.get(at).copied().flatten()
+    }
+
+    /// Controller row `c`'s overlap warning; `None`: it has none.
+    fn control_warn(&self, c: ControlRow) -> Option<&str> {
+        let ControlRow::Binding(k, crate::bindings::InputDevice::Controller) = c else { return None };
+        let at = crate::bindings::GAME_CONTROLS.iter().position(|(x, _, _)| *x == k)?;
+        self.controls_warn.get(at).and_then(|w| w.as_deref())
     }
 
     /// Category `p`'s rows shown and whether it is open (unknown: none, open).
@@ -2330,7 +2354,7 @@ fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
     match c {
         ControlRow::Device => (DEVICE_ROW, device.to_string()),
         ControlRow::AutomaticInput => (AUTOMATIC_INPUT_ROW, on_off(d.automatic_input)),
-        ControlRow::Binding(k, _) if d.listening == Some(k) => (crate::bindings::label(k), (if controller { WAITING_PAD } else { WAITING }).to_string()),
+        ControlRow::Binding(k, _) if d.listening == Some(k) => (crate::bindings::label(k), d.capture.clone().unwrap_or_else(|| (if controller { WAITING_PAD } else { WAITING }).to_string())),
         ControlRow::Binding(k, _) => {
             let at = crate::bindings::GAME_CONTROLS.iter().position(|(x, _, _)| *x == k);
             (crate::bindings::label(k), at.and_then(|i| d.controls.get(i)).cloned().unwrap_or_default())
@@ -2340,6 +2364,9 @@ fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
         ControlRow::Vertical(_) => (VERTICAL_ROW, crate::bindings::sensitivity_text(d.vertical)),
         ControlRow::AimSensitivity(_) => (AIM_ROW, crate::bindings::sensitivity_text(d.aim)),
         ControlRow::Rumble => (RUMBLE_ROW, on_off(d.rumble)),
+        ControlRow::HoldTime => (HOLD_TIME_ROW, format!("{:.2} s", d.hold_time)),
+        ControlRow::DoubleTap => (DOUBLE_TAP_ROW, format!("{:.2} s", d.double_tap)),
+        ControlRow::ComboWindow => (COMBO_WINDOW_ROW, format!("{:.0} ms", d.combo_window * 1000.0)),
     }
 }
 
@@ -2393,10 +2420,13 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
         ControlRow::Rumble => format!("A or a click: the controller shakes when you fire, take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller]."),
+        ControlRow::HoldTime => "Left/Right or A: how long a button is held before a Hold binding acts. Kept as \"Hold Time\" in [Controller].".into(),
+        ControlRow::DoubleTap => "Left/Right or A: how soon the second press of a Double-tap binding must come. Kept as \"Double Tap Window\" in [Controller].".into(),
+        ControlRow::ComboWindow => "Left/Right or A: how far apart a combo's two buttons may go down, in either order; a button in a combo waits this long. Kept as \"Combo Window\" in [Controller].".into(),
         ControlRow::Device => format!("Enter or a click: work the controls with the keyboard and mouse or with a controller. Kept as \"{DEVICE_ROW}\" in [Controls] of NVForever.ini."),
-        ControlRow::Binding(c, _) if d.listening == Some(c) && controller => format!("Press the new controller button for {}. Start cancels.", label(c)),
+        ControlRow::Binding(c, _) if d.listening == Some(c) && controller => format!("Press, hold or double-tap a button for {}, or hold one and press another for a combo. Start cancels.", label(c)),
         ControlRow::Binding(c, _) if d.listening == Some(c) => format!("Press the new key or mouse button for {}. Esc cancels.", label(c)),
-        ControlRow::Binding(c, _) if controller => format!("A or a click: bind a new controller button to {} (a control that had it gets the old one). X or Delete clears it.", label(c)),
+        ControlRow::Binding(c, _) if controller => format!("A or a click: bind a controller button to {} as a press, hold, double tap or combo (a control that had it gets the old one). X or Delete clears it.", label(c)),
         ControlRow::Binding(c, _) => format!("Enter or a click: bind a new key or mouse button to {} (a control that had it gets the old one). Delete clears its key.", label(c)),
     }
 }
@@ -2999,6 +3029,9 @@ struct ControlState {
     sensitivity: f32,
     vertical: f32,
     aim: f32,
+    hold_time: f32,
+    double_tap: f32,
+    combo_window: f32,
 }
 
 /// Whether row `id` takes A and D as Left and Right (a slider, a list; a switch takes the
@@ -3006,7 +3039,7 @@ struct ControlState {
 fn takes_letters(settings: &Settings, id: RowId) -> bool {
     match id {
         RowId::Setting(i) => settings.choices(i).is_some() || settings.list().get(i).is_some_and(|s| s.slider.is_some()),
-        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_)),
+        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_) | ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow),
         RowId::Group => true,
         RowId::Heading(_) => false,
     }
@@ -3072,6 +3105,18 @@ fn act_on_row(id: RowId, action: RowAction, settings: &Settings, view: &mut Paus
             (ControlRow::Rumble, Activate | Step(_)) => {
                 let on = !controls.rumble;
                 commands.queue(move |world: &mut World| crate::bindings::set_rumble(world, on));
+                sounds.write(flipped);
+            }
+            // The timings step through their choices; A steps on, wrapping [design].
+            (ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow, Activate | Step(_)) => {
+                use crate::bindings::TimingRow;
+                let (row, now) = match c {
+                    ControlRow::HoldTime => (TimingRow::Hold, controls.hold_time),
+                    ControlRow::DoubleTap => (TimingRow::Double, controls.double_tap),
+                    _ => (TimingRow::Combo, controls.combo_window),
+                };
+                let to = step_choice(now, row.choices(), if let Step(s) = action { s } else { 1 }, action == Activate);
+                commands.queue(move |world: &mut World| crate::bindings::set_timing(world, row, to));
                 sounds.write(flipped);
             }
             (ControlRow::Sensitivity(_), Step(s)) => {
@@ -3374,16 +3419,28 @@ fn refresh_search(view: &mut PauseView, layout: &ResolvedLayout, list: &[Setting
     }
 }
 
+/// The choice `step` places from `now` among `choices` (the nearest when `now` is none of
+/// them); past either end it stops, or with `wrap` goes round.
+fn step_choice(now: f32, choices: &[f32], step: i32, wrap: bool) -> f32 {
+    let n = choices.len() as i32;
+    let at = choices.iter().enumerate().min_by(|a, b| (a.1 - now).abs().total_cmp(&(b.1 - now).abs())).map_or(0, |(i, _)| i as i32);
+    let to = if wrap { (at + step).rem_euclid(n) } else { (at + step).clamp(0, n - 1) };
+    choices[to as usize]
+}
+
 /// The search's words for a Controls row: its label and note as the page shows them for
 /// the row's device, and its name in the INI (`Jump`, `Invert Y`) [design: #1953; the
 /// rows are not registered settings, so this stands in for their label and note].
 fn control_words(c: ControlRow) -> String {
     use crate::bindings::InputDevice;
-    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble);
+    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble | ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow);
     let d = Drawn { device: ("", controller), ..default() };
     let (label, _) = control_line(&d, c);
     let key = match c {
         ControlRow::Binding(k, _) => crate::bindings::Bindings::name(k),
+        ControlRow::HoldTime => "Hold Time",
+        ControlRow::DoubleTap => "Double Tap Window",
+        ControlRow::ComboWindow => "Combo Window",
         ControlRow::Device | ControlRow::AutomaticInput | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_) | ControlRow::Rumble => label,
     };
     let note = row_note(&[], RowId::Control(c), &d);
@@ -3631,7 +3688,14 @@ fn choose(
         Option<Res<crate::ui_colour::CustomColours>>,
         Option<Res<crate::settings_view::HiddenRows>>,
     ),
-    (meters, pointed, mut tab_store, tweaks, mut report): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>, Option<Res<crate::tweaks::TweakSettings>>, Option<ResMut<ReportEntry>>),
+    (meters, pointed, mut tab_store, tweaks, mut report, mut capture): (
+        Query<(&PauseButton, &RelativeCursorPosition)>,
+        Query<(&PointerState, &PauseButton)>,
+        Option<ResMut<SettingsTabStore>>,
+        Option<Res<crate::tweaks::TweakSettings>>,
+        Option<ResMut<ReportEntry>>,
+        Option<ResMut<crate::pad::capture::PadCapture>>,
+    ),
 ) {
     let keys = keys.snapshot();
     use crate::bindings::{Bindings, Input, InputDevice};
@@ -3722,14 +3786,31 @@ fn choose(
             continue;
         }
         if let Some(b) = item.strip_prefix("padbind:") {
-            // `padbind:<control>=<button>`: as A on its row and that button.
-            let parsed = b.split_once('=').and_then(|(c, i)| Some((Bindings::by_name(c)?, crate::pad::parse_pad(i)?)));
+            // `padbind:<control>=<binding>`: as A on its row and that gesture (`A`, `Hold X`,
+            // `Double Y`, `LB + A`, `With …` for a split hold's own place).
+            let parsed = b.split_once('=').and_then(|(c, i)| Some((Bindings::by_name(c)?, crate::pad::binding::PadBinding::parse(i).ok()?)));
             match parsed {
                 Some((c, p)) => {
                     show_row(&mut page, &mut view, layout, control(ControlRow::Binding(c, device)));
-                    commands.queue(move |world: &mut World| crate::bindings::rebind_pad(world, c, p));
+                    commands.queue(move |world: &mut World| crate::bindings::rebind_pad_binding(world, c, p));
                 }
-                None => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected padbind:<control>=<controller button name>"),
+                None => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected padbind:<control>=<controller binding> (A, Hold X, Double Y, LB + A)"),
+            }
+            continue;
+        }
+        use crate::bindings::TimingRow;
+        let timing = [("hold-time:", TimingRow::Hold, ControlRow::HoldTime), ("double-tap:", TimingRow::Double, ControlRow::DoubleTap), ("combo-window:", TimingRow::Combo, ControlRow::ComboWindow)]
+            .into_iter()
+            .find_map(|(prefix, row, shown)| item.strip_prefix(prefix).map(|v| (row, shown, v)));
+        if let Some((row, shown, v)) = timing {
+            // `hold-time:<seconds>` / `double-tap:<seconds>` / `combo-window:<seconds>`: the
+            // timing rows set so.
+            match v.trim().parse::<f32>() {
+                Ok(s) if s > 0.0 => {
+                    show_row(&mut page, &mut view, layout, control(shown));
+                    commands.queue(move |world: &mut World| crate::bindings::set_timing(world, row, s));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected hold-time:, double-tap: or combo-window:<seconds>"),
             }
             continue;
         }
@@ -3938,8 +4019,10 @@ fn choose(
     let mut pressed = Pressed { keys: &keys, extra: Vec::new() };
     for (_, a) in due {
         info!("test aid NVF_PLAY_TEST_PAUSE_MENU: {a}");
-        if a == "shot" {
-            let name = format!("{}pause_{}.png", if under_main { "main_menu_" } else { "" }, match *page {
+        // `shot`, or `shot:<name>` to keep several frames of one page apart (`pause_controls_<name>.png`).
+        if let Some(tag) = (a == "shot").then_some("").or_else(|| a.strip_prefix("shot:")) {
+            let tag = if tag.is_empty() { String::new() } else { format!("_{}", tag.trim()) };
+            let name = format!("{}pause_{}{tag}.png", if under_main { "main_menu_" } else { "" }, match *page {
                 Page::Main if view.confirm.is_some() => "quit",
                 Page::Main => "main",
                 Page::Settings { .. } if view.scope == SettingsScope::Tab(CONTROLS_TAB) => "controls",
@@ -4008,7 +4091,13 @@ fn choose(
     }
     let act = |name: &str| acts.iter().any(|a| a == name);
     // A control waiting for its new key takes the next key or mouse button, whatever it
-    // is over (with a controller, the next controller button); Esc (Start) cancels.
+    // is over (with a controller, the gesture made: `crate::pad::capture`); Esc (Start)
+    // cancels.
+    if listening.0.is_none() {
+        if let Some(cap) = capture.as_mut().filter(|c| !c.is_idle()) {
+            cap.reset();
+        }
+    }
     if let Some((c, asked_with)) = listening.0 {
         if !matches!(*page, Page::Settings { .. }) {
             listening.0 = None;
@@ -4022,10 +4111,22 @@ fn choose(
                 sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
                 return;
             }
-            let pad = crate::pad::PAD_NAMES.iter().map(|(p, _)| *p).filter(|p| !crate::pad::RESERVED_PAD.contains(p)).find(|p| match p {
-                PadInput::Button(b) => pads.iter().any(|g| g.just_pressed(*b)),
-                PadInput::Stick(d) => sticks.as_ref().is_some_and(|s| s.just_pressed(*d)),
-            });
+            // A stick direction is taken at once as a press; a button's gesture once it is
+            // decided and every button is up.
+            let buttons: Vec<GamepadButton> = crate::pad::PAD_NAMES.iter().filter_map(|(p, _)| match p {
+                PadInput::Button(b) if !crate::pad::RESERVED_PAD.contains(p) => Some(*b),
+                _ => None,
+            }).collect();
+            let down: Vec<GamepadButton> = buttons.iter().copied().filter(|b| pads.iter().any(|g| g.pressed(*b))).collect();
+            let went: Vec<GamepadButton> = buttons.iter().copied().filter(|b| pads.iter().any(|g| g.just_pressed(*b))).collect();
+            let stick = crate::pad::PAD_NAMES.iter().map(|(p, _)| *p).find(|p| matches!(p, PadInput::Stick(d) if sticks.as_ref().is_some_and(|s| s.just_pressed(*d))));
+            let timing = bindings.as_ref().map_or_else(crate::pad::resolver::Timing::default, |b| b.timing());
+            let dt = time.delta_secs_f64() as f32;
+            let pad = match (stick, capture.as_mut()) {
+                (Some(p), Some(cap)) if cap.is_idle() && down.is_empty() => Some(crate::pad::binding::PadBinding::Press(p)),
+                (_, Some(cap)) if controller => cap.step(&down, &went, timing, dt),
+                _ => None,
+            };
             let input = match key {
                 _ if controller => None,
                 Some(k) if crate::bindings::RESERVED_KEYS.contains(&k) => None,
@@ -4040,8 +4141,11 @@ fn choose(
                 }
                 (None, Some(p)) if controller => {
                     listening.0 = None;
+                    if let Some(cap) = capture.as_mut() {
+                        cap.reset();
+                    }
                     sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
-                    commands.queue(move |world: &mut World| crate::bindings::rebind_pad(world, c, p));
+                    commands.queue(move |world: &mut World| crate::bindings::rebind_pad_binding(world, c, p));
                 }
                 _ => {}
             }
@@ -4056,6 +4160,9 @@ fn choose(
         sensitivity: bindings.as_ref().map_or(1.0, |b| b.sensitivity()),
         vertical: bindings.as_ref().map_or(1.0, |b| b.vertical_sensitivity()),
         aim: bindings.as_ref().map_or(1.0, |b| b.aim_sensitivity()),
+        hold_time: bindings.as_ref().map_or(crate::pad::resolver::HOLD_TIME, |b| b.hold_time),
+        double_tap: bindings.as_ref().map_or(crate::pad::resolver::DOUBLE_TAP_WINDOW, |b| b.double_tap),
+        combo_window: bindings.as_ref().map_or(crate::pad::resolver::COMBO_WINDOW, |b| b.combo_window),
     };
     // The settings page made whole for what the aids chose ([`sv::normalize`]).
     let mut rows: Vec<ViewEntry> = Vec::new();
@@ -4533,7 +4640,18 @@ fn choose(
                 handled = true;
             }
             let back = !in_search && (pressed.any([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back"));
+            // With a controller, B goes back a step at a time: from the rows (a tab's, a
+            // Tweaks group's, the Changed list's) to the rail on the tab's line, and from the
+            // rail to the column [design; observed: buckallobill, in game: B left Settings
+            // from a sub menu instead of stepping back]. The keyboard's Esc and a click on Back leave at once.
+            let to_rail = back && controller && clicked.is_none() && matches!(view.focus, SettingsFocus::Rows);
             if !handled { match clicked {
+                _ if to_rail => {
+                    let r = RailItem::of(view.scope);
+                    view.focus = SettingsFocus::Rail(r);
+                    info!("pause menu: back to the rail ({})", r.name());
+                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
+                }
                 _ if back => leave = true,
                 Some(PauseButton::Row(id)) => {
                     sel = Some(id);
@@ -4626,6 +4744,7 @@ fn choose(
                 None => {}
             }
             if leave {
+                info!("pause menu: settings left, back to the column");
                 *page = Page::Main;
             } else {
                 if let Some(scope) = to_scope {
@@ -4736,6 +4855,7 @@ fn choose(
                 view.delete_ask = Some(*selected);
                 info!("pause menu: delete {}?", menu.list.saves.get(*selected).map(|(p, _)| stem(p)).unwrap_or_default());
             } else if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || tab_back || clicked == Some(PauseButton::Back) || act("back") {
+                info!("pause menu: load page left, back to the column");
                 *page = Page::Main;
             } else if let Some(PauseButton::LoadRow(i)) = clicked {
                 *selected = i;
@@ -5194,6 +5314,11 @@ fn drawn_now(world: &mut World) -> Drawn {
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
         controls_greyed: crate::bindings::GAME_CONTROLS.iter().map(|(c, _, _)| crate::stance::binding_greyed(world, *c)).collect(),
+        controls_warn: world.get_resource::<crate::bindings::Bindings>().map(|b| crate::bindings::GAME_CONTROLS.iter().map(|(c, _, _)| crate::bindings::overlap_note(b, *c)).collect()).unwrap_or_default(),
+        capture: world.get_resource::<crate::bindings::Bindings>().zip(world.get_resource::<crate::pad::capture::PadCapture>()).and_then(|(b, c)| c.shown(b.timing())).and_then(|p| p.shown(crate::pad::pad_labels())),
+        hold_time: world.get_resource::<crate::bindings::Bindings>().map_or(crate::pad::resolver::HOLD_TIME, |b| b.hold_time),
+        double_tap: world.get_resource::<crate::bindings::Bindings>().map_or(crate::pad::resolver::DOUBLE_TAP_WINDOW, |b| b.double_tap),
+        combo_window: world.get_resource::<crate::bindings::Bindings>().map_or(crate::pad::resolver::COMBO_WINDOW, |b| b.combo_window),
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
         automatic_input: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.automatic_input_switching),
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
@@ -5225,7 +5350,7 @@ fn stand_in_name(list: &[Setting], id: RowId) -> String {
     match id {
         RowId::Setting(i) => list.get(i).map_or_else(String::new, |s| tr(s.label).to_string()),
         RowId::Control(c) => {
-            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble);
+            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble | ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow);
             let d = Drawn { device: ("", controller), ..default() };
             let (label, _) = control_line(&d, c);
             match c {
@@ -5252,6 +5377,14 @@ fn note_of(list: &[Setting], id: RowId, d: &Drawn) -> String {
     if let Some(why) = greyed {
         let why = fnv_util::words::trf("Greyed out: {why}", &[("why", &tr(why))]);
         note = if note.is_empty() { why } else { format!("{note} {why}") };
+    }
+    // A controller binding that overlaps another: the warning, after its note [design:
+    // warn of every duplicate or overlap, refuse none].
+    // It stands in for the row's how-to note, which would push it out of the note's lines.
+    if let RowId::Control(c) = id {
+        if let Some(w) = d.control_warn(c).filter(|_| d.listening.is_none()) {
+            note = w.to_string();
+        }
     }
     match d.stand_ins.iter().find(|(by, _)| *by == id) {
         Some((_, names)) => {
@@ -6360,6 +6493,29 @@ mod tests {
         app.update();
         assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(god) });
         assert_eq!(app.world().resource::<PauseView>().scope, SettingsScope::Tab("Debug"));
+    }
+
+    #[test]
+    fn a_controllers_b_backs_out_of_the_rows_to_the_rail_and_then_to_the_column() {
+        // Backing out of a sub menu in Settings with the controller.
+        let mut app = search_app(&SEARCHED, "", SettingsFocus::Rows);
+        let mut b = crate::bindings::Bindings::default();
+        b.device = crate::bindings::InputDevice::Controller;
+        app.insert_resource(b);
+        {
+            let mut view = app.world_mut().resource_mut::<PauseView>();
+            view.scope = SettingsScope::Tab("Debug");
+            view.search = SearchState::default();
+        }
+        *app.world_mut().resource_mut::<Page>() = Page::Settings { selected: Some(RowId::Setting(2)) };
+        app.update();
+        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "back".into())];
+        app.update();
+        assert!(matches!(*app.world().resource::<Page>(), Page::Settings { .. }), "still on the page");
+        assert_eq!(app.world().resource::<PauseView>().focus, SettingsFocus::Rail(RailItem::Tab("Debug")));
+        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "back".into())];
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Main);
     }
 
     #[test]

@@ -133,7 +133,9 @@ pub const SECTIONS: &[Section] = &[
     ),
     section("Audio", Some("Volume"), &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio"]),
     section("Audio", Some("Sound"), &["music", "voice", "reverb", "voice-reverb"]),
-    section("Controls", Some("Input"), &["controls:device", "button-style", "controls:automatic-input", "controls:rumble"]),
+    // Hold time, Double-tap window and Combo window: the controller's binding kinds
+    // (controller.md §2a).
+    section("Controls", Some("Input"), &["controls:device", "button-style", "controls:automatic-input", "controls:rumble", "controls:hold-time", "controls:double-tap", "controls:combo-window"]),
     section("Controls", Some("Look"), &["controls:invert", "controls:sensitivity", "controls:vertical", "controls:aim-sensitivity"]),
     section("Controls", Some("Aim Assist"), &["aim-assist", "aim-slowdown", "aim-lock"]),
     section(
@@ -153,16 +155,34 @@ pub const SECTIONS: &[Section] = &[
             "controls:bind:Sprint",
         ],
     ),
-    section("Controls", Some("Combat"), &["controls:bind:Use", "controls:bind:Block", "controls:bind:Ready Item", "controls:bind:Vats", "controls:bind:Ammo Swap", "controls:bind:Lower Weapon"]),
+    // The controller's split holds (`controls:padbind:`, nvf-play `bindings::SPLITS`) stand
+    // after the control they came out of; with the keyboard Holster Weapon and Toggle Light
+    // stay with the tweaks' keys below [design: a split control is found where its original is].
+    section(
+        "Controls",
+        Some("Combat"),
+        &["controls:bind:Use", "controls:bind:Block", "controls:bind:Ready Item", "controls:padbind:Holster Weapon", "controls:bind:Vats", "controls:bind:Ammo Swap", "controls:bind:Lower Weapon"],
+    ),
     section(
         "Controls",
         Some("Actions"),
-        &["controls:bind:Activate", "controls:bind:Grab", "controls:bind:Menu Mode", "controls:bind:Rest", "controls:bind:Toggle POV", "controls:bind:QuickSave", "controls:bind:QuickLoad"],
+        &[
+            "controls:bind:Activate",
+            "controls:padbind:Activate Grab",
+            "controls:bind:Grab",
+            "controls:bind:Menu Mode",
+            "controls:padbind:Toggle Light",
+            "controls:bind:Rest",
+            "controls:bind:Toggle POV",
+            "controls:padbind:Orbit Camera",
+            "controls:bind:QuickSave",
+            "controls:bind:QuickLoad",
+        ],
     ),
     section(
         "Controls",
         Some("Hotkeys"),
-        &["controls:bind:Hotkey1", "controls:bind:Hotkey3", "controls:bind:Hotkey4", "controls:bind:Hotkey5", "controls:bind:Hotkey6", "controls:bind:Hotkey7", "controls:bind:Hotkey8"],
+        &["controls:bind:Hotkey1", "controls:bind:Hotkey3", "controls:bind:Hotkey4", "controls:bind:Hotkey5", "controls:bind:Hotkey6", "controls:bind:Hotkey7", "controls:bind:Hotkey8", "controls:padbind:Weapon Wheel"],
     ),
     // The tweaks' own keys (#1892, `crate::bindings::TWEAK_CONTROLS` on), none bound until the
     // player binds one, and the console's and the screenshot's (bound): their own category

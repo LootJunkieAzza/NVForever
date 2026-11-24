@@ -71,6 +71,14 @@ pub enum ControlRow {
     AimSensitivity(InputDevice),
     /// With a controller only.
     Rumble,
+    /// The Hold time of the controller's Hold bindings (docs/design/controller.md §2a); with a
+    /// controller only.
+    HoldTime,
+    /// The Double-tap window of the controller's Double-tap bindings; with a controller only.
+    DoubleTap,
+    /// The Combo window of the controller's Combo bindings: how far apart its two buttons
+    /// may come down; with a controller only.
+    ComboWindow,
 }
 
 impl ControlRow {
@@ -80,10 +88,10 @@ impl ControlRow {
     /// controller Rumble.
     pub fn rows(device: InputDevice) -> Vec<ControlRow> {
         let mut out = vec![ControlRow::Device, ControlRow::AutomaticInput];
-        out.extend(GAME_CONTROLS.iter().map(|(c, _, _)| ControlRow::Binding(*c, device)));
+        out.extend(GAME_CONTROLS.iter().filter(|(c, _, _)| has_row(*c, device)).map(|(c, _, _)| ControlRow::Binding(*c, device)));
         out.extend([ControlRow::Invert, ControlRow::Sensitivity(device), ControlRow::Vertical(device), ControlRow::AimSensitivity(device)]);
         if device == InputDevice::Controller {
-            out.push(ControlRow::Rumble);
+            out.extend([ControlRow::Rumble, ControlRow::HoldTime, ControlRow::DoubleTap, ControlRow::ComboWindow]);
         }
         out
     }
@@ -92,13 +100,13 @@ impl ControlRow {
     pub fn all() -> Vec<ControlRow> {
         let mut out = vec![ControlRow::Device, ControlRow::AutomaticInput];
         for d in [InputDevice::KeyboardMouse, InputDevice::Controller] {
-            out.extend(GAME_CONTROLS.iter().map(|(c, _, _)| ControlRow::Binding(*c, d)));
+            out.extend(GAME_CONTROLS.iter().filter(|(c, _, _)| has_row(*c, d)).map(|(c, _, _)| ControlRow::Binding(*c, d)));
         }
         out.push(ControlRow::Invert);
         for d in [InputDevice::KeyboardMouse, InputDevice::Controller] {
             out.extend([ControlRow::Sensitivity(d), ControlRow::Vertical(d), ControlRow::AimSensitivity(d)]);
         }
-        out.push(ControlRow::Rumble);
+        out.extend([ControlRow::Rumble, ControlRow::HoldTime, ControlRow::DoubleTap, ControlRow::ComboWindow]);
         out
     }
 
@@ -114,6 +122,9 @@ impl ControlRow {
             ControlRow::Vertical(_) => GAME_CONTROLS.len() + 4,
             ControlRow::AimSensitivity(_) => GAME_CONTROLS.len() + 5,
             ControlRow::Rumble => GAME_CONTROLS.len() + 6,
+            ControlRow::HoldTime => GAME_CONTROLS.len() + 7,
+            ControlRow::DoubleTap => GAME_CONTROLS.len() + 8,
+            ControlRow::ComboWindow => GAME_CONTROLS.len() + 9,
         }
     }
 
@@ -130,13 +141,19 @@ impl ControlRow {
             ControlRow::Vertical(_) => "vertical".into(),
             ControlRow::AimSensitivity(_) => "aim-sensitivity".into(),
             ControlRow::Rumble => "rumble".into(),
+            ControlRow::HoldTime => "hold-time".into(),
+            ControlRow::DoubleTap => "double-tap".into(),
+            ControlRow::ComboWindow => "combo-window".into(),
         }
     }
 
     /// The row's name in the layout table (after `controls:`), the same for both devices
-    /// (`bind:Jump`).
+    /// (`bind:Jump`), but a split hold's controller row, which stands beside its original
+    /// control (`padbind:Toggle Light`; `crate::bindings::SPLITS`)
+    /// [design: a split control is found where its original is].
     pub fn table_name(self) -> String {
         match self {
+            ControlRow::Binding(c, InputDevice::Controller) if crate::bindings::pad_placed(c) => format!("padbind:{}", Bindings::name(c)),
             ControlRow::Binding(c, _) => format!("bind:{}", Bindings::name(c)),
             other => other.name(),
         }
@@ -153,8 +170,22 @@ impl ControlRow {
             "vertical" => ControlRow::Vertical(device),
             "aim-sensitivity" => ControlRow::AimSensitivity(device),
             "rumble" if device == InputDevice::Controller => ControlRow::Rumble,
-            "rumble" => return None,
-            _ => ControlRow::Binding(Bindings::by_name(name.strip_prefix("bind:")?)?, device),
+            "hold-time" if device == InputDevice::Controller => ControlRow::HoldTime,
+            "double-tap" if device == InputDevice::Controller => ControlRow::DoubleTap,
+            "combo-window" if device == InputDevice::Controller => ControlRow::ComboWindow,
+            "rumble" | "hold-time" | "double-tap" | "combo-window" => return None,
+            _ => {
+                if let Some(n) = name.strip_prefix("padbind:") {
+                    let c = Bindings::by_name(n).filter(|c| crate::bindings::pad_placed(*c))?;
+                    return (device == InputDevice::Controller).then_some(ControlRow::Binding(c, device));
+                }
+                let c = Bindings::by_name(name.strip_prefix("bind:")?)?;
+                // A split hold's controller row is placed by its own name (`padbind:`).
+                if !has_row(c, device) || (device == InputDevice::Controller && crate::bindings::pad_placed(c)) {
+                    return None;
+                }
+                ControlRow::Binding(c, device)
+            }
         })
     }
 
@@ -167,6 +198,12 @@ impl ControlRow {
             (a, b) => a.or(b).into_iter().collect(),
         }
     }
+}
+
+/// Control `c` has a row with `device`: every control, but the controller's split holds
+/// with no key (`crate::bindings::PAD_ONLY`) with the keyboard and mouse.
+fn has_row(c: Control, device: InputDevice) -> bool {
+    device == InputDevice::Controller || !crate::bindings::PAD_ONLY.contains(&c)
 }
 
 /// A line of the settings page the keys can choose: a registered setting, one of the
@@ -745,7 +782,7 @@ pub fn normalize(layout: &ResolvedLayout, list: &[Setting], scope: SettingsScope
         RowId::Control(ControlRow::Sensitivity(_)) => Some(RowId::Control(ControlRow::Sensitivity(vis.device))),
         RowId::Control(ControlRow::Vertical(_)) => Some(RowId::Control(ControlRow::Vertical(vis.device))),
         RowId::Control(ControlRow::AimSensitivity(_)) => Some(RowId::Control(ControlRow::AimSensitivity(vis.device))),
-        RowId::Control(ControlRow::Rumble) => Some(RowId::Control(ControlRow::Device)),
+        RowId::Control(ControlRow::Rumble | ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow) => Some(RowId::Control(ControlRow::Device)),
         RowId::Control(_) | RowId::Heading(_) | RowId::Group => None,
     });
     let listed = |id: &RowId| slot_of(&entries, *id).is_some();
@@ -776,7 +813,7 @@ pub fn shown_as(list: &[Setting], id: RowId, vis: &Visibility) -> Option<RowId> 
             _ => Some(p),
         }),
         RowId::Control(ControlRow::Binding(_, d) | ControlRow::Sensitivity(d) | ControlRow::Vertical(d) | ControlRow::AimSensitivity(d)) if d != vis.device => Some(RowId::Control(ControlRow::Device)),
-        RowId::Control(ControlRow::Rumble) if vis.device != InputDevice::Controller => Some(RowId::Control(ControlRow::Device)),
+        RowId::Control(ControlRow::Rumble | ControlRow::HoldTime | ControlRow::DoubleTap | ControlRow::ComboWindow) if vis.device != InputDevice::Controller => Some(RowId::Control(ControlRow::Device)),
         RowId::Control(_) | RowId::Heading(_) | RowId::Group => Some(id),
     }
 }
@@ -1111,10 +1148,17 @@ mod tests {
         let kb = c(InputDevice::KeyboardMouse);
         assert_eq!(kb[..10], ["[Input]", "device", "automatic-input", "", "[Look]", "invert", "sensitivity", "vertical", "aim-sensitivity", ""]);
         assert_eq!(kb[10..12], ["[Movement]", "bind:Forward"]);
-        assert_eq!(kb.iter().filter(|n| n.starts_with("bind:")).count(), GAME_CONTROLS.len(), "every control once");
+        assert_eq!(kb.iter().filter(|n| n.starts_with("bind:")).count(), GAME_CONTROLS.len() - crate::bindings::PAD_ONLY.len(), "every control with a key once");
         let pad = c(InputDevice::Controller);
-        assert_eq!(pad[..6], ["[Input]", "device", "button-style", "automatic-input", "rumble", ""]);
+        assert_eq!(pad[..9], ["[Input]", "device", "button-style", "automatic-input", "rumble", "hold-time", "double-tap", "combo-window", ""]);
         assert!(pad.iter().any(|n| n == "padbind:Jump"));
+        assert_eq!(pad.iter().filter(|n| n.starts_with("padbind:")).count(), GAME_CONTROLS.len(), "every control once with a controller");
+        // The split holds stand beside their original controls with a controller.
+        let at = |n: &str| pad.iter().position(|x| x == n).unwrap();
+        assert!(at("padbind:Toggle Light") > at("padbind:Menu Mode") && at("padbind:Toggle Light") < at("[Hotkeys]"));
+        assert!(at("padbind:Holster Weapon") > at("padbind:Ready Item") && at("padbind:Holster Weapon") < at("[Actions]"));
+        assert!(at("hold-time") < at("[Look]") && at("double-tap") < at("[Look]") && at("combo-window") < at("[Look]"));
+        assert!(!kb.iter().any(|n| n == "bind:Orbit Camera" || n == "hold-time"));
         // An empty tab, and a search that found nothing: nothing.
         assert!(project(&l, &list, SettingsScope::Tab("Tweaks"), &vis, &NONE, &open()).is_empty());
         assert!(project(&l, &list, SettingsScope::Search, &vis, &NONE, &open()).is_empty());

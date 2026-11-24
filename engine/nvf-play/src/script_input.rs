@@ -86,7 +86,7 @@ fn script_input(
     mut blocked: ResMut<ScriptBlocked>,
     switching: Option<Res<crate::pad::SwitchingInput>>,
     pads: crate::pad::ActionPads,
-    sticks: Option<Res<crate::pad::StickButtons>>,
+    (sticks, resolver): (Option<Res<crate::pad::StickButtons>>, Option<Res<crate::pad::resolver::PadResolver>>),
     mut tapped: Local<Vec<u16>>,
     mut script_held: Local<Vec<u16>>,
 ) {
@@ -145,7 +145,7 @@ fn script_input(
         let keys = !controller || crate::bindings::keys_with_pad();
         GAME_CONTROLS.iter().take(fnv_game::script_input::CONTROLS).enumerate().fold(0, |mask, (c, (control, _, _))| {
             let keyboard = keys && input.bindings.get(c).is_some_and(|(k, m)| [*k, *m].into_iter().flatten().any(|code| input.held.contains(&code)));
-            let pad = controller && crate::bindings::pad_binding_held(b.pad(*control), &pads, sticks.as_deref());
+            let pad = controller && crate::bindings::pad_control_held(b, *control, resolver.as_deref(), &pads, sticks.as_deref());
             mask | (u32::from(keyboard || pad) << c)
         })
     });

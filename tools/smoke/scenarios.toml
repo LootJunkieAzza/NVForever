@@ -13822,7 +13822,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 136 of 136 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -14449,8 +14449,51 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 136 of 136 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
+
+[[scenario]]
+name = "pad-bindings-write"
+source = "controller combos, double taps and holds on the Controls tab, the built-in holds split into their own controls (controller only), every overlap warned of and none refused (docs/design/controller.md §2a); the first half of a round trip (pad-bindings-read starts in the same home), run them together"
+note = "no controller is connected in a smoke run: the gestures' capture and the bindings' acting are covered by the unit tests (pad/capture.rs, pad/resolver.rs); this checks the rows, the aids, the overlap warnings and the INI"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVFOREVER_HOME = "pad-bindings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:padbind:Toggle Light=LB + A,13:padbind:Holster Weapon=Double X,14:padbind:Rest=Hold Back,15:hold-time:0.5,16:double-tap:0.25,17:combo-window:0.15", NVF_PLAY_TEST_PAUSE_MENU = "11.5:defaults,12.6:shot:combo,13.6:shot:double,14.6:shot:hold,17.6:shot:timing" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 21
+expect = [
+  { text = "controls: input device Controller", label = "the Controls tab's first row picks the controller" },
+  { text = "controls: every control back to the game's controller buttons", label = "Defaults first, so a home kept from an earlier run starts from the game's buttons" },
+  { text = "controls: Toggle Light bound to controller LB + A (was With Menu Mode)", label = "a combo binds the light, split off Menu Mode's hold" },
+  { re = 'controls: warning: A does not act as Activate while LB is held', label = "the combo's overlap with Activate's A is warned of, not refused" },
+  { text = "controls: Holster Weapon bound to controller Double X (was With Ready Item)", label = "a double tap binds Holster Weapon, split off Ready Item's hold" },
+  { text = "controls: Rest bound to controller Hold Back (was Back)", label = "a hold binds Rest" },
+  { text = "controls: Hold Time 0.50 s", label = "the Hold time row is set" },
+  { text = "pause menu: screenshot pause_controls_combo.png", label = "a frame of the combo's row" },
+  { text = "pause menu: screenshot pause_controls_double.png", label = "a frame of the double tap's row" },
+  { text = "pause menu: screenshot pause_controls_hold.png", label = "a frame of the hold's row" },
+  { text = "pause menu: screenshot pause_controls_timing.png", label = "a frame of the timing rows" },
+  { text = "controls: Double Tap Window 0.25 s", label = "the Double-tap window row is set" },
+  { text = "controls: Combo Window 0.150 s", label = "the Combo window row is set (combos pressed nearly together, as seen in game)" },
+]
+order = [["controls: input device Controller", "controls: every control back to the game's controller buttons", "controls: Toggle Light bound to controller LB + A", "controls: Holster Weapon bound to controller Double X", "controls: Hold Time 0.50 s"]]
+
+[[scenario]]
+name = "pad-bindings-read"
+source = "the second half of the binding kinds' round trip: a new start in pad-bindings-write's home takes the combo, the double tap and the three timings it stored"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad/binding.rs"]
+env = { NVFOREVER_HOME = "pad-bindings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'controls: (\d+) of \1 line\(s\) read from .*NVForever\.ini, .*\[Controller\] Toggle Light With Menu Mode -> LB \+ A', label = "the stored combo is taken at the start, every line there" },
+  { re = 'controls: \d+ of \d+ line\(s\) read .*\[Controller\] Holster Weapon With Ready Item -> Double X', label = "the stored double tap" },
+  { re = 'controls: \d+ of \d+ line\(s\) read .*\[Controller\] Rest Back -> Hold Back', label = "the stored hold" },
+  { re = 'controls: \d+ of \d+ line\(s\) read .*\[Controller\] Hold Time 0\.5, \[Controller\] Double Tap Window 0\.25, \[Controller\] Combo Window 0\.15', label = "the stored timings" },
+  { re = 'controls: warning: A does not act as Activate while LB is held', label = "the overlap read is warned of again" },
+]
+forbid = [{ re = 'controls: .* not read|\[Controller\] .*=.* \(', label = "no stored line is refused" }]
 
 [[scenario]]
 name = "look-sensitivity-write"
@@ -14480,7 +14523,7 @@ env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 8 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2, Mouse Aim Sensitivity 0\.6, \[Controller\] Stick Aim Sensitivity 1\.5; input device Controller', label = "the stored Invert Y, the two sensitivities, the two vertical sensitivities (#2201) and the two aim sensitivities are taken at the start" },
+  { re = 'controls: 136 of 136 line\(s\) read from .*NVForever\.ini, 8 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2, Mouse Aim Sensitivity 0\.6, \[Controller\] Stick Aim Sensitivity 1\.5; input device Controller', label = "the stored Invert Y, the two sensitivities, the two vertical sensitivities (#2201) and the two aim sensitivities are taken at the start" },
 ]
 
 [[scenario]]
@@ -35760,6 +35803,52 @@ forbid = [
   { re = 'test aid: script (Call|MoveTo)\(.*\): \S', label = "no placement step failed (before)" },
   { re = 'shape\(s\) with an environment map, no window flag', label = "no shape without the window flag reflects" },
 ]
+
+[[scenario]]
+name = "pad-bindings-play"
+source = "controller holds, double taps and combos act in the game, not only on the Controls page (docs/design/controller.md §2a); and B backs out of Settings a step at a time"
+note = "the synthetic controller (NVF_PLAY_TEST_KEYS pad-…) through the bindings' resolver (pad/resolver.rs). While paused from 1 to 4.5 s (the pause aid's second number is when it resumes): Controller picked, Toggle Light on Hold Back (Wait keeps Back's tap), Holster Weapon on Double X (Ready / Reload keeps X's tap). A 10mm pistol equipped at 5 s; X tapped once at 6 s draws it, X twice at 8 s holsters it, Back held a second at 10 s lights the light. Start at 13 s, the D-pad and A open Settings, B three times: the rail, the column, the game. Frames in target/smoke (pad_play_*.png)"
+areas = ["main-menu", "controller"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/control.rs", "engine/nvf-play/src/flashlight.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/key_repeat.rs"]
+env = { NVFOREVER_HOME = "pad-bindings-play-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4.5", NVF_PLAY_TEST_SETTINGS = "2:device:Controller,2.5:padbind:Toggle Light=Hold Back,3.5:padbind:Holster Weapon=Double X", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:Weap10mmPistol:1,5:call:player:EquipItem:Weap10mmPistol", NVF_PLAY_TEST_KEYS = "6:pad-X,8:pad-X,8.15:pad-X,10:pad-Back:1.0,13:pad-Start,14:pad-D-Pad Down,14.4:pad-D-Pad Down,14.8:pad-D-Pad Down,15.3:pad-A,16.5:pad-B,17.5:pad-B,18.5:pad-B", NVF_PLAY_TEST_SHOTS = "7:pad_play_drawn.png,9.2:pad_play_holstered.png,11.5:pad_play_light.png,16:pad_play_settings.png,17:pad_play_rail.png,18:pad_play_column.png,19.5:pad_play_resumed.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 22
+expect = [
+  { text = "controls: input device Controller", label = "the controller is the input device" },
+  { re = 'controls: Toggle Light bound to controller Hold Back', label = "a hold binds the light" },
+  { re = 'controls: Holster Weapon bound to controller Double X', label = "a double tap binds Holster Weapon" },
+  { text = "Ready Item pressed: the weapon drawn", count = 1, label = "one tap of X draws the weapon, the double tap does not" },
+  { text = "pad: Holster Weapon by Double X", label = "two taps of X are the double tap" },
+  { text = "Holster Weapon pressed: the weapon holstered", label = "the double tap holsters the weapon" },
+  { text = "pad: Toggle Light by Hold Back", label = "Back held is the hold" },
+  { text = "flashlight: on", label = "the hold lights the light" },
+  { text = "pause menu: settings open on Controls", label = "Start, the D-pad and A open Settings in play" },
+  { text = "pause menu: back to the rail (Controls)", label = "B on the rows goes back to the rail" },
+  { text = "pause menu: settings left, back to the column", label = "after the bindings were used, B on the rail leaves Settings" },
+  { text = "pause menu: resume", label = "and B on the column returns to play" },
+]
+order = [["Ready Item pressed: the weapon drawn", "Holster Weapon pressed: the weapon holstered", "flashlight: on", "pause menu: settings open on Controls", "pause menu: back to the rail (Controls)", "pause menu: settings left, back to the column", "pause menu: resume"]]
+
+[[scenario]]
+name = "pause-menu-pad-back"
+source = "the controller must work the whole pause menu; B backing out of a sub menu in Settings went too far. With a controller B now goes back a step at a time: the rows to the rail, the rail to the column, the column back to the game"
+note = "only the synthetic controller's buttons (NVF_PLAY_TEST_KEYS pad-…), through crate::pad::menu_keys: Start opens the menu, the D-pad and A pick, RT steps the settings tab, B goes back. Settings opens on its kept tab (Controls in a fresh home)"
+areas = ["main-menu"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/settings_view.rs"]
+env = { NVFOREVER_HOME = "pause-menu-pad-back-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:2.5", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_KEYS = "6:pad-Start,7:pad-D-Pad Down,7.4:pad-D-Pad Down,7.8:pad-D-Pad Down,8.3:pad-A,9.5:pad-B,10.5:pad-B,11.5:pad-B,13:pad-Start,14:pad-D-Pad Down,14.4:pad-D-Pad Down,14.9:pad-A,16:pad-B,17:pad-D-Pad Down,17.5:pad-A,18.5:pad-RT,19.5:pad-D-Pad Down,20:pad-A,21:pad-B,22:pad-B,23:pad-B" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 26
+expect = [
+  { text = "pause menu: settings open on Controls", label = "Start, the D-pad and A open Settings" },
+  { text = "pause menu: back to the rail (Controls)", label = "B on the tab's rows puts the keys on the rail, the page stays" },
+  { text = "pause menu: load page left, back to the column", label = "B leaves the load page" },
+  { text = "pause menu: tab Graphics", label = "RT steps to the next tab" },
+  { text = "pause menu: category Graphics > Shadows closed", label = "A on a heading closes its category" },
+  { text = "pause menu: back to the rail (Graphics)", label = "B from inside a tab's category goes back to the rail first" },
+  { text = "pause menu: settings left, back to the column", label = "B on the rail leaves Settings for the column" },
+  { text = "pause menu: resume", label = "B on the column goes back to the game" },
+]
+order = [["pause menu: back to the rail (Controls)", "pause menu: settings left, back to the column", "pause menu: load page left, back to the column", "pause menu: tab Graphics", "pause menu: back to the rail (Graphics)"]]
 
 [[scenario]]
 name = "terrain-parallax-no-pack"
