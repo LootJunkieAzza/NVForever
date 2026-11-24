@@ -14,6 +14,7 @@
 //! textures/buffers kept alive until the submitted work is done.
 
 mod ffi;
+pub mod overlay;
 mod shaders;
 
 use std::ffi::CString;
@@ -27,7 +28,7 @@ use bevy::prelude::*;
 use bevy::render::renderer::raw_vulkan_init::{AdditionalVulkanFeatures, RawVulkanInitSettings};
 use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::view::ViewTarget;
-use bevy::render::{RenderApp};
+use bevy::render::{Extract, RenderApp};
 use bevy::core_pipeline::Core3dSystems;
 
 use crate::upscaler::prep::{PreparedUpscale, UpscaleSettings};
@@ -76,6 +77,8 @@ fn note(level: Level, line: impl AsRef<str>) {
 static API: Mutex<Option<ffi::Api>> = Mutex::new(None);
 /// The device callback enabled the network's extensions and features.
 static DEVICE_READY: AtomicBool = AtomicBool::new(false);
+/// The pass drew the last frame (the overlay's status line).
+pub(crate) static NR_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Marks, in Bevy's `AdditionalVulkanFeatures`, a device made with the network's requirements.
 struct NrDeviceEnabled;
@@ -191,6 +194,12 @@ impl Plugin for NrInitPlugin {
             api,
             handle,
             folder,
+            instance,
+            physical,
+            device: raw_device.handle(),
+            family,
+            queue_index,
+            network: NETWORK.clone(),
             size: UVec2::ZERO,
             full: UVec2::ZERO,
             proxy: None,
@@ -211,6 +220,13 @@ struct NrState {
     api: ffi::Api,
     handle: *mut std::ffi::c_void,
     folder: PathBuf,
+    /// The renderer's raw handles, kept for a live network switch (small <-> full).
+    instance: vk::Instance,
+    physical: vk::PhysicalDevice,
+    device: vk::Device,
+    family: u32,
+    queue_index: u32,
+    network: String,
     size: UVec2,
     full: UVec2,
     proxy: Option<wgpu::Buffer>,
@@ -231,18 +247,91 @@ unsafe impl Sync for NrState {}
 /// The pass plugin (added by `GraphicsPlugin`): the network between the occlusion and the upscaler.
 pub struct NrPassPlugin;
 
+/// The settings as the render world sees them (extracted every frame from the overlay's resource).
+#[derive(Resource, Clone, Default)]
+struct NrSettingsRender {
+    enabled: bool,
+    style: f32,
+    intensity: f32,
+    tone: f32,
+    structure: f32,
+    skin: f32,
+    automask: bool,
+    white: f32,
+    network: String,
+}
+
+fn extract_settings(mut commands: Commands, s: Extract<Res<overlay::NrSettings>>) {
+    commands.insert_resource(NrSettingsRender {
+        enabled: s.enabled,
+        style: s.style,
+        intensity: s.intensity,
+        tone: s.tone,
+        structure: s.structure,
+        skin: s.skin,
+        automask: s.automask,
+        white: s.white,
+        network: s.network.clone(),
+    });
+}
+
 impl Plugin for NrPassPlugin {
     fn build(&self, app: &mut App) {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
-        render_app.add_systems(
-            bevy::core_pipeline::Core3d,
-            nr_pass
-                .in_set(Core3dSystems::EarlyPostProcess)
-                .after(crate::ssao::ao_before_fsr)
-                .before(crate::dlss::dlss_pass)
-                .before(crate::fsr::fsr_pass),
-        );
+        render_app
+            .init_resource::<NrSettingsRender>()
+            .add_systems(bevy::render::ExtractSchedule, extract_settings)
+            .add_systems(
+                bevy::core_pipeline::Core3d,
+                nr_pass
+                    .in_set(Core3dSystems::EarlyPostProcess)
+                    .after(crate::ssao::ao_before_fsr)
+                    .before(crate::dlss::dlss_pass)
+                    .before(crate::fsr::fsr_pass),
+            );
     }
+}
+
+/// Switches the open network (small <-> full) live: close, open the other model directory, and
+/// let the next frame rebuild the per-size resources.
+fn reopen(state: &mut NrState, network: &str) -> bool {
+    let model = state.folder.join("model").join(network);
+    let cstrings: Vec<CString> = [model.clone(), state.folder.join("shaders"), state.folder.join("ptx")]
+        .iter()
+        .map(|p| CString::new(p.as_os_str().as_encoded_bytes()).unwrap_or_default())
+        .collect();
+    let mut err = [0i8; 1024];
+    // SAFETY: the old handle is closed (its own queue drained) before the new one opens on the
+    // same renderer handles, which stay alive for the app.
+    unsafe {
+        (state.api.close)(state.handle);
+        let handle = (state.api.open)(
+            state.instance,
+            state.physical,
+            state.device,
+            state.family,
+            state.queue_index,
+            cstrings[0].as_ptr(),
+            cstrings[1].as_ptr(),
+            cstrings[2].as_ptr(),
+            err.as_mut_ptr(),
+            err.len(),
+        );
+        if handle.is_null() {
+            let line = std::ffi::CStr::from_ptr(err.as_ptr()).to_string_lossy();
+            note(Level::WARN, format!("network switch to {network} failed: {line}"));
+            state.handle = std::ptr::null_mut();
+            return false;
+        }
+        state.handle = handle;
+    }
+    state.network = network.to_string();
+    state.size = UVec2::ZERO;
+    state.full = UVec2::ZERO;
+    state.proxy = None;
+    state.head_copy = None;
+    note(Level::INFO, format!("network switched to {network}"));
+    true
 }
 
 #[repr(C)]
@@ -345,16 +434,28 @@ fn prepare_size(state: &mut NrState, device: &wgpu::Device, size: UVec2) -> bool
 fn nr_pass(
     view: ViewQuery<(&ViewTarget, &PreparedUpscale)>,
     mut state: Option<ResMut<NrState>>,
+    settings: Res<NrSettingsRender>,
     device: Res<RenderDevice>,
     queue: Res<bevy::render::renderer::RenderQueue>,
     mut ctx: RenderContext,
 ) {
     let Some(state) = state.as_mut() else { return };
-    if state.failed {
+    if state.failed || state.handle.is_null() {
+        return;
+    }
+    if !settings.enabled {
+        NR_ACTIVE.store(false, Ordering::Relaxed);
+        return;
+    }
+    if settings.network != state.network && !reopen(state, &settings.network) {
+        state.failed = true;
         return;
     }
     let (target, prepared) = view.into_inner();
-    let UpscaleSettings::Dlss(_) = prepared.camera.settings else { return };
+    let UpscaleSettings::Dlss(_) = prepared.camera.settings else {
+        NR_ACTIVE.store(false, Ordering::Relaxed);
+        return;
+    };
     let size = prepared.render_size;
     if size.x == 0 || size.y == 0 {
         return;
@@ -375,7 +476,7 @@ fn nr_pass(
     let seed = if prepared.reset { 0 } else { state.frame };
 
     // 1. Encode the scene's render rect to the proxy, on Bevy's encoder.
-    let encode = EncodeParams { width: size.x, height: size.y, paper_white: *WHITE, exposure: 1.0 };
+    let encode = EncodeParams { width: size.x, height: size.y, paper_white: settings.white, exposure: 1.0 };
     queue.write_buffer(encode_params, 0, bytes_of(&encode));
     {
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -421,7 +522,7 @@ fn nr_pass(
                 full_barrier();
                 (api.reset_pools)(handle);
                 let mut err = [0i8; 1024];
-                let ok = (api.preprocess)(handle, cmd, raw_proxy, size.x, size.y, seed, *STYLE, *TONE, *STRUCTURE, *SKIN, i32::from(*AUTOMASK), err.as_mut_ptr(), err.len());
+                let ok = (api.preprocess)(handle, cmd, raw_proxy, size.x, size.y, seed, settings.style, settings.tone, settings.structure, settings.skin, i32::from(settings.automask), err.as_mut_ptr(), err.len());
                 if ok == 0 {
                     return false;
                 }
@@ -454,7 +555,7 @@ fn nr_pass(
     }
 
     // 3. Compose the head back onto the scene's render rect, on Bevy's next encoder.
-    let composite = CompositeParams { width: size.x, height: size.y, full_width: full.x, full_height: full.y, paper_white: *WHITE, exposure: 1.0, intensity: *INTENSITY, style: *STYLE, local_tone: *TONE, _pad0: 0, _pad1: 0, _pad2: 0 };
+    let composite = CompositeParams { width: size.x, height: size.y, full_width: full.x, full_height: full.y, paper_white: settings.white, exposure: 1.0, intensity: settings.intensity, style: settings.style, local_tone: settings.tone, _pad0: 0, _pad1: 0, _pad2: 0 };
     queue.write_buffer(composite_params, 0, bytes_of(&composite));
     {
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -474,4 +575,5 @@ fn nr_pass(
         pass.dispatch_workgroups((size.x + 7) / 8, (size.y + 7) / 8, 1);
     }
     state.frame = state.frame.wrapping_add(1);
+    NR_ACTIVE.store(true, Ordering::Relaxed);
 }

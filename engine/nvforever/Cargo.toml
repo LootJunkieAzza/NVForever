@@ -71,6 +71,9 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
+# DLSS 5 Neural Rendering's live settings overlay (nr/overlay.rs): F11 window with the network's
+# conditioning sliders; MIT/Apache-2.0, the bevy_egui release for Bevy 0.20.
+bevy_egui = "0.43"
 # `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
 # reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }

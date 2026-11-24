@@ -1864,6 +1864,9 @@ fn main() -> AppExit {
     // DefaultPlugins, as DlssInitPlugin does; inert without the nr folder or with NVF_NR=0.
     #[cfg(windows)]
     app.add_plugins(nr::NrInitPlugin);
+    // The F11 live-settings window for the network (nr/overlay.rs).
+    #[cfg(windows)]
+    app.add_plugins(nr::overlay::NrOverlayPlugin);
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
