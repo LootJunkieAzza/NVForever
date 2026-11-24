@@ -253,6 +253,8 @@ impl StandIn {
                         // Both sides start their checks together (#3795 section 7.2).
                         Self::send(&mut out, conn, &FromService::Go { peer: Some(peer) });
                         Self::send(&mut out, gc, &FromService::Go { peer: None });
+                        // The helper set may have changed before this guest was in.
+                        out.extend(Self::helpers_to(lobby, peer));
                     }
                     Some(_) => {}
                     None => self.fail(&mut out, conn, "unknown_peer", "no such guest", false),
@@ -320,7 +322,13 @@ impl StandIn {
                                 Self::send(&mut out, host, &FromService::Reconnect { peer });
                                 Self::send(&mut out, host, &FromService::Go { peer: Some(peer) });
                                 Self::send(&mut out, conn, &FromService::Go { peer: None });
-                                out.extend(self.set_helper(&code, peer, false));
+                                // A guest that lost its path may need a relay: it always gets the set.
+                                let told = self.set_helper(&code, peer, false);
+                                if told.is_empty() {
+                                    out.extend(Self::helpers_to(&self.lobbies[&code], peer));
+                                } else {
+                                    out.extend(told);
+                                }
                             }
                         }
                     }
@@ -350,9 +358,14 @@ impl StandIn {
     }
 
     fn helpers_out(lobby: &Lobby) -> Vec<Out> {
+        lobby.guests.keys().flat_map(|&p| Self::helpers_to(lobby, p)).collect()
+    }
+
+    /// Tells accepted guest `peer` the others that may relay (nothing if it is not accepted).
+    fn helpers_to(lobby: &Lobby, peer: PeerNo) -> Vec<Out> {
         let mut out = Vec::new();
-        for (&p, g) in lobby.guests.iter().filter(|(_, g)| g.accepted) {
-            let peers = lobby.guests.iter().filter(|&(&q, h)| q != p && h.helper).map(|(&q, _)| q).collect();
+        if let Some(g) = lobby.guests.get(&peer).filter(|g| g.accepted) {
+            let peers = lobby.guests.iter().filter(|&(&q, h)| q != peer && h.accepted && h.helper).map(|(&q, _)| q).collect();
             Self::send(&mut out, g.conn, &FromService::Helpers { peers });
         }
         out

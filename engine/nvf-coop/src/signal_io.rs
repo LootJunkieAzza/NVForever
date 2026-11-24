@@ -233,9 +233,9 @@ fn run(service: &str, start: Start, out: &Sender<FromIo>, cmds: &Receiver<ToIo>)
 }
 
 /// How many times a request or the lobby's socket is tried.
-const TRIES: usize = 3;
+const TRIES: usize = 5;
 /// The wait before each try after the first, when no Retry-After says otherwise (seconds).
-const BACKOFF: [u64; TRIES - 1] = [1, 2];
+const BACKOFF: [u64; TRIES - 1] = [1, 2, 3, 4];
 /// The longest Retry-After waited for (seconds): the zone's block lasts 10; the Worker's own
 /// lookup limit asks 60, longer than a player should stare at "joining", so that one ends
 /// the tries at once [documented: docs/design/coop-signal-wire.md, rate limit].

@@ -85,7 +85,7 @@ A candidate is `{"kind":"host"|"mapped"|"srflx"|"prflx","addr":"203.0.113.5:4796
 | `reconnect` | host | `peer` | That guest lost its path. A `go` follows. |
 | `connected` | host | `peer`, `path` | That guest reported its path. |
 | `left` | host | `peer` | That guest said `bye` or its socket closed. |
-| `helpers` | accepted guests | `peers` | The other guests that could relay. It is sent whenever that set changes. |
+| `helpers` | accepted guests | `peers` | The other guests that could relay. Sent to every accepted guest whenever that set changes, to a guest right after its `go` on acceptance, and to a guest after its own `reconnect`. |
 | `relay_ask` | guest | `from`, `candidates` | Another guest asks this one to relay. |
 | `relay_answer` | guest | `helper`, `accept`, `reason`, `candidates` | A helper's answer. |
 | `closed` | anyone | `reason` | `host_left`, `expired`, `replaced` or `bye`. The socket closes. |
@@ -104,6 +104,8 @@ guest to guest and the host takes no part in it.
 - A guest becomes a **helper** when its `connected` path is `direct` or `lan`. It stops being
   one on `reconnect` or when it leaves. Each change sends `helpers` to every accepted guest,
   listing the others.
+- A guest also gets the current `helpers` right after its `go` when it is accepted, and after
+  its own `reconnect`, so one accepted after the last change still knows the set.
 - C sends `relay_ask` to a helper. The service passes it on as `relay_ask` with `from`.
 - The helper answers with `relay_answer`. The service passes it to C, with `helper` naming who
   answered.

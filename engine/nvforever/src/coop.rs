@@ -2375,6 +2375,11 @@ fn online_event(coop: &mut Coop, e: nvf_coop::online::OnlineEvent, corner: &mut 
             coop.joining = Joining::Failed(why);
         }
         OnlineEvent::HostAt(at) => info!("co-op: the host is at {at}: saying hello there"),
+        OnlineEvent::HostVia(at) => info!("co-op: the host is reached through another player at {at} (relayed)"),
+        // The link starts and stops relaying itself (`Session::relay_for`); the log only.
+        OnlineEvent::RelayFor(peer) => info!("co-op: relaying for guest {peer}, who cannot reach the host"),
+        OnlineEvent::RelayAt { peer, addr } => info!("co-op: guest {peer}, relayed, is at {addr}"),
+        OnlineEvent::RelayEnd(peer) => info!("co-op: no longer relaying for guest {peer}"),
         OnlineEvent::Note(n) => info!("co-op: online: {n}"),
     }
 }

@@ -126,7 +126,14 @@ fn accept_decline_full_and_held_candidates() {
     w.send(&mut si, hc, h.take_outgoing(), t0);
     assert_eq!(host_events(&mut h, &mut w, hc), vec![HostEvent::Go { peer: 1 }]);
     let ev = guest_events(&mut a, &mut w, ac);
-    assert_eq!(ev, vec![GuestEvent::Accepted { host_key: key(1), host_name: "Courier".into(), candidates: vec![hcand] }, GuestEvent::Go]);
+    assert_eq!(
+        ev,
+        vec![
+            GuestEvent::Accepted { host_key: key(1), host_name: "Courier".into(), candidates: vec![hcand] },
+            GuestEvent::Go,
+            GuestEvent::Helpers { peers: vec![] }
+        ]
+    );
     // The held candidate goes now, and reaches the host.
     w.send(&mut si, ac, a.take_outgoing(), t0);
     assert_eq!(host_events(&mut h, &mut w, hc), vec![HostEvent::Candidates { peer: 1, candidates: vec![a_srflx] }]);
@@ -433,6 +440,27 @@ fn relay_exchange_between_guests() {
     b.reconnect();
     w.send(&mut si, bc, b.take_outgoing(), t0);
     assert_eq!(last_helpers(guest_events(&mut c, &mut w, cc)), vec![ap]);
+
+    // D is accepted after the set last changed and still learns it (found live, lobby Q5Y-C1C).
+    let dc = si.open(&lobby.code).unwrap();
+    let mut d = GuestClient::new("D", &key(13), &[]);
+    w.send(&mut si, dc, d.take_outgoing(), t0);
+    let dp = match guest_events(&mut d, &mut w, dc)[0] {
+        GuestEvent::Waiting { peer } => peer,
+        ref e => panic!("{e:?}"),
+    };
+    host_events(&mut h, &mut w, hc);
+    h.accept(dp);
+    w.send(&mut si, hc, h.take_outgoing(), t0);
+    host_events(&mut h, &mut w, hc);
+    assert_eq!(last_helpers(guest_events(&mut d, &mut w, dc)), vec![ap]);
+    // A reconnect that changes no helper still tells the reconnecting guest the set.
+    c.reconnect();
+    w.send(&mut si, cc, c.take_outgoing(), t0);
+    assert_eq!(last_helpers(guest_events(&mut c, &mut w, cc)), vec![ap]);
+    assert!(guest_events(&mut d, &mut w, dc).is_empty(), "the others hear nothing new");
+    host_events(&mut h, &mut w, hc);
+
     // A leaves: the list empties.
     a.bye();
     w.send(&mut si, ac, a.take_outgoing(), t0);

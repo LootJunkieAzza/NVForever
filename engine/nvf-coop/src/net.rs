@@ -564,6 +564,26 @@ fn relay_index(addr: SocketAddr) -> Option<usize> {
     }
 }
 
+/// Other players a guest relays over the network at most ([`Session::relay_for`], the
+/// peer relay of docs/design/coop-networking.md §8; `nvf_nat::relay::Policy`'s default).
+pub const PEER_RELAYS: usize = 2;
+/// The sub-channels of [`Msg::Relayed`] from [`PEER_SUB`] up are players relayed over the
+/// network ([`Session::relay_for`]); those below, games on this PC ([`Session::open_relay`]).
+const PEER_SUB: u8 = 0x80;
+
+/// A player this guest relays to its host over the network ([`Session::relay_for`]): the
+/// service's number for it, the addresses its checks reached (IPv4 and IPv6 both, and a
+/// new one when it moves; the last [`PEER_ADDRS`]), and the one its game traffic last came
+/// from, where the host's packets go.
+struct PeerRelay {
+    peer: u32,
+    allowed: VecDeque<SocketAddr>,
+    addr: Option<SocketAddr>,
+}
+
+/// The addresses of a relayed player kept ([`PeerRelay`]).
+const PEER_ADDRS: usize = 4;
+
 /// A guest's relay for the games behind it ([`Session::open_relay`]): a socket on this
 /// PC's loopback, and each game heard there (its address, when last heard), by
 /// sub-channel.
@@ -977,6 +997,9 @@ pub struct Session {
     relays: Vec<(SocketAddr, u8)>,
     /// A guest's relay for the games behind it.
     relay: Option<RelayIn>,
+    /// A guest's relay for other players that cannot reach the host
+    /// ([`Session::relay_for`]); slot `i` is sub-channel [`PEER_SUB`]` + i`.
+    peer_relays: Vec<Option<PeerRelay>>,
 }
 
 impl Session {
@@ -1077,6 +1100,71 @@ impl Session {
         self.relay.as_ref().and_then(|r| r.sock.local_addr().ok()).map(|a| a.port())
     }
 
+    /// A guest relays for `peer`, another player that cannot reach the host (the peer
+    /// relay, docs/design/coop-networking.md §8): once [`Session::relay_at`] names its
+    /// address, what comes from there goes to the host inside [`Msg::Relayed`] and the
+    /// host's answers go back. The packets stay sealed between that player and the host:
+    /// this game only passes them on. False for a host, or with [`PEER_RELAYS`] already.
+    pub fn relay_for(&mut self, peer: u32) -> bool {
+        if self.is_host() {
+            return false;
+        }
+        if self.peer_relays.iter().flatten().any(|r| r.peer == peer) {
+            return true;
+        }
+        let free = self.peer_relays.iter().position(Option::is_none);
+        let slot = match free {
+            Some(i) => i,
+            None if self.peer_relays.len() < PEER_RELAYS => {
+                self.peer_relays.push(None);
+                self.peer_relays.len() - 1
+            }
+            None => return false,
+        };
+        self.peer_relays[slot] = Some(PeerRelay { peer, allowed: VecDeque::new(), addr: None });
+        true
+    }
+
+    /// An address relayed player `peer` is at (its checks reached it there, or it moved):
+    /// what comes from there is passed on.
+    pub fn relay_at(&mut self, peer: u32, addr: SocketAddr) {
+        let addr = crate::transport::canonical(addr);
+        if let Some(r) = self.peer_relays.iter_mut().flatten().find(|r| r.peer == peer) {
+            if !r.allowed.contains(&addr) {
+                if r.allowed.len() == PEER_ADDRS {
+                    r.allowed.pop_front();
+                }
+                r.allowed.push_back(addr);
+            }
+            r.addr.get_or_insert(addr);
+        }
+    }
+
+    /// Stop relaying for `peer`.
+    pub fn relay_end(&mut self, peer: u32) {
+        for r in &mut self.peer_relays {
+            if r.as_ref().is_some_and(|r| r.peer == peer) {
+                *r = None;
+            }
+        }
+    }
+
+    /// How many players this guest relays over the network.
+    pub fn relaying(&self) -> usize {
+        self.peer_relays.iter().flatten().count()
+    }
+
+    /// The sub-channel of a packet from `from`, when it is a player this guest relays; the
+    /// host's answers go back to where its traffic last came from.
+    fn peer_sub(&mut self, from: SocketAddr) -> Option<u8> {
+        let from = crate::transport::canonical(from);
+        let i = self.peer_relays.iter().position(|r| r.as_ref().is_some_and(|r| r.allowed.contains(&from)))?;
+        if let Some(r) = &mut self.peer_relays[i] {
+            r.addr = Some(from);
+        }
+        Some(PEER_SUB + i as u8)
+    }
+
     /// A guest's host is now at `to` (split screen's player 2, when the game it joins
     /// through came back from a load's restart on another port): Hello goes there at once,
     /// with this guest's token, so the host knows it again. Nothing for a host, nor when
@@ -1120,7 +1208,7 @@ impl Session {
         if let Role::Guest { lobby, .. } = &role {
             secure.set_lobby(Some(*lobby));
         }
-        Ok(Self { net, secure: RefCell::new(secure), hinted: HashMap::new(), online: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None })
+        Ok(Self { net, secure: RefCell::new(secure), hinted: HashMap::new(), online: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None, peer_relays: Vec::new() })
     }
 
     /// This game's key pair from now on (the one kept in its home), in place of the new one
@@ -1190,11 +1278,26 @@ impl Session {
             self.net.send(&b, to);
         }
         for e in events {
-            if let (OnlineEvent::HostAt(at), Role::Guest { candidates, host, last_hello, .. }) = (&e, &mut self.role) {
-                if host.is_none() {
+            match (&e, &mut self.role) {
+                (OnlineEvent::HostAt(at), Role::Guest { candidates, host, last_hello, .. }) if host.is_none() => {
                     *candidates = vec![*at];
                     *last_hello = None;
                 }
+                // Through a relay: the Hello (and its handshake) goes to the helper.
+                (OnlineEvent::HostVia(at), Role::Guest { candidates, host, last_hello, .. }) => {
+                    if host.is_none() {
+                        *candidates = vec![*at];
+                        *last_hello = None;
+                    } else {
+                        self.move_host(*at);
+                    }
+                }
+                (OnlineEvent::RelayFor(peer), _) => {
+                    self.relay_for(*peer);
+                }
+                (OnlineEvent::RelayAt { peer, addr }, _) => self.relay_at(*peer, *addr),
+                (OnlineEvent::RelayEnd(peer), _) => self.relay_end(*peer),
+                _ => {}
             }
             self.events.push(Event::Online(e));
         }
@@ -1866,6 +1969,12 @@ impl Session {
 
     /// A guest: the host's packet for a game behind it, passed on.
     fn relay_down(&self, sub: u8, bytes: &[u8]) {
+        if sub >= PEER_SUB {
+            if let Some(Some(PeerRelay { addr: Some(to), .. })) = self.peer_relays.get((sub - PEER_SUB) as usize) {
+                self.net.send(bytes, *to);
+            }
+            return;
+        }
         if let Some(r) = &self.relay {
             if let Some((to, _)) = r.games.get(sub as usize) {
                 let _ = r.sock.send_to(bytes, *to);
@@ -1897,6 +2006,8 @@ impl Session {
                 self.relays.len() - 1
             }
         };
+        // Counted for the game behind too (the perf line's "heard"), not only its guest.
+        *self.heard.entry(relay_addr(i)).or_default() += bytes.len() as u64;
         self.wire_in(bytes, relay_addr(i), now);
     }
 
@@ -1930,6 +2041,14 @@ impl Session {
                 if o.on_router(from, &bytes, now) {
                     continue;
                 }
+            }
+            // A player this guest relays: up to the host as it came (sealed for the host),
+            // once the host has welcomed this guest.
+            if let Some(sub) = self.peer_sub(from) {
+                if let Role::Guest { host: Some(h), id: Some(_), gone: false, .. } = self.role {
+                    self.sock_send(&Msg::Relayed { sub, bytes }, h);
+                }
+                continue;
             }
             self.wire_in(&bytes, from, now);
         }
@@ -3746,6 +3865,48 @@ mod tests {
         drop(p1);
         let seen = run(&mut [&mut host, &mut p2], &mut clock, step, |seen| seen[0].contains(&Event::Left(1)) && seen[0].contains(&Event::Left(2)) && seen[1].contains(&Event::HostGone));
         assert!(host.peers.is_empty(), "{seen:?}");
+    }
+
+    /// The peer relay (docs/design/coop-networking.md §8): player C cannot reach the host,
+    /// guest A relays for it over the network. C joins with A's address as its host's, its
+    /// session is with the host (the host's key, sealed end to end; A only passes packets
+    /// on), it gets a place of its own, and the host and A hear it. A stops relaying: C's
+    /// packets go nowhere.
+    #[test]
+    fn a_guest_relays_another_player_over_the_network() {
+        let (mut host, mut guests, _) = host_and(1);
+        let mut a = guests.remove(0);
+        let (mut clock, step) = (Instant::now(), Duration::from_millis(20));
+        a.set_state(state(1.0));
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].contains(&Event::Welcomed(1)));
+        assert!(!host.relay_for(9), "a host relays nobody");
+        let a_at = SocketAddr::from(([127, 0, 0, 1], a.local_addr().unwrap().port()));
+        let mut c = Session::join(&[a_at], 0, "Player C").unwrap();
+        c.set_state(state(5.0));
+        let c_at = SocketAddr::from(([127, 0, 0, 1], c.local_addr().unwrap().port()));
+        assert!(a.relay_for(7));
+        assert!(a.relay_for(7), "the same player twice is one slot");
+        a.relay_at(7, c_at);
+        assert_eq!(a.relaying(), 1);
+        let host_key = host.secure.borrow().identity().public();
+        let seen = run(&mut [&mut host, &mut a, &mut c], &mut clock, step, |seen| {
+            seen[2].contains(&Event::Welcomed(2)) && seen[0].iter().any(|e| matches!(e, Event::State { id: 2, .. })) && seen[1].iter().any(|e| matches!(e, Event::State { id: 2, .. })) && seen[2].iter().any(|e| matches!(e, Event::State { id: 1, .. }))
+        });
+        assert!(seen[0].iter().any(|e| matches!(e, Event::Joined { id: 2, name } if name == "Player C")));
+        assert_eq!(host.peers.len(), 2);
+        assert_eq!(c.secure.borrow().remote_key(a_at), Some(host_key), "C's session is the host's, through A");
+        // C's checks also reached A from another address: both pass, answers follow traffic.
+        let other = SocketAddr::from(([127, 0, 0, 2], 9));
+        a.relay_at(7, other);
+        assert_eq!(a.peer_sub(other), Some(PEER_SUB));
+        assert_eq!(a.peer_relays[0].as_ref().unwrap().addr, Some(other));
+        assert_eq!(a.peer_sub(c_at), Some(PEER_SUB));
+        assert_eq!(a.peer_relays[0].as_ref().unwrap().addr, Some(c_at));
+        assert_eq!(a.peer_sub(SocketAddr::from(([127, 0, 0, 3], 9))), None, "only addresses the checks reached");
+        assert!(a.relay_for(8) && !a.relay_for(9), "at most {PEER_RELAYS}");
+        a.relay_end(7);
+        a.relay_end(8);
+        assert_eq!(a.relaying(), 0);
     }
 
     /// The guest a game joins through restarts for a load (gone without a goodbye) and
