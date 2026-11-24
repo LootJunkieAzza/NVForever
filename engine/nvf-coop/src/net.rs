@@ -103,7 +103,7 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// kinds in use: 1-27, 30, 31, each once; `Progress` tags 0-11. 138: every packet in a Noise
 /// session ([`crate::noise`], kinds 0xE0-0xE4), and Hello without its token (the key is the
 /// player). Message kinds in use: 1-27, 30, 31; 0xE0-0xE4 are the session layer's.
-pub const VERSION: u8 = 138;
+pub const VERSION: u8 = 139;
 pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -478,6 +478,9 @@ enum Msg {
     /// "Still here", from a game with no state to send (a guest choosing its save).
     Ping,
     Bye { id: u8 },
+    /// The host removed this guest (Kick), and with `banned` will not let its key in again
+    /// while the lobby lasts (Ban).
+    Kicked { banned: bool },
     /// Every player's name, from the host (the host is id 0): a guest learns the host's
     /// and the other guests' names from it.
     Names { names: Vec<(u8, String)> },
@@ -759,6 +762,30 @@ impl LineView {
     }
 }
 
+/// How a guest reaches the host ([`Session::paths`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Path {
+    Connecting,
+    /// On the host's network (or this PC).
+    Lan,
+    /// Straight over the internet.
+    Direct,
+    /// Through another player's game (the peer relay, or split screen's player 2).
+    Relayed,
+}
+
+impl Path {
+    /// The lobby screen's word for it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Path::Connecting => "connecting",
+            Path::Lan => "LAN",
+            Path::Direct => "direct",
+            Path::Relayed => "through another player",
+        }
+    }
+}
+
 /// What [`Link::events`] reports.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -783,6 +810,8 @@ pub enum Event {
     HostBack,
     /// The host left, or did not answer for [`GRACE`] (guests only).
     HostGone,
+    /// The host removed this guest; `banned`: it will not let it in again (guests only).
+    Kicked { banned: bool },
     /// A peer's look, when first heard or changed.
     Look { id: u8, look: Vec<u8> },
     /// A player's name, when first heard or changed (guests only; [`Msg::Names`]).
@@ -1005,6 +1034,9 @@ pub struct Session {
     /// A guest's relay for other players that cannot reach the host
     /// ([`Session::relay_for`]); slot `i` is sub-channel [`PEER_SUB`]` + i`.
     peer_relays: Vec<Option<PeerRelay>>,
+    /// Keys the host banned: their Hello is answered with [`Msg::Kicked`] while the lobby
+    /// lasts ([`Session::kick`]).
+    banned: Vec<[u8; 32]>,
 }
 
 impl Session {
@@ -1214,7 +1246,7 @@ impl Session {
         if let Role::Guest { lobby, .. } = &role {
             secure.set_lobby(Some(*lobby));
         }
-        Ok(Self { net, secure: RefCell::new(secure), hinted: HashMap::new(), online: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None, peer_relays: Vec::new() })
+        Ok(Self { net, secure: RefCell::new(secure), hinted: HashMap::new(), online: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now(), relays: Vec::new(), relay: None, peer_relays: Vec::new(), banned: Vec::new() })
     }
 
     /// This game's key pair from now on (the one kept in its home), in place of the new one
@@ -1243,6 +1275,57 @@ impl Session {
             let key = self.secure.get_mut().identity().public();
             self.online = Some(Online::host(service, info, &key, self.local_candidates()));
         }
+    }
+
+    /// The host's guests as its lobby screen lists them (docs/design/coop-networking.md §10):
+    /// each one's id, its path ([`Path`]) and its ping (the reliable stream's round trip,
+    /// once measured).
+    pub fn paths(&self) -> Vec<(u8, Path, Option<Duration>)> {
+        if !self.is_host() {
+            return Vec::new();
+        }
+        self.peers
+            .iter()
+            .map(|p| {
+                let path = match p.addr {
+                    Some(a) if relay_index(a).is_some() => Path::Relayed,
+                    Some(a) if nvf_nat::candidate::is_lan(a.ip()) => Path::Lan,
+                    Some(_) => Path::Direct,
+                    None => Path::Connecting,
+                };
+                (p.id, path, p.rel.rtt)
+            })
+            .collect()
+    }
+
+    /// The host removes guest `id` (Kick): it is told so and dropped; with `ban`, its key is
+    /// not let in again while this lobby lasts, by address or online code. False when this
+    /// is no host or `id` is no guest.
+    pub fn kick(&mut self, id: u8, ban: bool) -> bool {
+        if !self.is_host() {
+            return false;
+        }
+        let Some(p) = self.peers.iter().find(|p| p.id == id) else { return false };
+        let (key, addr) = (p.key, p.addr);
+        if ban && !self.banned.contains(&key) {
+            self.banned.push(key);
+            if let Some(o) = &mut self.online {
+                o.ban(key);
+            }
+        }
+        if let Some(a) = addr {
+            for _ in 0..BYE_COPIES {
+                self.sock_send(&Msg::Kicked { banned: ban }, a);
+            }
+        }
+        self.peers.retain(|p| p.id != id);
+        self.relay_bye(id);
+        self.events.push(Event::Left(id));
+        if let Some(a) = addr {
+            self.drop_relayed_via(a);
+        }
+        self.last_names = None;
+        true
     }
 
     /// The host's answer to player `peer` asking to join (an online code's join approval,
@@ -2164,6 +2247,10 @@ impl Session {
                 }
                 // The guest is the key its session proved, whatever it says.
                 let Some(key) = self.secure.get_mut().remote_key(from) else { return };
+                if self.banned.contains(&key) {
+                    self.sock_send(&Msg::Kicked { banned: true }, from);
+                    return;
+                }
                 // A known key is a guest coming back, from wherever it now is.
                 if let Some(p) = self.peers.iter_mut().find(|p| p.key == key) {
                     p.addr = Some(from);
@@ -2347,11 +2434,11 @@ impl Session {
                 }
                 p.last_heard = now;
                 let id = p.id;
-                for item in p.rel.receive(frame) {
+                for item in p.rel.receive_at(frame, now) {
                     self.events.push(Event::Reliable { id, item });
                 }
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Level(_) | Msg::Scene(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Story { .. } | Msg::Wear { .. } | Msg::Names { .. } | Msg::Actors { .. } | Msg::Relayed { .. } => {}
+            Msg::Welcome { .. } | Msg::Full | Msg::Kicked { .. } | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Level(_) | Msg::Scene(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Story { .. } | Msg::Wear { .. } | Msg::Names { .. } | Msg::Actors { .. } | Msg::Relayed { .. } => {}
         }
     }
 
@@ -2457,6 +2544,14 @@ impl Session {
                     self.events.push(Event::Look { id: peer, look });
                 }
             }
+            Msg::Kicked { banned } => {
+                *gone = true;
+                for p in self.peers.drain(..) {
+                    self.events.push(Event::Left(p.id));
+                }
+                self.events.push(Event::Kicked { banned });
+                self.relay_host_gone();
+            }
             // Every copy of the host's goodbye after the first finds it gone already.
             Msg::Bye { id: 0 } if *gone => {}
             Msg::Bye { id: 0 } => {
@@ -2517,7 +2612,7 @@ impl Session {
                         self.events.push(Event::RelReset { id: 0 });
                     }
                 }
-                for item in self.rel.receive(frame) {
+                for item in self.rel.receive_at(frame, now) {
                     self.events.push(Event::Reliable { id: 0, item });
                 }
             }
@@ -2720,6 +2815,16 @@ impl Link {
     /// [`Session::admit`].
     pub fn admit(&self, peer: u32, yes: bool) {
         self.with(|s| s.admit(peer, yes));
+    }
+
+    /// [`Session::kick`].
+    pub fn kick(&self, id: u8, ban: bool) -> bool {
+        self.with(|s| s.kick(id, ban))
+    }
+
+    /// [`Session::paths`].
+    pub fn paths(&self) -> Vec<(u8, Path, Option<Duration>)> {
+        self.with(|s| s.paths())
     }
 
     /// [`Session::close_to_others`].
@@ -2966,6 +3071,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.extend_from_slice(&e.t.to_le_bytes());
         }
         Msg::Bye { id } => b.extend_from_slice(&[5, *id]),
+        Msg::Kicked { banned } => b.extend_from_slice(&[28, u8::from(*banned)]),
         Msg::Npcs { seq, npcs } => {
             b.push(9);
             b.extend_from_slice(&seq.to_le_bytes());
@@ -3374,6 +3480,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Actors { seq, ms, poses }
         }
         3 => Msg::Full,
+        28 => Msg::Kicked { banned: r.u8()? != 0 },
         4 => {
             let id = r.u8()?;
             let seq = r.u32()?;
@@ -3708,6 +3815,8 @@ mod tests {
             Msg::Welcome { id: 2 },
             Msg::Names { names: vec![(0, "Alpha".into()), (2, "Bravo".into()), (3, String::new())] },
             Msg::Full,
+            Msg::Kicked { banned: true },
+            Msg::Kicked { banned: false },
             Msg::Who,
             Msg::Ping,
             Msg::Look { id: 2, look: vec![1, 2, 3, 250] },
@@ -3922,6 +4031,9 @@ mod tests {
         });
         assert!(seen[0].iter().any(|e| matches!(e, Event::Joined { id: 2, name } if name == "Player C")));
         assert_eq!(host.peers.len(), 2);
+        let paths = host.paths();
+        assert!(paths.iter().any(|(id, p, _)| *id == 1 && *p == Path::Lan));
+        assert!(paths.iter().any(|(id, p, _)| *id == 2 && *p == Path::Relayed), "{paths:?}");
         assert_eq!(c.secure.borrow().remote_key(a_at), Some(host_key), "C's session is the host's, through A");
         // C's checks also reached A from another address: both pass, answers follow traffic.
         let other = SocketAddr::from(([127, 0, 0, 2], 9));
@@ -3935,6 +4047,35 @@ mod tests {
         a.relay_end(7);
         a.relay_end(8);
         assert_eq!(a.relaying(), 0);
+    }
+
+    /// Kick and Ban: the host removes a guest, which hears it was removed and stops; a banned
+    /// guest's key is turned away when it comes back, a kicked one's is let in again.
+    #[test]
+    fn the_host_kicks_or_bans_a_guest() {
+        let (mut host, mut guests, at) = host_and(2);
+        let (mut clock, step) = (Instant::now(), Duration::from_millis(20));
+        let (g1_key, g2_key) = (guests[0].identity(), guests[1].identity());
+        {
+            let mut all: Vec<&mut Session> = std::iter::once(&mut host).chain(guests.iter_mut()).collect();
+            run(&mut all, &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        }
+        let (id1, id2) = (host.peers[0].id, host.peers[1].id);
+        assert!(!guests[0].kick(id2, false), "a guest kicks nobody");
+        assert!(host.kick(id1, false));
+        assert!(host.kick(id2, true));
+        assert!(!host.kick(id2, true), "gone already");
+        let mut g1 = guests.remove(0);
+        let mut g2 = guests.remove(0);
+        let seen = run(&mut [&mut host, &mut g1, &mut g2], &mut clock, step, |seen| seen[1].contains(&Event::Kicked { banned: false }) && seen[2].contains(&Event::Kicked { banned: true }));
+        assert!(seen[0].contains(&Event::Left(id1)) && seen[0].contains(&Event::Left(id2)));
+        assert!(host.peers.is_empty());
+        // They come back (new runs, the same keys): the kicked one is let in, the banned one not.
+        let mut back1 = Session::join(&[at], 0, "G0").unwrap().with_identity(g1_key);
+        let mut back2 = Session::join(&[at], 0, "G1").unwrap().with_identity(g2_key);
+        let seen = run(&mut [&mut host, &mut back1, &mut back2], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].contains(&Event::Kicked { banned: true }));
+        assert!(!seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))), "banned: {seen:?}");
+        assert_eq!(host.peers.len(), 1);
     }
 
     /// The guest a game joins through restarts for a load (gone without a goodbye) and

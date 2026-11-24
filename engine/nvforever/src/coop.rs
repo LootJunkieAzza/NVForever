@@ -1156,6 +1156,12 @@ fn lobby(
                 say(format!("Friendly fire {}", if on { "on: players can hurt each other" } else { "off: players can't hurt each other" }));
             }
             LobbyRequest::FriendlyFire(_) => say("Only the host sets friendly fire".into()),
+            LobbyRequest::Kick { id, ban } => {
+                let who = coop.peers.get(id).map(|p| label(*id, &p.name)).unwrap_or_else(|| format!("Player {}", id + 1));
+                if coop.link.as_ref().is_some_and(|l| l.kick(*id, *ban)) {
+                    say(if *ban { format!("{who} is banned from this lobby") } else { format!("{who} was removed from the lobby") });
+                }
+            }
             LobbyRequest::Admit { peer, yes } => {
                 if let Some(link) = &coop.link {
                     link.admit(*peer, *yes);
@@ -1237,6 +1243,8 @@ fn lobby(
         _ => Hosting::Off,
     };
     let mut players = Vec::new();
+    // The host's guests, for Kick and Ban.
+    let guests: Vec<(u8, String)> = if coop.is_host() { coop.peers.iter().map(|(&id, p)| (id, label(id, &p.name))).collect() } else { Vec::new() };
     if coop.link.is_some() {
         // This player by its character's name, as the others call it (item 19).
         let me = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| coop.name.clone());
@@ -1250,6 +1258,8 @@ fn lobby(
             if on { " (sharing quests)" } else { "" }
         };
         players.push(if coop.is_host() { format!("{me} (host, you)") } else { format!("{me} (you){}", sharing(None)) });
+        // The host's line per guest says its path and ping (docs/design/coop-networking.md §10).
+        let paths = coop.link.as_ref().map(|l| l.paths()).unwrap_or_default();
         for (&id, p) in &coop.peers {
             let n = format!("{}{}", label(id, &p.name), sharing(Some(id)));
             // The host is player 0 (`nvf_coop`): marked on a guest's list.
@@ -1259,10 +1269,15 @@ fn lobby(
                 Some(g) => format!("{n} (at {})", nvf_play::coop_tables::game::word(g)),
                 None => n,
             };
+            let n = match paths.iter().find(|(i, ..)| *i == id) {
+                Some((_, path, Some(rtt))) => format!("{n} ({}, {} ms)", path.word(), rtt.as_millis()),
+                Some((_, path, None)) => format!("{n} ({})", path.word()),
+                None => n,
+            };
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone() });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone(), guests });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
         None => "NVForever".to_string(),
@@ -2033,6 +2048,7 @@ fn take_events(
     let is_host = link.is_host();
     let mut notes = Vec::new();
     let mut refused = false;
+    let mut kicked: Option<&str> = None;
     let mut online = Vec::new();
     // The host's quest messages, once this game's scripts are there to name them (a quest
     // heard while the game still loaded is told then).
@@ -2058,6 +2074,11 @@ fn take_events(
             Event::Refused => {
                 notes.push("The host's game is full".into());
                 refused = true;
+            }
+            Event::Kicked { banned } => {
+                let why = if banned { "The host banned you from their lobby." } else { "The host removed you from their lobby." };
+                notes.push(why.into());
+                kicked = Some(why);
             }
             Event::Joined { id, name } => {
                 let p = coop.peers.entry(id).or_default();
@@ -2347,6 +2368,11 @@ fn take_events(
         coop.link = None;
         coop.left_lobby = true;
         coop.joining = Joining::Failed("The host's game is full.".into());
+    }
+    if let Some(why) = kicked {
+        coop.link = None;
+        coop.left_lobby = true;
+        coop.joining = Joining::Failed(why.into());
     }
     for o in online {
         online_event(coop, o, &mut corner);

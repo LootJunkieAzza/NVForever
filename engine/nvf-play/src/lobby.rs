@@ -15,6 +15,7 @@
 //! Test aid `NVF_PLAY_TEST_LOBBY="<seconds>:<action>,..."` (real seconds from the start):
 //! `code=<code>` types a code, `join`, `open` (the lobby as the pause menu opens it),
 //! `create`, `close`, `back`, `admit` / `turn-away` (the first player asking to join),
+//! `kick` / `ban` (the host's first guest),
 //! `pick=<n>` (the n-th
 //! save that can join, from 0), `shot=<file>` (a screenshot); for the Emotes menu,
 //! `emotes` (open it), `slot=<n>` (1-8: choose a slot), `equip=<emote>` (put the emote,
@@ -76,6 +77,8 @@ pub enum LobbyRequest {
     Load { path: PathBuf, name: String },
     /// The host's answer to player `peer` asking to join (join approval).
     Admit { peer: u32, yes: bool },
+    /// The host removes guest `id` (Kick); with `ban`, not to come back while the lobby lasts.
+    Kick { id: u8, ban: bool },
 }
 
 /// The host's lobby.
@@ -117,6 +120,8 @@ pub struct LobbyState {
     /// Players asking to join the host's lobby (join approval): the service's number for
     /// each, and its name.
     pub asking: Vec<(u32, String)>,
+    /// The host's guests, by id, for Kick and Ban.
+    pub guests: Vec<(u8, String)>,
 }
 
 /// A save on the guest's list.
@@ -143,6 +148,8 @@ pub struct LobbyScreen {
     closed: Option<u32>,
     /// The Emotes menu is up: `Some(slot)` while choosing the emote for that slot.
     emotes: Option<Option<usize>>,
+    /// The host's Remove a Player list is up.
+    removing: bool,
     /// The loadout and the emotes the load order has, as of this frame (from
     /// `crate::emotes`).
     loadout: [Option<usize>; crate::emotes::SLOTS],
@@ -157,6 +164,7 @@ impl LobbyScreen {
         self.selected = 0;
         self.saves = None;
         self.emotes = None;
+        self.removing = false;
         self.opened = self.frame;
     }
 
@@ -207,6 +215,12 @@ enum Act {
     Admit(u32),
     /// Turn it away.
     TurnAway(u32),
+    /// Open the host's Remove a Player list.
+    Remove,
+    /// Remove this guest (its id); it may join again.
+    Kick(u8),
+    /// Remove it and keep it out while the lobby lasts.
+    Ban(u8),
 }
 
 pub struct LobbyPlugin;
@@ -240,13 +254,22 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
         (Some(Mode::Host), Some(Some(_))) => return screen.installed.iter().map(|&e| Act::Equip(e)).chain([Act::Empty, Act::Back]).collect(),
         _ => {}
     }
+    if screen.mode == Some(Mode::Host) && screen.removing && !state.guest {
+        return state.guests.iter().flat_map(|(id, _)| [Act::Kick(*id), Act::Ban(*id)]).chain([Act::Back]).collect();
+    }
     match screen.mode {
         None => Vec::new(),
         Some(Mode::Host) if state.guest => vec![Act::Leave, Act::Emotes, Act::Back],
         Some(Mode::Host) => match state.hosting {
             Hosting::Off => vec![Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back],
             Hosting::Opening => vec![Act::Back],
-            Hosting::Open { .. } => state.asking.iter().flat_map(|(p, _)| [Act::Admit(*p), Act::TurnAway(*p)]).chain([Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]).collect(),
+            Hosting::Open { .. } => state
+                .asking
+                .iter()
+                .flat_map(|(p, _)| [Act::Admit(*p), Act::TurnAway(*p)])
+                .chain((!state.guests.is_empty()).then_some(Act::Remove))
+                .chain([Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back])
+                .collect(),
         },
         Some(Mode::Join) => match (&state.joining, &screen.saves) {
             (Joining::Found, Some(saves)) => saves.iter().enumerate().filter(|(_, s)| s.ok).map(|(i, _)| Act::Save(i)).chain([Act::Back]).collect(),
@@ -345,6 +368,8 @@ fn input(
                 "close" => Some(Act::Close),
                 "admit" => state.asking.first().map(|(p, _)| Act::Admit(*p)),
                 "turn-away" => state.asking.first().map(|(p, _)| Act::TurnAway(*p)),
+                "kick" => state.guests.first().map(|(id, _)| Act::Kick(*id)),
+                "ban" => state.guests.first().map(|(id, _)| Act::Ban(*id)),
                 "leave" => Some(Act::Leave),
                 "friendly-fire" => Some(Act::FriendlyFire),
                 "back" => Some(Act::Back),
@@ -472,6 +497,19 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
                 screen.selected = n;
             }
         }
+        Act::Remove => {
+            screen.removing = true;
+            screen.selected = 0;
+        }
+        Act::Kick(id) | Act::Ban(id) => {
+            asks.write(LobbyRequest::Kick { id, ban: matches!(act, Act::Ban(_)) });
+            screen.removing = false;
+            screen.selected = 0;
+        }
+        Act::Back if screen.removing => {
+            screen.removing = false;
+            screen.selected = 0;
+        }
         Act::Back if screen.emotes.is_some() => {
             let back_to = screen.emotes.flatten();
             screen.emotes = if back_to.is_some() { Some(None) } else { None };
@@ -566,6 +604,16 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
         v.push(Button(Act::Back, "Back".into()));
         return v;
     }
+    if screen.mode == Some(Mode::Host) && screen.removing && !state.guest {
+        v.push(Title("Remove a Player".into()));
+        v.push(Line("Kick: they leave and may join again. Ban: they cannot come back while this lobby is open.".into(), Shade::Dim));
+        for (id, name) in &state.guests {
+            v.push(Row(Act::Kick(*id), format!("Kick {name}"), Shade::Bright));
+            v.push(Row(Act::Ban(*id), format!("Ban {name}"), Shade::Bright));
+        }
+        v.push(Button(Act::Back, "Back".into()));
+        return v;
+    }
     match screen.mode {
         None => {}
         Some(Mode::Host) if state.guest => {
@@ -600,6 +648,9 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                         v.push(Button(Act::TurnAway(*peer), "Turn Away".into()));
                     }
                     players(&mut v, state);
+                    if !state.guests.is_empty() {
+                        v.push(Button(Act::Remove, "Remove a Player".into()));
+                    }
                     v.push(Button(Act::Close, "Close Lobby".into()));
                     v.push(Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire)));
                     v.push(Button(Act::Emotes, "Emotes".into()));
@@ -844,6 +895,22 @@ mod tests {
         assert!(p.contains(&Piece::Button(Act::Admit(4), "Let Cass In".into())));
         assert!(p.contains(&Piece::Button(Act::TurnAway(4), "Turn Away".into())));
         assert_eq!(acts(&screen, &state), vec![Act::Admit(4), Act::TurnAway(4), Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]);
+    }
+
+    /// Kick and Ban: Remove a Player shows with guests in the lobby, and lists each with
+    /// Kick and Ban; choosing one asks the network side and closes the list.
+    #[test]
+    fn the_host_removes_a_player() {
+        let mut screen = opened(Mode::Host);
+        let alone = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, players: vec!["Veronica (host, you)".into()], ..default() };
+        assert!(!acts(&screen, &alone).contains(&Act::Remove), "nobody to remove");
+        let state = LobbyState { players: vec!["Veronica (host, you)".into(), "Cass".into()], guests: vec![(1, "Cass".into())], ..alone };
+        assert_eq!(acts(&screen, &state), vec![Act::Remove, Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]);
+        screen.removing = true;
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Row(Act::Kick(1), "Kick Cass".into(), Shade::Bright)));
+        assert!(p.contains(&Piece::Row(Act::Ban(1), "Ban Cass".into(), Shade::Bright)));
+        assert_eq!(acts(&screen, &state), vec![Act::Kick(1), Act::Ban(1), Act::Back]);
     }
 
     #[test]

@@ -43,6 +43,9 @@ pub const KIND_ANSWER: u8 = 0xE6;
 /// number, and the answer repeats it.
 pub const KIND_RELAY_PROBE: u8 = 0xE7;
 pub const KIND_RELAY_ANSWER: u8 = 0xE8;
+/// A join that failed with no STUN answer at all (§10): what the player is told.
+pub const UDP_BLOCKED: &str = "Your network seems to block the kind of traffic co-op needs (UDP), as school and work networks often do. Try another network, or Tailscale and join by address.";
+
 /// Turns relaying for other players off (`0`): the "Relay for other players" setting.
 pub const RELAY_ENV: &str = "NVF_COOP_RELAY";
 /// Turns join approval off (`0`): the "Ask before players join" setting. On by default for
@@ -169,7 +172,11 @@ pub struct Online {
     reopen_at: Option<Instant>,
     /// This player's router asked to open the IPv4 socket's port ([`crate::portmap`]).
     portmap: Option<PortMap>,
+    /// STUN asked and no server answered: this network likely blocks UDP (§10).
+    no_stun: bool,
     relays: Relays,
+    /// Keys the host banned ([`Online::ban`]).
+    banned: Vec<[u8; 32]>,
 }
 
 impl Online {
@@ -205,7 +212,9 @@ impl Online {
     fn new(service: &str, io: Option<SignalIo>, side: Side, locals: Vec<SocketAddr>) -> Self {
         let found = locals.iter().map(|a| Candidate::new(Kind::Host, *a)).collect();
         let portmap = locals.iter().find(|a| a.is_ipv4()).and_then(|a| PortMap::start(*a, Instant::now()));
-        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, relays: Relays::default() }
+        // The checks' local sockets: one per family (every address is the same socket).
+        let locals: Vec<SocketAddr> = [locals.iter().find(|a| a.is_ipv4()), locals.iter().find(|a| a.is_ipv6())].into_iter().flatten().copied().collect();
+        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, relays: Relays::default(), banned: Vec::new() }
     }
 
     /// The host key the service gave a guest: the only key its Noise session may have.
@@ -266,6 +275,10 @@ impl Online {
                     Mapping::Unknown => "unknown (fewer than two servers answered)",
                 };
                 self.events.push(OnlineEvent::Note(format!("STUN: public address {:?}; mapping {mapping}", r.reflexive())));
+                self.no_stun = r.reflexive().is_empty();
+                if self.no_stun {
+                    self.events.push(OnlineEvent::Note("no STUN server answered: this network may block UDP".into()));
+                }
                 for a in r.reflexive() {
                     self.found(Candidate::new(Kind::ServerReflexive, a));
                 }
@@ -392,6 +405,11 @@ impl Online {
                                 c.decline(peer, "bad_key");
                                 continue;
                             };
+                            if self.banned.contains(&key) {
+                                c.decline(peer, "banned");
+                                self.events.push(OnlineEvent::Note(format!("{name} (guest {peer}) asks to join: banned, turned away")));
+                                continue;
+                            }
                             // Join approval: the host is asked, unless it turned that off. The
                             // game's own link still turns a full lobby away.
                             if !crate::prefs::ask_before_join() {
@@ -405,6 +423,7 @@ impl Online {
                             }
                         }
                         HostEvent::Candidates { peer, candidates } => {
+                            log::debug!("co-op: guest {peer}'s candidates: {candidates:?}");
                             if let Some(p) = peers.get_mut(&peer) {
                                 for c in candidates {
                                     if !p.remotes.contains(&c) {
@@ -480,6 +499,7 @@ impl Online {
                             let why = match reason.as_str() {
                                 "declined" => "The host turned your request to join away.".to_string(),
                                 "no_answer" => "The host did not answer your request to join: try again, and tell them to look at their Co-op Lobby.".to_string(),
+                                "banned" => "The host banned you from this lobby.".to_string(),
                                 _ => format!("The host's game turned this one away ({reason})."),
                             };
                             self.events.push(OnlineEvent::Failed(why));
@@ -546,12 +566,20 @@ impl Online {
             Side::Host { peers, .. } => {
                 for (&peer, p) in peers.iter_mut() {
                     let Some(a) = &mut p.agent else { continue };
+                    let mut failed = false;
                     for act in a.poll(now) {
-                        if let Action::SendProbe { to, check_id, .. } = act {
-                            send.push((to, probe(KIND_PROBE, peer, check_id)));
+                        match act {
+                            Action::SendProbe { to, check_id, .. } => send.push((to, probe(KIND_PROBE, peer, check_id))),
+                            // The guest names the path, and its handshake comes over it; a host
+                            // agent that finds none stops, and says so.
+                            Action::Failed => failed = true,
+                            _ => {}
                         }
-                        // The guest names the path, and its handshake comes over it; a host
-                        // agent that finds none just stops.
+                    }
+                    if failed {
+                        p.agent = None;
+                        let kinds: Vec<String> = p.remotes.iter().map(|c| format!("{:?}", c.kind)).collect();
+                        self.events.push(OnlineEvent::Note(format!("guest {peer}: the checks found no direct path ({} candidates: {}); it may come through another player", p.remotes.len(), kinds.join(", "))));
                     }
                 }
             }
@@ -572,7 +600,8 @@ impl Online {
                                 done = true;
                             }
                             Action::Failed if !crate::prefs::relay_through_others() => {
-                                self.events.push(OnlineEvent::Failed("Couldn't reach the host from your network, and Co-op connection is set to Direct only (no relay through another player).".into()));
+                                let why = if self.no_stun { UDP_BLOCKED } else { "Couldn't reach the host from your network, and Co-op connection is set to Direct only (no relay through another player)." };
+                                self.events.push(OnlineEvent::Failed(why.into()));
                                 done = true;
                             }
                             Action::Failed => {
@@ -631,6 +660,7 @@ impl Online {
         let mut send = Vec::new();
         let Side::Guest { me: Some(me), client, connected, .. } = &mut self.side else { return send };
         let me = *me;
+        let no_stun = self.no_stun;
         let r = &mut self.relays;
         // The planner starts once a helper is known, or after the wait with none.
         if let Some(since) = r.waiting {
@@ -698,6 +728,7 @@ impl Online {
                         *connected = false;
                         self.events.push(OnlineEvent::Note(format!("the relay through guest {helper} stopped working")));
                     }
+                    relay::Action::GiveUp(_) if no_stun => self.events.push(OnlineEvent::Failed(UDP_BLOCKED.into())),
                     relay::Action::GiveUp(why) => {
                         let text = match why {
                             GiveUp::NoHelpers => "Couldn't reach the host from your network, and no other player can relay for you. Ask the host to turn on UPnP on their router or forward UDP port 47960, or join over Tailscale by address.",
@@ -719,6 +750,13 @@ impl Online {
             }
         }
         send
+    }
+
+    /// The host banned `key`: its later asks to join are turned away at once.
+    pub fn ban(&mut self, key: [u8; 32]) {
+        if !self.banned.contains(&key) {
+            self.banned.push(key);
+        }
     }
 
     /// This game stopped relaying for `peer` (it went quiet): its checks end.
@@ -909,10 +947,32 @@ fn default_stun() -> Vec<SocketAddr> {
     signal_io::resolve_stun(&signal_io::DEFAULT_STUN.map(String::from))
 }
 
-/// This PC's addresses the other side may reach directly, with these ports: its LAN IPv4
-/// address and its global IPv6 address, each found by asking the system which address it
-/// would send from (nothing is sent).
+/// This PC's addresses the other side may reach directly, with these ports: first the IPv4
+/// and global IPv6 address it would send to the internet from (asked of the system;
+/// nothing is sent), then every other private IPv4 and global IPv6 address of its network
+/// adapters that are up. With a VPN up, the first is the tunnel's, and the home network's
+/// own address (where a player on the same network reaches it) is only among the others
+/// [observed 2026-11-24: a desktop on NordVPN offered only 10.5.0.2 and a laptop on its
+/// Wi-Fi could not reach it].
 pub fn local_addrs(v4_port: Option<u16>, v6_port: Option<u16>) -> Vec<SocketAddr> {
+    let mut out = route_addrs(v4_port, v6_port);
+    for iface in netdev::get_interfaces().into_iter().filter(|i| i.is_up() && !i.is_loopback()) {
+        let v4 = iface.ipv4.iter().map(|n| n.addr()).filter(|ip| ip.is_private()).filter_map(|ip| v4_port.map(|p| SocketAddr::new(IpAddr::V4(ip), p)));
+        let v6 = iface.ipv6.iter().map(|n| n.addr()).filter(|ip| nvf_nat::candidate::is_global_v6(*ip)).filter_map(|ip| v6_port.map(|p| SocketAddr::new(IpAddr::V6(ip), p)));
+        for a in v4.chain(v6) {
+            if !out.contains(&a) && out.len() < LOCAL_ADDRS {
+                out.push(a);
+            }
+        }
+    }
+    out
+}
+
+/// At most this many of this PC's own addresses are offered.
+const LOCAL_ADDRS: usize = 6;
+
+/// The addresses the system would send to the internet from.
+fn route_addrs(v4_port: Option<u16>, v6_port: Option<u16>) -> Vec<SocketAddr> {
     let mut out = Vec::new();
     if let Some(p) = v4_port {
         let ip = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).and_then(|s| s.connect(("192.0.2.1", 9)).and(s.local_addr())).ok().map(|a| a.ip());
@@ -958,6 +1018,25 @@ mod tests {
         let client = GuestClient::new("G", &"cd".repeat(32), &[]);
         let side = Side::Guest { name: "G".into(), client: Some(client), me: Some(me), host_key: Some([7; 32]), remotes: Vec::new(), agent: None, load_order_hash: String::new(), connected };
         Online::new("http://127.0.0.1:1", None, side, vec![at.parse().unwrap()])
+    }
+
+    /// No STUN server answers and the join fails: the player is told UDP looks blocked.
+    #[test]
+    fn a_join_with_no_stun_answer_says_udp_is_blocked() {
+        let mut o = guest_at(3, "10.0.0.3:50003", false);
+        let mut now = Instant::now();
+        o.start_stun(&["192.0.2.1:3478".parse().unwrap()], now);
+        o.on_text(r#"{"type":"go"}"#, now);
+        let mut ev = Vec::new();
+        for _ in 0..1500 {
+            now += Duration::from_millis(20);
+            o.tick(now, &[3; 32]);
+            ev.extend(o.take_events());
+            if ev.iter().any(|e| matches!(e, OnlineEvent::Failed(_))) {
+                break;
+            }
+        }
+        assert!(ev.contains(&OnlineEvent::Failed(UDP_BLOCKED.into())), "{ev:?}");
     }
 
     /// The peer relay's setup (docs/design/coop-networking.md §8), sans service and sockets:
