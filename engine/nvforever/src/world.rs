@@ -1128,6 +1128,8 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
     info!("{}", nvf_assets::tangents::summary());
     // Shapes that asked to be blended and are drawn opaque (#3230).
     info!("{}", nvf_assets::nif_spawn::blend_opaque_summary());
+    // Unlit shapes without a NiAlphaProperty that are blended all the same (#3443).
+    info!("{}", nvf_assets::nif_spawn::vertex_alpha_blended_summary());
     // What the two readers of each model file cost (#3149).
     info!("{}", nvf_assets::load_times::summary());
     // The smoke scenario `terrain-smoothing` reads it (#2149).

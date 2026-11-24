@@ -573,7 +573,7 @@ fn gather(
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();
     }
     // The player's tweak: the body armour's condition [design: docs/design/tweaks.md].
-    now.armor = combat.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.armor_condition)).and_then(|c| c.hud_armor(&mut sim));
+    now.armor = combat.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.game.armor_condition)).and_then(|c| c.hud_armor(&mut sim));
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);
         if let Some(v) = &vats {

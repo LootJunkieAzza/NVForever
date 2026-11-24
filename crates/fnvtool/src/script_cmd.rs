@@ -221,7 +221,7 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(coverage(l, lo, schema, &fjson)))
         }
-        ScriptCmd::Stubs { a } => with_load_order(&a, |l, _, _| Ok(stubs(l))),
+        ScriptCmd::Stubs { a } => with_load_order(&a, |l, lo, _| Ok(stubs(l, lo))),
         ScriptCmd::Uses { a } => {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(uses(l, lo, schema, &fjson)))
@@ -938,7 +938,7 @@ fn uses(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> Value
 /// load order's decoded scripts (object, quest and effect scripts, quest stage, dialogue,
 /// package and terminal result scripts); condition uses are the catalogue's
 /// (`functions.json`, CTDA over the masters).
-fn stubs(l: &Loaded) -> Value {
+fn stubs(l: &Loaded, lo: &LoadOrder<'_>) -> Value {
     use fnv_game::functions::stubs::{audit, Status};
     let done = decode_units(l);
     let mut stats = Stats::default();
@@ -981,6 +981,33 @@ fn stubs(l: &Loaded) -> Value {
         .filter(|(c, k, ..)| c + k > 0)
         .map(|(c, k, op, f)| (c + k, json!({"opcode": format!("0x{op:04X}"), "name": f.name, "origin": origin(*op), "calls": c, "condition_uses": k})))
         .collect();
+    // Condition indices the catalogue does not count (no `condition_uses`, often no page
+    // at all) that a CTDA in the load order uses and nothing answers: the registry has
+    // no function and `Game::condition_value` no handler (#3614: 123 and 258 reached
+    // every player before they were named).
+    let listed: std::collections::BTreeSet<String> = unhandled.iter().filter_map(|r| r.1["opcode"].as_str().map(str::to_string)).collect();
+    let mut ctda: BTreeMap<u16, u64> = BTreeMap::new();
+    for recs in &lo.records {
+        for r in recs {
+            let _ = r.visit_subrecords(|sig, data| {
+                if sig == b"CTDA" && data.len() >= 10 {
+                    let f = u16::from_le_bytes([data[8], data[9]]);
+                    if fnv_game::functions::lookup(0x1000 + f).is_none() && !fnv_game::cond::answered_without_opcode(f) {
+                        *ctda.entry(f).or_default() += 1;
+                    }
+                }
+            });
+        }
+    }
+    for (f, k) in ctda {
+        let op = 0x1000 + f;
+        let opcode = format!("0x{op:04X}");
+        if listed.contains(&opcode) {
+            continue;
+        }
+        let name = l.table.get(op).map(|t| t.name.clone()).unwrap_or_else(|| format!("condition index {f}"));
+        unhandled.push((k, json!({"opcode": opcode, "name": name, "origin": origin(op), "calls": 0, "condition_uses": k, "counted_from": "CTDA"})));
+    }
     unhandled.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1["opcode"].as_str().cmp(&b.1["opcode"].as_str())));
     let stubs = by_status.iter().filter(|(k, _)| **k != "no_op").map(|(_, n)| n).sum::<u64>();
     json!({

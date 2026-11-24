@@ -23,7 +23,7 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 | | before | after |
 |---|---|---|
 | `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9); 52 (1 assigned, 1 implementable, 50 need a system) after roulette and the function probes (§3.11); 48 (1 assigned, 1 implementable, 46 need a system) after the used items (§3.12); 47 (1 implementable, 46 need a system) after GetOwnerLastTarget (unconscious actors, 2026-10-17); 46 (1 implementable, 45 need a system) after ShowRepairMenu (repair services, 2026-10-17); 44 (1 implementable, 43 need a system) after GetVATSValue and GetVATSMode (VATS mode, 2026-10-18); 43 (1 implementable, 42 need a system) after ShowBarberMenu (the barber, #414); 41 (1 implementable, 40 need a system) after ShowPlasticSurgeonMenu and PushActorAway (knockdowns, 2026-10-18); 38 (1 implementable, 37 need a system) after SystemSave, ForceSave and PlaceAtReticle (2026-10-18); 37 (1 implementable, 36 need a system) after IsPlayerActionActive (§3.13); 33 (33 need a system) after the menu hooks (§3.15); 30 (30 need a system) after EnableNavMesh, DisableNavmesh and setAllReachable (§3.16); 23 (23 need a system) after the actor changes (§3.17); 18 (18 need a system) after the films and screen splatter (§3.18); 16 (16 need a system) after Caravan (docs/spec-notes/caravan.md); 11 (11 need a system) after IsSwimming, PickIdle, SetAllVisible, SetNoAvoidance and EnableLoadingMenu (§3.19); 10 after dismemberment (IsLimbGone); 9 (9 need a system) after the ash piles (AttachAshPile, docs/spec-notes/ash-piles.md); 8 (8 need a system) after the grab (IsPlayerGrabbedRef, docs/spec-notes/grab.md); 7 (7 need a system) after the slot machines (§3.20); 6 (6 need a system) after environment radiation (GetRadiationLevel, docs/spec-notes/radiation.md); 5 (5 need a system) after pickpocketing (GetPlantedExplosive, docs/spec-notes/pickpocket.md); 1 (trapUpdate, needs a system) after SetVatsTarget, GetVATSTargetHeight, GetForceHitReaction and IsWaterObject (§3.21); 0 after trapUpdate (the swinging traps, spec-notes/traps.md §4) |
-| deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
+| deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp`; + GetVampire (#3615): 5 `Kind::NoOp` |
 | uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9); 645 (242 calls, 403 condition uses) after roulette and the function probes (§3.11); 619 (242 calls, 377 condition uses) after the used items (§3.12); 614 (237 calls, 377 condition uses) after GetOwnerLastTarget; 599 (222 calls, 377 condition uses) after ShowRepairMenu; 345 (220 calls, 125 condition uses) after VATS mode; 341 (216 calls, 125 condition uses) after ShowBarberMenu; 304 (179 calls, 125 condition uses) after ShowPlasticSurgeonMenu and PushActorAway (35 calls); 294 (169 calls, 125 condition uses) after SystemSave, ForceSave and PlaceAtReticle (10 calls); 292 (167 calls, 125 condition uses) after IsPlayerActionActive (§3.13); 283 (158 calls, 125 condition uses) after the menu hooks (§3.15); 162 (136 calls, 26 condition uses) after the actor changes (§3.17); 145 (119 calls, 26 condition uses) after the films and screen splatter (§3.18); 112 (86 calls, 26 condition uses) after Caravan (docs/spec-notes/caravan.md); 93 (74 calls, 19 condition uses) after §3.19; 42 (23 calls, 19 condition uses) after dismemberment (IsLimbGone); 38 (19 calls, 19 condition uses) after the ash piles (AttachAshPile); 34 (16 calls, 18 condition uses) after the grab (IsPlayerGrabbedRef); 29 (11 calls, 18 condition uses) after the slot machines (§3.20); 22 (11 calls, 11 condition uses) after environment radiation (GetRadiationLevel); 21 (11 calls, 10 condition uses) after pickpocketing (GetPlantedExplosive); 1 (1 call: trapUpdate) after §3.21; 0 after the swinging traps |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
@@ -597,13 +597,27 @@ Notes on the most used:
 | PurgeCellBuffers | the original's cell buffers; cells here load and unload by distance |
 | PreloadMagicEffect | effect particles load when drawn |
 | SetSceneIsComplex | a performance switch of the original's AI |
+| GetVampire | a leftover from Oblivion that never returns anything but 0 [documented: GECK wiki GetVampire] (#3615) |
 | IsXBox, IsPS3 (0), IsWin32 (1), IsGoreDisabled (0) | already `Impl`: the PC version, gore on |
 
 ## 6. Used but not registered
 
 | Function | Opcode | Calls | Conditions | Note |
 |---|---|---|---|---|
-| GetIsObjectType | 0x11B1 | 0 | 1 | a form type by code (xEdit `ptFormType`); the Form Type IDs table is not in the local GECK wiki export |
+None since #3615 (2026-11-23), which registered GetIsObjectType (0x11B1; one condition
+use in the masters) by the form type codes of `fnv_script::vm::form_type_code`, with
+seven more base-game functions players' games call: SameFaction, SameSex,
+HasFriendDisposition, GetFatiguePercentage, GetTimeDead, GetLastHitCritical (all
+`Impl`) and GetVampire (`NoOp`).
+
+Condition indices with no page in the catalogue were not counted here until #3614
+(2026-11-23): 123 and 258 reached every player (as `0x107B` and `0x1102` in the player
+reports) through three base-game IDLE records. xEdit's wbCTDAFunctions names them
+IsGreetingPlayer and GetUsedItemLevel (no parameters); `Game::condition_value` answers
+them (`cond::IS_GREETING_PLAYER`, `cond::GET_USED_ITEM_LEVEL`), and `fnvtool script
+stubs` now scans every CTDA of the load order and lists, under `unhandled` with
+`"counted_from": "CTDA"`, any index neither the registry nor `cond::answered_without_opcode`
+knows. Over the ten masters it finds none [observed: 2026-11-23].
 
 AddItemToLeveledList, IsDLCInstalled and GetXPForNextLevel were registered in §3.2.
 GetOffersServicesNow (0x10FF; no use in the masters, for mods' vendor conditions) was

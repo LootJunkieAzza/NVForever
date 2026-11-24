@@ -83,6 +83,7 @@ added. [hypothesis] The original plugin matches names the same way; not observed
 | `bKeepPipboyLightOnCellChange:Tweaks` | `1` when bound; NVForever already keeps the Pip-Boy light on across cell changes ([tweaks](../design/tweaks.md)) |
 | `bWeightlessWornArmor:Tweaks` | `Tweaks::weightless_worn_armor`; worn armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
 | `bWeightlessWornPowerArmor:Tweaks` | `Tweaks::weightless_worn_power_armor`; worn power armour weighs nothing in inventory totals and `GetCalculatedEquippedWeight` |
+| `bArmorConditionLabel:Tweaks` | `Tweaks::armor_condition`; shows the worn body armour's condition bar on the HUD |
 
 [hypothesis] The ammo query retains the child choice while its parent is disabled,
 as the plugin's own file keeps both keys; not observed in the original game. Its answer

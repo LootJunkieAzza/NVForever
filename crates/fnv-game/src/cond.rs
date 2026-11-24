@@ -119,6 +119,20 @@ impl ParamTypes {
         for (i, t) in XEDIT_ONLY {
             m.entry(*i).or_insert_with(|| t.iter().map(|s| s.to_string()).collect());
         }
+        // Extender functions put in a CTDA by a mod: the condition index is the opcode the
+        // original gave the function (command_opcodes.json) less 0x1000, and the
+        // parameters are read by the catalogue's kinds (`extender_param_types`), so the
+        // bridge in `Game::condition_value` can hand them to the named handler (#3616).
+        for f in functions.get("functions").and_then(Json::as_array).into_iter().flatten() {
+            if f.get("family").and_then(Json::as_str) != Some("extender") {
+                continue;
+            }
+            let Some(name) = f.get("name").and_then(Json::as_str) else { continue };
+            let Some(op) = crate::nvse_debug::opcode_of(name).and_then(|o| u16::try_from(o).ok()).filter(|o| *o >= 0x1000) else { continue };
+            if let Some(t) = extender_param_types(name, f.get("params").and_then(Json::as_array).map(Vec::as_slice).unwrap_or(&[])) {
+                m.entry(op - 0x1000).or_insert(t);
+            }
+        }
         // These three named extender getters already have portable implementations and
         // observed opcodes in schemas/script/command_opcodes.json. The catalogue lists
         // a perk-form parameter for GetPerkRank and none for GetPCUsingIronSights or
@@ -129,6 +143,61 @@ impl ParamTypes {
         m.entry(IS_PLAYER_SWIMMING).or_default();
         ParamTypes(m)
     }
+}
+
+/// Extender functions whose condition parameters are not what their script parameters
+/// say: AuxVarGetFltCond's "Quest" is a quest chosen in the condition's parameter
+/// window, and its "Integer" the index of that quest script's string variable
+/// [documented: GECK wiki AuxVarGetFltCond].
+const EXTENDER_CTDA_TYPES: &[(&str, &[&str])] = &[("AuxVarGetFltCond", &["ptQuest", "ptInteger"])];
+
+/// The xEdit-style parameter types of extender function `name` in a CTDA, from the
+/// catalogue's parameter kinds: an `int` is an integer, a form, reference or other
+/// record a FormID (mapped through the plugin's masters). `None` when a parameter is of
+/// a kind a CTDA's four bytes cannot hold (a string, a float) and no entry of
+/// [`EXTENDER_CTDA_TYPES`] says otherwise [design: CTDA parameters are four raw bytes,
+/// xEdit wbCTDA].
+pub(crate) fn extender_param_types(name: &str, params: &[Json]) -> Option<Vec<String>> {
+    if let Some((_, t)) = EXTENDER_CTDA_TYPES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+        return Some(t.iter().map(|s| s.to_string()).collect());
+    }
+    params
+        .iter()
+        .take(2)
+        .map(|p| match p.get("kind").and_then(Json::as_str) {
+            Some("int") => Some("ptInteger".to_string()),
+            Some("form" | "reference" | "other") => Some("ptForm".to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// IsGreetingPlayer's condition index, without parameters [documented: xEdit
+/// wbCTDAFunctions (Core/wbDefinitionsFNV.pas), "Index: 123; Name: 'IsGreetingPlayer'"].
+/// No page in the script catalogue and no script opcode; its one use in the masters is
+/// IDLE `GreetIdles` (0x00003BE0), `== 1` [observed: a scan of every CTDA, #3614].
+pub const IS_GREETING_PLAYER: u16 = 123;
+
+/// GetUsedItemLevel's condition index, without parameters [documented: xEdit
+/// wbCTDAFunctions, "Index: 258; Name: 'GetUsedItemLevel'"]. Its uses in the masters are
+/// the ground pick-up idles `SBGroundGrab` (0x000612AC) and `LoosePickUpGroundObject`
+/// (0x0006123C), `== 0` [observed: #3614].
+pub const GET_USED_ITEM_LEVEL: u16 = 258;
+
+/// IsHorseStolen's condition index, without parameters [documented: xEdit
+/// wbCTDAFunctions, "Index: 282; Name: 'IsHorseStolen'"]. No page in the script
+/// catalogue or the GECK wiki export; a mod's CTDA reached it on a player's install as
+/// `0x111A` (#3617).
+pub const IS_HORSE_STOLEN: u16 = 282;
+
+/// Whether condition index `function` is answered without a registered script function
+/// (`Game::condition_value`): IsLastIdlePlayed, the VATS area functions, the three
+/// extender aliases below, IsGreetingPlayer and GetUsedItemLevel. `fnvtool script stubs`
+/// counts every other index a CTDA uses that the registry does not know.
+pub fn answered_without_opcode(function: u16) -> bool {
+    function == crate::idles::IS_LAST_IDLE_PLAYED
+        || crate::vats::is_area_function(function)
+        || matches!(function, IS_GREETING_PLAYER | GET_USED_ITEM_LEVEL | IS_HORSE_STOLEN | IS_PLAYER_SWIMMING | GET_PERK_RANK | GET_PC_USING_IRON_SIGHTS)
 }
 
 /// Condition indices are the existing observed command opcodes minus 0x1000.
@@ -298,5 +367,26 @@ mod tests {
         assert_eq!(c.cmp, Cmp::Lt);
         assert_eq!(c.rhs, Operand::Global(Some(0x33)));
         assert_eq!(c.run_on, RunOn::Reference(Some(0x14)));
+    }
+}
+
+#[cfg(test)]
+mod condition_only_tests {
+    use super::*;
+
+    /// #3614: indices 123 and 258 are answered without a script function, as 451 and the
+    /// VATS area functions are; a registered function's index is not in that list.
+    #[test]
+    fn greeting_and_used_item_level_are_answered_without_an_opcode() {
+        assert!(answered_without_opcode(IS_GREETING_PLAYER));
+        assert!(answered_without_opcode(GET_USED_ITEM_LEVEL));
+        assert!(answered_without_opcode(crate::idles::IS_LAST_IDLE_PLAYED));
+        assert_eq!(0x1000 + IS_GREETING_PLAYER, 0x107B);
+        assert_eq!(0x1000 + GET_USED_ITEM_LEVEL, 0x1102);
+        assert!(answered_without_opcode(IS_HORSE_STOLEN));
+        assert_eq!(0x1000 + IS_HORSE_STOLEN, 0x111A);
+        assert!(crate::functions::lookup(0x1000 + IS_GREETING_PLAYER).is_none());
+        // GetDisposition (0x104C) is a registered function, not one of these.
+        assert!(!answered_without_opcode(0x4C));
     }
 }

@@ -393,7 +393,7 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
         // The player's tweak puts it in the corner instead of the banner [design: docs/design/tweaks.md].
         if in_corner && !name.trim().is_empty() {
             if let Some(c) = corner.as_deref_mut() {
-                c.push(format!("Discovered: {name}").into());
+                c.push(fnv_util::words::trf("Discovered: {name}", &[("name", &name)]).into());
             }
         } else if let (Some(m), false) = (messages.as_deref_mut(), name.trim().is_empty()) {
             m.push(QuestNotice::Discovered(name));

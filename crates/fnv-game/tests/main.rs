@@ -122,6 +122,7 @@ mod showoff3;
 mod set_class;
 mod showoff4;
 mod showoff5;
+mod showoff_quest_imod_events;
 mod softlock;
 mod spawn_placeholders;
 mod source_metadata;

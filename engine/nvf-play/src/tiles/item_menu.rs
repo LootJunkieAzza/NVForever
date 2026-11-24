@@ -46,6 +46,8 @@ pub struct RowShown {
     /// loads now ([`Row::loaded`]; #3442: the list drawn from tiles left that out, so the
     /// Ammo tab marked nothing).
     pub equipped: bool,
+    /// Resolved ySI tag/icon/template for this row when ySI is active (`None` otherwise).
+    pub ysi: Option<fnv_game::ui_ysi::YsiItemDisplay>,
 }
 
 /// A list as shown.
@@ -92,7 +94,7 @@ pub fn rows_shown(rows: &[Row]) -> Vec<RowShown> {
     let mut out: Vec<RowShown> = Vec::with_capacity(rows.len());
     for (index, r) in rows.iter().enumerate() {
         let Some(key) = RowKey::at(rows, index) else { continue };
-        out.push(RowShown { key, name: r.name.clone(), text: look::row_text(r), equipped: r.equipped || r.loaded });
+        out.push(RowShown { key, name: r.name.clone(), text: look::row_text(r), equipped: r.equipped || r.loaded, ysi: r.ysi.clone() });
     }
     out
 }
@@ -175,6 +177,7 @@ pub fn write_lists(ui: &mut Ui, s: &Snapshot, st: &mut MenuTiles) {
             if let Some(t) = list::child(ui, row.tile, st.paths.row_mark) {
                 ui.set_trait(t, "visible", on(shown.equipped));
             }
+            fnv_game::ui_ysi::apply_row_icon(ui, &fnv_ui::MemSource::default(), row.tile, shown.ysi.as_ref());
         }
         set(ui, st.paths.titles[i], "string", Value::Str(s.titles[i].clone()));
         set(ui, st.paths.lists[i], "_num_filtered", Value::Num(s.lists[i].filtered as f64));
@@ -427,6 +430,7 @@ mod tests {
             folder: None,
             reference: None,
             live: false,
+            ysi: None,
         };
         let shown = rows_shown(&[row(1, false, false), row(2, false, true), row(3, true, false)]);
         assert_eq!(shown.iter().map(|r| r.equipped).collect::<Vec<_>>(), [false, true, true]);

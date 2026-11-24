@@ -839,6 +839,62 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   0.036. The same power as additive shapes; the share behind is kept so smoke still
   hides as much of the room as before. Lit blended shapes (glass, hair edges) are not
   changed. Open: no frame was measured against the game's yet.
+- **Unlit shapes faded by vertex alpha alone** (2026-11-23, #3443). The cone of light at
+  the end of Lonesome Road's silo lift (`NVDLC04Silo2Elevator`, placed by
+  `NVDLC04SiloElevatorShaft06Ref`) is `Object03:0` of
+  `nvdlc04\dungeons\silo\silo_elevator\nvdlc04_silo-elevator-shaft06.nif` [observed,
+  `fnvtool nif decode`]: 113 vertices, a cone 506 units high with an outer and an inner
+  side and a disc on the floor, all white, alpha 1 at the lamp, 0.1 just under it, 0 at
+  the cone's foot, 0.16 falling to 0 across the disc; BSShaderNoLightingProperty, flags
+  0x82000048 (Vertex_Alpha and bit 6), no file name; emissive white × 3, material alpha 1.
+  No controller drives its material; the sequences `Forward` and `Right` only move the
+  nodes above it. It has no NiAlphaProperty, nor has any node above it, so it was drawn
+  opaque, and being opaque, unlit and without External Emittance as a picture with its
+  light held to 1: a flat white cone (player report R-F8KPPE34).
+
+  The archive has the same shape a second time, in an unsplit model of the whole shaft
+  (`nvdlc04_silo-elevator-shaft.nif`, `Object03`, not placed in that cell): vertices,
+  normals, colours, strips, material and shader property are equal, and there it stores a
+  NiAlphaProperty 0x10ED (blend SRC_ALPHA / INV_SRC_ALPHA, no test) [observed, both
+  decoded and compared]. The property was lost with the split [hypothesis].
+
+  Survey of the visible BSShaderNoLightingProperty shapes of every archive of the base
+  game and the add-ons (7,409, editor markers left out) [observed]: 1,528 name no texture,
+  set Vertex_Alpha and have a vertex alpha below 1. 1,507 of those store a
+  NiAlphaProperty, 1,458 SRC_ALPHA / INV_SRC_ALPHA, 41 SRC_ALPHA / ONE, 8 others. 21 store
+  none:
+  - black patches (14, 13 of them with decal flags): the dark under the gurneys
+    (`clutter\hospital\gurney01.nif`, `gurney01pad01`, `gurney01pad02`,
+    `gurney02broken01`, `gurney02broken01pad01`; 58 placed), at tunnel mouths
+    (`metroexttunnelexitb01` and its Pitt copy, `mettunneltranstoext01` and Old World
+    Blues' copy), under Lonesome Road's elevated rails (`metroexrailstr01`, `02`), in the
+    planetarium's domes (`planetariumstardome01`, `02`) and the Tops' courtyard
+    (`nv_thetops-casino02courtyard.nif`);
+  - the purifier's fog shells (`ppurityfxtankfog01.nif`, `dlc03ppurityfxtankrun.nif`, two
+    shapes each; none placed in this game);
+  - two shapes named after light beams in static collections (`scolcasding04glow.nif`
+    `FXLightBeamW02001`, 28 placed in the Tops casino, 11 units across, and
+    `scolstripmaplanter.nif` `FXLightBeam01001`, 2 on the Strip): orange, 48 and 24
+    vertices, the vertex colours of the beams' editor markers (`EditorMarker:0`: 24
+    vertices, (1, 0.5, 0), alpha 0 to 1), so probably those, merged in [hypothesis];
+  - the silo's cone.
+
+  With no texture, one colour over all vertices and no light, the vertex alpha is the only
+  picture such a shape has. The GECK wiki says of bit 6, beside switching on the falloff,
+  that it "also enables alpha effects" [documented: GECK wiki "NIF Shader Properties",
+  "Empty"]; 13 of the 21 set it, so it does not mark the class. The wiki gives decals no
+  blend of their own.
+
+  What the renderers do [hypothesis, `nif_spawn::fades_by_vertex_alpha`]: an unlit shape
+  with no NiAlphaProperty, no texture, Vertex_Alpha and some vertex alpha below 1 is
+  blended SRC_ALPHA / INV_SRC_ALPHA, as its twin asks, and takes every rule of such blends
+  (the stored multiplier, the view-angle falloff, the √alpha scale above, no shadow).
+  Bit 3 itself is asked for, not Dynamic_Alpha (bit 19), which also takes the vertex alpha
+  ("Vertex colours"): no unlit shape, hidden ones and editor markers included, has bit 19
+  without bit 3, no texture and no NiAlphaProperty [observed, the same survey].
+  Textured ones stay opaque (the lit map boards, `nv_pleximap01.nif`, alpha 0.75 all over;
+  the Lucky 38's light bands), and so do shapes whose vertex alpha is 1 throughout. Open:
+  whether the original blends the 21 (observer-checks.md 286).
 - **Soft intersections** (unlit effect shapes that meet an opaque surface). The Strip's
   street lamp beam `effects\ambient\fxlightbeamnvstrip.nif` [observed, `fnvtool nif
   decode`, `fnvtool world refs --world TheStripWorldNew`] is two crossed vertical panels

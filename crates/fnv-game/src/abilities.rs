@@ -29,6 +29,15 @@
 
 use crate::game::Game;
 use fnv_sim::FormId;
+use std::collections::BTreeSet;
+
+/// Only authored placements are immutable for the life of a reference table. Enable
+/// state, current cell, script-created actors and effects are read again each tick.
+pub(crate) struct PlacedEffectActors<'a> {
+    placed: &'a fnv_sim::RefTable,
+    cells: BTreeSet<FormId>,
+    actors: BTreeSet<FormId>,
+}
 
 /// SPEL SPIT type "Ability" [documented: schema `combat.json` SPIT].
 pub const SPELL_ABILITY: i64 = 4;
@@ -128,6 +137,11 @@ impl Game<'_> {
         for spell in gone {
             self.dispel(r, None, |e| e.source == spell && e.worn.is_none());
         }
+    }
+
+    /// What `r`'s active abilities add to actor value `code`, together.
+    pub fn ability_value(&self, r: FormId, code: u16) -> f64 {
+        self.effects.iter().filter(|e| e.target == r && !e.inactive && self.is_ability_effect(e)).filter_map(|e| e.change.as_ref()).filter(|c| c.code == code).map(|c| c.amount).sum()
     }
 
     /// Whether an effect is an ability's (an effect of a listed spell of type Ability).
@@ -335,16 +349,20 @@ impl Game<'_> {
     /// Not every actor that ever chose a package (#1992): [`Game::package_actors`] keeps
     /// those for the periodic choice, so a long playthrough synced thousands of actors
     /// out of the loaded area every frame, each a no-op once its effects had ended.
-    pub(crate) fn effects_actors(&self) -> std::collections::BTreeSet<FormId> {
+    pub(crate) fn effects_actors(&mut self) -> BTreeSet<FormId> {
         // The loaded part of `package_actors`, built without its every-package-actor set:
         // the loaded cells' actors and those moved or created into them, and the package
         // actors that walked into one.
         let placed = self.world.placed;
         let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
-        let mut actors: std::collections::BTreeSet<FormId> = std::collections::BTreeSet::new();
-        for c in &self.loaded_cells {
-            actors.extend(placed.by_cell.get(c).into_iter().flatten().filter(|r| is_actor(r)));
-        }
+        let placements = match &mut self.placed_effect_actors {
+            Some(saved) if std::ptr::eq(saved.placed, placed) && saved.cells == self.loaded_cells => saved,
+            slot => {
+                let actors = self.loaded_cells.iter().filter_map(|c| placed.by_cell.get(c)).flatten().copied().filter(is_actor).collect();
+                slot.insert(PlacedEffectActors { placed, cells: self.loaded_cells.clone(), actors })
+            }
+        };
+        let mut actors = placements.actors.clone();
         actors.extend(self.moved.iter().filter(|r| is_actor(r)));
         actors.extend(self.created_actors());
         actors.extend(self.extra.iter().filter(|(r, e)| e.current_package.is_some() && is_actor(r)).map(|(r, _)| *r).filter(|r| self.cell_of(*r).is_some_and(|c| self.loaded_cells.contains(&c))));

@@ -61,16 +61,41 @@ are tried in, are NVForever's reading [hypothesis unless marked]:
    [documented: GECK wiki EnableFastTravel; `fnv_game` keeps the flags]. Text
    `sNoFastTravelScriptBlock`.
 2. **The place forbids it**: the worldspace's `DATA` flag "Can't Fast Travel" (bit 1) or
-   the cell's `DATA` flag "Can't Travel From Here" (bit 2) [documented: xEdit flag
-   names]. Text `sNoFastTravelCell`. In FalloutNV.esm the worldspace flag is set on
-   GamorrahWorld, TheFortWorld and Lucky38World; Dead Money sets it on its eight
-   Sierra Madre worldspaces; no cell of the base game or of the four story DLCs sets the
-   cell flag [observed]. The cell flag is read on the interior the player is in, the
-   worldspace flag outdoors [hypothesis].
-   - The EnableFastTravel page says the player cannot travel "inside an interior cell"
-     [documented]. NVForever lets the player travel from interiors that do not carry the
-     cell flag [hypothesis: the flag would be pointless if every interior forbade it,
-     and the original lets the player travel out of buildings; to be checked in game].
+   the cell. Text `sNoFastTravelCell`. In FalloutNV.esm the worldspace flag is set on
+   GamorrahWorld, TheFortWorld and Lucky38World; Dead Money sets it on its eight Sierra
+   Madre worldspaces [observed].
+   - **An interior forbids it**: after `EnableFastTravel 1` too, a player "inside an
+     interior cell" is "still … not permitted to fast travel" [documented: GECK wiki
+     EnableFastTravel]; the eligibility check includes "restrictions on interior
+     departures" [documented: GECK wiki GetPCCanFastTravelWithMessage]. A player reports
+     the same of the original (#3434).
+   - **CELL `DATA` bit 2** is named two ways. "Invert Fast Travel Behavior" [documented:
+     GECK wiki GetCellFlag and SetCellFlag, whose example sets it on the interior
+     Gomorrah00; fopdoc's Fallout 3 and New Vegas CELL pages; xEdit 4.1.5's FNV
+     definitions]; "Can't Travel From Here", "check to disable fast travel from this
+     cell" [documented: GECK wiki Common Data, the editor's checkbox; xEdit 4.1.6 and
+     `schemas/fnv/world.json`]. For Skyrim the same bit is *not* Can't Travel From Here,
+     interiors only [documented: UESP, Skyrim's CELL page; another game]. NVForever takes
+     it as the inversion: set, an interior allows travel and an exterior forbids it
+     [hypothesis: the names agree if the editor's box stores the difference from the
+     kind's default; observer check 285]. No record settles it: none of the ten masters'
+     CELL records, 516 of interiors and 44,076 of exteriors, sets it [observed: a
+     throw-away reader of every CELL `DATA`, 2026-11-23], so no interior of the game
+     allows travel by the data. Every map marker, and the reference each links to for the
+     arrival, is in a worldspace [observed: the same reader, the base game and the four
+     story DLCs].
+   - An interior that behaves like an exterior (bit 7, "a 'fake exterior', with no
+     landscape but sky and weather" [documented: GECK wiki Cell Lighting]) counts as an
+     exterior here [hypothesis]; the only one is Dead Money's test cell
+     NVDLC01stealthTest [observed].
+   - A worldspace's flag forbids travel in all its cells, whatever the cell flag
+     [hypothesis]. Both are read as SetCellFlag and SetWorldspaceFlag left them [design].
+   - The rule is `fnv_game::fast_travel::place_forbids`, which the map and
+     GetPCCanFastTravel share. The player's tweak Fast Travel From Anywhere lifts it for
+     both, and for `Game::fast_travel` (docs/design/tweaks.md). The map's other travel
+     tweaks (No Fast Travel, in the Air, Near Enemies, Encumbered, No Travel on a Crippled
+     Leg, Costs a Nuka-Cola) change the map's answer only [not built for the scripts'
+     check].
 3. **In the air**: the player's collision body is not on the ground (falling,
    jumping). Text `sNoFastTravelInAir`.
 4. **In combat**: a hostile actor near has detected the player — the music's battle
@@ -156,6 +181,6 @@ scenarios `fast-travel-*` in `tools/smoke/scenarios.toml`.
 
 ## 6. Open
 
-The original's travel-time rule and its settings; whether the original refuses from
-interiors; the box's exact size and fonts (the screenshot is the only picture); the
+The original's travel-time rule and its settings; what CELL `DATA` bit 2 does (check
+285); the box's exact size and fonts (the screenshot is the only picture); the
 refusals' texts; random encounters on the way (none in New Vegas that we know of).

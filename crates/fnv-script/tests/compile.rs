@@ -4,6 +4,8 @@
 
 #[path = "compile/inline_surplus_operands.rs"]
 mod inline_surplus_operands;
+#[path = "compile/extender_params.rs"]
+mod extender_params;
 
 use fnv_script::compile::{compile, Compiled, Env, FormInfo, Seed, PLAYER};
 use fnv_script::unit::RefSlot;
@@ -2020,6 +2022,132 @@ fn set_on_play_group_event_handler_anim_group_arg_forms() {
     assert!(fourth_args[7].starts_with('g'), "global variable must stay global var, got {}", fourth_args[7]);
     assert_eq!(fourth_args[8], "v1", "dotted quest variable must compile as variable, not unknown enum");
     assert!(fourth_args[9].contains('('), "zero-arg function call must compile as call, got {}", fourth_args[9]);
+}
+
+/// Compound bitwise, power, modulo, and shift assignments work in `let`, bare Let-macro,
+/// inline declaration, quest-variable, array-element, and NVSEScript forms, including
+/// nested calls shifted before bitwise-OR (`iINITemp |= (Floor (Clamp ...)) << 1`).
+#[test]
+fn compound_bitwise_and_shift_assignments_let_and_macro() {
+    let h = run(
+        "int a
+int b
+int c
+int d
+int e
+int f
+int g
+int iINITemp
+float fIn
+array_var ar
+begin GameMode
+a = 1
+a |= 4
+let a |= 8
+b = 15
+b &= 6
+let b &= 7
+c = 2
+c ^= 3
+let c ^= 2
+d = 1
+d <<= 3
+let d <<= 1
+e = 32
+e >>= 2
+let e >>= 1
+f = 17
+f %= 5
+int h |= 5
+ar = ar_List 1, 2
+ar[0] |= 4
+ar[1] <<= 2
+g = ar[0] + ar[1]
+fIn = 1.7
+iINITemp = 1
+iINITemp |= (Floor (GetMinOf (GetMaxOf fIn 0) 1)) << 1
+end",
+    );
+    assert_eq!(h.0[&1], Value::Num(13.0), "a: 1 | 4 | 8 = 13");
+    assert_eq!(h.0[&2], Value::Num(6.0), "b: 15 & 6 & 7 = 6");
+    assert_eq!(h.0[&3], Value::Num(64.0), "c: (2 ^ 3) ^ 2 = 64 [documented: NVSE ^ is power]");
+    assert_eq!(h.0[&4], Value::Num(16.0), "d: (1 << 3) << 1 = 16");
+    assert_eq!(h.0[&5], Value::Num(4.0), "e: (32 >> 2) >> 1 = 4");
+    assert_eq!(h.0[&6], Value::Num(2.0), "f: 17 % 5 = 2");
+    assert_eq!(h.0[&7], Value::Num(13.0), "g: (1 | 4) + (2 << 2) = 13");
+    assert_eq!(h.0[&8], Value::Num(3.0), "iINITemp: 1 | (Floor (GetMinOf (GetMaxOf 1.7 0) 1) << 1) = 3");
+    assert_eq!(h.0[&11], Value::Num(5.0), "inline decl int h |= 5");
+
+    // Dotted quest variable and mod-runtime nested Clamp/Floor/GetINIFloat_Cached pattern.
+    let src = "int iINITemp\nbegin GameMode\n\
+        TestQuest.bDone |= 2\n\
+        TestQuest.bDone &= 3\n\
+        TestQuest.bDone ^= 2\n\
+        TestQuest.bDone <<= 1\n\
+        TestQuest.bDone >>= 1\n\
+        iINITemp |= (Floor (Clamp (GetINIFloat_Cached \"Main:bVisible\" \"Widget.ini\" 1) 0 1)) << 1\n\
+        end\n";
+    let c = fnv_script::compile::compile_mod_runtime(src, &table(), &World);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    let (_, p) = build(src);
+    let b = body(&p);
+    assert!(matches!(&b[0], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitOr, .. } }));
+    assert!(matches!(&b[1], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitAnd, .. } }));
+    assert!(matches!(&b[2], Stmt::Let { expr: XExpr::Assign { op: XAssign::Pow, .. } }));
+    assert!(matches!(&b[3], Stmt::Let { expr: XExpr::Assign { op: XAssign::Shl, .. } }));
+    assert!(matches!(&b[4], Stmt::Let { expr: XExpr::Assign { op: XAssign::Shr, .. } }));
+    assert!(matches!(&b[5], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitOr, .. } }));
+
+    // NVSEScript compound shift assignments translate and execute cleanly.
+    let nvse_src = "name ShiftAssign;\nint a;\nint b;\nGameMode {\n  a = 1;\n  a <<= 3;\n  a |= 2;\n  b = 40;\n  b >>= 2;\n  b &= 7;\n}\n";
+    let h2 = run(nvse_src);
+    assert_eq!(h2.0[&1], Value::Num(10.0), "NVSEScript: (1 << 3) | 2 = 10");
+    assert_eq!(h2.0[&2], Value::Num(2.0), "NVSEScript: (40 >> 2) & 7 = 2");
+
+    // Decompiler symbols for compound shift assignments.
+    assert_eq!(fnv_script::decompile::xassign_symbol(XAssign::Shl), "<<=");
+    assert_eq!(fnv_script::decompile::xassign_symbol(XAssign::Shr), ">>=");
+}
+
+/// `dATan2(y, x)` returns exact degrees in [-180, 180] across all four quadrants and axis
+/// edges, with `(0, 0) -> 0.0`.
+#[test]
+fn datan2_covers_quadrants_and_axes() {
+    let h = run(
+        "float a0
+float a1
+float a2
+float a3
+float q1
+float q2
+float q3
+float q4
+float z
+begin GameMode
+let a0 := dATan2 0, 1
+let a1 := dATan2 1, 0
+let a2 := dATan2 0, -1
+let a3 := dATan2 -1, 0
+let q1 := dATan2 1, 1
+let q2 := dATan2 1, -1
+let q3 := dATan2 -1, -1
+let q4 := dATan2 -1, 1
+let z := dATan2 0, 0
+end",
+    );
+    for (k, want) in [
+        (1, 0.0),
+        (2, 90.0),
+        (3, 180.0),
+        (4, -90.0),
+        (5, 45.0),
+        (6, 135.0),
+        (7, -135.0),
+        (8, -45.0),
+        (9, 0.0),
+    ] {
+        assert!(matches!(h.0[&k], Value::Num(v) if (v - want).abs() < 1e-9), "var {k}: {:?} vs {want}", h.0[&k]);
+    }
 }
 
 #[test]

@@ -254,7 +254,7 @@ fn moves_and_rotations() {
     assert!(g.world.get(FormId(BOX_REF)).unwrap().pos[1] > 50.0, "not yet moved to OtherRef's place");
     // The reticle: no hit, nothing.
     assert_eq!(n(&mut g, "GetReticlePosAlt fX fY fZ"), 0.0);
-    g.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: [0.0, 0.0, 100.0], dir: [0.0, 1.0, 0.0], hit: Some(50.0) });
+    g.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: [0.0, 0.0, 100.0], dir: [0.0, 1.0, 0.0], hit: Some(50.0), limb: None });
     assert_eq!(s_of(&mut g, "GetReticlePosAlt fX fY fZ\nSetFunctionValue (sv_Construct \"%g %g %g\" fX fY fZ)"), "0 50 100");
     q(&mut g, "BoxRef.MoveToReticle 1000 0 0 10");
     assert_eq!(g.world.get(FormId(BOX_REF)).unwrap().pos, [0.0, 50.0, 110.0]);

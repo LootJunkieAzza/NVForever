@@ -2810,3 +2810,70 @@ fn a_created_actor_keeps_where_it_was_made_across_a_save() {
     let again = World::restore(&f.forms, &f.refs, &back.snapshot()).unwrap();
     assert_eq!(again.peek(g).unwrap().made_at, Some((Some(id(CELL_A)), walked_to)));
 }
+
+#[test]
+fn builtin_default_gmsts_resolve_mutate_and_yield_to_esm_overrides() {
+    use fnv_sim::settings::Setting;
+
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+
+    // Absent from the synthetic ESM, all 7 seeded engine defaults resolve and mutate.
+    assert_eq!(w.setting_value("fCombatEnvironmentBloodChance"), Some(&Setting::Float(0.75)));
+    assert_eq!(w.setting_value("iDismemberBloodDecalCount"), Some(&Setting::Int(10)));
+    assert_eq!(w.setting_value("fGunWobbleChaseDriftTime"), Some(&Setting::Float(0.75)));
+    assert_eq!(w.setting_value("fIronSightsFOVTimeChange"), Some(&Setting::Float(0.25)));
+    assert_eq!(w.setting_value("fKnockbackForceMax"), None);
+    assert_eq!(w.setting_value("FCharacterDefaultTurningSpeed"), Some(&Setting::Float(90.0)));
+    assert_eq!(w.setting_value("fcharacterdefaultturningspeed"), Some(&Setting::Float(90.0)));
+    assert_eq!(w.setting_value("iAntiCheatDuration"), Some(&Setting::Int(60)));
+    assert_eq!(w.setting_value("fSeenDataUpdateRadius"), Some(&Setting::Float(1024.0)));
+
+    // Session mutation works case-insensitively and enforces setting kind.
+    w.change_setting("fCombatEnvironmentBloodChance", Setting::Float(0.35)).unwrap();
+    assert_eq!(w.setting_f32("FCOMBATENVIRONMENTBLOODCHANCE"), Some(0.35));
+    w.change_setting("fcharacterdefaultturningspeed", Setting::Float(180.0)).unwrap();
+    assert_eq!(w.setting_f32("FCharacterDefaultTurningSpeed"), Some(180.0));
+    w.change_setting("iAntiCheatDuration", Setting::Int(0)).unwrap();
+    assert_eq!(w.setting_value("iAntiCheatDuration"), Some(&Setting::Int(0)));
+
+    assert!(matches!(
+        w.change_setting("iAntiCheatDuration", Setting::Float(1.5)),
+        Err(SimError::SettingKind(_))
+    ));
+    assert!(matches!(
+        w.change_setting("fCombatEnvironmentBloodChance", Setting::Int(1)),
+        Err(SimError::SettingKind(_))
+    ));
+    assert!(matches!(
+        w.change_setting("fNotABuiltinOrEsmSetting", Setting::Float(1.0)),
+        Err(SimError::MissingSetting(_))
+    ));
+
+    // Session edits on seeded defaults stay session-only (not saved in Snapshot, carried by put_session).
+    let snap = w.snapshot();
+    let mut restored = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(restored.setting_f32("fCombatEnvironmentBloodChance"), Some(0.75));
+    restored.put_session(w.take_session());
+    assert_eq!(restored.setting_f32("fCombatEnvironmentBloodChance"), Some(0.35));
+
+    // An ESM GMST record (including uppercase-prefixed `FCharacterDefaultTurningSpeed`)
+    // always overrides the seeded engine default.
+    let gmsts = [
+        record(b"GMST", 0, 0x901, &[sub(b"EDID", z("fCombatEnvironmentBloodChance")), sub(b"DATA", 0.25f32.to_le_bytes().to_vec())]),
+        record(b"GMST", 0, 0x902, &[sub(b"EDID", z("FCharacterDefaultTurningSpeed")), sub(b"DATA", 135.0f32.to_le_bytes().to_vec())]),
+    ]
+    .concat();
+    let bytes = [tes4(), top(b"GMST", &gmsts)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "gmst-override.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let s = schema();
+    let forms = FormStore::build(&lo, &s);
+    let refs = RefTable::build(&lo, &s);
+    assert!(forms.issues.is_empty(), "uppercase GMST prefix should decode without issues: {:?}", forms.issues.to_json());
+    let mut w_esm = World::new(&forms, &refs, SimConfig::default());
+    assert_eq!(w_esm.setting_value("fCombatEnvironmentBloodChance"), Some(&Setting::Float(0.25)));
+    assert_eq!(w_esm.setting_value("FCharacterDefaultTurningSpeed"), Some(&Setting::Float(135.0)));
+    w_esm.change_setting("FCharacterDefaultTurningSpeed", Setting::Float(225.0)).unwrap();
+    assert_eq!(w_esm.setting_f32("fCharacterDefaultTurningSpeed"), Some(225.0));
+}

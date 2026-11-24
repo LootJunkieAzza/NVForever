@@ -172,8 +172,39 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // The answers kNVSE gave for vanilla animations, even the one playing [observed:
         // knv2, knv3: weight 0, hand type -1, additive 0, queued 0, priority -1, text key
-        // time -1; hypothesis: they read kNVSE's own overrides, which NVForever has none of].
-        "getanimweight" | "isanimadditive" | "isanimqueued" => XVal::Num(0.0),
+        // time -1; hypothesis: they read kNVSE's own overrides, which NVForever has none of
+        // for vanilla clips]. When a script explicitly set a weight or additive flag for the
+        // actor and sequence path, return that session value [design].
+        "getanimweight" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            let p = match args.first() {
+                Some(XVal::Str(s)) => s.replace('/', "\\").to_ascii_lowercase(),
+                _ => String::new(),
+            };
+            let first = a == FormId::PLAYER_REF && g.senses.first_person;
+            let w = g
+                .anim_paths
+                .sequences
+                .get(&(a, first, p.clone()))
+                .or_else(|| (a == FormId::PLAYER_REF).then(|| g.anim_paths.sequences.get(&(a, !first, p.clone()))).flatten())
+                .map(|s| f64::from(s.weight))
+                .or_else(|| g.knvse.weights.get(&(a, p)).copied())
+                .unwrap_or(0.0);
+            XVal::Num(w)
+        }
+        "isanimadditive" => {
+            let a = subject.unwrap_or(FormId::PLAYER_REF);
+            let p = match args.first() {
+                Some(XVal::Str(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let first = a == FormId::PLAYER_REF && g.senses.first_person;
+            let on = g.sequence_additive(a, first, &p).is_some()
+                || (a == FormId::PLAYER_REF && g.sequence_additive(a, !first, &p).is_some())
+                || g.knvse.additive.contains_key(&(a, p.replace('/', "\\").to_ascii_lowercase()));
+            XVal::Num(f64::from(u8::from(on)))
+        }
+        "isanimqueued" => XVal::Num(0.0),
         "getanimhandtype" | "getaniminterppriority" | "getanimtextkeytime" => XVal::Num(-1.0),
         // Setters that answered 0 and changed nothing a getter showed [observed: knv2.setprio
         // then prio.after -1, copyprio, removetextkey, queue then queued.after 0].

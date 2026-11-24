@@ -287,3 +287,63 @@ fn compiled_critical_setter_reaches_player_projectile_health_and_actor_hit() {
 fn compiled_critical_setter_reaches_npc_projectile_health_and_actor_hit() {
     comparisons(Attack::NpcProjectile);
 }
+
+#[test]
+fn projectile_and_melee_hits_populate_jip_hit_projectile_base_damage_and_3d_data() {
+    // 1. Real projectile hit populates GetHitProjectile (live ref), GetHitBaseWeaponDamage (> 0),
+    // GetHit3DData 0/1/2 (3 / 3 / 6 finite values), and clears explosion flag 8.
+    let mut a = app();
+    query(&mut a, "Player.SetAV CriticalChance 0\nPlayer.AddItem CriticalHitGun 10 1\nPlayer.FireWeapon CriticalHitGun");
+    tick(&mut a);
+    let mut hits = Vec::new();
+    for _ in 0..8 {
+        hits.extend(tick(&mut a));
+        if !hits.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(hits.len(), 1, "projectile must land on target");
+    let target_get = |a: &mut App, expr: &str| {
+        query(a, &format!("ref struck\nlet struck := StringToRef \"{:08X}\"\nSetFunctionValue ({expr})", TARGET.0))
+    };
+    let XVal::Ref(proj_ref) = target_get(&mut a, "struck.GetHitProjectile") else {
+        panic!("GetHitProjectile must return a ref");
+    };
+    assert_ne!(proj_ref, 0, "projectile hit must record a live projectile reference");
+    assert_eq!(target_get(&mut a, "IsReference (struck.GetHitProjectile)"), XVal::Num(1.0));
+    let XVal::Num(base_dmg) = target_get(&mut a, "struck.GetHitBaseWeaponDamage") else {
+        panic!("GetHitBaseWeaponDamage must return a number");
+    };
+    assert!(base_dmg > 0.0, "expected positive base weapon damage, got {base_dmg}");
+    assert_eq!(target_get(&mut a, "struck.GetHitFatigueDamage"), XVal::Num(0.0));
+    assert_eq!(target_get(&mut a, "struck.GetHitExtendedFlag 8"), XVal::Num(0.0));
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 0)"), XVal::Num(3.0));
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 1)"), XVal::Num(3.0));
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 2)"), XVal::Num(6.0));
+    let XVal::Num(hit_y) = target_get(&mut a, "(struck.GetHit3DData 0)[1]") else {
+        panic!("3D pos Y must be numeric");
+    };
+    assert!(hit_y.is_finite() && hit_y > 50.0 && hit_y < 110.0, "hit Y near target volume: {hit_y}");
+
+    // 2. Real melee hit clears GetHitProjectile back to 0 while keeping base weapon damage & 3D data.
+    query(&mut a, "Player.AddItem CriticalHitClub 1 1\nPlayer.EquipItem CriticalHitClub 1");
+    tick(&mut a);
+    a.world_mut().resource_mut::<WeaponAnim>().ready = true;
+    a.world_mut().resource_mut::<PlayerControl>().trigger = true;
+    let mut melee_hits = tick(&mut a);
+    a.world_mut().resource_mut::<PlayerControl>().trigger = false;
+    for _ in 0..180 {
+        if !melee_hits.is_empty() {
+            break;
+        }
+        melee_hits.extend(tick(&mut a));
+    }
+    assert_eq!(melee_hits.len(), 1, "melee swing must land on target");
+    assert_eq!(target_get(&mut a, "struck.GetHitProjectile"), XVal::Ref(0));
+    let XVal::Num(melee_base) = target_get(&mut a, "struck.GetHitBaseWeaponDamage") else {
+        panic!("melee base weapon damage must be numeric");
+    };
+    assert!(melee_base > 0.0, "expected positive melee base weapon damage, got {melee_base}");
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 0)"), XVal::Num(3.0));
+    assert_eq!(target_get(&mut a, "Ar_Size (struck.GetHit3DData 2)"), XVal::Num(6.0));
+}

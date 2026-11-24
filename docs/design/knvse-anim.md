@@ -54,8 +54,13 @@ slice 2 plays; CopyAnimationsToForm copies the entries too.
 
 GetAnimationAttributes, Get/SetGlobalAnimTime, the blend functions, SetAnimWeight,
 SetAnimAdditive, the text-key functions, CopyAnimationsToForm and the rest are built on
-the game side (`nvse_knvse.rs`, docs/spec-notes/ext-knvse.md). The engine's per-actor
-player does not read their state yet.
+the game side (`nvse_knvse.rs`, docs/spec-notes/ext-knvse.md). `AllowAttack` cooldown
+and flinch release is consumed for the player in `nvf-play` (`combat.rs`), and player
+playback consumes per-view script-sequence weights (`SetAnimWeight`), additive poses
+(`SetAnimAdditive`), blend transition durations/priorities/views/`timeSync` phase
+alignment (`CrossFadeAnims`, `BlendToAnim`, `BlendToAnimFromPose`), and clip metadata
+publication (`Game::set_sequence_info` from `anim_state.rs` and `script_sequences.rs`)
+[design].
 
 ## 5. The player, conditions and folders (2026-11-13)
 
@@ -98,6 +103,16 @@ player does not read their state yet.
   PlayAnimationPath's sequence starts on the drawn actor's idle slot, bound to its
   skeleton, once or looping as on the player; DeactivateAnim stops it; an actor out of
   view starts it again when drawn (smoke `knvse-npc-sequences`).
+- **Player body clip reporting** (`nvforever` anim_state.rs, player_body.rs): the active
+  rig's main body clip is reported in `AnimState::clip` and its header published via
+  `Game::set_sequence_info` for both player and NPCs [design].
+- **Idles and `ForcePlayIdle` / `ForceStopIdle` POV** (`nvforever` idles.rs): kNVSE
+  filename overrides apply to idle clips (`clip_path_for`) while leaving actors without
+  overrides unchanged [hypothesis: idle overrides match the overridden file name as
+  `Rig::clip` does]. `ForcePlayIdle` and `ForceStopIdle` accept optional `playerPOV`
+  (`1` third-person, `2` first-person) [documented: GECK wiki ForcePlayIdle, ForceStopIdle];
+  first-person arm-only idles without `Camera1st` play on the first-person rig without
+  locking camera/movement [design].
 - **NPCs' conditional paths** (anim_paths.rs): an actor with a conditional
   SetActorAnimationPath gets `Game::anim_overrides_now` each frame, the world put back,
   so the replacement comes and goes with its condition; the others keep
