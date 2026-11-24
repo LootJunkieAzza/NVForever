@@ -21,7 +21,31 @@ fn connection_pick(_: &mut World, name: &str) -> bool {
     }
 }
 
+/// The rows' states from the INI, now: a `--host` or `--join` given on the command line
+/// starts while the plugin is built, before the settings page applies the INI
+/// (`nvf_play::settings::apply_stored`, PostStartup) [observed 2026-11-24: a LAN only guest
+/// joined by online code, its INI read 3 s after the join began]. The page reads them
+/// again later, to the same states.
+fn load_early() {
+    let Some(text) = crate::settings::settings_text_at_start() else { return };
+    let get = |key: &str| fnv_install::ini_get(&text, nvf_play::settings::SECTION, key);
+    let on = |key: &str| get(key).map(|v| !matches!(v.trim(), "0" | "false" | "off" | "Off"));
+    if let Some(c) = get(CONNECTION_KEY).and_then(|v| Connection::by_name(&v)) {
+        prefs::set_connection(c);
+    }
+    if let Some(v) = on(PORT_KEY) {
+        prefs::set_port_mapping(v);
+    }
+    if let Some(v) = on(RELAY_KEY) {
+        prefs::set_relay_for_others(v);
+    }
+    if let Some(v) = on(ASK_KEY) {
+        prefs::set_ask_before_join(v);
+    }
+}
+
 pub fn register(app: &mut App) {
+    load_early();
     let group = nvf_play::pause::GROUP_MENUS;
     add_choice_list(
         app,
