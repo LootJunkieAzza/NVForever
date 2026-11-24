@@ -321,7 +321,9 @@ fn polled_folder_conditions_poll_only_polled_entries_and_keep_non_polled_on_15_f
         ["AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf"],
         "cached non-polled Gun entry stays active without re-evaluation"
     );
-    // Reference-syntax `PlayerREF.HasKeyword "OwnedKnvseTag"` [hypothesis] reads the same keyword.
+    // Reference-syntax `PlayerREF.HasKeyword "OwnedKnvseTag"` [design: kNVSE JSON condition
+    // compatibility extension; original JIP LN 57.30 compiles only 2-arg `HasKeyword form "kw"`
+    // per w4d_05_haskeyword_1arg_ref] reads the same keyword.
     assert_eq!(
         g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.HasKeyword \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
         fnv_script::vm::XVal::Num(1.0)

@@ -121,9 +121,14 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   actor the engine draws: the entries for the actor's reference, its base or its equipped
   weapon, and those for every actor, whose condition holds on the actor (EvaluateString's
   compiler, including two-argument `HasKeyWord (this.GBO) "..."` [documented: GECK wiki
-  HasKeyword] and one-argument `this.HasKeyWord "..."` [hypothesis: one-argument reference
-  call form is not documented on the GECK wiki HasKeyword page]; a condition that fails to
-  compile or run counts as false and is logged once).
+  HasKeyword; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+  2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  `w4d_05_haskeyword_1arg_ref` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
+  #3679): `op(kw=10555,kwc=10558)|kw1(cmp=0,ret=-9)|kw2(cmp=1,ret=0)|kwc1(cmp=0,ret=-9)|kwc2(cmp=0,ret=-9)`
+  — original JIP LN 57.30 compiles only 2-arg `HasKeyword form "keyword"` and refuses
+  1-arg `ref.HasKeyword "keyword"`; no DLL or source consulted] and one-argument
+  `this.HasKeyWord "..."` [design: kNVSE JSON condition compatibility extension]; a
+  condition that fails to compile or run counts as false and is logged once).
   - Prior recorded [decision: the original checks a condition when the animation starts,
     or continually with `pollCondition` (hypothesis); a quarter second covers both closely
     enough, so `pollCondition` is read but changes nothing.]
