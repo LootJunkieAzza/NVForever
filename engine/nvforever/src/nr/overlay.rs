@@ -76,16 +76,11 @@ pub struct NrOverlayPlugin;
 impl Plugin for NrOverlayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NrSettings>()
+            .add_plugins(EguiPlugin::default())
             .add_systems(Update, (toggle_key, persist).chain())
             // The window draws inside the egui pass: adding a system to this schedule is also
             // what creates it (the context loop runs it per frame).
             .add_systems(bevy_egui::EguiPrimaryContextPass, draw);
-    }
-
-    // EguiPlugin needs the asset resources DefaultPlugins builds; this plugin is added before
-    // them (with NrInitPlugin), so the egui plugin joins at finish, after every build ran.
-    fn finish(&self, app: &mut App) {
-        app.add_plugins(EguiPlugin::default());
     }
 }
 

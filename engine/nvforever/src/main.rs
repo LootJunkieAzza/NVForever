@@ -1864,9 +1864,6 @@ fn main() -> AppExit {
     // DefaultPlugins, as DlssInitPlugin does; inert without the nr folder or with NVF_NR=0.
     #[cfg(windows)]
     app.add_plugins(nr::NrInitPlugin);
-    // The F11 live-settings window for the network (nr/overlay.rs).
-    #[cfg(windows)]
-    app.add_plugins(nr::overlay::NrOverlayPlugin);
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
@@ -2118,6 +2115,10 @@ fn main() -> AppExit {
     // After Bevy's window-closed exit, which writes AppExit in Last too: before it, closing
     // the window left no clean-exit line and the run was reported as a native crash (#2203).
     .add_systems(Last, crash::report_exit.after(bevy::window::ExitSystems));
+    // The F11 live-settings window for the network (nr/overlay.rs): after DefaultPlugins, so
+    // egui's asset and render resources initialize in the normal plugin order.
+    #[cfg(windows)]
+    app.add_plugins(nr::overlay::NrOverlayPlugin);
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }
