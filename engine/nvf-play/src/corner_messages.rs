@@ -676,6 +676,7 @@ mod tests {
             .init_resource::<crate::script_hud::ScriptHud>()
             .init_resource::<CornerMessages>()
             .init_resource::<crate::quest_messages::QuestMessages>()
+            .init_resource::<crate::ConsumeAnims>()
             .add_message::<crate::RefChanged>()
             .add_message::<crate::fade::RefFade>()
             .add_message::<crate::RefRepose>()

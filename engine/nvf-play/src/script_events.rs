@@ -449,14 +449,10 @@ pub fn effects_with_corner_clear(events: &[Event], skip: &BTreeSet<usize>, clear
             }
             // Gathered for the one-line-or-many lines below; a line cleared by a same-frame
             // ClearMessageQueue is not gathered (as `added`).
-            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => {
-                if i >= clear_before {
-                    match removed.iter_mut().find(|(i, _)| i == item) {
-                        Some((_, n)) => *n += count,
-                        None => removed.push((*item, *count)),
-                    }
-                }
-            }
+            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player && i >= clear_before => match removed.iter_mut().find(|(i, _)| i == item) {
+                Some((_, n)) => *n += count,
+                None => removed.push((*item, *count)),
+            },
             _ => {}
         }
     }

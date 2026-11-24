@@ -4649,7 +4649,7 @@ fn remote_hits(
         // A shot on a placed object (not an actor): its hit blocks run, as `by`'s, and it
         // takes the damage, as a shot of this game's own does (the projectile branch).
         if hit.location == OBJECT_LOCATION && !sim.is_actor(hit.target.0) {
-            let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: -1, critical: false, limb: None };
+            let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: -1, ..HitInfo::default() };
             let r = hit.target;
             let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
             if let Some(c) = combat.as_deref_mut() {
@@ -4668,7 +4668,7 @@ fn remote_hits(
             info!("combat: {by}'s shot (another game's) hits {}{}{}", r, if ran { ", its hit blocks ran" } else { "" }, if pushed { ", knocked away" } else { "" });
             continue;
         }
-        let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: hit.location, critical: hit.critical, limb: hit.limb };
+        let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: hit.location, critical: hit.critical, limb: hit.limb, ..HitInfo::default() };
         let mut dealt = hit.dealt;
         // A hit on this player in the host's world, dealt against an actor that wears
         // nothing there: this player's armour takes its part here, as an explosion's

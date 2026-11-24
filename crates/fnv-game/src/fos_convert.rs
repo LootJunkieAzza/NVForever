@@ -612,7 +612,7 @@ pub fn convert_fos(
                 }
             }
             for raw_sp in &p.spells {
-                match raw_sp.ok_or("not in save form ID array").and_then(&map_id) {
+                match raw_sp.ok_or("not in save form ID array").and_then(map_id) {
                     Ok(sid) if data.sig(sid).as_ref() == Some(b"SPEL") => {
                         let list = &mut g.extra.entry(FormId::PLAYER_REF).or_default().spells;
                         if !list.contains(&sid) {
@@ -807,7 +807,7 @@ pub fn convert_fos(
             }
 
             for &(raw_fac, rank) in &p.factions {
-                match raw_fac.ok_or("not in save form ID array").and_then(&map_id) {
+                match raw_fac.ok_or("not in save form ID array").and_then(map_id) {
                     Ok(fid) if data.sig(fid).as_ref() == Some(b"FACT") => {
                         g.extra.entry(FormId::PLAYER_REF).or_default().factions.insert(fid, rank);
                         inc_ok("player_factions");
@@ -818,7 +818,7 @@ pub fn convert_fos(
             }
 
             for &raw_tm in &p.teammates {
-                match raw_tm.ok_or("not in save form ID array").and_then(&map_id) {
+                match raw_tm.ok_or("not in save form ID array").and_then(map_id) {
                     Ok(tid) if refs.get(tid).is_some() => {
                         g.extra.entry(tid).or_default().teammate = true;
                         inc_ok("player_teammates");
@@ -870,7 +870,7 @@ pub fn convert_fos(
                 if rank == 0 {
                     continue;
                 }
-                match raw_perk.ok_or("not in save form ID array").and_then(&map_id) {
+                match raw_perk.ok_or("not in save form ID array").and_then(map_id) {
                     Ok(pid) if data.perks.contains_key(&pid) || data.sig(pid).as_ref() == Some(b"PERK") => {
                         g.player.perks.insert(pid, rank);
                         inc_ok("player_perks");
@@ -884,7 +884,7 @@ pub fn convert_fos(
                 if rank == 0 {
                     continue;
                 }
-                match raw_perk.ok_or("not in save form ID array").and_then(&map_id) {
+                match raw_perk.ok_or("not in save form ID array").and_then(map_id) {
                     Ok(pid) if data.perks.contains_key(&pid) || data.sig(pid).as_ref() == Some(b"PERK") => {
                         g.player.teammate_perks.insert(pid);
                         inc_ok("player_teammate_perks");
@@ -1061,7 +1061,7 @@ pub fn convert_fos(
             }
         }
         for &(raw_fac, rank) in &ac.factions {
-            match raw_fac.ok_or("not in save form ID array").and_then(&map_id) {
+            match raw_fac.ok_or("not in save form ID array").and_then(map_id) {
                 Ok(fid) if data.sig(fid).as_ref() == Some(b"FACT") => {
                     g.extra.entry(rid).or_default().factions.insert(fid, rank);
                     inc_ok("actor_factions");
@@ -1164,7 +1164,7 @@ pub fn convert_fos(
             }
         }
         if let Some(raw_owner) = re.owner {
-            match raw_owner.ok_or("not in save form ID array").and_then(&map_id) {
+            match raw_owner.ok_or("not in save form ID array").and_then(map_id) {
                 Ok(oid) if matches!(data.sig(oid).as_ref(), Some(b"NPC_" | b"FACT")) => {
                     if let Ok(st) = g.world.get(rid) {
                         st.extra.owner = Some(oid);
@@ -1307,7 +1307,7 @@ pub fn convert_fos(
             }
         };
         for (other, _modifier, reaction) in f.relations {
-            match other.ok_or("not in save form ID array").and_then(&map_id) {
+            match other.ok_or("not in save form ID array").and_then(map_id) {
                 Ok(oid) if reaction <= 3 => {
                     g.forms.faction_reactions.entry(fid).or_default().insert(oid, i64::from(reaction));
                     factions_changed = true;
@@ -1545,7 +1545,7 @@ pub fn convert_fos(
             applied_any = true;
         }
         if let Some(raw_owner) = cell.owner {
-            match raw_owner.ok_or("not in save form ID array").and_then(&map_id) {
+            match raw_owner.ok_or("not in save form ID array").and_then(map_id) {
                 Ok(oid) if matches!(data.sig(oid).as_ref(), Some(b"NPC_" | b"FACT")) => {
                     g.forms.cell_owners.insert(cid, oid);
                     inc_ok("cell_owners");

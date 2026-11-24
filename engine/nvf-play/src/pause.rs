@@ -2588,8 +2588,8 @@ fn note_fit(lines: usize, top: f32) -> usize {
 /// End Split Screen: its words ran into the rail's NVF Features [observed: the split-screen
 /// UI check, 2026-11-20, `shots-ui\p1\play-128s.png`]), so the two boxes meet at most
 /// and their words keep two boxes' room apart [design].
-fn rail_right(f: &Faces, column: &[(&'static str, bool)]) -> f32 {
-    let widest = column.iter().map(|(label, _)| f.title.font.width(tr_str(label))).fold(0.0, f32::max);
+fn rail_right<S: AsRef<str>>(f: &Faces, column: &[(S, bool)]) -> f32 {
+    let widest = column.iter().map(|(label, _)| f.title.font.width(tr_str(label.as_ref()))).fold(0.0, f32::max);
     SUB_RIGHT.max(RIGHT + (widest + 2.0 * ENTRY_BOX_PAD).min(COLUMN - 5.0))
 }
 
@@ -2597,7 +2597,7 @@ fn rail_right(f: &Faces, column: &[(&'static str, bool)]) -> f32 {
 /// place ([`RIGHT`]) where the column is not drawn ([`Drawn::no_column`]): in a side-by-side
 /// half the list takes the column's room, so its labels show whole [design: the split-screen
 /// UI check, 2026-11-20, `shots-ui2\settings-side-by-side.png`: "Split Screen La..."].
-fn settings_rail_right(f: &Faces, column: &[(&'static str, bool)], no_column: bool) -> f32 {
+fn settings_rail_right<S: AsRef<str>>(f: &Faces, column: &[(S, bool)], no_column: bool) -> f32 {
     if no_column {
         RIGHT
     } else {
@@ -6899,7 +6899,7 @@ mod tests {
         let columns = |no_column: bool| {
             let mut app = App::new();
             app.init_resource::<Assets<Image>>().init_resource::<crate::pad::PadGlyphs>().init_resource::<LoadList>();
-            let drawn = Drawn { page: Page::Settings { selected: None }, column: entries_with(false, false, Some(true)).iter().map(|e| (e.label(), true)).collect(), rail: vec![RailItem::Search, RailItem::Tab("Display")], device: ("Keyboard and Mouse", false), view_w: 1376, no_column, ..default() };
+            let drawn = Drawn { page: Page::Settings { selected: None }, column: entries_with(false, false, Some(true)).iter().map(|e| (e.label().into(), true)).collect(), rail: vec![RailItem::Search, RailItem::Tab("Display")], device: ("Keyboard and Mouse", false), view_w: 1376, no_column, ..default() };
             app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>, glyphs: Res<crate::pad::PadGlyphs>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list, &glyphs), drawn).unwrap();
             let world = app.world_mut();
             let mut q = world.query::<&PauseButton>();

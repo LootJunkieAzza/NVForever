@@ -2203,21 +2203,24 @@ mod tests {
         // Track 1: player 24 vs opponent 24 (tied, neither winning).
         // Track 2: player 27 (bust > 26) vs opponent 5.
 
+        // The sold-range white (sRGB 1.0) and the winning white (`Color::WHITE`, linear) are the
+        // same 8-bit colour; compare them as shown.
+        let px = |c: Color| { let s = c.to_srgba(); [s.red, s.green, s.blue].map(|v| (v * 255.0).round() as u8) };
         // Vanilla (highlight off, no preview): a value in the sold range (21) is white, as in
         // the original (the ship's `value_colour`), bust 27 is red.
         let (t0, c0) = screen::value_display(&game, OPPONENT, 0, None, false);
-        assert_eq!((t0.as_str(), c0), ("21", Color::WHITE));
+        assert_eq!((t0.as_str(), px(c0)), ("21", px(Color::WHITE)));
         let (t2, c2) = screen::value_display(&game, PLAYER, 2, None, false);
         assert_eq!(t2, "27");
-        assert_ne!(c2, Color::WHITE);
+        assert_ne!(px(c2), px(Color::WHITE));
         assert_ne!(c2, crate::interface::amber(255.0));
 
         // Highlight winning caravans on: opponent track 0 (21) is white; tied track 1 (24) is
         // white too, being in the sold range; an unsold value stays amber.
         let (t0w, c0w) = screen::value_display(&game, OPPONENT, 0, None, true);
-        assert_eq!((t0w.as_str(), c0w), ("21", Color::WHITE));
+        assert_eq!((t0w.as_str(), px(c0w)), ("21", px(Color::WHITE)));
         let (t1w, c1w) = screen::value_display(&game, PLAYER, 1, None, true);
-        assert_eq!((t1w.as_str(), c1w), ("24", Color::WHITE));
+        assert_eq!((t1w.as_str(), px(c1w)), ("24", px(Color::WHITE)));
         let (t2o, c2o) = screen::value_display(&game, OPPONENT, 2, None, true);
         assert_eq!((t2o.as_str(), c2o), ("5", crate::interface::amber(255.0)));
 
@@ -2268,7 +2271,7 @@ mod tests {
 
         let prev = screen::active_preview(&session).expect("preview active");
         let (pt, pc) = screen::value_display(&game, PLAYER, 0, Some(&prev), true);
-        assert_eq!((pt.as_str(), pc), ("18->24", Color::WHITE));
+        assert_eq!((pt.as_str(), px(pc)), ("18->24", px(Color::WHITE)));
 
         // Preview disabled -> None.
         better.preview_move_result = false;
