@@ -52,8 +52,8 @@ pub const HEALING_HANDS: FormId = FormId(0xFE00_B001);
 pub const QUACK_SURGEON: FormId = FormId(0xFE00_B002);
 /// Both perks' level (see the module notes).
 pub const LEVEL: u8 = 2;
-/// The Stimpak [observed: FalloutNV.esm 00015169].
-pub const STIMPAK: FormId = FormId(0x0001_5169);
+/// The Stimpak (main's `unconscious::STIMPAK`).
+pub use crate::unconscious::STIMPAK;
 /// GetPermanentActorValue's condition index [observed: the masters' requirements, 495].
 const GET_PERMANENT_ACTOR_VALUE: u16 = 0x1EF;
 /// The pictures: NVForever's own, in its texture folder (installed beside the engine's

@@ -117,8 +117,8 @@ enum Gives {
     Teammate,
 }
 
-/// Caps001 [documented: FalloutNV.esm's caps item, FormID 0x0000000F].
-const CAPS: FormId = FormId(0x0000_000F);
+/// Caps001 (main's `caravan::CAPS`).
+use crate::caravan::CAPS;
 
 fn gives(data: &GameData, opcode: u16) -> Option<Gives> {
     let name = &data.table.get(opcode)?.name;

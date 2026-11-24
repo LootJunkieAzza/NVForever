@@ -77,8 +77,8 @@ pub const SCRIPT_XP: FormId = FormId(0);
 /// Gains held for quests to complete kept at most (the oldest go first).
 const HELD_MAX: usize = 256;
 
-/// The caps item (`Caps001`).
-pub const CAPS: FormId = FormId(0xF);
+/// The caps item (main's `caravan::CAPS`).
+pub use crate::caravan::CAPS;
 
 /// Whether a guest whose own game completed a quest takes that quest's completion XP and
 /// caps again when the host completes it. On: every guest takes XP and caps, finished
