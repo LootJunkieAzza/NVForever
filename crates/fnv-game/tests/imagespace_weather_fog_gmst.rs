@@ -263,6 +263,108 @@ fn game_settings_presets_update_vanilla_gmst_live_and_reject_unknown_safely() {
 }
 
 #[test]
+fn seeded_builtin_gmsts_work_with_setgs_con_setgamesetting_and_nvse_getters() {
+    use fnv_game::functions::console::{set_game_setting, ConsoleCtx};
+    use fnv_sim::settings::Setting;
+
+    let f = fixture();
+    let mut g = game(&f);
+    let cctx = ConsoleCtx::default();
+
+    // All 7 built-in engine-default GMSTs are readable via GetNumericGameSetting even when
+    // absent from the loaded ESMs.
+    let expected: [(&str, f64); 7] = [
+        ("fCombatEnvironmentBloodChance", 0.75),
+        ("iDismemberBloodDecalCount", 10.0),
+        ("fGunWobbleChaseDriftTime", 0.75),
+        ("fIronSightsFOVTimeChange", 0.25),
+        ("FCharacterDefaultTurningSpeed", 90.0),
+        ("iAntiCheatDuration", 60.0),
+        ("fSeenDataUpdateRadius", 1024.0),
+    ];
+    for (name, default) in expected {
+        assert_eq!(
+            q(&mut g, &format!("SetFunctionValue (GetNumericGameSetting \"{name}\")")),
+            XVal::Num(default),
+            "default for {name}"
+        );
+    }
+
+    // Console `setgs` (`set_game_setting`) mutates seeded float and int GMSTs cleanly.
+    let line = set_game_setting(&mut g, &cctx, &["fCombatEnvironmentBloodChance".into(), "0.4".into()]).unwrap();
+    assert_eq!(line, vec!["fCombatEnvironmentBloodChance: 0.75 -> 0.4"]);
+    assert_eq!(g.world.setting_f32("fCombatEnvironmentBloodChance"), Some(0.4));
+
+    let line = set_game_setting(&mut g, &cctx, &["iDismemberBloodDecalCount".into(), "4".into()]).unwrap();
+    assert_eq!(line, vec!["iDismemberBloodDecalCount: 10 -> 4"]);
+    assert_eq!(g.world.setting_value("iDismemberBloodDecalCount"), Some(&Setting::Int(4)));
+
+    // Script `con_SetGameSetting` succeeds with no script error across all remaining seeded
+    // defaults, including case-insensitive `FCharacterDefaultTurningSpeed`.
+    let out_before = g.console_out.len();
+    g.run_source(
+        concat!(
+            "con_SetGameSetting \"fGunWobbleChaseDriftTime\" \"0.5\"\n",
+            "con_SetGameSetting \"fIronSightsFOVTimeChange\" \"0.1\"\n",
+            "con_SetGameSetting \"fcharacterdefaultturningspeed\" \"180\"\n",
+            "con_SetGameSetting \"iAntiCheatDuration\" \"0\"\n",
+            "con_SetGameSetting \"fSeenDataUpdateRadius\" \"2048\"\n",
+        ),
+        RunCtx::default(),
+    )
+    .unwrap();
+    assert!(
+        g.console_out[out_before..].iter().all(|l| !l.contains("Script error")),
+        "unexpected script errors: {:?}",
+        &g.console_out[out_before..]
+    );
+    assert_eq!(g.world.setting_f32("fGunWobbleChaseDriftTime"), Some(0.5));
+    assert_eq!(g.world.setting_f32("fIronSightsFOVTimeChange"), Some(0.1));
+    assert_eq!(g.world.setting_f32("FCharacterDefaultTurningSpeed"), Some(180.0));
+    assert_eq!(g.world.setting_value("iAntiCheatDuration"), Some(&Setting::Int(0)));
+    assert_eq!(g.world.setting_f32("fSeenDataUpdateRadius"), Some(2048.0));
+
+    // SetNumericGameSetting, ModNumericGameSetting, and GetGameSetting share the same store.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetNumericGameSetting \"FCharacterDefaultTurningSpeed\" 120)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ModNumericGameSetting \"fCharacterDefaultTurningSpeed\" 30)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNumericGameSetting \"FCharacterDefaultTurningSpeed\")"), XVal::Num(150.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetGameSetting \"fCombatEnvironmentBloodChance\")"), XVal::Num(0.4000000059604645));
+
+    // String setter refuses numeric seeded defaults (preserving strict/default recovery and
+    // leaving the numeric value untouched), and unknown settings still fail cleanly.
+    let str_err = fnv_game::functions::console::set_string_setting(
+        &mut g,
+        &cctx,
+        &["fCombatEnvironmentBloodChance".into(), "bad".into()],
+    )
+    .unwrap_err();
+    assert_eq!(str_err, "fCombatEnvironmentBloodChance is not a string setting");
+    g.cfg.strict = true;
+    assert!(
+        g.run_query("Begin Function {}\nSetStringSetting \"fCombatEnvironmentBloodChance\" \"bad\"\nEnd\n", RunCtx::default())
+            .is_err()
+    );
+    g.cfg.strict = false;
+    assert!(
+        g.run_query("Begin Function {}\nSetStringSetting \"fCombatEnvironmentBloodChance\" \"bad\"\nEnd\n", RunCtx::default())
+            .is_ok()
+    );
+    assert_eq!(g.world.setting_f32("fCombatEnvironmentBloodChance"), Some(0.4));
+    let err = set_game_setting(&mut g, &cctx, &["fNotARealGmst".into(), "1".into()]).unwrap_err();
+    assert_eq!(err, "No game setting fNotARealGmst");
+    assert_eq!(q(&mut g, "SetFunctionValue (SetNumericGameSetting \"fNotARealGmst\" 1)"), XVal::Num(0.0));
+
+    // An ESM GMST record overrides the seeded engine default, while still allowing later
+    // session edits via `con_SetGameSetting`.
+    let mut f_override = fixture();
+    f_override.forms.settings.insert("fcombatenvironmentbloodchance".into(), Setting::Float(0.25));
+    let mut g_override = game(&f_override);
+    assert_eq!(q(&mut g_override, "SetFunctionValue (GetNumericGameSetting \"fCombatEnvironmentBloodChance\")"), XVal::Num(0.25));
+    g_override.run_source("con_SetGameSetting \"fCombatEnvironmentBloodChance\" \"0.5\"", RunCtx::default()).unwrap();
+    assert_eq!(q(&mut g_override, "SetFunctionValue (GetNumericGameSetting \"fCombatEnvironmentBloodChance\")"), XVal::Num(0.5));
+}
+
+#[test]
 fn weather_visual_and_worldspace_imagespace_tokens_track_live_edits_and_isolate_instances() {
     let f = fixture();
     let mut g = game(&f);

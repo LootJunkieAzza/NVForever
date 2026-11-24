@@ -17,6 +17,9 @@ pub const ON_PRE_SCRIPTED_ACTIVATE: &str = "showoff:onprescriptedactivate";
 pub const ON_PRE_ACTIVATE_INVENTORY_ITEM: &str = "showoff:onpreactivateinventoryitem";
 pub const ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT: &str = "showoff:onpreactivateinventoryitemalt";
 pub const ON_POV_CHANGE: &str = "showoff:onpovchange";
+pub const ON_COMPLETE_OBJECTIVE: &str = "showoff:oncompleteobjective";
+pub const ON_DISPLAY_OBJECTIVE: &str = "showoff:ondisplayobjective";
+pub const ON_WEAPON_UNHOLSTER: &str = "showoff:onweaponunholster";
 
 #[derive(Debug, Default)]
 pub struct ShowOffState {
@@ -69,6 +72,13 @@ pub struct ShowOffState {
     /// Re-entrancy guard while `ShowOff:OnPreActivateInventoryItem[Alt]` handlers run,
     /// so a handler calling `EquipItem` / `UseAidItem` does not recurse infinitely [design].
     pub in_pre_activate_item: bool,
+    /// Actors whose draw-start `ShowOff:OnWeaponUnholster` has already fired while
+    /// `weapon_out` is still `false`, preventing duplicate firing when draw finishes.
+    /// Value is `None` while the draw is active (`AnimAction::Equip` or scripted
+    /// `SetWeaponOut 1` pending in `weapon_due`), or `Some(frame)` if `Equip` ended
+    /// before `weapon_out` became `true` so same-frame completion still deduplicates
+    /// while a later-frame cancelled draw clears cleanly [design].
+    pub unholster_pending: std::collections::HashMap<FormId, Option<u64>>,
 }
 
 fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
@@ -213,8 +223,12 @@ impl Game<'_> {
     }
 
     /// `ShowOff:OnPreScriptedActivate` before a scripted `Activate` runs its block or
-    /// default action. Calling reference is `target`; arguments are `(actor, allowed,
-    /// run_on_activate_block)`. Explicit `SetFunctionValue 0` prevents activation.
+    /// default action. Calling reference is `target`; arguments are `(actor,
+    /// run_on_activate_block, allowed)` [observed 2026-11-23: Fallout: New Vegas
+    /// 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, 10 official base masters,
+    /// `so_31_pre_scripted_activate_args_veto` / `so_31b_pre_scripted_activate_noveto`:
+    /// `Activate Player 0` passes `(0, 1)`, `Activate Player 1` passes `(1, 1)`, and
+    /// `SetFunctionValue 0` vetoes pickup; no DLL or source consulted].
     /// See `docs/spec-notes/preactivation-events.md`.
     pub(crate) fn pre_scripted_activation_allows(
         &mut self,
@@ -233,8 +247,8 @@ impl Game<'_> {
             |allowed| {
                 vec![
                     XVal::Ref(actor.0),
-                    XVal::Num(if allowed { 1.0 } else { 0.0 }),
                     XVal::Num(if run_block { 1.0 } else { 0.0 }),
+                    XVal::Num(if allowed { 1.0 } else { 0.0 }),
                 ]
             },
         )
@@ -252,6 +266,91 @@ impl Game<'_> {
             vec![XVal::Num(if first_person { 1.0 } else { 0.0 })],
             None,
         );
+    }
+
+    /// `ShowOff:OnDisplayObjective`, fired PRE-update when a quest objective transitions
+    /// from hidden to displayed (`GetObjectiveDisplayed` still reads `0` inside the
+    /// callback) [documented: GECK wiki ShowOff:OnDisplayObjective; observed: Fallout:
+    /// New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin 184, 2026-11-23,
+    /// GSDocMitchellHouse (0x00103DF9), 10 official base masters, probes
+    /// `w1_3656_objectives_unholster_imod` (`StartQuest 0x000E282D`,
+    /// `SetObjectiveDisplayed 20 1`/`20 1`/`20 0`/`20 1`/`999 1` + `CompleteQuest`) and
+    /// `b3_so_ex_06_on_display_complete_objective` (`SetObjectiveDisplayed 0x00104C1C 10
+    /// 1` -> `reg=1,hit=1,dispInside=0`) in #3679]. Arguments are `(quest,
+    /// objective_index)`; calling reference is `None`. Free when no handler is
+    /// registered.
+    pub(crate) fn showoff_on_display_objective(&mut self, quest: FormId, index: i32) {
+        if !self.handled(ON_DISPLAY_OBJECTIVE) {
+            return;
+        }
+        self.dispatch_event(
+            "ShowOff:OnDisplayObjective",
+            vec![XVal::Ref(quest.0), XVal::Num(f64::from(index))],
+            None,
+        );
+    }
+
+    /// `ShowOff:OnCompleteObjective`, fired PRE-update when a currently displayed quest
+    /// objective transitions from incomplete to completed (`GetObjectiveCompleted` still
+    /// reads `0` inside the callback; hidden objectives and completed quests do not fire)
+    /// [documented: GECK wiki ShowOff:OnCompleteObjective; observed: Fallout: New Vegas
+    /// 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin 184, 2026-11-23, GSDocMitchellHouse
+    /// (0x00103DF9), 10 official base masters, probe `w1_3656_objectives_unholster_imod`
+    /// in #3679 (`StartQuest 0x000E282D`, `SetObjectiveCompleted` 20/30 hidden +
+    /// `SetObjectiveDisplayed 50 1`/`5 1` + `CompleteAllObjectives` firing 50 then 5 +
+    /// `CompleteQuest`)]. Arguments are `(quest, objective_index)`; calling reference is
+    /// `None`. Free when no handler is registered.
+    pub(crate) fn showoff_on_complete_objective(&mut self, quest: FormId, index: i32) {
+        if !self.handled(ON_COMPLETE_OBJECTIVE) {
+            return;
+        }
+        self.dispatch_event(
+            "ShowOff:OnCompleteObjective",
+            vec![XVal::Ref(quest.0), XVal::Num(f64::from(index))],
+            None,
+        );
+    }
+
+    /// Mark an actor as starting to draw its weapon while `weapon_out == false` and fire
+    /// `ShowOff:OnWeaponUnholster` once at draw start (PRE-update, `IsWeaponOut == 0`).
+    /// Subsequent draw-completion calls (`set_weapon_out(actor, true)` or `hud_tick`)
+    /// consume `unholster_pending` without double-firing [design].
+    pub(crate) fn showoff_begin_unholster(&mut self, actor: FormId) {
+        if self.extra.get(&actor).is_some_and(|e| e.weapon_out) {
+            return;
+        }
+        // If an earlier Equip ended on a prior frame without completing, treat this as a
+        // fresh draw attempt.
+        if let Some(Some(ended)) = self.showoff.unholster_pending.get(&actor).copied() {
+            if ended < self.frame {
+                self.showoff.unholster_pending.remove(&actor);
+            }
+        }
+        if let std::collections::hash_map::Entry::Vacant(e) = self.showoff.unholster_pending.entry(actor) {
+            e.insert(None);
+            self.showoff_on_weapon_unholster(actor);
+        }
+    }
+
+    /// `ShowOff:OnWeaponUnholster`, fired at weapon draw start PRE-update so
+    /// `IsWeaponOut` still reads `0` inside the callback [documented: GECK wiki
+    /// ShowOff:OnWeaponUnholster; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+    /// ShowOffNVSE Plugin 184, 2026-11-23, GSDocMitchellHouse (0x00103DF9), 10 official
+    /// base masters, probe `w1_3656_objectives_unholster_imod` in #3679
+    /// (`Player.SetWeaponOut 0` / `Player.SetWeaponOut 1` with `Weap10mmPistol`
+    /// `0x0000434F` -> `self=0x14, arg1=0x434F, IsWeaponOut=0`; unarmed
+    /// `Player.SetWeaponOut 1` -> `self=0x14, arg1=0, IsWeaponOut=0`)].
+    /// Calling reference (`GetSelf` / `GetSelfAlt` / `0::`) is `actor`; single argument
+    /// (`"first"` / `1::`) is the actor's equipped or engine-held `WEAP` base form, or
+    /// `0` when unarmed. Free when no handler is registered.
+    pub(crate) fn showoff_on_weapon_unholster(&mut self, actor: FormId) {
+        if !self.handled(ON_WEAPON_UNHOLSTER) {
+            return;
+        }
+        let weapon = crate::functions::items::equipped_weapon(self, actor)
+            .or_else(|| self.extra.get(&actor).and_then(|e| e.held_weapon))
+            .unwrap_or(FormId(0));
+        self.dispatch_event("ShowOff:OnWeaponUnholster", vec![XVal::Ref(weapon.0)], Some(actor));
     }
 
     /// The stop handlers of an aux timer that ran out or was stopped with its event: each

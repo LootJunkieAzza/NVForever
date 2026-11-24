@@ -198,6 +198,11 @@ impl World<'_> {
         Some(level)
     }
 
+    /// Record a saved encounter zone level directly (offline save import).
+    pub fn set_zone_level(&mut self, zone: FormId, level: u16) {
+        self.zone_levels.insert(zone, level.max(1));
+    }
+
     /// The level `r` reads leveled lists at: the one fixed for it, else its effective
     /// zone's level (or the level the zone would take if entered now, including session
     /// overrides), else `player_level`, changed by its level modifier.

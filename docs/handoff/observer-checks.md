@@ -1,5 +1,10 @@
 # Observer checks: gameplay guesses the original game can settle
 
+**This file takes no new checks** (#3674). A new check is a file of its own in
+[observer-checks/](observer-checks/README.md), so that pull requests adding checks do not
+conflict here. The numbered checks below stay until they are settled, keep their numbers,
+and get their partial answers here.
+
 Guesses about how the original behaves that a capture can settle without the owner.
 The observer can run scripts, take screenshots, record video, and tap keys, so it can
 also drive menus. Sorted by how much of the game each check moves, most first.
@@ -121,7 +126,9 @@ engine if needed, and delete the item here.
    or it starts alerted. Answers #1341's question.
 3. **Damage numbers.** Ours:
    - Power attacks do 3× standing and 2× moving.
-   - A damage type uses its resistance in place of DR (capped at 85 %, after DT).
+   - A damage type uses its resistance (capped at 85 %, after DT) as well as DR. That DR
+     cuts laser and plasma hits is answered [observed 2026-11-21: damage-armour.md §4,
+     #3218]; whether the resistance itself cuts them is still open.
    - Rippers, Chainsaw and Thermic Lance ignore DT/DR.
    - `fCombatPlayerLimbDamageMult` halves damage to the player's limbs.
    - Difficulty multipliers are 2/1.5/1/0.75/0.5 dealt and the inverse taken, including
@@ -3643,24 +3650,6 @@ already talking takes over at once, same topic or another; nothing is queued or 
      With a weapon that takes several kinds (12 gauge and its slugs, or the .357 with
      .38 Special), say whether the other kinds it can fire are at full strength.
 
-## Added 2026-11-21 (the compass's actor ticks against the strip, #3310)
-
-261. **Where does an actor's tick on the compass end against the strip's line?** (P3;
-     #3310, hud.md §11.) The HUD file's box puts the tick's top at the compass window's
-     top (the group's run-time y 10, read from the original, over the template's 5, and
-     the tick's y -10); ours since #3310 draws the 26-unit tick so its bar ends 22 units
-     down the window, about 4 above the strip's upper line, where it ended on that line
-     before [hypothesis: the picture's bar is its top 22 texel rows, drawn a texel a
-     unit]. Outdoors at 1920 x 1080, HUD scale 100 % (1.125 pixels a unit, hud.md §4),
-     with a neutral NPC about 300 units ahead (Goodsprings, the settler of §14.5) and a
-     hostile one (a gecko), take one frame each, heading steady, and measure on the raw
-     1920 x 1080 capture, not a resized one: the tick's solid end, the top of its fade
-     and the span between, against the strip's doubled line and the bracket's long line
-     above it, in pixels. A fade and bar spanning about 25 pixels (22 units) agree with
-     the 22-row hypothesis, about 20 pixels (17.9 units) with our 26-unit size; a bar
-     ending about 4-5 pixels above the strip's upper line agrees with the new place, one
-     touching it says the old place was right.
-
 ## Added 2026-11-21 (placing the custom map marker with the mouse, #3324)
 
 262. **What does a left click on an empty spot of the Pip-Boy's World Map and Local Map do
@@ -3797,23 +3786,6 @@ already talking takes over at once, same topic or another; nothing is queued or 
      altogether, the Pip-Boy still on, does the music come back (ours: yes)? Last, with
      the Radio volume at 0 and a station playing: is the music still turned down (ours:
      no)?
-
-## Added 2026-11-21 (a suitcase lying on a bed, #3323)
-
-267. **Is a suitcase lying on a bed the crosshair's target, from every aim at it?** (P3;
-     #3323, simulation.md §5 crosshair activation.) A player reports the Suitcase
-     0x000AFA24 lying on BedQueenRight 0x000D72C7 in BisonSteve02 can be looted in the
-     original [reported: the player's issue, not captured]. Ours since #3323: a bed's
-     boxes are set aside when one of them wholly holds, along the ray, the box of
-     something the player can activate, entered before the first collision hit; otherwise
-     the nearest box or collision hit wins [design]. Stand beside that bed and sweep the
-     crosshair over the suitcase's lid, its side, its edge against the mattress, a corner
-     hanging over the bed's edge if there is one, and the bare mattress beside it. At each
-     aim write down the HUD prompt (Open Suitcase or the bed's) and what E does (the
-     suitcase's container menu or the bed's sleep/wait menu); log `GetCrosshairRef`
-     separately, as it may name another reference than the prompt. Record which aims give
-     the suitcase and which the bed, without reading a rule into them yet; compare with
-     ours afterwards (aim for aim in the same spot in NVForever).
 
 ## Added 2026-11-21 (relief on the landscape's texture layers, #3322)
 
@@ -4138,6 +4110,20 @@ capture setup, so every part of a check that needs an interior is still open.
        confirmed: the crosshair read no reference at 150 units. These positions are
        meaningful because the same reading followed the grabbed nettles above.
 
+## Added 2026-11-23 (enemies left behind in another cell, #3390)
+
+281. **How long does an enemy left in an unloaded cell stay in combat with the player?**
+     (P2: #3390; alert.md §2.) Ours [design]: it is hidden 1 s after it was last measured,
+     Lost at 15 s without detecting the player (fCombatDetectionLostTime), Normal once
+     hidden for 30 s (fCombatTargetLostRemoveTime), since nothing searches there. In the
+     original, have an interior enemy (the Broc Flower cave's rats) fight the player, read
+     its `IsInCombat`, `GetCombatTarget` and `GetCurrentAIProcedure` and the player's
+     `IsInCombat` once a second, leave by the load door and go on reading for 5 minutes,
+     sneaking now and then to see the sneak word. Say when each ends, whether the enemy
+     follows through the door, and whether it fights on at once when the player goes back
+     in after 20 s and after 2 minutes. Then the same outdoors: outrun an enemy until its
+     cell unloads.
+
 ## Added 2026-11-23 (the GOODBYE topic without the Goodbye flag, #3477)
 
 283. **Does a GOODBYE line without the Goodbye flag end the conversation?** (P2; #3477,
@@ -4149,3 +4135,102 @@ capture setup, so every part of a check that needs an interior is still open.
      come back? Note also whether the generic Goodbye is offered at all, as his only
      flagged entry is the game of Caravan. Jerry the Punk (reference 001413BF) has the
      other line, 0014C483; in Fallout 3, Pronto (Paradise Falls) has 000384CF.
+
+## Added 2026-11-23 (fast travel from an interior, #3434)
+
+285. **Does an interior refuse fast travel, and does CELL DATA bit 2 turn that round?**
+     (P2: #3434; fast-travel.md §2.) Ours: every interior refuses with the map's box and
+     `sNoFastTravelCell`'s text [documented: GECK wiki EnableFastTravel]; with bit 2 set
+     an interior allows travel and an exterior refuses it [hypothesis: "Invert Fast
+     Travel Behavior" on the wiki's GetCellFlag page, against the editor's "Can't Travel
+     From Here"]. No cell of the masters sets the bit, so set it by script.
+     - Needs xNVSE, JIP LN and ShowOff; a save in Goodsprings with no hostile near, the
+       player not over-encumbered. First `EnableFastTravel 1` and `ShowMap` with
+       canTravel 1 on Primm's marker (000CDF46), then `coc GSGeneralStore` (001057F1).
+     - (a) **Unflagged interior**: read `GetCellFlag` 2 and 7 of the cell (expect 0, 0)
+       and `GetPCCanFastTravel`; then open the Pip-Boy's World Map, click Primm, and take
+       a screenshot: the question, or a refusal? If a refusal, its text, whether it is a
+       box with a button or a corner message, and whether the map stays up; compare with
+       `GetGameSetting sNoFastTravelCell`. Expect 0 and that text.
+     - (b) **Flagged interior**: `SetCellFlag GSGeneralStore 2 1`, read both again and
+       click Primm again. Expect 1 and the question; 0 and the refusal mean the bit does
+       not invert. Answer No. If (b) reads as (a), leave by the door, come back with the
+       flag still set and read once more (it may be read only on entry). Clear the flag.
+     - (c) **Flagged exterior**: in Goodsprings read `GetPCCanFastTravel` (expect 1), set
+       the bit on the player's parent cell, read again, click Primm and take a
+       screenshot; clear it. Expect 0 and the same text.
+     - (d) **Fake exterior**: in GSGeneralStore with bit 2 clear, `SetCellFlag
+       GSGeneralStore 7 1` (leave and re-enter if nothing changes) and read
+       `GetPCCanFastTravel`. Ours: 1 [hypothesis]. With Dead Money loaded,
+       `coc NVDLC01stealthTest` (bit 7 in its record) reads the same with no script.
+
+## Added 2026-11-23 (unlit shapes faded by vertex alpha alone, #3443)
+
+286. **Is an unlit shape with a fading vertex alpha, no texture and no NiAlphaProperty
+     see-through?** (P3: #3443; nif.md §6 "Unlit shapes faded by vertex alpha alone".)
+     Ours [hypothesis]: yes, blended by its vertex alpha. Two places in the original:
+     - base game: a bare gurney in the Camp McCarran Concourse (`CampMCTermInt01`,
+       `gurney01.nif`, 000FBA8F at 4032, -616, 18240), from standing height beside it. Its
+       shape `Gurney01:2` is a black sheet of 144 × 64 units lying under it, alpha 0.6 to 0
+       towards the edges. Say whether the floor under the gurney shows a soft dark patch, a
+       hard-edged black rectangle or nothing.
+     - Lonesome Road: the end of the silo lift (`NVDLC04Silo2Elevator`), from -87, 3502,
+       2069 facing 167°. Ride the lift, or play `Right` on
+       `NVDLC04SiloElevatorShaft01Ref` to `06Ref` and enable
+       `NVDLC04SiloElevatorLightsEndREF`. Say whether the cone of light (350 units wide,
+       500 high, from 0, 3126, 2575 down) lets the hall behind it through, how bright it
+       is, and whether it lightens the floor under it.
+
+## Added 2026-11-23 (a thrown Lobber with gravity 0, #3441)
+
+289. **Does a thrown Nuka-grenade arc like a frag grenade?** (P2; #3441, combat-rules.md
+     "A Lobber whose gravity is 0".) Its PROJ (`NVDLC05GrenadeNukaProjectile`, GRA) is a
+     Lobber with gravity 0.0; the frag grenade's (`GrenadeFragProjectile` 000043F9) has
+     1.0. Ours [hypothesis]: a Lobber of 0 falls under the full gravity, so both arcs
+     match at the same speed. On flat open ground (the Goodsprings playground), aim level
+     and throw one of each: does the Nuka-grenade drop and land at about the frag's
+     distance, or fly straight on? Throw a plasma mine (`MinePlasmaProjectile`, also 0)
+     and a frag mine (1.0) the same way and say whether they land at the same distance.
+
+## Added 2026-11-23 (the meal on the table eating idles, #3610)
+
+290. **Where is the plate of a table eating idle?** (P3; #3610, idles.md §10 "Objects
+     hung from the accumulation root".) Ours [hypothesis]: `aogenericmeal.nif` hangs from
+     `Bip01` in its bind pose, so the plate sits about 70 units in front of the seated
+     actor and 71 above the floor. In Primm's NCR tent (cell PrimmTentsHayes), when Lt.
+     Hayes (PrimmHayesREF) sits at the table and plays `SitTableChairEatB` (or
+     `PrimmHayesREF.PlayIdle SitTableChairEatB` once he is seated), say whether a plate
+     of food appears on the table in front of him, and roughly where it sits relative to
+     his chest and to the table top. A student's `aostudenttestpaper.nif` hangs the same
+     way, if one is easier to find.
+
+## Added 2026-11-23 (how long the quest lines stay, #3436)
+
+291. **How long do "Quest added", "Quest completed" and "Location discovered" stay on
+     screen, and how do they come and go?** (P2; #3436, quest-messages.md §5–§6, hud.md
+     "Location discovered".) Ours [design]: each banner 4 s, an objective list 4 s and
+     1.5 s more for each objective after the first, each fading in and out over 0.25 s,
+     the name's letters coming in over 0.6 s; a player found them too fast against the
+     original (#3436). The data does not say: `hud_main_menu.xml` gives the HUD's
+     `menufade` 0.25 and no times for `QuestReminder`, and `fDefaultNoticeTextDisplayTime`
+     (0.5) is not known to apply. Record at 60 fps, from the first frame a line shows to
+     the last: (a) the first "Quest added" of a new game (Ain't That a Kick in the Head, at
+     Doc Mitchell's); (b) its
+     objective line after the banner, and a list of two or more objectives; (c) "Quest
+     completed"; (d) "Location discovered" with its name and "+10 XP" (walk into
+     Goodsprings Source from the town). For each: when the words appear, when the name
+     has fully come in (and whether it comes letter by letter or fades), when it starts
+     to go and how long the fade lasts, and the gap before the next line.
+
+## Added 2026-11-23 (HasFriendDisposition's friend level, #3615)
+
+292. **At what disposition does HasFriendDisposition turn 1, and towards whom?** (P3;
+     #3615, `crates/fnv-game/src/functions/actor.rs` `FRIEND_DISPOSITION`.) Ours
+     [hypothesis]: 1 when the actor's disposition towards the player is 70 or more. The
+     GECK wiki speaks of a "friend disposition game setting" without naming it, and no
+     GMST in FalloutNV.esm is one. In the console, select an NPC (Sunny Smiles in the
+     Prospector Saloon), `SetDisposition player 100`, then `GetDisposition player` and
+     `HasFriendDisposition`; lower it in steps (`SetDisposition player 80`, 70, 60, 50 ...)
+     and note the lowest value at which it still reads 1. Then `SetDisposition` towards
+     another actor at 100 with the player's at 0: does it read 1 (not towards the player
+     only)?

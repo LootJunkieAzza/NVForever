@@ -26,8 +26,67 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    let globs = [glob(0x800, "SROrder"), glob(0x801, "SRLoads"), glob(0x802, "SRNew"), glob(0x803, "SRSize"), glob(0x804, "SRRegistered"), glob(0x805, "SRLate")].concat();
-    let bytes = [tes4(), top(b"GLOB", &globs)].concat();
+    let globs = [
+        glob(0x800, "SROrder"),
+        glob(0x801, "SRLoads"),
+        glob(0x802, "SRNew"),
+        glob(0x803, "SRSize"),
+        glob(0x804, "SRRegistered"),
+        glob(0x805, "SRLate"),
+        glob(0x806, "SRRefRead"),
+        glob(0x807, "SRTplRead"),
+        glob(0x808, "SRQuestRead"),
+    ]
+    .concat();
+    let scpt = |fid, edid: &str, vars: &[(u32, &str, u8)]| {
+        let mut fields = vec![sub(b"EDID", z(edid))];
+        fields.extend(unit(0, &script(&[(0, None, vec![])]), vars, &[]));
+        record(b"SCPT", 0, fid, &fields)
+    };
+    let scripts = [
+        scpt(0x810, "SRDirectActorScript", &[(1, "ActorFlag", 1)]),
+        scpt(0x811, "SRTplActorScript", &[(1, "TplFlag", 1)]),
+        scpt(0x812, "SRQuestScript", &[(1, "QuestFlag", 1)]),
+    ]
+    .concat();
+    let mut tpl_acbs = vec![0u8; 24];
+    tpl_acbs[22..24].copy_from_slice(&(1u16 << 9).to_le_bytes());
+    let npcs = [
+        record(b"NPC_", 0, 0x820, &[sub(b"EDID", z("SRDirectNpc")), sub(b"SCRI", 0x810u32.to_le_bytes().to_vec())]),
+        record(b"NPC_", 0, 0x821, &[sub(b"EDID", z("SRTemplateNpc")), sub(b"SCRI", 0x811u32.to_le_bytes().to_vec())]),
+        record(b"NPC_", 0, 0x822, &[sub(b"EDID", z("SRChildNpc")), sub(b"ACBS", tpl_acbs), sub(b"TPLT", 0x821u32.to_le_bytes().to_vec())]),
+    ]
+    .concat();
+    let quest = record(b"QUST", 0, 0x830, &[sub(b"EDID", z("SRControlQuest")), sub(b"SCRI", 0x812u32.to_le_bytes().to_vec())]);
+    let refs = [
+        record(b"ACHR", 0x400, 0x840, &[sub(b"EDID", z("SRDirectRef")), sub(b"NAME", 0x820u32.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+        record(b"ACHR", 0x400, 0x841, &[sub(b"EDID", z("SRTemplatedRef")), sub(b"NAME", 0x822u32.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+    ]
+    .concat();
+    let grp = |label: [u8; 4], kind: u32, body: &[u8]| [b"GRUP".as_slice(), &((24 + body.len()) as u32).to_le_bytes(), &label, &kind.to_le_bytes(), &0u64.to_le_bytes(), body].concat();
+    let cell_id: u32 = 0x850;
+    let cell = grp(
+        0i32.to_le_bytes(),
+        2,
+        &grp(
+            0i32.to_le_bytes(),
+            3,
+            &[
+                record(b"CELL", 0, cell_id, &[sub(b"EDID", z("SRCell")), sub(b"DATA", vec![1])]),
+                grp(cell_id.to_le_bytes(), 6, &grp(cell_id.to_le_bytes(), 8, &refs)),
+            ]
+            .concat(),
+        ),
+    );
+    let bytes = [
+        tes4(),
+        top(b"GLOB", &globs),
+        top(b"SCPT", &scripts),
+        top(b"NPC_", &npcs),
+        top(b"QUST", &quest),
+        top(b"CELL", &cell),
+    ]
+    .concat();
     let plugins = vec![Plugin::parse(&bytes, "SR.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
@@ -76,6 +135,27 @@ fn files() -> std::sync::MutexGuard<'static, ()> {
         w("optional/gr_late.txt", "set SRLate to SROrder\r\n");
         w("gl_top.txt", "set SRLoads to SRLoads + 1\r\n");
         w("ln_both.txt", "set SRLoads to SRLoads + 10\r\nset SRNew to SRNew + 10\r\n");
+        // Remote variable reads and writes on persistent actor refs (direct and templated)
+        // plus Quest.Var control and a non-existent var guard.
+        w(
+            "ln_refvars.txt",
+            "if SRDirectRef.ActorFlag == 4\r\n\
+             set SRRefRead to 4\r\n\
+             set SRDirectRef.ActorFlag to 5\r\n\
+             let SRDirectRef. ActorFlag := SRDirectRef.ActorFlag + 2\r\n\
+             endif\r\n\
+             if SRTemplatedRef.TplFlag == 9\r\n\
+             set SRTplRead to 9\r\n\
+             SRTemplatedRef.TplFlag = 11\r\n\
+             endif\r\n\
+             if SRControlQuest.QuestFlag == 3\r\n\
+             set SRQuestRead to 3\r\n\
+             let SRControlQuest.QuestFlag := 8\r\n\
+             endif\r\n\
+             if SRDirectRef.NoSuchVar == 1\r\n\
+             set SRRefRead to 999\r\n\
+             endif\r\n",
+        );
         w("gn_new.txt", "set SRNew to SRNew + 1\r\n");
         // Outside the game restart RegisterSRScript does nothing.
         w("gn_register.txt", "set SRNew to SRNew + 1000 * RegisterSRScript \"optional\\gl_extra.txt\"\r\n");
@@ -302,4 +382,45 @@ fn absent_exit_scripts_are_a_no_op() {
     assert_eq!(value(&mut g, "SROrder"), 0.0);
 
     std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn script_runner_and_queries_resolve_placed_ref_vars() {
+    let _guard = files();
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Seed remote vars on both direct-scripted and template-scripted actor refs + quest control.
+    g.run_query(
+        "Begin Function { }\n\
+         set SRDirectRef.ActorFlag to 4\n\
+         let SRTemplatedRef.TplFlag := 9\n\
+         set SRControlQuest.QuestFlag to 3\n\
+         End\n",
+        Default::default(),
+    )
+    .unwrap();
+
+    let runs = g.run_script_runner(Moment::Load);
+    let rv = runs.iter().find(|r| r.path == "ln_refvars.txt").expect("ln_refvars.txt ran");
+    assert!(rv.result.is_ok(), "{rv:?}");
+
+    assert_eq!(value(&mut g, "SRRefRead"), 4.0, "direct ref read matched and non-existent var guard did not overwrite");
+    assert_eq!(value(&mut g, "SRDirectRef.ActorFlag"), 7.0, "set and let updated direct actor ref var");
+    assert_eq!(value(&mut g, "SRTplRead"), 9.0, "templated ref read matched");
+    assert_eq!(value(&mut g, "SRTemplatedRef.TplFlag"), 11.0, "let macro updated templated actor ref var");
+    assert_eq!(value(&mut g, "SRQuestRead"), 3.0, "quest remote var control matched");
+    assert_eq!(value(&mut g, "SRControlQuest.QuestFlag"), 8.0, "quest remote var write unchanged");
+
+    // Negative test: strict compile rejects an undeclared remote variable on a placed ref.
+    let err = g
+        .run_query("Begin Function { }\nSetFunctionValue SRDirectRef.NoSuchVar\nEnd\n", Default::default())
+        .unwrap_err();
+    assert_eq!(err, "script did not compile");
+    let compiled = fnv_script::compile::compile_runtime(
+        "Begin Function { }\nSetFunctionValue SRDirectRef.NoSuchVar\nEnd\n",
+        &f.data.table,
+        &fnv_game::game::GameEnv { g: &g },
+    );
+    assert_eq!(compiled.errors().next().map(|e| e.kind), Some("unresolved_remote_variable"));
 }

@@ -13,8 +13,8 @@ the HUD captures in hud.md §14 [observed]. Changes last for the session unless 
 | SetEyes `eyes` | the NPC base's eyes (ENAM), so every reference of it; 1 when set [documented: "Returns 1 for success", "affects their baseform"] | GetEyes |
 | SetHairLength `length [npc]` | the NPC base's LNAM [documented] | GetHairLength |
 | SetNPCWeight `weight [npc]` | the NPC base's NAM7 [documented] | GetNPCWeight |
-| SetActorBaseFlagsHigh `flags [npc]` | the ACBS flags' high 16 bits, the low ones kept, reaching `fnv-game` actor-flag consumers (§10) [documented] | GetActorBaseFlagsHigh |
-| SetOwningFactionRequiredRank `rank` | the rank a reference's owning faction needs (XRNK) [documented], carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetOwningFactionRequiredRank, `Game::ownership`, IsOwned, HasOwnership |
+| SetActorBaseFlagsHigh `flags [npc]` | the ACBS flags' high 16 bits, the low ones kept, reaching `fnv-game` actor-flag consumers (§10) [documented; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `b3_core_01_hair_weight_flags_high` (`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3678 / PR #3679), round-tripping `SetHairLength 0.75`, `SetNPCWeight 0.42`, and `SetActorBaseFlagsHigh (SetBit fh0 0)` on Doc Mitchell base `0x00104C0C`: `hair=0.29->0.75|wt=0.00->0.42|flH=0->1`; no DLL or source consulted] | GetActorBaseFlagsHigh |
+| SetOwningFactionRequiredRank `rank` | the rank a reference's owning faction needs (XRNK) [documented; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `core_26_owning_faction_req_rank` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3678 / PR #3679), calling `SetOwningFactionRequiredRank 3` and reading `GetOwningFactionRequiredRank` then restoring on door `0x00103E61`: `0,3`; no DLL or source consulted], carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetOwningFactionRequiredRank, `Game::ownership`, IsOwned, HasOwnership |
 | SetPackageTargetDistance `package value` (alias SetPackageTargetCount) | the package target's count or distance, for every reader, the AI too (`Game::package_def`) [documented]; authored package edits (`SetPackageFlag`, `SetPackageLocation*`, `SetPackageTarget*`) are carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetPackageTargetDistance |
 | SetRefCount `count` | a placed stack's count [documented]; an inventory reference's stack is left alone [hypothesis] | GetRefCount |
 | SetCurrentQuest `quest` | the active quest, "identical to ForceActiveQuest" [documented] | GetCurrentQuest |
@@ -126,10 +126,22 @@ out-of-range and nonnumeric conversion needs a game probe. These cases are not
 qualified for native parity. The accepted generic setter's explicit invalid
 weapon-argument fallback remains unchanged pending behavioral evidence.
 
-[hypothesis] The spelling `SetCritDam` is not established by the consulted public
-function documentation or accepted catalogue. Keep its registration open pending
-an original-game command-identity capture; identity alone will not establish wire
-encoding. This note does not import FOSE opcode numbers into New Vegas.
+[observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas
+1.4.0.525 + xNVSE 6.4.9 with the 10 official base masters, clean-room black-box
+script probes `b3_core_02_setcritdam_alias_check` (`GetWeaponCritDamage rW` ->
+`SetCritDam 55 rW` -> `22.0 -> 55.0` on `Weap10mmPistol` `0x0000434F`) and
+`w1_2704_setcritdam_alias` (`SetCritDam 77 r10mm` -> `22 -> 77`; swapped
+`SetCritDam r10mm 77` -> `COMPILE_FAIL`; `Player.SetCritDam 88` -> `22 -> 88`;
+and with `Player.SetAV CritChance 100`, live 10mm critical shots at baseline
+`critDmg=22` -> `GetHitBaseWeaponDamage = 44.000` vs `SetCritDam 200 r10mm` ->
+`222.000`, `+178`; reproducible via `#3678` / PR `#3679`, `tools/capture/nvse/`);
+no DLL or source consulted] `SetCritDam` is a live alias for `SetWeaponCritDamage`
+with identical argument order (`[ref.]SetCritDam <int> [weapon]`). `SetCritDam` is
+registered as an unnumbered alias of `SetWeaponCritDamage` in
+`crates/fnv-script/data/encodings.json` (`compiler.aliases`, `#2704`);
+wiki-generated `schemas/script/functions.json` is left untouched. [hypothesis]
+Native wire/opcode encoding remains uncaptured; this note does not import FOSE
+opcode numbers into New Vegas.
 
 [design] Overrides retain this module's existing session lifetime: save/load
 resets them, and a weapon clone without its own override reads its source
@@ -154,8 +166,14 @@ always-Hardcore eligibility. [design] It sets the existing saved
 `PlayerState::hardcore_was_off` field, consumed by `IsAlwaysHardcore`; repeated calls
 are idempotent. The eligibility state survives a serialized snapshot and cannot be
 restored by calling `SetHardcore 1` (the documented "permanently").
-[hypothesis] It does not turn off Hardcore mode or toggle needs accumulation; the
-documentation describes only the eligibility flag. It returns 0.
+`DisableHardcoreTracking` returns 0 and clears `IsAlwaysHardcore` (`1 -> 0`) [observed:
+2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE
+6.4.9 with the 10 official base masters, clean-room script probe
+`core_17_disable_hardcore_tracking_ret` (`tools/capture/nvse/catalogs/wave4a_extenders.json`,
+#3678 / PR #3679), reading `IsAlwaysHardcore`, calling `DisableHardcoreTracking`, and
+re-reading `IsAlwaysHardcore`: `1,0,0`; no DLL or source consulted]. [hypothesis] It does
+not turn off Hardcore mode or toggle needs accumulation; the documentation describes only
+the eligibility flag.
 This is separate from `ToggleHardcoreTracking` and `GetHardcoreTracking`, whose
 existing needs-tracking switch is unchanged.
 
@@ -261,7 +279,13 @@ through `Game::effective_repair_list_form` into `functions::repair_list` and
 [design] `TempCloneForm` on an `ARMO` snapshots the source armor's current live
 overrides onto the clone (`Game::snapshot_armor_overrides`) and registers the clone in
 `World::add_clone_item`, so cloned armor can be equipped, evaluated, and edited
-without leaking changes back to the original or inheriting later edits to the original.
+without leaking changes back to the original or inheriting later edits to the original
+[observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe
+`core_29_armo_tempclone_override_isolation` (`tools/capture/nvse/catalogs/wave4a_extenders.json`,
+#3678 / PR #3679), setting `SetArmorDT 25` on `0x00020423`, cloning via `TempCloneForm`,
+changing source DT to `5`, and reading clone DT before and after: `6.0,25.0,25.0`; no DLL
+or source consulted].
 [hypothesis] Whether every original-game consumer (including worn armor speed, Jury
 Rigging, and already-equipped Power Armor training checks) re-evaluates immediately
 without re-equipping or reloading the cell remains uncaptured; overrides retain the

@@ -343,10 +343,29 @@ so it parallelises well across sessions.
 2. **The mod list** for Phase 0 and acceptance: which mods you want to run (for example
    your usual load order, or a list of the most-used extender-dependent mods).
 3. **UI**: option (B) now and (A) later, or (A) in this plan (§5.6).
-4. **Extender patches** (§2, §9): treat them as "not our engine's bugs" by default, or go
-   through JIP's and JohnnyGuitar's fix lists and decide which behaviours become options.
+4. **Extender patches** (§2, §9): **ruled 2026-11-24 (#3607).** An extender's engine patch
+   (JIP LN's `[GamePatches]`, JohnnyGuitar's fixes) is not read from the extender's INI as
+   is. Each patch that is wanted becomes its own named NVForever option, **off by default**,
+   in its own issue and pull request, with a settings row
+   ([settings-page.md](settings-page.md) §0) and the INI comment it follows cited with the
+   extender's version.
 5. **Version to target**: the current releases of each extender at the time Phase 0 runs,
    captured against, or a fixed older version if your load order uses one.
+
+Ruled since the plan was written:
+
+- **Third-party NVSE plugins' INI and config files are read** (owner, 2026-11-24; #3576,
+  #3583, #3591, #3572, #3601, #3544, #3628, #3630). NVForever runs no plugin DLL (§2), but
+  where a plugin is configured by a file in the load order (MoonlightNVSE.ini,
+  BetterCaravan.ini, BulletSnap.ini and the like), the engine may honour it. Each key cites
+  the mod's page, its version and the INI comment that defines it. Behaviour NVForever adds
+  beyond what the file and its documentation say is tagged `[design]` and said to be
+  NVForever's own, not the plugin's.
+- **Mod-shipped Stewie's Tweaks INIs** (`Tweaks\INIs`, `Tweaks\GameSettings`) may set
+  NVForever's own tweak settings at start-up (owner, 2026-11-24; #3535); a value the player
+  stores in `NVForever.ini` still wins.
+- **The reported Stewie's Tweaks version is 945** (owner, 2026-11-24; #3665), with the live
+  Casino Rewards Fix run of [ext-version.md](../spec-notes/ext-version.md) §5.1 waived.
 
 ## 9. Risks
 

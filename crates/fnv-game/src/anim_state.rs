@@ -277,7 +277,22 @@ impl Game<'_> {
             }
         }
         if next_action != prev_action {
+            if prev_action == Some(AnimAction::Equip)
+                && !self.extra.get(&actor).is_some_and(|e| e.weapon_out)
+                && !self.hud.weapon_due.get(&actor).is_some_and(|(o, _, _)| *o)
+            {
+                if next_action == Some(AnimAction::Unequip) {
+                    self.showoff.unholster_pending.remove(&actor);
+                } else if let Some(slot) = self.showoff.unholster_pending.get_mut(&actor) {
+                    *slot = Some(self.frame);
+                }
+            }
             if let Some(action) = next_action {
+                if action == AnimAction::Equip {
+                    self.showoff_begin_unholster(actor);
+                } else if action == AnimAction::Unequip {
+                    self.showoff.unholster_pending.remove(&actor);
+                }
                 self.fire_anim_action(actor, action.code());
             }
         }
@@ -291,6 +306,7 @@ impl Game<'_> {
     /// The actor left the engine's view: forget its body's state.
     pub fn forget_anim_state(&mut self, actor: FormId) {
         self.senses.anim.remove(&actor);
+        self.showoff.unholster_pending.remove(&actor);
     }
 
     /// The actor's body as last told, until the engine forgets it.

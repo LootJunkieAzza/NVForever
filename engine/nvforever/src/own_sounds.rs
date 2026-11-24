@@ -101,10 +101,19 @@ fn addons(
 }
 
 /// Projectiles' sounds in flight (see the module notes).
-fn projectiles(mut st: ResMut<OwnSounds>, sfx: Option<Res<Sfx>>, visuals: Res<ShotVisuals>, player: Option<Res<Player>>, mut out: MessageWriter<SoundSource>, mut sounds: MessageWriter<PlaySound>) {
+fn projectiles(
+    mut st: ResMut<OwnSounds>,
+    sfx: Option<Res<Sfx>>,
+    visuals: Res<ShotVisuals>,
+    player: Option<Res<Player>>,
+    bullet_snap: Option<Res<nvf_play::bullet_snap::BulletSnap>>,
+    mut out: MessageWriter<SoundSource>,
+    mut sounds: MessageWriter<PlaySound>,
+) {
     let (Some(sfx), Some(player)) = (sfx, player) else { return };
     let st = &mut *st;
     let eye = player.eye();
+    let snap_replaces_whiz = bullet_snap.as_deref().is_some_and(nvf_play::bullet_snap::BulletSnap::active);
     let mut now: HashSet<u64> = HashSet::new();
     for v in &visuals.flying {
         now.insert(v.id);
@@ -114,6 +123,11 @@ fn projectiles(mut st: ResMut<OwnSounds>, sfx: Option<Res<Sfx>>, visuals: Res<Sh
         if !supersonic {
             st.projectile_loops.insert(v.id);
             out.write(SoundSource { key: SoundSource::key(PROJECTILE_KIND, v.id as u32), sound, at: v.pos, looping: true });
+            continue;
+        }
+        // When `BulletSnap.ini` is present and active, `nvf_play::bullet_snap` plays
+        // pass-by snap audio instead of vanilla `FXBulletWhiz` (audio.md §19).
+        if snap_replaces_whiz {
             continue;
         }
         let d = distance2(v.pos, eye).sqrt();
@@ -346,6 +360,9 @@ mod weapon_sound_bridge_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fnv_combat::fx::{FxForms, ProjectileFx, Sound};
+    use nvf_play::bullet_snap::BulletSnap;
+    use nvf_play::combat::ShotVisual;
 
     #[test]
     fn nearest_point_of_a_pass() {
@@ -354,5 +371,73 @@ mod tests {
         // Wholly before the listener: the end nearer it.
         assert_eq!(nearest_on([-300.0, 50.0, 0.0], [-100.0, 50.0, 0.0], [0.0; 3]), [-100.0, 50.0, 0.0]);
         assert_eq!(nearest_on([5.0; 3], [5.0; 3], [0.0; 3]), [5.0; 3]);
+    }
+
+    fn whiz_app(snap: BulletSnap) -> (App, FormId, FormId, FormId, FormId) {
+        let proj_sup = FormId(0x0001_0001);
+        let proj_loop = FormId(0x0001_0002);
+        let snd_whiz = FormId(0x0002_0001);
+        let snd_loop = FormId(0x0002_0002);
+        let mut fx = FxForms::default();
+        fx.sounds.insert(snd_whiz, Sound { edid: Some("FXBulletWhiz".into()), max_distance: 2000.0, ..Default::default() });
+        fx.sounds.insert(snd_loop, Sound { edid: Some("FXMissileFlyBy".into()), max_distance: 2000.0, ..Default::default() });
+        fx.projectiles.insert(proj_sup, ProjectileFx { sound: Some(snd_whiz), supersonic: true, ..Default::default() });
+        fx.projectiles.insert(proj_loop, ProjectileFx { sound: Some(snd_loop), supersonic: false, ..Default::default() });
+
+        let mut app = App::new();
+        app.init_resource::<OwnSounds>()
+            .init_resource::<ShotVisuals>()
+            .insert_resource(Sfx::new(fx))
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 64.0, feet: [0.0, 0.0, 0.0], body_eye: None, body_view: None, placed: None })
+            .insert_resource(snap)
+            .add_message::<SoundSource>()
+            .add_message::<PlaySound>()
+            .add_systems(Update, projectiles);
+        (app, proj_sup, proj_loop, snd_whiz, snd_loop)
+    }
+
+    #[test]
+    fn inactive_bullet_snap_preserves_vanilla_whiz_and_active_replaces_it_without_touching_loops() {
+        // Inactive BulletSnap (vanilla): supersonic bullet emits vanilla FXBulletWhiz.
+        let (mut app, proj_sup, _, snd_whiz, _) = whiz_app(BulletSnap::inactive());
+        let eye_z = app.world().resource::<Player>().eye()[2];
+        for x in [-300.0f32, -100.0, 200.0] {
+            app.world_mut().resource_mut::<ShotVisuals>().flying = vec![
+                ShotVisual { id: 1, projectile: proj_sup, owner: FormId(0x100), pos: [x, 100.0, eye_z], dir: [1.0, 0.0, 0.0], beam: None, travelled: x + 300.0, strength: 1.0 },
+            ];
+            app.update();
+        }
+        let vanilla: Vec<PlaySound> = app.world_mut().resource_mut::<Messages<PlaySound>>().drain().collect();
+        assert_eq!(vanilla.len(), 1);
+        assert_eq!(vanilla[0].sound, snd_whiz);
+
+        // Active BulletSnap: vanilla FXBulletWhiz is suppressed while non-supersonic loop still emits.
+        let dir = std::env::temp_dir().join(format!("nvf-own-sounds-snap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let ini = dir.join("NVSE").join("Plugins").join("BulletSnapConfig").join("BulletSnap.ini");
+        std::fs::create_dir_all(ini.parent().unwrap()).unwrap();
+        std::fs::write(&ini, "[General]\nDistancedBasedSnap = 1\n").unwrap();
+        let wav = dir.join("Sound").join("fx").join("GeneralCloseMid").join("Close").join("a.wav");
+        std::fs::create_dir_all(wav.parent().unwrap()).unwrap();
+        std::fs::write(&wav, b"RIFF").unwrap();
+        let vfs = fnv_vfs::Vfs::open(&dir, &[]).unwrap();
+        let active = BulletSnap::from_vfs(&vfs);
+        assert!(active.active());
+
+        let (mut app, proj_sup, proj_loop, _, snd_loop) = whiz_app(active);
+        let eye_z = app.world().resource::<Player>().eye()[2];
+        for x in [-300.0f32, -100.0, 200.0] {
+            app.world_mut().resource_mut::<ShotVisuals>().flying = vec![
+                ShotVisual { id: 1, projectile: proj_sup, owner: FormId(0x100), pos: [x, 100.0, eye_z], dir: [1.0, 0.0, 0.0], beam: None, travelled: x + 300.0, strength: 1.0 },
+                ShotVisual { id: 2, projectile: proj_loop, owner: FormId(0x100), pos: [x, 100.0, eye_z], dir: [1.0, 0.0, 0.0], beam: None, travelled: x + 300.0, strength: 1.0 },
+            ];
+            app.update();
+        }
+        let suppressed: Vec<PlaySound> = app.world_mut().resource_mut::<Messages<PlaySound>>().drain().collect();
+        assert!(suppressed.is_empty(), "active BulletSnap suppresses duplicate vanilla FXBulletWhiz");
+        let loops: Vec<SoundSource> = app.world_mut().resource_mut::<Messages<SoundSource>>().drain().collect();
+        assert!(loops.iter().any(|s| s.sound == snd_loop), "non-supersonic projectile loops remain active");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

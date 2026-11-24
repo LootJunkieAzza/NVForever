@@ -125,6 +125,13 @@ pub struct WorldIndex {
     /// Optional compiled Base Object Swapper rules (`Data/BaseObjectSwapper/*.ini`).
     /// Empty unless populated via [`WorldIndex::apply_bos`].
     pub bos: crate::bos::BosTable,
+    /// Whether `Data/NVSE/Plugins/hNVSE.ini` enables `bMergeRegionLists=1` so
+    /// exterior `CELL` `XCLR` region lists union across load-order overrides
+    /// instead of last-writer-wins [documented: hNVSE 1.2 (Nexus Mods ID 85748,
+    /// `https://www.nexusmods.com/newvegas/mods/85748`) public changelog and
+    /// shipped `Data\NVSE\Plugins\hNVSE.ini` comments; DLL/PDB/source not
+    /// consulted]. Defaults to `false` (vanilla behavior unchanged).
+    pub merge_region_lists: bool,
 }
 
 /// WRLD PNAM bits [documented: xEdit wbDefinitionsFNV.pas WRLD, schemas/fnv/world.json].
@@ -356,6 +363,12 @@ impl WorldIndex {
     /// index resolve swapped base objects consistently.
     pub fn apply_bos(&mut self, bos: crate::bos::BosTable) {
         self.bos = bos;
+    }
+
+    /// Enable or disable `hNVSE.ini` `bMergeRegionLists` exterior `CELL` `XCLR`
+    /// region-list merging across load-order overrides.
+    pub fn set_merge_region_lists(&mut self, enabled: bool) {
+        self.merge_region_lists = enabled;
     }
 
     /// Resolve the effective base FormID for placed reference `ref_id` with original

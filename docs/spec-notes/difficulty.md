@@ -15,8 +15,10 @@ the settings page row `difficulty` and the console's `SetGameDifficulty` /
 - Where the original keeps the chosen level (its INI or the save) is not documented here
   [hypothesis: its preferences INI]. NVForever keeps it as a setting of its own, not of the
   save: the pause menu's Gameplay page, kept in `NVForever.ini` `[Settings]` as
-  `difficulty=` (a slider part, 0.50 = Normal) like every row of that page
-  [design]. A new install starts at Normal [hypothesis: the original's default].
+  `difficulty=<name>` (`difficulty=Normal`; an older slider part, 0.50 = Normal, still
+  loads as the nearest of the five) like every row of that page [design]. A new install
+  starts at Normal [hypothesis: the original's default].
+- NVForever adds a sixth choice, Custom (§5) [design: #3569].
 
 ## 2. What the masters carry
 
@@ -75,7 +77,40 @@ the settings page row `difficulty` and the console's `SetGameDifficulty` /
   settings page, at once, but the INI is written only when the page changes a row
   [design]. Log line:
   `difficulty: Very Hard (4): damage by the player x0.50, to the player x2.00, kill XP x1.00`.
+- Every hit the difficulty changes (a multiplier other than 1) logs its base and scaled
+  damage at debug level, target `fnv_game::difficulty` (`RUST_LOG=info,fnv_game::difficulty=debug`),
+  so a run shows real hits (weapons, blows, blasts, falls) as well as the aid's:
+  `difficulty: a hit of 20.0 on 00000014 by 00104C80 is 40.0 (x2.00)` (`Game::hit`) [design].
 - `NVF_PLAY_TEST_HIT` takes `by=<reference>`: that actor is the attacker instead of the
   player (to hit the player: `player` as the target) [test aid].
+- A script's `SetGameDifficulty` (JIP, through the script engine rather than the console's
+  by-name word) sets the running game's level and leaves it in `Game::difficulty_request`;
+  the engine takes it as the chosen level on its next frame, as the console's, so it is not
+  put back (it was before 2026-11-22: the engine handed its own level back every frame). As
+  the console's, it is not written to the INI until the page changes a row [design].
+  Log line: `difficulty: a script chose Very Easy (0); kept as the chosen level`.
 - Smoke `difficulty-damage`: the same 10-point hit at Very Easy and at Very Hard, by the
-  player on Sunny Smiles and by her on the player.
+  player on Easy Pete and by him on the player; `difficulty-script-kept`: a script's
+  level holds for later hits; `difficulty-custom-*`: §5.
+
+## 5. Custom [design: #3569]
+
+- The list's sixth choice. Three sliders under the list apply while it is chosen and are
+  greyed otherwise (`nvf_settings_layout::NEEDS_CHOICE`, the launcher's page too):
+  - **Player Damage** (`difficulty-player-damage`): in place of `fDiffMultHPByPC` (§3.2).
+  - **NPC Damage** (`difficulty-npc-damage`): in place of `fDiffMultHPToPC` (§3.3), so
+    every source of damage to the player, as at the five levels; hits between NPCs and on
+    companions stay unscaled (§3.5).
+  - **Kill XP** (`difficulty-kill-xp`): in place of `fDiffMultXP` (§3.1).
+- Each is 50% to 300% in steps of 5%, 100% until the player moves it, and kept
+  in the INI (as the slider's part: 0.00 = 50%, 0.20 = 100%, 1.00 = 300%). The values stay
+  while another level is chosen and apply again when Custom is.
+- Load-order game settings do not apply to Custom: the sliders are the multipliers.
+- Scripts' `GetGameDifficulty` answers 2 (Normal) under Custom, as scripts know only the
+  five levels; `SetGameDifficulty 0-4` leaves Custom for that level.
+- The list's note names every level's three multipliers as "dealt/taken/kill XP" percentages
+  (`Hard 75/150/100%`): the launcher's are the vanilla masters' (§2, §3.6), the game's the load
+  order's own, read as the hits read them [design: #3569:
+  "the exact info"]. The sliders' notes give their range, not Normal's.
+- Log line: `difficulty: Custom: damage by the player x3.00, to the player x0.50, kill XP
+  x2.00` (logged again whenever a slider moves while Custom is chosen).

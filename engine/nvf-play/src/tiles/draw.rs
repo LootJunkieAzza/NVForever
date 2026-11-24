@@ -169,7 +169,7 @@ pub(crate) struct FontKit<'w> {
 }
 
 impl FontKit<'_> {
-    fn load(&mut self, font: f64) {
+    pub(crate) fn load(&mut self, font: f64) {
         let n = font_number(font);
         if !self.fonts.faces.contains_key(&n) {
             // Only when a face is made: entries in a `profile hitch` line are the faces made in
@@ -183,8 +183,12 @@ impl FontKit<'_> {
         }
     }
 
-    fn face(&self, font: f64) -> Option<&Face> {
+    pub(crate) fn face(&self, font: f64) -> Option<&Face> {
         self.fonts.faces.get(&font_number(font))
+    }
+
+    pub(crate) fn images_mut(&mut self) -> &mut Assets<Image> {
+        &mut self.images
     }
 
     /// The faces made so far, the game's fonts and stand-ins alike
@@ -608,6 +612,67 @@ fn under(ui: &Ui, id: TileId, of: &[TileId]) -> bool {
     false
 }
 
+fn piece_from_item(ui: &Ui, item: &layout::DrawItem, whole: bool, strip: bool) -> Option<Piece> {
+    if !item.visible || item.alpha <= 0.0 {
+        return None;
+    }
+    let tile = ui.tile(item.tile);
+    let look = match &item.kind {
+        Kind::Rect if ["red", "green", "blue"].iter().any(|n| tile.get(n).is_some()) => Look::Box,
+        // A hotrect a model marked (`layout::HOTRECT_FILL`): its box filled.
+        Kind::Hotrect => Look::Box,
+        Kind::Image(image) if !image.filename.trim().is_empty() => {
+            let fit = match () {
+                _ if strip => Fit::Strip,
+                _ if whole => fit(tile),
+                _ => Fit::Stretch,
+            };
+            let source = match image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
+                _ if super::runtime_images::is_runtime(&image.filename) => Source::Runtime(None),
+                _ if !whole => Source::Shared,
+                Some(atlas) => Source::Index(atlas),
+                None => Source::Own,
+            };
+            Look::Picture { name: image.filename.trim().to_string(), source, fit }
+        }
+        Kind::Text(text) if !text.string.is_empty() => {
+            Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment }
+        }
+        // A model with the whole menu drawn (T12 leftovers, `super::model`); the mods'
+        // nif tiles with the switch off are not drawn, as in T5 [design].
+        Kind::Nif(nif) if whole && !nif.filename.trim().is_empty() => Look::Model { filename: nif.filename.trim().to_string(), animation: nif.animation.clone() },
+        // Empty rects only place their children; radial and window tiles are not drawn
+        // [design].
+        _ => return None,
+    };
+    if item.clip.is_some_and(|c| c.width <= 0.0 || c.height <= 0.0) {
+        return None;
+    }
+    let c = &item.colour;
+    let own = [c.red, c.green, c.blue].map(|x| x as f32 / 255.0);
+    // `brightness` scales the colour, 255 the colour itself [hypothesis: as the
+    // interface's `amber(brightness)`]; clamped to 0..=255 [design].
+    let b = (c.brightness.clamp(0.0, 255.0) / 255.0) as f32;
+    let [r, g, bl] = base_colour(ui, item.tile, own).map(|x| x * b);
+    let mut alpha = (item.alpha / 255.0).clamp(0.0, 1.0) as f32;
+    // A faint fill reads as the hand-built highlights' does, whose alpha is put through
+    // the same curve (`crate::menu::look`, `crate::message_menu`) [design: not compared
+    // with a shot of the original, none shows a highlight yet].
+    if matches!(item.kind, Kind::Hotrect) {
+        alpha = alpha.powf(2.2);
+    }
+    let turn = match &look {
+        Look::Box => item.turn,
+        Look::Picture { fit, .. } if *fit != Fit::Strip => item.turn,
+        _ => None,
+    };
+    let crop = match &item.kind {
+        Kind::Image(image) if image.cropx.is_some() || image.cropy.is_some() => Some((image.cropx.unwrap_or(0.0), image.cropy.unwrap_or(0.0))),
+        _ => None,
+    };
+    Some(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn, crop })
+}
+
 /// The pieces to draw of `menu`, in drawing order (stable by summed `depth`
 /// [hypothesis: depth is the stacking order, ui-tile-tree.md §6.1]), and how many of the
 /// mod roots ([`fnv_ui::Ui::mod_added_tiles`]) draw at least one. `select` says which
@@ -630,71 +695,65 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
             // A mod's own tiles draw under the kept pieces too [design].
             Select::Whole { kept, .. } => !under(ui, item.tile, kept) || (root.is_some() && ui.mod_tile_drawn(item.tile, None)),
         };
-        if !item.visible || item.alpha <= 0.0 || !wanted {
+        if !wanted {
             continue;
         }
-        let tile = ui.tile(item.tile);
-        let look = match &item.kind {
-            Kind::Rect if ["red", "green", "blue"].iter().any(|n| tile.get(n).is_some()) => Look::Box,
-            // A hotrect a model marked (`layout::HOTRECT_FILL`): its box filled.
-            Kind::Hotrect => Look::Box,
-            Kind::Image(image) if !image.filename.trim().is_empty() => {
-                let strip = matches!(select, Select::Whole { strip: Some(s), .. } if s == item.tile);
-                let fit = match () {
-                    _ if strip => Fit::Strip,
-                    _ if whole => fit(tile),
-                    _ => Fit::Stretch,
-                };
-                let source = match image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
-                    _ if super::runtime_images::is_runtime(&image.filename) => Source::Runtime(None),
-                    _ if !whole => Source::Shared,
-                    Some(atlas) => Source::Index(atlas),
-                    None => Source::Own,
-                };
-                Look::Picture { name: image.filename.trim().to_string(), source, fit }
-            }
-            Kind::Text(text) if !text.string.is_empty() => {
-                Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment }
-            }
-            // A model with the whole menu drawn (T12 leftovers, `super::model`); the mods'
-            // nif tiles with the switch off are not drawn, as in T5 [design].
-            Kind::Nif(nif) if whole && !nif.filename.trim().is_empty() => Look::Model { filename: nif.filename.trim().to_string(), animation: nif.animation.clone() },
-            // Empty rects only place their children; radial and window tiles are not drawn
-            // [design].
-            _ => continue,
-        };
-        if item.clip.is_some_and(|c| c.width <= 0.0 || c.height <= 0.0) {
-            continue;
-        }
-        let c = &item.colour;
-        let own = [c.red, c.green, c.blue].map(|x| x as f32 / 255.0);
-        // `brightness` scales the colour, 255 the colour itself [hypothesis: as the
-        // interface's `amber(brightness)`]; clamped to 0..=255 [design].
-        let b = (c.brightness.clamp(0.0, 255.0) / 255.0) as f32;
-        let [r, g, bl] = base_colour(ui, item.tile, own).map(|x| x * b);
-        let mut alpha = (item.alpha / 255.0).clamp(0.0, 1.0) as f32;
-        // A faint fill reads as the hand-built highlights' does, whose alpha is put through
-        // the same curve (`crate::menu::look`, `crate::message_menu`) [design: not compared
-        // with a shot of the original, none shows a highlight yet].
-        if matches!(item.kind, Kind::Hotrect) {
-            alpha = alpha.powf(2.2);
-        }
-        let turn = match &look {
-            Look::Box => item.turn,
-            Look::Picture { fit, .. } if *fit != Fit::Strip => item.turn,
-            _ => None,
-        };
-        let crop = match &item.kind {
-            Kind::Image(image) if image.cropx.is_some() || image.cropy.is_some() => Some((image.cropx.unwrap_or(0.0), image.cropy.unwrap_or(0.0))),
-            _ => None,
-        };
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn, crop });
+        let strip = matches!(select, Select::Whole { strip: Some(s), .. } if s == item.tile);
+        let Some(piece) = piece_from_item(ui, &item, whole, strip) else { continue };
+        out.push(piece);
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
     }
     out.sort_by(|a, b| a.depth.total_cmp(&b.depth));
     (out, drawn_roots.len())
+}
+
+/// [design] Pieces for an isolated projected-UI subtree rooted at `root`, shifted by
+/// `(-viewport.x, -viewport.y)` with finite coordinate validation and clip intersection
+/// against the `[0..width, 0..height]` target canvas. Reuses the normal piece builder so
+/// runtime images, rotation, colour and fit behave identically to normal menu drawing.
+pub(crate) fn projected_pieces(
+    ui: &Ui,
+    root: TileId,
+    viewport: fnv_game::ui_projection::Viewport,
+    measure: &layout::Measure<'_>,
+    t15: bool,
+) -> Vec<Piece> {
+    let vw = f64::from(viewport.width);
+    let vh = f64::from(viewport.height);
+    if !viewport.x.is_finite() || !viewport.y.is_finite() || vw <= 0.0 || vh <= 0.0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for item in layout::layout_isolated(ui, root, measure, t15) {
+        let Some(mut piece) = piece_from_item(ui, &item, true, false) else { continue };
+        piece.rect.left -= viewport.x;
+        piece.rect.top -= viewport.y;
+        if ![piece.rect.left, piece.rect.top, piece.rect.width, piece.rect.height].into_iter().all(f64::is_finite) {
+            continue;
+        }
+        if let Some(mut clip) = piece.clip {
+            clip.left -= viewport.x;
+            clip.top -= viewport.y;
+            if ![clip.left, clip.top, clip.width, clip.height].into_iter().all(f64::is_finite) {
+                continue;
+            }
+            let left = clip.left.max(0.0);
+            let top = clip.top.max(0.0);
+            let right = (clip.left + clip.width).min(vw);
+            let bottom = (clip.top + clip.height).min(vh);
+            let width = (right - left).max(0.0);
+            let height = (bottom - top).max(0.0);
+            if width <= 0.0 || height <= 0.0 {
+                continue;
+            }
+            piece.clip = Some(TileRect { left, top, width, height });
+        }
+        out.push(piece);
+    }
+    out.sort_by(|a, b| a.depth.total_cmp(&b.depth));
+    out
 }
 
 /// The renderer's node over the HUD.
@@ -1633,13 +1692,23 @@ pub(crate) fn device_brightness(pieces: &mut [Piece], ui: Option<&Ui>, brightnes
     }
 }
 
+/// Despawn a [`Drawn`] root and clear its cached piece slots.
+pub(crate) fn clear(commands: &mut Commands, drawn: &mut Drawn) {
+    if let Some(root) = drawn.root.take() {
+        commands.entity(root).despawn();
+    }
+    drawn.slots.clear();
+    drawn.pieces.clear();
+    drawn.target = None;
+}
+
 /// Bring one menu's drawn nodes in line with its `pieces` on `target`: nothing when they and
 /// the target are as last drawn; otherwise each piece's slot kept, moved and recoloured in
 /// place, spawned again or removed ([`change`]). `brightness` is applied to the pieces before
 /// they are compared ([`device_brightness`]), so a page whose frame switches between the
 /// device and the screen menu is recoloured.
 #[allow(clippy::too_many_arguments)]
-fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, brightness: Brightness, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+pub(crate) fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, brightness: Brightness, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
     device_brightness(&mut pieces, ui, brightness);
     let scale = target.scale;
     // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
@@ -1757,6 +1826,11 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
         }
     }
     if !spawn.is_empty() {
+        for &i in &spawn {
+            if let Look::Text { font, .. } = &pieces[i].look {
+                kit.load(f64::from(*font));
+            }
+        }
         let bc = bc_supported(kit.formats.as_deref());
         let data = kit.data.as_deref();
         let pictures = drawn.pictures.get_or_insert_with(|| Pictures::load(data));
@@ -3009,6 +3083,61 @@ mod tests {
         assert!((after[0].2.rotation.sin + 1.0).abs() < 1e-6 && after[0].2.rotation.cos.abs() < 1e-6);
         assert_eq!(app.world().resource::<super::super::runtime_images::RuntimeImages>().stamp("recipient"), stamp);
         assert_eq!(app.world().resource::<Painted>().0.get_float("Recipient/Map/rotateangle"), Some(1.));
+    }
+
+    #[test]
+    fn font_kit_loads_tex_only_slot_1_and_keeps_font_9_undrawn() {
+        use crate::interface::font_tex_tests::{synthetic_fnt, synthetic_tex, OwnedFontFiles};
+        let files = OwnedFontFiles::new(&[
+            ("glow_monofonto_large.fnt", synthetic_fnt("Glow_Monofonto_Large")),
+            ("Glow_Monofonto_Large.Tex", synthetic_tex(4, 2, [255, 255, 255, 255])),
+            ("nvfont_test.fnt", synthetic_fnt("NVFont_Test_0_Lod_A")),
+            ("nvfont_test_0_lod_a.tex", synthetic_tex(4, 4, [255, 255, 255, 255])),
+        ]);
+        let src = MemSource::default().with(
+            "fonts.xml",
+            r#"<menu name="Fonts">
+                <text name="Slot1"><string>A</string><font>1</font></text>
+                <text name="Slot9"><string>A</string><font>9</font></text>
+            </menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "fonts.xml").unwrap();
+        ui.update();
+        let t1 = ui.find_tile("Fonts/Slot1").unwrap();
+        let t9 = ui.find_tile("Fonts/Slot9").unwrap();
+
+        #[derive(Resource, Default)]
+        struct Seen {
+            f1_image: bool,
+            f9_image: bool,
+            f1_game: bool,
+            f9_game: bool,
+        }
+        #[derive(Resource)]
+        struct Probe {
+            ui: Ui,
+            t1: TileId,
+            t9: TileId,
+        }
+        fn check(mut kit: FontKit, probe: Res<Probe>, mut seen: ResMut<Seen>) {
+            seen.f1_game = kit.game_fonts(&probe.ui, &[probe.t1]);
+            seen.f9_game = kit.game_fonts(&probe.ui, &[probe.t9]);
+            seen.f1_image = kit.face(1.0).is_some_and(|f| f.image.is_some());
+            seen.f9_image = kit.face(9.0).is_some_and(|f| f.image.is_some());
+        }
+
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<Seen>()
+            .insert_resource(files.data())
+            .insert_resource(Probe { ui, t1, t9 })
+            .add_systems(Update, check);
+        app.update();
+        let seen = app.world().resource::<Seen>();
+        assert!(seen.f1_image && seen.f1_game, "tex-only slot 1 should load");
+        assert!(!seen.f9_image && !seen.f9_game, "vanilla font 9 should remain stand-in");
     }
 
 }

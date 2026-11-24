@@ -110,7 +110,12 @@ of a form the unit's plugin can see (the plugin and its masters, the last defini
 wins); then an 8-digit hex FormID, stored file-local [observed: scripts.md §3.4]. A quoted
 Editor ID names its form. In an enum position (actor values, animation groups) a name is a
 spelling from encodings.json `enums`. `Head.var` is variable `var` of the script that
-`Head` runs: a quest's script, or a reference's base form's script.
+`Head` runs: a quest's script, or a reference's base form's script. When a reference's base
+actor (`NPC_`/`CREA`) has `ACBS` template flag `Use Script` (bit 9) set and a `TPLT`
+pointing to a visible actor record [documented: GECK wiki Template Data, "Use Script";
+`schemas/fnv/gameplay.json` NPC_/CREA `ACBS.template_flags`], `LoadOrderIndex` /
+`PluginEnv::script_vars` and `ScriptIndex::script_of` follow the `TPLT` chain to resolve
+that script's variables, matching `Game::ref_script` and `GameData::base_template_source`.
 
 [observed: original installed plugin records, inspected through SCVR declarations
 and each plugin's master table] A master script can declare a variable which a later
@@ -813,8 +818,8 @@ parity; parsing this caller does not establish B42 Optics compatibility.
   limit, while `{params} => expr` keeps its lambda grammar and an unclosed `{` still fails with
   `syntax: missing }`. Original xNVSE runtime behavior for multi-argument braced lists remains to
   be confirmed by a game compile probe.
-- **Preserved catalogue signatures**: `SetCritDam` remains unregistered pending the original-game
-  `GetCommandOpcode` capture in `docs/spec-notes/ext-last-core.md` §7; `IsAnimPlayingEx` (3
+- **Preserved catalogue signatures**: `SetCritDam` is registered via `encodings.json` (`compiler.aliases`) as an `[observed]` alias of
+  `SetWeaponCritDamage` (`docs/spec-notes/ext-last-core.md` §7, `#2704`, `#3678` / PR `#3679` probes `b3_core_02_setcritdam_alias_check` & `w1_2704_setcritdam_alias`, `2026-11-23`, `GSDocMitchellHouse`); `IsAnimPlayingEx` (3
   params, §9 above), `SetJohnnyOnRenderUpdateEventHandler` (3 params, `ext-script-runner.md` §6
   and observer check 81), `PushActorNoRagdoll` (3 params, `jip-physics-13.md`), and
   `GetReticleRange` (0 params in the GECK wiki export) keep their documented catalogue signatures

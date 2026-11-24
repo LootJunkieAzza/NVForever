@@ -506,4 +506,9 @@ fn rgb_color_packs_channels() {
     assert_eq!(n(&mut g, "GetRGBColor 1 0 0"), 65536.0);
     assert_eq!(n(&mut g, "GetRGBColor 0 0 1"), 1.0);
     assert_eq!(n(&mut g, "GetRGBColor 255 255 255"), 16777215.0);
+    // Any channel outside 0..=255 returns 0 [observed: Wave 4 jg_16_rgb_color_out_of_range,
+    // JohnnyGuitarNVSE 528].
+    assert_eq!(n(&mut g, "GetRGBColor 256 0 0"), 0.0);
+    assert_eq!(n(&mut g, "GetRGBColor 0 256 0"), 0.0);
+    assert_eq!(n(&mut g, "GetRGBColor -1 0 0"), 0.0);
 }

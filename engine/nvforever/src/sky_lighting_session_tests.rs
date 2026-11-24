@@ -31,6 +31,7 @@ pub(super) fn sky() -> SkyState {
         rng: DEFAULT_WEATHER_SEED, hour_index: None, live_globals: HashMap::new(),
         resume: None, flash: [0.0; 3], script_wind: None,
         moon_textures: Default::default(), lightning_request: false,
+        moonlight: None, cloud_upgrade: None,
     }
 }
 

@@ -42,7 +42,7 @@ use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
-use fnv_game::caravan::{self as rules, Bet, Card, CaravanRequest, End, Event, Game, Move, Phase, Record, CAPS, MIN_DECK, OPPONENT, PLAYER};
+use fnv_game::caravan::{self as rules, Bet, BetterCaravanConfig, Card, CaravanRequest, End, Event, Game, Move, Phase, Rank, Record, CAPS, MIN_DECK, OPPONENT, PLAYER};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
@@ -89,6 +89,57 @@ pub enum Pick {
     Track { tracks: Vec<usize>, at: usize },
 }
 
+/// Additional keyboard keys parsed from `BetterCaravan.ini` (`sKeyUp`, `sKeyDown`,
+/// `sKeyLeft`, `sKeyRight`). All `None` when the INI is absent [design].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BetterCaravanKeys {
+    pub up: Option<KeyCode>,
+    pub down: Option<KeyCode>,
+    pub left: Option<KeyCode>,
+    pub right: Option<KeyCode>,
+}
+
+impl BetterCaravanKeys {
+    pub fn from_config(cfg: &BetterCaravanConfig) -> Self {
+        Self {
+            up: cfg.key_up.as_deref().and_then(parse_better_caravan_key),
+            down: cfg.key_down.as_deref().and_then(parse_better_caravan_key),
+            left: cfg.key_left.as_deref().and_then(parse_better_caravan_key),
+            right: cfg.key_right.as_deref().and_then(parse_better_caravan_key),
+        }
+    }
+}
+
+/// Parse a BetterCaravan INI key name (single ASCII letter/digit, `KEY_NAMES` entry, or
+/// common arrow/numpad alias) into a Bevy [`KeyCode`] [design].
+pub(crate) fn parse_better_caravan_key(name: &str) -> Option<KeyCode> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    if let Some(crate::bindings::Input::Key(k)) = crate::bindings::parse_input(trimmed) {
+        return Some(k);
+    }
+    match trimmed.to_ascii_lowercase().as_str() {
+        "arrowup" => Some(KeyCode::ArrowUp),
+        "arrowdown" => Some(KeyCode::ArrowDown),
+        "arrowleft" => Some(KeyCode::ArrowLeft),
+        "arrowright" => Some(KeyCode::ArrowRight),
+        "esc" | "escape" => Some(KeyCode::Escape),
+        "numpad0" => Some(KeyCode::Numpad0),
+        "numpad1" => Some(KeyCode::Numpad1),
+        "numpad2" => Some(KeyCode::Numpad2),
+        "numpad3" => Some(KeyCode::Numpad3),
+        "numpad4" => Some(KeyCode::Numpad4),
+        "numpad5" => Some(KeyCode::Numpad5),
+        "numpad6" => Some(KeyCode::Numpad6),
+        "numpad7" => Some(KeyCode::Numpad7),
+        "numpad8" => Some(KeyCode::Numpad8),
+        "numpad9" => Some(KeyCode::Numpad9),
+        _ => None,
+    }
+}
+
 pub struct Session {
     pub opponent: FormId,
     pub opponent_name: String,
@@ -125,6 +176,12 @@ pub struct Session {
     pub auto: bool,
     /// A card form's face and back textures (under `textures\`).
     pub textures: HashMap<FormId, (Option<String>, Option<String>)>,
+    /// A card form's rank (for BetterCaravan face-card descriptions in Deck stage).
+    pub card_ranks: HashMap<FormId, Rank>,
+    /// Clean-room `BetterCaravan.ini` settings (all off when INI is absent).
+    pub better: BetterCaravanConfig,
+    /// Parsed additional directional keys from `BetterCaravan.ini`.
+    pub better_keys: BetterCaravanKeys,
     rng: ChaCha8Rng,
 }
 
@@ -250,6 +307,8 @@ pub enum CaravanInput {
     PlayDeck,
     /// Along the builder's cards, or the hand, or the places (by `n`).
     Step(i32),
+    /// Vertical move along a track (`-1` up, `+1` down; BetterCaravan `sKeyUp`/`sKeyDown`).
+    StepVertical(i32),
     /// The builder's card `n` to the middle.
     CursorTo(usize),
     Select,
@@ -624,10 +683,28 @@ fn open(
     let (opponent_funds, _) = caps_of(&mut sim, r.opponent);
     let bet = Bet::new(funds, opponent_funds, r.max_bet_share);
     let mut textures = HashMap::new();
+    let mut card_ranks = HashMap::new();
     for f in owned.iter().chain(deck_def.cards.iter()) {
         if let Some(d) = rt.game.data.caravan_cards.get(f) {
             textures.insert(*f, (d.face.clone(), d.back.clone()));
+            card_ranks.insert(*f, d.rank);
         }
+    }
+    let (better, better_source) = rules::BetterCaravanConfig::load_from_game(&rt.game);
+    let better_keys = BetterCaravanKeys::from_config(&better);
+    if better.debug {
+        info!(
+            "caravan [BetterCaravan debug]: loaded from {:?}: ai_fixes={}, improved_ai={}, preview={}, highlight_winning={}, mod_cards={:?}x{}, view_npc_cards={}, keys={:?}",
+            better_source,
+            better.ai_fixes,
+            better.improved_ai,
+            better.preview_move_result,
+            better.highlight_winning_caravans,
+            better.mod_card_mode,
+            better.mod_card_count,
+            better.view_npc_cards,
+            better_keys
+        );
     }
     let deck = rules::saved_deck(&rt.game);
     let record = rt.game.player.caravan.records.get(&r.opponent).copied().unwrap_or_default();
@@ -673,12 +750,82 @@ fn open(
         settled: false,
         auto: false,
         textures,
+        card_ranks,
+        better,
+        better_keys,
         rng,
     };
     s.show_help(rt, rules::Help::Betting, &bindings);
     screen.0 = Some(s);
     sounds.write(UiSound { menu: UiMenu::Caravan, event: UiEvent::Opened });
     next.set(PlayState::Menu);
+}
+
+/// Resolve keyboard/wheel inputs for `stage`, including optional BetterCaravan
+/// directional keys (`sKeyUp`, `sKeyDown`, `sKeyLeft`, `sKeyRight`). When `better_keys`
+/// has all fields `None` (INI absent), produces the exact vanilla inputs [design].
+pub(crate) fn stage_inputs(stage: Stage, better_keys: &BetterCaravanKeys, just_pressed: impl Fn(KeyCode) -> bool, any_pressed: bool, wheel_y: f32) -> Vec<CaravanInput> {
+    let mut out = Vec::new();
+    let send = |out: &mut Vec<CaravanInput>, k: KeyCode, i: CaravanInput| {
+        if just_pressed(k) {
+            out.push(i);
+        }
+    };
+    let send_extra = |out: &mut Vec<CaravanInput>, extra: Option<KeyCode>, existing: &[KeyCode], i: CaravanInput| {
+        if extra.is_some_and(|k| !existing.contains(&k) && just_pressed(k)) {
+            out.push(i);
+        }
+    };
+    const DECK_VANILLA_KEYS: &[KeyCode] = &[KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyF, KeyCode::Escape, KeyCode::ArrowLeft, KeyCode::ArrowRight];
+    const PLAY_VANILLA_KEYS: &[KeyCode] = &[KeyCode::KeyW, KeyCode::KeyQ, KeyCode::KeyE, KeyCode::KeyR, KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::KeyA, KeyCode::KeyD];
+    match stage {
+        Stage::Bet => {
+            send(&mut out, KeyCode::KeyW, CaravanInput::AutoMatch);
+            send(&mut out, KeyCode::KeyA, CaravanInput::Raise);
+            send(&mut out, KeyCode::KeyF, CaravanInput::Accept);
+            send(&mut out, KeyCode::KeyR, CaravanInput::Exit);
+            send(&mut out, KeyCode::Escape, CaravanInput::Exit);
+        }
+        Stage::Deck => {
+            send(&mut out, KeyCode::KeyW, CaravanInput::Add);
+            send_extra(&mut out, better_keys.up, DECK_VANILLA_KEYS, CaravanInput::Add);
+            send(&mut out, KeyCode::KeyA, CaravanInput::Remove);
+            send_extra(&mut out, better_keys.down, DECK_VANILLA_KEYS, CaravanInput::Remove);
+            send(&mut out, KeyCode::KeyS, CaravanInput::Randomize);
+            send(&mut out, KeyCode::KeyF, CaravanInput::PlayDeck);
+            send(&mut out, KeyCode::Escape, CaravanInput::Exit);
+            send(&mut out, KeyCode::ArrowLeft, CaravanInput::Step(-1));
+            send_extra(&mut out, better_keys.left, DECK_VANILLA_KEYS, CaravanInput::Step(-1));
+            send(&mut out, KeyCode::ArrowRight, CaravanInput::Step(1));
+            send_extra(&mut out, better_keys.right, DECK_VANILLA_KEYS, CaravanInput::Step(1));
+            if wheel_y != 0.0 {
+                out.push(CaravanInput::Step(if wheel_y > 0.0 { -1 } else { 1 }));
+            }
+        }
+        Stage::Play => {
+            send(&mut out, KeyCode::KeyW, CaravanInput::Select);
+            send(&mut out, KeyCode::KeyQ, CaravanInput::Discard);
+            send(&mut out, KeyCode::KeyE, CaravanInput::DiscardTrack);
+            send(&mut out, KeyCode::KeyR, CaravanInput::Cancel);
+            send(&mut out, KeyCode::ArrowLeft, CaravanInput::Step(-1));
+            send(&mut out, KeyCode::ArrowRight, CaravanInput::Step(1));
+            send(&mut out, KeyCode::KeyA, CaravanInput::Step(-1));
+            send(&mut out, KeyCode::KeyD, CaravanInput::Step(1));
+            send_extra(&mut out, better_keys.left, PLAY_VANILLA_KEYS, CaravanInput::Step(-1));
+            send_extra(&mut out, better_keys.right, PLAY_VANILLA_KEYS, CaravanInput::Step(1));
+            send_extra(&mut out, better_keys.up, PLAY_VANILLA_KEYS, CaravanInput::StepVertical(-1));
+            send_extra(&mut out, better_keys.down, PLAY_VANILLA_KEYS, CaravanInput::StepVertical(1));
+            if wheel_y != 0.0 {
+                out.push(CaravanInput::Step(if wheel_y > 0.0 { -1 } else { 1 }));
+            }
+        }
+        Stage::Results => {
+            if any_pressed {
+                out.push(CaravanInput::Continue);
+            }
+        }
+    }
+    out
 }
 
 fn keys(keys: crate::pad::ActionButtons<KeyCode>, wheel: Res<AccumulatedMouseScroll>, screen: Res<CaravanScreen>, mut out: MessageWriter<CaravanInput>) {
@@ -693,62 +840,31 @@ fn keys(keys: crate::pad::ActionButtons<KeyCode>, wheel: Res<AccumulatedMouseScr
         }
         return;
     }
-    let mut send = |k: KeyCode, i: CaravanInput| {
-        if keys.just_pressed(k) {
-            out.write(i);
-        }
-    };
-    match s.stage {
-        Stage::Bet => {
-            send(KeyCode::KeyW, CaravanInput::AutoMatch);
-            send(KeyCode::KeyA, CaravanInput::Raise);
-            send(KeyCode::KeyF, CaravanInput::Accept);
-            send(KeyCode::KeyR, CaravanInput::Exit);
-            send(KeyCode::Escape, CaravanInput::Exit);
-        }
-        Stage::Deck => {
-            send(KeyCode::KeyW, CaravanInput::Add);
-            send(KeyCode::KeyA, CaravanInput::Remove);
-            send(KeyCode::KeyS, CaravanInput::Randomize);
-            send(KeyCode::KeyF, CaravanInput::PlayDeck);
-            send(KeyCode::Escape, CaravanInput::Exit);
-            send(KeyCode::ArrowLeft, CaravanInput::Step(-1));
-            send(KeyCode::ArrowRight, CaravanInput::Step(1));
-            if wheel.delta.y != 0.0 {
-                out.write(CaravanInput::Step(if wheel.delta.y > 0.0 { -1 } else { 1 }));
-            }
-        }
-        Stage::Play => {
-            send(KeyCode::KeyW, CaravanInput::Select);
-            send(KeyCode::KeyQ, CaravanInput::Discard);
-            send(KeyCode::KeyE, CaravanInput::DiscardTrack);
-            send(KeyCode::KeyR, CaravanInput::Cancel);
-            send(KeyCode::ArrowLeft, CaravanInput::Step(-1));
-            send(KeyCode::ArrowRight, CaravanInput::Step(1));
-            send(KeyCode::KeyA, CaravanInput::Step(-1));
-            send(KeyCode::KeyD, CaravanInput::Step(1));
-            if wheel.delta.y != 0.0 {
-                out.write(CaravanInput::Step(if wheel.delta.y > 0.0 { -1 } else { 1 }));
-            }
-        }
-        Stage::Results => {
-            if keys.get_just_pressed().next().is_some() {
-                out.write(CaravanInput::Continue);
-            }
-        }
+    let any_pressed = keys.get_just_pressed().next().is_some();
+    for cmd in stage_inputs(s.stage, &s.better_keys, |k| keys.just_pressed(k), any_pressed, wheel.delta.y) {
+        out.write(cmd);
     }
 }
 
 type Clicked<'a> = (&'a PointerState, AnyOf<(&'a screen::CaravanButton, &'a crate::lockpick::screen::LockButton)>);
 
-fn buttons(screen: Res<CaravanScreen>, pressed: Query<Clicked, Changed<PointerState>>, mouse: crate::pad::ActionButtons<MouseButton>, mut out: MessageWriter<CaravanInput>) {
+fn buttons(mut screen: ResMut<CaravanScreen>, pressed: Query<Clicked, Changed<PointerState>>, mouse: crate::pad::ActionButtons<MouseButton>, mut out: MessageWriter<CaravanInput>) {
     let mouse = mouse.snapshot();
-    let Some(s) = screen.0.as_ref() else { return };
+    let Some(s) = screen.0.as_mut() else { return };
     if s.stage == Stage::Results && s.help.is_none() && mouse.just_pressed(MouseButton::Left) {
         out.write(CaravanInput::Continue);
         return;
     }
     for (i, (b, help)) in &pressed {
+        if let (PointerState::Hovered, Some(screen::CaravanButton(CaravanInput::Place(n)))) = (i, b) {
+            if s.better.preview_move_result && s.stage == Stage::Play {
+                match &mut s.pick {
+                    Pick::Place { moves, at } if *n < moves.len() && *at != *n => *at = *n,
+                    Pick::Track { tracks, at } if *n < tracks.len() && *at != *n => *at = *n,
+                    _ => {}
+                }
+            }
+        }
         if *i != PointerState::Pressed {
             continue;
         }
@@ -896,9 +1012,24 @@ fn start_game(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimSta
     let paid = with_world(rt, sim, |rt| pay(&mut rt.game.world, forms, &[FormId::PLAYER_REF], ante));
     info!("caravan: the player's ante {ante} paid with {}", payment_text(&paid, forms));
     s.staked = true;
-    let player = rules::cards_of(&rt.game, &s.deck);
+    let player_forms = if s.better.mod_card_count > 0 {
+        let modified = rules::apply_deck_mod(&s.deck, &s.owned, s.better.mod_card_mode, s.better.mod_card_count, &mut s.rng);
+        if s.better.debug {
+            info!(
+                "caravan [BetterCaravan debug]: deck mod {:?} (count {}): {} -> {} cards",
+                s.better.mod_card_mode,
+                s.better.mod_card_count,
+                s.deck.len(),
+                modified.len()
+            );
+        }
+        modified
+    } else {
+        s.deck.clone()
+    };
+    let player = rules::cards_of(&rt.game, &player_forms);
     let game = Game::new(player, s.opponent_deck.clone(), &mut s.rng);
-    info!("caravan: game {} against {}: the player's deck {} cards, the opponent's {} (skill {:.2}); ante {ante} taken", s.record.won + s.record.lost + 1, s.opponent_name, s.deck.len(), s.opponent_deck.len(), s.skill);
+    info!("caravan: game {} against {}: the player's deck {} cards, the opponent's {} (skill {:.2}); ante {ante} taken", s.record.won + s.record.lost + 1, s.opponent_name, player_forms.len(), s.opponent_deck.len(), s.skill);
     s.game = Some(game);
     s.stage = Stage::Play;
     s.status = None;
@@ -911,6 +1042,35 @@ fn start_game(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimSta
 fn think(rng: &mut ChaCha8Rng) -> f32 {
     let (lo, hi) = THINK_SECONDS;
     lo + (rng.next_u32() as f32 / u32::MAX as f32) * (hi - lo)
+}
+
+/// Vertical screen order within a track: opponent cards top-to-bottom (`-len..-1`),
+/// player cards top-to-bottom (`0..len`). Returns `None` when stepping down past the
+/// bottommost move on the track (caller returns to hand) [design].
+pub(crate) fn step_vertical(moves: &[Move], at: usize, dir: i32) -> Option<usize> {
+    let Move::Play { track, .. } = *moves.get(at)? else {
+        return Some(at);
+    };
+    let mut col: Vec<(i32, usize)> = moves
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, m)| match *m {
+            Move::Play { side, track: t, on, .. } if t == track => {
+                let y_rank = if side == OPPONENT { -(on.unwrap_or(0) as i32) - 1 } else { on.unwrap_or(0) as i32 };
+                Some((y_rank, idx))
+            }
+            _ => None,
+        })
+        .collect();
+    col.sort_by_key(|&(rank, idx)| (rank, idx));
+    let pos = col.iter().position(|&(_, idx)| idx == at)?;
+    if dir < 0 {
+        Some(col[pos.saturating_sub(1)].1)
+    } else if pos + 1 < col.len() {
+        Some(col[pos + 1].1)
+    } else {
+        None
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -944,6 +1104,22 @@ fn player_input(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimS
         (CaravanInput::Step(n), Pick::Track { tracks, at }) => {
             s.pick = Pick::Track { at: (at as i32 + n).rem_euclid(tracks.len() as i32) as usize, tracks };
             sound(sounds, UiEvent::Switch);
+        }
+        (CaravanInput::StepVertical(dir), Pick::Hand) if dir < 0 => choose_card(s, s.hand, sounds),
+        (CaravanInput::StepVertical(dir), Pick::Place { moves, at }) => match step_vertical(&moves, at, dir) {
+            Some(next) if next != at => {
+                s.pick = Pick::Place { moves, at: next };
+                sound(sounds, UiEvent::Switch);
+            }
+            Some(_) => {}
+            None => {
+                s.pick = Pick::Hand;
+                sound(sounds, UiEvent::Back);
+            }
+        },
+        (CaravanInput::StepVertical(dir), Pick::Track { .. }) if dir > 0 => {
+            s.pick = Pick::Hand;
+            sound(sounds, UiEvent::Back);
         }
         (CaravanInput::Select, Pick::Hand) => choose_card(s, s.hand, sounds),
         (CaravanInput::PickCard(i), _) if i < hand_len => {
@@ -1172,7 +1348,17 @@ fn step(time: AidTime, mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimSta
         return;
     }
     let skill = if by == PLAYER { AUTO_SKILL } else { s.skill };
-    let Some(m) = rules::choose(g, by, skill, &mut s.rng) else { return };
+    let Some(m) = rules::choose_with_config(g, by, skill, &s.better, &mut s.rng) else { return };
+    if s.better.debug {
+        info!(
+            "caravan [BetterCaravan debug]: AI ({}, skill {:.2}, ai_fixes={}, improved_ai={}) chose {}",
+            side_name(by),
+            skill,
+            s.better.ai_fixes,
+            s.better.improved_ai,
+            describe(g, by, m)
+        );
+    }
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
     make_move(s, rt, &mut sim, by, m, now, &mut stats, &mut sounds, &bindings);
 }
@@ -1232,6 +1418,9 @@ pub fn report_progress_fixture(step: usize) -> CaravanScreen {
         settled: false,
         auto: false,
         textures: Default::default(),
+        card_ranks: Default::default(),
+        better: Default::default(),
+        better_keys: Default::default(),
         rng: ChaCha8Rng::seed_from_u64(step as u64),
     }))
 }
@@ -1275,5 +1464,195 @@ mod tests {
     fn the_refusal_says_how_many_cards_are_needed() {
         assert!(refusal_line(12).contains("30"));
         assert!(refusal_line(12).contains("12"));
+    }
+
+    #[test]
+    fn better_caravan_keys_parse_bind_and_deduplicate() {
+        let absent = BetterCaravanKeys::default();
+        // Absent INI: I/J/K/L do nothing in Deck or Play.
+        for k in [KeyCode::KeyI, KeyCode::KeyJ, KeyCode::KeyK, KeyCode::KeyL] {
+            assert!(stage_inputs(Stage::Deck, &absent, |x| x == k, true, 0.0).is_empty());
+            assert!(stage_inputs(Stage::Play, &absent, |x| x == k, true, 0.0).is_empty());
+        }
+
+        let cfg = BetterCaravanConfig::parse("[Better Caravan]\nsKeyUp = i\nsKeyDown = k\nsKeyLeft = j\nsKeyRight = l\n");
+        let keys = BetterCaravanKeys::from_config(&cfg);
+        assert_eq!(keys.up, Some(KeyCode::KeyI));
+        assert_eq!(keys.down, Some(KeyCode::KeyK));
+        assert_eq!(keys.left, Some(KeyCode::KeyJ));
+        assert_eq!(keys.right, Some(KeyCode::KeyL));
+
+        assert_eq!(stage_inputs(Stage::Deck, &keys, |x| x == KeyCode::KeyI, true, 0.0), vec![CaravanInput::Add]);
+        assert_eq!(stage_inputs(Stage::Deck, &keys, |x| x == KeyCode::KeyK, true, 0.0), vec![CaravanInput::Remove]);
+        assert_eq!(stage_inputs(Stage::Deck, &keys, |x| x == KeyCode::KeyJ, true, 0.0), vec![CaravanInput::Step(-1)]);
+        assert_eq!(stage_inputs(Stage::Deck, &keys, |x| x == KeyCode::KeyL, true, 0.0), vec![CaravanInput::Step(1)]);
+
+        assert_eq!(stage_inputs(Stage::Play, &keys, |x| x == KeyCode::KeyI, true, 0.0), vec![CaravanInput::StepVertical(-1)]);
+        assert_eq!(stage_inputs(Stage::Play, &keys, |x| x == KeyCode::KeyK, true, 0.0), vec![CaravanInput::StepVertical(1)]);
+        assert_eq!(stage_inputs(Stage::Play, &keys, |x| x == KeyCode::KeyJ, true, 0.0), vec![CaravanInput::Step(-1)]);
+        assert_eq!(stage_inputs(Stage::Play, &keys, |x| x == KeyCode::KeyL, true, 0.0), vec![CaravanInput::Step(1)]);
+
+        // Overlapping bindings with any vanilla key bound in that stage (e.g. WASD)
+        // never emit duplicate or conflicting extra actions.
+        let wasd_cfg = BetterCaravanConfig::parse("[Better Caravan]\nsKeyUp = w\nsKeyDown = s\nsKeyLeft = a\nsKeyRight = d\n");
+        let wasd_keys = BetterCaravanKeys::from_config(&wasd_cfg);
+        assert_eq!(stage_inputs(Stage::Deck, &wasd_keys, |x| x == KeyCode::KeyW, true, 0.0), vec![CaravanInput::Add]);
+        assert_eq!(stage_inputs(Stage::Deck, &wasd_keys, |x| x == KeyCode::KeyS, true, 0.0), vec![CaravanInput::Randomize]);
+        assert_eq!(stage_inputs(Stage::Deck, &wasd_keys, |x| x == KeyCode::KeyA, true, 0.0), vec![CaravanInput::Remove]);
+        assert_eq!(stage_inputs(Stage::Deck, &wasd_keys, |x| x == KeyCode::KeyD, true, 0.0), vec![CaravanInput::Step(1)]);
+        assert_eq!(stage_inputs(Stage::Play, &wasd_keys, |x| x == KeyCode::KeyW, true, 0.0), vec![CaravanInput::Select]);
+        assert_eq!(stage_inputs(Stage::Play, &wasd_keys, |x| x == KeyCode::KeyS, true, 0.0), vec![CaravanInput::StepVertical(1)]);
+        assert_eq!(stage_inputs(Stage::Play, &wasd_keys, |x| x == KeyCode::KeyA, true, 0.0), vec![CaravanInput::Step(-1)]);
+        assert_eq!(stage_inputs(Stage::Play, &wasd_keys, |x| x == KeyCode::KeyD, true, 0.0), vec![CaravanInput::Step(1)]);
+
+        let dup_cfg = BetterCaravanConfig::parse("[Better Caravan]\nsKeyLeft = a\nsKeyRight = ArrowRight\n");
+        let dup_keys = BetterCaravanKeys::from_config(&dup_cfg);
+        assert_eq!(stage_inputs(Stage::Play, &dup_keys, |x| x == KeyCode::KeyA, true, 0.0), vec![CaravanInput::Step(-1)]);
+        assert_eq!(stage_inputs(Stage::Play, &dup_keys, |x| x == KeyCode::ArrowRight, true, 0.0), vec![CaravanInput::Step(1)]);
+
+        // Special key names & None.
+        assert_eq!(parse_better_caravan_key("ArrowUp"), Some(KeyCode::ArrowUp));
+        assert_eq!(parse_better_caravan_key("Numpad8"), Some(KeyCode::Numpad8));
+        assert_eq!(parse_better_caravan_key("None"), None);
+        assert_eq!(parse_better_caravan_key(""), None);
+    }
+
+    #[test]
+    fn better_caravan_vertical_stepping_walks_track_and_returns_to_hand() {
+        let moves = vec![
+            Move::Play { card: 0, side: PLAYER, track: 0, on: Some(0) },
+            Move::Play { card: 0, side: PLAYER, track: 0, on: Some(1) },
+            Move::Play { card: 0, side: OPPONENT, track: 0, on: Some(0) },
+            Move::Play { card: 0, side: OPPONENT, track: 0, on: Some(1) },
+            Move::Play { card: 0, side: PLAYER, track: 1, on: Some(0) },
+        ];
+        // From PLAYER[1] (idx 1) stepping up: PLAYER[0] (0) -> OPPONENT[0] (2) -> OPPONENT[1] (3) -> stays 3.
+        assert_eq!(step_vertical(&moves, 1, -1), Some(0));
+        assert_eq!(step_vertical(&moves, 0, -1), Some(2));
+        assert_eq!(step_vertical(&moves, 2, -1), Some(3));
+        assert_eq!(step_vertical(&moves, 3, -1), Some(3));
+
+        // Stepping down from OPPONENT[1] (3): OPPONENT[0] (2) -> PLAYER[0] (0) -> PLAYER[1] (1) -> None (hand).
+        assert_eq!(step_vertical(&moves, 3, 1), Some(2));
+        assert_eq!(step_vertical(&moves, 2, 1), Some(0));
+        assert_eq!(step_vertical(&moves, 0, 1), Some(1));
+        assert_eq!(step_vertical(&moves, 1, 1), None);
+
+        // Numbered card row: down returns None (back to hand), up stays put.
+        let num_moves = vec![
+            Move::Play { card: 0, side: PLAYER, track: 0, on: None },
+            Move::Play { card: 0, side: PLAYER, track: 1, on: None },
+        ];
+        assert_eq!(step_vertical(&num_moves, 0, -1), Some(0));
+        assert_eq!(step_vertical(&num_moves, 0, 1), None);
+    }
+
+    #[test]
+    fn better_caravan_screen_highlight_preview_and_face_descriptions() {
+        use fnv_game::caravan::{Caravan, Placed, Side};
+
+        let c = |s: &str| Card::parse(s).unwrap();
+        let pile = |cards: &[&str]| Caravan { cards: cards.iter().map(|s| Placed { card: c(s), faces: Vec::new() }).collect() };
+        let game = Game {
+            sides: [
+                Side {
+                    deck: vec![c("2c"); 10],
+                    hand: vec![c("6h"), c("Ks"), c("Jd")],
+                    caravans: [pile(&["10h", "8h"]), pile(&["10s", "9s", "5s"]), pile(&["10c", "9c", "8c"])],
+                },
+                Side {
+                    deck: vec![c("2d"); 10],
+                    hand: vec![c("7h")],
+                    caravans: [pile(&["10d", "6d", "5d"]), pile(&["10d", "9d", "5d"]), pile(&["5d"])],
+                },
+            ],
+            turn: PLAYER,
+            phase: Phase::War,
+            winner: None,
+            moves: 0,
+        };
+        // Track 0: player 18 vs opponent 21 (opponent winning).
+        // Track 1: player 24 vs opponent 24 (tied, neither winning).
+        // Track 2: player 27 (bust > 26) vs opponent 5.
+
+        // Vanilla (highlight off, no preview): winning opponent 21 stays amber, bust 27 is red.
+        let (t0, c0) = screen::value_display(&game, OPPONENT, 0, None, false);
+        assert_eq!((t0.as_str(), c0), ("21", crate::interface::amber(255.0)));
+        let (t2, c2) = screen::value_display(&game, PLAYER, 2, None, false);
+        assert_eq!(t2, "27");
+        assert_ne!(c2, Color::WHITE);
+        assert_ne!(c2, crate::interface::amber(255.0));
+
+        // Highlight winning caravans on: opponent track 0 (21) is white; tied track 1 stays amber.
+        let (t0w, c0w) = screen::value_display(&game, OPPONENT, 0, None, true);
+        assert_eq!((t0w.as_str(), c0w), ("21", Color::WHITE));
+        let (t1w, c1w) = screen::value_display(&game, PLAYER, 1, None, true);
+        assert_eq!((t1w.as_str(), c1w), ("24", crate::interface::amber(255.0)));
+
+        // Preview move result: playing 6h on player track 0 turns 18 -> 24 (winning white!).
+        let mut better = BetterCaravanConfig::parse(
+            "[Better Caravan]\nbPreviewMoveResult = 1\nbHighlightWinningCaravans = 1\nsDescriptionKing = King doubles.\nsDescriptionJack = Jack removes.\n",
+        );
+        let king_form = FormId(0x100);
+        let num_form = FormId(0x101);
+        let mut card_ranks = HashMap::new();
+        card_ranks.insert(king_form, Rank::King);
+        card_ranks.insert(num_form, Rank::Num(6));
+
+        let mut session = Session {
+            opponent: FormId(1),
+            opponent_name: "Ringo".into(),
+            deck_form: FormId(2),
+            opponent_deck: vec![],
+            skill: 0.3,
+            stage: Stage::Play,
+            bet: Bet::new(100, 100, 0.25),
+            owned: vec![king_form, num_form],
+            deck: vec![],
+            cursor: 0,
+            game: Some(game.clone()),
+            hand: 1, // Ks
+            pick: Pick::Place { moves: vec![Move::Play { card: 0, side: PLAYER, track: 0, on: None }], at: 0 },
+            forfeit_armed: false,
+            record: Default::default(),
+            status: None,
+            help: None,
+            queued_help: vec![],
+            think_until: 0.0,
+            over_at: None,
+            leaving: None,
+            staked: true,
+            settled: false,
+            auto: false,
+            textures: Default::default(),
+            card_ranks,
+            better: better.clone(),
+            better_keys: BetterCaravanKeys::from_config(&better),
+            rng: ChaCha8Rng::seed_from_u64(1),
+        };
+
+        let prev = screen::active_preview(&session).expect("preview active");
+        let (pt, pc) = screen::value_display(&game, PLAYER, 0, Some(&prev), true);
+        assert_eq!((pt.as_str(), pc), ("18->24", Color::WHITE));
+
+        // Preview disabled -> None.
+        better.preview_move_result = false;
+        session.better = better.clone();
+        assert!(screen::active_preview(&session).is_none());
+
+        // Face-card description in Play (Pick::Hand on Ks -> King; on 6h -> None) and Deck.
+        session.pick = Pick::Hand;
+        session.hand = 1; // Ks
+        assert_eq!(screen::active_face_description(&session), Some("King doubles."));
+        session.hand = 2; // Jd
+        assert_eq!(screen::active_face_description(&session), Some("Jack removes."));
+        session.hand = 0; // 6h
+        assert_eq!(screen::active_face_description(&session), None);
+
+        session.stage = Stage::Deck;
+        session.cursor = 0; // king_form
+        assert_eq!(screen::active_face_description(&session), Some("King doubles."));
+        session.cursor = 1; // num_form
+        assert_eq!(screen::active_face_description(&session), None);
     }
 }

@@ -1222,6 +1222,10 @@ fn measure(
             }
         }
         g.detection.forget_older_than(g.time - 1.0);
+        // A target out of the round (its cell unloaded, out of reach) is not detected any
+        // more: the fight goes Lost and ends on the timers (#3390).
+        let drawn: BTreeSet<FormId> = people.iter().map(|p| FormId(p.id)).collect();
+        g.lose_unmeasured(&drawn);
 
         // Detection events: impacts, projectiles in flight, explosions (the module
         // notes), CreateDetectionEvent.

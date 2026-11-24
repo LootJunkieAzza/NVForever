@@ -156,6 +156,8 @@ pub struct RowShown {
     pub text: String,
     /// The weapon worn, or the mod on it: the row's square.
     pub worn: bool,
+    /// Resolved ySI tag/icon/template for this row when ySI is active (`None` otherwise).
+    pub ysi: Option<fnv_game::ui_ysi::YsiItemDisplay>,
 }
 
 /// One whole state of the page: a frame with the same writes nothing but sizes and scroll. A
@@ -185,14 +187,14 @@ impl Shown {
     /// `cmp`: the model's figures for the chosen row, `desc` the chosen mod's description.
     pub fn of(s: &Session, cmp: Option<&Compare>, desc: Option<&str>, pointer_pick: bool, navigated: u32, w: &Words) -> Self {
         let o = &s.offer;
-        let mut rows = vec![RowShown { key: (o.item, None), text: o.name.clone(), worn: o.extra.equipped }];
+        let mut rows = vec![RowShown { key: (o.item, None), text: o.name.clone(), worn: o.extra.equipped, ysi: None }];
         rows.extend(o.choices.iter().map(|ch| {
             let name = model::row_name(ch);
             let text = match ch.effect.as_deref() {
                 Some(e) => format!("{name}\n{e}"),
                 None => name,
             };
-            RowShown { key: (ch.item, Some(ch.slot)), text, worn: ch.attached }
+            RowShown { key: (ch.item, Some(ch.slot)), text, worn: ch.attached, ysi: None }
         }));
         let chosen = model::chosen(s);
         let cards = cmp.map(|c| {
@@ -369,6 +371,7 @@ fn write(ui: &mut Ui, s: &Shown, w: &mut Written) {
                 ui.set_trait(t, "filename", Value::Str(MARK_PICTURE.into()));
             }
         }
+        fnv_game::ui_ysi::apply_row_icon(ui, &fnv_ui::MemSource::default(), row.tile, shown.ysi.as_ref());
     }
     set(ui, LIST, "_num_filtered", Value::Num(0.0));
     set(ui, LIST, "_enabled", on(true));
@@ -592,7 +595,12 @@ fn pass(p: &mut ModPage<'_, '_>, late: bool) -> Option<Result<TileId, String>> {
     }
     p.tiles.waiting = false;
     p.tiles.follow_model(session.selected, late);
-    let shown = Shown::of(session, cmp.as_ref(), desc.as_deref(), p.tiles.pointer_pick, p.tiles.navigated, &Words::read(game));
+    let mut shown = Shown::of(session, cmp.as_ref(), desc.as_deref(), p.tiles.pointer_pick, p.tiles.navigated, &Words::read(game));
+    if game.ysi_active() {
+        for r in &mut shown.rows {
+            r.ysi = game.ysi_item_display(r.key.0);
+        }
+    }
     Some(page(&mut game.ui_tree, shown, device, late, &mut p.tiles, &mut p.fonts))
 }
 

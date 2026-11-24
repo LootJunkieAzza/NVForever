@@ -49,7 +49,12 @@ pub struct Terminals {
     pub opened: std::collections::BTreeSet<FormId>,
     /// Session-only `SetPasswordNote` overrides by `TERM` base form (`None`: cleared).
     /// Carried across same-run loads via `Game::take_session` / `put_session`, not saved
-    /// [hypothesis: session-only, like other Lutana record setters].
+    /// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+    /// 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room
+    /// save/reload probe `w4f_07_set_password_note` (`SetPasswordNote 0x000151DA
+    /// 0x0001F47D`): baseline `00000000`, mutated `000151DA`, same-process
+    /// baseline/mutated reload `000151DA`, fresh-process with/without `.nvse` `00000000`;
+    /// zero DLL/PDB/source consulted].
     pub password_notes: BTreeMap<FormId, Option<FormId>>,
 }
 

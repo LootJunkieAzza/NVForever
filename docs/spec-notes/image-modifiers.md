@@ -98,9 +98,23 @@ at once), `fnv_game` (`Game::image_modifiers`, the three script functions),
 - Between keys the value moves in a straight line; before the first and after the last
   key it holds [hypothesis: xEdit calls the lists interpolators, the curve is not
   documented].
-- **Applying one that is already playing starts it again** (one instance per record)
-  [hypothesis; the game may stack instances. VCG00 applies Addiction01ISFX at stages 27
-  and 30, half a second apart].
+- **Applying one that is already playing stacks another instance for event counting**
+  [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-23, GSDocMitchellHouse
+  (`0x00103DF9`), 10 official base masters, clean-room script probes
+  `w1_3656_objectives_unholster_imod` (`imod` twice + `rimod` twice on `WhiteNonAnimated`
+  `0x000C9AFA`; `imod GetHit` `0x00000162` 0.4 s + ~1.5 s wait) and
+  `b3_core_ex_06_on_apply_imod_event` (`ApplyImageSpaceModifier`/`RemoveImageSpaceModifier`
+  on `0x00144C41`) in #3679; no DLL or source consulted: re-applying an active IMAD fires
+  `OnApplyIMOD` with `IsImageSpaceActive == 1` and stacks a second instance; a single
+  `RemoveImageSpaceModifier` removes all matching instances and fires `OnRemoveIMOD` once
+  per removed instance (twice for two stacked instances). VCG00 also applies
+  Addiction01ISFX at stages 27 and 30, half a second apart]. Because the probe measured
+  event counts rather than whether the original blends duplicate instances visually,
+  NVForever keeps **one drawn instance per `IMAD` form** (the most recently applied entry)
+  in `nvforever::imagespace::screen_effect`, keeps a single `ActiveImageModifier` entry
+  plus a counted stack for non-animatable re-applies, and caps stacked instances per form
+  at `Game::MAX_IMOD_STACK = 64` so unmodded visuals stay unchanged and repeated re-applies
+  cannot grow unbounded [design].
 - **A modifier's time passes with the game outside menus and loading screens,
   conversations included** [hypothesis: `Game::tick` ages modifiers where it advances a
   conversation's lines]. Not known: whether an animated modifier goes on behind a

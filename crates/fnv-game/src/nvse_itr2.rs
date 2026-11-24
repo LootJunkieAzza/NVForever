@@ -846,12 +846,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
             let limb_damage = if ex { finite(num(args, 3, 0.0)).max(0.0) } else { 0.0 };
             let limb = (ex && (1..=6).contains(&loc) && limb_damage > 0.0).then_some(LimbHit { condition, health_percent: 0.0, damage: limb_damage, points: true });
+            let fatigue = if ex { finite(num(args, 2, 0.0)) } else { 0.0 };
             if skip {
                 g.effect_health_damage(target, damage, attacker);
             } else {
-                g.hit(target, damage, HitInfo { attacker, weapon, location, critical: false, limb });
+                g.hit(target, damage, HitInfo { attacker, weapon, location, critical: false, fatigue_damage: fatigue.max(0.0), limb, ..HitInfo::default() });
             }
-            let fatigue = if ex { finite(num(args, 2, 0.0)) } else { 0.0 };
             if fatigue > 0.0 {
                 crate::functions::add_actor_value_damage(g, target, crate::actor_values::FATIGUE, fatigue);
             }

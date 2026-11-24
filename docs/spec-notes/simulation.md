@@ -757,7 +757,8 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     encloses what lies on the mattress, so the ray entered it before a suitcase lying
     there and the bed won (#3323: the Suitcase 0x000AFA24 on BedQueenRight 0x000D72C7 in
     BisonSteve02 [documented: FalloutNV.esm]) [design; reported: the player's issue says
-    the suitcase can be looted in the original, not captured]. The render boxes are each
+    the suitcase can be looted in the original, not captured; observer check
+    3323-suitcase-on-a-bed]. The render boxes are each
     drawn mesh's bounds, not the base's OBND (SuitCase02's OBND is all zeros
     [documented: FalloutNV.esm]). When no bed box wholly holds the suitcase's stretch
     (the suitcase hanging over the bed's edge), nothing is set aside and the nearest rule

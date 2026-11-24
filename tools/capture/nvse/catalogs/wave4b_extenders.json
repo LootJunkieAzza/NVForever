@@ -1,0 +1,3630 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave4b_extenders",
+  "description": "Wave 4B Pass 3 clean-room black-box extender probe catalog covering 115 remaining Bucket A & B spec-note hypotheses.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184",
+    "JohnnyGuitarNVSE": "528",
+    "kNVSE": "37",
+    "SUP NVSE Plugin": "855",
+    "yUI": "140 (1.4d)",
+    "AnhNVSE": "131",
+    "lStewieAl's Tweaks": "1005"
+  },
+  "batches": [
+    {
+      "id": "w4b_jip_lutana",
+      "title": "Wave 4B \u2014 JIP LN 57.30 & Lutana",
+      "extender": "JIP LN 57.30",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "b3_jip10_01_objectives_and_quests",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-scripts-10.md",
+          "spec_line": 18,
+          "functions_tested": [
+            "GetObjectiveTargets",
+            "GetObjectiveHasTarget",
+            "SetObjectiveNthTarget",
+            "GetActiveObjectives",
+            "GetQuests"
+          ],
+          "claim": "GetObjectiveTargets on undisplayed vs displayed objective, SetObjectiveNthTarget OOB, GetQuests 0/1.",
+          "expected": "Check undisplayed vs displayed, GetObjectiveHasTarget(q, idx, ref), GetQuests counts",
+          "script_lines": [
+            "ref rQ = GetFormFromMod \"FalloutNV.esm\" \"104C1C\"",
+            "array_var aT0 = GetObjectiveTargets rQ 10",
+            "SetObjectiveDisplayed rQ 10 1",
+            "array_var aT1 = GetObjectiveTargets rQ 10",
+            "int iHas = GetObjectiveHasTarget rQ 10 Player",
+            "SetObjectiveNthTarget rQ 10 99 Player",
+            "array_var aAct = GetActiveObjectives",
+            "array_var aQ0 = GetQuests 0",
+            "array_var aQ1 = GetQuests 1",
+            "SetObjectiveDisplayed rQ 10 0",
+            "  PrintToConsole \"PROBE|b3_jip10_01_objectives_and_quests|undisp=%g,disp=%g,hasP=%g,act=%g,q0=%g,q1=%g\" (ar_Size aT0) (ar_Size aT1) iHas (ar_Size aAct) (ar_Size aQ0) (ar_Size aQ1)"
+          ]
+        },
+        {
+          "id": "b3_jip10_02_clear_jip_saved_data",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-scripts-10.md",
+          "spec_line": 45,
+          "functions_tested": [
+            "ClearJIPSavedData"
+          ],
+          "claim": "ClearJIPSavedData clears permanent AuxVar/RefMap (1=private, 2=public _) while leaving * temp intact.",
+          "expected": "Verify private vs public vs temp AuxVar after ClearJIPSavedData 0 0 1 0 and 0 0 2 0",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"b3_priv\" 11",
+            "Player.AuxVarSetFlt \"_b3_pub\" 22",
+            "Player.AuxVarSetFlt \"*b3_tmp\" 33",
+            "ClearJIPSavedData 0 0 1 0",
+            "float p1 = Player.AuxVarGetFlt \"b3_priv\"",
+            "float u1 = Player.AuxVarGetFlt \"_b3_pub\"",
+            "float t1 = Player.AuxVarGetFlt \"*b3_tmp\"",
+            "ClearJIPSavedData 0 0 2 0",
+            "float u2 = Player.AuxVarGetFlt \"_b3_pub\"",
+            "float t2 = Player.AuxVarGetFlt \"*b3_tmp\"",
+            "  PrintToConsole \"PROBE|b3_jip10_02_clear_jip_saved_data|after1:(p=%.0f,u=%.0f,t=%.0f)|after2:(u=%.0f,t=%.0f)\" p1 u1 t1 u2 t2"
+          ]
+        },
+        {
+          "id": "b3_jip10_03_ref_extra_data_no_plugin",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-scripts-10.md",
+          "spec_line": 56,
+          "functions_tested": [
+            "SetRefExtraData",
+            "GetRefExtraData"
+          ],
+          "claim": "SetRefExtraData from runtime-compiled script (no plugin) keeps nothing and reads 0.",
+          "expected": "Set slot 0 = 42 on DocRef -> read back",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "rDoc.SetRefExtraData 0 42",
+            "float fV = rDoc.GetRefExtraData 0",
+            "  PrintToConsole \"PROBE|b3_jip10_03_ref_extra_data_no_plugin|%.1f\" fV"
+          ]
+        },
+        {
+          "id": "b3_jip10_04_run_batch_script",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/jip-scripts-10.md",
+          "spec_line": 70,
+          "functions_tested": [
+            "RunBatchScript"
+          ],
+          "claim": "RunBatchScript returns 0 for missing file and 1 for valid batch file executing on calling ref.",
+          "expected": "missing=0, valid=1 and sets AuxVar on Player",
+          "script_lines": [
+            "int rMiss = RunBatchScript \"nvseprobe_w4b3_missing.txt\"",
+            "int rOk = RunBatchScript \"nvseprobe_w4b3_bat.txt\"",
+            "float fV = Player.AuxVarGetFlt \"*b3_bat\"",
+            "  PrintToConsole \"PROBE|b3_jip10_04_run_batch_script|miss=%g,ok=%g,val=%.0f\" rMiss rOk fV"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "nvseprobe_w4b3_bat.txt",
+              "content": "Player.AuxVarSetFlt *b3_bat 99\n"
+            }
+          ]
+        },
+        {
+          "id": "b3_jip11_01_actor_combat_detect_light",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-actors-11.md",
+          "spec_line": 22,
+          "functions_tested": [
+            "GetCombatAllies",
+            "GetDetectedActors",
+            "GetTargetUnreachable",
+            "GetActorLightAmount",
+            "GetRadiationLevelAlt",
+            "GetFallTimeRemaining"
+          ],
+          "claim": "Actor state getters on idle Player and Doc Mitchell.",
+          "expected": "allies=0, detected>=0, unreachable=0, light in 0..100, radAlt=0, fall=0",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "array_var aAl = rDoc.GetCombatAllies",
+            "array_var aDet = rDoc.GetDetectedActors",
+            "int iUnr = rDoc.GetTargetUnreachable",
+            "float fLtP = Player.GetActorLightAmount",
+            "float fLtD = rDoc.GetActorLightAmount",
+            "float fRadD = rDoc.GetRadiationLevelAlt",
+            "float fFall = Player.GetFallTimeRemaining",
+            "  PrintToConsole \"PROBE|b3_jip11_01_actor_combat_detect_light|allies=%g,det=%g,unr=%g,ltP=%.1f,ltD=%.1f,radD=%.2f,fall=%.2f\" (ar_Size aAl) (ar_Size aDet) iUnr fLtP fLtD fRadD fFall"
+          ]
+        },
+        {
+          "id": "b3_jip11_02_unarmed_effect_validation",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-actors-11.md",
+          "spec_line": 41,
+          "functions_tested": [
+            "GetActorUnarmedEffect",
+            "SetActorUnarmedEffect"
+          ],
+          "claim": "SetActorUnarmedEffect accepts SPEL/ENCH and rejects non-effect (Caps).",
+          "expected": "Check initial, set Caps (rejected?), set valid SPEL, restore",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref e0 = GetActorUnarmedEffect rDoc",
+            "SetActorUnarmedEffect rCap rDoc",
+            "ref e1 = GetActorUnarmedEffect rDoc",
+            "SetActorUnarmedEffect e0 rDoc",
+            "  PrintToConsole \"PROBE|b3_jip11_02_unarmed_effect_validation|e0=%i,afterCap=%i\" e0 e1"
+          ]
+        },
+        {
+          "id": "b3_jip11_03_hardcore_stage_effect",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-actors-11.md",
+          "spec_line": 77,
+          "functions_tested": [
+            "GetHardcoreStageEffect",
+            "SetHardcoreStageEffect"
+          ],
+          "claim": "GetHardcoreStageEffect / SetHardcoreStageEffect clear with omitted arg and restore.",
+          "expected": "Read stage 1 dehydration effect, clear, read 00000000, restore",
+          "script_lines": [
+            "ref e0 = GetHardcoreStageEffect 1",
+            "SetHardcoreStageEffect 1",
+            "ref e1 = GetHardcoreStageEffect 1",
+            "SetHardcoreStageEffect 1 e0",
+            "ref e2 = GetHardcoreStageEffect 1",
+            "  PrintToConsole \"PROBE|b3_jip11_03_hardcore_stage_effect|e0=%i,clr=%i,rest=%i\" e0 e1 e2"
+          ]
+        },
+        {
+          "id": "b3_jip11_04b_silenced_22_pistol",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-actors-11.md",
+          "spec_line": 64,
+          "functions_tested": [
+            "IsEquippedWeaponSilenced"
+          ],
+          "claim": "IsEquippedWeaponSilenced returns 1 for Silenced .22 Pistol (0xE377A, VNAM=Silent) vs 0 for 10mm Pistol.",
+          "expected": "s22=1, p10=0",
+          "script_lines": [
+            "ref rS22 = GetFormFromMod \"FalloutNV.esm\" \"E377A\"",
+            "Player.AddItem rS22 1 1",
+            "Player.EquipItem rS22 0 1",
+            "int iSil = Player.IsEquippedWeaponSilenced",
+            "Player.UnequipItem rS22 0 1",
+            "Player.RemoveItem rS22 1 1",
+            "  PrintToConsole \"PROBE|b3_jip11_04b_silenced_22_pistol|id=%i,sil=%g\" rS22 iSil"
+          ]
+        },
+        {
+          "id": "b3_jip12_01_climate_and_wrld_setters",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 48,
+          "functions_tested": [
+            "GetCurrentClimate",
+            "SetCurrentClimate",
+            "GetWorldspaceClimate",
+            "SetWorldspaceClimate",
+            "GetWorldspaceImagespace",
+            "SetWorldspaceImagespace"
+          ],
+          "claim": "SetCurrentClimate returns climate ref; SetWorldspaceClimate / Imagespace reject invalid form types.",
+          "expected": "Check SetCurrentClimate return and non-CLMT/non-IMGS rejection on WastelandNV",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"DA726\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rC0 = GetWorldspaceClimate rW",
+            "SetWorldspaceClimate rW rSt",
+            "ref rC1 = GetWorldspaceClimate rW",
+            "SetWorldspaceClimate rW rC0",
+            "ref rI0 = GetWorldspaceImagespace rW",
+            "SetWorldspaceImagespace rW rSt",
+            "ref rI1 = GetWorldspaceImagespace rW",
+            "SetWorldspaceImagespace rW rI0",
+            "ref rCur = GetCurrentClimate",
+            "  PrintToConsole \"PROBE|b3_jip12_01_climate_and_wrld_setters|c:%i->%i|i:%i->%i|cur=%i\" rC0 rC1 rI0 rI1 rCur"
+          ]
+        },
+        {
+          "id": "b3_jip12_02_wind_direction_neg_over",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 51,
+          "functions_tested": [
+            "GetWindDirection",
+            "SetWindDirection"
+          ],
+          "claim": "SetWindDirection stores negative and >360 degrees raw vs wrapped.",
+          "expected": "Check default indoors, set -45, set 400, restore",
+          "script_lines": [
+            "float w0 = GetWindDirection",
+            "SetWindDirection -45",
+            "float w1 = GetWindDirection",
+            "SetWindDirection 400",
+            "float w2 = GetWindDirection",
+            "SetWindDirection w0",
+            "  PrintToConsole \"PROBE|b3_jip12_02_wind_direction_neg_over|init=%.4f,neg=%.2f,over=%.2f\" w0 w1 w2"
+          ]
+        },
+        {
+          "id": "b3_jip12_03_light_ft_loadorder",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 65,
+          "functions_tested": [
+            "GetLightAmountAtPoint",
+            "GetPCFastTravelled",
+            "GetLoadOrderChanged"
+          ],
+          "claim": "GetLightAmountAtPoint indoors, GetPCFastTravelled twice, GetLoadOrderChanged fresh.",
+          "expected": "Observe light at player, ft1/ft2, loadOrderChanged",
+          "script_lines": [
+            "float fX = Player.GetPos X",
+            "float fY = Player.GetPos Y",
+            "float fZ = Player.GetPos Z",
+            "float fLt = GetLightAmountAtPoint fX fY fZ",
+            "int ft1 = GetPCFastTravelled",
+            "int ft2 = GetPCFastTravelled",
+            "int lo = GetLoadOrderChanged",
+            "  PrintToConsole \"PROBE|b3_jip12_03_light_ft_loadorder|lt=%.2f,ft1=%g,ft2=%g,lo=%g\" fLt ft1 ft2 lo"
+          ]
+        },
+        {
+          "id": "b3_jip12_04_internal_marker_toggle",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 71,
+          "functions_tested": [
+            "SetInternalMarker"
+          ],
+          "claim": "SetInternalMarker returns current marker state on XMarker (1) vs Pistol (0) and toggles.",
+          "expected": "XMarker=1, Pistol=0 -> toggle 1 -> 1 -> toggle 0 -> 0",
+          "script_lines": [
+            "ref rMk = GetFormFromMod \"FalloutNV.esm\" \"34\"",
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "int m0 = SetInternalMarker rMk",
+            "int g0 = SetInternalMarker rGun",
+            "int gSet = SetInternalMarker rGun 1",
+            "int g1 = SetInternalMarker rGun",
+            "SetInternalMarker rGun 0",
+            "int g2 = SetInternalMarker rGun",
+            "  PrintToConsole \"PROBE|b3_jip12_04_internal_marker_toggle|mk=%g,gun=%g,setRet=%g,after1=%g,after0=%g\" m0 g0 gSet g1 g2"
+          ]
+        },
+        {
+          "id": "b3_jip12_05_barter_price_mult_outside",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 79,
+          "functions_tested": [
+            "GetBarterPriceMult",
+            "SetBarterPriceMult"
+          ],
+          "claim": "SetBarterPriceMult outside barter menu behavior (0 or stores mult?).",
+          "expected": "Observe SetBarterPriceMult 0 1.5 and 1 0.5 outside barter",
+          "script_lines": [
+            "SetBarterPriceMult 0 1.5",
+            "SetBarterPriceMult 1 0.5",
+            "float b0 = GetBarterPriceMult 0",
+            "float b1 = GetBarterPriceMult 1",
+            "  PrintToConsole \"PROBE|b3_jip12_05_barter_price_mult_outside|buy=%.3f,sell=%.3f\" b0 b1"
+          ]
+        },
+        {
+          "id": "b3_jip12_06_menu_item_filter_right",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 85,
+          "functions_tested": [
+            "GetMenuItemFilter"
+          ],
+          "claim": "GetMenuItemFilter right-side argument (1) defaults before opening menus.",
+          "expected": "Check inv/cont/barter with right=0 vs right=1",
+          "script_lines": [
+            "int i0 = GetMenuItemFilter 1002 0",
+            "int i1 = GetMenuItemFilter 1002 1",
+            "int c0 = GetMenuItemFilter 1008 0",
+            "int c1 = GetMenuItemFilter 1008 1",
+            "int b0 = GetMenuItemFilter 1053 0",
+            "int b1 = GetMenuItemFilter 1053 1",
+            "  PrintToConsole \"PROBE|b3_jip12_06_menu_item_filter_right|inv=%g/%g,cont=%g/%g,bart=%g/%g\" i0 i1 c0 c1 b0 b1"
+          ]
+        },
+        {
+          "id": "b3_jip12_07_show_qty_text_menu_blocked",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 94,
+          "functions_tested": [
+            "ShowQuantityMenu",
+            "ShowTextInputMenu"
+          ],
+          "claim": "ShowQuantityMenu / ShowTextInputMenu open cleanly when no menu is open and return 0 when blocked.",
+          "expected": "Test ShowTextInputMenu return value (then CloseActiveMenu)",
+          "script_lines": [
+            "ref rCb = CompileScript \"nvseprobe_s_hlp_b3cb.gek\"",
+            "int r1 = ShowQuantityMenu rCb 10 3",
+            "int r2 = ShowQuantityMenu rCb 10 3",
+            "CloseActiveMenu",
+            "  PrintToConsole \"PROBE|b3_jip12_07_show_qty_text_menu_blocked|open1=%g,whileOpen=%g\" r1 r2"
+          ]
+        },
+        {
+          "id": "b3_jip14_01_anim_seq_freq",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-last-14.md",
+          "spec_line": 50,
+          "functions_tested": [
+            "GetAnimSequenceFrequency",
+            "SetAnimSequenceFrequency"
+          ],
+          "claim": "GetAnimSequenceFrequency returns 1 for existing sequence, -1 for nonexistent; SetAnimSequenceFrequency works.",
+          "expected": "Check nonexistent sequence & valid sequence on Player/Doc",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "float fMiss = rDoc.GetAnimSequenceFrequency \"nvseprobe_no_seq\"",
+            "float fWild = rDoc.GetAnimSequenceFrequency \"*\"",
+            "  PrintToConsole \"PROBE|b3_jip14_01_anim_seq_freq|miss=%.2f,wild=%.2f\" fMiss fWild"
+          ]
+        },
+        {
+          "id": "b3_jip4_01_sound_trait12_and_flag",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-traits-4.md",
+          "spec_line": 169,
+          "functions_tested": [
+            "GetSoundTraitNumeric",
+            "SetSoundTraitNumeric",
+            "GetSoundFlag",
+            "SetSoundFlag"
+          ],
+          "claim": "SetSoundTraitNumeric trait 12 (priority) and SetSoundFlag roundtrip on a SOUN form.",
+          "expected": "Read trait 12, set 77, read back; toggle flag 0; restore",
+          "script_lines": [
+            "ref rSnd = GetFormFromMod \"FalloutNV.esm\" \"403C2\"",
+            "float p0 = GetSoundTraitNumeric rSnd 12",
+            "SetSoundTraitNumeric rSnd 12 77",
+            "float p1 = GetSoundTraitNumeric rSnd 12",
+            "SetSoundTraitNumeric rSnd 12 p0",
+            "int f0 = GetSoundFlag rSnd 0",
+            "SetSoundFlag rSnd 0 (1 - f0)",
+            "int f1 = GetSoundFlag rSnd 0",
+            "SetSoundFlag rSnd 0 f0",
+            "  PrintToConsole \"PROBE|b3_jip4_01_sound_trait12_and_flag|t12=%.1f->%.1f|fl0=%g->%g\" p0 p1 f0 f1"
+          ]
+        },
+        {
+          "id": "b3_jip4_02_session_time_and_start_angle",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-traits-4.md",
+          "spec_line": 181,
+          "functions_tested": [
+            "GetSessionTime",
+            "GetStartingAngle"
+          ],
+          "claim": "GetSessionTime is positive; GetStartingAngle returns degrees (not radians) and 0 for dynamic ref.",
+          "expected": "Check GetSessionTime > 0, Doc Mitchell starting angle Z, dynamic placed ref starting angle Z",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rDyn = Player.PlaceAtMe rCap 1",
+            "float fSt = GetSessionTime",
+            "float aDoc = rDoc.GetStartingAngle Z",
+            "float aDyn = rDyn.GetStartingAngle Z",
+            "rDyn.Disable",
+            "rDyn.MarkForDelete",
+            "  PrintToConsole \"PROBE|b3_jip4_02_session_time_and_start_angle|sess=%.2f,docZ=%.2f,dynZ=%.2f\" fSt aDoc aDyn"
+          ]
+        },
+        {
+          "id": "b3_jip6_01_dest_stage_wrap",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-6.md",
+          "spec_line": 34,
+          "functions_tested": [
+            "AddDestructionStage",
+            "GetNthDestructionStageTrait",
+            "RemoveDestructionStage",
+            "GetDestructionDataNumStages"
+          ],
+          "claim": "AddDestructionStage health% >100 or damageStage >8 clamping/wrapping behavior.",
+          "expected": "Add stage with health=150 dmgStage=12 on Car 0x10B106 and inspect trait 0 & 1, then remove",
+          "script_lines": [
+            "ref rCar = EditorIDToFormID \"VMS10Car01\"",
+            "if (IsFormValid rCar) == 0",
+            "  let rCar := GetFormFromMod \"FalloutNV.esm\" \"3325A\"",
+            "endif",
+            "int n0 = GetDestructionDataNumStages rCar",
+            "int rAdd = AddDestructionStage rCar -1 150 12",
+            "int n1 = GetDestructionDataNumStages rCar",
+            "int t0 = -99",
+            "int t1 = -99",
+            "if n1 > n0",
+            "  let t0 := GetNthDestructionStageTrait rCar (n1 - 1) 0",
+            "  let t1 := GetNthDestructionStageTrait rCar (n1 - 1) 1",
+            "  RemoveDestructionStage rCar (n1 - 1)",
+            "endif",
+            "  PrintToConsole \"PROBE|b3_jip6_01_dest_stage_wrap|car=%i,n=%g->%g,ret=%g,hp=%g,dmg=%g\" rCar n0 n1 rAdd t0 t1"
+          ]
+        },
+        {
+          "id": "b3_jip7_01_dmg_to_armor_max_clamp",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-7.md",
+          "spec_line": 106,
+          "functions_tested": [
+            "SetDamageToArmorMaxPercent"
+          ],
+          "claim": "SetDamageToArmorMaxPercent clamps or stores raw floats outside 0..1.",
+          "expected": "Read default, set 2.5, set -0.5, restore",
+          "script_lines": [
+            "float d0 = SetDamageToArmorMaxPercent",
+            "float r1 = SetDamageToArmorMaxPercent 2.5",
+            "float a1 = SetDamageToArmorMaxPercent",
+            "float r2 = SetDamageToArmorMaxPercent -0.5",
+            "float a2 = SetDamageToArmorMaxPercent",
+            "SetDamageToArmorMaxPercent d0",
+            "  PrintToConsole \"PROBE|b3_jip7_01_dmg_to_armor_max_clamp|d0=%.3f,over=%.3f(ret=%.3f),neg=%.3f(ret=%.3f)\" d0 a1 r1 a2 r2"
+          ]
+        },
+        {
+          "id": "b3_jip7_01b_dmg_to_armor_valid_05",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-7.md",
+          "spec_line": 106,
+          "functions_tested": [
+            "SetDamageToArmorMaxPercent"
+          ],
+          "claim": "SetDamageToArmorMaxPercent accepts valid 0.5 and reads 0.5 back (confirming 2.5/-0.5 really clamped/rejected).",
+          "expected": "d0=1.000 -> set 0.5 -> reads 0.500 -> set 2.5 -> stays 0.500 or 1.000",
+          "script_lines": [
+            "float d0 = SetDamageToArmorMaxPercent",
+            "SetDamageToArmorMaxPercent 0.5",
+            "float d5 = SetDamageToArmorMaxPercent",
+            "SetDamageToArmorMaxPercent 2.5",
+            "float dOver = SetDamageToArmorMaxPercent",
+            "SetDamageToArmorMaxPercent -0.5",
+            "float dNeg = SetDamageToArmorMaxPercent",
+            "SetDamageToArmorMaxPercent d0",
+            "  PrintToConsole \"PROBE|b3_jip7_01b_dmg_to_armor_valid_05|d0=%.3f,d5=%.3f,over=%.3f,neg=%.3f\" d0 d5 dOver dNeg"
+          ]
+        },
+        {
+          "id": "b3_jip9_01_hud_cursor_and_mouse_mask",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-ui-9.md",
+          "spec_line": 27,
+          "functions_tested": [
+            "ToggleHUDCursor",
+            "ToggleMouseMovement"
+          ],
+          "claim": "ToggleHUDCursor returns prior state; ToggleMouseMovement masks to low 2 bits (9 -> 1).",
+          "expected": "hc: 0->1->0; mm: 3->9(reads 1)->restore 3",
+          "script_lines": [
+            "int hc0 = ToggleHUDCursor",
+            "int hc1 = ToggleHUDCursor 1",
+            "int hc2 = ToggleHUDCursor",
+            "int hc3 = ToggleHUDCursor 0",
+            "int mm0 = ToggleMouseMovement",
+            "int mm1 = ToggleMouseMovement 9",
+            "int mm2 = ToggleMouseMovement",
+            "ToggleMouseMovement mm0",
+            "  PrintToConsole \"PROBE|b3_jip9_01_hud_cursor_and_mouse_mask|hc=%g,%g,%g,%g|mm=%g,%g,%g\" hc0 hc1 hc2 hc3 mm0 mm1 mm2"
+          ]
+        },
+        {
+          "id": "b3_jip9_02_game_volume_neg_and_default",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-ui-9.md",
+          "spec_line": 43,
+          "functions_tested": [
+            "GetGameVolume",
+            "SetGameVolume"
+          ],
+          "claim": "SetGameVolume refuses negative (-10) and >100 (150); no-arg resets to INI default.",
+          "expected": "Check all 6 channels, set 30, pass -10 (stays 30?), pass 150 (stays 30?), restore",
+          "script_lines": [
+            "int v0 = GetGameVolume 0",
+            "int v1 = GetGameVolume 1",
+            "int v2 = GetGameVolume 2",
+            "int v3 = GetGameVolume 3",
+            "int v4 = GetGameVolume 4",
+            "int v5 = GetGameVolume 5",
+            "SetGameVolume 0 30",
+            "int a30 = GetGameVolume 0",
+            "SetGameVolume 0 -10",
+            "int aNeg = GetGameVolume 0",
+            "SetGameVolume 0 150",
+            "int aOver = GetGameVolume 0",
+            "SetGameVolume 0 v0",
+            "  PrintToConsole \"PROBE|b3_jip9_02_game_volume_neg_and_default|defs=%g,%g,%g,%g,%g,%g|30=%g,neg=%g,over=%g\" v0 v1 v2 v3 v4 v5 a30 aNeg aOver"
+          ]
+        },
+        {
+          "id": "b3_jip9_03_font_file_missing_and_syscol",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-ui-9.md",
+          "spec_line": 44,
+          "functions_tested": [
+            "SetFontFile",
+            "GetFontFile",
+            "SetSystemColor",
+            "GetSystemColor"
+          ],
+          "claim": "SetFontFile missing file returns 0; SetSystemColor clamps/wraps out-of-range RGB.",
+          "expected": "Check SetFontFile on nonexistent path + SetSystemColor 1 300 -10 128",
+          "script_lines": [
+            "int fMiss = SetFontFile 1 \"textures\\fonts\\nvseprobe_no_such_font.fnt\"",
+            "int c0 = GetSystemColor 1",
+            "SetSystemColor 1 300 -10 128",
+            "int c1 = GetSystemColor 1",
+            "SetSystemColor 1 255 182 66",
+            "  PrintToConsole \"PROBE|b3_jip9_03_font_file_missing_and_syscol|fontMiss=%g|col:%g->%g\" fMiss c0 c1"
+          ]
+        },
+        {
+          "id": "b3_jip_ex_01_set_weapon_mod_reload_anim",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-8.md",
+          "spec_line": 62,
+          "functions_tested": [
+            "GetWeaponModReloadAnim",
+            "SetWeaponModReloadAnim"
+          ],
+          "claim": "GetWeaponModReloadAnim / SetWeaponModReloadAnim roundtrip on 10mm Pistol.",
+          "expected": "Read default, set 5, read back 5, restore",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "int a0 = GetWeaponModReloadAnim rW",
+            "SetWeaponModReloadAnim rW 5",
+            "int a1 = GetWeaponModReloadAnim rW",
+            "SetWeaponModReloadAnim rW a0",
+            "  PrintToConsole \"PROBE|b3_jip_ex_01_set_weapon_mod_reload_anim|%g->%g\" a0 a1"
+          ]
+        },
+        {
+          "id": "b3_jip_ex_02_weapon_has_mod_type",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-8.md",
+          "spec_line": 63,
+          "functions_tested": [
+            "WeaponHasModType"
+          ],
+          "claim": "WeaponHasModType returns slot 1-3 for 10mm Pistol's mod types (2, 3, 11) and 0 for absent type.",
+          "expected": "Verify 10mm Pistol slots for types 2, 3, 11, 14",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "int s2 = WeaponHasModType rW 2",
+            "int s3 = WeaponHasModType rW 3",
+            "int s11 = WeaponHasModType rW 11",
+            "int s14 = WeaponHasModType rW 14",
+            "  PrintToConsole \"PROBE|b3_jip_ex_02_weapon_has_mod_type|t2=%g,t3=%g,t11=%g,t14=%g\" s2 s3 s11 s14"
+          ]
+        },
+        {
+          "id": "b3_jip_ex_03_get_buffered_cells_and_wrld_pers",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-world-12.md",
+          "spec_line": 60,
+          "functions_tested": [
+            "GetBufferedCells",
+            "GetCellBuffered",
+            "GetWorldspacePersistentCell"
+          ],
+          "claim": "GetBufferedCells 0/1, GetCellBuffered on Doc's house, GetWorldspacePersistentCell on WastelandNV.",
+          "expected": "Doc's house is buffered (1), WastelandNV persistent cell is non-null",
+          "script_lines": [
+            "ref rC = GetFormFromMod \"FalloutNV.esm\" \"103DF9\"",
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"DA726\"",
+            "array_var aExt = GetBufferedCells 0",
+            "array_var aInt = GetBufferedCells 1",
+            "int bDoc = GetCellBuffered rC",
+            "ref rPers = GetWorldspacePersistentCell rW",
+            "  PrintToConsole \"PROBE|b3_jip_ex_03_get_buffered_cells_and_wrld_pers|ext=%g,int=%g,docBuf=%g,pers=%i\" (ar_Size aExt) (ar_Size aInt) bDoc rPers"
+          ]
+        },
+        {
+          "id": "b3_jip_ex_04_set_ammo_trait_ret",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-7.md",
+          "spec_line": 11,
+          "functions_tested": [
+            "GetAmmoTraitNumeric",
+            "SetAmmoTraitNumeric"
+          ],
+          "claim": "SetAmmoTraitNumeric return value (0) and traits 0..3 roundtrip on 10mm Ammo.",
+          "expected": "Verify return value 0 and trait 0 (speed) roundtrip",
+          "script_lines": [
+            "ref rAm = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "float s0 = GetAmmoTraitNumeric rAm 0",
+            "int iRet = SetAmmoTraitNumeric rAm 0 1.5",
+            "float s1 = GetAmmoTraitNumeric rAm 0",
+            "SetAmmoTraitNumeric rAm 0 s0",
+            "  PrintToConsole \"PROBE|b3_jip_ex_04_set_ammo_trait_ret|s0=%.2f,ret=%g,s1=%.2f\" s0 iRet s1"
+          ]
+        },
+        {
+          "id": "b3_jip_ex_05_get_all_game_radios_and_pipboy",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg6.md",
+          "spec_line": 36,
+          "functions_tested": [
+            "GetAllGameRadios",
+            "GetPipboyRadio"
+          ],
+          "claim": "GetAllGameRadios returns non-empty array of radio refs; GetPipboyRadio returns 00000000 when off.",
+          "expected": "radios>0, pipboyRadio=00000000",
+          "script_lines": [
+            "array_var aRad = GetAllGameRadios",
+            "ref rPb = GetPipboyRadio",
+            "  PrintToConsole \"PROBE|b3_jip_ex_05_get_all_game_radios_and_pipboy|nRad=%g,pb=%i\" (ar_Size aRad) rPb"
+          ]
+        },
+        {
+          "id": "b3_jip_ex_06_set_weapon_sound_level",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-8.md",
+          "spec_line": 56,
+          "functions_tested": [
+            "GetWeaponDetectionSoundLevel",
+            "SetWeaponDetectionSoundLevel"
+          ],
+          "claim": "Get/SetWeaponDetectionSoundLevel (0=loud, 1=normal, 2=silent) roundtrip + out-of-range value.",
+          "expected": "Read default, set 2, read 2, set 9, read back, restore",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "int s0 = GetWeaponDetectionSoundLevel rW",
+            "SetWeaponDetectionSoundLevel rW 2",
+            "int s1 = GetWeaponDetectionSoundLevel rW",
+            "SetWeaponDetectionSoundLevel rW 9",
+            "int s9 = GetWeaponDetectionSoundLevel rW",
+            "SetWeaponDetectionSoundLevel rW s0",
+            "  PrintToConsole \"PROBE|b3_jip_ex_06_set_weapon_sound_level|s0=%g,s2=%g,s9=%g\" s0 s1 s9"
+          ]
+        },
+        {
+          "id": "b3_jip_ex_07_set_weapon_onhit_oob",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-8.md",
+          "spec_line": 59,
+          "functions_tested": [
+            "GetWeaponOnHitSetting",
+            "SetWeaponOnHitSetting"
+          ],
+          "claim": "Get/SetWeaponOnHitSetting 0..3 roundtrip and out-of-range (9) handling.",
+          "expected": "Read default, set 2, set 9, restore",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "int h0 = GetWeaponOnHitSetting rW",
+            "SetWeaponOnHitSetting rW 2",
+            "int h2 = GetWeaponOnHitSetting rW",
+            "SetWeaponOnHitSetting rW 9",
+            "int h9 = GetWeaponOnHitSetting rW",
+            "SetWeaponOnHitSetting rW h0",
+            "  PrintToConsole \"PROBE|b3_jip_ex_07_set_weapon_onhit_oob|h0=%g,h2=%g,h9=%g\" h0 h2 h9"
+          ]
+        },
+        {
+          "id": "b3_lut_02_service_flag_toggle",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 77,
+          "functions_tested": [
+            "GetServiceFlag",
+            "SetServiceFlag"
+          ],
+          "claim": "SetServiceFlag toggles service bitmask flag on NPC base record.",
+          "expected": "Reads initial flag 1, flips it, reads back, restores",
+          "script_lines": [
+            "ref rNpc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "int i0 = GetServiceFlag rNpc 1",
+            "SetServiceFlag rNpc 1 (1 - i0)",
+            "int i1 = GetServiceFlag rNpc 1",
+            "SetServiceFlag rNpc 1 i0",
+            "int i2 = GetServiceFlag rNpc 1",
+            "  PrintToConsole \"PROBE|b3_lut_02_service_flag_toggle|%g->%g->%g\" i0 i1 i2"
+          ]
+        },
+        {
+          "id": "b3_lut_03_perk_entry_form_edges",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 86,
+          "functions_tested": [
+            "GetNthPerkEntryForm"
+          ],
+          "claim": "GetNthPerkEntryForm returns 0 for negative/OOB index and valid form for ability/quest entry.",
+          "expected": "neg=00000000, oob=00000000; check Educated 0x31DD8 entry 0",
+          "script_lines": [
+            "ref rPk = GetFormFromMod \"FalloutNV.esm\" \"31DD8\"",
+            "ref rNeg = GetNthPerkEntryForm rPk -1",
+            "ref rOob = GetNthPerkEntryForm rPk 99",
+            "ref r0 = GetNthPerkEntryForm rPk 0",
+            "  PrintToConsole \"PROBE|b3_lut_03_perk_entry_form_edges|neg=%i,oob=%i,e0=%i\" rNeg rOob r0"
+          ]
+        },
+        {
+          "id": "b3_lut_04_water_form_effect",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 92,
+          "functions_tested": [
+            "GetWaterFormEffect"
+          ],
+          "claim": "GetWaterFormEffect returns WATR XNAM actor effect (or 0 when none).",
+          "expected": "Check DefaultWater vs non-water form",
+          "script_lines": [
+            "ref rW = EditorIDToFormID \"DefaultWater\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rE1 = GetWaterFormEffect rW",
+            "ref rE2 = GetWaterFormEffect rSt",
+            "  PrintToConsole \"PROBE|b3_lut_04_water_form_effect|w=%i,eW=%i,eBad=%i\" rW rE1 rE2"
+          ]
+        },
+        {
+          "id": "b3_lut_05_zone_flag_multibit",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 94,
+          "functions_tested": [
+            "GetZoneFlag",
+            "SetZoneFlag"
+          ],
+          "claim": "GetZoneFlag returns 1 when any bit of mask is set; SetZoneFlag bit 2 works.",
+          "expected": "bit1=1, bit2=0, mask3=1; set bit2=1 -> reads 1; restore",
+          "script_lines": [
+            "ref rZ = GetFormFromMod \"FalloutNV.esm\" \"E9081\"",
+            "int f1 = GetZoneFlag rZ 1",
+            "int f2 = GetZoneFlag rZ 2",
+            "int f3 = GetZoneFlag rZ 3",
+            "SetZoneFlag rZ 2 1",
+            "int f2b = GetZoneFlag rZ 2",
+            "SetZoneFlag rZ 2 f2",
+            "  PrintToConsole \"PROBE|b3_lut_05_zone_flag_multibit|b1=%g,b2=%g,m3=%g,afterSet2=%g\" f1 f2 f3 f2b"
+          ]
+        },
+        {
+          "id": "b3_lut_06_player_has_key_terminal_note",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 107,
+          "functions_tested": [
+            "PlayerHasKey",
+            "GetPasswordNote"
+          ],
+          "claim": "PlayerHasKey on terminal returns 1 when player has terminal's password note via AddNote.",
+          "expected": "Check PlayerHasKey before and after AddNote of terminal's password note",
+          "script_lines": [
+            "ref rTerm = GetFormFromMod \"FalloutNV.esm\" \"13253C\"",
+            "ref rNote = GetPasswordNote rTerm",
+            "int b0 = rTerm.PlayerHasKey",
+            "if IsFormValid rNote",
+            "  AddNote rNote",
+            "endif",
+            "int b1 = rTerm.PlayerHasKey",
+            "  PrintToConsole \"PROBE|b3_lut_06_player_has_key_terminal_note|note=%i,before=%g,afterAddNote=%g\" rNote b0 b1"
+          ]
+        },
+        {
+          "id": "b3_lut_07_ln_is_playable_types",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 115,
+          "functions_tested": [
+            "LNIsPlayable",
+            "LNSetIsPlayable"
+          ],
+          "claim": "LNIsPlayable / LNSetIsPlayable work on WEAP, ARMO, RACE, PERK.",
+          "expected": "Check initial playable and toggle roundtrip on 10mm Pistol, Leather Armor, Caucasian race, Educated perk",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rRace = GetFormFromMod \"FalloutNV.esm\" \"19\"",
+            "ref rPk = GetFormFromMod \"FalloutNV.esm\" \"31DD8\"",
+            "int pw0 = LNIsPlayable rW",
+            "LNSetIsPlayable 0 rW",
+            "int pw1 = LNIsPlayable rW",
+            "LNSetIsPlayable pw0 rW",
+            "int pa0 = LNIsPlayable rA",
+            "int pr0 = LNIsPlayable rRace",
+            "LNSetIsPlayable 0 rRace",
+            "int pr1 = LNIsPlayable rRace",
+            "LNSetIsPlayable pr0 rRace",
+            "int pp0 = LNIsPlayable rPk",
+            "LNSetIsPlayable 0 rPk",
+            "int pp1 = LNIsPlayable rPk",
+            "LNSetIsPlayable pp0 rPk",
+            "  PrintToConsole \"PROBE|b3_lut_07_ln_is_playable_types|weap=%g->%g,armo=%g,race=%g->%g,perk=%g->%g\" pw0 pw1 pa0 pr0 pr1 pp0 pp1"
+          ]
+        },
+        {
+          "id": "b3_lut_08_map_marker_flags_type",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 178,
+          "functions_tested": [
+            "GetMapMarkerType",
+            "SetMapMarkerType",
+            "GetMapMarkerHidden",
+            "SetMapMarkerHidden",
+            "GetMapMarkerTravel",
+            "SetMapMarkerTravel"
+          ],
+          "claim": "SetMapMarkerType / Hidden / Travel roundtrip on Goodsprings map marker 0xCDF51.",
+          "expected": "Mutate type/hidden/travel and read back, then restore",
+          "script_lines": [
+            "ref rM = GetFormFromMod \"FalloutNV.esm\" \"CDF51\"",
+            "int t0 = rM.GetMapMarkerType",
+            "int h0 = rM.GetMapMarkerHidden",
+            "int tr0 = rM.GetMapMarkerTravel",
+            "rM.SetMapMarkerType 7",
+            "rM.SetMapMarkerHidden 1",
+            "rM.SetMapMarkerTravel 0",
+            "int t1 = rM.GetMapMarkerType",
+            "int h1 = rM.GetMapMarkerHidden",
+            "int tr1 = rM.GetMapMarkerTravel",
+            "rM.SetMapMarkerType t0",
+            "rM.SetMapMarkerHidden h0",
+            "rM.SetMapMarkerTravel tr0",
+            "  PrintToConsole \"PROBE|b3_lut_08_map_marker_flags_type|t:%g->%g,h:%g->%g,tr:%g->%g\" t0 t1 h0 h1 tr0 tr1"
+          ]
+        },
+        {
+          "id": "b3_lut_10_anim_obj_idle_non_idle",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 205,
+          "functions_tested": [
+            "GetAnimObjectIdle",
+            "SetAnimObjectIdle"
+          ],
+          "claim": "SetAnimObjectIdle accepts IDLE only and rejects non-IDLE (Stimpak).",
+          "expected": "Check ANIO idle before and after passing Stimpak",
+          "script_lines": [
+            "ref rAnio = EditorIDToFormID \"AnimObjectCigarette\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref id0 = GetAnimObjectIdle rAnio",
+            "SetAnimObjectIdle rAnio rSt",
+            "ref id1 = GetAnimObjectIdle rAnio",
+            "SetAnimObjectIdle rAnio id0",
+            "  PrintToConsole \"PROBE|b3_lut_10_anim_obj_idle_non_idle|anio=%i,id0=%i,afterSt=%i,eq0=%g,eqSt=%g\" rAnio id0 id1 (id1 == 0) (id1 == rSt)"
+          ]
+        },
+        {
+          "id": "b3_lut_11_set_base_form_cross_only",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 211,
+          "functions_tested": [
+            "SetBaseForm"
+          ],
+          "claim": "SetBaseForm changes placed ref's base cross-type (Caps->Stimpak); Player.SetBaseForm crashed 0xC0000096.",
+          "expected": "Placed cap base becomes Stimpak (00015169)",
+          "script_lines": [
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rObj = Player.PlaceAtMe rCap 1",
+            "rObj.SetBaseForm rSt",
+            "ref rB1 = rObj.GetBaseObject",
+            "rObj.Disable",
+            "rObj.MarkForDelete",
+            "  PrintToConsole \"PROBE|b3_lut_11_set_base_form_cross_only|objBase=%i(isSt=%g),playerSetBase=CRASH_0xC0000096\" rB1 (rB1 == rSt)"
+          ]
+        },
+        {
+          "id": "b3_lut_12_perk_entry_setters",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 214,
+          "functions_tested": [
+            "SetNthPerkEntryString",
+            "GetNthPerkEntryString",
+            "SetNthPerkEntryFunction",
+            "GetNthPerkEntryFunction"
+          ],
+          "claim": "SetNthPerkEntryString / SetNthPerkEntryFunction roundtrip on a perk entry.",
+          "expected": "Check initial entry function & string, mutate, read back, restore",
+          "script_lines": [
+            "ref rPk = GetFormFromMod \"FalloutNV.esm\" \"31DD8\"",
+            "int fn0 = GetNthPerkEntryFunction rPk 0",
+            "SetNthPerkEntryFunction rPk 0 2",
+            "int fn1 = GetNthPerkEntryFunction rPk 0",
+            "SetNthPerkEntryFunction rPk 0 fn0",
+            "string_var sv0 = GetNthPerkEntryString rPk 0",
+            "SetNthPerkEntryString rPk 0 \"W4Label\"",
+            "string_var sv1 = GetNthPerkEntryString rPk 0",
+            "SetNthPerkEntryString rPk 0 sv0",
+            "  PrintToConsole \"PROBE|b3_lut_12_perk_entry_setters|fn:%g->%g|str:[%z]->[%z]\" fn0 fn1 sv0 sv1"
+          ]
+        },
+        {
+          "id": "b3_lut_13_set_perk_rank_clamp",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 239,
+          "functions_tested": [
+            "SetPerkRank",
+            "GetPerkRank"
+          ],
+          "claim": "SetPerkRank Educated to 9 clamps to max rank (1); setting 0 removes perk.",
+          "expected": "Check Educated rank after SetPerkRank 9 and SetPerkRank 0",
+          "script_lines": [
+            "ref rPk = GetFormFromMod \"FalloutNV.esm\" \"31DD8\"",
+            "int r0 = Player.GetPerkRank rPk",
+            "Player.SetPerkRank rPk 9 0",
+            "int r1 = Player.GetPerkRank rPk",
+            "Player.SetPerkRank rPk 0 0",
+            "int r2 = Player.GetPerkRank rPk",
+            "  PrintToConsole \"PROBE|b3_lut_13_set_perk_rank_clamp|r0=%g,after9=%g,after0=%g\" r0 r1 r2"
+          ]
+        },
+        {
+          "id": "b3_lut_14_get_refs_count",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 243,
+          "functions_tested": [
+            "GetRefs"
+          ],
+          "claim": "GetRefs in GSDocMitchellHouse returns non-empty array of cell refs.",
+          "expected": "Observe GetRefs 200 (actors) and GetRefs 0 (all) count",
+          "script_lines": [
+            "array_var aAct = GetRefs 200 1",
+            "array_var aAll = GetRefs 0 1",
+            "  PrintToConsole \"PROBE|b3_lut_14_get_refs_count|actors=%g,all=%g\" (ar_Size aAct) (ar_Size aAll)"
+          ]
+        },
+        {
+          "id": "b3_sr_01_register_sr_script_edges",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-script-runner.md",
+          "spec_line": 76,
+          "functions_tested": [
+            "RegisterSRScript"
+          ],
+          "claim": "RegisterSRScript returns 0 for missing file and for invalid prefix.",
+          "expected": "missing=0, badPrefix=0",
+          "script_lines": [
+            "int r1 = RegisterSRScript \"gr_nvseprobe_missing_file.txt\"",
+            "int r2 = RegisterSRScript \"zz_nvseprobe_tmp.txt\"",
+            "  PrintToConsole \"PROBE|b3_sr_01_register_sr_script_edges|miss=%g,badPfx=%g\" r1 r2"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/NVSE/Plugins/Scripts/zz_nvseprobe_tmp.txt",
+              "content": "int iTmp = 1\n"
+            }
+          ]
+        },
+        {
+          "id": "b3_ttw_01_ash_pile_and_music_state",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-ttw-functions.md",
+          "spec_line": 36,
+          "functions_tested": [
+            "MarkActivatorAshPile",
+            "SetMusicState",
+            "SetTerminalUIModel"
+          ],
+          "claim": "MarkActivatorAshPile on non-ACTI; SetMusicState 1/2/99 return values; SetTerminalUIModel.",
+          "expected": "Verify clean execution & return values",
+          "script_lines": [
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rTerm = GetFormFromMod \"FalloutNV.esm\" \"13253C\"",
+            "MarkActivatorAshPile rSt",
+            "int m1 = SetMusicState 1",
+            "int m2 = SetMusicState 2",
+            "int m9 = SetMusicState 99",
+            "SetTerminalUIModel rTerm \"interface\\terminal\\w4_test.nif\"",
+            "SetTerminalUIModel rTerm",
+            "  PrintToConsole \"PROBE|b3_ttw_01_ash_pile_and_music_state|m1=%g,m2=%g,m99=%g\" m1 m2 m9"
+          ]
+        },
+        {
+          "id": "zzz_b3_lut_01_recipe_outputs_dedup",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 65,
+          "functions_tested": [
+            "GetFormRecipeOutputs"
+          ],
+          "claim": "GetFormRecipeOutputs returns deduplicated recipe output forms for Gecko Meat 0x16D5BA.",
+          "expected": "Non-empty array of unique output forms (or observe if native crash)",
+          "script_lines": [
+            "ref rIn = GetFormFromMod \"FalloutNV.esm\" \"16D5BA\"",
+            "array_var aOut = GetFormRecipeOutputs rIn",
+            "int iSz = ar_Size aOut",
+            "ref r0 = 0",
+            "if iSz > 0",
+            "  let r0 := aOut[0]",
+            "endif",
+            "  PrintToConsole \"PROBE|zzz_b3_lut_01_recipe_outputs_dedup|sz=%g,r0=%i\" iSz r0"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "w4b_showoff",
+      "title": "Wave 4B \u2014 ShowOffNVSE 184",
+      "extender": "ShowOffNVSE 184",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ShowOffNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "b3_so_01_lvlup_closed_and_status_flags",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 173,
+          "functions_tested": [
+            "SetLevelUpMenuCurrentPage",
+            "GetProjectileRefIsStuck",
+            "PlayerHasNightVisionActive",
+            "PlayerIsDrinkingPlacedWater",
+            "GetIsActivationPromptShown",
+            "IsPlayerLookingAround",
+            "GetActorFadeState"
+          ],
+          "claim": "ShowOff query defaults in Doc Mitchell's house.",
+          "expected": "lvlPage=0, stuck=0, nv=0, drink=0, prompt=0, look=0, fade=-1",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "int pCl = SetLevelUpMenuCurrentPage 1",
+            "int st = rDoc.GetProjectileRefIsStuck",
+            "int nv = PlayerHasNightVisionActive",
+            "int dr = PlayerIsDrinkingPlacedWater",
+            "int pr = GetIsActivationPromptShown",
+            "int lk = IsPlayerLookingAround",
+            "float fdP = Player.GetActorFadeState",
+            "float fdD = rDoc.GetActorFadeState",
+            "  PrintToConsole \"PROBE|b3_so_01_lvlup_closed_and_status_flags|pg=%g,stk=%g,nv=%g,dr=%g,pr=%g,lk=%g,fd=%.1f/%.1f\" pCl st nv dr pr lk fdP fdD"
+          ]
+        },
+        {
+          "id": "b3_so_02_place_at_reticle_alt_bounds",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 197,
+          "functions_tested": [
+            "PlaceAtReticleAlt"
+          ],
+          "claim": "PlaceAtReticleAlt places form within [min, max] distance along crosshair.",
+          "expected": "Check placed ref validity & distance from Player with min=100 max=300",
+          "script_lines": [
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rPl = PlaceAtReticleAlt rCap 1 100 300",
+            "int iVal = IsFormValid rPl",
+            "float fDist = -1",
+            "if iVal",
+            "  let fDist := Player.GetDistance rPl",
+            "  rPl.Disable",
+            "  rPl.MarkForDelete",
+            "endif",
+            "  PrintToConsole \"PROBE|b3_so_02_place_at_reticle_alt_bounds|valid=%g,dist=%.1f\" iVal fDist"
+          ]
+        },
+        {
+          "id": "b3_so_03_json_malformed_and_missing_ptr",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 237,
+          "functions_tested": [
+            "ReadFromJSON"
+          ],
+          "claim": "ReadFromJSON on malformed JSON and missing JSON pointer behavior.",
+          "expected": "Test TestExpr on bad JSON & missing pointer",
+          "script_lines": [
+            "int tBad = TestExpr (ReadFromJSON \"nvseprobe_w4b3_bad.json\")",
+            "int tPtr = TestExpr (ReadFromJSON \"nvseprobe_w4b3_ok.json\" \"/missing\")",
+            "float fPtr = 0",
+            "if tPtr",
+            "  let fPtr := ReadFromJSON \"nvseprobe_w4b3_ok.json\" \"/missing\"",
+            "endif",
+            "float fOk = ReadFromJSON \"nvseprobe_w4b3_ok.json\" \"/a\"",
+            "  PrintToConsole \"PROBE|b3_so_03_json_malformed_and_missing_ptr|tBad=%g,tPtr=%g,fPtr=%.1f,fOk=%.1f\" tBad tPtr fPtr fOk"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "nvseprobe_w4b3_bad.json",
+              "content": "{bad json"
+            },
+            {
+              "rel_path": "nvseprobe_w4b3_ok.json",
+              "content": "{\"a\":42}"
+            }
+          ]
+        },
+        {
+          "id": "b3_so_04_seeded_rng_default_and_advance",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 112,
+          "functions_tested": [
+            "GetRandomizerSeed",
+            "AdvanceSeed",
+            "GetRandomPercentSeeded",
+            "SetRandomizerSeed"
+          ],
+          "claim": "GetRandomizerSeed returns -1 before any seed; AdvanceSeed 1 returns 0 with no seed; default seed 5489 draws 82.",
+          "expected": "seed0=-1, adv0=0, draw1=82, seed1=5489",
+          "script_lines": [
+            "int s0 = GetRandomizerSeed",
+            "int a0 = AdvanceSeed 1",
+            "int d1 = GetRandomPercentSeeded",
+            "int s1 = GetRandomizerSeed",
+            "SetRandomizerSeed 20",
+            "int d20 = GetRandomPercentSeeded",
+            "  PrintToConsole \"PROBE|b3_so_04_seeded_rng_default_and_advance|s0=%g,adv0=%g,d1=%g,s1=%g,d20=%g\" s0 a0 d1 s1 d20"
+          ]
+        },
+        {
+          "id": "b3_so_05_calc_skill_perk_points_and_ini",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 123,
+          "functions_tested": [
+            "GetCalculatedSkillPoints",
+            "GetCalculatedPerkPoints",
+            "ModNumericINISetting",
+            "GetPCHasSleepWaitOverride",
+            "SetPCHasSleepWaitOverride",
+            "SetIsPCAMurderer"
+          ],
+          "claim": "GetCalculatedPerkPoints returns 0/1 by iLevelsPerPerk (even levels=1, odd=0); ModNumericINISetting missing=0.",
+          "expected": "Check perk pts for levels 1..4, skill pts, sleepWait & murderer roundtrips",
+          "script_lines": [
+            "int sp = GetCalculatedSkillPoints",
+            "int p1 = GetCalculatedPerkPoints 1",
+            "int p2 = GetCalculatedPerkPoints 2",
+            "int p3 = GetCalculatedPerkPoints 3",
+            "int p4 = GetCalculatedPerkPoints 4",
+            "float mMiss = ModNumericINISetting \"fNoSuchSetting:General\" 5",
+            "int sw0 = GetPCHasSleepWaitOverride",
+            "SetPCHasSleepWaitOverride 1",
+            "int sw1 = GetPCHasSleepWaitOverride",
+            "SetPCHasSleepWaitOverride sw0",
+            "int m0 = IsPCAMurderer",
+            "SetIsPCAMurderer 1",
+            "int m1 = IsPCAMurderer",
+            "SetIsPCAMurderer m0",
+            "  PrintToConsole \"PROBE|b3_so_05_calc_skill_perk_points_and_ini|sp=%g,pk=%g/%g/%g/%g,iniMiss=%.1f,sw=%g->%g,murd=%g->%g\" sp p1 p2 p3 p4 mMiss sw0 sw1 m0 m1"
+          ]
+        },
+        {
+          "id": "b3_so_06_pos_array_and_eq_refs_empty",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 111,
+          "functions_tested": [
+            "GetPosArray",
+            "GetEquippedWeaponRef",
+            "GetEquippedItemRefForItem",
+            "GetNumBrokenEquippedItems"
+          ],
+          "claim": "GetPosArray matches GetPos X/Y/Z; GetEquippedWeaponRef/ItemRef return 00000000 when none equipped.",
+          "expected": "posDiff=0, weapRef=00000000, itemRef=00000000, broken=0",
+          "script_lines": [
+            "array_var aP = Player.GetPosArray",
+            "float dx = (aP[0]) - (Player.GetPos X)",
+            "float dy = (aP[1]) - (Player.GetPos Y)",
+            "float dz = (aP[2]) - (Player.GetPos Z)",
+            "ref rW = Player.GetEquippedWeaponRef",
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rIt = Player.GetEquippedItemRefForItem rGun",
+            "int br0 = Player.GetNumBrokenEquippedItems 0",
+            "int br100 = Player.GetNumBrokenEquippedItems 100",
+            "  PrintToConsole \"PROBE|b3_so_06_pos_array_and_eq_refs_empty|sz=%g,d=(%.2f,%.2f,%.2f),w=%i,it=%i,br=%g/%g\" (ar_Size aP) dx dy dz rW rIt br0 br100"
+          ]
+        },
+        {
+          "id": "b3_so_07_aux_timer_and_clear_saved",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 232,
+          "functions_tested": [
+            "AuxTimerStart",
+            "AuxTimerTimeToCountdown",
+            "ClearShowoffSavedData"
+          ],
+          "claim": "AuxTimerStart permanent vs * temp vs _ public + ClearShowoffSavedData 0 1 & 0 2.",
+          "expected": "Verify which timer prefixes ClearShowoffSavedData 0 1 vs 0 2 clears",
+          "script_lines": [
+            "Player.AuxTimerStart \"b3_t_priv\" 30",
+            "Player.AuxTimerStart \"_b3_t_pub\" 30",
+            "Player.AuxTimerStart \"*b3_t_tmp\" 30",
+            "float a0 = Player.AuxTimerTimeToCountdown \"b3_t_priv\"",
+            "ClearShowoffSavedData 0 1",
+            "float p1 = Player.AuxTimerTimeToCountdown \"b3_t_priv\"",
+            "float u1 = Player.AuxTimerTimeToCountdown \"_b3_t_pub\"",
+            "float t1 = Player.AuxTimerTimeToCountdown \"*b3_t_tmp\"",
+            "ClearShowoffSavedData 0 2",
+            "float u2 = Player.AuxTimerTimeToCountdown \"_b3_t_pub\"",
+            "float t2 = Player.AuxTimerTimeToCountdown \"*b3_t_tmp\"",
+            "  PrintToConsole \"PROBE|b3_so_07_aux_timer_and_clear_saved|init=%.0f|after1:(p=%.0f,u=%.0f,t=%.0f)|after2:(u=%.0f,t=%.0f)\" a0 p1 u1 t1 u2 t2"
+          ]
+        },
+        {
+          "id": "b3_so_08_kill_all_hostiles_none",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 187,
+          "functions_tested": [
+            "KillAllHostiles"
+          ],
+          "claim": "KillAllHostiles in peaceful interior returns 0 and leaves Doc Mitchell alive.",
+          "expected": "docDead=0 after KillAllHostiles",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "KillAllHostiles",
+            "int dDead = rDoc.GetDead",
+            "  PrintToConsole \"PROBE|b3_so_08_kill_all_hostiles_none|docDead=%g\" dDead"
+          ]
+        },
+        {
+          "id": "b3_so_ex_01_apply_easing_alt_edges",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 113,
+          "functions_tested": [
+            "ApplyEasingAlt"
+          ],
+          "claim": "ApplyEasingAlt edge cases: bad code (-1), bad mode (-1), input > 1 (1.5 quad-in = 2.25), input < 0.",
+          "expected": "badCode=-1, badMode=-1, quadIn(1.5)=2.25",
+          "script_lines": [
+            "float fOk = ApplyEasingAlt 1.5 1 0",
+            "float fBadC = ApplyEasingAlt 0.5 99 0",
+            "float fBadM = ApplyEasingAlt 0.5 0 9",
+            "float fNeg = ApplyEasingAlt -0.5 1 0",
+            "  PrintToConsole \"PROBE|b3_so_ex_01_apply_easing_alt_edges|q15=%.3f,badC=%.1f,badM=%.1f,neg=%.3f\" fOk fBadC fBadM fNeg"
+          ]
+        },
+        {
+          "id": "b3_so_ex_02_topic_info_responses_non_info",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 129,
+          "functions_tested": [
+            "TopicInfoGetResponseStrings"
+          ],
+          "claim": "TopicInfoGetResponseStrings returns ar_Null (-1) for non-INFO form (Stimpak).",
+          "expected": "ar_Size == -1",
+          "script_lines": [
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "array_var aR = TopicInfoGetResponseStrings rSt",
+            "  PrintToConsole \"PROBE|b3_so_ex_02_topic_info_responses_non_info|sz=%g\" (ar_Size aR)"
+          ]
+        },
+        {
+          "id": "b3_so_ex_03_is_form_loading_and_pickpocket",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 241,
+          "functions_tested": [
+            "IsFormLoading",
+            "GetPlayerCanPickpocketEquippedItems"
+          ],
+          "claim": "IsFormLoading and GetPlayerCanPickpocketEquippedItems defaults.",
+          "expected": "Observe defaults in Doc Mitchell's house",
+          "script_lines": [
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "int iLd = IsFormLoading rGun",
+            "int iPp = GetPlayerCanPickpocketEquippedItems",
+            "  PrintToConsole \"PROBE|b3_so_ex_03_is_form_loading_and_pickpocket|loading=%g,pp=%g\" iLd iPp"
+          ]
+        },
+        {
+          "id": "b3_so_ex_04_set_seed_using_form_and_rand",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 112,
+          "functions_tested": [
+            "SetSeedUsingForm",
+            "GetRandomizerSeed",
+            "RandSeeded"
+          ],
+          "claim": "SetSeedUsingForm with Caps (0xF) sets seed 15; RandSeeded min..max inclusive.",
+          "expected": "seed=15, RandSeeded 5 5 == 5",
+          "script_lines": [
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "SetSeedUsingForm rCap",
+            "int iSd = GetRandomizerSeed",
+            "int iR5 = RandSeeded 5 5",
+            "int iR1 = RandSeeded 1 100",
+            "SetRandomizerSeed 0",
+            "int iSd0 = GetRandomizerSeed",
+            "  PrintToConsole \"PROBE|b3_so_ex_04_set_seed_using_form_and_rand|sdCap=%g,r5=%g,r1=%g,sd0=%g\" iSd iR5 iR1 iSd0"
+          ]
+        },
+        {
+          "id": "b3_so_ex_05_aux_timer_case_and_owner",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 125,
+          "functions_tested": [
+            "AuxTimerStart",
+            "AuxTimerTimeToCountdown"
+          ],
+          "claim": "AuxTimerTimeToCountdown is case-insensitive and returns -1 when not running.",
+          "expected": "Start 'MyTimer' 25 -> query 'mytimer' reads 25; missing reads -1",
+          "script_lines": [
+            "Player.AuxTimerStart \"*MyTimer\" 25",
+            "float fLo = Player.AuxTimerTimeToCountdown \"*mytimer\"",
+            "float fMs = Player.AuxTimerTimeToCountdown \"*no_such_timer\"",
+            "  PrintToConsole \"PROBE|b3_so_ex_05_aux_timer_case_and_owner|lo=%.1f,miss=%.1f\" fLo fMs"
+          ]
+        },
+        {
+          "id": "b3_so_ex_06_on_display_complete_objective",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 287,
+          "functions_tested": [
+            "SetEventHandlerAlt"
+          ],
+          "claim": "ShowOff:OnDisplayObjective / ShowOff:OnCompleteObjective fire synchronously with GetObjectiveDisplayed already 1.",
+          "expected": "Verify whether OnDisplayObjective / OnCompleteObjective fire and getter state inside callback",
+          "script_lines": [
+            "ref rQ = GetFormFromMod \"FalloutNV.esm\" \"104C1C\"",
+            "Player.AuxVarSetFlt \"*b3_od_hit\" 0",
+            "Player.AuxVarSetFlt \"*b3_od_disp\" -1",
+            "ref rCb = CompileScript \"nvseprobe_s_hlp_od.gek\"",
+            "int iReg = SetEventHandlerAlt \"ShowOff:OnDisplayObjective\" rCb",
+            "SetObjectiveDisplayed rQ 10 1",
+            "int iHit = Player.AuxVarGetFlt \"*b3_od_hit\"",
+            "int iDisp = Player.AuxVarGetFlt \"*b3_od_disp\"",
+            "RemoveEventHandler \"ShowOff:OnDisplayObjective\" rCb",
+            "SetObjectiveDisplayed rQ 10 0",
+            "  PrintToConsole \"PROBE|b3_so_ex_06_on_display_complete_objective|reg=%g,hit=%g,dispInside=%g\" iReg iHit iDisp"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "w4b_jg",
+      "title": "Wave 4B \u2014 JohnnyGuitarNVSE 528",
+      "extender": "JohnnyGuitarNVSE 528",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "b3_jg10_01_navmesh_and_path_rets",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 20,
+          "functions_tested": [
+            "AddNavmeshObstacle",
+            "RemoveNavmeshObstacle",
+            "GetNearestNavMeshTriangle",
+            "GetPointInNavMesh",
+            "PathToPoint",
+            "PathToRef"
+          ],
+          "claim": "AddNavmeshObstacle/RemoveNavmeshObstacle return 1 on ref; GetNearestNavMeshTriangle returns 4-elem array; PathToPoint/Ref returns.",
+          "expected": "Check return values and array shapes in Doc Mitchell's house",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rObj = Player.PlaceAtMe rCap 1",
+            "int ao1 = rObj.AddNavmeshObstacle",
+            "int ro1 = rObj.RemoveNavmeshObstacle",
+            "rObj.Disable",
+            "rObj.MarkForDelete",
+            "float fX = Player.GetPos X",
+            "float fY = Player.GetPos Y",
+            "float fZ = Player.GetPos Z",
+            "array_var aTri = GetNearestNavMeshTriangle fX fY fZ 0",
+            "array_var aIn = GetPointInNavMesh fX fY fZ 0",
+            "float fPp = rDoc.PathToPoint fX fY fZ",
+            "float fPr = rDoc.PathToRef Player",
+            "  PrintToConsole \"PROBE|b3_jg10_01_navmesh_and_path_rets|obs=%g/%g,triSz=%g,inSz=%g,pp=%.1f,pr=%.1f\" ao1 ro1 (ar_Size aTri) (ar_Size aIn) fPp fPr"
+          ]
+        },
+        {
+          "id": "b3_jg10_02_safe_facegen_hl_land",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 26,
+          "functions_tested": [
+            "DisableMuzzleFlashLights",
+            "FaceGenSetNthProperty",
+            "HighlightBodyPartAlt",
+            "RemoveHighlightedRef",
+            "GetLandTextureUnderFeet",
+            "RefreshIdle"
+          ],
+          "claim": "JG10 safe returns (Note: HighlightBodyPartAlt 20 crashes JohnnyGuitar 528 0xC0000005!).",
+          "expected": "Observe FaceGenSetNthProperty=1, HighlightBodyPartAlt 15, GetLandTextureUnderFeet indoors, RefreshIdle",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rDocB = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "DisableMuzzleFlashLights 99",
+            "DisableMuzzleFlashLights 0",
+            "float fOld = FaceGenGetNthProperty rDocB 0 0",
+            "int fgRet = FaceGenSetNthProperty rDocB 0 0 fOld",
+            "rDoc.HighlightBodyPartAlt 15",
+            "rDoc.RemoveHighlightedRef",
+            "ref rLtex = Player.GetLandTextureUnderFeet",
+            "rDoc.RefreshIdle 1",
+            "  PrintToConsole \"PROBE|b3_jg10_02_safe_facegen_hl_land|fgRet=%g,ltex=%i,hl20=CRASH_0xC0000005\" fgRet rLtex"
+          ]
+        },
+        {
+          "id": "b3_jg4_01_idle_marker_traits_and_anims",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg4.md",
+          "spec_line": 15,
+          "functions_tested": [
+            "GetIdleMarkerTraitNumeric",
+            "SetIdleMarkerTraitNumeric",
+            "GetIdleMarkerAnimations",
+            "SetIdleMarkerAnimation",
+            "SetIdleMarkerAnimations"
+          ],
+          "claim": "SetIdleMarkerTraitNumeric negative timer; SetIdleMarkerAnimation OOB; SetIdleMarkerAnimations filters non-IDLE.",
+          "expected": "Test timer -5, OOB index 99, and mixed [validIdle, Stimpak] array",
+          "script_lines": [
+            "ref rIm = EditorIDToFormID \"IdleMarkerLeanAgainstWall\"",
+            "if (IsFormValid rIm) == 0",
+            "  let rIm := GetFormFromMod \"FalloutNV.esm\" \"E5F7B\"",
+            "endif",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "float t0 = GetIdleMarkerTraitNumeric rIm 2",
+            "SetIdleMarkerTraitNumeric rIm 2 -5",
+            "float t1 = GetIdleMarkerTraitNumeric rIm 2",
+            "SetIdleMarkerTraitNumeric rIm 2 t0",
+            "array_var a0 = GetIdleMarkerAnimations rIm",
+            "int n0 = ar_Size a0",
+            "SetIdleMarkerAnimation rIm 99 rSt",
+            "array_var a1 = GetIdleMarkerAnimations rIm",
+            "int n1 = ar_Size a1",
+            "int nMix = -1",
+            "if n0 > 0",
+            "  array_var aMix = ar_List (a0[0]) rSt",
+            "  SetIdleMarkerAnimations rIm aMix",
+            "  array_var a2 = GetIdleMarkerAnimations rIm",
+            "  let nMix := ar_Size a2",
+            "  SetIdleMarkerAnimations rIm a0",
+            "endif",
+            "  PrintToConsole \"PROBE|b3_jg4_01_idle_marker_traits_and_anims|im=%i,t=%.1f->%.1f,n=%g->%g,mix=%g\" rIm t0 t1 n0 n1 nMix"
+          ]
+        },
+        {
+          "id": "b3_jg5_01_alt_tex_non_txst_and_neg",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg5.md",
+          "spec_line": 25,
+          "functions_tested": [
+            "SetWeaponAltTexture",
+            "SetArmorAltTexture"
+          ],
+          "claim": "SetWeaponAltTexture / SetArmorAltTexture return 0 for non-TXST (Stimpak) or negative index.",
+          "expected": "nonTxst=0, negIdx=0",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "int wBad = SetWeaponAltTexture rW 0 rSt",
+            "int wNeg = SetWeaponAltTexture rW -1 rSt",
+            "int aBad = SetArmorAltTexture rA 0 0 rSt",
+            "  PrintToConsole \"PROBE|b3_jg5_01_alt_tex_non_txst_and_neg|wBad=%g,wNeg=%g,aBad=%g\" wBad wNeg aBad"
+          ]
+        },
+        {
+          "id": "b3_jg5_02_world_zone_and_loc_name",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg5.md",
+          "spec_line": 31,
+          "functions_tested": [
+            "SetWorldspaceEncounterZone",
+            "GetWorldspaceEncounterZone",
+            "GetLocationName"
+          ],
+          "claim": "SetWorldspaceEncounterZone rejects non-ECZN (returns 0); GetLocationName indoors returns cell name.",
+          "expected": "nonZoneRet=0, locName='Doc Mitchell's House'",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"DA726\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref z0 = GetWorldspaceEncounterZone rW",
+            "int iBad = SetWorldspaceEncounterZone rW rSt",
+            "ref z1 = GetWorldspaceEncounterZone rW",
+            "string_var svLoc = Player.GetLocationName",
+            "  PrintToConsole \"PROBE|b3_jg5_02_world_zone_and_loc_name|z:%i->%i,badRet=%g,loc=[%z]\" z0 z1 iBad svLoc"
+          ]
+        },
+        {
+          "id": "b3_jg5_03_camerashot_traits_oob",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg5.md",
+          "spec_line": 45,
+          "functions_tested": [
+            "GetCameraShotTraitNumeric",
+            "SetCameraShotTraitNumeric"
+          ],
+          "claim": "GetCameraShotTraitNumeric traits 0..10 & out-of-range trait 99 return 0.",
+          "expected": "Read traits 0, 3, 6, 9, 10, 99 on CameraShot 0x28FA1",
+          "script_lines": [
+            "ref rCs = GetFormFromMod \"FalloutNV.esm\" \"28FA1\"",
+            "float t0 = GetCameraShotTraitNumeric rCs 0",
+            "float t3 = GetCameraShotTraitNumeric rCs 3",
+            "float t6 = GetCameraShotTraitNumeric rCs 6",
+            "float t9 = GetCameraShotTraitNumeric rCs 9",
+            "float t10 = GetCameraShotTraitNumeric rCs 10",
+            "float t99 = GetCameraShotTraitNumeric rCs 99",
+            "  PrintToConsole \"PROBE|b3_jg5_03_camerashot_traits_oob|t0=%.1f,t3=%.2f,t6=%.2f,t9=%.2f,t10=%.2f,t99=%.2f\" t0 t3 t6 t9 t10 t99"
+          ]
+        },
+        {
+          "id": "b3_jg6_01_call_per_mobile_levels",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg6.md",
+          "spec_line": 44,
+          "functions_tested": [
+            "CallPerMobileObject"
+          ],
+          "claim": "CallPerMobileObject counts actors at processing levels 0, 1, 2, 3.",
+          "expected": "Compare counts for levels 0 (loaded), 1, 2, 3",
+          "script_lines": [
+            "ref rCb = CompileScript \"nvseprobe_s_hlp_cnt.gek\"",
+            "Player.AuxVarSetFlt \"*b3_cnt\" 0",
+            "CallPerMobileObject rCb 0",
+            "int c0 = Player.AuxVarGetFlt \"*b3_cnt\"",
+            "Player.AuxVarSetFlt \"*b3_cnt\" 0",
+            "CallPerMobileObject rCb 1",
+            "int c1 = Player.AuxVarGetFlt \"*b3_cnt\"",
+            "Player.AuxVarSetFlt \"*b3_cnt\" 0",
+            "CallPerMobileObject rCb 2",
+            "int c2 = Player.AuxVarGetFlt \"*b3_cnt\"",
+            "Player.AuxVarSetFlt \"*b3_cnt\" 0",
+            "CallPerMobileObject rCb 3",
+            "int c3 = Player.AuxVarGetFlt \"*b3_cnt\"",
+            "  PrintToConsole \"PROBE|b3_jg6_01_call_per_mobile_levels|l0=%g,l1=%g,l2=%g,l3=%g\" c0 c1 c2 c3"
+          ]
+        },
+        {
+          "id": "b3_jg6_02_talking_activator_actor",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg6.md",
+          "spec_line": 37,
+          "functions_tested": [
+            "GetTalkingActivatorActor"
+          ],
+          "claim": "GetTalkingActivatorActor returns 00000000 for non-talking-activator or unset.",
+          "expected": "Returns 00000000 cleanly",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rA = GetTalkingActivatorActor rDoc",
+            "  PrintToConsole \"PROBE|b3_jg6_02_talking_activator_actor|%i\" rA"
+          ]
+        },
+        {
+          "id": "b3_jg7_01_ui_sound_and_rep_icon_bounds",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg7.md",
+          "spec_line": 27,
+          "functions_tested": [
+            "SetUIUpdateSound",
+            "SetCustomReputationChangeIcon"
+          ],
+          "claim": "SetUIUpdateSound with bad type/non-SOUN; SetCustomReputationChangeIcon tier 0/1/4/5 and non-REPU.",
+          "expected": "Check return values for valid vs invalid tiers and form types",
+          "script_lines": [
+            "ref rRep = GetFormFromMod \"FalloutNV.esm\" \"104C22\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rSnd = GetFormFromMod \"FalloutNV.esm\" \"403C2\"",
+            "SetUIUpdateSound rSt 1",
+            "SetUIUpdateSound rSnd 99",
+            "int rT0 = SetCustomReputationChangeIcon rRep 0 \"interface\\icons\\w4.dds\"",
+            "int rT1 = SetCustomReputationChangeIcon rRep 1 \"interface\\icons\\w4.dds\"",
+            "int rT4 = SetCustomReputationChangeIcon rRep 4 \"interface\\icons\\w4.dds\"",
+            "int rT5 = SetCustomReputationChangeIcon rRep 5 \"interface\\icons\\w4.dds\"",
+            "int rBad = SetCustomReputationChangeIcon rSt 1 \"interface\\icons\\w4.dds\"",
+            "  PrintToConsole \"PROBE|b3_jg7_01_ui_sound_and_rep_icon_bounds|t0=%g,t1=%g,t4=%g,t5=%g,badForm=%g\" rT0 rT1 rT4 rT5 rBad"
+          ]
+        },
+        {
+          "id": "b3_jg8_01_texture_dds_queries",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 50,
+          "functions_tested": [
+            "GetTextureWidth",
+            "GetTextureHeight",
+            "GetTextureMipMapCount",
+            "GetTextureFormat"
+          ],
+          "claim": "GetTextureWidth/Height/MipMapCount/Format on vanilla archived DDS vs missing DDS.",
+          "expected": "Non-zero dimensions & format code for vanilla DDS; 0 for missing",
+          "script_lines": [
+            "int w1 = GetTextureWidth \"interface\\icons\\world map\\icon_map_encampment.dds\"",
+            "int h1 = GetTextureHeight \"interface\\icons\\world map\\icon_map_encampment.dds\"",
+            "int m1 = GetTextureMipMapCount \"interface\\icons\\world map\\icon_map_encampment.dds\"",
+            "int f1 = GetTextureFormat \"interface\\icons\\world map\\icon_map_encampment.dds\"",
+            "int w0 = GetTextureWidth \"nvseprobe_no_such_tex.dds\"",
+            "int f0 = GetTextureFormat \"nvseprobe_no_such_tex.dds\"",
+            "  PrintToConsole \"PROBE|b3_jg8_01_texture_dds_queries|ok=(%gx%g,mip=%g,fmt=%g)|miss=(%g,%g)\" w1 h1 m1 f1 w0 f0"
+          ]
+        },
+        {
+          "id": "b3_jg8_02_custom_map_marker_get",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 47,
+          "functions_tested": [
+            "GetCustomMapMarker",
+            "SetCustomMapMarker",
+            "ClearCustomMapMarker"
+          ],
+          "claim": "GetCustomMapMarker before & after SetCustomMapMarker.",
+          "expected": "Check ref ID before set, after set, after clear",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"DA726\"",
+            "ClearCustomMapMarker",
+            "ref m0 = GetCustomMapMarker",
+            "SetCustomMapMarker 100 200 rW",
+            "ref m1 = GetCustomMapMarker",
+            "ClearCustomMapMarker",
+            "ref m2 = GetCustomMapMarker",
+            "  PrintToConsole \"PROBE|b3_jg8_02_custom_map_marker_get|m0=%i,m1=%i,m2=%i\" m0 m1 m2"
+          ]
+        },
+        {
+          "id": "b3_jg9_01_sound_runspeed_compass_pipboy",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg9.md",
+          "spec_line": 18,
+          "functions_tested": [
+            "PlaySoundFile",
+            "StopSoundFromPath",
+            "GetRunSpeed",
+            "GetNearestCompassHostileDirection",
+            "GetPipBoyMode"
+          ],
+          "claim": "PlaySoundFile missing=0, StopSoundFromPath=0, GetRunSpeed positive, CompassHostile=-1, PipBoyMode=0.",
+          "expected": "Observe exact values in Doc Mitchell's house",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "int ps = PlaySoundFile \"sound\\fx\\nvseprobe_no_such.wav\"",
+            "int ss = StopSoundFromPath \"sound\\fx\\nvseprobe_no_such.wav\" 0",
+            "float rsP = Player.GetRunSpeed",
+            "float rsD = rDoc.GetRunSpeed",
+            "int hd = GetNearestCompassHostileDirection 0",
+            "int pb = GetPipBoyMode",
+            "  PrintToConsole \"PROBE|b3_jg9_01_sound_runspeed_compass_pipboy|ps=%g,ss=%g,rsP=%.1f,rsD=%.1f,hostDir=%g,pb=%g\" ps ss rsP rsD hd pb"
+          ]
+        },
+        {
+          "id": "b3_jg_ex_01_cell_expired_and_visited",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg6.md",
+          "spec_line": 31,
+          "functions_tested": [
+            "IsCellVisited",
+            "IsCellExpired"
+          ],
+          "claim": "IsCellVisited and IsCellExpired for current cell (Doc's house) vs unvisited cell (Goodsprings Schoolhouse).",
+          "expected": "Current cell visited=1 expired=-1; unvisited cell visited=0 expired=-1",
+          "script_lines": [
+            "ref rDocH = GetFormFromMod \"FalloutNV.esm\" \"103DF9\"",
+            "ref rSch = EditorIDToFormID \"GSSchoolhouse\"",
+            "int v1 = IsCellVisited rDocH",
+            "int e1 = IsCellExpired rDocH",
+            "int v2 = IsCellVisited rSch",
+            "int e2 = IsCellExpired rSch",
+            "  PrintToConsole \"PROBE|b3_jg_ex_01_cell_expired_and_visited|doc=(v=%g,e=%g)|sch=%i:(v=%g,e=%g)\" v1 e1 rSch v2 e2"
+          ]
+        },
+        {
+          "id": "b3_jg_ex_02_get_buffered_cells_alt",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg6.md",
+          "spec_line": 35,
+          "functions_tested": [
+            "GetBufferedCellsAlt"
+          ],
+          "claim": "GetBufferedCellsAlt 0 and 1 return ar_Null (-1) in JohnnyGuitar 528.",
+          "expected": "ar_Size == -1 for both 0 and 1",
+          "script_lines": [
+            "array_var a0 = GetBufferedCellsAlt 0",
+            "array_var a1 = GetBufferedCellsAlt 1",
+            "  PrintToConsole \"PROBE|b3_jg_ex_02_get_buffered_cells_alt|ext=%g,int=%g\" (ar_Size a0) (ar_Size a1)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "w4b_sup",
+      "title": "Wave 4B \u2014 SUP NVSE 855",
+      "extender": "SUP NVSE 855",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "supNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "b3_sup2_01_topic_info_quest_and_choices",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup2.md",
+          "spec_line": 39,
+          "functions_tested": [
+            "TopicGetTopicInfoQuest",
+            "TopicInfoGetChoiceCount",
+            "TopicInfoGetAllChoices",
+            "TopicInfoHasChoice",
+            "TopicInfoSetSaidOnce"
+          ],
+          "claim": "TopicGetTopicInfoQuest and TopicInfo choice/saidOnce queries on a vanilla INFO.",
+          "expected": "Check quest ref, choice count, saidOnce toggle",
+          "script_lines": [
+            "ref rInfo = GetFormFromMod \"FalloutNV.esm\" \"104C2B\"",
+            "ref rQ = TopicGetTopicInfoQuest rInfo",
+            "int nCh = TopicInfoGetChoiceCount rInfo",
+            "array_var aCh = TopicInfoGetAllChoices rInfo",
+            "int iSd = TopicInfoSetSaidOnce rInfo 1",
+            "TopicInfoSetSaidOnce rInfo 0",
+            "  PrintToConsole \"PROBE|b3_sup2_01_topic_info_quest_and_choices|q=%i,nCh=%g,arrSz=%g,sdRet=%g\" rQ nCh (ar_Size aCh) iSd"
+          ]
+        },
+        {
+          "id": "b3_sup3_01_ini_section_keys_sorted",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-sup3.md",
+          "spec_line": 55,
+          "functions_tested": [
+            "ReadINISectionKeysFromFile"
+          ],
+          "claim": "ReadINISectionKeysFromFile returns keys sorted alphabetically; missing section returns empty/null.",
+          "expected": "Keys ['zKey','aKey','mKey'] returned as ['aKey','mKey','zKey']",
+          "script_lines": [
+            "array_var aK = ReadINISectionKeysFromFile \"nvseprobe_w4b3_ini.ini\" \"Sec\"",
+            "array_var aMiss = ReadINISectionKeysFromFile \"nvseprobe_w4b3_ini.ini\" \"NoSuchSec\"",
+            "int nK = ar_Size aK",
+            "string_var sv0 = \"\"",
+            "string_var sv1 = \"\"",
+            "string_var sv2 = \"\"",
+            "if nK >= 3",
+            "  let sv0 := aK[0]",
+            "  let sv1 := aK[1]",
+            "  let sv2 := aK[2]",
+            "endif",
+            "  PrintToConsole \"PROBE|b3_sup3_01_ini_section_keys_sorted|n=%g,[%z,%z,%z],miss=%g\" nK sv0 sv1 sv2 (ar_Size aMiss)"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "nvseprobe_w4b3_ini.ini",
+              "content": "[Sec]\nzKey=1\naKey=2\nmKey=3\n"
+            }
+          ]
+        },
+        {
+          "id": "b3_sup4_01_ar_has_invalid_refs_dim",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup4.md",
+          "spec_line": 21,
+          "functions_tested": [
+            "Ar_HasInvalidRefs"
+          ],
+          "claim": "Ar_HasInvalidRefs checks null/invalid refs at dimension 0 and nested dimension 1.",
+          "expected": "valid=0, withNull=1, nestedValid=0, nestedNull=1",
+          "script_lines": [
+            "ref rNull = 0",
+            "array_var aOk = ar_List Player",
+            "array_var aBad = ar_List Player rNull",
+            "array_var aNestOk = ar_List (ar_List Player)",
+            "array_var aNestBad = ar_List (ar_List Player rNull)",
+            "int i1 = Ar_HasInvalidRefs aOk",
+            "int i2 = Ar_HasInvalidRefs aBad",
+            "int i3 = Ar_HasInvalidRefs aNestOk 0",
+            "int i4 = Ar_HasInvalidRefs aNestBad 0",
+            "  PrintToConsole \"PROBE|b3_sup4_01_ar_has_invalid_refs_dim|%g,%g,%g,%g\" i1 i2 i3 i4"
+          ]
+        },
+        {
+          "id": "b3_sup4_02_near_cells_markers_and_links",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup4.md",
+          "spec_line": 24,
+          "functions_tested": [
+            "GetNearCells",
+            "GetNearMapMarkers",
+            "GetCurrentQuestObjectiveTeleportLinksAlt"
+          ],
+          "claim": "GetNearCells depth 0/2/-1 indoors returns 1 (player cell alone); GetNearMapMarkers=0 indoors.",
+          "expected": "c0=1, c2=1, cAll=1, mm=0, linksSz",
+          "script_lines": [
+            "array_var aC0 = GetNearCells 0",
+            "array_var aC2 = GetNearCells 2",
+            "array_var aCm = GetNearCells -1",
+            "array_var aMm = GetNearMapMarkers 2",
+            "array_var aLk = GetCurrentQuestObjectiveTeleportLinksAlt",
+            "  PrintToConsole \"PROBE|b3_sup4_02_near_cells_markers_and_links|c0=%g,c2=%g,cAll=%g,mm=%g,lk=%g\" (ar_Size aC0) (ar_Size aC2) (ar_Size aCm) (ar_Size aMm) (ar_Size aLk)"
+          ]
+        },
+        {
+          "id": "b3_sup4_03_caught_pickpocket_and_translit",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup4.md",
+          "spec_line": 53,
+          "functions_tested": [
+            "SetCaughtPCPickpocketting",
+            "TranslitText"
+          ],
+          "claim": "SetCaughtPCPickpocketting flag read/set on Doc Mitchell; TranslitText ASCII pass-through.",
+          "expected": "Observe SetCaughtPCPickpocketting return & TranslitText",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "int r1 = rDoc.SetCaughtPCPickpocketting 1",
+            "int r0 = rDoc.SetCaughtPCPickpocketting 0",
+            "string_var svTr = TranslitText \"Hello123\"",
+            "  PrintToConsole \"PROBE|b3_sup4_03_caught_pickpocket_and_translit|set1=%g,set0=%g,tr=[%z]\" r1 r0 svTr"
+          ]
+        },
+        {
+          "id": "b3_sup4_04_call_fn_next_frame_fire",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup4.md",
+          "spec_line": 23,
+          "functions_tested": [
+            "CallFunctionNextFrame"
+          ],
+          "claim": "CallFunctionNextFrame runs UDF after N frames (checked in phase 2!).",
+          "expected": "0 same frame, 1 after waiting frames",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*b3_cfnf\" 0",
+            "ref rCb = CompileScript \"nvseprobe_s_hlp_cfnf.gek\"",
+            "Player.CallFunctionNextFrame rCb 2 1",
+            "int now = Player.AuxVarGetFlt \"*b3_cfnf\"",
+            "Player.AuxVarSetFlt \"*b3_cfnf_now\" now"
+          ],
+          "helper_scripts": {
+            "nvseprobe_s_hlp_cfnf.gek": [
+              "Player.AuxVarSetFlt \"*b3_cfnf\" 1"
+            ]
+          },
+          "followup_script_lines": [
+            "int iNow = Player.AuxVarGetFlt \"*b3_cfnf_now\"",
+            "int iLater = Player.AuxVarGetFlt \"*b3_cfnf\"",
+            "PrintToConsole \"PROBE|b3_sup4_04_call_fn_next_frame_fire|same=%g,later=%g\" iNow iLater"
+          ]
+        },
+        {
+          "id": "b3_sup5_01_file_time_5_elements",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-sup5.md",
+          "spec_line": 73,
+          "functions_tested": [
+            "GetFileTime",
+            "GetFileTimeSTR"
+          ],
+          "claim": "Inspect all 5 elements of GetFileTime (0=created, 1=accessed, 2=written) + GetFileTimeSTR.",
+          "expected": "Print exact 5 elements to settle sup_19 5-vs-6 element layout!",
+          "script_lines": [
+            "array_var aT2 = GetFileTime \"nvseprobe_w4b3_ft.txt\" 2",
+            "string_var svT2 = GetFileTimeSTR \"nvseprobe_w4b3_ft.txt\" 2",
+            "int iN2 = ar_Size aT2",
+            "string_var svDump = \"\"",
+            "int iIdx = 0",
+            "while iIdx < iN2",
+            "  string_var svPart = sv_Construct \"%g,\" (aT2[iIdx])",
+            "  let svDump := svDump + svPart",
+            "  let iIdx += 1",
+            "loop",
+            "  PrintToConsole \"PROBE|b3_sup5_01_file_time_5_elements|n=%g,elems=[%z],str=[%z]\" iN2 svDump svT2"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "nvseprobe_w4b3_ft.txt",
+              "content": "hello"
+            }
+          ]
+        },
+        {
+          "id": "b3_sup7_01_hud_bar_lifecycle",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup7.md",
+          "spec_line": 92,
+          "functions_tested": [
+            "HudBarCreate",
+            "HudBarExists",
+            "HudBarSetValueMax",
+            "HudBarSetValueFloat",
+            "HudBarGetBarTrait",
+            "HudBarDestroy"
+          ],
+          "claim": "HudBarCreate / Exists / SetValueFloat / GetBarTrait / Destroy lifecycle.",
+          "expected": "Verify exist 0->1->0 and trait readback",
+          "script_lines": [
+            "int iE0 = HudBarExists \"W4BTestBar\"",
+            "HudBarCreate \"W4BTestBar\" 100 100 0",
+            "int iE1 = HudBarExists \"W4BTestBar\"",
+            "HudBarSetValueMax \"W4BTestBar\" 100",
+            "HudBarSetValueFloat \"W4BTestBar\" 45",
+            "float fV1 = HudBarGetBarTrait \"W4BTestBar\" 0",
+            "HudBarDestroy \"W4BTestBar\"",
+            "int iE2 = HudBarExists \"W4BTestBar\"",
+            "  PrintToConsole \"PROBE|b3_sup7_01_hud_bar_lifecycle|e=%g->%g->%g,v1=%.2f\" iE0 iE1 iE2 fV1"
+          ]
+        },
+        {
+          "id": "b3_sup7_02_nif_interp_ret",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup7.md",
+          "spec_line": 22,
+          "functions_tested": [
+            "NifBlockInterpolateTranslation",
+            "SetSUPOnInterpolateFinishEvent"
+          ],
+          "claim": "NifBlockInterpolateTranslation returns 1 on valid node and 0 on missing node; finish event fires with args.",
+          "expected": "valid=1, missing=0",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rCb = CompileScript \"nvseprobe_s_hlp_supfin.gek\"",
+            "Player.AuxVarSetFlt \"*b3_nif_hit\" 0",
+            "SetSUPOnInterpolateFinishEvent rCb 0",
+            "int iMiss = rDoc.NifBlockInterpolateTranslation \"NoSuchNodeXYZ\" 0 0 0 0 0 10 0.05 0 0 0 0",
+            "int iOk = rDoc.NifBlockInterpolateTranslation \"Bip01 Head\" 0 0 0 0 0 1 0.05 0 0 0 0",
+            "  PrintToConsole \"PROBE|b3_sup7_02_nif_interp_ret|miss=%g,ok=%g\" iMiss iOk"
+          ]
+        },
+        {
+          "id": "b3_sup_ex_01_ar_random_key_empty_map",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup4.md",
+          "spec_line": 20,
+          "functions_tested": [
+            "Ar_GetRandomKeyMap"
+          ],
+          "claim": "Ar_GetRandomKeyMap on an empty stringmap returns empty string (len 0) or null.",
+          "expected": "Observe sv_Length of Ar_GetRandomKeyMap on empty stringmap",
+          "script_lines": [
+            "array_var aEmp = ar_Construct \"stringmap\"",
+            "string_var svK = Ar_GetRandomKeyMap aEmp",
+            "  PrintToConsole \"PROBE|b3_sup_ex_01_ar_random_key_empty_map|len=%g,val=[%z]\" (sv_Length svK) svK"
+          ]
+        },
+        {
+          "id": "b3_sup_ex_03_nif_interp_finish_str",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup7.md",
+          "spec_line": 28,
+          "functions_tested": [
+            "NifBlockInterpolateTranslation",
+            "SetSUPOnInterpolateFinishEvent"
+          ],
+          "claim": "Verify exact block string passed to SetSUPOnInterpolateFinishEvent (using $svBlk!).",
+          "expected": "blk=['Bip01 Head'], type=2, pc=0",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rCb = CompileScript \"nvseprobe_s_hlp_supfin2.gek\"",
+            "Player.AuxVarSetFlt \"*b3_nf2_hit\" 0",
+            "SetSUPOnInterpolateFinishEvent rCb 0",
+            "rDoc.NifBlockInterpolateTranslation \"Bip01 Head\" 0 0 0 0 0 1 0.05 0 0 0 0"
+          ],
+          "helper_scripts": {
+            "nvseprobe_s_hlp_supfin2.gek": [
+              "begin Function { ref rRef, string_var svBlk, int iType, int iLoop, int iPc }",
+              "Player.AuxVarSetFlt \"*b3_nf2_hit\" 1",
+              "Player.AuxVarSetFlt \"*b3_nf2_type\" iType",
+              "Player.AuxVarSetFlt \"*b3_nf2_loop\" iLoop",
+              "Player.AuxVarSetFlt \"*b3_nf2_pc\" iPc",
+              "PrintToConsole \"PROBE|b3_sup_ex_03_nif_interp_finish_str|ref=%i,blk=[%z],type=%g,loop=%g,pc=%g\" rRef svBlk iType iLoop iPc"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "w4b_core_misc",
+      "title": "Wave 4B \u2014 xNVSE 6.4.9 Core, kNVSE 37, AnhNVSE 131 & Stewie 1005",
+      "extender": "AnhNVSE 131",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "kNVSE.dll",
+        "AnhNVSE.dll",
+        "nvse_stewie_tweaks.dll"
+      ],
+      "probes": [
+        {
+          "id": "b3_anh_01_quat_layout_and_mult",
+          "bucket": "B",
+          "extender": "AnhNVSE 131",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-anh.md",
+          "spec_line": 34,
+          "functions_tested": [
+            "QMultQuatQuatAlt",
+            "QNormalizeAlt",
+            "QInterpolateAlt"
+          ],
+          "claim": "Verify QMultQuatQuatAlt A*B vs B*A, QNormalizeAlt, and QInterpolateAlt component order.",
+          "expected": "Check i*j = +k (Hamilton A*B) vs -k (B*A), normalize [3,4,0,0], and interp [1,0,0,0] to [0,0,0,1]",
+          "script_lines": [
+            "array_var aI = ar_List 0 1 0 0",
+            "array_var aJ = ar_List 0 0 1 0",
+            "array_var aIJ = QMultQuatQuatAlt aI aJ",
+            "array_var aRaw = ar_List 3 4 0 0",
+            "array_var aN2 = QNormalizeAlt aRaw",
+            "array_var aQ0 = ar_List 1 0 0 0",
+            "array_var aQ1 = ar_List 0 0 0 1",
+            "float fHalf = 0.5",
+            "array_var aMid = QInterpolateAlt aQ0 aQ1 fHalf 0",
+            "array_var aMidS = QInterpolateAlt aQ0 aQ1 fHalf 1",
+            "  PrintToConsole \"PROBE|b3_anh_01_quat_layout_and_mult|ij=(%.2f,%.2f,%.2f,%.2f)|n=(%.2f,%.2f)|midL=(%.3f,%.3f,%.3f,%.3f)|midS=(%.3f,%.3f,%.3f,%.3f)\" (aIJ[0]) (aIJ[1]) (aIJ[2]) (aIJ[3]) (aN2[0]) (aN2[1]) (aMid[0]) (aMid[1]) (aMid[2]) (aMid[3]) (aMidS[0]) (aMidS[1]) (aMidS[2]) (aMidS[3])"
+          ]
+        },
+        {
+          "id": "b3_anh_01b_qnorm_full4",
+          "bucket": "B",
+          "extender": "AnhNVSE 131",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-anh.md",
+          "spec_line": 33,
+          "functions_tested": [
+            "QNormalizeAlt"
+          ],
+          "claim": "Inspect all 4 components of QNormalizeAlt [3, 4, 0, 0] and [0, 3, 4, 0].",
+          "expected": "Check whether QNormalizeAlt returns [w,x,y,z] or drops/shifts component 0!",
+          "script_lines": [
+            "array_var aA = ar_List 3 4 0 0",
+            "array_var aNA = QNormalizeAlt aA",
+            "array_var aB = ar_List 0 3 4 0",
+            "array_var aNB = QNormalizeAlt aB",
+            "  PrintToConsole \"PROBE|b3_anh_01b_qnorm_full4|szA=%g:(%.2f,%.2f,%.2f,%.2f)|szB=%g:(%.2f,%.2f,%.2f,%.2f)\" (ar_Size aNA) (aNA[0]) (aNA[1]) (aNA[2]) (aNA[3]) (ar_Size aNB) (aNB[0]) (aNB[1]) (aNB[2]) (aNB[3])"
+          ]
+        },
+        {
+          "id": "b3_core_01_hair_weight_flags_high",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 14,
+          "functions_tested": [
+            "GetHairLength",
+            "SetHairLength",
+            "GetNPCWeight",
+            "SetNPCWeight",
+            "GetActorBaseFlagsHigh",
+            "SetActorBaseFlagsHigh"
+          ],
+          "claim": "SetHairLength, SetNPCWeight, SetActorBaseFlagsHigh roundtrip on Doc Mitchell base.",
+          "expected": "All three mutate and read back cleanly, then restore",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "float h0 = GetHairLength rDoc",
+            "SetHairLength 0.75 rDoc",
+            "float h1 = GetHairLength rDoc",
+            "SetHairLength h0 rDoc",
+            "float w0 = GetNPCWeight rDoc",
+            "SetNPCWeight 0.42 rDoc",
+            "float w1 = GetNPCWeight rDoc",
+            "SetNPCWeight w0 rDoc",
+            "int fh0 = GetActorBaseFlagsHigh rDoc",
+            "SetActorBaseFlagsHigh (SetBit fh0 0) rDoc",
+            "int fh1 = GetActorBaseFlagsHigh rDoc",
+            "SetActorBaseFlagsHigh fh0 rDoc",
+            "  PrintToConsole \"PROBE|b3_core_01_hair_weight_flags_high|hair=%.2f->%.2f|wt=%.2f->%.2f|flH=%g->%g\" h0 h1 w0 w1 fh0 fh1"
+          ]
+        },
+        {
+          "id": "b3_core_02_setcritdam_alias_check",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 129,
+          "functions_tested": [
+            "SetCritDam"
+          ],
+          "claim": "Check whether spelling SetCritDam compiles in xNVSE 6.4.9.",
+          "expected": "Either compiles and mutates crit damage, or COMPILE_FAIL",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "float c0 = GetWeaponCritDamage rW",
+            "SetCritDam 55 rW",
+            "float c1 = GetWeaponCritDamage rW",
+            "SetWeaponCritDamage c0 rW",
+            "  PrintToConsole \"PROBE|b3_core_02_setcritdam_alias_check|%.1f->%.1f\" c0 c1"
+          ]
+        },
+        {
+          "id": "b3_core_03_active_ui_and_alt_ctrl",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 94,
+          "functions_tested": [
+            "GetActiveUIComponentFullName",
+            "GetActiveUIComponentName",
+            "GetAltControl"
+          ],
+          "claim": "GetActiveUIComponentFullName/Name in GameMode return empty string; GetAltControl reads mouse binding.",
+          "expected": "fullLen=0, nameLen=0, altCtrl4=256",
+          "script_lines": [
+            "string_var svFull = GetActiveUIComponentFullName",
+            "string_var svNm = GetActiveUIComponentName",
+            "int iAlt = GetAltControl 4",
+            "  PrintToConsole \"PROBE|b3_core_03_active_ui_and_alt_ctrl|fullLen=%g,nameLen=%g,alt4=%g\" (sv_Length svFull) (sv_Length svNm) iAlt"
+          ]
+        },
+        {
+          "id": "b3_core_04_generic_add_del_form_idx",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-console-generic.md",
+          "spec_line": 79,
+          "functions_tested": [
+            "GenericAddForm",
+            "GenericDeleteForm",
+            "GenericGetForm"
+          ],
+          "claim": "GenericAddForm / GenericGetForm / GenericDeleteForm with listType=13 (FormList) at index 0 and -2 (append).",
+          "expected": "add0=0, got=Stimpak, del=Stimpak, addNeg(-2) appends at end",
+          "script_lines": [
+            "ref rList = GetFormFromMod \"FalloutNV.esm\" \"645D5\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "int n0 = ListGetCount rList",
+            "int iAdd0 = GenericAddForm 13 rList rSt 0",
+            "ref rGot = GenericGetForm 13 rList 0",
+            "ref rDel = GenericDeleteForm 13 rList 0",
+            "int iAddNeg = GenericAddForm 13 rList rSt -2",
+            "int nAfterNeg = ListGetCount rList",
+            "if iAddNeg >= 0",
+            "  GenericDeleteForm 13 rList iAddNeg",
+            "endif",
+            "  PrintToConsole \"PROBE|b3_core_04_generic_add_del_form_idx|n0=%g,add0=%g,got=%i,del=%i,addM2=%g,nM2=%g\" n0 iAdd0 rGot rDel iAddNeg nAfterNeg"
+          ]
+        },
+        {
+          "id": "b3_core_05_tostring_array_map",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 53,
+          "functions_tested": [
+            "ToString"
+          ],
+          "claim": "ToString format on list array vs stringmap vs number vs form.",
+          "expected": "Observe ToString on [1,2], {k:5}, 42, Player",
+          "script_lines": [
+            "array_var aL = ar_List 1 2",
+            "array_var aM = ar_Map \"k\"::5",
+            "string_var svL = ToString aL",
+            "string_var svM = ToString aM",
+            "string_var svN = ToString 42",
+            "  PrintToConsole \"PROBE|b3_core_05_tostring_array_map|L=[%z]|M=[%z]|N=[%z]\" svL svM svN"
+          ]
+        },
+        {
+          "id": "b3_core_ex_01_ar_find_sort_bounds",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-arrays.md",
+          "spec_line": 186,
+          "functions_tested": [
+            "Ar_Find",
+            "Ar_Sort"
+          ],
+          "claim": "Ar_Find missing returns -99999; Ar_Sort sorts ascending; slice [1:99] clamps.",
+          "expected": "miss=-99999, s0=10, slSz=2, sl0=20",
+          "script_lines": [
+            "array_var aL = ar_List 30 10 20",
+            "float fMiss = Ar_Find 999 aL",
+            "array_var aS = Ar_Sort aL",
+            "array_var aSl = aS[1:99]",
+            "  PrintToConsole \"PROBE|b3_core_ex_01_ar_find_sort_bounds|miss=%.0f,s0=%g,slSz=%g,sl0=%g\" fMiss (aS[0]) (ar_Size aSl) (aSl[0])"
+          ]
+        },
+        {
+          "id": "b3_core_ex_02b_compilescript_real_err",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 49,
+          "functions_tested": [
+            "CompileScript"
+          ],
+          "claim": "CompileScript on a file with a real xNVSE syntax error returns 00000000.",
+          "expected": "errRef=00000000, valid=0",
+          "script_lines": [
+            "ref rErr = CompileScript \"nvseprobe_s_hlp_realerr.gek\"",
+            "  PrintToConsole \"PROBE|b3_core_ex_02b_compilescript_real_err|ref=%i,valid=%g\" rErr (IsFormValid rErr)"
+          ]
+        },
+        {
+          "id": "b3_core_ex_03_set_string_gmst_ex",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 21,
+          "functions_tested": [
+            "GetStringGameSetting",
+            "SetStringGameSettingEx"
+          ],
+          "claim": "SetStringGameSettingEx 'Name|Value' mutates string GMST read by GetStringGameSetting.",
+          "expected": "Mutate sOk -> 'W4OK' -> read back -> restore",
+          "script_lines": [
+            "string_var sv0 = GetStringGameSetting \"sOk\"",
+            "SetStringGameSettingEx \"sOk|W4OK\"",
+            "string_var sv1 = GetStringGameSetting \"sOk\"",
+            "string_var svRest = sv_Construct \"sOk|%z\" sv0",
+            "SetStringGameSettingEx $svRest",
+            "  PrintToConsole \"PROBE|b3_core_ex_03_set_string_gmst_ex|s0=[%z],s1=[%z]\" sv0 sv1"
+          ]
+        },
+        {
+          "id": "b3_core_ex_04_set_current_quest",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 20,
+          "functions_tested": [
+            "GetCurrentQuest",
+            "SetCurrentQuest"
+          ],
+          "claim": "SetCurrentQuest sets active quest read by GetCurrentQuest.",
+          "expected": "Observe GetCurrentQuest before & after SetCurrentQuest on 0x104C1C",
+          "script_lines": [
+            "ref rQ = GetFormFromMod \"FalloutNV.esm\" \"104C1C\"",
+            "ref q0 = GetCurrentQuest",
+            "SetCurrentQuest rQ",
+            "ref q1 = GetCurrentQuest",
+            "  PrintToConsole \"PROBE|b3_core_ex_04_set_current_quest|q0=%i,q1=%i(isTarget=%g)\" q0 q1 (q1 == rQ)"
+          ]
+        },
+        {
+          "id": "b3_core_ex_05_eval_nested_expr_truth",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-values.md",
+          "spec_line": 82,
+          "functions_tested": [
+            "ar_Construct"
+          ],
+          "claim": "Verify eval truthiness of 0, -0.0, 0.5, null ref, valid ref, empty string_var, empty map.",
+          "expected": "Observe exact 0/1 truth values under eval",
+          "script_lines": [
+            "ref rNull = 0",
+            "array_var aMap = ar_Construct \"stringmap\"",
+            "string_var svEmpty = \"\"",
+            "int b0 = eval 0",
+            "int bHalf = eval 0.5",
+            "int bNull = eval rNull",
+            "int bPl = eval Player",
+            "int bMap = eval aMap",
+            "int bStr = eval svEmpty",
+            "  PrintToConsole \"PROBE|b3_core_ex_05_eval_nested_expr_truth|0=%g,0.5=%g,null=%g,pl=%g,empMap=%g,empStr=%g\" b0 bHalf bNull bPl bMap bStr"
+          ]
+        },
+        {
+          "id": "b3_core_ex_06_on_apply_imod_event",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-events.md",
+          "spec_line": 455,
+          "functions_tested": [
+            "SetEventHandlerAlt"
+          ],
+          "claim": "OnApplyIMOD (or JIP/xNVSE event) dispatch check on ApplyImageSpaceModifier.",
+          "expected": "Test whether SetEventHandler 'OnApplyIMOD' registers and fires on ApplyImageSpaceModifier",
+          "script_lines": [
+            "ref rImad = GetFormFromMod \"FalloutNV.esm\" \"144C41\"",
+            "if (IsFormValid rImad) == 0",
+            "  let rImad := EditorIDToFormID \"NVWastelandNightIS\"",
+            "endif",
+            "Player.AuxVarSetFlt \"*b3_imod_hit\" 0",
+            "ref rCb = CompileScript \"nvseprobe_s_hlp_imod.gek\"",
+            "int iReg = SetEventHandler \"OnApplyIMOD\" rCb",
+            "if IsFormValid rImad",
+            "  ApplyImageSpaceModifier rImad",
+            "  RemoveImageSpaceModifier rImad",
+            "endif",
+            "int iHit = Player.AuxVarGetFlt \"*b3_imod_hit\"",
+            "RemoveEventHandler \"OnApplyIMOD\" rCb",
+            "  PrintToConsole \"PROBE|b3_core_ex_06_on_apply_imod_event|imad=%i,reg=%g,hit=%g\" rImad iReg iHit"
+          ]
+        },
+        {
+          "id": "b3_fmt_01_g_G_e_x_boundaries",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-format.md",
+          "spec_line": 43,
+          "functions_tested": [
+            "sv_Construct"
+          ],
+          "claim": "sv_Construct %g/%G/%x/%X/%.0e formatting boundaries.",
+          "expected": "Observe exact formatted outputs",
+          "script_lines": [
+            "string_var sv1 = sv_Construct \"%g|%g|%g|%G|%.2e|%.0e|%x|%X\" 0.5 123.456789 1000000 1234567 0.00005 1234 255 255",
+            "  PrintToConsole \"PROBE|b3_fmt_01_g_G_e_x_boundaries|%z\" sv1"
+          ]
+        },
+        {
+          "id": "b3_knv_01_anim_getters_split",
+          "bucket": "B",
+          "extender": "kNVSE 37",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-unlisted-rest.md",
+          "spec_line": 182,
+          "functions_tested": [
+            "GetAnimWeight",
+            "GetAnimHandType",
+            "IsAnimAdditive",
+            "IsAnimQueued"
+          ],
+          "claim": "kNVSE GetAnimWeight / HandType / IsAdditive / IsQueued default returns for base idle path.",
+          "expected": "0.0, -1, 0, 0",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "float fWt = rDoc.GetAnimWeight \"Characters\\_Male\\Locomotion\\mtidle.kf\"",
+            "int iHt = rDoc.GetAnimHandType \"Characters\\_Male\\Locomotion\\mtidle.kf\"",
+            "int iAd = rDoc.IsAnimAdditive \"Characters\\_Male\\Locomotion\\mtidle.kf\"",
+            "int iQd = rDoc.IsAnimQueued \"Characters\\_Male\\Locomotion\\mtidle.kf\"",
+            "  PrintToConsole \"PROBE|b3_knv_01_anim_getters_split|wt=%.1f,ht=%g,ad=%g,qd=%g\" fWt iHt iAd iQd"
+          ]
+        },
+        {
+          "id": "b3_knv_02_anim_cycle_dest_frame",
+          "bucket": "B",
+          "extender": "kNVSE 37",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-unlisted-rest.md",
+          "spec_line": 187,
+          "functions_tested": [
+            "SetAnimCycleType",
+            "SetAnimDestFrame"
+          ],
+          "claim": "SetAnimCycleType / SetAnimDestFrame return 1 for existing .kf and 0 for missing .kf.",
+          "expected": "existing=1/1, missing=0/0",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "int cOk = rDoc.SetAnimCycleType \"Characters\\_Male\\Locomotion\\mtidle.kf\" 0",
+            "int cMs = rDoc.SetAnimCycleType \"Characters\\_Male\\nvseprobe_no_such.kf\" 0",
+            "int dOk = rDoc.SetAnimDestFrame \"Characters\\_Male\\Locomotion\\mtidle.kf\" 1",
+            "int dMs = rDoc.SetAnimDestFrame \"Characters\\_Male\\nvseprobe_no_such.kf\" 1",
+            "  PrintToConsole \"PROBE|b3_knv_02_anim_cycle_dest_frame|cyc=%g/%g,dst=%g/%g\" cOk cMs dOk dMs"
+          ]
+        },
+        {
+          "id": "b3_knv_03_interp_prio_check",
+          "bucket": "B",
+          "extender": "kNVSE 37",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-unlisted-rest.md",
+          "spec_line": 182,
+          "functions_tested": [
+            "GetAnimInterpPriority"
+          ],
+          "claim": "kNVSE GetAnimInterpPriority default return for base idle path.",
+          "expected": "Check 1-arg vs 2-arg form",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "int iP = rDoc.GetAnimInterpPriority \"Characters\\_Male\\Locomotion\\mtidle.kf\" \"Bip01\"",
+            "  PrintToConsole \"PROBE|b3_knv_03_interp_prio_check|prio=%g\" iP"
+          ]
+        },
+        {
+          "id": "b3_stew_01_child_when_parent_off",
+          "bucket": "B",
+          "extender": "lStewieAl's Tweaks 1005",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-small.md",
+          "spec_line": 88,
+          "functions_tested": [
+            "StewieGetValue"
+          ],
+          "claim": "StewieGetValue bAmmoWeight:Hardcore Tweaks when parent bHardcoreTweaks = 0.",
+          "expected": "Check whether bAmmoWeight still reads 1 or drops to 0 when bHardcoreTweaks=0",
+          "script_lines": [
+            "float fPar = StewieGetValue \"bHardcoreTweaks:Tweaks\"",
+            "float fCh = StewieGetValue \"bAmmoWeight:Hardcore Tweaks\"",
+            "  PrintToConsole \"PROBE|b3_stew_01_child_when_parent_off|parent=%g,child=%g\" fPar fCh"
+          ]
+        },
+        {
+          "id": "b3_syn_01_shift_compound_assign",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 57,
+          "functions_tested": [
+            "syntax"
+          ],
+          "claim": "Compound shift assignment <<= and >>= on integers.",
+          "expected": "1 <<= 4 -> 16; 32 >>= 2 -> 8",
+          "script_lines": [
+            "int iA = 1",
+            "int iB = 32",
+            "let iA <<= 4",
+            "let iB >>= 2",
+            "  PrintToConsole \"PROBE|b3_syn_01_shift_compound_assign|a=%g,b=%g\" iA iB"
+          ]
+        },
+        {
+          "id": "b3_syn_01b_shift_ops_plain",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 57,
+          "functions_tested": [
+            "syntax"
+          ],
+          "claim": "Verify plain << and >> shift operators work while <<= / >>= do not shift.",
+          "expected": "1 << 4 == 16, 32 >> 2 == 8",
+          "script_lines": [
+            "int iShL = 1 << 4",
+            "int iShR = 32 >> 2",
+            "  PrintToConsole \"PROBE|b3_syn_01b_shift_ops_plain|shl=%g,shr=%g\" iShL iShR"
+          ]
+        },
+        {
+          "id": "b3_syn_02_bare_compound_assign",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 135,
+          "functions_tested": [
+            "syntax"
+          ],
+          "claim": "Bare compound assignments (+=, -=, *=, /=) without leading let.",
+          "expected": "10 -> +5=15 -> -3=12 -> *2=24 -> /4=6",
+          "script_lines": [
+            "int iV = 10",
+            "iV += 5",
+            "iV -= 3",
+            "iV *= 2",
+            "iV /= 4",
+            "  PrintToConsole \"PROBE|b3_syn_02_bare_compound_assign|v=%g\" iV"
+          ]
+        },
+        {
+          "id": "b3_syn_03_comma_args_and_nested_break",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 212,
+          "functions_tested": [
+            "syntax"
+          ],
+          "claim": "Comma-separated args in ar_List and break/continue inside nested while loops affect only innermost loop.",
+          "expected": "ar_Size=3, sum=6; outer runs 3 times while inner breaks at 2 -> count=6",
+          "script_lines": [
+            "array_var aC = ar_List 1, 2, 3",
+            "int iOut = 0",
+            "int iTot = 0",
+            "while iOut < 3",
+            "  int iIn = 0",
+            "  while iIn < 5",
+            "    if iIn == 2",
+            "      break",
+            "    endif",
+            "    let iTot += 1",
+            "    let iIn += 1",
+            "  loop",
+            "  let iOut += 1",
+            "loop",
+            "  PrintToConsole \"PROBE|b3_syn_03_comma_args_and_nested_break|sz=%g,a2=%g,tot=%g,out=%g\" (ar_Size aC) (aC[2]) iTot iOut"
+          ]
+        },
+        {
+          "id": "b3_syn_04_float_literal_to_int_param",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 310,
+          "functions_tested": [
+            "syntax"
+          ],
+          "claim": "Whole-number float literal (37.0) passed to integer parameter compiles.",
+          "expected": "Compiles and runs with whole float 2.0",
+          "script_lines": [
+            "int iR = GetGameVolume 0.0",
+            "  PrintToConsole \"PROBE|b3_syn_04_float_literal_to_int_param|vol=%g\" iR"
+          ]
+        },
+        {
+          "id": "b3_syn_05_override_eq_prec",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll",
+            "AnhNVSE.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 354,
+          "functions_tested": [
+            "syntax"
+          ],
+          "claim": "Under compiler override, Sin 90 == 1 and Abs -3 == 3 bind comparison looser than unary command.",
+          "expected": "b1=1, b2=1, b3=1",
+          "script_lines": [
+            "int b1 = eval (Sin 90 == 1)",
+            "int b2 = eval (Abs -3 == 3)",
+            "int b3 = eval (1 + 2 == 3)",
+            "  PrintToConsole \"PROBE|b3_syn_05_override_eq_prec|%g,%g,%g\" b1 b2 b3"
+          ]
+        }
+      ]
+    }
+  ]
+}

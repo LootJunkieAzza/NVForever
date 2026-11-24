@@ -226,11 +226,11 @@ original's answer and changes nothing.
   saved"]. ScriptedNVR2's Script Runner file calls it 1,436 times at the game restart.
 - **GetCasinoDeckTexture** `casino index` (JohnnyGuitar): the deck's back texture, the
   casino's ICO2 entries in order (`terminals\NV_PlayingCards\DeckB\cardB_Back.dds` for the
-  Atomic Wrangler) [observed: rest4.casinodeck.0]. **SetCasinoDeckTexture** was not probed:
+  Atomic Wrangler) [observed: rest4.casinodeck.0; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_37_casino_deck_and_switch_node (GetCasinoDeckTexture/GetSwitchNodeIndex): terminals\NV_PlayingCards\DeckB\cardB_Back.dds,0; no DLL or source consulted]. **SetCasinoDeckTexture** was not probed:
   NVForever answers 1, as JohnnyGuitar's other setters did, and changes nothing, so
   GetCasinoDeckTexture keeps reading the casino's own deck [hypothesis].
 - **GetSwitchNodeIndex** `node [flag]` (JohnnyGuitar): 0 for Doc's `Bip01 Head`, not a
-  switch node [observed: rest4.switchnode]. NVForever answers 0 [hypothesis: the index of
+  switch node [observed: rest4.switchnode; observed: jg_37_casino_deck_and_switch_node: 0]. NVForever answers 0 [hypothesis: the index of
   a switch node's shown child, 0 for any other node].
 
 **Constant answers** (each [observed] for the inputs probed; their meaning is open):

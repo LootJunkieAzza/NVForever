@@ -1,9 +1,9 @@
 //! Clean-room end-to-end qualification tests for Stewie's Tweaks version gates
-//! #3179 (941 -> 945), #3183 (945 -> 960), and #3184 (960 -> 970).
+//! #3179 (941 -> 945, promoted), #3183 (945 -> 960, held), and #3184 (960 -> 970, held).
 //!
 //! Independently authored synthetic records, XML fixtures, and NVSE scripts only
-//! (no game data, no copied mod script text, and no version bump: `GetPluginVersion
-//! "lStewieAl's Tweaks"` remains pinned at `941`).
+//! (no game data and no copied mod script text; `GetPluginVersion "lStewieAl's Tweaks"`
+//! reports `945` while `960` and `970` remain unpromoted).
 
 use crate::common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -31,10 +31,15 @@ const MANAGER_BASE: u32 = 0x910;
 const MANAGER_REF: u32 = 0x310;
 const CASINO_ID: u32 = 0x920;
 const CHIP_ID: u32 = 0x921;
+const UNTOUCHED_CASINO_ID: u32 = 0x922;
+const REWARD_ITEM_ID: u32 = 0x923;
 const QUEST_ID: u32 = 0x930;
 const GREETING_TOPIC: u32 = 0x931;
 const REWARD_TOPIC: u32 = 0x932;
 const GREETING_INFO: u32 = 0x933;
+const INFO_LIST_ID: u32 = 0x934;
+const TOPIC_LIST_ID: u32 = 0x935;
+const EMPTY_LIST_ID: u32 = 0x936;
 // 8-digit all-decimal bare hex FormIDs (zero A-F digits) to exercise the script
 // compiler's bare hex FormID admission on extender form parameters (#3179).
 const DECIMAL_INFO_HIT: u32 = 0x0016_3183;
@@ -112,9 +117,29 @@ fn fixture() -> Fixture {
         record(b"NPC_", 0, MANAGER_BASE, &[sub(b"EDID", z("OwnedFloorManager")), sub(b"FULL", z("Floor Manager"))]),
     ]
     .concat();
-    let chip = record(b"CHIP", 0, CHIP_ID, &[sub(b"EDID", z("OwnedChip"))]);
+    let chips = [
+        record(b"CHIP", 0, CHIP_ID, &[sub(b"EDID", z("OwnedChip"))]),
+        record(b"CHIP", 0, REWARD_ITEM_ID, &[sub(b"EDID", z("OwnedRewardChip"))]),
+    ]
+    .concat();
     let csno_data = [f32b(0.5), f32b(1.5), u32s(&[1; 7]), u32s(&[4, 1000, CHIP_ID, QUEST_ID, 0])].concat();
-    let csno = record(b"CSNO", 0, CASINO_ID, &[sub(b"EDID", z("OwnedCasino")), sub(b"FULL", z("Owned Casino")), sub(b"DATA", csno_data)]);
+    let untouched_csno_data = [f32b(0.5), f32b(1.5), u32s(&[1; 7]), u32s(&[4, 5000, REWARD_ITEM_ID, QUEST_ID, 0])].concat();
+    let csnos = [
+        record(b"CSNO", 0, CASINO_ID, &[sub(b"EDID", z("OwnedCasino")), sub(b"FULL", z("Owned Casino")), sub(b"DATA", csno_data)]),
+        record(
+            b"CSNO",
+            0,
+            UNTOUCHED_CASINO_ID,
+            &[sub(b"EDID", z("UntouchedCasino")), sub(b"FULL", z("Untouched Casino")), sub(b"DATA", untouched_csno_data)],
+        ),
+    ]
+    .concat();
+    let flsts = [
+        record(b"FLST", 0, INFO_LIST_ID, &[sub(b"EDID", z("QualInfoList")), sub(b"LNAM", u32b(DECIMAL_INFO_HIT))]),
+        record(b"FLST", 0, TOPIC_LIST_ID, &[sub(b"EDID", z("QualTopicList")), sub(b"LNAM", u32b(REWARD_TOPIC))]),
+        record(b"FLST", 0, EMPTY_LIST_ID, &[sub(b"EDID", z("QualEmptyList"))]),
+    ]
+    .concat();
     let qust = record(b"QUST", 0, QUEST_ID, &[sub(b"EDID", z("OwnedCasinoQuest")), sub(b"DATA", [vec![1, 50, 0, 0], f32b(0.0)].concat())]);
     let dials = [
         topic_rec(
@@ -161,6 +186,16 @@ fn fixture() -> Fixture {
             "QualOnBtnUDF",
             "scn QualOnBtnUDF\nint iBtn\nBegin Function {iBtn}\n  set QualBtnCount to QualBtnCount + 1\n  set QualBtnSum to QualBtnSum + iBtn\nEnd\n",
         ),
+        udf_rec(
+            0x953,
+            "QualCasinoCloseUDF",
+            "scn QualCasinoCloseUDF\nint iMenu\nint iLevel\nint iMask\nBegin Function {iMenu}\n  let iLevel := GetCasinoWinningsLevel OwnedCasino\n  let iMask := PlayerREF.AuxVarGetFlt \"*_qual_close_mask\"\n  let iMask := SetBit iMask (iLevel - 1) 0\n  if eval GetBit iMask 0 && iLevel > 1\n    PlayerREF.AddItem OwnedChip 1\n    let iMask := SetBit iMask 0 0\n  endif\n  if eval GetBit iMask 1 && iLevel > 2\n    PlayerREF.AddItemAlt OwnedRewardChip 1 65 0 0\n    let iMask := SetBit iMask 1 0\n  endif\n  PlayerREF.AuxVarSetFlt \"*_qual_close_mask\" iMask\n  PlayerREF.AuxVarSetFlt \"*_qual_close_menus\" ((PlayerREF.AuxVarGetFlt \"*_qual_close_menus\") + iMenu)\nEnd\n",
+        ),
+        udf_rec(
+            0x954,
+            "QualCasinoDialogUDF",
+            "scn QualCasinoDialogUDF\nref rInfo\nint iIdx\nint iLevel\nint iMask\narray_var aSpeakers\nBegin Function {rInfo}\n  let aSpeakers := Ar_List OwnedManagerREF\n  let iIdx := Ar_Find this aSpeakers\n  let aSpeakers := Ar_Null\n  if eval iIdx == 0\n    let iLevel := GetCasinoWinningsLevel OwnedCasino\n    let iMask := PlayerREF.AuxVarGetFlt \"*_qual_dlg_mask\"\n    let iMask := SetBit iMask (iLevel - 1) 0\n    if eval GetBit iMask 0 && iLevel > 1\n      PlayerREF.AddItem OwnedChip 2\n      let iMask := SetBit iMask 0 0\n    endif\n    if eval GetBit iMask 1 && iLevel > 2\n      PlayerREF.AddItemAlt OwnedRewardChip 1 80 0 0\n      let iMask := SetBit iMask 1 0\n    endif\n    PlayerREF.AuxVarSetFlt \"*_qual_dlg_mask\" iMask\n    PlayerREF.AuxVarSetFlt \"*_qual_dlg_level\" iLevel\n    PlayerREF.AuxVarSetRef \"*_qual_dlg_arg\" rInfo\n  endif\nEnd\n",
+        ),
     ]
     .concat();
     let achr = record(b"ACHR", 0, MANAGER_REF, &[sub(b"EDID", z("OwnedManagerREF")), sub(b"NAME", u32b(MANAGER_BASE))]);
@@ -173,8 +208,9 @@ fn fixture() -> Fixture {
         top(b"GLOB", &globs),
         top(b"SCPT", &scripts),
         top(b"NPC_", &npcs),
-        top(b"CHIP", &chip),
-        top(b"CSNO", &csno),
+        top(b"CHIP", &chips),
+        top(b"CSNO", &csnos),
+        top(b"FLST", &flsts),
         top(b"QUST", &qust),
         top(b"DIAL", &dials),
         top(b"CELL", &cells),
@@ -190,6 +226,8 @@ fn fixture() -> Fixture {
     let forms = FormStore::build(&lo, &schema);
     let refs = RefTable::build(&lo, &schema);
     let data = GameData::build(&lo, &schema, FunctionTable::load(&funcs).unwrap(), &json, &refs);
+    assert_eq!(data.source_units.len(), 5, "all five synthetic UDFs must be admitted from SCTX: {:?}", data.source_units);
+    assert!(data.source_units.iter().all(|u| u.error.is_none()), "source compile errors: {:?}", data.source_units);
     Fixture { data, forms, refs }
 }
 
@@ -274,8 +312,8 @@ fn gate_945_casino_menu_close_decimal_info_dialog_topic_and_no_casino_bans() {
     let f = fixture();
     let mut g = new_game(&f);
 
-    // Version remains pinned at 941 until original-game bNoCasinoBans capture clears #3179.
-    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 941.0);
+    // Version promoted from 941 -> 945 after #3179 qualification; 960/970 remain held.
+    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 945.0);
 
     // Register SetOnMenuCloseEventHandler for documented casino menu codes 1080/1081/1082
     // and SetOnDialogTopicEventHandler using an 8-digit ALL-DECIMAL bare hex FormID (`00163183`).
@@ -352,14 +390,137 @@ fn gate_945_casino_menu_close_decimal_info_dialog_topic_and_no_casino_bans() {
 }
 
 #[test]
+fn gate_945_casino_rewards_fix_contract_end_to_end() {
+    let f = fixture();
+    let mut g = new_game(&f);
+
+    // 1. Version guard contract: 945 passes while 960 stays blocked.
+    let guard_945 = run(
+        &mut g,
+        r#"
+        if eval GetNVSEVersion < 6 || (GetNVSEVersion == 6 && GetNVSERevision < 4)
+            SetFunctionValue 0
+            return
+        endif
+        if GetPluginVersion "JohnnyGuitarNVSE" < 511
+            SetFunctionValue 0
+            return
+        endif
+        if GetPluginVersion "lStewieAl's Tweaks" < 945
+            SetFunctionValue 0
+            return
+        endif
+        SetFunctionValue 1
+        "#,
+    );
+    assert_eq!(guard_945, XVal::Num(1.0), "Casino Rewards Fix 1.1 >= 945 guard must pass");
+    let guard_960 = run(
+        &mut g,
+        r#"
+        if GetPluginVersion "lStewieAl's Tweaks" < 960
+            SetFunctionValue 0
+            return
+        endif
+        SetFunctionValue 1
+        "#,
+    );
+    assert_eq!(guard_960, XVal::Num(0.0), "960 gate must remain blocked until #3183");
+
+    // 2. Register menu-close (1080/1081/1082) and dialog-topic handlers (8-digit all-decimal
+    //    INFO FormID, DIAL topic, FLST INFO list, FLST DIAL list, and empty-FLST wildcard).
+    run(
+        &mut g,
+        r#"
+        PlayerREF.AuxVarSetFlt "*_qual_close_mask" 7
+        PlayerREF.AuxVarSetFlt "*_qual_dlg_mask" 7
+        SetOnMenuCloseEventHandler QualCasinoCloseUDF 1 1080
+        SetOnMenuCloseEventHandler QualCasinoCloseUDF 1 1081
+        SetOnMenuCloseEventHandler QualCasinoCloseUDF 1 1082
+        SetOnDialogTopicEventHandler QualCasinoDialogUDF 1 00163183
+        SetOnDialogTopicEventHandler (begin function {ref rArg}
+            PlayerREF.AuxVarSetRef "*qual_flst_info" rArg
+        end) 1 QualInfoList
+        SetOnDialogTopicEventHandler (begin function {ref rArg}
+            PlayerREF.AuxVarSetRef "*qual_flst_topic" rArg
+        end) 1 QualTopicList
+        SetOnDialogTopicEventHandler (begin function {ref rArg}
+            PlayerREF.AuxVarSetRef "*qual_flst_wild" rArg
+            PlayerREF.AuxVarSetFlt "*qual_flst_wild_n" ((PlayerREF.AuxVarGetFlt "*qual_flst_wild_n") + 1)
+        end) 1 QualEmptyList
+        "#,
+    );
+
+    // 3. SetCasinoWinningsLevel (#3474/#3490): untouched casino is a no-op; tracked casino
+    //    writes level * max_winnings / 4 and exposes 4 -> 3 when bNoCasinoBans is enabled.
+    run(&mut g, "SetCasinoWinningsLevel UntouchedCasino 3");
+    assert_eq!(num(&mut g, "GetCasinoWinnings UntouchedCasino"), 0.0);
+    assert_eq!(num(&mut g, "GetCasinoWinningsLevel UntouchedCasino"), 0.0);
+
+    casino::add_earnings(&mut g, FormId(CASINO_ID), 1000, 1000);
+    run(&mut g, "SetCasinoWinningsLevel OwnedCasino 2");
+    assert_eq!(num(&mut g, "GetCasinoWinnings OwnedCasino"), 500.0);
+    assert_eq!(num(&mut g, "GetCasinoWinningsLevel OwnedCasino"), 2.0);
+    run(&mut g, "SetCasinoWinningsLevel OwnedCasino 4");
+    assert_eq!(num(&mut g, "GetCasinoWinnings OwnedCasino"), 1000.0);
+
+    // Vanilla default (bNoCasinoBans = false) still reports 4.
+    assert!(!g.tweaks.no_casino_bans);
+    assert_eq!(num(&mut g, "GetCasinoWinningsLevel OwnedCasino"), 4.0);
+    assert_eq!(num(&mut g, "GetCasinoWinningStage OwnedCasino"), 4.0);
+
+    // Enable bNoCasinoBans: GetCasinoWinningsLevel / GetCasinoWinningStage report 3 at max.
+    g.tweaks.no_casino_bans = true;
+    assert_eq!(num(&mut g, "GetCasinoWinningsLevel OwnedCasino"), 3.0);
+    assert_eq!(num(&mut g, "GetCasinoWinningStage OwnedCasino"), 3.0);
+
+    // 4. Close all three casino menus (1080/1081/1082) + unrelated Caravan (1083) control.
+    for code in [fnv_game::slots::MENU_CODE, fnv_game::blackjack::MENU_CODE, fnv_game::roulette::MENU_CODE] {
+        g.open_menu(code);
+        assert_eq!(g.close_menu(), Some(code));
+    }
+    g.open_menu(fnv_game::caravan::MENU_CODE);
+    assert_eq!(g.close_menu(), Some(fnv_game::caravan::MENU_CODE));
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetFlt "*_qual_close_menus""#), f64::from(1080 + 1081 + 1082));
+    // Bit 2 cleared by iLevel - 1 = 2; bits 0 & 1 awarded once and cleared (final mask = 0).
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetFlt "*_qual_close_mask""#), 0.0);
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP_ID)).unwrap(), 1);
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(REWARD_ITEM_ID)).unwrap(), 1);
+
+    // 5. Speak floor-manager INFO 0x00163183 and verify INFO, FLST INFO, FLST DIAL, and empty FLST wildcard.
+    g.start_dialogue(FormId(MANAGER_REF), None).unwrap();
+    for _ in 0..20_000 {
+        if g.dialogue.as_ref().is_none_or(|c| !c.choices.is_empty()) {
+            break;
+        }
+        g.tick();
+    }
+    let idx = g
+        .dialogue_choices()
+        .iter()
+        .position(|c| c.topic == FormId(REWARD_TOPIC))
+        .expect("reward topic offered");
+    assert_eq!(g.choose(idx).unwrap(), FormId(DECIMAL_INFO_HIT));
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetFlt "*_qual_dlg_level""#), 3.0);
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetFlt "*_qual_dlg_mask""#), 0.0);
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetRef "*_qual_dlg_arg""#), f64::from(DECIMAL_INFO_HIT));
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetRef "*qual_flst_info""#), f64::from(DECIMAL_INFO_HIT));
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetRef "*qual_flst_topic""#), f64::from(REWARD_TOPIC));
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetRef "*qual_flst_wild""#), f64::from(REWARD_TOPIC));
+    // Greeting + reward line = 2 wildcard hits.
+    assert_eq!(num(&mut g, r#"PlayerREF.AuxVarGetFlt "*qual_flst_wild_n""#), 2.0);
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP_ID)).unwrap(), 3);
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(REWARD_ITEM_ID)).unwrap(), 2);
+}
+
+#[test]
 fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
     let f = fixture();
     let mut g = new_game(&f);
-    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 941.0);
+    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 945.0);
 
     // Seed a conflicting INI file to prove live bound engine settings override stale INI
-    // for mapped keys while unmapped keys (bScaleCriticalDamage, bArmorConditionLabel)
-    // honestly retain INI fallback.
+    // for mapped keys (including bArmorConditionLabel) while unrepresented keys
+    // (bScaleCriticalDamage) honestly retain INI fallback.
     assert!(g.mod_files.write_bytes(
         "NVSE/Plugins/nvse_stewie_tweaks.ini",
         b"[Tweaks]\nbKeepPipboyLightOnCellChange=0\nbDisableStealthEffectInPipboy=0\nbIndividialItemStats=0\nbCritChanceIgnoresFireRate=0\nbScaleCriticalDamage=1\nbArmorConditionLabel=1\nbMenuSearch=1\n[Critical Hits]\nfCriticalDamageMult=2.5\n",
@@ -370,6 +531,7 @@ fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
         crit_ignores_fire_rate: true,
         crit_damage_scale: 1.75,
         menu_search: false,
+        armor_condition: false,
         ..Default::default()
     };
     g.bind_stewie_stat_settings(&bound);
@@ -380,10 +542,17 @@ fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bIndividialItemStats:Tweaks""#)), 1.0);
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bCritChanceIgnoresFireRate:Tweaks""#)), 1.0);
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "fCriticalDamageMult:Critical Hits""#)), 1.75);
-        // Documented INI-fallback keys (not fabricated by live consumer bindings):
+        assert_eq!(num(&mut g, &format!(r#"{fn_name} "bArmorConditionLabel:Tweaks""#)), 0.0);
+        // Documented INI-fallback key (no separate boolean enable switch in NVForever):
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bScaleCriticalDamage:Tweaks""#)), 1.0);
+    }
+
+    // Toggling bound armor_condition=true reflects live through both aliases.
+    g.bind_stewie_stat_settings(&Tweaks { armor_condition: true, ..bound.clone() });
+    for fn_name in ["StewVal", "StewieGetValue"] {
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bArmorConditionLabel:Tweaks""#)), 1.0);
     }
+    g.bind_stewie_stat_settings(&bound);
 
     // GetPipBoyMode live tracking: 0 closed -> 3 across Pip-Boy pages -> 0 closed / Barter.
     assert_eq!(num(&mut g, "GetPipBoyMode"), 0.0);
@@ -432,7 +601,7 @@ fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
 fn gate_970_barter_container_open_click_wildcards_and_key_button_events() {
     let f = fixture();
     let mut g = new_game(&f);
-    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 941.0);
+    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 945.0);
 
     let src = pipboy_and_trade_ui();
     let barter = g.ui_tree.load_menu(&src, "menus\\barter_menu.xml").unwrap();

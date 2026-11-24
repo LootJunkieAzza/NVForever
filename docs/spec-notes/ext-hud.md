@@ -21,8 +21,19 @@ Plain-language notes for `crates/fnv-game/src/nvse_hud.rs` and the control funct
   spot is not valid [documented]. In game, aimed at the ground or sky, it had 3 entries
   [observed: hud1]. NVForever takes the point from the engine's crosshair ray; a headless run
   has no ray and gives ar_Null.
-- `GetReticleTargetLimb` reads -1 with no actor in the crosshair [observed: hud1]. The limb
-  under the crosshair is not told by the engine, so it reads -1 for actors too [not built].
+- `GetReticleTargetLimb [maxRange]` reads -1 with no actor in the crosshair [observed:
+  hud1; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas
+  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 10 official base masters, `#3678` / PR `#3679`
+  probe `w1_3606_hit_3d_dir_and_base_damage`: placing Player 150u South of restrained Doc
+  Mitchell (`0x00104C0F`, `SetAngle Z 180`) and sweeping `Player.SetAngle X` across `-7`,
+  `0`, `15`, and `-80` returned `1` (Head), `0` (Torso), `10` (Right Leg), and `-1` on
+  empty space, non-actor statics, and above-head misses; no DLL or source consulted]. On an actor hit by the
+  crosshair's far ray, NVForever resolves the hit capsule's BPTD body part to its
+  `BodyLocation` code (0 torso, 1–2 head, 3–4 left arm, 5–6 right arm, 7–9 left leg,
+  10–12 right leg, 13 brain, 14 held weapon) [documented: GetReticleTargetLimb,
+  GetHitLocation], honouring the optional `maxRange` cap (0 or omitted uses the full
+  reticle reach). Non-actors, misses, gore pieces, and actors without posed body parts
+  (single-capsule fallback) read -1 [design].
 
 ## 3. Corner messages
 
@@ -30,10 +41,22 @@ Plain-language notes for `crates/fnv-game/src/nvse_hud.rs` and the control funct
   screen included [documented]. Three `MessageEx` calls raise it by 3 in their own frame, and
   it stays there the next frame [observed: hud1, 2 → 5 → 5].
 - `ClearMessageQueue` (JIP) empties the queue: 0 in its frame and the next [observed: hud1].
-- Messages shown without a box (MessageEx, ShowMessage of a non-box message) join the queue.
-  The one on screen leaves after 2 seconds [hypothesis: the pace was not measured].
+- Messages shown without a box (MessageEx, ShowMessage of a non-box message) join the
+  queue. `MessageExAlt` also increments the corner-message count for
+  `GetNumQueuedCornerMessages` without enqueueing ShowOff `corner_pending` handlers
+  [design]. In headless `fnv-game`, the one on screen leaves after 2 seconds [hypothesis:
+  the pace was not measured].
 - The 2 messages already queued when hud1 started came from loading the save. A headless run
   starts with none.
+- In `nvf-play` (`engine/nvf-play/src/corner_messages.rs` and `script.rs`), the live
+  `CornerMessages` queue is synced into `Game::hud` so `GetNumQueuedCornerMessages` reflects
+  both script-queued and engine-generated corner notices (showing + waiting, paused while
+  held behind menus) without running the headless 2-second expiry timer alongside it [design].
+- `ClearMessageQueue` clears both waiting and currently displayed messages in
+  `CornerMessages` (despawning any active HUD area immediately, including while held behind
+  a menu), suppresses same-frame notifications emitted before the call while keeping
+  messages queued after it, and clears pending note notices [documented: GECK wiki
+  ClearMessageQueue; observed: hud1, 0 in its frame and the next; design: engine queue sync].
 
 ## 4. The compass
 

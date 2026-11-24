@@ -508,10 +508,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let Some(c) = form(args, 0).filter(|c| g.data.challenge_defs.contains_key(c)) else { return Some(Ok(zero)) };
             XVal::Num(f64::from(g.player.challenges.get(&c).map_or(0, |s| s.progress)))
         }
-        // `[levelOverride]`: the skill points of the next level up, or of this one while
-        // the level-up menu is open; the perks' Adjust Gained Skill Points counted
-        // [documented: GetCalculatedSkillPoints, alias
-        // GetCalculatedSkillPointsEarnedPerLevel; `crate::levelup::points_for`].
+        // `[levelOverride]`: the skill or perk points of the next level (`level + 1`),
+        // or of this one while the level-up menu is open; a nonzero `levelOverride`
+        // likewise evaluates `levelOverride + 1` while the menu is closed [documented:
+        // GetCalculatedSkillPoints / GetCalculatedPerkPoints; observed 2026-11-23:
+        // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, 10 official base
+        // masters, `b3_so_05_calc_skill_perk_points_and_ini`: `GetCalculatedPerkPoints
+        // 1/2/3/4` returned `1/0/1/0` with the level-up menu closed; no DLL or source
+        // consulted].
         "getcalculatedskillpoints" | "getcalculatedskillpointsearnedperlevel" | "getcalculatedperkpoints" | "getcalculatedperkpointsearnedperlevel" => {
             let over = num(args, 0, 0.0) as i32;
             let level = if over != 0 { over } else { g.player_level() as i32 };

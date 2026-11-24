@@ -124,3 +124,48 @@ fn metadata_survives_when_a_nonvisible_override_empties_the_script() {
     assert_targets(&data, &[(2, 7, VarLetter::Short)]);
     assert!(!data.scripts.contains_key(&FormId(TARGET_SCRIPT)), "an empty winning override remains nonexecutable");
 }
+
+#[test]
+fn auto_compile_resolves_remote_variables_on_template_scripted_actor_refs() {
+    const TPL_ACTOR: u32 = 0x910;
+    const CHILD_ACTOR: u32 = 0x911;
+    const TPL_REF: u32 = 0x912;
+    const VIEWER: u32 = 0x0100_0A10;
+
+    let mut acbs = vec![0u8; 24];
+    acbs[22..24].copy_from_slice(&(1u16 << 9).to_le_bytes());
+    let base = [
+        header(&[]),
+        top(b"SCPT", &target(&[(1, "shared", 0), (4, "tplFlag", 1)])),
+        top(b"QUST", &record(b"QUST", 0, QUEST, &[sub(b"EDID", z("TargetQuest")), sub(b"SCRI", TARGET_SCRIPT.to_le_bytes().to_vec())])),
+        top(
+            b"NPC_",
+            &[
+                record(b"NPC_", 0, TPL_ACTOR, &[sub(b"EDID", z("TemplateActor")), sub(b"SCRI", TARGET_SCRIPT.to_le_bytes().to_vec())]),
+                record(b"NPC_", 0, CHILD_ACTOR, &[sub(b"EDID", z("ChildActor")), sub(b"ACBS", acbs), sub(b"TPLT", TPL_ACTOR.to_le_bytes().to_vec())]),
+            ]
+            .concat(),
+        ),
+        top(b"ACHR", &record(b"ACHR", 0x400, TPL_REF, &[sub(b"EDID", z("TemplatedRef")), sub(b"NAME", CHILD_ACTOR.to_le_bytes().to_vec())])),
+    ]
+    .concat();
+    let original = script(&[(0, None, vec![])]);
+    let mut fields = vec![sub(b"EDID", z("ViewerScript"))];
+    fields.extend(unit(0, &original, &[], &[QUEST, TPL_REF]));
+    fields.push(sub(
+        b"SCTX",
+        b"scn ViewerScript\nstring_var unused\nbegin GameMode\nif TemplatedRef.tplFlag == 1\nset TemplatedRef.tplFlag to 2\nendif\nset TargetQuest.shared to 3\nend\n"
+            .to_vec(),
+    ));
+    let viewer = [header(&["Base.esm"]), top(b"SCPT", &record(b"SCPT", 0, VIEWER, &fields))].concat();
+    let plugins = vec![
+        Plugin::parse(&base, "Base.esm".into()).unwrap(),
+        Plugin::parse(&viewer, "Viewer.esp".into()).unwrap(),
+    ];
+    let data = build(&plugins);
+    assert_eq!(data.source_units.len(), 1);
+    assert!(data.source_units[0].error.is_none(), "{:?}", data.source_units[0].error);
+    assert!(data.source_units[0].unknown_functions.is_empty(), "{:?}", data.source_units[0].unknown_functions);
+    let compiled = data.unit(data.scripts[&FormId(VIEWER)]);
+    assert_eq!(compiled.unit.refs, [RefSlot::Form(QUEST), RefSlot::Form(TPL_REF)]);
+}

@@ -1372,6 +1372,84 @@ pub fn get_health_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
     Ok(Value::Num(if base != 0.0 { (now / base).max(0.0) } else { 1.0 }))
 }
 
+/// `actor.GetFatiguePercentage`: the actor's current Fatigue divided by its base
+/// [documented: GECK wiki GetFatiguePercentage]; 1 when the base is 0, as
+/// [`get_health_percentage`]. Not held at 0: fatigue below 0 knocks an actor out
+/// (`crate::unconscious`), and the ratio then reads below 0 [hypothesis].
+pub fn get_fatigue_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let base = base(g, r, crate::actor_values::FATIGUE)?;
+    let now = actor_value(g, r, crate::actor_values::FATIGUE)?;
+    Ok(Value::Num(if base != 0.0 { now / base } else { 1.0 }))
+}
+
+/// `actor.GetTimeDead`: hours since the actor died; 0 when it is not dead, is disabled,
+/// or was disabled after dying [documented: GECK wiki GetTimeDead]. By GameDaysPassed
+/// at its death (`RefExtra::died_day`); 0 for a corpse laid out at the start of the game
+/// [hypothesis: nobody killed it, so no time was kept].
+pub fn get_time_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let Some(day) = g.extra.get(&r).filter(|e| e.dead).and_then(|e| e.died_day) else { return Ok(Value::Num(0.0)) };
+    if !g.world.get(r).is_ok_and(|s| s.enabled()) {
+        return Ok(Value::Num(0.0));
+    }
+    let now = g.game_days().unwrap_or(day);
+    Ok(Value::Num(((now - day) * 24.0).max(0.0)))
+}
+
+/// `GetLastHitCritical`: 1 when the last hit the actor took was a critical [documented:
+/// GECK wiki GetLastHitCritical, "The information is available in the ON HIT script
+/// block"]; the last hit is kept after the block too (`RefExtra::last_hit`) [hypothesis].
+pub fn get_last_hit_critical(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).and_then(|e| e.last_hit).is_some_and(|h| h.critical))
+}
+
+/// `actor.SameFaction other`: 1 when both are members of at least one faction in common
+/// [documented: GECK wiki SameFaction]; members as GetInFaction counts them (rank 0 or
+/// more, [`factions_of`]).
+pub fn same_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let Some(other) = a.opt_form(0) else { return yes(false) };
+    let mine = factions_of(g, r);
+    yes(factions_of(g, other).iter().any(|f| mine.contains(f)))
+}
+
+/// `actor.SameSex other`: 1 when the calling actor is the same sex as `other`
+/// [documented: GECK wiki SameSex]; each actor's sex now, SexChange's included.
+pub fn same_sex(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let Some(other) = a.opt_form(0) else { return yes(false) };
+    yes(is_female(g, r) == is_female(g, other))
+}
+
+/// The disposition HasFriendDisposition counts as a friend's. The GECK wiki names a
+/// "friend disposition game setting" without naming it, and no game setting in the
+/// shipped master is one (`fFightFriendDispBase`, -25, is a fight base) [observed:
+/// FalloutNV.esm GMSTs with "Friend" or "Disp" in their names]; 70 is NVForever's
+/// [hypothesis: observer check 292 measures it].
+pub const FRIEND_DISPOSITION: f64 = 70.0;
+
+/// `actor.HasFriendDisposition`: 1 when the actor's disposition towards the player is at
+/// or above the friend level [documented: GECK wiki HasFriendDisposition, "equal or
+/// greater to the friend disposition game setting"; hypothesis: towards the player, as
+/// FriendDispositionBoost's "friend level with the player"], [`FRIEND_DISPOSITION`].
+pub fn has_friend_disposition(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(disposition(g, r, FormId::PLAYER_REF) >= FRIEND_DISPOSITION)
+}
+
+/// `ref.GetIsObjectType type`: 1 when the calling object, a reference's base or the
+/// form itself, is of form type `type` [documented: GECK wiki GetIsObjectType, "Returns
+/// 1 if the object is the specified form type"], by the form type codes
+/// (`fnv_script::vm::form_type_code`).
+pub fn get_is_object_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let code = a.code(0)?;
+    let form = base_of(g, r).unwrap_or(r);
+    yes(g.world.forms.sig(form).and_then(|s| fnv_script::vm::form_type_code(&s)) == Some(code))
+}
+
 /// IsFacingUp (bipeds) and IsLeftUp (quadrupeds), the idle manager's checks of a knocked
 /// down actor's side [documented: GECK wiki]: 1 for a standing actor [observed, function
 /// probes `fp1_queries` 2026-10-17: both read 1 on Ringo standing in the gas station];
@@ -1410,13 +1488,18 @@ pub fn get_owner_last_target(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 pub fn get_disposition(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let target = a.form(0)?;
+    Ok(Value::Num(disposition(g, actor, target)))
+}
+
+/// `actor`'s disposition towards `target`, as GetDisposition reads it.
+fn disposition(g: &mut Game, actor: FormId, target: FormId) -> f64 {
     if let Some(v) = g.extra.get(&actor).and_then(|x| x.dispositions.get(&target)) {
-        return Ok(Value::Num(*v));
+        return *v;
     }
     let base = g.base_data_def(actor).map_or(0, |d| d.disposition_base) as f64;
     let cha = crate::actor_values::capped(crate::actor_values::CHARISMA, actor_value(g, target, crate::actor_values::CHARISMA).unwrap_or(5.0));
     let mult = crate::combat::setting(g, "fDispTargetCharMult", 10.0);
-    Ok(Value::Num((base + mult * (cha - 5.0)).clamp(0.0, 100.0).round()))
+    (base + mult * (cha - 5.0)).clamp(0.0, 100.0).round()
 }
 
 /// `actor.SetDisposition target value`: GetDisposition towards `target` reads `value`

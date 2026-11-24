@@ -241,8 +241,7 @@ pub fn player_region_name(g: &Game) -> Option<String> {
     if interior(g, cell) {
         return None;
     }
-    let regions = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v)));
-    regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.trim().is_empty()))
+    g.cell_regions(cell).into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.trim().is_empty()))
 }
 
 pub(crate) fn location_name(g: &Game, r: FormId) -> String {
@@ -263,8 +262,7 @@ pub(crate) fn location_name(g: &Game, r: FormId) -> String {
 /// The first map name among the regions an exterior cell is in, in CELL XCLR order
 /// ([`location_name`]).
 pub(crate) fn region_map_name(g: &Game, cell: FormId) -> Option<String> {
-    let regions: Vec<FormId> = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v))).collect();
-    regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.is_empty()))
+    g.cell_regions(cell).into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.is_empty()))
 }
 
 /// The functions of this file; `None` for any other name.
@@ -599,9 +597,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             })
         }
         // `r g b`: the colour packed as R × 65536 + G × 256 + B [documented: GetRGBColor;
-        // observed: jg5, 255 128 1 reads 16744449, 1 0 0 65536, 0 0 1 1]; channels are
-        // taken whole, as given [hypothesis: the probes stayed in 0-255].
-        "getrgbcolor" => XVal::Num(num(args, 0, 0.0).trunc() * 65536.0 + num(args, 1, 0.0).trunc() * 256.0 + num(args, 2, 0.0).trunc()),
+        // observed: jg5, 255 128 1 reads 16744449, 1 0 0 65536, 0 0 1 1]; any channel
+        // outside 0..=255 returns 0 [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9
+        // + JohnnyGuitarNVSE 528, clean-room script probe jg_16_rgb_color_out_of_range:
+        // (256,0,0), (0,256,0), (-1,0,0) -> 0,0,0; no DLL or source consulted].
+        "getrgbcolor" => {
+            let (r, g, b) = (num(args, 0, 0.0).trunc(), num(args, 1, 0.0).trunc(), num(args, 2, 0.0).trunc());
+            let ok = |c: f64| c.is_finite() && (0.0..=255.0).contains(&c);
+            XVal::Num(if ok(r) && ok(g) && ok(b) { r * 65536.0 + g * 256.0 + b } else { 0.0 })
+        }
         _ => return None,
     };
     let _ = ctx;

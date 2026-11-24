@@ -629,27 +629,36 @@ fn set_ui_string_alt_xml_entity_strings_hide_tiles_and_match_expressions() {
     let tile = g.ui_tree.find_tile("BarterTest/Panel/Title").unwrap();
 
     // Initially visible (x=10..110, y=10..30), left-justified, _flag = &true; -> on.dds.
+    // Static XML `<visible>&true;</visible>` parses as Value::Sym("true") and reads 1.0 via GetUIFloat.
     assert!(g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy));
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("BarterTest/Panel/Title/visible")])), 1.0);
     assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_some());
     assert_eq!(g.ui_tree.get_string("BarterTest/Panel/Title/filename").as_deref(), Some("on.dds"));
     assert_eq!(g.ui_tree.get_float("BarterTest/Panel/Title/_is_centered"), Some(0.0));
 
-    // SetUIStringAlt ".../visible" "&false" hides the tile (renderer truthy + hit test)
-    // while preserving the raw string for GetUIString.
-    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/visible"), s("&false")])), 1.0);
+    // SetUIString / SetUIStringAlt store entity tokens as verbatim strings whose numeric
+    // GetUIFloat / GetUIFloatAlt readback is 0.0 for "&false", "&true", and "&center"
+    // [observed: w4d_43_nif_selector_and_ui_entities].
+    assert_eq!(n(run(&mut g, "SetUIString", &[s("BarterTest/Panel/Title/visible"), s("&false")])), 1.0);
     assert!(!g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy), "&false string must hide tile");
     assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_none());
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("BarterTest/Panel/Title/visible")])), 0.0);
     assert_eq!(n(run(&mut g, "GetUIFloatAlt", &[s("BarterTest/Panel/Title/visible")])), 0.0);
     assert_eq!(run(&mut g, "GetUIString", &[s("BarterTest/Panel/Title/visible")]), s("&false"));
 
-    // SetUIStringAlt ".../visible" "&true" makes it visible again.
-    assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/visible"), s("&true")])), 1.0);
+    // SetUIString / SetUIStringAlt ".../visible" "&true" keeps GetUIFloat == 0.0 (not 1.0)
+    // and preserves "&true" verbatim for GetUIString.
+    assert_eq!(n(run(&mut g, "SetUIString", &[s("BarterTest/Panel/Title/visible"), s("&true")])), 1.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("BarterTest/Panel/Title/visible")])), 0.0);
+    assert_eq!(n(run(&mut g, "GetUIFloatAlt", &[s("BarterTest/Panel/Title/visible")])), 0.0);
+    assert_eq!(run(&mut g, "GetUIString", &[s("BarterTest/Panel/Title/visible")]), s("&true"));
     assert!(g.ui_tree.tile(tile).get("visible").is_none_or(Value::truthy), "&true string must show tile");
     assert!(hit(&g.ui_tree, &[menu], (20.0, 20.0), &no_measure).is_some());
-    assert_eq!(n(run(&mut g, "GetUIFloatAlt", &[s("BarterTest/Panel/Title/visible")])), 1.0);
 
-    // Entity strings also work in XML <eq>, suffix-<copy>, and text justification (x=10, w=100 -> -40..60).
+    // Entity strings also work in XML <eq>, suffix-<copy>, and text justification (x=10, w=100 -> -40..60),
+    // while reading 0.0 via GetUIFloat.
     assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/justify"), s("&center")])), 1.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("BarterTest/Panel/Title/justify")])), 0.0);
     assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("BarterTest/Panel/Title/_flag"), s("&false")])), 1.0);
     g.ui_tree.update();
     assert_eq!(g.ui_tree.get_float("BarterTest/Panel/Title/_is_centered"), Some(1.0));
@@ -666,10 +675,10 @@ fn barter_and_container_menu_click_handlers_support_wildcards_indices_and_remova
     let f = fixture();
     let mut g = game(&f);
 
-    // Keep Stewie plugin gate pinned at 941 while building #3184 menu-click consumers.
+    // Keep Stewie plugin gate pinned at 945 while building #3184 menu-click consumers.
     assert_eq!(
         g.run_query("Begin Function { }\nSetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")\nEnd\n", RunCtx::default()).unwrap(),
-        XVal::Num(941.0),
+        XVal::Num(945.0),
     );
 
     let src = MemSource::default()

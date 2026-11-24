@@ -6506,7 +6506,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NV
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
 run_seconds = 21
 expect = [
-  { re = 'player Third rig: Move\(Stand, false, false, Left, Some\("2hr"\), false\) plays .*locomotion\\h2hleft\.kf', label = "the rifle side-steps left with the fists' h2hleft.kf, body square" },
+  { re = 'player Third rig: Move\(Stand, false, false, Left, Some\("2hr"\), false, false\) plays .*locomotion\\h2hleft\.kf', label = "the rifle side-steps left with the fists' h2hleft.kf, body square" },
   { re = 'player sights: upper body turned back to the sights clip.s facing by up to (?P<n>[\d.]+)°', range = [0, 10], label = "down the sights, the body is turned back only a little (h2hleft.kf's 2.7°; mtleft.kf needed 87.5°)" },
 ]
 
@@ -8882,6 +8882,22 @@ expect = [{ re = 'actor materials: reference [0-9A-F]+ shape screen01:0 driven b
 manual = "securitron_face_bright.png: Victor's cowboy face plain and bright on his screen, not burnt white and not dim"
 
 [[scenario]]
+name = "silo-light-cone"
+source = "#3443 (player report R-F8KPPE34); docs/spec-notes/nif.md section 6 \"Unlit shapes faded by vertex alpha alone\": the cone of light at the end of Lonesome Road's silo lift (nvdlc04_silo-elevator-shaft06.nif, Object03:0: unlit, Vertex_Alpha, no texture, no NiAlphaProperty) is blended by its vertex alpha"
+note = "The state at the end of the ride (NVDLC04Silo1ElevatorSCRIPT, 75 s) without the ride: the end's collision and lights on, and the six shaft models play Right, which brings the end hall to the lift. Needs LonesomeRoad.esm; everything is named by Editor ID, so its place in the load order does not matter."
+areas = ["renderer", "effects", "lonesome-road"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_material*"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:NVDLC04SiloElevatorShaftCollisionREF.disable;NVDLC04SiloElevatorEndCollisionREF.enable;NVDLC04SiloElevatorLightsEndREF.enable 0;9:NVDLC04SiloElevatorShaft01Ref.playgroup right 1;NVDLC04SiloElevatorShaft02Ref.playgroup right 1;NVDLC04SiloElevatorShaft03Ref.playgroup right 1;10:NVDLC04SiloElevatorShaft04Ref.playgroup right 1;NVDLC04SiloElevatorShaft05Ref.playgroup right 1;NVDLC04SiloElevatorShaft06Ref.playgroup right 1;11:close", NVF_PLAY_TEST_LOOK = "12:167:10", NVF_PLAY_TEST_SHOTS = "18:silo_light_cone.png" }
+args = ["--cell", "NVDLC04Silo2Elevator", "--play", "--pos=-87,3502,2069", "--heading", "167", "--pitch", "10", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 21
+manual = "silo_light_cone.png: a see-through cone of light from the ceiling to the floor, the hall's walls and doors seen through it; not a flat white cone"
+expect = [
+  { text = "playgroup: NVDLC04SiloElevatorShaft06Ref plays Right", label = "the end hall is brought to the lift" },
+  { re = 'unlit shapes blended by their vertex alpha alone: (?P<n>\d+) material', range = [1, 10000], label = "the cone's material is blended" },
+  { re = 'test aid: screenshot .*silo_light_cone\.png', label = "the frame is saved" },
+]
+
+[[scenario]]
 name = "strip-bright-views"
 source = "#1540; docs/spec-notes/nif.md §6 \"Unlit shapes that are pictures, and cut-out signs\": the Tops marquee and Lucky 38 stair lights at night, with the light glow on"
 areas = ["renderer", "effects", "lights"]
@@ -9546,10 +9562,10 @@ order = [[
 [[scenario]]
 name = "perk-khan-trick-stun"
 source = "owner 2026-10-24: Khan Trick forces its target's hit reaction (docs/spec-notes/perk-entry-points.md §11.4)"
-note = "perk-unarmed-moves' NCR trooper fist fight with the perk KhanTrick alone from 3 s; three power attacks to the right (Use held 1.5 s, the right key held from 0.05 s before to 0.75 s after, the swing starting about 0.5 s in, then aimed at the trooper again 1 s in) at 6.9, 9.9 and 12.9 s, the trooper put 90 units north each 0.9 s before: one that lands forces the reaction (with the key held 1.4 s the player strafed out of reach and both blows of a run missed) (a first try inside perk-unarmed-moves had its one blow lost to a 3 s stall, and the trooper killed by the fiend dogs about)"
+note = "perk-unarmed-moves' NCR trooper fist fight with the perk KhanTrick alone from 3 s; three power attacks to the right (Use held 1.5 s, the right key held from 0.05 s before to 0.75 s after, the swing starting about 0.5 s in, then aimed at the trooper again 1 s in) at 6.9, 9.9 and 12.9 s, the trooper put 90 units north each 0.9 s before: one that lands forces the reaction (with the key held 1.4 s the player strafed out of reach and both blows of a run missed) (a first try inside perk-unarmed-moves had its one blow lost to a 3 s stall, and the trooper killed by the fiend dogs about); the trooper's Health is set to 5000 at 4.5 s so the dogs cannot kill it before a blow lands (with the armour rules of #3220 they did, 2 runs of 2)"
 areas = ["combat", "perks", "melee"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/deaths.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:KhanTrick,4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "6.85:0:1,7.65:0:0,9.85:0:1,10.65:0:0,12.85:0:1,13.65:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,7.9:aimnpc,8.4:fire,9.8:aimnpc,9.9:fire,10.9:aimnpc,11.4:fire,12.8:aimnpc,12.9:fire,13.9:aimnpc,14.4:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:KhanTrick,4:combat:0x000F36F5:player,4.5:set_av:0x000F36F5:Health:5000,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "6.85:0:1,7.65:0:0,9.85:0:1,10.65:0:0,12.85:0:1,13.65:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,7.9:aimnpc,8.4:fire,9.8:aimnpc,9.9:fire,10.9:aimnpc,11.4:fire,12.8:aimnpc,12.9:fire,13.9:aimnpc,14.4:fire" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
 run_seconds = 20
 order = [[
@@ -10606,7 +10622,7 @@ forbid = [{ re = 'style weapon: .* takes up .*(Van Graff|001251CD)', label = "an
 
 [[scenario]]
 name = "energy-resist-hit"
-source = "ESM gap audit medium group 2 (docs/spec-notes/weapon-data-fields.md §3): a weapon's damage type (WEAP Resist) takes the target's resistance of that kind in place of DR"
+source = "ESM gap audit medium group 2 (docs/spec-notes/weapon-data-fields.md §3): a weapon's damage type (WEAP Resist) takes the target's resistance of that kind as well as DR (DR cutting such hits is the original's, docs/spec-notes/damage-armour.md §4, #3218)"
 note = "GSGeneralStore: Chet is given Energy Resistance 50 at the console; the player (GOD) shoots him with a laser pistol (00004335, Energy Resistance)"
 areas = ["combat"]
 paths = ["crates/fnv-combat/src/damage.rs", "engine/nvf-play/src/combat.rs"]
@@ -10614,7 +10630,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_T
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 24
 expect = [
-  { re = 'combat: \S+ takes WeapLaserPistol damage less 50 % \(Energy Resistance\) in place of DR', label = "the laser hit is cut by Chet's Energy Resistance" },
+  { re = 'combat: \S+ takes WeapLaserPistol damage less 50 % \(Energy Resistance\) as well as DR', label = "the laser hit is cut by Chet's Energy Resistance" },
 ]
 
 [[scenario]]
@@ -12572,6 +12588,25 @@ forbid = [
   { re = 'hud: sneak \[(DETECTED|CAUTION)\]', label = "Boone alone sets neither [DETECTED] nor [CAUTION]" },
 ]
 
+# ------------------------------------------------------------------ enemies left behind (issue #3390)
+
+[[scenario]]
+name = "hud-sneak-left-behind"
+source = "issue #3390 (docs/design/alert.md §2): an enemy whose pair with the player is measured no more (its cell unloaded) loses the player: [DANGER] goes, and it goes Lost and then Normal on the timers"
+note = "a gecko (NVCrGecko, the first created reference, 0xFF000000) placed at the player in Goodsprings at 3 s, put 600 units away and set on the player at 6 s, the player sneaking from 7 s; at 10 s the player is moved to the XMarker in Boone's room (0x000CAEB6, NovacBoonesRoom), where no enemy is. The gecko: hidden 1 s later, Lost 15 s after it last detected the player, Normal 30 s after it was hidden. Not run yet"
+areas = ["hud", "detection", "combat"]
+paths = ["crates/fnv-game/src/awareness.rs", "engine/nvforever/src/detection.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1,5:moveto:0xFF000000:player:0:600:0,6:combat:0xFF000000:player,10:moveto:player:0x000CAEB6", NVF_PLAY_TEST_CONTROL = "7:sneak" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 70
+order = [[
+  { re = 'alert: .*FF000000 (Normal|Alert) → Combat', label = "the gecko fights the player" },
+  { re = 'hud: sneak \[DANGER\]', label = "in the fight the sneak word is [DANGER]" },
+  { re = 'hud: sneak \[(HIDDEN|DETECTED)\]', label = "left behind, it is [DANGER] no more" },
+  { re = 'alert: .*FF000000 Combat → Lost', label = "the gecko loses the player" },
+  { re = 'alert: .*FF000000 Lost → Normal', label = "and gives up" },
+]]
+
 # ------------------------------------------------------------------ the enemy bar's show rule (issue #935)
 
 [[scenario]]
@@ -13314,10 +13349,10 @@ expect = [
   { re = 'limping: GSChetRef 0x00104C79 limps on a crippled leg', label = "Chet limps" },
   { re = 'limping: GSChetRef 0x00104C79 walks normally again', label = "Chet walks normally once healed" },
   "combat: player's left leg crippled",
-  { re = 'player Third rig: limping Idle\(Stand, true\) plays meshes.characters._male.locomotion.hurt.mtidle\.kf', label = "the player's body stands on the limping idle" },
-  { re = 'player Third rig: limping Move\(Stand, \w+, false, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtforward_hurt\.kf', label = "the player's body limps walking" },
-  { re = 'player Third rig: limping Move\(Stand, \w+, true, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtfastforward_hurt\.kf', label = "... and running" },
-  { re = 'player First rig: limping Move\(Stand, \w+, \w+, Forward, None, true\) plays meshes.characters._1stperson.locomotion.hurt.mt\w*forward_hurt\.kf', label = "the arms rig limps" },
+  { re = 'player Third rig: limping Idle\(Stand, true, false\) plays meshes.characters._male.locomotion.hurt.mtidle\.kf', label = "the player's body stands on the limping idle" },
+  { re = 'player Third rig: limping Move\(Stand, \w+, false, Forward, None, true, false\) plays meshes.characters._male.locomotion.hurt.mtforward_hurt\.kf', label = "the player's body limps walking" },
+  { re = 'player Third rig: limping Move\(Stand, \w+, true, Forward, None, true, false\) plays meshes.characters._male.locomotion.hurt.mtfastforward_hurt\.kf', label = "... and running" },
+  { re = 'player First rig: limping Move\(Stand, \w+, \w+, Forward, None, true, false\) plays meshes.characters._1stperson.locomotion.hurt.mt\w*forward_hurt\.kf', label = "the arms rig limps" },
   { re = 'limping summary: actors started limping (?P<n>\d+) times and walked normally again (?P<m>\d+) times', range = [1, 1000], label = "limping summary" },
   { re = 'limping: GSChetRef 0x00104C79 moves at 85% of its speed', label = "Chet slows on a crippled leg (fMoveOneCrippledLegSpeedMult, crippled-limbs.md §4)" },
   { re = 'limping: GSChetRef 0x00104C79 moves at 100% of its speed', label = "... and is quick again once healed" },
@@ -13346,7 +13381,7 @@ source = "crippled limbs (docs/spec-notes/crippled-limbs.md §3): with the torso
 note = "the console cripples the player's and Chet's torso; the hit aid hits Chet on the torso (staggers him: torso crippled), then his right arm on a part of 1 % of his health (he drops his revolver); Chet is set on the player, whose hits on the player make it flinch"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/deaths.rs", "crates/fnv-combat/src/damage.rs", "engine/nvf-play/src/knockouts.rs", "engine/nvforever/src/weapons.rs", "engine/nvforever/src/outfits.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV EnduranceCondition 1000;10.2:GSChetRef.DamageAV EnduranceCondition 1000;10.5:close", NVF_PLAY_TEST_SCRIPT = "12:combat:GSChetRef:player", NVF_PLAY_TEST_HIT = "14:GSChetRef:1,22:GSChetRef:2:limb=RightAttackCondition" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:tgm;10.1:player.DamageAV EnduranceCondition 1000;10.15:tgm;10.2:GSChetRef.DamageAV EnduranceCondition 1000;10.5:close", NVF_PLAY_TEST_SCRIPT = "12:combat:GSChetRef:player", NVF_PLAY_TEST_HIT = "14:GSChetRef:1,22:GSChetRef:2:limb=RightAttackCondition" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 28
 expect = [
@@ -15256,6 +15291,199 @@ expect = [
 ]
 
 [[scenario]]
+name = "difficulty-script-kept"
+source = "#3569: a script's SetGameDifficulty (JIP) was put back by the engine's own level on the next frame; it is kept as the chosen level now (docs/spec-notes/difficulty.md §4)"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 3 s; at 8 s the console's eval runs SetGameDifficulty 0 through the script engine (not the console's by-name word); four and five seconds later the hit aid's 10-point hits still go by Very Easy (the player takes 5, deals 20), and GetGameDifficulty still answers 0. Before the fix the hits were Normal's 10"
+areas = ["combat", "scripts"]
+paths = ["crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/difficulty.rs", "crates/fnv-game/src/nvse_jip4.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "8:eval SetGameDifficulty 0;8.3:close;15:GetGameDifficulty;15.3:close", NVF_PLAY_TEST_HIT = "12:player:10:by=EasyPeteRef,13:EasyPeteRef:10" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 18
+expect = [
+  { text = "difficulty: a script chose Very Easy (0); kept as the chosen level", count = 1, label = "the script's level is taken as the chosen one" },
+  { re = 'difficulty: Normal \(2\)', count = 0, label = "Normal is not handed back" },
+  { text = "console: GetGameDifficulty >> 0.00", label = "GetGameDifficulty still answers Very Easy" },
+]
+order = [[
+  { text = "difficulty: a script chose Very Easy (0)" },
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 5: health', label = "four seconds later Pete's 10-point hit takes Very Easy's 5" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 20: health', label = "and the player's does Very Easy's 20" },
+]]
+
+[[scenario]]
+name = "difficulty-custom"
+source = "#3569: the Difficulty list's Custom applies the three sliders under it, greyed under the five levels (#3570 review) (Player Damage, NPC Damage, Kill XP, 50-300%, 100% until moved) that set the damage the player deals and takes and the XP for a kill (docs/spec-notes/difficulty.md §5)"
+note = "in Goodsprings with Easy Pete 300 units north (3 s); no home, so no INI: the sliders start at 100%. At 6 s the console asks Pete's kill XP at Normal. Pause 8-14: under Normal the three rows are listed, greyed; Custom lets them apply at 100% (Normal's multipliers); then Player Damage 300% (part 1), NPC Damage 50% (part 0), Kill XP 200% (part 0.6). At 16 s his kill XP is asked again, at 18-19 s the hit aid's 10-point hits (the player takes 5, deals 30), at 21 s the player kills him"
+areas = ["combat", "settings"]
+paths = ["crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/difficulty.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "6:eval EasyPeteRef.GetKillXP;6.3:close;16:eval EasyPeteRef.GetKillXP;GetGameDifficulty;16.3:close", NVF_PLAY_TEST_PAUSE = "8:14", NVF_PLAY_TEST_SETTINGS = "8.5:select:difficulty,9.5:difficulty=Custom,11:difficulty-player-damage=1.0,11.5:difficulty-npc-damage=0,12:difficulty-kill-xp=0.6", NVF_PLAY_TEST_PAUSE_MENU = "9:inspect,9.2:shot,10.5:inspect,12.5:inspect", NVF_PLAY_TEST_HIT = "18:player:10:by=EasyPeteRef,19:EasyPeteRef:10,21:EasyPeteRef:9999" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 25
+expect = [
+  { text = "console: GetGameDifficulty >> 2.00", label = "scripts see Custom as Normal" },
+]
+order = [[
+  { text = "console: EasyPeteRef.GetKillXP >> 10", label = "Pete's kill XP at Normal: 10 (observed 2026-11-22)" },
+  { re = 'pause menu: inspect: shown \[Gameplay > Game\], difficulty, difficulty-player-damage, difficulty-npc-damage, difficulty-kill-xp, hardcore,', label = "under Normal the Custom rows are listed (greyed, not hidden)" },
+  "settings: difficulty Custom",
+  { text = "difficulty: Custom: damage by the player x1.00, to the player x1.00, kill XP x1.00", label = "each at 100% when Custom is first chosen (the rows show their getters' value, the same as these)" },
+  { re = 'pause menu: inspect: shown \[Gameplay > Game\], difficulty, difficulty-player-damage, difficulty-npc-damage, difficulty-kill-xp, hardcore,', label = "Custom: its three rows under the list" },
+  "settings: difficulty-player-damage 300%",
+  "settings: difficulty-npc-damage 50%",
+  "settings: difficulty-kill-xp 200%",
+  { text = "difficulty: Custom: damage by the player x3.00, to the player x0.50, kill XP x2.00", label = "the game takes what was set" },
+  { text = "console: EasyPeteRef.GetKillXP >> 20", label = "Kill XP 200%: twice Normal's" },
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 5: health', label = "NPC Damage 50%: Pete's 10-point hit takes 5" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 30: health', label = "Player Damage 300%: the player's does 30" },
+  { text = "xp: +20 XP from a kill", label = "the kill earns twice Normal's XP" },
+]]
+manual = "pause_settings.png (9.2 s, Difficulty chosen, Normal): the note under the rows names the five levels' numbers as the load order gives them, You deal / take / kill XP: Very Easy 200/50/100%, Easy 150/75/100%, Normal 100/100/100%, Hard 75/150/100%, Very Hard 50/200/100%, on two lines"
+
+[[scenario]]
+name = "difficulty-custom-unused"
+source = "#3569: the Custom sliders do nothing while one of the five levels is chosen (they are greyed then, #3570 review): the level's own numbers hold for the damage the player deals and takes and the kill XP (docs/spec-notes/difficulty.md §5)"
+note = "in Goodsprings with Easy Pete 300 units north (3 s); no home, so no INI. Pause 8-14: Custom, then Player Damage 300% (part 1), NPC Damage 50% (part 0), Kill XP 300% (part 1), then Very Hard; the rows stay listed, greyed, and the aid's edits on them at 12.5 and 13.5 s are refused. At 16 s Pete's kill XP, at 17-18 s the hit aid's 10-point hits: Very Hard's numbers (takes 20, deals 5), not the sliders' (5, 30; kill XP 30). Pause 20-23: Normal (an edit at 21.5 s refused again); at 25 s kill XP, 26-27 s hits (10, 10), 29 s the player kills him: +10 XP. Pause 30-33: Custom again brings back 300/50/300%, as set before the levels"
+areas = ["combat", "settings"]
+paths = ["crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/difficulty.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:eval EasyPeteRef.GetKillXP;16.3:close;25:eval EasyPeteRef.GetKillXP;25.3:close", NVF_PLAY_TEST_PAUSE = "8:14,20:23,30:33", NVF_PLAY_TEST_SETTINGS = "8.5:select:difficulty,9:difficulty=Custom,10:difficulty-player-damage=1.0,10.5:difficulty-npc-damage=0,11:difficulty-kill-xp=1.0,12:difficulty=Very Hard,12.5:difficulty-player-damage=0.2,13.5:difficulty-npc-damage=0.2,21:difficulty=Normal,21.5:difficulty-kill-xp=0.2,31:difficulty=Custom", NVF_PLAY_TEST_PAUSE_MENU = "11.5:inspect,13:inspect,22:inspect", NVF_PLAY_TEST_HIT = "17:player:10:by=EasyPeteRef,18:EasyPeteRef:10,26:player:10:by=EasyPeteRef,27:EasyPeteRef:10,29:EasyPeteRef:9999" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 35
+expect = [
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 5: health', count = 0, label = "never NPC Damage 50%'s 5" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 30: health', count = 0, label = "never Player Damage 300%'s 30" },
+  { text = "console: EasyPeteRef.GetKillXP >> 30", count = 0, label = "never Kill XP 300%'s 30" },
+  { re = 'settings: difficulty-(player-damage|npc-damage|kill-xp) 100%', count = 0, label = "a greyed slider takes no edit" },
+]
+order = [[
+  "settings: difficulty Custom",
+  "settings: difficulty-player-damage 300%",
+  "settings: difficulty-npc-damage 50%",
+  "settings: difficulty-kill-xp 300%",
+  { text = "difficulty: Custom: damage by the player x3.00, to the player x0.50, kill XP x3.00", label = "the sliders are set" },
+  { re = 'pause menu: inspect: shown \[Gameplay > Game\], difficulty, difficulty-player-damage, difficulty-npc-damage, difficulty-kill-xp, hardcore,', label = "shown under Custom" },
+  "settings: difficulty Very Hard",
+  { text = "difficulty: Very Hard (4): damage by the player x0.50, to the player x2.00, kill XP x1.00", label = "Very Hard's own numbers, not the sliders'" },
+  { re = 'pause menu: inspect: shown \[Gameplay > Game\], difficulty, difficulty-player-damage, difficulty-npc-damage, difficulty-kill-xp, hardcore,', label = "still listed under Very Hard (greyed)" },
+  { text = "console: EasyPeteRef.GetKillXP >> 10", label = "Very Hard: kill XP 10, not 30" },
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 20: health', label = "Very Hard: takes 20 of 10, not 5" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 5: health', label = "Very Hard: deals 5 of 10, not 30" },
+  "settings: difficulty Normal",
+  { text = "difficulty: Normal (2): damage by the player x1.00, to the player x1.00, kill XP x1.00", label = "Normal's own numbers" },
+  { re = 'pause menu: inspect: shown \[Gameplay > Game\], difficulty, difficulty-player-damage, difficulty-npc-damage, difficulty-kill-xp, hardcore,', label = "listed under Normal (greyed)" },
+  { text = "console: EasyPeteRef.GetKillXP >> 10", label = "Normal: kill XP 10" },
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 10: health', label = "Normal: takes 10" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 10: health', label = "Normal: deals 10" },
+  { text = "xp: +10 XP from a kill", label = "the kill earns Normal's XP, not 300%" },
+  "settings: difficulty Custom",
+  { text = "difficulty: Custom: damage by the player x3.00, to the player x0.50, kill XP x3.00", label = "Custom again: the sliders as set, the greyed rows took no edit" },
+]]
+
+[[scenario]]
+name = "difficulty-custom-write"
+source = "#3569: the Custom difficulty and its sliders are saved: the first half of the round trip, difficulty-custom-read starts with what this run keeps in its home"
+note = "the home's INI may hold any level and values from an earlier run: Normal, then Custom, its sliders to 100% (part 0.2), then to 150% (part 0.4), 75% (part 0.1) and 250% (part 0.8), so each is a change logged"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/difficulty.rs", "crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "difficulty-custom-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "10.3:difficulty=Normal,10.6:difficulty=Custom,10.9:difficulty-player-damage=0.2,11.2:difficulty-npc-damage=0.2,11.5:difficulty-kill-xp=0.2,11.9:difficulty-player-damage=0.4,12.3:difficulty-npc-damage=0.1,12.7:difficulty-kill-xp=0.8", NVF_PLAY_TEST_PAUSE_MENU = "13.5:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 17
+expect = [
+  { text = "difficulty: Custom: damage by the player x1.50, to the player x0.75, kill XP x2.50", label = "the game takes the three" },
+  { text = "settings: difficulty Custom", label = "Custom chosen" },
+  { text = "settings: difficulty-player-damage 150%", label = "Player Damage set" },
+  { text = "settings: difficulty-npc-damage 75%", label = "NPC Damage set" },
+  { text = "settings: difficulty-kill-xp 250%", label = "Kill XP set" },
+  { re = 'pause menu: inspect: shown \[Gameplay > Game\], difficulty, difficulty-player-damage, difficulty-npc-damage, difficulty-kill-xp, hardcore,', label = "the three rows are shown under the list" },
+]
+
+[[scenario]]
+name = "difficulty-custom-read"
+source = "#3569: the second half of the Custom difficulty's round trip: the next start reads Custom and its three sliders from the home difficulty-custom-write kept them in, and the hits go by them"
+note = "Runs after difficulty-custom-write in its home. In Goodsprings, Easy Pete 300 units north (3 s); the hit aid's 20-point hits: Pete's takes 15 from the player (75%), the player's does 30 (150%)"
+areas = ["settings", "combat"]
+paths = ["engine/nvf-play/src/difficulty.rs", "crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "difficulty-custom-home", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_HIT = "10:player:20:by=EasyPeteRef,11:EasyPeteRef:20" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'settings: .* read from .*difficulty Custom', label = "the INI's Custom is read at the start" },
+  { re = 'settings: .* read from .*difficulty-player-damage 150%, difficulty-npc-damage 75%, difficulty-kill-xp 250%', label = "and its three sliders" },
+  { text = "difficulty: Custom: damage by the player x1.50, to the player x0.75, kill XP x2.50", label = "the game takes them" },
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 15: health', label = "NPC Damage 75%: Pete's 20-point hit takes 15" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 30: health', label = "Player Damage 150%: the player's does 30" },
+]
+
+[[scenario]]
+name = "difficulty-levels-all"
+source = "#3569: every level scales the damage the player deals and takes as its own numbers say, and the kill XP (docs/spec-notes/difficulty.md §3)"
+note = "in Goodsprings, Easy Pete 300 units north (3 s), held by SetRestrained (3.2 s) so he never fights back. Every 3 s from 6 s the console sets the next level, Very Easy to Very Hard, and asks Pete's kill XP; a second later the hit aid's 20-point hit by Pete on the player and the player's 4-point hit on Pete. Taken 10/15/20/30/40, dealt 8/6/4/3/2 (the default fDiffMultHP*, no master sets them); kill XP 10 at every level (FalloutNV.esm's fDiffMultXP* are all 1)"
+areas = ["combat"]
+paths = ["crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/difficulty.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0,3.2:call:EasyPeteRef:SetRestrained:1", NVF_PLAY_TEST_CONSOLE = "6:setgamedifficulty 0;eval EasyPeteRef.GetKillXP;6.3:close;9:setgamedifficulty 1;eval EasyPeteRef.GetKillXP;9.3:close;12:setgamedifficulty 2;eval EasyPeteRef.GetKillXP;12.3:close;15:setgamedifficulty 3;eval EasyPeteRef.GetKillXP;15.3:close;18:setgamedifficulty 4;eval EasyPeteRef.GetKillXP;18.3:close", NVF_PLAY_TEST_HIT = "7:player:20:by=EasyPeteRef,7.5:EasyPeteRef:4,10:player:20:by=EasyPeteRef,10.5:EasyPeteRef:4,13:player:20:by=EasyPeteRef,13.5:EasyPeteRef:4,16:player:20:by=EasyPeteRef,16.5:EasyPeteRef:4,19:player:20:by=EasyPeteRef,19.5:EasyPeteRef:4" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for ', count = 5, label = "five hits on the player" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for ', count = 5, label = "five hits by the player" },
+  { re = 'console: EasyPeteRef\.GetKillXP >> 10$', count = 5, label = "kill XP 10 at every level (fDiffMultXP 1 in FalloutNV.esm)" },
+]
+order = [[
+  "difficulty: Very Easy (0): damage by the player x2.00, to the player x0.50, kill XP x1.00",
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 10: health', label = "Very Easy: takes 10 of 20" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 8: health', label = "Very Easy: deals 8 of 4" },
+  "difficulty: Easy (1): damage by the player x1.50, to the player x0.75, kill XP x1.00",
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 15: health', label = "Easy: takes 15" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 6: health', label = "Easy: deals 6" },
+  "difficulty: Normal (2): damage by the player x1.00, to the player x1.00, kill XP x1.00",
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 20: health', label = "Normal: takes 20" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 4: health', label = "Normal: deals 4" },
+  "difficulty: Hard (3): damage by the player x0.75, to the player x1.50, kill XP x1.00",
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 30: health', label = "Hard: takes 30" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 3: health', label = "Hard: deals 3" },
+  "difficulty: Very Hard (4): damage by the player x0.50, to the player x2.00, kill XP x1.00",
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 40: health', label = "Very Hard: takes 40" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 2: health', label = "Very Hard: deals 2" },
+]]
+
+[[scenario]]
+name = "difficulty-real-hits"
+source = "#3569: the difficulty scales real hits, not only the test aid's: the player's 9mm shots and Easy Pete's own attacks on the player, at Very Hard and at Custom (docs/spec-notes/difficulty.md §3.8)"
+note = "in Goodsprings, Easy Pete is brought 300 units north (3 s); the console sets Very Hard at 4 s and Pete is set on the player at 5 s (his own weapon). The player shoots him with the 9mm (no spread) at 9.1 s: x0.50; Pete's hits on the player: x2.00. Pete hits fast (13 a hit, 26 at Very Hard), so the console restores the player's Health at 13 s. Pause 15-18: Custom, Player Damage 125% (part 0.3), NPC Damage 150% (part 0.4); after it Pete's hits are x1.50 and the shots at 20.1 and 22.1 s x1.25 (two tries: a shot asked for at once after the pause was not fired). Each side is judged in its own order (Pete may hit before the first shot). Each hit the difficulty changes logs its base and scaled damage (Game::hit)"
+areas = ["combat"]
+paths = ["crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/difficulty.rs", "crates/fnv-game/src/combat.rs"]
+env = { RUST_LOG = "info,fnv_game::difficulty=debug", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0,5:combat:EasyPeteRef:player", NVF_PLAY_TEST_CONSOLE = "4:setgamedifficulty 4;4.3:close;13:player.RestoreAV Health 200;13.3:close", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "6:weapon,9:aimactor,9.1:fire,20:aimactor,20.1:fire,22:aimactor,22.1:fire", NVF_PLAY_TEST_PAUSE = "15:18", NVF_PLAY_TEST_SETTINGS = "15.5:difficulty=Custom,16:difficulty-player-damage=0.3,16.5:difficulty-npc-damage=0.4" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 25
+order = [
+  [
+    "difficulty: Very Hard (4)",
+    { re = 'difficulty: a hit of [\d.]+ on 0x00104C80 by 0x00000014 is [\d.]+ \(x0\.50\)', label = "Very Hard: the player's real shot does half" },
+    "difficulty: Custom: damage by the player x1.25, to the player x1.50, kill XP x1.00",
+    { re = 'difficulty: a hit of [\d.]+ on 0x00104C80 by 0x00000014 is [\d.]+ \(x1\.25\)', label = "Custom Player Damage 125%: the shot" },
+  ],
+  [
+    "difficulty: Very Hard (4)",
+    { re = 'difficulty: a hit of [\d.]+ on 0x00000014 by 0x00104C80 is [\d.]+ \(x2\.00\)', label = "Very Hard: Pete's real hit does double" },
+    "difficulty: Custom: damage by the player x1.25, to the player x1.50, kill XP x1.00",
+    { re = 'difficulty: a hit of [\d.]+ on 0x00000014 by 0x00104C80 is [\d.]+ \(x1\.50\)', label = "Custom NPC Damage 150%: Pete's hits" },
+  ],
+]
+
+[[scenario]]
+name = "difficulty-fall"
+source = "#3569: fall damage is damage the player takes: the difficulty scales it as a hit by nobody (docs/spec-notes/difficulty.md §3.3)"
+note = "in Goodsprings, Very Hard at 6 s, then the player is put 900 units up at 8 s (not god mode, unlike falls-player); the landing's hit is doubled"
+areas = ["combat"]
+paths = ["crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/falls.rs"]
+env = { RUST_LOG = "info,fnv_game::difficulty=debug", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "6:setgamedifficulty 4;6.3:close;8:player.setpos z 9600;8.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'falls: \S*(player|00000014)\S* lands from \d+ units: [\d.]+ fall damage', label = "the player lands hard" },
+  { re = 'difficulty: a hit of [\d.]+ on \S*00000014 by nobody is [\d.]+ \(x2\.00\)', label = "Very Hard: the fall's damage doubled" },
+]
+
+[[scenario]]
 name = "damageav-health-kills"
 source = "#1568: DamageActorValue on Health past zero kills an NPC and the player and knocks an essential actor out; no killer, so no XP (docs/spec-notes/unconscious.md §2.2, a hypothesis: observer-checks.md check 89)"
 note = "in Goodsprings: Easy Pete (not essential) survives 10 and dies of 9999, and is still dead 5 s later; Sunny Smiles is made essential and is knocked out; the player last, as the death ends the play"
@@ -15568,6 +15796,24 @@ run_seconds = 22
 order = [[
   { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \(Place\)', label = "refused: the worldspace forbids fast travel" },
   'fast travel: answered "OK"',
+]]
+
+[[scenario]]
+name = "fast-travel-interior"
+source = "#3434 (docs/spec-notes/fast-travel.md §2): no fast travel from an interior cell, and GetPCCanFastTravel agrees; CELL DATA bit 2 (Invert Fast Travel Behavior), set by SetCellFlag, allows it there"
+note = "the Goodsprings general store 0x001057F1; Primm 0x000CDF46 made a travel target by ShowMap; EnableFastTravel 1 does not lift the interior's refusal; the cell flag is set at 18 s, between the two asks; the question is answered No"
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "crates/fnv-game/src/fast_travel.rs", "crates/fnv-game/src/nvse_showoff5.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,6.5:call:-:EnableFastTravel:1,7:call:-:GetPCCanFastTravel,18:call:-:SetCellFlag:0x001057F1:2:1,18.5:call:-:GetPCCanFastTravel", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=000CDF46,17:key=use,20:travel=000CDF46,21:key=down,22:key=use,24:close" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 28
+order = [[
+  { text = "script: test aid calls GetPCCanFastTravel = Num(0.0)", label = "the script check says no indoors" },
+  { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Place\)', label = "refused: an interior" },
+  'fast travel: answered "OK"',
+  { text = "script: test aid calls GetPCCanFastTravel = Num(1.0)", label = "the inverted cell allows it" },
+  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: answered "No"',
 ]]
 
 [[scenario]]
@@ -18882,16 +19128,16 @@ order = [[
 
 [[scenario]]
 name = "compass-tick-place"
-source = "#3310: the hand-built compass's actor ticks stood a little low; their bar now ends 22 units down the compass window, where the HUD file's tick box puts the original's (docs/spec-notes/hud.md §11, engine/nvf-play/src/compass.rs TICK_TOP)"
-note = "as compass-sneaking-npc: the HUD hand-built (NVF_PLAY_TEST_TILE_MENUS empty: no tile menus); Ringo is brought 300 units north of the player (heading north, in the compass's window) at 9 s, after the scripts' start (about 6.5 s; earlier steps are moved later by script_events::delay_late_aids while the shots keep their time), a frame at 12 s shows his amber tick; StartCombat sets him on the god-mode player at 14 s and a frame at 17 s shows the red tick. Look at the frames: each bar ends a few pixels above the strip's doubled line, not on it"
+source = "#3310, #3777: the hand-built compass's actor ticks stood a little low; drawn in the HUD file's box (32 x 32 at the compass window's top), their bar ends 27 units down it (docs/spec-notes/hud.md §11, engine/nvf-play/src/compass.rs TICK_TOP)"
+note = "as compass-sneaking-npc: the HUD hand-built (NVF_PLAY_TEST_TILE_MENUS empty: no tile menus); Ringo is brought 300 units north of the player (heading north, in the compass's window) at 9 s, after the scripts' start (about 6.5 s; earlier steps are moved later by script_events::delay_late_aids while the shots keep their time), a frame at 12 s shows his amber tick; StartCombat sets him on the god-mode player at 14 s and a frame at 17 s shows the red tick. Look at the frames: each bar ends 1 to 3 pixels above the strip's doubled line, not on it"
 areas = ["hud"]
 paths = ["engine/nvf-play/src/compass.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "9:moveto:RingoRef:player:0:300:0,14:call:RingoRef:StartCombat:player", NVF_PLAY_TEST_SHOTS = "12,17" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--size", "1280x720"]
 run_seconds = 20
 expect = [
-  { re = 'compass: Actor tick drawn 26 x 26 at y 4\.125 of the window, its bar ending at 22\.0', label = "a neutral actor's tick, its bar ending at 22" },
-  { re = 'compass: Hostile tick drawn 26 x 26 at y 4\.125 of the window, its bar ending at 22\.0', label = "a hostile actor's red tick in the same place" },
+  { re = 'compass: Actor tick drawn 32 x 32 at y 0\.000 of the window, its bar ending at 27\.0', label = "a neutral actor's tick, its bar ending at 27" },
+  { re = 'compass: Hostile tick drawn 32 x 32 at y 0\.000 of the window, its bar ending at 27\.0', label = "a hostile actor's red tick in the same place" },
 ]
 
 [[scenario]]
@@ -20485,6 +20731,55 @@ expect = [
 ]
 forbid = [
   { re = 'actor 00104C0F stuck at', label = "Doc Mitchell moved on by the stuck rule" },
+]
+
+[[scenario]]
+name = "car-wreck-jumps"
+source = "issue #3611 (player report R-BRQX496D): running and jumping on the Primm car wrecks bobbed the view, and one landing was logged at 0 units/s; a jump caught on a wreck near the top of its arc comes down with almost no fall, and that is no landing (no clip, no view dip) [engineering choice: LAND_MIN_FALL, 30 units/s]"
+note = "the player starts on the Car01HulkBodyStatic at (-59371, -52907) by the report's place, runs over the wrecks jumping every 1.5 s, then sideways and back; on 2026-11-23 one jump came down after 0.42 s at 7 units/s and the real landings were 144 to 362 units/s, as in the report"
+areas = ["movement", "animation"]
+paths = ["engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "8:1:0,30:0:0,31:0:1,40:0:0,41:-1:0,55:0:0", NVF_PLAY_TEST_CONTROL = "9:jump,10.5:jump,12:jump,13.5:jump,15:jump,16.5:jump,18:jump,19.5:jump,21:jump,22.5:jump,24:jump,25.5:jump,27:jump,32:jump,34:jump,36:jump,38:jump,42:jump,44:jump,46:jump,48:jump,50:jump" }
+args = ["--play", "--world", "WastelandNV", "--pos=-59371,-52907,5990", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 58
+expect = [
+  { re = 'player view: landed at (?P<n>\d+) units/s', range = [30, 100000], label = "the jumps land" },
+]
+forbid = [
+  { re = 'player view: landed at ([0-9]|[12][0-9]) units/s', label = "a landing with almost no fall (the report's 0 units/s)" },
+]
+
+[[scenario]]
+name = "seated-holstered-rifle"
+source = "issue #3612 (player report R-DNBYBM6D): seated with a Caravan Shotgun holstered, the gun stood up through the player's head; the seat clips have no Weapon track and the player's body dropped the holster clip's, so the Weapon node went back to its bind transform (its place under the right hand) under the holster bone"
+note = "the Caravan Shotgun (000CD53A, 2hr: holstered on Bip01 Spine2) equipped and holstered, the player sits on Doc Mitchell's couch (00103E55) as in doc-chair-player-seated, the view then put in third person; the frame seated_rifle.png is for a look by eye"
+areas = ["furniture", "animation"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000CD53A", NVF_PLAY_TEST_FACE = "9:00103E55", NVF_PLAY_TEST_LOOK = "9.5:283:-35", NVF_PLAY_TEST_ACTIVATE = "10", NVF_PLAY_TEST_KEYS = "14:f", NVF_PLAY_TEST_SHOTS = "18:seated_rifle.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 20
+order = [[
+  { text = "furniture: the player is on 00103E55", label = "the player sits on the couch" },
+  { text = "player body: on furniture, the weapon hangs from Bip01 Spine2 at the holster clip's place", label = "the holstered shotgun keeps its place on the back" },
+]]
+forbid = [
+  { re = "player body: on furniture, the weapon hangs from .* at its bind transform", label = "the holstered weapon back at its bind transform (under the right hand)" },
+]
+
+[[scenario]]
+name = "primm-people-set-off"
+source = "issue #3670 (player report R-D3FBH2H4): outside Primm at dusk a sandboxing NCR trooper moved at walking pace on his idle (a slide) after a load; a person who set off while a fade into a standing clip (the idle, a turn) ran waited for its end. People set off at once, as creatures have since #1073"
+note = "by the report's place at 19:00 with every package on; before the fix PrimmNCRTrooper1 logged 'moves with no movement clip ... at 53 units/s, Idle playing' and four more people did, 95 actor frames in 90 s [observed 2026-11-23]"
+areas = ["animation", "ai"]
+paths = ["engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--world", "WastelandNV", "--pos=-60831,-48373,5804", "--heading", "0", "--hour", "19", "--no-voice", "--no-messages", "--npc-packages", "all"]
+run_seconds = 90
+expect = [
+  { re = 'actor moves without a clip: (?P<n>\d+) actor frames moving with no movement clip showing', range = [0, 0], label = "nobody moves on a standing clip" },
+]
+forbid = [
+  { re = 'actor moves with no movement clip: .*, Idle playing', label = "a person sliding on the idle" },
 ]
 
 [[scenario]]

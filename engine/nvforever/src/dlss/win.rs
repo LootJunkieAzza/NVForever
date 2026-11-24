@@ -238,6 +238,9 @@ pub(super) fn start(app: &mut App) {
             return;
         }
     };
+    // An NVIDIA GPU beside another maker's: a second snapshot with only NVIDIA's driver, also
+    // before Streamline is loaded, for the device check to fall back on (#2921).
+    let narrowed = narrowed_probe(&snapshot);
     // What Streamline loads by name from here on is looked up in the program's folder, the DLSS
     // folder and System32 only (`limit_dll_search`).
     if let Err(why) = limit_dll_search(&folder) {
@@ -309,7 +312,7 @@ pub(super) fn start(app: &mut App) {
         let asked = if fg { "DLSS + DLSS Frame Generation + Reflex, frame-based tagging" } else { "DLSS" };
         note(Level::INFO, format!("slInit: {} (SDK 2.14.16, Vulkan, {asked}, plugins from the folder, over-the-air flags off, engine {} with a project id)", result.name(), env!("CARGO_PKG_VERSION")));
         // The device check, before the renderer is told about the interposer (preflight.rs).
-        match device_check(&api, &snapshot, fg) {
+        match device_check(&api, &snapshot, narrowed.as_ref(), fg) {
             Ok(()) => break,
             Err((reason, why)) => {
                 if std::mem::take(&mut fg) {
@@ -404,7 +407,7 @@ fn folder_allows_streamline(folder: &Path) -> Option<preflight::Pinned> {
 /// declines and the caller tries again with DLSS only: Streamline's device proxy refuses a
 /// device lacking any loaded plugin's required extension, which wgpu-hal turns into a panic
 /// [documented: `src/wrapper.cpp:816-829`; fork-notes `fg-facts.md` §2.1].
-fn device_check(api: &Api, snapshot: &Snapshot, frame_generation: bool) -> Result<(), (Unavailable, String)> {
+fn device_check(api: &Api, full: &Snapshot, narrowed: Option<&Snapshot>, frame_generation: bool) -> Result<(), (Unavailable, String)> {
     let (mut requirements, _) = self::requirements(api, FEATURE_DLSS, "DLSS").map_err(|why| (Unavailable::StreamlineRefused, why))?;
     note(Level::INFO, format!("requirements: DLSS asks for {requirements}"));
     if frame_generation {
@@ -415,7 +418,18 @@ fn device_check(api: &Api, snapshot: &Snapshot, frame_generation: bool) -> Resul
         }
         note_fg(Level::INFO, format!("requirements merged (DLSS, DLSS-G, Reflex): {requirements}"));
     }
-    let checked = preflight::judge(snapshot, &requirements).map_err(|d| (d.reason, d.why))?;
+    // The full snapshot first; when it fails and the one with only NVIDIA's driver passes, that
+    // filter is kept for the run (`keep_nvidia_only`), so the renderer sees what was checked.
+    let (checked, snapshot) = match preflight::judge(full, &requirements) {
+        Ok(checked) => (checked, full),
+        Err(declined) => match narrowed.map(|n| (preflight::judge(n, &requirements), n)) {
+            Some((Ok(checked), n)) => {
+                keep_nvidia_only(&declined.why);
+                (checked, n)
+            }
+            _ => return Err((declined.reason, declined.why)),
+        },
+    };
     note(Level::INFO, format!("device check: passed for {} (every GPU Vulkan exposes)", checked.join(", ")));
     // The same candidates `judge` checked, for the pin (preflight.rs `pin`); Bevy reads
     // `WGPU_ADAPTER_NAME` the same way (vendor/bevy_render/src/renderer/mod.rs:273-275).
@@ -437,6 +451,57 @@ fn device_check(api: &Api, snapshot: &Snapshot, frame_generation: bool) -> Resul
     };
     *adapters() = Some(Adapters { checked: picks.iter().map(|&i| Checked::of(&snapshot.devices[i])).collect(), pin });
     Ok(())
+}
+
+/// The GPUs again through the system's loader with only NVIDIA's driver
+/// (`VK_LOADER_DRIVERS_SELECT`, preflight.rs [`preflight::NVIDIA_DRIVER_GLOB`]), when `full`
+/// shows an NVIDIA GPU beside another maker's (#2921): a desktop CPU's integrated graphics,
+/// short of DLSS's extensions, otherwise keeps DLSS off on every such machine. The variable is
+/// set only for this probe; `keep_nvidia_only` sets it for the run when the device check needs
+/// it. `None` when the player set a filter or `WGPU_ADAPTER_NAME` (their choice stands), the
+/// GPUs are one maker's, or the second snapshot cannot stand in for the first.
+fn narrowed_probe(full: &Snapshot) -> Option<Snapshot> {
+    if !preflight::mixed_vendors(&full.devices) {
+        return None;
+    }
+    if let Some(set) = [preflight::DRIVERS_SELECT, preflight::DRIVERS_DISABLE, "WGPU_ADAPTER_NAME"].into_iter().find(|v| std::env::var_os(v).is_some_and(|x| !x.is_empty())) {
+        note(Level::INFO, format!("NVIDIA's driver alone: not tried, {set} is set"));
+        return None;
+    }
+    // The loader reads the variable when an instance is made [documented: Vulkan-Loader
+    // `docs/LoaderInterfaceArchitecture.md`]; at start, before the renderer has made any.
+    std::env::set_var(preflight::DRIVERS_SELECT, preflight::NVIDIA_DRIVER_GLOB);
+    let narrowed = preflight::probe();
+    std::env::remove_var(preflight::DRIVERS_SELECT);
+    let narrowed = match narrowed {
+        Ok(n) => n,
+        Err(why) => {
+            note(Level::INFO, format!("NVIDIA's driver alone: the GPUs could not be read ({why}); not used"));
+            return None;
+        }
+    };
+    match preflight::narrowed_usable(full, &narrowed) {
+        Ok(()) => {
+            let names: Vec<&str> = narrowed.devices.iter().map(|d| d.name.as_str()).collect();
+            note(Level::INFO, format!("NVIDIA's driver alone ({}={}): the loader shows {}; used only if every GPU fails the device check", preflight::DRIVERS_SELECT, preflight::NVIDIA_DRIVER_GLOB, names.join(", ")));
+            Some(narrowed)
+        }
+        Err(why) => {
+            note(Level::INFO, format!("NVIDIA's driver alone ({}={}): {why}; not used", preflight::DRIVERS_SELECT, preflight::NVIDIA_DRIVER_GLOB));
+            None
+        }
+    }
+}
+
+/// The loader's filter to NVIDIA's driver kept for the rest of the run (#2921): the renderer's
+/// instance, made through the interposer from the same system loader, then sees only the GPUs the
+/// narrowed device check passed. `why` is why the full check failed, for the log.
+fn keep_nvidia_only(why: &str) {
+    std::env::set_var(preflight::DRIVERS_SELECT, preflight::NVIDIA_DRIVER_GLOB);
+    note(
+        Level::INFO,
+        format!("device check: every GPU failed ({why}); NVIDIA's driver alone passed, so {}={} is kept for this run and the renderer sees only NVIDIA's GPUs", preflight::DRIVERS_SELECT, preflight::NVIDIA_DRIVER_GLOB),
+    );
 }
 
 /// What `slGetFeatureRequirements` reports beside the device check's [`Requirements`], for the

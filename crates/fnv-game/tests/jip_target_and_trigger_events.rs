@@ -232,7 +232,7 @@ fn pc_target_change_fires_on_actor_transitions_respects_range_and_removes() {
 
     // Engine crosshair_far + reticle.hit range check against fAutoAimMaxDistance (1800):
     // RaiderRef at 2200 units is out of range -> stays None.
-    g.senses.reticle = Some(Reticle { start: [0.0; 3], dir: [1.0, 0.0, 0.0], hit: Some(2200.0) });
+    g.senses.reticle = Some(Reticle { start: [0.0; 3], dir: [1.0, 0.0, 0.0], hit: Some(2200.0), limb: None });
     g.senses.crosshair_far = Some(RAIDER_REF);
     g.tick();
     assert_eq!(aux_size(&mut g, "*pt_null"), 3.0, "actor beyond fAutoAimMaxDistance does not trigger target");

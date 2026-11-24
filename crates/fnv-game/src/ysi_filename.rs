@@ -7,7 +7,7 @@ use serde_json::{Map, Value as Json};
 use std::collections::BTreeSet;
 
 // Mapped configuration resource bounds, not native limits.
-const MAX_FILES: usize = 32;
+const MAX_FILES: usize = 128;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RULES: usize = 20_000;
 
@@ -28,7 +28,7 @@ struct Book {
     icons: Vec<Rule>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Match {
+pub(crate) enum Match {
     Yes,
     No,
     Unknown,
@@ -106,11 +106,25 @@ pub(crate) fn json_tag(g: &mut Game<'_>, form: FormId) -> Option<String> {
 /// Resolves the certain winning JSON icon `filename` for a ySI sorting tag using
 /// the session's cached configuration snapshot.
 pub(crate) fn json_icon_filename(g: &mut Game<'_>, tag: &str) -> Option<String> {
+    json_icon_spec(g, tag).map(|(filename, _)| filename)
+}
+
+/// Resolves the certain winning JSON icon `(filename, optional template)` for a ySI
+/// sorting tag using the session's cached configuration snapshot.
+pub(crate) fn json_icon_spec(g: &mut Game<'_>, tag: &str) -> Option<(String, Option<String>)> {
     if g.ysi_filename.book.is_none() {
         g.ysi_filename.book = Some(Book::load());
     }
     let book = g.ysi_filename.book.as_ref()?.as_ref().ok()?;
-    book.icon_filename(tag).ok()
+    book.icon_spec(tag).ok()
+}
+
+/// Whether a valid `menus/ySI/*.json` configuration book is loaded in this session.
+pub(crate) fn has_loaded_book(g: &mut Game<'_>) -> bool {
+    if g.ysi_filename.book.is_none() {
+        g.ysi_filename.book = Some(Book::load());
+    }
+    g.ysi_filename.book.as_ref().is_some_and(Result::is_ok)
 }
 
 impl Book {
@@ -233,6 +247,10 @@ impl Book {
     }
 
     fn icon_filename(&self, tag: &str) -> Result<String, String> {
+        self.icon_spec(tag).map(|(filename, _)| filename)
+    }
+
+    fn icon_spec(&self, tag: &str) -> Result<(String, Option<String>), String> {
         let priority = self
             .icons
             .iter()
@@ -240,6 +258,7 @@ impl Book {
             .map(|r| r.priority)
             .max();
         let mut filenames = BTreeSet::new();
+        let mut templates = BTreeSet::new();
         for rule in self
             .icons
             .iter()
@@ -251,6 +270,15 @@ impl Book {
                 .and_then(Json::as_str)
                 .ok_or("selected ySI icon has no filename string")?;
             filenames.insert(filename);
+            if let Some(tpl) = rule
+                .fields
+                .get("template")
+                .and_then(Json::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                templates.insert(tpl);
+            }
         }
         if filenames.len() != 1 {
             return Err(
@@ -258,7 +286,12 @@ impl Book {
                     .into(),
             );
         }
-        Ok((*filenames.first().expect("one filename")).to_string())
+        let template = if templates.len() == 1 {
+            templates.first().map(|s| (*s).to_string())
+        } else {
+            None
+        };
+        Ok(((*filenames.first().expect("one filename")).to_string(), template))
     }
 }
 
@@ -297,7 +330,45 @@ impl Rule {
                     }
                     _ => Match::Unknown,
                 },
-                _ => Match::Unknown,
+                // WEAP / ALCH / ARMO record predicates: every key name below is
+                // [documented: Sorting Icons 1.4b package, menus/ySI/ySI.json]; no ySI/yUI
+                // DLL or source code was consulted. Uncited keys (including shorthand names
+                // such as `weaponAutomatic`/`weaponScope`) fall through to `Match::Unknown`.
+                //
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.skill;
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): scalar integer only, arrays abort JSON]
+                "weaponSkill" => weapon_scalar_int_field(g, item, "DNAM", "skill", value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.animation_type;
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): scalar and array]
+                "weaponType" => weapon_int_field(g, item, "DNAM", "animation_type", value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.flags1 bit 1 ("Is Automatic");
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d)]
+                "weaponIsAutomatic" => weapon_flag1(g, item, 1 << 1, value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.flags1 bit 2 ("Has Scope");
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): 1=true, 0=false, -1 does not match false]
+                "weaponHasScope" => weapon_flag1(g, item, 1 << 2, value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.flags1 bit 0 ("Ignores Normal Weapon Resistance");
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d)]
+                "weaponIgnoresDTDR" => weapon_flag1(g, item, 1 << 0, value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json ALCH.ENIT.flags bit 1 (0x02, "Food Item");
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): 1=true, -1 does not match false]
+                "aidIsFood" => aid_flag(g, item, crate::data::IngestibleDef::FOOD, value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json ALCH.ENIT.flags bit 2 (0x04, "Medicine");
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d)]
+                "aidIsMedicine" => aid_flag(g, item, crate::data::IngestibleDef::MEDICINE, value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json ALCH.ENIT.withdrawal_effect; hypothesis: non-null withdrawal form]
+                "aidIsAddictive" => aid_addictive(g, item, value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; GECK wiki GetArmorClass (1 Light, 2 Medium, 3 Heavy);
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d)]
+                "armorClass" => armor_class_match(g, item, value),
+                // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json ARMO.BMDT.general_flags bit 5 / GECK wiki IsPowerArmor;
+                //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): 1=true, -1 does not match false]
+                "armorPower" => armor_power_match(g, item, value),
+                // 11 ARMO biped-slot keys, each individually cited in `armor_biped_bit`.
+                slot if armor_biped_bit(slot).is_some() => {
+                    armor_biped_match(g, item, armor_biped_bit(slot).expect("checked"), value)
+                }
+                _ => crate::ysi_predicates::eval(g, item, &self.fields, name, value),
             };
             if part == Match::No {
                 return Match::No;
@@ -310,6 +381,9 @@ impl Rule {
         if (self.fields.contains_key("mod") || self.fields.contains_key("formlist"))
             && !self.fields.contains_key("form")
         {
+            return Match::Unknown;
+        }
+        if crate::ysi_predicates::has_dangling_companions(&self.fields) {
             return Match::Unknown;
         }
         answer
@@ -384,7 +458,7 @@ impl Rule {
     }
 }
 
-fn parse_local_form(v: &Json) -> Option<u32> {
+pub(crate) fn parse_local_form(v: &Json) -> Option<u32> {
     let text = v.as_str()?;
     u32::from_str_radix(
         text.strip_prefix("0x")
@@ -396,7 +470,7 @@ fn parse_local_form(v: &Json) -> Option<u32> {
     .filter(|n| *n <= 0x00ff_ffff)
 }
 
-fn any(values: impl Iterator<Item = Match>) -> Match {
+pub(crate) fn any(values: impl Iterator<Item = Match>) -> Match {
     let mut answer = Match::No;
     for v in values {
         if v == Match::Yes {
@@ -408,7 +482,7 @@ fn any(values: impl Iterator<Item = Match>) -> Match {
     }
     answer
 }
-fn number_set(value: &Json, number: i64) -> Match {
+pub(crate) fn number_set(value: &Json, number: i64) -> Match {
     let one = |v: &Json| match v.as_i64() {
         Some(n) if n == number => Match::Yes,
         Some(_) => Match::No,
@@ -418,6 +492,141 @@ fn number_set(value: &Json, number: i64) -> Match {
         Json::Array(values) => any(values.iter().map(one)),
         _ => one(value),
     }
+}
+
+/// Match a boolean ySI predicate: `1` = required true, `0` = required false
+/// [observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d) on `weaponHasScope`], and
+/// `-1` = required false only when `allow_neg_one` is true (armor biped-slot rules
+/// [documented: Sorting Icons 1.4b menus/ySI/ySI.json uses `1` and `-1` on armor slot
+/// rules such as `"armorHat": 1, "armorMask": -1`]; on non-slot flags `-1` was observed
+/// not to match false in `yUI 1.4d` and stays `Match::Unknown`). Any other JSON value
+/// remains `Match::Unknown`.
+pub(crate) fn bool_pred(value: &Json, actual: bool, allow_neg_one: bool) -> Match {
+    match value.as_i64() {
+        Some(1) => if actual { Match::Yes } else { Match::No },
+        Some(0) => if !actual { Match::Yes } else { Match::No },
+        Some(-1) if allow_neg_one => if !actual { Match::Yes } else { Match::No },
+        _ => Match::Unknown,
+    }
+}
+
+fn weapon_scalar_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, value: &Json) -> Match {
+    if g.data.sig(item) != Some(*b"WEAP") {
+        return Match::No;
+    }
+    let Some(expected) = value.as_i64() else {
+        return Match::Unknown;
+    };
+    match crate::nvse::record_value(g, item, sub, path) {
+        Some(XVal::Num(n)) if n.is_finite() => {
+            if n.trunc() as i64 == expected {
+                Match::Yes
+            } else {
+                Match::No
+            }
+        }
+        _ => Match::Unknown,
+    }
+}
+
+fn weapon_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, value: &Json) -> Match {
+    if g.data.sig(item) != Some(*b"WEAP") {
+        return Match::No;
+    }
+    match crate::nvse::record_value(g, item, sub, path) {
+        Some(XVal::Num(n)) if n.is_finite() => number_set(value, n.trunc() as i64),
+        _ => Match::Unknown,
+    }
+}
+
+fn weapon_flag1(g: &Game<'_>, item: FormId, bit: u8, value: &Json) -> Match {
+    let Some(flags) = g.weapon_flags1(item) else {
+        return Match::No;
+    };
+    bool_pred(value, flags & bit != 0, false)
+}
+
+fn aid_flag(g: &Game<'_>, item: FormId, bit: u8, value: &Json) -> Match {
+    if g.data.sig(item) != Some(*b"ALCH") {
+        return Match::No;
+    }
+    let Some(def) = g.ingestible_def(item) else {
+        return Match::Unknown;
+    };
+    bool_pred(value, def.flags & bit != 0, false)
+}
+
+fn aid_addictive(g: &Game<'_>, item: FormId, value: &Json) -> Match {
+    if g.data.sig(item) != Some(*b"ALCH") {
+        return Match::No;
+    }
+    let Some(def) = g.ingestible_def(item) else {
+        return Match::Unknown;
+    };
+    bool_pred(value, def.withdrawal.is_some(), false)
+}
+
+fn armor_class_match(g: &Game<'_>, item: FormId, value: &Json) -> Match {
+    if g.data.sig(item) != Some(*b"ARMO") {
+        return Match::No;
+    }
+    number_set(value, i64::from(g.armor_class(item)))
+}
+
+fn armor_power_match(g: &Game<'_>, item: FormId, value: &Json) -> Match {
+    if g.data.sig(item) != Some(*b"ARMO") {
+        return Match::No;
+    }
+    let is_power = g
+        .other
+        .power_armor
+        .get(&item)
+        .copied()
+        .unwrap_or_else(|| g.world.effective_power_armor(item));
+    bool_pred(value, is_power, false)
+}
+
+/// ARMO `BMDT/biped_flags` bit index for each public ySI armor-slot predicate key.
+/// Every key below is individually [documented: Sorting Icons 1.4b package,
+/// `menus/ySI/ySI.json`]; bit indices are [documented: `schemas/fnv/objects.json`
+/// `ARMO.BMDT.biped_flags`]. No ySI/yUI DLL or source code was consulted.
+fn armor_biped_bit(name: &str) -> Option<u32> {
+    Some(match name {
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 0 "Head"]
+        "armorHead" => 0,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 1 "Hair"]
+        "armorHair" => 1,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 2 "Upper Body"]
+        "armorUpperBody" => 2,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 6 "PipBoy"]
+        "armorPipBoy" => 6,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 7 "Backpack"]
+        "armorBackpack" => 7,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 9 "Headband"]
+        "armorHeadband" => 9,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 10 "Hat"]
+        "armorHat" => 10,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 11 "Eye Glasses"]
+        "armorEyeglasses" => 11,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 14 "Mask"]
+        "armorMask" => 14,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 15 "Choker"]
+        "armorChoker" => 15,
+        // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; ARMO.BMDT.biped_flags bit 16 "Mouth Object"]
+        "armorMouthObject" => 16,
+        _ => return None,
+    })
+}
+
+fn armor_biped_match(g: &Game<'_>, item: FormId, bit: u32, value: &Json) -> Match {
+    if g.data.sig(item) != Some(*b"ARMO") {
+        return Match::No;
+    }
+    let mask = match crate::nvse::record_value(g, item, "BMDT", "biped_flags") {
+        Some(XVal::Num(n)) if n.is_finite() => n.trunc() as i64 as u64,
+        _ => 0,
+    };
+    bool_pred(value, (mask >> bit) & 1 != 0, true)
 }
 
 /// ySI-local commented configuration, leaving generic strict JSON APIs unchanged.
@@ -528,5 +737,23 @@ mod tests {
         assert_eq!(number_set(&serde_json::json!([31, 40]), 40), Match::Yes);
         assert_eq!(number_set(&serde_json::json!([31, "bad"]), 40), Match::Unknown);
         assert_eq!(number_set(&serde_json::json!([31, "bad"]), 31), Match::Yes);
+    }
+
+    #[test]
+    fn bool_pred_and_biped_bits_handle_documented_values_and_reject_unknowns() {
+        assert_eq!(bool_pred(&Json::from(1), true, true), Match::Yes);
+        assert_eq!(bool_pred(&Json::from(1), false, true), Match::No);
+        assert_eq!(bool_pred(&Json::from(0), false, true), Match::Yes);
+        assert_eq!(bool_pred(&Json::from(-1), false, true), Match::Yes);
+        assert_eq!(bool_pred(&Json::from(-1), true, true), Match::No);
+        assert_eq!(bool_pred(&Json::from(-1), false, false), Match::Unknown);
+        assert_eq!(bool_pred(&Json::from(-1), true, false), Match::Unknown);
+        assert_eq!(bool_pred(&Json::from(2), false, true), Match::Unknown);
+        assert_eq!(bool_pred(&Json::from("1"), true, true), Match::Unknown);
+        assert_eq!(armor_biped_bit("armorHead"), Some(0));
+        assert_eq!(armor_biped_bit("armorHat"), Some(10));
+        assert_eq!(armor_biped_bit("armorMask"), Some(14));
+        assert_eq!(armor_biped_bit("armorMouthObject"), Some(16));
+        assert_eq!(armor_biped_bit("armorUnknown"), None);
     }
 }

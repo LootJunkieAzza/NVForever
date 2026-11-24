@@ -74,29 +74,55 @@ fn is_in_chargen_tracks_set_in_chargen_and_chargen_menus() {
     assert!(!g.is_in_chargen());
     assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
 
-    // SetInCharGen 1 / 0 directly toggles IsInCharGen.
+    // SetInCharGen 1 / 0 updates PlayerState::in_chargen (vanilla chargen flag) without
+    // flipping JIP LN's IsInCharGen [observed: w4c_a02_set_in_chargen_menus, w4c_a02b_set_in_chargen_xp].
     q(&mut g, "SetInCharGen 1");
-    assert!(g.is_in_chargen());
-    assert_eq!(n(&mut g, "IsInCharGen"), 1.0);
+    assert!(g.player.in_chargen);
+    assert!(!g.is_in_chargen());
+    assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
     q(&mut g, "SetInCharGen 0");
+    assert!(!g.player.in_chargen);
     assert!(!g.is_in_chargen());
     assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
 
-    // Open character-creation menus also count, whereas barber/surgeon/barter/text-input do not.
-    for code in [menus::TAG_SKILLS, menus::LOVE_TESTER, menus::TRAITS, menus::NAME] {
+    // CharGenMenu / TagSkills (1048), LoveTesterMenu (1074), and TraitMenu (1084) report
+    // IsInCharGen = 1 [observed: w4c_a02_chargen_all_menus, w4d_01_tagskills_chargen].
+    for code in [menus::TAG_SKILLS, menus::LOVE_TESTER, menus::TRAITS] {
         g.menu = Some(code);
+        assert!(g.is_in_chargen(), "menu {code} should report is_in_chargen() == true");
         assert_eq!(n(&mut g, "IsInCharGen"), 1.0, "menu {code} should report IsInCharGen = 1");
     }
+    g.menu = None;
+    q(&mut g, "SetTagSkills 3");
+    assert_eq!(g.menu, Some(menus::TAG_SKILLS));
+    assert!(g.is_in_chargen());
+    assert_eq!(n(&mut g, "IsInCharGen"), 1.0);
+    g.menu = None;
+
+    // Name (1051), Race (1036 across Creator/Barber/Surgeon), and ordinary menus such as
+    // Barter (1053) report IsInCharGen = 0.
+    for code in [menus::NAME, menus::BARTER] {
+        g.menu = Some(code);
+        assert!(!g.is_in_chargen(), "menu {code} should report is_in_chargen() == false");
+        assert_eq!(n(&mut g, "IsInCharGen"), 0.0, "menu {code} should report IsInCharGen = 0");
+    }
+    g.menu = Some(menus::RACE);
+    for variant in [RaceMenu::Creator, RaceMenu::Barber, RaceMenu::Surgeon] {
+        g.race_menu = variant;
+        assert_eq!(n(&mut g, "IsInCharGen"), 0.0, "RaceMenu::{variant:?} should report IsInCharGen = 0");
+    }
+
+    // Even combined with SetInCharGen 1, Name and Race menus still return 0 while TraitMenu returns 1.
+    q(&mut g, "SetInCharGen 1");
+    g.menu = Some(menus::NAME);
+    assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
     g.menu = Some(menus::RACE);
     g.race_menu = RaceMenu::Creator;
+    assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
+    g.menu = Some(menus::TRAITS);
     assert_eq!(n(&mut g, "IsInCharGen"), 1.0);
-    g.race_menu = RaceMenu::Barber;
-    assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
-    g.race_menu = RaceMenu::Surgeon;
-    assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
+    q(&mut g, "SetInCharGen 0");
 
-    g.menu = Some(menus::BARTER);
-    assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
     g.menu = None;
     assert_eq!(n(&mut g, "IsInCharGen"), 0.0);
 }
