@@ -471,7 +471,7 @@ impl Game<'_> {
             let Some(def) = edited.as_ref().or_else(|| data.perks.get(&perk)) else { continue };
             let at = |e: &&PerkEntry| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1);
             let Some(top) = def.entries.iter().filter(at).map(|e| e.rank).max() else { continue };
-            'entry: for e in def.entries.iter().filter(at).filter(|e| e.rank == top) {
+            'entry: for (index, e) in def.entries.iter().enumerate().filter(|(_, e)| at(e)).filter(|(_, e)| e.rank == top) {
                 let PerkEffect::EntryPoint(ep) = &e.effect else { continue };
                 let Some(conds) = ep.conditions.as_ref() else { continue };
                 let label = format!("{} entry point {point}", data.name(perk));
@@ -489,7 +489,16 @@ impl Game<'_> {
                         continue 'entry;
                     }
                 }
-                found.push((perk, e.clone()));
+                // A number SetNthPerkEntryValue1 gave the entry (counted by its place in
+                // the perk, as that function counts) stands for the record's from then on
+                // [documented: SetNthPerkEntryValue1 sets the entry's value; observed: JAM's
+                // sprint raises JVSPerk's Modify Run Speed entry this way to speed the
+                // player up].
+                let mut e = e.clone();
+                if let (Some(&v), PerkEffect::EntryPoint(ep)) = (self.jip2.perk_values.get(&(perk, index)), &mut e.effect) {
+                    ep.value = Some(v);
+                }
+                found.push((perk, e));
             }
         }
         found.sort_by_key(|(p, e)| (e.priority, *p));

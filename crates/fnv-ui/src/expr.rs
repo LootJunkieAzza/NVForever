@@ -181,6 +181,11 @@ pub fn literal(nodes: &[Node], string: &dyn Fn(&str) -> Option<String>) -> Value
 /// game-string prefix so callers can record explicit misses without polluting missing-read
 /// tables with ordinary UI constants (`&center;`, `&scale;`, …).
 pub(crate) fn literal_with(nodes: &[Node], string: &dyn Fn(&str, bool) -> Option<String>) -> Value {
+    // `&sName;` without the `-` reads as `&-sName;` when it names a string setting the
+    // load order or the built-in table answers [hypothesis: JAM's loot menu (jlm.xml)
+    // writes `&sTargetTypeTake;`, `&sSteal;` and `&sTargetTypeOpen;` for its key hints
+    // and MCM's scale.xml `&sAccept;` and `&sCancel;`, beside the `&-…;` names of the
+    // same files; menu-xml.md §2.4]; otherwise it stays a constant's name.
     let unprefixed_string = |e: &str| {
         let lower = e.to_ascii_lowercase();
         if crate::value::sym_number(&lower).is_some() {
@@ -284,6 +289,9 @@ mod tests {
         assert_eq!(Src::parse("parent(CWM_MainRect)"), Src::Ancestor("CWM_MainRect".into()));
         assert_eq!(Src::parse("gloabls()"), Src::Globals);
         assert_eq!(Src::parse("StatsMenu"), Src::Named("StatsMenu".into()));
+        // `me` without brackets is a name here; the tree reads it as the tile itself when
+        // no tile bears it (`Ui`'s `Src::Named` lookup, MCM 1.5's Options.xml).
+        assert_eq!(Src::parse("me"), Src::Named("me".into()));
     }
 
     #[test]
@@ -325,6 +333,12 @@ mod tests {
         assert_eq!(literal(&e.children, &s), Value::Sym("true".into()));
         let e = first("<a> x &true; </a>");
         assert_eq!(literal(&e.children, &s), Value::Str("x &true;".into()));
+        // Without the `-`, a name the table answers is its text; one it does not
+        // answer stays a constant (menu-xml.md §2.4).
+        let e = first("<string> &sHowMany; </string>");
+        assert_eq!(literal(&e.children, &s), Value::Str("How many?".into()));
+        let e = first("<a>&sNoSuch;</a>");
+        assert_eq!(literal(&e.children, &s), Value::Sym("snosuch".into()));
         let e = first("<justify> &center; </justify>");
         assert_eq!(literal(&e.children, &s), Value::Sym("center".into()));
     }

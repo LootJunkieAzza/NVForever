@@ -189,6 +189,7 @@ fn registered_source_uses_clearance_for_real_named_transform_requests_and_fresh_
             rotation: [0.0; 3],
             scale: 1.0,
             flags: 0,
+            world: [0.0; 3],
             material: None,
             info: None,
         }],

@@ -469,7 +469,7 @@ fn assert_copy_paths(ui: &Ui) {
         }
     }
     assert!(ui.find_tile("HUDMainMenu/HitPoints/compass_window/compass_icon_group:0/compass_icon").is_some());
-    for (path, expected) in [("HitPoints/compass_window/compass_npc_icon_group/y", 10.0), ("HitPoints/compass_window/compass_icon_group:0/y", 30.0), ("ReticleCenter/reticle_center/depth", 1.0)] {
+    for (path, expected) in [("HitPoints/compass_window/compass_npc_icon_group/y", 10.0), ("HitPoints/compass_window/compass_icon_group:0/y", 30.0), ("ReticleCenter/reticle_center/depth", 1.0), ("HitPoints/compass_window/alpha", 255.0)] {
         assert_eq!(ui.get_float(&format!("HUDMainMenu/{path}")), Some(expected));
     }
     for i in 0..10 {

@@ -106,6 +106,7 @@
 //!   and the unarmed `mt`/`h2h`].
 
 use crate::actors::ActorWorld;
+use crate::anim_overrides::ByStem;
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::npc_combat::Fighters;
@@ -643,6 +644,9 @@ struct AttackClips {
     /// A body weapon's attack clips by (skeleton folder, stance prefix) ([`body_attack_names`]).
     body: HashMap<(String, String), Vec<String>>,
     turn: HashMap<u32, usize>,
+    /// Each actor's attack count, which picks the file of a held weapon's `_order_N`
+    /// set (`anim_overrides::pick`), as the player's attack count does for the player.
+    order_turn: HashMap<u32, usize>,
     stats: Stats,
 }
 
@@ -688,6 +692,22 @@ impl AttackClips {
             .entry(key)
             .or_insert_with(|| ctx.clip(path).or_else(|| fnv_actor::anims::special_anims_path(path).and_then(|p| ctx.clip(&p))).map(|c| Arc::new(bind_clip(skel, c))))
             .clone()
+    }
+
+    /// The first of `names` (file names in `folder`) that a held weapon's override files
+    /// (`files`, `anim_overrides`) stand in for and that loads (of an `_order_N` set the
+    /// file of `turn`), else [`Self::first`].
+    #[allow(clippy::too_many_arguments)]
+    fn first_held(&mut self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, folder: &str, names: &[String], files: Option<&ByStem>, turn: usize) -> Option<(String, Arc<BoundClip>)> {
+        let over = files.and_then(|m| crate::anim_overrides::pick(m, names, turn)).and_then(|path| self.bind(ctx, skeleton, skel, &path).map(|c| (path, c)));
+        over.or_else(|| self.first(ctx, skeleton, skel, folder, names))
+    }
+
+    /// The clip at `path` (a stance file in the skeleton's folder), or the held weapon's
+    /// override file for it (`files`).
+    fn bind_held(&mut self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, path: &str, files: Option<&ByStem>) -> Option<Arc<BoundClip>> {
+        let over = files.and_then(|m| crate::anim_overrides::pick(m, &[path.to_string()], 0)).and_then(|p| self.bind(ctx, skeleton, skel, &p));
+        over.or_else(|| self.bind(ctx, skeleton, skel, path))
     }
 
     /// The first of `paths` (file names in `folder`) that loads.
@@ -781,6 +801,10 @@ fn start(
         let weapon_prefix = |w: Option<FormId>| -> &'static str {
             w.and_then(|w| world.as_deref().and_then(|wd| wd.actors.weapons.get(&w))).and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or("h2h", AnimType::prefix)
         };
+        // The weapon in its hands: its kNVSE override files (`anim_overrides`), for the
+        // aim, attack and reload clips.
+        let files = world.as_deref().and_then(|wd| wd.held.for_weapon(fighters.weapon(id)));
+        let files = files.as_deref();
         let mut new_pose = pose.as_ref().map(|p| (*p).clone()).unwrap_or_default();
         new_pose.pitch = pitch;
         new_pose.fighting = fighters.pitch(id).is_some();
@@ -793,26 +817,26 @@ fn start(
         if hold.is_some() && new_pose.aim_up.is_none() && new_pose.aim_down.is_none() {
             let w = fighters.weapon(id);
             let level = format!("{folder}\\{}aim.kf", weapon_prefix(w));
-            new_pose.aim_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&level, Aim::Up));
-            new_pose.aim_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&level, Aim::Down));
+            new_pose.aim_up = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &aim_variant(&level, Aim::Up), files);
+            new_pose.aim_down = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &aim_variant(&level, Aim::Down), files);
             // The iron-sights aim, where the stance has one (rifles, pistols, automatics).
             let is = format!("{folder}\\{}aimis.kf", weapon_prefix(w));
-            new_pose.aim_is = clips.bind(&mut ctx, &rig.skeleton, &skel, &is);
+            new_pose.aim_is = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &is, files);
             if new_pose.aim_is.is_some() {
-                new_pose.aim_is_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&is, Aim::Up));
-                new_pose.aim_is_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&is, Aim::Down));
+                new_pose.aim_is_up = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &aim_variant(&is, Aim::Up), files);
+                new_pose.aim_is_down = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &aim_variant(&is, Aim::Down), files);
             }
             // Crouched (`sneak2hraim.kf` …) and the block idle (docs/design/combat-ai.md §14).
             let prefix = weapon_prefix(w);
             let sneak = format!("{folder}\\sneak{prefix}aim.kf");
-            new_pose.sneak_aim = clips.bind(&mut ctx, &rig.skeleton, &skel, &sneak);
-            new_pose.sneak_aim_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak, Aim::Up));
-            new_pose.sneak_aim_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak, Aim::Down));
+            new_pose.sneak_aim = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &sneak, files);
+            new_pose.sneak_aim_up = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak, Aim::Up), files);
+            new_pose.sneak_aim_down = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak, Aim::Down), files);
             let sneak_is = format!("{folder}\\sneak{prefix}aimis.kf");
-            new_pose.sneak_aim_is = clips.bind(&mut ctx, &rig.skeleton, &skel, &sneak_is);
+            new_pose.sneak_aim_is = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &sneak_is, files);
             if new_pose.sneak_aim_is.is_some() {
-                new_pose.sneak_aim_is_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak_is, Aim::Up));
-                new_pose.sneak_aim_is_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak_is, Aim::Down));
+                new_pose.sneak_aim_is_up = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak_is, Aim::Up), files);
+                new_pose.sneak_aim_is_down = clips.bind_held(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak_is, Aim::Down), files);
             }
             if fnv_actor::player_clips::blocks(prefix) {
                 new_pose.block_idle = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &block_clips(Stance::Stand, prefix)).map(|(_, c)| c);
@@ -825,11 +849,11 @@ fn start(
             let prefix = weapon_prefix(Some(w));
             let mut timing = fnv_combat::attack::ClipTiming::default();
             if let Some(r) = reload {
-                if let Some((_, c)) = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &reload_clips(Stance::Stand, prefix, &r)) {
+                if let Some((_, c)) = clips.first_held(&mut ctx, &rig.skeleton, &skel, &folder, &reload_clips(Stance::Stand, prefix, &r), files, 0) {
                     timing.reload_len = Some(c.clip.length()).filter(|l| *l > 0.0);
                     timing.reload_hit = hit_time(&c);
                 }
-                timing.reload_open_len = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &reload_open_clips(Stance::Stand, prefix, &r)).map(|(_, c)| c.clip.length());
+                timing.reload_open_len = clips.first_held(&mut ctx, &rig.skeleton, &skel, &folder, &reload_open_clips(Stance::Stand, prefix, &r), files, 0).map(|(_, c)| c.clip.length());
             }
             // A semi-automatic gun's standing attack clip: its length and `a:` key time
             // the next shot as the player's (`fnv_combat::attack::Timing::of`, #2739).
@@ -941,7 +965,12 @@ fn start(
                     }
                 };
                 let body = hold.is_some_and(|h| h.body) && a.kind == Move::Attack;
-                clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names).or_else(|| {
+                // A held weapon's `_order_N` set goes round with its attacks.
+                let turn = clips.order_turn.get(&id).copied().unwrap_or(0);
+                if a.kind == Move::Attack && files.is_some() {
+                    clips.order_turn.insert(id, turn + 1);
+                }
+                clips.first_held(&mut ctx, &rig.skeleton, &skel, &folder, &names, files, turn).or_else(|| {
                     // A creature's body weapon without the people's clip names (Mister
                     // Handy's buzzsaw: `1hmattackright_chop.kf`, `…_stab`, `…_uppercut`):
                     // its stance's attack clips in its folder, in turn (module notes).
@@ -968,8 +997,8 @@ fn start(
             }
             // A reload has no up or down forms: it plays over the level aim.
             let reloads = a.kind.reloads();
-            let up = if reloads { None } else { clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Up)) };
-            let down = if reloads { None } else { clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Down)) };
+            let up = if reloads { None } else { clips.bind(&mut ctx, &rig.skeleton, &skel, &crate::anim_overrides::ordered_aim_variant(&path, Aim::Up)) };
+            let down = if reloads { None } else { clips.bind(&mut ctx, &rig.skeleton, &skel, &crate::anim_overrides::ordered_aim_variant(&path, Aim::Down)) };
             let len = clip.clip.length().max(0.05);
             if a.melee {
                 times.hit.insert(id, hit_time(&clip).unwrap_or(DEFAULT_HIT).min(len));

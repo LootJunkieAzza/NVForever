@@ -39,6 +39,8 @@ pub struct SceneNode {
     pub scale: f32,
     /// The NiAVObject flags; bit 0 hides it.
     pub flags: u32,
+    /// Where the node is in the world (game units, game space), as last drawn.
+    pub world: [f32; 3],
     /// A shape's NiMaterialProperty values in Get/SetMaterialPropertyValue's order:
     /// specular R G B, emissive R G B, glossiness, alpha, emissive mult [documented: the
     /// pages' value IDs 0-8]; `None` for a node or a shape without one.
@@ -386,7 +388,7 @@ impl SceneMirror {
             if find(t, name).is_some() || self.inserted.get(&key).is_some_and(|&(m, state)| m == model && state != RuntimeNodeState::Shown) {
                 continue;
             }
-            let node = SceneNode { name: name.to_string(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None };
+            let node = SceneNode { name: name.to_string(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, world: t[i].world, material: None, info: None };
             t.push(node);
             if as_parent {
                 let new = t.len() - 1;
@@ -494,7 +496,7 @@ impl Game<'_> {
         let Some(t) = self.scene.tree(r) else { return false };
         let Some(i) = find(t, target) else { return false };
         let target = t[i].name.clone();
-        t.push(SceneNode { name: name.to_string(), parent: Some(i), translation: offset, rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None });
+        t.push(SceneNode { name: name.to_string(), parent: Some(i), translation: offset, rotation: [0.0; 3], scale: 1.0, flags: 0, world: [0.0; 3], material: None, info: None });
         self.scene.queue_for(ModelView::Reference, SceneEdit::Light { r, target, name: name.to_string(), light, offset });
         true
     }
@@ -794,6 +796,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             zero
         }
         // A missing block 0 [observed].
+        // `pcModel` 2 on the player is the first-person model [documented:
+        // GetNifBlockScale, "1/2" pcModel; observed: B42 Weapon Inertia reads
+        // `NeckController`, a node only the first-person skeleton has, with 2].
         "getnifblockscale" => {
             let Some(t) = g.scene.tree_for(r, view) else { return Some(Ok(zero)) };
             XVal::Num(find(t, &text(args, 0)).map_or(0.0, |i| f64::from(t[i].scale)))

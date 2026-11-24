@@ -64,6 +64,19 @@ impl Game<'_> {
     /// as PlaceAtMe makes its references ([`place_at_me`]), at a place the caller chooses:
     /// the stress tests' battles (nvf-play `stress.rs`) put fighters where no reference
     /// stands. A created actor (or leveled actor list) becomes a resident as PlaceAtMe's do.
+    /// [`Game::create_at`] under the FormID `id` (a co-op guest's copy of an actor the
+    /// host's game created, numbered as the host numbers it: `World::place_as`), its
+    /// leveled lists read at `level` (the host's), so its pick, drawn look and carried
+    /// items are the host's: they are seeded by the reference.
+    pub fn create_as(&mut self, id: FormId, base: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3], level: Option<fnv_sim::zones::LevelAt>) -> Result<FormId, String> {
+        let r = self.world.place_as(id, base, cell, pos, rot).map_err(|e| e.to_string())?;
+        if let Some(at) = level {
+            self.world.set_level(r, at);
+        }
+        note_created(self, r);
+        Ok(r)
+    }
+
     pub fn create_at(&mut self, base: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> Result<FormId, String> {
         let r = self.place_scene_base(base, cell, pos, rot, 1)?;
         note_created(self, r);

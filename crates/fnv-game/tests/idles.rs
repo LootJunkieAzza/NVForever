@@ -6,7 +6,7 @@
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::functions::Ctx;
-use fnv_game::game::{Game, GameConfig};
+use fnv_game::game::{FurnitureUse, Game, GameConfig};
 use fnv_game::idles::{IdleRequest, IdleSource};
 use fnv_game::trace::EventKind;
 use fnv_game::GameData;
@@ -442,6 +442,31 @@ fn a_fleeing_actor_standing_still_gets_the_cower_idle() {
     g.end_flight(actor);
     assert_eq!(g.flee_idle(actor, folder, &|_| false), None, "fighting again");
     assert!(g.wants_weapon_out(actor), "fighting again: drawn again");
+}
+
+/// Out of a fight an actor on furniture has its weapon away, so IsWeaponOut reads 0 for
+/// it even when it would draw standing; in a fight the weapon is out
+/// (docs/spec-notes/furniture.md §7).
+#[test]
+fn an_actor_on_furniture_reads_its_weapon_away_out_of_a_fight() {
+    const IS_WEAPON_OUT: u16 = 0x1065;
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(ACTOR);
+    // SetWeaponOut 1 holds it drawn standing.
+    g.hud.forced_out.insert(actor);
+    assert!(g.wants_weapon_out(actor));
+    assert_eq!(call(&mut g, IS_WEAPON_OUT, actor, &[]), Value::Num(1.0), "standing: out");
+    for state in [2, 3, 4] {
+        g.set_furniture_use(actor, Some(FurnitureUse { reference: FormId(0xE01), marker_id: 14, state }));
+        assert!(!g.wants_weapon_out(actor), "furniture state {state}: away");
+        assert_eq!(call(&mut g, IS_WEAPON_OUT, actor, &[]), Value::Num(0.0), "furniture state {state}: IsWeaponOut 0");
+    }
+    g.start_combat(actor, FormId::PLAYER_REF);
+    assert!(g.wants_weapon_out(actor), "seated in a fight: out");
+    g.stop_combat(actor);
+    g.set_furniture_use(actor, None);
+    assert!(g.wants_weapon_out(actor), "up again: out");
 }
 
 /// PickIdle: the actor is queued for the animating layer, which knows its folder; the

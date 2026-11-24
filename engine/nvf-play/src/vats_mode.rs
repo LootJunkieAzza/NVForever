@@ -378,6 +378,16 @@ pub struct VatsStats {
 
 #[derive(Resource, Default)]
 pub struct VatsMode {
+    /// In a co-op session (set by the co-op link, nvforever `coop`): the world's clock is
+    /// every player's, so V starts the classic style with its targets, parts, view and
+    /// pictures but leaves the clock at full speed, choosing and firing alike, and no
+    /// camera shot slows it [design: the owner 2026-11-12, "keep time freeze for solo
+    /// only but use the limb selection and visual effects it has for both"].
+    pub shared_clock: bool,
+    /// The other co-op players' bodies (their puppets, and their actors on the host),
+    /// set by the co-op link: never VATS targets [design: the co-op run of 2026-11-12,
+    /// where each player's VATS selected the other player before the dogs attacking them].
+    pub fellow_players: Vec<u32>,
     pub phase: Phase,
     queue: MarkQueue,
     spots: Vec<Spot>,
@@ -938,6 +948,9 @@ impl VatsMode {
 
     /// The clock's speed the mode asks for (`script::time_multiplier` multiplies it in).
     pub fn time_scale(&self) -> f32 {
+        if self.shared_clock {
+            return 1.0;
+        }
         match (self.phase, self.entered_at) {
             // The classic style stops (or slows) the world at once (vats-classic.md §2).
             (Phase::Marking, _) if self.style == VatsStyle::Classic => self.classic.scale,
@@ -1025,7 +1038,7 @@ impl VatsMode {
 
 /// The test aid `NVF_PLAY_TEST_VATS_ROLL`: `hit` or `miss` makes every roll come out so
 /// (vats-mode.md §13), for checks about something other than the chance.
-fn forced_roll() -> Option<bool> {
+pub(crate) fn forced_roll() -> Option<bool> {
     static FORCED: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
     *FORCED.get_or_init(|| match std::env::var("NVF_PLAY_TEST_VATS_ROLL").ok()?.trim() {
         "hit" => Some(true),
@@ -1123,7 +1136,7 @@ pub const BAND_WIDTH: f32 = 0.22;
 
 /// The player's Action Points: (current, maximum, damage); `None` without the script
 /// runtime. The maximum counts the temporary modifiers, as the HUD's bar does.
-fn player_ap(script: Option<&mut ScriptState>, sim: &mut SimState) -> Option<(f32, f32, f32)> {
+pub(crate) fn player_ap(script: Option<&mut ScriptState>, sim: &mut SimState) -> Option<(f32, f32, f32)> {
     let rt = script.and_then(|s| s.rt.as_mut())?;
     with_world(rt, sim, |rt| {
         let [base, modifier, damage] = fnv_game::functions::actor_value_parts(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS).ok()?;
@@ -1184,7 +1197,7 @@ fn read_keys(
     locks: Res<ControlLocks>,
     mut vats: ResMut<VatsMode>,
     mut control: ResMut<PlayerControl>,
-    (player, mut intent): (Res<Player>, ResMut<MoveIntent>),
+    (player, lock, mut intent): (Res<Player>, Option<Res<crate::rt_vats::RtVats>>, ResMut<MoveIntent>),
     mut sounds: Sounds,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     mut tiles: Option<ResMut<crate::tiles::vats_menu::VatsTiles>>,
@@ -1215,7 +1228,10 @@ fn read_keys(
     }
     // The player's tweak: entered not aiming, every shot from the hip [design: docs/design/tweaks.md].
     let hip_fire = tweaks.as_ref().is_some_and(|t| t.vats_hip_fire) && !vats.aimed_before;
-    let pressed = |c: Control| playing && input.just_pressed(c);
+    // In a co-op game V is the real-time lock's (`crate::rt_vats`): this mode slows the
+    // clock, which one player cannot do to the others.
+    let rt_on = lock.is_some_and(|l| l.active());
+    let pressed = |c: Control| playing && input.just_pressed(c) && !(rt_on && c == Control::Vats);
     let now = real.elapsed_secs_f64();
     vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate), target_step: 0, part_step: 0, special: false, hover_part: None, pointer_moved: false, ray: None, near_part: None };
     vats.pad = input.controller();
@@ -1423,14 +1439,14 @@ fn update(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     (control, stance): (Res<PlayerControl>, Option<Res<crate::stance::StanceMotion>>),
-    locks: Res<ControlLocks>,
+    (locks, lock): (Res<ControlLocks>, Option<Res<crate::rt_vats::RtVats>>),
     mut hud: ResMut<HudMessage>,
     mut sounds: Sounds,
 ) {
     let ClassicIn { style, slowdown, kill_cam } = settings;
     let v = &mut *vats;
     v.now = real.elapsed_secs_f64();
-    v.player_rate = kill_cam.as_deref().and_then(|k| k.player_scale()).unwrap_or(1.0);
+    v.player_rate = kill_cam.as_deref().and_then(|k| k.player_scale()).filter(|_| !v.shared_clock).unwrap_or(1.0);
     v.shot = None;
     let keys = std::mem::take(&mut v.keys);
     let playing = *state.get() == PlayState::Playing;
@@ -1485,6 +1501,8 @@ fn update(
         None
     };
     match (v.phase, stop) {
+        // (No Action Points come back while the real-time lock is held, `crate::rt_vats`.)
+        (Phase::Off, _) if lock.as_deref().is_some_and(|l| l.holds_regen()) => {}
         (Phase::Off, _) => {
             // Not while sprinting: a sprint's AP do not come back during it (`crate::sprint`).
             let sprinting = stance.as_deref().is_some_and(|s| s.sprinting);
@@ -1495,7 +1513,7 @@ fn update(
                 v.regen_mult = Some(m);
             }
             if keys.toggle {
-                (v.style, v.classic.scale) = (*style, classic::clock_scale(slowdown.0));
+                (v.style, v.classic.scale) = entry_style(v.shared_clock, *style, slowdown.0);
                 try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, playing && !dead && !held && !locks.fighting, &mut hud, &mut sounds);
                 classic_enter(v, &combat, script.as_deref_mut(), &mut sim, &mut phys, &player, &mut sounds);
             }
@@ -1507,7 +1525,7 @@ fn update(
                 info!("vats mode: entering cancelled");
             } else if anim.ready && control.weapon_out {
                 v.phase = Phase::Off;
-                (v.style, v.classic.scale) = (*style, classic::clock_scale(slowdown.0));
+                (v.style, v.classic.scale) = entry_style(v.shared_clock, *style, slowdown.0);
                 try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, true, &mut hud, &mut sounds);
                 classic_enter(v, &combat, script.as_deref_mut(), &mut sim, &mut phys, &player, &mut sounds);
             }
@@ -1647,6 +1665,20 @@ fn regenerate(script: Option<&mut ScriptState>, sim: &mut SimState, rate: f32, d
 }
 
 /// V: start marking if the weapon and the AP allow (§3).
+#[allow(clippy::too_many_arguments)]
+/// The style V starts and its clock while targets are chosen: the settings' in solo; in a
+/// co-op session the classic style at full speed ([`VatsMode::shared_clock`]).
+fn entry_style(shared_clock: bool, style: VatsStyle, slowdown: f32) -> (VatsStyle, f32) {
+    if shared_clock {
+        (VatsStyle::Classic, 1.0)
+    } else {
+        // (Real time is the lock's, `crate::rt_vats`; with its `bEnabled` off V is the
+        // classic style.)
+        let style = if style == VatsStyle::RealTime { VatsStyle::Classic } else { style };
+        (style, classic::clock_scale(slowdown))
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, gravity: f32, allowed: bool, hud: &mut HudMessage, sounds: &mut Sounds) {
     let ap = player_ap(script.as_deref_mut(), sim);
@@ -1951,7 +1983,8 @@ fn classic_targets(v: &VatsMode, combat: &Combat, mut script: Option<&mut Script
     let dir = v.classic.entry_dir;
     let front = CLASSIC_FRONT.to_radians();
     let filter = shot_filter(phys);
-    let actors: Vec<u32> = phys.world.actor_volumes().filter(|&a| a != FormId::PLAYER_REF.0).collect();
+    let fellow = |a: u32| v.fellow_players.contains(&a) || crate::hitvol::is_player_puppet(a);
+    let actors: Vec<u32> = phys.world.actor_volumes().filter(|&a| a != FormId::PLAYER_REF.0 && !fellow(a)).collect();
     let mut out = Vec::new();
     let mut missed = classic::Missed { reach, ..Default::default() };
     // A melee or unarmed weapon reaches from body to body, as its swing does
@@ -2139,7 +2172,7 @@ fn classic_frame(
 
 /// The point to aim at on an actor: its part's capsule centre, the whole capsule's aim
 /// point without parts.
-fn point_of(phys: &PhysState, actor: u32, part: Option<u8>) -> Option<[f32; 3]> {
+pub(crate) fn point_of(phys: &PhysState, actor: u32, part: Option<u8>) -> Option<[f32; 3]> {
     match part {
         Some(p) => phys.world.actor_part_center(actor, p).or_else(|| phys.world.actor_aim_point(actor)),
         None => phys.world.actor_aim_point(actor),
@@ -3829,6 +3862,23 @@ mod tests {
         assert_eq!(v.time_scale(), 1.0);
         v.phase = Phase::Off;
         assert_eq!(v.time_scale(), 1.0);
+    }
+
+    #[test]
+    fn a_co_op_session_gets_the_classic_style_with_the_clock_running() {
+        // Solo: the settings' style and slowdown.
+        assert_eq!(entry_style(false, VatsStyle::DeadEye, 1.0), (VatsStyle::DeadEye, classic::clock_scale(1.0)));
+        assert_eq!(entry_style(false, VatsStyle::Classic, 1.0), (VatsStyle::Classic, 0.0));
+        // A session: the classic style whatever the page says, at full speed.
+        assert_eq!(entry_style(true, VatsStyle::DeadEye, 1.0), (VatsStyle::Classic, 1.0));
+        let mut v = VatsMode { phase: Phase::Marking, entered_at: Some(0.0), style: VatsStyle::Classic, shared_clock: true, ..Default::default() };
+        v.classic.scale = 1.0;
+        assert_eq!(v.time_scale(), 1.0);
+        assert!(v.holds_view(), "the view still turns onto the target");
+        v.phase = Phase::Firing;
+        assert_eq!(v.time_scale(), 1.0, "the attacks play at full speed too");
+        v.shared_clock = false;
+        assert_eq!(v.time_scale(), FIRE_SCALE);
     }
 
     #[test]

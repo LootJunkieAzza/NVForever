@@ -232,6 +232,11 @@ fn mcms_list_functions_set_its_rows_as_the_original_did() {
         Some(Ok(XVal::Num(y))) => assert_eq!(y, 5.0),
         other => panic!("{other:?}"),
     }
+    // And `*:N` in that path, the Nth child from 1 in file order (JAM's
+    // `"value/*:1/string"`): Option1's first child is its `image`.
+    call(&mut g, "SetMCMFloat", &[n(1.0), n(1.0), s("*:1/depth"), n(9.0)]);
+    assert_eq!(get(&g, "MCM_Options/Option1/image/depth"), Some(9.0));
+    assert_eq!(call(&mut g, "GetMCMFloat", &[n(1.0), n(1.0), s("*:2/depth")]).unwrap().unwrap(), XVal::Num(0.0), "no second child");
 }
 
 /// A page filled in the guide's way, by place (`*:N` from the first child, from 1)

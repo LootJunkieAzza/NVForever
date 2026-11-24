@@ -5,7 +5,12 @@
 //!   seconds without input before the vanity camera starts, from its name]: after the
 //!   setting's seconds with no key, mouse button, mouse motion or controller input, while
 //!   the game is played (no menu), the HUD is up and the free camera is off. 0 or less
-//!   turns it off [design].
+//!   turns it off [design]. A run-time change (the console's `setgs fVanityModeAutoDelay`)
+//!   counts from the next frame ([`delay_of`]) [hypothesis: as the original reads its game
+//!   settings]. The camera shows this player's own body from outside, with no name tag over
+//!   it: in co-op that is the one body more in this player's view (the 2026-11-20 split
+//!   relay frames: every untagged body was its own player's, the frames taken after
+//!   `vanity camera: on`) [observed].
 //! - **What** [hypothesis: the original's circling camera is not captured; observer check
 //!   109]: the same circling camera as Toggle POV held (`crate::control::Orbit`), turning
 //!   [`TURN_RATE`] radians a second around the player, from first person the view going to
@@ -56,6 +61,12 @@ impl Vanity {
     }
 }
 
+/// Seconds without input before the camera circles: the game setting as it is now (a
+/// console change, else the master's), else [`DEFAULT_DELAY`].
+pub fn delay_of(world: &fnv_sim::World) -> f32 {
+    world.setting_f32("fVanityModeAutoDelay").unwrap_or(DEFAULT_DELAY)
+}
+
 /// The view after a circling camera ends: first person again when it was so and the
 /// player's tweak asks for it, else third person.
 pub fn end_view(was_first: bool, return_first: bool) -> Pov {
@@ -100,7 +111,7 @@ fn idle(
         && !c.auto_move
         && !c.orbit.free
         && (vanity.on.is_some() || !c.orbit.held);
-    let delay = sim.and_then(|s| s.forms.setting_f32("fVanityModeAutoDelay")).unwrap_or(DEFAULT_DELAY);
+    let delay = sim.map_or(DEFAULT_DELAY, |s| delay_of(&s.world));
     let was_first = vanity.on;
     match vanity.step(time.delta_secs(), input, allowed, delay) {
         Some(true) => {
@@ -143,6 +154,23 @@ mod tests {
         assert_eq!(v.step(100.0, false, true, 120.0), None);
         // 0 turns it off.
         assert_eq!(v.step(1000.0, false, true, 0.0), None);
+    }
+
+    /// `setgs fVanityModeAutoDelay 0` turns it off for the run (the co-op test runs, where
+    /// nobody touches a player for minutes), as a change of the master's 120 does.
+    #[test]
+    fn a_console_change_of_the_delay_counts() {
+        use fnv_sim::settings::Setting;
+        let mut forms = fnv_sim::forms::FormStore::default();
+        forms.settings.insert("fvanitymodeautodelay".into(), Setting::Float(120.0));
+        let forms: &'static fnv_sim::forms::FormStore = Box::leak(Box::new(forms));
+        let refs: &'static fnv_sim::refs::RefTable = Box::leak(Box::default());
+        let mut world = fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default());
+        assert_eq!(delay_of(&world), 120.0);
+        world.change_setting("fVanityModeAutoDelay", Setting::Float(0.0)).unwrap();
+        assert_eq!(delay_of(&world), 0.0);
+        let mut v = Vanity::default();
+        assert_eq!(v.step(1000.0, false, true, delay_of(&world)), None, "off");
     }
 
     #[test]

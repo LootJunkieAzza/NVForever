@@ -1675,7 +1675,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let outs: Vec<XVal> = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)).map(|r| r.outputs.iter().map(|(f, _)| XVal::Ref(f.0)).collect()).unwrap_or_default();
             list(g, outs)
         }
-        "getactivequest" => XVal::Ref(g.ui.active_quest.map_or(0, |q| q.0)),
+        "getactivequest" => XVal::Ref(g.ui.current_quest().map_or(0, |q| q.0)),
         // ---- the player and the interface ----
         // `seconds "[icon|][$sound|]text"`: a corner message; the icon a texture under the
         // textures folder or `#0`–`#6` the page's default faces, the sound a SOUN's Editor
@@ -1873,7 +1873,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `GetIsLAA == 0` showed "4GB patch missing" (TTW4GBMissingMessage)].
         "getislaa" => XVal::Num(1.0),
         // The open menu's code, 0 in game mode [observed: gaps3, 0].
-        "getactivemenumode" => XVal::Num(g.menu.or_else(|| g.menu_open(crate::game::menus::START).then_some(crate::game::menus::START)).map_or(0.0, f64::from)),
+        "getactivemenumode" => XVal::Num(g.menu.or(g.live_menu).or_else(|| g.menu_open(crate::game::menus::START).then_some(crate::game::menus::START)).map_or(0.0, f64::from)),
         // [observed: gaps3, 1]
         "getglobaltimemultiplier" => XVal::Num(g.ui.time_multiplier.unwrap_or(1.0)),
         // Activation-range object water, through the same effective ACTI/WNAM

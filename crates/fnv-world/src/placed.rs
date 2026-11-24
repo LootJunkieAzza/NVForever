@@ -79,7 +79,10 @@ pub struct Placement {
     /// XPRM present: the reference is a primitive (a box, sphere or plane drawn only in
     /// the editor) rather than an object, a trigger volume when its base is an activator
     /// (docs/spec-notes/level-design.md §4.1). Such a reference shows nothing and offers
-    /// nothing in game, whatever model its base names ([`Self::draws_base_model`]).
+    /// nothing in game, whatever model its base names ([`Self::draws_base_model`])
+    /// [observed: Simple Open Strip's Tops promoter triggers place NVStripLightPollution.NIF,
+    /// the Strip's distant light-pollution haze, in boxes up to 5380 units long on the
+    /// street; docs/spec-notes/cells-refs.md §6 "Placed volumes"].
     pub primitive: bool,
 }
 

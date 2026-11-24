@@ -90,6 +90,33 @@ pub fn game_look(l: &fnv_actor::Look) -> rules::Look {
     }
 }
 
+/// A game look raised to an adult's age when it reads younger (`Creator::adult`, queue
+/// item 110): the age it read before, when raised.
+pub fn adult_game_look(data: &CreatorData, l: &mut rules::Look) -> Option<f64> {
+    let mut a = actor_look(l);
+    let was = data.0.adult(&mut a)?;
+    *l = game_look(&a);
+    Some(was)
+}
+
+/// The player's look as a save, a script or an older version left it: one younger than
+/// an adult is raised to one, once each time it changes (queue item 110).
+fn adult_player(data: Option<Res<CreatorData>>, mut script: Option<ResMut<ScriptState>>, mut seen: Local<Option<rules::Look>>) {
+    let Some(data) = data else { return };
+    let Some(look) = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.look.as_ref()) else { return };
+    if seen.as_ref() == Some(look) {
+        return;
+    }
+    let mut l = look.clone();
+    if let Some(was) = adult_game_look(&data, &mut l) {
+        info!("creator: the player's look read {was:.0} years: raised to {}", fnv_actor::creator::MIN_AGE);
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            rt.game.player.look = Some(l.clone());
+        }
+    }
+    *seen = Some(l);
+}
+
 /// The player's look after SexChange with reset (`fnv_game::appearance`): `start` (the
 /// look now, or the record's, with the new race and sex) with the race's first starting
 /// face for that sex ([`Model::reset_to_preset`]).
@@ -192,6 +219,8 @@ enum Op {
     Pan(f32, f32),
     Zoom(f32),
     ViewReset,
+    /// Hear a line of the chosen voice (P).
+    Preview,
 }
 
 #[derive(Resource, Default)]
@@ -225,6 +254,7 @@ fn parse_aid(s: &str) -> Result<Vec<(f32, Op)>, String> {
             None if rest == "undo" => Op::Act(Action::Undo),
             None if rest == "reset" => Op::Act(Action::Reset),
             None if rest == "done" => Op::Act(Action::Done),
+            None if rest == "preview" => Op::Preview,
             _ => return Err(format!("{item:?}: unknown step")),
         };
         out.push((t, op));
@@ -251,13 +281,16 @@ impl Plugin for CreatorPlugin {
         };
         app.init_resource::<CreatorMenu>()
             .insert_resource(CreatorAid(aid))
-            .add_systems(Update, (sync, input, write_look, camera, draw).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (adult_player, sync, input, write_look, camera, draw).chain().in_set(PlaySet::Ui))
             .add_systems(Startup, say_data);
     }
 }
 
 /// What the creator has to offer, once (smoke tests read it).
 fn say_data(data: Option<Res<CreatorData>>) {
+    for line in data.as_ref().map(|d| d.0.preset_log.as_slice()).unwrap_or_default() {
+        info!("creator: preset {line}");
+    }
     match data {
         Some(d) => info!(
             "creator: data: {} races, {} sliders, {} authored faces{}",
@@ -283,7 +316,14 @@ fn row_label(m: &Model, r: Row) -> Vec<String> {
     out
 }
 
-fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Option<Res<ScriptState>>, mut control: ResMut<crate::control::PlayerControl>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+fn sync(
+    mut st: ResMut<CreatorMenu>,
+    data: Option<Res<CreatorData>>,
+    script: Option<Res<ScriptState>>,
+    mut control: ResMut<crate::control::PlayerControl>,
+    voices: Option<Res<crate::player_voice::VoiceSets>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+) {
     let open = script.as_deref().and_then(crate::chargen::open_code) == Some(menus::RACE) && data.is_some();
     if open == st.model.is_some() {
         return;
@@ -313,7 +353,8 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         return;
     };
     let kind = rt.game.race_menu;
-    let mut m = Model::of_kind(data.0.clone(), start, kind);
+    let offered = voices.map(|v| v.options(rt.game.data)).unwrap_or_default();
+    let mut m = Model::of_kind(data.0.clone(), start, kind).with_voices(offered, rt.game.player.voice.as_deref());
     // The player's tweak: facial hair for a woman too [design: docs/design/tweaks.md].
     m.female_beards = tweaks.as_ref().is_some_and(|t| t.female_facial_hair);
     if let Some(p) = &data.0.ctl_problem {
@@ -397,6 +438,7 @@ fn input(
         ([KeyR, KeyR], Op::Act(Action::Reset)),
         ([Enter, NumpadEnter], Op::Enter),
         ([KeyC, Home], Op::ViewReset),
+        ([KeyP, KeyP], Op::Preview),
     ] {
         if keys.any_just_pressed(k) {
             ops.push((op, "key"));
@@ -606,6 +648,10 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
             }
             return None;
         }
+        Op::Preview => {
+            m.preview = true;
+            return None;
+        }
         Op::Adjust(by, fine) => {
             let shown = m.chosen_row().map(|r| m.view(r));
             if m.adjust(by, fine) && m.on_actions.is_none() {
@@ -722,6 +768,10 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
                 info!("creator: {shown} ({how})");
             }
         }
+        // The age each look reads (queue item 110: never under 18).
+        if let Some(a) = m.age() {
+            info!("creator: age {a:.0}");
+        }
     }
     st.dirty = true;
     event
@@ -765,8 +815,28 @@ fn describe(m: &Model) -> String {
     format!("{}, {}, hair colour {:?}", m.caption(), parts.join(", "), m.look.hair_color)
 }
 
-/// Write the look into the game when it changed.
-fn write_look(mut st: ResMut<CreatorMenu>, mut script: Option<ResMut<ScriptState>>) {
+/// Write the look into the game when it changed, and the voice (a new voice plays a line
+/// of it, as P does).
+fn write_look(mut st: ResMut<CreatorMenu>, mut script: Option<ResMut<ScriptState>>, mut preview: MessageWriter<crate::player_voice::PreviewVoice>) {
+    let Some(m) = st.model.as_mut() else { return };
+    let voice = m.voice_id().map(str::to_string);
+    let asked = std::mem::take(&mut m.preview);
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_| !st.answered) {
+        if rt.game.player.voice != voice {
+            info!("creator: voice {}", voice.as_deref().unwrap_or("none"));
+            rt.game.player.voice = voice.clone();
+            if let Some(id) = &voice {
+                preview.write(crate::player_voice::PreviewVoice { id: id.clone() });
+            }
+        } else if asked {
+            match &voice {
+                Some(id) => {
+                    preview.write(crate::player_voice::PreviewVoice { id: id.clone() });
+                }
+                None => info!("creator: preview: no voice chosen"),
+            }
+        }
+    }
     let Some(m) = st.model.as_ref() else { return };
     if st.answered || st.written.as_ref() == Some(&m.look) {
         return;

@@ -89,8 +89,10 @@
 //!
 //! Test aid `NVF_PLAY_TEST_POINTER=<seconds>:<x>:<y>[:click][,…]`: from that time the HUD
 //! (drawn from tiles) takes input as an open menu would, with the pointer at (x, y) in
-//! interface units, and `click` a left-button press on that frame; `<seconds>:off` lets
-//! it go. The mouse, keys and controller then reach it too (`NVF_PLAY_TEST_KEYS`).
+//! interface units, and `click` a left-button press on that frame; `hold` presses the
+//! button (unless it is held already) and keeps it down until the next item without
+//! `hold`, so `1:10:5:hold,2:60:5:hold,3:60:5` drags from 10 to 60 and lets go; `<seconds>:off`
+//! lets it go. The mouse, keys and controller then reach it too (`NVF_PLAY_TEST_KEYS`).
 
 use crate::script::ScriptState;
 use super::list;
@@ -101,28 +103,29 @@ use fnv_ui::input::{no_measure, Input};
 
 pub const AID: &str = "NVF_PLAY_TEST_POINTER";
 
-/// One item of the test aid: a place and whether it clicks, or off.
+/// One item of the test aid: a place and whether it clicks or holds the button, or off.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AidPointer {
-    At { x: f64, y: f64, click: bool },
+    At { x: f64, y: f64, click: bool, hold: bool },
     Off,
 }
 
-/// `<x>:<y>[:click]` or `off`.
+/// `<x>:<y>[:click|:hold]` or `off`.
 pub fn aid_pointer(rest: &str) -> Result<AidPointer, String> {
     if rest.trim().eq_ignore_ascii_case("off") {
         return Ok(AidPointer::Off);
     }
     let mut parts = rest.split(':').map(str::trim);
-    let num = |s: Option<&str>| s.and_then(|s| s.parse::<f64>().ok()).ok_or_else(|| format!("{rest:?}: expected <x>:<y>[:click] or off"));
+    let num = |s: Option<&str>| s.and_then(|s| s.parse::<f64>().ok()).ok_or_else(|| format!("{rest:?}: expected <x>:<y>[:click|:hold] or off"));
     let x = num(parts.next())?;
     let y = num(parts.next())?;
-    let click = match parts.next() {
-        None => false,
-        Some(c) if c.eq_ignore_ascii_case("click") => true,
+    let (click, hold) = match parts.next() {
+        None => (false, false),
+        Some(c) if c.eq_ignore_ascii_case("click") => (true, false),
+        Some(c) if c.eq_ignore_ascii_case("hold") => (false, true),
         Some(c) => return Err(format!("{rest:?}: unknown {c:?}")),
     };
-    Ok(AidPointer::At { x, y, click })
+    Ok(AidPointer::At { x, y, click, hold })
 }
 
 /// The test aid's state: what is still to come, and the pointer it holds now.
@@ -130,6 +133,8 @@ pub fn aid_pointer(rest: &str) -> Result<AidPointer, String> {
 pub(crate) struct PointerAid {
     due: Vec<(f32, AidPointer)>,
     now: Option<(f64, f64)>,
+    /// A `hold` item keeps the button down.
+    held: bool,
 }
 
 /// The letters' keys, A to Z.
@@ -830,6 +835,9 @@ pub(super) fn log_report(ui: &fnv_ui::Ui, report: &fnv_ui::input::Report) {
     for line in &report.unfollowed {
         info!("tiles: key not followed: {line}");
     }
+    for &t in report.bare_clicks.iter().filter(|&&t| ui.is_live(t)) {
+        info!("tiles: pressed on {} (no target), clicked 1", ui.path_of(t));
+    }
 }
 
 /// What else says who takes the frame's input: the pause menu and its page, and the Pip-Boy's
@@ -872,6 +880,7 @@ pub(crate) fn feed(
     }
     // The test aid's pointer, moved on its clock.
     let mut aid_click = false;
+    let mut aid_held = false;
     let mut aid_at = None;
     if let Some(mut aid) = aid {
         let now = time.elapsed_secs();
@@ -880,18 +889,21 @@ pub(crate) fn feed(
         aid.due.retain(|(t, _)| *t > now);
         for (_, item) in fired {
             match item {
-                AidPointer::At { x, y, click } => {
-                    info!("test aid: tile pointer at {x} {y}{}", if click { ", click" } else { "" });
+                AidPointer::At { x, y, click, hold } => {
+                    info!("test aid: tile pointer at {x} {y}{}", if click { ", click" } else if hold { ", held" } else { "" });
                     aid.now = Some((x, y));
-                    aid_click |= click;
+                    aid_click |= click || (hold && !aid.held);
+                    aid.held = hold;
                 }
                 AidPointer::Off => {
                     info!("test aid: tile pointer off");
                     aid.now = None;
+                    aid.held = false;
                 }
             }
         }
         aid_at = aid.now;
+        aid_held = aid.held;
     }
     // The menus that take input, back to front (see the module doc): the HUD only under
     // the test aid, or with a script's HUD cursor (ToggleHUDCursor, `fnv_game::nvse_jip9`).
@@ -915,7 +927,7 @@ pub(crate) fn feed(
     // T15b: a drag on the tutorial menu's marker ends with its press or that menu, whether or
     // not any menu takes input this frame.
     let tutorial = super::tutorial_menu::tiled_menu(menus.tutorial, &rt.game);
-    let held = aid_click || devices.mouse.pressed(MouseButton::Left);
+    let held = aid_click || aid_held || devices.mouse.pressed(MouseButton::Left);
     *inputs.tutorial_drag = inputs.tutorial_drag.filter(|d| super::tutorial_menu::drag_holds(d, tutorial, held));
     // T15c: a drag on a scroll marker ends with its press, that menu or under a prompt,
     // whether or not any menu takes input this frame; so does the heading the wheel reads.
@@ -1039,6 +1051,7 @@ pub(crate) fn feed(
     let mut input = Input {
         at,
         press: aid_click || devices.mouse.just_pressed(MouseButton::Left),
+        held,
         shift: devices.keys.pressed(KeyCode::ShiftLeft) || devices.keys.pressed(KeyCode::ShiftRight),
         ..Input::default()
     };
@@ -1064,7 +1077,16 @@ pub(crate) fn feed(
     }
     // A frame's own clicks are for the screen up now; a script's kept theirs when queued.
     rt.game.ui_pointer.stamp = crate::dialogue::stamp_now(&rt.game);
+    let dragged = rt.game.ui_pointer.dragging.map(|d| d.0);
     let report = fnv_game::ui_input::step(&mut rt.game, &taking, &input, &no_measure);
+    if let Some((t, _)) = rt.game.ui_pointer.dragging.filter(|d| Some(d.0) != dragged) {
+        let ui = &rt.game.ui_tree;
+        let get = |t: fnv_ui::TileId, n: &str| ui.tile(t).get(n).map_or(0.0, fnv_ui::Value::num);
+        info!("tiles: a drag on {} starts: dragx {}, its parent's _drag {}", ui.path_of(t), get(t, fnv_ui::input::DRAGX), ui.tile(t).parent.map_or(0.0, |p| get(p, "_drag")));
+    } else if let (Some(t), None) = (dragged, rt.game.ui_pointer.dragging) {
+        let ui = &rt.game.ui_tree;
+        info!("tiles: the drag on {} ends{}", if ui.is_live(t) { ui.path_of(t) } else { "a tile gone".into() }, if ui.is_live(t) { format!(" at dragx {}", ui.tile(t).get(fnv_ui::input::DRAGX).map(fnv_ui::Value::num).unwrap_or(0.0)) } else { String::new() });
+    }
     let over = rt.game.ui_pointer.active(&rt.game.ui_tree);
     let ui = &rt.game.ui_tree;
     let slider = inputs.follow(ui, &report, at, over, held, input.shift, &physical, tutorial);
@@ -1113,7 +1135,7 @@ pub(crate) fn setup(app: &mut App) {
     let Ok(v) = std::env::var(AID) else { return };
     match crate::test_aid::timed(&v).and_then(|items| items.into_iter().map(|(s, r)| aid_pointer(r).map(|p| (s, p))).collect::<Result<Vec<_>, _>>()) {
         Ok(due) => {
-            app.insert_resource(PointerAid { due, now: None });
+            app.insert_resource(PointerAid { due, now: None, held: false });
         }
         Err(e) => warn!("{AID}: {e}"),
     }
@@ -1125,14 +1147,15 @@ mod tests {
 
     #[test]
     fn aid_items() {
-        assert_eq!(aid_pointer("120:340"), Ok(AidPointer::At { x: 120.0, y: 340.0, click: false }));
-        assert_eq!(aid_pointer(" 1.5 : 2 : click "), Ok(AidPointer::At { x: 1.5, y: 2.0, click: true }));
+        assert_eq!(aid_pointer("120:340"), Ok(AidPointer::At { x: 120.0, y: 340.0, click: false, hold: false }));
+        assert_eq!(aid_pointer(" 1.5 : 2 : click "), Ok(AidPointer::At { x: 1.5, y: 2.0, click: true, hold: false }));
+        assert_eq!(aid_pointer("3:4:hold"), Ok(AidPointer::At { x: 3.0, y: 4.0, click: false, hold: true }));
         assert_eq!(aid_pointer("OFF"), Ok(AidPointer::Off));
         assert!(aid_pointer("12").is_err());
         assert!(aid_pointer("1:2:press").is_err());
         let items = crate::test_aid::timed("3:10:20,4:10:20:click,9:off").unwrap();
         assert_eq!(items.len(), 3);
-        assert_eq!(aid_pointer(items[1].1), Ok(AidPointer::At { x: 10.0, y: 20.0, click: true }));
+        assert_eq!(aid_pointer(items[1].1), Ok(AidPointer::At { x: 10.0, y: 20.0, click: true, hold: false }));
     }
 
     #[test]
@@ -1269,7 +1292,7 @@ mod tests {
 
     /// The pointer goes to `at` and the left button down on the next frame.
     fn press_at(app: &mut App, (x, y): (f64, f64)) {
-        app.world_mut().resource_mut::<PointerAid>().due.push((0.0, AidPointer::At { x, y, click: true }));
+        app.world_mut().resource_mut::<PointerAid>().due.push((0.0, AidPointer::At { x, y, click: true, hold: false }));
     }
 
     /// What the menu did: the page, and whether it was asked to close.

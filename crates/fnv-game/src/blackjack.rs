@@ -7,6 +7,9 @@ use crate::game::Game;
 use fnv_sim::FormId;
 
 pub use crate::casino::{add_earnings, opening, winnings_level, CasinoDef, Closed};
+
+/// A table several players sit at against one dealer (the co-op fork).
+pub mod shared;
 use rand_chacha::ChaCha8Rng;
 use rand_core::RngCore;
 
@@ -143,6 +146,11 @@ impl Shoe {
     /// Cards that come out next, in order (the test aid).
     pub fn stack(&mut self, cards: &[Card]) {
         self.stacked.extend(cards.iter().rev());
+    }
+
+    /// Forget the stacked cards not dealt.
+    pub fn clear_stack(&mut self) {
+        self.stacked.clear();
     }
 
     fn draw(&mut self, rng: &mut ChaCha8Rng) -> Card {
@@ -508,11 +516,7 @@ impl Table {
         let live = self.hands.iter().any(|h| !h.bust() && !h.surrendered);
         // The dealer draws only against a hand still standing, and not against a natural.
         if live && !player_natural {
-            while self.dealer.len() < MAX_CARDS {
-                let (t, soft) = total(&self.dealer);
-                if t > 17 || (t == 17 && (!soft || self.rules.stay_soft17)) {
-                    break;
-                }
+            while self.dealer.len() < MAX_CARDS && !dealer_stands(&self.dealer, self.rules.stay_soft17) {
                 self.give(Seat::Dealer, true, ev);
             }
         }
@@ -558,6 +562,18 @@ impl Table {
     pub fn stack(&mut self, cards: &[Card]) {
         self.shoe.stack(cards);
     }
+
+    /// Forget stacked cards not dealt (a shared table's seat, `shared`).
+    pub fn clear_stack(&mut self) {
+        self.shoe.clear_stack();
+    }
+}
+
+/// Whether the dealer stands on these cards: over 17, or a hard 17 (a soft one too when
+/// the casino stays on soft 17).
+pub fn dealer_stands(cards: &[Card], stay_soft17: bool) -> bool {
+    let (t, soft) = total(cards);
+    t > 17 || (t == 17 && (!soft || stay_soft17))
 }
 
 /// The help message to show as the menu opens, the first time only (as lockpicking's).
@@ -580,6 +596,8 @@ pub struct BlackjackRequest {
     pub max_bet: u32,
     /// 0: the casino's own.
     pub max_winnings: u32,
+    /// The reference whose script asked (the table activated), if any.
+    pub table: Option<FormId>,
 }
 
 #[cfg(test)]

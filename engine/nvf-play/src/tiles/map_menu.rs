@@ -354,6 +354,9 @@ pub(crate) struct MarkerShown {
     pub name: String,
     /// Its reputation line, the World Map's markers' with one.
     pub detail: Option<String>,
+    /// A co-op player's head (`data::MapMark::head`): drawn whole and at the head's size over the
+    /// location icons ([`with_heads`]), not as the template crops and sizes a location icon.
+    pub head: bool,
 }
 
 /// What a quest-marker row stands for: an active quest's target (its reference), or the player's
@@ -422,7 +425,7 @@ impl WorldShown {
             .as_deref()
             .unwrap_or(m.marks())
             .iter()
-            .filter_map(|mk| Some(MarkerShown { form: mk.form, uv: mk.uv?, icon: mk.picture(), selected: mk.highlighted, name: mk.name.clone(), detail: mk.detail.clone() }))
+            .filter_map(|mk| Some(MarkerShown { form: mk.form, uv: mk.uv?, icon: mk.picture(), selected: mk.highlighted, name: mk.name.clone(), detail: mk.detail.clone(), head: mk.head.is_some() }))
             .collect();
         let (cursor, label, detail) = m.highlight();
         Some(WorldShown {
@@ -833,6 +836,74 @@ fn with_map_picture(ui: &Ui, mut pieces: Vec<Piece>, picture: Option<Piece>) -> 
         pieces.insert(at, p);
     }
     pieces
+}
+
+/// A co-op player's head on the pages drawn from the file, its square's side in the file's units
+/// whatever the magnification, as the arrow keeps its size [design]: the face fills only the
+/// middle of its message icon, so at 56 it came out about 12 px across in a 960x540 frame
+/// [observed: duo-heads-apart2, 2026-11-23]; 80 shows a face about 17 px there (about 34 at
+/// 1080p, as the pre-0.8 hand-built page drew heads, `data::HEAD`), plainly bigger than the arrow
+/// and no bigger than the location icons (owner, 2026-11-23: the old square read as a blob,
+/// "those heads don't look like head at all").
+pub(crate) const HEAD_ON_PAGE: f64 = 80.0;
+/// The gap kept between a head nudged aside and the arrow or head it would cover [design].
+const HEAD_NUDGE_GAP: f64 = 2.0;
+
+/// `pieces` with each co-op head's row (`heads`, [`MarkerShown::head`]) drawn as a head: the
+/// file's `MapMarkerTemplate` sizes every row by `user0` (a location icon's [`data::MARKER`]) and
+/// crops its picture to an icon's piece of the marker atlas, so a Vault Boy face put through it
+/// came out a few-pixel scrap (owner, 2026-11-23: "those heads don't look like head at all").
+/// The row stays (the highlight box names the player from it); its piece becomes the head's
+/// whole picture, its own file stretched over a [`HEAD_ON_PAGE`] square centred where the row
+/// stands, drawn after every location icon and the arrow so nothing covers it. A head that would
+/// cover the player's arrow (`cursor`, players a few metres apart at world scale) or another
+/// head is moved right until it clears them, so both still show. Returns the pieces and, per
+/// head, its square and whether it was moved.
+fn with_heads(ui: &Ui, mut pieces: Vec<Piece>, heads: &[TileId], cursor: Option<TileId>) -> (Vec<Piece>, Vec<(super::layout::Rect, bool)>) {
+    if heads.is_empty() {
+        return (pieces, Vec::new());
+    }
+    let mut drawn = Vec::new();
+    let mut i = 0;
+    while i < pieces.len() {
+        if heads.contains(&pieces[i].tile) {
+            drawn.push(pieces.remove(i));
+        } else {
+            i += 1;
+        }
+    }
+    let overlaps = |a: &super::layout::Rect, b: &super::layout::Rect| a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
+    // The arrow as a square of its longer side about its centre: it turns with the heading.
+    let mut taken: Vec<super::layout::Rect> = cursor
+        .and_then(|c| pieces.iter().find(|p| p.tile == c))
+        .map(|p| {
+            let (r, side) = (p.rect, p.rect.width.max(p.rect.height));
+            super::layout::Rect { left: r.left + r.width / 2.0 - side / 2.0, top: r.top + r.height / 2.0 - side / 2.0, width: side, height: side }
+        })
+        .into_iter()
+        .collect();
+    let mut told = Vec::new();
+    for p in &mut drawn {
+        let Look::Picture { name, .. } = &p.look else { continue };
+        let r = p.rect;
+        let side = HEAD_ON_PAGE;
+        let (cx, cy) = (r.left + r.width / 2.0, r.top + r.height / 2.0);
+        let mut sq = super::layout::Rect { left: cx - side / 2.0, top: cy - side / 2.0, width: side, height: side };
+        let mut moved = false;
+        while let Some(t) = taken.iter().find(|t| overlaps(&sq, t)) {
+            sq.left = t.left + t.width + HEAD_NUDGE_GAP;
+            moved = true;
+        }
+        p.look = Look::Picture { name: name.clone(), source: Source::Own, fit: Fit::Stretch };
+        p.rect = sq;
+        p.crop = None;
+        p.tex = None;
+        taken.push(sq);
+        told.push((sq, moved));
+    }
+    let after = pieces.iter().rposition(|q| keeps_file_brightness(ui, q.tile) || Some(q.tile) == cursor).map_or(pieces.len(), |k| k + 1);
+    pieces.splice(after..after, drawn);
+    (pieces, told)
 }
 
 /// The World Map's companion names painted outside the file's tree (`map_menu.xml` has no
@@ -1596,6 +1667,8 @@ pub struct Written {
     told_line: Option<String>,
     counted: Checked,
     places_told: Option<String>,
+    /// The co-op heads last logged (`with_heads`), so a still page logs them once.
+    heads_told: Option<String>,
     /// Final passes in a row that failed, the tab and frame the last was for, the tree it met, and
     /// its reason.
     failing: u32,
@@ -1800,6 +1873,23 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
             let paths = world.paths();
             pieces = with_map_picture(ui, pieces, map_picture_piece(ui, paths.clip, paths.picture));
             pieces = with_map_companions(ui, pieces, map_companion_pieces(ui, world));
+        }
+        if let Some(world) = s.world.as_ref() {
+            let rows = w.map_rows(world.local);
+            let heads: Vec<TileId> = rows.markers.iter().zip(&world.markers).filter(|(_, m)| m.head).map(|(r, _)| r.tile).collect();
+            let cursor = ui.find_tile(world.paths().cursor);
+            let (out, told) = with_heads(ui, pieces, &heads, cursor);
+            pieces = out;
+            let said = format!(
+                "{} on the {}: {}",
+                told.len(),
+                world.paths().name,
+                told.iter().map(|(r, moved)| format!("{:.0} square at {:.0}, {:.0}{}", r.width, r.left, r.top, if *moved { ", moved off the arrow" } else { "" })).collect::<Vec<_>>().join("; ")
+            );
+            if !told.is_empty() && w.heads_told.as_ref() != Some(&said) {
+                info!("tiles: {MAP_MENU} co-op heads: {said}");
+                w.heads_told = Some(said);
+            }
         }
         let places = tab_places(ui, &w.tabs);
         if w.places_told.as_ref() != Some(&places) {
@@ -3307,7 +3397,7 @@ mod tests {
     const WORLD_W: Rect = Rect { min: Vec2::new(40.0, 90.0), max: Vec2::new(895.0, 590.0) };
 
     fn marker(form: u32, uv: [f32; 2], selected: bool) -> MarkerShown {
-        MarkerShown { form, uv, icon: format!("icon_{form}.dds"), selected, name: format!("Place {form}"), detail: (form == 21).then(|| "Town 21: Neutral".to_string()) }
+        MarkerShown { form, uv, icon: format!("icon_{form}.dds"), selected, name: format!("Place {form}"), detail: (form == 21).then(|| "Town 21: Neutral".to_string()), head: false }
     }
 
     /// The World Map at magnification `mag` centred on `centre` in the fixture's window (its
@@ -3557,7 +3647,7 @@ mod tests {
     fn local(outline: Option<Vec2>, mag: f32) -> Shown {
         let p = data::view::LocalProjection { centre: [1000.0, 2000.0], mag, scale: 28.0, origin: [-11000.0, 12000.0], extent: Vec2::new(24000.0, 20000.0) };
         let view = data::MapView::local(WORLD_W, p);
-        let door = |form, x: f32, y: f32, selected| MarkerShown { form, uv: view.local_uv(x, y), icon: "door.dds".into(), selected, name: format!("Door {form}"), detail: None };
+        let door = |form, x: f32, y: f32, selected| MarkerShown { form, uv: view.local_uv(x, y), icon: "door.dds".into(), selected, name: format!("Door {form}"), detail: None, head: false };
         Shown {
             tab: data::LOCAL,
             rows: Vec::new(),
@@ -3708,6 +3798,42 @@ mod tests {
     }
 
     #[test]
+    fn a_co_op_head_is_drawn_whole_and_large_over_the_location_icons_and_off_the_arrow() {
+        // The head's row listed first, so the file's order would draw the icon over it.
+        let head = MarkerShown { icon: crate::coop_heads::PLAIN.into(), head: true, ..marker(7, [0.3, 0.3], false) };
+        let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
+        run(&mut ui, Some(world(1.0, [0.5, 0.5], vec![head, marker(8, [0.3, 0.3], false)])), &mut t).unwrap();
+        let tile = |form| t.written.world.markers.iter().find(|r| r.key == form).unwrap().tile;
+        let at = |form| t.pieces.iter().position(|p| p.tile == tile(form)).expect("the row's piece");
+        let (h, icon) = (&t.pieces[at(7)], &t.pieces[at(8)]);
+        assert!(at(7) > at(8), "drawn after the location icon: over it");
+        assert!((h.rect.width - HEAD_ON_PAGE).abs() < 1e-6 && (h.rect.height - HEAD_ON_PAGE).abs() < 1e-6, "{:?}", h.rect);
+        assert!(h.rect.width > 2.0 * icon.rect.width, "plainly bigger than a location icon");
+        let centre = |r: super::super::layout::Rect| (r.left + r.width / 2.0, r.top + r.height / 2.0);
+        let (hc, ic) = (centre(h.rect), centre(icon.rect));
+        assert!((hc.0 - ic.0).abs() < 1e-6 && (hc.1 - ic.1).abs() < 1e-6, "centred where the row stands, away from the arrow");
+        assert!(h.crop.is_none(), "the whole face, not an icon's piece of the atlas");
+        assert!(matches!(&h.look, Look::Picture { name, source: Source::Own, fit: Fit::Stretch } if name == crate::coop_heads::PLAIN), "{:?}", h.look);
+        assert!((icon.rect.width - f64::from(data::MARKER)).abs() < 1e-6, "the icon keeps the file's size");
+    }
+
+    #[test]
+    fn a_co_op_head_on_the_players_arrow_is_moved_beside_it_so_both_show() {
+        // The guest a few metres from the host at world scale: the same spot as the arrow (0.5, 0.5).
+        let head = MarkerShown { icon: crate::coop_heads::PLAIN.into(), head: true, ..marker(7, [0.5, 0.5], false) };
+        let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
+        run(&mut ui, Some(world(1.0, [0.5, 0.5], vec![head])), &mut t).unwrap();
+        let row = t.written.world.markers.iter().find(|r| r.key == 7).unwrap().tile;
+        let cursor = ui.find_tile(WORLD_CURSOR).unwrap();
+        let (hi, ai) = (t.pieces.iter().position(|p| p.tile == row).unwrap(), t.pieces.iter().position(|p| p.tile == cursor).expect("the arrow painted"));
+        let (h, a) = (t.pieces[hi].rect, t.pieces[ai].rect);
+        let side = a.width.max(a.height);
+        let arrow_right = a.left + a.width / 2.0 + side / 2.0;
+        assert!(h.left >= arrow_right, "beside the arrow, not over it: head {h:?} arrow {a:?}");
+        assert!(hi > ai, "drawn after the arrow");
+    }
+
+    #[test]
     fn the_local_map_falls_back_without_its_window_or_template_and_the_world_map_does_not_need_them() {
         // A file without the Local Map's quest template: the Local Map falls back, the World Map not.
         let mut ui = tree_changed(|x| with_local(x).replace("LocalMapQuestMarkerTemplate", "OtherTemplate"));
@@ -3803,7 +3929,7 @@ mod tests {
     #[test]
     fn the_prepared_world_map_is_read_with_its_parts_and_the_local_map_is_not() {
         let view = data::MapView::world(WORLD_W, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
-        let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), custom_icon: None, highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv, detail: None, recent: false, outside: None };
+        let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), custom_icon: None, highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv, detail: None, head: None, tag: None, recent: false, outside: None };
         let parts = data::WorldParts {
             view,
             texture: "w.dds".into(),
@@ -3825,8 +3951,8 @@ mod tests {
         let w = s.world.expect("the World Map's parts");
         assert_eq!(w.markers.iter().map(|m| (m.form, m.selected)).collect::<Vec<_>>(), vec![(1, false), (2, true)], "a mark without texture coordinates is not the World Map's");
         assert_eq!((w.picture, w.window, w.usable, w.cursor, w.label.as_deref()), (view.picture(), WORLD_W, Vec2::splat(1000.0), Vec2::new(5.0, 6.0), Some("P2")));
-        assert_eq!(w.markers[0].icon, data::MapMark { icon: Some((1, true)), custom_icon: None, highlighted: false, at: Vec2::ZERO, form: 1, name: String::new(), uv: None, detail: None, recent: false, outside: None }.picture());
-        let custom_mark = data::MapMark { icon: Some((1, true)), custom_icon: Some("Interface\\Icons\\Owned\\custom.dds".into()), highlighted: false, at: Vec2::ZERO, form: 1, name: "P1".into(), uv: Some([0.1, 0.1]), detail: None, recent: false, outside: None };
+        assert_eq!(w.markers[0].icon, data::MapMark { icon: Some((1, true)), custom_icon: None, highlighted: false, at: Vec2::ZERO, form: 1, name: String::new(), uv: None, detail: None, head: None, tag: None, recent: false, outside: None }.picture());
+        let custom_mark = data::MapMark { icon: Some((1, true)), custom_icon: Some("Interface\\Icons\\Owned\\custom.dds".into()), highlighted: false, at: Vec2::ZERO, form: 1, name: "P1".into(), uv: Some([0.1, 0.1]), detail: None, head: None, tag: None, recent: false, outside: None };
         let custom_map = data::MapShown::for_test(vec![custom_mark], Some(parts), Vec2::new(5.0, 6.0), Some("P1"), None);
         let custom_shown = Shown::of(&p(data::WORLD, custom_map), true).unwrap().world.expect("custom world");
         assert_eq!(custom_shown.markers[0].icon, "Interface\\Icons\\Owned\\custom.dds");

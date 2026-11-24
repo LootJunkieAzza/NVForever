@@ -149,7 +149,10 @@ fn step(
     time: Res<Time<Virtual>>,
     mut st: ResMut<Fades>,
     mut materials: ResMut<Assets<NifMaterial>>,
-    mut meshes: Query<(Entity, &RefVisual, Option<&MeshMaterial3d<NifMaterial>>, Option<&nvf_assets::nif_surface_blend::BlendShape>, Option<&Fading>, &mut Visibility, Has<FadeHidden>, Option<&nvf_assets::nif_material::MaterialOverride>)>,
+    // A part that stays hidden (`crate::StaysHidden`: a revolver's speed loader at rest) is
+    // left out: the end of an Enable's fade in showed it beside the cylinder of the
+    // re-enabled holder [observed: laptop r1b/r2b 2026-11-16, GSChetRef.disable/enable].
+    mut meshes: Query<(Entity, &RefVisual, Option<&MeshMaterial3d<NifMaterial>>, Option<&nvf_assets::nif_surface_blend::BlendShape>, Option<&Fading>, &mut Visibility, Has<FadeHidden>, Option<&nvf_assets::nif_material::MaterialOverride>), Without<crate::StaysHidden>>,
 ) {
     if st.active.is_empty() {
         return;
@@ -246,5 +249,22 @@ mod tests {
         assert_eq!(fade_alpha(false, FADE_SECONDS / 4.0), 0.75);
         assert_eq!(fade_alpha(false, FADE_SECONDS), 0.0);
         assert_eq!(fade_alpha(true, -1.0), 0.0, "before its start: not yet drawn");
+    }
+
+    #[test]
+    fn the_end_of_a_fade_in_leaves_a_part_that_stays_hidden_hidden() {
+        use crate::activate::tests::{sim, STIM_REF};
+        let mut app = App::new();
+        app.insert_resource(sim()).init_resource::<Time<Virtual>>().init_resource::<Assets<NifMaterial>>().init_resource::<Fades>().add_systems(Update, step);
+        // An Enable's fade in, long over (the reference is present).
+        app.world_mut().resource_mut::<Fades>().active.insert(STIM_REF, Active { fade_in: true, since: -2.0 * FADE_SECONDS });
+        let mesh = |app: &mut App| app.world_mut().spawn((RefVisual(STIM_REF), MeshMaterial3d::<NifMaterial>(Handle::default()), Visibility::Hidden)).id();
+        let shown = mesh(&mut app);
+        let loader = mesh(&mut app);
+        app.world_mut().entity_mut(loader).insert(crate::StaysHidden);
+        app.update();
+        assert_eq!(app.world().get::<Visibility>(shown), Some(&Visibility::Inherited));
+        assert_eq!(app.world().get::<Visibility>(loader), Some(&Visibility::Hidden), "the speed loader stays hidden after the fade in");
+        assert!(app.world().resource::<Fades>().active.is_empty());
     }
 }

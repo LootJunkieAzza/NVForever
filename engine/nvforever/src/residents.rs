@@ -402,6 +402,49 @@ fn hop_or_obstacle(phys: &mut PhysState, id: u32, f: &fnv_nav::Follower, walker:
 /// The walker takes the last stretch of a walk, game units [our choice].
 const LAST_STRETCH: f32 = 64.0;
 
+/// A co-op guest's drawn copy of the host's actor a frame's move longer than its run
+/// would cover, up to this far (units), is caught up over a few frames rather than put
+/// on at once [design: the Nipton survivor, running about 516 units/s between his
+/// patrol points, was "put 49-57 units on in one frame" on a guest 10 times in a run
+/// (laptop ship5 s187-nipton) [observed]; a script's move goes further].
+const CATCH_UP_MAX: f32 = 128.0;
+/// A drawn body's move in one frame longer than this (units) is logged as a jump
+/// (`draw_and_place`) [design: as `nav::PLACED_STEP`].
+const PLACED_JUMP: f32 = 48.0;
+/// The run speed (units/s) taken for an actor with none known.
+const CATCH_UP_SPEED: f32 = 500.0;
+/// How much faster than its run a guest's copy catches up [design: a 50-unit lag at a
+/// 516 units/s run is gone in three frames at 60 fps].
+const CATCH_UP_RATE: f32 = 2.0;
+
+/// Up off its furniture: its walk goes on from where the furniture left its body
+/// (`body`), turned as it left it (its back to the furniture), and that is where it was
+/// last drawn. Its last drawn place was its walker's, where it stood when it was told to
+/// use the furniture: measured from there, the host's EVDeadHorse04REF was "drawn 57
+/// units on in one frame" off its rail though its body had not moved (it had walked 57
+/// units to the rail's marker; laptop deadhorse-look 47790fcb).
+fn stand_where_left(body: &Transform, walker: &mut Walker, drawn_feet: &mut [f32; 3]) {
+    walker.feet = body.translation.to_array();
+    walker.heading = nav::tr_heading(body);
+    walker.tri = fnv_nav::graph::NONE;
+    *drawn_feet = walker.feet;
+}
+
+/// Where a guest draws the host's actor this frame: from where it was drawn (`from`)
+/// towards where the host has it (`to`), at most [`CATCH_UP_RATE`] times its run speed
+/// (`run`, units/s) in `dt` seconds; at `to` at once when that is further than
+/// [`CATCH_UP_MAX`] (a placement) or within a frame's catch-up.
+fn catch_up(from: [f32; 3], to: [f32; 3], run: f32, dt: f32) -> [f32; 3] {
+    let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    let far = (d[0] * d[0] + d[1] * d[1]).sqrt();
+    let reach = CATCH_UP_RATE * run.max(1.0) * dt.max(0.0);
+    if far > CATCH_UP_MAX || far <= reach {
+        return to;
+    }
+    let k = reach / far;
+    [from[0] + d[0] * k, from[1] + d[1] * k, from[2] + d[2] * k]
+}
+
 /// The length of one update of the walks of an hour passed in the Wait menu, seconds
 /// [our choice].
 const WAITED_STEP: f32 = 0.25;
@@ -501,6 +544,10 @@ fn stop_body(phys: Option<&mut PhysState>, id: u32) -> f32 {
 impl Mover for PhysMover<'_> {
     fn open(&mut self, _actor: FormId, door: u32) -> bool {
         open_door(self.doors, door)
+    }
+
+    fn stand(&mut self, actor: FormId) {
+        stop_body(self.phys.as_deref_mut(), actor.0);
     }
 
     fn walk(&mut self, actor: FormId, walker: &mut Walker, nav: &NavGraph, dt: f32) -> Option<WalkEvent> {
@@ -934,7 +981,13 @@ fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: boo
                 (Seat::None, Some(SeatOrder::Cancel))
             }
         }
-        (Seat::None, _) => (wants.map_or(Seat::None, |f| Seat::Wanted(f, false)), None),
+        // Its package's furniture: walked up to and got on in sight when drawn; when not
+        // drawn it got there unseen, so it is put on at once once it is (item 204b: the
+        // crucified at Nipton, walked to their crosses by the low process while the host
+        // was in the general store, climbed on in front of it when it came out; in the
+        // original they hang there from the start) [observed; the rule: design, as
+        // `Ordered` going out of sight on its furniture comes back on at once].
+        (Seat::None, _) => (wants.map_or(Seat::None, |f| Seat::Wanted(f, !drawn)), None),
         // The order goes out in the frame that found it eligible, not through `Wanted`:
         // by the next frame its AI may be off, or it may be held or out cold.
         (Seat::Waiting(f, so_far), _) => match (retry::waiting(f, so_far, frame), drawn) {
@@ -1026,6 +1079,12 @@ struct Resident {
     last_drawn: Option<(f32, [f32; 3])>,
     /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
     moved: bool,
+    /// Told to get on this furniture at once and not on it yet (`SitOn` with `at_once`):
+    /// a co-op host sends it as on it meanwhile ([`Residents::being_put_on`]).
+    putting_on: Option<u32>,
+    /// Not yet looked at for furniture its package names, as it first joins the AI
+    /// ([`Core::first_seats`]).
+    first_look: bool,
     /// Put at its package's place this frame after a script moved the clock
     /// ([`Core::after_hour_jump`]): off its furniture at once, as `moved`.
     jumped: bool,
@@ -1172,6 +1231,12 @@ struct Core {
     /// Cells whose actors were handed over (`all`), and the worldspace whose grid squares
     /// the exterior ones are: a grid square names another cell in another worldspace.
     cells_seen: HashSet<CellKey>,
+    /// A co-op host: the exterior cells of other worldspaces (or of this one while the
+    /// host is indoors) around guests away from it whose actors were handed over, by
+    /// worldspace and grid square ([`ResidentsCore::take_cells`]).
+    far_seen: HashSet<(u32, (i32, i32))>,
+    /// Those worldspaces' persistent references by grid square, indexed once each.
+    far_persistent: HashMap<u32, HashMap<(i32, i32), Vec<u32>>>,
     cells_seen_world: u32,
     /// The game's loaded cells when actors placed elsewhere were last looked for there.
     loaded_seen: BTreeSet<FormId>,
@@ -1245,6 +1310,9 @@ struct Core {
     /// Actors an idle holds in place (`idles::IdleHolds`, docs/spec-notes/idles.md §15):
     /// they stand as a staggering actor does while it shows.
     posed: HashSet<u32>,
+    /// Actors a game places itself (a darts opponent, `darts_world.rs`): their AI does
+    /// not walk them; each is drawn where the game puts it ([`Residents::hold_pose`]).
+    scripted: HashMap<u32, RemotePose>,
     /// Creatures playing their unarmed stance's draw clip (`creature_stance.rs`: the
     /// ghoul's roar, the gecko's hiss) this frame: they stand until it ends, as a
     /// staggering actor does (#2686: an alerted ghoul slid across the floor roaring).
@@ -1387,6 +1455,10 @@ pub struct Residents {
     /// The game state of the package choice without `--play`.
     own: Option<Box<Game<'static>>>,
     core: Core,
+    /// A co-op guest's (`crate::coop`): the host runs the world, so no actor here thinks
+    /// (no package, walk or fight); each is drawn where the host draws it, by reference.
+    /// An actor the host has not drawn stays where it is. `None` in any other game.
+    pub remote: Option<HashMap<u32, RemotePose>>,
     /// Every actor of the loaded cells.
     pub all: bool,
     started: bool,
@@ -1394,6 +1466,126 @@ pub struct Residents {
     startup: Vec<(bool, String)>,
     /// The residents drawn under the start's loading screen.
     start: StartPlacing,
+}
+
+impl Residents {
+    /// A game places actor `id` itself from now on, here: its AI does not walk it until
+    /// [`Residents::release_pose`] (a darts opponent, `darts_world.rs`) [design].
+    pub fn hold_pose(&mut self, id: u32, pose: RemotePose) {
+        self.core.scripted.insert(id, pose);
+    }
+
+    /// Actor `id` is its AI's to walk again, from where it was last placed.
+    pub fn release_pose(&mut self, id: u32) {
+        self.core.scripted.remove(&id);
+    }
+
+    /// The fastest an actor runs here (its alert or calm run speed, units/s), for a
+    /// guest to tell a host NPC's script move from its run (`coop::NpcTrack::pose`).
+    pub fn top_speed(&self, id: u32) -> Option<f32> {
+        let id = FormId(id);
+        self.core.ai.agents.contains_key(&id).then(|| self.core.ai.alert_speeds(id).run.max(self.core.ai.calm_speeds(id).run))
+    }
+
+    /// Where actor `id`'s AI has it now (space, feet, heading), when it is a resident
+    /// this game runs (`coop::share_npcs`: an NPC the host stopped drawing, item 179).
+    pub fn walker_of(&self, id: u32) -> Option<(Space, [f32; 3], f32)> {
+        let a = self.core.ai.agents.get(&FormId(id))?;
+        Some((a.walker.space, a.walker.feet, a.walker.heading))
+    }
+
+    /// The furniture actor `id` is being put on at once (wanted so, or told so and not
+    /// on it yet): drawn but without `OnFurniture` for a frame or two, a co-op host sends
+    /// it as on it, not as off (item 204d: after a load the host drew the crucified a
+    /// frame before it seated them, sent them as off, and a guest played their exit
+    /// clip and climbed back on).
+    pub fn being_put_on(&self, id: u32) -> Option<u32> {
+        let r = self.core.list.iter().find(|r| r.actor.0 == id)?;
+        match r.seat {
+            Seat::Wanted(f, true) => Some(f),
+            _ => r.putting_on,
+        }
+    }
+
+    /// The furniture actor `id`'s AI has it on where it stands (a seat, a bed, a cross),
+    /// when it is a resident this game runs and is there, not on its way: the host sends
+    /// it for one it does not draw (`coop::share_npcs`), so a guest seats it there.
+    pub fn furniture_of(&self, id: u32) -> Option<u32> {
+        let a = self.core.ai.agents.get(&FormId(id))?;
+        seated_by_ai(a.activity, a.using.map(|f| f.0))
+    }
+
+    /// Co-op replication, the host's: the residents it simulates in its guests'
+    /// surroundings (`Streamer::coop_areas`) and does not draw itself, each as
+    /// (reference, base, space, feet, heading, walking). A guest draws them by these.
+    pub fn simulated_undrawn(&self, world: &WorldData, streamer: &Streamer) -> Vec<(u32, u32, Space, [f32; 3], f32, bool)> {
+        if streamer.coop_areas.is_empty() {
+            return Vec::new();
+        }
+        self.core
+            .list
+            .iter()
+            .filter(|r| r.joined && !r.failed && r.present)
+            .filter_map(|r| {
+                let a = self.core.ai.agents.get(&r.actor)?;
+                let w = &a.walker;
+                (!drawn(world, streamer, w.space, w.feet) && streamer.coop_areas.iter().any(|c| c.holds(w.space, w.feet))).then(|| {
+                    // Not under the land (`actor_feet::on_the_land`).
+                    let land = match w.space {
+                        Space::World(ws) => crate::actor_feet::land_height_in(world, ws, w.feet[0], w.feet[1]),
+                        Space::Interior(_) => None,
+                    };
+                    (r.actor.0, r.base, w.space, crate::actor_feet::on_the_land(w.feet, land), w.heading, a.activity == Activity::Travelling && w.moving)
+                })
+            })
+            .collect()
+    }
+}
+
+/// Where the host of a co-op game draws one of its actors ([`Residents::remote`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RemotePose {
+    pub feet: [f32; 3],
+    pub heading: f32,
+    pub moving: bool,
+    /// The furniture the host has it use (a chair, a bed, a cross), and whether it is on
+    /// it already (not walking up to it): a guest sits it there too.
+    pub furniture: Option<(u32, bool)>,
+    /// Where the host has it: its interior cell or the worldspace it stands in
+    /// (`nvf_coop::net::NpcState::space`; 0: not told, where it was here). It is drawn
+    /// only where that is loaded here [playtest 119 item 151: the NCR Embassy's MPs,
+    /// fighting inside on the host, were drawn over the Strip on a guest outside].
+    pub space: u32,
+}
+
+impl RemotePose {
+    /// What a guest takes the actor to be doing: there (its furniture wanted, so kept on
+    /// it) when standing, or whenever the host has it on furniture (going to it, getting
+    /// on, seated) even as its feet move. Getting on moves the body (a chair's enter clip
+    /// carries it about 50 units); taken as a walk, the guest's own getting on was told
+    /// to get up, which it did the moment it sat, and then it sat again at once off its
+    /// seat (armwrestle-c's laptop run and run6, 2026-11-11: the Settler on the arm
+    /// wrestling seat and the saloon's bar stool) [observed; the rule: design].
+    pub fn activity(&self) -> Activity {
+        if self.moving && self.furniture.is_none() {
+            Activity::Travelling
+        } else {
+            Activity::There
+        }
+    }
+}
+
+/// Whether [`Core::first_seats`] looks at newly joined residents this frame: not during
+/// a trip (its arrival puts them), nor before the AI's first think has read the clock
+/// (the packages of the start's hour, not of a choice made before it).
+fn first_seats_now(trip: bool, clock_text: &str) -> bool {
+    !trip && !clock_text.is_empty()
+}
+
+/// The furniture an actor's AI has it on ([`Residents::furniture_of`]): the one it
+/// uses, once it is there; none while it travels (on its way to it, or away).
+fn seated_by_ai(activity: Activity, using: Option<u32>) -> Option<u32> {
+    using.filter(|_| activity == Activity::There)
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
@@ -1486,7 +1678,8 @@ impl Residents {
     /// state the package choice runs in.
     pub fn build(world: &WorldData, names: &[String], clock: Clock, walk_speed: f32, shared: bool) -> Result<Residents, String> {
         let t0 = std::time::Instant::now();
-        let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(world.lo, world.schema, world.index)));
+        // The run's one table, shared with the simulation (`nvf_play::sim::world_refs`).
+        let refs: &'static RefTable = nvf_play::sim::world_refs(world.lo, world.schema, world.index);
         let mut all = false;
         let mut core = Core {
             // Test aid: conversations between NPCs anywhere in the loaded area.
@@ -1496,6 +1689,8 @@ impl Residents {
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
+            far_seen: HashSet::new(),
+            far_persistent: HashMap::new(),
             cells_seen_world: 0,
             loaded_seen: BTreeSet::new(),
             clock,
@@ -1529,6 +1724,7 @@ impl Residents {
             held_now: false,
             staggering: HashSet::new(),
             posed: HashSet::new(),
+            scripted: HashMap::new(),
             drawing: HashSet::new(),
             carried_off: HashSet::new(),
             breaking: HashSet::new(),
@@ -1603,7 +1799,7 @@ impl Residents {
             startup.push((true, format!("test aid {START_PLACE_AID}=0: the start's residents are drawn after its loading screen, {SPAWNS_PER_FRAME} a frame")));
         }
         let start = StartPlacing { on: under_screen, game_frames: 0, placed: 0, told: false };
-        Ok(Residents { own, core, all, started: false, warned: false, startup, start })
+        Ok(Residents { own, core, remote: None, all, started: false, warned: false, startup, start })
     }
 
     /// The named references the cell streamer must leave to this module (with `all` it
@@ -1643,14 +1839,16 @@ impl Residents {
 
     /// Draw `actor` anew (a resurrected corpse, `resurrect.rs`): its body is taken away and
     /// [`drive`] spawns a fresh one where its walker stands. Whether it is a resident.
-    pub fn redraw(&mut self, commands: &mut Commands, actor: u32) -> bool {
+    ///
+    /// The body drawn stays `root` with `spawned` false: [`nav::show_actor`] lets it go
+    /// once, as it does any body of it left behind, before it draws the fresh one (or
+    /// `nav::bodies_to_let_go` does while it is not shown). Despawned here too, it went
+    /// twice, and `show_actor`'s search for the new root found the old body still in the
+    /// query that frame and kept it (guest log, ship5 corpses-seen-then-back 2026-11-11:
+    /// "Entity despawned: The entity with ID 2905v1 is invalid" after each "dressed as in
+    /// the host's game", and again 20 s on for the stale root).
+    pub fn redraw(&mut self, _commands: &mut Commands, actor: u32) -> bool {
         let Some(r) = self.core.list.iter_mut().find(|r| r.actor.0 == actor) else { return false };
-        if let Some(e) = r.root.take() {
-            commands.entity(e).despawn();
-        } else if r.spawned {
-            // Diagnostic for #2461: a body spawned and not yet found is not taken away.
-            warn!("ai: {} drawn anew before its body spawned earlier was found: that body is not taken away", r.label);
-        }
         r.spawned = false;
         r.last_drawn = None;
         r.seat = Seat::None;
@@ -1790,6 +1988,8 @@ impl Core {
             perched: false,
             immobile: false,
             moved: false,
+            first_look: true,
+            putting_on: None,
             jumped: false,
             last_space: None,
             aim_heading: None,
@@ -1801,12 +2001,63 @@ impl Core {
         });
     }
 
+    /// The actors of exterior cells, given by worldspace and grid square, that are not the
+    /// cells the host draws (`take_cells`): the cell's own references and the worldspace's
+    /// persistent ones standing in that square, as for the host's own cells.
+    fn take_far_cells(&mut self, world: &WorldData, refs: &RefTable, now: Vec<(u32, (i32, i32))>) {
+        let now: HashSet<(u32, (i32, i32))> = now.into_iter().collect();
+        let new: Vec<(u32, (i32, i32))> = now.difference(&self.far_seen).copied().collect();
+        self.far_seen = now;
+        let had = self.list.len();
+        for (w, g) in new {
+            let Some(ws) = world.index.worldspaces.get(&w) else { continue };
+            let persistent = self.far_persistent.entry(w).or_insert_with(|| {
+                let mut by_grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
+                let pc = ws.persistent_cell.and_then(|c| world.index.cells.get(&c));
+                for &r in pc.map_or(&[][..], |c| &c.refs) {
+                    if let Some(p) = refs.get(FormId(r)) {
+                        by_grid.entry(fnv_world::cell_of(p.pos[0], p.pos[1])).or_default().push(r);
+                    }
+                }
+                by_grid
+            });
+            let mine: Vec<u32> = persistent.get(&g).cloned().unwrap_or_default();
+            let cell = ws.grid.get(&g).and_then(|c| world.index.cells.get(c));
+            for r in cell.into_iter().flat_map(|c| c.refs.iter().copied()).chain(mine) {
+                if is_actor(refs, FormId(r)) {
+                    self.add(refs, FormId(r), None);
+                }
+            }
+        }
+        if self.list.len() > had {
+            info!("ai: {} actors of the cells around co-op guests away from the host join ({} in all)", self.list.len() - had, self.list.len());
+        }
+    }
+
     /// With `all`: hand over the actors of the cells that have loaded since last time.
     fn take_cells(&mut self, world: &WorldData, streamer: &Streamer, refs: &RefTable) {
-        let now: HashSet<CellKey> = match streamer.interior {
+        let mut now: HashSet<CellKey> = match streamer.interior {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
+        // A co-op host: the cells around each guest away from it are simulated too
+        // (`crate::coop::areas`), so their actors join as the host's own cells' do. Before
+        // (night of 2026-11-09) only the host's cells and the interiors behind their doors
+        // were taken: a guest at Primm found it empty. Exterior cells of the worldspace the
+        // host draws go by its grid (`WorldData::grid_cell`); those of any other worldspace
+        // (Freeside, the Strip, a DLC's), or of this one while the host is indoors, by
+        // [`Self::take_far_cells`].
+        let mut far = Vec::new();
+        for area in &streamer.coop_areas {
+            match area.space {
+                Space::Interior(c) => {
+                    now.insert(CellKey::Interior(c));
+                }
+                Space::World(w) if w == world.world && streamer.interior.is_none() => now.extend(area.cells.iter().map(|g| CellKey::Exterior(*g))),
+                Space::World(w) => far.extend(area.cells.iter().map(|g| (w, *g))),
+            }
+        }
+        self.take_far_cells(world, refs, far);
         let new = newly_loaded(&mut self.cells_seen, &mut self.cells_seen_world, world.world, now);
         let before = self.list.len();
         for key in new {
@@ -1929,8 +2180,8 @@ impl Core {
     fn process_levels(&mut self, game: &Game, world: &WorldData, streamer: &Streamer) {
         // A far walk stops where it comes into the loaded area (`fnv_ai::process`).
         let loaded = match streamer.interior {
-            Some(c) => fnv_ai::LoadedArea { space: Space::Interior(c), cells: Default::default() },
-            None => fnv_ai::LoadedArea { space: Space::World(world.world), cells: streamer.loaded.keys().copied().collect() },
+            Some(c) => fnv_ai::LoadedArea { space: Space::Interior(c), cells: Default::default(), also: streamer.coop_areas.clone() },
+            None => fnv_ai::LoadedArea { space: Space::World(world.world), cells: streamer.loaded.keys().copied().collect(), also: streamer.coop_areas.clone() },
         };
         if self.ai.loaded() != Some(&loaded) {
             self.ai.set_loaded(Some(loaded));
@@ -1945,7 +2196,7 @@ impl Core {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             classified += 1;
             let (space, feet) = (a.walker.space, a.walker.feet);
-            let high = drawn(world, streamer, space, feet);
+            let high = simulated(world, streamer, space, feet);
             r.been_loaded |= high;
             if high {
                 self.loaded_at.insert(r.actor, self.clock_hours);
@@ -1977,7 +2228,7 @@ impl Core {
                     f.path.legs.iter().skip(f.leg).any(|l| {
                         l.points.iter().any(|p| {
                             points += 1;
-                            drawn(world, streamer, l.space, *p)
+                            simulated(world, streamer, l.space, *p)
                         })
                     })
                 });
@@ -2066,6 +2317,41 @@ impl Core {
         self.trip = Some(Trip { before, seen: HashSet::new(), settled: 0, put: [0; 2], doors: None });
     }
 
+    /// Each resident as it first joins the AI, not drawn yet, whose current package names
+    /// a furniture reference as its place (`fnv_ai::Ai::package_names_furniture`: the
+    /// crucified at Nipton, linked to their crosses) is put on it at once, as a trip puts
+    /// the actors near the player's arrival (`arrive`), not walked up to it and got on in
+    /// sight [observed, owner, item 204b: in the original they hang on their crosses from
+    /// the start; ours walked 46-81 units to them and played the enter clip as the
+    /// player came]. Not while a trip is under way (that puts them), nor one a script
+    /// has just moved; others walk as before.
+    fn first_seats(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer) {
+        // Not before the clock is read (the first think): the packages of the hour it is.
+        // Before, the Goodsprings settler and Easy Pete were seated on the furniture of
+        // the start's first choice and walked off at once at 12:00 (laptop 204c run).
+        if !first_seats_now(self.trip.is_some(), &self.clock_text) {
+            return;
+        }
+        // Joined here, before the AI's first think sets it walking.
+        self.join(game);
+        let near = |p: fnv_nav::Place| drawn(world, streamer, p.space, p.pos) || streamer.buffer.holds(p.space, p.pos);
+        for r in self.list.iter_mut().filter(|r| r.joined && !r.failed && r.first_look) {
+            r.first_look = false;
+            if r.spawned || r.moved || r.seat != Seat::None || !self.ai.agents.contains_key(&r.actor) || game.ai_off(r.actor) {
+                continue;
+            }
+            if fnv_ai::Ai::package_names_furniture(game, r.actor).is_none() {
+                continue;
+            }
+            let Some(arr) = self.ai.arrive(game, &nav.graph, r.actor, &near) else { continue };
+            let Some(f) = arr.furniture else { continue };
+            r.wants = Some(f.0);
+            r.seat = Seat::Wanted(f.0, true);
+            self.arrivals[1] += 1;
+            info!("ai [{}] {}: on {} from the start: put on it at once ({:.0} units from where it stood)", self.clock_text, r.label, game.data.name(f), arr.skipped);
+        }
+    }
+
     /// While a trip is under way: the residents near the player (in the loaded area, the
     /// cell buffer, or an interior behind a door of the loaded cells) whose package's
     /// walk starts there are put where that walk ends, on its furniture (seated at once),
@@ -2098,6 +2384,7 @@ impl Core {
             if trip.before.contains(&r.actor) || !trip.seen.insert(r.actor) || r.moved {
                 continue;
             }
+            r.first_look = false;
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             if !near(fnv_nav::Place { space: a.walker.space, pos: a.walker.feet }) {
                 continue;
@@ -2454,6 +2741,14 @@ impl Core {
             .filter(|r| {
                 matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_))
                     || held_by_talk(game, &self.ai, r.actor)
+                    // The one this player is talking to stays where it is until the talk
+                    // ends: in a co-op session the world goes on behind a conversation,
+                    // and Sunny Smiles walked off during her own "Meet me outside" line,
+                    // whose script changed her package (queue item 197). Solo the whole
+                    // world stands still then, as in the original.
+                    || game.dialogue.as_ref().is_some_and(|c| c.actor == r.actor)
+                    // ... and the one another player is talking to (`nvf_play::coop_talk`).
+                    || game.coop_talking.contains(&r.actor)
                     || self.staggering.contains(&r.actor.0)
                     || self.drawing.contains(&r.actor.0)
             })
@@ -2466,6 +2761,7 @@ impl Core {
         // [design: owner 2026-10-31].
         self.breaking = self.posed.iter().copied().filter(|id| !held.contains(id) && self.ai.agents.get(&FormId(*id)).is_some_and(|a| a.activity == Activity::Travelling)).collect();
         held.extend(self.posed.iter().copied());
+        held.extend(self.scripted.keys().copied());
         // The victim of a planted explosive stands where it is from its panic to the blast
         // (`GetPlantedExplosive`; docs/spec-notes/pickpocket.md §5) [hypothesis: the issue
         // reads "slows or stops"; stopping is the plainer of the two].
@@ -2478,7 +2774,19 @@ impl Core {
         held.extend(panicking.iter().copied());
         self.prepare(game, restored);
         // A menu, a conversation or a loading screen holds the game: nobody moves.
-        self.held_now = game.menu.is_some() || game.loading || game.dialogue.is_some();
+        // In co-op a minigame table does not hold it (`nvf_play::coop_tables`).
+        // Nor, in a co-op session, any menu or conversation (queue item 195).
+        self.held_now = ((game.menu.is_some() || game.dialogue.is_some()) && !nvf_play::coop_tables::keeps_world()) || game.loading;
+        // In co-op the Wait menu does not hold the world (queue item 195), but the hours
+        // waited still pass for the residents, as they do held: a schedule or a GameMode
+        // block keyed to the hour goes on (issue #2445, Chauncey's warp to the bathhouse
+        // at 15 h while the host waits in the steam room) [observed: ship-081 solo run of
+        // chauncey-steam-room while hosting: no waited hour passed for the AI].
+        if !self.held_now && waited > 0 && game.menu == Some(nvf_play::script::MENU_SLEEP_WAIT) && !self.ai.agents.is_empty() {
+            self.pass_hours(game, nav, world, waited, phys.as_deref_mut(), &held, now);
+            self.note_presence(game);
+            return;
+        }
         if self.held_now {
             for b in phys.iter_mut().flat_map(|p| p.npcs.values_mut()) {
                 b.velocity = [0.0, 0.0];
@@ -2697,10 +3005,10 @@ impl Core {
             if fnv_ai::alert::reacting(game, r.actor) {
                 continue;
             }
-            let Some(aw) = aw else { continue };
             let active = game.active_weapon_use(r.actor);
             let use_target = use_aim(active.map(|w| w.target), active.is_some_and(|w| w.taken));
-            let Some(target) = aim_target(use_target, aw.combat_target().map(|(t, _)| t)) else { continue };
+            let use_target = use_out_of_combat(use_target, aw.is_some(), active.is_some_and(|w| w.in_place));
+            let Some(target) = aim_target(use_target, aw.and_then(|aw| aw.combat_target().map(|(t, _)| t))) else { continue };
             let at = if use_target.is_some() {
                 fnv_ai::goal::weapon_target_place(game, target, a.walker.space)
             } else {
@@ -2819,6 +3127,7 @@ impl Core {
                 | AiEvent::DoorsClosedToIt { .. }
                 | AiEvent::HeightWaived { .. }
                 | AiEvent::DoorRefused { .. }
+                | AiEvent::DoorHeldForIdle { .. }
                 | AiEvent::DoorWaitCancelled { .. }
                 | AiEvent::Resumed { .. }
                 | AiEvent::Approach { .. }
@@ -2888,6 +3197,71 @@ impl Core {
         self.ai.events.clear();
     }
 
+    /// A co-op guest's frame in place of [`Core::think`] (`Residents::remote`): nobody
+    /// thinks; each actor the host draws is put where the host has it, with no physics
+    /// body of its own here to walk it anywhere else. The game is told that place too:
+    /// what is measured from the actor (where its lines are heard, `nvf_play::voice`;
+    /// a script's GetDistance) is measured from where it is drawn [until 2026-11-06 only
+    /// the drawn body moved, so a guest heard the host's NPCs from where its own game
+    /// last had them, often thousands of units off: "only when standing very close",
+    /// Swanick not at all; owner playtest].
+    fn follow(&mut self, game: &mut Game, remote: &HashMap<u32, RemotePose>, mut phys: Option<&mut PhysState>, blocks: Option<&mut ActorBlocks>, now: f32) {
+        self.join(game);
+        for (&id, pose) in remote {
+            let Some(a) = self.ai.agents.get_mut(&FormId(id)) else { continue };
+            if pose.space != 0 {
+                let space = if game.world.placed.world_grid.contains_key(&FormId(pose.space)) { Space::World(pose.space) } else { Space::Interior(pose.space) };
+                if a.walker.space != space {
+                    info!("ai [{}] {id:#010X}: in {} in the host's world: drawn there only", clock_text(game), match space { Space::Interior(c) => game.data.name(FormId(c)), Space::World(w) => game.data.name(FormId(w)) });
+                    a.walker.space = space;
+                }
+            }
+            a.walker.feet = pose.feet;
+            a.walker.heading = pose.heading;
+            a.walker.moving = pose.moving;
+            a.walker.turning = false;
+            a.walker.air = None;
+            a.walker.tri = fnv_nav::graph::NONE;
+            a.activity = pose.activity();
+            let place = fnv_nav::path::Place { space: a.walker.space, pos: pose.feet };
+            // Its cell as the walker's space gives it, or the one it has (no cell found).
+            let cell = fnv_ai::goal::cell_of_place(game.world.placed, &place).or_else(|| game.world.peek(FormId(id)).and_then(|s| s.cell));
+            let _ = game.set_actor_place(FormId(id), cell, pose.feet, pose.heading);
+            // On the furniture the host has it on: the drawing sits it there
+            // ([`Core::note`] makes it the one it wants), at once when it is on already
+            // (the crucified on their crosses, a sitter on a chair).
+            a.using = pose.furniture.map(|(f, _)| FormId(f));
+            if let (Some((f, on)), Some(r)) = (pose.furniture, self.list.iter_mut().find(|r| r.actor.0 == id)) {
+                if r.seat == Seat::None {
+                    r.seat = Seat::Wanted(f, on);
+                }
+            }
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(id);
+            }
+        }
+        self.note(game, blocks, &HashSet::new(), now);
+    }
+
+    /// The actors a game places ([`Core::scripted`]) put where it has them, as a co-op
+    /// guest's are put where the host has them ([`Core::follow`]): no physics body walks
+    /// them meanwhile; one is made again where it stands once it is let go (`coast`).
+    fn place_scripted(&mut self, mut phys: Option<&mut PhysState>) {
+        for (&id, pose) in &self.scripted {
+            let Some(a) = self.ai.agents.get_mut(&FormId(id)) else { continue };
+            a.walker.feet = pose.feet;
+            a.walker.heading = pose.heading;
+            a.walker.moving = pose.moving;
+            a.walker.turning = false;
+            a.walker.air = None;
+            a.walker.tri = fnv_nav::graph::NONE;
+            a.activity = if pose.moving { Activity::Travelling } else { Activity::There };
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(id);
+            }
+        }
+    }
+
     /// Whether each resident is in the world and enabled, as the game has it now. Also
     /// while a menu or a conversation holds the game ([`Core::think`]): a script run there
     /// (a terminal's result script, a dialogue result) that enables an actor disabled
@@ -2922,8 +3296,10 @@ impl Core {
                     b.standing.insert(r.actor.0, [agent.walker.feet[0], agent.walker.feet[1]]);
                 }
             }
-            // The furniture it is to use, once it stands there.
-            r.wants = agent.using.filter(|_| agent.activity == Activity::There).map(|f| f.0);
+            // The furniture it is to use, once it stands there. Not while a game walks it
+            // ([`Core::scripted`]): standing where that game has it is not its package's
+            // place (a darts opponent at the line was sat back on its chair, item 92).
+            r.wants = agent.using.filter(|_| agent.activity == Activity::There && !self.scripted.contains_key(&r.actor.0)).map(|f| f.0);
             if agent.restarts != r.restarts {
                 r.restarts = agent.restarts;
                 r.restart = true;
@@ -3012,6 +3388,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::PushedBack { package, away } => format!("was pushed {away:.0} units from the place of {}: goes back", n(package)),
         AiEvent::Door { door, .. } => format!("used door {door}"),
         AiEvent::DoorRefused { door } => format!("was not let through door {door} by its script: plans again"),
+        AiEvent::DoorHeldForIdle { door, idle } => format!("waits at load door {door} until its idle {idle} is over"),
         AiEvent::DoorWaitCancelled { door } => format!("stops waiting at door {door}: its walk was given up"),
         AiEvent::Resumed { package, patrol_point: Some(p), .. } => format!("goes on with {} at patrol point {} (from the save)", n(package), n(p)),
         AiEvent::Resumed { package, .. } => format!("goes on with {}, its sandbox day as saved", n(package)),
@@ -3020,6 +3397,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::ArrivalFacing { heading } => format!("faces {heading:.4} on arrival"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
+        AiEvent::Straight { package, length } => format!("no navmesh on the way to the place of {}: walks straight there, {length:.0} units", n(package)),
         AiEvent::PutThere { package, from, to } => format!(
             "put at the place of {} out of sight, no door joining the two: ({:.0}, {:.0}, {:.0}) in {}, from ({:.0}, {:.0}, {:.0}) in {}",
             n(package),
@@ -3259,6 +3637,12 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
 }
 
 /// Whether a place is in the cells drawn now.
+/// Whether a place is drawn here or in a co-op guest's surroundings the host simulates
+/// (`Streamer::coop_areas`): its residents are in the high process.
+fn simulated(world: &WorldData, streamer: &Streamer, space: Space, feet: [f32; 3]) -> bool {
+    drawn(world, streamer, space, feet) || streamer.coop_areas.iter().any(|a| a.holds(space, feet))
+}
+
 fn drawn(world: &WorldData, streamer: &Streamer, space: Space, feet: [f32; 3]) -> bool {
     match (space, streamer.interior) {
         (Space::Interior(c), Some(i)) => c == i,
@@ -3412,6 +3796,7 @@ pub fn drive(
             res.core.process_levels(game, &world, &streamer);
             res.core.after_hour_jump(game, &nav, &world, &streamer, None);
             res.core.arrive(game, &nav, &world, &streamer, None);
+            res.core.first_seats(game, &nav, &world, &streamer);
             res.core.switch_navmeshes(game, &mut nav);
             let _span = info_span!("ai::think").entered();
             res.core.think(game, true, false, &nav, &world, &mut doors, None, None, dt, now, 0);
@@ -3431,6 +3816,7 @@ pub fn drive(
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
             res.core.check_rooted(&world, &models.data, actor_world.as_deref());
+            let remote = res.remote.as_ref();
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             let (world_ref, streamer_ref) = (&*world, &*streamer);
@@ -3452,13 +3838,18 @@ pub fn drive(
                 let span = info_span!("ai::arrive").entered();
                 core.after_hour_jump(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 core.arrive(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
+                core.first_seats(&mut rt.game, &nav, world_ref, streamer_ref);
                 drop(span);
                 let span = info_span!("ai::switch_navmeshes").entered();
                 core.switch_navmeshes(&mut rt.game, &mut nav);
                 drop(span);
                 let span = info_span!("ai::think").entered();
                 let restored = rt.restored_from_save;
-                core.think(&mut rt.game, false, restored, &nav, &world, &mut doors, phys, blocks, dt, now, waited);
+                match remote {
+                    Some(remote) => core.follow(&mut rt.game, remote, phys.as_deref_mut(), blocks, now),
+                    None => core.think(&mut rt.game, false, restored, &nav, &world, &mut doors, phys.as_deref_mut(), blocks, dt, now, waited),
+                }
+                core.place_scripted(phys);
                 drop(span);
                 starting.then(|| core.start_bodies(&rt.game))
             })
@@ -3467,9 +3858,14 @@ pub fn drive(
     };
     let equipment_world = equipment_world(res.own.as_deref().map(|g| &g.world), sim.as_deref().map(|s| &s.world));
     let mut spawn_stats = crate::actors::ActorStats::default();
+    let remote = res.remote.as_ref();
     let core = &mut res.core;
     // Load doors used: the doors' sounds where the listener is, the body left at the door
     // fades out, the one drawn at the other side fades in (`door_fade.rs`).
+    // The bodies let go at a door this frame: their `RefVisual` is taken by commands that
+    // run after this system, so `show_actor` must not take them for bodies left behind
+    // (despawning them at once, with no fade, and again when the fade ends).
+    let mut handed_off: HashSet<Entity> = HashSet::new();
     for (actor, door, to_door) in std::mem::take(&mut core.door_uses) {
         let Some(r) = core.list.iter_mut().find(|r| r.actor == actor) else { continue };
         let now_space = core.ai.agents.get(&actor).map(|a| a.walker.space);
@@ -3482,7 +3878,8 @@ pub fn drive(
             }
         }
         let was_spawned = r.spawned;
-        if hand_off_body(&mut commands, (&mut r.spawned, &mut r.root), now).is_some() {
+        if let Some(e) = hand_off_body(&mut commands, (&mut r.spawned, &mut r.root), now) {
+            handed_off.insert(e);
             door_fades.outs += 1;
         } else if was_spawned {
             // Diagnostic for #2461: a body spawned and not yet found is not taken away.
@@ -3545,10 +3942,12 @@ pub fn drive(
         };
         let (seat, order) = next_seat(r.seat, entity.is_some(), on, &frame, restart);
         r.seat = seat;
+        r.putting_on = r.putting_on.filter(|&p| !on && r.seat == Seat::Ordered(p, false));
         if let (Some(e), Some(order)) = (entity, order) {
             match order {
                 SeatOrder::Sit(furniture, at_once) => {
                     commands.entity(e).insert(SitOn { furniture, stay: None, at_once });
+                    r.putting_on = at_once.then_some(furniture);
                     core.seats[0] += 1;
                 }
                 SeatOrder::GetUp => {
@@ -3563,9 +3962,7 @@ pub fn drive(
                     // as it left it (its back to the furniture): the walker's heading was
                     // the one it sat down with, and the body snapped half about to it.
                     if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
-                        a.walker.feet = t.translation.to_array();
-                        a.walker.heading = nav::tr_heading(t);
-                        a.walker.tri = fnv_nav::graph::NONE;
+                        stand_where_left(t, &mut a.walker, &mut r.drawn_feet);
                     }
                 }
             }
@@ -3592,9 +3989,52 @@ pub fn drive(
         // furniture has it (walking up to it, on it or getting off: `on`). One waiting for
         // a seat or refused one stands free and follows the landscape.
         let on_landscape = !on;
-        let feet = phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet, on_landscape)));
+        // A co-op guest's actor the host draws: where the host draws it.
+        let feet = if remote.is_some_and(|m| m.contains_key(&r.actor.0)) {
+            // A short jump of where the host has it is caught up at a run's pace
+            // ([`catch_up`]), not put on in one frame; a long one (a script's move) is.
+            let drawn_last = r.spawned && visible && r.last_space == Some(w.space);
+            let top = if core.ai.agents.contains_key(&r.actor) { core.ai.alert_speeds(r.actor).run.max(core.ai.calm_speeds(r.actor).run) } else { CATCH_UP_SPEED };
+            // From where its body is: off furniture, where the get-off clip left it, not
+            // where the host had it meanwhile (the Dead Horses off their push-up spots
+            // were put 55-61 units on in one frame, laptop ship5 deadhorse-spears).
+            let body = entity.filter(|_| !on).and_then(|e| actors.get(e).ok()).map(|(t, _)| t.translation.to_array());
+            let feet = if drawn_last { catch_up(body.unwrap_or(r.drawn_feet), w.feet, top, dt) } else { w.feet };
+            // Put further on than a frame's catch-up (item 187 (a): the Dead Horses put
+            // 153-160 units on a guest with no pause in the host's states): which way.
+            let from = body.unwrap_or(r.drawn_feet);
+            let put = (feet[0] - from[0]).hypot(feet[1] - from[1]);
+            if r.spawned && visible && put > PLACED_JUMP.max(CATCH_UP_RATE * top * dt) {
+                info!(
+                    "co-op: {:08X} copy put {put:.0} units on: drawn last frame {drawn_last}, body found {}, same space {}, the host's place moved {:.0} this frame",
+                    r.actor.0,
+                    body.is_some(),
+                    r.last_space == Some(w.space),
+                    (w.feet[0] - r.last_feet[0]).hypot(w.feet[1] - r.last_feet[1])
+                );
+            }
+            feet
+        } else {
+            phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet, on_landscape)))
+        };
         let step = [feet[0] - r.drawn_feet[0], feet[1] - r.drawn_feet[1]];
         let moving = agent.activity == Activity::Travelling && step[0].hypot(step[1]) > 1e-4;
+        // Its own actor's drawn body put further on in a frame than any run goes (not a
+        // guest's copy, not through a door or a script's move): what the AI was doing,
+        // to find where a host's jump comes from (the Nipton survivor on a guest, item 187).
+        if remote.is_none() && visible && r.spawned && !on && !moved && r.last_space == Some(w.space) && step[0].hypot(step[1]) > PLACED_JUMP.max(2000.0 * dt) {
+            let in_phys = phys.as_deref().is_some_and(|p| p.npcs.contains_key(&r.actor.0));
+            info!(
+                "ai: {} ({:08X}) drawn {:.0} units on in one frame: {:?}, {}, walker moving {}, follower {}",
+                r.label,
+                r.actor.0,
+                step[0].hypot(step[1]),
+                agent.activity,
+                if in_phys { "physics character" } else { "no physics character" },
+                w.moving,
+                w.follower.is_some()
+            );
+        }
         if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {
             let unmoved = (w.feet[0] - r.last_feet[0]).hypot(w.feet[1] - r.last_feet[1]) <= 1e-4;
             core.walk_frames[0] += 1;
@@ -3714,7 +4154,7 @@ pub fn drive(
             }
         }
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some(), jumped: moved, at_once: r.at_once }, stage, (feet, heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &handed_off, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some(), jumped: moved, at_once: r.at_once }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
@@ -3766,7 +4206,7 @@ pub fn drive(
             } else if !visible && r.spawned {
                 // Out of view since (a travel under the start's screen): its body goes.
                 let who = nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe: false, air: false, jumped: false, at_once: r.at_once };
-                let _ = nav::show_actor(&mut commands, root, false, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut r.spawned, &mut r.root), (b.feet, b.heading), false, 0.0);
+                let _ = nav::show_actor(&mut commands, root, false, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &handed_off, &mut actors, who, (&mut r.spawned, &mut r.root), (b.feet, b.heading), false, 0.0);
             }
         }
         if may && !start.told && !want.is_empty() {
@@ -3780,7 +4220,7 @@ pub fn drive(
             // Its drawn feet as the first frame of play will have them (no character yet).
             let feet = phys.as_deref_mut().map_or(b.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, b.feet, true)));
             let who = nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe: false, air: false, jumped: false, at_once: r.at_once };
-            match nav::show_actor(&mut commands, root, true, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut r.spawned, &mut r.root), (feet, b.heading), false, 0.0) {
+            match nav::show_actor(&mut commands, root, true, Some(aw), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &handed_off, &mut actors, who, (&mut r.spawned, &mut r.root), (feet, b.heading), false, 0.0) {
                 Err(e) => {
                     if r.named {
                         warn!("ai: {} could not be drawn ({e})", r.label);
@@ -3811,6 +4251,61 @@ pub fn drive(
         }
     }
     crate::profile::actor_spawns(spawn_stats.equipment_spawns, spawn_stats.record_spawns);
+}
+
+/// How often [`one_body_each`] looks, seconds.
+const BODY_CHECK_EVERY: f32 = 2.0;
+
+/// The bodies [`one_body_each`] counts: every actor rig but the other players' puppets.
+type DrawnBodies<'w, 's> = Query<'w, 's, (Entity, &'static crate::limbs::ActorRig, &'static GlobalTransform, Has<crate::coop::Remote>, Has<crate::locomotion::Dying>), Without<crate::coop::Puppet>>;
+
+/// Each placed actor is drawn once (queue item 124: a co-op guest saw a second copy of an
+/// NPC standing in the first): every [`BODY_CHECK_EVERY`] seconds, the references with more
+/// than one body are told in the log once each, with every body's place and kind, and
+/// which one is the body its AI walks. The other players' puppets are left out (`coop.rs`
+/// draws them by their own numbers).
+pub fn one_body_each(
+    time: Res<Time>,
+    residents: Res<Residents>,
+    bodies: DrawnBodies,
+    mut last: Local<f32>,
+    mut told: Local<HashSet<u32>>,
+) {
+    let now = time.elapsed_secs();
+    if now - *last < BODY_CHECK_EVERY {
+        return;
+    }
+    *last = now;
+    let mut by_ref: HashMap<u32, Vec<(Entity, Vec3, bool, bool)>> = HashMap::new();
+    for (e, rig, t, remote, dying) in &bodies {
+        by_ref.entry(rig.reference).or_default().push((e, t.translation(), remote, dying));
+    }
+    for (r, list) in by_ref.into_iter().filter(|(_, l)| l.len() > 1) {
+        if !told.insert(r) {
+            continue;
+        }
+        let own = residents.core.list.iter().find(|x| x.actor.0 == r);
+        let walked = own.and_then(|x| x.root);
+        let label = own.map_or_else(|| format!("{r:08X}"), |x| format!("{} {r:08X}", x.label));
+        let each: Vec<String> = list
+            .iter()
+            .map(|(e, at, remote, dying)| {
+                let g = crate::world::bevy_to_game(*at);
+                let mut kind = Vec::new();
+                if Some(*e) == walked {
+                    kind.push("its AI's");
+                }
+                if *remote {
+                    kind.push("the host's pose");
+                }
+                if *dying {
+                    kind.push("dead");
+                }
+                format!("{e:?} at ({:.0}, {:.0}, {:.0}) [{}]", g.x, g.y, g.z, kind.join(", "))
+            })
+            .collect();
+        warn!("actors: {label} is drawn {} times: {}", list.len(), each.join("; "));
+    }
 }
 
 /// The residents' state when the app exits (smoke tests read it).
@@ -4008,6 +4503,18 @@ fn use_aim(use_target: Option<FormId>, taken_by_fight: bool) -> Option<FormId> {
     use_target.filter(|_| !taken_by_fight)
 }
 
+/// A weapon use's aim ([`use_aim`]) for a person out of Combat: kept once it stands where
+/// the use wants it (`WeaponUse::in_place`), so it turns to its target and the shooter
+/// (`use_weapon`, which fires only facing it) fires. A Use Weapon package fires at its
+/// target with no fight needed [documented: GECK wiki, Use Weapon package]. Before, only
+/// one in Combat was turned: in Honest Hearts' ambush the White Leg sent to kill Ricky
+/// (NVDLC02IntroWLCStageSevenKillRicky) stood with its gun drawn and never fired unless it
+/// happened to see a fight first, so Ricky, Stella and Jed never died and the arrival box
+/// waited for ever [observed: ship-081 duo and solo runs, hh-slideshow-to-ambush-lobby].
+fn use_out_of_combat(use_target: Option<FormId>, in_combat: bool, in_place: bool) -> Option<FormId> {
+    use_target.filter(|_| in_combat || in_place)
+}
+
 /// Whether a combat lock on `lock_target` (`npc_combat::Fighters::lock_on`) may hold a
 /// person's drawn heading: not when a weapon use owns its aim at another target
 /// (`use_target`, [`aim_target`]).
@@ -4033,7 +4540,8 @@ fn drawn_twice<K: Copy>(bodies: impl IntoIterator<Item = (u32, K, [f32; 3])>) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{carries_cell, drawn_twice, level_for, newly_loaded, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use super::{RECENTLY_LOADED_HOURS, RunEnd, StopRun, carries_cell, drawn_twice, level_for, newly_loaded, recently_loaded, stand_where_left};
+    use fnv_nav::{Space, Walker};
     use crate::world::CellKey;
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
@@ -4102,6 +4610,31 @@ mod tests {
         assert!(drawn_twice([(silus, 2, [0.0; 3])]).is_empty());
     }
 
+    /// The furniture the host sends for a resident it does not draw: the crucified at
+    /// Nipton, there on their crosses, keep them; on its way, it is not on one yet
+    /// (item 204: sent as none, a guest took them off their crosses while the host was
+    /// in the general store and put them back on at once when it came out).
+    #[test]
+    fn an_undrawn_resident_keeps_its_furniture() {
+        use fnv_ai::Activity;
+        assert_eq!(super::seated_by_ai(Activity::There, Some(0x0013_9FD7)), Some(0x0013_9FD7));
+        assert_eq!(super::seated_by_ai(Activity::Travelling, Some(0x0013_9FD7)), None);
+        assert_eq!(super::seated_by_ai(Activity::There, None), None);
+    }
+
+    /// A guest keeps a host's actor seated while getting on moves it (no get up and
+    /// sit again at once off the seat), getting on too; a walk is still a walk.
+    #[test]
+    fn remote_pose_seated_and_moving_is_there() {
+        use fnv_ai::Activity;
+        let pose = |moving: bool, furniture: Option<(u32, bool)>| super::RemotePose { feet: [0.0; 3], heading: 0.0, moving, furniture, space: 0 };
+        assert_eq!(pose(true, Some((0xFF7F_A002, true))).activity(), Activity::There);
+        assert_eq!(pose(false, Some((0x0010_6192, true))).activity(), Activity::There);
+        assert_eq!(pose(false, None).activity(), Activity::There);
+        assert_eq!(pose(true, Some((0xFF7F_A002, false))).activity(), Activity::There);
+        assert_eq!(pose(true, None).activity(), Activity::Travelling);
+    }
+
     /// #2120: a person carrying out a weapon use (a Use Weapon package with Continue
     /// During Combat, or a script's) is drawn facing the use's target, not its combat
     /// enemy, and a lock on the enemy left from its fight does not turn it back: the
@@ -4137,6 +4670,19 @@ mod tests {
         assert_eq!(use_aim(None, true), None);
     }
 
+    /// Honest Hearts' ambush: the White Leg whose Use Weapon package is to kill Ricky
+    /// turns to him at its stand though it is in no fight; on its way there, out of
+    /// Combat, it walks as it goes.
+    #[test]
+    fn a_weapon_use_at_its_stand_aims_out_of_combat() {
+        use super::{aim_target, use_out_of_combat};
+        let ricky = FormId(0x0100_F1A5);
+        assert_eq!(aim_target(use_out_of_combat(Some(ricky), false, true), None), Some(ricky), "at its stand: turned to its target");
+        assert_eq!(use_out_of_combat(Some(ricky), false, false), None, "still on its way: no aim");
+        assert_eq!(use_out_of_combat(Some(ricky), true, false), Some(ricky), "in Combat, as before");
+        assert_eq!(use_out_of_combat(None, false, true), None);
+    }
+
     /// Only an Immobile creature with a Turning Speed of 0 never turns: Mr. House's
     /// screen does not, a turret (Immobile, 30 and more) and a walking creature whose
     /// record carries 0 do (issue #2150).
@@ -4169,6 +4715,32 @@ mod tests {
         assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(7, false), Some(SeatOrder::Sit(7, false))));
     }
 
+    /// First seats wait for the clock (Easy Pete and the Goodsprings settler were seated
+    /// by the start's first choice and walked off at 12:00, laptop 204c) and for a trip
+    /// to end.
+    #[test]
+    fn first_seats_wait_for_the_clock_and_a_trip() {
+        assert!(!super::first_seats_now(false, ""));
+        assert!(!super::first_seats_now(true, "12:15"));
+        assert!(super::first_seats_now(false, "12:15"));
+    }
+
+    /// Furniture its package gives it while it is not drawn: it got there unseen, so
+    /// it is put on at once when drawn (the crucified at Nipton, item 204b); while
+    /// drawn, it walks up and gets on by the enter clip, as before.
+    #[test]
+    fn furniture_reached_unseen_is_got_on_at_once() {
+        use super::{next_seat, retry::Now, Seat, SeatOrder};
+        let now = Now { wants: Some(0x0013_9FD7), eligible: true, seconds: 0.1, changed: false };
+        let (seat, order) = next_seat(Seat::None, false, false, &now, false);
+        assert_eq!((seat, order), (Seat::Wanted(0x0013_9FD7, true), None));
+        // Still not drawn: it waits; drawn: put on at once.
+        assert_eq!(next_seat(seat, false, false, &now, false), (seat, None));
+        assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(0x0013_9FD7, false), Some(SeatOrder::Sit(0x0013_9FD7, true))));
+        // Drawn when its package gave it the cross: the enter clip in sight.
+        assert_eq!(next_seat(Seat::None, true, false, &now, false), (Seat::Wanted(0x0013_9FD7, false), None));
+    }
+
     /// A reset of an actor not yet on its chair takes the order back (it is given again
     /// through `Wanted`); one not drawn, or standing with no furniture, is left as it is;
     /// another chair wanted is the usual getting up.
@@ -4182,6 +4754,28 @@ mod tests {
         let other = Now { wants: Some(8), ..now };
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, true), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, false), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+    }
+
+    /// A guest's copy of a runner the host's state puts 52 units on is caught up over a
+    /// few frames, never more than a frame's run-and-a-bit at once; a script's move of
+    /// 1000 units is put there at once (item 187, the Nipton survivor).
+    #[test]
+    fn a_guests_copy_catches_up_a_short_jump_and_takes_a_long_one() {
+        use super::catch_up;
+        let dt = 1.0 / 60.0;
+        let mut drawn = [0.0, 0.0, 0.0];
+        let mut frames = 0;
+        while drawn != [52.0, 0.0, 0.0] {
+            let next = catch_up(drawn, [52.0, 0.0, 0.0], 516.0, dt);
+            assert!(next[0] - drawn[0] < 48.0, "put {} units on in one frame", next[0] - drawn[0]);
+            drawn = next;
+            frames += 1;
+            assert!(frames < 10, "still not there after {frames} frames");
+        }
+        assert!(frames >= 3, "caught up in {frames} frames");
+        assert_eq!(catch_up([0.0; 3], [1000.0, 0.0, 0.0], 516.0, dt), [1000.0, 0.0, 0.0]);
+        // A frame's own run is drawn as it comes.
+        assert_eq!(catch_up([0.0; 3], [8.0, 0.0, 0.0], 516.0, dt), [8.0, 0.0, 0.0]);
     }
 
     /// Review of #2353: a resident that was seated (its visual gone, so `Wanted` at once)
@@ -4444,6 +5038,22 @@ mod tests {
         frames.iter().filter_map(|&moving| run.frame(moving)).collect()
     }
 
+    /// Off its rail, EVDeadHorse04REF's walk and its last drawn place are where its body
+    /// is, not 57 units back where it was told to use the rail (laptop deadhorse-look).
+    #[test]
+    fn standing_up_goes_on_from_where_the_body_was_left() {
+        let told_at = [27960.0, -28560.0, 5023.0];
+        let mut walker = Walker::new(Space::World(0x0100_0001), told_at, 0.0, 107.0);
+        let mut drawn_feet = told_at;
+        let body = bevy::prelude::Transform::from_xyz(28017.0, -28512.0, 5023.0).with_rotation(bevy::math::Quat::from_rotation_z(-1.2));
+        stand_where_left(&body, &mut walker, &mut drawn_feet);
+        assert_eq!(walker.feet, [28017.0, -28512.0, 5023.0]);
+        assert_eq!(drawn_feet, walker.feet);
+        assert!((walker.heading - 1.2).abs() < 1e-4, "heading {}", walker.heading);
+        // The jump the draw measures next frame, standing where it was left: none.
+        assert_eq!((walker.feet[0] - drawn_feet[0]).hypot(walker.feet[1] - drawn_feet[1]), 0.0);
+    }
+
     #[test]
     fn standing_before_the_first_step_is_no_stop() {
         // Two frames waiting for the character's first physics step, then a walk.
@@ -4523,12 +5133,14 @@ mod tests {
                           roots: Query<(Entity, &RefVisual, &ChildOf)>,
                           mut actors: Query<(&mut Transform, Option<&mut crate::locomotion::Locomotion>), Without<crate::furniture::OnFurniture>>| {
                         let (mut spawned, mut root) = state;
+                        // As `residents::draw`: the body let go at the door is not one left behind.
+                        let mut handed_off = std::collections::HashSet::new();
                         if door {
-                            super::super::hand_off_body(&mut commands, (&mut spawned, &mut root), 1.0);
+                            handed_off.extend(super::super::hand_off_body(&mut commands, (&mut spawned, &mut root), 1.0));
                         }
                         let mut stats = crate::actors::ActorStats::default();
                         let who = crate::nav::Who { reference: BOYD, base: crate::outfits::tests::OTHER.0, creature: false, scale: 1.0, strafe: false, air: false, jumped: false, at_once: true };
-                        crate::nav::show_actor(&mut commands, world_root, true, Some(&aw), None, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut spawned, &mut root), (feet, 0.0), false, 1.0 / 60.0).unwrap();
+                        crate::nav::show_actor(&mut commands, world_root, true, Some(&aw), None, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &handed_off, &mut actors, who, (&mut spawned, &mut root), (feet, 0.0), false, 1.0 / 60.0).unwrap();
                         (spawned, root)
                     },
                 )

@@ -63,6 +63,10 @@ impl Game<'_> {
     /// player's current Charisma within 1 to 10 [hypothesis: current, not permanent, as
     /// the other derived statistics here, docs/spec-notes/actor-values.md §1].
     pub fn companion_nerve(&mut self, actor: FormId) -> f64 {
+        // In co-op the player is the other players' companion (`crate::coop_perks`).
+        if actor == FormId::PLAYER_REF {
+            return self.coop_from_others.nerve;
+        }
         if !self.is_teammate(actor) {
             return 0.0;
         }

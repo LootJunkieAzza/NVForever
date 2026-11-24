@@ -458,6 +458,12 @@ impl ModFiles {
         true
     }
 
+    /// The Data files this session wrote directly in a folder, by Data path (lower case).
+    pub(crate) fn written_in(&self, folder: &str) -> Vec<String> {
+        let dir = format!("{}\\", norm(folder));
+        self.written.keys().filter(|k| k.strip_prefix(&dir).is_some_and(|rest| !rest.contains('\\'))).cloned().collect()
+    }
+
     fn invalidate_plugin_ini_cache(&mut self, norm_key: &str) {
         if norm_key == "nvse\\plugins\\ttw.ini" {
             let _ = self.ttw_karma_titles.take();

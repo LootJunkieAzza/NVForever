@@ -17,6 +17,9 @@ use std::sync::Arc;
 #[derive(Resource, Default)]
 pub struct AnimObjects {
     by_idle: HashMap<u32, Vec<(String, String)>>,
+    /// Every object with a model by its Editor ID (lower case), for the aid items' game
+    /// idles played by name (`consume_anims.rs`, `fnv_actor::b42::anim_object`).
+    by_edid: HashMap<String, String>,
     stats: Stats,
     startup: Option<String>,
 }
@@ -36,6 +39,7 @@ impl AnimObjects {
         let all = fnv_actor::idle::anim_objects(world.lo, world.schema, &mut issues);
         let mut by_idle: HashMap<u32, Vec<(String, String)>> = HashMap::new();
         let mut usable = 0;
+        let by_edid = all.iter().filter_map(|a| Some((a.edid.as_deref()?.to_ascii_lowercase(), a.model.clone()?))).collect();
         for a in &all {
             if let (Some(idle), Some(model)) = (a.idle, a.model.clone()) {
                 by_idle.entry(idle.0).or_default().push((a.edid.clone().unwrap_or_else(|| a.id.to_string()), model));
@@ -43,7 +47,14 @@ impl AnimObjects {
             }
         }
         let startup = format!("anim objects: {} records, {usable} with an idle and a model, for {} idles", all.len(), by_idle.len());
-        AnimObjects { by_idle, stats: Stats::default(), startup: Some(startup) }
+        AnimObjects { by_idle, by_edid, stats: Stats::default(), startup: Some(startup) }
+    }
+}
+
+impl AnimObjects {
+    /// The model of the object with this Editor ID.
+    pub fn model_by_edid(&self, edid: &str) -> Option<&str> {
+        self.by_edid.get(&edid.to_ascii_lowercase()).map(String::as_str)
     }
 }
 

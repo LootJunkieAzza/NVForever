@@ -354,7 +354,13 @@ const SAVE_HOOK: SaveHook = SaveHook {
 pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, messages: Option<ResMut<QuestMessages>>, loading_save: Option<Res<crate::save::PendingEngine>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, (player, location): (Option<Res<Player>>, Option<Res<Location>>)) {
     let in_corner = tweaks.is_some_and(|t| t.discovered_in_corner);
     let Some(mut state) = state else { return };
-    // Found before the game runs (the first frames): kept until it does, for the XP.
+    // Found before the game runs (the first frames): kept until it does, for the XP. A
+    // save's game runs a frame before its found markers are put back (`save::apply_engine`):
+    // kept until then too, so those the save had found are no news (no XP on each load).
+    // Scripts that cannot run never put it back (`save::Restoring::busy`).
+    if loading_save.is_some() && script.as_deref().is_none_or(|s| s.off.is_none()) {
+        return;
+    }
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     // A save is loading: its found markers are not back yet and drop from the queue
     // what the save already holds (`DataState::restore_discovered`; #1571).
@@ -381,6 +387,10 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
     let found = state.take_newly_found(Some(&rt.game));
     if found.is_empty() {
         return;
+    }
+    // A co-op guest sharing quest progress keeps what it found for its own save (plan P7).
+    if rt.game.coop_guest && rt.game.coop_joint_on {
+        rt.game.player.claims.markers.extend(found.iter().map(|(f, _)| FormId(*f)));
     }
     let mut messages = messages;
     let xp = sim.forms.setting_f32("iXPRewardDiscoverMapMarker").map_or(DISCOVER_XP, |v| v as f64);
@@ -546,7 +556,7 @@ fn gather(
                     continue;
                 }
                 let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
-                let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
+                let hostile = fighting || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF);
                 if hostile {
                     let x = offset(heading, here, [at[0], at[1]]);
                     let unseen = ["Invisibility", "Chameleon"].iter().filter_map(|n| fnv_game::functions::av_by_name(n)).any(|c| fnv_game::functions::actor_value_capped(g, r, c) > 0.0);
@@ -876,8 +886,14 @@ fn draw(
     mut spawned: Local<Spawned>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     (alpha, rise): (Option<Res<CompassAlpha>>, Option<Res<CompassRise>>),
+    mut rebuild: crate::interface::HudRebuild,
     mut ticks_logged: Local<[bool; 3]>,
 ) {
+    // The HUD made again (`crate::hud`): its new layer gets the marks from the next frame.
+    if rebuild.stale() {
+        spawned.0.clear();
+        return;
+    }
     let rise_of_mark = |k: usize| rise.as_ref().and_then(|r| r.0.get(k)).copied().unwrap_or(0);
     let companion = crate::tweaks::companion_colour(tweaks.as_deref());
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).

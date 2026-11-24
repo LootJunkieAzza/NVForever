@@ -24,6 +24,7 @@
 //!   (docs/spec-notes/combat-rules.md §17).
 
 pub mod attack;
+pub mod bash;
 pub mod body_weapon;
 pub mod burst;
 pub mod condition;
@@ -36,6 +37,7 @@ pub mod mine;
 pub mod projectile;
 pub mod projectile_overrides;
 pub mod rng;
+pub mod rt_vats;
 pub mod shot;
 pub mod spread;
 pub mod tuning;

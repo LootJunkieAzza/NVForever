@@ -497,6 +497,11 @@ pub fn skill(g: &mut Game) -> f32 {
     actor_value_capped(g, FormId::PLAYER_REF, crate::actor_values::LOCKPICK) as f32
 }
 
+/// The player's Science skill (0 to 100), which a terminal's lock asks for.
+pub fn science(g: &mut Game) -> f32 {
+    actor_value_capped(g, FormId::PLAYER_REF, crate::actor_values::SCIENCE) as f32
+}
+
 /// The bobby pins the player carries.
 pub fn pins(g: &mut Game) -> i32 {
     g.world.item_count(FormId::PLAYER_REF, BOBBY_PIN).unwrap_or(0)

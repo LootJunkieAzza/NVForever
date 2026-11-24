@@ -221,8 +221,50 @@ impl RenderDevice {
     }
 
     /// Creates a [`Buffer`] and initializes it with the specified data.
+    ///
+    /// NVForever (engine/vendor/README.md): wgpu's `create_buffer_init`, which panics when
+    /// the buffer made "mapped at creation" cannot be mapped, as happens once the GPU
+    /// device is lost. Here that buffer is returned unfilled (it is invalid anyway, like
+    /// every object of a lost device) and the error handler takes over.
     pub fn create_buffer_with_data(&self, desc: &wgpu::util::BufferInitDescriptor) -> Buffer {
-        let wgpu_buffer = self.device.create_buffer_init(desc);
+        if desc.contents.is_empty() {
+            return self.create_buffer(&wgpu::BufferDescriptor {
+                label: desc.label,
+                size: 0,
+                usage: desc.usage,
+                mapped_at_creation: false,
+            });
+        }
+        let unpadded_size = desc.contents.len() as wgpu::BufferAddress;
+        // Valid usage: a multiple of COPY_BUFFER_ALIGNMENT and more than 0 (as wgpu does).
+        let align_mask = wgpu::COPY_BUFFER_ALIGNMENT - 1;
+        let padded_size =
+            ((unpadded_size + align_mask) & !align_mask).max(wgpu::COPY_BUFFER_ALIGNMENT);
+        let wgpu_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: desc.label,
+            size: padded_size,
+            usage: desc.usage,
+            mapped_at_creation: true,
+        });
+        match wgpu_buffer.get_mapped_range_mut(..) {
+            Ok(mut range) => {
+                range
+                    .slice(..unpadded_size as usize)
+                    .copy_from_slice(desc.contents);
+                drop(range);
+                wgpu_buffer.unmap();
+            }
+            Err(e) => {
+                // A lost device fails every one of them: the first few are logged.
+                static LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+                if LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 5 {
+                    bevy_log::warn!(
+                    "render: buffer {:?} could not be mapped at creation ({e:?}); left unfilled",
+                        desc.label
+                    );
+                }
+            }
+        }
         Buffer::from(wgpu_buffer)
     }
 

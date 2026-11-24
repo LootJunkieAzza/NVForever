@@ -179,6 +179,15 @@ pub struct PlayerControl {
     /// A kill camera has the view (`crate::kill_cam`): it counts as a third-person view,
     /// so the body is drawn and the first-person arms are not.
     pub cinematic: bool,
+    /// A minigame's camera has the view (the slot machine's, nvforever `slots_view.rs`):
+    /// counted as a third-person view, as [`Self::cinematic`] is.
+    pub scene_cam: bool,
+    /// A match's end view has the view (nvforever `match_end.rs`, item 127/166): counted
+    /// as a third-person view, so the body is drawn whole, head and all, and the
+    /// first-person arms are not, whatever [`Self::pov`] is [owner 2026-11-12: from first
+    /// person the head was gone in the slots defeat end view, and after a Caravan match
+    /// the winner had no head and a torso lay on the ground].
+    pub end_view: bool,
     /// A conversation's close-up from third person (`crate::dialogue_zoom`): how far the
     /// camera has travelled from its place behind the player to the first-person eye, 0 to 1.
     /// [`Self::pov`] stays the player's own.
@@ -207,6 +216,8 @@ impl Default for PlayerControl {
             crosshair: None,
             portrait: None,
             cinematic: false,
+            scene_cam: false,
+            end_view: false,
             talk_camera: 0.0,
         }
     }
@@ -234,7 +245,7 @@ impl PlayerControl {
     /// conversation's close-up has come so close that the body goes
     /// ([`TALK_CAMERA_CLOSE`]), or a camera that does (the creator's, a kill camera).
     pub fn third_person_view(&self) -> bool {
-        self.portrait.is_some() || self.cinematic || (self.own_third_person() && self.talk_camera < TALK_CAMERA_CLOSE)
+        self.portrait.is_some() || self.cinematic || self.scene_cam || self.end_view || (self.own_third_person() && self.talk_camera < TALK_CAMERA_CLOSE)
     }
 
     /// The heading the view looks along for a player facing `heading`: turned by the
@@ -613,7 +624,9 @@ pub fn read_controls(
     state: Res<State<PlayState>>,
     mut control: ResMut<PlayerControl>,
     hud: Option<ResMut<HudMessage>>,
+    campfire: Option<Res<crate::campfire::SecondAction>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
+    rt: Option<Res<crate::rt_vats::RtVats>>,
     stance: Option<Res<crate::inertia::MovementInertia>>,
 ) {
     if *state.get() != PlayState::Playing {
@@ -645,9 +658,10 @@ pub fn read_controls(
     if input.just_pressed(Control::AutoMove) {
         c.auto_move = !c.auto_move;
     }
-    // Ready Item: draw at once; with the weapon out, tap to reload, hold to holster.
-    // Not while Quick Loot has the key (its full menu, `crate::quick_loot`).
-    if input.just_pressed(Control::ReadyItem) && !crate::quick_loot::holds_input() {
+    // Ready Item: draw at once; with the weapon out, tap to reload, hold to holster. Not
+    // a press that lit a campfire (`crate::campfire`); nor while Quick Loot has the key
+    // (its full menu, `crate::quick_loot`).
+    if input.just_pressed(Control::ReadyItem) && !campfire.is_some_and(|c| c.took) && !crate::quick_loot::holds_input() {
         if c.weapon_out {
             c.ready_held = Some(0.0);
         } else if tweaks.as_ref().is_some_and(|t| t.ready_does_not_draw) {
@@ -664,7 +678,10 @@ pub fn read_controls(
             Some(r) => r.delta_secs(),
             None => time.delta_secs(),
         };
-        if *t >= HOLSTER_HOLD {
+        // With Holster Weapon on a controller binding of its own (the split holds,
+        // `crate::bindings::SPLITS`), Ready Item's hold holsters nothing [design, owner
+        // 2026-11-22].
+        if *t >= HOLSTER_HOLD && !input.bindings.split_moved(Control::HolsterWeapon) {
             c.weapon_out = false;
             c.ready_held = None;
             info!("Ready Item held: the weapon holstered");
@@ -717,7 +734,8 @@ pub fn read_controls(
             message = Some(format!("{}: not available yet", Bindings::name(ctl)));
         }
     }
-    c.aiming = input.pressed(Control::Block) && !c.wheel;
+    // (While real-time VATS holds a lock, Aim moves it to the next target, `crate::rt_vats`.)
+    c.aiming = input.pressed(Control::Block) && !c.wheel && !rt.as_deref().is_some_and(|r| r.locked().is_some());
     // The player's tweak: aiming draws the weapon [design: docs/design/tweaks.md].
     if c.aiming && !c.weapon_out && tweaks.as_ref().is_some_and(|t| t.aiming_draws_weapon) {
         c.weapon_out = true;
@@ -727,18 +745,32 @@ pub fn read_controls(
         c.lowered = false;
     }
     // Toggle POV: a tap switches the view; held with the mouse moving, the camera circles
-    // (player::mouse_look turns `orbit` instead of the view).
-    if input.just_pressed(Control::TogglePov) {
+    // (player::mouse_look turns `orbit` instead of the view). With Orbit Camera on a
+    // controller binding of its own (`crate::bindings::SPLITS`), Toggle POV switches the
+    // view as it is pressed and Orbit Camera's binding circles the camera while held
+    // [design, owner 2026-11-22].
+    let orbit_split = input.bindings.split_moved(Control::OrbitCamera);
+    let (orbit_key, pov_key) = if orbit_split { (Control::OrbitCamera, None) } else { (Control::TogglePov, Some(Control::TogglePov)) };
+    if orbit_split && input.just_pressed(Control::TogglePov) {
+        c.pov = match c.pov {
+            Pov::First => Pov::Third,
+            Pov::Third => Pov::First,
+        };
+    }
+    if input.just_pressed(orbit_key) {
         c.orbit.held = true;
         c.orbit.moved = false;
     }
-    if c.orbit.held && input.just_released(Control::TogglePov) {
+    if c.orbit.held && input.just_released(orbit_key) {
         c.orbit.held = false;
         if !c.orbit.moved {
-            c.pov = match c.pov {
-                Pov::First => Pov::Third,
-                Pov::Third => Pov::First,
-            };
+            // A held Orbit Camera let go unmoved changes nothing.
+            if pov_key.is_some() {
+                c.pov = match c.pov {
+                    Pov::First => Pov::Third,
+                    Pov::Third => Pov::First,
+                };
+            }
         } else {
             c.orbit = c.orbit.released();
             // The player's tweak puts a first-person view back [design: docs/design/tweaks.md].
@@ -746,8 +778,8 @@ pub fn read_controls(
         }
     }
     // Not while a script turned the vanity wheel off (ToggleVanityWheel,
-    // `crate::script_switches`).
-    let wheel = switches.is_none_or(|s| s.vanity_wheel);
+    // `crate::script_switches`; JAM's through `fnv_game::nvse_jam`).
+    let wheel = switches.is_none_or(|s| s.vanity_wheel) && !input.blocked.as_ref().is_some_and(|b| b.wheel);
     // The player's tweak: the wheel moves the camera only with Toggle View held [design: docs/design/tweaks.md].
     let wheel = wheel && !(tweaks.as_ref().is_some_and(|t| t.camera_wheel_needs_pov) && !input.pressed(Control::TogglePov));
     if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() && !crate::quick_loot::holds_input() {

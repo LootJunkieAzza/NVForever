@@ -10,6 +10,38 @@ pub const GAME_EXE: &str = "nvforever.exe";
 #[cfg(not(windows))]
 pub const GAME_EXE: &str = "nvforever";
 
+/// The co-op build of the game (NVForever-MP), shipped beside [`GAME_EXE`] in the co-op
+/// package: the launcher's Play Co-Op starts it.
+#[cfg(windows)]
+pub const COOP_EXE: &str = "nvforever-coop.exe";
+#[cfg(not(windows))]
+pub const COOP_EXE: &str = "nvforever-coop";
+
+/// The co-op build beside the launcher, if this package has one.
+pub fn find_coop() -> Option<PathBuf> {
+    let here = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    Some(here.join(COOP_EXE)).filter(|p| p.is_file())
+}
+
+/// The co-op build's own home (settings, saves, mods, logs), beside the game's: its saves
+/// carry co-op state the plain game does not read, and its mods are its own.
+pub fn coop_home(main: &Path) -> PathBuf {
+    match main.file_name() {
+        Some(n) => main.with_file_name(format!("{} Co-op", n.to_string_lossy())),
+        None => main.join("coop"),
+    }
+}
+
+/// Start `exe` with `start`'s arguments and its home set to `home` (`NVFOREVER_HOME`).
+pub fn spawn_in_home(exe: &Path, start: &Start, home: &Path) -> std::io::Result<Child> {
+    let mut c = Command::new(exe);
+    c.args(start.args()).env(fnv_install::HOME_ENV, home);
+    if let Some(dir) = exe.parent() {
+        c.current_dir(dir);
+    }
+    c.spawn()
+}
+
 /// How the game is started.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Start {
@@ -162,6 +194,13 @@ mod tests {
         let a = Start::Load(PathBuf::from("s").join("q.nvfsave")).args();
         assert_eq!(&a[..2], ["--play", "--load"]);
         assert!(a[2].ends_with("q.nvfsave"));
+    }
+
+    /// Play Co-Op: the co-op build's home sits beside the game's, never inside it.
+    #[test]
+    fn coop_home_beside() {
+        let main = PathBuf::from("Documents").join("My Games").join("NVForever");
+        assert_eq!(coop_home(&main), PathBuf::from("Documents").join("My Games").join("NVForever Co-op"));
     }
 
     /// #2938: the Game folder box's first guess.

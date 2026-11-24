@@ -81,6 +81,24 @@ pub fn point(degrees: f32, r: f32) -> Vec2 {
     Vec2::new(a.sin() * r, -a.cos() * r)
 }
 
+/// The pointer after a frame: the right stick, pushed past its dead zone, points it at the
+/// rim; otherwise the mouse's travel moves it, no farther out than [`REACH`]. Shared by
+/// every wheel that picks this way (the co-op interaction wheel, `crate::coop_social`).
+pub(crate) fn steer(pointer: Vec2, moved: Vec2, stick: Option<Vec2>) -> Vec2 {
+    match stick {
+        Some(s) if s.length() >= STICK_DEAD => s.normalize() * REACH,
+        _ => (pointer + moved).clamp_length_max(REACH),
+    }
+}
+
+/// The right stick as the wheels read it (y down), while a controller works the controls.
+pub(crate) fn wheel_stick(input: &crate::bindings::ControlInput) -> Option<Vec2> {
+    (input.bindings.device == InputDevice::Controller).then(|| {
+        let s = crate::pad::stick(&input.pads, false);
+        Vec2::new(s.x, -s.y)
+    })
+}
+
 fn smoothstep(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
     x * x * (3.0 - 2.0 * x)
@@ -106,7 +124,15 @@ pub struct Frame {
     /// The player's No Hotkey Wheel tweak: a held key never opens the wheel; let go, it
     /// is a tap [design: docs/design/tweaks.md].
     pub no_hold_open: bool,
+    /// With a controller, Weapon Wheel's own binding (the split holds,
+    /// `crate::bindings::SPLITS`): down now, and gone down this frame. It opens the wheel at
+    /// once, kept open while it is held [design, owner 2026-11-22].
+    pub wheel_key: bool,
+    pub wheel_pressed: bool,
 }
+
+/// [`Open::opener`] for a wheel opened by Weapon Wheel's own binding, not a hotkey.
+pub const WHEEL_KEY: usize = SLOTS;
 
 /// What a frame did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +155,9 @@ pub struct Open {
     pub picked: usize,
     /// The pointer from the centre, interface units (y down).
     pub pointer: Vec2,
+    /// A slice was picked since it opened (a key or the pointer): a wheel opened by its own
+    /// binding ([`WHEEL_KEY`]) and let go before one was closes using nothing.
+    pub aimed: bool,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -166,25 +195,24 @@ impl WeaponWheel {
                 self.open = None;
                 self.closed_now = true;
                 out.push(Outcome::Cancelled);
-            } else if f.click || !f.down[o.opener] {
-                let picked = o.picked;
+            } else if f.click || !(if o.opener == WHEEL_KEY { f.wheel_key } else { f.down[o.opener] }) {
+                let (picked, used) = (o.picked, o.opener != WHEEL_KEY || o.aimed || f.click);
                 self.open = None;
                 self.closed_now = true;
-                out.push(Outcome::Chose(picked));
+                out.push(if used { Outcome::Chose(picked) } else { Outcome::Cancelled });
             } else {
-                if let Some(k) = f.pressed.filter(|&k| k != o.picked) {
+                if let Some(k) = f.pressed.filter(|&k| k != o.picked || !o.aimed) {
                     o.picked = k;
                     o.pointer = Vec2::ZERO;
+                    o.aimed = true;
                     out.push(Outcome::Picked(k, true));
                 }
-                match f.stick {
-                    Some(s) if s.length() >= STICK_DEAD => o.pointer = s.normalize() * REACH,
-                    _ => o.pointer = (o.pointer + f.moved).clamp_length_max(REACH),
-                }
+                o.pointer = steer(o.pointer, f.moved, f.stick);
                 if o.pointer.length() >= DEAD_ZONE {
                     let k = slot_at(o.pointer);
-                    if k != o.picked {
+                    if k != o.picked || !o.aimed {
                         o.picked = k;
+                        o.aimed = true;
                         out.push(Outcome::Picked(k, false));
                     }
                 }
@@ -197,9 +225,12 @@ impl WeaponWheel {
                 out.push(Outcome::Tap(k));
             } else if *held >= HOLD && !f.no_hold_open {
                 self.press = None;
-                self.open = Some(Open { opener: k, picked: k, pointer: Vec2::ZERO });
+                self.open = Some(Open { opener: k, picked: k, pointer: Vec2::ZERO, aimed: true });
                 out.push(Outcome::Opened(k));
             }
+        } else if f.wheel_pressed {
+            self.open = Some(Open { opener: WHEEL_KEY, picked: 0, pointer: Vec2::ZERO, aimed: false });
+            out.push(Outcome::Opened(0));
         } else if let Some(k) = f.pressed {
             self.press = Some((k, 0.0));
             // A press shorter than a frame: a tap at once.
@@ -241,7 +272,7 @@ impl WeaponWheel {
 
 /// The test aid's keys (module notes).
 #[derive(Resource, Default)]
-struct WheelAid {
+pub(crate) struct WheelAid {
     steps: Vec<(f32, AidStep)>,
     /// The slot whose key the aid holds down.
     held: Option<usize>,
@@ -295,7 +326,7 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
 
 /// What happened, for the summary.
 #[derive(Resource, Default)]
-struct WheelStats {
+pub(crate) struct WheelStats {
     taps: usize,
     opened: usize,
     chosen: Vec<usize>,
@@ -375,7 +406,7 @@ type Clocks<'w> = (Res<'w, Time<Real>>, Res<'w, Time<Virtual>>, Res<'w, State<Pl
 
 /// The frame's keys, mouse and stick into the wheel; its outcomes carried out.
 #[allow(clippy::too_many_arguments)]
-fn read(
+pub(crate) fn read(
     input: ControlInput,
     motion: Res<AccumulatedMouseMotion>,
     (real, clock, state): Clocks,
@@ -420,6 +451,13 @@ fn read(
     }
     // The player's tweak: holding a hotkey does not open the wheel [design: docs/design/tweaks.md].
     let mut f = Frame { dt: real.delta_secs(), no_hold_open: tweaks.as_ref().is_some_and(|t| t.no_hotkey_wheel), ..default() };
+    // Weapon Wheel moved off the hotkeys' hold to a controller binding of its own: no
+    // hotkey's hold opens the wheel, that binding does.
+    if input.bindings.split_moved(crate::bindings::Control::WeaponWheel) {
+        f.no_hold_open = true;
+        f.wheel_key = input.pressed(crate::bindings::Control::WeaponWheel);
+        f.wheel_pressed = input.just_pressed(crate::bindings::Control::WeaponWheel);
+    }
     // The player's tweak: the D-pad's left and right step through the hotkeyed weapons
     // instead of being Hotkey 4 and Ammo Swap [design: docs/design/tweaks.md].
     let pad_cycles = tweaks.as_ref().is_some_and(|t| t.dpad_cycles_hotkeys) && input.bindings.device == InputDevice::Controller;
@@ -459,10 +497,7 @@ fn read(
     if let Some(p) = aid.point {
         f.moved = p - wheel.open.map_or(Vec2::ZERO, |o| o.pointer);
     }
-    if input.bindings.device == InputDevice::Controller {
-        let s = crate::pad::stick(&input.pads, false);
-        f.stick = Some(Vec2::new(s.x, -s.y));
-    }
+    f.stick = wheel_stick(&input);
     f.click = input.mouse.just_pressed(MouseButton::Left) || aid.click;
     f.cancel = input.mouse.just_pressed(MouseButton::Right) || input.keys.just_pressed(KeyCode::Escape) || aid.cancel;
     f.blocked = *state.get() != PlayState::Playing || vats.is_some_and(|v| v.holds_input()) || input.kill_cam.as_ref().is_some_and(|k| k.active());
@@ -640,7 +675,7 @@ const SWAP_WAIT_MAX: f32 = 4.0;
 
 /// A weapon from a slot waiting for the weapon in hand to be put away.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-struct SwapWait {
+pub(crate) struct SwapWait {
     slot: Option<usize>,
     waited: f32,
 }
@@ -837,6 +872,32 @@ mod tests {
         assert!(!w.is_open() && w.holds_input(), "the closing frame keeps the input");
         assert!(w.step(&frame(0.016)).is_empty());
         assert!(!w.holds_input());
+    }
+
+    #[test]
+    fn its_own_binding_opens_the_wheel_at_once_and_uses_only_a_pick() {
+        let mut w = WeaponWheel::default();
+        let key = |pressed: bool, down: bool| Frame { wheel_pressed: pressed, wheel_key: down, no_hold_open: true, ..frame(0.016) };
+        assert_eq!(w.step(&key(true, true)), vec![Outcome::Opened(0)]);
+        assert!(w.is_open());
+        // Let go with nothing picked: closed, nothing used.
+        assert_eq!(w.step(&key(false, false)), vec![Outcome::Cancelled]);
+        // Opened again, a hotkey picks its slice, let go: that one is used.
+        w.step(&frame(0.016));
+        w.step(&key(true, true));
+        let mut f = key(false, true);
+        f.pressed = Some(2);
+        assert_eq!(w.step(&f), vec![Outcome::Picked(2, true)]);
+        assert_eq!(w.step(&key(false, false)), vec![Outcome::Chose(2)]);
+        // A hotkey's hold opens nothing meanwhile.
+        w.step(&frame(0.016));
+        let mut f = down(frame(0.016), 0);
+        f.pressed = Some(0);
+        f.no_hold_open = true;
+        w.step(&f);
+        let mut f = down(frame(HOLD), 0);
+        f.no_hold_open = true;
+        assert!(w.step(&f).is_empty() && !w.is_open());
     }
 
     #[test]

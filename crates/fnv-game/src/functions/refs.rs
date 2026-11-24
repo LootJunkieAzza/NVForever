@@ -27,10 +27,13 @@ pub fn enable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String> 
         return none();
     }
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled();
+    let absent = if was { Vec::new() } else { g.absent_through_parent() };
     g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
     if !was {
         g.emit(EventKind::RefEnabled { reference: r, fade });
         g.note_enabled(r);
+        // Its enable children came with it.
+        g.note_parent_changed(absent);
         // The extender's OnEnable: the reference, then 0 [observed: nvse-events].
         g.dispatch_event("OnEnable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
@@ -88,9 +91,12 @@ pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String>
     }
     g.script_looks.fading_out.remove(&r);
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled();
+    let absent = if was { g.absent_through_parent() } else { Vec::new() };
     g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
     if was {
         g.emit(EventKind::RefDisabled { reference: r, fade });
+        // Its children set to the opposite state came in.
+        g.note_parent_changed(absent);
         // The extender's OnDisable: the reference, then 0 [observed: nvse-events].
         g.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
@@ -259,6 +265,10 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
     if r == FormId::PLAYER_REF {
         g.player_entered(cell);
         g.bring_teammates(from);
+        // A co-op host's guests go with it (a script's move, not a door's or travel's).
+        if let Some(out) = g.coop_effects.as_mut() {
+            out.push(crate::sound::CoopEffect::PlayerMoved);
+        }
     }
     Ok(())
 }
@@ -287,15 +297,23 @@ pub fn get_is_reference(_g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
 
 /// 1 when the caller's cell's Editor ID begins with the given cell's [documented:
 /// catalogue summary].
+/// A co-op random encounter's `player.GetInCell`: whether any player is there (item 131).
 pub fn get_in_cell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let want = a.form(0)?;
-    let Some(cell) = g.cell_of(r) else { return yes(false) };
-    if cell == want {
-        return yes(true);
+    if r == FormId::PLAYER_REF && ctx.self_ref.is_some_and(|s| g.coop_encounter(s)) {
+        return yes(g.any_player(|g, p| in_cell(g, p, want)));
     }
-    let (Some(have), Some(w)) = (g.data.edid_of.get(&cell), g.data.edid_of.get(&want)) else { return yes(false) };
-    yes(have.to_ascii_lowercase().starts_with(&w.to_ascii_lowercase()))
+    yes(in_cell(g, r, want))
+}
+
+fn in_cell(g: &Game, r: FormId, want: FormId) -> bool {
+    let Some(cell) = g.cell_of(r) else { return false };
+    if cell == want {
+        return true;
+    }
+    let (Some(have), Some(w)) = (g.data.edid_of.get(&cell), g.data.edid_of.get(&want)) else { return false };
+    have.to_ascii_lowercase().starts_with(&w.to_ascii_lowercase())
 }
 
 pub fn get_in_worldspace(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -335,6 +353,14 @@ pub fn is_in_interior(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
 pub fn get_distance(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let t = a.form(0)?;
+    // A co-op random encounter's `player.GetDistance X` and `GetDistance player`: the
+    // nearest player's (item 131).
+    if (r == FormId::PLAYER_REF || t == FormId::PLAYER_REF) && ctx.self_ref.is_some_and(|s| g.coop_encounter(s)) {
+        let from = if r == FormId::PLAYER_REF { t } else { r };
+        if let Some(d) = g.nearest_player_distance(from) {
+            return Ok(Value::Num(d as f64));
+        }
+    }
     let (c1, p1, _) = place(g, r)?;
     let (c2, p2, _) = place(g, t)?;
     let space = |c: Option<FormId>| c.map(|c| g.world.placed.world_of(c).unwrap_or(c));

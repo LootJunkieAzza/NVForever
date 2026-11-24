@@ -186,6 +186,28 @@ fn unknown_and_short_blocks_are_reported_not_fatal() {
     assert_eq!(f.decode_block(&s, &data, 2).unwrap_err().code(), "short");
 }
 
+/// A block-size table that leaves out a NiTriStripsData's strip points (Heart of the
+/// Mojave's `ultraluxhotelfront.nif`) or claims more bytes than a block has (NV Interiors'
+/// `hulagirl1.nif`): the blocks are split by decoding them instead. (Errors that cancel
+/// out, so the footer still lands at the end of the file, are not noticed.)
+#[test]
+fn wrong_block_sizes_are_split_by_the_schema() {
+    let s = schema();
+    let blocks = [("BSFadeNode", node(1)), ("NiTriStrips", tri_strips(2)), ("NiTriStripsData", strips_data())];
+    let real: Vec<u32> = blocks.iter().map(|(_, b)| b.len() as u32).collect();
+    for wrong in [vec![(2, real[2] - 8)], vec![(1, real[1] + 6)]] {
+        let data = build_sized(&blocks, &["Root", "Shape"], &[0], &wrong);
+        let f = NifFile::parse(&data, Some(&s)).unwrap_or_else(|e| panic!("{wrong:?}: {e}"));
+        assert!(f.size_table_ignored, "{wrong:?}");
+        assert_eq!(f.footer.roots, [0], "{wrong:?}");
+        assert_eq!(f.trailing, 0);
+        for (i, &size) in real.iter().enumerate() {
+            assert_eq!(f.blocks[i].range.len() as u32, size, "{wrong:?} block {i}");
+            assert!(f.decode_block(&s, &data, i).is_ok(), "{wrong:?} block {i}");
+        }
+    }
+}
+
 #[test]
 fn truncation_is_an_error() {
     let s = schema();

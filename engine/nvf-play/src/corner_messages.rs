@@ -271,10 +271,22 @@ pub(crate) fn held(panel_open: bool, state: Option<crate::PlayState>, driven: bo
     panel_open || state.is_some_and(|s| s != crate::PlayState::Playing) || driven || kill_cam
 }
 
+/// One of NVForever's own mini-games in the world holds the controls (an Alt lock under
+/// `fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX`): the corner messages
+/// and the quest lines wait (hidden, their clocks stopped) until it is over, as they do
+/// behind the mini-games that are menus (arm wrestling, slots, cards) [owner 2026-11-12,
+/// on the drinking contest's screen: "These messages need to stop showing up during
+/// games! And quest messages too"].
+pub(crate) fn in_world_game(script: Option<&crate::script::ScriptState>) -> bool {
+    script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.other.alt_locks.keys().any(|k| k.starts_with(fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX)))
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    time: Res<Time>,
+    // Real time: a message ends after its time on screen even while game time stands
+    // still with every player at a table (owner, playtest 119, item 168).
+    time: Res<Time<Real>>,
     (mut corner, mut script): (ResMut<CornerMessages>, Option<ResMut<crate::script::ScriptState>>),
     panel: Res<MessagePanel>,
     data: Option<Res<GameData>>,
@@ -287,7 +299,7 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     state: Option<Res<State<crate::PlayState>>>,
     driven: Option<Res<crate::player::ViewDriven>>,
-    (kill_cam, vats): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>),
+    (kill_cam, vats, hud, photo, mut rebuild): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::hud::HudView>>, Option<Res<crate::photo_mode::PhotoMode>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -301,12 +313,18 @@ fn draw(
     if corner.needs_despawn() {
         corner.bypass_change_detection().take_despawn();
         for (e, _) in &roots {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
         despawned = true;
     }
-    // (As under a kill camera while the classic VATS style plays its queued attacks.)
-    let held = held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), kill_cam.is_some_and(|k| k.active()) || vats.is_some_and(|v| v.playing_back()));
+    // A match's end view holds them as a kill camera does (`HudView::end_view`), and so
+    // do the classic VATS style while it plays its queued attacks and a mini-game in the
+    // world (`in_world_game`).
+    let cut = kill_cam.is_some_and(|k| k.active()) || hud.as_ref().is_some_and(|h| h.holds_notices()) || vats.is_some_and(|v| v.playing_back()) || in_world_game(script.as_deref());
+    // Photo mode holds them as a menu does, hidden with their clocks stopped, like the
+    // rest of the HUD (`crate::photo_mode`; its "Photo saved" is its own).
+    let photo = photo.is_some_and(|p| p.on);
+    let held = held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut || photo);
     if !despawned {
         for (_, mut v) in &mut roots {
             v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
@@ -323,13 +341,15 @@ fn draw(
         sync_count(&mut script, corner.total());
         return;
     }
-    let changed = corner.bypass_change_detection().step(time.delta_secs());
+    // The HUD's scale changed (split screen): the message on screen is drawn again at it.
+    let rebuilt = rebuild.stale();
+    let changed = corner.bypass_change_detection().step(time.delta_secs()) || rebuilt;
     sync_count(&mut script, corner.total());
     let strength = corner.strength();
     if changed {
         if !despawned {
             for (e, _) in &roots {
-                commands.entity(e).despawn();
+                commands.entity(e).try_despawn();
             }
         }
         if let Some(note) = corner.showing() {
@@ -498,11 +518,18 @@ mod tests {
         }
     }
 
+    /// Let `d` pass on both clocks: the corner messages run on real time (`draw`).
+    fn advance(app: &mut App, d: std::time::Duration) {
+        app.world_mut().resource_mut::<Time>().advance_by(d);
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(d);
+    }
+
     fn corner_test_app() -> App {
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<crate::PlayState>()
             .init_resource::<Time>()
+            .init_resource::<Time<Real>>()
             .init_resource::<Assets<Image>>()
             .init_resource::<MessagePanel>()
             .insert_resource(crate::script::ScriptState::over_no_plugins())
@@ -554,7 +581,7 @@ mod tests {
         assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetNumQueuedCornerMessages)"), 1.0);
 
         // Advance past display time + fade: message expires and GetNumQueuedCornerMessages returns 0.
-        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(2.5));
+        advance(&mut app, std::time::Duration::from_secs_f32(2.5));
         app.update();
         assert!(app.world().resource::<CornerMessages>().showing().is_none());
         assert_eq!(app.world_mut().query_filtered::<Entity, With<AreaRoot>>().iter(app.world()).count(), 0);
@@ -577,18 +604,18 @@ mod tests {
         // Held behind a menu keeps the message paused and hidden without clearing it.
         app.world_mut().resource_mut::<NextState<crate::PlayState>>().set(crate::PlayState::Menu);
         app.update();
-        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(10.0));
+        advance(&mut app, std::time::Duration::from_secs_f32(10.0));
         app.update();
         assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Vanilla one");
         assert_eq!(app.world().resource::<CornerMessages>().waiting(), 1);
 
         // Back in Playing, reset the frame delta before unpausing, then advance past
         // display time + fade so "Vanilla two" takes over.
-        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::ZERO);
+        advance(&mut app, std::time::Duration::ZERO);
         app.world_mut().resource_mut::<NextState<crate::PlayState>>().set(crate::PlayState::Playing);
         app.update();
         assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Vanilla one");
-        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(2.5));
+        advance(&mut app, std::time::Duration::from_secs_f32(2.5));
         app.update();
         assert_eq!(app.world().resource::<CornerMessages>().showing().unwrap().text, "Vanilla two");
         assert_eq!(app.world().resource::<CornerMessages>().waiting(), 0);
@@ -637,6 +664,7 @@ mod tests {
             .insert_resource(sim)
             .insert_resource(script_state)
             .init_resource::<Time>()
+            .init_resource::<Time<Real>>()
             .init_resource::<Assets<Image>>()
             .init_resource::<MessagePanel>()
             .init_resource::<crate::pause::PlayClock>()
@@ -648,6 +676,7 @@ mod tests {
             .init_resource::<crate::script_hud::ScriptHud>()
             .init_resource::<CornerMessages>()
             .init_resource::<crate::quest_messages::QuestMessages>()
+            .init_resource::<crate::ConsumeAnims>()
             .add_message::<crate::RefChanged>()
             .add_message::<crate::fade::RefFade>()
             .add_message::<crate::RefRepose>()
@@ -683,7 +712,7 @@ mod tests {
             script.console.push(call("ClearMessageQueue"));
             script.console.push(call("MessageEx \"post-clear\""));
         }
-        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_millis(16));
+        advance(&mut app, std::time::Duration::from_millis(16));
         app.update();
 
         // Only "post-clear" survives in CornerMessages and GetNumQueuedCornerMessages reads 1.
@@ -724,7 +753,7 @@ mod tests {
         assert_eq!(app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.hud.corner_clear_event_index, Some(1));
 
         // Next frame's run_scripts drains Game::events: "pre" is suppressed and only "post" shows.
-        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_millis(16));
+        advance(&mut app, std::time::Duration::from_millis(16));
         app.update();
         let corner = app.world().resource::<CornerMessages>();
         assert_eq!(corner.total(), 1);
@@ -757,7 +786,7 @@ mod tests {
             0.0
         );
         app.world_mut().resource_mut::<ScriptState>().console.push(call("SetModLocalData \"after_clear\" (GetNumQueuedCornerMessages)"));
-        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_millis(16));
+        advance(&mut app, std::time::Duration::from_millis(16));
         app.update();
         assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetModLocalData \"after_clear\")"), 0.0);
         assert_eq!(app.world().resource::<CornerMessages>().total(), 0);
@@ -772,7 +801,7 @@ mod tests {
             2.0
         );
         app.world_mut().resource_mut::<ScriptState>().console.push(call("SetModLocalData \"after_msg\" (GetNumQueuedCornerMessages)"));
-        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_millis(16));
+        advance(&mut app, std::time::Duration::from_millis(16));
         app.update();
         assert_eq!(run_query_num(app.world_mut(), "SetFunctionValue (GetModLocalData \"after_msg\")"), 2.0);
         assert_eq!(app.world().resource::<CornerMessages>().total(), 2);

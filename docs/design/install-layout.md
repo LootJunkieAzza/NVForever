@@ -28,6 +28,10 @@ saves and load order, so playing either game never changes the other.
 
 The one exception: a start from Mod Organizer 2 reads that `plugins.txt` path, where MO2's
 hook shows the program its profile's list instead of the game's file (next section).
+Likewise every start reads (never writes) `Fallout.ini` and `FalloutCustom.ini` there for
+the new game's start quest and film (`[General] SCharGenQuest`, `SIntroMovie`; MO2 shows
+its profile's own INIs), so a mod list such as Tale of Two Wastelands starts as it does in
+the original (owner, 2026-11-11; `nvf_play::game_start`).
 
 ## First start (`engine/nvforever/src/setup.rs`)
 

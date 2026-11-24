@@ -12,6 +12,7 @@
 //! [`dialogue_look`] turns the player's view to the actor they talk to.
 
 pub mod after_combat;
+pub mod bash;
 pub mod game_files;
 pub mod activate;
 pub mod aid;
@@ -31,6 +32,24 @@ pub mod console;
 pub mod editor;
 pub mod container_anim;
 pub mod control;
+pub mod campfire;
+pub mod armwrestle_coop;
+pub mod drink_coop;
+pub mod coop_audio;
+pub mod coop_companions;
+pub mod coop_downed;
+pub mod sync_icon;
+pub mod coop_heads;
+pub mod coop_social;
+pub mod coop_subtitles;
+pub mod coop_talk;
+pub mod coop_tables;
+pub mod coop_progress;
+pub mod armwrestle;
+pub mod darts_foes;
+pub mod drink_contest;
+pub mod emotes;
+pub mod minigames;
 pub mod corner_messages;
 pub mod crafting;
 pub mod cursor;
@@ -42,8 +61,10 @@ pub mod dialogue_menu;
 pub mod difficulty;
 pub mod hardcore;
 pub mod dismember;
+pub mod billboards;
 pub mod doors;
 pub mod created_spots;
+pub mod drink_world;
 pub mod dropped;
 pub mod ease;
 pub mod effect_sounds;
@@ -57,6 +78,8 @@ pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
 pub mod script_camera;
+pub mod photo_lights;
+pub mod photo_mode;
 pub mod shake;
 pub mod sprint;
 pub mod game_start;
@@ -81,10 +104,15 @@ pub mod hud_target;
 pub mod aim_assist;
 pub mod knockouts;
 pub mod loading;
+/// Co-op lobby screens (private fork).
+pub mod lobby;
+pub mod split_screen;
 pub mod loading_look;
 pub mod main_menu;
 pub mod menu_scale;
 pub mod location_markers;
+pub mod safe_zone;
+pub mod world_marks;
 pub mod lockpick;
 pub mod roulette;
 pub mod slots;
@@ -94,8 +122,15 @@ pub mod blackjack;
 pub mod borders;
 pub mod companion_wheel;
 pub mod caravan;
+pub mod stake;
 pub mod challenges;
 pub mod poker;
+pub mod pool;
+pub mod flourish;
+pub mod table_spots;
+pub mod casino_hud;
+pub mod match_lobby;
+pub mod poker_tables;
 pub mod menu;
 pub mod menu_shapes;
 pub mod mod_log;
@@ -149,6 +184,7 @@ pub mod settings_layout;
 pub mod settings_menu;
 pub mod settings_view;
 pub mod start_menu;
+pub mod mod_defaults;
 pub mod sim;
 pub mod space;
 pub mod stance;
@@ -170,11 +206,14 @@ pub mod ui_colour;
 pub mod language;
 pub mod ui_sounds;
 pub mod stress;
+pub mod rt_vats;
 pub mod vats_classic;
 pub mod vats_mode;
 pub mod kill_cam;
 pub mod weapon_wheel;
 pub mod voice;
+pub mod party_quips;
+pub mod player_voice;
 pub mod voice_filter;
 pub mod wait;
 pub mod world_sounds;
@@ -255,6 +294,17 @@ pub enum PlaySet {
     /// Bring render entities in line with the simulation.
     Sync,
 }
+
+/// On a [`RefVisual`] entity that stays hidden while its reference is drawn: a part of a
+/// held weapon's model that the model's own controllers hide at rest and no clip of the
+/// holder shows (an Another Millenia revolver's `##SpeedLoader`, nvforever
+/// `weapons::spawn_model`). [`activate::sync_visuals`] hides it with its reference and
+/// never shows it again. It used to show every entity of a reference whenever the
+/// reference changed, the likely way the speed loader came out beside the cylinder of a
+/// revolver at rest [observed: owner 2026-11-15, revolver-speedloader-outside;
+/// hypothesis: the path].
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct StaysHidden;
 
 /// Marks the `Camera3d` that is the player's eyes.
 #[derive(Component)]
@@ -429,6 +479,18 @@ pub struct ItemUsed {
     pub limb: Option<u16>,
 }
 
+/// Aid items with an animation of their own (the co-op fork's consume animations,
+/// `consume_anims.rs` in the game): their consume sound is held back to play with the
+/// animation ([`crate::ui_sounds`]), and while `refuse` says why, Hardcore refuses any
+/// aid item (the menu's use is undone: [`crate::script`]).
+#[derive(Resource, Default, Debug, Clone)]
+pub struct ConsumeAnims {
+    pub items: std::collections::HashSet<u32>,
+    pub refuse: Option<&'static str>,
+    /// Items refused (given back) this frame, for the animations to leave alone.
+    pub refused: Vec<u32>,
+}
+
 pub struct PlayPlugin(pub PlayData);
 
 impl Plugin for PlayPlugin {
@@ -438,12 +500,13 @@ impl Plugin for PlayPlugin {
         game_files::note_load_order(d.lo);
         app.insert_resource(PlayWorld(d))
             .insert_resource(Location { world: d.world, interior: d.interior })
-            .insert_resource(sim::SimState::new(d.lo, d.schema, d.index))
+            .insert_resource(sim::SimState::shared(d.lo, d.schema, d.index))
             .init_state::<PlayState>()
             .add_message::<Travel>()
             .add_message::<OpenContainer>()
             .add_message::<RefChanged>()
             .add_message::<ItemUsed>()
+            .init_resource::<ConsumeAnims>()
             .add_message::<furniture::UseFurniture>()
             .add_message::<world_sounds::Activated>()
             .add_message::<world_sounds::DoorPassed>()
@@ -453,8 +516,9 @@ impl Plugin for PlayPlugin {
             .init_resource::<furniture::PlayerSeat>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
-            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, holotape::HolotapePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
+            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, player_voice::PlayerVoicePlugin, party_quips::PartyQuipsPlugin, holotape::HolotapePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, effect_sounds::EffectSoundsPlugin, reticle::ReticlePlugin, quick_loot::QuickLootPlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin, borders::BordersPlugin))
+            .add_plugins(billboards::BillboardPlugin)
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, key_repeat::KeyRepeatPlugin, rumble::RumblePlugin, shake::ShakePlugin, script_input::ScriptInputPlugin, aim_assist::AimAssistPlugin))
             .add_plugins(script_switches::ScriptSwitchesPlugin)
             .add_plugins(script_texture_filter::ScriptTextureFilterPlugin)
@@ -467,7 +531,14 @@ impl Plugin for PlayPlugin {
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
+            .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, coop_downed::CoopDownedPlugin, coop_heads::CoopHeadsPlugin, coop_audio::CoopAudioPlugin, coop_companions::CoopCompanionsPlugin, coop_subtitles::CoopSubtitlesPlugin, coop_talk::CoopTalkPlugin, minigames::MinigamesPlugin, pool::PoolPlugin, bash::BashPlugin, flourish::FlourishPlugin, match_lobby::MatchLobbyPlugin, table_spots::TableSpotsPlugin, casino_hud::CasinoHudPlugin))
+            .add_plugins(armwrestle::ArmWrestlePlugin)
+            .add_plugins(drink_contest::DrinkContestPlugin)
+            .add_plugins(armwrestle_coop::ArmCoopPlugin)
+            .add_plugins(drink_coop::DrinkCoopPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
+            .add_plugins(campfire::CampfirePlugin)
+            .add_plugins(drink_world::DrinkWorldPlugin)
             .add_plugins(credits::CreditsPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)
@@ -480,6 +551,9 @@ impl Plugin for PlayPlugin {
             .add_plugins(console::ConsolePlugin)
             .add_plugins(editor::EditorPlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
+            .add_plugins(world_marks::WorldMarksPlugin)
+            .add_plugins(emotes::EmotesPlugin)
+            .add_plugins(safe_zone::SafeZonePlugin)
             .add_plugins(collision_view::CollisionViewPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(script_camera::ScriptCameraPlugin)
@@ -503,6 +577,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)
+            .add_plugins(rt_vats::RtVatsPlugin)
             .add_plugins(kill_cam::KillCamPlugin)
             .add_plugins(weapon_wheel::WeaponWheelPlugin)
             .add_plugins(grab::GrabPlugin)
@@ -561,7 +636,8 @@ mod tests {
                 !l.starts_with("impl Plugin for") && !l.starts_with("pub struct") && !l.starts_with("struct") && !l.starts_with("//")
             })
         };
-        let missing: Vec<&String> = plugins.iter().filter(|p| !added(p)).collect();
+        // Ship 0.8.1 co-op: Photo Mode is its own PR; its plugins stay in the source, unadded.
+        let missing: Vec<&String> = plugins.iter().filter(|p| !added(p) && !["PhotoModePlugin", "PhotoLightsPlugin"].contains(&p.as_str())).collect();
         assert!(missing.is_empty(), "plugins never added: {missing:?}");
     }
 

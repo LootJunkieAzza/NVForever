@@ -509,7 +509,7 @@ pub fn restore_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 }
 
 /// Move a value that grows (rads, needs) by `by`, never below 0.
-fn shift_growing(g: &mut Game, r: FormId, code: u16, by: f64) -> Result<(), String> {
+pub(crate) fn shift_growing(g: &mut Game, r: FormId, code: u16, by: f64) -> Result<(), String> {
     let now = actor_value(g, r, code)?;
     let to = (now + by).max(0.0);
     shift_base(g, r, code, to - now)
@@ -583,6 +583,10 @@ pub fn is_weapon_out(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
     if base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"CREA") && super::items::equipped_weapon(g, r).is_none() {
         return yes(false);
     }
+    // A co-op guest's shot, run as the player's (item 111): its weapon was out.
+    if r == FormId::PLAYER_REF && g.shot_for_player.is_some() {
+        return yes(true);
+    }
     yes(g.weapon_is_out(r))
 }
 
@@ -629,6 +633,10 @@ impl Game<'_> {
     /// (`Game::set_held_weapon`: NPCs' weapons are not equipped in the inventories here).
     pub fn weapon_anim_type(&mut self, actor: FormId) -> i64 {
         let held = self.extra.get(&actor).and_then(|e| e.held_weapon);
+        // A co-op guest's shot, run as the player's (item 111): its weapon.
+        if let Some(w) = self.shot_for_player.filter(|w| actor == FormId::PLAYER_REF && w.0 != 0) {
+            return self.data.weapon_anim_types.get(&w).copied().map_or(1, weapon_anim_code);
+        }
         let record_type = super::items::equipped_weapon(self, actor).or(held).and_then(|w| self.data.weapon_anim_types.get(&w).copied());
         record_type.map_or(1, weapon_anim_code)
     }
@@ -647,7 +655,7 @@ pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 pub fn get_dead_count(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let b = a.form(0)?;
-    Ok(Value::Num(g.player.dead_count.get(&b).copied().unwrap_or(0) as f64))
+    Ok(Value::Num(g.dead_count(b) as f64))
 }
 
 /// The factions and ranks the records give an actor: its base's `SNAM` list, or its
@@ -712,7 +720,11 @@ fn forget_factions(g: &Game, r: FormId) {
 pub fn get_is_voice_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let v = a.form(0)?;
-    let Some(voice) = g.voice_type_of(r) else { return yes(false) };
+    // The player speaks in its own voice type by sex and race (`Game::player_own_voice_type`).
+    let own = if r == FormId::PLAYER_REF { g.player_own_voice_type() } else { None };
+    // Else `Game::voice_type_of`: the player's by sex, the traits' VTCK, a talking
+    // activator's VNAM (#3060).
+    let Some(voice) = own.or_else(|| g.voice_type_of(r)) else { return yes(false) };
     yes(voice == v || super::refs::list_members(g, v).contains(&voice))
 }
 

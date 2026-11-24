@@ -2,6 +2,7 @@
 
 use crate::game::Game;
 use fnv_ui::{Ui, Value};
+use std::collections::HashMap;
 
 mod copies;
 mod timelines;
@@ -228,6 +229,116 @@ pub struct Pending {
 /// [`write`] puts in the tree, which are not there yet.
 pub fn defer(game: &mut Game, shown: Shown, texts: Texts, widths: Option<Measure>) {
     game.ui_hud_pending = Some(Box::new(Pending { shown, texts, widths }));
+}
+
+/// A text's width and height in a font (by its number in the tree) and wrap width, as the
+/// engine sets it out.
+pub type TextSize = std::sync::Arc<dyn Fn(f64, &str, Option<f64>) -> (f64, f64) + Send + Sync>;
+
+/// What a text was measured from: its string, font and wrap width, and the size.
+type MeasuredFrom = (String, f64, Option<f64>, (f64, f64));
+
+/// The engine's measure of the mods' HUD texts, so a script that sets a text's string and
+/// reads a size made from it in the same frame reads the new size ([`size_texts`]).
+pub struct TextSizer {
+    pub size: TextSize,
+    /// The text tiles measured: the mods' HUD texts, as the engine walks them each frame.
+    pub texts: Vec<fnv_ui::TileId>,
+    /// What each was last measured from: string, font, wrap width, and the size.
+    last: HashMap<fnv_ui::TileId, MeasuredFrom>,
+}
+
+impl TextSizer {
+    pub fn new(size: TextSize, texts: Vec<fnv_ui::TileId>) -> Self {
+        TextSizer { size, texts, last: HashMap::new() }
+    }
+}
+
+/// Measure the texts of the [`TextSizer`] whose string, font or wrap width changed since
+/// they were last measured, and write their `width` and `height` (an axis worked out by an
+/// expression is left to it), the tree worked out before and after: before a script reads
+/// the HUD. JAM's loot menu sets its rows' strings and reads the widths and heights made
+/// from them in one go, to size its box and place its rows; read a frame late, its box kept
+/// the last container's width and a long name ran past it [hypothesis: the original
+/// measures a text when its string is set, as its box fits its rows there; owner's playtest
+/// 2026-11-06]. Rounds until nothing changes (a wrap width may follow a size), at most 4.
+pub fn size_texts(game: &mut Game) {
+    let Some(sizer) = game.ui_sizer.as_mut() else { return };
+    let ui = &mut game.ui_tree;
+    for _ in 0..4 {
+        ui.update();
+        let mut changed = false;
+        for &t in &sizer.texts {
+            if !ui.is_live(t) {
+                continue;
+            }
+            let tile = ui.tile(t);
+            if tile.kind != "text" {
+                continue;
+            }
+            let computed = |name: &str| tile.trait_index(name).is_some_and(|k| tile.traits[k].expr.is_some());
+            let (own_width, own_height) = (!computed("width"), !computed("height"));
+            if !own_width && !own_height {
+                continue;
+            }
+            let string = tile.get("string").map(Value::text).unwrap_or_default();
+            let font = tile.get("font").map_or(0.0, Value::num);
+            let wrap = tile.get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
+            if sizer.last.get(&t).is_some_and(|(s, f, w, _)| *s == string && *f == font && *w == wrap) {
+                continue;
+            }
+            let measured = if string.is_empty() { (0.0, 0.0) } else { (sizer.size)(font, &string, wrap) };
+            if own_width {
+                ui.set_trait(t, "width", Value::Num(measured.0));
+            }
+            if own_height {
+                ui.set_trait(t, "height", Value::Num(measured.1));
+            }
+            sizer.last.insert(t, (string, font, wrap, measured));
+            changed = true;
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
+/// Readies the trait a UI read names (`(tile, index)`, `None` when it names none or its
+/// trait is not known here) as [`size_texts`] would, doing less when it can: with every
+/// text of the [`TextSizer`] measured from what it shows now, only the trait and what it
+/// reads are worked out ([`fnv_ui::Ui::refresh`]); otherwise the whole tree and the texts.
+/// The values read are the same [design: owner's playtest 2026-11-11, the whole tree
+/// worked out before each of a HUD script's 36 reads a frame cost 4.7 ms a read].
+pub fn ready_read(game: &mut Game, read: Option<(fnv_ui::TileId, usize)>) {
+    let Some(sizer) = game.ui_sizer.as_ref() else { return };
+    if let Some((t, k)) = read {
+        let ui = &mut game.ui_tree;
+        let measured = sizer.texts.iter().all(|&tt| {
+            if !ui.is_live(tt) || ui.tile(tt).kind != "text" {
+                return true;
+            }
+            for name in ["string", "font", "wrapwidth", "width", "height"] {
+                if let Some(j) = ui.tile(tt).trait_index(name) {
+                    if !ui.refresh(tt, j) {
+                        return false;
+                    }
+                }
+            }
+            let tile = ui.tile(tt);
+            let computed = |name: &str| tile.trait_index(name).is_some_and(|j| tile.traits[j].expr.is_some());
+            if computed("width") && computed("height") {
+                return true;
+            }
+            let string = tile.get("string").map(Value::text).unwrap_or_default();
+            let font = tile.get("font").map_or(0.0, Value::num);
+            let wrap = tile.get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
+            sizer.last.get(&tt).is_some_and(|(s, f, w, _)| *s == string && *f == font && *w == wrap)
+        });
+        if measured && ui.refresh(t, k) {
+            return;
+        }
+    }
+    size_texts(game);
 }
 
 /// Makes the writes [`defer`] kept, before a UI function reads or changes the HUD, in a

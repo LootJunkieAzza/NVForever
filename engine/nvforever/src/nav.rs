@@ -219,6 +219,18 @@ impl NavState {
         }
         Ok(NavState { graph, travellers, show, follow, lead: None, cam: None, travel_asked: false, startup })
     }
+
+    /// No nav graph: split screen's player 2 (plan split-screen.md §6, M2). Its game is a
+    /// co-op guest from its start (`crate::coop`, `follow_npcs`): no actor of its own
+    /// thinks or walks, each is drawn where the host's AI has it (`Residents::remote`),
+    /// and it never runs the world itself (it quits when player 1's game is gone,
+    /// `crate::split`). The graph is only for walking actors, so player 2's game leaves
+    /// it out: about 77 MB of heap [observed 2026-11-20, `NVF_HEAP_STATS`]. No trip or
+    /// navmesh view is asked for there (main.rs).
+    pub fn without_graph() -> NavState {
+        let startup = vec![(true, "nav: no graph in player 2's game of split screen (a co-op guest: the host's AI walks the actors)".to_string())];
+        NavState { graph: NavGraph::default(), travellers: Vec::new(), show: false, follow: false, lead: None, cam: None, travel_asked: false, startup }
+    }
 }
 
 /// The compass heading a root transform faces (its rotation about z, clockwise).
@@ -403,7 +415,7 @@ pub fn drive(
         let moving = ev == WalkEvent::Moved;
         let stage = (&mut tr.spawned, &mut tr.root);
         let air = tr.walker.air.is_some();
-        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air, jumped: false, at_once: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &Default::default(), &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air, jumped: false, at_once: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
             warn!("nav: {} could not be drawn", tr.label);
             tr.failed = Some(e.into());
         }
@@ -461,6 +473,7 @@ pub(crate) fn show_actor(
     parts: &mut ActorParts,
     models: &mut ModelCtx,
     roots: &Query<(Entity, &RefVisual, &ChildOf)>,
+    taken: &std::collections::HashSet<Entity>,
     actors: &mut Query<(&mut Transform, Option<&mut Locomotion>), Without<crate::furniture::OnFurniture>>,
     who: Who,
     (spawned, root): (&mut bool, &mut Option<Entity>),
@@ -469,15 +482,17 @@ pub(crate) fn show_actor(
     dt: f32,
 ) -> Result<(), &'static str> {
     let Who { reference, base, creature, scale, strafe, air, jumped, at_once } = who;
+    // Its bodies under the world root: the one drawn, and any stray (owner's overnight
+    // queue item 105: a body spawned, then let go before it was found here, stayed where
+    // it was, and the next spawn drew a second one; detection measured both by turns).
+    // Not those the caller took away this frame (`taken`): its commands run after this
+    // system, so they are still in `roots`, and despawning one again was a Bevy error a
+    // frame (co-op puppets redrawn as the host's look changed, guest log 2026-11-13: 646).
+    let bodies = || bodies_of(roots.iter().map(|(e, v, p)| (e, v.0, p.parent())), reference, world_root, taken);
     if !visible {
-        if let Some(e) = root.take() {
+        for e in bodies_to_let_go(root, spawned, bodies) {
             commands.entity(e).despawn();
-        } else if *spawned {
-            // Spawned, its root not found yet: nothing here takes that body away
-            // (diagnostic for #2461, a body left standing where it was spawned).
-            warn!("actor {reference:08X}: out of view before its body spawned earlier was found: that body is not taken away");
         }
-        *spawned = false;
         return Ok(());
     }
     let Some(aw) = actor_world else { return Ok(()) };
@@ -492,6 +507,16 @@ pub(crate) fn show_actor(
         *root = None;
     }
     if !*spawned {
+        // A body of it left behind is not drawn a second time over.
+        for (e, was_root) in bodies_before_drawing(root, bodies) {
+            if was_root {
+                // Drawn anew (`Residents::redraw`).
+                info!("nav: {reference:08X} is drawn anew: its body {e} goes first");
+            } else {
+                warn!("nav: {reference:08X} had a body left behind ({e}); it goes before it is drawn again");
+            }
+            commands.entity(e).despawn();
+        }
         let at = Vec3::from_array(feet);
         let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-heading), at);
         let mut ctx = ActorCtx { cache: parts, models };
@@ -563,13 +588,70 @@ pub(crate) fn show_actor(
     // turns the other way).
     if let Some(mut lo) = lo {
         let step = t.translation.truncate() - before.0.truncate();
+        // Put there, not walked: a step longer than any frame's walk or run (a script's
+        // move, a co-op guest's jump to where the host has it, `coop::NpcTrack::pose`)
+        // has no speed, so no walk clip is asked for and no slide is measured (laptop
+        // 1110e: one "moves with no movement clip" line per actor at its enable).
+        let placed = step.length() > PLACED_STEP.max(PLACED_SPEED * dt);
+        if placed && moving {
+            info!("nav: {reference:08X} put {:.0} units on in one frame: placed, not walked{}", step.length(), if found_now { " (its body just found)" } else { "" });
+        }
         let turned = (heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-        if let Some((velocity, turn)) = step_motion(step, turned, heading, t.scale.x.max(1e-3), dt, moving, strafe, jumped || found_now) {
+        if let Some((velocity, turn)) = step_motion(step, turned, heading, t.scale.x.max(1e-3), dt, moving && !placed, strafe, jumped || found_now) {
             (lo.velocity, lo.turn) = (velocity, turn);
         }
         lo.in_air = air;
     }
     Ok(())
+}
+
+/// A body's move in one frame longer than this (units) is a placement, not a step
+/// [design: a cazador's run, 955 units/s, observed, moves 32 units in a 30 fps frame].
+const PLACED_STEP: f32 = 48.0;
+/// ... and faster than this (units/s), so a slow frame's run is still a run.
+const PLACED_SPEED: f32 = 2000.0;
+
+/// The bodies of `reference` directly under `world_root` among `roots` (entity, its
+/// reference, its parent), but those in `taken` (despawned already this frame).
+fn bodies_of<'a>(roots: impl Iterator<Item = (Entity, u32, Entity)> + 'a, reference: u32, world_root: Entity, taken: &'a std::collections::HashSet<Entity>) -> impl Iterator<Item = Entity> + 'a {
+    roots.filter(move |&(e, r, parent)| r == reference && parent == world_root && !taken.contains(&e)).map(|(e, _, _)| e)
+}
+
+/// The bodies to take away when an actor stops being drawn: the one found, or, spawned
+/// but not found yet (spawned a frame or two ago), every body of its reference there is
+/// (`bodies`). Without the second, a body spawned and let go before it was found stayed
+/// where it was and the next spawn drew a second one (owner's overnight queue item 105:
+/// a young gecko hunter at the edge of the loaded cells). It is no longer spawned after.
+pub(crate) fn bodies_to_let_go<I: Iterator<Item = Entity>>(root: &mut Option<Entity>, spawned: &mut bool, bodies: impl FnOnce() -> I) -> Vec<Entity> {
+    // Its root and every body of it found under the world root: a root that went
+    // already (taken as a body left behind, below in `show_actor`) is not the one drawn,
+    // and letting go of it alone left the drawn one standing (the Strip crowd's
+    // VStreetSS6Trooper01REF on a guest, laptop 2026-11-10: the host's disable despawned
+    // a body gone 46 s before, and the one drawn stood 10 s more, until hidden).
+    let mut out: Vec<Entity> = root.take().into_iter().collect();
+    if *spawned || !out.is_empty() {
+        for e in bodies() {
+            if !out.contains(&e) {
+                out.push(e);
+            }
+        }
+    }
+    *spawned = false;
+    out
+}
+
+/// The bodies of an actor about to be drawn that go first, each once: every one found
+/// under the world root, and whether it was the one drawn (`root`, kept by
+/// `Residents::redraw` for this). `root` is cleared: the body drawn next is found as that.
+pub(crate) fn bodies_before_drawing<I: Iterator<Item = Entity>>(root: &mut Option<Entity>, bodies: impl FnOnce() -> I) -> Vec<(Entity, bool)> {
+    let was = root.take();
+    let mut out: Vec<(Entity, bool)> = Vec::new();
+    for e in bodies() {
+        if !out.iter().any(|(x, _)| *x == e) {
+            out.push((e, was == Some(e)));
+        }
+    }
+    out
 }
 
 /// The locomotion's velocity (in the actor's axes and own `scale`, y forward) and turn
@@ -709,6 +791,22 @@ pub fn report(mut exit: MessageReader<AppExit>, nav: Res<NavState>) {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::Entity;
+
+    #[test]
+    fn a_body_taken_this_frame_is_not_left_behind_again() {
+        let e = |n| Entity::from_raw_u32(n).unwrap();
+        let (world_root, elsewhere) = (e(1), e(2));
+        let puppet = 0xFE00_C000;
+        // The puppet's old body (taken away by co-op's draw this frame), a stray of it, one
+        // under another root and another actor's.
+        let roots = [(e(10), puppet, world_root), (e(11), puppet, world_root), (e(12), puppet, elsewhere), (e(13), 0x0010_0000, world_root)];
+        let none = std::collections::HashSet::new();
+        assert_eq!(super::bodies_of(roots.into_iter(), puppet, world_root, &none).collect::<Vec<_>>(), [e(10), e(11)]);
+        let taken = std::collections::HashSet::from([e(10)]);
+        assert_eq!(super::bodies_of(roots.into_iter(), puppet, world_root, &taken).collect::<Vec<_>>(), [e(11)]);
+    }
+
     #[test]
     fn a_jump_is_no_step_of_the_gait() {
         let dt = 1.0 / 60.0;
@@ -723,6 +821,41 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_body_spawned_but_not_found_yet_goes_when_the_actor_is_let_go() {
+        let mut w = World::new();
+        let (a, b) = (w.spawn_empty().id(), w.spawn_empty().id());
+        // Found: that one goes, and any other body of it, but not twice.
+        let (mut root, mut spawned) = (Some(a), true);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![a].into_iter()), vec![a]);
+        assert_eq!((root, spawned), (None, false));
+        // A root that went already while another body of it is drawn: both are let go
+        // (the Strip crowd's trooper on a guest, 2026-11-10).
+        let (mut root, mut spawned) = (Some(a), false);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![b].into_iter()), vec![a, b]);
+        // Spawned last frame, not found yet: whatever of it is there goes.
+        let (mut root, mut spawned) = (None, true);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![b].into_iter()), vec![b]);
+        assert!(!spawned);
+        // Never spawned: nothing.
+        let (mut root, mut spawned) = (None, false);
+        assert!(bodies_to_let_go(&mut root, &mut spawned, || vec![b].into_iter()).is_empty());
+    }
+
+    #[test]
+    fn a_body_drawn_anew_goes_once() {
+        // `Residents::redraw` keeps the drawn body as the root with `spawned` false.
+        let mut w = World::new();
+        let (a, stray) = (w.spawn_empty().id(), w.spawn_empty().id());
+        let mut root = Some(a);
+        assert_eq!(bodies_before_drawing(&mut root, || vec![a, stray].into_iter()), vec![(a, true), (stray, false)]);
+        assert_eq!(root, None, "the old body is not kept as the root");
+        // Hidden instead before it is drawn again: let go once, not twice.
+        let (mut root, mut spawned) = (Some(a), false);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![a].into_iter()), vec![a]);
+        assert_eq!(root, None);
+    }
 
     #[test]
     fn heading_of_a_root_rotation() {

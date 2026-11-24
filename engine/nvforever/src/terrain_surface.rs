@@ -2394,7 +2394,7 @@ pub(crate) mod tests {
 
             // The publication: the production cache update around a camera in the cell.
             app.insert_resource(Streamer {
-                radius: 1, loaded: [(grid, cell)].into(), fades: default(), fade_secs: 0.0, settled: true,
+                radius: 1, coop_areas: default(), loaded: [(grid, cell)].into(), fades: default(), fade_secs: 0.0, settled: true,
                 arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
                 hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
                 stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
@@ -2958,7 +2958,7 @@ pub(crate) mod tests {
             .insert_resource(SurfaceCache { rejected: true, ..SurfaceCache::with_resolution(2048) });
         let cell = app.world_mut().spawn(SurfaceCell { world: 0, grid: (0, 0), heights: vec![0.0; SIDE * SIDE], quadrants: vec![], paths: [CapturePath::Fallback { layers: 0 }; 4], content_revision: 0, sources: vec![], dependencies: default(), detail: default() }).id();
         app.insert_resource(Streamer {
-            radius: 1, loaded: [((0, 0), cell)].into(), fades: default(), fade_secs: 0.0, settled: true,
+            radius: 1, coop_areas: default(), loaded: [((0, 0), cell)].into(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
             stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
@@ -2995,7 +2995,7 @@ pub(crate) mod tests {
                 .init_asset::<Image>().init_asset::<Mesh>().init_asset::<TerrainMaterial>().init_asset::<SurfaceCaptureMaterial>();
         }
         app.insert_resource(Streamer {
-            radius: 2, loaded: default(), fades: default(), fade_secs: 0.0, settled: true,
+            radius: 2, coop_areas: default(), loaded: default(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
             stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
@@ -3804,7 +3804,7 @@ pub(crate) mod tests {
         let fine = app.world_mut().spawn(SurfaceCell { grid: (0, 0), heights: surface.heights().to_vec(), ..surface_cell_with([CapturePath::Fallback { layers: 0 }; 4]) }).id();
         let stored = app.world_mut().spawn(SurfaceCell { grid: (1, 0), heights: block[1][1].clone(), ..surface_cell_with([CapturePath::Fallback { layers: 0 }; 4]) }).id();
         app.insert_resource(Streamer {
-            radius: 1, loaded: [((0, 0), fine), ((1, 0), stored)].into(), fades: default(), fade_secs: 0.0, settled: true,
+            radius: 1, coop_areas: default(), loaded: [((0, 0), fine), ((1, 0), stored)].into(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
             stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,

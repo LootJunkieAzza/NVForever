@@ -93,9 +93,113 @@ impl Plugin for LightsPlugin {
         app.insert_resource(LightingShader { handle, patched: false })
             .insert_resource(FunctionsShader { handle: functions, patched: false })
             .insert_resource(TonemapShader { handle: tonemapping, patched: false })
-            .add_systems(PreUpdate, patch_clip)
-            .add_systems(Update, (patch_attenuation, patch_display_sum, sync_script_lights, animate_lights, bind_model_lights, animate_model_lights).chain().after(nvf_play::PlaySet::Scripts));
+            .add_systems(PreUpdate, patch_clip);
+        if let Some(tune) = neon_tune() {
+            let nif: Handle<Shader> = app.world().resource::<AssetServer>().load(NIF_MATERIAL);
+            app.insert_resource(NeonShader { handle: nif, tune, patched: false }).add_systems(PreUpdate, patch_neon);
+        }
+        app
+            .add_systems(Update, (patch_attenuation, patch_display_sum, sync_script_lights, dropped_lights, animate_lights.run_if(nvf_play::photo_mode::view_live), bind_model_lights, animate_model_lights.run_if(nvf_play::photo_mode::view_live)).chain().after(nvf_play::PlaySet::Scripts));
     }
+}
+
+/// A light a script created at run time (`nvf_play::dropped::DroppedLight`, a
+/// `PlaceAtMe` of a LIGH: the light each fire of Burning Campfire Redone places) sheds
+/// the light a placed reference of its base would ([`spawn_light`]: colour, radius,
+/// flicker, the model's `AttachLight` node), hung from the root nvf-play draws it under,
+/// so it moves with it and goes when the script deletes it or its cell unloads [design,
+/// owner's queue item 103: "fires should be more 3D and provide light"].
+#[allow(clippy::too_many_arguments)]
+fn dropped_lights(
+    mut commands: Commands,
+    added: Query<(Entity, &nvf_play::dropped::DroppedLight), Added<nvf_play::dropped::DroppedLight>>,
+    world: Option<Res<WorldData>>,
+    streamer: Option<Res<crate::world::Streamer>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
+    mut models: nvf_assets::model::ModelCtx,
+    mut emittance: Option<ResMut<crate::emittance::EmittanceState>>,
+) {
+    if added.is_empty() {
+        return;
+    }
+    let (Some(world), Some(emittance)) = (world, emittance.as_deref_mut()) else { return };
+    let scale = streamer.map_or(1.0, |s| s.light_scale);
+    for (root, l) in &added {
+        let Some(base) = fnv_world::placed::base_object(world.lo, world.schema, l.base) else { continue };
+        let pos = sim.as_ref().and_then(|s| s.world.peek(fnv_sim::FormId(l.reference))).map_or([0.0; 3], |s| s.pos);
+        let placed = created_placement(l.reference, l.base, pos);
+        let lit = spawn_light(&mut commands, root, &world, l.base, base.model.as_deref(), &mut models, bevy::math::Affine3A::IDENTITY, scale, &placed, emittance).is_some_and(|s| s.emitting);
+        info!("lights: created light 0x{:08X} (base 0x{:08X}) {}", l.reference, l.base, if lit { "lit" } else { "sheds no light (negative, off by default, no radius or black)" });
+    }
+}
+
+/// The placement [`spawn_light`] reads for a created reference: its FormID (the flicker's
+/// phase), base and position (the cell its light is faded with); no XRDS or emittance, as
+/// `PlaceAtMe` gives none.
+pub fn created_placement(reference: u32, base: u32, position: [f32; 3]) -> Placement {
+    Placement {
+        form_id: reference,
+        sig: *b"REFR",
+        flags: 0,
+        base: Some(base),
+        position,
+        rotation: [0.0; 3],
+        scale: 1.0,
+        enable_parent: None,
+        open_by_default: false,
+        teleport: false,
+        emittance: None,
+        imposter: false,
+        primitive: false,
+    }
+}
+
+/// The NIF material shader (nvf_assets), whose hot-light numbers the test aid
+/// `NVF_NEON` replaces.
+const NIF_MATERIAL: &str = "embedded://nvf_assets/nif_material.wesl";
+
+/// Test aid `NVF_NEON=per_stop,max,add_hue,pass,blend`: the hot light's brightness per
+/// doubling and most (nif_material.rs `HOT_GLOW_PER_STOP`, `HOT_GLOW_MAX`), the most an
+/// additive shape adds (`ADD_HUE_MAX`), a factor on the bright pass (post.rs) and the
+/// most a blended glow is drawn at (`BLEND_GLOW_MAX`), each optional, for tuning the
+/// Strip's neon without a build (queue items 146, 174).
+pub fn neon_tune() -> Option<[Option<f32>; 5]> {
+    let v = std::env::var("NVF_NEON").ok()?;
+    let mut out = [None; 5];
+    for (slot, f) in out.iter_mut().zip(v.split(',')) {
+        *slot = f.trim().parse().ok().filter(|x: &f32| x.is_finite() && *x >= 0.0);
+    }
+    Some(out)
+}
+
+#[derive(Resource)]
+struct NeonShader {
+    handle: Handle<Shader>,
+    tune: [Option<f32>; 5],
+    patched: bool,
+}
+
+/// Once the NIF material shader has loaded, put `NVF_NEON`'s numbers in it.
+fn patch_neon(mut state: ResMut<NeonShader>, mut shaders: ResMut<Assets<Shader>>) {
+    if state.patched {
+        return;
+    }
+    let Some(shader) = shaders.get(&state.handle) else { return };
+    state.patched = true;
+    let bevy::shader::Source::Wesl(source) = &shader.source else { return };
+    let mut source = unix_lines(source);
+    for (name, value) in [("HOT_GLOW_PER_STOP", state.tune[0]), ("HOT_GLOW_MAX", state.tune[1]), ("ADD_HUE_MAX", state.tune[2]), ("BLEND_GLOW_MAX", state.tune[4])] {
+        let Some(v) = value else { continue };
+        let Some(start) = source.find(&format!("const {name}: f32 = ")) else {
+            error!("NVF_NEON: {name} not found in {NIF_MATERIAL}");
+            continue;
+        };
+        let end = start + source[start..].find(';').unwrap_or(0);
+        source.replace_range(start..end, &format!("const {name}: f32 = {v:?}"));
+    }
+    let patched = crate::fog::with_source(shader, source);
+    let _ = shaders.insert(&state.handle, patched);
+    info!("lights: NVF_NEON {:?} put in the NIF material shader", state.tune);
 }
 
 #[derive(Resource)]

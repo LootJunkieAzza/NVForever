@@ -418,7 +418,10 @@ impl GrassCtx<'_> {
     fn take_in(&mut self, commands: &mut Commands, cell: Entity, grid: (i32, i32), grown: Grown, models: &mut ModelCtx) {
         self.cache.plants_generated += grown.plants;
         if let Some(fires) = self.fires.as_deref_mut().filter(|_| !grown.patches.is_empty()) {
-            fires.fires.add_fuel(grid, grown.patches);
+            let back = fires.fires.add_fuel(grid, grown.patches);
+            if back > 0 {
+                info!("grass fire: cell {grid:?} loaded again: {back} patches burnt before are burnt here again ({} kept elsewhere)", fires.fires.kept());
+            }
         }
         for (mesh, material, chunk) in grown.chunks {
             commands.entity(cell).with_child((

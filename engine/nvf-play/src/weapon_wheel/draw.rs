@@ -36,14 +36,14 @@ use nvf_assets::GameData;
 /// The wheel's square, interface units, and how far above the middle of the view it
 /// stands [design: the owner's picture, the mockups].
 pub const SIZE: f32 = 824.0;
-const RAISE: f32 = 20.0;
+pub(crate) const RAISE: f32 = 20.0;
 /// The slices' radii, the hub's, the gap between slices (degrees each side) and the lit
 /// rim's band outside the slices.
 pub const OUTER: f32 = 372.0;
 pub const INNER: f32 = 178.0;
-const HUB: f32 = 168.0;
-const GAP: f32 = 1.6;
-const RIM: [f32; 2] = [380.0, 392.0];
+pub(crate) const HUB: f32 = 168.0;
+pub(crate) const GAP: f32 = 1.6;
+pub(crate) const RIM: [f32; 2] = [380.0, 392.0];
 // The rim stays inside the square, the hub inside the slices.
 const _: () = assert!(RIM[1] < SIZE / 2.0 && HUB < INNER && INNER < OUTER && OUTER < RIM[0]);
 
@@ -57,7 +57,7 @@ const ROW: f32 = 22.0;
 const RULE_ROOM: f32 = 10.0;
 const BAR_HALF: f32 = 112.0;
 /// An outline's width.
-const LINE: f32 = 2.0;
+pub(crate) const LINE: f32 = 2.0;
 /// An unpicked slice's picture and count are drawn at this strength; a slot whose item
 /// is not carried at half that.
 const DIM: f32 = 0.62;
@@ -68,10 +68,10 @@ const FULL_WEIGHT: f32 = 20.0;
 const FULL_VALUE: f32 = 2000.0;
 const FULL_DT: f32 = 40.0;
 
-const MATTE: &str = "Interface\\companion_wheel\\hud_comp_bkg.dds";
+pub(crate) const MATTE: &str = "Interface\\companion_wheel\\hud_comp_bkg.dds";
 const SWAP: &str = "Interface\\Icons\\typeicons\\hot_keys_icon_ammoswap.dds";
-const FONT_1: &str = "textures\\fonts\\glow_monofonto_large.fnt";
-const FONT_3: &str = "textures\\fonts\\glow_monofonto_medium.fnt";
+pub(crate) const FONT_1: &str = "textures\\fonts\\glow_monofonto_large.fnt";
+pub(crate) const FONT_3: &str = "textures\\fonts\\glow_monofonto_medium.fnt";
 const SHADER: &str = "embedded://nvf_play/weapon_wheel/slice.wesl";
 
 /// The slice shader's numbers (`slice.wesl`).
@@ -108,13 +108,25 @@ pub fn build(app: &mut App) {
 
 /// A slice's shape and colours: `from`/`to` in degrees clockwise from up, radii in
 /// interface units.
-fn slice_uniform(from: f32, to: f32, inner: f32, outer: f32, fill: Color, edge: Color, line: f32) -> SliceUniform {
+pub(crate) fn slice_uniform(from: f32, to: f32, inner: f32, outer: f32, fill: Color, edge: Color, line: f32) -> SliceUniform {
+    slice_uniform_gap(from, to, inner, outer, fill, edge, line, (0.0, 0.0))
+}
+
+/// As [`slice_uniform`], the slice's sides cut beside the spokes so the gap to the next
+/// slices is `gap.0` interface units wide at the inner radius and `gap.1` at the outer,
+/// widening evenly between (`from`/`to` are then the spokes between the slices, without
+/// a gap of their own).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn slice_uniform_gap(from: f32, to: f32, inner: f32, outer: f32, fill: Color, edge: Color, line: f32, gap: (f32, f32)) -> SliceUniform {
     let half = SIZE / 2.0;
+    // Half the gap at radius r: at + per * r (r a part of the half width).
+    let per = if outer > inner { (gap.1 - gap.0) / 2.0 / (outer - inner) } else { 0.0 };
+    let at = (gap.0 / 2.0 - per * inner) / half;
     SliceUniform {
         fill: fill.to_linear().to_vec4(),
         edge: edge.to_linear().to_vec4(),
         shape: Vec4::new(from.to_radians(), to.to_radians(), inner / half, outer / half),
-        line: Vec4::new(line / half, 0.0, 0.0, 0.0),
+        line: Vec4::new(line / half, at.max(0.0), per.max(0.0), 0.0),
     }
 }
 
@@ -296,7 +308,7 @@ fn base_of(face: &Face) -> f32 {
 
 /// One line of text, its top at `top`: centred on `x` (`align` 0), from `x` (-1) or
 /// ending at `x` (1).
-fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, align: i32, color: Color) {
+pub(crate) fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, align: i32, color: Color) {
     let Some(line) = face.font.lines(s.trim(), None).into_iter().next() else { return };
     let left = match align {
         0 => x - line.width / 2.0,

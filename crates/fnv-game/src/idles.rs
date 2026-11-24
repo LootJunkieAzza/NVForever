@@ -200,7 +200,30 @@ pub struct IdlePicker {
     done: bool,
 }
 
+/// Whether a Run In Sequence collection that lists its package's begin idle counts that
+/// idle as its first pick ([`IdlePicker::after_begin`]) [hypothesis for the rule, fitting
+/// observer checks 122 and 135 (docs/handoff/observer-checks.md): Dead Money's
+/// NVDLC01PlayerWakesUp lists its begin idle NVDLC01CameraVillaWakeUp as its whole
+/// collection (Run In Sequence, timer 0) and the original shows the wake-up once, upright
+/// about 2 s before Father Elijah's greeting with no second drop; VCG01PlayerSection2,
+/// whose begin idle is not in its collection, replays it (queue item 209)]. `false`
+/// is the earlier rule: the collection starts from its top when the begin idle ends.
+pub const BEGIN_IDLE_COUNTS_IN_SEQUENCE: bool = true;
+
 impl IdlePicker {
+    /// A picker for a package's collection whose begin idle `begin` was just asked: with
+    /// [`BEGIN_IDLE_COUNTS_IN_SEQUENCE`], a Run In Sequence collection listing `begin`
+    /// goes on from the entry after it, and one that `begin` ends plays nothing more
+    /// while the package lasts [hypothesis, as the constant]. Otherwise as `default`.
+    pub fn after_begin(c: &IdleCollection, begin: Option<FormId>) -> IdlePicker {
+        let mut p = IdlePicker::default();
+        let Some(i) = begin.filter(|_| BEGIN_IDLE_COUNTS_IN_SEQUENCE && c.run_in_sequence).and_then(|b| c.idles.iter().position(|&x| x == b)) else { return p };
+        p.at = i + 1;
+        p.picked = 1;
+        p.done = p.at >= c.idles.len();
+        p
+    }
+
     /// The next idle of `c` and the seconds to wait before it, once the last one has
     /// ended; `None` when the collection has nothing more to play. `roll(n)` chooses one
     /// of `n`.
@@ -764,7 +787,31 @@ impl<'a> Game<'a> {
         None
     }
 
-    /// The Begin (0), End (1) or Change (2) idle of a package, asked of its actor
+        /// Whether idle `idle` is one to play with a weapon out: it, or a node above it in the
+    /// IDLE tree, asks for `IsWeaponOut == 1` or names `GetWeaponAnimType` (the drawn-weapon
+    /// fidgets, the stance idles). Any other (a talking gesture, a response's or a
+    /// package's idle, a lean or a meal) is played with the weapon put away: an actor with
+    /// its weapon out puts it away first with its stance's unequip clip [design: owner
+    /// 2026-11-11, playtest 119 item 155, "check that an animation fits before it plays,
+    /// and unequip the weapon first when it doesn't"] [hypothesis: the tree's own weapon
+    /// conditions say which idles were made for a drawn weapon].
+    pub fn idle_fits_weapon_out(&self, idle: FormId) -> bool {
+        let data = self.data;
+        let mut node = Some(idle);
+        let mut steps = 0;
+        while let Some(n) = node.filter(|_| steps < 32) {
+            let Some(d) = data.idles.get(&n) else { break };
+            let conds = d.conditions.as_deref().unwrap_or_default();
+            if names(conds, IS_WEAPON_OUT, 1.0) || conds.iter().any(|c| c.opcode() == GET_WEAPON_ANIM_TYPE) {
+                return true;
+            }
+            node = d.parent;
+            steps += 1;
+        }
+        false
+    }
+
+/// The Begin (0), End (1) or Change (2) idle of a package, asked of its actor
     /// ([`Game::package_event`]).
     pub(crate) fn ask_package_idle(&mut self, actor: FormId, package: FormId, which: usize) {
         let Some(def) = self.package_def(&package) else { return };
@@ -880,6 +927,8 @@ fn names(conds: &[Condition], opcode: u16, value: f64) -> bool {
 
 /// Opcodes of `IsWeaponOut`, `GetSitting` and `GetSleeping` (`functions::mod`).
 const IS_WEAPON_OUT: u16 = 0x1065;
+/// Opcode of `GetWeaponAnimType` (`functions::mod`).
+const GET_WEAPON_ANIM_TYPE: u16 = 0x106C;
 const GET_SITTING: u16 = 0x109F;
 const GET_SLEEPING: u16 = 0x1031;
 /// Opcode of `GetIsAlerted` (`functions::mod`).
@@ -969,6 +1018,22 @@ mod tests {
         // A roll outside the list is held to its last entry.
         assert_eq!(got, [(3, 0.0), (1, 2.5), (3, 2.5)]);
         assert_eq!(IdlePicker::default().next(&collection(false, false, 1.0, 0), |_| 0), None);
+    }
+
+    /// Item 209 [hypothesis, observer check 122]: a begin idle listed in a sequence is
+    /// its first pick. Dead Money's wake-up (begin and whole collection the same idle)
+    /// plays once; a sequence listing it first goes on with the next entry and later
+    /// starts over from its top; a random one, or a begin idle not listed, changes nothing.
+    #[test]
+    fn a_begin_idle_listed_in_its_sequence_counts_as_its_first_pick() {
+        let one = collection(true, false, 0.0, 1);
+        assert_eq!(take(&mut IdlePicker::after_begin(&one, Some(FormId(1))), &one, 2), [None, None]);
+        let two = collection(true, false, 3.0, 2);
+        assert_eq!(take(&mut IdlePicker::after_begin(&two, Some(FormId(1))), &two, 3), [Some((2, 0.0)), Some((1, 3.0)), Some((2, 0.0))]);
+        assert_eq!(take(&mut IdlePicker::after_begin(&two, Some(FormId(9))), &two, 2), take(&mut IdlePicker::default(), &two, 2));
+        let random = collection(false, false, 2.0, 2);
+        assert_eq!(IdlePicker::after_begin(&random, Some(FormId(1))), IdlePicker::default());
+        assert_eq!(IdlePicker::after_begin(&two, None), IdlePicker::default());
     }
 
     #[test]

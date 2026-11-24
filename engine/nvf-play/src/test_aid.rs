@@ -24,6 +24,10 @@
 //! - `NVF_PLAY_TEST_SHOTS=<seconds>[:<path.png>][,...]`: save a screenshot at each time,
 //!   to the path given, else as `play-<seconds>s.png` in `NVF_PLAY_TEST_SHOT_DIR`
 //!   (default: the current folder).
+//! - `NVF_PLAY_TEST_SHOTS_WALL=<unix seconds>`: the `NVF_PLAY_TEST_SHOTS` items written
+//!   `w<seconds>` count from that wall-clock instant instead, so two windows started apart
+//!   (co-op) film the same moment under the same name; without it they count from the
+//!   game's start. `w` items alone are enough: no play-time item is needed.
 //! - `NVF_PLAY_TEST_FACE=<seconds:reference FormID hex,...>`: at each time, put the player
 //!   [`FACE_DISTANCE`] units in front of the reference, by the arrival rule, facing it
 //!   level. In front: towards the door's own arrival point (where its partner door's XTEL
@@ -41,6 +45,8 @@
 //!   inventory at the start (`World::add_item`), e.g. something to drop.
 //! - `NVF_PLAY_TEST_EQUIP=<item FormID hex>[,...]` gives the player one of each item
 //!   unless carried, and equips it (`World::equip`; a weapon for the player body to draw).
+//! - `NVF_PLAY_TEST_USE=<seconds>:<item FormID hex>[,...]` uses a carried item at each
+//!   time as its hotkey would (an aid item is used up, `crate::ItemUsed`).
 //! - `NVF_PLAY_TEST_MOVE=<seconds>:<forward>:<right>[:walk][,...]` holds the movement keys
 //!   from each time on: `forward` and `right` in −1..1 (W/S, D/A), `walk` as Shift held;
 //!   `<seconds>:0:0` stops.
@@ -58,7 +64,7 @@
 //!   legs for limb hits; `aimnpc=<share>@<n>` at that height over body part `n`'s centre,
 //!   e.g. the forehead of a leaning NPC whose head is off the body's middle), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
 //!   the NPC's BPTD, step C8), `aimref=<FormID hex>` (at the collision body of a placed
-//!   object, e.g. a bottle to shoot), `equip=<FormID hex>` (give one unless carried and
+//!   object, e.g. a bottle to shoot, or at a placed actor's aim point), `equip=<FormID hex>` (give one unless carried and
 //!   equip it, as `NVF_PLAY_TEST_EQUIP`) and `condition=<percent>` (set the condition of
 //!   everything the player has equipped, e.g. a weapon about to break). `aimpart=254`
 //!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`);
@@ -73,12 +79,18 @@
 //!   mouse button at each time and lets it go after the hold (default: the next frame),
 //!   through Bevy's input state, so the game's bindings (`crate::bindings`) are what
 //!   read it: `ctrl` (left Ctrl), `shift`, `space`, `tab`, `esc`, `enter`, a letter or
-//!   digit (`e`, `2`), `f1`..`f12`, an arrow (`up`, `down`, `left`, `right`), `mouse-left` /
-//!   `mouse-right` / `mouse-middle`, or a notch of the wheel (`wheel-up`, `wheel-down`).
+//!   digit (`e`, `2`), `f1`..`f12`, an arrow (`up`, `down`, `left`, `right`), `backspace`,
+//!   `delete`, `mouse-left` / `mouse-right` / `mouse-middle`, or a notch of the wheel
+//!   (`wheel-up`, `wheel-down`).
 //!   `pad-X` (or another button named by `crate::pad::parse_pad`) presses a synthetic
 //!   controller's button through `pad::menu_keys`; automatic switching consumes its
 //!   first press when it changes Input Device [design, #2200; `pad::device`].
 //!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
+//!   The hold `tap` (`52:v:tap`) sends a key's or mouse button's press and let-go as the
+//!   device's own messages, both read by Bevy in one frame: a tap shorter than a frame,
+//!   as a quick press at a low frame rate comes in.
+//! - `NVF_PLAY_TEST_FRAME_SLEEP_MS=<ms>` sleeps that long at the end of every frame, a low
+//!   frame rate to test against (200: about 5 fps).
 //!
 //! - `NVF_PLAY_TEST_MELEE_KNOCKBACK=<target FormID hex>:<x>:<y>:<z>`: one player power blow
 //!   on one actor put `x`, `y` from the player and `z` over the ground there (it may start
@@ -303,9 +315,13 @@ pub enum RealInput {
     Wheel(f32),
 }
 
-/// `<key>[:<hold seconds>]` of `NVF_PLAY_TEST_KEYS`.
+/// The hold of a `tap` (`NVF_PLAY_TEST_KEYS`): pressed and let go within one frame.
+pub const TAP: f32 = -1.0;
+
+/// `<key>[:<hold seconds>|tap]` of `NVF_PLAY_TEST_KEYS`.
 pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
     let (name, hold) = match rest.split_once(':') {
+        Some((n, h)) if h.trim() == "tap" => (n.trim(), TAP),
         Some((n, h)) => (n.trim(), h.trim().parse::<f32>().map_err(|_| format!("{rest:?}: bad hold {h:?}"))?),
         None => (rest.trim(), 0.0),
     };
@@ -340,6 +356,8 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
         "bracketright" => RealInput::Key(KeyCode::BracketRight),
         "wheel-up" => RealInput::Wheel(1.0),
         "wheel-down" => RealInput::Wheel(-1.0),
+        "backspace" => RealInput::Key(KeyCode::Backspace),
+        "delete" => RealInput::Key(KeyCode::Delete),
         "mouse-left" => RealInput::Mouse(MouseButton::Left),
         "mouse-right" => RealInput::Mouse(MouseButton::Right),
         "mouse-middle" => RealInput::Mouse(MouseButton::Middle),
@@ -364,6 +382,32 @@ pub(crate) struct RealPresses {
     due: Vec<(f32, (RealInput, f32))>,
     down: Vec<(RealInput, f32)>,
     pad: Option<Entity>,
+}
+
+/// `NVF_PLAY_TEST_KEYS`' taps still to send.
+#[derive(Resource, Default)]
+pub(crate) struct RealTaps(Vec<(f32, (RealInput, f32))>);
+
+/// Send each due tap as the device's press and let-go messages, which Bevy's input
+/// systems read together at the next frame's start.
+fn real_taps(time: crate::pause::AidTime, mut taps: ResMut<RealTaps>, mut typed: MessageWriter<bevy::input::keyboard::KeyboardInput>, mut clicked: MessageWriter<bevy::input::mouse::MouseButtonInput>) {
+    use bevy::input::ButtonState;
+    let Some(now) = time.world_secs() else { return };
+    for (input, _) in take_due(&mut taps.0, now) {
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            match input {
+                RealInput::Key(key_code) => {
+                    let logical_key = bevy::input::keyboard::Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified);
+                    typed.write(bevy::input::keyboard::KeyboardInput { key_code, logical_key, state, text: None, repeat: false, window: Entity::PLACEHOLDER });
+                }
+                RealInput::Mouse(button) => {
+                    clicked.write(bevy::input::mouse::MouseButtonInput { button, state, window: Entity::PLACEHOLDER });
+                }
+                RealInput::Pad(_) | RealInput::Stick(_) | RealInput::Wheel(_) => {}
+            }
+        }
+        info!("test aid: real input {input:?} tapped (pressed and let go in one frame)");
+    }
 }
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
@@ -519,6 +563,10 @@ impl Unattended {
 #[derive(Resource, Default)]
 struct Aids {
     shots: Vec<(f32, PathBuf)>,
+    /// The `w<seconds>` shots, on the wall clock from `shots_wall`.
+    wall_shots: Vec<(f32, PathBuf)>,
+    /// `NVF_PLAY_TEST_SHOTS_WALL`: the wall-clock instant (unix seconds) `wall_shots` count from.
+    shots_wall: Option<f64>,
     face: Vec<(f32, FormId)>,
     looks: Vec<(f32, (f32, f32))>,
     gotos: Vec<(f32, [f32; 3])>,
@@ -526,11 +574,28 @@ struct Aids {
     /// The movement keys held since the last `moves` entry fired.
     held: Option<MoveIntent>,
     presses: Vec<(f32, Press)>,
+    /// `NVF_PLAY_TEST_USE`: items used as their hotkey would.
+    uses: Vec<(f32, FormId)>,
     /// Block held by the `aim` press (kept every frame: the real button's state is read
     /// each frame).
     aim_held: Option<bool>,
     /// Use held by `fire` presses (combat).
     fire_held: bool,
+}
+
+impl Aids {
+    /// Whether nothing is scheduled, so the systems that act on the aids need not run. The
+    /// wall-clock shots count: a run with only `w<seconds>` shots still takes them.
+    fn nothing_due(&self) -> bool {
+        self.uses.is_empty()
+            && self.shots.is_empty()
+            && self.wall_shots.is_empty()
+            && self.face.is_empty()
+            && self.looks.is_empty()
+            && self.gotos.is_empty()
+            && self.moves.is_empty()
+            && self.presses.is_empty()
+    }
 }
 
 pub(crate) fn setup(app: &mut App) {
@@ -577,7 +642,12 @@ pub(crate) fn setup(app: &mut App) {
     let var = |name: &str| std::env::var(name).ok();
     if let Some(v) = var("NVF_PLAY_TEST_KEYS") {
         match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect::<Result<Vec<_>, _>>()) {
-            Ok(due) => {
+            Ok(mut due) => {
+                let taps: Vec<_> = due.iter().filter(|(_, (_, hold))| *hold == TAP).copied().collect();
+                due.retain(|(_, (_, hold))| *hold != TAP);
+                if !taps.is_empty() {
+                    app.insert_resource(RealTaps(taps)).add_systems(PreUpdate, real_taps.after(bevy::input::InputSystems));
+                }
                 let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_) | RealInput::Stick(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
                 app.insert_resource(RealPresses { due, down: Vec::new(), pad })
                     .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::device::automatic).before(crate::pad::menu_keys).before(crate::pad::update_stick_buttons).before(bevy::ui::UiSystems::Focus));
@@ -585,10 +655,18 @@ pub(crate) fn setup(app: &mut App) {
             Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
         }
     }
+    if let Some(ms) = var("NVF_PLAY_TEST_FRAME_SLEEP_MS").and_then(|v| v.trim().parse::<u64>().ok()) {
+        info!("test aid: every frame sleeps {ms} ms");
+        app.add_systems(Last, move || std::thread::sleep(std::time::Duration::from_millis(ms)));
+    }
     let mut aids = Aids::default();
     if let Some(v) = var("NVF_PLAY_TEST_SHOTS") {
         let dir = std::env::var_os("NVF_PLAY_TEST_SHOT_DIR").map_or_else(|| PathBuf::from("."), PathBuf::from);
-        aids.shots = shots(&v, &dir);
+        let (wall, play): (Vec<&str>, Vec<&str>) = v.split(',').map(str::trim).partition(|i| i.starts_with('w'));
+        aids.shots = shots(&play.join(","), &dir);
+        aids.wall_shots = shots(&wall.iter().map(|i| &i[1..]).collect::<Vec<_>>().join(","), &dir);
+        // Without the instant, the `w` shots count from this game's start.
+        aids.shots_wall = var("NVF_PLAY_TEST_SHOTS_WALL").and_then(|v| v.trim().parse().ok()).or_else(|| (!aids.wall_shots.is_empty()).then(unix_now));
     }
     if let Some(v) = var("NVF_PLAY_TEST_FACE") {
         aids.face = faces(&v);
@@ -617,12 +695,15 @@ pub(crate) fn setup(app: &mut App) {
             Err(e) => warn!("NVF_PLAY_TEST_CONTROL: {e}"),
         }
     }
-    if aids.shots.is_empty() && aids.face.is_empty() && aids.looks.is_empty() && aids.gotos.is_empty() && aids.moves.is_empty() && aids.presses.is_empty() {
+    if let Some(v) = var("NVF_PLAY_TEST_USE") {
+        aids.uses = faces(&v);
+    }
+    if aids.nothing_due() {
         return;
     }
     app.insert_resource(aids).add_systems(
         Update,
-        (take_shots, face_reference, goto_and_look, keys_and_controls).chain().in_set(PlaySet::Input).after(crate::control::read_controls),
+        (take_shots, face_reference, goto_and_look, keys_and_controls, use_items).chain().in_set(PlaySet::Input).after(crate::control::read_controls),
     );
 }
 
@@ -777,9 +858,33 @@ fn aim_at_nearest_corpse(phys: &PhysState, player: &mut Player, cross: Option<&C
     info!("test aid: aiming at the corpse of {id:08X} ({:.0} units away, at ({:.0}, {:.0}, {:.0}))", d2(c).sqrt(), c[0], c[1], c[2]);
 }
 
-fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands: Commands) {
+fn use_items(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut sim: ResMut<SimState>, mut used: MessageWriter<crate::ItemUsed>) {
     let Some(now) = time.world_secs() else { return };
-    for path in take_due(&mut aids.shots, now) {
+    for item in take_due(&mut aids.uses, now) {
+        let slot = crate::hotkeys::Slot { item: item.0, mods: 0 };
+        let r = crate::hotkeys::use_slot(&mut sim.world, Some(slot));
+        info!("test aid: use {item}: {}", r.describe("the item"));
+        if let crate::hotkeys::Used::UsedUp(i) = r {
+            used.write(crate::ItemUsed { item: i.0, limb: None });
+        }
+    }
+}
+
+/// The wall clock, unix seconds.
+fn unix_now() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
+}
+
+fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands: Commands) {
+    let mut due = Vec::new();
+    if let Some(epoch) = aids.shots_wall {
+        let wall = (unix_now() - epoch) as f32;
+        due.extend(take_due(&mut aids.wall_shots, wall));
+    }
+    if let Some(now) = time.world_secs() {
+        due.extend(take_due(&mut aids.shots, now));
+    }
+    for path in due {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -861,6 +966,10 @@ fn goto_and_look(
             let hit = phys.place_player(at, 60.0, 1000.0);
             let feet = phys.player.as_ref().map_or(at, |c| c.feet);
             player.feet = feet;
+            // A put, as a travel's (`Player::placed`): a scripted idle after it plays here,
+            // not where the last travel left the player (the Dead Money bunker run, queue
+            // item 182: the capture idle held the host at its `coc` spot, in another trigger).
+            player.placed = Some(feet);
             info!(
                 "test aid: go to ({:.0}, {:.0}, {:.0}): feet ({:.1}, {:.1}, {:.1}) on {:?}",
                 at[0],
@@ -923,6 +1032,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn wall_clock_shots_alone_are_something_to_do() {
+        assert!(Aids::default().nothing_due());
+        let wall_only = Aids { wall_shots: vec![(1.5, PathBuf::from("play-1.5s.png"))], shots_wall: Some(0.0), ..Aids::default() };
+        assert!(!wall_only.nothing_due(), "a run with only w<seconds> shots must still take them");
+        let play_only = Aids { shots: vec![(5.0, PathBuf::from("play-5s.png"))], ..Aids::default() };
+        assert!(!play_only.nothing_due());
+    }
+
+    #[test]
     fn the_key_aid_names_arrows_and_wheel_notches() {
         assert_eq!(real_input("down"), Ok((RealInput::Key(KeyCode::ArrowDown), 0.0)));
         for (name, key) in [("pageup", KeyCode::PageUp), ("pagedown", KeyCode::PageDown), ("bracketleft", KeyCode::BracketLeft), ("bracketright", KeyCode::BracketRight)] {
@@ -935,6 +1053,7 @@ mod tests {
         assert_eq!(real_input("pad-X:0.2"), Ok((RealInput::Pad(GamepadButton::West), 0.2)));
         assert_eq!(real_input("pad-A"), Ok((RealInput::Pad(GamepadButton::South), 0.0)));
         assert!(real_input("pad-unknown").is_err());
+        assert_eq!(real_input("v:tap"), Ok((RealInput::Key(KeyCode::KeyV), TAP)));
     }
 
     /// The stick aid pushes the synthetic controller's left stick and lets it go.

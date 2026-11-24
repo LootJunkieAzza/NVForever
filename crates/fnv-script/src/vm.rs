@@ -169,6 +169,11 @@ pub trait Host {
     fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String>;
     /// An opcode that is not in the function table was skipped (non-strict runs).
     fn skipped(&mut self, _what: &VmError) {}
+    /// A key or mouse button code's name, as GetKeyName gives it, for a format string's
+    /// `%k`; `None` writes the code's number.
+    fn key_name(&mut self, _code: i64) -> Option<String> {
+        None
+    }
     /// Diagnostic-only notification before a fatal no-reference call is returned.
     /// `on` is already evaluated; implementations must not evaluate the call again.
     /// Other hosts keep the default no-op and the original error contract.
@@ -2478,8 +2483,10 @@ impl Vm<'_, '_> {
 
     /// Expand a format string with its values [documented: String Formatting; ext-format.md
     /// §2–3]. `%B`/`%b` (console colours) write nothing here [decision: NVForever's console
-    /// has no colours]; `%k` writes the scancode's number [hypothesis until the scancode
-    /// table is in the export]; `%c` and the `%p` pronouns need form data (task D4) and
+    /// has no colours]; `%k` writes the key's name as GetKeyName gives it ([`Host::key_name`];
+    /// [hypothesis: "key description from DX scancode" is that name; JAM's loot menu
+    /// writes "%k)" for its key hints]), the number where the host has none; `%c` and the
+    /// `%p` pronouns need form data (task D4) and
     /// write nothing yet.
     fn format(&mut self, fmt: &str, values: &[XVal]) -> Result<String, VmError> {
         let cs: Vec<char> = fmt.chars().collect();
@@ -3107,6 +3114,12 @@ impl Vm<'_, '_> {
             "settextinputstring" => Some(0),
             "showtextinputmenu" => Some(3),
             "setuistringex" | "setuistringalt" | "injectuicomponent" | "attachuicomponent" => Some(1),
+            // MCM's: `SetMCMString menu item "trait" "format" values…` [observed: The Mod
+            // Configuration Menu.esp, `SetMCMString 1 iTemp "value/text/string" "%g"
+            // fValue`], and its Mass form a place later (`menu from to "trait" "format"`)
+            // [hypothesis: as SetMCMFloatMass's `5 24 33 "_enable" 0`].
+            "setmcmstring" => Some(3),
+            "setmcmstringmass" => Some(4),
             _ => None,
         };
         if let Some(at) = format_at {

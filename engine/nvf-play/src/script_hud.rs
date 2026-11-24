@@ -68,7 +68,19 @@ pub struct ScriptHud {
     /// The response the companion wheel's companion says now, drawn by the wheel
     /// (`crate::companion_wheel`) instead of here.
     pub wheel_line: Option<String>,
+    /// The other players' quips heard now (co-op, `crate::party_quips`): "Name", the
+    /// text, and until when it is shown.
+    pub party_lines: Vec<(String, String, std::time::Instant)>,
+    /// Each line on screen (speaker, INFO): when it was first drawn, in real time, and
+    /// how long it had left then. A line's time counts game time, which stands still
+    /// while every player is at a table or in a menu; its subtitle goes once that long
+    /// has passed in real time (with [`SUBTITLE_GRACE`]) whatever game time does (owner,
+    /// playtest 119, item 168: "I've got my eye on you." stuck over the blackjack table).
+    seen: std::sync::Mutex<HashMap<(u32, u32), (std::time::Instant, f64)>>,
 }
+
+/// How long past its own length a line's subtitle may stay in real time.
+const SUBTITLE_GRACE: f64 = 1.0;
 
 impl ScriptHud {
     /// A message box was shown: remember its text for when it reaches the front.
@@ -86,7 +98,15 @@ impl ScriptHud {
 
     /// The text of the front message box (`message` is `Game::boxes[0]`) as shown, else as
     /// the message record has it.
+    ///
+    /// A box with a record shown since the scripts' effects were last read is queued
+    /// (`Game::boxes`) before its text reaches [`Self::message_box`]: its text is then
+    /// taken from the events not yet read ([`pending_box`]). A form-less one is told by its
+    /// place in the queue ([`formless_front`]; #1548).
     pub fn box_view(&self, message: FormId, script: &ScriptState) -> BoxMessage {
+        if let Some(b) = script.rt.as_ref().filter(|_| message.0 != 0).and_then(|rt| pending_box(&rt.game.events, message)) {
+            return b;
+        }
         if let Some(b) = self.shown.get(&message.0) {
             return b.clone();
         }
@@ -128,6 +148,17 @@ impl ScriptHud {
     pub fn remember_line(&mut self, info: FormId, responses: Vec<String>) {
         self.lines.insert(info.0, responses);
     }
+}
+
+/// The first box of `message` among `events` not yet read, as the effects would give it
+/// to [`ScriptHud::message_box`] (`crate::script_events::effects`): its text and buttons.
+pub fn pending_box(events: &[fnv_game::trace::Event], message: FormId) -> Option<BoxMessage> {
+    events.iter().find_map(|e| match &e.kind {
+        fnv_game::trace::EventKind::MessageShown { message: m, text, buttons, hidden } if *m == message => {
+            Some(BoxMessage { message: m.0, text: text.clone().unwrap_or_default(), buttons: buttons.clone(), hidden: hidden.clone() })
+        }
+        _ => None,
+    })
 }
 
 /// How many relayed form-less boxes [`ScriptHud`] keeps: more than ever wait at once.
@@ -216,12 +247,23 @@ pub struct BoxButton(pub usize);
 /// as the activation prompt's (`crate::reticle`) and the tile HUD's (`fnv_game::ui_hud`)
 /// (`crate::interface::frame_top`; at 100% its top is the view's, as before) [design: #1631].
 fn spawn(mut commands: Commands) {
+    spawn_frame(&mut commands);
+}
+
+/// The subtitles' frame and area, at the HUD's scale ([`spawn`]; made again by [`draw`]
+/// when the HUD's scale changes).
+fn spawn_frame(commands: &mut Commands) {
     let _hud = crate::interface::hud_units();
     commands.spawn((
+        SubtitleFrame,
         Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), top: crate::interface::frame_top(0.5), justify_content: JustifyContent::Center, ..default() },
         children![(Node { width: u(SUBTITLE_WIDTH), ..default() }, SubtitleArea)],
     ));
 }
+
+/// The subtitles' frame ([`spawn_frame`]).
+#[derive(Component)]
+struct SubtitleFrame;
 
 /// The box's buttons as drawn: its own whose conditions held, or OK for a box without
 /// any.
@@ -292,7 +334,14 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
     // In a conversation with the player only the dialogue menu's own line is on screen.
     let talking = g.dialogue.is_some();
     let mut wheel = None;
+    let real = std::time::Instant::now();
+    let mut seen = hud.seen.lock().unwrap_or_else(|e| e.into_inner());
+    seen.retain(|k, _| g.speech.iter().any(|s| (s.speaker.0, s.info.0) == *k));
     for s in &g.speech {
+        let (since, length) = *seen.entry((s.speaker.0, s.info.0)).or_insert((real, s.remaining.max(0.0)));
+        if real.duration_since(since).as_secs_f64() > length + SUBTITLE_GRACE {
+            continue;
+        }
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
         // (AlwaysShowActorSubtitles), or for this line's (Say's ForceSubtitles), or said
@@ -323,6 +372,14 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         if !talking {
             // The player's tweak names the speaker [design: docs/design/tweaks.md].
             on_screen.push(if g.tweaks.subtitle_names { format!("{who}: {text}") } else { text });
+        }
+    }
+    // The other players' quips (co-op), drawn like any line said nearby.
+    let now = std::time::Instant::now();
+    for (who, text, _) in hud.party_lines.iter().filter(|l| l.2 > now) {
+        subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
+        if !talking {
+            on_screen.push(text.clone());
         }
     }
     // The response being said in the conversation with the player: drawn by the dialogue
@@ -363,11 +420,27 @@ fn draw(
     player: Option<Res<crate::player::Player>>,
     (data, mut images, formats, mut font): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>, Local<Option<Face>>),
     (creator, creator_menu): (Option<Res<crate::creator::CreatorData>>, Option<Res<crate::creator::CreatorMenu>>),
+    (frames, mut rebuild): (Query<Entity, With<SubtitleFrame>>, crate::interface::HudRebuild),
 ) {
+    // The HUD's scale changed (split screen): the frame made again at it, the lines on
+    // screen drawn into it from the next frame.
+    let rebuilt = rebuild.stale();
+    if rebuilt {
+        for e in &frames {
+            commands.entity(e).try_despawn();
+        }
+        spawn_frame(&mut commands);
+    }
     let (p, front, mut subs) = view(&hud, &script, &sim, player.as_deref(), creator.is_some());
     // No subtitles over the character creator; they are still logged [owner 2026-10-17].
     if creator_menu.is_some_and(|c| c.is_open()) {
         subs.on_screen.clear();
+    }
+    // The box on screen, once per change: the text it is drawn with (smoke `menu-box-text`).
+    if front.as_ref().map(|b| (b.message, &b.text)) != hud.on_screen.as_ref().map(|b| (b.message, &b.text)) {
+        if let Some(b) = &front {
+            info!("message box on screen: {:08X} {}", b.message, b.text.replace("\r\n", "\n").replace(['\r', '\n'], " / "));
+        }
     }
     hud.on_screen = front;
     if hud.wheel_line != subs.wheel {
@@ -384,7 +457,7 @@ fn draw(
         if let Some(line) = subs.log_change(&shown) {
             info!("{line}");
         }
-        if subs.on_screen != shown.on_screen || font_changed {
+        if (subs.on_screen != shown.on_screen || font_changed) && !rebuilt {
             let _hud = crate::interface::hud_units();
             let face = font.get_or_insert_with(|| face(SUBTITLE_FONT, plain_font(36.0, 17.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
             let lines = subtitle_layout(&subs.on_screen, &face.font);
@@ -397,6 +470,10 @@ fn draw(
             }
         }
         *shown = subs;
+    }
+    if rebuilt {
+        // Drawn into the new area next frame.
+        shown.on_screen.clear();
     }
 }
 
@@ -471,6 +548,17 @@ pub fn menu_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_box_not_yet_read_gives_its_text_from_the_events() {
+        use fnv_game::trace::{Event, EventKind};
+        let shown = |m: u32, t: &str| Event { frame: 0, kind: EventKind::MessageShown { message: FormId(m), text: Some(t.into()), buttons: vec!["Ok".into()], hidden: Vec::new() } };
+        let other = Event { frame: 0, kind: EventKind::ScriptError { unit: "x".into(), error: "y".into() } };
+        let events = [other, shown(0, "Heartbeat Sensor Framework missing requirement!"), shown(0, "second")];
+        let b = pending_box(&events, FormId(0)).expect("the form-less box");
+        assert_eq!((b.message, b.text.as_str(), b.buttons.as_slice()), (0, "Heartbeat Sensor Framework missing requirement!", &["Ok".to_string()][..]), "the first one queued is the one on screen");
+        assert!(pending_box(&events, FormId(0x1234)).is_none());
+    }
 
     #[test]
     fn subtitle_log_reports_clearing_once_after_the_line() {

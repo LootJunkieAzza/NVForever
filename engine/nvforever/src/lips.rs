@@ -340,7 +340,7 @@ pub fn rig(a: &Appearance, part_index: &[usize], uses: &[PartUse], spawned: &Spa
         }
         let model = &a.parts.get(*part_index.get(ui)?)?.model;
         if *has_tri[ui].get_or_insert_with(|| data.vfs.exists(&sibling(model, "tri"))) {
-            let rest = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| s.mesh.clone());
+            let rest = u.meshes.get(i).cloned().flatten().map_or_else(|| s.mesh.clone(), |(m, _)| m);
             shapes.push(LipShape { entity, model: model.clone(), cpu: s.cpu.clone(), rest });
         }
     }
@@ -486,6 +486,8 @@ struct Speaking {
     /// Real seconds the sound has been held so far (`nvf_play::voice::Spoken::held_secs`):
     /// the mouth's time is `now - started_at - held_secs`.
     held_secs: f64,
+    /// Playback speed (`nvf_play::voice::Spoken::rate`): the mouth runs as fast.
+    rate: f32,
     lip: Arc<Lip>,
     /// Real time at which the voice stopped saying the response (its end, or a cut).
     released_at: Option<f64>,
@@ -775,7 +777,7 @@ pub fn expression_class(s: usize) -> bool {
     (CHANNELS..SLOTS).contains(&s)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive(
     mut commands: Commands,
     real: Res<Time<Real>>,
@@ -817,14 +819,14 @@ fn drive(
     // line, the pause menu): the mouth holds and goes on with the sound.
     // Switched off while a face moves (the settings page): no response counts as said, so
     // the faces ease out and are let go.
-    let spoken: Vec<(FormId, String, f64, f64, f64, FormId, usize)> = if st.enabled {
-        voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at, s.held_secs, s.info, s.response))).collect()
+    let spoken: Vec<(FormId, String, f64, f64, f64, FormId, usize, f32)> = if st.enabled {
+        voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at, s.held_secs, s.info, s.response, s.rate))).collect()
     } else {
         Vec::new()
     };
 
     // Responses that started: animate them, or say why not.
-    for (speaker, path, started_at, ends_at, _, info, response) in &spoken {
+    for (speaker, path, started_at, ends_at, _, info, response, rate) in &spoken {
         if st.seen.get(speaker).is_some_and(|(p, t)| p == path && t == started_at) {
             continue;
         }
@@ -846,7 +848,11 @@ fn drive(
                 continue;
             }
         };
-        let Some((root, actor, rig, ..)) = rigs.iter().find(|r| r.1.reference == speaker.0) else {
+        // The speaker's body nearest the camera: a second body of the same reference left
+        // behind (owner's queue items 105 and 120) must not take the mouth from the one in
+        // view.
+        let cam = camera.iter().next().map(GlobalTransform::translation);
+        let Some((root, actor, rig, ..)) = nearest(rigs.iter().filter(|r| r.1.reference == speaker.0), cam, |r| r.3.translation()) else {
             // An actor the script that started the conversation enabled in the same frame
             // is drawn a few frames later (#2616): its face is looked for again for a
             // moment, and its mouth then follows the line from where the sound is.
@@ -900,7 +906,7 @@ fn drive(
         );
         st.speaking.insert(
             *speaker,
-            Speaking { path: path.clone(), started_at: *started_at, ends_at: *ends_at, held_secs: 0.0, lip, released_at: None, emotion: shown, emotion_from },
+            Speaking { path: path.clone(), started_at: *started_at, ends_at: *ends_at, held_secs: 0.0, rate: *rate, lip, released_at: None, emotion: shown, emotion_from },
         );
     }
 
@@ -982,7 +988,7 @@ fn drive(
             face.turn = head_turn(&h);
         } else if let Some(sp) = st.speaking.get(&FormId(reference)) {
             speech = sp.ease(now);
-            let lip = weights_at(&sp.lip, now - sp.started_at - sp.held_secs, speech);
+            let lip = weights_at(&sp.lip, (now - sp.started_at - sp.held_secs) * f64::from(sp.rate), speech);
             w[..CHANNELS].copy_from_slice(&lip);
             face.turn = head_turn(&lip);
             w[HEAD_PITCH..=HEAD_YAW].fill(0.0);
@@ -1059,6 +1065,12 @@ fn drive(
 
 /// Turn the speakers' heads by their `.lip` head channels, on top of what the frame's
 /// animation, head tracking and a conversation wrote to the bone.
+/// Of `items`, the one whose position is nearest `to` (the first when `to` is unknown).
+pub(crate) fn nearest<T>(items: impl Iterator<Item = T>, to: Option<Vec3>, at: impl Fn(&T) -> Vec3) -> Option<T> {
+    let Some(to) = to else { return items.into_iter().next() };
+    items.min_by(|a, b| at(a).distance_squared(to).total_cmp(&at(b).distance_squared(to)))
+}
+
 fn turn_heads(mut state: ResMut<LipState>, mut transforms: Query<&mut Transform>) {
     let st = &mut *state;
     for face in st.faces.values() {
@@ -1242,7 +1254,8 @@ impl Plugin for LipsPlugin {
             .add_systems(PreUpdate, untouch)
             .add_systems(
                 Update,
-                (drive, turn_heads)
+                // Faces stand still while photo mode holds the view (co-op).
+                (drive.run_if(nvf_play::photo_mode::view_live), turn_heads)
                     .chain()
                     .after(nvf_play::PlaySet::Ui)
                     .after(crate::locomotion::drive)
@@ -1271,6 +1284,16 @@ impl Plugin for LipsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_speakers_body_nearest_the_camera_moves_its_mouth() {
+        let bodies = [("stray", Vec3::new(500.0, 0.0, 0.0)), ("seen", Vec3::new(2.0, 0.0, 0.0))];
+        let pick = |cam| nearest(bodies.iter(), cam, |b| b.1).map(|b| b.0);
+        assert_eq!(pick(Some(Vec3::ZERO)), Some("seen"));
+        assert_eq!(pick(Some(Vec3::new(600.0, 0.0, 0.0))), Some("stray"));
+        assert_eq!(pick(None), Some("stray"), "no camera: the first, as before");
+        assert_eq!(nearest(std::iter::empty::<Vec3>(), Some(Vec3::ZERO), |v| *v), None);
+    }
 
     /// #2616: a speaker enabled in the frame its conversation starts is drawn a few
     /// frames later; its response waits for the face rig that long, then gives up.

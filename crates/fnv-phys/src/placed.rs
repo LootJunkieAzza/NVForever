@@ -55,7 +55,8 @@ pub struct RefCollision {
 /// `model_unreadable`, `primitive_model` (a primitive whose base names a model: the
 /// model is left out, level-design.md §4.1), `open_door_moving_parts` (an open-by-default door whose keyframed
 /// parts were left out), `water_volume` (a model with water volumes; then not also
-/// `model_without_collision`).
+/// `model_without_collision`), `volume` (a placed volume, XPRM, whose base's model is
+/// left out; cells-refs.md §6).
 pub fn ref_collision(
     lo: &LoadOrder,
     schema: &Schema,

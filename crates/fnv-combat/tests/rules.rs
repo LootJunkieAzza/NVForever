@@ -584,6 +584,24 @@ fn semi_automatic_shots_follow_the_clips_next_attack_key() {
     assert!(close(Timing::of(&pistol, &clips, &t).interval, 0.4));
 }
 
+/// A shot that waits for the clip's `Hit` key leaves on a later tick than its pull, even
+/// when the tick is longer than the wait (the engine starts the clip at the pull and draws
+/// the shot from its pose); without a `Hit` key it leaves at once.
+#[test]
+fn a_hit_key_shot_never_leaves_in_the_tick_of_its_pull() {
+    let t = CombatTuning::default();
+    let w = gun(20);
+    let clips = ClipTiming { attack_len: Some(0.833), hit_time: Some(0.0167), ..Default::default() };
+    let mut c = Cycle::new(&w, Timing::of(&w, &clips, &t), false, 10);
+    let pull = c.step(&t, Input { trigger: true, reload: false, dt: 0.05, carried: 10 });
+    assert_eq!(shots(&pull), 0, "{pull:?}");
+    assert!(matches!(c.phase, fnv_combat::attack::Phase::WindUp { .. }));
+    let next = c.step(&t, Input { trigger: true, reload: false, dt: 0.05, carried: 10 });
+    assert_eq!(shots(&next), 1, "{next:?}");
+    let mut c = Cycle::new(&w, Timing::of(&w, &ClipTiming::default(), &t), false, 10);
+    assert_eq!(shots(&c.step(&t, Input { trigger: true, reload: false, dt: 0.05, carried: 10 })), 1);
+}
+
 #[test]
 fn a_jam_holds_the_weapon_until_it_clears() {
     let t = CombatTuning::default();

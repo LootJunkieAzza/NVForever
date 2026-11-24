@@ -1,7 +1,7 @@
 //! The simulation as a resource: `fnv_sim::World` over the loaded plugins, its game clock
 //! running in real time while the player is in the world.
 
-use crate::{PlaySet, PlayState};
+use crate::PlaySet;
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
@@ -14,12 +14,49 @@ pub struct SimState {
     pub world: World<'static>,
 }
 
+/// The run's one table of placed references for load order `lo` and world index
+/// `index`, built on the first call and shared by every later one (they live for the whole
+/// run). nvforever's residents (the AI) and the simulation ([`SimState::shared`]) each
+/// built their own before, the same table twice: about 265 MB of heap each with the
+/// masters and DLCs [observed 2026-11-20, `NVF_HEAP_STATS`, split screen's RAM work]. The
+/// table is read only (`&'static`), so sharing it changes nothing they see.
+pub fn world_refs(lo: &'static LoadOrder<'static>, schema: &'static Schema, index: &'static WorldIndex) -> &'static RefTable {
+    type Key = (usize, usize, usize);
+    static TABLES: std::sync::Mutex<Vec<(Key, &'static RefTable)>> = std::sync::Mutex::new(Vec::new());
+    // Leaked inputs are never freed, so their addresses name them for the whole run.
+    let key = (std::ptr::from_ref(lo) as usize, std::ptr::from_ref(schema) as usize, std::ptr::from_ref(index) as usize);
+    let mut tables = TABLES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, t)) = tables.iter().find(|(k, _)| *k == key) {
+        return t;
+    }
+    let t: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
+    tables.push((key, t));
+    t
+}
+
 impl SimState {
     /// Build the simulation's tables from the plugins (they live for the whole run).
     pub fn new(lo: &LoadOrder, schema: &Schema, index: &WorldIndex) -> SimState {
-        let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(lo, schema)));
-        crate::pipboy::labels::set(&forms.settings);
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
+        Self::with_refs(lo, schema, refs)
+    }
+
+    /// [`SimState::new`] over the run's one reference table ([`world_refs`]): the game's
+    /// (`PlayPlugin`), which nvforever's residents share.
+    pub fn shared(lo: &'static LoadOrder<'static>, schema: &'static Schema, index: &'static WorldIndex) -> SimState {
+        Self::with_refs(lo, schema, world_refs(lo, schema, index))
+    }
+
+    fn with_refs(lo: &LoadOrder, schema: &Schema, refs: &'static RefTable) -> SimState {
+        let mut forms = FormStore::build(lo, schema);
+        // The mods' settings NVForever ships different (`crate::mod_defaults`).
+        crate::mod_defaults::apply(&mut forms);
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
+        crate::pipboy::labels::set(&forms.settings);
+        let moved = refs.issues.count(fnv_sim::refs::XTEL_MOVED);
+        if moved > 0 {
+            bevy::log::info!("doors: {moved} XTEL marker(s) moved with their destination door (a later plugin moved the door): {}", refs.issues.samples(fnv_sim::refs::XTEL_MOVED).join("; "));
+        }
         SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
     }
 
@@ -95,6 +132,14 @@ impl SimState {
     /// (SetActorFullName, [`fnv_game::Game::script_name`]) comes first: it renames every
     /// reference of the base [documented: GECK wiki SetActorFullName].
     pub fn ref_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
+        // Another player of a co-op game goes by its player's name.
+        if let Some(n) = game.and_then(|g| g.coop_actors.get(&FormId(form_id))) {
+            return Some(n);
+        }
+        // NVForever's poker tables (blackjack tables in the plugins).
+        if crate::poker_tables::is_poker_table(self, FormId(form_id)) {
+            return Some(crate::poker_tables::NAME);
+        }
         let base = self.base_of(form_id)?;
         let shown = self.shown_base(game, base, form_id);
         let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
@@ -222,7 +267,8 @@ impl Plugin for SimPlugin {
         // order every frame; which comes first in the game is [hypothesis]: the capture of
         // docs/spec-notes/layer5-captures.md §9 only shows a quest script's own clock
         // change reaching object scripts in the same frame).
-        app.add_systems(Update, advance_clock.run_if(in_state(PlayState::Playing)).before(PlaySet::Scripts));
+        // In co-op the clock goes on behind a minigame table (`crate::coop_tables`).
+        app.add_systems(Update, advance_clock.run_if(crate::coop_tables::world_goes_on).before(PlaySet::Scripts));
     }
 }
 

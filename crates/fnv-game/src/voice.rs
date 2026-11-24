@@ -15,6 +15,19 @@ pub trait VoiceLengths: Send + Sync {
     /// whose base form is `speaker_base`. `None`: no sound is known for it.
     fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64>;
 
+    /// Seconds of the sound at `path` in the data (a line a voice set carries with its
+    /// sound, `GameData::voice_files`). `None`: no such sound.
+    fn file_seconds(&self, _path: &str) -> Option<f64> {
+        None
+    }
+
+    /// Seconds of response `response` of `info` in the folder of voice type
+    /// `voice_type` (the player's own voice, `Game::line_voice_type`). `None`: no such
+    /// sound.
+    fn voice_type_seconds(&self, _info: FormId, _response: usize, _voice_type: FormId) -> Option<f64> {
+        None
+    }
+
     /// The Data path of that response's voice file, when known (the voice path of
     /// SetOnNPCResponseEventHandler, `nvse_jg8`).
     fn response_path(&self, _info: FormId, _response: usize, _speaker_base: Option<FormId>) -> Option<String> {
@@ -60,6 +73,11 @@ impl Game<'_> {
     /// back the voice the actor does not have (issue #1051).
     pub fn response_seconds_voiced(&self, placed_base: Option<FormId>, voice_base: Option<FormId>, info: FormId, response: usize) -> f64 {
         let voice = self.voice.as_ref();
+        if let Some(path) = self.data.voice_files.get(&info) {
+            let chars = self.data.infos.get(&info).and_then(|d| d.response_chars.get(response)).copied().unwrap_or(0);
+            return voice.and_then(|v| v.file_seconds(path)).unwrap_or_else(|| fitted_seconds(chars));
+        }
+        // The player speaks with the voice type of her or his sex (upstream #2088).
         let own = match self.voice_override(voice_base) {
             Some(vt) => voice.and_then(|v| v.response_seconds_in_voice(info, response, vt)),
             None => voice.and_then(|v| v.response_seconds(info, response, voice_base)),
@@ -77,7 +95,17 @@ impl Game<'_> {
     /// The length of each response of a line, in record order. A line without responses
     /// lasts as one empty response does ([`Game::line_seconds`] is their sum).
     pub fn response_lengths(&self, speaker: FormId, info: FormId) -> Vec<f64> {
-        self.response_lengths_voiced(crate::functions::base_of(self, speaker), self.speaker_voice_base(speaker), info)
+        let rate = f64::from(self.line_rate(speaker, info));
+        let mut lengths = self.response_lengths_voiced(crate::functions::base_of(self, speaker), self.line_voice(speaker, info), info);
+        // The player's own voice type (by sex and race) has its own files.
+        if let (Some(vt), Some(voice)) = (self.line_voice_type(speaker, info), self.voice.as_ref()) {
+            for (k, s) in lengths.iter_mut().enumerate() {
+                if let Some(own) = voice.voice_type_seconds(info, k, vt) {
+                    *s = own;
+                }
+            }
+        }
+        lengths.into_iter().map(|s| s / rate).collect()
     }
 
     /// [`Game::response_lengths`] for a speaker placed with `placed_base` speaking with
@@ -93,10 +121,18 @@ impl Game<'_> {
         crate::functions::base_of(self, speaker).map(|b| self.voice_base(b, speaker))
     }
 
+    /// The base form whose voice `speaker` says `info` in: [`Game::speaker_voice_base`],
+    /// or the voice set's speaker for a line of the player's voice
+    /// (`Game::line_voice_base`, docs/design/player-voices.md).
+    pub fn line_voice(&self, speaker: FormId, info: FormId) -> Option<FormId> {
+        crate::functions::base_of(self, speaker).map(|b| self.line_voice_base(&self.world, b, speaker, info))
+    }
+
     /// The voice type (VTYP) actor `r` speaks with: the player's by sex
     /// ([`Game::voice_override`]), else that of the record supplying its traits (VTCK);
     /// a talking activator's is its base's VNAM (#3060) [hypothesis: as its voice folder
-    /// is]. `GetIsVoiceType` and "Allow Default Dialog" read it.
+    /// is]. `GetIsVoiceType` and "Allow Default Dialog" read it (upstream #2088; the fork's
+    /// own player voice, [`Game::player_own_voice_type`], answers GetIsVoiceType).
     pub fn voice_type_of(&self, r: FormId) -> Option<FormId> {
         let player = (r == FormId::PLAYER_REF).then(|| self.player_voice_type()).flatten();
         player
@@ -106,15 +142,10 @@ impl Game<'_> {
 
     /// The player's voice type: the DefaultObjectManager's Player Voice (Female) while the
     /// player is female, its Player Voice (Male) while male [hypothesis: the game picks
-    /// the place by the player's sex; FalloutNV.esm's player record names
-    /// PlayerVoiceMale, and `sound\voice\falloutnv.esm\playervoicefemale` holds the same
-    /// GenericPlayer Hit, PowerAttack and Death lines as `playervoicemale`, observed;
-    /// issue #2088]. A player whose race is a child race (RACE DATA flag Child, the one
-    /// `IsChild` reads; SetRace's race included) speaks with Player Voice (Male Child) or
-    /// (Female Child) [hypothesis: the same rule for the two child places; Tale of Two
-    /// Wastelands plays Fallout 3's childhood in this engine]; when the list names no
-    /// child voice, with the adult one of the same sex [design]. `None` when the list
-    /// names none (the record's VTCK then).
+    /// the place by the player's sex; issue #2088]. A player whose race is a child race
+    /// speaks with Player Voice (Male Child) or (Female Child) [hypothesis]; when the list
+    /// names no child voice, with the adult one of the same sex [design]. `None` when the
+    /// list names none (the record's VTCK then).
     pub fn player_voice_type(&self) -> Option<FormId> {
         use crate::data::DefaultObject::{PlayerVoiceFemale, PlayerVoiceFemaleChild, PlayerVoiceMale, PlayerVoiceMaleChild};
         let female = self.actor_female(FormId::PLAYER_REF);
@@ -123,9 +154,9 @@ impl Game<'_> {
         child.then(|| self.data.default_object(young)).flatten().or_else(|| self.data.default_object(adult))
     }
 
-    /// The voice type a speaker whose voice comes from base `voice_base`
-    /// ([`Game::speaker_voice_base`]) speaks with instead of its record's: the player's
-    /// ([`Game::player_voice_type`]); `None` for every other speaker.
+    /// The voice type a speaker whose voice comes from base `voice_base` speaks with
+    /// instead of its record's: the player's ([`Game::player_voice_type`]); `None` for
+    /// every other speaker.
     pub fn voice_override(&self, voice_base: Option<FormId>) -> Option<FormId> {
         (voice_base == Some(FormId::PLAYER_BASE)).then(|| self.player_voice_type()).flatten()
     }

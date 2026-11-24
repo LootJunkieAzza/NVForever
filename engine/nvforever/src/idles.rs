@@ -27,6 +27,13 @@
 //! - The slot also plays the animation groups scripts ask of actors (`PlayGroup`,
 //!   `actor_groups.rs`); those are not idles for `IsIdlePlaying`.
 //!
+//! - **Weapon away first** (playtest 119 item 155). Before an NPC with its weapon out
+//!   plays an idle asked for by a script, a package, a marker, a dialogue response or a
+//!   talking gesture, the idle is checked: one that neither it nor a node above it in the
+//!   IDLE tree made for a drawn weapon (`Game::idle_fits_weapon_out`) waits while the
+//!   weapon goes away with its stance's unequip clip (`alert.rs`), at most
+//!   [`HOLSTER_WAIT`]; the weapon may come out again once the idle has ended [design:
+//!   owner 2026-11-11].
 //! - **Drawn-weapon fidgets** (idles.md §11). An NPC standing still with its weapon out
 //!   (a rifle loitering, lifting it one-handed to rest the arm, shifting its weight; an
 //!   automatic rifle scanning), and the player standing still in third person with a
@@ -126,6 +133,7 @@
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
 use crate::residents::Residents;
+use crate::sprint_guard::{self, Pose, SprintGuard, Sprinting, Verdict};
 use crate::weapons::{HeldWeapon, WeaponHold};
 use bevy::prelude::*;
 use fnv_actor::idle::meshes_path;
@@ -140,7 +148,7 @@ use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Clip, Layer};
 use nvf_assets::model::ModelCtx;
 use nvf_play::control::PlayerControl;
-use nvf_play::player::Player;
+use nvf_play::player::{MoveIntent, Player};
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
 use std::borrow::Cow;
@@ -278,6 +286,13 @@ impl<C> IdleSlot<C> {
         if let Some(c) = self.cur.as_mut() {
             c.group = Some(group);
         }
+        self.serial
+    }
+
+    /// Play a clip that is no IDLE record (the co-op fork's consume animations,
+    /// `consume_anims.rs`) as an idle `source` asked for; returns its serial.
+    pub fn start_clip(&mut self, source: IdleSource, clip: C, play: IdlePlay) -> u32 {
+        self.start(0, source, None, clip, play);
         self.serial
     }
 
@@ -425,6 +440,16 @@ pub fn holds_in_place(source: IdleSource, section: u8, idle: &Clip, walk: Option
         }
 }
 
+/// Whether a first-person idle plays while the player keeps moving and looking: one of
+/// the Movement section (`IDLE` DATA, [`fnv_game::data::IDLE_SECTION_MOVEMENT`]) does not
+/// take the view or hold the player (§4) [hypothesis: Just Assorted Mods' sprint plays
+/// `SpecialIdleSprint`, a looping Movement idle with a `Camera1st` track, with PlayIdle
+/// on every sprint, and stops sprinting when the player is not moving the next frame
+/// (`IsMoving`): it needs the player to run on under it].
+fn moves_with_player(game: &Game, idle: FormId) -> bool {
+    game.data.idles.get(&idle).is_some_and(|d| d.section == fnv_game::data::IDLE_SECTION_MOVEMENT)
+}
+
 /// The clip an actor walks on: its stance's forward walk, else its run.
 fn walk_clip(lo: &Locomotion) -> Option<&Clip> {
     use fnv_actor::locomotion::Move;
@@ -439,6 +464,11 @@ pub struct PlayerIdles {
     pub third: IdleSlot<Arc<Clip>>,
     /// The player when an idle began to turn the view ([`Held`]).
     pub held: Option<Held>,
+    /// A menu that is played at a place in the world is open (the slot machine's,
+    /// `slots_seat.rs`): the third-person body's idles go on under it, where a menu
+    /// otherwise holds them [design: the body is seen at the machine; slots-170-B
+    /// camera-win-warm, the cheer held on its first frame].
+    pub under_menu: bool,
 }
 
 /// Movement camera overlays animate the view without owning position; other
@@ -578,6 +608,10 @@ impl Rng {
 
 #[derive(Resource)]
 pub struct Idles {
+    /// The NPCs putting their weapon away (or holding it away) for an idle that is not
+    /// played with a weapon out (`Game::idle_fits_weapon_out`), and since when (seconds of
+    /// `clock`); `alert.rs` keeps the weapon away while an actor is here and not fighting.
+    pub holstering: HashMap<u32, f32>,
     collections: HashMap<u32, Collection>,
     /// Seconds until each actor's next look for a fidget, and for its cower idle.
     fidget_check: HashMap<u32, f32>,
@@ -605,6 +639,8 @@ pub struct Idles {
     told: HashMap<u32, u32>,
     /// Idles asked for whose clip is being read on a worker thread, and since when.
     waiting: Vec<(IdleRequest, std::time::Instant)>,
+    /// The first-person sprint pose that stays after the sprint (queue item 113).
+    sprint: SprintGuard,
     rng: Rng,
     pub stats: Stats,
 }
@@ -619,12 +655,17 @@ impl Default for Idles {
             standing_check: HashMap::new(),
             fidget_last: HashMap::new(),
             gesturing: HashMap::new(),
+            holstering: HashMap::new(),
             holstered: HashMap::new(),
             holstered_roll: holstered_roll_aid(),
             clock: 0.0,
             player_feet: None,
             told: HashMap::new(),
-            waiting: Vec::new(), rng: Rng(0x1D1E_5EED), stats: Stats::default() }
+            waiting: Vec::new(),
+            sprint: SprintGuard::default(),
+            rng: Rng(0x1D1E_5EED),
+            stats: Stats::default(),
+        }
     }
 }
 
@@ -721,7 +762,18 @@ fn load(ctx: &mut ActorCtx, game: &Game, actor: FormId, pov: Option<IdlePov>, id
     let def = game.idle_def(idle).ok_or("not an idle animation")?;
     let path = clip_path_for(game, actor, pov, idle).ok_or("it names no file")?;
     let clip = ctx.clip(&path).ok_or_else(|| format!("{path} does not load"))?;
-    let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+    let mut keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+    // A get-up starts from the body as its ragdoll left it, lying: no fade in from the
+    // standing pose below it (which would show the body upright for a moment)
+    // [design], unless the clip asks for one.
+    let getup = crate::player_knockdown::GETUP_IDLES.iter().any(|e| game.data.by_edid(e) == Some(idle));
+    let asks_fade = clip.text_keys.iter().flat_map(|(_, k)| k.lines()).any(|l| {
+        let l: String = l.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
+        ["blendin:", "blenin:", "blend:"].iter().any(|p| l.starts_with(p))
+    });
+    if getup && !asks_fade {
+        keys.blend_in = 0.0;
+    }
     let passes = match def.loops(|n| rng.below(n)) {
         _ if endless => None,
         Loops::Forever => None,
@@ -744,7 +796,8 @@ fn effect_play(clip: &Clip, keys: IdleKeys, passes: Option<u32>) -> IdlePlay {
     }
 }
 
-/// The KF file an idle plays, as its record names it.
+/// The KF file an idle plays: as its record names it, or as a script set it
+/// (`Game::idle_model`).
 fn clip_path(game: &Game, idle: FormId) -> Option<String> {
     let model = game.idle_animation_path(idle)?;
     (!model.trim().is_empty()).then(||meshes_path(model))
@@ -805,11 +858,16 @@ fn describe(game: &Game, idle: FormId, play: &IdlePlay) -> String {
     let k = play.keys;
     let loops = if play.endless() { ", looping until replaced" } else { "" };
     let range = k.loop_range.map_or(String::new(), |(a, b)| format!(", loop {a:.2}-{b:.2} s"));
-    format!("{} ({:.2} s{range}{loops}, fades {:.2} / {:.2} s)", game.data.name(idle), k.length, k.blend_in, k.blend_out)
+    let file = clip_path(game, idle).unwrap_or_default();
+    format!("{} ({file}, {:.2} s{range}{loops}, fades {:.2} / {:.2} s)", game.data.name(idle), k.length, k.blend_in, k.blend_out)
 }
 
 /// What [`drive`] reads and writes of a drawn actor.
 type Drawn = (Entity, &'static RefVisual, &'static ActorRig, Option<&'static mut ActorIdle>, Option<&'static Locomotion>, Option<&'static WeaponHold>);
+
+/// The player's controls and movement, and the arm-wrestling table (whose stools have no
+/// fidgets).
+type PlayerInputs<'w> = (Option<Res<'w, PlayerControl>>, Option<Res<'w, MoveIntent>>, Option<Res<'w, nvf_play::armwrestle::ArmTable>>);
 
 /// Take the idles asked for, run the collections, start and advance what plays.
 #[allow(clippy::too_many_arguments)]
@@ -822,7 +880,7 @@ pub fn drive(
     mut residents: Option<ResMut<Residents>>,
     mut sim: Option<ResMut<nvf_play::sim::SimState>>,
     player: Option<Res<Player>>,
-    control: Option<Res<PlayerControl>>,
+    (control, intent, arm_table): PlayerInputs,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut actors: Query<Drawn>,
@@ -839,11 +897,16 @@ pub fn drive(
         None => (residents.as_deref_mut().and_then(|r| r.own_game()), false),
     };
     let Some(game) = game else { return };
+    // The arm-wrestling table's stools: who sits there is wrestling or about to, and does
+    // not fidget (`at_arm_table`).
+    let arm_stools = arm_table.as_deref().map_or([None; 2], |t| t.stools);
     // A script's menu (a message box, the character menus) holds the game, as the AI's
     // walks are held (`residents.rs`): the idles may start but stand still until it
     // closes, so a scene goes on where it was [observed: owner's TTW run 2026-11-02, the
     // stage that opens the trait menu starts the birth scene's last section, which
     // played out behind the menu; hypothesis: the original's menu mode stops it].
+    // ... except the player's body at a menu played in the world (`PlayerIdles::under_menu`).
+    let body_dt = if pi.under_menu { dt } else if game.menu.is_some() { 0.0 } else { dt };
     let dt = if game.menu.is_some() { 0.0 } else { dt };
     // Between frames the game being played keeps its world in the simulation
     // (`nvf_play::script::with_world`); conditions are evaluated with it put back.
@@ -941,7 +1004,7 @@ pub fn drive(
         // A fidget on furniture ends when its actor starts getting off: it fades out over
         // the start of the getting-off clip, which starts where the body sits
         // (furniture.md §4) [design].
-        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !on_furniture(game, v.0)) {
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && (!on_furniture(game, v.0) || at_arm_table(game, &arm_stools, v.0))) {
             c.play.stop();
         }
         // So does one under a seated Find or Use Item At package with idles of its own:
@@ -989,6 +1052,12 @@ pub fn drive(
         (Some(a), Some(b)) => (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f32>().sqrt() > PLAYER_STILL,
         _ => true,
     };
+    // Across the ground, for the sprint guard.
+    let player_speed = match (feet, st.player_feet) {
+        (Some(a), Some(b)) if dt > 0.0 => ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt() / dt,
+        _ => 0.0,
+    };
+    let mut sprint_asked_again = false;
     st.player_feet = feet;
     let player_still = !moved
         && control.as_deref().is_some_and(|c| c.weapon_out && !c.aiming && !c.trigger && !c.reload && c.third_person_view())
@@ -999,13 +1068,28 @@ pub fn drive(
     }
     // On furniture in third person: may fidget there (the tree's player nodes want the
     // third person, and a fidget in first person would sway the view) [design].
-    let player_seated = on_furniture(game, player_ref) && control.as_deref().is_some_and(|c| c.third_person_view()) && package_of(game, player_ref).is_none();
+    let player_seated = on_furniture(game, player_ref) && !at_arm_table(game, &arm_stools, player_ref) && control.as_deref().is_some_and(|c| c.third_person_view()) && package_of(game, player_ref).is_none();
     if let Some(c) = pi.third.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !player_seated) {
         c.play.stop();
     }
     if stops.contains(&FormId(player_ref)) {
         for slot in [&mut pi.first.cur, &mut pi.third.cur].into_iter().flatten() {
             slot.play.stop();
+        }
+    }
+    // In a conversation the player stands: an idle played while moving (the Movement
+    // section, Just Assorted Mods' sprint) ends, so the arms and the body drop out of the
+    // run. The game runs on under the dialogue screen, so the idle would loop for the
+    // whole conversation: its script returns on `MenuMode` and only stops it once the
+    // menu closes [design: owner's playtest 2026-11-07, overnight item 91; hypothesis:
+    // the original pauses the world and shows no first-person run there]. The sprint's
+    // script plays it again after the conversation if the player still sprints.
+    if game.dialogue.is_some() {
+        for c in [&mut pi.first.cur, &mut pi.third.cur].into_iter().flatten() {
+            if c.group.is_none() && !c.play.ended() && moves_with_player(game, FormId(c.idle)) {
+                info!("idle: the player's {:08X} ends as the conversation starts", c.idle);
+                c.play.stop();
+            }
         }
     }
     for (actor, pov) in &pov_stops {
@@ -1048,9 +1132,12 @@ pub fn drive(
         let quiet = package_of(game, actor).and_then(|p| game.package_def(&p)).is_some_and(|d| d.has(flags::NO_IDLE_ANIMS));
         let Some((key, collection)) = of_marker.or_else(|| game.package_idles(FormId(actor)).map(|(p, c)| ((false, p.0), Cow::Borrowed(c)))).filter(|_| !quiet) else { continue };
         live.push(actor);
-        let c = st.collections.entry(actor).or_insert_with(|| Collection { key, picker: IdlePicker::default(), next: None, retry: 0.0 });
+        // A package's collection starts after its begin idle, which a sequence may list
+        // as its first pick (`IdlePicker::after_begin`, item 209) [hypothesis].
+        let picker = || if key.0 { IdlePicker::default() } else { IdlePicker::after_begin(&collection, game.package_def(&FormId(key.1)).and_then(|d| d.events[0].idle)) };
+        let c = st.collections.entry(actor).or_insert_with(|| Collection { key, picker: picker(), next: None, retry: 0.0 });
         if c.key != key {
-            *c = Collection { key, picker: IdlePicker::default(), next: None, retry: 0.0 };
+            *c = Collection { key, picker: picker(), next: None, retry: 0.0 };
         }
         c.retry = (c.retry - dt).max(0.0);
         // In a conversation the collection waits; its gestures come from the tree.
@@ -1162,7 +1249,7 @@ pub fn drive(
             let folder = skeleton_folder(&rig.skeleton)?;
             let still = lo.is_some_and(|l| l.velocity == [0.0; 2]);
             let kind = if game.furniture_use(FormId(v.0)).is_some() {
-                on_furniture(game, v.0).then_some(FidgetKind::OnFurniture)?
+                (on_furniture(game, v.0) && !at_arm_table(game, &arm_stools, v.0)).then_some(FidgetKind::OnFurniture)?
             } else if folder.split('\\').any(|p| p == "creatures") {
                 // Alerted: the combat idles; calm: the tree's ordinary idles (#2051).
                 still.then_some(if game.draws_weapon(FormId(v.0)) { FidgetKind::Alerted } else { FidgetKind::Calm })?
@@ -1446,6 +1533,25 @@ pub fn drive(
                 failed(st, "the actor is not drawn");
                 continue;
             }
+            // An idle not made for a drawn weapon: the weapon goes away first, with its
+            // stance's unequip clip (`alert.rs`, `weapons.rs`), and the idle waits for it,
+            // at most `HOLSTER_WAIT` (playtest 119 item 155).
+            if actor.0 != player_ref && checks_weapon(source) {
+                let hold = actors.get(drawn[&actor.0]).ok().and_then(|(.., h)| h);
+                let out = hold.filter(|h| !h.body && (h.drawn || h.anim.stage != Stage::Holstered));
+                if let Some(h) = out.filter(|_| !game.idle_fits_weapon_out(idle)) {
+                    let clock = st.clock;
+                    let put_at = *st.holstering.entry(actor.0).or_insert_with(|| {
+                        info!("idle: {name} puts its weapon away before {} ({source:?}): not an idle for a drawn weapon", game.data.name(idle));
+                        clock
+                    });
+                    if h.anim.stage != Stage::Holstered && clock - put_at < HOLSTER_WAIT {
+                        held_up.insert(actor.0);
+                        st.waiting.push((request, since.unwrap_or_else(std::time::Instant::now)));
+                        continue;
+                    }
+                }
+            }
             // Its clip read on a worker thread rather than in this frame (#1429).
             let ready = clip_ready(&mut ctx, game, actor, pov, idle);
             let waited = since.map_or(std::time::Duration::ZERO, |t| t.elapsed());
@@ -1505,6 +1611,7 @@ pub fn drive(
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
                 let started = if first { &mut pi.first } else { &mut pi.third }.start_file(idle.0, source, owner, clip, play, file);
+                sprint_asked_again |= first && !started;
                 if first {
                     if let Some(current) = pi.first.cur.as_mut() {
                         current.holds = holds;
@@ -1610,20 +1717,69 @@ pub fn drive(
             None => {}
         }
     }
-    for slot in [&mut pi.first, &mut pi.third] {
-        slot.advance(dt);
+    // The first-person sprint pose that stays after the sprint (queue item 113): ended,
+    // through its fade, once the player has not sprinted for a moment (`sprint_guard.rs`).
+    // The world held by a menu is not watched.
+    if dt > 0.0 {
+        let pose = pi
+            .first
+            .cur
+            .as_ref()
+            .filter(|c| c.group.is_none() && c.source == IdleSource::Script && (c.play.endless() || c.play.ended()) && moves_with_player(game, FormId(c.idle)))
+            .map(|c| (c.idle, Pose { serial: c.serial, ended: c.play.ended(), asked_again: sprint_asked_again }));
+        let doing = Sprinting {
+            forward: intent.as_deref().map_or(0.0, |i| i.forward),
+            walk: intent.as_deref().is_some_and(|i| i.walk),
+            sneak: intent.as_deref().is_some_and(|i| i.sneak),
+            speed: player_speed,
+            aiming: control.as_deref().is_some_and(|c| c.aiming),
+            firing: control.as_deref().is_some_and(|c| c.trigger),
+            reloading: control.as_deref().is_some_and(|c| c.reload),
+        };
+        match st.sprint.step(pose.map(|p| p.1), sprint_guard::not_sprinting(&doing), dt) {
+            Verdict::Fine => {}
+            Verdict::Stuck { secs, why } => {
+                if let Some(c) = pi.first.cur.as_mut() {
+                    c.play.stop();
+                }
+                let name = pose.map_or(String::new(), |(idle, _)| game.data.name(FormId(idle)));
+                info!("guard 113: first-person sprint pose stuck for {secs:.2} s ({why}), back to idle: {name} ends");
+            }
+            Verdict::LeftToScript => {
+                let name = pose.map_or(String::new(), |(idle, _)| game.data.name(FormId(idle)));
+                info!("guard 113: a script played {name} again after the guard ended it: left to the script");
+            }
+        }
     }
+    pi.first.advance(dt);
+    pi.third.advance(body_dt);
     if let Some(p) = pi.first.playing().or(pi.third.playing()) {
         now.insert(player_ref, p.idle);
     }
+    // Told again when the rules' own note is not what plays, not only when what plays
+    // changed: a load makes the game anew, without the note (`RefExtra::idle` is not
+    // saved), while the idle plays on here. JAM's sprint ends its pose only while
+    // IsIdlePlayingEx says it plays, and drops its effect once it does not: a note lost
+    // that way left the pose looping for good [hypothesis: one way to queue item 113].
     for (actor, idle) in &now {
-        if st.told.get(actor) != Some(idle) {
+        if st.told.get(actor) != Some(idle) || game.idle_playing(FormId(*actor)) != Some(FormId(*idle)) {
             game.set_idle_playing(FormId(*actor), Some(FormId(*idle)));
         }
     }
     for actor in st.told.keys().filter(|a| !now.contains_key(a)) {
         game.set_idle_playing(FormId(*actor), None);
     }
+    // An idle played without the weapon has ended (or never started): the weapon may
+    // come out again as the actor's state says (`alert.rs`).
+    let waiting: HashSet<u32> = st.waiting.iter().map(|(r, _)| r.actor.0).collect();
+    let clock = st.clock;
+    st.holstering.retain(|a, put_at| {
+        let keep = now.contains_key(a) || waiting.contains(a) || clock - *put_at < HOLSTER_WAIT;
+        if !keep {
+            info!("idle: {} ({a:08X}) may draw its weapon again: its idle has ended", game.data.name(FormId(*a)));
+        }
+        keep
+    });
     st.told = now;
     for a in holding.difference(&holds.held) {
         info!("idle hold: {} ({a:08X}) stands while its idle shows", game.data.name(FormId(*a)));
@@ -1633,6 +1789,21 @@ pub fn drive(
     }
     holds.held = holding;
     holds.carried_off = carried_off;
+}
+
+/// The longest an idle waits for its actor to put its weapon away (seconds): one whose
+/// weapon does not go away (a fight, a guest's copy of the host's actor) plays anyway.
+const HOLSTER_WAIT: f32 = 3.0;
+
+/// Whether an idle from `source` is checked against a drawn weapon before it plays
+/// (`Game::idle_fits_weapon_out`): not the drawn-weapon fidgets, combat and calm idles,
+/// stimpaks, cowering, panic, furniture fidgets or pick-ups, which are chosen for the
+/// state the actor is in.
+fn checks_weapon(source: IdleSource) -> bool {
+    matches!(
+        source,
+        IdleSource::Script | IdleSource::Picked | IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange | IdleSource::PackageIdles | IdleSource::MarkerIdles | IdleSource::Speaker | IdleSource::Listener | IdleSource::Gesture | IdleSource::Standing
+    )
 }
 
 /// Whether `actor` flees from a fight (`GetCurrentAIProcedure` 16).
@@ -1645,6 +1816,15 @@ fn fleeing(game: &Game, actor: u32) -> bool {
 /// `GetSleeping` 3).
 fn on_furniture(game: &Game, actor: u32) -> bool {
     game.furniture_use(FormId(actor)).is_some_and(|u| u.state == 3)
+}
+
+/// Whether `actor` sits on (or is getting onto) one of the arm-wrestling table's stools: no
+/// fidget there, the match poses the arms (`armwrestle_arm`, `armwrestle_free_arm`) and a
+/// fidget's body (the chair's lean back, hands behind the head) would pull them off the
+/// table [observed: laptop co-op run ship10, 2026-11-11: the player's lean-back fidget
+/// started 3 s into the bout; design: no fidgets at the arm-wrestling table].
+fn at_arm_table(game: &Game, stools: &[Option<FormId>; 2], actor: u32) -> bool {
+    game.furniture_use(FormId(actor)).is_some_and(|u| stools.contains(&Some(u.reference)))
 }
 
 /// Whether a fidget with the weapon away ends: its actor moves, its weapon is no longer
@@ -1801,6 +1981,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
     info!("furniture fidget summary: {} fidgets on furniture started on actors, {} on the player", s.actor_furniture_fidgets, s.player_furniture_fidgets);
     info!("talk gesture summary: {} gestures picked while talking, {} while listening; {} walks of the tree gave none", s.talk_gestures, s.listen_gestures, s.no_gesture);
     info!("cower summary: {} cower idles started on fleeing actors", s.cowers);
+    info!("guard 113 summary: the first-person sprint pose was ended {} times after it stayed past the sprint", st.sprint.fired);
     if s.panics + s.no_panic > 0 {
         info!("panic summary: {} panic idles started on actors with a live explosive, {} with none for their kind", s.panics, s.no_panic);
     }

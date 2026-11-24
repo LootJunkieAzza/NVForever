@@ -236,7 +236,7 @@ pub(crate) fn compile_picked(lo: &LoadOrder<'_>, schema: &Schema, table: &Functi
         .map(|&i| {
             let u = &units[i].unit;
             let env = ix.env(ix.plugin_index(&u.plugin).unwrap_or(0));
-            let c = compile(u.source.as_deref().unwrap_or(""), table, &env, Some(Seed { variables: &u.variables, refs: &u.refs, unknown_calls: true }));
+            let c = compile(u.source.as_deref().unwrap_or(""), table, &env, Some(Seed { variables: &u.variables, refs: &u.refs, unknown_calls: true, unknown_operands: true }));
             let first = c.errors().next().map(|e| SourceError { line: e.line, kind: e.kind, detail: e.detail.clone() });
             let (unknown_functions, unknown_enums) = (warned(&c, "unknown_function"), warned(&c, "unknown_enum_name"));
             let result = match first {

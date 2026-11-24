@@ -202,6 +202,8 @@ fn folder_overrides_follow_the_weapon_and_the_condition() {
     // CopyAnimationsToForm takes the folders' entries along, conditions and all.
     q(&mut g, "CopyAnimationsToForm TestGun OtherGun");
     assert!(g.anim_folders.entries.iter().filter(|e| e.forms.contains(&FormId(WEAPON))).all(|e| e.forms.contains(&FormId(OTHER_GUN))));
+    // Another Millenia's PKM entry: `!GetIsCreature` holds on the player.
+    assert_eq!(g.evaluate_on("!GetIsCreature", Some(FormId::PLAYER_REF)).map_err(|e| e.to_string()), Ok(true));
 }
 
 /// SetActorAnimationPath takes a folder (its KF files) and a condition function: the

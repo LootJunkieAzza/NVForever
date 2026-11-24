@@ -25,8 +25,12 @@ const RATS: u32 = 0x902;
 const IDLERS: u32 = 0x903;
 const GANG_A: u32 = 0x904;
 const GANG_B: u32 = 0x905;
+/// An army that names itself an ally and the wearers of its enemy's armour an enemy (as
+/// VCaesarsLegionFaction and ArmorNCRFactionNVEnemy).
+const LEGION: u32 = 0x906;
+const ENEMY_ARMOR: u32 = 0x907;
 /// The hound's own faction, naming nobody.
-const HOUNDS: u32 = 0x906;
+const HOUNDS: u32 = 0x908;
 
 const LEADER: u32 = 0x830;
 const MEMBER: u32 = 0x831;
@@ -71,6 +75,10 @@ const NAMELESS: u32 = 0x872;
 const HOUND: u32 = 0x873;
 const HOUND_REF: u32 = 0x331;
 const PELT: u32 = 0x880;
+/// A legionary, and an officer of the army that is also in its enemy-armour faction (as
+/// FortVulpesInculta).
+const LEGIONARY: u32 = 0x875;
+const SPY: u32 = 0x876;
 
 const CELL: u32 = 0x200;
 const LEADER_REF: u32 = 0x320;
@@ -89,6 +97,8 @@ const GANGER_B_REF: u32 = 0x32C;
 const COWARD_REF: u32 = 0x32D;
 const LURKER_REF: u32 = 0x32E;
 const NAMELESS_REF: u32 = 0x32F;
+const LEGIONARY_REF: u32 = 0x330;
+const SPY_REF: u32 = 0x332;
 /// Sixteen references of the creature whose template list holds a wolf and a rat.
 const MIXED_REFS: std::ops::Range<u32> = 0x340..0x350;
 const PLAYER: u32 = 0x14;
@@ -181,6 +191,8 @@ fn plugin_bytes() -> Vec<u8> {
         // Two gangs that name nobody but a third faction, each other not at all.
         record(b"FACT", 0, GANG_A, &[sub(b"EDID", z("GangA")), xnam(RATS, 0)]),
         record(b"FACT", 0, GANG_B, &[sub(b"EDID", z("GangB")), xnam(RATS, 0)]),
+        record(b"FACT", 0, LEGION, &[sub(b"EDID", z("Legion")), xnam(LEGION, 2), xnam(ENEMY_ARMOR, 1)]),
+        record(b"FACT", 0, ENEMY_ARMOR, &[sub(b"EDID", z("EnemyArmor")), xnam(LEGION, 1), xnam(ENEMY_ARMOR, 3)]),
         record(b"FACT", 0, HOUNDS, &[sub(b"EDID", z("Hounds"))]),
     ]
     .concat();
@@ -198,6 +210,8 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", 0, LOAFER, &[sub(b"EDID", z("Loafer")), acbs(0), snam(IDLERS, 0), aidt(1)]),
         record(b"NPC_", 0, GANGER_A, &[sub(b"EDID", z("GangerA")), acbs(0), snam(GANG_A, 0), snam(IDLERS, 0), aidt(2)]),
         record(b"NPC_", 0, GANGER_B, &[sub(b"EDID", z("GangerB")), acbs(0), snam(GANG_B, 0), snam(IDLERS, 0), aidt(1)]),
+        record(b"NPC_", 0, LEGIONARY, &[sub(b"EDID", z("Legionary")), acbs(0), snam(LEGION, 0), aidt(1)]),
+        record(b"NPC_", 0, SPY, &[sub(b"EDID", z("Spy")), acbs(0), snam(LEGION, 0), snam(ENEMY_ARMOR, 0), aidt(1)]),
     ]
     .concat();
     let creatures = [
@@ -235,6 +249,8 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", LOAFER_REF, LOAFER),
         placed(b"ACHR", GANGER_A_REF, GANGER_A),
         placed(b"ACHR", GANGER_B_REF, GANGER_B),
+        placed(b"ACHR", LEGIONARY_REF, LEGIONARY),
+        placed(b"ACHR", SPY_REF, SPY),
         placed(b"ACRE", COWARD_REF, COWARD),
         placed(b"ACRE", LURKER_REF, LURKER),
         placed(b"ACRE", NAMELESS_REF, NAMELESS),
@@ -989,6 +1005,22 @@ fn a_shared_faction_does_not_make_enemies_kin() {
 }
 
 #[test]
+fn an_army_that_names_itself_an_ally_keeps_its_own_from_fighting() {
+    // Owner 2026-11-15, Finger of Suspicion: FortVulpesInculta is in VCaesarsLegionFaction
+    // (which names itself an ally) and in ArmorNCRFactionNVEnemy (which it names an
+    // enemy); in the original nobody in Caesar's tent attacks him. Allies cannot attack
+    // each other [documented: wiki Category:Factions], and the shared faction makes them
+    // allies whatever their other factions say.
+    let f = fixture();
+    let mut g = game(&f);
+    let (legionary, spy) = (FormId(LEGIONARY_REF), FormId(SPY_REF));
+    assert!(g.kin(legionary, spy) && g.kin(spy, legionary));
+    assert!(!g.would_attack(legionary, spy) && !g.would_attack(spy, legionary));
+    // A raider and the watchman share only Idlers, which names no reactions: still enemies.
+    assert!(g.would_attack(FormId(BANDIT_REF), FormId(WATCHMAN_REF)));
+}
+
+#[test]
 fn a_teammate_reacts_as_if_in_the_player_faction() {
     // docs/design/followers.md §3 [documented: GECK wiki SetPlayerTeammate]. The loafer
     // (an idler, kin to the bandit) is made the player's teammate: the bandit, a raider
@@ -1290,6 +1322,67 @@ fn an_actor_hostile_by_its_records_is_helped_after_a_start_combat_too() {
     // Not the player: an NPC's scripted fight is not this rule's.
     g.start_combat(own, FormId(HELPER_REF));
     assert!(!g.unprovoked_scripted_fight(own, FormId(HELPER_REF)));
+}
+
+#[test]
+fn allies_stay_out_of_a_fight_a_script_forced_until_the_target_fights_back() {
+    // Overnight queue item 40 (Silver Rush, VMS29a): Gloria's line makes Mr. Soren
+    // StartCombat the player so that he runs out; the Van Graffs (his allies, Helps
+    // Allies) do not join [hypothesis: Game::fight_only_forced]. Once the player hurts
+    // him, it is an ordinary fight and they do.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[OWN_REF, HELPER_REF]);
+    assert!(!g.would_attack(own, player), "neutral to the player by its records");
+    g.start_combat(own, player);
+    assert!(g.would_attack(own, player));
+    g.detection.pairs.insert((helper, own), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.would_attack(helper, player));
+    let notes = g.provocations.take_notes();
+    // Upstream's rule (`Game::allies_stay_out`, Note::Unprovoked) leaves the player's foe
+    // out before the fork's `fight_only_forced` is asked; either notes the pair once.
+    assert_eq!(notes.iter().filter(|n| matches!(n, Note::ForcedOnly { victim, foe } | Note::Unprovoked { victim, foe } if *victim == own && *foe == player)).count(), 1);
+    // No alarm either.
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [300.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 0);
+    assert!(!g.would_attack(helper, player));
+    // The player fights back (a hit: attacked_by, then hurt_by as the engine calls
+    // them): the ally joins.
+    g.attacked_by(own, player);
+    assert!(g.hurt_by(own, player, [500.0, 0.0, 0.0]));
+    assert_eq!(g.call_allies(), 1);
+    assert!(g.would_attack(helper, player));
+}
+
+#[test]
+fn a_forced_fight_with_another_co_op_player_brings_no_allies() {
+    // Overnight item 73 (2026-11-07 co-op playtest): at the end of the Silver Rush scene
+    // the Van Graffs attacked the guest. Soren's StartCombat on the player sets him on
+    // the guest's actor too (another player is attacked whenever the player would be),
+    // and that fight is as forced as the player's: no alarm, no help.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, guest, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId(COWARD_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[OWN_REF, HELPER_REF, COWARD_REF]);
+    g.coop_actors.insert(guest, "Guest".into());
+    g.start_combat(own, player);
+    assert!(g.would_attack(own, guest), "the guest is attacked as the player is");
+    assert!(g.fight_only_forced(own, guest));
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(guest), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [300.0, 0.0, 0.0]), (guest, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 0);
+    assert!(!g.would_attack(helper, guest) && !g.would_attack(helper, player));
+    // The guest fights back: an ordinary fight.
+    g.attacked_by(own, guest);
+    assert!(g.hurt_by(own, guest, [500.0, 0.0, 0.0]));
+    assert!(!g.fight_only_forced(own, guest));
 }
 
 #[test]

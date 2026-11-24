@@ -628,9 +628,17 @@ impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
         configure_draw_set(app);
         app.init_resource::<Particles>()
-            .add_systems(Update, (script_drawn, script_drawn_rig, staged_addons, emit.after(crate::effect_shaders::sync_player_effects), simulate, take_basis).chain().after(crate::shot_fx::ShotFxSet))
+            .add_systems(Update, (script_drawn, script_drawn_rig, dropped_addons, staged_addons, emit.after(crate::effect_shaders::sync_player_effects).run_if(nvf_play::photo_mode::view_live), simulate.run_if(nvf_play::photo_mode::view_live), take_basis).chain().after(crate::shot_fx::ShotFxSet))
             .add_systems(PostUpdate, draw.in_set(ParticleDrawSet))
             .add_systems(Last, report);
+    }
+}
+
+/// A created reference's add-on nodes (`nvf_play::dropped::AddonNode`) emit as a placed
+/// reference's do: the flames and sparks of the fire Burning Campfire Redone places.
+fn dropped_addons(mut commands: Commands, added: Query<(Entity, &nvf_play::dropped::AddonNode), Added<nvf_play::dropped::AddonNode>>) {
+    for (e, a) in &added {
+        commands.entity(e).insert(AddonEmitter::placed(a.index, a.reference));
     }
 }
 
@@ -702,6 +710,7 @@ pub fn game_affine(e: Entity, transforms: &Query<&Transform>, parents: &Query<&C
     m
 }
 
+#[allow(clippy::too_many_arguments)]
 fn systems_of<'a>(
     p: &'a mut Particles,
     key: &Key,
@@ -709,6 +718,7 @@ fn systems_of<'a>(
     models: &mut ModelCtx,
     commands: &mut Commands,
     root: Entity,
+    fuller: bool,
     idle: Option<&IdleParticleRig>,
 ) -> Option<&'a mut Vec<Live>> {
     let source = &key.source;
@@ -721,9 +731,17 @@ fn systems_of<'a>(
             Source::Model(path) => (Some(path.clone()), "model".to_string()),
         };
         let prepared: Option<Arc<PreparedParticles>> = path.as_deref().and_then(|p| models.particles(p));
+        // A fire's add-on node gains the systems of the fuller fire (fuller_fire.rs).
+        let added: Vec<ParticleSystemDef> = match (source, &prepared) {
+            (Source::Addon(_), Some(pp)) if !pp.systems.is_empty() && path.as_deref().is_some_and(crate::fuller_fire::is_fire) => {
+                let smoke = models.particles(crate::fuller_fire::SMOKE);
+                crate::fuller_fire::layers(&pp.systems, smoke.as_ref().map_or(&[][..], |s| &s.systems[..]))
+            }
+            _ => Vec::new(),
+        };
         let live = prepared.filter(|pp| !pp.systems.is_empty()).map(|pp| {
             if p.described.insert(source.clone()) {
-                p.tally.insert(source.clone(), pp.systems.iter().map(|d| (d.name.clone(), 0)).collect());
+                p.tally.insert(source.clone(), pp.systems.iter().chain(&added).map(|d| (d.name.clone(), 0)).collect());
                 // Systems a sequence of the model drives, and those sequences' names.
                 let driven = pp.systems.iter().filter(|d| !d.sequences.is_empty()).count();
                 let mut names: Vec<&str> = Vec::new();
@@ -740,9 +758,17 @@ fn systems_of<'a>(
                     if pp.unread.is_empty() { String::new() } else { format!("; not read: {}", pp.unread.join(", ")) },
                     if driven == 0 { String::new() } else { format!("; {driven} driven by the sequences [{}]", names.join(", ")) }
                 );
+                // Made either way, so the settings switch can turn them on; born only
+                // while it is on.
+                if !added.is_empty() && fuller {
+                    info!("particles: {what}: {} system(s) of the fuller fire [{}]", added.len(), added.iter().map(ParticleSystemDef::describe).collect::<Vec<_>>().join("; "));
+                } else if !added.is_empty() {
+                    info!("particles: {what}: {} fuller-fire system(s) kept unborn: the switch is off", added.len());
+                }
             }
             pp.systems
                 .iter()
+                .chain(&added)
                 .map(|def| {
                     let mesh = models.meshes.add(particle_mesh());
                     let entity = commands
@@ -826,9 +852,11 @@ fn emit(
     idle_rigs: Query<&IdleParticleRig>,
     transforms: Query<&Transform>,
     parents: Query<&ChildOf>,
+    graphics: Option<Res<crate::graphics::Graphics>>,
     body: Option<Res<crate::player_body::PlayerBody>>,
 ) {
     let Ok((root, root_t)) = root.single() else { return };
+    let fuller = graphics.as_ref().is_some_and(|g| g.fuller_fire);
     // The camera in game space: emitters nearest it are served first.
     let eye = camera.single().ok().map(|c| Vec3A::from(root_t.compute_affine().inverse().transform_point3(c.translation)));
     let dt = time.delta_secs();
@@ -909,8 +937,11 @@ fn emit(
         let (age, placed) = (*age, *placed);
         let rig = drive.as_ref().and_then(|d| rigs.get(d.rig).ok());
         let mut rng = SplitMix(p.rng.0);
-        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root, key.instance.and_then(|e| idle_rigs.get(e).ok())) else { continue };
+        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root, fuller, key.instance.and_then(|e| idle_rigs.get(e).ok())) else { continue };
         let node = places[i];
+        // A fire burning a volumetric flame (fire_volume.rs) leaves its flame squares
+        // unborn; its sparks stay.
+        let flame_drawn = fuller && matches!(key.source, Source::Addon(i) if crate::fire_volume::burns(sfx.as_deref(), i));
         let mut counts = vec![0u64; systems.len()];
         let mut born = 0;
         if let Some((name, ..)) = drive.as_ref().filter(|d| d.began).and_then(|d| d.playing.as_ref()) {
@@ -943,7 +974,7 @@ fn emit(
             // Box emitters also take their object's place from the drawn rig below; the
             // mover adds the mesh emitters and the bombs under the moved node.
             let node = node * d.moved(t);
-            if on <= 0.0 || (d.max_emitters > 0 && live.served >= d.max_emitters) {
+            if on <= 0.0 || (d.max_emitters > 0 && live.served >= d.max_emitters) || (!fuller && crate::fuller_fire::is_added(d)) || (flame_drawn && crate::fuller_fire::is_flame(d)) {
                 continue;
             }
             live.served += 1;
@@ -1422,6 +1453,42 @@ mod tests {
             alpha_keys: None,
             soft: 0.0,
         }
+    }
+
+    #[test]
+    fn fires_gain_rising_embers_and_smoke_above() {
+        use crate::fuller_fire::{is_added, is_fire, is_flame, layers, PREFIX};
+        use nvf_assets::particles::Gravity;
+        assert!(is_fire(r"meshes\mps\mpsfiresmall01.nif") && is_fire(r"MPS\MPSFireMed01.NIF"));
+        assert!(!is_fire(r"meshes\mps\mpsflamerflame01.nif") && !is_fire(r"meshes\mps\mpssmokesmall01.nif"));
+        let named = |n: &str| {
+            let mut d = test_def(None);
+            d.name = n.into();
+            d.rate = 15.0;
+            d.max = 70;
+            d.grow_time = 0.5;
+            d.emitter.size = Vec3::splat(15.0);
+            d.emitter.radius = 34.0;
+            d.emitter.life = 0.4;
+            d.gravity.push(Gravity { direction: Vec3::Z, origin: Vec3::ZERO, strength: 180.0, decay: 0.0, strength_keys: None, spherical: false, active: Default::default() });
+            d
+        };
+        let fire = [named("pFlames02"), named("pSparks")];
+        let smoke = [named("pSmoke02")];
+        let added = layers(&fire, &smoke);
+        let names: Vec<&str> = added.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, [format!("{PREFIX}pSparks embers"), format!("{PREFIX}pSmoke02 smoke")]);
+        assert!(added.iter().all(is_added) && !fire.iter().any(is_added));
+        // The volumetric flame stands in for the flames, not the sparks or what was added.
+        assert!(is_flame(&fire[0]) && !is_flame(&fire[1]) && !added.iter().any(is_flame));
+        let (embers, wisp) = (&added[0], &added[1]);
+        // Small points that live longer and climb slower.
+        assert!(embers.emitter.radius < 34.0 * 0.5 && embers.emitter.life > 1.0 && embers.gravity[0].strength < 180.0 && embers.grow_time == 0.0);
+        // Above the flames, fainter.
+        assert!(wisp.emitter.frame.translation.z > 0.0 && wisp.emitter.color[3] < 1.0);
+        // Without sparks the embers come from the flames.
+        let only_flames = layers(&fire[..1], &[]);
+        assert_eq!(only_flames.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), [format!("{PREFIX}pFlames02 embers")]);
     }
 
     #[test]

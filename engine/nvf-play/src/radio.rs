@@ -63,8 +63,10 @@
 //! - **Loudness** [design]: the sound's static attenuation (songs, loops), DJ lines at
 //!   full level; by distance from a receiver or actor the radio template's (the station's
 //!   `INAM`, else the receiver's) minimum and maximum distance and attenuation curve as
-//!   `crate::sfx::distance_gain` uses them; without either template 150 and 1800 units
-//!   (the AMLRadio template's). Receivers and actors are panned as the sound effects are
+//!   `crate::sfx::distance_gain` uses them, times the template's static attenuation
+//!   ([`by_template`], queue item 48, 2026-11-07), the curve's points read as a share of
+//!   power (queue item 69, 2026-11-08); without either template 150 and 1800
+//!   units and 13 dB (the AMLRadio template's). Receivers and actors are panned as the sound effects are
 //!   (`crate::sfx::Panned`, `SoundAt`, its gains eased over `crate::sfx::PAN_EASE`); the
 //!   Pip-Boy plays flat, at the listener. A
 //!   receiver is heard only within that maximum distance.
@@ -72,6 +74,15 @@
 //!   item 27).
 //! - The Esc pause menu and a loading screen hold the radios and the programmes, as for
 //!   the placed loops (`crate::ambient`).
+//! - **Co-op** (`crate::coop_audio`): the host's game says the programmes, a guest's
+//!   stations say the lines the host sends, joined where they have got to, and run no
+//!   line scripts of their own; a guest's script conversations are left to the host's
+//!   game, and its stations play no static loop between lines [design]. A guest whose
+//!   copy of a line is more than a quarter second off the host's (its own loading screen
+//!   or pause held it, or the host's moved the host's) joins it again at the host's point,
+//!   Pip-Boy and receivers alike (owner 2026-11-11). The other
+//!   players' Pip-Boys are heard from their bodies, unless this Pip-Boy plays the same
+//!   station.
 //! - Test aid: `NVF_PLAY_TEST_RADIO=<seconds>:<next|previous|on|off|tune=<station>>[,...]`
 //!   presses `]` or `[`, turns the Pip-Boy radio on or off, or tunes it as a script's
 //!   `PipBoyRadio 1 <station>` does (a placed station or its base, by Editor ID or hex
@@ -90,7 +101,7 @@ use crate::music::Space;
 use crate::pause::Paused;
 use crate::player::Player;
 use crate::script::{with_world, ScriptState};
-use crate::sfx::{distance_gain, static_gain, Panned, Sfx, SfxSettings, SoundAt};
+use crate::sfx::{distance_gain, heard_distance, heard_gain, static_gain, Panned, SecondListener, Sfx, SfxSettings, SoundAt};
 use crate::sim::SimState;
 use crate::voice::VoiceState;
 use crate::{Location, PlayState, PlayWorld};
@@ -106,9 +117,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Minimum and maximum distance without a radio template [design: AMLRadio's values].
+/// Minimum and maximum distance and static attenuation without a radio template [design:
+/// AMLRadio's values, the template of the receivers' commonest station].
 const DEFAULT_MIN: f32 = 150.0;
 const DEFAULT_MAX: f32 = 1800.0;
+const DEFAULT_DB: f32 = 13.0;
 /// A receiver stops once the player is this many times its maximum distance away.
 const LEAVE: f32 = 1.05;
 /// Seconds a station with nothing to say waits before it asks again.
@@ -125,6 +138,8 @@ pub const MUSIC_HOLD: f64 = 8.0;
 const PIPBOY: u32 = u32::MAX;
 const PIPBOY_STATIC: u32 = u32::MAX - 1;
 const TABLE: u32 = u32::MAX - 2;
+/// Another co-op player's Pip-Boy: this less the player's id (`crate::coop_audio`).
+const MATE_PIPBOY: u32 = u32::MAX - 16;
 
 /// A station heard at the listener, flat, wherever the player is: the casino's music at
 /// NVForever's poker table (`crate::poker`, docs/design/poker.md §4). While it is set
@@ -341,6 +356,9 @@ struct OnAir {
     part: usize,
     /// Radio clock at which the current part started.
     started: f64,
+    /// Times a guest moved `started` to the host's point (co-op): the sound playing
+    /// starts again there.
+    rejoined: u32,
 }
 
 /// A line on the air put at its end at radio clock `now`: on its last part, that part's
@@ -368,7 +386,7 @@ struct Programme {
 /// What something plays.
 #[derive(Debug, Clone, PartialEq)]
 enum Track {
-    Line { info: FormId, part: usize },
+    Line { info: FormId, part: usize, rejoined: u32 },
     Loop(String),
 }
 
@@ -429,6 +447,12 @@ pub struct Radio {
     /// Seconds the programmes have run (stands still while held).
     clock: f64,
     programmes: HashMap<u32, Programme>,
+    /// The topic of the line each station says last put on the air (co-op).
+    topics: HashMap<u32, u32>,
+    /// The host's line each station last took (co-op guests).
+    adopted: HashMap<u32, crate::coop_audio::HostLine>,
+    /// Times a guest's station joined the host's line again (co-op).
+    rejoins: u32,
     playing: HashMap<u32, Playing>,
     pub files: crate::file_bytes::FileBytes,
     lengths: HashMap<String, f64>,
@@ -537,6 +561,16 @@ pub fn receiver_file(named: &str, exists: impl Fn(&str) -> bool) -> String {
     named.to_string()
 }
 
+/// The file a song plays from the Pip-Boy: the file the sound record names (the stereo
+/// copy), not the `_mono.ogg` a receiver plays [documented: GECK wiki "Creating Radio
+/// Stations", the mono file "will be what is played out of speakers and radios in-game";
+/// Nexus forums, radio station tutorial threads: the stations play the mono `.ogg` from
+/// in-world radios and the stereo `.mp3` from the Pip-Boy]; the receiver's file when the
+/// named one is not in the archives.
+pub fn pipboy_file(named: Option<&str>, receiver: &str, exists: impl Fn(&str) -> bool) -> String {
+    named.filter(|n| exists(n)).unwrap_or(receiver).to_string()
+}
+
 /// A sound form's file as an archive path.
 fn sound_path(s: &Sound) -> Option<String> {
     s.file.as_deref().map(|f| fnv_vfs::normalize(&format!("sound\\{}", f.trim_start_matches(['\\', '/']))))
@@ -549,11 +583,34 @@ fn template(places: &RadioPlaces, sfx: &Sfx, station: u32, receiver_base: Option
     let base = receiver_base.and_then(|b| places.forms.receivers.get(&b));
     let id = places.forms.stations.get(&station).and_then(|s| s.template).or_else(|| base.and_then(|b| b.template));
     let found = id.and_then(|id| sfx.forms.sounds.get(&FormId(id))).filter(|s| s.max_distance > 0.0);
-    found.cloned().unwrap_or(Sound { min_distance: DEFAULT_MIN, max_distance: DEFAULT_MAX, ..Sound::default() })
+    found.cloned().unwrap_or(Sound { min_distance: DEFAULT_MIN, max_distance: DEFAULT_MAX, static_attenuation_db: DEFAULT_DB, ..Sound::default() })
 }
 
-fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
-    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+/// How loud a radio heard by `template` is `distance` units away: its curve between its
+/// two distances times its static attenuation [hypothesis: the template's attenuation
+/// applies; owner's playtest 2026-11-06 (queue item 48): music in many Vegas places
+/// louder than the original's, where the casinos' and Freeside's music comes from
+/// receivers of stations with AMLRadio (13 dB), AMLRadioLarge and AMLRadioTheTops
+/// templates, all heard ~13 dB louder before this]. The Pip-Boy has no template and
+/// plays as before.
+///
+/// The curve's percentages are taken as a share of the sound's power, so the amplitude
+/// is their square root [hypothesis, queue item 69, owner 2026-11-07: "radio in world is
+/// loud, but also needs a wider range, its range is so short it cuts out". Read as a
+/// share of the amplitude (`crate::sfx::distance_gain`, every other placed sound),
+/// AMLRadio's curve 100, 59, 27, 7, 0 over 150-1800 units put a receiver 11 dB down at
+/// 975 units and 23 dB down at 1390, so it was gone well before its maximum distance;
+/// as power it is 5.7 dB down at 975, 11.5 dB at 1390 and fades out at 1800. How the
+/// original reads the curve is a question for the decompilation reader (results
+/// 2026-11-08); only radios take this reading until then].
+pub fn by_template(template: &Sound, distance: f32) -> f32 {
+    distance_gain(template, distance).sqrt() * static_gain(template)
+}
+
+/// [`by_template`] for a radio at `at`, heard by the nearer listener: the player's
+/// `eye` or split screen's player 2 (`crate::sfx::heard_gain`).
+fn heard_by_template(template: &Sound, eye: [f32; 3], second: Option<&SecondListener>, at: [f32; 3]) -> f32 {
+    heard_gain(template, eye, second, at).sqrt() * static_gain(template)
 }
 
 fn name(places: &RadioPlaces, station: u32) -> String {
@@ -583,7 +640,7 @@ fn parts(radio: &mut Radio, g: &fnv_game::Game, sfx: &Sfx, bank: &fnv_voice::Voi
             let seconds = path.as_deref().and_then(|p| radio.length(vfs, p));
             match (path, seconds) {
                 (Some(p), Some(secs)) => {
-                    let stereo = named.filter(|n| vfs.exists(n)).or_else(|| Some(p.clone()));
+                    let stereo = Some(pipboy_file(named.as_deref(), &p, |f| vfs.exists(f)));
                     out.push(Part { response: r, path: Some(p), stereo, seconds: secs, song: true, gain: SONG_GAIN });
                     continue;
                 }
@@ -602,6 +659,15 @@ fn parts(radio: &mut Radio, g: &fnv_game::Game, sfx: &Sfx, bank: &fnv_voice::Voi
         out.push(Part { response: r, stereo: path.clone(), path, seconds, song: false, gain: 1.0 });
     }
     out
+}
+
+/// A guest's copy of the host's line (co-op): where its part should have started on this
+/// game's radio clock (`now`), from where the host's clock (`host_now`) says the host's
+/// started (`host_started`); `None` while the copy (`started`) is within
+/// [`crate::coop_audio::RESYNC`] of it.
+fn rejoin_at(started: f64, now: f64, host_now: f64, host_started: f64) -> Option<f64> {
+    let want = now - (host_now - host_started);
+    ((started - want).abs() > crate::coop_audio::RESYNC).then_some(want)
 }
 
 /// Put `info` on the air on station `st` from radio clock `start`, with its log line.
@@ -626,9 +692,10 @@ fn put_on_air(radio: &mut Radio, places: &RadioPlaces, g: &fnv_game::Game, sfx: 
             .join(", ")
     );
     let now = radio.clock;
+    radio.topics.insert(st, topic.0);
     let p = radio.programmes.entry(st).or_default();
     p.last = Some(info);
-    p.on_air = if parts.is_empty() { None } else { Some(OnAir { info, parts, part: 0, started: start }) };
+    p.on_air = if parts.is_empty() { None } else { Some(OnAir { info, parts, part: 0, started: start, rejoined: 0 }) };
     if p.on_air.is_none() {
         p.wait_until = now + GAP;
     }
@@ -788,8 +855,10 @@ fn play(
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
     // The sinks held with the radios: not those fading out after a stop (audio_out).
     (sinks, mut placed): (Query<&AudioSink, (With<RadioEntity>, Without<Retiring>)>, Query<&mut SoundAt, With<RadioEntity>>),
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (mut shared, mates): (Option<ResMut<crate::coop_audio::SharedAudio>>, Option<Res<crate::coop_social::SocialMates>>),
+    (tweaks, second): (Option<Res<crate::tweaks::TweakSettings>>, Option<Res<SecondListener>>),
 ) {
+    let second = second.as_deref();
     // The player's tweak turns the radio down in a conversation [design: docs/design/tweaks.md].
     let talk = if *state.get() == PlayState::Dialogue { tweaks.as_ref().map_or(1.0, |t| t.dialogue_radio_volume) } else { 1.0 };
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
@@ -835,7 +904,12 @@ fn play(
     }
 
     // Conversations scripts started.
+    let follows = shared.as_deref().is_some_and(|s| s.follows_host());
     for (station_ref, topic) in rt.game.take_radio_conversations() {
+        if follows {
+            info!("radio: StartRadioConversation on {station_ref} left to the host's game (co-op)");
+            continue;
+        }
         let Some(base) = places.base_of(station_ref.0) else {
             warn!("radio: StartRadioConversation on {station_ref}, which is not a placed station");
             continue;
@@ -898,7 +972,7 @@ fn play(
     let receivers = if settings.play && table.is_none() { places.receivers.get(&space).map_or(&[][..], Vec::as_slice) } else { &[] };
     for r in receivers {
         let t = template(&places, &sfx, r.station, Some(r.base));
-        let d = distance(r.position, eye);
+        let d = heard_distance(eye, second, r.position);
         let playing = radio.playing.contains_key(&r.ref_id);
         if d >= t.max_distance * if playing { LEAVE } else { 1.0 } {
             continue;
@@ -915,7 +989,7 @@ fn play(
         if !on || !sim.world.is_enabled(id).unwrap_or(!r.initially_disabled) || !places.station_ref.contains_key(&r.station) {
             continue;
         }
-        heard.push((r.ref_id, r.station, distance_gain(&t, d), false, Some(r.position)));
+        heard.push((r.ref_id, r.station, heard_by_template(&t, eye, second, r.position), false, Some(r.position)));
     }
     if settings.play && table.is_none() {
         for (&actor, &station_ref) in &rt.game.radio.npc_radios {
@@ -927,18 +1001,38 @@ fn play(
                 _ => false,
             };
             let t = template(&places, &sfx, base, None);
-            let d = distance(s.pos, eye);
+            let d = heard_distance(eye, second, s.pos);
             if !here || !s.enabled() || d >= t.max_distance {
                 continue;
             }
             if radio.npc_heard.insert(actor.0) {
                 info!("radio: {actor} plays {} (SetNPCRadio)", name(&places, base));
             }
-            heard.push((actor.0, base, distance_gain(&t, d), false, Some(s.pos)));
+            heard.push((actor.0, base, heard_by_template(&t, eye, second, s.pos), false, Some(s.pos)));
         }
         if let (Some((_, base)), Some(share)) = (pip_station, pip_share) {
             heard.push((PIPBOY, base, 1.0 - share, true, None));
         }
+        // The other co-op players' Pip-Boys, from their bodies (`crate::coop_audio`); not
+        // one tuned to the station this Pip-Boy plays.
+        let own = pip_station.filter(|_| pip_share.is_some()).map(|(_, b)| b);
+        if let (Some(sh), Some(m)) = (shared.as_deref(), mates.as_deref()) {
+            for mate in m.mates.iter().filter(|m| m.here) {
+                let Some(&base) = sh.pipboys.get(&mate.id) else { continue };
+                if Some(base) == own || !places.station_ref.contains_key(&base) {
+                    continue;
+                }
+                let at = [mate.feet[0], mate.feet[1], mate.feet[2] + crate::coop_audio::PIPBOY_HEIGHT];
+                let gain = crate::coop_audio::pipboy_gain(heard_distance(eye, second, at));
+                if gain > 0.0 {
+                    heard.push((MATE_PIPBOY - u32::from(mate.id), base, gain, false, Some(at)));
+                }
+            }
+        }
+    }
+    if let Some(sh) = shared.as_deref_mut() {
+        sh.heard = heard.iter().map(|h| h.1).collect();
+        sh.pipboy = pip_station.map(|(_, b)| b);
     }
     // Heard at all: on, tuned to a station received here, sound on, not at the poker table.
     let pip_heard = settings.play && settings.volume > 0.0 && table.is_none() && pip_station.is_some() && pip_share.is_some();
@@ -968,7 +1062,79 @@ fn play(
     // of those a script started a conversation on.
     let mut stations: BTreeSet<u32> = heard.iter().map(|h| h.1).collect();
     stations.extend(radio.programmes.keys().copied());
-    if !held {
+    if let Some(sh) = shared.as_deref().filter(|s| s.on && s.host) {
+        stations.extend(sh.asked.keys().copied().filter(|b| places.station_ref.contains_key(b)));
+    }
+    // A guest's stations say the host's lines (`crate::coop_audio`).
+    let host_now = shared.as_deref().and_then(|s| s.now(time.elapsed_secs_f64()));
+    if let (true, Some(sh), Some(host_now)) = (follows, shared.as_deref(), host_now) {
+        if !held {
+            for &st in &stations {
+                let Some(line) = sh.lines.get(&st).copied() else { continue };
+                // Each line the host sends is taken once; one already over is not.
+                if radio.adopted.get(&st) == Some(&line) {
+                    continue;
+                }
+                radio.adopted.insert(st, line);
+                let into = host_now - line.started;
+                let p = radio.programmes.entry(st).or_default();
+                let same = p.on_air.as_ref().is_some_and(|on| on.info.0 == line.info && on.part == usize::from(line.part));
+                if same {
+                    continue;
+                }
+                put_on_air(radio, &places, &rt.game, &sfx, &bank, &data.vfs, st, FormId(line.topic), FormId(line.info), now - into);
+                let p = radio.programmes.entry(st).or_default();
+                if let Some(on) = p.on_air.as_mut() {
+                    on.part = usize::from(line.part).min(on.parts.len() - 1);
+                    if into >= on.parts[on.part].seconds {
+                        // Over already here: the host's next line comes.
+                        p.on_air = None;
+                        continue;
+                    }
+                }
+                info!("co-op radio: {} from the host: {} part {} at {into:.1} s", name(&places, st), FormId(line.info), line.part);
+            }
+            // The host's line where the host has got to: a guest whose copy fell behind or
+            // ran ahead (its own loading screen or pause held it, or the host's moved the
+            // host's) joins it again there (queue item, owner 2026-11-11: "co-op radio
+            // sync") [design: a station is one broadcast for every player].
+            // Test aid `NVF_COOP_RADIO_NO_REJOIN=1`: no rejoining (the old behaviour, to
+            // measure).
+            let rejoin = std::env::var_os("NVF_COOP_RADIO_NO_REJOIN").is_none_or(|v| v == "0");
+            for &st in stations.iter().filter(|_| rejoin) {
+                let Some(line) = sh.lines.get(&st).copied() else { continue };
+                let Some(on) = radio.programmes.get_mut(&st).and_then(|p| p.on_air.as_mut()) else { continue };
+                if on.info.0 != line.info || on.part != usize::from(line.part) {
+                    continue;
+                }
+                if let Some(start) = rejoin_at(on.started, now, host_now, line.started) {
+                    info!("co-op radio: {} joins the host's {} part {} again: {:+.2} s off", name(&places, st), on.info, on.part, on.started - start);
+                    on.started = start;
+                    on.rejoined += 1;
+                    radio.rejoins += 1;
+                }
+            }
+        }
+    }
+    if !held && follows {
+        // The host's line plays out; the next comes from the host.
+        for &st in &stations {
+            let p = radio.programmes.entry(st).or_default();
+            if let Some(on) = p.on_air.as_mut() {
+                let secs = on.parts[on.part].seconds;
+                if now >= on.started + secs {
+                    if on.part + 1 < on.parts.len() {
+                        on.started += secs;
+                        on.part += 1;
+                    } else {
+                        p.on_air = None;
+                    }
+                }
+            }
+            p.quiet = false;
+        }
+    }
+    if !held && !follows {
         for &st in &stations {
             let Some(&sref) = places.station_ref.get(&st) else { continue };
             let station_ref = FormId(sref);
@@ -1052,6 +1218,16 @@ fn play(
             let p = radio.programmes.entry(st).or_default();
             p.quiet = !broadcasting && !p.conversation && p.on_air.is_none();
         }
+        // The host's lines, for the guests (`crate::coop_audio`).
+        if let (Some(sh), Some(host_now)) = (shared.as_deref_mut().filter(|s| s.on && s.host), host_now) {
+            for (&st, p) in &radio.programmes {
+                if let Some(on) = p.on_air.as_ref().filter(|_| !p.quiet) {
+                    let topic = radio.topics.get(&st).copied().unwrap_or(0);
+                    let line = crate::coop_audio::HostLine { topic, info: on.info.0, part: on.part as u8, started: host_now - (now - on.started) };
+                    sh.lines_out.push((st, line));
+                }
+            }
+        }
     }
 
     // What each plays: the station's part, joining it where it has got to, else the
@@ -1068,7 +1244,7 @@ fn play(
                 wants.push(Want {
                     key,
                     station: st,
-                    track: Track::Line { info: on.info, part: on.part },
+                    track: Track::Line { info: on.info, part: on.part, rejoined: on.rejoined },
                     path,
                     // The player's tweak sets songs and talk apart [design: docs/design/tweaks.md].
                     level: part.gain * dgain * tweaks.as_ref().map_or(1.0, |t| if part.song { t.radio_music_volume } else { t.radio_talk_volume }),
@@ -1124,7 +1300,12 @@ fn play(
         let looping = matches!(w.track, Track::Loop(_));
         // Tried again next frame while the file is being read.
         let crate::file_bytes::Got::Ready(Some(bytes)) = radio.fetch(&data.vfs, &w.path) else { continue };
-        let from = if w.into > JOIN { w.into } else { 0.0 };
+        // A part is joined where it has got to as the sound starts, not where it was at the
+        // frame's start: in a long frame (loading a place, a hitch) the two are apart by the
+        // frame's length, and a guest started its line that much late (queue item 69,
+        // observed 0.47 s) [observed 2026-11-08, `co-op radio sync` log].
+        let into = if looping { w.into } else { w.into + time.last_update().map_or(0.0, |t| t.elapsed().as_secs_f64()) };
+        let from = if into > JOIN { into } else { 0.0 };
         let Some((sound, level)) = RadioSound::new(bytes, from, looping) else {
             if radio.reported.insert(w.path.clone()) {
                 warn!("radio: {}: not decoded", w.path);
@@ -1136,7 +1317,7 @@ fn play(
         let entity = match w.at {
             // Panned where the receiver or actor is (`crate::sfx`).
             Some(at) => {
-                let at = SoundAt::new(at, Some(&player));
+                let at = SoundAt::new(at, Some(&player), second);
                 let handle = panned.add(Panned::new(sound, at.pan.clone()));
                 commands.spawn((AudioPlayer::<Panned<RadioSound>>(handle), PlaybackSettings::DESPAWN, at, RadioEntity, SoundCategory::Radio)).id()
             }
@@ -1146,6 +1327,7 @@ fn play(
             PIPBOY => "the Pip-Boy".to_string(),
             PIPBOY_STATIC => "the Pip-Boy's static".to_string(),
             TABLE => "the poker table".to_string(),
+            k if k <= MATE_PIPBOY && k > MATE_PIPBOY - 256 => format!("player {}'s Pip-Boy", MATE_PIPBOY - k),
             k => format!("{k:08X}"),
         };
         let what = match (&w.track, w.response) {
@@ -1158,9 +1340,16 @@ fn play(
             w.path,
             if from > 0.0 { format!(" from {from:.1} s") } else { String::new() },
         );
+        // In co-op, where this part's beginning falls on the computer's clock: two games on
+        // one computer that play the same part in step log the same time (queue item 69).
+        if !looping && shared.as_deref().is_some_and(|s| s.on) {
+            let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+            info!("co-op radio sync: {who} {} begins at {:.3} on the computer's clock (from {from:.2} s, host clock {:.2})", w.path, wall - from, host_now.map_or(-1.0, |h| h - from));
+        }
         match w.key {
             PIPBOY => radio.pipboy_parts += 1,
             PIPBOY_STATIC | TABLE => {}
+            k if k <= MATE_PIPBOY && k > MATE_PIPBOY - 256 => {}
             k if rt.game.radio.npc_radios.contains_key(&FormId(k)) => {}
             k => {
                 radio.heard.insert(k);
@@ -1277,6 +1466,7 @@ fn report(mut exit: MessageReader<AppExit>, radio: Res<Radio>, script: Res<Scrip
             radio.silent_lines,
             radio.missing
         );
+        info!("co-op radio summary: stations joined the host's line again {} times", radio.rejoins);
         info!(
             "pipboy radio summary: {pipboy} at exit, {} stations received; tuned {} times by next/previous, {} by tune requests of scripts or the test aid ({} refused), {script_calls} script calls; {} responses played; {} conversations started by scripts ({} not taken); {} actors played as radios ({npc_radios} at exit); {} loops started; {forced} ForceRadioStationUpdate calls",
             radio.pipboy_list.len(),
@@ -1346,11 +1536,52 @@ pub const RECEIVED_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_guest_rejoins_the_hosts_line_when_its_copy_is_off() {
+        // In step: the host's part began 10 s ago on the host's clock, this copy 10 s ago here.
+        assert_eq!(rejoin_at(90.0, 100.0, 500.0, 490.0), None);
+        // Within the slack.
+        assert_eq!(rejoin_at(90.2, 100.0, 500.0, 490.0), None);
+        // A 5 s loading screen held this game's radio clock: its copy began 5 s later than
+        // the host's on the shared timeline, so it is moved back 5 s.
+        assert_eq!(rejoin_at(95.0, 100.0, 500.0, 490.0), Some(90.0));
+        // The host's own loading screen moved the host's start later: the copy follows.
+        assert_eq!(rejoin_at(90.0, 100.0, 500.0, 494.0), Some(94.0));
+    }
+
+    /// A receiver is heard at its template's static attenuation as well as its curve; no
+    /// template: AMLRadio's 150 / 1800 units and 13 dB.
+    #[test]
+    fn receivers_take_their_templates_attenuation() {
+        let large = Sound { min_distance: 20.0, max_distance: 2500.0, static_attenuation_db: 13.22, ..Default::default() };
+        assert!((by_template(&large, 10.0) - 10f32.powf(-13.22 / 20.0)).abs() < 1e-4);
+        assert_eq!(by_template(&large, 2600.0), 0.0);
+        let none = Sound { min_distance: DEFAULT_MIN, max_distance: DEFAULT_MAX, static_attenuation_db: DEFAULT_DB, ..Sound::default() };
+        assert!((by_template(&none, 100.0) - 0.2239).abs() < 1e-3);
+    }
+
+    /// AMLRadio's curve read as power: a gradual fade out to its maximum distance.
+    #[test]
+    fn a_receiver_fades_out_over_its_whole_range() {
+        let aml = Sound { min_distance: 150.0, max_distance: 1800.0, static_attenuation_db: 13.0, attenuation_curve: Some([100.0, 59.0, 27.0, 7.0, 0.0]), ..Default::default() };
+        let db = |d: f32| 20.0 * (by_template(&aml, d) / by_template(&aml, 100.0)).log10();
+        assert!((db(975.0) - -5.69).abs() < 0.05, "{}", db(975.0));
+        assert!((db(1387.5) - -11.55).abs() < 0.05, "{}", db(1387.5));
+        assert!(db(1700.0) > -20.0 && by_template(&aml, 1700.0) > 0.0, "still heard near its edge: {}", db(1700.0));
+        assert_eq!(by_template(&aml, 1800.0), 0.0);
+        let mut last = 1.0;
+        for d in (100..1800).step_by(50) {
+            let g = by_template(&aml, d as f32);
+            assert!(g <= last, "never louder farther out");
+            last = g;
+        }
+    }
+
     /// A skipped line is put on its last part with that part's time run out at once.
     #[test]
     fn a_skipped_line_ends_now() {
         let part = |seconds| Part { response: 0, path: None, stereo: None, seconds, song: true, gain: 1.0 };
-        let mut on = OnAir { info: FormId(7), parts: vec![part(3.0), part(180.0)], part: 0, started: 10.0 };
+        let mut on = OnAir { info: FormId(7), parts: vec![part(3.0), part(180.0)], part: 0, started: 10.0, rejoined: 0 };
         skip_to_end(&mut on, 12.0);
         assert_eq!(on.part, 1);
         assert!(12.0 >= on.started + on.parts[1].seconds - 1e-9);
@@ -1386,6 +1617,22 @@ mod tests {
         // Without a mono file, the named file.
         assert_eq!(receiver_file("sound\\songs\\radio\\x.mp3", have), "sound\\songs\\radio\\x.mp3");
         assert_eq!(receiver_file("sound\\voice\\a.ogg", have), "sound\\voice\\a.ogg");
+    }
+
+    /// Imperium Radio (LegionRadio.esp): SOUN 00legionradiokingragnar names
+    /// `songs\legionradio\king ragnar.mp3`, and the mod ships `King Ragnar_mono.ogg` beside
+    /// it. A receiver plays the mono file, the Pip-Boy the named one (mods-1114 window I).
+    #[test]
+    fn the_pipboy_plays_the_named_song_file_and_a_receiver_its_mono_copy() {
+        let named = "sound\\songs\\legionradio\\king ragnar.mp3";
+        let mono = "sound\\songs\\legionradio\\king ragnar_mono.ogg";
+        let both = |p: &str| p == named || p == mono;
+        let receiver = receiver_file(named, both);
+        assert_eq!(receiver, mono);
+        assert_eq!(pipboy_file(Some(named), &receiver, both), named);
+        // Only the mono file in the archives: the Pip-Boy plays it too.
+        let only_mono = |p: &str| p == mono;
+        assert_eq!(pipboy_file(Some(named), &receiver_file(named, only_mono), only_mono), mono);
     }
 
     #[test]
@@ -1436,7 +1683,7 @@ mod tests {
             entity: Entity::PLACEHOLDER,
             level: Arc::new(AtomicU32::new(level.to_bits())),
             meter: Arc::new(AtomicU32::new(0)),
-            track: Track::Line { info: FormId(1), part: 0 },
+            track: Track::Line { info: FormId(1), part: 0, rejoined: 0 },
             song: true,
             station,
         }

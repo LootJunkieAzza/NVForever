@@ -232,7 +232,18 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             let count = num(args, 3, 1.0).clamp(0.0, f64::from(u16::MAX)) as u16;
             let h = num(args, 4, 0.0);
             let condition = (h > 0.0 && h < 1.0).then_some(h as f32);
-            l.entries.insert(0, (level, item, count, condition));
+            // The same entry again (form, level, count and health all equal) is not
+            // added a second time [hypothesis: not checked in the original; mods call
+            // this every GameMode run (Qwib's Accessory Pack, 15 adds per quest tick),
+            // which only makes sense if a repeat changes nothing; observer-checks.md].
+            // A repeat with another level or count is still a new entry.
+            let entry = (level, item, count, condition);
+            if l.entries.contains(&entry) {
+                return Some(Ok(zero));
+            }
+            // Once per entry (a repeat stops above), so a mod's adds can be seen to land.
+            tracing::info!("leveled list: {} gains {} (level {level}, count {count}) by a script", g.data.name(f), g.data.name(item));
+            l.entries.insert(0, entry);
             zero
         }
         // Every entry of the form; gives how many [documented].

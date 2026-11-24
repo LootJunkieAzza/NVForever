@@ -178,7 +178,8 @@ impl FaceGenCache {
     /// `.egm` beside the model: a one-shape part, or a shape with exactly the EGM's
     /// vertex count. Without one: a shape with an `.egm` of its own ([`shape_sibling`])
     /// of exactly its vertex count.
-    pub fn morph(&mut self, ctx: &mut ActorCtx, part: &PreparedPart, model: &str, fg: &FaceGen) -> Vec<Option<Handle<Mesh>>> {
+    /// Each comes with its CPU copy: the drawn asset is the render world's only.
+    pub fn morph(&mut self, ctx: &mut ActorCtx, part: &PreparedPart, model: &str, fg: &FaceGen) -> Vec<Option<(Handle<Mesh>, Arc<Mesh>)>> {
         let mut out = vec![None; part.shapes.len()];
         let whole = self.egm(&ctx.models.data, &sibling(model, "egm"));
         for (i, s) in part.shapes.iter().enumerate() {
@@ -198,7 +199,7 @@ impl FaceGenCache {
             let mut mesh = (*s.cpu).clone();
             let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) else { continue };
             egm.apply(p, &fg.fggs, &fg.fgga);
-            out[i] = Some(ctx.models.meshes.add(mesh));
+            out[i] = Some((ctx.models.meshes.add(mesh.clone()), Arc::new(mesh)));
             self.morphed_shapes += 1;
         }
         out

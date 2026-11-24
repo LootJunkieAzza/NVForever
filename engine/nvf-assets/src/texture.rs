@@ -1,6 +1,13 @@
 //! DDS → GPU textures. BC1/BC2/BC3 and BC7 retain their mip chains; BC5 data and
 //! explicitly requested normal maps have separate interpretations (dds-bc5.md); BC4 is
 //! linear data only (dds.md §6).
+//!
+//! **Side cap** ([`set_side_cap`], nvforever `memory_budget.rs`): on a GPU short of memory
+//! a texture larger than the cap is uploaded from the first of its own mip levels within
+//! the cap (the larger levels are left out, a quarter of the memory per level), so the
+//! picture is the file's own smaller level. Textures made before the cap changed keep
+//! their size; [`TextureCache::reload_since`] makes recent ones again (after the GPU ran
+//! out of memory). The interface's pictures are never capped ([`dds_image_full`]).
 
 mod filtering;
 
@@ -15,7 +22,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, T
 use bevy::asset::AssetHandleProvider;
 use fnv_dds::{to_rgba8, Dds, Format};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 /// The interpretation requested by a texture consumer. Linear data is never
@@ -83,6 +90,10 @@ pub struct TextureCache {
     /// Counts changes to `map`, so a copy of it for worker threads is made again only
     /// when it changed ([`Self::snapshot`]).
     generation: u64,
+    /// When each entry was made, as a count of loads ([`Self::load_count`]), by (path,
+    /// sRGB, clamped): which textures [`Self::reload_since`] makes again.
+    made: HashMap<(String, TextureUsage, bool), u64>,
+    loads: u64,
     pub failures: Vec<String>,
 }
 
@@ -128,8 +139,12 @@ struct WorkerTexture {
 /// Seconds a worker texture's entry stays after its image went into the store.
 const WORKER_KEEP_SECS: f64 = 30.0;
 
-/// The textures the cache holds, with their formats, as a worker thread sees them.
-pub type TextureSnapshot = HashMap<(String, TextureUsage), (Handle<Image>, TextureFormat, bool)>;
+/// The textures the cache holds, with their formats, as a worker thread sees them. The
+/// handles are weak: a list a worker holds through a cell load must not count as a user
+/// of every texture of the place left behind, or the load's flush lets none of them go
+/// [observed: the Fort move with a 3367 MB budget, 464 models dropped over six passes and
+/// 0 textures, 2026-11-09]. A texture released meanwhile is decoded again by the worker.
+pub type TextureSnapshot = HashMap<(String, TextureUsage), (std::sync::Weak<bevy::asset::StrongHandle>, TextureFormat, bool)>;
 
 /// A texture for a worker thread: from the cache's list, from another worker, or read and
 /// decoded here under a handle reserved from `images` (the image store's handle provider).
@@ -170,8 +185,8 @@ fn worker_texture_key(
     images: &AssetHandleProvider,
     bc_supported: bool,
 ) -> Option<(Handle<Image>, TextureFormat, bool)> {
-    if let Some(found) = cached.get(&key) {
-        return Some(found.clone());
+    if let Some((h, format, lacks_alpha)) = cached.get(&key).and_then(|(w, f, l)| Some((w.upgrade()?, *f, *l))) {
+        return Some((Handle::Strong(h), format, lacks_alpha));
     }
     let usage = key.1;
     workers.load_once(key, images, |key_path| {
@@ -274,10 +289,44 @@ pub fn sampler() -> ImageSampler {
     })
 }
 
-/// Build a GPU image from DDS bytes; `None` for cube maps, unsupported formats, or BC
-/// textures the device cannot sample.
+/// The largest side a world texture is made with from now on ([`MAX_TEXTURE_SIDE`]: no cap).
+static SIDE_CAP: AtomicU32 = AtomicU32::new(MAX_TEXTURE_SIDE);
+
+/// Cap the side of world textures made from now on (module notes); at least 64.
+pub fn set_side_cap(px: u32) {
+    SIDE_CAP.store(px.clamp(64, MAX_TEXTURE_SIDE), Ordering::Relaxed);
+}
+
+/// The side cap in force ([`set_side_cap`]).
+pub fn side_cap() -> u32 {
+    SIDE_CAP.load(Ordering::Relaxed)
+}
+
+/// How many of a `w`×`h` texture's `levels` mip levels to leave out so that its largest
+/// side is at most `cap`: never the last level, and for block-compressed data (`block`)
+/// only while the smaller level is still whole blocks.
+pub fn levels_to_skip(w: u32, h: u32, levels: usize, cap: u32, block: bool) -> usize {
+    let mut skip = 0;
+    while skip + 1 < levels && (w >> skip).max(h >> skip) > cap {
+        let (nw, nh) = (w >> (skip + 1), h >> (skip + 1));
+        if nw == 0 || nh == 0 || (block && (nw % 4 != 0 || nh % 4 != 0)) {
+            break;
+        }
+        skip += 1;
+    }
+    skip
+}
+
+/// Build a GPU image from DDS bytes, within the side cap ([`set_side_cap`]); `None` for
+/// cube maps, unsupported formats, or BC textures the device cannot sample.
 pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
+    let cap = side_cap();
     // A panic while decoding is this texture's failure, not the game's (guard.rs).
+    dds_texture_capped(bytes, TextureUsage::from_srgb(srgb), bc_supported, cap, false).map(|d| d.image)
+}
+
+/// [`dds_image`] at the file's full size whatever the side cap (the interface's pictures).
+pub fn dds_image_full(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
     dds_texture(bytes, TextureUsage::from_srgb(srgb), bc_supported, false).map(|d| d.image)
 }
 
@@ -289,18 +338,29 @@ pub fn dds_image_top(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Ima
     dds_texture(bytes, TextureUsage::from_srgb(srgb), bc_supported, true).map(|d| d.image)
 }
 
+/// [`dds_texture_capped`] at the file's full size.
 fn dds_texture(bytes: &[u8], usage: TextureUsage, bc_supported: bool, top_only: bool) -> Result<DecodedTexture, String> {
-    crate::guard::guarded(|| dds_image_unguarded(bytes, usage, bc_supported, top_only))
+    dds_texture_capped(bytes, usage, bc_supported, MAX_TEXTURE_SIDE, top_only)
 }
 
-fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, top_only: bool) -> Result<DecodedTexture, String> {
+/// A texture from DDS bytes whose largest side is at most `cap` where its mip levels allow
+/// ([`levels_to_skip`]).
+fn dds_texture_capped(bytes: &[u8], usage: TextureUsage, bc_supported: bool, cap: u32, top_only: bool) -> Result<DecodedTexture, String> {
+    crate::guard::guarded(|| dds_image_unguarded(bytes, usage, bc_supported, cap, top_only))
+}
+
+fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, cap: u32, top_only: bool) -> Result<DecodedTexture, String> {
     let srgb = usage == TextureUsage::Color;
     let dds = Dds::parse(bytes).map_err(|e| e.to_string())?;
     if dds.header.is_cubemap() {
         return Err("cube map (not used by the viewer)".into());
     }
-    let (w, h) = (dds.header.width, dds.header.height);
-    let levels = if top_only { &dds.levels[0][..1] } else { &dds.levels[0][..] };
+    // The side cap (module notes): the first mip level within `cap`; block-compressed
+    // data only while the smaller level is still whole blocks.
+    let block = matches!(dds.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5 | Format::Bc7 | Format::Bc4U | Format::Bc4S | Format::Bc5U | Format::Bc5S);
+    let skip = levels_to_skip(dds.header.width, dds.header.height, dds.levels[0].len(), cap, block);
+    let (w, h) = (dds.header.width >> skip, dds.header.height >> skip);
+    let levels = if top_only { &dds.levels[0][skip..skip + 1] } else { &dds.levels[0][skip..] };
     // The GPU takes block formats only when the top level's sides are multiples of 4.
     let aligned = w % 4 == 0 && h % 4 == 0;
     // The colour space follows the role, never a DX10 header's `_SRGB` code (#2981,
@@ -312,7 +372,7 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
                 // instead [#2164].
                 let mut out = Vec::new();
                 for (m, l) in levels.iter().enumerate() {
-                    let (lw, lh) = dds.header.level_dims(m as u32);
+                    let (lw, lh) = dds.header.level_dims((m + skip) as u32);
                     out.extend(fnv_dds::decode_blocks(dds.format, lw, lh, l).ok_or("block data too short")?);
                 }
                 (if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm }, out)
@@ -351,7 +411,7 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
             } else {
                 let mut out = Vec::new();
                 for (m, level) in levels.iter().enumerate() {
-                    let (lw, lh) = dds.header.level_dims(m as u32);
+                    let (lw, lh) = dds.header.level_dims((m + skip) as u32);
                     let values = fnv_dds::decode_bc4(dds.format, lw, lh, level).ok_or("invalid BC4 block data")?;
                     if signed {
                         out.extend(values.into_iter().map(|v| (v * 127.0).round() as i8 as u8));
@@ -373,7 +433,7 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
                 } else {
                     let mut out = Vec::new();
                     for (m, level) in levels.iter().enumerate() {
-                        let (lw, lh) = dds.header.level_dims(m as u32);
+                        let (lw, lh) = dds.header.level_dims((m + skip) as u32);
                         let pixels = fnv_dds::decode_bc5(dds.format, lw, lh, level).ok_or("invalid BC5 block data")?;
                         for [r, g] in pixels {
                             // Unsigned: the channels as stored; signed (-1..1): moved to 0..1.
@@ -388,7 +448,7 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
             } else {
                 let mut out = Vec::new();
                 for (m, level) in levels.iter().enumerate() {
-                    let (lw, lh) = dds.header.level_dims(m as u32);
+                    let (lw, lh) = dds.header.level_dims((m + skip) as u32);
                     let pixels = fnv_dds::decode_bc5(dds.format, lw, lh, level).ok_or("invalid BC5 block data")?;
                     for [r, g] in pixels {
                         if usage == TextureUsage::Normal {
@@ -483,12 +543,13 @@ fn cube_key(path: String, cube: bool) -> String {
 }
 
 /// The file's image for a cache key: a cube map ([`dds_cube_image`]) for a key that asks
-/// for one, else [`dds_texture`] for the usage.
+/// for one, else [`dds_texture_capped`] for the usage within the side cap in force
+/// ([`side_cap`]; a cube map is made whole).
 fn decode(bytes: &[u8], cube: bool, usage: TextureUsage, bc_supported: bool) -> Result<DecodedTexture, String> {
     if cube {
         dds_cube_image(bytes, usage == TextureUsage::Color, bc_supported).map(DecodedTexture::from)
     } else {
-        dds_texture(bytes, usage, bc_supported, false)
+        dds_texture_capped(bytes, usage, bc_supported, side_cap(), false)
     }
 }
 
@@ -680,6 +741,7 @@ impl TextureCache {
         let drop = idle.sweep_timed(now, entries, keep.secs, keep.max, |k| ids.get(k).and_then(|&id| hints.since(id)));
         for ((p, usage, clamp), _) in &drop {
             (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *usage));
+            self.made.remove(&(p.clone(), *usage, *clamp));
         }
         self.generation += u64::from(!drop.is_empty());
         drop.len()
@@ -696,6 +758,8 @@ impl TextureCache {
             filtering::publish(&mut image);
             if images.insert(w.handle.id(), image).is_ok() {
                 self.map.entry(key.clone()).or_insert_with(|| Some((w.handle.clone(), w.lacks_alpha)));
+                self.loads += 1;
+                self.made.insert((key.0.clone(), key.1, false), self.loads);
                 n += 1;
             }
             w.stored_at = Some(now);
@@ -717,9 +781,17 @@ impl TextureCache {
             .iter()
             .filter_map(|(k, h)| {
                 let (h, lacks_alpha) = h.as_ref()?;
-                Some((k.clone(), (h.clone(), images.get(h)?.texture_descriptor.format, *lacks_alpha)))
+                let Handle::Strong(strong) = h else { return None };
+                Some((k.clone(), (Arc::downgrade(strong), images.get(h)?.texture_descriptor.format, *lacks_alpha)))
             })
             .collect()
+    }
+
+    /// The textures cached, and those something besides the cache holds (the log of a
+    /// flush pass).
+    pub fn held_counts(&self) -> (usize, usize) {
+        let all = || self.map.values().chain(self.clamped.values()).flatten().map(|(h, _)| h);
+        (all().count(), all().filter(|h| crate::release::held_beyond(h, 1)).count())
     }
 
     /// Changes to the cache so far ([`Self::snapshot`]).
@@ -887,6 +959,8 @@ impl TextureCache {
                 }
                 let h = (w.handle.clone(), w.lacks_alpha);
                 drop(entries);
+                self.loads += 1;
+                self.made.insert((path.clone(), usage, false), self.loads);
                 self.map.insert((path, usage), Some(h.clone()));
                 self.generation += 1;
                 return Some(h);
@@ -923,9 +997,45 @@ impl TextureCache {
                 None
             }
         };
+        self.loads += 1;
+        self.made.insert((path.clone(), usage, clamp), self.loads);
         (if clamp { &mut self.clamped } else { &mut self.map }).insert((path, usage), handle.clone());
         self.generation += 1;
         handle
+    }
+
+    /// Textures made so far: [`Self::reload_since`] takes a count from here.
+    pub fn load_count(&self) -> u64 {
+        self.loads
+    }
+
+    /// Make again, within the side cap now in force, every texture held that was made after
+    /// `count` loads ([`Self::load_count`]), under the same handles (Bevy uploads each anew
+    /// and lets the old one go); the ids made again. After the GPU ran out of memory, the
+    /// textures made since may be the GPU's invalid ones.
+    pub fn reload_since(&mut self, count: u64, data: &GameData, images: &mut Assets<Image>, formats: Option<&CompressedImageFormatSupport>) -> Vec<AssetId<Image>> {
+        let bc = formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
+        let mut out = Vec::new();
+        for ((path, usage, clamp), &n) in &self.made {
+            if n <= count {
+                continue;
+            }
+            let held = (if *clamp { &self.clamped } else { &self.map }).get(&(path.clone(), *usage));
+            let Some(Some(h)) = held else { continue };
+            let (file, cube) = split_cube(path);
+            let Some(Ok(mut img)) = data.read(file).map(|b| decode(&b, cube, *usage, bc).map(|d| d.image)) else { continue };
+            img.texture_descriptor.label = Some(folder_label(file));
+            if *clamp {
+                if let ImageSampler::Descriptor(d) = &mut img.sampler {
+                    d.address_mode_u = ImageAddressMode::ClampToEdge;
+                    d.address_mode_v = ImageAddressMode::ClampToEdge;
+                }
+            }
+            if images.insert(h.0.id(), img).is_ok() {
+                out.push(h.0.id());
+            }
+        }
+        out
     }
 }
 
@@ -1138,6 +1248,13 @@ fn block_alpha(format: Format, b: &[u8]) -> [u8; 16] {
     }
 }
 
+/// [`alpha_shares`] of the texture at a NIF texture path, read from the archives (not
+/// remembered: asked only for the few shapes `nif_spawn::solid_cutout` concerns).
+pub fn texture_alpha_shares(raw_path: &str, data: &GameData) -> Option<AlphaShares> {
+    let path = resolved_path(raw_path, |p| data.vfs.exists(p));
+    alpha_shares(&data.read(&path)?)
+}
+
 impl WorkerTextures {
     /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
     /// ([`AlphaShares::is_mask`]). Each file is read and its alpha counted once, then
@@ -1171,6 +1288,7 @@ fn remembered(known: &Mutex<HashMap<String, bool>>, key: String, compute: impl F
 #[cfg(test)]
 mod tests {
     use super::first_person_texture;
+    use super::levels_to_skip;
     use super::{alpha_shares, dds_image, remembered, AlphaShares, TextureFormat};
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -1222,7 +1340,7 @@ mod tests {
         assert!(handles.iter().all(|h| *h == handles[0]));
         assert_eq!(cache.take_workers(&mut images, 1.0), 1);
         assert!(images.get(&handles[0].0).is_some());
-        assert_eq!(cache.snapshot(&images)[&key], handles[0]);
+        assert!(cache.snapshot(&images)[&key].0.upgrade().is_some());
         assert_eq!(cache.take_workers(&mut images, 2.0), 0);
     }
 
@@ -1289,6 +1407,17 @@ mod tests {
         assert!(workers.loading.lock().unwrap().len() <= 256);
     }
 
+
+    #[test]
+    fn a_capped_texture_starts_at_its_first_level_within_the_cap() {
+        assert_eq!(levels_to_skip(4096, 4096, 13, 1024, true), 2, "4096 to 1024: two levels left out");
+        assert_eq!(levels_to_skip(2048, 1024, 12, 1024, true), 1, "the larger side counts");
+        assert_eq!(levels_to_skip(1024, 1024, 11, 1024, true), 0, "within the cap: whole");
+        assert_eq!(levels_to_skip(4096, 4096, 1, 512, true), 0, "one level only: kept as it is");
+        assert_eq!(levels_to_skip(4096, 4096, 2, 512, true), 1, "never the last level");
+        assert_eq!(levels_to_skip(1028, 8, 3, 256, true), 0, "a smaller level not of whole blocks is not used");
+        assert_eq!(levels_to_skip(1028, 8, 3, 256, false), 2, "uncompressed: any size");
+    }
 
     #[test]
     fn the_kept_part_of_a_cell_holds_its_visible_texels_and_the_pad() {
@@ -1483,6 +1612,26 @@ mod tests {
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\LaserRifle02.dds", exists), None);
         // Already a first-person texture: kept.
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\1stPersonLaserRifle01.dds", |_| true), None);
+    }
+
+    /// The list worker threads take is no user of the textures: only a handle a worker
+    /// took from it is.
+    #[test]
+    fn the_workers_list_does_not_hold_the_textures() {
+        use bevy::prelude::*;
+        let mut images = Assets::<Image>::default();
+        let mut cache = super::TextureCache::default();
+        let key = ("textures/a.dds".to_string(), super::TextureUsage::Color);
+        cache.map.insert(key.clone(), Some((images.add(Image::default()), false)));
+        let list = cache.snapshot(&images);
+        assert_eq!(cache.held_counts(), (1, 0));
+        let taken = list[&key].0.upgrade().expect("still cached");
+        assert_eq!(cache.held_counts(), (1, 1));
+        drop(taken);
+        assert_eq!(cache.held_counts(), (1, 0));
+        // Released by the cache: a worker finds it gone and decodes it again.
+        cache.map.clear();
+        assert!(list[&key].0.upgrade().is_none());
     }
 
     /// A legacy 32-bit `A8R8G8B8` DDS file with `mips` levels, optionally flagged as a
@@ -1744,7 +1893,7 @@ pub(crate) mod bc5_tests {
         assert_eq!(normal, (handles[0].0.clone(), true));
         assert_eq!(cache.take_workers(&mut images, 1.0), 0);
         let snapshot = cache.snapshot(&images);
-        assert_eq!(snapshot[&("textures\\signed.dds".into(), TextureUsage::Normal)], handles[0]);
+        assert!(snapshot[&("textures\\signed.dds".into(), TextureUsage::Normal)].0.upgrade().is_some());
         let isolated = WorkerTextures::default();
         assert_eq!(worker_texture("signed.dds", TextureUsage::Normal, &owned.data, &snapshot, &isolated, &provider, true), Some(handles[0].clone()));
         assert!(isolated.entries.lock().unwrap().is_empty(), "snapshot hit must not decode again");

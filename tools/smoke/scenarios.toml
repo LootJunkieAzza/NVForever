@@ -345,6 +345,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "distant-lights-night"
+source = "overnight queue 2026-11-06 item 16: lights beyond the loaded cells show at night as glows (distant_lights.rs); streamed lights fade in with their cell"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/distant_lights.rs", "engine/nvforever/src/lights.rs"]
+args = ["--cell", "Goodsprings", "--hour", "23"]
+run_seconds = 20
+expect = [
+  { re = 'distant lights: (\d+) glows in \d+ more cells around', range = [1, 100000], label = "the LIGH references of the cells around the loaded ones are drawn as glows at night (184 on the ELECTRO-CITY highway east of Goodsprings, 390 above North Vegas, 2026-11-06)" },
+  { re = 'distant lights: (\d+) lamp lights added around', range = [1, 100000], label = "the glows within 8 cells also light their surroundings, so a distant lamp post is lit under its glow (overnight queue 2026-11-06 item 35)" },
+]
+
+[[scenario]]
 name = "lod-grid-origin-freeside"
 source = "#1533: Freeside's LOD files sit on a grid from the south-west cell of lodsettings/freesideworld.dlodsettings (-10, -8), not on multiples of 4; aligned there, its object blocks (the Strip towers' stand-ins Lucky38WL, Gamorrah01WL, TheTopsWL, UltraLuxHotelWL in block x-6.y-8) and its game terrain chunks are found and drawn (0 of each on main before the fix)"
 areas = ["renderer"]
@@ -3740,6 +3752,55 @@ expect = [
 ]
 
 [[scenario]]
+name = "strip-gate-arrival"
+source = "owner's overnight queue 2026-11-05, Freeside to Strip arrival; docs/spec-notes/doors.md §6: through Freeside's gate to the Strip the player arrives at the door's XTEL marker; with FalloutNV.esm alone the marker is used as stored (with a load order whose later plugins moved the Strip's gate, the marker moves with it: fnv_world::teleport)"
+areas = ["doors"]
+paths = ["crates/fnv-world/src/teleport.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-nav/src/graph.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GIVE = "00119875:1", NVF_PLAY_TEST_SCRIPT = "1:activate:FreesideGateToStripREF", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "FreesideWorld", "--pos=-6850,-10120,1040", "--heading", "220", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'travel to worldspace 0013B308 \(TheStripWorldNew\): feet \(100[0-9], 87[12][0-9], ', label = "arrives at the vanilla marker, 242 units in front of the Strip's gate to Freeside" },
+  { text = "XTEL marker(s) moved", count = 0, label = "no vanilla marker is moved" },
+]
+
+[[scenario]]
+name = "freeside-east-gate-arrival"
+source = "owner's overnight queue 2026-11-07 item 37, Freeside arrival: through the East Gate the player lands standing on the street just inside the gate, at FreesideEastGateREF's XTEL marker (9246, -7138, 1013) in FreesideNorthWorld [observed: FalloutNV.esm; Simple Open Freeside moves the gate into FreesideWorld]; docs/spec-notes/doors.md §6 (a gate a mod tipped over keeps its marker: fnv_world::teleport)"
+areas = ["doors"]
+paths = ["crates/fnv-world/src/teleport.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-nav/src/graph.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:activate:FreesideEastGateREF", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-9700,102850,4360", "--heading", "130", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'travel to worldspace 0012D94D \(FreesideNorthWorld\): feet \(924[0-9], -713[0-9], [0-9.]+\), floor z', label = "arrives at the marker inside the East Gate, standing on a floor" },
+]
+
+[[scenario]]
+name = "freeside-north-gate-arrival"
+source = "owner's overnight queue 2026-11-07 item 37, Freeside arrival: through the North Gate the player lands standing on the street just inside the gate, at ExteriorGateToFreesideREF's XTEL marker (8288, 6896, 1008) in FreesideNorthWorld [observed: FalloutNV.esm]; docs/spec-notes/doors.md §6"
+areas = ["doors"]
+paths = ["crates/fnv-world/src/teleport.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-nav/src/graph.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:activate:ExteriorGateToFreesideREF", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-9800,111800,4360", "--heading", "270", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'travel to worldspace 0012D94D \(FreesideNorthWorld\): feet \(828[0-9], 689[0-9], [0-9.]+\), floor z', label = "arrives at the marker inside the North Gate, standing on a floor" },
+]
+
+[[scenario]]
+name = "strip-to-freeside-arrival"
+source = "owner's overnight queue 2026-11-07 item 37, Freeside arrival: from the Strip, the Strip's gate to Freeside (0x0013BB0D) puts the player on the street just inside Freeside's gate, at its XTEL marker (-6711, -10197, 1033) [observed: FalloutNV.esm]; docs/spec-notes/doors.md §6"
+areas = ["doors"]
+paths = ["crates/fnv-world/src/teleport.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-nav/src/graph.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:activate:0x0013BB0D", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "TheStripWorldNew", "--pos=1004,8722,1030", "--heading", "45", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'travel to worldspace 0010BEEA \(FreesideWorld\): feet \(-671[0-9], -1019[0-9], [0-9.]+\), floor z', label = "arrives at the marker inside Freeside's gate to the Strip, standing on a floor" },
+]
+
+[[scenario]]
 name = "strip-fade-in-walk"
 source = "#1473 (engine/nvforever/src/nav.rs JUMP_STEP, residents.rs FirstSteps): an actor a script puts somewhere (the Strip crowd the gate's VFSVegasDoorSCRIPT places, the travellers' MoveToMarkerWithFade to another port) plays its package's gait from its first frame drawn there; the jump was read as speed and it ran for about a second while it faded in (owner playtest 2026-11-03)"
 note = "strip-crowd-evening's arrival through the Freeside gate at 20:06, cut to its first minute: the crowd is moved at about 20:07 and the travellers' walk packages (no Always Run) go on from where they were put"
@@ -6242,6 +6303,32 @@ forbid = [
 ]
 manual = "Compare flashlight_aimed_off.png and flashlight_aimed_on.png (1280x720): with the flashlight on, the aimed Ranger Sequoia cylinder, frame, sights and gloved hand must remain cleanly readable (not blown out to white) while the interior wallpaper and window ahead are brightly illuminated by the flashlight cone."
 
+[[scenario]]
+name = "flashlight-settings"
+source = "Tweaks > Flashlight rows (nvforever flashlight.rs, settings.rs): with the flashlight on (at 7 s, after the start scripts' ResetPipboyManager turns it off), it is the default warm white spot; Type remakes it as a point light and back as a spot, Beam width takes it to its narrowest (10 degrees across), Colour Pip-Boy gives it the Pip-Boy's amber and then the Pip-Boy colour's green; the rows are put back (its home keeps them for the next run) and the flashlight goes off; in a dark interior, with a home of its own so a player's settings are untouched"
+areas = ["flashlight", "settings"]
+paths = ["engine/nvforever/src/flashlight.rs", "engine/nvforever/src/settings.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVFOREVER_HOME = "flashlight-settings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "7:flashlight,22:flashlight", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:flashlight-type=Point,13:flashlight-type=Spot,15:flashlight-beam-width=0.0625,16:flashlight-colour=Pip-Boy,17:pipboy-colour=Green,17.4:flashlight-beam-width=0.375,17.6:flashlight-colour=Warm white,17.8:pipboy-colour=Amber" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice"]
+run_seconds = 28
+order = [[
+  "flashlight: on",
+  { re = 'flashlight light: Spot, shadows on, colour \[1\.0, 0\.949\d*, 0\.858\d*\], range 2800, brightness 2\.00, cone 14\.0/30\.0 degrees', label = "the default light: warm white, 40 m, 60 degrees" },
+  "settings: flashlight-type Point",
+  { re = 'flashlight light: Point, shadows on', label = "the light made again as a point light" },
+  "settings: flashlight-type Spot",
+  { re = 'flashlight light: Spot, shadows on', label = "and as a spot again" },
+  "settings: flashlight-beam-width 10",
+  { re = 'flashlight light: Spot, .*cone [0-9.]+/5\.0 degrees', label = "the narrowest beam: 10 degrees across" },
+  "settings: flashlight-colour Pip-Boy",
+  { re = 'flashlight light: Spot, shadows on, colour \[1\.0, 0\.713\d*, 0\.258\d*\]', label = "Pip-Boy: the Pip-Boy's colour, amber by default" },
+  "settings: pipboy-colour Green",
+  { re = 'flashlight light: Spot, shadows on, colour \[0\.101\d*, 1\.0, 0\.501\d*\]', label = "and it follows the Pip-Boy colour to green" },
+  "settings: pipboy-colour Amber",
+  "flashlight: off",
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the light changes type" }]
+
 # ------------------------------------------------------------------ sounds
 
 [[scenario]]
@@ -8022,6 +8109,51 @@ expect = [
   { re = 'panic on thread .nvf-test-panic. at .*test panic \(NVF_PLAY_TEST_PANIC\); where: WastelandNV cell -?\d+,-?\d+.*position .*crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the panic logged with its thread, place and crash report" },
   "run log: the game exited normally",
 ]
+
+[[scenario]]
+name = "gpu-vram-cap"
+source = "queue item 97 (owner 2026-11-08): the laptop's 4 GB card ran out of memory at every cell change; the texture cap follows VK_EXT_memory_budget at each cell load, the caches are flushed before the new place uploads, and an out-of-memory error makes the textures smaller and goes on (engine/nvforever/src/memory_budget.rs)"
+note = "the GPU budget is taken as the laptop's 3367 MB; Doc Mitchell's door out to Goodsprings, then coc into the Prospector Saloon; soon after the saloon is in the out-of-memory path runs (test aid, no memory filled) and makes its textures again"
+areas = ["memory", "render"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/release.rs", "engine/vendor/gpu-allocator/"]
+env = { NVF_PLAY_TEST_VRAM_MB = "3367", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_CONSOLE = "28:coc GSProspectorSaloonInterior", NVF_PLAY_TEST_GPU_OOM = "35" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 60
+order = [[
+  "GSDocMitchellHouseIntDoorREF activated",
+  "memory budget: cell load: GPU uses",
+  "memory budget: cell loaded: GPU uses",
+  "memory budget: cell load: GPU uses",
+  "memory budget: cell loaded: GPU uses",
+  "memory budget: test aid NVF_PLAY_TEST_GPU_OOM: the game goes on",
+  "memory budget: out of GPU memory: going on with world textures at most",
+]]
+expect = [
+  { re = 'memory budget: world textures at most \d+ px, mesh slabs at most 105 MiB, 0 emptied GPU memory blocks kept per memory type', label = "a 3367 MB budget: 105 MiB slabs, no kept empty blocks" },
+  { re = 'memory budget: out of GPU memory: going on with world textures at most 1024 px; caches flushed, (?P<n>\d+) textures made again', range = [1, 5000], label = "the saloon's textures made again after the out-of-memory error" },
+]
+forbid = [{ text = "GPU lost", label = "the game closed for the GPU" }, { text = "panic on thread", label = "a panic" }]
+
+[[scenario]]
+name = "gpu-device-lost"
+source = "owner's 5-player co-op stress test 2026-11-05: the AMD driver lost the GPU device and the game panicked in Bevy on a buffer map (engine/nvforever/src/gpu_lost.rs, engine/vendor/README.md bevy_render)"
+note = "the render device is destroyed 5 s after the first frame, which wgpu reports as lost; the game autosaves (no thumbnail) and closes with no panic"
+areas = ["crash", "render"]
+paths = ["engine/nvforever/src/gpu_lost.rs", "engine/vendor/bevy_render/"]
+env = { NVFOREVER_HOME = "gpu-lost-home", NVF_PLAY_TEST_GPU_LOST = "5" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 60
+# The game closes itself with the error exit after a lost device, before the run's end.
+exit = 1
+ends = "render: GPU lost: autosaved to"
+expect = [
+  { re = 'render: adapter .+ \((DiscreteGpu|IntegratedGpu|VirtualGpu|Cpu|Other), ', label = "the adapter in use is logged" },
+  "render: test aid NVF_PLAY_TEST_GPU_LOST: destroying the render device",
+  { re = 'render: the GPU device was lost .*; autosaving, then the game closes', label = "the lost device is caught by the render error handler" },
+  { re = 'render: GPU lost: autosaved to .*autosave\.nvfsave; the game closes', label = "the autosave is written before the game closes" },
+  "run log: the game exited normally",
+]
+forbid = [{ text = "panic on thread", label = "a panic after the device is lost (a crash report)" }]
 
 [[scenario]]
 name = "device-lost-report"
@@ -10968,6 +11100,99 @@ expect = [
 ]
 
 [[scenario]]
+name = "photo-mode"
+source = "owner request 2026-11-09 (queue item 175): photo mode opens, pauses alone, moves its camera, changes its sliders, saves a PNG and closes (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open,11:orbit=60,11.5:near=200,12:set=zoom=50,12.5:set=saturation=0.4,13:shot,16:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 19
+expect = [
+  { re = 'photo mode: open \(solo: the game pauses\), zoom \d+°', label = "photo mode opens and pauses alone" },
+  { re = 'menu pause: the picture stands still \(photo mode\)', label = "the picture stands still" },
+  "test aid NVF_PLAY_TEST_PHOTO: orbit 60°",
+  "test aid NVF_PLAY_TEST_PHOTO: Zoom (FOV) 50",
+  "test aid NVF_PLAY_TEST_PHOTO: Saturation 40%",
+  { re = 'photo mode: captured \d+x\d+, writing .*Photos.NVForever \d{4}-\d\d-\d\d \d\d-\d\d-\d\d .+\.png', label = "the window is captured and named by date, time and place" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  { text = "photo mode: notice: Photo saved", label = "photo mode's own notice says Photo saved (the corner messages wait while it is open)" },
+  "photo mode: closed, the view is back on the player",
+  { re = 'photo mode: the field of view is back at vertical 59\.8°', label = "the close gives back the gameplay field of view (75, vertical 59.8°), not the Zoom slider's 50 (#202)" },
+  "menu pause: the picture runs again",
+]
+
+[[scenario]]
+name = "photo-mode-coop-hold"
+source = "owner request 2026-11-14: photo mode is a frozen snapshot you fly around in; in co-op the local view holds (poses, particles, faces, water, wind, clouds, sky) while the world goes on, and goes live on close (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/view_hold.rs", "engine/nvforever/src/sky.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open-coop,11:orbit=60,12:shot,15:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 18
+expect = [
+  { re = 'photo mode: open \(co-op: the view holds, the world goes on\), zoom \d+°', label = "the test aid opens photo mode as in co-op" },
+  { re = 'photo mode: the view holds \(\d+ things drawn as they are now; the world goes on\)', label = "the drawn places and poses are held" },
+  { re = 'view hold: the shaders. clock stands at \d+\.\d\d s', label = "the shaders' clock (water, wind, fire) stands still" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "photo mode: closed, the view is back on the player",
+  "photo mode: the view goes live again",
+  "view hold: the shaders' clock runs again",
+]
+forbid = [{ text = "menu pause: the picture stands still (photo mode)", label = "the world paused under co-op photo mode" }]
+
+[[scenario]]
+name = "photo-mode-lights"
+source = "owner request 2026-11-19: photo mode lights after GTA VI's (mechanics only): Hue and Saturation sliders, brightness, range, point or spot, a direction and a width the player sets, shadows; a new light drops at the camera; the camera stands still while a light is edited and comes back exactly; the lights go when photo mode closes (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvf-play/src/photo_lights.rs", "engine/nvforever/src/photo_lights.rs"]
+env = { NVF_PLAY_TEST_PHOTO = "8:open,8.5:tab=3,9:light=add,9.3:light=hue=0,9.4:light=sat=1,9.5:light=width=30,9.6:light=bright=3,9.8:light-move=-40:-120:60,10:light-turn=30:-10,10.2:lift=100,11:light-done,11.5:light=add,11.7:light=type,11.8:light=hue=220,11.9:light=sat=1,12:light-move=0:150:0,12.3:light-done,12.6:shot,15:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'photo mode: open \(solo: the game pauses\)', label = "photo mode opens" },
+  { re = 'photo mode: light 1 added at the camera \(', label = "a new light drops at the camera" },
+  { re = 'photo mode: editing light 1; the camera stands at', label = "editing it begins with the camera held" },
+  "test aid NVF_PLAY_TEST_PHOTO: light Hue 0",
+  "test aid NVF_PLAY_TEST_PHOTO: light Saturation 100%",
+  "test aid NVF_PLAY_TEST_PHOTO: light Width 30",
+  { re = 'photo lights: light 1 drawn \(Spot', label = "the first light is drawn as a spot" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: light 1 now at .* direction [+-]\d+ tilt [+-]\d+', label = "the camera's inputs move and aim the light" },
+  { text = "test aid NVF_PLAY_TEST_PHOTO: the camera stands still while a light is edited", label = "the camera does not move while a light is edited" },
+  { re = 'photo mode: light editing ends; the camera is back at', min = 2, label = "leaving editing gives the camera back" },
+  "test aid NVF_PLAY_TEST_PHOTO: light Type pressed: Point",
+  { re = 'photo lights: light 2 drawn \(Point', label = "the second light is a point light" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "photo mode: 2 photo lights removed",
+  "photo mode: closed, the view is back on the player",
+]
+
+[[scenario]]
+name = "photo-mode-options"
+source = "owner request 2026-11-10: photo mode's camera is free (not locked to the player) and it has the options photo modes commonly have: depth of field, warmth, vignette, grain, letterbox, grid, hide player (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/imagespace.rs", "engine/nvforever/src/imagespace.wesl", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open,11:lift=150,11.2:fly=600,11.5:face,12:set=blur=0.5,12.2:set=focus=30,12.4:set=warmth=0.4,12.6:set=vignette=0.6,12.8:set=grain=0.3,13:set=letterbox=1,13.2:set=grid=1,13.4:set=hide=1,13.6:tab=2,14:shot,17:set=camera=1,17.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 20
+expect = [
+  { re = 'photo mode: open \(solo: the game pauses\), zoom \d+°', label = "photo mode opens" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera flies 600, now [1-9]\d{2,} from the player', label = "the free camera flies away from the player (100 units or more)" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera faces the player from [1-9]\d{2,}', label = "the free camera turns back to the player" },
+  "test aid NVF_PLAY_TEST_PHOTO: Blur 50%",
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: Focus \d+(\.\d)? m', label = "the focus reads in metres" },
+  { re = 'depth of field: lens blur \(bokeh\), aperture 0\.50, .*\(photo mode', label = "photo mode's depth of field reaches the grade (the lens blur since cf5ff970a)" },
+  "test aid NVF_PLAY_TEST_PHOTO: Warmth +40",
+  "test aid NVF_PLAY_TEST_PHOTO: Vignette 60%",
+  "test aid NVF_PLAY_TEST_PHOTO: Film Grain 30%",
+  "test aid NVF_PLAY_TEST_PHOTO: Letterbox 2.39:1",
+  "test aid NVF_PLAY_TEST_PHOTO: Grid Thirds",
+  "test aid NVF_PLAY_TEST_PHOTO: Hide Player On",
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "test aid NVF_PLAY_TEST_PHOTO: Camera Orbit",
+  "photo mode: closed, the view is back on the player",
+]
+
+[[scenario]]
 name = "console-toggles"
 source = "console world and render toggles (docs/design/console.md): each switches and prints its state, and switches back"
 areas = ["console", "scripts"]
@@ -11792,9 +12017,9 @@ expect = [
 
 [[scenario]]
 name = "load-handoff"
-source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run starts behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs); owner 2026-11-01 (#1357): the new window takes over as soon as its own loading screen is up, and the old run ends then instead of holding its game through the whole load"
+source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run starts behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs); owner 2026-11-01 (#1357): the new window takes over as soon as its own loading screen is up, and the old run ends then instead of holding its game through the whole load; queue item 132 (owner's playtest 2026-11-09): the old run ends before the new run opens its GPU device, so the two never have one each"
 areas = ["save"]
-paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/readahead.rs"]
 # The save waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
 env = { NVFOREVER_HOME = "handoff-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:save handoff-test;22:load handoff-test", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
@@ -11809,16 +12034,20 @@ expect = [
   { re = 'load: restored .*handoff-test\.nvfsave: \d+ changed references', label = "the new run restores the save" },
   { re = 'handoff: window shown after [\d.]+ s$', label = "the new window is shown once its loading screen is up (not past the time limit)" },
   { text = "the new run took over and its world is in; ending it", label = "the new run goes on loading alone and its world comes in" },
-  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends when the new one is up" },
+  { re = 'load: the new run is about to open its GPU device after [\d.]+ s; ending this one', count = 1, label = "the old run ends when the new run is about to open its GPU device (item 132)" },
+  { re = 'handoff: the old run \(process \d+\) ended [\d.]+ s after it was told; this run.s GPU device opens', count = 1, label = "the new run opens its GPU device only once the old run has ended" },
+  { text = "GPU device opens anyway", count = 0, label = "the old run does not hang past the wait" },
   { re = 'the previous run did not end normally', count = 0, label = "the new run does not take the old one for a crash" },
   { re = 'before the world was in|before it was ready', count = 0, label = "no time limit or failure" },
   { text = "menu pause: the picture runs again", count = 0, label = "the world behind the loading screen stands still while the new run loads (owner 2026-10-23: a load from the main menu played the opening behind it)" },
+  { text = "the world loads anyway", count = 0, label = "the world does not wait on an old run still going" },
 ]
 order = [[
+  { re = 'load: the new run is about to open its GPU device after [\d.]+ s; ending this one', label = "the old run ends" },
+  { re = 'handoff: the old run \(process \d+\) ended [\d.]+ s after it was told', label = "the new run sees it gone, then opens its GPU device" },
+  { re = 'render: adapter ', label = "the new run's adapter (its device) comes after (item 132: never two devices at once)" },
   { re = 'handoff: window shown after [\d.]+ s$', label = "the new window shows" },
-  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends once the new window shows" },
-  { re = 'handoff: the old run has ended after [\d.]+ s; the save goes back now', label = "the new run sees the old one end (#1651)" },
-  { re = 'load: restored .*handoff-test\.nvfsave', label = "only then is the save put back (owner 2026-11-01: the old run does not stay through the load)" },
+  { re = 'load: restored .*handoff-test\.nvfsave', label = "the save is put back" },
   { text = "the new run took over and its world is in; ending it", label = "and the world comes in" },
 ]]
 
@@ -11836,7 +12065,7 @@ expect = [
   { re = 'pause menu: quit$', count = 0, label = "Exit Game is not picked" },
   { text = "load: handing over to a new run with --menu", count = 1, label = "a new run starts for the main menu" },
   { re = 'handoff: window shown after [\d.]+ s$', label = "the new window is shown (not past the time limit)" },
-  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends once the new one is up" },
+  { re = 'load: the new run is about to open its GPU device after [\d.]+ s; ending this one', label = "the old run ends once the new run is about to open its GPU device (co-op item 132, as load-handoff; release 0.7.0 merge)" },
   { text = "the new run took over and its main menu is in; ending it", label = "the main menu is open" },
   { re = 'before it was ready', count = 0, label = "the new run does not stop at its start" },
 ]
@@ -11855,7 +12084,7 @@ expect = [
   { re = 'load: handing over to a new run with --load .*win\.ini', count = 1, label = "a new run starts for the load" },
   { re = 'load: --load .*win\.ini.*; opening the main menu', count = 1, label = "the new run cannot load the file and opens the main menu" },
   { re = 'handoff: window shown after [\d.]+ s$', label = "the new window is shown (not past the time limit)" },
-  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends" },
+  { re = 'load: the new run is about to open its GPU device after [\d.]+ s; ending this one', count = 1, label = "the old run ends before the new run opens its GPU device (item 132)" },
   { text = "the new run took over and its main menu is in; ending it", label = "the main menu is open" },
   { re = 'load: message box not shown \(unattended run\): the save could not be loaded: --load .*win\.ini', count = 1, label = "the player is told why (the box itself is skipped in unattended runs)" },
 ]
@@ -14406,6 +14635,49 @@ expect = [
 ]
 
 [[scenario]]
+name = "pad-bindings-write"
+source = "owner 2026-11-22: controller combos, double taps and holds on the Controls tab, the built-in holds split into their own controls (controller only), every overlap warned of and none refused (docs/design/controller.md §2a); the first half of a round trip (pad-bindings-read starts in the same home), run them together"
+note = "no controller is connected in a smoke run: the gestures' capture and the bindings' acting are covered by the unit tests (pad/capture.rs, pad/resolver.rs); this checks the rows, the aids, the overlap warnings and the INI"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pad/**", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "crates/nvf-settings-layout/src/lib.rs"]
+env = { NVFOREVER_HOME = "pad-bindings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:padbind:Toggle Light=LB + A,13:padbind:Holster Weapon=Double X,14:padbind:Rest=Hold Back,15:hold-time:0.5,16:double-tap:0.25,17:combo-window:0.15", NVF_PLAY_TEST_PAUSE_MENU = "11.5:defaults,12.6:shot:combo,13.6:shot:double,14.6:shot:hold,17.6:shot:timing" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 21
+expect = [
+  { text = "controls: input device Controller", label = "the Controls tab's first row picks the controller" },
+  { text = "controls: every control back to the game's controller buttons", label = "Defaults first, so a home kept from an earlier run starts from the game's buttons" },
+  { text = "controls: Toggle Light bound to controller LB + A (was With Menu Mode)", label = "a combo binds the light, split off Menu Mode's hold" },
+  { re = 'controls: warning: A does not act as Activate while LB is held', label = "the combo's overlap with Activate's A is warned of, not refused" },
+  { text = "controls: Holster Weapon bound to controller Double X (was With Ready Item)", label = "a double tap binds Holster Weapon, split off Ready Item's hold" },
+  { text = "controls: Rest bound to controller Hold Back (was Back)", label = "a hold binds Rest" },
+  { text = "controls: Hold Time 0.50 s", label = "the Hold time row is set" },
+  { text = "pause menu: screenshot pause_controls_combo.png", label = "a frame of the combo's row" },
+  { text = "pause menu: screenshot pause_controls_double.png", label = "a frame of the double tap's row" },
+  { text = "pause menu: screenshot pause_controls_hold.png", label = "a frame of the hold's row" },
+  { text = "pause menu: screenshot pause_controls_timing.png", label = "a frame of the timing rows" },
+  { text = "controls: Double Tap Window 0.25 s", label = "the Double-tap window row is set" },
+  { text = "controls: Combo Window 0.150 s", label = "the Combo window row is set (owner's playtest 2026-11-22: combos pressed nearly together)" },
+]
+order = [["controls: input device Controller", "controls: every control back to the game's controller buttons", "controls: Toggle Light bound to controller LB + A", "controls: Holster Weapon bound to controller Double X", "controls: Hold Time 0.50 s"]]
+
+[[scenario]]
+name = "pad-bindings-read"
+source = "owner 2026-11-22: the second half of the binding kinds' round trip: a new start in pad-bindings-write's home takes the combo, the double tap and the three timings it stored"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad/binding.rs"]
+env = { NVFOREVER_HOME = "pad-bindings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'controls: (\d+) of \1 line\(s\) read from .*NVForever\.ini, .*\[Controller\] Toggle Light With Menu Mode -> LB \+ A', label = "the stored combo is taken at the start, every line there" },
+  { re = 'controls: \d+ of \d+ line\(s\) read .*\[Controller\] Holster Weapon With Ready Item -> Double X', label = "the stored double tap" },
+  { re = 'controls: \d+ of \d+ line\(s\) read .*\[Controller\] Rest Back -> Hold Back', label = "the stored hold" },
+  { re = 'controls: \d+ of \d+ line\(s\) read .*\[Controller\] Hold Time 0\.5, \[Controller\] Double Tap Window 0\.25, \[Controller\] Combo Window 0\.15', label = "the stored timings" },
+  { re = 'controls: warning: A does not act as Activate while LB is held', label = "the overlap read is warned of again" },
+]
+forbid = [{ re = 'controls: .* not read|\[Controller\] .*=.* \(', label = "no stored line is refused" }]
+
+[[scenario]]
 name = "look-sensitivity-write"
 source = "owner 2026-11-03 (#1451): Invert Y and a sensitivity slider (as the sound sliders) on the settings page's Controls tab, Mouse Sensitivity with keyboard and mouse and Stick Sensitivity with a controller, kept apart; NVForever's own range (25%-300% of the game's, floor 5% since #1632); the first half of a round trip (look-sensitivity-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
@@ -14973,6 +15245,22 @@ expect = [
 manual = "creator_open.png … creator_hair_tab.png in the run's folder: the panel on the left, the player framed on the right, creator_open.png on the face (todo 6); after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders; hair_tab: the Hair tab with no Region row, a scrollbar at the right of the rows"
 
 [[scenario]]
+name = "creator-adult-age"
+source = "queue item 110 (owner 2026-11-08): \"age can go down to 3 when randomizing or with some presets! not good! lowest should be 18\""
+note = "Randomise 30 times, every Preset entry of the male list (60 steps cycle through it), the female list the same, Randomise 20 more: the creator logs the age each look reads (`creator: age N`) and raises one under 18 (fnv_actor::creator::MIN_AGE, Creator::adult). Before the fix Randomise and some presets read as low as 3."
+areas = ["chargen", "menus", "actors"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-actor/src/creator.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9.0:random,9.3:random,9.6:random,9.9:random,10.2:random,10.5:random,10.8:random,11.1:random,11.4:random,11.7:random,12.0:random,12.3:random,12.6:random,12.9:random,13.2:random,13.5:random,13.8:random,14.1:random,14.4:random,14.7:random,15.0:random,15.3:random,15.6:random,15.9:random,16.2:random,16.5:random,16.8:random,17.1:random,17.4:random,17.7:random,18.5:next:Preset,18.8:next:Preset,19.1:next:Preset,19.4:next:Preset,19.7:next:Preset,20.0:next:Preset,20.3:next:Preset,20.6:next:Preset,20.9:next:Preset,21.2:next:Preset,21.5:next:Preset,21.8:next:Preset,22.1:next:Preset,22.4:next:Preset,22.7:next:Preset,23.0:next:Preset,23.3:next:Preset,23.6:next:Preset,23.9:next:Preset,24.2:next:Preset,24.5:next:Preset,24.8:next:Preset,25.1:next:Preset,25.4:next:Preset,25.7:next:Preset,26.0:next:Preset,26.3:next:Preset,26.6:next:Preset,26.9:next:Preset,27.2:next:Preset,27.5:next:Preset,27.8:next:Preset,28.1:next:Preset,28.4:next:Preset,28.7:next:Preset,29.0:next:Preset,29.3:next:Preset,29.6:next:Preset,29.9:next:Preset,30.2:next:Preset,30.5:next:Preset,30.8:next:Preset,31.1:next:Preset,31.4:next:Preset,31.7:next:Preset,32.0:next:Preset,32.3:next:Preset,32.6:next:Preset,32.9:next:Preset,33.2:next:Preset,33.5:next:Preset,33.8:next:Preset,34.1:next:Preset,34.4:next:Preset,34.7:next:Preset,35.0:next:Preset,35.3:next:Preset,35.6:next:Preset,35.9:next:Preset,36.2:next:Preset,36.5:next:Sex,37.0:next:Preset,37.3:next:Preset,37.6:next:Preset,37.9:next:Preset,38.2:next:Preset,38.5:next:Preset,38.8:next:Preset,39.1:next:Preset,39.4:next:Preset,39.7:next:Preset,40.0:next:Preset,40.3:next:Preset,40.6:next:Preset,40.9:next:Preset,41.2:next:Preset,41.5:next:Preset,41.8:next:Preset,42.1:next:Preset,42.4:next:Preset,42.7:next:Preset,43.0:next:Preset,43.3:next:Preset,43.6:next:Preset,43.9:next:Preset,44.2:next:Preset,44.5:next:Preset,44.8:next:Preset,45.1:next:Preset,45.4:next:Preset,45.7:next:Preset,46.0:next:Preset,46.3:next:Preset,46.6:next:Preset,46.9:next:Preset,47.2:next:Preset,47.5:next:Preset,47.8:next:Preset,48.1:next:Preset,48.4:next:Preset,48.7:next:Preset,49.0:next:Preset,49.3:next:Preset,49.6:next:Preset,49.9:next:Preset,50.2:next:Preset,50.5:next:Preset,50.8:next:Preset,51.1:next:Preset,51.4:next:Preset,51.7:next:Preset,52.0:next:Preset,52.3:next:Preset,52.6:next:Preset,52.9:next:Preset,53.2:next:Preset,53.5:next:Preset,53.8:next:Preset,54.1:next:Preset,54.4:next:Preset,54.7:next:Preset,55.0:random,55.3:random,55.6:random,55.9:random,56.2:random,56.5:random,56.8:random,57.1:random,57.4:random,57.7:random,58.0:random,58.3:random,58.6:random,58.9:random,59.2:random,59.5:random,59.8:random,60.1:random,60.4:random,60.7:random,61.5:done" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 80
+expect = [
+  { re = 'creator: age (1[89]|[2-9][0-9])$', min = 100, label = "every look reads 18 or more" },
+  { re = 'creator: age ([0-9]|1[0-7])$', count = 0, label = "no look younger than 18 (queue item 110)" },
+  { text = "creator: randomised", min = 50, label = "Randomise ran" },
+  { text = "creator: done (test aid NVF_PLAY_TEST_CREATOR)", label = "Done" },
+]
+
+[[scenario]]
 name = "actor-creator"
 kind = "tool"
 source = "docs/spec-notes/character-creator.md §2, §7: what the creator offers, from the masters and the FaceGen controls file si.ctl"
@@ -15020,9 +15308,9 @@ name = "slots"
 source = "docs/spec-notes/slots.md §7: a slot machine at The Tops (0x0016546A in TOPSCasino) activated with 200 Tops chips: its script's ShowSlotMachineMenuParams opens the menu (bets 1 to 75) with the help the first time; the payout list shown and hidden; a bet of 5 made to stop on three oranges pays 160 x 5, then a cherry on the left reel pays 2 x 5, then a losing line; screenshots of the help, the payout list, the reels turning and a result"
 areas = ["slots", "menus"]
 paths = ["crates/fnv-game/src/slots.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvf-play/src/lockpick/help.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,52:reels:1-2-3,52.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_help.png,38.5:slots_payouts.png,41:slots_spin.png,43.5:slots_result.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,42.5:payout,44:payout,44.5:reels:6-6-6,45:spin,51:reels:7-1-2,55.5:spin,63:reels:1-2-3,63.5:spin,70.5:exit", NVF_PLAY_TEST_SHOTS = "40.5:slots_help.png,43.5:slots_payouts.png,46:slots_spin.png,50.1:slots_result.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 61
+run_seconds = 73
 order = [[
   "slots: the player is given 200 chips",
   'slots: open The Tops (0x00144C3F): bets 1 to 75, 200 chips carried, earnings 0 of 10000, reel stops [2, 2, 2, 2, 2, 2, 2] (14 a reel), 7 symbol pictures, model terminals\NV_SlotMachine\NV_SlotMachine-Minigame.NIF; help message shown (first use)',
@@ -15038,6 +15326,311 @@ order = [[
 expect = [
   "slots summary: 1 asked, 1 opened (0 refused); 3 spins, 2 won, 800 chips won, 5 lost; 0 bans",
 ]
+
+[[scenario]]
+name = "slots-seated"
+source = "queue item 170 part A: The Tops' machine 0x0016546A has its stool 0x0011E62E (TopsSlotMachineStool01L) 56 units out in front [observed: the load-order survey]; activated, the player sits on it by the stool's own getting-on clip, the menu opens once seated, each spin plays NVSlotMachineInsertCoin, a loss NVSlotMachineLoose, the jackpot (160 x) the cheer for 3 s on the upper body, and leaving gets the player up by the getting-off clip; third person for the screenshots"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:6-6-6,50.5:spin,59.5:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_seated_sitting_down.png,44.2:slots_seated_insert_coin.png,48.6:slots_seated_loss.png,55.6:slots_seated_cheer.png,60:slots_seated_end_00.png,61:slots_seated_end_01.png,62.5:slots_seated_end_02.png,63.7:slots_seated_end_03.png,64.5:slots_seated_end_04.png,65.5:slots_seated_getting_up_00.png,66.5:slots_seated_getting_up_01.png,67.5:slots_seated_getting_up_02.png,68.5:slots_seated_up_00.png,70:slots_seated_up_01.png,71.5:slots_seated_up_02.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 74
+order = [[
+  "slots seat: the player sits on stool 0011E62E at machine 0016546A",
+  "furniture: the player uses 0011E62E",
+  "furniture: the player is on 0011E62E",
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots: open The Tops (0x00144C3F)",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Bell BAR Seven: nothing",
+  "slots seat: the player plays Loose",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots seat: celebration 3.00s (160 x)",
+  "slots seat: the player plays Cheer",
+  "slots seat: celebration ended",
+  "slots: closed (the player left)",
+  "slots seat: the menu closed; the player stays on stool 0011E62E for the end view",
+  { re = 'match end: left Slots \(-?\d+ to -?\d+\); won; the end view, seated', label = "the end view on the stool (item 166, owner 2026-11-11)" },
+  { re = 'match end: this player plays \S+cheeringbotharmsup\.kf \(upper body, seated\)', label = "the cheer on the upper body, seated" },
+  "match end: the end view is over; back to the player's view (no fade at a slot machine)",
+  "slots seat: the player gets up from stool 0011E62E after the end view",
+  "furniture: the player got off 0011E62E",
+  "slots seat: the player is up",
+]]
+expect = [
+  { re = 'slots seat: \S+specialidle_nvinsertcoin\.kf: [\d.]+s, \d+ upper-body tracks', label = "InsertCoin loads, upper body only" },
+  { re = 'slots seat: \S+specialidle_nvloose\.kf: [\d.]+s, \d+ upper-body tracks', label = "Loose loads" },
+]
+
+[[scenario]]
+name = "slots-standing"
+source = "queue item 170 part A: Gomorrah's machine 0x0015EB86 (the cushion row) has no stool in front [observed: the load-order survey]; activated, the player stands 44 units out in front facing it, a spin plays InsertCoin on the upper body, a two-cherry win (5 x) a short cheer, and leaving lets the player go at once"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_standing_at.png,35.2:slots_standing_insert_coin.png,39.4:slots_standing_cheer.png,46:slots_standing_left.png" }
+args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
+run_seconds = 48
+order = [[
+  { re = 'slots seat: standing at machine 0015EB86 \(.*\), facing 270 deg \(no stool in front\)', label = "standing in front, facing the machine" },
+  "slots: open Gommorah (0x00140521)",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Cherry Cherry Bell: Two cherries pays 5 x 5 = 25 chips",
+  { re = 'slots seat: celebration 1\.3\ds \(5 x\)', label = "a short celebration for a small win" },
+  "slots seat: the player plays Cheer",
+  "slots seat: celebration ended",
+  "slots: closed (the player left)",
+  "slots seat: the player leaves the machine",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-standing-holster"
+source = "queue item 170 part A: at a standing machine (Gomorrah 0x0015EB86, no stool) the weapon is put away, as sitting does (`furniture::drive_player`): the 10mm pistol is equipped and drawn in third person before the machine is activated; the win's cheer then shows both hands empty. Screenshots: the gun drawn, the cheer"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "28:slots_holster_drawn.png,39.4:slots_holster_cheer.png" }
+args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
+run_seconds = 48
+order = [[
+  "slots seat: the weapon is put away at the machine",
+  { re = 'slots seat: standing at machine 0015EB86 \(.*\), facing 270 deg \(no stool in front\)', label = "standing in front, facing the machine" },
+  "slots: the reels stop on Cherry Cherry Bell: Two cherries pays 5 x 5 = 25 chips",
+  "slots seat: the player plays Cheer",
+  "slots: closed (the player left)",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-seated-defeat-first-person"
+source = "owner 2026-11-12: from first person the player's head vanished in the slots defeat end view. The Tops' machine 0x0016546A on its stool 0x0011E62E, played from first person (no view toggle), two losing spins, then exit: the end view (item 166) counts as a third-person view while it shows (`PlayerControl::end_view`), so the body is drawn whole, head and all, and first person comes back with the fade. Screenshots: the end view and the view after"
+areas = ["slots", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "24:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,31:help,32:bet:5,33:reels:1-2-3,33.5:spin,39:reels:2-3-4,39.5:spin,45:exit", NVF_PLAY_TEST_SHOTS = "45.6:slots_first_defeat_end_00.png,46.5:slots_first_defeat_end_01.png,48:slots_first_defeat_end_02.png,52:slots_first_defeat_after.png,57:slots_first_defeat_up.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 59
+order = [[
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots: closed (the player left)",
+  { re = 'match end: left Slots \(-?\d+ to -?\d+\); lost; the end view, seated', label = "the beaten end view on the stool" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays \S+ \(upper body, seated\)', label = "the beaten reaction, upper body, from first person" },
+  { re = "match end: the seated reaction's arms stayed clear", label = "the arms clear of the world" },
+  "match end: the view counts as third person: false",
+  { re = 'slots seat: the player gets up from stool 0011E62E after the end view', label = "then the get-off" },
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the slot machine's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the slot machine's end view" },
+]
+
+[[scenario]]
+name = "blackjack-end-view-first-person"
+source = "owner 2026-11-12 PvP Caravan playtest: after the match the winner had no head and a torso lay on the ground. The card tables' timed end view (item 127/166) from first person: Gomorrah's blackjack opened as the tables' script does, a stacked natural won, the player leaves: the end view counts as a third-person view (`PlayerControl::end_view`), the body drawn whole with its head and no first-person arms rig left in the scene; first person again after the fade. Screenshots: the end view and after"
+areas = ["blackjack", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;16.2:close", NVF_PLAY_TEST_BLACKJACK = "1:seed:7,15:chips:140521:500,15.5:stack:Ah-9c-Kd-7s,19:help,20:bet:25,21:deal,26:exit", NVF_PLAY_TEST_SHOTS = "26.6:blackjack_first_end_00.png,27.5:blackjack_first_end_01.png,29:blackjack_first_end_02.png,34:blackjack_first_after.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
+run_seconds = 36
+order = [[
+  "blackjack: round 1 over: blackjack (dealer 16); paid 62, net 37",
+  { re = 'match end: left Blackjack', label = "the visit ends: its end view" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays \S+cheeringbotharmsup\.kf', label = "the whole-body cheer" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the blackjack table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the blackjack table's end view" },
+]
+
+[[scenario]]
+name = "armwrestle-end-view-first-person"
+source = "parity 2026-11-12 (armwrestle-199 c-night-4, NVGrinderWorkbench-dense-r9, play-55.5s.png): from first person the arm-wrestling end view showed the player's body headless, hunched, arms hanging (the body drawn first-person style under the end camera; the same cause as the slots defeat view and the PvP Caravan winner with no head). As armwrestle-solo without the third-person key: the end view counts as a third-person view (`PlayerControl::end_view`), the whole body with its head plays the cheer, first person again after the fade. Screenshots: the end view, every 2 s"
+areas = ["minigames", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:308:222:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "40:armwrestle_first_end_00.png,42:armwrestle_first_end_01.png,44:armwrestle_first_end_02.png,46:armwrestle_first_end_03.png,48:armwrestle_first_end_04.png,50:armwrestle_first_end_05.png,52:armwrestle_first_end_06.png,54:armwrestle_first_end_07.png,56:armwrestle_first_end_08.png,58:armwrestle_first_end_09.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 62
+manual = "armwrestle_first_end_*.png: the end view frames the whole player with a head, cheering, no crosshair or prompt; the last ones first person again, no stray body"
+order = [[
+  { re = 'arm wrestle: won after', label = "the bout is won" },
+  "arm wrestle: up; closed",
+  "match end: the view counts as third person: true",
+  "match end: ArmWrestle at",
+  { re = 'match end: this player plays \S+cheeringbotharmsup\.kf', label = "the cheer" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the arm-wrestling table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the arm-wrestling table's end view" },
+]
+
+[[scenario]]
+name = "caravan-end-view-first-person"
+source = "owner 2026-11-12 PvP Caravan playtest: after the match the winner had no head and an extra torso lay on the ground. As the caravan scenario (the game against Ringo plays itself out) from first person: the card table's end view counts as a third-person view (`PlayerControl::end_view`), the body drawn whole with its head and no first-person body left in the scene; first person again after the fade. Screenshots: the end view (the seed-7 game is over at about 37 s, the results close and the end view runs about 43 to 46.5 s) and after"
+areas = ["caravan", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "43.4:caravan_first_end_00.png,44.2:caravan_first_end_01.png,45.2:caravan_first_end_02.png,46.1:caravan_first_end_03.png,49:caravan_first_after.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 52
+manual = "caravan_first_end_*.png: the end view, the player whole with a head reacting, no crosshair or prompt, no torso on the floor; first person again after"
+order = [[
+  "caravan: game over:",
+  { re = 'match end: .*Caravan', label = "the game ends: its end view" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays ', label = "the player's reaction" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the Caravan table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the Caravan table's end view" },
+]
+
+[[scenario]]
+name = "caravan-pot-drop"
+source = "owner 2026-11-12: the Caravan pot falls onto the table as real objects (engine/nvforever/src/caravan_pot.rs): the notes flutter down first, then the caps and coins drop onto them and heap up, none on its rim, nothing in the planks. As the caravan scenario (pot 108 against Ringo); the pot is laid when play starts (about 23 s) and comes to rest by itself"
+areas = ["caravan"]
+paths = ["engine/nvforever/src/caravan_pot.rs", "engine/nvforever/src/caravan_view.rs", "engine/nvf-play/src/caravan/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "23.6:caravan_pot_small_falling.png,31:caravan_pot_small_settled.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 34
+manual = "caravan_pot_small_*.png: the notes falling flat, then the pot at rest in heaps on its notes, clear of the cards and the screen's words, no cap on its rim"
+order = [[
+  { re = 'caravan view: the pot of 108 on the table as \d+ pieces, falling in', label = "the pot of 108 is laid and falls" },
+  { re = 'caravan view: the pot of 108 settled: ', label = "and comes to rest" },
+]]
+expect = [
+  { re = 'caravan view: the pot of 108 settled: \d+ pieces, \d+ caps and coins resting on others, \d+ pinned, at rest by itself: true, in the planks: 0', label = "at rest by itself, nothing in the planks" },
+]
+
+[[scenario]]
+name = "caravan-pot-drop-large"
+source = "as caravan-pot-drop with a pot of 10434 (Ringo given 5000 caps, the player 20000, the whole bet raised): many notes and Legion coins, the caps and coins heaped on others, every note whole on the screen (0cda73198)"
+areas = ["caravan"]
+paths = ["engine/nvforever/src/caravan_pot.rs", "engine/nvforever/src/caravan_view.rs", "engine/nvf-play/src/caravan/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:104C7D.additem 0000000F 5000;12.3:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:20000,15:cards:15D7A2,16:open:104C7D:15D7A2:1.0,18:help,19:match,20:accept,21:help,22:randomize,23:play,23.5:help", NVF_PLAY_TEST_SHOTS = "24:caravan_pot_large_falling.png,34:caravan_pot_large_settled.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 37
+manual = "caravan_pot_large_*.png: notes fluttering down flat, then heaps of caps and coins on the notes, every note whole on the screen"
+order = [[
+  { re = 'caravan view: the pot of 10434 on the table as \d+ pieces, falling in', label = "the pot of 10434 is laid and falls" },
+  { re = 'caravan view: the pot of 10434 settled: ', label = "and comes to rest" },
+]]
+expect = [
+  { re = 'caravan view: the pot of 10434 settled: \d+ pieces, (?P<n>\d+) caps and coins resting on others, \d+ pinned, at rest by itself: true, in the planks: 0', range = [3, 1000], label = "heaped (some resting on others), at rest by itself, nothing in the planks" },
+]
+
+[[scenario]]
+name = "slots-seated-holster"
+source = "queue item 170 part A: The Tops' machine 0x0016546A with its stool 0x0011E62E, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Two losing spins: the visit lost, so its end view (item 166) plays the beaten reaction on the stool, then the getting-off clip (owner 2026-11-11). Screenshots: the gun drawn, seated, the end view, getting off, up again"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon,26:orbit=150:-10,31:release", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:2-3-4,50.5:spin,56:exit", NVF_PLAY_TEST_SHOTS = "29:slots_seated_holster_drawn.png,36.5:slots_seated_holster_seated.png,56.5:slots_seated_holster_end_00.png,57.5:slots_seated_holster_end_01.png,59:slots_seated_holster_end_02.png,60.2:slots_seated_holster_end_03.png,61:slots_seated_holster_end_04.png,62:slots_seated_holster_getting_up_00.png,63:slots_seated_holster_getting_up_01.png,64:slots_seated_holster_getting_up_02.png,65:slots_seated_holster_up_00.png,66.5:slots_seated_holster_up_01.png,68:slots_seated_holster_up_02.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 70
+order = [[
+  "slots seat: the player sits on stool 0011E62E at machine 0016546A",
+  "furniture: the player is on 0011E62E",
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots seat: the weapon is away (sitting put it away)",
+  "slots seat: the player plays Loose",
+  "slots seat: the player plays Loose",
+  "slots: closed (the player left)",
+  "slots seat: the menu closed; the player stays on stool 0011E62E for the end view",
+  { re = 'match end: left Slots \(-?\d+ to -?\d+\); lost; the end view, seated', label = "the beaten end view on the stool" },
+  { re = 'match end: this player plays \S+ \(upper body, seated\)', label = "the beaten reaction, upper body" },
+  { re = 'match end: black; back to the', label = "the fade back, still seated" },
+  { re = 'gets up from stool 0011E62E after the end view', label = "off the stool only after the end view" },
+  { re = 'furniture: the player got off 0011E62E', label = "the getting-off clip" },
+  { re = 'slots seat: the player is up', label = "up, the weapon still away" },
+]]
+expect = []
+
+[[scenario]]
+name = "slots-mod-standing"
+source = "queue item 170 part A, the owner's Strip mods: HOTM.esm's Silver Palace (cell aaSilverPalaceCasino) has 71 slot machines, 49 of them with no stool (the owner's screenshot of 2026-11-10, rows on wooden bases); machine 0x0F003EF0 in the owner's order, 0x08003EF0 with HOTM.esm's masters alone [observed: the load-order survey]: the player stands at it; needs a Data folder with the owner's mods (NVF_SLOTS_MOD_DATA set, --data the merged MO2 Data)"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots/seat.rs", "engine/nvforever/src/slots_seat.rs"]
+requires = ["NVF_SLOTS_MOD_DATA"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "08003EF0", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x08003EF0", NVF_PLAY_TEST_SLOTS = "18:chips:200:08003EB0,32:help,33:bet:5,34:reels:1-2-3,34.5:spin,41:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_mod_sp_standing.png,35.2:slots_mod_sp_insert_coin.png,39.2:slots_mod_sp_loss.png" }
+args = ["--plugins", "FalloutNV.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "HonestHearts.esm", "LonesomeRoad.esm", "OldWorldBlues.esm", "Simple Open Strip.esm", "The Strip - 2023 Lite.esm", "HOTM.esm", "--cell", "aaSilverPalaceCasino", "--play", "--no-voice"]
+run_seconds = 45
+order = [[
+  { re = 'slots seat: standing at machine 08003EF0 .*\(no stool in front\)', label = "standing in front" },
+  "slots: open Silver Palace",
+  "slots seat: the player plays InsertCoin",
+  "slots seat: the player plays Loose",
+  "slots seat: the player leaves the machine",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-mod-seated"
+source = "queue item 170 part A, the owner's Strip mods: HOTM.esm's Monte Carlo (cell aaMontecarlo) machine 0x08003F92 (0x0F003F92 in the owner's order) has a TopsSlotMachineStool01L 0x08003F9D 53 units out in front [observed: the load-order survey]: the player sits on it, wins, gets up; needs NVF_SLOTS_MOD_DATA as slots-mod-standing"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots/seat.rs", "engine/nvforever/src/slots_seat.rs"]
+requires = ["NVF_SLOTS_MOD_DATA"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "08003F92", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x08003F92", NVF_PLAY_TEST_SLOTS = "18:chips:200:08003F8C,37:help,38:bet:5,39:reels:4-4-4,39.5:spin,47:exit", NVF_PLAY_TEST_SHOTS = "33:slots_mod_mc_sitting_down.png,40.2:slots_mod_mc_insert_coin.png,44.3:slots_mod_mc_cheer.png,49:slots_mod_mc_getting_up.png" }
+args = ["--plugins", "FalloutNV.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "HonestHearts.esm", "LonesomeRoad.esm", "OldWorldBlues.esm", "Simple Open Strip.esm", "The Strip - 2023 Lite.esm", "HOTM.esm", "--cell", "aaMontecarlo", "--play", "--no-voice"]
+run_seconds = 54
+order = [[
+  "slots seat: the player sits on stool 08003F9D at machine 08003F92",
+  "furniture: the player is on 08003F9D",
+  "slots seat: seated at machine 08003F92 on stool 08003F9D",
+  "slots seat: the player plays InsertCoin",
+  "slots seat: the player plays Cheer",
+  "slots seat: the player gets up from stool 08003F9D",
+  "slots seat: the player is up",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-3d"
+source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): the Tops slot machine 0x0016546A activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera pans slowly in on the reels and stays there for the pull and the turn, out to third person only for a win, back in after; a pull while the win's sequence plays (48.1 s) is ignored and the next spin waits for it to end; the body out of the close camera's view; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+areas = ["slots", "menus"]
+paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs", "engine/nvf-play/src/slots.rs", "engine/nvf-play/src/slots/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,48.1:spin,50.3:spin,57.5:reels:1-2-3,58.5:spin,65.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_reels.png,38.5:slots3d_payouts.png,40.00:slots3d_clip_00.png,40.25:slots3d_clip_01.png,40.50:slots3d_clip_02.png,40.75:slots3d_clip_03.png,41.00:slots3d_clip_04.png,41.25:slots3d_clip_05.png,41.50:slots3d_clip_06.png,41.75:slots3d_clip_07.png,42.00:slots3d_clip_08.png,42.25:slots3d_clip_09.png,42.50:slots3d_clip_10.png,42.75:slots3d_clip_11.png,43.00:slots3d_clip_12.png,43.25:slots3d_clip_13.png,43.50:slots3d_clip_14.png,43.75:slots3d_clip_15.png,44.00:slots3d_clip_16.png,44.25:slots3d_clip_17.png,44.50:slots3d_clip_18.png,46.65:slots3d_cheer.png,47.85:slots3d_win_line.png,48.25:slots3d_blocked.png,49.05:slots3d_back_01.png,49.45:slots3d_back_02.png,50.05:slots3d_back_03.png,50.9:slots3d_pull2.png,54.93:slots3d_small_00.png,55.53:slots3d_small_win.png,56.13:slots3d_small_01.png,57.73:slots3d_small_03.png,59.5:slots3d_loss_00.png,62.5:slots3d_loss_01.png,63.1:slots3d_loss.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 69
+order = [[
+  "slots: the machine is 0016546A",
+  "slots view: the reel model has 28 faces (radius 7.",
+  "slots view: drums on 0016546A (its own reel nodes; radius 8.",
+  "slots: spin: bet 5, 195 chips left; the reels will stop on Orange Orange Orange",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots: the next spin waits 5.6s for the win's sequence",
+  "slots: spin ignored: the win's sequence has",
+  "slots: spins open again (the win's sequence is over)",
+  "slots: spin: bet 5, 990 chips left; the reels will stop on Cherry Bell BAR",
+  "slots: the reels stop on Cherry Bell BAR: One cherry pays 2 x 5 = 10 chips",
+  "slots: the reels stop on Bell BAR Seven: nothing",
+  "slots: closed (the player left)",
+  "slots view: drums on 0016546A taken away",
+]]
+expect = [
+  "arm found",
+  "faces as the reel model)",
+  "slots view summary: drums built on 1 machines",
+  "slots view: the player's body out of the camera's view",
+  "slots view: the player's body back in the camera's view",
+]
+
+[[scenario]]
+name = "slots-3d-static"
+source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): an Atomic Wrangler slot machine of the static model Slot_Machine02.nif (vWranglerSlot02, 0x00119EC0) has no reel nodes: the drums stand at the vanilla cabinet's reel places; a win of three bells and a loss; screenshots. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+areas = ["slots", "menus"]
+paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00119EC0", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x00119EC0", NVF_PLAY_TEST_SLOTS = "18:chips:200:144C42,36:help,37:bet:5,39.5:reels:1-1-1,40:spin,46:reels:2-3-4,49:spin,55.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_static_reels.png,41.2:slots3d_static_spin.png,44.95:slots3d_static_win.png,50.3:slots3d_static_spin2.png,54.1:slots3d_static_loss.png" }
+args = ["--cell", "FreesideAtomicWrangler", "--play", "--no-voice"]
+run_seconds = 59
+order = [[
+  "slots: the machine is 00119EC0",
+  "slots view: drums on 00119EC0 (the cabinet's reel places (static model)",
+  "slots: the reels stop on Bell Bell Bell: Three bells pays 10 x 5 = 50 chips",
+  "slots: the reels stop on BAR Seven Lemon: nothing",
+  "slots: closed (the player left)",
+]]
 
 [[scenario]]
 name = "blackjack"
@@ -15299,6 +15892,27 @@ expect = [
   { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a fatigue knockout" },
   { re = 'knockout: Easy Pete \S+ gets up \(fatigue knockout over\)', label = "he gets up after his 30 s" },
   { re = 'combat: Easy Pete \S+ killed', count = 0, label = "he is not killed" },
+]
+
+[[scenario]]
+name = "killed-while-getting-up"
+source = "owner's overnight queue item 78 (2026-11-07): a Gambler on the Strip died and stayed standing, frozen in a crouch, with no ragdoll; an actor killed while it plays its get-up clip after a knockdown was left in that clip's pose (deaths.rs passes over an actor with a Dying), and now falls from it as a fresh death does (knockouts.rs)"
+note = "in Goodsprings, Easy Pete (not essential) is brought 300 units north of the player at 14 s; at 16 s the player pushes him over (PushActorAway, force 10): he drops as a ragdoll and gets up about 2.5 s later with a 2 s get-up clip; at 19.5 s, in that clip, the player kills him"
+areas = ["combat", "knockouts", "ragdoll"]
+paths = ["engine/nvforever/src/knockouts.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvf-play/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:player.pushactoraway EasyPeteRef 10;16.3:close", NVF_PLAY_TEST_HIT = "19.5:EasyPeteRef:500" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 28
+order = [[
+  "console: > player.pushactoraway EasyPeteRef 10",
+  { re = 'knockout: [0-9A-F]{8} falls \(ragdoll\)', label = "he drops as a ragdoll" },
+  { re = 'knockout: [0-9A-F]{8} gets up face (up|down) \([\d.]+ s clip\)', label = "he starts his get-up clip" },
+  { re = 'combat: Easy Pete \S+ killed', label = "the player kills him" },
+  { re = 'knockout: [0-9A-F]{8} killed while getting up: falls \(ragdoll\)', label = "killed in the get-up clip, he falls as a ragdoll" },
+  { re = 'ragdoll: actor [0-9A-F]{8} at rest at', label = "the body comes to rest" },
+]]
+expect = [
+  { re = 'knockout: [0-9A-F]{8} is up: it may move again', count = 0, label = "the dead do not finish getting up" },
 ]
 
 [[scenario]]
@@ -16871,6 +17485,21 @@ expect = [
 manual = "hurt_splatter.png: a few dark soft blobs with red cores over Doc Mitchell's house, no glints (opacity factor 1); hurt_flares.png: larger, darker blobs with small red glints near their cores (the flare)"
 
 [[scenario]]
+name = "screen-splatter-under-pipboy"
+source = "Queue item 212 (docs/spec-notes/screen-splatter.md §4, a hypothesis: observer check 129): the screen blood and its red flares are a picture over the world, so they lay over the Pip-Boy in the hands as red glow dots. While the full Pip-Boy is up they are not drawn, and they come back when it is down"
+areas = ["imagespace", "pipboy"]
+paths = ["engine/nvf-play/src/screen_splatter.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:triggerscreensplatter 10 20 2 2;10.2:close", NVF_PLAY_TEST_PIPBOY = "12:open,16:close", NVF_PLAY_TEST_SHOTS = "11.5:splatter_before.png,14.5:splatter_pipboy_up.png,17.5:splatter_after.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 19
+order = [[
+  "screen splatter: 10 splats on the screen (TriggerScreenSplatter 10 20 2 2)",
+  "screen splatter: hidden under the Pip-Boy (10 splats)",
+  "screen splatter: back from under the Pip-Boy (10 splats)",
+]]
+manual = "splatter_before.png: dark blobs with red glints over Goodsprings; splatter_pipboy_up.png: the Pip-Boy with no blood and no red dots on it; splatter_after.png: the blood back over the world"
+
+[[scenario]]
 name = "cell-image-space"
 source = "SetCellImageSpace (GECK wiki: a loaded cell shows the new image space only once it loads again): Old World Blues' Think Tank turns to its red image space (NVDLC03ThinkTankImageSpaceRed, as quest stage 50 does) after coc back into it (the save keeps the change: fnv-game unit test)"
 areas = ["imagespace", "scripts"]
@@ -17563,7 +18192,7 @@ order = [["caravan: bet accepted: ante", "caravan: the player's ante", "caravan:
 name = "caravan"
 source = "docs/spec-notes/caravan.md: ShowCaravanMenu against Ringo with his deck (as his dialogue line) is refused with no cards; given his deck's 30 cards the bet opens with its help, Auto Match and Accept, the deck builder's random deck of 30, then the game plays out by itself (the player's side by the opponent's rules) to a winner, the pot settles and the results close"
 areas = ["caravan", "menus"]
-paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs"]
+paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs", "engine/nvforever/src/caravan_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "17:caravan_bet.png,22.5:caravan_deck.png,33:caravan_game.png" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 130
@@ -17587,8 +18216,13 @@ expect = [
   { re = 'caravan: help box on the bet screen .*, (-?\d+) left of the buttons', range = [20, 1000], label = "and left of the buttons with a gap (#1663)" },
   { re = 'caravan: opponent plays .* on its caravan', label = "the opponent lays numbered cards" },
   { re = 'caravan summary: 2 asked, 1 opened \(1 refused\); 1 games: [01] won, [01] lost', label = "the summary" },
+  { text = "caravan view: the table built", label = "the game is drawn on the 3D table" },
+  { text = "caravan view: the table put away", label = "the 3D table goes with the game" },
 ]
-forbid = [{ text = "move refused", label = "every move the sides choose is legal" }]
+forbid = [
+  { text = "move refused", label = "every move the sides choose is legal" },
+  { text = "caravan view: no card picture", label = "every card's picture is found" },
+]
 
 [[scenario]]
 name = "f5-helios-rows-untouched"
@@ -18982,7 +19616,7 @@ forbid = [{ re = 'actor [0-9A-F]{8} stuck at .*moved on along its path', label =
 
 [[scenario]]
 name = "pickpocket-steal"
-source = "ESM full audit gap 6 (docs/spec-notes/pickpocket.md): sneaking, E on an NPC shows Steal and opens its pocket; a take rolls against the chance (GECK wiki Pickpocket) and is either unseen or caught"
+source = "ESM full audit gap 6 (docs/spec-notes/pickpocket.md): sneaking, E on an NPC shows Pickpocket and opens its pocket; a take rolls against the chance (GECK wiki Pickpocket) and is either unseen or caught"
 note = "Chet in the general store is held where he stands (SetRestrained 1 at 0.5 s: left to his sandbox package he walked off to his broom and FACE put the player on another floor height than him, with nothing under the crosshair; #951) and given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, is put in front of him again at 7 s (FACE), presses E at 8 s, takes the first row at 10 s (Enter; his .357 rounds are a stack, so a second Enter answers How many?) and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"
 areas = ["activate", "menus", "crime"]
 paths = ["engine/nvf-play/src/pickpocket.rs", "engine/nvf-play/src/activate*", "engine/nvf-play/src/menu*", "crates/fnv-game/src/pickpocket.rs"]
@@ -18990,7 +19624,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 order = [[
-  { re = 'target 0x00104C79 .*\(Steal, owned\)', label = "the prompt reads Steal, as a crime, while sneaking" },
+  { re = 'target 0x00104C79 .*\(Pickpocket, owned\)', label = "the prompt reads Pickpocket, as a crime, while sneaking" },
   { re = 'activate 0x00104C79 .*\(Steal\): its pocket opens', label = "E opens his pocket" },
   { re = 'pickpocket: open on 0x00104C79: Sneak \d+ against \d+', label = "the steal menu opens with both Sneak skills" },
   { re = 'pickpocket: (took .* from .* unseen|caught by .* with )', label = "the take is unseen or caught" },
@@ -20444,6 +21078,39 @@ manual = "fire_barrel_light.png against the owner's frames of the original (kept
 expect = [
   { re = 'particles: add-on node 14 \S+mpsfiresmall01\.nif: [1-9]', label = "the barrel's flames are drawn" },
   { re = 'test aid: screenshot .*fire_barrel_light\.png', label = "the frame is saved" },
+]
+
+[[scenario]]
+name = "fuller-fire"
+source = "owner 2026-11-09 (after queue item 103): \"I still want more 3d fire in general\". A fire add-on node (file name mpsfire*) burns a volumetric flame in place of its flame squares (fire_volume.rs) and emits embers and ADDN 35's smoke made from the game's own systems (fuller_fire.rs; docs/design/graphics-enhanced.md §3.12). Off by default since 2026-11-14 (a lit campfire powered off the owner's PC), so the run turns it on. The Abandoned Shack's fire barrel burns ADDN 14"
+areas = ["effects"]
+paths = ["engine/nvforever/src/fuller_fire.rs", "engine/nvforever/src/fire_volume.rs", "engine/nvforever/src/fire_volume.wesl", "engine/nvforever/src/particles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:2000:2063:6642", NVF_PLAY_TEST_LOOK = "2.5:90:-15", NVF_PLAY_TEST_SHOTS = "7:fuller_fire.png" }
+args = ["--cell", "GSAbandonedShack", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720", "--graphics-only", "fuller-fire"]
+run_seconds = 10
+manual = "fuller_fire.png: the barrel burns a volumetric flame with ragged tongues, embers rising over it"
+expect = [
+  { re = 'particles: add-on node 14: 2 system\(s\) of the fuller fire', label = "the barrel's fire gains embers and smoke" },
+  { re = 'fire volume: 1 flame\(s\) made \(\S+mpsfiresmall01\.nif', label = "it burns a volumetric flame" },
+  { re = 'particles: born in add-on node 14: .*fuller fire: pSparks embers [1-9]', label = "the embers are born" },
+  { re = 'particles: born in add-on node 14: (?!.*pFlames02 [1-9])', label = "its flame squares are not (the volume stands in for them)" },
+]
+
+[[scenario]]
+name = "fuller-fire-off"
+source = "2026-11-14: a lit campfire's volumetric flames powered off the owner's PC, so fuller fire is off by default; on 2026-11-15 a laptop baseline read the old log lines ('fire volume: 1 flame(s) drawn', 'system(s) of the fuller fire') as the flame burning with the switch off. Off, no flame is made and the fuller fire's systems are kept unborn (fire_volume.rs spawn_flames, particles.rs systems_of). The Abandoned Shack's fire barrel burns ADDN 14 with its own flame squares"
+areas = ["effects"]
+paths = ["engine/nvforever/src/fuller_fire.rs", "engine/nvforever/src/fire_volume.rs", "engine/nvforever/src/particles.rs", "engine/nvforever/src/graphics.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:2000:2063:6642", NVF_PLAY_TEST_LOOK = "2.5:90:-15", NVF_PLAY_TEST_SHOTS = "7:fuller_fire_off.png" }
+args = ["--cell", "GSAbandonedShack", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+run_seconds = 10
+manual = "fuller_fire_off.png: the barrel burns the game's own flame squares, no volumetric flame, no embers or smoke wisp"
+expect = [
+  { re = 'graphics: (?!.*fuller fire)', label = "fuller fire is off by default" },
+  { re = 'particles: add-on node 14: 2 fuller-fire system\(s\) kept unborn: the switch is off', label = "the fuller fire's systems are kept unborn" },
+  { text = "fire volume:", count = 0, label = "no volumetric flame is made" },
+  { text = "of the fuller fire", count = 0, label = "no fuller-fire system is born" },
+  { re = 'particles: born in add-on node 14: .*pFlames02 [1-9]', label = "the barrel's own flame squares are born" },
 ]
 
 [[scenario]]
@@ -28410,6 +29077,587 @@ expect = [
 order = [["load: restored", "script runner: gr_nvfsmoke.txt ran", "script runner: ln_nvfsmoke.txt ran (game load)", 'script runner: optional\gl_nvfsmoke_late.txt ran']]
 
 [[scenario]]
+name = "crosshair-under-glance"
+source = "owner playtest 2026-11-04: the crosshair still drew under the Pip-Boy, the glance (G) and in co-op the full Pip-Boy, which opens without a pause (`menu::LiveMenu`) so the state stays Playing"
+note = "The glance raised with the real G key at 9 s and put down at 12 s. The co-op live Pip-Boy takes the same path (`reticle::pipboy_hides_crosshair`, unit-tested); a headless run has no co-op session"
+areas = ["hud", "pipboy"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/pipboy/glance.rs", "engine/nvf-play/src/tiles/mod.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_KEYS = "9:g,12:g", NVF_PLAY_TEST_SHOTS = "8.5:glance_before.png,10.5:glance_up.png,14:glance_down.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 15
+expect = [
+  { re = 'pipboy glance: up', label = "the glance comes up" },
+  { text = "crosshair: hidden under the Pip-Boy", label = "the crosshair goes while it is up" },
+  { text = "crosshair: back from under the Pip-Boy", label = "and comes back when it is down" },
+]
+order = [["pipboy glance: up", "crosshair: hidden under the Pip-Boy", "crosshair: back from under the Pip-Boy"]]
+manual = "glance_up.png: no crosshair over the world above the raised Pip-Boy; glance_before.png and glance_down.png have it"
+
+[[scenario]]
+name = "caravan-shotgun-reload"
+source = "owner playtest 2026-11-04 (shots/hands-through-weapon.webp): in first person the left hand went through the caravan shotgun mid-reload. The weapon's parts (##CVSHStock and the shells) are keyed at priority 0 by both the stance clip 2hraim.kf (still) and 2hrreloadi.kf (moving); shared by weight the stock opened half its 45 degrees while the hands moved all the way (`anim_blend::Layer::parts_over`)"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "001735E3", NVF_PLAY_TEST_GIVE = "000E86F2:20", NVF_PLAY_TEST_LOOK = "9:46:-4", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,13.5:reload", NVF_PLAY_TEST_SHOTS = "13.4:caravan_held.png,13.8:caravan_reload_1.png,14.1:caravan_reload_2.png,14.4:caravan_reload_3.png,14.7:caravan_reload_4.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'player First rig: \S*2hrreloadi\.kf moves the weapon.s \[.*"##CVSHStock"', label = "the first-person reload clip moves the stock" },
+]
+manual = "caravan_reload_1.png to caravan_reload_4.png: the action broken open its full turn, the left hand holding the barrels from below, not through them"
+
+[[scenario]]
+name = "phys-trigger-volume-not-solid"
+kind = "tool"
+source = "strip-rendering 2026-11-05, docs/spec-notes/cells-refs.md §6: a placed volume (REFR XPRM) whose base names a model gets none of the model's collision; Vault 34's six v34AmbushVolume triggers in Vault34b stood as solid, unseen water tower pipes"
+areas = ["physics"]
+paths = ["crates/fnv-phys/src/placed.rs", "crates/fnv-world/src/placed.rs"]
+commands = [["phys", "cell", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--cell", "Vault34b", "--seconds", "0.1"]]
+expect = [
+  { json = "refs.counts.volume", schema = "fnv.phys.cell/1", equals = 20, label = "Vault34b's 20 placed volumes add no model collision" },
+  { json = "refs.counts.collision_primitive", schema = "fnv.phys.cell/1", equals = 13, label = "its CollisionMarker boxes stay solid" },
+]
+
+[[scenario]]
+name = "menu-box-text"
+source = "overnight queue 2026-11-06 item 4: a script's MessageBoxEx at the main menu showed \"(message 0x00000000)\" (Heartbeat Sensor Framework's requirement warning from its ln_ Script Runner file); in game the same box showed its text"
+note = "The fixture home's gr_ file shows a form-less box as the scripts load, under the main menu. The box is queued at once, but the events carrying its text are read only once the player is in the world (script::run_scripts); script_hud::box_view now reads a box not yet read from those events (pending_box)"
+areas = ["scripts", "extender", "ui"]
+paths = ["engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/message_menu.rs", "tools/smoke/fixtures/menu-box-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/menu-box-home", NVF_PLAY_TEST_SCRIPT_MENUS = "60", NVF_PLAY_TEST_MAIN_MENU = "13:shot" }
+args = ["--play", "--menu", "--no-voice"]
+run_seconds = 15
+expect = [
+  { text = "script runner: gr_nvfsmoke_menubox.txt ran (game restart)", count = 1 },
+  { text = "message box on screen: 00000000 NVForever smoke: a box at the main menu / second line", label = "the box shows its own text" },
+]
+forbid = [{ text = "(message 0x00000000)", label = "not the placeholder" }]
+manual = "main_menu.png: the box over the main menu reads the two lines"
+
+[[scenario]]
+name = "world-marks-quest-links-ping"
+source = "the owner's report of 2026-11-06 (JAM's JVO world markers never showed): GetCurrentQuestObjectiveTeleportLinks gives one array per marked target, the doors from the player's place then the target (crates/fnv-game/src/nvse_other.rs, quest_targets.rs DoorGraph::door_path); the HUD's compass_window copy has an alpha of 255 for JVO to read (crates/fnv-game/src/ui_hud/copies.rs); the fork's pings (engine/nvf-play/src/world_marks.rs, control Ping on C)"
+areas = ["scripts", "quests", "hud", "coop"]
+paths = ["crates/fnv-game/src/nvse_other.rs", "crates/fnv-game/src/quest_targets.rs", "crates/fnv-game/src/ui_hud/copies.rs", "engine/nvf-play/src/world_marks.rs", "engine/nvf-play/src/bindings.rs"]
+note = "Goodsprings outside: VCG02 objective 3 (Sunny Smiles, inside the Prospector Saloon) shown and made active, so its one path is the saloon's door then Sunny (2 entries); at 20 s C pings the ground ahead; without JAM's arrow in the load order the ping is a diamond"
+env = { NVF_PLAY_TEST_CONSOLE = "10:startquest VCG02;10.5:setobjectivedisplayed VCG02 3 1;11:forceactivequest VCG02;12:PrintC \"links %g\" (Ar_Size (GetCurrentQuestObjectiveTeleportLinks));12.5:PrintC \"path %g\" (Ar_Size ((GetCurrentQuestObjectiveTeleportLinks)[0]));13:PrintC \"compass alpha %g\" (GetUIFloatAlt \"HUDMainMenu/HitPoints/compass_window/alpha\");13.5:close", NVF_PLAY_TEST_LOOK = "16:270:-8", NVF_PLAY_TEST_KEYS = "20:c" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 26
+expect = [
+  { text = "console: links 1", label = "one marked target" },
+  { text = "console: path 2", label = "its path: the saloon's door, then Sunny" },
+  { text = "console: compass alpha 255", label = "the compass window's copy has an alpha for JVO" },
+  { re = 'world marks: ping at \(-?\d+, -?\d+, -?\d+\)', label = "C pings the point under the crosshair" },
+]
+
+[[scenario]]
+name = "player-voice-combat"
+source = "owner 2026-11-05/06: a player character may speak with a companion's voice (docs/design/player-voices.md phase 1, fnv_game::player_voice)"
+note = "combat-voice with the player given Cass's voice set (NVF_PLAY_TEST_VOICE=vanilla.cass; the set from NVF_VOICE_SETS, the MO2 folder NVForever Player Voices, nvforever/voices): the dogs bite the player down and kill it; HealthHalf, HealthQuarter and Death are said from Cass's set in FemaleUniqueCass at speed 0.95. The light Hit grunt and the PowerAttack stay the player's own (companions have no such lines)"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/combat_lines.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_VOICE = "vanilla.cass", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'player voices: \d+ sets: .*vanilla\.cass', label = "the voice sets are read" },
+  { re = 'player voice: Cass \(vanilla\.cass\): \d+ lines in use', label = "the player has Cass's voice" },
+  { re = 'voice: playing \S+femaleuniquecass.\S+ \([\d.]+ s\) \S+ line \S+ response \d+ at speed 0\.95', label = "a line of Cass's set plays in her voice at the set's speed" },
+  { re = 'voice: playing \S+playervoicemale.genericplayer_powerattack_', label = "the power attack keeps the player's own sound (Cass has none)" },
+]
+
+[[scenario]]
+name = "player-voice-followschalk"
+source = "owner 2026-11-08 evening (overnight item 119): Follows-Chalk as a player voice, a bit deeper and slower"
+note = "combat-voice with the player given Follows-Chalk's voice set (NVF_PLAY_TEST_VOICE=vanilla.followschalk; Honest Hearts' NVDLC02MaleUniqueFollowsChalk lines, rate 0.90: about 1.8 semitones down and 0.90x speed): the fight-start remark and his combat lines play in his voice at speed 0.90"
+areas = ["combat", "dialogue", "audio"]
+paths = ["engine/nvf-play/src/player_voice.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_VOICE = "vanilla.followschalk", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'player voices: \d+ sets: .*vanilla\.followschalk', label = "the set is read" },
+  { re = 'player voice: Follows-Chalk \(vanilla\.followschalk\): \d+ lines in use', label = "the player has Follows-Chalk's voice" },
+  { re = 'voice: playing \S+nvdlc02maleuniquefollowschalk.\S+ \([\d.]+ s\) \S+ line \S+ response \d+ at speed 0\.90', label = "his lines play in his voice, deeper and slower" },
+]
+
+[[scenario]]
+name = "player-voice-fight-remarks"
+source = "owner 2026-11-06 late playtest (overnight item 64): almost no player voice chatter, none solo"
+note = "combat-voice solo with Cook's voice set (NVF_PLAY_TEST_VOICE=nexus.cook; all six of his lines are fight start/end or AvoidThreat lines, which the player never said before): as the dogs attack, the player says one of his NormalToCombat lines from his carried files (Game::player_fight_lines); triggers that say nothing are logged with why"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "engine/nvf-play/src/party_quips.rs"]
+requires = ["NVF_VOICE_SETS", "NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_VOICE = "nexus.cook", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'player voice: Cook \(nexus\.cook\): \d+ lines in use', label = "the player has Cook's voice" },
+  { re = 'player voice: fight start \S+: "', label = "the player remarks as the fight begins" },
+  { re = 'voice: playing \S+cookvoice.01cookcomp_\S+', label = "the remark plays in Cook's voice" },
+  { re = 'player voice: fight end', max = 0, label = "no remark on the fight after the player is killed" },
+]
+
+[[scenario]]
+name = "player-voice-female-grunts"
+source = "owner 2026-11-06 evening playtest (overnight item 21): a female character made the male grunts"
+note = "combat-voice with no voice set and the player made a woman (console player.sexchange): the dogs bite her down and kill her; her own hit, power-attack and death sounds are PlayerVoiceFemale's GenericPlayer files (Game::player_own_voice_type), never PlayerVoiceMale's"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/combat_lines.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/voice.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "1:player.sexchange;1.5:close", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicefemale.genericplayer_\S+', label = "the player's own grunts play from PlayerVoiceFemale" },
+  { re = 'voice: playing \S+playervoicemale.genericplayer_', max = 0, label = "no male grunt from a woman" },
+]
+
+[[scenario]]
+name = "player-voice-male-grunts"
+source = "owner 2026-11-06 evening playtest (overnight item 21): a male character keeps his grunts"
+note = "combat-voice with no voice set and the record's male player: his own grunts are PlayerVoiceMale's GenericPlayer files, never PlayerVoiceFemale's"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/combat_lines.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/voice.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicemale.genericplayer_\S+', label = "the player's own grunts play from PlayerVoiceMale" },
+  { re = 'voice: playing \S+playervoicefemale.genericplayer_', max = 0, label = "no female grunt from a man" },
+]
+
+[[scenario]]
+name = "player-voice-creator"
+source = "owner 2026-11-05/06: a Voice option in the character creator, with a preview (docs/design/player-voices.md phase 1)"
+note = "the character-creator setup with voice sets installed (NVF_VOICE_SETS): the Basics tab has a Voice row; the character made a woman, stepping it chooses the first woman's voice (Cass), which plays a preview line; P (the aid's preview) plays another; Done keeps the voice. The row offers only the voices of the look's race and sex (owner 2026-11-06)"
+areas = ["chargen", "menus", "audio"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "8.5:next:Sex,9:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play"]
+run_seconds = 18
+order = [[
+  "creator: Voice Cass (F)",
+  "creator: voice vanilla.cass",
+  { re = 'voice: preview vanilla\.cass: \S+femaleuniquecass.\S+ at speed 0\.95', label = "a preview line in Cass's voice" },
+  { re = 'player voice: Cass \(vanilla\.cass\)', label = "the game takes the voice at once" },
+  { re = 'voice: preview vanilla\.cass: ', label = "P plays another preview" },
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR)",
+]]
+
+[[scenario]]
+name = "player-voice-nexus-combat"
+source = "owner 2026-11-06: the Nexus voiced followers as player voices, their lines taken without their plugins (docs/design/player-voices.md phase 5)"
+note = "combat-voice with the player given Molerat's voice (nexus.molerat), read with the sound files from the mod folder NVForever Player Voices (NVF_MOD_DIR, as MO2 would put it over the data): the set's lines carry their sound and subtitle, so Molerat.esm is not loaded; the dogs bite the player down and the health and combat lines play from molerat.esm's voice folder"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/voice.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/script.rs", "engine/nvf-assets/src/data.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_VOICE = "nexus.molerat", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'NVF_MOD_DIR: \d+ loose files of .+ over the data', label = "the mod folder stands over the data" },
+  { re = 'player voices: \d+ lines carried by voice sets', label = "the Nexus sets' lines become lines of their own" },
+  { re = 'player voice: Molerat \(nexus\.molerat\): \d+ lines in use', label = "the player has Molerat's voice" },
+  { re = 'voice: playing sound.voice.molerat\.esm.aaamoleratvoicetype.\S+ \([\d.]+ s\) \S+ line 0xFE', label = "a carried line plays from Molerat's voice folder" },
+]
+
+[[scenario]]
+name = "player-voice-nexus-creator"
+source = "owner 2026-11-06: the Nexus voices in the character creator's Voice row (docs/design/player-voices.md phase 5)"
+note = "the character-creator setup with the mod folder over the data (NVF_MOD_DIR): the character made a woman, the Voice row lists the human women by name (Cass, Delilah, Willow); two steps choose Delilah, whose preview plays from delilah.esp's voice folder; Done keeps her"
+areas = ["chargen", "menus", "audio"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "8.5:next:Sex,9:next:Voice,9.5:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice_delilah.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play"]
+run_seconds = 18
+order = [[
+  "creator: Voice Delilah (F)",
+  "creator: voice nexus.delilah",
+  { re = 'voice: preview nexus\.delilah: sound.voice.delilah\.esp.00delilahvoicetype.\S+ at speed 1\.00', label = "a preview line in Delilah's voice" },
+  { re = 'player voice: Delilah \(nexus\.delilah\)', label = "the game takes the voice" },
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR)",
+]]
+
+[[scenario]]
+name = "player-voice-place-comment"
+source = "owner 2026-11-05/06: a voice comments on places Courier 6 would know (docs/design/player-voices.md phase 4)"
+note = "the player with Cass's voice (vanilla.cass) stands in Goodsprings, in no fight: Cass's set has her Goodsprings comments (VCassLocationGoodsprings, said in the original when the player is in VMapGoodspringsRegion), so within the first look the player says one of its first-person ones, at speed 0.95, and no second comment follows"
+areas = ["dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "engine/nvf-play/src/party_quips.rs", "engine/nvf-play/src/player_voice.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_VOICE = "vanilla.cass", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'player voice: Cass \(vanilla\.cass\): \d+ lines in use', label = "the player has Cass's voice" },
+  { re = 'player voice: in the place of [1-9]\d* comment', label = "the player is in Goodsprings' map region" },
+  { re = 'player voice: comment place \S+: "', label = "a place comment is said in Goodsprings" },
+  { re = 'voice: playing \S+femaleuniquecass.\S*vcassloca\S+ \([\d.]+ s\) \S+ line \S+ response \d+ at speed 0\.95', label = "it plays in Cass's voice at the set's speed" },
+]
+
+[[scenario]]
+name = "player-voice-companion-split"
+source = "owner 2026-11-05/06: with the voice's own companion following, the player and the companion share the lines 50/50 (docs/design/player-voices.md phase 3)"
+note = "the player with Raul's voice (vanilla.raul) next to Raul (RaulREF, BlackMountainPrison, as perk-teammate-attack-speed), who is made a teammate at 3 s and set on the player (god mode) at 5 s: of the player's combat lines about half are said by Raul himself in his own voice at speed 1, the rest by the player from Raul's set at 1.05. A fight with the companion stands in for a fight beside it: what counts is who says the player's line"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/combat_lines.rs", "engine/nvf-play/src/party_quips.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_VOICE = "vanilla.raul", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "000E6105", NVF_PLAY_TEST_CONSOLE = "3:RaulREF.setplayerteammate 1;3.3:close", NVF_PLAY_TEST_SCRIPT = "5:combat:RaulREF:player" }
+args = ["--cell", "BlackMountainPrison", "--play", "--hour", "12", "--no-messages", "--npc-packages", "RaulREF"]
+run_seconds = 24
+expect = [
+  { re = 'player voice: Raul \(vanilla\.raul\): \d+ lines in use', label = "the player has Raul's voice" },
+  { re = '''player voice: the voice's companion takes the player's \S+ line''', label = "Raul says one of the player's lines himself" },
+  { re = 'voice: playing \S+uniqueraul\S+ \([\d.]+ s\) 0x00000014 line \S+ response \d+ at speed 1\.05', label = "the player says another from Raul's set at its speed" },
+]
+
+[[scenario]]
+name = "player-voice-ghoul-creator"
+source = "owner 2026-11-06: ghouls as a playable race (the Fully Functional Ghoul Race mod, Nexus 56961; it replaced Playable Ghoul the same day), each offered only the voices of its race and sex (docs/design/player-voices.md §11)"
+note = "the character-creator setup with Fully Functional Ghoul Race Mod.esp (and its DLC masters) loaded and NVF_MOD_DIR naming both the Fully Functional Ghoul Race folder and the NVForever Player Voices folder (';' between, as MO2 lays both over the data): Ghoul is an Origin; as a ghoul man the Voice row offers the ghoul men (Deathblow, Mikey, Raul; Deathblow's and Mikey's lines carried in the voices mod, without their plugins); made a woman, the chosen voice goes and the row offers Beatrix; the hair tab steps a ghoul hair; Done keeps a Female Ghoul with Beatrix's voice"
+areas = ["chargen", "menus", "audio"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs", "engine/nvf-play/src/player_voice.rs", "crates/fnv-game/src/player_voice.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-actor/src/creator.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Origin,10.5:next:Voice,11:next:Voice,12:next:Sex,12.5:next:Voice,13:preview,14:tab:hair,14.5:next:Hair style,16:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_human.png,11.5:creator_ghoul_male.png,13.5:creator_ghoul_female.png,15.5:creator_ghoul_hair.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "Fully Functional Ghoul Race Mod.esp"]
+run_seconds = 21
+order = [[
+  "creator: Origin Ghoul",
+  "creator: Voice Deathblow (M)",
+  { re = 'voice: preview nexus\.deathblow: sound.voice.deathblow - a slave companion\.esm.dddsdeathblowvoice.\S+', label = "Deathblow's line plays from the voices mod, his plugin not loaded" },
+  "creator: Voice Mikey (M)",
+  { re = 'player voice: Mikey \(nexus\.mikey\): 13 lines in use', label = "the next ghoul man's voice: Mikey" },
+  "creator: Sex Female",
+  { text = "creator: voice none", label = "a man's voice goes with the change of sex" },
+  "creator: Voice Beatrix (F)",
+  "creator: voice vanilla.beatrix",
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR): Female Ghoul",
+]]
+expect = [
+  { re = 'creator: data: 5 races', label = "Ghoul is a playable race with the plugin" },
+]
+
+[[scenario]]
+name = "ede-repair"
+source = "overnight queue item 52 (2026-11-07): repairing ED-E in the Nash residence left the player's controls off and ED-E restrained. EDEScript (SCPT 00151D03) on EDE1Ref (001732D1, placed disabled) unrestrains ED-E 2 s after its OnLoad; a cell-load OnLoad for the disabled actor let that timer run out before the repair enabled it. A disabled actor's OnLoad now comes with its enable (Game::set_loaded, script-language.md §6)"
+note = "Repair 100 by the console at 2 s; the broken ED-E (001572E6) activated at 5 s (FalloutNV.esm alone, so no DLC or preorder-pack message boxes come first), the player starts next to it (as where it is repaired); its message boxes answered with button 1 three times (EDERepair00 twice, as the owner's log of 2026-11-07 shows, then EDERepair01: run the repair)"
+areas = ["scripts", "dialogue"]
+paths = ["crates/fnv-game/src/game.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "4", NVF_PLAY_TEST_NEAR = "001572E6", NVF_PLAY_TEST_CONSOLE = "2:player.setav repair 100;2.5:close", NVF_PLAY_TEST_SCRIPT = "5:activate:0x001572E6,6.5:button:1,8:button:1,9.5:button:1", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--cell", "PrimmNashResidence", "--play", "--plugins", "FalloutNV.esm", "--hour", "12", "--no-voice"]
+run_seconds = 40
+order = [[
+  { re = 'menu 1001 \(message EDERepair01\) answered \(button 1\)', label = "the repair is run" },
+  { re = 'EDE1Ref enabled', label = "the repaired ED-E is enabled" },
+  { re = 'OnLoad of .*0x00151D03 ran on Some\(0x001732D1\)', label = "its OnLoad runs with the enable, not at the cell load" },
+  { text = "player controls: all enabled", label = "the controls come back (the greeting's begin script)" },
+]]
+
+[[scenario]]
+name = "julie-tab"
+source = "overnight queue item 49 (2026-11-07): Julie Farkas (VFSJulieFarkasREF 00115C5F) had no Goodbye choice, so Tab was refused and her conversation could not be left. Her voice type lacks Allow Default Dialog, and the GOODBYE line 00177392 (quest Generic) is gated by its quest's GetIsVoiceType conditions, not its own; quest conditions now count for that rule (actor-flags.md §9)"
+note = "starts by Julie at noon; at 8 s the aid talks to her and presses Tab at her topic list (the `tab` step: Tab as the player presses it)"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "00115C5F", NVF_PLAY_TEST_TALK = "8:VFSJulieFarkasREF=tab" }
+args = ["--play", "--world", "FreesideFortWorld", "--hour", "12", "--no-voice"]
+run_seconds = 40
+order = [[
+  { re = 'dialogue: conversation with VFSJulieFarkasREF started', label = "the conversation starts" },
+  { re = 'dialogue: choice \d+ made: "Goodbye\." \[GOODBYE\], VFSJulieFarkasREF answers with 0x00177392', label = "Tab picks her Goodbye choice" },
+  { re = 'dialogue: conversation with VFSJulieFarkasREF ended \(goodbye', label = "the conversation ends by its goodbye" },
+]]
+
+[[scenario]]
+name = "silver-rush-volunteer-aid"
+source = "overnight queue item 40 (2026-11-07): in the Silver Rush, Jean-Baptiste's always-hit laser shot (VFSJeanBaptisteShootVolunteerPackage) at the kneeling volunteer (VFSVanGraffVolunteerREF 00124122) passed over him into the wall, so his OnHit (SCPT 0012424D) never killed him and the scene stopped. Scripted shots now aim at the target's posed body (use_weapon.rs)"
+note = "Gloria's line 0012423F, whose end result sets Jean-Baptiste shooting, said by the aid at 6 s"
+areas = ["ai", "combat", "scripts"]
+paths = ["engine/nvforever/src/use_weapon.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:info:0x0012423F:VFSGloriaVanGraffREF" }
+args = ["--cell", "FreesideSilverRush", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
+run_seconds = 40
+order = [[
+  { re = 'use weapon: VFSJeanBaptisteCuttingREF .* uses WeapLaserRifle on VFSVanGraffVolunteerREF', label = "Jean-Baptiste shoots" },
+  { re = 'OnHit of .*0x0012424D ran on Some\(0x00124122\)', label = "the shot hits the volunteer (his OnHit runs)" },
+]]
+
+[[scenario]]
+name = "silver-rush-soren-flees"
+source = "overnight queue item 40, owner 2026-11-07: after Gloria's line 0012423E (\"; Customer runs out\", VFSVanGraffCustomerREF.StartCombat player) Mr. Soren runs out and the Van Graffs leave the player alone [documented: fallout.wiki Mr. Soren, \"Soren flees the building\"; VMS29aScript state 8 \"Customer runs away\"]. Allies stay out of a fight a script forced on a target that has not fought back (provocation.rs fight_only_forced) [hypothesis]"
+note = "Gloria's line 0012423E said by the aid at 6 s; the player does nothing"
+areas = ["ai", "combat", "scripts"]
+paths = ["crates/fnv-game/src/provocation.rs", "crates/fnv-game/src/combat_group.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:info:0x0012423E:VFSGloriaVanGraffREF" }
+args = ["--cell", "FreesideSilverRush", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
+run_seconds = 30
+order = [[
+  { re = 'OnStartCombat of FalloutNV\.esm\|SCPT 0x0012424C ran on Some\(0x00124121\)', label = "Soren's OnStartCombat runs (his flee package)" },
+  { re = "provocation: VFSVanGraffCustomerREF 0x00124121's fight with the player was started by a script", label = "his allies stay out" },
+]]
+forbid = [
+  { re = 'helps VFSVanGraffCustomerREF', label = "no Van Graff takes up his fight" },
+  { text = "VMS29a stage 200 set", label = "the quest does not fail" },
+  { re = 'OnStartCombat of FalloutNV\.esm\|SCPT 0x001251BE', label = "Jean-Baptiste does not fight" },
+]
+
+[[scenario]]
+name = "silver-rush-soren-flees-lobby"
+source = "overnight queue item 40 with a co-op lobby open (the owner's report came from a hosted game): as silver-rush-soren-flees, the host's game"
+note = "as silver-rush-soren-flees, hosting a lobby on port 27991 with no guest"
+areas = ["ai", "combat", "scripts", "coop"]
+paths = ["crates/fnv-game/src/provocation.rs", "crates/fnv-game/src/combat_group.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:info:0x0012423E:VFSGloriaVanGraffREF" }
+args = ["--cell", "FreesideSilverRush", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all", "--host", "27991"]
+run_seconds = 30
+expect = [{ re = 'co-op: hosting', label = "the lobby is open" }]
+order = [[
+  { re = 'OnStartCombat of FalloutNV\.esm\|SCPT 0x0012424C ran on Some\(0x00124121\)', label = "hosting: Soren's OnStartCombat runs" },
+  { re = "provocation: VFSVanGraffCustomerREF 0x00124121's fight with the player was started by a script", label = "hosting: his allies stay out" },
+]]
+forbid = [
+  { re = 'helps VFSVanGraffCustomerREF', label = "hosting: no Van Graff helps him" },
+  { text = "VMS29a stage 200 set", label = "hosting: VMS29a not failed" },
+  { re = 'OnStartCombat of FalloutNV\.esm\|SCPT 0x001251BE', label = "hosting: Jean-Baptiste stays calm" },
+]
+
+[[scenario]]
+name = "zion-arrival"
+source = "overnight queue item 26 (2026-11-07): the Honest Hearts arrival stalled after Stella's first line. NVDLC02ZionArrivalCodeHolderScript (HonestHearts.esm SCPT 01010006) runs EVP on Stella at iJedConvo 3; StellaForceGreetTOPIC's 0101118A (next speaker Self, end: NVDLC02StellaREF.ResetAI) must be followed by 0101118B (Goodbye, end: iJedConvo 4), then Jed's Pt2 lines set NVDLC02MQ01 5 (iJedSequence 2, which ends Jed's SayToDone loop)"
+note = "Honest Hearts with FalloutNV.esm only; the player starts at NVDLC02StartMarker; the console sets Happy Trails 100 at 3 s (the arrival: everyone moved to their marks, iState 1); the talk aid answers each conversation a script starts, leaving when the lines are said"
+areas = ["dialogue", "scripts", "ai"]
+paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all"]
+run_seconds = 90
+order = [[
+  { text = "NVDLC02MQ00 stage 100 set", label = "the arrival" },
+  { re = 'NVDLC02StellaREF says .*0x0101118A', label = "Stella's first line" },
+  { re = 'NVDLC02StellaREF says .*0x0101118B', label = "her second line follows" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "Jed's Pt2 line starts Arrival at Zion (iJedSequence 2)" },
+  { text = "player controls: all enabled", label = "the controls come back" },
+]]
+forbid = [{ re = 'story guard: .*the guard sets it', label = "the scene went on without the story guard" }]
+
+[[scenario]]
+name = "zion-arrival-lobby"
+source = "overnight queue item 26 with a co-op lobby open (the owner's stall came from a hosted game, UDP 47960): as zion-arrival, the host's game"
+note = "as zion-arrival, hosting a lobby on port 27992 with no guest"
+areas = ["dialogue", "scripts", "ai", "coop"]
+paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all", "--host", "27992"]
+run_seconds = 90
+expect = [{ re = 'co-op: hosting on UDP port 27992', label = "hosting: the lobby is open" }]
+order = [[
+  { text = "NVDLC02MQ00 stage 100 set", label = "hosting: the arrival" },
+  { re = 'NVDLC02StellaREF says .*0x0101118A', label = "hosting: Stella's first line" },
+  { re = 'NVDLC02StellaREF says .*0x0101118B', label = "hosting: then her second" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "hosting: Arrival at Zion starts" },
+  { text = "player controls: all enabled", label = "hosting: the controls come back" },
+]]
+
+[[scenario]]
+name = "zion-ambush"
+source = "follow-up to overnight queue item 26 (owner 2026-11-07, \"test the white legs ambush\"): after Jed's Pt2 lines the arrival box (HonestHearts.esm SCPT 01010006) walks the caravan to the ambush (iState 3-4) and enables the White Legs one by one, each kept a ghost until the caravan member it is for dies: A for guard CM, B for guard AF (NVDLC02MQ01 10), C for Ricky, F for Stella, H for Jed, then D and E at half health for the Courier (iState 5-9) [documented: fallout.wiki Arrival at Zion; the box script's iState blocks]"
+note = "as zion-arrival, with god mode and a longer run; the player stays at the start. Real keyboard or mouse input reaching the window moves the player into the canyon triggers, and the box then takes its player-interfered branch (SCPT 01010D5C/01011182): rerun without touching the window"
+areas = ["dialogue", "scripts", "ai", "combat"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/use_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all"]
+run_seconds = 240
+order = [[
+  { text = "NVDLC02MQ01 stage 5 set", label = "Arrival at Zion starts" },
+  { re = '0x0100F1A7 died', label = "White Leg A kills guard CM" },
+  { text = "NVDLC02MQ01 stage 10 set", label = "the ambush stage (iState 6)" },
+  { re = '0x0100F1A6 died', label = "White Leg B kills guard AF" },
+  { text = "NVDLC02WhiteLegsTribalMQ01CREF enabled", label = "White Leg C comes (iState 7)" },
+  { re = 'OnDeath of .* ran on Some\(0x0100F1A5\)', label = "Ricky dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01FREF enabled", label = "White Leg F comes (iState 8)" },
+  { re = '0x0100F1A4 died', label = "Stella dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01HREF enabled", label = "White Leg H comes (iState 9)" },
+  { re = '0x01009E7C died', label = "Jed dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01DREF enabled", label = "D comes for the Courier" },
+  { text = "NVDLC02WhiteLegsTribalMQ01EREF enabled", label = "then E" },
+]]
+forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "zion-ambush-lobby"
+source = "follow-up to overnight queue item 26 (owner 2026-11-07, \"test the white legs ambush\"): after Jed's Pt2 lines the arrival box (HonestHearts.esm SCPT 01010006) walks the caravan to the ambush (iState 3-4) and enables the White Legs one by one, each kept a ghost until the caravan member it is for dies: A for guard CM, B for guard AF (NVDLC02MQ01 10), C for Ricky, F for Stella, H for Jed, then D and E at half health for the Courier (iState 5-9) [documented: fallout.wiki Arrival at Zion; the box script's iState blocks]"
+note = "as zion-arrival, with god mode and a longer run, hosting a lobby on port 27993 with no guest; the player stays at the start. Real keyboard or mouse input reaching the window moves the player into the canyon triggers, and the box then takes its player-interfered branch (SCPT 01010D5C/01011182): rerun without touching the window"
+areas = ["dialogue", "scripts", "ai", "combat", "coop"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/use_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all", "--host", "27993"]
+run_seconds = 240
+expect = [{ re = 'co-op: hosting on UDP port 27993', label = "hosting: the lobby is open" }]
+order = [[
+  { text = "NVDLC02MQ01 stage 5 set", label = "hosting: Arrival at Zion starts" },
+  { re = '0x0100F1A7 died', label = "hosting: White Leg A kills guard CM" },
+  { text = "NVDLC02MQ01 stage 10 set", label = "hosting: the ambush stage (iState 6)" },
+  { re = '0x0100F1A6 died', label = "hosting: White Leg B kills guard AF" },
+  { text = "NVDLC02WhiteLegsTribalMQ01CREF enabled", label = "hosting: White Leg C comes (iState 7)" },
+  { re = 'OnDeath of .* ran on Some\(0x0100F1A5\)', label = "hosting: Ricky dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01FREF enabled", label = "hosting: White Leg F comes (iState 8)" },
+  { re = '0x0100F1A4 died', label = "hosting: Stella dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01HREF enabled", label = "hosting: White Leg H comes (iState 9)" },
+  { re = '0x01009E7C died', label = "hosting: Jed dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01DREF enabled", label = "hosting: D comes for the Courier" },
+  { text = "NVDLC02WhiteLegsTribalMQ01EREF enabled", label = "hosting: then E" },
+]]
+forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "hosting: the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "hh-slideshow-to-ambush-lobby"
+source = "overnight queue items 116/117 (owner 2026-11-09, hosting: after the intro slideshow and NVDLC02MQ00 100's travel into Zion, Jed never greeted and the controls stayed locked; the owner's way on was `SetStage NVDLC02MQ01 5`). The whole way in one run: Jed's talk in Northern Passage (the owner's choices), the slideshow (HonestHearts.esm SCPT 0101082B/01010136), stage 100 moving everyone into Zion, the arrival box's force greet (SCPT 01010006, iJedConvo 1 after 2 s), Jed's Pt2 lines setting NVDLC02MQ01 5 and the controls, then the walk and the ambush [observed: owner log nvforever-20261109-024220-48712]"
+note = "Honest Hearts with FalloutNV.esm only, hosting a lobby on port 27996 with no guest; the player starts in NorthernPassageINT beside Jed, the talk aid talks to him at 12 s, and answers every conversation a script starts after that; the slideshow plays out (about 145 s). Real keyboard or mouse input reaching the window moves the player into the canyon triggers: rerun without touching the window"
+areas = ["dialogue", "scripts", "ai", "coop"]
+paths = ["crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/coop/scene.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009E7C", NVF_PLAY_TEST_TALK = "12:NVDLC02JedREF=Zion here we come|I'm ready|Yes, I'm sure;0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--cell", "NorthernPassageINT", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all", "--host", "27996"]
+run_seconds = 420
+expect = [{ re = 'co-op: hosting on UDP port 27996', label = "hosting: the lobby is open" }]
+order = [[
+  { text = "made: \"Yes, I'm sure.\"", label = "Jed's last question answered" },
+  { text = "player entered trigger NVDLC02SlideShowTriggerREF", label = "the slideshow starts" },
+  { text = "NVDLC02MQ00 stage 100 set", label = "the slideshow ends: everyone into Zion" },
+  { re = 'NVDLC02JedREF: says line 0x0100A10F .*NVDLC02JedForceGreet', label = "Jed greets (the arrival box's force greet)" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "Arrival at Zion starts without the console" },
+  { text = "player controls: all enabled", label = "the controls come back" },
+  { text = "NVDLC02MQ01 stage 10 set", label = "the ambush" },
+  { re = '0x01009E7C died', label = "Jed dies in the ambush" },
+]]
+forbid = [{ re = 'story guard: .*the guard sets it', label = "the scene went on without the story guard" }, { re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "hh-arrival-guard"
+source = "owner-review item 46 (owner 2026-11-09, item 117): after the HH intro slideshow, Jed never greeted and the controls stayed locked until `SetStage NVDLC02MQ01 5`. NVForever's story guard (crates/fnv-game/src/story_guards.rs, not in the original) asks Jed to choose his package again 8 s after NVDLC02MQ00 stage 100, and sets NVDLC02MQ01 stage 5 (HonestHearts.esm QUST 0x01008893: EnablePlayerControls, the arrival box's state, the EVPs) after 30 s of game time with no line said"
+note = "Honest Hearts with FalloutNV.esm only; the player starts at NVDLC02StartMarker; the console disables Jed (0x01009E7C) at 2 s, so his greeting cannot come, and sets Happy Trails 100 at 3 s (the arrival); the talk aid answers any conversation a script starts"
+areas = ["scripts", "dialogue"]
+paths = ["crates/fnv-game/src/story_guards.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "2:01009E7C.disable;2.3:close;3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all"]
+run_seconds = 75
+order = [[
+  { text = "NVDLC02MQ00 stage 100 set", label = "the arrival" },
+  { re = "story guard: Honest Hearts' arrival .*NVDLC02JedREF chooses its package again", label = "8 s on: the guard asks Jed to choose again" },
+  { re = "story guard: Honest Hearts' arrival .*the guard sets it", label = "30 s on: the guard sets the stage" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "Arrival at Zion starts from the guard" },
+  { text = "player controls: all enabled", label = "stage 5 gives the controls back" },
+]]
+
+[[scenario]]
+name = "dlc-intro-slides-dm"
+source = "cutscene sweep 2026-11-09 (overnight items 66/116): the Dead Money intro's slide screen kept its first picture while the narrator went on. Each narrator line's begin script swaps the screen's picture (DeadMoney.esm INFO 0x01013C5B and the others: SwapTexture 0x010138B2 \"##nvdlc01_intromovie00:0\" …intromovie14); the screen model's only shape is named \"##NVDLC01_IntroMovie00:0\" (DeadMoney - Main.bsa nvdlc01introslide.nif), so the swap must find a shape whose name keeps its leading #s [observed]"
+note = "Dead Money with FalloutNV.esm only; NVDLC01Intro started by console at 6 s from the Prospector Saloon; the narrator's lines run on their own"
+areas = ["scripts", "rendering", "dialogue"]
+paths = ["engine/nvforever/src/texture_swap.rs", "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:startquest NVDLC01Intro;6.5:close" }
+args = ["--play", "--cell", "GSProspectorSaloonInterior", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "--hour", "8", "--no-voice"]
+run_seconds = 45
+order = [[
+  { re = 'script: 0x00000014 moved to Some\(0x010109FF\)', label = "the player is in the slideshow room" },
+  { re = 'SwapTexture: reference 010138B2 shape nvdlc01_intromovie00:0: textures\\nvdlc01\\interface\\intromovie\\nvdlc01_intromovie\d\d\.dds', label = "a narrator line puts its slide on the screen" },
+  { re = 'SwapTexture: reference 010138B2 shape nvdlc01_intromovie00:0: textures\\nvdlc01\\interface\\intromovie\\nvdlc01_intromovie\d\d\.dds', label = "the next line puts on the next" },
+]]
+expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no slide missing" }]
+
+[[scenario]]
+name = "sprint-guard-quiet"
+source = "queue item 113 (engine/nvforever/src/sprint_guard.rs): the guard that ends a first-person sprint pose left after the sprint stays quiet in a run with no such pose; walking to the trigger outside Doc Mitchell's door and the opening's first-person idles do not set it off. JAM's own sprint start and stop need the MO2 load order and a held sprint key, which smoke runs do not have; the decision is unit-tested (sprint_guard::tests)"
+areas = ["idles"]
+paths = ["engine/nvforever/src/sprint_guard.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:walk:placed:VCG01RemoveDocCarebearModeTrigger" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'guard 113: first-person sprint pose stuck', count = 0, label = "the guard never fires" },
+  { re = 'guard 113 summary: the first-person sprint pose was ended 0 times', label = "its summary: ended 0 times" },
+]
+
+[[scenario]]
+name = "emote-wheel-solo"
+source = "queue item 137 (the owner's emote wheel, 2026-11-09): emotes from the game's idles played on the player's third-person body (engine/nvforever/src/emote_play.rs), the wheel and the loadout (engine/nvf-play/src/emotes.rs, the lobby's Emotes menu)"
+areas = ["coop", "animation"]
+paths = ["engine/nvf-play/src/emotes.rs", "engine/nvforever/src/emote_play.rs"]
+note = "Goodsprings outside, solo: from first person a wave (one-shot; the view goes to third person and back), a sit ended by the aid after 6 s (entry, loop, exit), push-ups ended after 5 s, then the wheel opened, pointed at slot 3 (Sit) and let go, and the sit ended by Emote tapped"
+env = { NVF_PLAY_TEST_EMOTE = "10:1st,12:wave,16:sit:6,28:pushups:5,40:wheel,40.5:pick=3,41:release,46:cancel" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 52
+expect = [
+  { re = 'emotes: \d+ of \d+ available', label = "the emote list at startup" },
+  { re = 'emotes: start wave .*the view goes to third person', label = "a wave from first person goes to third" },
+  { re = 'emotes: end wave \(done\).*first person again', label = "the wave ends, first person again" },
+  { text = "emotes: sit loop 0", label = "the sit's entry, then its loop" },
+  { re = 'emotes: sit exit \(test aid\)', label = "the sit's exit" },
+  { re = 'emotes: end sit \(done\)', label = "the sit ends after its exit" },
+  { re = 'emotes: pushups exit \(test aid\)', label = "the push-ups get up" },
+  { text = "emotes: wheel: slot 3 plays sit", label = "the wheel's slot 3 plays Sit" },
+  { re = 'emotes: sit exit \(asked\)', label = "Emote tapped ends the sit" },
+]
+
+[[scenario]]
+name = "fort-raft-sleep"
+source = "co-op quest run q-fort-raft-2p-light (runs-quests-5, 2026-11-09) and its host-only run: after Lucullus's raft line the screen stayed black and the Fort's gate guard never disarmed the player. The raft's script (FalloutNV.esm vCCmovetothefortSCRIPT, SCPT 0x001672C8) moves the player to the Fort's landing and calls SetPCSleepHours 3 in one GameMode block; the sleep menu opened in the frame the travel's loading screen came up, the load came down to Playing with the sleep still open, and its hours, which pass in the menu state only, never passed (scripts held in MenuMode 1012). engine/nvf-play/src/wait.rs back_to_menu puts the menu state back"
+note = "the player starts at the Cottonwood Cove barge marker (0x00139B67); the console enables Lucullus (placed disabled) at 4 s; VMQ02 started and set to 1 at 6 s (Vulpes's stand-in); Lucullus's raft line INFO 0x00133030 at 8 s starts vCCmovetothefort; the gate guard's line INFO 0x00139B57 at 30 s starts FortEquipmentConfiscationQuest, which stores the player's weapons in NVCCPlayerStorage (the varmint rifle given at the start)"
+areas = ["scripts", "menus", "quests"]
+paths = ["engine/nvf-play/src/wait.rs", "engine/nvf-play/src/loading.rs", "crates/fnv-game/src/rest.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GIVE = "0007EA24:1,00004240:50", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_CONSOLE = "4:VCCLucullusREF.enable;4.5:close", NVF_PLAY_TEST_SCRIPT = "6:start:VMQ02,6.5:stage:VMQ02:1,8:info:0x00133030:VCCLucullusREF,30:info:0x00139B57:FortLegionaryEntranceGreeterRef", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--world", "WastelandNV", "--pos=67946,-91758,-2250", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FortLegionaryEntranceGreeterRef"]
+run_seconds = 50
+order = [[
+  { text = "wait menu: sleeping 3 hour(s) (a script's SetPCSleepHours)", label = "the raft's script asks for 3 hours of sleep" },
+  { re = 'loading screen up: .* for worldspace 000DA726', label = "and moves the player to the Fort in the same frame" },
+  { text = "wait menu: open while the game plays (a travel came in the frame it opened): back to the menu", label = "the sleep left open under the load goes back to the menu state" },
+  { re = 'sleep: hour 3 of 3 passed', label = "its three hours pass" },
+  { text = "wait menu: 3 hour(s) passed; closed", label = "and it closes" },
+]]
+expect = [
+  { text = "VMQ02 stage 2 set", label = "the Fort's arrival trigger" },
+]
+
+[[scenario]]
+name = "novac-boone-revenge"
+source = "co-op quest runs q-novac-lure-2p-nest and its host-only run (2026-11-09): Boone took his Use Weapon package VNovacBooneRevengeJeannieMay in the dinosaur's mouth and drew his rifle, but never fired (use weapon summary: 0 uses). FalloutNV.esm: the trigger SniperVictimTriggerREF (SCPT 0x000CD08C) gives CraigBooneREF the package once the player, wearing HatNCRBoonesBeret, and the accused (VFreeformNovac.nAccusedIndex 1: Jeannie May) are in it; the package is Use Weapon with no location, WeapBooneSniperRifle at JeannieMayCrawfordREF, always hit, 1 volley of 1 shot (fnvtool ai show). The kill is not the shot's damage (52 base, 39 on her torso against 140 health): her script SCPT 0x0008E236 has an OnHit block for CraigBooneREF that runs KillActor CraigBooneREF 1 2 (the decompiled script text, scratch nv-all)"
+note = "the run starts at 20:57 so Boone walks to the nest by his own patrol (as boone-night-nest); at 190 s nAccusedIndex 1, at 192 s Jeannie May moved into the trigger and restrained (in the game she follows the player there), at 196 s the player, beret on, walks in. Only Boone and Jeannie May run packages"
+areas = ["ai", "combat", "scripts"]
+paths = ["engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GIVE = "000B7F53:1", NVF_PLAY_TEST_EQUIP = "000B7F53", NVF_PLAY_TEST_SCRIPT = "190:var:VFreeformNovac:naccusedindex:1", NVF_PLAY_TEST_CONSOLE = "192:JeannieMayCrawfordREF.moveto SniperVictimTriggerREF;192.3:JeannieMayCrawfordREF.setrestrained 1;192.6:close", NVF_PLAY_TEST_GOTO = "196:26560:-33440:7130" }
+args = ["--play", "--world", "WastelandNV", "--pos=24300,-31700,7050", "--heading", "140", "--hour", "20.95", "--no-voice", "--no-messages", "--npc-packages", "CraigBooneREF,JeannieMayCrawfordREF"]
+run_seconds = 240
+order = [[
+  { re = 'CraigBooneREF: walks to \(25415, -32822, 8082\) in WastelandNV \(patrol point 0x000CB0EF\)', label = "Boone goes to the dinosaur's mouth on his night patrol" },
+  { text = "JeannieMayCrawfordREF entered trigger SniperVictimTriggerREF", label = "Jeannie May in the spot" },
+  { text = "player entered trigger SniperVictimTriggerREF", label = "the player, wearing the beret, joins her" },
+  { text = "CraigBooneREF: package VNovacBooneRevengeJeannieMay", label = "Boone gets his revenge package" },
+  { re = 'use weapon: CraigBooneREF 0x00096BCE uses WeapBooneSniperRifle on JeannieMayCrawfordREF \(its package VNovacBooneRevengeJeannieMay\)', label = "and uses his rifle on her" },
+  { re = 'combat: hit 0x0008D74C on ', label = "his shot hits her" },
+  { re = 'dismember: Jeannie May Crawford 0x0008D74C: .*\(KillActor\)', label = "and her OnHit-by-Boone block kills her (KillActor CraigBooneREF 1 2: her head)" },
+]]
+expect = [
+  { re = 'script: OnHit of FalloutNV.esm\|SCPT 0x0008E236 ran on Some\(0x0008D74C\)', label = "her script's OnHit block runs" },
+  { re = 'script: OnDeath of FalloutNV.esm\|SCPT 0x0008E236 ran on Some\(0x0008D74C\)', label = "and her OnDeath" },
+]
+
+[[scenario]]
+name = "created-fire-light"
+source = "Overnight queue 2026-11-09 item 103: a light a script places (PlaceAtMe of a LIGH, as Burning Campfire Redone's fires place SAGCampFire420) sheds its light with its flicker (nvf-play dropped.rs DroppedLight, nvforever lights.rs dropped_lights); before, created lights drew nothing. Here the vanilla flickering FireBrightOrange is placed at the player at night outside Goodsprings"
+areas = ["lights", "scripts"]
+paths = ["engine/nvf-play/src/dropped.rs", "engine/nvforever/src/lights.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:player.PlaceAtMe FireBrightOrange 1;8.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: light 0x[0-9A-F]{8}, no model', label = "the created light has a root to hang from although it has no model" },
+  { re = 'lights: created light 0xFF[0-9A-F]{6} \(base 0x[0-9A-F]{8}\) lit', label = "it sheds the light of its base" },
+]
+
+[[scenario]]
 name = "tiles-stats-special"
 source = "[design] pipboy.md section 5.1.1, issue 1513: with [UI] TileMenus=StatsMenu the S.P.E.C.I.A.L. tab is drawn from stats_menu.xml into the Pip-Boy's image on the device, its rows, tabs and values through its tiles; the other tabs stay hand-built and reopening keeps its rows"
 note = "the points are canvas units on the page as run [hypothesis until the first run: rows 52 high from the list top, the tab by its text]; S selects at 29 s, the pointer on row 2 at 30.5 s, a click on row 4 at 32 s, the Skills tab at 34 s, then back by the aid and through Status by A and D, and a close and reopening. Shots: compare tiles_stats_device with tiles_stats_off_device at the same time."
@@ -32016,6 +33264,111 @@ expect = [
   { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
 ]
 
+# ------------------------------------------------------------------ overnight queue items 189-192 (2026-11-11)
+
+[[scenario]]
+name = "playgroup-undrawn-counts-playing"
+source = "queue item 192 (docs/spec-notes/activators.md §5): a group asked of an object that is not drawn counts as playing (IsAnimPlaying 1) until it is drawn, so a script waiting for it to end (Kimball's vertibird VHDBearForceOneREF) does not fall through at once"
+note = "the Volare! bomber VMS15RisingPlaneREF (00105868) is disabled when its cell loads and its OnLoad plays Right (b29-rise), so it is not drawn; the console reads IsAnimPlaying Right at 8 s (1), then enables it at 10 s: drawn at run time. A reference disabled after it was drawn keeps its hidden rig and plays the group at once (observed 2026-11-11, first laptop run), so it is not this case"
+areas = ["object-anims"]
+paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "5", NVF_PLAY_TEST_CONSOLE = "8:VMS15RisingPlaneREF.IsAnimPlaying Right;10:VMS15RisingPlaneREF.enable;10.3:close" }
+args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--heading", "75", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'playgroup: VMS15RisingPlaneREF plays Right \(flag 1\): not drawn, shown when it is', label = "the disabled bomber's OnLoad plays Right, not drawn" },
+  { re = 'console: IsAnimPlaying on VMS15RisingPlaneREF >> 1\.00', label = "IsAnimPlaying Right reads 1 while it waits (0 before the fix)" },
+  { re = 'reference 0x00105868 drawn \(enabled at run time\)', label = "enabled, it is drawn" },
+]]
+
+[[scenario]]
+name = "playgroup-missing-said-once"
+source = "queue item 191 (docs/spec-notes/activators.md §5): a group a model lacks, asked again and again between groups it has (the Lonesome Road silo's panel light blinking Right and SpecialIdle), is reported once per reference and group"
+note = "the Goodsprings banana yucca 0x00106B2E has Forward and Backward but no Right [observed 2026-11-11]; Right and Forward are asked in turn at 7-11 s"
+areas = ["object-anims"]
+paths = ["engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "7:play_group:0x00106B2E:Right:1,8:play_group:0x00106B2E:Forward:1,9:play_group:0x00106B2E:Right:1,10:play_group:0x00106B2E:Forward:1,11:play_group:0x00106B2E:Right:1" }
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'playgroup: 0x00106B2E plays Right: its model has no sequence of that name', count = 1, label = "Right is reported once though asked three times between Forwards" },
+  { re = 'playgroup: 0x00106B2E plays Forward \(once', min = 2, label = "Forward plays between them" },
+]
+
+[[scenario]]
+name = "use-weapon-marker"
+source = "queue item 190 (docs/design/use-weapon.md): UseWeapon on a target that is no actor (Lonesome Road's silo reveal has ED-E shoot NVDLC04SiloRevealTargetREF, an XMarker): the shots are fired at where the marker is placed"
+note = "Violet (FiendVioletRef 0x000F570B, -46910,64897, hunting rifle) is told at 5 s to fire 3 harmless shots, not always hitting, at the XMarkerHeading 0x0016581F (-46305,67861,4282, about 3,000 units north of her) from her own place; nobody perceives the player (NVF_PLAY_TEST_UNSEEN). Before the fix the use waited for ever: 0 shots"
+areas = ["combat", "use-weapon"]
+paths = ["engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapHuntingRifle:FiendVioletRef:0x0016581F:3:0:0:0:1" }
+args = ["--cell", "Goodsprings", "--pos=-45500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  { re = 'is to use its weapon on .*: from where it stands', label = "the AI takes up the use where she stands" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapHuntingRifle on .* \(a script\): 3 shots; no damage', label = "Violet uses her rifle on the marker: 3 shots, no damage" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B has fired its 3 shots at', label = "all 3 shots are fired" },
+  { re = 'use weapon summary: 1 actors used a weapon .*?3 shots', label = "the summary counts them" },
+]
+
+[[scenario]]
+name = "armwrestle-solo"
+source = "Queue item 199 part A: the player sits on the west chair of the arm-wrestling table in the Prospector Saloon's back hall (armwrestle_table), the card waits for the Goodsprings Settler to walk over and sit, the test aid starts the bout 2 s later and taps 9 a second against his about 6, the bout is won, the Strength highlight shows, the player gets up and the end view plays"
+areas = ["minigames", "furniture"]
+paths = ["crates/fnv-game/src/armwrestle.rs", "engine/nvforever/src/armwrestle_arm.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvforever/src/match_end.rs", "engine/nvf-play/src/flourish.rs", "engine/nvforever/src/armwrestle_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "8:armwrestle_card.png,20:armwrestle_coming.png,26:armwrestle_26.png,29:armwrestle_29.png,32:armwrestle_32.png,35:armwrestle_35.png,38:armwrestle_38.png,41:armwrestle_41.png,44:armwrestle_44.png,47:armwrestle_47.png,52:armwrestle_end.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 60
+manual = "third person on its own once seated (no KEYS: the match switches the view itself); armwrestle_2x-4x.png: elbows on the table, hands clasped over the middle, leaning towards the Settler as the meter goes the player's way, his hand flat on the table after the win; armwrestle_card.png: the card says the settler is coming over; armwrestle_bout*.png: the countdown or TAP SPACE prompt over the meter, the score panel with taps and STR; armwrestle_result.png: the leaderboard and the Strength highlight; armwrestle_end.png: the end view"
+expect = [
+  { re = 'arm wrestle: the table found: table Some', label = "the screen finds the table the game made" },
+  "arm wrestle: seated on stool 0",
+  { re = 'arm wrestle arm: posing the arms at', label = "the wrestlers' arms are posed from the bout" },
+  { re = 'arm wrestle arm: side 0 wins', label = "the loser's hand goes down" },
+  { re = 'arm wrestle: opponent .* \(00104F08\) Seated', label = "the card sees the settler on the other stool" },
+  { re = 'arm wrestle: won after (?P<s>[\d.]+)s', range = [3, 30], label = "the bout is won by tapping 9 a second (3-30 s)" },
+  "flourish: ArmWrestle",
+  "match end: ArmWrestle at",
+  "arm wrestle: up; closed",
+  { re = 'arm wrestle view: at the right hand', label = "the match camera looks at the clasped hands side on" },
+  { re = 'arm wrestle view: the win \(pinned away\), up over the table', label = "the win: the camera rises over the table, the pin (north, away from it) in view" },
+  { re = 'arm wrestle view: getting up; back and up over the table', label = "getting up: the match camera goes back and up, over the standing heads" },
+  { re = "arm wrestle view: the player's camera again", label = "the player's own camera comes back once the screen closes" },
+]
+
+[[scenario]]
+name = "armwrestle-space-stays"
+source = "Owner's night-pass bug (2026-11-11): pressing Space got the player up off the arm wrestling chair; only Tab should. Space is the tap (nvf-play armwrestle.rs TAP) and also Jump, which player.rs read_input took as a movement control asking to get up. The armwrestle-solo match with real Space presses through the card and the bout: the player stays seated, the bout is won, and gets up once, at the end"
+areas = ["minigames", "furniture"]
+paths = ["engine/nvf-play/src/player.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvf-play/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_KEYS = "9:space,14:space,20:space,24:space,26:space,28:space,30:space,32:space,34:space", NVF_PLAY_TEST_SHOTS = "10:armwrestle_space_card.png,30:armwrestle_space_bout.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 60
+manual = "armwrestle_space_card.png and armwrestle_space_bout.png: still seated at the table after Space was pressed"
+expect = [
+  "arm wrestle: seated on stool 0",
+  { re = 'arm wrestle: won after (?P<s>[\d.]+)s', range = [1, 30], label = "the bout is played out and won, not left" },
+  { text = "arm wrestle: getting up", count = 1, label = "the player gets up once, after the bout (Space never gets up)" },
+  "arm wrestle: up; closed",
+]
+
+[[scenario]]
+name = "armwrestle-table"
+source = "queue item 199 (owner 2026-11-10): an arm-wrestling table with two stools in the Prospector Saloon, new references in an unoccupied spot, not blocking NPC paths. fnv-game armwrestle_table.rs: a diner table (dinertable01NV) with a Chair01TableR and a Chair01TableL facing each other across its narrow side, the game's own pair at that table, made in the back hall (armwrestle-a's spot) when the saloon loads; the player sits on the west chair and the Goodsprings Settler (GSSettlerCM, 0x00104F08) walks over from the bar and sits on the east one (fnv-ai seat override, nvforever furniture.rs created furniture)"
+areas = ["minigames", "ai", "furniture"]
+paths = ["crates/fnv-game/src/armwrestle_table.rs", "crates/fnv-ai/src/goal.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SHOTS = "2.5:armwrestle_table.png,30:armwrestle_seated.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 34
+manual = "armwrestle_table.png: the table and both chairs at the east end of the back hall, standing on the floor; armwrestle_seated.png: the settler on the far chair, facing the player across the table, his body on the chair (not in the table or the air)"
+expect = [
+  { re = 'armwrestle: made NVGrinderWorkbench ', label = "the table is made when the saloon loads" },
+  { re = 'furniture: the player uses FF[0-9A-F]{6}', label = "the player sits on a created chair" },
+  { re = 'armwrestle: GSSettlerCM is called to seat 1', label = "the settler is called to the other chair" },
+  { re = 'furniture: 00104F08 goes to FF[0-9A-F]{6}', label = "the settler gets onto the created chair" },
+]
+
 [[scenario]]
 name = "terrain-edge-stitch"
 source = "issue #2089 (owner 2026-11-10, save 36): a texture seam on the ground along the edge between cells (-14,-17) and (-14,-16); the south cell paints LTEX 000357BA up to its north edge and the north cell has no layer of it [observed: fnvtool world land --full]. Texture layers are stitched along quadrant and cell edges (engine/nvforever/src/terrain.rs stitch_layers)"
@@ -32720,6 +34073,106 @@ order = [[
   { re = 'menu: Focus\(Container\): the Container list has the focus', label = "RT picks the container's list" },
   { text = "menu: close", label = "B closes" },
 ]]
+
+[[scenario]]
+name = "drink-table-solo"
+source = "Drinking contest (owner 2026-11-11, drink-c): the prop (fnv-game drink_table.rs, a whiskey bottle on a $100 NCR bill on the Prospector Saloon's bar counter, on its short end by the side wall, no table: owner 2026-11-12) and the contest in the world (nvf-play drink_world.rs). The view is shot wide and close at the counter, then the test aid starts a contest at the bottle with the player alone and its steering let go (skill 0): the player steps onto its mark, takes a drink (the standing drinking clip) at each shrink, passes out where it stands, tipped backwards from the counter (the knockdown, held down), and when the contest ends gets up again (the get-up clip) with its view back"
+areas = ["minigames"]
+paths = ["crates/fnv-game/src/drink_table.rs", "engine/nvf-play/src/drink_world.rs", "engine/nvforever/src/consume_anims.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-110:-720:3457,6:-45:-625:3457", NVF_PLAY_TEST_LOOK = "1.5:19:-10,6.5:4:-22", NVF_PLAY_TEST_DRINK_TABLE = "10:7:0", NVF_PLAY_TEST_DRINK_SHOTS = "drink-table-shots", NVF_PLAY_TEST_SHOTS = "4.5:drink_table_wide.png,9:drink_table_close.png,12:drink_table_mark.png,16:drink_table_16.png,20:drink_table_20.png,24:drink_table_24.png,28:drink_table_28.png,32:drink_table_32.png,36:drink_table_36.png,40:drink_table_40.png,44:drink_table_44.png,48:drink_table_48.png,52:drink_table_52.png,56:drink_table_56.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 64
+forbid = [{ re = 'drink table: goodsprings: made Table01', label = "a table made for the contest (owner 2026-11-12: none, the counter is used)" }]
+manual = "no corner message (tutorial) or quest line on any shot between drink_table_mark.png and drink_end.png; drink_table_wide.png and drink_table_close.png: the whiskey bottle upright on the flat $100 NCR bill on the bar counter's end by the side wall, a hand's width in from the wall, nothing floating or sunk, no round table in the room; drink_table_mark.png and later: the player in third person on its mark a step back from the counter, the view across the counter at the bottle and the back bar, not along the side wall or into a post, the player not in the counter, a stool or the wall; drink-table-shots/drink_shrink_<n>.png the drinking clip with the bottle in the hand; drink_out_0.png the player lying on the floor in front of the counter, not in it; drink_end.png and the last timed shots the player up again, whole (head and body), no second torso"
+order = [[
+  { re = 'drink table: goodsprings: made \S+ 0xFF7FA101 at \(-38\.0, -515\.0, 3528\.25\)', label = "the bill is made on the counter top (3528.1)" },
+  { re = 'drink table: goodsprings: made Whiskey 0xFF7FA102 at \(-38\.0, -515\.0, 3528\.35\)', label = "the bottle is made on the bill" },
+  { re = 'drink world: test aid starts a contest at bottle FF7FA102', label = "a contest starts at the saloon's bottle" },
+  { re = 'drink world: goodsprings: this player drinks in slot 0 of 1, at mark \(-125, -620, 345\d\) facing 24 deg', label = "the player steps onto its mark, a step back from the counter, facing across it at the bottle (parity 2026-11-13)" },
+  { re = 'drink world: goodsprings: drink 1: this player drinks', label = "a drink at the first shrink" },
+  { re = 'drink world: goodsprings: this player passes out \(\w+\): laid down and held', label = "the player is laid down and held" },
+  { re = 'drink world: goodsprings: the contest is over: this player wakes and gets up', label = "the player wakes at the end" },
+  { re = 'drink world: goodsprings: this player stands again', label = "the player stands, the view back" },
+],[
+  { re = 'drink world: test aid starts a contest at bottle FF7FA102', label = "the contest starts" },
+  { text = "drink contest: closed", label = "the contest's screen closes" },
+  { re = 'quest message on screen: ', label = "the quest lines held during the contest show after it (owner 2026-11-12)" },
+]]
+
+[[scenario]]
+name = "drink-table-win"
+source = "Drinking contest (owner 2026-11-11 via parity: the winner does \"tap dance or something silly\", drink-c): at the Prospector Saloon's bottle the test aid starts a contest of the player, steered well, against the two nearest people where they stand (humanoid NPCs only: no creature such as Sunny's dog Cheyenne, no child, nobody dead, out cold or fighting; at skill 1 seed 42 the player lost at drink 3, so the aid pulls three times as hard). The NPCs pass out, the player wins and tap-dances (emote tap-dance, IDLE SpecialIdleNVTapDance) on the stage in front of the bar counter (open floor, owner 2026-11-12: the props on the counter, no table) until the contest's end, seen through the stage camera south-south-west of it with the counter's end and the back bar behind it and a soft fill light faded up on its front, then stands and the view is the one before"
+areas = ["minigames"]
+paths = ["engine/nvf-play/src/drink_world.rs", "engine/nvf-play/src/emotes.rs", "engine/nvforever/src/drink_stage.rs", "crates/fnv-game/src/drink_table.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:215:-600:3457", NVF_PLAY_TEST_DRINK_TABLE = "6:42:3:2", NVF_PLAY_TEST_DRINK_SHOTS = "drink-win-shots" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 120
+manual = "in target/smoke/drink-win-shots: drink_win.png and drink_board.png the player on the stage south-east of the marks, seen from the front and above (the counter's end with the bottle and the back bar, not a window, behind it; the passed-out NPCs on the floor beside it, not under it), lit, tap-dancing (whole body with its head under the banner and board), nobody in anybody, the camera in no body or wall; drink_end.png standing again"
+order = [[
+  { re = 'drink world: test aid starts a contest at bottle FF7FA102 \(seed 42, skill Some\(3\.0\), 2 NPC\(s\)\)', label = "a contest at the saloon's bottle against two NPCs" },
+  { re = 'drink contest: slot 0 \(You\) wins', label = "the player wins" },
+  { re = 'drink world: goodsprings: player slot 0 wins: the win camera at \(-\d+, -\d+, \d+\) looks at the stage \(-60, -700, 3556\)', label = "the win camera on the stage" },
+  { re = 'drink world: goodsprings: the winner steps onto the stage \(-60, -700\) facing 200 deg', label = "the winner steps onto the stage, facing the camera" },
+  { re = 'drink world: goodsprings: this player wins: the drink ends, the tap-dance until the contest', label = "the winner starts the tap dance" },
+  { re = 'drink stage: the fill light comes up at', label = "the fill light fades up on the winner" },
+  { text = "drink contest: closed", label = "the contest's screen closes" },
+  { re = 'drink world: goodsprings: the contest is over: the win camera lets go', label = "the win camera lets go" },
+  { re = 'drink world: goodsprings: the contest is over: the dance ends, back to standing', label = "the dance ends at the contest's end" },
+  { re = 'drink world: goodsprings: this player stands again', label = "the view is back" },
+  { re = 'drink stage: the fill light is down', label = "the fill light fades down after the dance (0.8 s)" },
+]]
+
+[[scenario]]
+name = "drink-contest-solo"
+source = "Drinking contest (owner 2026-11-11, drink-a): fnv-game drink_contest.rs and nvf-play drink_contest.rs. In the Prospector Saloon the test aid starts a contest of the player against the two nearest NPCs (Endurance from their records); the aid steers the player back to the centre, the NPCs steer themselves from the seed. The targets shrink with every drink, the NPCs pass out one by one, the player wins, the Endurance highlight plays, the leaderboard shows and the screen closes"
+areas = ["minigames"]
+paths = ["crates/fnv-game/src/drink_contest.rs", "engine/nvf-play/src/drink_contest.rs", "engine/nvf-play/src/flourish.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_DRINK = "6:42:2:bot", NVF_PLAY_TEST_DRINK_SHOTS = "drink-shots" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 110
+manual = "in target/smoke/drink-shots: drink_shrink_<n>.png the ring smaller each drink, the small circle inside it, \"Keep it centered\" under it, the roster top left; drink_out_<slot>.png that NPC's row Out; drink_win.png the Endurance picture swaying over LAST ONE STANDING / YOU WIN; drink_board.png the leaderboard, the player first"
+expect = [
+  { re = 'drink contest: test aid starts a contest \(Bot\) with 2 NPCs', label = "two NPCs at the saloon drink against the player" },
+  { re = 'drink contest: starts at 00000000, seed 42, stake 25, pot 75', label = "the contest starts with a pot of every stake" },
+  "drink contest: You takes drink 1, target 0.85",
+  "drink contest: You takes drink 3, target 0.61",
+  { re = 'drink contest: (?!You)[^(]+ passes out', label = "an NPC passes out" },
+  { re = 'drink contest: slot 0 \(You\) wins, this player after (?P<s>[\d.]+)s', range = [30, 100], label = "the player wins in 30-100 s" },
+  "flourish: DrinkContest",
+  "drink contest: closed",
+]
+
+[[scenario]]
+name = "pipboy-check-lets-go"
+source = "owner's ship17 play 2026-11-13 (\"this shows me still in my pipboy, clearly im not\"): the full Pip-Boy put away 1.8 s in, 0.1 s before the third-person check's arm is up (pipboymanipulate.kf, 1.9 s), and the arm stayed raised the clip's next 10.8 s; a glance put away before 0.6 s did the same with pipboyexamine.kf"
+note = "Third person in NCR trooper armour on the Goodsprings road: Tab held 1.8 s (the owner's timing) and 3.5 s, G held 0.4 s and 2 s. Each check must be gone within its out-blend: 0.5 s faded where it is before the arm is up, else the clip from AccessDown to its end (1.1 s full, 0.64 s glance)"
+areas = ["pipboy", "animation"]
+paths = ["engine/nvforever/src/pipboy_check.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000EE692", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_PIPBOY = "6:open,7.8:close,16:open,19.5:close", NVF_PLAY_TEST_KEYS = "24:g,24.4:g,29:g,31:g", NVF_PLAY_TEST_SHOTS = "5:check_before.png,7:check_quick_up.png,8.6:check_quick_after_0.8s.png,10:check_quick_after_2.2s.png,13:check_quick_after_5.2s.png,17.5:check_tab_up.png,20.5:check_tab_after_1s.png,22:check_tab_after_2.5s.png,24.2:check_glance_quick_up.png,25.5:check_glance_quick_after_1.1s.png,27:check_glance_quick_after_2.6s.png,30.5:check_glance_up.png,32:check_glance_after_1s.png,33.5:check_glance_after_2.5s.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 35
+
+expect = [
+  { re = 'Third rig: Pip-Boy check Full put away', min = 2, label = "the full Pip-Boy check is put away twice" },
+  { re = 'Third rig: Pip-Boy check Glance put away', min = 2, label = "the glance check is put away twice" },
+  { re = 'Third rig: Pip-Boy check \w+ gone (?P<n>[\d.]+) s after it was put away', range = [0, 1.3], all = true, label = "every check is gone within its out-blend (the bug: 10.8 s)" },
+  { re = 'Third rig: Pip-Boy check \w+ gone', min = 4, label = "all four checks end" },
+]
+manual = "check_before.png: third-person body, arms down; check_quick_after_*.png, check_tab_after_*.png, check_glance_*after_*.png: arms down, no left arm raised to the wrist; check_*_up.png: the Pip-Boy (or glance) up"
+
+[[scenario]]
+name = "vms18-chauncey-comes-to-the-steam-room"
+source = "Beyond the Beef (VMS18), owner's playtest 2026-11-14: waiting in the Ultra-Luxe steam room past 4 p.m. with the Matchbook, Chauncey never came. His own GameMode (SCPT 0x0011689F) moves him to VMS18ChaunceyBathhouseWarpMarkerREF by MoveToMarkerWithFade when GameHour is past 15 and before 18, the player has the Matchbook note and he is neither in the player's cell nor in ULBath; it ran only for loaded cells. An actor out of the loaded area now runs its GameMode with each AI update (crates/fnv-game/src/game.rs `note_far_update`, crates/fnv-ai/src/process.rs; docs/spec-notes/scripts.md §7.2)"
+note = "starts in the casino (so Chauncey is one of the residents), at 16:00; the Matchbook given at 3 s, the bathhouse at 5 s; his update out of the loaded area comes within the low-process interval"
+areas = ["scripts", "ai"]
+paths = ["crates/fnv-ai/src/process.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "3:player.additem 00112015 1;5:coc ULBath" }
+args = ["--cell", "ULCasino", "--play", "--hour", "16", "--no-voice", "--no-messages"]
+run_seconds = 60
+expect = [
+  { re = 'script: VMS18ChaunceyREF moved to', label = "Chauncey's own GameMode, out of the loaded area, moved him to the bathhouse" },
+]
+order = [["console: > coc ULBath", "script: VMS18ChaunceyREF moved to"]]
 
 [[scenario]]
 name = "patrol-resumes-after-fight"
@@ -33651,11 +35104,16 @@ name = "grass-fire"
 source = "owner request 2026-11-14 (#2567, docs/design/grass-fire.md): fire from a burning weapon spreads across grass, sets the actors in it alight and goes out within a hard limit; the grass blackens and sinks away and grows back when its cell reloads"
 note = "the player (god mode) fires the Flamer (0000432D, fuel 00029371) north at the grass by the Prospector Saloon (nearest tufts about 230 units north) for a second from 26 s (message boxes off: one open stops the trigger), then looks at the fire; Easy Pete is held in place and put 250 units in front, in the fire's path, at 27 s; the fire runs to its end. Frames for the eye: the front spreading, the black grass sinking, the scorched ground left behind"
 areas = ["combat", "grass"]
-paths = ["engine/nvf-play/src/grass_fire.rs", "engine/nvforever/src/grass_fire_fx.rs", "engine/nvforever/src/grass.rs", "engine/nvforever/src/grass.wesl", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl"]
+paths = ["engine/nvf-play/src/grass_fire.rs", "engine/nvforever/src/grass_fire_fx.rs", "engine/nvforever/src/grass.rs", "engine/nvforever/src/grass.wesl", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_surface_bindings.wesl"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:200", NVF_PLAY_TEST_LOOK = "9:5:-24,27.5:5:-14", NVF_PLAY_TEST_SCRIPT = "26.5:call:EasyPeteRef:SetRestrained:1,27:moveto:EasyPeteRef:player:0:250:0", NVF_PLAY_TEST_CONTROL = "9:weapon,26:fire,27:fire", NVF_PLAY_TEST_SHOTS = "29:grassfire_0.png,33:grassfire_1.png,39:grassfire_2.png,47:grassfire_3.png,60:grassfire_4.png" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12", "--graphics-only", "no-fuller-fire"]
 run_seconds = 80
 expect = [
+  { re = 'graphics: .*(?<!no )fuller fire', count = 0, label = "the fuller fire is off (owner 2026-11-14: default fire before testing grass fires); the graphics line never names it on (\"no fuller fire\" here, no mention once it is off by default)" },
+  { re = 'graphics: no fuller fire', label = "the log says the fuller fire is off, for the fire-safety checks" },
+  { re = 'fire volume: \d+ flame\(s\) drawn', count = 0, label = "no volumetric flame is drawn (none is made while the fuller fire is off)" },
+  { re = 'particles: born in .*fuller fire: ', count = 0, label = "none of the fuller fire's added systems emits (they are attached to a fire's add-on node and logged as 'system(s) of the fuller fire' even when it is off; only births show it ran)" },
+  { re = 'grass fire fx: \d+ drawn \(cap 200\), (?P<n>\d+) near \(cap 24', range = [0, 24], all = true, label = "the GPU-safe caps hold: never more than 24 flame and smoke models near the camera" },
   { re = 'grass fire 1: started at .* by the player with .*\(00044B30\)', label = "the Flamer's burn lights the grass where its flame lands" },
   { re = 'grass fire fx: model meshes.mps.mpsfiresmall01.nif: ', label = "the small flame model is loaded" },
   { re = 'grass fire fx: model meshes.mps.mpsfiremed01.nif: ', label = "the larger flame model is loaded" },
@@ -33670,6 +35128,19 @@ expect = [
   { re = 'failed to process shader', count = 0, label = "the grass and terrain shaders compile (a broken grass.wesl drew no grass at all)" },
 ]
 
+[[scenario]]
+name = "smp-vanilla-stays-rigid"
+source = "item 215 (NV SMP physics, engine/nvforever/src/smp_physics, docs/spec-notes/smp-physics.md): only items with SMP data (the 'HDT Skinned Mesh Physics Object' extra data), CKR's hair (meshes/bale/hair) and Qwib's accessories (meshes/qwib) are simulated; the vanilla game has none, so nothing is rigged and the physics stays idle"
+note = "Goodsprings at noon, NPCs and the player in view. The physics on the Vanilla NV SMP pack, CKR hair and Qwib is checked by the laptop frame runs (test-builds/nv-smp-215/RUNS.md), since the smoke Data has none of them"
+areas = ["actors", "physics"]
+paths = ["engine/nvforever/src/smp_physics/**", "engine/nvf-assets/src/actor.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONTROL = "4:view" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12", "--no-voice", "--no-messages", "--graphics-only", "no-fuller-fire"]
+run_seconds = 15
+expect = [
+  { re = 'smp: .*: rigged', count = 0, label = "no vanilla mesh is rigged (no SMP data, vanilla hair stays rigid)" },
+  { re = 'smp: .*blew up', count = 0, label = "nothing blows up" },
+]
 [[scenario]]
 name = "stalkers-new-game-morning"
 source = "issue #2279 (21 of 32 player installs, v0.7.0): a new game's opening sets GameHour to 23 (VCG00 stage 0) and later to 8 (VCG01 stage 200); the south night stalkers spawned at 23:00 by VERStalkersSouth01 tried their 23:00 raid route VSpecialWBStalkerHuntersRaidMWF3 at 08:00 from the rest cell the quest had put them in, and could not reach it"

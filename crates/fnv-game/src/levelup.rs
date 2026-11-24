@@ -315,7 +315,9 @@ impl PerkSheet {
             .map(|id| {
                 let p = g.perk_def(id).expect("offered perk exists");
                 let (min, name) = (p.min_level, p.name.to_lowercase());
-                (min as i32 <= level && chargen::requirements_met(g, id), min, name, id)
+                // The co-op perks are taken only in a session (`crate::coop_perks`).
+                let coop_ok = g.coop_session || !crate::coop_perks::is_coop_perk(id);
+                (min as i32 <= level && coop_ok && chargen::requirements_met(g, id), min, name, id)
             })
             .collect();
         rows.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)).then(a.3.cmp(&b.3)));

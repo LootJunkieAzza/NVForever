@@ -217,8 +217,12 @@ impl PixelFormat {
 
     /// The format named in dds.md §2, or a description of an unknown one.
     pub fn format(&self) -> Result<Format, String> {
-        // The rows of dds.md §2 match on the whole flags value.
-        if self.flags == PF_FOURCC {
+        // The rows of dds.md §2 match on the whole flags value, except that a FourCC
+        // format may carry other flags beside it (Alpha Pixels on a DXT1), which the FourCC
+        // overrides [observed: NV Interiors' dcintlenfant*.dds, flags 0x5 DXT1, drawn by
+        // the original; documented: DDS_PIXELFORMAT, DDPF_FOURCC "texture contains
+        // compressed RGB data; dwFourCC contains valid data"].
+        if self.flags & PF_FOURCC != 0 {
             return match &self.fourcc {
                 b"DXT1" => Ok(Format::Dxt1),
                 b"DXT3" => Ok(Format::Dxt3),
@@ -927,6 +931,21 @@ mod tests {
         assert_eq!(to_rgba8(Format::A4R4G4B4, &[0x21, 0xF3]).unwrap(), [0x33, 0x22, 0x11, 0xFF]);
         let odd = build(1, 1, 1, PF_RGB, &[0; 4], 16, [0x1F, 0x7E0, 0xF800, 0], 0, 2);
         assert!(matches!(Dds::parse(&odd), Err(DdsError::Unsupported(_))));
+    }
+
+    /// The mods' textures the original draws: red-first 32-bit pixels, a DXT1 that also
+    /// says Alpha Pixels, and bytes past the last level; too few bytes still fail.
+    #[test]
+    fn mod_texture_quirks() {
+        let abgr = build(1, 1, 1, PF_RGB | PF_ALPHA_PIXELS, &[0; 4], 32, [0xFF, 0xFF00, 0xFF0000, 0xFF000000], 0, 4);
+        assert_eq!(Dds::parse(&abgr).unwrap().format, Format::A8B8G8R8);
+        assert_eq!(to_rgba8(Format::A8B8G8R8, &[1, 2, 3, 4]).unwrap(), [1, 2, 3, 4]);
+        let dxt1a = build(4, 4, 1, PF_FOURCC | PF_ALPHA_PIXELS, b"DXT1", 0, [0; 4], 0, 8);
+        assert_eq!(Dds::parse(&dxt1a).unwrap().format, Format::Dxt1);
+        let long = build(4, 4, 1, PF_FOURCC, b"DXT1", 0, [0; 4], 0, 8 + 45);
+        assert_eq!(Dds::parse(&long).unwrap().levels[0][0].len(), 8);
+        let short = build(4, 4, 1, PF_FOURCC, b"DXT1", 0, [0; 4], 0, 7);
+        assert!(matches!(Dds::parse(&short), Err(DdsError::SizeMismatch { expected: 8, actual: 7 })));
     }
 
     #[test]

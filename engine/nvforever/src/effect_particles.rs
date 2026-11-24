@@ -159,11 +159,14 @@ pub fn draw(
     shown: Query<&InheritedVisibility>,
     layers: Query<&bevy::camera::visibility::RenderLayers>,
     camera: Query<&Transform, crate::particles::WorldCamera>,
+    photo: Option<Res<nvf_play::photo_mode::PhotoMode>>,
 ) {
     st.basis = None;
     let Ok((root, root_at)) = root.single() else { return };
     let st = &mut *st;
-    let (now, dt) = (time.elapsed_secs(), time.delta_secs());
+    // Photo mode holding the view (co-op): no time passes for the particles drawn.
+    let held = photo.is_some_and(|p| p.holds_view());
+    let (now, dt) = (time.elapsed_secs(), if held { 0.0 } else { time.delta_secs() });
     let to_game = root_at.affine().inverse();
 
     // New plays with a particle shader get a burst; ended ones stop being born into.

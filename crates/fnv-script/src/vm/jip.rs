@@ -105,9 +105,34 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// missing" messages although NVForever runs the functions TTW calls from them
 /// (`TTW_GetPlugins` and the other `TTW_*`, StewieGetValue; `fnv_game::nvse_small`)
 /// [design, owner 2026-11-08: "technically the dll is present, just in engine"]:
-/// Stewie's Tweaks is reported at 941, the lowest TTW 3.4 accepts, and ttw_nvse at 1,
+/// Stewie's Tweaks was reported at 941, the lowest TTW 3.4 accepts, and ttw_nvse at 1,
 /// as TTW only asks whether it is there. Most of Stewie's tweaks themselves are not
 /// built (ext-small.md).
+///
+/// The Nuclear Sunset mod list (owner, 2026-11-11: "if it cant fake anything build it")
+/// gates mods on four more, each a DLL whose work NVForever does itself or does not need:
+/// - Stewie's Tweaks stays at 941 (above): the mods that ask for 945 or 960 (Item Cards,
+///   Pip-Boy UI Tweaks, Character Build Presets, Companion Map Icons, Casino Rewards Fix)
+///   wait for a later change that reports the owner's 9.80 [design, owner 2026-11-23].
+/// - "Engine Optimizations" at 100 [observed: EngineOptimizations.dll 1.00]: speed-ups
+///   of the original's engine, nothing a script sees (Modern Minimap asks for 100).
+/// - "HighResLocalMaps" at 12 [hypothesis: the lowest Modern Minimap accepts; the DLL
+///   has no version resource]: NVForever draws its local map itself, at the screen's size.
+/// - "yUI" at 140 [hypothesis: the lowest ySI - Contextual Prompts accepts]: its script
+///   functions (ySIGetTrait, ySISetTrait) are built (`fnv_game::nvse_small`).
+/// - "Improved Console": upstream's observed 3.0 (below) meets Quick Trade, which asks
+///   only IsPluginInstalled.
+/// - "lutana_nvse" at JIP's version: lutana's functions are JIP LN's (this module's
+///   heading); Immersive Pickup Sounds asks IsPluginInstalled "lutana_nvse" and then
+///   GetLNVersion >= 17.1 [hypothesis: JIP LN answers to the old plugin's name, as the mod
+///   runs in a working list with JIP LN and no lutana DLL].
+/// - "hNVSE" at 120 and "AnhNVSE" at 131, the versions the DLLs register [observed: a
+///   working Nuclear Sunset install's nvse.log, xNVSE 6.4.4: "hNVSE.dll (hNVSE; version
+///   120)", "AnhNVSE.dll (AnhNVSE; version 131)"]: NVForever builds their functions
+///   (`fnv_game::nvse_small`). Nova Arizona's start-up checks
+///   (NVSE\Plugins\Scripts\ln_NovaArizona.txt: GetPluginVersion "hNVSE" < 1.20,
+///   "AnhNVSE" < 1.31) showed "Missing ... Installed version: -1" boxes without them
+///   (laptop smoke run, 2026-11-15).
 ///
 /// The same holds for every other plugin whose functions the engine builds: a mod that
 /// asks `IsPluginInstalled "SUP NVSE Plugin"` before calling SUP's functions got 0 and
@@ -132,11 +157,12 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 ///
 /// UIO has no script functions: the engine reads its `uio\public` lists itself
 /// (`fnv_ui`), which is all the plugin does for a mod that asks whether it is there.
-/// Not reported, though the catalogue has functions of theirs: yUI (its two ySI trait
-/// functions are built, its menus are not, and a mod that finds it goes on to read its
-/// tiles), and the plugins whose registered name no page gives (ITR, One111, ppNVSE,
-/// vheyes-nvse and the smaller ones): ext-version.md §6.
-pub const PLUGINS: [(&str, f64); 16] = [
+/// Not reported, though the catalogue has functions of theirs: the plugins whose
+/// registered name no page gives (ITR, One111, ppNVSE, vheyes-nvse and the smaller ones):
+/// ext-version.md §6. (Upstream leaves yUI out too, as its menus are not built and a mod
+/// that finds it goes on to read its tiles; the fork reports it for the Nuclear Sunset
+/// list, above.)
+pub const PLUGINS: [(&str, f64); 20] = [
     ("JIP NVSE Plugin", JIP_VERSION),
     ("JIP LN NVSE", JIP_VERSION),
     ("ShowOffNVSE Plugin", 184.0),
@@ -145,11 +171,15 @@ pub const PLUGINS: [(&str, f64); 16] = [
     ("MCM Extensions", 1.0),
     ("lStewieAl's Tweaks", 941.0),
     ("ttw_nvse", 1.0),
-    ("CUI", 120.0),
+    ("Engine Optimizations", 100.0),
+    ("HighResLocalMaps", 12.0),
+    ("yUI", 140.0),
+    ("lutana_nvse", JIP_VERSION),
     ("hNVSE", 120.0),
+    ("AnhNVSE", 131.0),
+    ("CUI", 120.0),
     ("SUP NVSE Plugin", UNOBSERVED_VERSION),
     ("JIP PP LN", UNOBSERVED_VERSION),
-    ("AnhNVSE", UNOBSERVED_VERSION),
     ("Extensions for NVSE", UNOBSERVED_VERSION),
     ("UI Organizer Plugin", UNOBSERVED_VERSION),
     ("Improved Console", 3.0),

@@ -171,7 +171,7 @@ fn composed_production_blend_module_validates_with_key_on_and_off() {
             assert_eq!(surface_sizes, vec![if blend { 192 } else { 176 }], "the ordinary type alone has #2462's env row and #2841's env_how row after the 144 bytes");
             // The blend type reuses the ordinary table and slots (nif_surface_blend.rs notes);
             // round 10a's bindless blend row is longer by the palette's 400 entries.
-            if bindless { assert_eq!(index_sizes, vec![if blend { 16 + 4 * nvf_assets::nif_surface_blend::PALETTE_ENTRIES as u32 } else { 28 }], "the ordinary row: four entries, then the window environment map's three (#2462)"); }
+            if bindless { assert_eq!(index_sizes, vec![if blend { 16 + 4 * nvf_assets::nif_surface_blend::PALETTE_ENTRIES as u32 } else { 32 }], "the ordinary row: four entries, the window environment map's three (#2462), then the fork's grass-fire burn map (57, NifSurface::scorch_map)"); }
             assert_eq!(nvf_assets::nif_surface_blend::PALETTE_ENTRIES, 400, "nif_surface_bindings.wesl spells out array<u32, 400>");
             if !bindless {
                 let bound = |binding| module.global_variables.iter().any(|(_, v)| v.binding.as_ref().is_some_and(|b| b.group == 3 && b.binding == binding));
@@ -180,7 +180,7 @@ fn composed_production_blend_module_validates_with_key_on_and_off() {
                 // AsBindGroup makes); the ordinary type's holes sampler is reached.
                 for binding in [50, 51, 53] { assert!(bound(binding), "bindless={bindless} blend={blend} binding {binding}"); }
                 if !blend { assert!(bound(52), "bindless={bindless} blend={blend} binding 52"); }
-                for binding in [54, 55, 56] { assert!(!bound(binding), "no binding past main's 53"); }
+                for binding in [54, 55, 56, 57] { assert!(!bound(binding), "no binding past main's 53"); }
                 let extension: Vec<_> = texture_bindings(&source).into_iter().filter(|&(g, b)| g == 3 && b >= 50).collect();
                 assert_eq!(extension, vec![(3, 51), (3, 53)], "bindless={bindless} blend={blend}: textures only in slots 51 and 53");
             }
@@ -900,7 +900,7 @@ fn material_groups_fit_a_16_texture_stage_without_bindless() {
     // (nif_surface_blend.rs: round 10a's palette exists only in the bindless table).
     let blend = standard + textures(nvf_assets::nif_surface_blend::NifSurfaceBlendColour::bindless_descriptor());
     let folded = standard + textures(crate::terrain::TerrainLayers::bindless_descriptor());
-    assert_eq!(blend + 2, ordinary, "the blend adds no texture to the ordinary NIF material group; it lacks the two of the window environment map (#2462: the cube and the mask)");
+    assert_eq!(blend + 3, ordinary, "the blend adds no texture to the ordinary NIF material group; it lacks the two of the window environment map (#2462: the cube and the mask) and the fork's grass-fire burn map (57, NifSurface::scorch_map)");
     assert!(ordinary <= STAGE_LIMIT);
     assert!(folded > STAGE_LIMIT, "{folded}: the folded material needs bindless textures");
     let capture = texture_bindings(&capture_source(true, true)).len();

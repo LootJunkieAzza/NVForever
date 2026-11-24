@@ -95,6 +95,26 @@ pub enum VfsError {
 /// (diagnostics only; see there).
 pub const ARCHIVE_ORDER_ENV: &str = "NVF_ARCHIVE_ORDER";
 
+/// Test aid: mod folders (separated by `;`) laid over the data as MO2 lays a mod's folder
+/// over it: their plugins open as if in Data ([`mod_dir_file`]), their archives mount
+/// with the plugins' ([`Vfs::archive_order`]), their loose files over everything
+/// ([`Vfs::add_loose_dir`], engine nvf-assets). Headless runs read the plain game Data,
+/// which NVForever never writes into.
+pub const MOD_DIR_ENV: &str = "NVF_MOD_DIR";
+
+/// The folders [`MOD_DIR_ENV`] names, in order (later ones win, as lower MO2 mods do).
+pub fn mod_dirs() -> Vec<PathBuf> {
+    std::env::var_os(MOD_DIR_ENV).map(|v| v.to_string_lossy().split(';').map(str::trim).filter(|d| !d.is_empty()).map(PathBuf::from).collect()).unwrap_or_default()
+}
+
+/// A file at the top of a [`MOD_DIR_ENV`] folder (a plugin, an archive), whatever its
+/// case; the last folder that has it wins.
+pub fn mod_dir_file(name: &str) -> Option<PathBuf> {
+    mod_dirs().iter().rev().find_map(|d| {
+        std::fs::read_dir(d).ok()?.filter_map(|e| e.ok()).find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name)).map(|e| e.path())
+    })
+}
+
 static ARCHIVE_LIST: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
 /// Set the run's base archive list (an `SArchiveList` from NVForever's own INI, or
@@ -227,7 +247,7 @@ impl Vfs {
         if let Some(m) = mods {
             owned.extend(in_mods.iter().map(|n| (n.clone(), m.join(n).to_string_lossy().into_owned())));
         }
-        Vfs::order_from_owned(&owned, &present, archive_list, plugins)
+        Vfs::order_from_owned(data_dir, &owned, &present, archive_list, plugins)
     }
 
     /// [`Vfs::archive_order_in`] for any number of mod roots layered over `Data`, lowest
@@ -252,7 +272,7 @@ impl Vfs {
         }
         let owned: Vec<(String, String)> = found.iter().map(|(n, p)| (n.clone(), p.to_string_lossy().into_owned())).collect();
         let base: Vec<String> = found.iter().map(|(n, _)| n.clone()).collect();
-        let names = Vfs::order_from_owned(&owned, &base, archive_list, plugins);
+        let names = Vfs::order_from_owned(data_dir, &owned, &base, archive_list, plugins);
         names
             .into_iter()
             .filter_map(|n| {
@@ -265,7 +285,7 @@ impl Vfs {
     /// The precedence order of the archive files `owned` (display name, what to open),
     /// lowest precedence first: the base list, `Update.bsa`, then each active plugin's own
     /// archives. Shared by [`Vfs::archive_order_in`] and [`Vfs::archive_files_layered`].
-    fn order_from_owned(owned: &[(String, String)], base: &[String], archive_list: &[&str], plugins: &[&str]) -> Vec<String> {
+    fn order_from_owned(data_dir: &Path, owned: &[(String, String)], base: &[String], archive_list: &[&str], plugins: &[&str]) -> Vec<String> {
         let find = |name: &str| base.iter().find(|n| n.eq_ignore_ascii_case(name)).cloned();
         let mut order: Vec<String> = Vec::new();
         let push = |n: Option<String>, order: &mut Vec<String>| {
@@ -304,6 +324,22 @@ impl Vfs {
             for (_, open_as) in own {
                 push(Some(open_as.clone()), &mut order);
             }
+        }
+        // An archive with an empty `<name>.override` file beside it loads whatever its
+        // name, above the others (docs/spec-notes/bsa.md, "Override archives")
+        // [documented: GECK wiki "BSA", the .override file, needs JIP LN NVSE;
+        // hypothesis: loaded without a plugin of its name, as Nuclear Sunset's
+        // `NS … 00.bsa` archives, matched by no plugin, hold files its list uses].
+        // Looked for beside each archive file, in `Data` or a mod folder alike.
+        let mut marked: Vec<String> = owned
+            .iter()
+            .filter(|(_, open_as)| data_dir.join(open_as).with_extension("override").is_file())
+            .map(|(_, open_as)| open_as.clone())
+            .collect();
+        marked.sort_by_key(|n| n.to_ascii_lowercase());
+        for n in marked {
+            order.retain(|o| !o.eq_ignore_ascii_case(&n));
+            order.push(n);
         }
         order
     }
@@ -375,6 +411,30 @@ impl Vfs {
             }
             self.loose.insert(key, root.join(rel));
         }
+    }
+
+    /// Index the loose files under `dir` above every source opened so far, as a mod
+    /// manager's folder stands over the data (a test aid: a mod folder used without MO2).
+    /// Returns how many files it added.
+    pub fn add_loose_dir(&mut self, dir: &Path) -> usize {
+        let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let mut files = Vec::new();
+        let mut open: Vec<PathBuf> = std::fs::canonicalize(&dir).into_iter().collect();
+        walk(&dir, &dir, &mut open, &mut files, &mut self.skipped);
+        let mut n = 0;
+        for rel in files {
+            let key = normalize(&rel.to_string_lossy());
+            if !key.contains('\\') {
+                continue;
+            }
+            if let Some(under @ Location::Archive { .. }) = self.index.insert(key.clone(), Location::Loose) {
+                self.under_loose.insert(key.clone(), under);
+            }
+            // An absolute path: `data_dir.join` keeps it as it is.
+            self.loose.insert(key, dir.join(rel));
+            n += 1;
+        }
+        n
     }
 
     /// Default setup: the INI archive list, `Update.bsa`, and the base + DLC plugins.
@@ -913,6 +973,20 @@ mod tests {
         // Without the longer plugin, Foo.esp keeps claiming it.
         let order = Vfs::archive_order(&dir, &[], &["Foo.esp", "Middle.esp"]);
         assert_eq!(order, ["Foo - Bar.bsa", "Foo - Main.bsa", "Foo.bsa", "Middle.bsa"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An archive with a `.override` file beside it loads though no plugin has its name,
+    /// above the other archives; one without stays out.
+    #[test]
+    fn an_archive_with_an_override_file_loads_on_top() {
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-override-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in ["Foo.bsa", "NS A Content T 00.bsa", "NS A Content T 00.override", "Foo.override", "Stray.bsa"] {
+            std::fs::write(dir.join(n), b"").unwrap();
+        }
+        let order = Vfs::archive_order(&dir, &[], &["Foo.esp", "Bar.esp"]);
+        assert_eq!(order, ["Foo.bsa", "NS A Content T 00.bsa"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

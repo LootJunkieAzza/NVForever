@@ -2438,6 +2438,7 @@ mod tests {
             waiting: default(),
             model_overrides: default(),
             travels: 0,
+            coop_areas: Vec::new(),
         }
     }
 

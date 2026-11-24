@@ -108,6 +108,9 @@ pub struct PreparedModel {
     /// the blast throws them. Its rig is built too, so that the bodies can move its nodes
     /// once they fall (nvforever `wrecks.rs`).
     pub loose: bool,
+    /// The weapon parts (`##` nodes) the file's own visibility controllers show or hide
+    /// when no clip speaks for them ([`part_rest_visibility`]).
+    pub part_rest: Vec<(String, bool)>,
 }
 
 /// A light inside a model whose colour or dimmer a sequence drives. Lights are not
@@ -832,6 +835,36 @@ pub fn free_visibility_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, Boo
         .collect()
 }
 
+/// The weapon parts (`##` nodes) a file's own visibility controllers (Active, clamped,
+/// not manager controlled) show or hide at rest: each node's value at its controller's
+/// stop time, where a clamped controller holds once it has run. The weapon's holder's
+/// clips speak for the node while they key it; a part they do not key and that rests
+/// hidden is hidden (nvforever `player_body::part_on`, `weapons::spawn_model`).
+///
+/// Another Millenia's revolvers (`weapons\AnotherMil\SW38S\SW38S.nif`,
+/// `SW38SUnique2.nif`, the Colt Anaconda's) are built so: `##SpeedLoader` keyed shown at
+/// -0.033 s and hidden at 0 s, `##swmCasing` the reverse, both flags 0x4C (Active,
+/// clamp), start -0.033 s, stop 0 s [observed: the files' blocks]; their reload
+/// (`Hit_S&WM10\_1stPerson\1hpReloadE.kf`) holds `##SpeedLoader` shown for its whole
+/// 4.47 s [observed]. So the speed loader is seen only while the reload plays
+/// [hypothesis: the original lets the file's controller hide it at rest; the owner saw
+/// it in the cylinder the whole time when NVForever did not, ship17].
+pub fn part_rest_visibility(file: &NifFile, dec: &Decoded) -> Vec<(String, bool)> {
+    rest_of(node_tracks_of_own(file, dec, false).into_iter().filter_map(|(node, t, cycle)| match t {
+        NodeTrack::Visibility(t) => Some((node, t, cycle)),
+        NodeTrack::Transform(_) => None,
+    }))
+}
+
+/// [`part_rest_visibility`] over a file's own visibility tracks.
+fn rest_of(tracks: impl IntoIterator<Item = (String, BoolTrack, OwnCycle)>) -> Vec<(String, bool)> {
+    tracks
+        .into_iter()
+        .filter(|(node, _, cycle)| node.starts_with("##") && cycle.cycle_type == 2)
+        .filter_map(|(node, t, cycle)| t.at(cycle.stop).map(|v| (node, v)))
+        .collect()
+}
+
 /// Whether a transform track's pose changes between `start` and `stop` (sampled).
 fn moves(t: &TransformTrack, start: f32, stop: f32) -> bool {
     let at = |x: f32| (t.translation.sample(x), t.rotation_at(x), t.scale.sample(x));
@@ -1074,6 +1107,9 @@ impl TextureSource for Stores<'_> {
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.textures.alpha_is_mask(raw_path)
     }
+    fn alpha_shares(&self, raw_path: &str) -> Option<crate::texture::AlphaShares> {
+        self.textures.alpha_shares(raw_path)
+    }
     fn alpha_is_opaque(&self, raw_path: &str) -> bool {
         self.textures.alpha_is_opaque(raw_path)
     }
@@ -1163,6 +1199,9 @@ impl TextureSource for Deferred {
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.workers.alpha_is_mask(raw_path, &self.data)
     }
+    fn alpha_shares(&self, raw_path: &str) -> Option<crate::texture::AlphaShares> {
+        crate::texture::texture_alpha_shares(raw_path, &self.data)
+    }
     fn alpha_is_opaque(&self, raw_path: &str) -> bool {
         self.workers.alpha_is_opaque(raw_path, &self.data)
     }
@@ -1214,6 +1253,31 @@ pub(crate) fn is_lod_model(path: &str) -> bool {
 
 /// A model prepared on a worker thread, waiting for the main thread.
 type Fetched = (Result<PreparedModel, String>, DeferredAssets);
+
+/// Whether `path` is an object LOD block (`meshes\landscape\lod\<world>\blocks\…`). A
+/// block shape whose base texture cannot be found is left out: drawn untextured it shows
+/// as a white shape on the horizon (overnight queue 2026-11-06, item 27: an xLODGen block
+/// whose sassafras trees name `nvsassafrasbark_lod.dds`, which no file of the load order
+/// has; xLODGen itself warns that shapes off its atlas will be missing in the game)
+/// [design].
+pub fn is_object_lod_block(path: &str) -> bool {
+    let p = path.to_ascii_lowercase().replace('/', "\\");
+    p.contains("landscape\\lod\\") && p.contains("\\blocks\\")
+}
+
+/// Whether the model at `path` draws shapes that carry no property at all
+/// ([`Props::is_bare`]): only landscape LOD meshes (`meshes\landscape\lod\…`), which the
+/// engine textures itself. Everywhere else such a shape is helper geometry the game does
+/// not draw. Over the base game and DLC archives (66,754 visible shapes) the bare shapes
+/// are 564 landscape LOD shapes and 8 others, all in `furniture\loungechair_tops.nif`:
+/// its editor pose figures and capsules (`MarkerSource`, `MarkerTarget`, `Capsule01`,
+/// `ChairBoundary`), which drawn show as white mannequins and capsules on the lounge
+/// chairs (owner report 2026-11-14, Long 15 pool near the Hawaiian King); the owner's
+/// mod archives have none [observed: `crates/fnv-nif/examples/shape_survey.rs`;
+/// hypothesis: the game never draws them, consistent with the original's chairs].
+pub fn bare_shapes_drawn(path: &str) -> bool {
+    path.to_ascii_lowercase().replace('/', "\\").contains("landscape\\lod\\")
+}
 
 /// The cache key of a model: its normalised path, marked for the copy that keeps CPU
 /// meshes, for the first-person copy and for a list of alternate textures (by the list's
@@ -1758,6 +1822,7 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()).chain(c.free_visibility.iter().map(|(n, ..)| n.clone())))
         .collect();
     // The light a clip of the rig drives.
+    out.part_rest = part_rest_visibility(&file, &dec);
     out.light = first_light.filter(|l| idle.iter().chain(groups.iter()).any(|c| c.lights.iter().any(|t| t.light == l.name)));
     // Rig nodes: the root first, then every object reachable from it.
     let jointed = file.blocks.iter().any(|b| b.type_name.ends_with("Constraint"));
@@ -1904,6 +1969,10 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         });
         // The normal map's tangents: those the file stores (crate::tangents).
         let (material, missing_diffuse) = shape_material_with(&props, &mut mesh, sink, crate::tangents::Tangents::Stored(&stored));
+        if let Some(tex) = missing_diffuse.as_deref().filter(|_| is_object_lod_block(path)) {
+            info!("{path}: a shape left out, its texture {tex} cannot be found (drawn white otherwise)");
+            continue;
+        }
         if material.extension.env.x > 0.0 && material.extension.env_how.z > 0.5 {
             let over = if matches!(material.base.alpha_mode, AlphaMode::Premultiplied) { "over the blend" } else { "added" };
             // Scaled by light only under a debug switch (env_map.rs `LIGHT_WINDOW`); the
@@ -2017,6 +2086,26 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn object_lod_blocks_by_path() {
+        assert!(is_object_lod_block("meshes\\landscape\\lod\\wastelandnv\\blocks\\wastelandnv.level4.x0.y0.nif"));
+        assert!(is_object_lod_block("Meshes/Landscape/LOD/WastelandNV/Blocks/WastelandNV.Level4.X0.Y0.NIF"));
+        assert!(!is_object_lod_block("meshes\\landscape\\lod\\wastelandnv\\wastelandnv.level4.x0.y0.nif"));
+        assert!(!is_object_lod_block("meshes\\scol\\electrocitylamppost01_lod.nif"));
+    }
+
+    #[test]
+    fn bare_shapes_are_drawn_only_in_landscape_lod() {
+        // Terrain and object LOD: drawn, the engine textures them.
+        assert!(bare_shapes_drawn("meshes\\landscape\\lod\\wastelandnv\\wastelandnv.level4.x0.y0.nif"));
+        assert!(bare_shapes_drawn("Meshes/Landscape/LOD/ALLong15/Blocks/ALLong15.Level4.X0.Y0.NIF"));
+        // The lounge chair's pose figures and capsules: not drawn.
+        assert!(!bare_shapes_drawn("meshes\\furniture\\loungechair_tops.nif"));
+        assert!(!bare_shapes_drawn("furniture\\LoungeChair_Tops.NIF"));
+        let bare = crate::nif_spawn::Props::default();
+        assert!(bare.is_bare() && !bare.is_helper(false));
+    }
+
     use super::*;
     use fnv_nif::scene::Transform as NifTransform;
 
@@ -2154,6 +2243,23 @@ mod tests {
 
     /// A pistol shaped like `10mmpistol.nif`: parts as nodes under the root, each with
     /// its shape, and a part under a part.
+    #[test]
+    fn a_revolvers_speed_loader_rests_hidden_and_its_casings_shown() {
+        // The Colt Anaconda's (`SW38SUnique2.nif`) own controllers: flags 0x4C (clamp),
+        // start -0.033 s, stop 0 s.
+        let cycle = OwnCycle { start: -0.0333, stop: 0.0, frequency: 1.0, phase: 0.0, cycle_type: 2 };
+        let track = |keys: [(f32, bool); 2]| BoolTrack { value: None, keys: keys.to_vec() };
+        let rest = rest_of([
+            ("##swmCasing".to_string(), track([(-0.0333, false), (0.0, true)]), cycle),
+            ("##SpeedLoader".to_string(), track([(-0.0333, true), (0.0, false)]), cycle),
+            // Not a weapon part (a placed effect's own track: played, not a rest).
+            ("Dust".to_string(), track([(-0.0333, true), (0.0, false)]), cycle),
+            // Looping: no rest to hold.
+            ("##Loop".to_string(), track([(0.0, true), (1.0, false)]), OwnCycle { cycle_type: 0, ..cycle }),
+        ]);
+        assert_eq!(rest, [("##swmCasing".to_string(), true), ("##SpeedLoader".to_string(), false)]);
+    }
+
     #[test]
     fn nodes_below_the_root_parents_first() {
         let objects = [

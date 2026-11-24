@@ -275,6 +275,12 @@ impl DialogueZoom {
         Applied { write, back: None }
     }
 
+    /// [`Self::step`], for other modules' tests.
+    #[cfg(test)]
+    pub(crate) fn test_step(&mut self, want: Option<f32>, dt: f32) {
+        self.step(want, dt, false);
+    }
+
     /// Advance the ease by `dt` towards `want` (none: out). `instant` completes it at once.
     fn step(&mut self, want: Option<f32>, dt: f32, instant: bool) {
         self.want = want;
@@ -348,7 +354,7 @@ pub(crate) fn track(
     // The Vigor Tester has the field of view for itself (`crate::chargen::vigor`).
     let vigor = game.is_some_and(|g| g.menu == Some(menus::LOVE_TESTER));
     // Something else has the camera.
-    let taken = vigor || free.is_some_and(|f| f.on) || control.portrait.is_some() || control.cinematic;
+    let taken = vigor || free.is_some_and(|f| f.on) || control.portrait.is_some() || control.cinematic || control.end_view;
     let found = match conv.filter(|_| settings.enabled && !taken) {
         None => Err(None),
         Some(c) if c.through.is_some() => Err(Some("it goes through a talking activator")),

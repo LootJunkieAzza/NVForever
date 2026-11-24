@@ -18,6 +18,11 @@
 //! - E on something the player can hold (`crate::grab`): the activation waits for E to
 //!   come up; held longer, the grab picks it up instead.
 //!
+//! Test aid: `NVF_PLAY_TEST_PICKUP=<seconds>[:<item FormID hex>][,...]` (world aid
+//! seconds): at each time the newest item the player dropped (`NVF_PLAY_TEST_DROP`), of
+//! that item if one is named, is picked up as E on it would (`ActivateNext`), whatever the
+//! crosshair is on: a pick-up in either view, for its clip (nvforever `consume_anims.rs`).
+//!
 //! Test aid: `NVF_PLAY_TEST_ACTIVATE=<seconds>[,<seconds>...]` presses E at those times
 //! on the world aids' clock (`crate::pause::WorldAidClock`; unattended in-game checks).
 //!
@@ -52,8 +57,11 @@ impl Plugin for ActivatePlugin {
         app.init_resource::<Target>()
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
+            .init_resource::<HeldActivation>()
+            .add_message::<PickedUp>()
             .insert_resource(AutoActivate::from_env())
-            .add_systems(Update, (shift_talks, find_target, crate::quick_loot::follow, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
+            .insert_resource(AutoPickup::from_env())
+            .add_systems(Update, (pickup_aid, shift_talks, find_target, crate::quick_loot::follow, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
     }
 }
@@ -96,6 +104,51 @@ impl Targeted {
 #[derive(Resource, Default, Debug)]
 pub struct ActivateNext(pub Option<u32>);
 
+/// The player picked an item up from the world (E on it): the co-op fork's B42 Loot
+/// clip plays for it (nvforever `consume_anims.rs`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PickedUp {
+    pub reference: u32,
+    pub item: FormId,
+    pub count: i32,
+}
+
+/// An activation that waits for an animation (the co-op fork's B42 Interact; nvforever
+/// `consume_anims.rs`). E on a reference whose base record is one of `sigs` is held here
+/// instead of activating. The engine plays the object's clip and gives the activation back
+/// through [`ActivateNext`] (`release`) when the clip says so or ends, or at once when it
+/// has no clip. E again on the held reference activates it at once and ends the clip
+/// (`skipped`; the mod's double tap) [observed: B42 Interact's script].
+#[derive(Resource, Default, Debug)]
+pub struct HeldActivation {
+    /// The base records held for (`ACTI`, `TERM`, `CONT`, `DOOR`, actors); empty: none.
+    pub sigs: std::collections::HashSet<[u8; 4]>,
+    pub held: Option<HeldTarget>,
+    /// E was pressed again on the held reference: it was activated, the clip ends.
+    pub skipped: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct HeldTarget {
+    pub reference: u32,
+    /// Its base record's signature.
+    pub sig: [u8; 4],
+    pub action: Action,
+    /// Its lock as the player meets it (the clip's variant folder).
+    pub lock: fnv_actor::b42::LockSeen,
+    /// Not yet looked at by the engine.
+    pub fresh: bool,
+}
+
+impl HeldActivation {
+    /// Activate the held reference now, as the player would.
+    pub fn release(&mut self, next: &mut ActivateNext) {
+        if let Some(h) = self.held.take() {
+            next.0 = Some(h.reference);
+        }
+    }
+}
+
 /// The last placeholder line: what the engine has no message of the game's for (an
 /// item picked up, a door opened, a kill, a key that does nothing yet). It is logged
 /// and kept here for the tests, never drawn: the owner wants no such white text on
@@ -136,10 +189,22 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
         return None;
     }
     let id = FormId(form_id);
+    // A base-game pool table standing in for the pool mod's activator (`crate::pool`):
+    // offered by the activator's name.
+    if let Some(table) = crate::pool::stand_in(sim, form_id) {
+        return Some((sim.name(table)?.to_string(), Action::Activate));
+    }
     let base = sim.forms.get(sim.base_of(form_id)?)?;
     let name = sim.name(base.id)?.to_string();
     let state = sim.world.peek(id);
     let placed = sim.refs.get(id);
+    // The drinking contest's prop (`fnv_game::drink_table`): the bottle starts the
+    // contest ("Drink"), the bill under it is not offered.
+    match fnv_game::drink_table::piece_of(id).map(|(_, p)| p) {
+        Some(fnv_game::drink_table::Piece::Bottle) => return Some((name, Action::Drink)),
+        Some(_) => return None,
+        None => {}
+    }
     // A primitive (XPRM) is a trigger volume or marker, not an object to use, whatever
     // name its activator has (docs/spec-notes/level-design.md §4.1).
     if placed.is_some_and(|p| p.primitive.is_some()) {
@@ -239,6 +304,9 @@ pub(crate) fn reticle_target_limb(
 /// (`see_through`, #3233). In first person it is the eye's
 /// view ray; in third person the camera's, through the crosshair over the shoulder
 /// (`control::Crosshair`; playtest list 4, item 11).
+/// What the last target log line said: the target, its action, two flags and a talker.
+type TargetLogged = (u32, Action, bool, bool, Option<u32>);
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn find_target(
     player: Option<Res<Player>>,
@@ -250,6 +318,8 @@ pub(crate) fn find_target(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
+    mut logged: Local<Option<TargetLogged>>,
+    talk: Option<Res<crate::coop_talk::TalkGuard>>,
     parts: Option<Res<crate::hitvol::ActorParts>>,
     combat: Option<Res<crate::combat::Combat>>,
 ) {
@@ -396,7 +466,13 @@ pub(crate) fn find_target(
                         // player (a body is named still, as Search) [design: docs/design/tweaks.md].
                         let unknown = rt.as_deref().is_some_and(|rt| rt.game.tweaks.hide_unknown_names && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
                         let name = if unknown { String::new() } else { name };
-                        (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
+                        let action = match actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers) {
+                            // Another player talks to it: wait for that one, by name
+                            // (`crate::coop_talk`; a guest waits for a guest as for the host).
+                            Action::HostOnly { host } => Action::HostOnly { host: talk.as_deref().and_then(|t| t.talkers.get(&id).cloned()).unwrap_or(host) },
+                            a => a,
+                        };
+                        (name, action)
                     }
                     Action::Access => (n, terminal_action(rt.as_deref_mut(), &mut sim, id)),
                     // An interior a script renamed (Fallout 3's SetCellFullName,
@@ -450,8 +526,23 @@ pub(crate) fn find_target(
         let empty = holds_nothing(game, &mut sim, form_id, &action);
         Targeted { form_id, name, action, distance, source, crime, empty, through }
     });
-    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty, t.through));
-    if key(&target.0) != key(&new) {
+    // GetCrosshairRef reads what the prompt targets when there is one: a body the ray
+    // passes (a ragdoll found by its drawn bounds, `pick::choose`) is the reference under
+    // the crosshair too [hypothesis: the original's prompt and GetCrosshairRef name the
+    // same reference; observed: JAM's loot menu, which reads GetCrosshairRef each frame,
+    // stayed off over a jackal's body the prompt offered to search, owner's playtest
+    // 2026-11-05].
+    // Not a talker behind bars (`see_through`, #3233): that stays the first collision hit.
+    if let (Some(t), Some(rt)) = (new.as_ref().filter(|t| t.through.is_none()), script.as_deref_mut().and_then(|s| s.rt.as_mut())) {
+        rt.game.senses.crosshair_ref = Some(FormId(t.form_id));
+    }
+    // Logged when what this pick finds changes (the reference, its action, owned, empty,
+    // seen through), not whenever the target differs: co-op's social targeting takes back a stand-in
+    // this pick finds again every frame, which logged it every frame (queue item 95:
+    // 7,786 lines in 2 minutes).
+    let key = new.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty, t.through));
+    if *logged != key {
+        *logged = key;
         if let Some(note) = note {
             info!("{note}");
         }
@@ -522,17 +613,48 @@ fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks
 
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let r = FormId(id);
+    // Another player of a co-op game: only its name (there is no one to talk to).
+    if g.is_coop_actor(r) {
+        return Action::Name;
+    }
     // The player's tweak: a knocked-out companion is revived [design: docs/design/tweaks.md].
     if g.can_revive(r) {
-        return Action::Revive;
+        return Action::ReviveCompanion;
     }
     // The player's tweak lets an unconscious actor be searched as a dead one is [design: docs/design/tweaks.md].
     if g.is_dead(r) || (g.tweaks.loot_unconscious && g.knockout(r).is_some()) {
         return Action::Search;
     }
     let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
-    if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
+    // On a guest, the host's word too (`Game::coop_hostile`, as the compass and VATS read
+    // it): the host's quest stages turn people hostile (VMS16 stage 70's SetEnemy) in its
+    // world, which the guest's own factions don't know (run 2026-11-14: the Powder
+    // Gangers fighting in Goodsprings showed "E) Wait for Host" on guest B).
+    if fighting_player || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Hostile;
+    }
+    // In a conversation with another player: no second one ("Wait for <host>"; on the
+    // host, for the guest talking to it) (`fnv_game::Game::in_another_players_talk`).
+    if g.in_another_players_talk(r) {
+        let who = if g.coop_guest { g.coop_host_name.clone().unwrap_or_else(|| "the host".into()) } else { "the other player".into() };
+        return Action::HostOnly { host: who };
+    }
+    // A co-op guest talks only to trade, to play and to change chips at a cashier
+    // (`fnv_game::Game::guest_lines`).
+    if g.coop_guest {
+        if g.guest_quest_locked(r) {
+            return Action::HostOnly { host: g.coop_host_name.clone().unwrap_or_else(|| "the host".into()) };
+        }
+        let now = g.time;
+        let talks = match talkers.get(&id) {
+            Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
+            _ => {
+                let t = g.guest_can_talk(r);
+                talkers.insert(id, (t, now));
+                t
+            }
+        };
+        return if talks { Action::Talk } else { Action::Name };
     }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.
@@ -548,8 +670,13 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
         Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
         _ => {
             // A creature is talked to when it is flagged Allow PC Dialogue and has a
-            // greeting to say (docs/spec-notes/actor-flags.md §4) [hypothesis: both].
-            let t = g.allows_pc_dialogue(r) && g.has_greeting(r);
+            // greeting to say (docs/spec-notes/actor-flags.md §4) [hypothesis: both],
+            // or when its script has an OnActivate block, which E runs instead of the
+            // conversation (`script::by_hand`): NoticeBoard.esm's Concern Exchange Bot
+            // opens its recipe menu so and has no greeting [observed in the plugin:
+            // SCPT 0x010098A6] [hypothesis: the original offers it to the player].
+            let on_activate = g.ref_script(r).and_then(|s| g.data.script(s)).is_some_and(|u| u.has_block(fnv_game::game::event::ON_ACTIVATE));
+            let t = on_activate || (g.allows_pc_dialogue(r) && g.has_greeting(r));
             talkers.insert(id, (t, now));
             t
         }
@@ -565,6 +692,35 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
 /// out) is prompted as a lock of its difficulty, "Locked (Easy)" (the owner,
 /// 2026-10-22; `fnv_game::terminal::still_locked`); one that opens at its menu is
 /// accessed. Without the scripts: Access.
+/// A lock as the player meets it, for a held activation's clip: the key carried, within
+/// the skill (Lockpick; Science for a terminal), or beyond it (or broken).
+fn held_lock(script: Option<&mut crate::script::ScriptState>, sim: &mut SimState, id: u32, sig: [u8; 4], action: &Action) -> fnv_actor::b42::LockSeen {
+    use fnv_actor::b42::LockSeen;
+    match *action {
+        Action::Unlock => LockSeen::Key,
+        Action::Locked { level } => {
+            let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return LockSeen::Beyond };
+            crate::script::with_world(rt, sim, |rt| {
+                let g = &mut rt.game;
+                if &sig == b"TERM" {
+                    if level <= 100 && fnv_game::lockpick::science(g) >= level as f32 {
+                        LockSeen::Pickable
+                    } else {
+                        LockSeen::Beyond
+                    }
+                } else {
+                    let skill = fnv_game::lockpick::skill(g);
+                    match fnv_game::lockpick::opening(g, FormId(id), skill) {
+                        fnv_game::lockpick::Opening::Pick { .. } => LockSeen::Pickable,
+                        _ => LockSeen::Beyond,
+                    }
+                }
+            })
+        }
+        _ => LockSeen::Open,
+    }
+}
+
 fn terminal_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id: u32) -> Action {
     let (Some(rt), Some(base)) = (rt, sim.base_of(id)) else { return Action::Access };
     // The player's tweak: a locked terminal the note opens says so [design: docs/design/tweaks.md].
@@ -644,6 +800,44 @@ impl AutoActivate {
     }
 }
 
+/// `NVF_PLAY_TEST_PICKUP`: (world aid seconds, the item or any), soonest first.
+#[derive(Resource, Default)]
+pub(crate) struct AutoPickup(Vec<(f32, Option<u32>)>);
+
+impl AutoPickup {
+    fn from_env() -> AutoPickup {
+        let Ok(v) = std::env::var("NVF_PLAY_TEST_PICKUP") else { return AutoPickup::default() };
+        let mut out = Vec::new();
+        for part in v.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let (t, item) = part.split_once(':').map_or((part, None), |(t, i)| (t, Some(i)));
+            match (t.trim().parse::<f32>(), item.map(|i| u32::from_str_radix(i.trim().trim_start_matches("0x"), 16))) {
+                (Ok(t), None) => out.push((t, None)),
+                (Ok(t), Some(Ok(i))) => out.push((t, Some(i))),
+                _ => warn!("NVF_PLAY_TEST_PICKUP: {part:?}: expected <seconds>[:<item FormID hex>]"),
+            }
+        }
+        out.sort_by(|a, b| a.0.total_cmp(&b.0));
+        info!("test aid NVF_PLAY_TEST_PICKUP: {} pick-ups", out.len());
+        AutoPickup(out)
+    }
+}
+
+/// `NVF_PLAY_TEST_PICKUP`: the newest dropped item (of that base) goes to `ActivateNext`.
+fn pickup_aid(aid_time: crate::pause::AidTime, mut aid: ResMut<AutoPickup>, sim: Res<SimState>, mut next: ResMut<ActivateNext>) {
+    let Some(now) = aid_time.world_secs() else { return };
+    while aid.0.first().is_some_and(|(t, _)| *t <= now) {
+        let (_, item) = aid.0.remove(0);
+        let found = sim.world.created().filter(|(_, s)| !s.deleted() && s.enabled() && item.is_none_or(|i| s.base.0 == i)).filter(|(_, s)| sim.forms.get(s.base).is_some_and(|b| matches!(b.data, BaseData::Item(_)))).map(|(id, _)| id).last();
+        match found {
+            Some(id) => {
+                info!("test aid NVF_PLAY_TEST_PICKUP: picks up {id}");
+                next.0 = Some(id.0);
+            }
+            None => warn!("NVF_PLAY_TEST_PICKUP: no dropped item{} to pick up", item.map_or(String::new(), |i| format!(" {i:08X}"))),
+        }
+    }
+}
+
 /// A water source's prompt name with the H2O a drink takes off (the player's Water Sources
 /// Show H2O tweak): "Faucet (H2O -15)" [design: our own words, as the Pip-Boy's figures].
 pub fn water_label(name: &str, h2o: Option<f64>) -> String {
@@ -690,6 +884,12 @@ pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pa
 /// the keys, the grab.
 type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>), Option<ResMut<'w, crate::grab::GrabState>>);
 
+/// What holds activation back: scripts' control locks (and their count), and the player's
+/// control (a match's end view).
+/// The held activation, the picked-up items and the drinking contest's bottles.
+type ActivateHeld<'w> = (Option<ResMut<'w, HeldActivation>>, Option<ResMut<'w, Messages<PickedUp>>>, MessageWriter<'w, crate::drink_world::BottleUsed>);
+type ActivateHolds<'w> = (Option<Res<'w, crate::control::ControlLocks>>, Option<ResMut<'w, crate::control::LockStats>>, Option<Res<'w, crate::control::PlayerControl>>);
+
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn activate(
@@ -711,8 +911,8 @@ pub(crate) fn activate(
     ),
     (mut seat, mut steal, mut ui, mut screen): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>, Option<ResMut<crate::loading::Loading>>),
     script: Option<ResMut<crate::script::ScriptState>>,
-    locks: Option<Res<crate::control::ControlLocks>>,
-    stats: Option<ResMut<crate::control::LockStats>>,
+    (locks, stats, control): ActivateHolds,
+    (mut held_act, mut picked, mut bottles): ActivateHeld,
     (mut mines, mut disarm_rolls, mut hold, mut used): (Option<ResMut<crate::mines::Mines>>, Local<u64>, Local<Option<(u32, f32, bool)>>, Option<ResMut<Messages<crate::ItemUsed>>>),
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
@@ -781,6 +981,11 @@ pub(crate) fn activate(
     if wheel.is_some_and(|w| w.holds_input()) {
         return;
     }
+    // Nor under a match's end view and its fade (`PlayerControl::end_view`) [design].
+    if control.is_some_and(|c| c.end_view) {
+        info!("activate: ignored under a match's end view");
+        return;
+    }
     // Scripts turned the player's movement off: world objects cannot be activated
     // [documented: GECK wiki DisablePlayerControls, MovementFlag].
     if locks.is_some_and(|l| l.movement) {
@@ -797,9 +1002,18 @@ pub(crate) fn activate(
         seat.leave |= seat.hold.is_some() && !crate::tweaks::SEAT_KEEPS_ON_ACTIVATE.load(std::sync::atomic::Ordering::Relaxed);
         return;
     };
+    // A drinking contest's bottle: the contest's stake page (`crate::drink_world`), never
+    // taken or held.
+    if fnv_game::drink_table::bar_of_bottle(FormId(t.form_id)).is_some() {
+        info!("activate 0x{:08X} {}: a drinking contest's bottle", t.form_id, t.name);
+        bottles.write(crate::drink_world::BottleUsed { bottle: t.form_id });
+        return;
+    }
     // E pressed on something the player can hold: a tap activates it when E comes up,
     // a hold picks it up (`crate::grab`, docs/spec-notes/grab.md §2).
-    if queued.is_none() && !fired && !full {
+    // With a controller and Grab (Hold) on a binding of its own (`crate::bindings::SPLITS`),
+    // Activate activates at once and that binding grabs [design, owner 2026-11-22].
+    if queued.is_none() && !fired && !full && !input.bindings.split_moved(crate::bindings::Control::ActivateGrab) {
         if let Some(g) = grab.as_mut().filter(|g| g.holdable(t.form_id) && g.tap.is_none()) {
             let candidate = g.candidate.expect("holdable has a candidate");
             g.tap = Some(crate::grab::Tap { target: Some(t.clone()), candidate, held: 0.0 });
@@ -808,9 +1022,52 @@ pub(crate) fn activate(
     }
     // An actor shown by name only (hostile, or a creature with nothing to say): E does
     // nothing (playtest list 4, item 19).
+    // Another player (co-op): the interaction wheel takes E (`crate::coop_social`).
+    // A downed player: the revive takes E (`nvforever`'s `coop.rs`).
+    if matches!(t.action, Action::Player | Action::Revive { .. }) {
+        return;
+    }
+    if let Action::HostOnly { host } = &t.action {
+        info!("activate 0x{:08X} {}: the host's quest, or another player's conversation, is on them: wait for {host}", t.form_id, t.name);
+        hud.show(format!("Wait for {host}"));
+        return;
+    }
+    // A co-op guest leaves quest items to the host, who carries the quest (owner, item
+    // 130): taking one says to wait for them.
+    if matches!(t.action, Action::Take { .. }) {
+        let host = script.as_deref().and_then(|s| s.rt.as_ref()).filter(|rt| rt.game.coop_guest).map(|rt| rt.game.coop_host_name.clone().unwrap_or_else(|| "the host".into()));
+        if let Some(host) = host.filter(|_| sim.base_of(t.form_id).is_some_and(|b| sim.world.is_quest_item(b))) {
+            info!("activate 0x{:08X} {}: a quest item, left to the host: wait for {host}", t.form_id, t.name);
+            hud.show(format!("Wait for {host}"));
+            return;
+        }
+    }
     if matches!(t.action, Action::Name | Action::Hostile) {
         info!("activate 0x{:08X} {}: nothing to do ({})", t.form_id, t.name, if t.action == Action::Hostile { "hostile" } else { "name only" });
         return;
+    }
+    // An object with an animation before its activation (`HeldActivation`): held while it
+    // plays. What comes back through `ActivateNext` is not held again.
+    if queued.is_none() {
+        if let Some(h) = held_act.as_deref_mut().filter(|h| !h.sigs.is_empty()) {
+            match h.held.as_ref().map(|c| c.reference) {
+                Some(r) if r == t.form_id => {
+                    h.held = None;
+                    h.skipped = true;
+                    info!("activate 0x{:08X} {}: pressed again, its animation is skipped", t.form_id, t.name);
+                }
+                Some(_) => return,
+                None => {
+                    let sig = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).map(|b| b.sig).filter(|s| h.sigs.contains(s));
+                    if let Some(sig) = sig.filter(|_| !matches!(t.action, Action::Take { .. } | Action::Inaccessible | Action::Disarm)) {
+                        let lock = held_lock(script.as_deref_mut(), &mut sim, t.form_id, sig, &t.action);
+                        info!("activate 0x{:08X} {} ({}): held for its animation (lock {lock:?})", t.form_id, t.name, t.action.label());
+                        h.held = Some(HeldTarget { reference: t.form_id, sig, action: t.action.clone(), lock, fresh: true });
+                        return;
+                    }
+                }
+            }
+        }
     }
     if t.action == Action::Steal {
         let refusal = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.pickpocket_refusal(FormId(t.form_id))));
@@ -832,8 +1089,15 @@ pub(crate) fn activate(
         info!("activate 0x{:08X} {}: nothing to do (an inaccessible door)", t.form_id, t.name);
         return;
     }
+    // A base-game pool table standing in for the mod's: a static, nothing of its own to
+    // run; the pool game opens on the activation (`crate::pool`).
+    if crate::pool::stand_in(&sim, t.form_id).is_some() {
+        sounds.write(crate::world_sounds::Activated { reference: t.form_id });
+        info!("activate 0x{:08X} {}: a base-game pool table, played as the pool mod's", t.form_id, t.name);
+        return;
+    }
     // The player's tweak: a Stimpak gets a knocked-out companion up [design: docs/design/tweaks.md].
-    if t.action == Action::Revive {
+    if t.action == Action::ReviveCompanion {
         let done = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.revive(FormId(t.form_id))));
         match done {
             Some(Ok(())) => info!("activate 0x{:08X} {} (Revive): a Stimpak used, they get up (tweak)", t.form_id, t.name),
@@ -986,6 +1250,11 @@ pub(crate) fn activate(
         lockpicks.write(crate::lockpick::OpenLockpick { reference: t.form_id });
         return;
     }
+    if let Outcome::PickedUp { item, count, .. } = a.outcome {
+        if let Some(m) = picked.as_deref_mut() {
+            m.write(PickedUp { reference: t.form_id, item, count });
+        }
+    }
     let name_of = |id: FormId| sim.name(id).map_or_else(|| id.to_string(), str::to_string);
     let effects = outcome::effects(&a, t.form_id, &t.name, play.index, name_of);
     let travels = effects.iter().any(|e| matches!(e, Effect::Travel { .. }));
@@ -1026,14 +1295,14 @@ pub(crate) fn activate(
 // ---- visual sync -----------------------------------------------------------------
 
 type NewVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility), Added<RefVisual>>;
-type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility)>;
+type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility, Has<crate::StaysHidden>)>;
 
 /// Whether a reference is drawn: present in the simulation ([`SimState::present`]) and not
 /// culled by its critical stage (GooEnd, DisintegrateEnd: `fnv_game::Game::culled`). A
 /// hidden actor has no hit volume (`crate::hitvol`) and its corpse leaves the physics world
 /// (nvforever `ragdoll.rs`): "cull its 3D, and remove its Havok data" [documented: GECK
 /// wiki SetCriticalStage].
-pub(crate) fn drawn(sim: &SimState, script: Option<&crate::script::ScriptState>, id: u32) -> bool {
+pub fn drawn(sim: &SimState, script: Option<&crate::script::ScriptState>, id: u32) -> bool {
     sim.present(id) && !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.culled(FormId(id)))
 }
 
@@ -1057,9 +1326,9 @@ pub fn sync_visuals(
     if changed.is_empty() {
         return;
     }
-    for (r, mut v) in &mut visuals.p1() {
+    for (r, mut v, stays) in &mut visuals.p1() {
         if let Some(n) = changed.get_mut(&r.0) {
-            v.set_if_neq(if drawn(&sim, script, r.0) { Visibility::Inherited } else { Visibility::Hidden });
+            v.set_if_neq(if drawn(&sim, script, r.0) && !stays { Visibility::Inherited } else { Visibility::Hidden });
             *n += 1;
         }
     }

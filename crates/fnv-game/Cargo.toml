@@ -10,6 +10,7 @@ autotests = false
 [dependencies]
 fnv-esm = { path = "../fnv-esm" }
 fnv-sim = { path = "../fnv-sim" }
+fnv-combat = { path = "../fnv-combat" }
 fnv-world = { path = "../fnv-world" }
 fnv-script = { path = "../fnv-script" }
 fnv-util = { path = "../fnv-util" }
@@ -132,3 +133,12 @@ path = "tests/crosshair_water.rs"
 [[test]]
 name = "crosshair_prompt_events"
 path = "tests/crosshair_prompt_events.rs"
+
+# Set the process-wide mod_files roots.
+[[test]]
+name = "main_menu_block"
+path = "tests/main_menu_block.rs"
+
+[[test]]
+name = "mod_list_startup"
+path = "tests/mod_list_startup.rs"

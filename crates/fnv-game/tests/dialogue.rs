@@ -117,6 +117,12 @@ const U_LEAD: u32 = 0xF5E;
 const U_TARGET: u32 = 0xF5F;
 const U_PLAIN: u32 = 0xF60;
 const U_ONLY: u32 = 0xF61;
+// A SayTo topic whose first Conversation line has the next speaker Self (item 26, Stella
+// at Zion): the speaker goes on with the next line.
+const T_SELF: u32 = 0x964;
+const V_SELF: u32 = 0xF70;
+const V_BYE: u32 = 0xF71;
+const V_AFTER: u32 = 0xF72;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -168,6 +174,9 @@ const H_BEGIN_SAY: u32 = 0xA73;
 // TopicSource in its Add Topics.
 const T_B_HAND: u32 = 0xA74;
 const B_HAND: u32 = 0xA75;
+// A line whose begin script names QTick (a co-op conversation holds that quest's GameMode).
+const T_HOLD_Q: u32 = 0xA76;
+const H_HOLD_Q: u32 = 0xA77;
 const PATROL_REF: u32 = 0x322;
 const NPC1_REF: u32 = 0x320;
 const NPC2_REF: u32 = 0x321;
@@ -669,6 +678,21 @@ fn plugin_bytes() -> Vec<u8> {
             50.0,
             vec![L { id: S_LF_TO, quest: QA, speaker: me, responses: one("To"), link_from: vec![T_LF_FROM, T_LF_PLAIN], ..L::default() }],
         ),
+        // SayTo with the next speaker Self: V_SELF, then V_BYE (Goodbye, TestOut 4); the
+        // Topic line after it is never reached.
+        topic(
+            T_SELF,
+            "TestSelf",
+            "TestSelf",
+            topic_type::CONVERSATION,
+            0,
+            50.0,
+            vec![
+                L { id: V_SELF, quest: QA, ty: CONV, next: 1, flags: info_flag::SAY_ONCE, speaker: me, responses: one("First"), ..L::default() },
+                L { id: V_BYE, quest: QA, ty: CONV, flags: info_flag::GOODBYE | info_flag::SAY_ONCE, speaker: me, responses: one("Second"), end: Some("4"), ..L::default() },
+                L { id: V_AFTER, quest: QA, ty: CONV, speaker: me, responses: one("Third"), ..L::default() },
+            ],
+        ),
         // Fallout 3's speech challenge failure topic: a line whose Link From names the
         // challenge's topic (Lucas Simms's MegTownFatherChoice answer, #3024).
         topic(T_FAIL, "SpeechChallengeFailure", "", topic_type::TOPIC, 0, 50.0, vec![L { id: S_FAIL, quest: QA, speaker: me, responses: one("Sorry friend."), link_from: vec![T_LF_PLAIN], ..L::default() }]),
@@ -815,6 +839,15 @@ fn plugin_bytes() -> Vec<u8> {
             0,
             50.0,
             vec![L { id: H_BEGIN_SAY, quest: QA, flags: info_flag::GOODBYE, speaker: me, responses: one("Hold on"), begin_raw: Some(say_result(NPC1_REF, T_ASK)), end: Some("9"), ..L::default() }],
+        ),
+        topic(
+            T_HOLD_Q,
+            "TestHoldQuest",
+            "HoldQuest",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: H_HOLD_Q, quest: QA, flags: info_flag::GOODBYE, speaker: me, responses: one("Your things"), begin_raw: Some(unit(0, &set(var(b'G', 1), ex(&[a("7")])), &[], &[G_OUT, QTICK])), end: Some("9"), ..L::default() }],
         ),
     ]
     .concat();
@@ -1770,6 +1803,7 @@ fn a_farewell_ending_inside_another_farewells_end_script_keeps_the_outer_hand_of
         remaining: 100.0,
         say_to: false,
         greeting: false,
+        remote: false,
         farewell: true,
         conversation: None,
         earlier_topics: Vec::new(),
@@ -1825,6 +1859,7 @@ fn a_farewell_ending_inside_a_conversation_lines_end_script_leaves_the_conversat
         remaining: 100.0,
         say_to: false,
         greeting: false,
+        remote: false,
         farewell: true,
         conversation: None,
         earlier_topics: Vec::new(),
@@ -1872,6 +1907,38 @@ fn a_goodbye_whose_begin_script_makes_its_speaker_say_a_line_stays_in_the_conver
     assert!(g.dialogue.is_none() && out(&g) == 9.0);
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", .. })));
     assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: true, .. } if info == FormId(B_ASK))));
+}
+
+/// Co-op: the world goes on behind the conversation (`Game::no_pause`), but a quest that
+/// one of its lines' result scripts names runs no GameMode until the conversation ends, as
+/// behind the original's dialogue menu. The Fort's confiscation quest otherwise gave the
+/// gear back on the weather station guard's begin script and took it again after his end
+/// script started it anew (owner, 2026-11-15; `Game::talk_held_quests`).
+#[test]
+fn in_co_op_a_quest_a_line_names_waits_for_the_conversation_to_end() {
+    let mut f = fixture();
+    f.data.infos.get_mut(&FormId(S_DEAD_END)).unwrap().choices = vec![FormId(T_HOLD_Q)];
+    let mut g = game(&f);
+    g.no_pause = true;
+    let ticks = |g: &Game| g.world.global(FormId(G_TICKS)).unwrap();
+    g.start_dialogue(actor(), Some(FormId(T_DEAD_END))).unwrap();
+    // The world goes on: QTick's GameMode runs during the conversation.
+    let t0 = ticks(&g);
+    g.frames(3);
+    assert!(ticks(&g) > t0 && g.dialogue.is_some());
+    listen(&mut g);
+    assert_eq!(pick(&mut g, T_HOLD_Q), FormId(H_HOLD_Q));
+    // From the line naming it on, QTick waits.
+    let held = ticks(&g);
+    g.frames(5);
+    assert!(g.dialogue.is_some() && out(&g) == 7.0);
+    assert_eq!(ticks(&g), held);
+    listen(&mut g);
+    assert!(g.dialogue.is_none() && out(&g) == 9.0);
+    // The conversation over, it runs again.
+    g.frames(3);
+    assert!(ticks(&g) > held);
+    assert!(g.talk_held_quests.is_empty());
 }
 
 /// A farewell of two responses lasts as long as both together, as the line would have
@@ -2611,6 +2678,26 @@ fn actors_talk_to_each_other_only_with_conversation_lines() {
     assert_eq!(g.say_hello(a), Some(FormId(K_HELLO_PLAYER)));
 }
 
+/// A SayTo line to an actor that is a Conversation line with the next speaker Self: the
+/// speaker goes on with its next line of the topic, and stops at the Goodbye line (item
+/// 26: Stella's NVDLC02StellaForceGreetTOPIC at Zion).
+#[test]
+fn a_say_to_line_with_the_next_speaker_self_goes_on_with_the_next_line() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (a, b) = (FormId(NPC1_REF), FormId(NPC2_REF));
+    assert_eq!(g.say(a, Some(b), FormId(T_SELF), true), Some(FormId(V_SELF)));
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    let lines: Vec<(FormId, u32)> = g.events.iter().filter_map(|e| if let EventKind::LineStarted { speaker, info, .. } = e.kind { Some((speaker, info.0)) } else { None }).collect();
+    assert_eq!(lines, vec![(a, V_SELF), (a, V_BYE)]);
+    assert_eq!(out(&g), 4.0);
+}
+
 #[test]
 fn between_actors_a_link_from_reply_answers_a_line_that_links_nowhere() {
     let f = fixture();
@@ -3043,6 +3130,97 @@ fn known_topics_newest_first() {
     assert_eq!(ids(&k), vec![0xC8, 0xCC, 0xCB, 0xCA, 0xC7]);
     let old: KnownTopics = serde_json::from_value(json!([FormId(1).to_string(), FormId(2).to_string(), FormId(3).to_string()])).unwrap();
     assert_eq!(ids(&old), vec![1, 2, 3]);
+}
+
+/// A co-op guest says the host's lines (`Game::set_remote_speech`): the host times them,
+/// so they never end here on their own and their end scripts do not run here; the next
+/// list replaces them. A line of the guest's own by an actor the host runs stops; its own
+/// Goodbye greeting at the player does not.
+#[test]
+fn the_hosts_lines_are_said_without_their_scripts() {
+    use fnv_game::game::{LineLook, Speech};
+    let f = fixture();
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 7.0);
+    g.frames(3);
+    let line = |speaker: FormId, remaining: f64| Speech {
+        speaker,
+        target: None,
+        leads_on: false,
+        through: None,
+        topic: FormId(GREETING),
+        info: FormId(A_BARK),
+        remaining,
+        say_to: false,
+        greeting: false,
+        farewell: false,
+        conversation: None,
+        earlier_topics: Vec::new(),
+        hello: false,
+        look: LineLook::Both,
+        response: 0,
+        force_subtitles: false,
+        two_d: false,
+        end_ran: false,
+        remote: false,
+    };
+    let before = out(&g);
+    g.set_remote_speech(vec![line(actor(), 0.05)], |_| false);
+    g.frames(200);
+    assert!(matches!(g.speech.as_slice(), [s] if s.remote && s.speaker == actor()), "{:?}", g.speech);
+    assert_eq!(out(&g), before, "no end script here");
+    g.set_remote_speech(Vec::new(), |_| false);
+    assert!(g.speech.is_empty());
+    assert_eq!(out(&g), before);
+    // The guest's own line by an actor the host runs stops; its greeting at the player stays.
+    g.speech.push(line(FormId(NPC2_REF), 30.0));
+    assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
+    assert_eq!(g.speech.len(), 2);
+    g.set_remote_speech(Vec::new(), |_| true);
+    assert!(matches!(g.speech.as_slice(), [s] if s.speaker == actor() && s.greeting && !s.remote), "{:?}", g.speech);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { speaker, cut: true, .. } if speaker == FormId(NPC2_REF))));
+}
+
+/// A co-op guest: an update of the host's line that comes a little late does not take its
+/// time left back up (that starts the sound over), a line said again does.
+#[test]
+fn a_hosts_line_come_late_is_not_said_again() {
+    use fnv_game::game::{LineLook, Speech, REMOTE_SAID_AGAIN};
+    let f = fixture();
+    let mut g = game(&f);
+    let line = |remaining: f64| Speech {
+        speaker: actor(),
+        target: None,
+        leads_on: false,
+        through: None,
+        topic: FormId(GREETING),
+        info: FormId(A_BARK),
+        remaining,
+        say_to: false,
+        greeting: false,
+        farewell: false,
+        conversation: None,
+        earlier_topics: Vec::new(),
+        hello: false,
+        look: LineLook::Both,
+        response: 0,
+        force_subtitles: false,
+        two_d: false,
+        end_ran: false,
+        remote: false,
+    };
+    let left = |g: &fnv_game::Game| g.speech.iter().find(|s| s.remote).map(|s| s.remaining);
+    g.set_remote_speech(vec![line(4.0)], |_| false);
+    g.set_remote_speech(vec![line(3.5)], |_| false);
+    // Late by 0.1 s: stays where it was.
+    g.set_remote_speech(vec![line(3.6)], |_| false);
+    assert_eq!(left(&g), Some(3.5));
+    // Down: taken.
+    g.set_remote_speech(vec![line(3.2)], |_| false);
+    assert_eq!(left(&g), Some(3.2));
+    // Said again from the start: taken.
+    g.set_remote_speech(vec![line(3.2 + REMOTE_SAID_AGAIN + 1.0)], |_| false);
+    assert_eq!(left(&g), Some(3.2 + REMOTE_SAID_AGAIN + 1.0));
 }
 
 #[test]

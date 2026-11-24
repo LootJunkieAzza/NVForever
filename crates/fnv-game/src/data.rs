@@ -982,6 +982,12 @@ pub struct GameData {
     pub scripts: HashMap<FormId, UnitId>,
     pub quests: BTreeMap<FormId, QuestDef>,
     pub infos: HashMap<FormId, InfoDef>,
+    /// Lines voice sets carry with their own sound and text (`crate::player_voice`, a
+    /// voiced follower mod's lines without its plugin): the INFO made for each → the
+    /// sound's path in the data.
+    pub voice_files: HashMap<FormId, String>,
+    /// (voice set id, line index in the set) → the INFO made for that line.
+    pub packed_lines: HashMap<(String, usize), FormId>,
     /// The dialogue lines (INFO) of each topic (DIAL), in topic order: the order of the
     /// plugin that first defines each line, then its place in that file, then each line a
     /// later plugin adds moved up behind the line its Previous INFO (PNAM) names
@@ -1245,6 +1251,10 @@ pub struct IdleDef {
 /// The "Upper Body" animation group section ([`IdleDef::section`]) [documented: xEdit
 /// wbIdleAnam].
 pub const IDLE_SECTION_UPPER_BODY: u8 = 21;
+
+/// The "Movement" animation group section ([`IdleDef::section`]) [documented: xEdit
+/// wbIdleAnam].
+pub const IDLE_SECTION_MOVEMENT: u8 = 1;
 
 impl IdleDef {
     /// From the decoded `MODL` (the name) and `DATA` (schema `gameplay.json` IDLE:
@@ -1987,6 +1997,8 @@ impl GameData {
             scripts: HashMap::new(),
             quests: BTreeMap::new(),
             infos: HashMap::new(),
+            voice_files: HashMap::new(),
+            packed_lines: HashMap::new(),
             topics: HashMap::new(),
             lines_moved_by_previous: 0,
             shared_lines: HashMap::new(),

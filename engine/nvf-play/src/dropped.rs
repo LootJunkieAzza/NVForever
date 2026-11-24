@@ -239,6 +239,32 @@ impl Plugin for DroppedPlugin {
 
 type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transform), Without<DroppedRoot>>;
 
+/// An add-on node (`BSValueNode`) of a created reference's model, ADDN node `index`:
+/// nvforever's particles (`particles.rs`) make it emit that add-on's particle effect, as
+/// a placed reference's does. Before 2026-11-07 created references emitted none, so the
+/// fire Burning Campfire Redone places was its flame cards alone.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct AddonNode {
+    pub reference: u32,
+    pub index: i32,
+}
+
+/// On the root of a created reference whose base is a light (LIGH): nvforever's lights
+/// (`lights::dropped_lights`) give it the light a placed reference of that base sheds,
+/// flicker included. Before 2026-11-09 created lights shed none, so the fires Burning
+/// Campfire Redone places (each `PlaceAtMe`s a `SAGCampFire420` light) lit nothing
+/// (owner's queue item 103).
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DroppedLight {
+    pub reference: u32,
+    pub base: u32,
+}
+
+/// Whether base form `base` is a light (LIGH).
+pub fn is_light(d: &crate::PlayData, base: FormId) -> bool {
+    fnv_world::placed::base_object(d.lo, d.schema, base.0).is_some_and(|b| &b.sig == b"LIGH")
+}
+
 /// Bring the drawn created references in line with the simulation ([`plan`]).
 #[allow(clippy::too_many_arguments)]
 fn sync_drawn(
@@ -298,6 +324,16 @@ fn sync_drawn(
         let w = wanted[&id];
         let (cell_e, origin) = loaded[&w.cell];
         let Some((base, mods)) = sim.world.peek(FormId(id)).map(|s| (s.base, s.extra.mods)) else { continue };
+        let light = is_light(&d, base);
+        let t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * w.affine()));
+        // A created light with no model (a script's `PlaceAtMe` of a LIGH): a root that
+        // only holds its light ([`DroppedLight`]).
+        if light && model_path(&d, base, mods).is_none() {
+            let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), DroppedLight { reference: id, base: base.0 }, t, Visibility::default(), ChildOf(cell_e))).id();
+            info!("dropped reference 0x{id:08X} drawn: light {base}, no model, in {:?} at ({:.1}, {:.1}, {:.1})", w.cell, w.pos[0], w.pos[1], w.pos[2]);
+            drawn.0.insert(id, DrawnRef { root, cell_entity: cell_e, at: w });
+            continue;
+        }
         // Known from the records alone, so asked once: such a reference is in the plan every frame.
         if not_drawn.contains(&(base, mods)) {
             continue;
@@ -317,11 +353,13 @@ fn sync_drawn(
             warn_once!("dropped reference 0x{id:08X}: model {path} could not be loaded");
             continue;
         };
-        let t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * w.affine()));
         // `ChildOf` on the new entity (not a command on the cell): if render streaming
         // despawns the cell this frame, the relationship is dropped with a warning and
         // the next frame despawns the root, instead of a command failing on the cell.
         let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), DroppedModel(path.clone()), t, Visibility::default(), ChildOf(cell_e))).id();
+        if light {
+            commands.entity(root).insert(DroppedLight { reference: id, base: base.0 });
+        }
         // Animated: its own node hierarchy, as render streaming does, for a door, an idle,
         // or (without one) script groups. Not for an idle of nothing but parts the
         // holder's clips move (a gun's slide), which an item on the ground keeps still
@@ -330,10 +368,29 @@ fn sync_drawn(
         // parts (`crate::mines::MineLight`).
         let shapes = match &model.rig {
             Some(rig) if rig.door.is_some() || rig.idle.as_ref().map_or(!rig.groups.is_empty(), |c| !c.only_free_motion()) => {
-                let (r, drawn_shapes) = rig.spawn(&mut commands, root, Transform::IDENTITY, &path);
+                let (r, drawn_shapes, by_name) = rig.spawn_nodes(&mut commands, root, Transform::IDENTITY, &path, 0.0);
                 commands.entity(r).insert(RefVisual(id));
+                // Script groups play on it as on a model a script enabled
+                // (`crate::script_draw::ScriptDrawnRig`): the Nellis artillery's strike
+                // (SCPT 0x0016657D) plays Forward on load and places its explosion once
+                // IsAnimPlaying Forward is 0, which a group waiting for a rig never drawn
+                // never was [observed: ship-081 solo run, nellis-artillery-fires].
+                if !rig.groups.is_empty() {
+                    commands.entity(r).insert(crate::script_draw::ScriptDrawnRig { reference: id, path: path.clone(), nodes: by_name.clone() });
+                }
                 for e in &drawn_shapes {
                     commands.entity(*e).insert(RefVisual(id));
+                }
+                // Its billboards turn and its add-on nodes emit from its own nodes, as a
+                // placed reference's do (nvforever world.rs).
+                for n in &model.nodes {
+                    let Some(&e) = n.name.as_ref().and_then(|k| by_name.get(k)) else { continue };
+                    if let Some(mode) = n.billboard {
+                        commands.entity(e).insert(crate::billboards::Billboard { mode, bind: Transform::from_matrix(Mat4::from(n.local)).rotation });
+                    }
+                    if let Some(index) = n.addon {
+                        commands.entity(e).insert(AddonNode { reference: id, index });
+                    }
                 }
                 drawn_shapes.len()
             }
@@ -343,6 +400,17 @@ fn sync_drawn(
                     if let Some(l) = crate::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
                         commands.entity(e).insert(l);
                     }
+                }
+                // Its add-on nodes: an entity at each, where the model places it.
+                for n in &model.nodes {
+                    let Some(index) = n.addon else { continue };
+                    let mut at = n.local;
+                    let mut up = n.parent;
+                    while let Some(p) = up {
+                        at = model.nodes[p].local * at;
+                        up = model.nodes[p].parent;
+                    }
+                    commands.spawn((Transform::from_matrix(Mat4::from(at)), Visibility::Inherited, AddonNode { reference: id, index }, ChildOf(root)));
                 }
                 model.shapes.len()
             }

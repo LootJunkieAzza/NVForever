@@ -50,6 +50,7 @@
 pub mod data;
 pub mod device_screen;
 pub mod frame;
+pub mod glance;
 pub mod hotkey_panel;
 pub mod items;
 pub mod item_mod;
@@ -595,7 +596,12 @@ impl Plugin for PipBoyPlugin {
             .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
             .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
             .add_systems(Update, flat_pointer.in_set(PointerSet))
-            .add_systems(PreUpdate, drive_pointer.after(crate::pad::device::automatic).after(crate::pad::pointer::follow).before(PickingSystems::ProcessInput));
+            .add_systems(PreUpdate, drive_pointer.after(crate::pad::device::automatic).after(crate::pad::pointer::follow).before(PickingSystems::ProcessInput))
+            // The glance (`glance`): it gives way before the full Pip-Boy follows the
+            // menus; what it holds back is known before the frame's input is read.
+            .add_systems(Update, glance::hold_controls.before(PlaySet::Input))
+            .add_systems(Update, (glance::update.after(crate::menu::MenuSystems).before(follow_menu), glance::keys.run_if(takes_keys), glance::draw).chain().in_set(PlaySet::Ui));
+        glance::setup(app);
         test_aid::setup(app);
         crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
@@ -655,12 +661,19 @@ pub fn menu_code(page: Page, repairing: bool, modding: bool) -> u16 {
 /// While the Pip-Boy is up, the scripts' open menu is its page's code ([`menu_code`];
 /// it opens as the inventory, 1002, `crate::script::engine_menu_opened`). Logged:
 /// `pipboy: menu code <code>`.
-fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, modding: Res<item_mod::PipItemMod>, script: Option<ResMut<crate::script::ScriptState>>) {
-    if !pip.opening() {
-        return;
-    }
+fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, modding: Res<item_mod::PipItemMod>, script: Option<ResMut<crate::script::ScriptState>>, live: Option<Res<crate::menu::LiveMenu>>) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     let code = menu_code(pip.page, repair.is_open(), modding.is_open());
+    // Opened without a pause (co-op, `crate::menu::LiveMenu`): the scripts stay in game
+    // mode, only the MenuMode function answers (`fnv_game::Game::live_menu`).
+    let live_now = (pip.opening() && live.is_some_and(|l| l.open)).then_some(code);
+    if rt.game.live_menu != live_now {
+        info!("pipboy: live menu code {}", live_now.map_or("none".into(), |c| c.to_string()));
+        rt.game.live_menu = live_now;
+    }
+    if !pip.opening() || live_now.is_some() {
+        return;
+    }
     if rt.game.menu != Some(code) && rt.game.set_pipboy_menu(code) {
         info!("pipboy: menu code {code}");
     }
@@ -870,16 +883,25 @@ fn advance(time: crate::pause::AidTime, mut pip: ResMut<PipBoy>, mut control: Re
 /// The screen camera draws only while the Pip-Boy shows; in the screen menu onto a clear
 /// image, so the menus lie on the shade behind them and not on a black box; on the device
 /// onto the screen's undercoat (`device_screen.rs`).
-fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, fx: Res<device_screen::ScreenFx>, mut cams: Query<&mut Camera>) {
+fn camera_on(pip: Res<PipBoy>, glance: Res<glance::Glance>, screen: Option<Res<PipBoyScreen>>, fx: Res<device_screen::ScreenFx>, mut cams: Query<&mut Camera>) {
     let Some(screen) = screen else { return };
+    // The glance draws into the same image (`glance::draw`).
+    let on = pip.shown() || glance.shown();
     if let Ok(mut c) = cams.get_mut(screen.camera) {
-        if c.is_active != pip.shown() {
-            c.is_active = pip.shown();
+        if c.is_active != on {
+            c.is_active = on;
             if !c.is_active {
                 info!("pipboy: screen camera off");
             }
         }
-        let clear = if pip.frame == Frame::Screen { Color::NONE } else { device_screen::undercoat(fx.kept) };
+        // The glance alone (the Pip-Boy down) keeps its black ground.
+        let clear = if !pip.shown() {
+            Color::BLACK
+        } else if pip.frame == Frame::Screen {
+            Color::NONE
+        } else {
+            device_screen::undercoat(fx.kept)
+        };
         if !matches!(c.clear_color, ClearColorConfig::Custom(now) if now == clear) {
             c.clear_color = ClearColorConfig::Custom(clear);
         }
@@ -1237,6 +1259,7 @@ mod tests {
         let camera = world.spawn(Camera { is_active: false, ..default() }).id();
         world.insert_resource(PipBoyScreen { camera, image: Handle::default(), on_model: false, pointer: None, scale: 1.0 });
         world.insert_resource(device_screen::ScreenFx::default());
+        world.insert_resource(glance::Glance::default());
         world.insert_resource(PipBoy { warming: Some(warming(true, true)), ..default() });
         world.run_system_once(camera_on).unwrap();
         assert!(world.get::<Camera>(camera).unwrap().is_active);

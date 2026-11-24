@@ -57,6 +57,12 @@ pub enum Side {
 pub enum KeySound<'a> {
     /// A SOUN by editor ID.
     Sound(&'a str),
+    /// A sound file by its path under `sound\` (kNVSE's `SoundPath:` key): Another
+    /// Millenia's first-person reloads key every sound so
+    /// (`SoundPath:fx\Ani\MatebaMod6\cyclinderopen_01.wav`, some `.mp3`) [observed: the
+    /// add-on's `_1stPerson` reload files; hypothesis: kNVSE plays the file named, under
+    /// `sound\`, as the B42 packs' keys are read, `b42::cues`].
+    File(&'a str),
     /// A footfall.
     Foot(Side),
     /// The armour's rustle: armour (`Armor…`) or cloth (`Foley…`) sounds, at a gait.
@@ -72,6 +78,13 @@ pub fn parse(key: &str) -> Option<KeySound<'_>> {
         // `Sound: DRSVaultGearOpenSteam01 SoundNodeSteam`: the name, then the node.
         let name = rest.split_whitespace().next()?;
         return Some(KeySound::Sound(name));
+    }
+    if head.trim().eq_ignore_ascii_case("soundpath") {
+        // Some keys repeat the head inside (`SoundPath:fx\Hit\SoundPath:fx\Hit\X.wav`):
+        // the file is after the last [observed: the B42 crafting pack, `b42::cues`].
+        let low = rest.to_ascii_lowercase();
+        let file = low.rfind("soundpath:").map_or(rest, |i| rest[i + "soundpath:".len()..].trim());
+        return (!file.is_empty()).then_some(KeySound::File(file));
     }
     if !head.trim().eq_ignore_ascii_case("enum") {
         return None;
@@ -471,6 +484,11 @@ mod tests {
         assert_eq!(parse("Blend: 9"), None);
         assert_eq!(parse("start"), None);
         assert_eq!(parse("Sound:"), None);
+        // kNVSE's file keys (Another Millenia's Mateba reloads).
+        assert_eq!(parse("SoundPath:fx\\Ani\\MatebaMod6\\cyclinderopen_01.wav"), Some(KeySound::File("fx\\Ani\\MatebaMod6\\cyclinderopen_01.wav")));
+        assert_eq!(parse("soundpath: fx\\Ani\\MatebaMod6\\chamber_spin_ratchet.mp3"), Some(KeySound::File("fx\\Ani\\MatebaMod6\\chamber_spin_ratchet.mp3")));
+        assert_eq!(parse("SoundPath:fx\\Hit\\SoundPath:fx\\Hit\\ShellsOut.wav"), Some(KeySound::File("fx\\Hit\\ShellsOut.wav")));
+        assert_eq!(parse("SoundPath:"), None);
     }
 
     #[test]

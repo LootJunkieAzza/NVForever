@@ -193,6 +193,11 @@ impl Hidden {
 }
 
 impl QuestMessages {
+    /// Whether this line waits or is on screen now.
+    pub fn holds(&self, n: &QuestNotice) -> bool {
+        self.showing.as_ref().is_some_and(|(s, _)| s == n) || self.waiting.contains(n)
+    }
+
     /// Add a line behind those waiting. Objectives join a list of their own quest's that
     /// waits last; a line
     /// that says what the last one says is left out, and so is any when too many wait.
@@ -399,7 +404,8 @@ fn spawn_area(commands: &mut Commands, n: &QuestNotice, kit: &mut Kit, data: Opt
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    time: Res<Time>,
+    // Real time, as the corner messages (owner, playtest 119, item 168).
+    time: Res<Time<Real>>,
     mut quests: ResMut<QuestMessages>,
     panel: Res<MessagePanel>,
     data: Option<Res<GameData>>,
@@ -412,16 +418,18 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    (state, script, driven, kill_cam, vats, real, tweaks, pipboy, terminal): (
+    (state, script, driven, kill_cam, hud, vats, real, tweaks, pipboy, terminal, mut rebuild): (
         Option<Res<State<crate::PlayState>>>,
         Option<Res<crate::script::ScriptState>>,
         Option<Res<crate::player::ViewDriven>>,
         Option<Res<crate::kill_cam::KillCam>>,
+        Option<Res<crate::hud::HudView>>,
         Option<Res<crate::vats_mode::VatsMode>>,
         Res<Time<Real>>,
         Option<Res<crate::tweaks::TweakSettings>>,
         Option<Res<crate::pipboy::PipBoy>>,
         Option<Res<crate::terminal::TerminalScreen>>,
+        crate::interface::HudRebuild,
     ),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
@@ -448,7 +456,11 @@ fn draw(
         pipboy.as_ref().is_some_and(|p| p.phase != crate::pipboy::Phase::Down),
         terminal.as_ref().is_some_and(|t| t.0.is_some()),
     );
-    let held = !over && crate::corner_messages::held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), kill_cam.is_some_and(|k| k.active()) || vats.is_some_and(|v| v.playing_back()));
+    // And under a match's end view (`HudView::end_view`), while the classic VATS style
+    // plays its queued attacks, and during a mini-game in the world
+    // (`crate::corner_messages::in_world_game`).
+    let cut = kill_cam.is_some_and(|k| k.active()) || hud.as_ref().is_some_and(|h| h.holds_notices()) || vats.is_some_and(|v| v.playing_back()) || crate::corner_messages::in_world_game(script.as_deref());
+    let held = !over && crate::corner_messages::held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut);
     for (_, mut v, mut z) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
         z.set_if_neq(GlobalZIndex(if over { OVER_MENUS_Z } else { AREA_Z }));
@@ -457,13 +469,21 @@ fn draw(
         return;
     }
     let dt = if over { real.delta_secs() } else { time.delta_secs() };
-    if quests.bypass_change_detection().step(dt) {
+    // The HUD's scale changed (split screen): the line on screen is drawn again at it,
+    // without its sound again.
+    let rebuilt = rebuild.stale();
+    let stepped = quests.bypass_change_detection().step(dt);
+    if stepped || rebuilt {
         for (e, _, _) in &roots {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
         if let Some(n) = quests.showing() {
             let bc = bc_supported(formats.as_deref());
             let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
+            if !stepped {
+                spawn_area(&mut commands, n, kit, data.as_deref(), &mut images, bc);
+                return;
+            }
             info!("quest message on screen: {} ({} waiting)", describe(n), quests.waiting());
             spawn_area(&mut commands, n, kit, data.as_deref(), &mut images, bc);
             // Script override (`SetUIUpdateSound`), else the player's tweak for a discovered

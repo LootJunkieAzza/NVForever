@@ -22,7 +22,10 @@
 //!   menu's keys (`super::item_mod`);
 //! - `travel=<marker FormID>`: what a click on that map marker of the World Map does (the
 //!   fast-travel question, docs/spec-notes/fast-travel.md); `key=use` takes the chosen
-//!   answer (Yes at first), `key=down` moves to No.
+//!   answer (Yes at first), `key=down` moves to No. `travel=mate`: the same for the
+//!   first other co-op player's head on a map (queue item 134).
+//! - `heads=open`: the Map Icon button of the World or Local Map (the head box opens or
+//!   closes); `heads=<n>`: a click on the box's head `n` (0-based, `crate::coop_heads`).
 //! - `note=<note FormID>`: on the DATA page's Notes tab, select that note and use it as a
 //!   click on its row would (a holotape plays or stops, `crate::holotape`).
 //! - `placemarker`: on the DATA page's maps, Place Marker (X, a click on its hint): the
@@ -56,6 +59,10 @@ enum Step {
     Click(AidTarget, bool),
     Drag(Vec2),
     Travel(u32),
+    /// `travel=mate`: the first other co-op player.
+    TravelMate,
+    /// The Map Icon button (`None`), or a click on a head of its box.
+    Heads(Option<usize>),
     Note(u32),
     PlaceMarker,
     Repair(super::repair::RepairInput),
@@ -96,6 +103,9 @@ fn step(s: &str) -> Option<Step> {
             ("point", "off") => Step::Point(None),
             ("point", p) => Step::Point(Some(page(p).map(AidTarget::Button).or_else(|| canvas(p).map(AidTarget::Canvas))?)),
             ("drag", p) => Step::Drag(canvas(p)?),
+            ("travel", "mate") => Step::TravelMate,
+            ("heads", "open") => Step::Heads(None),
+            ("heads", n) => Step::Heads(Some(n.trim().parse().ok()?)),
             ("travel", m) => Step::Travel(u32::from_str_radix(m.trim().trim_start_matches("0x"), 16).ok()?),
             ("note", m) => Step::Note(u32::from_str_radix(m.trim().trim_start_matches("0x"), 16).ok()?),
             ("click", p) => Step::Click(page(p).map(AidTarget::Button).or_else(|| canvas(p).map(AidTarget::Canvas))?, false),
@@ -177,6 +187,7 @@ fn run(
     (mut ask, mut repair, mut modding): (MessageWriter<FastTravelAsk>, MessageWriter<super::repair::RepairInput>, MessageWriter<super::item_mod::ModInput>),
     mut hold: ResMut<super::hotkey_panel::HotkeyHold>,
     mut use_pipboy: ResMut<super::UsePipBoy>,
+    (mates, mut data): (Option<Res<super::glance::CoopMates>>, Option<ResMut<super::data::DataState>>),
     mut change: ResMut<super::transition::PageChange>,
 ) {
     let Some(now) = time.world_secs() else { return };
@@ -221,6 +232,18 @@ fn run(
             Step::Travel(m) => {
                 ask.write(FastTravelAsk(m));
             }
+            Step::TravelMate => match mates.as_ref().and_then(|m| m.0.first()) {
+                Some(m) => {
+                    info!("test aid: pipboy travel to the co-op player {} ({:08X})", m.name, m.reference);
+                    ask.write(FastTravelAsk(m.reference));
+                }
+                None => warn!("test aid: pipboy travel=mate, but no other co-op player is known"),
+            },
+            Step::Heads(h) => {
+                if let Some(d) = data.as_mut() {
+                    d.aid_heads(h);
+                }
+            }
             Step::Note(n) => {
                 aid.note = Some(n);
             }
@@ -252,7 +275,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.6:rclick=260:150, 8.7:point=off, 8.8:point=1:2, 8.85:point=items, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.9965:placemarker, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up, 9.1:glitch=hold, 9.2:glitch=off, 9.3:glitch=wobble");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.6:rclick=260:150, 8.7:point=off, 8.8:point=1:2, 8.85:point=items, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.9965:placemarker, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up, 9.1:glitch=hold, 9.2:glitch=off, 9.3:glitch=wobble, 9:travel=mate, 9.4:heads=open, 9.5:heads=12");
         assert_eq!(
             s,
             vec![
@@ -277,8 +300,11 @@ mod tests {
                 (8.997, Step::Frame(true)),
                 (8.998, Step::Frame(false)),
                 (9.0, Step::Close),
+                (9.0, Step::TravelMate),
                 (9.1, Step::Glitch(Some(super::super::transition::Kind::VerticalHold))),
                 (9.2, Step::Glitch(None)),
+                (9.4, Step::Heads(None)),
+                (9.5, Step::Heads(Some(12))),
             ]
         );
     }

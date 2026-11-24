@@ -1335,6 +1335,37 @@ The numbers above stay put so links to them hold; each item here gives its own p
     NVForever. Check the size of the drops against the basin, how high the spray goes, and
     whether it comes out of the spout. If the original's spray is the file's full size, the
     rule in §7.7 is wrong and the cause of the misplaced spray lies elsewhere.
+    A second case, sharper (2026-11-15, mods-1114): Nova Arizona places
+    `effects\nv\fxtiresmoke.nif` (0x26003A5C) at **scale 0.2** on a chimney in
+    AZMalpaisMarket, (91398, -23471, 4975) in WastelandNV. The file's particles have
+    radius 394 and rise at 118 units/s for 20 s from a 197-unit box [observed: `fnvtool
+    nif decode`]. With §7.7 (the reference's scale on speed and box, not on size) the
+    smoke is a black ball about 800 units across sitting on the chimney (laptop frame
+    s1-nova-arizona, 2026-11-14); with the scale on size too it is a column about 80
+    wide and 470 high. A frame of the original there, with the mod, settles which; the
+    mod's author presumably placed it to look like the second [hypothesis].
+
+## Added 2026-11-15 (a cave exit's rocks drawn as chrome, mods-1114 bug 3)
+
+123. **Do the rocks around a lit cave exit glint in the original?** (P2; nif.md §6 "Cave exit
+    rocks drawn as chrome", specular-model-review.md.) In NVForever, the walls around the
+    exit of Pulse Dungeons' Goodsprings Water Source Cave draw as black-and-white chrome:
+    fine glints all over the rim, lit from behind by the exit's bright light. The walls are
+    CaveRockWall01-04, with the Specular flag, gloss 20-100 and normal-map masks of 20-45 of
+    255 in both vanilla and the texture replacer [observed: desktop runs e1/e2 and A/B,
+    2026-11-15]. Take a frame of the original from the same place:
+    - The load order is the owner's mods-1114 list with "Pulse Dungeons - More Dungeons.esm",
+      and its texture replacer's loose CaveRockWall*_n.dds in place.
+    - `coc 0PDGoodspringsWaterCave` puts the player at the cell's own marker (0x22002735 in
+      that order; about (-147, -33, 17), facing west, 270 degrees). From there the exit is
+      straight ahead. Wait 5 s, then take a frame without moving. A second frame, after
+      stepping about 200 units toward the exit, shows the rim larger.
+    - If possible, the same two frames with an ENB or ReShade off.
+
+    **What it settles**: if the original's rim is matte, or has only a few small highlights,
+    the original weights or caps a light's highlight in a way neither of our lobes does (the
+    N.L weighting, or the light's reach, specular-model-review.md "What follows"). If the
+    original glints the same way, the bug is not ours.
 
 ## Added 2026-11-05 (leveled rolls and locks, issue #1567)
 
@@ -1564,6 +1595,116 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-06 (LeveledListAddForm called every quest tick, Qwib's Accessory Pack)
+
+105. **Does LeveledListAddForm add the same entry twice?** (P2; crates/fnv-game/src/nvse_leveled.rs.)
+    NVForever skips an add whose form, level, count and health equal an entry already in the
+    list [hypothesis]: Qwib's Accessory Pack adds 15 entries from a start-game-enabled quest's
+    GameMode block with no StopQuest, and that makes sense only if a repeat changes nothing.
+    Probe: `LeveledListAddForm` the caps into a list at level 1, count 1, health 1.0, three
+    times, then `GetNumLevItems`; then once with count 2.
+
+## Added 2026-11-08 (DX10/BC7 textures from mods)
+
+106. **Does the original draw a DX10-header BC7 texture?** (P2; docs/spec-notes/dds.md §6.)
+    NVForever now reads them [design]. The owner's load order has three loose files:
+    - `textures\LVC\DesertInn1.dds` and `WestwardHo1.dds` (a Las Vegas signs mod);
+    - `textures\HotM\parkbrick_lod.dds`.
+
+    Capture the Desert Inn sign by Freeside's wall (FreesideWorld, reference 0x0F0025AD near
+    -9325, -8242, 1790) at night and at noon, with the same mods enabled. The checks:
+    - does its blue face with the cactus show;
+    - is it drawn white, as untextured;
+    - or is it not drawn at all?
+
+## Added 2026-11-08 (companion perks on the Pip-Boy, queue item 67)
+
+107. **Does the Pip-Boy's Perks tab list perks no level-up offers?** (P2;
+    engine/nvf-play/src/pipboy/stats/read.rs.) Companion perks (Spotting, Better Healing,
+    Whiskey Rose, Scribe Assistant) have DATA playable 0, hidden 0 [observed, FalloutNV.esm].
+    NVForever now lists every perk the player has that is not flagged hidden [hypothesis].
+    Probe: hire Boone, open STATS > Perks, look for Spotting; then `player.addperk` a perk
+    flagged hidden and look again.
+
+## Added 2026-11-09 (the DLC intro slideshows, cutscene sweep)
+
+108. **Does Dead Money's intro show slide 02?** (P3; engine/nvforever/src/texture_swap.rs,
+    crates/fnv-game/src/game.rs SayTo.) The narrator's chain (SCPT 0x01010A0F) says topic
+    NVDLC01IntroSlide02 (0x01010C44) between slides 01 and 03. Its only line, INFO
+    0x01013C60 ("We all have, the legend, the curses."), has the fixed speaker NVDLC01Elijah
+    (0x01001300), while the chain's speaker is NVDLC01NarratorRef, and the other slide lines
+    use a GetIsID condition instead [observed, DeadMoney.esm]. NVForever finds no line for the
+    narrator, so the SayTo ends at once and slide 02 (its begin script's SwapTexture) never
+    shows [observed, cutscene sweep]. Slides 05 and 06 are in no chain at all [observed].
+    The first slide's swap names `nvdlc01_intromovie0`; the archive has only
+    `nvdlc01_intromovie00.dds` [observed]. Probe: start Dead Money, watch for the line and for
+    a slide between slide 01's line (INFO 0x01010AED) and "Foolishness about it lying…"
+    (INFO 0x01013C62).
+
+## Added 2026-11-09 (campfire light, tumbleweed alpha: queue items 103, 107)
+
+109. **How does the original draw the tumbleweed's twigs?** (P2; docs/spec-notes/nif.md §6
+    "Blended shapes that test".) `clutter\tumbleweednv.nif` blends and tests alpha
+    (0x12ED, GREATER 50) and writes depth [observed]. NVForever now draws it, and 37 other
+    lit shapes whose texture is a cut-out mask, as a solid cut-out at the threshold
+    [design]. Capture a TumbleweedNV (WastelandNV 0x00178A89, near -56442, -29649, 5676)
+    from 2 m, against the sky, at 8x MSAA with transparency multisampling on and off.
+    The checks:
+    - are the twigs solid, or can the sky be seen through them;
+    - do far twigs show through near ones;
+    - do the twigs thin out or disappear at 20 m?
+
+110. **Does a light a script places with `PlaceAtMe` light its surroundings?** (P2;
+    docs/spec-notes/world.md §8 "Lights a script creates".) Burning Campfire Redone's fires
+    each place `SAGCampFire420` (radius 420, Flicker) [observed]; NVForever now lights it
+    as a placed light [hypothesis]. Light a campfire with the mod at night (WastelandNV
+    0x000CDB59, near -61498, -17926, 6364) and capture it from 4 m and from 10 m. The
+    checks:
+    - is the ground lit warm around the fire;
+    - do the five stacked lights look brighter than one placed fire light (a fire barrel)?
+
+## Added 2026-11-10 (stair lights on the Strip at night, queue item 146)
+
+111. **How bright are the Ultra-Luxe's and the Lucky 38's stair lights at night?** (P2;
+    docs/spec-notes/nif.md §6 "Blended glows held to white".) Both are unlit shapes that
+    blend over the steps [observed]; NVForever now holds their colour to white, so their
+    alpha shapes them [hypothesis]. On the Strip at 23:00 capture the Ultra-Luxe entrance
+    stairs from the street (TheStripWorldNew 1400, -1200, 1020, facing south-east) and
+    the Lucky 38's stairs (100, 6000, 1050, facing east). The checks:
+    - Ultra-Luxe: is each step a thin light strip with a darker tread between, or is the
+      whole tread white;
+    - Lucky 38: are the stair lights thin lines or thick bars, and do the three sets
+      light in turn (a chase) or all at once;
+    - Lucky 38: is the white tube around the base (`lucky38lights.nif` `Object49`,
+      white × 5, not blended) a hard white line or a soft one?
+## Added 2026-11-09 (kNVSE `_order_N` files, Another Millenia's dual pistols, queue item 150)
+
+112. **How does kNVSE take turns through `_order_N` files?** (P3;
+    docs/spec-notes/knvse-anim-folders.md §3, engine/nvforever/src/player_body.rs
+    `Rig::set_turn`.) NVForever plays the next file of a set at each attack, one turn
+    count for every set of the player [hypothesis]. Probe, with kNVSE and Another
+    Millenia's Gun Add-on: equip the Dual 9mm Police Pistols (mil_Add-On.esp 0x2A0B) and
+    - fire three shots from the hip, then two down the sights, then one from the hip:
+      which gun fires each shot (does the sights set go on from the hip set's turn, or
+      start again at order 1)?
+    - fire one shot, holster, draw, fire again: does the second shot come from the
+      other gun?
+    - empty the magazine: do the last two shots play the slide-locked clips of the right
+      gun, then the left?
+
+## Added 2026-11-11 (PlayGroup on a disabled reference, a missing group: queue items 191, 192)
+
+113. **Does IsAnimPlaying read 1 after a PlayGroup on a disabled reference, and does a
+    missing group show anything?** (P3; docs/spec-notes/activators.md §5,
+    engine/nvforever/src/object_anims.rs.) NVForever counts a group asked of an object
+    that is not drawn as playing until it is drawn [hypothesis], and a group its model
+    lacks as not playing, said once in the log. Probe in the console, at Hoover Dam before
+    VMQ03aTimerSCRIPT has run: `prid 12FCCD`, `disable`, `playgroup Right 0`, then
+    `IsAnimPlaying Right` at once and again after 10 s: 1 or 0, and does it fall to 0 by
+    itself? `enable`: is the vertibird posed at the end of Right or does Right start
+    then? On NVDLC04SiloBlastDoorControlsREF (Lonesome Road silo), `playgroup Right 1`:
+    does the panel change at all, and what does `IsAnimPlaying Right` read?
 
 ## Added 2026-11-11 (Mr. House's screen, issue #2150)
 
@@ -1901,6 +2042,287 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
      and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
 
+## Added 2026-11-13 (a seated NPC's weapon, owner bug "weapon isnt away")
+
+119. **Does an NPC put its weapon away to sit, and what does IsWeaponOut read then?**
+     (P2; furniture.md §7.) NVForever holsters a weapon out of a fight while an NPC gets
+     on, sits on or gets off furniture, even under a package's Weapon Drawn flag, and
+     answers IsWeaponOut 0 for it [hypothesis]. To check: an NPC whose package has
+     Weapon Drawn and that sits (a Mercenary or NCR trooper on a sandbox with chairs).
+     Sample IsWeaponOut, GetSitting and GetAnimAction every 0.25 s from the walk to the
+     seat until it stands, with a screenshot of the hand at GetSitting 3.
+
+## Added 2026-11-13 (a SoundPath key naming a file that is not shipped)
+
+120. **Does a clip's `SoundPath:` key that names a missing `.mp3` play the `.wav` of the same
+     name?** (P3; audio.md §10.2.) Another Millenia's Mateba Model 6 reload keys
+     `SoundPath:fx\Ani\MatebaMod6\charge_quick_drop.mp3`, and the add-on ships only
+     `charge_quick_drop.wav`; its inspect clip keys `wfoly_pi_cpapa_inspect_02.wav`, which
+     is not shipped at all (the folder has `inspect_02.wav`) [observed: nvforever run
+     anaconda-1112, "not in the archives"]. NVForever plays nothing for either; neither
+     kNVSE's readme nor the GECK wiki says what happens [hypothesis: silent]. To check, in
+     the original with kNVSE and the add-on: equip the Mateba (1C01D6AF) in first person,
+     reload it from empty, and record the sound at the reload's end (the drop); then rename
+     `charge_quick_drop.wav` away and record again. A drop sound heard the first time and
+     not the second means the `.wav` stands in for the `.mp3`.
+
+## Added 2026-11-14 (HUD under the Pip-Boy, parity item 203b)
+
+121. **Does the original hide its HUD (Health, AP, the compass, quest and corner messages)
+     while the Pip-Boy is open?** (P3; hud.md §5.) NVForever hides the HUD's meters and
+     compass, and holds the corner and quest messages, from the moment the full Pip-Boy
+     starts to come up until it is fully down. This also covers co-op, where the Pip-Boy
+     opens live and the game stays in play (`nvf_play::hud::pipboy_hides_hud`)
+     [hypothesis: as a paused menu does in the original]. To check, in the original: show
+     a quest objective (SetObjectiveDisplayed on an active quest), open the Pip-Boy while
+     it is still on screen, and take screenshots at 0.1, 0.5 and 2 s after Tab and 0.2 s
+     after closing. Note whether the HP and AP bars, the compass or the message draw at
+     any of those times, and whether the message comes back after the Pip-Boy closes.
+
+## Added 2026-11-14 (a script package's begin idle and its idle collection, Dead Money's wake-up)
+
+122. **Does a script package whose idle collection lists its begin idle play that idle
+     again after it ends?** (P2; idles.md §1 "Collections", packages.md.) Every package a
+     script gives the player in the five masters with an idle collection lists the begin
+     idle in it, Run In Sequence (all but two), timer 0 [observed: FalloutNV.esm,
+     DeadMoney.esm, OldWorldBlues.esm, CG00PlayerSection1, VCG00PlayerSection0-2,
+     VCG01PlayerSection0-2, NVDLC01PlayerWakesUp, NVDLC01PlayerKnockedOut,
+     NVDLC03PlayerKnockoutPackage]. Dead Money's NVDLC01PlayerWakesUp (begin and collection
+     NVDLC01CameraVillaWakeUp, a 4.13 s clip that doesn't loop) stays on the player 5 s
+     (NVDLC01FountainStartSequenceSCRIPT's timer, then RemoveScriptPackage). NVForever
+     plays the collection's first idle as soon as the begin idle ends
+     [hypothesis: idles.md "The first idle is not waited for"], so the player wakes up a
+     second time at 4.1 s (laptop solo run dm1, 2026-11-14: `idle: the player plays
+     NVDLC01CameraVillaWakeUp ... (PackageBegin)`, then `(PackageIdles)` 4.13 s later).
+     The looping begin idles of the others hide it, except where a short begin idle
+     ends while the package is still on (VCG00PlayerSection0, VCG01PlayerSection2,
+     whose collection is Situp after Standup). To check, in the original: start Dead
+     Money (the bunker, or `coc NVDLC01fountain` on a save with it installed) and record
+     the first 8 s; count the wake-ups. Then, for the rule: give the player
+     VCG01PlayerSection2 by console (`player.AddScriptPackage VCG01PlayerSection2`) and
+     watch 20 s: does the player sit up after standing up? If neither repeats, the
+     collection doesn't start after a begin idle (or waits a timer that 0 doesn't mean
+     "none"); the fix is in `IdlePicker::next` and the collection loop in
+     `engine/nvforever/src/idles.rs`.
+     **Answered 2026-11-15** (report `overnight-results/observer-checks/report.md`)
+     [observed: GOG 1.4.0.525, all DLC]: Dead Money by `coc NVDLC01fountain`: one wake-up;
+     the lying view holds through all of Elijah's greeting and the player stands within a
+     second of it closing, no repeat in 12 s. `player.addscriptpackage 1055c4`
+     (VCG01PlayerSection2; its editor ID does not resolve in the vanilla console): lie,
+     stand, lie about every 5-6 s for 30 s and more, so the collection does replay after
+     the begin idle. Neither rule tried fits both yet: counting the begin idle as the
+     collection's first pick gives one wake-up but ends upright before the greeting, and
+     replaying the collection with the player's idle held through the conversation rose
+     and dropped a second time (desktop run dm209b, frames dm_012.0 to dm_013.5). Check 135
+     settled it (the lying view in the greeting was a single-shot misreading): the first
+     rule is back (`IdlePicker::after_begin`).
+124. **Does the third-person camera pull in for geometry beside it, or only for geometry
+     between it and the player?** The original's camera has a collision box
+     [documented: GECK wiki, ToggleCameraCollision, "the collision box of the player's
+     camera"]; its size is in no page or setting we have. NVForever casts a ray from the
+     player's pivot to the shoulder spot and stops 8 units short of what it hits
+     (`place_camera`, `engine/nvf-play/src/control.rs`), so a trunk or post beside the
+     camera but off that line is not pulled in for [observed: co-op duel run, 2026-11-15,
+     Goodsprings in front of the General Store: a Joshua tree trunk fills the left third
+     of the guest's third-person view 1.5 s after the duel's signal; the player stays in
+     full view]. To check, in the original: third person, stand with a Joshua tree or a
+     porch post a step to the camera's left, then turn slowly until the camera passes the
+     trunk; record whether the camera moves in toward the player before the trunk is on
+     the line to the player, and from how far away (in units, `player.GetPos` and the
+     trunk's position). If it moves in early, the camera needs a volume cast of that size
+     instead of the ray (`fnv_phys` `World::sweep`).
+
+## Added 2026-11-15 (a note lying in a container, Just Assorted Mods' loot menu and VMS18)
+
+125. **Does `GetItemCount` read 1 for a note lying in a container (not the player)?**
+     NVForever now counts it there and reads 0 only on the player, whose notes leave the
+     inventory (docs/spec-notes/script-item-moves.md §2) [hypothesis]. Without that, JAM's
+     loot menu listed the Matchbook in a crate and never took it (desktop probe jlm8,
+     2026-11-15). To check, in the original: `coc GoodspringsGeneralStore` (or any cell with
+     a container), select a container in the console, `additem 00112015 1` (the Matchbook),
+     then `getitemcount 00112015` on that container. 1 confirms; 0 flips the rule in
+     `fnv_game::functions::items::get_item_count`. Then open the container, take the
+     Matchbook and run `player.getitemcount 00112015` and `player.gethasnote 00112015`
+     (expected 0 and 1).
+     **Answered 2026-11-15** (report `overnight-results/observer-checks/report.md`)
+     [observed: GOG 1.4.0.525, no NVSE, filing cabinet 00105806 in GSGeneralStore]: the
+     cabinet read 1.00 and its menu listed the Matchbook; taken there, the game showed its
+     "note added" message, and then `player.getitemcount` and the cabinet both read 0.00.
+     GetHasNote echoes nothing in the vanilla console. The rule is confirmed.
+
+## Added 2026-11-14 (load indexes, General Oliver's cap, the Tops lounge chairs)
+
+126. **Does the original load a master-flagged `.esp` with the masters, and an unflagged
+     one listed among them after all of them?** (P2; fnv-install `plugins.rs` module
+     docs.) NVForever now loads every plugin whose TES4 header has the master flag before
+     every plugin without it, each group in the list's order [documented: LOOT,
+     "Introduction To Load Orders"]. In the owner's profile the three `.esp` files listed
+     among the masters (`classic188.esp`, `mil.esp`, `mil_Add-On.esp`) carry the flag, so
+     nothing moves: `QwibAccessoryPack.esm` is 0x1D, `Long15Reloaded.esm` 0x1E [observed:
+     the headers]. To check: in the original with that profile, click a Qwib item in the
+     console and read its FormID's first two digits (expected 1D); then make a copy of one
+     small `.esp` with the flag cleared, list it among the masters, and read the index of
+     the master after it (expected one lower than with the flag set).
+127. **Where does General Oliver's cap sit, and the white figures on the Tops' lounge
+     chairs?** (P3; actors.md §1.2, nif.md §helper geometry.) NVForever places his cap
+     (`genolivercap.nif`, modelled in the head bone's axes) as a plain child of the bone,
+     on his head, and draws nothing of `loungechair_tops.nif`'s property-less marker
+     shapes [hypothesis]. To check: screenshots of Oliver (Hoover Dam visitor center)
+     from the front and side, and of a Tops pool lounge chair (FURN 0x00119821) close up.
+## Added 2026-11-14 (the Pip-Boy's long EFFECTS line)
+
+128. **How does the original scroll a Pip-Boy card value too long for its card?** (P3;
+     pipboy.md cards.) `card_info.xml` holds the value between the title's width + 15 and
+     the card's width − 10, but it has no scroll of its own. The owner reports that the
+     original clips a long EFFECTS line and scrolls it sideways. NVForever holds it 1.5 s
+     at its start, moves it at 45 units a second until its end shows, holds it 1.5 s, then
+     jumps back to the start [hypothesis]. To check: with an Atomic Cocktail in Items >
+     Aid, record the EFFECTS card for 15 s. Note the hold at each end, the speed, whether
+     it jumps back or scrolls back, and whether it starts over when another item is
+     selected.
+
+## Added 2026-11-14 (screen blood under the Pip-Boy)
+
+129. **Does the original show its screen blood (the splats and their red flares) over the
+     open Pip-Boy?** (P3; screen-splatter.md §4.) NVForever hides the splats while the
+     full Pip-Boy is up, as it hides the HUD, and they keep ageing under it
+     (`nvf_play::screen_splatter`) [hypothesis]. Without this, the flares showed as red
+     glow dots on the Pip-Boy in the hands (queue item 212). To check, in the original:
+     get hurt by a shot until blood is on the screen, open the Pip-Boy within 2 s, and
+     take screenshots at 0.5 and 3 s after Tab and 0.2 s after closing. Note whether any
+     blood or red dot draws over the Pip-Boy, and whether the blood is still there, or has
+     faded further, after closing.
+## Added 2026-11-14 (co-op items 205 and 214: the Quests list, RemoveAllItems' lines)
+
+130. **Where does the original's Quests list open when the active quest is not the first
+     row?** (P3; pipboy.md "Open: the quest list's order and the active quest's default".)
+     NVForever selects the active quest and scrolls only as far as needed to show it, so
+     a short list opens unscrolled with the active quest highlighted lower down
+     (`nvf_play::pipboy::data`, item 205) [design]. To check, in the original: have more
+     quests than the list shows at once, with the active quest near the bottom (finish or
+     start quests until it is, or SetActiveQuest one far down the list). Close and open the
+     Pip-Boy on DATA > Quests and take a screenshot. Note which row is selected, which row
+     is at the top, and whether the list keeps its scroll from the last time it was open.
+
+131. **What does the original show for `player.RemoveAllItems <container>` without its
+     hide flag: a line per item, one line in all, or nothing?** (P3; corner-messages.md §5.)
+     The GECK wiki documents a third flag that suppresses the item messages, so some message
+     shows without it [documented: schemas/script/functions.json, RemoveAllItems notes].
+     Dead Money's bunker script calls it with no flag (SCPT 0x0100C59E) [observed: fnvtool
+     decompile]. NVForever shows a line per item for three items or fewer, and
+     "<n> items removed (<total> in all)" for four or more, as it does for items a script
+     adds [design]. To check, in the original: carry about ten stacks, enter the console
+     and run `player.removeallitems <a container's reference>`, close the console, then
+     take screenshots every 0.5 s for 20 s. Note each line's text, how long each shows
+     and whether the HUD shows them while a slideshow or a fade to black holds the screen
+     (the Sierra Madre bunker's own call, from a save just before it).
+## Added 2026-11-15 (the Strip's street lights coming on, the owner's "lighting flickers")
+
+132. **How do the Strip's street lights come on at 20:00 in the original?** (P2; the owner's
+     "lighting flickers" on the Strip, strip-rendering item 5.) The quest VStreetLighting (0x00127E9D, DATA delay 2.0 s, flags Start Game Enabled and
+     Default Script Processing Delay) runs VStreetLightingScript (0x00127E9E) [observed:
+     fnvtool esm decode]. On the Strip (TheStripWorldNew) after 20:00 it switches three
+     enable-parent markers (VStreetLightStarterOne/Two/ThreeREF, 0x0013BAE3/2/1, XMarkers
+     at about 2996-2999, 1704-1932, 2248-2250) in turn. For each one it sets the quest
+     delay to 0.1 s and enables it at 0.3 s, disables at 0.5, enables at 0.7, disables at
+     0.9, enables at 1.4, disables at 2.1 and enables for good at 3.1 s. At 4.7 s the next
+     marker waits a quest delay of 25 s; after the third, 15 s. Off the Strip the three are
+     enabled at once; from 6:00 to 20:00 all three are disabled. NVForever follows this
+     to within one 0.1 s step (strip-flicker run, 2026-11-15, Lucky 38 front, from 19:54):
+       - marker one changes at 0, 0.21, 0.42, 0.63, 1.15, 1.87 and 2.80 s, against the
+         script's 0, 0.2, 0.4, 0.6, 1.1, 1.8 and 2.8 s;
+       - marker two starts 26.96 s after marker one's last change (script about 27.0 s),
+         and marker three 26.96 s after marker two's;
+       - our `Enable` fades each marker in over 2 s (`(fading in)` in the log), so each
+         short "on" step is a partial fade.
+     To check, in the original, with no mods: on the Strip in front of the Lucky 38 at
+     19:55 (`set GameHour to 19.9` and stand still), record video
+     from 19:58 until 20:02 game time (about 90 s real time at timescale 30).
+     1. Do the lamps blink on and off in three groups about 27 s apart, each for about
+        3 s, as in the script? Or do they come on at once, or flicker without end?
+     2. Does each short "on" step come up to full brightness at once, or fade in?
+     3. Note the frame times of each on/off change for one group.
+     Video goes in `observer-runs\125\`. If the original blinks hard (no fade), the
+     difference is our default fade on `Enable` with no argument, not the timing.
+
+## Added 2026-11-14 (Dead Money's slideshow screen at 16:9, parity item 214 follow-up)
+
+133. **Does Dead Money's slideshow screen fill a 16:9 view from NVDLC01SlideshowMarker?**
+     In NVForever at 16:9 (960 x 540, the FOV setting 75: 91.3 degrees horizontal,
+     camera.md section 3) the slides' screen (NVDLC01SlideIntroRef 0x010138B2 at (2804,
+     370, 10233), the same spot as NVDLC01SlideEndRef) covers the middle 92% of the width:
+     columns 0-45 and 930-959 are black on every slide, with a hard edge (the mesh's), and
+     the slide fills the height [observed: item 214 runs, 2026-11-14, dm214 frames]. The
+     player stands on NVDLC01SlideshowMarker (2802, 257, 10112), facing the screen 113 units
+     away, its eye about 121 above the feet [observed: DeadMoney.esm; player.rs EYE_HEIGHT
+     note]. A narrower view or an eye closer to the screen would fill the width; which one
+     the original has is not known. To check, in the original at 1280 x 720 and the default
+     FOV: start Dead Money's intro (or the end slides) and capture one slide. Are there
+     black bars at the left and right, and how wide (in pixels)? Does the slide reach the
+     top and bottom edges? With no bars, measure the slide's width against the frame's:
+     that gives the eye's distance or the view's angle in the slideshow.
+
+134. **How does the original word an item line with a count, and does it merge a script's
+     single adds of one item?** (P3; corner-messages.md §5.) No game setting in
+     FalloutNV.esm holds the wording of the item-added line [observed: no GMST whose
+     Editor ID names adding or removing items, fnvtool esm inventory]. NVForever writes
+     "<name> (<n>) added" for its own lines and, for a co-op guest, "<host> handed out
+     <name> (<n>)": one line per item for the hand-outs taken until none has come for half a second, the counts
+     added up, so Doc Mitchell's 25 single 9mm adds are one "9mm Round (25)" line
+     (`nvf_play::coop_progress::gift_lines`) [design]. To check, in the original: on a
+     new game, let Doc Mitchell hand over his gear at the exit (VCG01: 6 bobby pins, 4
+     stimpaks, a 9mm pistol and its rounds) and take screenshots every 0.5 s for 15 s.
+     Note each line's exact form (name and count order, the word used), whether the
+     rounds show as one line or many, and how long each line stays.
+
+## Added 2026-11-15 (Freeside thugs on a Find package with Allow Killing)
+
+136. **Does a person on a Find package with Allow Killing attack its own kin when the kin
+     carries what the package looks for?** (P3; owner-decision-captures.md §6.) The
+     original's gecko on VCrGeckoFindFood left the other gecko alone [observed: campaign
+     `gecko_find`]; no person was observed. NVForever now lets a person on such a package
+     attack only a stranger (not kin, ally or friend) carrying what it looks for, and a Find
+     for actors themselves (as this one) only a stranger [hypothesis].
+     To check, in the original: place three VFSFreesideThugRandom (0x00118A8E) 300 units
+     apart in an empty exterior with no one else near, the player 3,000 units away and
+     hidden (tcl, tdetect). VFSFreesideThugPackage (Find, object type 28, Allow Killing)
+     is their only package. Watch for 3 game hours (capture every 10 s): does any thug
+     start a fight with another? Then place a Freeside local drunk (FIntFreesideLocalDrunk
+     base) among them: is the drunk attacked?
+## Added 2026-11-15 (Dead Money's wake-up view, frame by frame; item 209)
+
+135. **Does the view rise between the drop and Father Elijah's greeting, and where does it
+     aim during the greeting?** (P2; idles.md "Collections", check 122.) Check 122 saw the
+     view drop to lying about 2 s after arriving and still lying in the greeting, but in
+     single shots. NVDLC01CameraVillaWakeUp's clip (4.13 s) animates only `Camera1st`: it
+     holds the lying view (about 71 units back, 63 down, pitched up about 40 degrees) for
+     about 1 s, then rises steadily to no offset at 4.13 s, upright [observed: the KF's
+     B-spline, evaluated from `DeadMoney - Main.bsa`]. NVDLC01FountainStartSequenceSCRIPT
+     (quest delay 0.5 s) removes the package and starts the greeting when its 5 s timer
+     runs out. NVForever plays the clip and replays it at about 6 s; with the player's
+     idle held through the greeting it rises and drops again before the greeting (desktop
+     run dm209b, frames dm_011.5 to dm_013.5), and with the collection not replayed it is
+     upright in the greeting. To check, in the original, a new game with Dead Money:
+     `coc NVDLC01fountain`, then frames every 0.25 to 0.5 s without a gap from the end of
+     the loading screen until the greeting's first line, two frames in the greeting, and
+     frames every 0.25 s for the 2 s after the dialogue closes. Read from them: (1) whether
+     the view rises (the fountain basin or the ground comes into view) at any point
+     between the drop and the greeting, and when; (2) what the view aims at during the
+     greeting (the sky, the hologram in the middle as in 122-3, or the ground); (3) how
+     soon after the dialogue closes the view is upright, and whether it rises smoothly or
+     jumps. The answer decides how `engine/nvforever/src/idles.rs` plays a package idle
+     that drives `Camera1st` (item 209).
+     **Answered 2026-11-15** (report `overnight-results/observer-checks/report.md`, there
+     numbered 164; frames 0.26 s apart without a gap) [observed: GOG 1.4.0.525, vanilla]:
+     from the first world frame, upright at +0.00, dropped to almost all sky +0.26 to
+     +0.78, the horizon creeping up +1.0 to +1.6, rising +1.83, upright at +2.09 and
+     upright until the greeting's first line at +4.18, no second drop. (1) The view rises
+     before the greeting. (2) In the greeting it pans up over about 0.8 s onto the
+     hologram's head, centred just below the middle: the upright dialogue camera turning
+     to the speaker. (3) After the dialogue closes nothing moves, so it was upright
+     already. This corrects check 122's reading of a lying view in the greeting. The
+     begin idle counting as its sequence's first pick (`IdlePicker::after_begin`) gives
+     this: one wake-up, upright before the greeting.
 ## Added 2026-11-12 (the versions the built-in extender plugins report)
 
 119. **What do GetPluginVersion and IsDLLLoaded answer for the plugins NVForever builds

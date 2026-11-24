@@ -52,7 +52,7 @@ use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
 use crate::phys::PhysState;
 use crate::player::Player;
-use crate::sfx::{PlaySound, Sfx, SoundSource};
+use crate::sfx::{PlaySound, SecondListener, Sfx, SoundSource};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayWorld, RefChanged};
 use bevy::prelude::*;
@@ -319,6 +319,8 @@ pub struct WorldSoundStats {
     pub water_sources: HashSet<u32>,
     pub script_2d: u32,
     pub script_3d: u32,
+    /// Of those, Loop sounds at a reference, heard there while it stands.
+    pub script_loops: u32,
     /// Script sounds held while a menu was open.
     pub script_held: u32,
 }
@@ -351,6 +353,10 @@ pub struct WorldSounds {
     dropped: HashSet<u32>,
     container: Option<u32>,
     held: Vec<SoundRequest>,
+    /// Looping sounds scripts play at a reference (`PlaySound3D` of a Loop SOUN): (the
+    /// request's id, the SOUN, the reference). Each sounds at its reference, as a placed
+    /// sound does, while the reference is enabled and not deleted; StopSound ends it too.
+    script_loops: Vec<(u32, FormId, FormId)>,
     /// Placed objects with a sound of their own, by the space they are in: (reference,
     /// sound, kind, the place of one that never moves); found the first frame.
     sources: Option<HashMap<crate::music::Space, Vec<ObjectSource>>>,
@@ -877,6 +883,17 @@ fn objects(
         for (id, seconds) in script_sounds.heard.drain(..) {
             rt.game.gaps.sounds.heard(id, seconds);
         }
+        // StopSound also ends the loops sounding at their references (as `sfx`'s
+        // `stopped_before`: the SOUN's requests up to the last one before the stop).
+        for &(s, last) in &rt.game.gaps.sounds.stops {
+            ws.script_loops.retain(|&(id, sound, at)| {
+                let stopped = sound == s && last.wrapping_sub(id) < 1 << 31;
+                if stopped {
+                    info!("world sounds: StopSound ends {sound} looping at {at}");
+                }
+                !stopped
+            });
+        }
         script_sounds.stops.append(&mut rt.game.gaps.sounds.stops);
         // Sounds made for files and the fades (`fnv_game::nvse_jg9`), before the plays.
         let jg9 = &mut rt.game.other.jg9;
@@ -905,6 +922,19 @@ fn objects(
         } else {
             ws.stats.script_2d += 1;
         }
+        // A Loop SOUN at a reference other than the player sounds there for as long as
+        // the reference stands (enabled, not deleted), heard as placed sounds are
+        // [hypothesis: the original ties it to the reference; Burning Campfire Redone's
+        // fires play `FXFireBarrelLP` from their OnLoad and leave stopping it to their
+        // Disable and MarkForDelete].
+        let looping = sfx.and_then(|s| s.forms.sounds.get(&r.sound)).is_some_and(|s| s.has("Loop"));
+        if let Some(on) = r.at.filter(|&a| looping && a != FormId::PLAYER_REF) {
+            info!("world sounds: a script plays {} looping at {on}: heard there while it stands", r.sound);
+            ws.stats.script_loops += 1;
+            script_sounds.heard.push((r.id, None));
+            ws.script_loops.push((r.id, r.sound, on));
+            continue;
+        }
         info!("world sounds: a script plays {}{}", r.sound, r.at.map_or(String::new(), |a| format!(" at {a}")));
         script_sounds.plays.push((r.id, r.sound, at));
     }
@@ -915,12 +945,14 @@ fn objects(
 }
 
 /// Placed objects' own sounds near the listener, sent to the ambient every frame (see
-/// the module notes).
+/// the module notes); in split screen, near player 2 too (`SecondListener`).
+#[allow(clippy::too_many_arguments)]
 fn object_sources(
     mut ws: ResMut<WorldSounds>,
     sim: Res<SimState>,
     loc: Res<crate::Location>,
     player: Option<Res<Player>>,
+    second: Option<Res<SecondListener>>,
     sfx: Option<Res<Sfx>>,
     #[cfg(debug_assertions)] mut frames: Local<u32>,
     mut out: MessageWriter<SoundSource>,
@@ -939,6 +971,21 @@ fn object_sources(
         ws.sources = Some(by);
     }
     let eye = player.eye();
+    // Scripts' loops at references (`objects`): until the reference is gone.
+    ws.script_loops.retain(|&(id, sound, at)| {
+        let stands = match sim.world.peek(at) {
+            Some(s) => s.enabled() && !s.deleted(),
+            None => sim.world.is_enabled(at).unwrap_or(false),
+        };
+        if !stands {
+            info!("world sounds: {sound} looping at {at} stops: its reference is disabled or deleted");
+            return false;
+        }
+        if let Some(pos) = ref_pos(&sim, at.0) {
+            out.write(SoundSource { key: SoundSource::key(SCRIPT_LOOP_KIND, id), sound, at: pos, looping: true });
+        }
+        true
+    });
     let space = crate::music::Space::of(&loc);
     let Some(list) = ws.sources.as_ref().and_then(|s| s.get(&space)) else { return };
     let sounds = sfx.forms.sounds.len();
@@ -957,6 +1004,14 @@ fn object_sources(
             let bits = |v: &[(u32, [f32; 3])]| v.iter().map(|&(i, at)| (i, at.map(f32::to_bits))).collect::<Vec<_>>();
             debug_assert_eq!(bits(&ws.heard), bits(&scan_all(list, &sim, eye, |s| reach_of(&sfx, s))), "world sounds: the index lost or added a source");
         }
+    }
+    // Split screen: those heard by player 2 too, where player 1 does not hear them.
+    if let Some(ear) = SecondListener::ear(second.as_deref()) {
+        let mut theirs = Vec::new();
+        index.heard(list, &sim, ear.eye, &mut ws.near, &mut theirs);
+        let mine: HashSet<u32> = ws.heard.iter().map(|h| h.0).collect();
+        ws.heard.extend(theirs.into_iter().filter(|h| !mine.contains(&h.0)));
+        ws.heard.sort_unstable_by_key(|h| h.0);
     }
     for &(i, at) in &ws.heard {
         let (id, sound, kind, _) = list[i as usize];
@@ -1034,13 +1089,15 @@ fn water_sources(
 
 /// The [`SoundSource::key`] kind of a water type's sound.
 const WATER_KIND: u8 = 5;
+/// [`SoundSource::key`] kind of a script's loop at a reference.
+const SCRIPT_LOOP_KIND: u8 = 13;
 
 fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
     let (Some(_), Some(ws)) = (exit.read().last(), ws) else { return };
     let s = &ws.stats;
     let impacts: Vec<String> = s.impacts.iter().map(|(m, n)| format!("{m} {n}")).collect();
     info!(
-        "world sounds summary: impacts by material: {} ({} on collision without a material); {} knocks ({} hard, {} of a material without a sound); {} pick-ups, {} drops; {} items taken from and {} put in containers; containers opened {} and closed {} times; {} activator sounds; {} message boxes opened, {} closed; scripts played {} sounds and {} placed; {} load doors ({} sides passed by other actors); {} objects' own sounds in reach ({}); {} water sounds in reach",
+        "world sounds summary: impacts by material: {} ({} on collision without a material); {} knocks ({} hard, {} of a material without a sound); {} pick-ups, {} drops; {} items taken from and {} put in containers; containers opened {} and closed {} times; {} activator sounds; {} message boxes opened, {} closed; scripts played {} sounds and {} placed ({} loops at references); {} load doors ({} sides passed by other actors); {} objects' own sounds in reach ({}); {} water sounds in reach",
         if impacts.is_empty() { "none".to_string() } else { impacts.join(", ") },
         s.impacts_no_material,
         s.knocks,
@@ -1057,6 +1114,7 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
         s.boxes_closed,
         s.script_2d,
         s.script_3d,
+        s.script_loops,
         s.load_doors,
         s.actor_doors,
         s.object_sources_sent.len(),

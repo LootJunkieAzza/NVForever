@@ -257,8 +257,26 @@ impl Plugin for WaitPlugin {
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
             )
+            .add_systems(Update, back_to_menu.run_if(in_state(PlayState::Playing)).before(open).in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close)
             .add_systems(Last, report);
+    }
+}
+
+/// The menu open while the game plays, with no loading screen up: a travel came in the
+/// frame it opened, and the travel's loading state won over the menu's. The raft to the
+/// Fort (vCCmovetothefortSCRIPT) does that: one GameMode block moves the player to
+/// another place and calls SetPCSleepHours 3 [observed: decompiled script; parity-lab
+/// run q-fort-raft-2p-light-hostonly, 2026-11-09]. Its loading screen came down to
+/// Playing with the sleep still open, and its hours, which pass in the menu state only
+/// ([`pass_hours`]), never passed: the screen stayed faded out ([`fade`]) and scripts in
+/// MenuMode 1012, so the Fort's equipment quest never ran. The menu state is set
+/// again, and the hours pass as they would have. Before [`open`], so a menu opening in
+/// this frame (still in Playing until the frame ends) is not taken for one.
+fn back_to_menu(menu: Res<WaitMenu>, loading: Option<Res<crate::loading::Loading>>, mut next: ResMut<NextState<PlayState>>) {
+    if menu.is_open() && !loading.is_some_and(|l| l.active()) {
+        info!("wait menu: open while the game plays (a travel came in the frame it opened): back to the menu");
+        next.set(PlayState::Menu);
     }
 }
 
@@ -1227,6 +1245,27 @@ mod tests {
         assert_eq!(aid.0, vec![(1.0, AidStep::Press), (15.0, AidStep::Open), (15.0, AidStep::Input(Command::Hours(5))), (17.0, AidStep::Input(Command::Accept))]);
         // In the world again: the open and the step asked at its time are due.
         assert_eq!(due_steps(&mut aid, 15.0, false), vec![AidStep::Open, AidStep::Input(Command::Hours(5))]);
+    }
+
+    #[test]
+    fn a_sleep_left_open_under_a_travel_goes_back_to_the_menu() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<PlayState>()
+            .init_resource::<WaitMenu>()
+            .init_resource::<crate::loading::Loading>()
+            .add_systems(Update, back_to_menu.run_if(in_state(PlayState::Playing)));
+        // Closed: the game plays on.
+        app.update();
+        app.update();
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+        // A script's sleep open while the game plays (its loading screen down): the menu again.
+        let mut m = Model::open(true);
+        m.sleep_for(3);
+        app.world_mut().resource_mut::<WaitMenu>().0 = Some(m);
+        app.update();
+        app.update();
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Menu);
     }
 
     #[test]

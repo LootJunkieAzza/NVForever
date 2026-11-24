@@ -91,6 +91,17 @@ actor meshes`]:
   render in place]: a part whose root stores the bone's inverse bind rotation is an
   ordinary child of the bone; any other part gets that inverse rotation from the
   attachment; node transforms are kept in both cases.
+- **One head part is in the bone's axes**: General Oliver's cap (ARMO 0x00134490
+  `NVGenOliverCap`, `armor\headgear\generalolivercap\genolivercap.nif`; a BSFadeNode
+  root and one NiTriStrips, both identity, no skin, no `Prn`) spans x 8.9…17.7, y
+  −7.7…11.0, z −8.6…8.6: symmetric in z and along +x, the head bone's up axis. The other
+  32 unskinned headgear models placed NPCs wear are centred at x −2.1…0.9, z 6.2…16.9
+  [observed: `fnvtool bsa extract` and `nif decode` over the headgear of
+  `actor appearance --all`, 2026-11-14]. Under the head rule the cap floated beside his
+  head at neck height (upstream #2529). Rule [hypothesis: consistent with his cap in the
+  original; nothing in the record or the file marks it]: a part whose unskinned
+  geometry, root and shape transforms applied, is centred further along x than along z
+  (by more than 2 units) is an ordinary child of the bone (`PreparedPart::rigid_in_bone_axes`).
 - **Bone-local rigid headgear (#2529).** [documented: #2529 writer brief, fnvtool,
   FalloutNV.esm + Fallout - Meshes.bsa] General Lee Oliver (`VHDGeneralOliver`, NPC_
   0x001300A9) carries `NVGenOliverCap` (ARMO 0x00134490, slots Hair, Headband, Hat) and
@@ -1209,6 +1220,19 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   2–7 units per step, and turned about 90° about z (as in `mtidle.kf`, §7.2) [observed].
 - Turn clips carry no root rotation, so their turn speed is not in the clip [observed:
   no `Bip01` track, or a static one in `2hhturn*`; hypothesis: the game sets it].
+- Mod clips can hold `Bip01` at a static rotation that is not the identity: Idle
+  Variety's `meshes\AnimGroupOverride\IV_Cool_F\_male\human\locomotion\mtturnleft.kf`
+  and `mtturnright.kf` drive `Bip01` at priority 26 with a static rotation (w 0.2706,
+  x 0.6533, y 0.2706, z 0.6533), translation 0 and no keys, over `Bip01 NonAccum` at
+  priority 10 turned 90° about z [observed: `fnvtool nif decode`]; all 86 of the mod's
+  `mtturn*.kf` (43 folders, `_F` and `_M`) hold that same `Bip01` rotation
+  [observed, Idle Variety 1.40e]. Shown as is, that
+  rotation takes the body's up axis to its side. **Engine rule**: a turn move
+  (TurnLeft, TurnRight) is played in place, its accumulation root's start rotation taken
+  out (animation.md §9.13, `BoundClip::turn_in_place`); other clips keep their authored
+  root orientation [design; hypothesis that the game
+  does the same, as the mod's NPCs turn upright in it; the owner saw ours lie sideways
+  as an NPC turned to face the player at a conversation's start and end, 2026-11-13].
 - **Playback**: the engine extracts the root motion and moves the actor itself. While a
   clip with a `Bip01` track plays, `Bip01` takes the sampled translation minus the
   linear accumulation `(t − start) / length × per-cycle offset`, which keeps the small
@@ -2054,7 +2078,11 @@ stopped and started, as Victor's walk had before #258). Code:
     the standing clip meanwhile. Rule [design]: for creatures (`Blend::set_off_at_once`, set on
     every creature's locomotion), a walk or run asked for while the clip playing is a
     standing one starts at once, fading from that clip; changes between moves still wait
-    for the fade. People keep the eased fade (their movement look is the owner's).
+    for the fade. People keep the eased fade from the idle (their movement look is the
+    owner's), but set off at once from a turn on the spot (`TurnLeft`/`TurnRight`): Benny
+    was logged moving at 46 and 77 units/s on `TurnRight` as he turned off his spot to
+    walk to the Lucky 38 suite [observed in NVForever, queue item 189, runs
+    q171-tops-benny-suite], where other walkers show their walk.
 - **Not done**: the aim's up and down forms for creatures that have them (ghoul,
   protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
   in `attack_anims.rs`); the creature alert look is not compared with the original game

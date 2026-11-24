@@ -49,6 +49,12 @@
 //! entry: `continue`, `new`, `load`, `settings`, `quit`; `shot` saves a screenshot
 //! `main_menu.png` in the working folder).
 //! Log: `main menu: open (…)`, `main menu: <entry>`, `main menu: slide <texture>`.
+//!
+//! **Split screen** (private fork, `crate::split_screen`): the Split Screen entry loads the
+//! newest save, as Continue does, straight into split screen [owner 2026-11-22: "the split
+//! screen option on main menu should boot straight into splitscreen"]; in player 2's game
+//! ([`crate::split_screen::PlayerTwo`]) the menu is only black: no pictures, logo, music
+//! or entries, under the join screen's picker.
 
 use crate::interface::{bc_supported, face, plain_font, set_line, u, Face};
 use crate::start_menu::{color, entry_base, highlight_colors, Shade, FONT, ITEM, LINE, RIGHT};
@@ -91,18 +97,24 @@ pub enum Entry {
     Continue,
     New,
     Load,
+    /// Co-op (private fork): the join screen, `crate::lobby`.
+    JoinLobby,
+    /// Split screen (private fork): the newest save, loaded with split screen on.
+    Split,
     Settings,
     Quit,
 }
 
 impl Entry {
-    pub const ALL: [Entry; 5] = [Entry::Continue, Entry::New, Entry::Load, Entry::Settings, Entry::Quit];
+    pub const ALL: [Entry; 7] = [Entry::Continue, Entry::New, Entry::Load, Entry::JoinLobby, Entry::Split, Entry::Settings, Entry::Quit];
 
     pub fn label(self) -> &'static str {
         match self {
             Entry::Continue => "Continue",
             Entry::New => "New Game",
             Entry::Load => "Load Game",
+            Entry::JoinLobby => "Join Lobby",
+            Entry::Split => crate::split_screen::MAIN_MENU_LABEL,
             Entry::Settings => "Settings",
             Entry::Quit => "Quit",
         }
@@ -113,6 +125,8 @@ impl Entry {
             Entry::Continue => "continue",
             Entry::New => "new",
             Entry::Load => "load",
+            Entry::JoinLobby => "join",
+            Entry::Split => "split",
             Entry::Settings => "settings",
             Entry::Quit => "quit",
         }
@@ -120,7 +134,7 @@ impl Entry {
 
     /// Whether it can be taken with `saves` saves in the folder.
     pub fn enabled(self, saves: usize) -> bool {
-        !matches!(self, Entry::Continue | Entry::Load) || saves > 0
+        !matches!(self, Entry::Continue | Entry::Load | Entry::Split) || saves > 0
     }
 }
 
@@ -266,11 +280,21 @@ fn open_at_start(
     mut music_assets: ResMut<Assets<crate::music::LayeredMusic>>,
     mut menu_font: Option<ResMut<crate::pause::MenuFont>>,
     mut fonts: Option<ResMut<Assets<bevy::text::Font>>>,
+    bare: Option<Res<crate::split_screen::PlayerTwo>>,
 ) {
     if start.is_none() {
         return;
     }
     commands.remove_resource::<MainMenuStart>();
+    // Player 2's game in split screen: a black screen under the join screen's picker.
+    if bare.is_some() {
+        menu.open = true;
+        paused.0 = true;
+        next.set(PlayState::Menu);
+        commands.spawn((MenuRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::BLACK), GlobalZIndex(100)));
+        info!("main menu: open (player 2's: black, no entries)");
+        return;
+    }
     let list = cfg.dir.as_deref().map(fnv_save::list).unwrap_or_default();
     menu.saves = list.len();
     menu.newest = list.first().map(|(p, _)| p.clone());
@@ -453,6 +477,12 @@ fn relabel(
     *seen = Some(now);
 }
 
+/// Split screen's switches, as the main menu reads them (`crate::split_screen`).
+type SplitParts<'w> = (Option<ResMut<'w, crate::split_screen::SplitScreen>>, Option<Res<'w, crate::split_screen::PlayerTwo>>);
+/// The menu's other parts: the player's tweaks, whether the tweak's continue was done,
+/// split screen's switches, and the Split Screen entry's load waiting a frame.
+type MenuExtras<'w, 's> = (Option<Res<'w, crate::tweaks::TweakSettings>>, Local<'s, bool>, SplitParts<'w>, Local<'s, Option<std::path::PathBuf>>);
+
 #[allow(clippy::too_many_arguments)]
 fn choose(
     keys: crate::pad::ActionButtons<KeyCode>,
@@ -469,15 +499,35 @@ fn choose(
     roots: Query<Entity, With<MenuRoot>>,
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
-    (tweaks, mut auto_done): (Option<Res<crate::tweaks::TweakSettings>>, Local<bool>),
+    mut lobby: Option<ResMut<crate::lobby::LobbyScreen>>,
+    (tweaks, mut auto_done, (mut split, bare), mut split_load): MenuExtras,
 ) {
     let keys = keys.snapshot();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
-    if !menu.open {
+    // The Split Screen entry's load, a frame after it set `on_load`, so the load's restart
+    // (`crate::handoff`) is sure to carry split screen [engineering choice].
+    if let Some(p) = split_load.take() {
+        info!("main menu: split screen: continue from {}", p.display());
+        loads.write(crate::save::LoadRequest { path: p });
+        return;
+    }
+    // Player 2's black menu has no entries: the join screen's picker is all of it.
+    if !menu.open || bare.is_some() {
+        return;
+    }
+    // The lobby screen over it takes the keys (`crate::lobby`).
+    if lobby.as_ref().is_some_and(|l| l.holds_input()) {
         return;
     }
     // The frame a pause page goes away is not this menu's: its click or key was that page's.
     let came_back = last_page.replace(*page).is_some_and(|p| p != Page::Main);
+    // Back on the column with split screen still asked for a load: none.
+    if came_back && *page == Page::Main {
+        if let Some(s) = split.as_mut().filter(|s| s.on_load) {
+            s.on_load = false;
+            info!("main menu: split screen not started");
+        }
+    }
     let now = time.elapsed_secs();
     let mut acts = Vec::new();
     while aid.0.first().is_some_and(|(t, _)| *t <= now) {
@@ -558,6 +608,19 @@ fn choose(
             info!("main menu: closed, the intro film plays");
         }
         Entry::Load => request.0 = Some(Page::Load { selected: 0 }),
+        Entry::Split => match (split.as_mut(), menu.newest.clone()) {
+            (Some(s), Some(p)) => {
+                s.on_load = true;
+                *split_load = Some(p);
+                info!("main menu: split screen with the newest save");
+            }
+            (Some(_), None) => warn!("main menu: split screen: no save to load"),
+            (None, _) => warn!("main menu: split screen is not in this build"),
+        },
+        Entry::JoinLobby => match lobby.as_mut() {
+            Some(l) => l.open(crate::lobby::Mode::Join),
+            None => warn!("main menu: co-op is not in this build"),
+        },
         Entry::Settings => request.0 = Some(Page::Settings { selected: None }),
         Entry::Quit => {
             exit.write(AppExit::Success);
@@ -576,8 +639,15 @@ fn slideshow(
     textures: Option<ResMut<TextureCache>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    loading: Option<Res<crate::loading::Loading>>,
 ) {
     let Some(phase) = menu.phase.filter(|_| menu.open) else { return };
+    // Under a loading screen (the lobby's join, which leaves the menu open behind it
+    // until a new run takes over) no slide turns: each new one is a texture loaded for
+    // nothing while the new run needs the memory.
+    if loading.is_some_and(|l| l.active()) {
+        return;
+    }
     let Ok((mut img, mut node, mut vis)) = slides.single_mut() else { return };
     if menu.slides.is_empty() {
         return;
@@ -821,11 +891,14 @@ mod tests {
     fn without_saves_continue_and_load_are_skipped() {
         assert!(!Entry::Continue.enabled(0) && !Entry::Load.enabled(0));
         assert!(Entry::New.enabled(0) && Entry::Continue.enabled(1));
-        // New Game (1) down: Load is greyed, so Settings (3); up from New: round to Quit.
+        // New Game (1) down: Load is greyed, so Join Lobby (3); up from New: round to Quit.
         assert_eq!(step(1, 1, 0), 3);
-        assert_eq!(step(1, -1, 0), 4);
+        assert_eq!(step(1, -1, 0), 6);
         assert_eq!(step(1, -1, 2), 0);
-        assert_eq!(step(4, 1, 0), 1);
+        assert_eq!(step(6, 1, 0), 1);
+        // Split Screen loads a save, so it is greyed with Load: Join Lobby down to Settings.
+        assert!(!Entry::Split.enabled(0) && Entry::Split.enabled(1));
+        assert_eq!(step(3, 1, 0), 5);
     }
 
     #[test]

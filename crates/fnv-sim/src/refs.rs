@@ -497,6 +497,10 @@ fn vec3(v: Option<&serde_json::Value>) -> Option<[f32; 3]> {
     Some([num(v, "x")? as f32, num(v, "y")? as f32, num(v, "z")? as f32])
 }
 
+/// The [`Issues`] kind of a door's XTEL marker moved with its destination door
+/// (`fnv_world::teleport`).
+pub const XTEL_MOVED: &str = "XTEL marker moved with its destination door";
+
 #[allow(clippy::too_many_arguments)]
 fn load_ref(
     lo: &LoadOrder,
@@ -557,6 +561,18 @@ fn load_ref(
         }
         None => None,
     };
+    // A marker by the place its destination door stood before a later plugin moved it
+    // moves with the door (`fnv_world::teleport`).
+    let mut teleport = teleport;
+    if let Some(t) = teleport.as_mut() {
+        let stored = fnv_world::teleport::Xtel { door: t.door.0, pos: t.pos, rot: t.rot };
+        if let Some(m) = fnv_world::teleport::mend(lo, schema, pi, &stored) {
+            issues.note(XTEL_MOVED, || {
+                format!("{id}: door {} moved {:.0} units since {}", t.door, m.moved_by, lo.plugins[m.seen_in].name)
+            });
+            (t.pos, t.rot) = (m.pos, m.rot);
+        }
+    }
     let enable_parent = first(&d, b"XESP").and_then(|v| {
         Some(EnableParent {
             reference: fid(v.get("reference"), "XESP", issues)?,

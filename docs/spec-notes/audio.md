@@ -331,6 +331,18 @@ were not read.
   s) from its start; no actor steps or rustles twice within 0.2 s (crossfading clips).
 - `Sound:` keys play the SOUN of that editor ID; the node after the name is not used.
   The player's sounds play at the listener, an actor's at its feet.
+- `SoundPath:<file>` keys (kNVSE, mods' clips) play that file under `sound\`, `.mp3`
+  included, at the B42 item animations' distances (100 to 2,000 units) [hypothesis:
+  as kNVSE plays them; the files have no SOUN record]. Another Millenia's Mateba Model
+  6 reloads key every sound so (`SoundPath:fx\Ani\MatebaMod6\cyclinderopen_01.wav`,
+  `chamber_spin_ratchet.mp3`), as does its Auto Revolver (`Hit_MP412Rex`); its S&W M10
+  reload mixes three `Sound:` keys and one `SoundPath:` [observed: the add-ons'
+  `_1stPerson` files]. Before 2026-11-12 these were not read and those reloads were
+  silent (owner, ship17). A WEAP record names no reload sound (its sounds: shoot 3D,
+  2D and looping, swing or no ammo, block, idle, equip, unequip and the mod-1 shots
+  [documented: schemas/fnv/objects.json]), so a reload sounds only by its clip's keys.
+  Each reload key heard is logged: `anim sounds: Player(..) reload <sequence>:
+  Sound: <EDID>` or `SoundPath: <file>`.
 - `Enum: Left`/`Right`: a ray down from the feet; on the landscape, the texture showing
   most there (the default texture where none shows on more than half) gives the
   material, on a placed object the triangle's code; the family by

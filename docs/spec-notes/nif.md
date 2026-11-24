@@ -239,6 +239,23 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
 - **Helper geometry without a shader** [observed, `crates/fnv-nif/examples/shape_survey.rs`
   over `Fallout - Meshes.bsa`]: of 48,996 visible shapes (not hidden, no hidden
   ancestor, not under an editor marker), 982 carry no BSShaderProperty-derived property
+  on themselves or an ancestor. 532 carry no property at all (524 of them landscape LOD
+  meshes, which the engine textures itself), 16 have a NiTexturingProperty (debris,
+  doors) and 434 only a NiMaterialProperty. The last group is helper geometry by its
+  names: bone display boxes (`TTail1:0`, `Bone01:0`), collision proxies (`c_Minigun`,
+  `DummyCol:3`) and invisible markers (`##PLRInvis:0`). The renderers skip shapes with
+  properties but neither a shader property nor a texture [hypothesis: the game does
+  not draw them; consistent with the Goodsprings flag in game, whose bone boxes are not
+  visible].
+  Shapes with **no property at all** are landscape LOD (drawn; the engine textures them)
+  except for 8 in one file, `furniture\loungechair_tops.nif` (FURN 0x00119821
+  `TopsPoolLoungeChair`): its pose figures and capsules `MarkerSource`, `MarkerTarget`,
+  `Capsule01` and `ChairBoundary`, which drawn are white mannequins and capsules on the
+  chairs [observed: the same survey over the base game and DLC archives, 66,754 visible
+  shapes, 572 without any property, 564 under `meshes\landscape\lod`; none in the owner's
+  mod archives; owner report 2026-11-14 from the Long 15 pool]. The model loader skips
+  property-less shapes outside `meshes\landscape\lod\` (`model::bare_shapes_drawn`)
+  [hypothesis: the game never draws them].
   on themselves or an ancestor. 532 carry no property at all (next item), 16 have a
   NiTexturingProperty (debris, doors) and 434 only a NiMaterialProperty. The last group
   is helper geometry by its names: bone display boxes (`TTail1:0`, `Bone01:0`),
@@ -332,6 +349,34 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   TEST_GREATER keeps alpha strictly above the threshold; Bevy's mask keeps alpha ≥ the
   cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
   remains possible for the blended shapes.
+
+  Blended shapes that test (2026-11-09, queue item 107, the tumbleweed). Below threshold
+  64 the test was not applied at all, and a lit blended shape whose shader sets
+  ZBuffer_Write wrote depth from alpha 1/255. The tumbleweed (`clutter	umbleweednv.nif`,
+  0x12ED, threshold 50, ZBuffer_Write) has a DXT3 texture that is 84% clear, 3.1% opaque
+  and 12.9% between, its twigs fading out over alpha 1-50 [observed]: its faint texels
+  wrote depth over the twigs behind them, so the sky showed through the bush, with dark
+  specks around the twigs [observed: owner's screenshot, 2026-11-08]. Survey
+  [observed, `crates/fnv-nif/examples/blend_test_lit_survey.rs` over `Fallout -
+  Meshes.bsa` and `Update.bsa`]: 108 visible shapes blend SRC_ALPHA / INV_SRC_ALPHA and
+  test with a threshold of 1-63; 38 unlit with vertex alpha (left as they were, see
+  "Vertex alpha and the test"), 70 lit without, 68 of those writing depth (decals,
+  posters, signs, garden plants, glasses, glass shards, Mr. House's beard, money, the
+  tumbleweed). Now [documented: nif.xml AlphaFlags for the test; design for the rest]:
+  - a lit, depth-writing blended shape whose alpha is its texture's drops what its test
+    drops: fragments at or below the threshold neither draw nor write depth
+    (`nif_spawn::blended_test_cut`);
+  - such a shape whose texture is a cut-out mask (the rule of the FSR blended cut-outs,
+    `texture::AlphaShares::is_mask`) with at least 1% opaque texels is drawn as a solid
+    cut-out at its test threshold (`nif_spawn::solid_cutout`): 38 of the 68 shapes (the
+    tumbleweed, pinto and jalapeño plants, money, the Sierra Madre posters, signs, the
+    quarry lattices). Blended, crossing twigs of one mesh hide each other in draw order;
+    a cut-out has no order. At the threshold (not half way) the outline holds over the
+    mip levels: the tumbleweed's texels above 50 are 13% of its top level and 19-22% of
+    levels 2-4, while those above 128 fall from 9% to 2% [observed]. The glass shards'
+    mask has no opaque texel and stays blended.
+  Whether the original draws these blended with their test, as read here, or turns the
+  tested alpha into coverage (`bTransparencyMultisampling`) is open (observer check).
 
   Soft edges. The owner's game runs with `iMultiSample=8` and
   `bTransparencyMultisampling=1` [observed: `FalloutPrefs.ini`, 2026-10-10], and in its
@@ -476,6 +521,22 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   the OPEN sign white. The two string-light shapes are the only visible shapes with a
   `_n` texture in slot 2 and a non-black emissive colour; their shader flags equal the
   OPEN sign's (0x82000101), so no flag tells them apart [observed].
+
+  **Glow maps emit on their own** (2026-11-12, owner's ship17 frames). Long 15's Baker
+  thermometer (`Long15Reloaded - Main.bsa`, `bakerthermometer.nif`: `BakerThermo_Lo`,
+  BSShaderPPLightingProperty, shader flags 0x82000081, emissive white × 3; `Numbers_Lo`,
+  0xC0800041, white × 10; both with `bakerthermo_g.dds` in slot 2) paints its red neon
+  tubes (about (222, 20, 24)) and yellow numbers into the glow map over a diffuse that is
+  about 45/255 under the tubes and 13/255 under the numbers [observed, fnvtool nif decode
+  and the textures]. In the original at night the tubes are bright red outlines and the
+  numbers lit (owner's frame, `novac-thermometer-original.webp`); times the diffuse, ours
+  were a dark red tower with unlit numbers [observed]. Rule now [hypothesis]: a lit
+  shape with a glow map in slot 2 emits emissive colour × multiplier × glow map, not
+  times the diffuse (`glow_emits_alone`, `emissive_rule.z`). A slot 2 that is a normal
+  map (`_n`: the Prospector's string lights above, the only such emitters in the base
+  game) keeps the diffuse product, so their pastel bulbs and dark cord stay as they are.
+  Glow maps that repeat the diffuse's colours (the OPEN 24 HOURS tubes) come out
+  somewhat brighter where their diffuse is darker than white.
   The initial reading left BSShaderNoLightingProperty shapes unlit and ignored the
   emissive colour: 2,663 of them have a black emissive colour (hangar lights, casino
   stairs) yet show in game,
@@ -560,6 +621,120 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   [observed 2026-11-07: the same views, with the light glow off]: the Lucky 38's and the
   Tops' letters read and the night sky is dark, so what ran them together was the glow;
   its settings are in world.md section 6 "HDR and bloom".
+- **Emitted light on screen** (2026-10-23). In the original's frames of Dead Money's wall
+  lantern (front and three-quarter, private `dm_lamp_front.png`, `dm_lamp_side.png`) the
+  glass (lit shape, emissive (0.76, 0.55, 0.20) × 10 × the image space's Emissive Mult)
+  burns white-yellow with an orange edge, as light clipped per channel on screen. The
+  renderer's tonemapper (Bevy's Tony McMapface, HDR view) rolled the same light off to a
+  flat cream, so the lamp did not read as a light source (owner: "the base game's lamp is
+  literally glowing really bright compared to ours"). Rule [hypothesis from those
+  frames]: where a shape emits light (lit shapes' emissive × glow map, unlit shapes'
+  emissive light), the lit colour plus the emitted light is held to 0.95 per channel and
+  passed through the inverse of the tonemapper's grey response (the sky's table, world.md
+  §6), so after the tonemapper it lands where clipping would put it. Only light past
+  white counts: the mapping is blended in as the emitted light's brightest channel rises
+  from 0.8 to 1.5, so faint effect shapes keep the tonemapper (Doc Mitchell's window
+  light rays, `indfxlightrays*.nif`, white × 1 under NVInteriorRegion's warm emittance,
+  turned into orange-red beams when every emitter was mapped; in the original they are
+  barely visible), as do the dark parts of a glow map and surfaces that emit nothing.
+  Unlit shapes that blend or add (glow cards, beams) are never hot sources: under Dead
+  Money's Emissive Mult the lantern's glow card passed white and burned into a hard
+  yellow disc on an unlit wall (owner: "looking really unnatural"); kept soft it is a
+  warm haze. Solid unlit emitters (neon tubes, opaque or cut-out) are (the owner wants the natural look kept: "I don't want all
+  the walls glowing"). The light glow (Bevy bloom) then catches only those hot pixels,
+  so the lantern gets a local halo. The lab's 15 frames move by under 0.01. Tried and
+  left out: per-channel clipping of the whole picture (glass right, saloon −0.03), and
+  placed lights summed in display values, (fade × falloff)^2.2 or fade^2.2 alone (the
+  lantern's wall brighter, but Doc Mitchell's living room −0.04, the saloon up to −0.15
+  with clipping). The lantern's wall still lacks the original's saturated yellow; the
+  weather grade's tint (world.md §6, adapter tint amount) is the open lead.
+  **Since the display clips** (2026-11-05): from 2026-10-24 the main view shows display
+  values clipped per channel in Tony McMapface's place (world.md §8, lights.rs
+  `GAME_CLIP`), which is what the rule above imitated, but the inverse stayed in. Under
+  clipping it raised every channel above about 0.55 past white: HotM's Ultra-Luxe
+  starburst sign by the Vault 21 gift shop (`nv_ul_neonsign01.nif`, lit tubes on the
+  white `NV_UL_Decor02_G.dds`, emissive (5, 250, 57) × 3 and (192, 4, 220) × 2), with two
+  VaultGreen lights 250 units off, burned white at night and at noon, and its twins higher
+  up, with less light on them, showed cyan [observed: headless frames,
+  strip-neon-white]. The cause is the light falling on the surface (white texture × the
+  street lights) going through the inverse with the emitted light. Now, where the display
+  clips, only the emitted light goes through it, channel by channel, and the lit colour
+  is added as it is; the old rule stays where the view keeps Tony McMapface
+  (`NVF_TONEMAP=tony`, which nvforever fog.rs passes in the fog's `bi.z`). Leaving the
+  inverse out altogether was tried: the sign was right, but the Tropicana's MOTEL and La
+  Concha tubes, a faint emissive tint (about 0.44 × the Strip's night Emissive Mult) on a
+  lit texture, lost the light glow their hot channels gave them (owner: "you removed the
+  lights on the motel sign"). With the rule here the Tropicana, Mick & Ralph's and the
+  Prospector Saloon match the old frames (mean difference under 0.3/255) and the sign
+  shows green and magenta tubes at noon, cyan and magenta at night like its twins.
+  **Hue kept past white** (2026-11-10, queue items 146 and 174). Channel by channel the
+  inverse still raised every emitted channel past 0.95 to about 11-16, so a coloured
+  emitter whose weakest channel passed white burned white with a wide halo: in the
+  owner's playtest 119 frames the Lucky 38's card signs (`lucky38signglow.nif`
+  `L38sign_anim`, unlit, white × 6 on `Lucky38Sign_m.dds`, under the Strip's night
+  Emissive Mult ×2.67) and the Monte Carlo's cyan tube (HotM `montecarloclubshort.nif`,
+  `montecarloclubneon_g.dds` × (0, 0.58, 1) × 4) were white blobs, Gomorrah's tubes very
+  hot [observed]. The original's frames of the Lucky 38 at night (Fallout wiki,
+  `Lucky_38_at_night.jpg`) show the sign's letters pink and readable inside a soft halo
+  and the tower's bands a muted yellow [observed]. Rule now [engineering choice, judged
+  against those frames]: where the display clips, emitted light whose brightest channel
+  `m` passes white is drawn at `1 + 0.5 × log2(m)` in that channel (at most 3,
+  `hot_brightness`, `HOT_GLOW_PER_STOP`, `HOT_GLOW_MAX`), the other channels in proportion,
+  so after the clip a colour keeps its hue and what lies over white still feeds the light
+  glow. Up to white nothing changes. The test aid `NVF_NEON=per_stop,max,add_hue,pass,blend`
+  (nvforever lights.rs) replaces the numbers without a build.
+
+  **Blended glows held to white** (2026-11-10, queue item 146). An unlit emitter that
+  blends over the frame (SRC_ALPHA / INV_SRC_ALPHA) was drawn at its whole emitted
+  light, several times white on the Strip at night, so its alpha no longer shaped it.
+  The Ultra-Luxe's stair lights (`ultraluxdome_glows.nif` `StairLight1`..`10`: white
+  (0.91, 0.96, 0.98) × 2, flat white `L38GlowWL.dds`, vertex alpha 0.15 at most and 0 at
+  the rim) and the Lucky 38's (`lucky38stairlights.nif` `Stair_Lights:0`..`2`: white ×
+  1.25 with an alpha and an emissive-colour controller, the plain white corner of
+  `StripLights01.dds`, vertex alpha 0 to 1) [observed, `fnvtool nif decode`] came out as
+  solid white slabs over every step and thick white bars. The original's Ultra-Luxe
+  exterior (Fallout wiki, `Ultra_Luxe_exterior.jpg`, by day) shows the stair lights as
+  separate light strips with darker steps between them [observed]. Rule now
+  [hypothesis]: such a shape's colour is held to 1 in its brightest channel, the others
+  in proportion (`blend_glow`, `BLEND_GLOW_MAX`), so the alpha is the cover the mesh
+  stores. Additive shapes keep "Additive blend"; solid emitters keep the rule above.
+  Not settled by published frames: how bright the original's stair lights are at night
+  (docs/handoff/observer-checks.md).
+- **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
+  (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
+  centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim
+  [observed, `fnvtool nif decode`]. Each disc comes out of two opposite panes at their
+  middle, so the half-disc in front of a pane showed against the pane with a hard
+  vertical edge where it leaves the glass (owner's screenshots, twice: "the base game's
+  is seamless"). Two causes, both fixed by rule: the shape's shader flags (0xAE000148)
+  set both decal bits, and decals were left out of the soft intersections; and the
+  160-unit fade is far larger than such a shape. Now decal-flagged shapes fade like the
+  others (a decal laid on a surface lies along it and keeps its look; 738 unlit blended
+  base-game shapes and 32 in Dead Money carry the decal bits [observed, `fx_audit.rs`],
+  mostly light pools and grime cards on walls), and the fade distance is a quarter of the
+  shape's largest side when that is less than 160 units (`nif_material.rs`
+  `soft_distance`; 14.6 for the lantern glow) [engineering choice]; particle systems
+  take the same rule from their particles' size (next item). In the original's frame the glass also burns
+  near white ((255, 252, 235)), which hides any step; ours does since the image space's
+  Emissive Mult is applied (world.md §6 "Emissive mult").
+- **Soft intersections of particles** (2026-11-01, #1074). A particle system's mesh
+  is a unit quad per particle, so it had been given the full 160 units. Blood on an
+  actor never showed: `MPSBloodSplat01`'s mist (DustCloud01, radius 50 ± 10, colour
+  (0.38, 0.05, 0.05) at alpha 0.6, alpha-blended) and drops (FluidDrops, radius
+  1.25 ± 0.5) are born within a few units of the body [observed, `fnvtool nif decode`,
+  NVForever particle log], and over 160 units a puff 5 units off the body kept about 3 %
+  of its alpha. Particles now fade over a quarter of their largest width,
+  2 × (emitter radius + radius variation), at most 160 and at least 1 (`nvf_assets::
+  particles::particle_soft_distance`): 30 units for the mist, 1 for the drops, and
+  smoke puffs of radius 320 or more keep 160 [engineering choice: the shapes' rule
+  applied to the particle; the game's own rule is not known]. The system's log line
+  says `soft over N` [observed, smoke `blood-spray`: drops 1.0, mist 30.0, splat
+  12.1; the dismemberment's `bloodspraylimb01.nif` spray 1.2 and
+  `fxgorepophead01.nif` mist 48.0].
+- **Multiply blend** (NiAlphaProperty with the blend bit, source factor ZERO and
+  destination factor SRC_COLOR): the frame behind the shape is multiplied by the shape's
+  colour, channel by channel, and the shape adds no light of its own [documented:
+  nif.xml AlphaFlags and AlphaFunction]. It can only darken or tint.
 
   Survey of the 7,121 visible shapes with the blend bit in `Fallout - Meshes.bsa`
   [observed, `crates/fnv-nif/examples/blend_survey.rs`], by source / destination factor:
@@ -673,7 +848,11 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   The sum is held to display 2.0 (`ADD_DISPLAY_MAX`) or the frame's own value if
   brighter [engineering choice: it lets the Big MT's sky beams, display 1.5 at the core,
   through whole and keeps a multiplier of 30 (the Securitron's screen flash) from adding
-  thousands of times white in the HDR view]. Bevy copies the frame only for a view with
+  thousands of times white in the HDR view]. Since 2026-11-10 what is added is first held
+  to display 1.5 in its brightest channel, the others in proportion (`ADD_HUE_MAX`): held
+  per channel, the Monte Carlo's bulbs (HotM `BulbLayer`, unlit (1.0, 0.84, 0.16) × 15)
+  reached 2.0 in all three and burned white discs that merged into one blob (owner's
+  playtest 119, queue item 174); now they are yellow dots [engineering choice]. Bevy copies the frame only for a view with
   something in its transmissive phase, so the engine keeps a material that reads the
   copy on a triangle of no area in every render layer (`TransmissionAnchor`); otherwise
   the shader would read a white stand-in. Cost: one copy of the frame per view and frame.
@@ -762,6 +941,58 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   SRC_ALPHA / INV_SRC_ALPHA shapes of lit shaders are still blended in linear light
   (they agree with the game at alpha 0 and 1 and differ between; unlit ones: "Alpha
   blend of unlit shapes"); ONE / ONE shapes are drawn as SRC_ALPHA / ONE, as before.
+- **Lit additive shapes** (an additive NiAlphaProperty on a BSShaderPPLightingProperty
+  shape). The Think Tank brains' screens (`nvdlc03\creatures\brainbot\
+  nvdlc03_brainbot_eyel_lg.nif`, `_eyer_lg`, `_m`, `_sm`, `_mouth_lg`, `_mouth_m`, ...)
+  stack, front to back [observed, `fnvtool nif decode`, textures decoded from
+  `OldWorldBlues - Main.bsa`]: `MonitorL_ScreenGlass:0` (lit, ONE / ONE 0x1001,
+  `NVDLC03_BrainBotScrn.dds` of mean 13/255, flat normal map with alpha 142-169,
+  environment cube `shinybright_e.dds` at scale 0.6, specular white, glossiness 200,
+  emissive black), `MonitorL_Static:0` (unlit, ONE / ONE, `whitenoise01.dds`: 90% black
+  texels, emissive 0.568 × 5, scaled UVs), `MonitorL_ScanLine:0` (unlit, SRC_ALPHA /
+  INV_SRC_ALPHA, emissive teal × 1.75), the opaque unlit eye or mouth picture and a black
+  backing. Mobius's screens (`_moebius`) blend their glass instead.
+
+  Drawn with the display-value sum ("Additive blend"), the glass washed all three screens
+  near white and the pictures showed only faintly under the static (queue item 207, frame
+  of 2026-11-14 at Dr. Borous). The same view with each layer left out
+  (`NVF_PLAY_TEST_HIDE_TEXTURES`, 2026-11-15, 960 × 540) [observed]: without the static
+  or the scanline the wash stays; without the glass it is gone and the eyes are clear
+  grey-blue pictures with the static over them. Between the two frames the glass added
+  (41, 59, 57) grey levels at the left screen's centre over an eye of (111, 133, 150), and
+  (11, 18, 22) at the right screen's edge: in the display-value sum about 0.018 of linear
+  light. The original shows the eyes and mouth clearly, with only a light static and
+  scanline (owner's report of item 207).
+
+  Rule since 2026-11-15 [hypothesis]: a lit shape that adds (`AlphaMode::Add`) adds its
+  lit colour as linear light (`NifSurface::add_linear`, `nif_spawn.rs` `adds_light`),
+  not by the display-value sum. That sum treats the added colour as a display colour,
+  which an unlit shape's texture × emissive colour is; a lit shape's colour is the light
+  Bevy computes, and over a picture of display 0.44 the sum turns 0.018 of it into 0.16.
+  Unlit additive shapes are unchanged.
+
+  After the rule (same run, 2026-11-15) [observed]: at the screens' edges the glass adds
+  0 to 2 grey levels over the frame without it (it added 11 to 31), and the wash is gone.
+  Left: one soft highlight per screen, about centre-left, from a light of the room on the
+  glass (glossiness 200 read as GGX, `gloss_roughness`), +11 to +29 at the left screen's
+  centre. Open: whether the original shows that highlight. A small screenshot of the
+  original (Nukapedia's Doctor Borous infobox image) shows bright white-cyan screens with
+  the eyes' dark rings clear and no distinct glint, from another angle. The game's
+  highlight is taken as unnormalised Blinn-Phong ("Specular" below), whose tail falls far
+  faster than GGX's; the environment map, which the game adds on this glass, is not drawn.
+  A Securitron's face (Victor, Goodsprings, `screenglare.dds` lit ONE / ONE) looks the same
+  before and after.
+
+  What the rule reaches [observed, `crates/fnv-nif/examples/blend_survey.rs` over
+  `Fallout - Meshes.bsa`, `Update.bsa` and the Main archives of Dead Money, Honest Hearts,
+  Old World Blues, Lonesome Road and Gun Runners' Arsenal, 2026-11-15]: 56 visible lit
+  ONE / ONE shapes and 185 lit SRC_ALPHA / ONE shapes (against 187 and 2,113 unlit). The
+  ONE / ONE ones by texture: 20 `pipboy3000\screenglare.dds` glare layers over screens
+  (the Securitrons' faces, Yes Man, House's screens, the wall control panels), 11
+  `MZGrateLighting01`, 9 the Think Tank screens' glass, 3 each `ShinyBright_e` and
+  `MZGlass03`, and single jars, maps and pods. The lit SRC_ALPHA / ONE ones include the
+  plasma rifles' glass tubes (`##PLRGlassTube:0`). Those were not compared after the
+  change except the Securitron face named in the item 207 run notes.
 - **Fog on added light** (2026-11-15, #2435). The Gomorrah Suites (`Gomorrah03`,
   0x0010DA71) have 7 lit wall sconces (`NeoclassicalSconce`,
   `clutter\neoclassical\neoclassicalsconce.nif`, e.g. refs 0x0011A90A, 0x0011A90C) and 14
@@ -1197,6 +1428,16 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   1,173 vertices, about −3e38 on 476, denormals on 129 and 1.0 on 464; drawn with them its trim boards came out flat
   pale blue (owner's fly-cam screenshot). The renderers use vertex alpha only with the
   flag, clamp colours to 0..1 and replace non-finite values by 1 [hypothesis].
+  - **Untextured blended unlit shapes** take their vertex alpha without the flag
+    [hypothesis]: a BSShaderNoLightingProperty shape that names no texture and whose
+    NiAlphaProperty blends has no other alpha source. Of the visible shapes without
+    either vertex-alpha flag (bit 3, or bit 19 on the unlit shader), 154 such shapes have
+    some vertex alpha below 1 and 526 all 1 [observed,
+    `crates/fnv-nif/examples/untextured_blend_survey.rs` over `Fallout - Meshes.bsa`]. They
+    are soft black contact shadows (the casino tables' `CardTable01:1`, `CrapsTable01:1`,
+    `RouletteTableTOPS:2`: alpha flags 0x10ED, black vertices of alpha 0.7 inside and 0
+    at the rim; the Ultra-Luxe's tables, desks and bars), which drew as hard black mats
+    with alpha 1 (owner's playtest 2026-11-07, Lucky 38 casino floor).
 - **Normal maps** use DirectX-style green: +G points *down* the image (towards
   increasing v), +R to the right [observed]. Seven texture sets in `Fallout -
   Textures.bsa` ship a parallax height map (`_p`) beside the normal map (`_n`): McCarran
@@ -1368,6 +1609,33 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   `shinybright_e.dds`, mask slot 5 `_m`, window-environment flag) is drawn since #2462
   ("Window glass and environment maps" below; shapes without the window flag since
   #2841, "Environment maps on other shapes").
+  **Cave exit rocks drawn as chrome** (2026-11-15, mods-1114 bug 3, open): in More
+  Dungeons' Goodsprings Water Source Cave (`0PDGoodspringsWaterCave`) the rocks around
+  the exit (`dungeons\caves\rocks\rockcave01/03/05.nif`, vanilla meshes; CaveRockWall02/03,
+  Specular flag, specular colour white, gloss 100, specular mask mean 52 and 42 of 255,
+  the same as vanilla's: the overlay's replacement textures change only the colour) stand
+  by an ExtLightBright (0x0017222A: radius 200, fade 2.5, colour (254, 255, 204)) and a
+  CaveLightKeyWarm (0x0004DFE6: radius 200, fade 2.2, colour (186, 226, 228)). From the
+  tunnel they draw as black rock with white and cyan streaks; with the `caverockwall`
+  shapes hidden the chrome goes, with the forcefield door's hidden it stays [observed:
+  laptop runs m1-m4, `NVF_PLAY_TEST_HIDE_TEXTURES`, ship20 and borous207b]. FalloutNV.esm
+  places no ExtLightBright in any interior [observed: `fnvtool world refs --interiors`],
+  so the mod's lighting is what put bright lights this close to gloss-100 rock.
+  Tried and not the cause: Bevy's Fresnel rise at grazing angles. With it taken out of
+  lights' specular for NIF surfaces the rim was unchanged (desktop run d1, 2026-11-15),
+  and the change was withdrawn.
+  The cause is the highlight [observed: desktop runs e1/e2, `NVF_PLAY_TEST_NO_SPECULAR_TEXTURES=
+  caverockwall`: with the rocks' specular off the rim is plain rock, brightest 1 % of its area
+  199 -> 97]. The same holds for Dr. Borous's screen glow (item 207): with the glass layer's
+  specular off (`brainbotscrn`, run e3) the screens are flat, centre 154 against edges
+  126-160, as in the original (wiki screenshot, full size: centre 192, edges 163-208, no
+  glow); with it on, centre 187 against edges 128-184. [hypothesis] What differs is the
+  lobe's tail, not its peak: at equal gloss GGX's peak is 0.02 x (gloss + 2) x mask times
+  Blinn-Phong's (F0 = 0.16 mask^2, V ~ 1/4 at normal incidence), but 20 degrees off the
+  mirror direction GGX keeps 2.1 % of its peak at gloss 100 and 0.6 % at 200, where
+  (N.H)^gloss keeps 0.2 % and 0.0004 %. Close strong lights then light whole facets. A
+  Blinn-Phong lobe for NIF surfaces would change every lit model's highlights and waits
+  for the owner's review (morning report, specular-model-review.md).
 - **Hair** [observed, `characters\hair\hairbun.nif`]: both shapes have a
   NiMaterialProperty with specular colour (0, 0, 0) and glossiness 10, and a
   BSShaderPPLightingProperty with shader flags 0x82040101 — Specular (bit 0), Alpha
@@ -1379,6 +1647,22 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   181) over a grey strand pattern. Read as the plain specular mask of "Specular" above,
   that alpha made the hair glint under the Prospector Saloon's window light — white
   strands beside the face and a sheen on the crown — where the owner's in-game picture
+  of Sunny Smiles shows matte auburn hair. That glint ignored the material's specular
+  colour, which the renderers did not read.
+- **Hair specular colour** [observed, survey 2026-11-16 of the hair-shader shapes]: all
+  154 in the game's hair and head parts (`Fallout - Meshes.bsa`, `characters\hair\`
+  and `characters\head\`, 134 files) have specular colour (0, 0, 0) with the Specular
+  flag set; all 136 of Character Kit Remake's (`CharacterKitRemake-Hair.bsa`,
+  `meshes\bale\`, 78 files) have a light one, (0.9, 0.9, 0.9) on 121, with glossiness
+  10 to 60, and their normal maps' alpha is as high on the strands (`seductress_n.dds`
+  mean 91 of 255 where the strands are drawn, 11 on the scalp cap). The renderers give
+  a hair-shader shape the ordinary masked specular tinted by its specular colour, and
+  none where that colour is black (every vanilla one, as before) [hypothesis: the game
+  multiplies the specular term by the material's specular colour; read so, the matte
+  vanilla hair needs no rule of its own]. Without it CKR's hair, whose diffuse is a
+  dark grey to be tinted (`seductress_d.dds`), drew as flat near-black cards under a
+  dark HCLR (the Strip gambler, HCLR 24 16 7, 2026-11-16). What the hair shader does
+  with the `_hl` map (slot 2) is still open.
   of Sunny Smiles shows matte auburn hair. The renderers give shapes with the Hair flag
   (hair, brows, beards) no specular [hypothesis: the hair shader does not use the
   normal-map alpha as an ordinary specular mask; what it does with it and with the
@@ -1405,6 +1689,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   is 0.25 or more and drop fainter fragments [engineering choice; whether the game's
   hair writes depth is not known: the file has no NiZBufferProperty, and the Z-buffer
   test flag (bit 31) above says nothing of writing]. Smoke check `hair-under-fire`.
+- **Depth of lit blended shapes** (2026-11-05): BSShaderFlags2 bit 0 is "ZBuffer_Write"
+  [documented: nif.xml]. Of the visible lit (BSShaderPPLightingProperty) shapes blended
+  SRC_ALPHA / INV_SRC_ALPHA without a test of 64 or more, 1,254 set it and 77 do not
+  (B-29 propeller blades, a grave lantern's glass, the Tesla cannon's glass); glass,
+  windows, drinking glasses and the magazine vending machine (`vendmachmag.nif`) set it
+  [observed: `crates/fnv-nif/examples/zwrite_survey.rs` over `Fallout - Meshes.bsa` and
+  `Update.bsa`]. Such a shape now writes depth where its alpha is above 1/255
+  (`nif_spawn::BLEND_DEPTH_CUT`) [hypothesis: the renderers honour the flag]. Without it
+  the vending machine (texture alpha about 253/255) was covered by every glow and haze
+  drawn after it and looked pink and see-through from a few metres. Unlit blended shapes
+  (glows, dust, smoke; 1,277 set the flag, 1,259 do not) keep writing none: one glow
+  hiding another by draw order is the larger risk there. Hair keeps its own cut above.
 - **Hair models: a solid core and a blended layer** (2026-11-06, #1576; before that
   cut-outs, #1454): the HAIR record's model is drawn twice. A cut-out at alpha 0.8 is its
   solid core: it draws in the opaque passes, writes depth and casts the shadow. The same

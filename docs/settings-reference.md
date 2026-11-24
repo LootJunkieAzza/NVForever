@@ -31,7 +31,8 @@ The Controls tab's own rows (Input Device, Automatic Input Switching, Rumble, In
 sensitivities, the controls) stand under the Controls headings the page shows them in. The
 Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md (including
 `tweak-keep-chosen-ammo` — Keep Chosen Ammo, under Tweaks › Combat › Weapons and Armour,
-off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
+off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]); the
+flashlight's own rows, on that tab too, are listed here (Tweaks › Flashlight).
 
 ## Gameplay › Game
 
@@ -313,6 +314,12 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
   chosen above for full screen. Off: a window of the resolution chosen for a window.
 - Command-line switches: `--window`
 - Registered in `engine/nvforever/src/settings.rs`
+
+### `split-layout`: Split screen layout
+
+- On the page: How the screen is shared with player 2. Top and bottom: player 1 above, player
+  2 below. Side by side: player 1 left, player 2 right. Changes at once.
+- Registered in `engine/nvf-play/src/split_screen.rs` (player 1's game, `engine/nvforever/src/split.rs`)
 
 ## Display › Frame Rate
 
@@ -825,6 +832,43 @@ in `engine/nvf-play/src/pause.rs` (`row_note`, `AUTOMATIC_INPUT_NOTE`) and
   fall or an explosion goes off near you. Kept as "Rumble" in [Controller].
 - In full: harder for a heavier weapon. Kept in [Controller] of NVForever.ini.
 
+### Hold time
+
+- On the page: Left/Right or A: how long a button is held before a Hold binding acts. Kept
+  as "Hold Time" in [Controller].
+- In full: 0.25, 0.3, 0.4 (the default), 0.5, 0.6 or 0.8 seconds, for every Hold binding
+  the player makes ("Hold X"); the holds built into another control (holding Menu Mode for
+  the light) keep their own times. With a controller only. docs/design/controller.md §2a.
+
+### Double-tap window
+
+- On the page: Left/Right or A: how soon the second press of a Double-tap binding must come.
+  Kept as "Double Tap Window" in [Controller].
+- In full: 0.2, 0.25, 0.3 (the default), 0.35, 0.4 or 0.5 seconds from the first press to
+  the second. A press sharing its button with a double tap acts when the window ends. With
+  a controller only.
+
+### Combo window
+
+- On the page: Left/Right or A: how far apart a combo's two buttons may go down, in either
+  order; a button in a combo waits this long. Kept as "Combo Window" in [Controller].
+- In full: 50, 75, 100 (the default), 125, 150 or 200 milliseconds. Two buttons of a combo
+  that go down within it, in either order, act as the combo only; neither button's own
+  binding acts. Any button that is part of a combo waits this long before its own binding
+  acts (Sneak on LB with LB + RB bound), or acts late when let go sooner. With a controller
+  only. docs/design/controller.md §2a.
+
+### The controller's bindings and split holds
+
+- A controller row binds a press, a hold, a double tap or a combo by the gesture made (A on
+  the row, then the gesture; Start cancels), kept in [Controller] as `A`, `Hold X`,
+  `Double Y` or `LB + A`. Overlapping bindings are kept and warned of in the row's note.
+- With a controller, Toggle Light stands under Actions after Menu Mode, Holster Weapon
+  under Combat after Ready Item, Grab (Hold) after Activate and Orbit Camera after Toggle
+  POV (Actions), Weapon Wheel last under Hotkeys; each reads "Hold B (Menu Mode)" and the
+  like until bound elsewhere. With the keyboard Toggle Light and Holster Weapon stay with
+  the Tweaks keys and the other three have no row. docs/design/controller.md §2a.
+
 ## Controls › Look
 
 ### Invert Y
@@ -886,8 +930,16 @@ in `engine/nvf-play/src/pause.rs` (`row_note`, `AUTOMATIC_INPUT_NOTE`) and
 ## Controls › Movement, Combat, Actions and Hotkeys
 
 Each control is one of the Controls tab's own rows (`controls:bind:` and its name in
-`SECTIONS`), under Movement, Combat, Actions or Hotkeys, in that order. The two entries
-below cover them all.
+`SECTIONS`), under Movement, Combat, Actions, Hotkeys, Additional Features, Multiplayer
+Questions, Minigames, Minigame Stakes and Photo Mode, in that order. The two entries below
+cover them all.
+
+The last four hold the screens' own controls (owner 2026-11-22): answering a co-op question
+(Accept Y / A, Decline N / B), the minigames (Start / Next Space / A, Leave Tab / B, the
+numbered choices 1-5 / D-pad and Y, bets Q E / LB RB, Back to the Menu R / X, Throw the left
+button / RT, the knife race W A S D / Y X A B), a stake between two players (W A F R /
+Y X A B) and the keys inside Photo Mode. While a question is on screen its buttons answer
+it and do nothing else; a key or button is swapped only with a control of the same screen.
 
 ### A control (keyboard and mouse)
 
@@ -1620,6 +1672,108 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - On the page: Quick Loot lists each item's value divided by its weight.
 - Greyed while Quick Loot is off. Off by default.
 - Registered in `engine/nvf-play/src/quick_loot.rs`
+
+## Tweaks › Flashlight
+
+The rows of the player's flashlight (`engine/nvforever/src/flashlight.rs`), in the Tweaks
+tab's Quality of Life group. None is in the original, whose Pip-Boy light is no such light
+[design]: the flashlight itself is NVForever's, and these rows are those flashlight mods of
+other games commonly offer. They apply at once: the light is made again each time one of
+them changes. At their defaults it is the light the flashlight had before them: warm white,
+about 40 m of reach, a cone 60 degrees across that casts shadows.
+
+In co-op each player's rows are their own: the other players see that player's light as
+that player has set it (type, colour, with Pip-Boy their own Pip-Boy's colour, reach,
+brightness, beam and shadows), on their body, and see it change as they change the rows
+(#3279; `PlayerState::light`, engine/nvf-coop net.rs).
+
+### `flashlight-shadows`: Shadows
+
+- On the page: On: walls and objects stop the flashlight and cast shadows from it. Off: it
+  costs less, but lights through walls. Not in the original.
+- In full: A spot's shadows are one map of Shadow resolution's size; a point light's are a
+  cube of six, which costs more frame time. The player casts none either way. On by
+  default [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-type`: Type
+
+- On the page: Spot: a cone of light ahead of you, as a flashlight. Point: light all round
+  you, as a lantern. Not in the original.
+- In full: Which of Bevy's lights the flashlight is: `SpotLight` (Spot) or `PointLight`
+  (Point). Both sit in front of the face and both can cast shadows. A list: Spot, Point;
+  Spot by default [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-colour`: Colour
+
+- On the page: Warm white (the default), Pip-Boy (your Pip-Boy's colour, as the original's
+  light) or another; the sliders below set any colour. Not in the original.
+- In full: A list: Warm white (the default), Pip-Boy, Cool white, Amber, Red, Green and
+  Blue; Custom is listed too while the sliders make none of the named colours. Taking a
+  named colour sets the three sliders [design]. **Pip-Boy** makes the light the colour of
+  Display › Colours › Pip-Boy colour, and follows it when that changes: the original's
+  Pip-Boy light takes the Pip-Boy's colour [observed: original Fallout: New Vegas, owner,
+  2026-11-21 (#3279): changed the Pip-Boy colour in the original's display settings,
+  turned the Pip-Boy light on, and in third person saw the light's colour on the world
+  change to match]. It leaves the
+  sliders as they were and greys them ("Not while Colour is Pip-Boy."); taking Custom
+  or a named colour gives the sliders' colour back. The INI keeps it as
+  `flashlight-colour=Pip-Boy`.
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-red`: Red
+
+- On the page: The red in the flashlight's colour, 0 to 255. Not in the original.
+- Greyed while Colour is Pip-Boy ("Not while Colour is Pip-Boy.").
+- A slider: 0 to 255 in ones; 255 by default.
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-green`: Green
+
+- On the page: The green in the flashlight's colour, 0 to 255. Not in the original.
+- Greyed while Colour is Pip-Boy ("Not while Colour is Pip-Boy.").
+- A slider: 0 to 255 in ones; 242 by default.
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-blue`: Blue
+
+- On the page: The blue in the flashlight's colour, 0 to 255. Not in the original.
+- Greyed while Colour is Pip-Boy ("Not while Colour is Pip-Boy.").
+- A slider: 0 to 255 in ones; 219 by default.
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-range`: Range
+
+- On the page: How far the flashlight reaches, in metres (40 by default). Not in the
+  original.
+- A slider: 400 to 8000 game units in steps of 200 (about 6 to 114 m, 70 units a metre);
+  2800 (40 m) by default [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-brightness`: Brightness
+
+- On the page: How bright the flashlight is, as a part of its default brightness (100%).
+  Not in the original.
+- A slider: 25% to 400% of the default brightness in steps of 25%; 100% by default
+  [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-beam-width`: Beam width
+
+- On the page: How wide the spot's cone of light is, edge to edge, in degrees (60 by
+  default). Not in the original.
+- A slider: 10 to 160 degrees across in steps of 5; 60 by default. Greyed while the type
+  is Point, which has no cone [design].
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `flashlight-beam-softness`: Beam softness
+
+- On the page: How much of the spot's cone fades out to its edge: low draws a hard rim,
+  high a soft glow. Not in the original.
+- A slider: 0% to 100% of the cone in thirtieths; 53% by default (the default light's
+  bright middle, 28 of its 60 degrees). Greyed while the type is Point [design].
+- Registered in `engine/nvforever/src/settings.rs`
 
 ## Debug
 

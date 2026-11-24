@@ -212,7 +212,15 @@ fn plugin_bytes() -> Vec<u8> {
         endif(),
     ]
     .concat();
-    let qscript = [vec![sub(b"EDID", z("QScript"))], unit(1, &script(&[(0, None, body)]), &[(1, "fTimer", 0), (2, "bRun", 1)], &[QUEST])].concat();
+    //   begin MenuMode 1013
+    //     set fMenuSum to fMenuSum + GetSecondsPassed
+    //   end
+    let menu_sum = set(var(b'f', 3), ex(&[var(b'f', 3), xcall(GET_SECONDS_PASSED, &[]), a("+")]));
+    let qscript = [
+        vec![sub(b"EDID", z("QScript"))],
+        unit(1, &script(&[(0, None, body), (1, Some([le16(1), n(1013)].concat()), menu_sum)]), &[(1, "fTimer", 0), (2, "bRun", 1), (3, "fMenuSum", 0)], &[QUEST]),
+    ]
+    .concat();
     // Activator script: nUsed (1, short), nHit (2, short).
     //   begin OnActivate player
     //     set nUsed to nUsed + 1
@@ -267,6 +275,9 @@ fn plugin_bytes() -> Vec<u8> {
     // NPC script: nDone (1), nFrames (3), nOnLoad (7), all short counters.
     //   begin SayToDone
     //     set nDone to nDone + 1
+    //   end
+    //   begin OnLoad
+    //     set nOnLoad to nOnLoad + 1
     //   end
     let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
     let npcscript = [
@@ -812,22 +823,45 @@ fn reset_quest_keeps_the_set_quest_delay() {
 }
 
 /// ResetQuest from another script stops the quest (o41, issue #1232); from the quest's
-/// own script it keeps running (the Emergency Radio's self-reset, not observed).
+/// own script it keeps running (the Emergency Radio's self-reset, not observed). A quest
+/// flagged "Start game enabled" runs after a reset from any script (NoticeBoard.esm's
+/// notice quests, hypothesis), stopped before or not.
 #[test]
-fn reset_quest_stops_the_quest_unless_its_own_script() {
+fn reset_quest_stops_the_quest_unless_its_own_script_or_start_enabled() {
     const RESET_QUEST: u16 = 0x11DB;
-    let f = fixture();
-    let mut g = game(&f);
+    const PLAIN: u32 = 0xB00;
+    const STARTS: u32 = 0xB01;
+    let data = |flags: u8| sub(b"DATA", [vec![flags, 0, 0, 0], 0f32.to_le_bytes().to_vec()].concat());
+    let plain = [sub(b"EDID", z("PlainQuest")), data(0)];
+    let starts = [sub(b"EDID", z("StartsQuest")), data(0x19)];
+    let bytes = [tes4(), top(b"QUST", &[record(b"QUST", 0, PLAIN, &plain), record(b"QUST", 0, STARTS, &starts)].concat())].concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&d, world, GameConfig { strict: true, ..GameConfig::default() });
     g.new_game();
-    let reset = |g: &mut Game, from: Option<FormId>| {
+    let reset = |g: &mut Game, quest: u32, from: Option<FormId>| {
         let ctx = Ctx { unit: "test".into(), opcode: RESET_QUEST, on: None, self_ref: None, action_ref: None, quest: from, inst: None, in_condition: false };
-        g.call_function(&ctx, &[ArgValue::Value(Value::Ref(QUEST))]);
+        g.call_function(&ctx, &[ArgValue::Value(Value::Ref(quest))]);
     };
-    g.quest(q()).running = true;
-    reset(&mut g, Some(q()));
-    assert!(g.quest(q()).running, "a self-reset keeps the quest running");
-    reset(&mut g, None);
-    assert!(!g.quest(q()).running, "a reset from another script stops it");
+    let (p, st) = (FormId(PLAIN), FormId(STARTS));
+    g.quest(p).running = true;
+    reset(&mut g, PLAIN, Some(p));
+    assert!(g.quest(p).running, "a self-reset keeps the quest running");
+    reset(&mut g, PLAIN, None);
+    assert!(!g.quest(p).running, "a reset from another script stops it");
+    assert!(g.quest(st).running, "a start-enabled quest runs from the new game");
+    g.set_stage(st, 0);
+    reset(&mut g, STARTS, None);
+    assert!(g.quest(st).running, "a start-enabled quest keeps running after a reset from elsewhere");
+    g.stop_quest(st);
+    reset(&mut g, STARTS, None);
+    assert!(g.quest(st).running, "and runs again after one when it was stopped");
 }
 
 #[test]
@@ -879,6 +913,26 @@ fn snapshots_round_trip() {
     h.frames(90);
     assert_eq!(g.quests, h.quests);
     assert_eq!(g.instances, h.instances);
+}
+
+/// A save made before a plugin was added does not hold its quests: on a load, those
+/// flagged "Start game enabled" run, as in a new game (NoticeBoard.esm's dialogue quest);
+/// one the save holds stopped stays stopped.
+#[test]
+fn a_load_starts_the_start_enabled_quests_the_save_does_not_hold() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let mut s = g.snapshot();
+    s.quests.remove(&q());
+    let world = World::restore(&f.forms, &f.refs, &s.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &s).unwrap();
+    assert!(h.quest_state(q()).running);
+    g.stop_quest(q());
+    let s = g.snapshot();
+    let world = World::restore(&f.forms, &f.refs, &s.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &s).unwrap();
+    assert!(!h.quest_state(q()).running);
 }
 
 /// Players 2–4 of a co-op game (docs/design/coop-save.md): each keeps its own actor
@@ -934,6 +988,47 @@ fn coop_players_round_trip_apart_from_the_player() {
     twice.coop.push(twice.coop[0].clone());
     let world = World::restore(&f.forms, &f.refs, &twice.sim).unwrap();
     assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
+}
+
+/// A co-op guest's save (private fork): its own game as it was when it joined, with the
+/// character as it is in the host's world; the place, quests and time stay its own.
+#[test]
+fn a_guests_save_keeps_its_own_place_and_world_with_the_character_now() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    let solo = g.snapshot();
+    let p = FormId::PLAYER_REF;
+    let at_home = solo.sim.refs[&p].clone();
+    // In the host's world: elsewhere, a quest stage the host's story set, and progress.
+    g.set_stage(FormId(QUEST), 10);
+    let mut now = g.snapshot();
+    let actor = now.sim.refs.get_mut(&p).unwrap();
+    actor.pos = [5000.0, -3000.0, 120.0];
+    actor.rot = [0.0, 0.0, 1.5];
+    actor.inventory.get_or_insert_with(fnv_sim::Inventory::new).add(FormId(0x4242), 3);
+    now.player.xp = 750.0;
+    now.player.level = Some(4);
+    now.player.perks.insert(FormId(0xABC), 1);
+    now.extra.entry(p).or_default().av_damage.insert(16, 25.0);
+    now.time = solo.time + 600.0;
+    let merged = solo.clone().with_character_of(&now);
+    let me = &merged.sim.refs[&p];
+    assert_eq!((me.cell, me.pos, me.rot), (at_home.cell, at_home.pos, at_home.rot));
+    assert_eq!(me.inventory.as_ref().unwrap().count(FormId(0x4242)), 3);
+    assert_eq!(merged.player.xp, 750.0);
+    assert_eq!(merged.player.level, Some(4));
+    assert!(merged.player.perks.contains_key(&FormId(0xABC)));
+    assert_eq!(merged.extra[&p].av_damage.get(&16), Some(&25.0));
+    assert_eq!(merged.time, now.time);
+    assert_eq!(merged.quests, solo.quests);
+    assert_ne!(merged.quests, now.quests);
+    // It loads.
+    let world = World::restore(&f.forms, &f.refs, &merged.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &merged).unwrap();
+    assert_eq!(h.world.peek(p).unwrap().pos, at_home.pos);
+    assert_eq!(h.player.xp, 750.0);
 }
 
 /// A change that spoils a snapshot.
@@ -1311,6 +1406,73 @@ fn a_disabled_reference_runs_on_load_when_its_cell_loads() {
     assert_eq!(loads(&g), 2.0);
     g.tick();
     assert_eq!(loads(&g), 2.0);
+}
+
+/// A disabled actor does not run OnLoad when its cell loads, only at the start of the
+/// frame after its Enable [hypothesis, fit to ED-E: EDEScript's OnLoad starts the timer
+/// that unrestrains the repaired robot, and its three references are placed disabled in
+/// the cell where it is repaired; docs/spec-notes/script-language.md §7.2 row 5].
+#[test]
+fn a_disabled_actor_runs_on_load_only_after_its_enable() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    g.world.set_enabled(npc, false).unwrap();
+    let key = InstKey::Ref { reference: npc };
+    let loads = |g: &Game| match g.var(key, 7) {
+        Value::Num(x) => x,
+        v => panic!("{v:?}"),
+    };
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    assert_eq!(loads(&g), 0.0, "no OnLoad at the cell load while disabled");
+    g.tick();
+    assert_eq!(loads(&g), 0.0);
+    g.world.set_enabled(npc, true).unwrap();
+    g.note_enabled(npc);
+    g.tick();
+    assert_eq!(loads(&g), 1.0, "OnLoad the frame after its Enable");
+    // Enabled when its cell loads: OnLoad at the load, as before.
+    let mut h = game(&f);
+    h.new_game();
+    h.set_loaded([FormId(CELL)].into_iter().collect());
+    assert_eq!(loads(&h), 1.0);
+}
+
+/// An actor disabled through its enable parent runs OnLoad the frame after the parent's
+/// Enable brings it in, as after its own Enable; a child set to the opposite state comes
+/// in with the parent's Disable [documented: GECK wiki OnLoad, "when the object's 3D is
+/// loaded"; overnight queue item 141: Hoover Dam's battle Legionaries, behind enable
+/// parents, never ran OnLoad once actors lost the cell-load OnLoad].
+#[test]
+fn an_actor_behind_an_enable_parent_runs_on_load_when_the_parent_brings_it_in() {
+    use fnv_sim::refs::EnableParent;
+    for opposite in [false, true] {
+        let mut f = fixture();
+        let npc = FormId(NPC_REF);
+        let parent = FormId(ACT_REF);
+        f.refs.refs.get_mut(&npc).unwrap().enable_parent = Some(EnableParent { reference: parent, opposite, pop_in: false });
+        let mut g = game(&f);
+        g.new_game();
+        g.world.set_enabled(parent, opposite).unwrap();
+        assert!(!g.present(npc));
+        let key = InstKey::Ref { reference: npc };
+        let loads = |g: &Game| match g.var(key, 7) {
+            Value::Num(x) => x,
+            v => panic!("{v:?}"),
+        };
+        g.set_loaded([FormId(CELL)].into_iter().collect());
+        g.tick();
+        assert_eq!(loads(&g), 0.0, "absent through its parent: no OnLoad yet (opposite {opposite})");
+        let op = if opposite { 0x1022 } else { 0x1021 };
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(parent), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, &[]);
+        assert!(g.present(npc));
+        g.tick();
+        assert_eq!(loads(&g), 1.0, "OnLoad the frame after the parent's change (opposite {opposite})");
+        g.tick();
+        assert_eq!(loads(&g), 1.0);
+    }
 }
 
 /// How many times `r`'s OnLoad block has run (the fixture scripts' nOnLoad).
@@ -3058,6 +3220,51 @@ fn a_page_tick_runs_only_the_start_menus_blocks_and_keeps_the_open_menu() {
     assert_eq!(v(&g, 8), 3.0, "the page's menu ends with its tick");
 }
 
+/// GetSecondsPassed inside a MenuMode block counts the menu's frames since the block
+/// last ran, not the stopped game clock: a quest with a 0.5 s delay that last ran in
+/// the frame before the Mods page opened read 0.5 on every page frame, and Just Assorted
+/// Mods' half-second registration in `MenuMode 1013` then ran once (its MCM page empty).
+#[test]
+fn get_seconds_passed_in_a_menu_mode_block_counts_the_menus_frames() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    let key = InstKey::Quest { quest: q() };
+    // Up to the frame in which the quest's GameMode ran (every 0.5 s).
+    g.frames(40);
+    for _ in 0..60 {
+        if g.instances.get(&key).and_then(|i| i.run_last) == Some(fnv_game::functions::misc::clock_now(g.time)) {
+            break;
+        }
+        g.frames(1);
+    }
+    assert_eq!(g.instances.get(&key).and_then(|i| i.run_last), Some(fnv_game::functions::misc::clock_now(g.time)));
+    let t = g.time;
+    for _ in 0..10 {
+        g.page_tick(menus::START);
+    }
+    let sum = g.var(key, 3).num();
+    let step = g.cfg.frame_seconds;
+    // 0 on the first run, then one frame step each (the clock reads 1/64 s steps).
+    assert!((sum - 9.0 * step).abs() <= 2.0 / 64.0, "fMenuSum {sum}, 9 frames {}", 9.0 * step);
+    assert_eq!(g.time, t, "the game clock stands still on the page");
+    // Above 64 fps two GameMode runs can fall in one 1/64 s clock step: the stopped
+    // clock then read 0 on every page frame, and a MenuMode timer never moved.
+    g.quests.get_mut(&q()).unwrap().delay = Some(0.001);
+    let step = g.cfg.frame_seconds;
+    g.cfg.frame_seconds = 0.004;
+    g.frames(3);
+    g.cfg.frame_seconds = step;
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 3, Value::Num(0.0), "test", true);
+    for _ in 0..30 {
+        g.page_tick(menus::START);
+    }
+    let sum = g.var(key, 3).num();
+    assert!(sum > 0.4, "fMenuSum {sum} after 30 page frames");
+}
+
 fn ui_call(g: &mut Game, op: u16, args: &[ArgValue]) {
     let ctx = Ctx { unit: "test".into(), opcode: op, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
     let before = g.events.len();
@@ -3238,6 +3445,20 @@ fn udf_fixture() -> Fixture {
         (0x0000_0905u32, "TestEmpty", "scn TestEmpty\nref r\nint n\nBegin Function {n}\n  if n == 1 && r.GetDisabled == 0\n  endif\nEnd\n".to_string()),
         // Functions that return a lambda (#1088): two in one unit, one in another.
         (0x0000_0906u32, "TestMaker", "scn TestMaker\nint k\nint w\nBegin Function {w}\n  if w\n    SetFunctionValue ({k} => k + 100)\n  else\n    SetFunctionValue ({k} => k * 2)\n  endif\nEnd\n".to_string()),
+        // Two GameMode blocks, the first making a call on an empty reference (EDEScript's
+        // shape, overnight queue item 52).
+        (0x0000_0908u32, "TestTwoBlocks", "scn TestTwoBlocks
+ref r
+short n
+begin GameMode
+  if n == 0 && r.GetDisabled == 0
+  endif
+  set TestGlobal to 1
+end
+begin GameMode
+  set TestGlobal to TestGlobal + 10
+end
+".to_string()),
         (0x0000_0907u32, "TestMaker2", "scn TestMaker2\nint k\nBegin Function {}\n  SetFunctionValue ({k} => k - 1)\nEnd\n".to_string()),
     ] {
         // TestFact calls itself: its own name resolves through a seed reference list.
@@ -3338,6 +3559,22 @@ fn a_scripts_call_on_an_empty_reference_is_traced_once() {
         g.run_source("ref r\nr.Disable", Default::default()).expect("compiles");
     }
     assert_eq!(failed(&g), 3);
+}
+
+/// A call on an empty reference stops neither the block it is in nor the later blocks of
+/// the same event: it gives 0 and the script goes on (`a_call_on_an_empty_reference_gives_0_
+/// and_the_script_goes_on`); EDEScript's second GameMode block, whose timer unrestrains the
+/// repaired ED-E, still runs [observed: o5_00, issue #1600; observer-checks.md check 51;
+/// docs/spec-notes/script-language.md §7.3 row 1].
+#[test]
+fn a_call_on_an_empty_reference_stops_neither_its_block_nor_the_next() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.strict = false;
+    let key = InstKey::Quest { quest: FormId(0x0000_0908) };
+    g.run_event(key, FormId(0x0000_0908), 0, None, Default::default());
+    // The first block went on to its `set`; the second ran after it.
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 11.0);
 }
 
 #[test]
@@ -4040,6 +4277,33 @@ fn player_control_locks_are_kept_per_plugin() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabled)"), XVal::Num(1.0), "the vanilla getter sees them");
     q(&mut g, "EnablePlayerControlsAlt");
     assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
+}
+
+/// Only a story script's locks hold a co-op host's guests (owner, 2026-11-09: "only story
+/// scenes", coop-replication.md §7.1): a quest's lock is a story lock, an object
+/// script's on something the player uses is not, and EnablePlayerControls clears both.
+#[test]
+fn only_a_story_scripts_lock_is_a_story_lock() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str, ctx: fnv_game::game::RunCtx| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx).unwrap();
+    };
+    let own = fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    q(&mut g, "DisablePlayerControls 1 0 0 0", own);
+    assert!(g.controls_locked()[0], "the host is held");
+    assert_eq!(g.story_locks(), [false; 7], "an object script's lock is the host's own");
+    let story = fnv_game::game::RunCtx { quest: Some(FormId(0x901)), ..Default::default() };
+    q(&mut g, "DisablePlayerControls 0 1 0 0", story);
+    assert_eq!(g.story_locks(), [false, true, false, false, false, false, false], "a quest's lock goes to the guests");
+    q(&mut g, "EnablePlayerControls", fnv_game::game::RunCtx::default());
+    assert_eq!(g.story_locks(), [false; 7]);
+    assert_eq!(g.controls_locked(), [false; 7]);
+    // An NVForever mini-game's own lock (the drinking contest's) holds this game only.
+    g.other.alt_locks.insert(format!("{}drink_contest", fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX), [true; 7]);
+    assert_eq!(g.controls_locked(), [true; 7], "the player at the table is held");
+    assert_eq!(g.story_locks(), [false; 7], "a mini-game's lock is no scene for the guests");
+    assert_eq!(g.scene_locks(), [false; 7], "nor a scene that hides the other players here");
 }
 
 /// The runner's `created:<base>` names the newest reference made at run time from a
@@ -4995,6 +5259,185 @@ fn console_plm_clm_s1st_setvel_and_the_small_ones() {
     assert_eq!(g.race_menu, fnv_game::game::RaceMenu::Creator);
 }
 
+/// A co-op guest takes a quest's reward the host completed (private fork): the XP as
+/// RewardXP gives it. On a host, caps that reach the player count towards the reward of
+/// a quest completed around then (`coop_rewards`). (The fixture has no caps form, so the
+/// caps go in as the event AddItem emits.)
+#[test]
+fn a_guest_takes_the_hosts_quest_reward() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let caps = fnv_game::coop_rewards::CAPS;
+    let xp0 = g.player.xp;
+    assert_eq!(g.take_coop_reward(250.0, 0).unwrap(), 250.0);
+    assert_eq!(g.player.xp, xp0 + 250.0);
+    let paid = |g: &mut Game| g.emit(fnv_game::trace::EventKind::ItemAdded { to: FormId::PLAYER_REF, item: caps, count: 40, silent: false });
+    // Off (a guest, a game alone): nothing kept.
+    paid(&mut g);
+    assert!(g.coop_rewards.due(u64::MAX).is_empty());
+    // A host: the caps a script gives count.
+    g.coop_rewards.on = true;
+    paid(&mut g);
+    let frame = g.frame;
+    g.coop_rewards.completed(frame, FormId(QUEST));
+    let due = g.coop_rewards.due(frame + fnv_game::coop_rewards::AFTER);
+    assert_eq!(due, [fnv_game::coop_rewards::QuestReward { quest: FormId(QUEST), xp: 0.0, caps: 40 }]);
+}
+
+/// Burning Campfire Redone's campfires (`fnv_game::campfire`): the second action lights
+/// a campfire of the plugin's list once; again, the fires start over instead of
+/// stacking; after the plugin's own activation of a burning campfire the fires it added
+/// are taken away.
+#[test]
+fn a_campfire_is_lit_once_and_its_fires_do_not_stack() {
+    const CAMPFIRE: u32 = 0xC00;
+    const OTHER: u32 = 0xC01;
+    const FIRE: u32 = 0xC02;
+    const QUIET: u32 = 0xC03;
+    const LIST: u32 = 0xC04;
+    let acti = |id: u32, edid: &str| record(b"ACTI", 0, id, &[sub(b"EDID", z(edid))]);
+    let list = record(b"FLST", 0, LIST, &[sub(b"EDID", z(fnv_game::campfire::VALID_LIST)), sub(b"LNAM", CAMPFIRE.to_le_bytes().to_vec())]);
+    let actis = [acti(CAMPFIRE, "CampfireTest"), acti(OTHER, "NotACampfire"), acti(FIRE, fnv_game::campfire::FIRE_SOUND), acti(QUIET, fnv_game::campfire::FIRE_QUIET)].concat();
+    let bytes = [tes4(), top(b"ACTI", &actis), top(b"FLST", &list)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&d, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.new_game();
+    assert_eq!(g.campfire_bases(), vec![FormId(CAMPFIRE)]);
+    let fire_place = g.create_at(FormId(CAMPFIRE), None, [100.0, 200.0, 0.0], [0.0; 3]).unwrap();
+    let other = g.create_at(FormId(OTHER), None, [500.0, 200.0, 0.0], [0.0; 3]).unwrap();
+    assert!(g.is_campfire(fire_place) && !g.is_campfire(other));
+    assert!(g.light_campfire(other).is_err(), "only the list's campfires are lit");
+    let placed = match g.light_campfire(fire_place).unwrap() {
+        fnv_game::campfire::Lit::Placed(p) => p,
+        lit => panic!("{lit:?}"),
+    };
+    assert_eq!(placed.len(), 1 + fnv_game::campfire::QUIET_COUNT);
+    assert_eq!(g.world.peek(placed[0]).unwrap().base, FormId(FIRE));
+    assert!(placed[1..].iter().all(|&f| g.world.peek(f).unwrap().base == FormId(QUIET)));
+    assert_eq!(g.campfire_fires(fire_place), placed);
+    assert_eq!(g.light_campfire(fire_place).unwrap(), fnv_game::campfire::Lit::Restarted(placed.clone()), "lit again: no more flames");
+    assert_eq!(g.campfire_fires(fire_place).len(), placed.len());
+    // The plugin's script places five more as Craft runs it on the burning campfire.
+    let before = g.campfire_fires(fire_place);
+    let again: Vec<FormId> = (0..5).map(|_| g.create_at(FormId(QUIET), None, [100.0, 200.0, 0.0], [0.0; 3]).unwrap()).collect();
+    assert_eq!(g.keep_first_fires(fire_place, &before), again);
+    assert_eq!(g.campfire_fires(fire_place), placed, "the first fires burn on, alone");
+    assert!(again.iter().all(|&f| g.world.peek(f).is_none_or(|s| s.deleted() && !s.enabled())));
+    // Unlit before: nothing is taken away.
+    assert!(g.keep_first_fires(other, &[]).is_empty());
+    // Co-op: held, its silent fires out as the host's are, then all out.
+    assert!(g.campfire_full(fire_place));
+    assert_eq!(g.hold_campfire(fire_place), placed.len());
+    assert_eq!(g.put_out_campfire(fire_place, true), fnv_game::campfire::QUIET_COUNT);
+    assert!(!g.campfire_full(fire_place));
+    assert_eq!(g.campfire_fires(fire_place), vec![placed[0]], "the fire with the sound burns on");
+    assert_eq!(g.put_out_campfire(fire_place, false), 1);
+    assert!(g.campfire_fires(fire_place).is_empty());
+    assert!(matches!(g.light_campfire(fire_place).unwrap(), fnv_game::campfire::Lit::Placed(_)), "out: lit anew");
+}
+
+/// The plugin edits `VCG03CraftingCampfireRecipesScript` to place its fire but leaves the
+/// Goodsprings campfire `VCG03CampfireCrafting03` out of its list (owner's report "you
+/// broke fires", 2026-11-13): an activator whose script names the plugin's fire is a
+/// campfire for the second action; one whose script does not stays an activator.
+#[test]
+fn a_campfire_whose_script_places_the_fire_is_lit_off_the_list() {
+    const LISTED: u32 = 0xC00;
+    const VCG03: u32 = 0xC01;
+    const OTHER: u32 = 0xC02;
+    const FIRE: u32 = 0xC03;
+    const QUIET: u32 = 0xC04;
+    const LIST: u32 = 0xC05;
+    const FIRE_SCRIPT: u32 = 0xC06;
+    const OTHER_SCRIPT: u32 = 0xC07;
+    let acti = |id: u32, edid: &str, scri: Option<u32>| {
+        let mut subs = vec![sub(b"EDID", z(edid))];
+        subs.extend(scri.map(|s| sub(b"SCRI", s.to_le_bytes().to_vec())));
+        record(b"ACTI", 0, id, &subs)
+    };
+    let scpt = |id: u32, edid: &str, refs: &[u32]| record(b"SCPT", 0, id, &[vec![sub(b"EDID", z(edid))], unit(0, &script(&[]), &[], refs)].concat());
+    let list = record(b"FLST", 0, LIST, &[sub(b"EDID", z(fnv_game::campfire::VALID_LIST)), sub(b"LNAM", LISTED.to_le_bytes().to_vec())]);
+    let actis = [
+        acti(LISTED, "CampfireCrafting03", Some(FIRE_SCRIPT)),
+        acti(VCG03, "VCG03CampfireCrafting03", Some(FIRE_SCRIPT)),
+        acti(OTHER, "ScriptedSign", Some(OTHER_SCRIPT)),
+        acti(FIRE, fnv_game::campfire::FIRE_SOUND, None),
+        acti(QUIET, fnv_game::campfire::FIRE_QUIET, None),
+    ]
+    .concat();
+    let scpts = [scpt(FIRE_SCRIPT, "VCG03CraftingCampfireRecipesScript", &[LIST, FIRE, QUIET]), scpt(OTHER_SCRIPT, "SignScript", &[LIST])].concat();
+    let bytes = [tes4(), top(b"SCPT", &scpts), top(b"ACTI", &actis), top(b"FLST", &list)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&d, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.new_game();
+    assert_eq!(g.campfire_bases(), vec![FormId(LISTED), FormId(VCG03)], "the list's first, then the scripted one");
+    let vcg03 = g.create_at(FormId(VCG03), None, [100.0, 200.0, 0.0], [0.0; 3]).unwrap();
+    let other = g.create_at(FormId(OTHER), None, [500.0, 200.0, 0.0], [0.0; 3]).unwrap();
+    assert!(g.is_campfire(vcg03) && !g.is_campfire(other));
+    let placed = match g.light_campfire(vcg03).unwrap() {
+        fnv_game::campfire::Lit::Placed(p) => p,
+        lit => panic!("{lit:?}"),
+    };
+    assert_eq!(placed.len(), 1 + fnv_game::campfire::QUIET_COUNT);
+    assert_eq!(g.campfire_fires(vcg03), placed);
+    assert!(g.light_campfire(other).is_err());
+}
+
+/// Co-op replication, phase 4 (docs/design/coop-replication.md §11): a guest's game runs
+/// none of the world's logic. The story's quests (its plugins in `story_plugins`) and the
+/// world references' GameMode and OnLoad blocks stop; a mod's quest goes on; with the gate
+/// off (solo and the host) everything runs as before.
+#[test]
+fn a_replication_guest_runs_no_world_logic() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    let act = InstKey::Ref { reference: FormId(ACT_REF) };
+    let num = |v: Value| match v {
+        Value::Num(x) => x,
+        v => panic!("{v:?}"),
+    };
+    g.tick();
+    let frames = num(g.var(act, 3));
+    // The guest: the reference's GameMode stops, and the story quest's timer with it.
+    g.world_logic_off = true;
+    g.story_plugins = vec![0];
+    g.set_stage(q(), 10);
+    g.frames(120);
+    assert_eq!(num(g.var(act, 3)), frames, "a world reference's GameMode ran on a guest");
+    assert!(!g.quest_state(q()).stages_done.contains(&20), "a story quest's script ran on a guest");
+    // Its OnLoad does not run when the cell loads again.
+    let loads = num(g.var(act, 7));
+    g.set_loaded(Default::default());
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    g.tick();
+    assert_eq!(num(g.var(act, 7)), loads);
+    // A mod's quest (not a story plugin) runs on the guest.
+    g.story_plugins = vec![5];
+    g.frames(120);
+    assert!(g.quest_state(q()).stages_done.contains(&20));
+    // The gate off: the reference runs again.
+    g.world_logic_off = false;
+    g.tick();
+    assert_eq!(num(g.var(act, 3)), frames + 1.0);
+}
+
 // ---- TTW's extender functions (issue #1408, crate::nvse_ttw) -------------------------
 
 /// A cell with one reference of a scripted activator whose GameMode block waits
@@ -5290,7 +5733,7 @@ fn built_in_plugins_report_installed() {
     let f = udf_fixture();
     let mut g = game(&f);
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default());
-    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "Improved Console", "sup nvse plugin"] {
+    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "sup nvse plugin", "yUI", "Improved Console"] {
         assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(1.0)), "{name}");
         let Ok(XVal::Num(v)) = q(&mut g, &format!("GetPluginVersion \"{name}\"")) else { panic!("{name}") };
         assert!(v > 0.0, "{name}: {v}");
@@ -5299,7 +5742,8 @@ fn built_in_plugins_report_installed() {
     assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
     assert_eq!(q(&mut g, "GetPluginVersion \"Improved Console\""), Ok(XVal::Num(3.0)));
-    for name in ["yUI", "NVTF", "No Such Plugin"] {
+    // yUI is not here: the fork reports it (the Nuclear Sunset list; `fnv_script::vm::jip::PLUGINS`).
+    for name in ["NVTF", "No Such Plugin"] {
         assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
         assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");
     }
@@ -5312,17 +5756,17 @@ fn plugin_questions_are_kept_only_when_asked_for() {
     let f = udf_fixture();
     let mut g = game(&f);
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default()).unwrap();
-    q(&mut g, "IsPluginInstalled \"yUI\"");
+    q(&mut g, "IsPluginInstalled \"NVTF\"");
     assert!(g.plugin_questions.is_none());
     g.plugin_questions = Some(Default::default());
-    for body in ["IsPluginInstalled \"yUI\"", "IsPluginInstalled \"yUI\"", "GetPluginVersion \"JIP NVSE Plugin\"", "IsDLLLoaded \"no_such\"", "IsModLoaded \"Nothing.esp\"", "GetModIndex \"Nothing.esp\""] {
+    for body in ["IsPluginInstalled \"NVTF\"", "IsPluginInstalled \"NVTF\"", "GetPluginVersion \"JIP NVSE Plugin\"", "IsDLLLoaded \"no_such\"", "IsModLoaded \"Nothing.esp\"", "GetModIndex \"Nothing.esp\""] {
         q(&mut g, body);
     }
     let got = g.plugin_questions.as_mut().unwrap().take();
     let read: Vec<(&str, &str, f64, bool)> = got.iter().map(|x| (x.function.as_str(), x.name.as_str(), x.answer, x.absent())).collect();
     assert_eq!(
         read,
-        [("isplugininstalled", "yUI", 0.0, true), ("getpluginversion", "JIP NVSE Plugin", 57.3, false), ("isdllloaded", "no_such", 0.0, true), ("ismodloaded", "Nothing.esp", 0.0, true), ("getmodindex", "Nothing.esp", 255.0, true)]
+        [("isplugininstalled", "NVTF", 0.0, true), ("getpluginversion", "JIP NVSE Plugin", 57.3, false), ("isdllloaded", "no_such", 0.0, true), ("ismodloaded", "Nothing.esp", 0.0, true), ("getmodindex", "Nothing.esp", 255.0, true)]
     );
 }
 

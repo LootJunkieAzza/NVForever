@@ -418,6 +418,10 @@ pub fn cell_of_place(refs: &RefTable, place: &Place) -> Option<FormId> {
     }
 }
 
+/// How near the seat an actor sent to one stops: furniture takes it the last steps
+/// (`nvforever` `furniture.rs`) [design].
+pub const SEAT_REACH: f32 = 64.0;
+
 /// Where a reference is now (moved references included).
 pub fn place_of_ref(game: &Game, r: FormId) -> Option<Place> {
     let refs = game.world.placed;
@@ -545,6 +549,14 @@ fn route_from(game: &Game, start: FormId, repeatable: bool) -> Option<Route> {
 /// with another location goes to that location [hypothesis].
 pub fn resolve(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
     let refs = game.world.placed;
+    // A seat the actor was sent to over its package (`fnv_game::armwrestle_table`): it
+    // goes there, whatever the package says [design].
+    if let Some(seat) = game.extra.get(&actor).and_then(|e| e.seat_override) {
+        return match place_of_ref(game, seat) {
+            Some(place) => Goal::Near { place, radius: SEAT_REACH, reference: Some(seat) },
+            None => Goal::Missing("the seat it was sent to is in no cell"),
+        };
+    }
     match def.ty {
         // A Use Weapon package stands at its location to shoot (`fnv_game::use_weapon`).
         PackageType::Travel | PackageType::Sandbox | PackageType::Sleep | PackageType::Eat | PackageType::Guard | PackageType::Wander | PackageType::Patrol | PackageType::UseWeapon => {}

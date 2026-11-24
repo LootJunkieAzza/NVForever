@@ -78,7 +78,7 @@ stays as it is until the answer comes back.
 | CastImmediateOnSelf | effects of duration 0, and effects not ranged Self | med |
 | ForceActiveQuest | the compass's quest-target marks (none drawn) | med |
 | AddReputation | the "gained" corner line (`ReputationChanged` has no consumer) | med |
-| MoveTo on the player | whether the player takes the marker's heading | med |
+| MoveTo on the player | whether the player takes the marker's heading (ours does since 2026-11-09, item 116 [hypothesis]) | med |
 | AddItem | OnAdd once per item in the count; an NPC re-equipping its best gear | med |
 | ShowMessage | two button boxes queued at once (ours loses the first answer) | low |
 | ResetQuest, StartCombat (Friend/Ally refusal, search end), DisablePlayerControls (image-space reset), GetSleeping (player), GetSelf (created references) | as in the audit tables | low–med |

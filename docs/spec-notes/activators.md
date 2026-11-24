@@ -293,8 +293,14 @@ script), and whether that base's model has a sequence named like the group.
     counts as "the current animation" is a hypothesis]; a loop asked for again while it
     plays goes on [design];
   - an object not drawn keeps the latest request and shows it when drawn: a group played
-    once at its end, a loop from its start [design]; meanwhile it is reported not
-    playing. An object a script enabled at run time (`nvf_play::script_draw` draws it a
+    once at its end, a loop from its start [design]; meanwhile the group asked is
+    reported playing (`IsAnimPlaying` 1), so a script waiting for it to end waits for the
+    object to be shown: VHDBearForceOneREF's script (SCPT 0x00130C73) plays `Right` while
+    the vertibird is still disabled, then waits on `IsAnimPlaying Right` before `Backward`
+    and Kimball's arrival [observed: with it reported not playing, the wait fell through
+    in 16 ms, queue item 192; hypothesis: the original's disabled reference keeps its 3D
+    and plays the group, which reads 1 until it ends; observer-checks.md]. Drawn, a model
+    without that sequence is reported not playing. An object a script enabled at run time (`nvf_play::script_draw` draws it a
     frame or more after the Enable, with its own node hierarchy when its model has named
     sequences) shows a group played once where it would be by now, from its start when
     it was asked for with the Enable, and the sound keys passed meanwhile play when it is
@@ -345,7 +351,10 @@ script), and whether that base's model has a sequence named like the group.
   when it is`; `… drawn, shows <group> as asked while it was not`; `… drawn (enabled at run time),
   plays <group> from <s> s as asked while it was not`; `… drawn again, shows <group> at its
   end|from its start`; `… its model has no
-  sequence of that name`; at exit `playgroup summary: …`; the `anim sounds summary`
+  sequence of that name (said once for this reference and group)` (a script that blinks
+  a light by alternating a missing group with one the model has, the Lonesome Road
+  silo's NVDLC04SiloBlastDoorControlsREF `Right`/`SpecialIdle`, is reported once; the
+  original shows nothing for a missing group [hypothesis: observer-checks.md]); at exit `playgroup summary: …`; the `anim sounds summary`
   counts "object group sounds".
 - Smoke test (CLAUDE.md): Goodsprings at 21:00. On load the plants' OnLoad blocks play
   Backward or Forward, the house windows Left, the Prospector Saloon's lights

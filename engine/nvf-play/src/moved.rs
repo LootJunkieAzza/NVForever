@@ -98,8 +98,10 @@ fn follow(
     mut found: Local<Found>,
 ) {
     let mut ids: BTreeSet<u32> = phys.moved_now.iter().copied().collect();
-    ids.extend(script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0)));
+    // A reference put somewhere new from outside the physics (co-op: another player's
+    // carry) is drawn where it now is too, not only collides there.
     ids.extend(repose.read().map(|m| m.form_id));
+    ids.extend(script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0)));
     ids.extend(added.iter().map(|r| r.0).filter(|&id| sim.moved_pose(id).is_some() || sim.script_scale(id).is_some()));
     // Clutter drawn between physics steps, every frame while it moves and once after.
     ids.extend(phys.between.redraw.iter().copied());

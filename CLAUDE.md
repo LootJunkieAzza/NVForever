@@ -34,6 +34,13 @@ extender source read): `docs/design/extender-compat.md`, core tasks in
   2026-10-30; its policy admits leaked Xbox symbols and translated decompiled code). Its
   one past use, a cross-check of the animation schema, was redone from nif.xml and the
   data alone (LEGAL.md). nif.xml is documentation only (no codegen) to keep the licence open.
+- The FNV decompilation (github.com/momusdigital/fnv_decomp, clone at `C:\dev\fnv_decomp`) is
+  used clean room only (owner decision 2026-11-07). Only a session briefed as the **reader**
+  opens it. The reader writes plain-language behaviour notes in `docs/spec-notes/`, with each
+  claim tagged `[decomp: <function name or address>]`, and has no code and no pseudo-code. It
+  doesn't change engine code in that session. Every other session never opens, searches or
+  quotes the clone; it implements from the notes. Never copy, translate or paraphrase its code,
+  never build it or run its tools, and never commit any of it.
 - Strings the original shows that are not in the data files are not transcribed: the
   load order's GMST wins, otherwise NVForever writes its own words (LEGAL.md). A name or
   term the data files' own shown text already uses may be the label, spelled as the data
@@ -110,7 +117,9 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   `--fail-fast` starts no launch after the first FAIL (a full run before the push still).
   Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
   `NVF_FNVTOOL`, `NVF_SMOKE_LOCKS` (other machines), `NVF_OBSERVER_SAMPLES` (the AI observer
-  captures).
+  captures). A game whose scenario sets no `NVFOREVER_HOME` runs in the machine's smoke home
+  (`<main checkout>\.claude\smoke-home`, its settings file removed before each launch),
+  never the player's own home, whose saved settings would win over the test aids.
 - **Stop only your own runner, by the PID you started.** Never stop processes by a
   command-line match or with `taskkill /T` on a shell you did not start: on 2026-10-24 one
   such match stopped every session's smoke runner on the machine.

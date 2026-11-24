@@ -1008,12 +1008,22 @@ impl TerrainCtx<'_, '_, '_> {
         terrain_nif_material(base, self.tm.settings.tile, anti_tiling_wanted(self.tm.graphics.as_deref()))
     }
 
+    /// A landscape material that reads the grass fires' burn map, when there is one, and
+    /// draws the ground under burnt grass scorched (nif_material.wesl "Scorch").
+    fn scorched(&self, mut m: NifMaterial) -> NifMaterial {
+        if let Some(burn) = self.tm.burn.as_deref() {
+            m.extension.scorch_map = Some(burn.0.clone());
+            m.extension.soft.y = 1.0;
+        }
+        m
+    }
+
     fn base_material(&mut self, tex: Option<String>) -> Handle<NifMaterial> {
         if let Some(h) = self.tm.cache.base.get(&tex) {
             return h.clone();
         }
         let m = self.surface(tex.as_deref());
-        let m = self.terrain_nif(m);
+        let m = self.scorched(self.terrain_nif(m));
         let h = self.assets.materials.add(m);
         self.tm.cache.base.insert(tex, h.clone());
         h
@@ -1078,7 +1088,7 @@ impl TerrainCtx<'_, '_, '_> {
             depth_bias: sort_first(2.0 * (rank as f32 + 1.0)),
             ..surface
         };
-        let m = self.terrain_nif(m);
+        let m = self.scorched(self.terrain_nif(m));
         let h = self.assets.materials.add(m);
         self.tm.cache.layer.insert((tex, rank), h.clone());
         Some(h)

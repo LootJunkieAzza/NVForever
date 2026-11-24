@@ -715,14 +715,22 @@ pub(crate) fn collect_screenshots(world: &mut World) {
             let (tx, rx) = async_channel::bounded(1);
             let buffer_slice = buffer.slice(..);
             // The polling for this map call is done every frame when the command queue is submitted.
+            // NVForever (vendor/README.md): a failed map (the GPU device was lost) drops
+            // this screenshot instead of panicking; the caller waits for a picture that
+            // never comes (a save goes on without its thumbnail).
             buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-                if let Err(err) = result {
-                    panic!("{}", err.to_string());
+                if let Err(err) = &result {
+                    bevy_log::warn!("screenshot: the buffer could not be mapped ({err}); this screenshot is dropped");
                 }
-                tx.try_send(()).unwrap();
+                let _ = tx.try_send(result.is_ok());
             });
-            rx.recv().await.unwrap();
-            let data = buffer_slice.get_mapped_range().unwrap();
+            if !matches!(rx.recv().await, Ok(true)) {
+                return;
+            }
+            let Ok(data) = buffer_slice.get_mapped_range() else {
+                bevy_log::warn!("screenshot: the mapped buffer could not be read; this screenshot is dropped");
+                return;
+            };
             // we immediately move the data to CPU memory to avoid holding the mapped view for long
             let mut result = Vec::from(&*data);
             drop(data);

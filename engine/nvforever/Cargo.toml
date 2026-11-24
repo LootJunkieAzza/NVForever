@@ -31,11 +31,14 @@ texpresso.workspace = true
 fnv-spt.workspace = true
 fnv-font.workspace = true
 nvf-play.workspace = true
+nvf-coop.workspace = true
 fnv-actor.workspace = true
 fnv-sim.workspace = true
 fnv-combat.workspace = true
 fnv-collide.workspace = true
 fnv-phys.workspace = true
+# The Caravan pot falls as rigid bodies (caravan_pot.rs): the same pinned rapier as fnv-phys.
+rapier3d = { version = "=0.36.1", features = ["enhanced-determinism"] }
 fnv-nav.workspace = true
 fnv-ai.workspace = true
 fnv-game.workspace = true
@@ -60,6 +63,9 @@ half = "2"
 # GPU memory budget (memory_budget.rs): VK_EXT_memory_budget through wgpu's Vulkan device
 # (`Device::as_hal`); the versions Bevy already uses (MIT/Apache-2.0).
 wgpu = { version = "30", default-features = false, features = ["vulkan"] }
+# The GPU allocator wgpu uses (vendored, engine/vendor/README.md): how many emptied memory
+# blocks it keeps, set from the GPU memory budget (memory_budget.rs).
+gpu-allocator = { version = "0.28", default-features = false, features = ["hashbrown"] }
 # MIT FSR 3.1.4 source port, pinned and vendored with shaders/build sources/notices.
 wgpu-ffx = { path = "../vendor/wgpu-ffx/wgpu-ffx" }
 ash = { version = "0.38", default-features = false }
@@ -84,7 +90,7 @@ rfd = { version = "0.15", default-features = false, features = ["common-controls
 # page" and "Open dlss folder" (dlss_download/: ShellExecuteW in UI_Shell, its show flag in
 # UI_WindowsAndMessaging, COM set up for it in System_Com); a version already in the build;
 # MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Memory", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Storage_Xps"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # [design, #2249] Optional NVML at runtime; reuse engine/Cargo.lock's libloading.

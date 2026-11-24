@@ -406,9 +406,17 @@ fn map_buffers(mut readbacks: ResMut<GpuReadbacks>) {
         let buffer = readback.buffer.clone();
         let tx = readback.tx.clone();
         slice.map_async(wgpu::MapMode::Read, move |res| {
-            res.expect("Failed to map buffer");
+            // NVForever (engine/vendor/README.md): a failed map (the GPU device was lost)
+            // drops this readback instead of panicking on the device's thread.
+            if let Err(e) = res {
+                bevy_log::warn!("gpu readback: the buffer could not be mapped ({e}); this readback is dropped");
+                return;
+            }
             let buffer_slice = buffer.slice(..);
-            let data = buffer_slice.get_mapped_range().unwrap();
+            let Ok(data) = buffer_slice.get_mapped_range() else {
+                bevy_log::warn!("gpu readback: the mapped buffer could not be read; this readback is dropped");
+                return;
+            };
             let result = Vec::from(&*data);
             drop(data);
             buffer.unmap();

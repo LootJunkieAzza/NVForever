@@ -122,3 +122,32 @@ read off the pictures by eye [observed]; the code names the rectangles.
 - Not built: opening it from a table in a casino (no placed table in the game is a poker
   table), a controller's buttons, the sounds of the player's own moves (cards dealt, chips
   bet), chips of the casino instead of caps.
+
+## 7. Co-op (nvf-play `poker/coop.rs`)
+
+[design] One table, played by its owner's game; the others see it and send choices.
+
+- The first player to open poker (console `poker`) with no poker table near owns the
+  table and deals, as alone. A player near it (`coop_tables::WATCH_RANGE`) who opens poker
+  joins that table instead, whatever casino letter was typed, and waits for the hand in
+  play to end.
+- Between hands the owner seats each waiting player in an opponent's place: an opponent
+  out of chips first, else the one with the shortest stack (its chips leave with it). The
+  guest's stack is its own buy-in (`BUY_IN` or its caps, the smaller), as the owner's.
+- On a guest's turn the owner's table waits for it (no thinking time, no clock); the
+  guest's choice goes to the owner (`PokerAction::Act`, with the hand number so a late one
+  is dropped) and the next view shows it played.
+- The view (`TableView`, every 0.25 s with the other tables) carries the board, bets,
+  stacks, last moves, the result, what the seat to act may do, and hole cards: the human
+  seats' own (each game draws only its own face up) and, at a showdown, every seat still
+  in. Opponents' cards stay hidden until then.
+- Each guest draws a mirror of the table turned so its own seat is nearest the camera; the
+  sounds and dealing come from the changes it sees (a new hand, new board cards, a move,
+  the result).
+- Leaving: a guest's seat folds on its turn and empties at the hand's end (also when its
+  game goes unheard for 4 s). A guest settles with the stack the owner's table last
+  showed. The owner leaving, or out of chips, closes the table for everyone ("The table
+  closed"); each guest settles its own stack.
+- Watchers near see "X's poker table at The Tops: hand n, …" and who sits at it.
+- Not built: a guest taking the owner's place when the owner leaves, more than one table
+  at the same spot.

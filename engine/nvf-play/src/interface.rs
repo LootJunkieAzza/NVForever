@@ -213,7 +213,141 @@ pub fn menu_scale_of(ui: f32) -> f32 {
 pub fn fix_ui_scale() {
     let s = ui_scale_setting();
     UI_SCALE.store(s.to_bits(), Ordering::Relaxed);
+    BASE_HUD.store(s.to_bits(), Ordering::Relaxed);
+    BASE_MENU.store(menu_scale().to_bits(), Ordering::Relaxed);
+    MENU_FILLS.store(false, Ordering::Relaxed);
     info!("interface: UI scale {:.0}% (the HUD drawn at {:.0}%, the menus at {:.0}% of the original's size)", s * 100.0, s * 100.0, menu_scale() * 100.0);
+}
+
+/// The narrowest view the menus are laid out for: 4:3, 1280 of the original's units across
+/// its 960 [observed: the settings page's layout tests go down to 4:3, `pause.rs`
+/// `VIEW_WIDTHS`].
+pub const NARROWEST_MENU_VIEW: f32 = 4.0 / 3.0;
+
+/// How much bigger the HUD is drawn in a split-screen half wider than [`SPLIT_WIDE`]:
+/// the half is half the screen's height, so at the same share of it the HUD's words are
+/// half their full-screen size (12 pixels for "HP" in a 2560x720 half) [design: plan
+/// `split-screen.md` §5, "Split UI scale, default 1.25 for top/bottom"].
+pub const SPLIT_WIDE_HUD: f32 = 1.25;
+
+/// A half wider than this (width over height) is a top-and-bottom half (32:9 on a 16:9
+/// screen; a full 21:9 screen is 2.37, but it is never a half) [design].
+pub const SPLIT_WIDE: f32 = 2.5;
+
+/// How much wider than the 4:3 view ([`NARROWEST_MENU_VIEW`]) the menus of a narrow
+/// split-screen half are laid out, in the original's units: room for split screen's entry
+/// in the pause menu's column (End Split Screen), which keeps the settings page's rail
+/// further left than in a game without it (`crate::pause` `rail_right`), so the settings
+/// list keeps at least the room it has in a 4:3 view [design].
+pub const SPLIT_COLUMN_ROOM: f32 = 96.0;
+
+/// The HUD's and the menus' scale factors in a split-screen half of `size` (any pixels),
+/// on top of the HUD scale and menu scale settings [design: plan `split-screen.md` §5]:
+/// - a wide half (top and bottom): the HUD [`SPLIT_WIDE_HUD`] times bigger; the menus as
+///   they are (they already fill the half's height, the most they can);
+/// - a half narrower than that (side by side, 8:9 on a 16:9 screen): the HUD shrinks until
+///   the 4:3 view fits across it (2/3 at 8:9), so its corners keep apart; the menus until
+///   the 4:3 view and [`SPLIT_COLUMN_ROOM`] do (0.62 at 8:9), so no menu runs off its
+///   sides and the pause menu's settings page keeps its room;
+/// - neither grows past 1.
+pub fn split_ui_factors(size: Vec2) -> (f32, f32) {
+    if !(size.x > 0.0 && size.y > 0.0) {
+        return (1.0, 1.0);
+    }
+    let aspect = size.x / size.y;
+    if aspect > SPLIT_WIDE {
+        (SPLIT_WIDE_HUD, 1.0)
+    } else {
+        let hud = (aspect / NARROWEST_MENU_VIEW).min(1.0);
+        let menu = (aspect * 960.0 / (NARROWEST_MENU_VIEW * 960.0 + SPLIT_COLUMN_ROOM)).min(1.0);
+        (hud, menu)
+    }
+}
+
+/// The HUD's and the menus' scales this run started with ([`fix_ui_scale`]): what split
+/// screen's factors multiply, and what ending split screen gives back exactly.
+static BASE_HUD: AtomicU32 = AtomicU32::new(0x3f80_0000);
+static BASE_MENU: AtomicU32 = AtomicU32::new(0x3f80_0000);
+/// The pause menu's page takes the whole view ([`spread_frame`]): a split-screen half
+/// narrower than 4:3, where the room a smaller scale leaves is the room the page needs.
+static MENU_FILLS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The HUD scale, the menu scale and whether the pause menu's page fills the view
+/// ([`MENU_FILLS`]) for split-screen `factors` ([`split_ui_factors`]; `None`: not split) on
+/// top of the run's own scales `base_hud` and `base_menu`. The HUD may go to 150%
+/// ([`UI_SCALE_RANGE`]); a smaller menu scale is taken down to the hundredth, so the 4:3
+/// view still fits across ([`crate::menu_scale`] keeps hundredths, and at least 50%).
+pub fn split_scales(base_hud: f32, base_menu: f32, factors: Option<(f32, f32)>) -> (f32, f32, bool) {
+    match factors {
+        None => (base_hud, base_menu, false),
+        Some((hud, menu)) => {
+            let h = (base_hud * hud).clamp(0.25, UI_SCALE_RANGE.1);
+            if menu < 1.0 {
+                (h, ((base_menu * menu * 100.0).floor() / 100.0).max(0.5), true)
+            } else {
+                (h, base_menu, false)
+            }
+        }
+    }
+}
+
+/// Which making of the HUD's pieces is wanted: one more each time the HUD's scale changes
+/// while the game runs (split screen starts, ends or changes its layout,
+/// [`set_split_ui`]). Each HUD system that spawns pieces with lengths at the HUD's scale
+/// keeps a [`HudRebuild`] and, when it is stale, drops its pieces and what it remembers
+/// of them, so they are made again at the new scale [design: the HUD's lengths are fixed
+/// when a piece is made, `u` in parts of the view].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct HudBuild(pub u32);
+
+/// A HUD system's note of the [`HudBuild`] its pieces were made in.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct HudRebuild<'w, 's> {
+    wanted: Option<Res<'w, HudBuild>>,
+    built: Local<'s, u32>,
+}
+
+impl HudRebuild<'_, '_> {
+    /// True once after each new [`HudBuild`]: the system drops the pieces it made and its
+    /// notes of them this frame (and touches them no more), and makes them again from the
+    /// next.
+    pub fn stale(&mut self) -> bool {
+        let wanted = self.wanted.as_deref().map_or(0, |b| b.0);
+        if *self.built == wanted {
+            return false;
+        }
+        *self.built = wanted;
+        true
+    }
+}
+
+/// Draw the HUD and the menus for a split-screen half (`factors`, [`split_ui_factors`]),
+/// or with `None` at the run's own scales (split screen over, or never on), while the game
+/// runs. A new HUD scale makes the HUD's pieces again (`build`, [`HudBuild`]); a new menu
+/// scale takes effect when a menu is drawn next (the pause menu draws again at once, its
+/// view's width being part of what it draws). Returns whether anything changed.
+pub fn set_split_ui(factors: Option<(f32, f32)>, build: Option<&mut HudBuild>) -> bool {
+    let base = f32::from_bits(BASE_HUD.load(Ordering::Relaxed));
+    let base_menu = f32::from_bits(BASE_MENU.load(Ordering::Relaxed));
+    let (h, m, fills) = split_scales(base, base_menu, factors);
+    let hud_changed = h != ui_scale();
+    let changed = hud_changed || m != menu_scale() || fills != MENU_FILLS.load(Ordering::Relaxed);
+    if !changed {
+        return false;
+    }
+    UI_SCALE.store(h.to_bits(), Ordering::Relaxed);
+    crate::menu_scale::publish(m);
+    MENU_FILLS.store(fills, Ordering::Relaxed);
+    if hud_changed {
+        if let Some(b) = build {
+            b.0 = b.0.wrapping_add(1);
+        }
+    }
+    match factors {
+        Some(_) => info!("interface: split screen: the HUD drawn at {:.0}%, the menus at {:.0}%{}", h * 100.0, menu_scale() * 100.0, if fills { ", the pause menu across the view" } else { "" }),
+        None => info!("interface: the HUD drawn at {:.0}%, the menus at {:.0}% again", h * 100.0, menu_scale() * 100.0),
+    }
+    true
 }
 
 std::thread_local! {
@@ -332,8 +466,18 @@ pub fn menu_frame(anchor: Vec2) -> Option<Node> {
 /// [`menu_frame`].
 pub const MENU_SPREAD: f32 = 0.5;
 
+/// Whether the pause menu's page fills the view: a split-screen half narrower than 4:3
+/// ([`split_scales`]), where the settings page gives the faded column's room to its list
+/// (`crate::pause`).
+pub fn menu_fills() -> bool {
+    MENU_FILLS.load(Ordering::Relaxed)
+}
+
 /// The share of the view a spread frame takes (module notes of [`MENU_SPREAD`]).
 fn spread_share() -> f32 {
+    if MENU_FILLS.load(Ordering::Relaxed) {
+        return 1.0;
+    }
     let s = unit_scale();
     (s * (1.0 + MENU_SPREAD * (1.0 - s))).min(1.0)
 }
@@ -524,8 +668,9 @@ pub fn glow_offsets(mut lines: Query<(&TextGlow, &bevy::ui::ComputedNode, &mut b
 
 /// A game texture for the interface: not repeated, so that a stretched picture's two
 /// ends do not run into each other.
+/// Full size, outside the world textures' side cap (`nvf_assets::texture::dds_image_full`).
 pub fn texture(path: &str, data: &GameData, images: &mut Assets<Image>, bc: bool) -> Option<(Handle<Image>, Vec2)> {
-    texture_read(path, data, images, bc, nvf_assets::texture::dds_image)
+    texture_read(path, data, images, bc, nvf_assets::texture::dds_image_full)
 }
 
 /// A font's texture: [`texture`] with its largest level only, so a glyph cut out of it
@@ -1163,6 +1308,82 @@ fn own_texture(path: &str) -> String {
     format!("textures\\{}", path.trim().trim_start_matches(['\\', '/']).to_ascii_lowercase())
 }
 
+// ---- soft backing and fading rule (the menus' message-box look) -------------------------
+
+/// How far a soft backing's fade reaches past its box, in parts of its feather: the
+/// blur's tail is under 1 % there [design].
+pub const SOFT_REACH: f32 = 2.0;
+
+/// A dark backing that fades out at its edges, with no border [design: the user's pick
+/// of 2026-11-06, mockup 1B: a box with corners rounded by `feather` and blurred by
+/// 0.6 × `feather`, black at `strength`]. The image covers the box (`width` × `height`
+/// interface units) and [`SOFT_REACH`] × `feather` around it, one texel a unit; draw it
+/// that much larger than the box, centred on it ([`soft_backing_node`]), stretched
+/// (`NodeImageMode::Stretch`: the image's own size is not kept in the main world).
+pub fn soft_backing_image(width: f32, height: f32, feather: f32, strength: f32) -> Image {
+    let pad = (feather * SOFT_REACH).ceil();
+    let (w, h) = ((width + 2.0 * pad).ceil().max(1.0) as u32, (height + 2.0 * pad).ceil().max(1.0) as u32);
+    let sigma = (feather * 0.6).max(0.5);
+    let (hx, hy) = (width / 2.0, height / 2.0);
+    let r = feather.min(hx).min(hy).max(0.0);
+    let mut px = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            // Signed distance from the rounded box (negative inside), from its middle.
+            let (dx, dy) = ((x as f32 + 0.5 - w as f32 / 2.0).abs() - (hx - r), (y as f32 + 0.5 - h as f32 / 2.0).abs() - (hy - r));
+            let outside = Vec2::new(dx.max(0.0), dy.max(0.0)).length();
+            let d = outside + dx.max(dy).min(0.0) - r;
+            // The blurred edge: the normal curve's tail past it (a logistic stand-in).
+            let a = strength / (1.0 + (1.702 * d / sigma).exp());
+            px.extend_from_slice(&[0, 0, 0, (a * 255.0).round().clamp(0.0, 255.0) as u8]);
+        }
+    }
+    Image::new(
+        bevy::render::render_resource::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        bevy::render::render_resource::TextureDimension::D2,
+        px,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// Where a [`soft_backing_image`] of the box `left`, `top`, `width`, `height` (interface
+/// units) is drawn: the box grown by its fade on every side.
+pub fn soft_backing_node(left: f32, top: f32, width: f32, height: f32, feather: f32) -> Node {
+    let pad = (feather * SOFT_REACH).ceil();
+    at(left - pad, top - pad, width + 2.0 * pad, height + 2.0 * pad)
+}
+
+/// A thin rule that fades out towards both ends, white to be tinted (mockup 1B's line
+/// under the title) [design]: a row of texels, full in the middle.
+pub fn fading_rule_image() -> Image {
+    const N: u32 = 64;
+    let mut px = Vec::with_capacity((N * 4) as usize);
+    for x in 0..N {
+        let t = 1.0 - ((x as f32 + 0.5) / N as f32 * 2.0 - 1.0).abs();
+        px.extend_from_slice(&[255, 255, 255, (t.min(0.5) * 2.0 * 255.0).round() as u8]);
+    }
+    Image::new(
+        bevy::render::render_resource::Extent3d { width: N, height: 1, depth_or_array_layers: 1 },
+        bevy::render::render_resource::TextureDimension::D2,
+        px,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// `face` drawn `k` times its size: every glyph's box and spacing scaled (the game's
+/// fonts come in few sizes).
+pub fn scaled_face(face: &Face, k: f32) -> Face {
+    let mut font = face.font.clone();
+    font.size *= k;
+    for g in &mut font.glyphs {
+        (g.width, g.height, g.before, g.after, g.ascent) = (g.width * k, g.height * k, g.before * k, g.after * k, g.ascent * k);
+    }
+    let vector = face.vector.clone().map(|v| VectorFace { em: v.em * k, base: v.base * k, ..v });
+    Face { font, image: face.image.clone(), vector }
+}
+
 #[cfg(test)]
 #[path = "interface_layout_tests.rs"]
 mod layout_tests;
@@ -1182,6 +1403,40 @@ mod tga_consumer_tests;
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn split_halves_grow_the_hud_when_wide_and_fit_the_menus_when_narrow() {
+        // Top and bottom on a 2560x1440 screen: the HUD 1.25 times, the menus as they are.
+        assert_eq!(split_ui_factors(Vec2::new(2560.0, 720.0)), (SPLIT_WIDE_HUD, 1.0));
+        assert_eq!(split_ui_factors(Vec2::new(1920.0, 540.0)), (SPLIT_WIDE_HUD, 1.0));
+        // Side by side: 8:9, the HUD's 4:3 view fits across at 2/3, the menus' 4:3 view
+        // and the column's room at 0.62.
+        let (hud, menu) = split_ui_factors(Vec2::new(1280.0, 1440.0));
+        assert!((hud - 2.0 / 3.0).abs() < 1e-6, "{hud}");
+        assert!((1280.0 / 1440.0 * 960.0 - NARROWEST_MENU_VIEW * 960.0 * hud).abs() < 1e-3, "the 4:3 view's width is the half's");
+        assert!((1280.0 / 1440.0 * 960.0 - (NARROWEST_MENU_VIEW * 960.0 + SPLIT_COLUMN_ROOM) * menu).abs() < 1e-3, "{menu}");
+        // With the menu scale kept to the hundredth below, the half holds the page's room.
+        let (_, m, fills) = split_scales(1.0, 1.0, Some((hud, menu)));
+        assert!(fills && 1280.0 / 1440.0 * 960.0 / m >= NARROWEST_MENU_VIEW * 960.0 + SPLIT_COLUMN_ROOM, "{m}");
+        // A full 16:9 view: nothing changes; a 4:3 half keeps its HUD.
+        assert_eq!(split_ui_factors(Vec2::new(1920.0, 1080.0)), (1.0, 1.0));
+        assert_eq!(split_ui_factors(Vec2::new(1280.0, 960.0)).0, 1.0);
+        assert_eq!(split_ui_factors(Vec2::ZERO), (1.0, 1.0));
+    }
+
+    /// Split screen's scales on top of the run's own: ending it gives back exactly the
+    /// run's own; the HUD stays within its range; the menus never grow past their own.
+    #[test]
+    fn split_scales_multiply_the_runs_own_and_give_them_back() {
+        for (hud, menu) in [(1.0, 1.0), (0.5, 0.5), (0.8, 0.7)] {
+            assert_eq!(split_scales(hud, menu, None), (hud, menu, false), "split over: the run's own");
+            let (h, m, fills) = split_scales(hud, menu, Some((SPLIT_WIDE_HUD, 1.0)));
+            assert!((h - (hud * SPLIT_WIDE_HUD).min(UI_SCALE_RANGE.1)).abs() < 1e-6 && m == menu && !fills, "top and bottom {hud} {menu}");
+            let (h, m, fills) = split_scales(hud, menu, Some(split_ui_factors(Vec2::new(1280.0, 1440.0))));
+            assert!(h < hud && m <= menu && m >= 0.5 && fills, "side by side {hud} {menu}: {h} {m}");
+        }
+        assert_eq!(split_scales(1.4, 1.0, Some((SPLIT_WIDE_HUD, 1.0))).0, UI_SCALE_RANGE.1);
+    }
 
     pub(crate) fn authored_rgba_dds(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = vec![0; 128 + width as usize * height as usize * 4];

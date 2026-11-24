@@ -44,7 +44,7 @@ use crate::settings::{add_setting, Setting, Slider};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy::window::{CursorOptions, PrimaryWindow};
 use fnv_phys::{layers, Filter, Key, Owner};
 use fnv_sim::settings::Setting as GameSetting;
 use fnv_sim::FormId;
@@ -355,7 +355,7 @@ fn assist(
     state: Res<State<PlayState>>,
     (settings, bindings, pads): (Res<AimAssist>, Res<Bindings>, crate::pad::ActionPads),
     (locks, look, free_cam, kill_cam): (Res<ControlLocks>, Option<Res<crate::dialogue::FreeLook>>, Option<Res<crate::free_cam::FreeCam>>, Option<Res<crate::kill_cam::KillCam>>),
-    (vats, driven, cursor, seat): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::player::ViewDriven>>, Query<&CursorOptions, With<PrimaryWindow>>, Option<Res<crate::furniture::PlayerSeat>>),
+    (vats, driven, cursor, seat, without_focus): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::player::ViewDriven>>, Query<&CursorOptions, With<PrimaryWindow>>, Option<Res<crate::furniture::PlayerSeat>>, Option<Res<crate::split_screen::PlayerTwo>>),
     control: Res<PlayerControl>,
     mut player: ResMut<Player>,
     phys: Option<ResMut<PhysState>>,
@@ -375,7 +375,7 @@ fn assist(
         on: settings.on,
         controller: bindings.device == InputDevice::Controller,
         playing,
-        grabbed: cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None),
+        grabbed: crate::player::look_input_on(&cursor, without_focus.is_some()),
         looking_locked: locks.looking,
         wheel: control.wheel,
         orbit: control.orbit.active(),

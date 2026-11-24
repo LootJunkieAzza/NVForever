@@ -69,7 +69,7 @@ use nvf_play::phys::PhysState;
 use nvf_play::player::{Player, BodySet};
 use nvf_play::combat::{is_dead, ActorHit};
 use nvf_play::script::ScriptState;
-use nvf_play::sfx::{PlaySound, Sfx, SoundSource};
+use nvf_play::sfx::{PlaySound, SecondListener, Sfx, SoundSource};
 use fnv_actor::anim_sounds::{creature_key_type, creature_sound, creature_sound_type_name, creature_sounds, pick_creature_sound, CreatureSound};
 use nvf_play::sim::SimState;
 use nvf_play::{Location, PlayWorld};
@@ -79,6 +79,13 @@ use std::sync::Arc;
 /// Actors farther than this from the player's feet are not heard, game units [design:
 /// most footstep records fade out well within it].
 pub const ACTOR_RANGE: f32 = 3000.0;
+
+/// Whether an actor at `feet` is beyond [`ACTOR_RANGE`] of the player's feet
+/// (`listener`) and of split screen's player 2 (`nvf_play::sfx::SecondListener`, its
+/// eye) [design].
+fn out_of_range(feet: Vec3, listener: Vec3, second: Option<&SecondListener>) -> bool {
+    feet.distance(listener) > ACTOR_RANGE && SecondListener::ear(second).is_none_or(|e| feet.distance(Vec3::from_array(e.eye)) > ACTOR_RANGE)
+}
 /// A clip first seen less than this far into its time is heard from its start, seconds.
 const JUST_STARTED: f32 = 0.1;
 /// The share of its layer a clip needs to be heard.
@@ -128,6 +135,8 @@ struct Counts {
     object_sounds: u32,
     /// Keys naming a SOUN editor ID there is no record of.
     unknown_keys: u32,
+    /// `SoundPath:` keys (a file by path), among the reload and other keys.
+    file_keys: u32,
     /// Footsteps by ground family.
     grounds: BTreeMap<&'static str, u32>,
     /// Creatures' sounds by type, keys of a type the creature does not list, hits and
@@ -172,6 +181,11 @@ pub struct AnimSounds {
     last_pos: HashMap<Entity, Vec3>,
     /// The player on the ground last frame, and seconds in the air then.
     air: Option<(bool, f32)>,
+    /// The sound form made for each file a `SoundPath:` key names ([`file_sound`]).
+    file_sounds: HashMap<String, FormId>,
+    /// The files the keys named this frame, with where they sound: played once the frame's
+    /// keys are read ([`play_files`]), as that needs the sound forms.
+    files_due: Vec<(String, Option<[f32; 3]>)>,
 }
 
 impl Default for AnimSounds {
@@ -194,7 +208,51 @@ impl Default for AnimSounds {
             conscious: HashMap::new(),
             last_pos: HashMap::new(),
             air: None,
+            file_sounds: HashMap::new(),
+            files_due: Vec::new(),
         }
+    }
+}
+
+impl Counts {
+    /// One more sound key, of a reload or of another clip.
+    fn count_key(&mut self, reload: bool) {
+        if reload {
+            self.reload_keys += 1;
+        } else {
+            self.other_keys += 1;
+        }
+    }
+}
+
+/// Whether a clip is a reload (its sequence's name: `ReloadP_E`, `ReloadA`).
+fn is_reload(clip: &Clip) -> bool {
+    clip.name.to_ascii_lowercase().starts_with("reload")
+}
+
+/// The sound forms of the files `SoundPath:` keys name: numbered from here, above the
+/// B42 item animations' (`consume_anims`), in no load order [design].
+const FILE_SOUNDS: u32 = 0xFFB5_0000;
+
+/// The sound form playing the file at `path` (under `sound\`, as a SOUN names its
+/// file): made once per file (`made`) and given to the sound player (`sounds`), at
+/// the B42 item animations' distances [design: kNVSE gives such a key no record].
+fn file_sound(made: &mut HashMap<String, FormId>, sounds: &mut HashMap<FormId, fnv_combat::fx::Sound>, path: &str) -> FormId {
+    let key = fnv_vfs::normalize(path);
+    if let Some(&f) = made.get(&key) {
+        return f;
+    }
+    let f = FormId(FILE_SOUNDS + made.len() as u32);
+    sounds.insert(f, fnv_combat::fx::Sound { edid: Some(format!("SoundPath {key}")), file: Some(key.clone()), min_distance: 100.0, max_distance: 2000.0, ..Default::default() });
+    made.insert(key, f);
+    f
+}
+
+/// Play the files the keys named this frame ([`AnimSounds::files_due`]).
+fn play_files(s: &mut AnimSounds, sfx: &mut Sfx, out: &mut MessageWriter<PlaySound>) {
+    for (path, at) in std::mem::take(&mut s.files_due) {
+        let sound = file_sound(&mut s.file_sounds, &mut sfx.forms.sounds, &path);
+        out.write(PlaySound { sound, at });
     }
 }
 
@@ -338,14 +396,23 @@ fn sound_heard(
     let (foley, armour) = (&worn.0, worn.1);
     match h.key {
         KeySound::Sound(edid) => {
-            if h.clip.name.to_ascii_lowercase().starts_with("reload") {
-                s.counts.reload_keys += 1;
-            } else {
-                s.counts.other_keys += 1;
-            }
+            let reload = is_reload(h.clip);
+            s.counts.count_key(reload);
             if let Some(sound) = s.sound(edid) {
+                if reload {
+                    info!("anim sounds: {:?} reload {}: Sound: {edid}", h.who, h.clip.name);
+                }
                 out.write(PlaySound { sound, at });
             }
+        }
+        KeySound::File(path) => {
+            let reload = is_reload(h.clip);
+            s.counts.count_key(reload);
+            s.counts.file_keys += 1;
+            if reload {
+                info!("anim sounds: {:?} reload {}: SoundPath: {path}", h.who, h.clip.name);
+            }
+            s.files_due.push((path.to_string(), at));
         }
         KeySound::Foot(side) => {
             if !s.step_due(h.who, FOOT) {
@@ -402,7 +469,7 @@ fn sound_heard(
 fn player_keys(
     time: Res<Time>,
     mut s: ResMut<AnimSounds>,
-    sfx: Option<Res<Sfx>>,
+    sfx: Option<ResMut<Sfx>>,
     body: Option<Res<PlayerBody>>,
     player: Option<Res<Player>>,
     mut phys: Option<ResMut<PhysState>>,
@@ -411,7 +478,7 @@ fn player_keys(
     mut out: MessageWriter<PlaySound>,
     mut seen: Local<Vec<(Playing, f32)>>,
 ) {
-    let (Some(sfx), Some(body), Some(player)) = (sfx, body, player) else { return };
+    let (Some(mut sfx), Some(body), Some(player)) = (sfx, body, player) else { return };
     let s = &mut *s;
     build(s, &sfx);
     s.now = time.elapsed_secs();
@@ -451,6 +518,7 @@ fn player_keys(
         }
         sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, None, player.feet, exclude.clone(), &foley, swimming, FormId::PLAYER_REF);
     }
+    play_files(s, &mut sfx, &mut out);
 }
 
 /// The footsteps played this frame go to the game's list of playing sounds, on the actor
@@ -487,8 +555,9 @@ type ActorKeysItem<'a> = (Entity, &'a BlendPlayer, &'a GlobalTransform, Option<&
 fn actor_keys(
     time: Res<Time>,
     mut s: ResMut<AnimSounds>,
-    sfx: Option<Res<Sfx>>,
+    sfx: Option<ResMut<Sfx>>,
     player: Option<Res<Player>>,
+    second: Option<Res<SecondListener>>,
     mut phys: Option<ResMut<PhysState>>,
     d: Res<PlayWorld>,
     location: Res<Location>,
@@ -499,7 +568,7 @@ fn actor_keys(
     mut loops: MessageWriter<SoundSource>,
     mut seen: Local<Vec<(Playing, f32)>>,
 ) {
-    let (Some(sfx), Some(player)) = (sfx, player) else { return };
+    let (Some(mut sfx), Some(player)) = (sfx, player) else { return };
     let s = &mut *s;
     build(s, &sfx);
     s.now = time.elapsed_secs();
@@ -509,7 +578,7 @@ fn actor_keys(
     let mut moved: HashMap<Entity, Vec3> = HashMap::new();
     for (e, bp, gt, rig, lo) in &actors {
         let feet = bevy_to_game(gt.translation());
-        if feet.distance(listener) > ACTOR_RANGE {
+        if out_of_range(feet, listener, second.as_deref()) {
             continue;
         }
         let who = Who::Actor(e);
@@ -583,6 +652,7 @@ fn actor_keys(
     s.last.retain(|(w, _, _), _| matches!(w, Who::Player(_)));
     s.last.extend(seen.drain(..));
     s.last_pos = moved;
+    play_files(s, &mut sfx, &mut out);
 }
 
 /// The sounds a creature lists, by reference (see the module notes); `None` for one
@@ -703,6 +773,7 @@ fn actor_jumps(
     sfx: Option<Res<Sfx>>,
     mut air: MessageReader<ActorAir>,
     player: Option<Res<Player>>,
+    second: Option<Res<SecondListener>>,
     mut phys: Option<ResMut<PhysState>>,
     d: Res<PlayWorld>,
     location: Res<Location>,
@@ -723,7 +794,7 @@ fn actor_jumps(
             AirChange::Landed { air } if air >= LAND_AIR => true,
             _ => continue,
         };
-        if Vec3::from_array(m.feet).distance(listener) > ACTOR_RANGE {
+        if out_of_range(Vec3::from_array(m.feet), listener, second.as_deref()) {
             continue;
         }
         // Coming up out of water or falling into it is no jump on the ground.
@@ -822,7 +893,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
     let mut unknown: Vec<&String> = s.unknown.iter().collect();
     unknown.sort();
     info!(
-        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times; actors jumped {} and landed {} times; {} armour footfalls",
+        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys ({} of them files), {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times; actors jumped {} and landed {} times; {} armour footfalls",
         c.footsteps_player + c.footsteps_actors,
         c.footsteps_player,
         c.footsteps_actors,
@@ -830,6 +901,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
         c.rustles,
         c.reload_keys,
         c.other_keys,
+        c.file_keys,
         c.door_sounds + c.door_record_sounds,
         c.door_record_sounds,
         c.object_sounds,
@@ -869,6 +941,30 @@ impl Plugin for AnimSoundsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Mateba Model 6's first-person reload (`1hpReloadP Empty v1.14.kf`) keys its
+    /// sounds as files: each file gets one sound form naming it, the same form each time
+    /// it is keyed, whatever the case; an `.mp3` too.
+    #[test]
+    fn a_reloads_sound_path_keys_play_their_files() {
+        let (mut made, mut sounds) = (HashMap::new(), HashMap::new());
+        let keys = ["SoundPath:fx\\Ani\\MatebaMod6\\cyclinderopen_01.wav", "SoundPath:fx\\Ani\\MatebaMod6\\chamber_spin_ratchet.mp3", "SoundPath:FX\\Ani\\MatebaMod6\\CyclinderOpen_01.wav"];
+        let forms: Vec<FormId> = keys
+            .iter()
+            .map(|k| match parse(k) {
+                Some(KeySound::File(path)) => file_sound(&mut made, &mut sounds, path),
+                other => panic!("{k}: {other:?}"),
+            })
+            .collect();
+        assert_eq!(forms[0], forms[2]);
+        assert_ne!(forms[0], forms[1]);
+        assert_eq!(sounds.len(), 2);
+        assert_eq!(sounds[&forms[0]].file.as_deref(), Some("fx\\ani\\matebamod6\\cyclinderopen_01.wav"));
+        assert_eq!(sounds[&forms[1]].file.as_deref(), Some("fx\\ani\\matebamod6\\chamber_spin_ratchet.mp3"));
+        let reload = Clip { name: "ReloadP_E".into(), ..clip(&[]) };
+        assert!(is_reload(&reload));
+        assert!(!is_reload(&clip(&[])));
+    }
 
     fn clip(keys: &[(f32, &str)]) -> Clip {
         Clip {

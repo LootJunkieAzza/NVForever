@@ -238,6 +238,9 @@ pub struct ScriptState {
     new_game: bool,
     /// What a new game starts with (`crate::game_start`, the INI's `[General]`).
     start: GameStart,
+    /// Campfires of Burning Campfire Redone this player lit or kept burning (the second
+    /// action, or Craft), not yet taken by co-op (`crate::campfire`).
+    pub campfires_lit: Vec<u32>,
     /// Aid items the player used that the runtime has not taken yet (used before the
     /// scripts were ready, or under a loading screen or the pause menu).
     used: Vec<(FormId, Option<u16>)>,
@@ -354,7 +357,7 @@ pub struct TickStats {
 }
 
 impl ScriptState {
-    fn new(d: PlayData, refs: &'static RefTable, new_game: bool, unattended: bool, no_messages: bool) -> ScriptState {
+    fn new(d: PlayData, refs: &'static RefTable, new_game: bool, unattended: bool, no_messages: bool, voice_sets: Vec<fnv_game::player_voice::VoiceSet>) -> ScriptState {
         let off = match std::env::var("NVF_PLAY_SCRIPTS").as_deref() {
             Ok("0") | Ok("off") | Ok("false") => Some("NVF_PLAY_SCRIPTS=0".to_string()),
             _ => None,
@@ -403,8 +406,8 @@ impl ScriptState {
         let own_home = std::env::var_os(fnv_install::HOME_ENV).is_some_and(|h| !h.is_empty());
         let write = (!unattended || own_home).then(|| fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods())).flatten();
         fnv_game::mod_files::update_roots(|r| r.write = write);
-        let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), query_job: crate::query_job::QueryJob::from_env(), pending_game: None, held: false, mod_log: None }
+        let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs, voice_sets)));
+        ScriptState { campfires_lit: Vec::new(), loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), query_job: crate::query_job::QueryJob::from_env(), pending_game: None, held: false, mod_log: None }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -542,7 +545,7 @@ fn ini_texts() -> Vec<String> {
 
 /// Build the script data on its own thread (decoding every unit takes about a second;
 /// render streaming and physics start meanwhile).
-fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
+fn start_loading(d: PlayData, refs: &'static RefTable, voice_sets: Vec<fnv_game::player_voice::VoiceSet>) -> Receiver<Loaded> {
     let (tx, rx) = mpsc::channel();
     let spawned = std::thread::Builder::new().name("nvf-scripts".into()).spawn(move || {
         let t = Instant::now();
@@ -554,12 +557,18 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
             let step = Instant::now();
             let table = FunctionTable::load(&path).map_err(|e| e.to_string())?;
             info!("script build: function table: {:.0} ms", step.elapsed().as_secs_f64() * 1e3);
-            let data: &'static GameData = Box::leak(Box::new({
-                let mut data = GameData::build(d.lo, d.schema, table, &json, refs);
-                // The game INI text the extender's INI functions read (`--mo2`'s profile).
-                data.ini_texts = ini_texts();
-                data
-            }));
+            let mut data = GameData::build(d.lo, d.schema, table, &json, refs);
+            // The game INI text the extender's INI functions read (`--mo2`'s profile).
+            data.ini_texts = ini_texts();
+            // Voice sets' lines carried with their sound become lines of their own
+            // (fnv_game::player_voice, docs/design/player-voices.md).
+            let carried = fnv_game::player_voice::add_packed_lines(&mut data, &voice_sets);
+            // The co-op perks (fnv_game::coop_perks): NVForever's own records.
+            fnv_game::coop_perks::add(&mut data);
+            if carried > 0 {
+                info!("player voices: {carried} lines carried by voice sets");
+            }
+            let data: &'static GameData = Box::leak(Box::new(data));
             info!("script build: the whole thread: {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
             Ok((data, t.elapsed().as_secs_f64()))
         })();
@@ -1017,6 +1026,10 @@ impl Runtime {
         };
         // An actor whose default action ran (no OnActivate block, or its block called
         // `Activate`) is talked to, if it has a greeting.
+        // The target's own OnActivate passing the activation on (`Activate`) is still the
+        // player's hand: held by the co-op story gate like any talk.
+        let talker = self.game.talker(target).0;
+        self.game.script_talks.retain(|t| *t != target && *t != talker);
         let r = match r {
             Ok(done) => Ok(self.talk_after(from).unwrap_or(done)),
             r => r,
@@ -1095,7 +1108,11 @@ impl Runtime {
                 done = Some(ByHand::Woken);
                 continue;
             }
-            match g.start_dialogue(actor, None) {
+            // A script's `Activate Player` on it: the script's scene, not held by the
+            // co-op story gate (`Game::script_talks`).
+            let scripted = g.script_talks.iter().position(|t| *t == actor).map(|k| g.script_talks.remove(k)).is_some();
+            let started = if scripted { g.start_script_dialogue(actor, None) } else { g.start_dialogue(actor, None) };
+            match started {
                 Ok(info) => {
                     // The activation's own effect (the "nothing to say" line) is void.
                     self.skip.insert(i);
@@ -1113,10 +1130,17 @@ impl Runtime {
                     if g.is_out_cold(actor) {
                         self.skip.insert(i);
                     }
+                    // A co-op host's story NPC waiting for the other players
+                    // (`Game::story_gate`): the screen says so instead (`coop::scene`).
+                    if g.coop_story_wait.as_ref().is_some_and(|w| w.actor == g.talker(actor).0) {
+                        self.skip.insert(i);
+                    }
                     info!("dialogue: no conversation: {e}");
                 }
             }
         }
+        // None carried to a later activation by hand.
+        self.game.script_talks.clear();
         done
     }
 
@@ -1464,8 +1488,28 @@ pub fn talk_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target
 
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
-    match script.and_then(|s| s.rt.as_mut()) {
-        Some(rt) => with_world(rt, sim, |rt| rt.by_hand(FormId(target))),
+    let (rt, lit) = match script {
+        Some(ScriptState { rt: Some(rt), campfires_lit, .. }) => (Some(rt), Some(campfires_lit)),
+        _ => (None, None),
+    };
+    match rt {
+        Some(rt) => with_world(rt, sim, |rt| {
+            // A burning campfire of Burning Campfire Redone keeps its fires: those its
+            // script places again are taken away (`fnv_game::campfire`).
+            let campfire = rt.game.is_campfire(FormId(target));
+            let before = if campfire { rt.game.campfire_fires(FormId(target)) } else { Vec::new() };
+            let done = rt.by_hand(FormId(target));
+            let removed = rt.game.keep_first_fires(FormId(target), &before);
+            if campfire && !before.is_empty() {
+                info!("campfire 0x{target:08X}: burning already ({} fires): {} fires its script placed again taken away, the burning ones start again", before.len(), removed.len());
+            }
+            if campfire && !rt.game.campfire_fires(FormId(target)).is_empty() {
+                if let Some(lit) = lit {
+                    lit.push(target);
+                }
+            }
+            done
+        }),
         None => sim.world.activate(FormId::PLAYER_REF, FormId(target)).map(ByHand::Default).map_err(|e| e.to_string()),
     }
 }
@@ -1577,7 +1621,6 @@ impl EffectCtx for PlayCtx<'_> {
     fn is_furniture(&self, r: FormId) -> bool {
         self.sim.base_of(r.0).and_then(|b| self.sim.forms.get(b)).is_some_and(|b| matches!(b.data, fnv_sim::forms::BaseData::Furniture))
     }
-
     fn is_terminal(&self, r: FormId) -> bool {
         self.sim.base_of(r.0).and_then(|b| self.sim.forms.get(b)).is_some_and(|b| &b.sig == b"TERM")
     }
@@ -1828,7 +1871,8 @@ impl Plugin for ScriptPlugin {
         let new_game = app.world().contains_resource::<NewGame>();
         let unattended = crate::test_aid::Unattended::from_env().0;
         let no_messages = app.world().contains_resource::<NoMessages>();
-        let mut st = ScriptState::new(d, refs, new_game, unattended, no_messages);
+        let voice_sets = app.world().get_resource::<nvf_assets::GameData>().map(|a| crate::player_voice::read_set_files(&a.vfs)).unwrap_or_default();
+        let mut st = ScriptState::new(d, refs, new_game, unattended, no_messages, voice_sets);
         st.start = GameStart::of_app(app);
         app.insert_resource(st)
             .insert_resource(crate::pause::WorldAidClock::from_env())
@@ -1946,6 +1990,10 @@ fn time_multiplier(
     }
     // A VATS camera shot's Player time multiplier: the player against the world it slows
     // (`kill_cam::KillCam::player_scale`).
+    // In a co-op session no camera shot slows the clock, which is every player's
+    // (`vats_mode::VatsMode::shared_clock`).
+    let shared = vats.as_deref().is_some_and(|v| v.shared_clock);
+    let kill_cam = kill_cam.filter(|_| !shared);
     let exempt = 1.0 / turbo.max(0.01) * kill_cam.as_deref().and_then(|k| k.player_scale()).unwrap_or(1.0);
     if (player_scale.0 - exempt).abs() > 1e-6 {
         player_scale.0 = exempt;
@@ -2057,14 +2105,17 @@ pub(crate) fn start_world_aids(
     }
 }
 
-/// Furniture, terminal and door messages, refused loads, the pending engine save
-/// state, and the application settings to bind before startup and restore scripts.
+/// The run's furniture, terminal and door messages, a refused load, the save's engine part
+/// still to put back (`crate::save::PendingEngine`), a co-op guest's join in progress
+/// (`crate::save::KeepSolo`: the triggers are not fired by a joining guest), and the
+/// application settings to bind before startup and restore scripts.
 type UsesAndLoads<'w> = (
     MessageWriter<'w, crate::furniture::UseFurniture>,
     MessageWriter<'w, crate::terminal::OpenTerminal>,
     Option<ResMut<'w, crate::doors::Doors>>,
     MessageWriter<'w, crate::save::LoadRefused>,
     Option<Res<'w, crate::save::PendingEngine>>,
+    Option<Res<'w, crate::save::KeepSolo>>,
     Option<Res<'w, crate::tweaks::TweakSettings>>,
 );
 
@@ -2128,15 +2179,33 @@ pub(crate) fn run_scripts(
     (mut changed, mut fades, mut repose, mut script_sounds): (MessageWriter<RefChanged>, MessageWriter<crate::fade::RefFade>, MessageWriter<crate::RefRepose>, Option<ResMut<crate::sfx::ScriptSounds>>),
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
-    mut used: MessageReader<ItemUsed>,
-    (mut sit, mut terminals, mut doors, mut refused, pending_engine, tweak_settings): UsesAndLoads,
+    (mut used, mut anims): (MessageReader<ItemUsed>, ResMut<crate::ConsumeAnims>),
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine, joining, tweak_settings): UsesAndLoads,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
     // Items the player used up in the inventory menu (the menu already removed them),
     // kept until the runtime runs.
     let st = &mut *script;
-    st.used.extend(used.read().map(|u| (FormId(u.item), u.limb)));
+    // Hardcore consume animations (`crate::ConsumeAnims`): an aid item used while busy is
+    // given back, unused.
+    match anims.refuse {
+        Some(why) => {
+            let refused: Vec<u32> = used.read().map(|u| u.item).collect();
+            for &item in &refused {
+                let back = sim.world.add_item(FormId::PLAYER_REF, FormId(item), 1);
+                info!("aid: {item:08X} not used ({why}){}", back.err().map_or(String::new(), |e| format!("; not given back: {e:?}")));
+            }
+            if !refused.is_empty() {
+                corner.push("You can't use that right now.".to_string().into());
+            }
+            anims.refused = refused;
+        }
+        None => {
+            anims.refused.clear();
+            st.used.extend(used.read().map(|u| (FormId(u.item), u.limb)));
+        }
+    }
     if st.rt.is_none() {
         if runtime_waits(st.held, menu_to_open.is_some()) {
             return;
@@ -2437,6 +2506,11 @@ pub(crate) fn run_scripts(
         }
         rt.follow_player();
         if std::mem::take(&mut rt.new_game_files) {
+            // The extender's NewGame event (no arguments) [documented: NVSE Event
+            // Handling, session events; ext-events.md], after the restart's files
+            // registered their handlers and before the new game's files, as LoadGame
+            // follows the restart's files after a load (ext-script-runner.md §2).
+            rt.game.dispatch_event("NewGame", Vec::new(), None);
             log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
         }
         if std::mem::take(&mut rt.opening_pending) {
@@ -2493,7 +2567,7 @@ pub(crate) fn run_scripts(
         // `script_trigger::update`, #2571).
         rt.game.loading = loading;
         if !rt.game.paused() {
-            crate::script_trigger::update(rt, &play, &phys, player_capsule);
+            crate::script_trigger::update(rt, &play, &phys, player_capsule, joining.is_some());
         }
         rt.game.cfg.frame_seconds = dt;
         // Scripts' GetFallTimeElapsed (`fnv_game::nvse_gaps`).
@@ -2504,7 +2578,19 @@ pub(crate) fn run_scripts(
             .chain(phys.npcs.iter().map(|(&r, b)| (FormId(r), b.ch.air_time)))
             .filter(|(_, t)| *t > 0.0)
             .collect();
+        rt.game.no_pause = crate::coop_tables::keeps_world();
+        // The span profile (`NVF_PLAY_TEST_PROFILE`) also times the scripts and functions
+        // (`fnv_game::game::CostTally`): every 10 s two `script cost:` lines.
+        static PROFILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if rt.game.cost.is_none() && *PROFILED.get_or_init(|| std::env::var_os("NVF_PLAY_TEST_PROFILE").is_some()) {
+            rt.game.cost = Some(Box::default());
+        }
         with_ray_caster(&mut phys, &play.0, location.world, || rt.game.tick());
+        if let Some(report) = rt.game.cost_report() {
+            for line in report.lines() {
+                info!("{line}");
+            }
+        }
         apply_pushes(&mut rt.game, &mut phys);
         rt.ticked = true;
         crate::aid::after_tick(rt, aid_from);
@@ -2583,7 +2669,13 @@ pub(crate) fn run_scripts(
         crate::dialogue::log_farewell(&mut rt.game, e);
         if let EventKind::LineStarted { info, .. } = &e.kind {
             if !hud.knows_line(*info) {
-                hud.remember_line(*info, responses(&play, *info));
+                // A line a voice set carries has no record: its text is the set's
+                // (`fnv_game::player_voice::add_packed_lines`).
+                let mut texts = responses(&play, *info);
+                if texts.is_empty() {
+                    texts = rt.game.data.infos.get(info).map(|d| d.responses.iter().map(|r| r.text.clone()).collect()).unwrap_or_default();
+                }
+                hud.remember_line(*info, texts);
             }
         }
     }
@@ -2607,6 +2699,9 @@ pub(crate) fn run_scripts(
     }
     let mut sent = BTreeSet::new();
     let feet = phys.player.as_ref().map(|c| c.feet);
+    // A co-op guest's quests are the host's: the guest's game shows those messages
+    // (nvforever `coop`), not its own.
+    let guest = rt.game.coop_guest;
     for e in effects {
         // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
         let door = matches!(e, ScriptEffect::DoorTravel(_));
@@ -2642,6 +2737,7 @@ pub(crate) fn run_scripts(
                         loading_menu = false;
                     }
                     screen.arriving = door;
+                    screen.level_view = !door;
                     travel.write(TravelRequest(t));
                 }
             }
@@ -2663,6 +2759,9 @@ pub(crate) fn run_scripts(
                 }
                 info!("on screen: {}", note.text.trim().replace('\n', " / "));
                 corner.push(note);
+            }
+            ScriptEffect::Quest(n) if guest && !matches!(n, crate::script_events::QuestNotice::Discovered(_)) => {
+                debug!("quest message (this game's own, not shown to a co-op guest): {}", crate::quest_messages::describe(&n));
             }
             // ShowOff's ToggleQuestMessages 0: no quest line is shown (`UiRequests::quest_messages_off`).
             ScriptEffect::Quest(n) if rt.game.ui.quest_messages_off => info!("quest message dropped (ToggleQuestMessages 0): {}", crate::quest_messages::describe(&n)),
@@ -2757,7 +2856,7 @@ fn hold_player(
     active: Res<ActiveMenu>,
     (paused, wait): (Res<crate::pause::Paused>, Res<crate::wait::WaitMenu>),
     (terminal, lockpick, console, recipe, roulette, repair): EngineMenus,
-    (blackjack, poker, caravan, wheel, slots): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>, Option<Res<crate::companion_wheel::WheelScreen>>, Option<Res<crate::slots::SlotsScreen>>),
+    (blackjack, poker, caravan, wheel, slots, darts, fillet, pool): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>, Option<Res<crate::companion_wheel::WheelScreen>>, Option<Res<crate::slots::SlotsScreen>>, Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::pool::PoolScreen>>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
@@ -2765,9 +2864,9 @@ fn hold_player(
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
     // lockpicking menu (`crate::lockpick`), the console (`crate::console`), the recipe
     // menu (`crate::crafting`), the repair services (`crate::repair`), the blackjack table (`crate::blackjack`), the roulette
-    // table (`crate::roulette`), the slot machines (`crate::slots`), the poker table (`crate::poker`), the Caravan table (`crate::caravan`) and the
+    // table (`crate::roulette`), the slot machines (`crate::slots`), the poker table (`crate::poker`), the pool table (`crate::pool`), the Caravan table (`crate::caravan`) and the
     // companion wheel (`crate::companion_wheel`).
-    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some()) || wheel.is_some_and(|w| w.0.is_some()) || slots.is_some_and(|s| s.0.is_some());
+    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some()) || wheel.is_some_and(|w| w.0.is_some()) || slots.is_some_and(|s| s.0.is_some()) || darts.is_some_and(|d| d.0.is_some()) || fillet.is_some_and(|f| f.0.is_some()) || pool.is_some_and(|p| p.0.is_some());
     if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) || repair.is_some_and(|r| r.is_open()) || table {
         return;
     }
@@ -2776,6 +2875,35 @@ fn hold_player(
         (PlayState::Playing, true) => next.set(PlayState::Menu),
         (PlayState::Menu, false) => next.set(PlayState::Playing),
         _ => {}
+    }
+}
+
+/// Script errors warned of so far this run, by unit and error, at most [`ERRORS_KEPT`].
+static ERRORS_SEEN: std::sync::Mutex<BTreeSet<(String, String)>> = std::sync::Mutex::new(BTreeSet::new());
+const ERRORS_KEPT: usize = 4096;
+
+/// Whether a script's error is new this run: a script that stops on the same line each
+/// frame is warned of once, the repeats go to debug (the trace keeps them all). Long 15's
+/// gate stopped every frame on an `if` that leaves two values, as the original stops it
+/// (fnv-script `long_15s_gate_marker_check_leaves_two_values_and_stops`), and the warning
+/// filled the run log [observed: host log 2026-11-13, thousands of lines].
+fn first_error(unit: &str, error: &str) -> bool {
+    let Ok(mut seen) = ERRORS_SEEN.lock() else { return true };
+    if seen.len() >= ERRORS_KEPT {
+        return !seen.contains(&(unit.to_string(), error.to_string()));
+    }
+    seen.insert((unit.to_string(), error.to_string()))
+}
+
+#[cfg(test)]
+mod first_error_tests {
+    #[test]
+    fn a_scripts_same_error_is_new_once() {
+        let unit = "Long15Reloaded.esm|SCPT 0x1E0025C2 (first_error test)";
+        assert!(super::first_error(unit, "malformed expression: 2 values left on the stack"));
+        assert!(!super::first_error(unit, "malformed expression: 2 values left on the stack"));
+        assert!(super::first_error(unit, "another error"));
+        assert!(super::first_error("Other.esp|SCPT 0x01000800 (first_error test)", "malformed expression: 2 values left on the stack"));
     }
 }
 
@@ -2809,7 +2937,8 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::ItemAdded { to, item, count, .. } => debug!("script: {count} x {} added to {}", n(*item), n(*to)),
         EventKind::ItemRemoved { from, item, count, .. } => debug!("script: {count} x {} removed from {}", n(*item), n(*from)),
         EventKind::Unhandled { name, unit, .. } => debug!("script: unhandled {name} in {unit}"),
-        EventKind::ScriptError { unit, error } => warn!("script error in {unit}: {error}"),
+        EventKind::ScriptError { unit, error } if first_error(unit, error) => warn!("script error in {unit}: {error} (once a run; again at debug)"),
+        EventKind::ScriptError { unit, error } => debug!("script error in {unit}: {error}"),
         EventKind::ScriptPrint { unit, text } => info!("script: print {text:?} ({unit})"),
         EventKind::CallFailed { name, unit, error, .. } => debug!("script: {name} failed in {unit}: {error}"),
         EventKind::ArgUnread { name, unit, param, got, wanted, .. } => {
@@ -2978,7 +3107,7 @@ impl ScriptState {
             choices_passed: None,
             activate_pick: None,
         };
-        ScriptState { loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), query_job: None, pending_game: None, held: false, mod_log: None }
+        ScriptState { campfires_lit: Vec::new(), loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), query_job: None, pending_game: None, held: false, mod_log: None }
     }
 
     /// The player answered the open menu: it closes after this frame's scripts.

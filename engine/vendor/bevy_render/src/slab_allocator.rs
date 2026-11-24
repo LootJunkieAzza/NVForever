@@ -1057,9 +1057,9 @@ where
                     usage: buffer_usages,
                     mapped_at_creation: true,
                 });
-                {
-                    let mut slice = buffer.slice(..).get_mapped_range_mut().unwrap();
-
+                // NVForever: a buffer made on a lost GPU device cannot be mapped; it is
+                // left empty instead of panicking (vendor/README.md).
+                if let Ok(mut slice) = buffer.slice(..).get_mapped_range_mut() {
                     fill_data(slice.slice(..len));
                 }
                 buffer.unmap();

@@ -97,8 +97,9 @@ fn click(g: &mut Game, tile: Option<fnv_ui::TileId>, times: usize) -> bool {
 /// MCM_Options, MCM's first child, each with `_optionID` 1..36; FOV Slider reads
 /// `GetMCMFloat 0 0 "_ActiveMod"`, a trait of the MCM rect, and `GetMCMFloat 1 0
 /// "_optionID"`, the one MCM_Options works out from its rows]. The wiki gives `SetMCMFloat
-/// 1 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/…"` [documented]; NVForever's `*:N` counts
-/// from the last child [observed on the HUD, menu-xml.md §5], so it is not used here.
+/// 1 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/…"` [documented]; NVForever's `*:N` reads
+/// file-made children that way too (menu-xml.md §5), but code-made ones from the last
+/// [observed on the HUD], so the children are counted here directly.
 fn mcm_trait(ui: &fnv_ui::Ui, args: &[XVal]) -> Option<(fnv_ui::TileId, String)> {
     let at = mcm_place(ui, &[num(args, 0) as i64, num(args, 1) as i64])?;
     mcm_setting(ui, at, &text(args, 2))
@@ -132,7 +133,15 @@ fn mcm_setting(ui: &fnv_ui::Ui, at: fnv_ui::TileId, setting: &str) -> Option<(fn
     let name = parts.pop()?.to_string();
     let mut tile = at;
     for p in parts {
-        tile = ui.tile(tile).children.iter().copied().find(|&c| ui.is_live(c) && ui.tile(c).name.eq_ignore_ascii_case(p))?;
+        // `name:N` or `*:N`: the Nth live child of that name (any name for `*`), from 1 in
+        // file order, as `*:N` reads MCM's file-made tiles (§5) [hypothesis: JAM writes an
+        // option's words through `"value/*:1/string"`, the first child of its `value`].
+        let (want, nth) = match p.rsplit_once(':') {
+            Some((n, k)) => (n, k.trim().parse::<usize>().ok()?.checked_sub(1)?),
+            None => (p, 0),
+        };
+        let mut kids = ui.tile(tile).children.iter().copied().filter(|&c| ui.is_live(c) && (want == "*" || ui.tile(c).name.eq_ignore_ascii_case(want)));
+        tile = kids.nth(nth)?;
     }
     Some((tile, name))
 }
@@ -199,7 +208,21 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         // The HUD's writes kept back while nothing read the HUD, made now; the engine
         // writes them every frame from here on (`crate::ui_hud::defer`) [design].
         g.ui_used = true;
+        let started = g.cost.is_some().then(std::time::Instant::now);
         crate::ui_hud::flush(g);
+        if lname.starts_with("getui") {
+            // The one trait read, when the read is of one trait (GetUIFloatInherited reads
+            // its parents' too).
+            let read = match lname.as_str() {
+                "getuifloatalt" => g.ui_tree.find_trait(&path),
+                "getuifloat" | "getuistring" => g.ui_tree.find_trait_counted(&path, fnv_ui::Count::FromFirst),
+                _ => None,
+            };
+            crate::ui_hud::ready_read(g, read);
+        }
+        if let (Some(t), Some(c)) = (started, g.cost.as_mut()) {
+            c.add_named("(HUD writes and text sizes before a UI call)", t.elapsed());
+        }
     }
     Some(Ok(match lname.as_str() {
         // The extender's own four count `*:N` from the first child, JIP's from the last
@@ -222,13 +245,13 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         "getmcmfloat" => XVal::Num(mcm_trait(&g.ui_tree, args).and_then(|(t, n)| g.ui_tree.tile(t).get(&n).map(|v| v.num())).unwrap_or(0.0)),
         "setmcmfloat" => {
             if let Some((t, n)) = mcm_trait(&g.ui_tree, args) {
-                g.ui_tree.set_existing(t, &n, fnv_ui::value::Value::Num(num(args, 3)));
+                g.ui_tree.set_existing(t, &n, Value::Num(num(args, 3)));
             }
             XVal::Num(0.0)
         }
         "setmcmstring" => {
             if let Some((t, n)) = mcm_trait(&g.ui_tree, args) {
-                g.ui_tree.set_existing(t, &n, fnv_ui::value::Value::Str(text(args, 3)));
+                g.ui_tree.set_existing(t, &n, Value::Str(text(args, 3)));
             }
             XVal::Num(0.0)
         }
@@ -260,10 +283,20 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
             let n = num(args, 0) as i64;
             if let Some(row) = (1..=23).contains(&n).then(|| mcm_place(ui, &[5, n])).flatten() {
                 if let Some((t, n)) = mcm_setting(ui, row, "text/string") {
-                    ui.set_existing(t, &n, Value::Str(form));
+                    ui.set_existing(t, &n, Value::Str(form.clone()));
                 }
                 for (k, name) in [(1, "_enable"), (2, "_modIndex"), (3, "_modIndex2")] {
                     ui.set_existing(row, name, Value::Num(num(args, k)));
+                }
+                // The page's heading: `MCM_ModTitle/Title<n>` (`SubTitle<n>` for a sub-menu
+                // row, MCM_ModList's 24th to 33rd children) shows while that row is chosen,
+                // and no script writes its string, so the call does, with the row's name
+                // [hypothesis: MCM's ModTitleRect.xml shows Title<n> while
+                // `MCM_ModList/_selected` is its `_titleID` n and leaves `string` blank;
+                // MCMMainScript and JAM's scripts never set it].
+                let title = if n > 23 { format!("SubTitle{}", n - 23) } else { format!("Title{n}") };
+                if let Some(t) = ui.find_tile(&format!("StartMenu/MCM/MCM_ModTitle/{title}")) {
+                    ui.set_existing(t, "string", Value::Str(form));
                 }
             }
             XVal::Num(0.0)

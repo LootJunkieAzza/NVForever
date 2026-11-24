@@ -357,6 +357,56 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       entry's rule, a reskin), `pause` (the entries, the page), fnv-game
       `a_page_tick_runs_only_the_start_menus_blocks_and_keeps_the_open_menu`; smoke
       `pause-mods-page` (MCM's own 1013 block clears its `iInstallCheck`).
+    - **Step 5, MCM's own page** (co-op build, 2026-11-04/05; was blocked on the column
+      and MCM.dll's functions). `tiles::mods::column` writes the original's pause column
+      as MCM's script waits for it (`StartMenu/NOGLOW_BRANCH/main_container/childcount`
+      8, `_alpha` 255) while the page is up, and MCM.dll's functions are reconstructed
+      from MCM's scripts (`fnv_game::ui_functions`: SetMCMModList, GetMCMListWidth,
+      SetMCMFloatMass, SetMCMStringMass) [hypothesis: the DLL's source is not public].
+      Two rules only `StartMenu` gets, as the engine marks it (menu-xml.md §3.1.1 and
+      §8): `_NVFLocus` (only a tile with a true `locus` places its children; MCM's
+      tiles copy `parent()`'s x and y) and `_NVFClickTwoFrames` (`clicked` lasts two
+      frames, so MCM's list rows open on the first click and a page does not open and
+      close again). The pause menu's Mods page is on by default in the co-op build
+      (`tiles::vanilla::TileMenus::for_run`: `StartMenu` drawn from tiles unless
+      `[UI] TileMenus=` or the aid names `-StartMenu`). [observed 2026-11-05, headless,
+      MCM 1.5 and JAM loaded, 2560 × 1440: one click on "Mod Configuration" opens MCM
+      and lists "Just Mods" (JAM adds itself after its MenuMode 1013 block has run
+      0.5 s); one click on it shows JAM's page of switches; one click on "Enable Bullet
+      Time" checks it.]
+      - Just Assorted Mods' extender functions and events (`fnv_game::nvse_jam`,
+        2026-11-05): JIP's OnKeyDown/OnKeyUp (from the keys and mouse buttons held,
+        the wheel as 264/265, a disabled key too) and OnFireWeapon events,
+        DisableScriptedActivate, GetContainerOpen/CloseSound, SetDefaultOpen (no
+        catalogue opcode: by name), FakeScriptEvent, GetAnimSequenceFrequency (the
+        engine reads the model's sequences, nvf-play `script_input`),
+        ToggleVanityWheel (the third-person zoom held), ToggleDisableSaves (saving
+        refused), WorldToScreen (the player camera's projection; x and y as fractions
+        of the screen) and HighlightBodyPartAlt/DeactivateAllHighlightsAlt (no
+        outline drawn). Tests: fnv-game `tests/jam_functions.rs`.
+      - Still different from the original: the VATS body-part outline JBT asks for is
+        not drawn; JWH (the weapon wheel, off in the owner's JAM) needs GetCursorPos,
+        SetCursorPos, ToggleHUDCursor, TogglePipBoy and ShowQuantityMenu, not built;
+        `SetOn…EventHandler f 0` without filters removes only a registration without
+        filters (JIP's page does not say whether it removes all of them).
+      - MCM's page layout (fixed 2026-11-05, observed headless with MCM 1.5 + JAM): the
+        option titles stood at the screen's left edge because options.xml's
+        `src="me"` (no brackets) was read as a tile named "me"; it is `me()` now
+        (menu-xml.md §5). The page had no heading: SetMCMModList writes the row's name
+        to `MCM_ModTitle/Title<slot>` too. JAM's sub-menus (Crosshair … Bullet Time) did
+        not list and their headings stayed blank because `*:5`/`*:8` counted from the
+        last child; `*:N` among file-made children counts from 1 in file order now
+        (menu-xml.md §5, observer check 6 reopened). The pause menu's Back is not drawn
+        while MCM shows its own `MCM_Back` (`crate::pause::ModsOwnBack`). The help line
+        shows only while the pointer is on an option (JAM's script), as it should.
+        Not checked against the original: the list's two down-arrows at its foot show
+        while JAM's sub-menus are listed (MCM's own formula, `_visible + _subVisible +
+        _offset < _count + _subCount`).
+      - JAM's sprint (2026-11-05): needed the key events above, and a first-person idle
+        of the Movement section no longer holds the player (idles.md §4): JVS plays
+        `SpecialIdleSprint` on each sprint and ended it the frame `IsMoving` read 0.
+        Observed headless: 175% run speed while Left Shift is held, AP 80 → 9 in 6 s,
+        about 580 units/s against 344 running.
     - **MCM's own page, built 2026-11-12** (claude/mcm-mods-default, issue #976): the
       two blockers were observed in the original (menu-xml.md §10.1, §10.2; observer check
       73): the pause column's code traits (`childcount` 8, `_alpha` 255, `_enabled` 1),
@@ -366,6 +416,14 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       The page clicks MCM's trigger once so it opens on MCM's window, and closes when MCM's
       window does. The switch is on by default (`[UI] TileMenus=-StartMenu` turns it off).
       Left: observer check 118 (one SetMCMFloatMass range), the main menu's column.
+      - Merged on the ship branch 2026-11-12 with Step 5 above: both column writers stay
+        (`prepare_column` once, `column` each frame), the list functions take the observed
+        call shapes, SetMCMModList still writes the page's heading. MCM's slider
+        (owner item 2026-11-11, values not saved): the meter drags (`dragx`, menu-xml.md
+        §3); its Accept, Cancel, Default and arrows reach MCM's script through MCM's own
+        quest stage 2, which the engine's repeated stages run each frame [observed: the
+        plugin's stage 2 result script, menu-xml.md §3], so the engine-side bridge is gone.
+        The page opens MCM by the trigger's `clicked`, not `_clicked` (a formula in MCM.xml).
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
     - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.

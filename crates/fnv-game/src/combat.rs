@@ -89,6 +89,29 @@ pub struct DestructionChange {
     pub debris: Vec<(FormId, i32)>,
 }
 
+/// Whether a hit on an actor that is in a conversation with a player does no damage
+/// (co-op; owner 2026-11-10: "Players only and a setting"): a hit that is not a
+/// player's never lands (another NPC's, a creature's, a trap's, an explosion nobody
+/// owns); a player's lands unless the host's setting says nobody may kill it meanwhile.
+pub fn talk_guard(by_player: bool, players_may_kill: bool) -> bool {
+    !(by_player && players_may_kill)
+}
+
+#[cfg(test)]
+mod talk_guard_tests {
+    use super::talk_guard;
+
+    #[test]
+    fn only_players_hurt_an_actor_in_a_conversation_and_only_when_the_setting_allows() {
+        // The setting on (the default): a player's hit lands, nobody else's.
+        assert!(!talk_guard(true, true));
+        assert!(talk_guard(false, true));
+        // The setting off: nobody's.
+        assert!(talk_guard(true, false));
+        assert!(talk_guard(false, false));
+    }
+}
+
 pub(crate) fn destruction_damage_threshold(health: f64, percent: u8) -> f64 {
     health * (100.0 - f64::from(percent)) / 100.0
 }
@@ -437,11 +460,35 @@ impl Game<'_> {
         if self.is_dead(r) {
             return false;
         }
-        // Karma and murder are judged while the victim still lives (`crate::crime`).
+        // A co-op guest's kill is the player's, as a companion's is: GetKiller, IsKiller
+        // player, OnDeath's killer, kill counts and karma all see the player, so the host's
+        // quests move on exactly as for its own kill (owner, item 130 Q2) [design].
+        let raw_killer = killer;
+        let killer = killer.map(|k| self.as_player(k));
+        // Karma and murder are judged while the victim still lives (`crate::crime`). A
+        // guest's karma, kill count and kill challenges are its own character's, queued
+        // for it rather than given to the host's player (`crate::coop_kills`; plan §4.2,
+        // owner, 2026-11-18) [design].
         if killer == Some(FormId::PLAYER_REF) && r != FormId::PLAYER_REF {
-            self.player_kills(r);
-            self.count_kill(r);
-            self.challenge_kill(r);
+            match raw_killer.filter(|&k| self.is_coop_actor(k)) {
+                Some(guest) => {
+                    let from = self.crimes.notes.len();
+                    let karma = self.player_kills_karma(r, false);
+                    let infamy = self.crimes.notes[from.min(self.crimes.notes.len())..]
+                        .iter()
+                        .filter_map(|n| match n {
+                            crate::crime::Note::Infamy { reputation, before, after } if after != before => Some((*reputation, after - before)),
+                            _ => None,
+                        })
+                        .collect();
+                    self.coop_guest_killed(r, guest, karma, infamy);
+                }
+                None => {
+                    self.player_kills(r);
+                    self.count_kill(r);
+                    self.challenge_kill(r);
+                }
+            }
         }
         // A body already lying knocked out is a ragdoll already [hypothesis].
         let lying = self.knockout(r).is_some_and(|k| k.lying());
@@ -577,7 +624,10 @@ impl Game<'_> {
         let amount = amount * self.damage_mult(caster, target);
         let dealt = amount.max(0.0).min((before - floor).max(0.0));
         actor::add_damage(self, target, HEALTH, dealt);
-        let players_side = caster.is_some_and(|c| self.kill_earns_xp(c));
+        let players_side = caster.is_some_and(|c| self.kill_earns_xp(c) || self.is_coop_actor(c));
+        if let Some(c) = caster {
+            self.note_player_hit(target, c, dealt);
+        }
         {
             let e = self.extra.entry(target).or_default();
             if players_side {
@@ -588,9 +638,8 @@ impl Game<'_> {
         if before - dealt <= floor {
             if essential {
                 self.knock_out(target, crate::unconscious::Cause::Essential, caster);
-            } else if self.kill(target, caster) && caster.is_some_and(|c| self.kill_earns_xp(c)) {
-                let xp = self.kill_xp(target);
-                crate::experience::award(self, crate::experience::Source::Kill, xp);
+            } else if self.kill(target, caster) {
+                self.kill_credit(target, caster);
             }
         }
     }
@@ -637,6 +686,20 @@ impl Game<'_> {
             let health = actor::actor_value(self, target, HEALTH).unwrap_or(0.0);
             let corpse = self.is_dead(target);
             return HitResult { health, max_health, immune: true, corpse, overkill: if corpse { damage.max(0.0) } else { 0.0 }, ..HitResult::default() };
+        }
+        // In a conversation with a player (co-op): only the players' hits land, or
+        // nobody's when the host's setting is off ([`talk_guard`]).
+        if self.coop_talking.contains(&target) {
+            let by_player = info.attacker.is_some_and(|a| a == FormId::PLAYER_REF || self.is_coop_actor(a));
+            if talk_guard(by_player, self.coop_talk_kill) {
+                let health = actor::actor_value(self, target, HEALTH).unwrap_or(max_health);
+                tracing::info!(
+                    "co-op: {target} is in a conversation with a player: the hit by {} does no damage ({})",
+                    info.attacker.map_or_else(|| "nobody".to_string(), |a| a.to_string()),
+                    if by_player { "the host's setting: players cannot kill it meanwhile" } else { "not a player's" }
+                );
+                return HitResult { health, max_health, immune: true, ..HitResult::default() };
+            }
         }
         let before = actor::actor_value(self, target, HEALTH).unwrap_or(max_health);
         let essential = self.is_essential(target);
@@ -685,7 +748,10 @@ impl Game<'_> {
         self.jip.hits.insert(target, rec);
         self.jip_event("hit", Some(target), Vec::new());
         actor::add_damage(self, target, HEALTH, dealt);
-        let players_side = info.attacker.is_some_and(|a| self.kill_earns_xp(a));
+        let players_side = info.attacker.is_some_and(|a| self.kill_earns_xp(a) || self.is_coop_actor(a));
+        if let Some(a) = info.attacker {
+            self.note_player_hit(target, a, dealt);
+        }
         let this_hit = crate::game::LastHit { attacker: info.attacker, weapon: info.weapon, location: info.location, critical: info.critical };
         {
             let e = self.extra.entry(target).or_default();
@@ -732,6 +798,10 @@ impl Game<'_> {
         if info.attacker == Some(FormId::PLAYER_REF) {
             let part = crate::challenges::body_part(info.limb.map(|l| l.condition), info.location);
             self.challenge_hit(target, info.weapon, part, dealt, info.critical, out.crippled);
+        } else if let Some(guest) = info.attacker.filter(|&a| self.is_coop_actor(a)) {
+            // A guest's hit counts towards its own character's challenges (`crate::coop_kills`).
+            let part = crate::challenges::body_part(info.limb.map(|l| l.condition), info.location);
+            self.coop_kills.hits_out.push(crate::coop_kills::HitCredit { player: guest, target, weapon: info.weapon, part, dealt, critical: info.critical, crippled: out.crippled });
         }
         // Immortal mode 1 holds the player at 1 HP: no death, no knockout.
         if health <= floor && !self.is_dead(target) && immortal == 0 {
@@ -745,9 +815,8 @@ impl Game<'_> {
                 if out.died {
                     out.overkill = (damage - dealt).max(0.0);
                 }
-                if out.died && info.attacker.is_some_and(|a| self.kill_earns_xp(a)) {
-                    let xp = self.kill_xp(target);
-                    out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
+                if out.died {
+                    out.xp = self.kill_credit(target, info.attacker);
                 }
                 // The player's tweak: a kill gives Action Points back [design: docs/design/tweaks.md].
                 if out.died && info.attacker == Some(FormId::PLAYER_REF) && self.tweaks.kill_reward_ap > 0.0 {
@@ -781,11 +850,23 @@ impl Game<'_> {
     /// parameter. Hypothesis: OnHit's subject is the attacking actor here too — that page
     /// gives a projectile reference for a ranged hit on a non-actor, and we have no
     /// projectile references.]
+    ///
+    /// A co-op guest's shot (its actor the attacker) is the player's, as a companion's
+    /// kill is (`Game::kill`): the blocks see the player as the attacker, and the player's
+    /// weapon questions answer for the guest's shot ([`Game::shot_for_player`]), so the
+    /// tutorial's bottles count a guest's hits as the host's (item 111) [design].
     pub fn hit_object(&mut self, target: FormId, info: HitInfo) -> bool {
-        let mut ran = self.ref_event(target, event::ON_HIT, info.attacker.map(|a| Value::Ref(a.0)), info.attacker);
-        if let Some(w) = info.weapon {
-            ran |= self.ref_event(target, event::ON_HIT_WITH, Some(Value::Ref(w.0)), info.attacker);
+        let guest = info.attacker.filter(|&a| self.is_coop_actor(a));
+        let attacker = info.attacker.map(|a| self.as_player(a));
+        let was = self.shot_for_player;
+        if guest.is_some() {
+            self.shot_for_player = info.weapon.or(Some(FormId(0)));
         }
+        let mut ran = self.ref_event(target, event::ON_HIT, attacker.map(|a| Value::Ref(a.0)), attacker);
+        if let Some(w) = info.weapon {
+            ran |= self.ref_event(target, event::ON_HIT_WITH, Some(Value::Ref(w.0)), attacker);
+        }
+        self.shot_for_player = was;
         ran
     }
 
@@ -840,7 +921,9 @@ impl Game<'_> {
     /// package's Weapon Drawn flag, or a scripted weapon use (UseWeapon); never under its
     /// package's Weapons Unequipped flag while it does not fight, nor while it flees a
     /// fight [owner 2026-10-17: "they holster their weapon"; docs/design/combat-ai.md
-    /// §12.2.1]. The rule the engine
+    /// §12.2.1], nor while it uses furniture (getting on, on it, getting off) out of a
+    /// fight [owner 2026-11-13: "weapon isnt away", a Mercenary seated with a machete;
+    /// hypothesis: the original holsters for furniture; docs/spec-notes/furniture.md §7]. The rule the engine
     /// draws and holsters NPCs' weapons by (`nvforever` alert.rs), kept here so that
     /// IsWeaponOut answers for actors the engine does not draw [engineering choice; the
     /// flags' meanings: docs/spec-notes/packages.md].
@@ -854,9 +937,13 @@ impl Game<'_> {
         let drawn = self.package_has(actor, flags::WEAPON_DRAWN) || self.package_has(actor, flags::PRETEND_IN_COMBAT);
         // SetWeaponOut 1 holds it drawn (`crate::nvse_hud`).
         let held = self.hud.forced_out.contains(&actor);
+        // Furniture puts it away out of a fight, as the engine shows it (`nvforever`
+        // alert.rs `put_away`), so IsWeaponOut reads 0 for a seated actor the engine does
+        // not draw too [documented: IsWeaponOut follows the weapon on the weapon node].
+        let seated = !fighting && self.furniture_use(actor).is_some();
         // A child fighting or alerted keeps its weapon away: it never fights (#2438).
         let child = self.never_fights(actor) && (fighting || self.draws_weapon(actor));
-        !unequipped && !fleeing && !child && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
+        !unequipped && !fleeing && !child && !seated && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
     }
 
     /// A hit's limb damage on one limb ([`Game::damage_limb`]) with what crippling it
@@ -1187,7 +1274,8 @@ impl Game<'_> {
     /// Run the OnFire blocks of the weapon `actor` fired (its object script)
     /// [documented: block name; observed: the detonator's script, `DetonatorOnFire`, is
     /// an OnFire block], and fire JIP's `SetOnFireWeaponEventHandler` event
-    /// [documented: SetOnFireWeaponEventHandler]. Returns whether an OnFire block ran.
+    /// [documented: SetOnFireWeaponEventHandler; observed: JAM's JBTOnFireWeaponUDF takes
+    /// the weapon, filtered on PlayerRef]. Returns whether an OnFire block ran.
     pub fn weapon_fired(&mut self, actor: FormId, weapon: FormId) -> bool {
         let ran = self.item_event(actor, weapon, event::ON_FIRE, None);
         self.fire_weapon_jip_event(actor, weapon, false);

@@ -246,10 +246,25 @@ const OUT_SIDE: f64 = 95.0;
 const OUT_UP: f64 = 85.0;
 const BOX_ROOM: (f64, f64) = (140.0, 80.0);
 
+/// The room a part's name takes above its box: the selected part's name stands over its
+/// bracket, 15 units higher, and 20 more over the chest's bracket [documented:
+/// vats_menu.xml, `body_part_percent`'s `limb_name`, y = the bracket's y - 15, - 20 more
+/// when justified down; design: the text's own height on top]. It is kept for every
+/// named part, selected or not, so the boxes stay put as the selection moves.
+fn name_room(p: &PartShown) -> f64 {
+    match (p.name.is_empty(), p.side) {
+        (true, _) => 0.0,
+        (false, Side::Down) => 40.0,
+        (false, _) => 20.0,
+    }
+}
+
 /// Set each part's box beside its part and apart from the others (`at`, from `point` and
 /// `side`): the head's above the head, a limb's out to its side at the limb's own
-/// height, the torso's on it; then any two whose rooms still meet are moved apart up and
-/// down, half the way each, until none does.
+/// height, the torso's on it; then any two whose rooms (the lower one's with its name
+/// above it, [`name_room`]) still meet are moved apart up and down, half the way each,
+/// until none does [the fork owner 2026-11-13, via parity: the head's "19%" over the
+/// torso's name read "19%orso"].
 pub fn spread(parts: &mut [PartShown]) {
     if parts.is_empty() {
         return;
@@ -270,8 +285,10 @@ pub fn spread(parts: &mut [PartShown]) {
             for j in i + 1..parts.len() {
                 let (a, b) = (parts[i].at, parts[j].at);
                 let down = b.1 - a.1;
-                if (a.0 - b.0).abs() < BOX_ROOM.0 && down.abs() < BOX_ROOM.1 {
-                    let push = (BOX_ROOM.1 - down.abs()) / 2.0 + 0.5;
+                let lower = if down >= 0.0 { &parts[j] } else { &parts[i] };
+                let room = BOX_ROOM.1 + name_room(lower);
+                if (a.0 - b.0).abs() < BOX_ROOM.0 && down.abs() < room {
+                    let push = (room - down.abs()) / 2.0 + 0.5;
                     let way = if down >= 0.0 { 1.0 } else { -1.0 };
                     parts[i].at.1 -= way * push;
                     parts[j].at.1 += way * push;
@@ -1301,6 +1318,33 @@ mod tests {
             }
         }
         assert!(dog[0].at.1 < dog[1].at.1, "the upper one goes up, the lower one down");
+    }
+
+    /// The owner's frame (classic VATS on a Fiend Guard Dog, 2026-11-13): the head's box
+    /// sat just above the torso's, and the torso's name, over its bracket, ran into the
+    /// head's chance ("19%orso"). The name's room is kept between them, selected or not.
+    #[test]
+    fn a_name_over_its_box_never_runs_into_the_box_above() {
+        let part = |name: &str, side: Side, point: (f64, f64), selected: bool| PartShown { index: 0, name: name.into(), chance: 45, condition: 1.0, selected, side, at: point, depth: 0.0, point };
+        // A dog seen head-on: the head just over the chest, 85 units apart once the head's
+        // box is lifted, room enough for the boxes but not for the torso's name.
+        for torso_selected in [true, false] {
+            let mut dog = vec![part("Head", Side::Up, (500.0, 300.0), !torso_selected), part("Torso", Side::Down, (505.0, 300.0), torso_selected)];
+            spread(&mut dog);
+            let (head, torso) = (dog[0].at, dog[1].at);
+            assert!(torso.1 - head.1 >= BOX_ROOM.1 + 40.0, "the torso's name fits under the head's box: {head:?} {torso:?}");
+            assert!(head.1 < torso.1, "the head's box stays above");
+        }
+        // The same places whichever part is selected: the boxes do not jump as it moves.
+        let mut a = vec![part("Head", Side::Up, (500.0, 300.0), true), part("Torso", Side::Down, (505.0, 300.0), false)];
+        let mut b = vec![part("Head", Side::Up, (500.0, 300.0), false), part("Torso", Side::Down, (505.0, 300.0), true)];
+        spread(&mut a);
+        spread(&mut b);
+        assert_eq!(a.iter().map(|p| p.at).collect::<Vec<_>>(), b.iter().map(|p| p.at).collect::<Vec<_>>());
+        // Far apart already: nothing moves.
+        let mut person = vec![part("Head", Side::Up, (500.0, 200.0), false), part("Torso", Side::Down, (500.0, 330.0), true)];
+        spread(&mut person);
+        assert_eq!((person[0].at, person[1].at), ((500.0, 200.0 - OUT_UP), (500.0, 330.0)));
     }
 
     #[test]

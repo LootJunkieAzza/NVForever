@@ -561,6 +561,10 @@ pub fn read_ahead(
     time: Res<Time>,
     pace: Res<crate::stream_pace::StreamPace>,
 ) {
+    // A handoff's new run reads nothing ahead while the old run still holds its game.
+    if !crate::handoff::old_run_gone() {
+        return;
+    }
     let unseen = loading.as_deref().is_some_and(|l| l.unseen_frames());
     if ahead.unseen != unseen {
         ahead.unseen = unseen;

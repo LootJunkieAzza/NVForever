@@ -132,6 +132,7 @@ fn setup() -> (App, Entity, EmptyData) {
         waiting: Vec::new(),
         model_overrides: HashMap::new(),
         travels: 0,
+        coop_areas: Vec::new(),
     };
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let dir = EmptyData(std::env::temp_dir().join(format!(

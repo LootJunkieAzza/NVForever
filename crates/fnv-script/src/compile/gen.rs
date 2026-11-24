@@ -111,14 +111,18 @@ pub(super) struct Gen<'a> {
     /// The spelling each reference list entry was first used with.
     claims: Vec<Option<String>>,
     seeded: bool,
-    /// [`Seed::unknown_calls`].
+    /// [`Seed::unknown_calls`], [`Seed::unknown_operands`].
     unknown_calls: bool,
+    unknown_operands: bool,
     /// The extender's runtime compiler's refusals apply ([`super::compile_runtime`]).
     pub(super) runtime: bool,
     /// Lower-case names of the locals the source declares `ref`.
     pub(super) ref_vars: std::collections::HashSet<String>,
     /// Seed reference list forms by lower-case Editor ID.
     seed_edids: HashMap<String, u32>,
+    /// Names the source spells that no form has, by lower-case name, and the seed form
+    /// each stands for ([`renamed_forms`]).
+    pub(super) renamed: HashMap<String, u32>,
     blocks: HashMap<String, u16>,
     enums: HashMap<String, HashMap<String, u16>>,
     diags: Vec<Diag>,
@@ -139,6 +143,13 @@ pub(super) struct Gen<'a> {
     /// Inside a compiler-override block (`Begin _GameMode` … `End`): every line is read
     /// with the extender's grammar (task A12, script-compiler.md §8).
     co: bool,
+    /// A vanilla `if`, `elseif` or `set` line read with the extender's grammar because it
+    /// calls an extender function ([`Gen::statement`]): its operators stay outside an
+    /// NVSE-aware function's arguments, so `if GetINIFloat_Cached "S:k" "F.ini" == 1`
+    /// compares the call's value with 1 [observed: Another Millenia's mil.esp, SCPT
+    /// 0x061F45, compiled by the GECK with xNVSE: `if <0x3D29>("S:k" "F.ini") 1 ==`, the
+    /// comparison after the call's two strings].
+    vanilla_x: bool,
     /// Parsing a function's arguments (not inside brackets of one): a signed number after
     /// a space starts the next argument ([`lex::XTok::sign`]).
     in_args: bool,
@@ -150,6 +161,12 @@ pub(super) struct Gen<'a> {
     /// Compiling a line that is a call on its own (not `let`, `if eval` or any other
     /// expression).
     call_line: bool,
+    /// Compiling a block lambda's body ([`Gen::lambda`]): its lines are statements, but
+    /// a string variable there given to a plain string parameter stays its value, as it
+    /// did while the body was read with the argument flags of the call it is given to
+    /// [hypothesis: the nvse-sixth observation of the name as text is of a script's own
+    /// line; upstream's `click_menu_tile_advances_tiled_menu_and_fires_menu_click_event_handler`].
+    in_lambda: bool,
     /// Compiling a vanilla `set` line read with the extender's grammar.
     set_line: bool,
     /// A variable declared with another type than its seeded slot's takes the declared
@@ -201,6 +218,12 @@ impl<'a> Gen<'a> {
         for (c, n) in crate::table::SCRIPT_AV_NAMES {
             av.entry(n.to_ascii_lowercase()).or_insert(c);
         }
+        // Animation groups the shipped scripts never name (`JumpStart`) [observed:
+        // JustAssortedMods.esp; `crate::table::ANIM_GROUP_NAMES`].
+        let groups = enums.entry("anim_group".into()).or_default();
+        for (c, n) in crate::table::ANIM_GROUP_NAMES.iter().enumerate() {
+            groups.entry(n.to_ascii_lowercase()).or_insert(c as u16);
+        }
         let mut seed_edids = HashMap::new();
         if let Some(s) = seed {
             for r in s.refs {
@@ -219,9 +242,11 @@ impl<'a> Gen<'a> {
             claims: Vec::new(),
             seeded: seed.is_some(),
             unknown_calls: seed.is_some_and(|s| s.unknown_calls),
+            unknown_operands: seed.is_some_and(|s| s.unknown_calls && s.unknown_operands),
             runtime: false,
             ref_vars: Default::default(),
             seed_edids,
+            renamed: HashMap::new(),
             blocks,
             enums,
             diags: Vec::new(),
@@ -234,10 +259,12 @@ impl<'a> Gen<'a> {
             extended: false,
             text: String::new(),
             co: false,
+            vanilla_x: false,
             in_args: false,
             in_arg_any: false,
             in_paren: false,
             call_line: false,
+            in_lambda: false,
             set_line: false,
             declared_types_win: false,
             lambdas: Vec::new(),
@@ -272,6 +299,7 @@ impl<'a> Gen<'a> {
             s.kw.extended()
                 || !s.decls.is_empty()
                 || matches!(&s.kw, Kw::Call(t) if self.function(&t[0]).is_none() && self.xfunction_name(&t[0].text))
+                || matches!(&s.kw, Kw::Call(t) if t.len() > 1 && t[0].text.eq_ignore_ascii_case("eval"))
         });
         self.declare_all(&stmts);
         for s in &stmts {
@@ -357,6 +385,13 @@ impl<'a> Gen<'a> {
             });
         }
         let saved = (std::mem::take(&mut self.out), self.stmts, std::mem::take(&mut self.chains), self.block.take(), self.loops, self.line, self.text.clone());
+        // The body's lines are statements of their own, not the argument the lambda is
+        // read as: a line there starting with a name the table lacks is a call of it
+        // ([`super::Seed::unknown_calls`]), as at the top of the unit (ln_ISControl.txt's
+        // `GetCameraMovement (float xmE) (float xmD)` inside a handler read as the text
+        // "GetCameraMovement" followed by a syntax error).
+        let flags = (std::mem::take(&mut self.in_args), std::mem::take(&mut self.in_arg_any), std::mem::take(&mut self.in_paren), std::mem::take(&mut self.call_line));
+        let was_lambda = std::mem::replace(&mut self.in_lambda, true);
         self.stmts = 0;
         self.loops = 0;
         let mut stmts = Vec::new();
@@ -381,6 +416,8 @@ impl<'a> Gen<'a> {
         self.loops = saved.4;
         self.line = saved.5;
         self.text = saved.6;
+        (self.in_args, self.in_arg_any, self.in_paren, self.call_line) = flags;
+        self.in_lambda = was_lambda;
         let body = crate::decode::decode(&bytes, self.table).program.top;
         let index = self.next_lambda();
         Some(crate::ir::XExpr::Lambda { params, body, value: None, index })
@@ -514,11 +551,28 @@ impl<'a> Gen<'a> {
         if let Some(i) = self.env.form(name) {
             return Some(i);
         }
+        if let Some(&f) = self.renamed.get(&low) {
+            return Some(self.env.info(f).unwrap_or(FormInfo { form: f, sig: [0; 4] }));
+        }
         if name.len() == 8 && name.bytes().all(|b| b.is_ascii_hexdigit()) {
-            let g = self.env.local_form(u32::from_str_radix(name, 16).ok()?)?;
-            return Some(self.env.info(g).unwrap_or(FormInfo { form: g, sig: [0; 4] }));
+            return self.hex_form(name);
         }
         None
+    }
+
+    /// A form named by its FormID in hex, as long as a form has it.
+    fn hex_form(&self, name: &str) -> Option<FormInfo> {
+        let g = self.env.local_form(u32::from_str_radix(name, 16).ok()?)?;
+        Some(self.env.info(g).unwrap_or(FormInfo { form: g, sig: [0; 4] }))
+    }
+
+    /// [`Self::form`] in the vanilla expression and parameters: a FormID in hex may also
+    /// go without its leading zeros [observed: NoticeBoard.esm's `player.additem f 25`
+    /// compiled as AddItem of 0x0000000F (Caps001), `set GenerateEvent to 0A` as a
+    /// reference to 0x0000000A]. Not in the extender's expressions, where an unknown word
+    /// is its own text (`unquoted_argument`).
+    fn vanilla_form(&self, name: &str) -> Option<FormInfo> {
+        self.form(name).or_else(|| ((1..8).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_hexdigit())).then(|| self.hex_form(name)).flatten())
     }
 
     /// A vanilla parameter's name that nothing has, in a mod's source compiled by the
@@ -616,7 +670,7 @@ impl<'a> Gen<'a> {
                 if let Some(v) = self.var(&t.text) {
                     return Some(Val::Local { index: v.index as u16, letter: letter_of(&v.ty) });
                 }
-                let f = self.form(&t.text)?;
+                let f = self.vanilla_form(&t.text)?;
                 Some(self.form_val(f, &t.text))
             }
             _ => None,
@@ -630,6 +684,19 @@ impl<'a> Gen<'a> {
         } else {
             Val::Ref(r)
         }
+    }
+
+    /// A plain word the vanilla expression cannot take: not a number, a variable, a form,
+    /// a function or a dotted name.
+    fn unknown_word(&mut self, t: &Tok) -> bool {
+        t.kind == lex::Kind::Word
+            && !t.text.contains('.')
+            && !lex::is_number(&t.text)
+            && !is_neg_number(&t.text)
+            && self.var(&t.text).is_none()
+            && self.vanilla_form(&t.text).is_none()
+            && self.function(t).is_none()
+            && !self.xfunction_name(&t.text)
     }
 
     /// The opcode a name compiles to. A console command's number gives way to an extender
@@ -1128,12 +1195,41 @@ impl<'a> Gen<'a> {
             };
             if let Some(m) = mapped {
                 self.set_line = matches!(kw, Kw::Set { .. });
+                let was = std::mem::replace(&mut self.vanilla_x, !self.co);
                 self.statement_inner(&m);
+                self.vanilla_x = was;
                 self.set_line = false;
                 return;
             }
         }
         self.statement_inner(kw)
+    }
+
+    /// An `if eval`/`elseif eval` condition, or a vanilla one read with the extender's
+    /// grammar. In the vanilla one, values after a whole expression that no function takes
+    /// stay as the vanilla compiler leaves them, beside it: the condition then stops the
+    /// script, running neither arm, as the original stops at leftover values ([`crate::vm`]
+    /// `eval`, observer-checks.md check 32). Dry Wells' INFO 0x05004955 end script has `if
+    /// getquestfailed Q 0 && getobjectivedisplayed Q 10 1`, compiled by the GECK with the
+    /// extender as GetQuestFailed(Q), 0, GetObjectiveDisplayed(Q, 10), 1, && [observed:
+    /// DryWellsReloaded.esm SCDA; laptop smoke run 2026-11-15: "syntax unexpected 0 && ..."
+    /// failed the whole unit]. Two values stand for them; the warning names the rest.
+    fn xcondition(&mut self, toks: &[lex::XTok]) -> Vec<u8> {
+        if self.vanilla_x {
+            let mut p = x::P::new(toks);
+            let before = self.diags.len();
+            if let Some(e) = self.xexpr(&mut p, 0) {
+                if p.done() {
+                    return self.xbytes(&e);
+                }
+                let rest = p.rest();
+                self.diags.truncate(before);
+                self.diag("surplus_operands", false, format!("the condition stops the script at run time: {rest}"));
+                return b" 0 0".to_vec();
+            }
+            self.diags.truncate(before);
+        }
+        self.xwhole(toks).map(|e| self.xbytes(&e)).unwrap_or_else(|| b" 0".to_vec())
     }
 
     /// Whether the current line contains an inline variable declaration
@@ -1290,7 +1386,7 @@ impl<'a> Gen<'a> {
                 let opcode = if matches!(kw, Kw::IfEval(_)) { op::IF } else { op::ELSEIF };
                 // A condition that does not compile still opens its chain, so the
                 // markers after it pair up.
-                let e = self.xwhole(c).map(|e| self.xbytes(&e)).unwrap_or_else(|| b" 0".to_vec());
+                let e = self.xcondition(c);
                 self.marker_bytes(opcode, Some(e));
             }
             Kw::While(toks) => {
@@ -1375,6 +1471,24 @@ impl<'a> Gen<'a> {
                 // udf.return_value, ext-bytecode.md].
                 self.emit(None, op::RETURN, &[]);
             }
+            // A mod's `set … to …` naming a function the table lacks (`set fTemp to
+            // GetMCMListWidth 2 iSubCount + 15`, MCM's own plugin's) cannot be the vanilla
+            // expression: it compiles as the `let` it means, the name a call that reports
+            // "not built" when it runs ([`Seed::unknown_calls`]) [observed: The Mod
+            // Configuration Menu.esp SCPT 0x000AE8].
+            Kw::Set { expr, on: None, .. } if self.unknown_operands && expr.iter().any(|t| self.unknown_word(t)) => {
+                let lower = self.text.to_ascii_lowercase();
+                let Some(to) = lower.find(" to ") else {
+                    self.diag("bad_set_target", true, self.text.clone());
+                    return;
+                };
+                let (lhs, rhs) = (self.text[..to].trim_start(), &self.text[to + 4..]);
+                let lhs = lhs.get(3..).unwrap_or("").trim();
+                let x = lex::xtokens(&format!("{lhs} := {rhs}"));
+                let Some(e) = self.xwhole(&x) else { return };
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, op::X_LET, &json);
+            }
             Kw::Set { target, expr, on } => {
                 let on = match on {
                     Some(h) => match self.reference(h) {
@@ -1400,6 +1514,19 @@ impl<'a> Gen<'a> {
                 put16(&mut body, e.len() as u16);
                 body.extend_from_slice(&e);
                 self.emit(on, op::SET, &body);
+            }
+            // `eval <expression>` runs the expression for what it does, an assignment too
+            // (`eval iTemp = iTemp * (1 - JBT.rTarget.GetAV Invisibility)`) [documented:
+            // Eval; observed: JustAssortedMods.esp SCPT 0x04A806 compiles so in the
+            // original].
+            Kw::Call(toks) if self.extended && toks.len() > 1 && toks[0].text.eq_ignore_ascii_case("eval") => {
+                let x = lex::xtokens(&self.text);
+                self.call_line = true;
+                let e = self.xcall_line(&x[1..]);
+                self.call_line = false;
+                let Some(e) = e else { return };
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, op::X_EVAL, &json);
             }
             Kw::Call(toks) if self.co || self.x_call_line(toks) => {
                 // An inline expression among the arguments, or an extender function: the
@@ -1465,4 +1592,48 @@ fn is_neg_number(s: &str) -> bool {
 
 fn static_op(s: &str) -> &'static str {
     ["==", "!=", "<=", ">=", "&&", "||", "<", ">", "+", "-", "*", "/", "%"].into_iter().find(|o| *o == s).unwrap_or("+")
+}
+
+/// A mod that renames a form after compiling its scripts leaves the old name in their
+/// source, while the bytes and the reference list name the form by its FormID, which is
+/// all the original runs [observed: NovaArizona.esm, SCPT 0600CE4A's `PlaySound
+/// AZWPNTommyTroutCritical` with SCRO 0600CE4D AZWPNTommyTroutUniqueCritical, QUST
+/// 06008E4A stage 10's `setally AZLegionWhiteHillsMineFaction` with SCRO 06008E72
+/// AZWhiteHillsMineLegionFaction, INFO 06021079's `AZFreeformChloride01.` with SCRO
+/// 0600D7EA AZFreeformChloride]. The names a first compile could not resolve, in the
+/// order it met them, stand for the seed's forms that no word of the source names, in list
+/// order, when there are as many of each; otherwise nothing is matched. A name of hex
+/// digits alone is a FormID spelling, not an old Editor ID: whether one stands is the
+/// short-FormID rules' to say (`C12345.StartConversation` stays refused,
+/// fnv-game's short_hex_receivers tests).
+pub(super) fn renamed_forms(src: &str, diags: &[Diag], seed: &Seed<'_>, env: &dyn Env) -> HashMap<String, u32> {
+    let mut names: Vec<String> = Vec::new();
+    for d in diags.iter().filter(|d| d.kind == "unresolved_name" && !d.detail.bytes().all(|b| b.is_ascii_hexdigit())) {
+        let n = d.detail.to_ascii_lowercase();
+        if !names.contains(&n) {
+            names.push(n);
+        }
+    }
+    if names.is_empty() {
+        return HashMap::new();
+    }
+    let words: std::collections::HashSet<String> =
+        src.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).filter(|w| !w.is_empty()).map(str::to_ascii_lowercase).collect();
+    let named = |f: u32| {
+        f == PLAYER
+            || env.editor_id(f).is_none_or(|e| words.contains(&e.to_ascii_lowercase()))
+            || words.iter().any(|w| w.len() <= 8 && w.bytes().all(|b| b.is_ascii_hexdigit()) && u32::from_str_radix(w, 16).ok().and_then(|l| env.local_form(l)) == Some(f))
+    };
+    let mut orphans: Vec<u32> = Vec::new();
+    for r in seed.refs {
+        if let RefSlot::Form(f) = *r {
+            if !named(f) && !orphans.contains(&f) {
+                orphans.push(f);
+            }
+        }
+    }
+    if orphans.len() != names.len() {
+        return HashMap::new();
+    }
+    names.into_iter().zip(orphans).collect()
 }

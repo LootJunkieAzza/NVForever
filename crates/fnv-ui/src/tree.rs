@@ -1686,6 +1686,90 @@ impl Ui {
         changed
     }
 
+    /// Works out one trait (tile `t`, index `k`) and, first, the traits it read when last
+    /// worked out, as [`Ui::update`] would work them out, leaving the rest of the tree for
+    /// the next update: a script that sets a trait and reads another, again and again in one
+    /// frame, works out only what it reads [design: owner's playtest 2026-11-11, Main And
+    /// Pause Menus Overhaul's HUD script read 36 traits a frame, each after a write, and each
+    /// read worked the whole tree out]. False when it cannot tell what the trait reads now
+    /// (the tree's shape changed since it was worked out, a loop, a deep chain, or a source
+    /// it now reads that it did not): then call [`Ui::update`].
+    pub fn refresh(&mut self, t: TileId, k: usize) -> bool {
+        if !self.dirty {
+            return true;
+        }
+        let Some(i) = self.slot(t) else { return false };
+        let mut visiting = Vec::new();
+        self.refresh_at(i, k, &mut visiting)
+    }
+
+    fn refresh_at(&mut self, i: usize, k: usize, visiting: &mut Vec<(usize, usize)>) -> bool {
+        let Some(tr) = self.tiles[i].traits.get(k) else { return false };
+        if tr.expr.is_none() {
+            return true;
+        }
+        if tr.evaluated == 0 || !tr.seen_valid || visiting.len() >= 64 || visiting.contains(&(i, k)) {
+            return false;
+        }
+        // What `update` checks before it skips a trait: the structure it resolved through.
+        let root_slot = self.slot(self.tiles[i].root);
+        let root_shape = root_slot.map_or(0, |r| self.tiles[r].root_shape);
+        let roots_shape = self.roots_shape;
+        let root_unchanged = tr.seen_root_shape == root_shape;
+        let roots_unchanged = tr.seen_roots_shape == roots_shape;
+        if !tr.struct_deps.iter().all(|&dep| self.struct_dep_holds(dep, tr.evaluated, root_unchanged, roots_unchanged)) {
+            return false;
+        }
+        let read = tr.sources.clone();
+        visiting.push((i, k));
+        for &(st, sk) in &read {
+            let Some(si) = self.slot(st) else { return false };
+            if !self.refresh_at(si, sk as usize, visiting) {
+                return false;
+            }
+        }
+        visiting.pop();
+        let evaluated = self.tiles[i].traits[k].evaluated;
+        let unchanged = read.iter().all(|&(st, sk)| {
+            self.slot(st).is_some_and(|si| self.tiles[si].traits.get(sk as usize).is_some_and(|s| s.changed <= evaluated))
+        });
+        if unchanged {
+            return true;
+        }
+        // As `update` works one out.
+        let tid = self.id_at(i);
+        let mut deps = 0;
+        let mut sources = Vec::new();
+        let mut struct_deps = Vec::new();
+        let v = {
+            let Some(ops) = self.tiles[i].traits[k].expr.as_deref() else { return true };
+            self.eval_reading(tid, ops, &mut deps, &mut sources, Some(&mut struct_deps))
+        };
+        if let Some(r) = root_slot {
+            self.tiles[r].root_evaluated = true;
+        }
+        let known = sources.iter().all(|s| read.contains(s));
+        let tr = &mut self.tiles[i].traits[k];
+        tr.sources = sources;
+        tr.struct_deps = struct_deps;
+        tr.seen_valid = true;
+        tr.seen_root_shape = root_shape;
+        tr.seen_roots_shape = roots_shape;
+        if tr.evaluated != 0 && deps <= tr.evaluated {
+            return known;
+        }
+        let differs = v.differs(&tr.value);
+        self.gen += 1;
+        let gen = self.gen;
+        let tr = &mut self.tiles[i].traits[k];
+        tr.evaluated = gen;
+        if differs {
+            tr.value = v;
+            tr.changed = gen;
+        }
+        known
+    }
+
     fn struct_dep_holds(&self, dep: StructDep, evaluated: u64, root_unchanged: bool, roots_unchanged: bool) -> bool {
         match dep {
             StructDep::Children { tile, seen } => self.slot(tile).is_some_and(|i| self.tiles[i].children_changed == seen),

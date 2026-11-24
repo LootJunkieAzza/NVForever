@@ -106,6 +106,8 @@ fn production_runtime(play: PlayData, forms: &'static fnv_sim::FormStore, refs: 
         .init_resource::<nvf_play::poker::PokerScreen>()
         .init_resource::<nvf_play::credits::Credits>()
         .init_resource::<Assets<Image>>()
+        // The fork's hardcore consume animations, which `run_scripts` reads.
+        .init_resource::<nvf_play::ConsumeAnims>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .add_message::<nvf_play::tutorial_menu::TutorialInput>()
         .add_message::<nvf_play::RefChanged>()
@@ -199,6 +201,11 @@ fn app() -> App {
         .add_message::<nvf_play::Travel>()
         .add_message::<nvf_play::world_sounds::ImpactPicked>()
         .add_message::<PlayAttack>()
+        // The fork's weapon bash runs in CombatPlugin's chain: its state and its keys.
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<nvf_play::bindings::Bindings>()
+        .add_plugins(nvf_play::bash::BashPlugin)
         .add_plugins(CombatPlugin)
         .add_systems(Update, shoot.before(nvf_play::PlaySet::Activation));
     for (id, y) in [(SHOOTER, 0.0), (TARGET, 80.0)] {

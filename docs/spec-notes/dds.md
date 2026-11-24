@@ -55,6 +55,11 @@ A layout without alpha reads as opaque; luminance is copied to all three colours
 (A8) is not read: Direct3D samples it with black colour, so what it would look like
 in the game is not known.
 
+A FourCC format may carry other flags beside the FourCC flag (Alpha Pixels on a
+DXT1, flags 0x5); the FourCC names the format then [observed: NV Interiors'
+`dcintlenfant*.dds`, flags 0x5 DXT1, drawn by the original; documented: MS
+`DDS_PIXELFORMAT`, `DDPF_FOURCC`].
+
 ## 3. Sizes [observed: exact for all 26,907 files]
 
 - Width and height are powers of two in every file, 4096 at most [observed]. A texture

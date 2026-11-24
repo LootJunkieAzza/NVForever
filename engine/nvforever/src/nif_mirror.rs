@@ -101,6 +101,8 @@ fn file_scene(
                 rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
                 scale: h.scale.unwrap_or(f.scale),
                 flags: 0,
+                // Not drawn as a node tree: no place of its own in the world.
+                world: [0.0; 3],
                 material,
                 info: None,
             }
@@ -888,6 +890,9 @@ fn mirror_game(
                         rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
                         scale: t.scale.x,
                         flags: attached.map_or(0, |n| n.source.flags & !1) | u32::from(hidden),
+                        // Last frame's: the mirror runs before this frame's transforms are
+                        // carried down the tree.
+                        world: globals.get(e).map_or([0.0; 3], |g| crate::world::bevy_to_game(g.translation()).to_array()),
                         material,
                         info: Some(Box::new(info)),
                     })

@@ -34,7 +34,7 @@ const NPC: u32 = 0x171; // a living NPC behind bars (#3233)
 const CELL_EXT: u32 = 0x200;
 const CELL_INT: u32 = 0x201;
 const WORLD: u32 = 0x3C;
-const STIM_REF: u32 = 0x301; // XCNT 3, no collision
+pub(crate) const STIM_REF: u32 = 0x301; // XCNT 3, no collision
 const CHEST_REF: u32 = 0x302;
 const SAFE_REF: u32 = 0x303; // a chest locked at level 50 with KEY
 const DOOR_REF: u32 = 0x304; // -> DOOR_DEST in CELL_INT
@@ -95,7 +95,7 @@ pub(crate) fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
     }
 }
 
-fn sim() -> SimState {
+pub(crate) fn sim() -> SimState {
     let mut forms = FormStore::default();
     let chest = || BaseData::Container(Container { respawns: false, entries: Vec::new() });
     for mut b in [
@@ -208,6 +208,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<crate::lockpick::OpenLockpick>()
         .add_message::<crate::pickpocket::OpenPickpocket>()
         .add_message::<crate::pickpocket::Pickpocketed>()
+        .add_message::<crate::drink_world::BottleUsed>()
         .add_message::<crate::ui_sounds::UiSound>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
     app
@@ -248,6 +249,21 @@ fn a_restored_change_still_reaches_the_drawn_world() {
     assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Hidden));
 }
 
+/// A change to a reference shows its entities again, but not one that stays hidden (a
+/// revolver's speed loader at rest, `crate::StaysHidden`).
+#[test]
+fn a_change_to_a_reference_leaves_a_part_that_stays_hidden_hidden() {
+    let mut app = scene(&[]);
+    let shown = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    let loader = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.world_mut().entity_mut(loader).insert((crate::StaysHidden, Visibility::Hidden));
+    app.update();
+    app.world_mut().resource_mut::<Messages<RefChanged>>().write(RefChanged { form_id: STIM_REF, restored: false });
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(shown), Some(&Visibility::Inherited));
+    assert_eq!(app.world().get::<Visibility>(loader), Some(&Visibility::Hidden));
+}
+
 #[test]
 fn describe_by_type_lock_and_destination() {
     let sim = sim();
@@ -282,6 +298,9 @@ fn inaccessible_doors_and_activation_prompts() {
     let ix = index();
     assert_eq!(describe(&sim, ix, 0x7777), Some(("Door".into(), Action::Inaccessible)));
     assert_eq!(Action::Inaccessible.label(), "Inaccessible");
+    // A sneaking player's action on a living actor, and on an owned item.
+    assert_eq!(Action::Steal.label(), "Pickpocket");
+    assert_eq!(super::outcome::prompt("Nolan Crow", &Action::Steal), ("Pickpocket".to_string(), "Nolan Crow".to_string()));
     assert_eq!(crate::reticle::activation_prompt(&sim, 0x7778).as_deref(), Some("Search Footlocker"));
     assert_eq!(crate::reticle::activation_prompt(&sim, CHEST_REF), None);
 }

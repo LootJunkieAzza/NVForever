@@ -2117,8 +2117,16 @@ pub fn update_clouds(
     cam: Query<&Transform, (With<FlyCam>, Without<CloudLayer>)>,
     mut clouds: Query<(&mut CloudLayer, &MeshMaterial3d<SkyMaterial>, &mut Transform, &mut Visibility), Without<FlyCam>>,
     mut logged: Local<Option<u32>>,
+    photo: Option<Res<nvf_play::photo_mode::PhotoMode>>,
 ) {
     let Ok(cam_t) = cam.single() else { return };
+    // Photo mode holding the view (co-op): the clouds follow the camera and stand still.
+    if photo.is_some_and(|p| p.holds_view()) {
+        for (_, _, mut t, _) in &mut clouds {
+            t.translation = cam_t.translation;
+        }
+        return;
+    }
     // Elapsed seconds, or the frozen phase of NVF_PLAY_DEBUG_CLOUD_PHASE (cloud_shadows.rs).
     let secs = crate::cloud_shadows::cloud_seconds(&time);
     // Set 0 shows the current weather while no fade runs; during a fade the set whose
@@ -2198,9 +2206,23 @@ pub fn update_night_sky(
     mut moon: Query<(&mut Transform, &MeshMaterial3d<SkyMaterial>, &mut MoonDisc), (Without<FlyCam>, Without<Stars>)>,
     mut materials: ResMut<Assets<SkyMaterial>>,
     mut last: Local<Option<(f32, f32)>>,
+    (photo, mut last_cam): (Option<Res<nvf_play::photo_mode::PhotoMode>>, Local<Option<Vec3>>),
 ) {
     let Ok(cam_t) = cam.single() else { return };
     let cam_pos = cam_t.translation;
+    let moved = cam_pos - last_cam.unwrap_or(cam_pos);
+    *last_cam = Some(cam_pos);
+    // Photo mode holding the view (co-op): the stars and the moon follow the camera where
+    // they stood; the hour's changes show when the view goes live again.
+    if photo.is_some_and(|p| p.holds_view()) {
+        for (mut t, _, _) in &mut stars {
+            t.translation = cam_pos;
+        }
+        for (mut t, _, _) in &mut moon {
+            t.translation += moved;
+        }
+        return;
+    }
     let indoors = sky.interior.is_some();
     let sun_dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&sky.climate, sky.hour, SUN_SOUTH));
     let (star_vis, moon_vis) = if indoors { (0.0, 0.0) } else { sky.night_visibility() };
@@ -2369,6 +2391,7 @@ pub fn update_sky(
     mut dome_shown: Local<Option<DomeShown>>,
     mut last_interior_fog: Local<Option<(f32, f32, f32)>>,
     screen: Option<Res<crate::imagespace::ScreenModifiers>>,
+    photo: Option<Res<nvf_play::photo_mode::PhotoMode>>,
     tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
 ) {
     let mut cam = cam;
@@ -2389,6 +2412,17 @@ pub fn update_sky(
         }
         sky.advance_fade(dt);
         sky.set_hour(h, false);
+    }
+    // Photo mode holding the view (co-op): the hour and the weather go on, the sky drawn
+    // stays as it was (it follows the camera), and what changed shows when the view goes
+    // live again (`changed` is left set).
+    if photo.is_some_and(|p| p.holds_view()) {
+        if let Ok((_, _, mut t)) = dome.single_mut() {
+            if t.scale != Vec3::ZERO {
+                t.translation = cam_pos;
+            }
+        }
+        return;
     }
     let changed = std::mem::take(&mut sky.changed);
     if let Some(l) = sky.interior {

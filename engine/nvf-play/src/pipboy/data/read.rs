@@ -65,7 +65,7 @@ pub fn note(lo: &LoadOrder, schema: &Schema, form: u32) -> Option<Note> {
 /// (`FNAM`: 1 visible, 2 can travel to), the radius the player finds it in (`XRDS`) and
 /// its reputation (`WMI1`, a REPU: "the reputation that is shown when the player hovers
 /// over the icon on the world map" [documented: GECK wiki Reference, Map Marker]).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Marker {
     pub form: u32,
     pub world: u32,

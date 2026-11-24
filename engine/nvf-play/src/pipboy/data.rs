@@ -67,7 +67,7 @@ pub(crate) mod read;
 pub mod travel;
 pub mod view;
 
-use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, THICK};
+use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at, u};
 use crate::menu::model::Command;
@@ -91,7 +91,7 @@ use travel::{Ask, FastTravelAsk, FastTravelGo, Popup};
 pub(crate) use view::MapView;
 use nvf_assets::GameData;
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
 // ---- the tabs ---------------------------------------------------------------------------
@@ -187,13 +187,32 @@ const ROW_PITCH: f32 = 34.0;
 /// boxes "Mojave Music Radio" from 448 px, the rows' squares start at 456 px as ours].
 const BOX_LEFT: f32 = 9.0;
 /// A done quest's or objective's text and square at half strength [hypothesis: the
-/// owner's screenshot shows the completed quest greyed].
+/// owner's screenshot shows the completed quest greyed]: the colour's light halved, not
+/// its alpha, which the Pip-Boy model's screen divides out again (`device_screen`: the
+/// picture's tint raised and divided by its alpha), so done rows showed full strength on
+/// the model (item 205: a guest's frames, late205f).
 const DONE_ALPHA: f32 = 0.5;
+
+/// [`DONE_ALPHA`]'s colour: the light scaled, the alpha kept.
+fn done_colour(bright: Color) -> Color {
+    let l = bright.to_linear();
+    Color::linear_rgba(l.red * DONE_ALPHA, l.green * DONE_ALPHA, l.blue * DONE_ALPHA, l.alpha)
+}
 /// Map marker, player arrow and quest marker widths ("set in code" in the menu file)
 /// [observed: fitted to the owner's World Map screenshot, the marker about 13 px, the
 /// arrow's triangle 25 px and the quest marker's 12 × 23 px, at 0.62 px a unit; the
 /// pictures fill part of their squares].
 pub(crate) const MARKER: f32 = 24.0;
+/// A co-op player's head on a map, and the gap between it and its name under it (queue
+/// item 134) [design].
+pub(crate) const HEAD: f32 = 34.0;
+const HEAD_TAG_GAP: f32 = 2.0;
+/// The Map Icon box (`crate::coop_heads`): heads a row, rows shown, each head's square and
+/// the picture in it [design: the question box's look, `popup`].
+const PICK_COLS: usize = 10;
+const PICK_ROWS: usize = 5;
+const PICK_CELL: f32 = 52.0;
+const PICK_ICON: f32 = 44.0;
 pub(crate) const CURSOR: f32 = 40.0;
 pub(crate) const QUEST_MARKER: f32 = 56.0;
 /// The quest marker: the HUD compass's objective marker [hypothesis: the shape on the
@@ -204,9 +223,63 @@ const QUEST_ASPECT: f32 = 1.25;
 const QUEST_NUDGE: Vec2 = Vec2::new(15.0, 5.0);
 /// The pointer takes the highlight box to a marker this near [hypothesis].
 const SNAP: f32 = 40.0;
-/// A press and release on the World Map is a click (it asks to travel) while the pointer
-/// moved at most this far between them [design].
+/// A press and release on the World Map is a click (it asks to travel) while the mouse
+/// moved at most this far between them, in the window's pixels [design].
 const CLICK_SLOP: f32 = 6.0;
+
+/// The left button down on a map: where the mouse was in the window, how far it has gone
+/// since (window pixels), and the marker under the highlight box then.
+///
+/// The mouse is measured in the window, not on the Pip-Boy's screen: on the model the
+/// pointer is where the window's pointer meets the arm's posed screen
+/// (nvforever `pipboy_arm::follow_pointer`), and with the world running on (co-op's live
+/// Pip-Boy, `crate::menu::LiveMenu`) the arm and the view move under a still mouse. The
+/// owner's clicks on a co-op player's head then asked nothing; Enter in the box worked
+/// (overnight queue item 144; the owner's log of 2026-11-10 01:07:28-01:07:51 has the
+/// highlight leave and come back to the head every quarter second with the mouse on it).
+///
+/// Without a window mouse (a test aid's press) the pointer on the map is measured instead
+/// (#3324), and the marker at the press is not kept: the screen does not move under it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Press {
+    window: Option<Vec2>,
+    pointer: Option<Vec2>,
+    moved: f32,
+    marker: Option<u32>,
+}
+
+impl Press {
+    fn new(window: Option<Vec2>, marker: Option<u32>) -> Press {
+        Press { window, pointer: None, moved: 0.0, marker }
+    }
+
+    /// Pressed with the pointer on the map at `pointer` (measured when there is no window mouse).
+    fn on_map(self, pointer: Option<Vec2>) -> Press {
+        Press { pointer, ..self }
+    }
+
+    /// The mouse is at `window` now, the pointer on the map at `pointer`.
+    fn follow(&mut self, window: Option<Vec2>, pointer: Option<Vec2>) {
+        let gone = match (self.window, window) {
+            (Some(from), Some(p)) => Some(p.distance(from)),
+            (Some(_), None) => None,
+            (None, _) => self.pointer.zip(pointer).map(|(from, p)| p.distance(from)),
+        };
+        if let Some(d) = gone {
+            self.moved = self.moved.max(d);
+        }
+    }
+
+    /// The marker a release asks to travel to: the one under the highlight box now, else
+    /// the one under it at the press (the screen moved it off; with a window mouse only);
+    /// none after a drag.
+    fn clicked(&self, now: Option<u32>) -> Option<u32> {
+        if self.moved > CLICK_SLOP {
+            return None;
+        }
+        now.or(self.marker.filter(|_| self.window.is_some()))
+    }
+}
 /// The fast-travel question box (fast-travel.md §3) [design: by the owner's screenshot]:
 /// its width, the room round its text, its text's wrap, the room under an answer's text
 /// and the answer's frame round the widest answer (the message box's 42, message-menu.md
@@ -313,6 +386,9 @@ pub(crate) enum Act {
     PopupOver(usize),
     PopupOut(usize),
     PopupPick(usize),
+    /// The pointer came onto a head of the Map Icon box, or clicked it.
+    HeadOver(usize),
+    HeadPick(usize),
     /// A part of the right pane's scroll bar was clicked (the marker: pressed).
     Bar(BarPart),
     /// The page drawn from the file (`crate::tiles::map_menu`): the pointer came onto, left or
@@ -346,6 +422,10 @@ pub(crate) enum ButtonKind {
     ShowLocation,
     NotesFilter,
     Challenges,
+    /// The Misc tab's co-op players (item 172).
+    Friends,
+    /// The Map Icon box: the head the others see this player as (`crate::coop_heads`).
+    MapIcon,
     /// X while the challenges show (`sNextChallenge`): not built.
     NextChallenge,
     /// The A button's actions (Enter): travel to the marker under the highlight box, make
@@ -420,12 +500,19 @@ pub struct DataState {
     /// When each quest was first seen listed (a running count).
     seen: HashMap<u32, u64>,
     seen_count: u64,
+    /// A co-op guest's quest list as last logged (`track`).
+    guest_listed: Vec<u32>,
     /// The notes' filter is on: only the active quest's notes (`sShowActiveNotes`).
     notes_of_active: bool,
     /// The note whose page was last shown, so it is marked read once (GetNoteRead).
     note_shown: Option<u32>,
     /// The Notes tab shows the challenges instead ("Challenges", R; `crate::challenges`).
     challenges: bool,
+    /// The Misc tab lists the other co-op players instead ("Friends", F; item 172).
+    friends: bool,
+    /// A Friends row used: the trip to that player asked of `travel` once the input is
+    /// taken (its reference).
+    travel_to: Option<u32>,
     /// The point shown at each map's middle (world: the picture's 0–1; local: game x, y)
     /// and its magnification.
     centre: [Option<[f32; 2]>; 2],
@@ -500,6 +587,10 @@ pub struct DataState {
     /// square without land), smoothed or stored as the run draws and collides them
     /// (`crate::smooth_terrain`, #2149), kept while one outline is made.
     outline_land: HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>,
+    /// and its alpha once made.
+    live_outline: Option<Outline>,
+    live_land: HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>,
+    live_alpha: Option<std::sync::Arc<Vec<u8>>>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<(u32, usize, usize, usize, usize)>,
     /// The World Map's companion count at the last log.
@@ -515,14 +606,17 @@ pub struct DataState {
     /// The boxes of the buttons at the right as last drawn, and their tab
     /// ([`button_boxes`], [`on_button`]).
     button_rects: (usize, Vec<Rect>),
-    /// Where the left button went down on a map, and how far the pointer has moved since
-    /// (a click asks to travel or places the custom marker, a drag does neither).
-    press: Option<(Vec2, f32)>,
+    /// The left button down on a map (a click asks to travel or places the custom marker, a
+    /// drag does neither; [`Press`]).
+    press: Option<Press>,
     /// A click on map tab `.0` this frame ([`travel_ask`], #3324), resolved once the map is laid
     /// out for good against the highlight box as drawn then ([`take_click`]): companions
-    /// summoned, a fast-travel question for the World Map's marker under it, else Place Marker's
-    /// question of the place under it.
+    /// summoned, a fast-travel question for the World Map's marker under it (or a co-op
+    /// player's head on either map, item 134), else Place Marker's question of the place under it.
     map_click: Option<usize>,
+    /// The marker under the highlight box when that click's button went down, for a screen
+    /// that moved it off under a still mouse ([`Press::clicked`], item 144).
+    click_marker: Option<u32>,
     /// The question box over the map: fast travel's (`travel`) or Place Marker's.
     popup: Option<Popup>,
     /// The pointer on the page this frame, whatever the input device (the question box's
@@ -569,6 +663,21 @@ pub struct DataState {
     custom_logged: [Option<Option<(i32, i32)>>; 2],
     /// What the World Map's dotted lines led to, and the custom marker, when last logged.
     lines_logged: Option<(Vec<LineTo>, Option<CustomMarker>)>,
+    /// The Map Icon box over a map, while it is up, and as the page last drew it (it is
+    /// not part of the [`View`], which the page drawn from the file shares).
+    heads: Option<HeadPicker>,
+    heads_shown: Option<HeadPicker>,
+}
+
+/// The Map Icon box: the heads offered, the one under the pointer or the keys, and the
+/// first row shown.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct HeadPicker {
+    choices: Vec<crate::coop_heads::Choice>,
+    over: usize,
+    first: usize,
+    /// The head chosen now (its picture), framed.
+    chosen: String,
 }
 
 /// [design, #2403] Synthetic list/note scrolling for reports integration tests only.
@@ -644,6 +753,10 @@ pub(crate) struct MapMark {
     /// puts it on this marker.
     pub(crate) name: String,
     pub(crate) detail: Option<String>,
+    /// A co-op player's head (its picture, `crate::coop_heads`) in place of the icon, and
+    /// the name always shown under it.
+    pub(crate) head: Option<String>,
+    pub(crate) tag: Option<String>,
     /// Drawn in red: found in this run, under the player's tweak.
     pub(crate) recent: bool,
     /// A door under the player's Exterior and Interior Door Icons tweak: whether it leads
@@ -653,6 +766,9 @@ pub(crate) struct MapMark {
 
 impl MapMark {
     pub(crate) fn picture(&self) -> String {
+        if let Some(h) = &self.head {
+            return h.clone();
+        }
         match self.icon {
             Some((kind, found)) => {
                 if found {
@@ -815,6 +931,10 @@ pub struct Game<'w> {
     places: Option<Res<'w, RadioPlaces>>,
     phys: Option<ResMut<'w, crate::phys::PhysState>>,
     holotape: Option<ResMut<'w, crate::holotape::Holotape>>,
+    /// The other co-op players (nvforever `coop.rs`): their heads on the maps, travelled to.
+    mates: Option<Res<'w, super::glance::CoopMates>>,
+    /// The head the others see this player as (`crate::coop_heads`), chosen here.
+    head: Option<ResMut<'w, crate::coop_heads::MapHead>>,
 }
 
 /// What the player presses.
@@ -826,6 +946,8 @@ pub struct Input<'w, 's> {
     pip_out: MessageWriter<'w, PipBoyInput>,
     time: Res<'w, Time<Real>>,
     buttons: crate::pad::ActionButtons<'w, MouseButton>,
+    /// The mouse in the window, for the map's click test ([`Press`]).
+    windows: Query<'w, 's, &'static Window, With<bevy::window::PrimaryWindow>>,
     aid: ResMut<'w, PipBoyAid>,
     ask: MessageWriter<'w, FastTravelAsk>,
     summon: MessageWriter<'w, SummonCompanions>,
@@ -966,7 +1088,7 @@ pub fn draw(
     let Some((body, _)) = body else { return };
     // The hand-built body is drawn: its map window is the file's numbers again.
     st.map_window = None;
-    if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
+    if added.get(body).is_err() && st.shown.as_ref() == Some(&view) && st.heads_shown == st.heads {
         return;
     }
     // While a press is held (the mouse's left button, or the test aid's click between its
@@ -988,6 +1110,7 @@ pub fn draw(
     }
     commands.entity(body).despawn_children().with_children(|p| show(p, &mut c, st, &view));
     st.shown = Some(view);
+    st.heads_shown = st.heads.clone();
 }
 
 /// Whether `now` differs from `shown` only in a playing audio note's time and meter.
@@ -1018,6 +1141,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     let Some(tab) = open else {
         st.was_open = false;
         st.popup = None;
+        st.heads = None;
         st.note_shown = None;
         st.travel_marker = None;
         st.bar_drag = None;
@@ -1026,6 +1150,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
         st.press = None;
         st.drag_from = None;
         st.map_click = None;
+        st.click_marker = None;
         input.wheel.clear();
         input.menu.clear();
         return None;
@@ -1034,6 +1159,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
         st.last_tab = Some(tab);
         st.boxed = false;
         st.popup = None;
+        st.heads = None;
         st.travel_marker = None;
         st.press = None;
     }
@@ -1058,7 +1184,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     } else {
         take_input(st, tab, &lists, game, input, pointer, e.tiles_list);
     }
-    if tab == NOTES && lists.challenges.is_none() {
+    if tab == NOTES && lists.challenges.is_none() && lists.friends.is_none() {
         mark_read(st, &lists, game);
     } else {
         // Left the notes: the next note shown comes up again.
@@ -1153,6 +1279,8 @@ fn take_travel(st: &mut DataState) -> Option<u32> {
 fn row_keys(tab: usize, l: &Lists) -> Vec<u32> {
     match tab {
         QUESTS => l.quests.iter().map(|q| q.form).collect(),
+        // Co-op's Friends list: each player's reference.
+        NOTES if l.friends.is_some() => l.friends.iter().flatten().map(|f| f.reference).collect(),
         NOTES if l.challenges.is_some() => l.challenges.iter().flatten().map(|c| c.challenge.0).collect(),
         NOTES => l.notes.iter().map(|n| n.form).collect(),
         RADIO => l.stations.iter().map(|s| s.0).collect(),
@@ -1292,7 +1420,7 @@ impl DataState {
     /// A tab's selected row and whether Misc shows the challenges, for the scroll sound
     /// (`super::sounds`).
     pub fn selection(&self, tab: usize) -> (usize, bool) {
-        (self.sel.get(tab).copied().unwrap_or(0), self.challenges)
+        (self.sel.get(tab).copied().unwrap_or(0), self.challenges || self.friends)
     }
 
     /// [design, #2403 / file refs] Read-only logical list/pane/map progress. Excludes
@@ -1471,10 +1599,28 @@ fn discovery_radius(radius: f32, reveal: f32) -> f32 {
 
 fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
-        let mut new: Vec<u32> = rt.game.quests.iter().filter(|(q, s)| listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect();
+        // A co-op guest's list as it changes (the host's quests in, and out with why).
+        if rt.game.coop_guest {
+            let now: Vec<u32> = guest_quests(&rt.game).into_iter().map(|k| k.form).collect();
+            for q in st.guest_listed.iter().filter(|q| !now.contains(q)) {
+                let story = rt.game.coop_host_story.quests.get(&FormId(*q)).map(|s| format!("story: ended {} failed {} objectives {:?}", s.ended, s.failed, s.objectives)).unwrap_or_else(|| "not in the story".into());
+                info!("pipboy data: the host's quest {} left this guest's list ({story})", rt.game.data.name(FormId(*q)));
+            }
+            st.guest_listed = now;
+        }
+        // A co-op guest lists the host's quests (`guest_quests`), as they first come.
+        let mut new: Vec<u32> = if rt.game.coop_guest {
+            guest_quests(&rt.game).into_iter().map(|k| k.form).filter(|q| !st.seen.contains_key(q)).collect()
+        } else {
+            rt.game.quests.iter().filter(|(q, s)| listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect()
+        };
         if !new.is_empty() {
             st.seen_count += 1;
             new.sort_unstable();
+            if rt.game.coop_guest {
+                let names: Vec<String> = new.iter().map(|q| rt.game.data.name(FormId(*q))).collect();
+                info!("pipboy data: the host's quests listed here now: {}", names.join(", "));
+            }
             for q in new {
                 st.seen.insert(q, st.seen_count);
             }
@@ -1522,6 +1668,74 @@ fn markers<'a>(st: &'a mut DataState, game: &Game) -> Option<&'a Vec<read::Marke
     st.markers.as_ref()
 }
 
+/// The player's quest list, in order ([`model::sort_quests`]; `st` gives when each was
+/// first seen).
+fn player_quests(st: Option<&DataState>, g: &fnv_game::game::Game) -> Vec<QuestKey> {
+    let seen = |q: u32| st.map_or(0, |st| st.seen.get(&q).copied().unwrap_or(st.seen_count + 1));
+    let mut out: Vec<QuestKey> = g.quests.iter().filter(|(q, s)| listed(g, **q, s) && !(g.tweaks.hide_completed_quests && (s.completed || s.failed))).map(|(q, s)| QuestKey { seen: seen(q.0), form: q.0, done: s.completed || s.failed }).collect();
+    model::sort_quests_with_top(&mut out, g.top_ui_quest().map(|q| q.0));
+    out
+}
+
+/// The quest the player has active, as the DATA page has it whether open or not: the
+/// player's pick, else a script's ForceActiveQuest, else the newest running quest. A co-op
+/// host sends it to its guests (nvforever `coop`).
+pub fn active_quest(st: Option<&DataState>, g: &fnv_game::game::Game) -> Option<FormId> {
+    let running: Vec<u32> = player_quests(st, g).into_iter().filter(|q| !q.done).map(|q| q.form).collect();
+    let pick = st.and_then(|st| st.active_quest).filter(|a| running.contains(a));
+    let forced = g.ui.active_quest.map(|q| q.0).filter(|a| running.contains(a));
+    // A ForceActiveQuest the page has not taken yet wins, as it will there.
+    let forced_new = st.is_none_or(|st| g.ui.active_quest_count != st.forced_seen);
+    let chosen = if forced_new { forced.or(pick) } else { pick.or(forced) };
+    chosen.or(running.first().copied()).map(FormId)
+}
+
+/// When the quest list first showed `quest` (a running count, larger is newer; 0: not
+/// yet): a co-op host sends it with its story, for its guests' order (item 205).
+pub fn quest_seen(st: &DataState, quest: u32) -> u64 {
+    st.seen.get(&quest).copied().unwrap_or(0)
+}
+
+/// A co-op guest's quest list, the host's (item 205; the laptop's duo b3: the guest
+/// listed only the host's active quest): each quest of the host's story with a name and an
+/// objective shown or done, as [`listed`] has the host's own (`Game::coop_host_story`,
+/// which reaches a guest that joins later within a round of its pages); the host's active
+/// quest; the quests that ended while this guest played (`Game::coop_host_ended`, at
+/// once, before the story's next page). Done when completed or failed. In the host's
+/// order: [`model::sort_quests`] by when the host's list first showed each
+/// (`HostQuestState::seen`; the laptop's late join listed them by when the guest did).
+fn guest_quests(g: &fnv_game::game::Game) -> Vec<QuestKey> {
+    let named = |q: FormId| g.data.quests.get(&q).and_then(|d| d.name.as_deref()).is_some_and(|n| !n.trim().is_empty());
+    host_quest_log(&g.coop_host_story, g.coop_host_quest.as_ref(), &g.coop_host_ended, named, g.tweaks.hide_completed_quests)
+}
+
+/// The host's quest log as a guest's list has it ([`guest_quests`]; split screen's player 2
+/// reads it too, plan split-screen.md §8 "Quests"): every named quest of the host's story
+/// with an objective shown or done, the host's active quest (`host`), and the quests that
+/// ended while this guest played (`ended`); done when completed or failed. In the host's
+/// order. `hide_completed`: this player's own tweak leaves the done ones out, as
+/// [`player_quests`] does with a player's own quests [design: docs/design/tweaks.md].
+fn host_quest_log(story: &fnv_game::coop::HostStory, host: Option<&fnv_game::coop::HostQuest>, ended: &[(FormId, bool)], named: impl Fn(FormId) -> bool, hide_completed: bool) -> Vec<QuestKey> {
+    // The host's order (`HostQuestState::seen`); a quest the story has not ordered yet (one
+    // that ended a moment ago) is newest, as the host's own newest quest is.
+    let seen = |q: u32| story.quests.get(&FormId(q)).map(|s| s.seen).filter(|s| *s > 0).unwrap_or(u64::MAX);
+    let mut done: BTreeMap<u32, bool> = BTreeMap::new();
+    for (q, s) in &story.quests {
+        if named(*q) && !s.objectives.is_empty() {
+            done.insert(q.0, s.ended);
+        }
+    }
+    if let Some(h) = host.filter(|h| named(h.quest)) {
+        *done.entry(h.quest.0).or_default() |= h.completed || h.failed;
+    }
+    for (q, _) in ended.iter().filter(|(q, _)| named(*q)) {
+        done.insert(q.0, true);
+    }
+    let mut out: Vec<QuestKey> = done.into_iter().filter(|(_, done)| !(hide_completed && *done)).map(|(form, done)| QuestKey { seen: seen(form), form, done }).collect();
+    model::sort_quests(&mut out);
+    out
+}
+
 /// Whether a quest is in the player's list: it has a name and an objective shown or done
 /// (docs/spec-notes/quest-messages.md §5).
 fn listed(g: &fnv_game::game::Game, q: FormId, s: &fnv_game::quest::QuestState) -> bool {
@@ -1558,30 +1772,45 @@ struct Lists {
     playing: Option<u32>,
     /// The Notes tab lists these instead of the notes.
     challenges: Option<Vec<crate::challenges::Row>>,
+    /// The Misc tab lists these instead: the other co-op players.
+    friends: Option<Vec<Friend>>,
+}
+
+/// A row of the Friends list (item 172): another co-op player and where it is.
+#[derive(Debug, Clone, PartialEq)]
+struct Friend {
+    name: String,
+    reference: u32,
+    place: String,
+    indoors: bool,
+    /// In an add-on's world or cell (its FormID's plugin index is not the base game's).
+    add_on: bool,
+    combat: bool,
+    no_travel: bool,
 }
 
 fn lists(st: &mut DataState, game: &Game) -> Lists {
     let mut out = Lists::default();
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return out };
     let g = &rt.game;
-    out.quests = g
-        .quests
-        .iter()
-        // The player's tweak lists only quests under way [design: docs/design/tweaks.md].
-        .filter(|(q, s)| listed(g, **q, s) && !(g.tweaks.hide_completed_quests && (s.completed || s.failed)))
-        .map(|(q, s)| QuestKey { seen: st.seen.get(&q.0).copied().unwrap_or(st.seen_count + 1), form: q.0, done: s.completed || s.failed })
-        .collect();
-    model::sort_quests_with_top(&mut out.quests, g.top_ui_quest().map(|q| q.0));
+    if g.coop_guest {
+        // A co-op guest's list is the host's (item 205): its quests as the host's story
+        // carries them, its active quest and the quests that ended while it played.
+        out.quests = guest_quests(g);
+        st.active_quest = g.coop_host_quest.as_ref().map(|h| h.quest.0);
+    } else {
+        out.quests = player_quests(Some(st), g);
+    }
     // A script's ForceActiveQuest makes its quest the active one [documented: GECK wiki
     // ForceActiveQuest]; the player's pick afterwards wins again.
-    if g.ui.active_quest_count != st.forced_seen {
+    if !g.coop_guest && g.ui.active_quest_count != st.forced_seen {
         st.forced_seen = g.ui.active_quest_count;
         if let Some(q) = g.ui.active_quest {
             st.active_quest = Some(q.0);
             info!("pipboy data: active quest {q} (ForceActiveQuest)");
         }
     }
-    if !st.active_quest.is_some_and(|a| out.quests.iter().any(|q| q.form == a && !q.done)) {
+    if !g.coop_guest && !st.active_quest.is_some_and(|a| out.quests.iter().any(|q| q.form == a && !q.done)) {
         // The player's tweaks: no quest is made the active one by itself, neither when
         // the active one is done nor when objectives come with none active [design: docs/design/tweaks.md].
         let by_hand_only = g.tweaks.no_quest_set_on_objective || g.tweaks.no_quest_set_on_complete;
@@ -1614,6 +1843,24 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
     out.notes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.form.cmp(&b.form)));
     if st.challenges {
         out.challenges = Some(crate::challenges::rows(g));
+    }
+    // The Friends list is for a co-op game only; it goes when the last other player does.
+    let mates = game.mates.as_deref().map(|m| m.0.as_slice()).unwrap_or_default();
+    if st.friends && mates.is_empty() {
+        st.friends = false;
+    }
+    if st.friends {
+        let mut friends = Vec::new();
+        for m in mates {
+            let grid = if m.interior.is_some() { (0, 0) } else { ((m.feet[0] / model::CELL).floor() as i32, (m.feet[1] / model::CELL).floor() as i32) };
+            let place = match game.world.as_ref() {
+                Some(w) => st.places.entry((m.world, m.interior, grid)).or_insert_with(|| read::place_name(w.lo, w.schema, w.index, m.world, m.interior, m.feet)).clone(),
+                None => String::new(),
+            };
+            let add_on = m.interior.unwrap_or(m.world) >> 24 != 0;
+            friends.push(Friend { name: m.name.clone(), reference: m.reference, place, indoors: m.interior.is_some(), add_on, combat: m.combat, no_travel: m.no_travel });
+        }
+        out.friends = Some(friends);
     }
     if let (Some(radio), Some(places)) = (game.radio.as_ref(), game.places.as_ref()) {
         out.stations = radio
@@ -1651,7 +1898,11 @@ fn mark_read(st: &mut DataState, l: &Lists, game: &mut Game) {
 fn list_len(tab: usize, l: &Lists) -> usize {
     match tab {
         QUESTS => l.quests.len(),
-        NOTES => l.challenges.as_ref().map_or(l.notes.len(), Vec::len),
+        NOTES => match (&l.friends, &l.challenges) {
+            (Some(f), _) => f.len(),
+            (None, Some(c)) => c.len(),
+            (None, None) => l.notes.len(),
+        },
         RADIO => l.stations.len(),
         _ => 0,
     }
@@ -1667,6 +1918,10 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         return;
     }
     st.popup_hold = BoxHold::default();
+    if st.heads.is_some() {
+        heads_input(st, game, input);
+        return;
+    }
     if aid_place {
         match tab {
             LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
@@ -1691,7 +1946,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     }
     // The test aid's `note=`: that note selected and used, as a click on its row.
     if let Some(f) = input.aid.note.take() {
-        match l.notes.iter().position(|n| n.form == f).filter(|_| tab == NOTES && l.challenges.is_none()) {
+        match l.notes.iter().position(|n| n.form == f).filter(|_| tab == NOTES && l.challenges.is_none() && l.friends.is_none()) {
             Some(i) => {
                 st.sel[NOTES] = i;
                 st.boxed = true;
@@ -1701,8 +1956,12 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         }
     }
     step_rows(st, tab, &moves, len);
-    if tab == NOTES && input.keys.just_pressed(KeyR) {
+    if tab == NOTES && input.keys.just_pressed(KeyR) && l.friends.is_none() {
         st.acts.push(Act::Button(ButtonKind::Challenges));
+    }
+    let coop = game.mates.as_ref().is_some_and(|m| !m.0.is_empty());
+    if tab == NOTES && input.keys.just_pressed(KeyF) && (coop || st.friends) {
+        st.acts.push(Act::Button(ButtonKind::Friends));
     }
     // The player's tweak: a right click marks the selected note unread [design: docs/design/tweaks.md].
     if tab == NOTES && !st.challenges && input.buttons.just_pressed(MouseButton::Right) {
@@ -1723,6 +1982,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         match tab {
             LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
             QUESTS if !l.quests.is_empty() && show_location => st.acts.push(Act::Button(ButtonKind::ShowLocation)),
+            // The Friends list (co-op) has no X button.
+            NOTES if l.friends.is_some() => {}
             NOTES if l.challenges.is_none() => st.acts.push(Act::Button(ButtonKind::NotesFilter)),
             NOTES => st.acts.push(Act::Button(ButtonKind::NextChallenge)),
             _ => {}
@@ -1813,7 +2074,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             // The A button's hints do what Enter does on the tab.
             Act::Button(k) if k.is_a() => use_it = true,
             Act::Button(ButtonKind::PlaceMarker) => place_marker(st, tab, game, input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])),
-            Act::Button(k) => button(st, k, input),
+            Act::Button(k) => button(st, k, input, game),
             Act::Bar(b) if tab == QUESTS || tab == NOTES => bar_act(st, b, pointer, &mut pane),
             Act::PaneTo(v) if tab == QUESTS || tab == NOTES => pane.drag += v - st.text_first,
             _ => {}
@@ -1827,19 +2088,36 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     if use_it && len > 0 {
         use_row(st, tab, st.sel[tab].min(len - 1), l, game);
     }
+    // A Friends row used: the same ask as the World Map's head of that player (item 134),
+    // so the same refusals and the same question box (`travel::answer`).
+    if let Some(r) = st.travel_to.take() {
+        input.ask.write(FastTravelAsk(r));
+    }
     if len > 0 {
         st.sel[tab] = st.sel[tab].min(len - 1);
-        st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
+        // Not before the page has measured how many rows fit (0 until it is first drawn):
+        // the first frame took one row for the page and opened the list scrolled onto the
+        // active quest, hiding the rows above it (item 205, late205e: the newer Bleed Me
+        // Dry above the active quest). Once measured, the least move that shows the
+        // selection [design; how the original opens a long list is not known].
+        if st.fit[tab] > 0 {
+            st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
+        } else {
+            st.first[tab] = st.first[tab].min(len - 1);
+        }
     }
     let shows = pane_key(st, tab, l);
     scroll_pane(st, tab, shows, pane);
     // A click on the World Map (the left button let go where it went down) on a marker
     // asks to travel there (`travel`); so does the controller's A (the confirm button) on a
-    // highlighted marker [observed: the original; docs/design/controller.md §3].
+    // highlighted marker [observed: the original; docs/design/controller.md §3]. A co-op
+    // player's head on the Local Map too (item 134); the click is judged by the mouse in
+    // the window ([`Press`], item 144).
     let mouse = (input.buttons.just_pressed(MouseButton::Left), input.buttons.just_released(MouseButton::Left));
+    let window = input.windows.single().ok().and_then(Window::cursor_position);
     // A click on the map is taken once it is drawn ([`take_click`]): the Map Selectable
     // Companions tweak's summon, a travel or Place Marker.
-    if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
+    if let Some(m) = travel_ask(st, tab, pointer, window, mouse, travel) {
         st.travel_pending = Some(m);
     }
     // Dragging a map moves the point at its middle: the left button held down on it (not
@@ -1882,6 +2160,8 @@ fn pane_key(st: &DataState, tab: usize, l: &Lists) -> Option<PaneKey> {
     let sel = st.sel[tab];
     let id = match tab {
         QUESTS => l.quests.get(sel).map(|q| q.form),
+        // Co-op's Friends list: the player's reference.
+        NOTES if l.friends.is_some() => l.friends.as_ref().and_then(|f| f.get(sel)).map(|f| f.reference),
         NOTES if st.challenges => Some(sel as u32),
         NOTES => l.notes.get(sel).map(|n| n.form),
         _ => None,
@@ -2002,6 +2282,11 @@ fn drag_bar(st: &mut DataState, held: bool, pointer: Option<Vec2>, pane: &mut Pa
 /// turned off on the one playing [hypothesis: "Tune"].
 fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game) {
     match tab {
+        // A co-op guest's list is the host's log, read only: the host's active quest
+        // stays the marked one (split screen's player 2 too, plan §8 "Quests") [design].
+        QUESTS if game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.coop_guest) => {
+            info!("pipboy data: the host's quest log is read only here; the host's active quest stays marked");
+        }
         QUESTS => {
             if let Some(q) = l.quests.get(i).filter(|q| !q.done) {
                 st.active_quest = Some(q.form);
@@ -2024,6 +2309,11 @@ fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game)
                 (p.on, p.station) = (true, Some(FormId(station)));
                 info!("pipboy data: radio tuned to {name}");
             }
+        }
+        NOTES if l.friends.is_some() => {
+            let Some(f) = l.friends.as_ref().and_then(|f| f.get(i)) else { return };
+            info!("pipboy data: friends: fast travel to {} ({:08X}) asked", f.name, f.reference);
+            st.travel_to = Some(f.reference);
         }
         NOTES if l.challenges.is_none() => {
             // A Sound or Voice note plays from its start, or pauses and goes on when it
@@ -2177,6 +2467,91 @@ fn choose(p: &mut Popup, hold: &mut BoxHold, pointer: Option<Vec2>, b: &BoxInput
     }
 }
 
+impl DataState {
+    /// The Pip-Boy test aid's `heads=` (`super::test_aid`): the Map Icon button, or a
+    /// click on the box's head `i`, through the same path as the pointer's.
+    pub(super) fn aid_heads(&mut self, head: Option<usize>) {
+        self.acts.push(match head {
+            None => Act::Button(ButtonKind::MapIcon),
+            Some(i) => Act::HeadPick(i),
+        });
+    }
+}
+
+/// The Map Icon box's keys and clicks: the arrows (W, A, S, D) move over the heads, the
+/// wheel scrolls, Enter, Space, E or a click takes the head, Tab, Backspace or the Map Icon
+/// button again closes it. Nothing else on the page moves meanwhile.
+fn heads_input(st: &mut DataState, game: &mut Game, input: &mut Input) {
+    use KeyCode::*;
+    st.press = None;
+    st.drag_from = None;
+    input.aid.drag = Vec2::ZERO;
+    let acts = std::mem::take(&mut st.acts);
+    let Some(h) = st.heads.as_mut() else { return };
+    let n = h.choices.len();
+    if n == 0 {
+        st.heads = None;
+        return;
+    }
+    let mut pick = None;
+    let mut close = input.keys.any_just_pressed([Tab, Backspace]);
+    let mut by = 0i32;
+    for (keys, step) in [([ArrowLeft, KeyA], -1), ([ArrowRight, KeyD], 1), ([ArrowUp, KeyW], -(PICK_COLS as i32)), ([ArrowDown, KeyS], PICK_COLS as i32)] {
+        if input.keys.any_just_pressed(keys) {
+            by += step;
+        }
+    }
+    for m in input.menu.read() {
+        match m.0 {
+            Command::Up => by -= PICK_COLS as i32,
+            Command::Down => by += PICK_COLS as i32,
+            Command::One => pick = Some(h.over),
+            _ => {}
+        }
+    }
+    if input.keys.any_just_pressed([Enter, NumpadEnter, Space, KeyE]) {
+        pick = Some(h.over);
+    }
+    let rows = n.div_ceil(PICK_COLS);
+    let mut notches = 0.0;
+    for w in input.wheel.read() {
+        notches += match w.unit {
+            MouseScrollUnit::Line => w.y,
+            MouseScrollUnit::Pixel => w.y / 20.0,
+        };
+    }
+    if notches != 0.0 {
+        h.first = (h.first as f32 - notches).round().clamp(0.0, rows.saturating_sub(PICK_ROWS) as f32) as usize;
+    }
+    if by != 0 {
+        h.over = (h.over as i32 + by).clamp(0, n as i32 - 1) as usize;
+        let row = h.over / PICK_COLS;
+        h.first = h.first.min(row).max((row + 1).saturating_sub(PICK_ROWS));
+    }
+    for a in acts {
+        match a {
+            Act::HeadOver(i) if i < n => h.over = i,
+            Act::HeadPick(i) if i < n => pick = Some(i),
+            Act::Button(ButtonKind::MapIcon) => close = true,
+            _ => {}
+        }
+    }
+    if let Some(i) = pick {
+        let c = &h.choices[i];
+        info!("co-op map head: {} ({})", c.name, c.path);
+        if let Some(head) = game.head.as_mut() {
+            let kept = crate::coop_heads::kept(&c.path);
+            if head.0 != kept {
+                head.0 = kept;
+            }
+        }
+        close = true;
+    }
+    if close {
+        st.heads = None;
+    }
+}
+
 /// Place Marker: ask about the place under the highlight box ([`marker::ask`]) in the
 /// question box, its words from the load order's settings, else NVForever's own
 /// ([`marker::Words`]). Under the player's No Place Marker Popup tweak it answers at once
@@ -2232,7 +2607,10 @@ fn take_click(st: &mut DataState, game: &mut Game, shift: bool) -> Option<Summon
         return None;
     }
     let name = if tab == WORLD { "world" } else { "local" };
-    let under = if tab == WORLD { st.cursor_marker } else { None };
+    // On the Local Map the marker under the box is only ever a co-op player's head
+    // (`local_map`, item 134), which a click asks to travel to as on the World Map; the
+    // marker at the press when the screen moved it off (item 144).
+    let under = st.cursor_marker.or(st.click_marker.take());
     if tab == WORLD && !st.companions_under.is_empty() {
         drop_travel(st);
         return Some(SummonCompanions(st.companions_under.clone()));
@@ -2282,8 +2660,17 @@ fn answer_marker(st: &mut DataState, game: &mut Game, a: marker::MarkerAnswer) {
     }
 }
 
-fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
+fn button(st: &mut DataState, k: ButtonKind, input: &mut Input, game: &Game) {
     match k {
+        ButtonKind::MapIcon => {
+            let perks = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| crate::coop_heads::perk_heads(&rt.game)).unwrap_or_default();
+            let choices = crate::coop_heads::choices(perks);
+            let chosen = game.head.as_ref().map_or(crate::coop_heads::PLAIN.to_string(), |h| h.picture().to_string());
+            let over = choices.iter().position(|c| c.path.eq_ignore_ascii_case(&chosen)).unwrap_or(0);
+            let first = (over / PICK_COLS).saturating_sub(PICK_ROWS - 1);
+            info!("co-op map head: the Map Icon box offers {} heads", choices.len());
+            st.heads = Some(HeadPicker { choices, over, first, chosen });
+        }
         ButtonKind::NotesFilter => {
             st.notes_of_active = !st.notes_of_active;
             st.sel[NOTES] = 0;
@@ -2298,6 +2685,13 @@ fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
             st.first[NOTES] = 0;
             st.text_first = 0.0;
             info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
+        }
+        ButtonKind::Friends => {
+            st.friends = !st.friends;
+            st.sel[NOTES] = 0;
+            st.first[NOTES] = 0;
+            st.text_first = 0.0;
+            info!("pipboy data: {} shown", if st.friends { "friends (the co-op players)" } else { "notes" });
         }
         // With the game, in the acts' loop ([`place_marker`]).
         ButtonKind::PlaceMarker => {}
@@ -2341,6 +2735,15 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             let right = l.quests.get(st.sel[QUESTS]).map_or(Right::None, |q| Right::Objectives { rows: objectives(game, q.form), first: st.text_first });
             Body::List { rows, first: st.first[QUESTS], boxed: st.boxed.then_some(st.sel[QUESTS]), right }
         }
+        NOTES if l.friends.is_some() => {
+            // The other co-op players in place of the notes; F goes back [design: item 172,
+            // the owner: "a friends tab in the pip boy ... that just lists players and
+            // gives you the option to fast travel"]; its hint is `tab_buttons`'.
+            let list = l.friends.as_deref().unwrap_or_default();
+            let rows = list.iter().map(|f| Row { text: f.name.clone(), mark: Mark::None, done: f.combat || f.no_travel }).collect();
+            let right = list.get(st.sel[NOTES]).map_or(Right::None, |f| Right::Text { text: friend_text(f), first: st.text_first });
+            Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
+        }
         NOTES if l.challenges.is_some() => {
             let list = l.challenges.as_deref().unwrap_or_default();
             let rows = list.iter().map(|c| Row { text: c.name.clone(), mark: Mark::None, done: c.completed }).collect();
@@ -2373,21 +2776,44 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     // The hints after the body: the World Map's marker under the highlight box is found
     // while its map is gathered.
     let tape = game.holotape.as_ref().map_or((None, false), |h| (h.playing, h.paused));
-    let audio = audio_hint(l.notes.get(st.sel[NOTES]).filter(|_| l.challenges.is_none()), tape);
+    let audio = audio_hint(l.notes.get(st.sel[NOTES]).filter(|_| l.challenges.is_none() && l.friends.is_none()), tape);
     let facts = HintFacts {
         pad: crate::pad::labels() != crate::pad::Labels::Keys,
         marker: st.travel_marker.is_some(),
         quests: !l.quests.is_empty(),
         no_show_location: game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_show_quest_location),
         quest_done: l.quests.get(st.sel[QUESTS]).map(|q| q.done),
+        quests_read_only: game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.coop_guest),
         notes: l.has_notes,
         notes_of_active: st.notes_of_active,
         audio,
         challenges: l.challenges.is_some(),
         stations: !l.stations.is_empty(),
+        coop: game.mates.as_ref().is_some_and(|m| !m.0.is_empty()),
+        friends: l.friends.is_some(),
     };
     let buttons = tab_buttons(tab, &facts);
     View { tab, place, when, buttons, body, popup: st.popup.clone() }
+}
+
+/// The Friends list's right side: where the player is and whether a trip to it can be
+/// made now [design: item 172; the refusal's own words are `travel::mate_refusal`'s].
+fn friend_text(f: &Friend) -> String {
+    let mut where_ = if f.place.is_empty() { "Somewhere unnamed".to_string() } else { f.place.clone() };
+    let tags: Vec<&str> = [(f.indoors, "indoors"), (f.add_on, "add-on area")].iter().filter(|t| t.0).map(|t| t.1).collect();
+    if !tags.is_empty() {
+        where_ = format!("{where_} ({})", tags.join(", "));
+    }
+    let can = if f.combat {
+        "In combat: no fast travel to them now.".to_string()
+    } else if f.no_travel {
+        "Busy (a conversation or a scene): no fast travel to them now.".to_string()
+    } else {
+        format!("Enter or click: Fast travel to {}", f.name)
+    };
+    format!("{where_}
+
+{can}")
 }
 
 /// The Misc tab's A hint for the selected note (`note`, none while the challenges show):
@@ -2418,6 +2844,9 @@ struct HintFacts {
     /// Quests are listed, and whether the selected one is done.
     quests: bool,
     quest_done: Option<bool>,
+    /// The list is the host's log, read only (a co-op guest; split screen's player 2): the
+    /// make-active hint is dim, as on a quest done [design].
+    quests_read_only: bool,
     /// The player's tweak drops Show Location [design: docs/design/tweaks.md].
     no_show_location: bool,
     /// The player has a note (whatever the filter keeps); the notes' filter is on; the
@@ -2428,6 +2857,10 @@ struct HintFacts {
     challenges: bool,
     /// The Pip-Boy receives a station here.
     stations: bool,
+    /// Co-op (private fork): other players are in the session (the maps' Map Icon hint,
+    /// Misc's Friends hint), and Misc lists them instead of the notes (item 172).
+    coop: bool,
+    friends: bool,
 }
 
 /// The names of the tabs, for the log.
@@ -2471,7 +2904,7 @@ fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
     let b = |word, key, dim, kind| Button { hint: Hint::new(word, key, dim), kind };
     let a = match tab {
         WORLD => Some(b(built_in_label("sTravel"), a_key(), !f.marker, ButtonKind::Travel)),
-        QUESTS if f.quests => Some(b(built_in_label("sMakeActiveQuest"), a_key(), f.quest_done != Some(false), ButtonKind::MakeActive)),
+        QUESTS if f.quests => Some(b(built_in_label("sMakeActiveQuest"), a_key(), f.quest_done != Some(false) || f.quests_read_only, ButtonKind::MakeActive)),
         NOTES => f.audio.map(|playing| b(built_in_label(if playing { "sStopAudio" } else { "sPlayAudio" }), a_key(), false, ButtonKind::PlayAudio)),
         RADIO if f.stations => Some(b(built_in_label("sTune"), a_key(), false, ButtonKind::Tune)),
         _ => None,
@@ -2489,8 +2922,18 @@ fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
         }
         _ => None,
     };
+    // Co-op: the Friends list shows only its way back to the notes.
+    if tab == NOTES && f.friends {
+        return vec![b("Notes", "F)".into(), false, ButtonKind::Friends)];
+    }
     let y = (tab == NOTES).then(|| b(label("sChallengeToggle", CHALLENGES), challenges_hint(), false, ButtonKind::Challenges));
-    a.filter(|_| f.pad).into_iter().chain(x).chain(y).collect()
+    // Co-op (item 134, 172): the maps' Map Icon box (a word to click) and Misc's Friends list.
+    let coop = match tab {
+        LOCAL | WORLD if f.coop => Some(b("Map Icon", String::new(), false, ButtonKind::MapIcon)),
+        NOTES if f.coop => Some(b("Friends", "F)".into(), false, ButtonKind::Friends)),
+        _ => None,
+    };
+    a.filter(|_| f.pad).into_iter().chain(x).chain(y).chain(coop).collect()
 }
 
 /// The challenges toggle's word (`MM_ButtonY`'s `sChallengeToggle`, which the masters do not
@@ -2502,24 +2945,48 @@ fn quest_name(game: &Game, q: u32) -> String {
     game.script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.data.quests.get(&FormId(q))).and_then(|d| d.name.clone()).unwrap_or_default()
 }
 
-/// The quest's objectives shown or done, with text.
+/// The quest's objectives shown or done, with text: on a co-op guest, the host's.
 fn objectives(game: &Game, q: u32) -> Vec<Row> {
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return Vec::new() };
-    let (Some(def), Some(state)) = (rt.game.data.quests.get(&FormId(q)), rt.game.quests.get(&FormId(q))) else { return Vec::new() };
-    let mut lines: Vec<ObjectiveLine> = state
-        .objectives
-        .iter()
-        .filter(|(_, o)| o.displayed || o.completed)
-        .filter_map(|(i, o)| {
-            def.objectives.get(i)?;
+    let g = &rt.game;
+    let Some(def) = g.data.quests.get(&FormId(q)) else { return Vec::new() };
+    let shown: Vec<(i32, bool)> = match (&g.coop_host_quest, g.quests.get(&FormId(q))) {
+        (Some(h), _) if g.coop_guest && h.quest.0 == q => h.objectives.iter().map(|(i, done)| (*i, *done)).collect(),
+        // Another quest of the host's: its objectives as the host's story carries them,
+        // else as the host's quest view last showed them (item 205).
+        _ if g.coop_guest => match g.coop_host_story.quests.get(&FormId(q)).filter(|s| !s.objectives.is_empty()) {
+            Some(s) => s.objectives.iter().map(|(i, done)| (*i, *done)).collect(),
+            None => g.coop_host_objectives.get(&FormId(q)).map(|o| o.iter().map(|(i, done)| (*i, *done)).collect()).unwrap_or_default(),
+        },
+        (_, Some(state)) => state.objectives.iter().filter(|(_, o)| o.displayed || o.completed).map(|(i, o)| (*i, o.completed)).collect(),
+        (_, None) => Vec::new(),
+    };
+    let mut lines: Vec<ObjectiveLine> = shown
+        .into_iter()
+        .filter_map(|(i, done)| {
+            def.objectives.get(&i)?;
             // SetObjectiveText's first (`fnv_game::nvse_jip10`).
-            let text = rt.game.expand_codes(&rt.game.objective_text(FormId(q), *i)?);
-            (!text.trim().is_empty()).then(|| ObjectiveLine { index: *i, text: text.trim().to_string(), done: o.completed })
+            let text = g.expand_codes(&g.objective_text(FormId(q), i)?);
+            (!text.trim().is_empty()).then(|| ObjectiveLine { index: i, text: text.trim().to_string(), done })
         })
         .collect();
     model::sort_objectives(&mut lines);
-    lines.into_iter().map(|o| Row { text: o.text, mark: if o.done { Mark::Filled } else { Mark::Empty }, done: o.done }).collect()
+    let mut rows: Vec<Row> = lines.into_iter().map(|o| Row { text: o.text, mark: if o.done { Mark::Filled } else { Mark::Empty }, done: o.done }).collect();
+    if let Some(line) = claimed_line(g, FormId(q)) {
+        rows.push(Row { text: line, mark: Mark::None, done: false });
+    }
+    rows
 }
+
+/// A co-op guest's quest whose stages it claimed this session (joint progression,
+/// `fnv_game::coop_joint`, plan §3.5): a last line under its objectives saying they also
+/// count in this character's own save [design: our own words].
+fn claimed_line(g: &fnv_game::game::Game, q: FormId) -> Option<String> {
+    let n = g.player.claims.stages.get(&q).map_or(0, |s| s.len());
+    (g.coop_guest && n > 0).then(|| CLAIMED_LINE.to_string())
+}
+
+const CLAIMED_LINE: &str = "Shared quest progress: also counts in your own save";
 
 /// The heading's place name, kept per cell.
 fn place(st: &mut DataState, game: &Game) -> String {
@@ -2627,21 +3094,24 @@ fn travel_target(kept: Option<u32>, under: Option<u32>, aiming: bool, shown: &[u
 /// drawn on that frame ([`take_click`], #1897, #3324): a marker under it asks to travel there,
 /// none asks Place Marker's question. A press on a button at the right is the button's, never
 /// a map click; a press that moved more than [`CLICK_SLOP`] before it was let go is a drag.
-fn travel_ask(st: &mut DataState, tab: usize, pointer: Option<Vec2>, (pressed, released): (bool, bool), travel: bool) -> Option<u32> {
+/// How far the mouse moved is measured in the window (`window`, [`Press`], item 144); with
+/// none (a test aid's press), on the map (`pointer`).
+fn travel_ask(st: &mut DataState, tab: usize, pointer: Option<Vec2>, window: Option<Vec2>, (pressed, released): (bool, bool), travel: bool) -> Option<u32> {
     if !(tab == WORLD || tab == LOCAL) {
         st.press = None;
         return None;
     }
     let over_button = on_button(st, tab, pointer);
     if pressed {
-        st.press = in_window(map_window(st, tab), pointer).filter(|_| !over_button).and(pointer).map(|p| (p, 0.0));
-    } else if let (Some((from, moved)), Some(p)) = (st.press.as_mut(), pointer) {
-        *moved = moved.max(p.distance(*from));
+        st.press = in_window(map_window(st, tab), pointer).filter(|_| !over_button).map(|_| Press::new(window, st.cursor_marker).on_map(pointer));
+    } else if let Some(p) = st.press.as_mut() {
+        p.follow(window, pointer);
     }
     if released {
-        if let Some((_, moved)) = st.press.take().filter(|_| !over_button) {
-            if moved <= CLICK_SLOP && in_window(map_window(st, tab), pointer).is_some() {
+        if let Some(p) = st.press.take().filter(|_| !over_button) {
+            if p.moved <= CLICK_SLOP && in_window(map_window(st, tab), pointer).is_some() {
                 st.map_click = Some(tab);
+                st.click_marker = p.clicked(None);
             }
         }
     }
@@ -2858,7 +3328,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         let marker_rep = marker_reputation(rt, mk);
         let detail = marker_rep.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
         let (name, tile_detail) = if st.tile_rows { (label_name.clone(), detail.clone()) } else { (String::new(), None) };
-        marks.push(MapMark { icon: Some((kind, found)), custom_icon, highlighted: false, at: on_map(uv), form: mk.form, uv: Some(uv), name, detail: tile_detail, recent, outside: None });
+        marks.push(MapMark { icon: Some((kind, found)), custom_icon, highlighted: false, at: on_map(uv), form: mk.form, uv: Some(uv), name, detail: tile_detail, head: None, tag: None, recent, outside: None });
         names.push(label_name);
         forms.push(mk.form);
         // The player's tweak leaves the reputation line out [design: docs/design/tweaks.md].
@@ -2900,6 +3370,20 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     if st.world_logged != Some(logged) {
         st.world_logged = Some(logged);
         info!("pipboy data: world map shows {} of {total} markers of this map family, {drawn_found} as discovered; map family {}, {drawn_other} shown from other worldspaces", marks.len(), FormId(m.root));
+    }
+    // The other co-op players: outdoors in this worldspace where they stand, indoors at a
+    // door outdoors into their interior, named "<name>, in <cell>" (item 134). After the
+    // markers' count above, which is of the map's markers.
+    // Each head carries its texture coordinates and, for the page drawn from the file, its name
+    // and place: that page keeps only marks with coordinates (`tiles::map_menu`, 0.8.0's
+    // MapMenu), so a head without them was never drawn there.
+    for (mate, at, inside) in mates_on_world_map(st, game, world) {
+        let uv = m.uv(at[0], at[1]);
+        let (name, tile_detail) = if st.tile_rows { (mate.name.clone(), inside.clone()) } else { (String::new(), None) };
+        marks.push(MapMark { icon: None, custom_icon: None, highlighted: false, at: on_map(uv), head: Some(crate::coop_heads::picture(&mate.head).to_string()), tag: Some(mate.name.clone()), form: mate.reference, uv: Some(uv), name, detail: tile_detail, recent: false, outside: None });
+        names.push(mate.name.clone());
+        forms.push(mate.reference);
+        details.push(inside);
     }
     let (cursor, label, under) = place_cursor(st, WORLD, pointer, &mut marks, &names);
     let detail = under.and_then(|i| details[i].clone());
@@ -3078,8 +3562,26 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
         st.outline_land.clear();
     }
     let Some(o) = st.outline.as_mut().filter(|o| !o.done()) else { return };
-    let lands = &mut st.outline_land;
-    let data = game.world.as_ref().filter(|_| interior.is_none()).map(|w| (w.lo, w.schema, w.index));
+    cast_outline(o, &mut st.outline_land, game, OUTLINE_BUDGET);
+    if o.done() {
+        o.image = Some(images.add(o.picture()));
+        st.outline_last = None;
+        info!(
+            "pipboy data: local map outline {}x{} samples {} apart, {} landed ({})",
+            o.size[0],
+            o.size[1],
+            o.step,
+            o.hits(),
+            if o.interior { "interior" } else { "exterior" }
+        );
+    }
+}
+
+/// Cast the outline's rays for up to `budget` (outdoors a ray landing nowhere takes the
+/// cell's landscape height, read once into `lands`).
+fn cast_outline(o: &mut Outline, lands: &mut HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>, game: &mut Game, budget: std::time::Duration) {
+    let world = o.key.1;
+    let data = game.world.as_ref().filter(|_| !o.interior).map(|w| (w.lo, w.schema, w.index));
     let grid = data.and_then(|(_, _, index)| index.worldspaces.get(&world)).map(|ws| &ws.grid);
     let mut ground = |x: f32, y: f32| -> Option<f32> {
         let ((lo, schema, index), grid) = (data?, grid?);
@@ -3099,21 +3601,82 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     let mut filter = fnv_phys::Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), no_dynamic: true, ..Default::default() };
     filter.exclude.extend(player_key);
     let started = std::time::Instant::now();
-    while !o.done() && started.elapsed() < OUTLINE_BUDGET {
+    while !o.done() && started.elapsed() < budget {
         o.advance(OUTLINE_BATCH, |p, reach| q.ray(p, [0.0, 0.0, -1.0], reach, &filter).map(|h| h.point[2]).or_else(|| ground(p[0], p[1])));
     }
-    if o.done() {
-        o.image = Some(images.add(o.picture()));
-        st.outline_last = None;
-        info!(
-            "pipboy data: local map outline {}x{} samples {} apart, {} landed ({})",
-            o.size[0],
-            o.size[1],
-            o.step,
-            o.hits(),
-            if o.interior { "interior" } else { "exterior" }
-        );
+}
+
+/// How long the glance's outline may cast rays each frame: the world goes on meanwhile.
+const LIVE_OUTLINE_BUDGET: std::time::Duration = std::time::Duration::from_millis(3);
+
+/// What the glance's live map shows (`super::glance`): its own outline round the player
+/// (made as the Local Map's is, a little each frame, and again when the player has moved
+/// a quarter of it away), the doors leading elsewhere, the known map markers and the
+/// marked quest's targets; `None` before the player is placed.
+pub(crate) fn live_map(st: &mut DataState, game: &mut Game) -> Option<super::glance::LiveMap> {
+    use super::glance::{LiveMap, LiveMark, LiveOutline, MarkKind};
+    let (loc, player) = (game.location.as_ref()?, game.player.as_ref()?);
+    let (interior, world, feet, heading) = (loc.interior, loc.world, player.feet, player.heading);
+    let scale = local_scale(interior.is_some());
+    let key = Outline::key_for(interior, world, [feet[0], feet[1]], feet[2], MAP.size(), scale);
+    if st.live_outline.as_ref().is_none_or(|o| o.key != key) {
+        st.live_outline = Some(Outline::new(interior, world, [feet[0], feet[1]], feet[2], MAP.size(), scale));
+        st.live_land.clear();
+        st.live_alpha = None;
     }
+    if let Some(mut o) = st.live_outline.take() {
+        if !o.done() {
+            cast_outline(&mut o, &mut st.live_land, game, LIVE_OUTLINE_BUDGET);
+            if o.done() {
+                st.live_alpha = Some(std::sync::Arc::new(o.alpha()));
+                info!("pipboy glance: map outline {}x{} samples {} apart, {} landed", o.size[0], o.size[1], o.step, o.hits());
+            }
+        }
+        st.live_outline = Some(o);
+    }
+    let outline = match (st.live_outline.as_ref(), st.live_alpha.clone()) {
+        (Some(o), Some(alpha)) => Some(LiveOutline { origin: o.origin, step: o.step, size: o.size, alpha }),
+        _ => None,
+    };
+    let mut marks = Vec::new();
+    let grid = ((feet[0] / model::CELL).floor() as i32, (feet[1] / model::CELL).floor() as i32);
+    let door_key = (interior, if interior.is_some() { (0, 0) } else { grid });
+    if let Entry::Vacant(e) = st.doors.entry(door_key) {
+        let doors = match (game.world.as_ref(), game.sim.as_ref()) {
+            (Some(w), Some(sim)) => {
+                let cells: Vec<u32> = match interior {
+                    Some(c) => vec![c],
+                    None => {
+                        let g = w.index.worldspaces.get(&world).map(|ws| &ws.grid);
+                        (-LOCAL_CELLS.0..=LOCAL_CELLS.0).flat_map(|dx| (-LOCAL_CELLS.1..=LOCAL_CELLS.1).map(move |dy| (grid.0 + dx, grid.1 + dy))).filter_map(|k| g.and_then(|g| g.get(&k)).copied()).collect()
+                    }
+                };
+                read::doors(w.lo, w.schema, w.index, sim.refs, &cells)
+            }
+            _ => Vec::new(),
+        };
+        e.insert(doors);
+    }
+    let enabled = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
+    for d in st.doors.get(&door_key).into_iter().flatten().filter(|d| enabled(d.form)) {
+        marks.push(LiveMark { kind: MarkKind::Door, pos: [d.pos[0], d.pos[1]] });
+    }
+    if interior.is_none() {
+        let all = markers(st, game).cloned().unwrap_or_default();
+        for mk in all.iter().filter(|mk| mk.world == world) {
+            if let Some(found) = known(st, game, mk) {
+                marks.push(LiveMark { kind: MarkKind::Place { found }, pos: [mk.pos[0], mk.pos[1]] });
+            }
+        }
+    }
+    // The quest whose targets were last evaluated (`refresh_quest_targets`: the DATA
+    // page's active quest, a guest's the host's).
+    if let Some(q) = st.target_quest {
+        for t in targets_of(st, game, q.0).into_iter().filter(|t| t.interior == interior && (t.interior.is_some() || t.world == world)) {
+            marks.push(LiveMark { kind: MarkKind::Quest, pos: [t.pos[0], t.pos[1]] });
+        }
+    }
+    Some(LiveMap { interior: interior.is_some(), feet, heading, outline, marks })
 }
 
 /// Whether two outlines' keys are of the same place and floor (the interior, the worldspace
@@ -3204,11 +3767,11 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         let at = on_map(d.pos[0], d.pos[1]);
         let uv = Some(view.local_uv(d.pos[0], d.pos[1]));
         if inside(at) {
-            marks.push(MapMark { icon: None, custom_icon: None, highlighted: false, at, form: d.form, uv, name: String::new(), detail: None, recent: false, outside: door_kinds.then_some(d.outside) });
+            marks.push(MapMark { icon: None, custom_icon: None, highlighted: false, at, form: d.form, uv, name: String::new(), detail: None, head: None, tag: None, recent: false, outside: door_kinds.then_some(d.outside) });
             names.push(d.name.clone());
         }
         if st.tile_rows {
-            rows.push(MapMark { icon: None, custom_icon: None, highlighted: false, at, form: d.form, uv, name: d.name.clone(), detail: None, recent: false, outside: door_kinds.then_some(d.outside) });
+            rows.push(MapMark { icon: None, custom_icon: None, highlighted: false, at, form: d.form, uv, name: d.name.clone(), detail: None, head: None, tag: None, recent: false, outside: door_kinds.then_some(d.outside) });
         }
     }
     if loc.interior.is_none() {
@@ -3221,11 +3784,11 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             let custom_icon = marker_custom_icon(rt, mk);
             let label_name = marker_name(rt, mk);
             if inside(at) {
-                marks.push(MapMark { icon: Some((kind, found)), custom_icon: custom_icon.clone(), highlighted: false, at, form: mk.form, uv, name: String::new(), detail: None, recent: false, outside: None });
+                marks.push(MapMark { icon: Some((kind, found)), custom_icon: custom_icon.clone(), highlighted: false, at, form: mk.form, uv, name: String::new(), detail: None, head: None, tag: None, recent: false, outside: None });
                 names.push(label_name.clone());
             }
             if st.tile_rows {
-                rows.push(MapMark { icon: Some((kind, found)), custom_icon, highlighted: false, at, form: mk.form, uv, name: label_name, detail: None, recent: false, outside: None });
+                rows.push(MapMark { icon: Some((kind, found)), custom_icon, highlighted: false, at, form: mk.form, uv, name: label_name, detail: None, head: None, tag: None, recent: false, outside: None });
             }
         }
     }
@@ -3234,7 +3797,25 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let targets: Vec<Target> = quest_targets(st, game).into_iter().filter(|t| t.interior == loc.interior && (t.interior.is_some() || t.world == loc.world)).collect();
     let quests = targets.iter().map(|t| local_quest_corner(on_map(t.pos[0], t.pos[1]))).collect();
     let target_uvs = targets.iter().map(|t| (t.form, view.local_uv(t.pos[0], t.pos[1]))).collect();
+    // The other co-op players in this interior, or outdoors in this worldspace (item 134).
+    let doors_and_markers = marks.len();
+    let mut mate_refs = Vec::new();
+    for m in game.mates.iter().flat_map(|m| m.0.iter()).filter(|m| m.interior == loc.interior && (m.interior.is_some() || m.world == loc.world)) {
+        let at = on_map(m.feet[0], m.feet[1]);
+        if inside(at) {
+            let head = MapMark { icon: None, custom_icon: None, highlighted: false, at, head: Some(crate::coop_heads::picture(&m.head).to_string()), tag: Some(m.name.clone()), form: m.reference, uv: Some(view.local_uv(m.feet[0], m.feet[1])), name: String::new(), detail: None, recent: false, outside: None };
+            // The page drawn from the file draws its rows, not the marks: the head is a row too.
+            if st.tile_rows {
+                rows.push(MapMark { name: m.name.clone(), ..head.clone() });
+            }
+            marks.push(head);
+            names.push(m.name.clone());
+            mate_refs.push(m.reference);
+        }
+    }
     let (cursor, label, under) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
+    // Only a player's head is travelled to from here.
+    st.cursor_marker = under.and_then(|i| i.checked_sub(doors_and_markers)).and_then(|i| mate_refs.get(i).copied());
     // The page drawn from the file keeps every door and marker here as its rows, those panned out
     // of the window too (its window cuts them), the one under the highlight box marked.
     let picked = under.map(|i| marks[i].form);
@@ -3268,6 +3849,32 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         companion_font: COMPANION_FONT as u8,
     };
     MapShown { picture: None, outline, reset_cells: Arc::new(reset_cells), marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) , companions: Vec::new(), companion_font: COMPANION_FONT }
+}
+
+/// The other co-op players on the World Map of `world`: each one, where its head stands
+/// (game x, y) and the line under its name. Outdoors in `world`: where it stands. Indoors:
+/// at a door outdoors in `world` into its interior (`Game::doors_into`, as a quest target
+/// indoors, `targets_of`), with "In <the cell's name>" [design]; one whose interior has no
+/// door into `world` is not drawn.
+fn mates_on_world_map(st: &mut DataState, game: &Game, world: u32) -> Vec<(super::glance::Mate, [f32; 3], Option<String>)> {
+    let mut out = Vec::new();
+    for m in game.mates.iter().flat_map(|m| m.0.iter()) {
+        match m.interior {
+            None if m.world == world => out.push((m.clone(), m.feet, None)),
+            None => {}
+            Some(cell) => {
+                let (Some(sim), Some(rt)) = (game.sim.as_ref(), game.script.as_ref().and_then(|s| s.rt.as_ref())) else { continue };
+                let refs = sim.refs;
+                let doors = st.doors_into.entry(cell).or_insert_with(|| rt.game.doors_into(FormId(cell)));
+                let door = fnv_game::quest_targets::marker_door(&sim.world, doors, true).and_then(|d| refs.get(d)).and_then(|d| Some((refs.cell_world.get(&d.cell?)?.0, d.pos)));
+                if let Some((_, pos)) = door.filter(|(w, _)| *w == world) {
+                    let name = rt.game.data.full_names.get(&FormId(cell)).cloned().unwrap_or_else(|| rt.game.data.name(FormId(cell)));
+                    out.push((m.clone(), pos, Some(format!("In {name}"))));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -3361,8 +3968,12 @@ pub(crate) fn refresh_quest_targets(time: Res<Time<Real>>, state: Option<ResMut<
         return;
     }
     st.target_poll = TARGET_POLL;
-    let quest = st.active_quest.map(FormId).or(rt.game.ui.active_quest);
+    // A co-op guest marks the host's quest (`Game::coop_host_quest`).
+    let quest = if rt.game.coop_guest { rt.game.coop_host_quest.as_ref().map(|h| h.quest) } else { st.active_quest.map(FormId).or(rt.game.ui.active_quest) };
     // The conditions read the world played (`crate::script::with_world`).
+    // The scripts' active quest is this one too (GetCurrentQuestObjectiveTeleportLinks
+    // for JAM's JVO, GetActiveQuest …).
+    rt.game.ui.shown_quest = quest;
     let checks = quest.map(|q| crate::script::with_world(rt, &mut sim, |rt| rt.game.check_quest_targets(q))).unwrap_or_default();
     if quest != st.target_quest {
         st.target_quest = quest;
@@ -3391,8 +4002,17 @@ pub(crate) fn refresh_quest_targets(time: Res<Time<Real>>, state: Option<ResMut<
 /// player's place that starts the way there, for the Local Map, as the compass marks it
 /// (`crate::compass`) [hypothesis: observer-checks.md question 179].
 fn quest_targets(st: &mut DataState, game: &Game) -> Vec<Target> {
+    match st.active_quest {
+        Some(q) => targets_of(st, game, q),
+        None => Vec::new(),
+    }
+}
+
+/// Where quest `q`'s targets marked now are (an interior's also by the door outdoors into
+/// it).
+fn targets_of(st: &mut DataState, game: &Game, q: u32) -> Vec<Target> {
     let mut out = Vec::new();
-    let (Some(q), Some(sim)) = (st.active_quest, game.sim.as_ref()) else { return out };
+    let Some(sim) = game.sim.as_ref() else { return out };
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return out };
     let refs = sim.refs;
     let here = game.location.as_deref().map(|l| match l.interior {
@@ -3580,6 +4200,61 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
     if let Some(q) = &v.popup {
         popup(p, c, q, MAIN.min + MAP.min + MAP_MID);
     }
+    // The Map Icon box (co-op), over the map as the question box is; kept in the page's
+    // state, not the [`View`] ([`DataState::heads_shown`]).
+    if let Some(h) = st.heads.clone() {
+        heads_box(p, c, &h);
+    }
+}
+
+/// The Map Icon box over the map, in the question box's look (`popup`): its title, the
+/// heads in rows (the one under the pointer or the keys framed, the one chosen now
+/// brighter), and the name of the one framed under them.
+fn heads_box(p: &mut ChildSpawnerCommands, c: &mut Ctx, h: &HeadPicker) {
+    let grid = Vec2::new(PICK_COLS as f32 * PICK_CELL, PICK_ROWS as f32 * PICK_CELL);
+    let line_h = c.line_height(2);
+    let w = grid.x + 2.0 * POPUP_PAD;
+    let ht = POPUP_PAD + line_h + POPUP_ROW_PAD + grid.y + POPUP_ROW_PAD + line_h + POPUP_PAD;
+    let mid = MAIN.min + MAP.min + MAP_MID;
+    let r = Rect::new(mid.x - w / 2.0, mid.y - ht / 2.0, mid.x + w / 2.0, mid.y + ht / 2.0);
+    p.spawn((at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y), Pickable::default()));
+    c.boxed(p, r, amber(LINE), Some(Color::BLACK));
+    c.text(p, 2, "Map Icon", mid.x, r.min.y + POPUP_PAD, Align::Centre, amber(TEXT));
+    let top = r.min.y + POPUP_PAD + line_h + POPUP_ROW_PAD;
+    let left = r.min.x + POPUP_PAD;
+    let shown = h.choices.iter().enumerate().skip(h.first * PICK_COLS).take(PICK_COLS * PICK_ROWS);
+    for (i, choice) in shown {
+        let k = i - h.first * PICK_COLS;
+        let cell = Vec2::new(left + (k % PICK_COLS) as f32 * PICK_CELL, top + (k / PICK_COLS) as f32 * PICK_CELL);
+        let frame = Rect::from_corners(cell, cell + Vec2::splat(PICK_CELL - 2.0));
+        if i == h.over {
+            c.boxed(p, frame, amber(LINE), Some(amber(FILL.0).with_alpha(FILL.1 / 255.0)));
+        }
+        let pad = (PICK_CELL - 2.0 - PICK_ICON) / 2.0;
+        let bright = if choice.path.eq_ignore_ascii_case(&h.chosen) { MARKER_BRIGHTNESS.1 } else { MARKER_BRIGHTNESS.0 };
+        c.image(p, &choice.path, at(cell.x + pad, cell.y + pad, PICK_ICON, PICK_ICON), amber(bright));
+        p.spawn((at(frame.min.x, frame.min.y, frame.width(), frame.height()), HeadHit(i), Pickable::default())).observe(on_head_over).observe(on_head_click);
+    }
+    let rows = h.choices.len().div_ceil(PICK_COLS);
+    let name = h.choices.get(h.over).map_or("", |c| c.name.as_str());
+    let more = if rows > PICK_ROWS { format!("  ({}/{})", h.first + 1, rows - PICK_ROWS + 1) } else { String::new() };
+    c.text(p, 2, &format!("{name}{more}"), mid.x, top + grid.y + POPUP_ROW_PAD, Align::Centre, amber(TEXT));
+}
+
+/// A head of the Map Icon box (its index in the choices).
+#[derive(Component, Clone, Copy)]
+struct HeadHit(usize);
+
+fn on_head_over(e: On<PointerOver>, hits: Query<&HeadHit>, state: Option<ResMut<DataState>>) {
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::HeadOver(h.0));
+    }
+}
+
+fn on_head_click(e: On<PointerClick>, hits: Query<&HeadHit>, state: Option<ResMut<DataState>>) {
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::HeadPick(h.0));
+    }
 }
 
 /// Marks the question box drawn over the page drawn from its file.
@@ -3766,7 +4441,7 @@ fn row_height(lines: &[fnv_font::Line]) -> f32 {
 fn row(p: &mut ChildSpawnerCommands, c: &mut Ctx, x0: f32, y: f32, h: f32, r: &Row, lines: &[fnv_font::Line], boxed: bool) {
     let bright = c.bright();
     let row_w = LIST_W - SCROLLBAR - ROW_SHORT;
-    let colour = if r.done { bright.with_alpha(DONE_ALPHA) } else { bright };
+    let colour = if r.done { done_colour(bright) } else { bright };
     if boxed {
         c.boxed(p, Rect::new(x0 - BOX_LEFT, y, x0 + row_w, y + h - 1.0), amber(LINE), None);
     }
@@ -4124,7 +4799,8 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         // In the menu file's depth order: markers 1, quest markers 4, the player's arrow
         // 7, the highlighted marker 11 [documented: map_menu.xml].
         let marker = |p: &mut ChildSpawnerCommands, c: &mut Ctx, mk: &MapMark| {
-            let (size, brightness) = if mk.highlighted { (MARKER * MARKER_GROW, MARKER_BRIGHTNESS.1) } else { (MARKER, MARKER_BRIGHTNESS.0) };
+            let base = if mk.head.is_some() { HEAD } else { MARKER };
+            let (size, brightness) = if mk.highlighted { (base * MARKER_GROW, MARKER_BRIGHTNESS.1) } else { (base, MARKER_BRIGHTNESS.0) };
             // The player's tweak draws a marker found in this run red [design: docs/design/tweaks.md].
             let colour = if mk.recent { Color::srgb(1.0, 0.25, 0.2).with_alpha(amber(brightness).alpha()) } else { amber(brightness) };
             let node = at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size);
@@ -4136,6 +4812,10 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
                     let colour = if mk.outside == Some(false) { colour.with_alpha(colour.alpha() * INSIDE_DOOR_DIM) } else { colour };
                     c.image(p, DOOR_ICON, node, colour);
                 }
+            }
+            // A co-op player's name under its head, always (the highlight box names the rest).
+            if let Some(tag) = mk.tag.as_deref().filter(|_| !mk.highlighted) {
+                c.text(p, 2, tag, mk.at.x, mk.at.y + size / 2.0 + HEAD_TAG_GAP, Align::Centre, amber(TEXT));
             }
         };
         for mk in m.marks.iter().filter(|mk| !mk.highlighted) {
@@ -4275,10 +4955,38 @@ pub fn report_local_map_progress_fixture(step: usize) -> DataState {
 mod tests {
     use super::*;
 
+    /// A click on a map is judged by the mouse in the window: the screen moving under a
+    /// still mouse (co-op's live Pip-Boy) neither spoils it nor loses the marker pressed
+    /// on; a drag asks nothing (overnight queue item 144).
+    #[test]
+    fn a_map_click_follows_the_mouse_not_the_moving_screen() {
+        let head = 0xFE00_C000;
+        // A still mouse: the marker under the box now, or at the press if it slipped off.
+        let mut p = Press::new(Some(Vec2::new(500.0, 300.0)), Some(head));
+        p.follow(Some(Vec2::new(501.0, 300.0)), None);
+        assert_eq!(p.clicked(Some(head)), Some(head));
+        assert_eq!(p.clicked(None), Some(head));
+        assert_eq!(p.clicked(Some(7)), Some(7));
+        // Pressed beside every marker and let go on none: nothing.
+        assert_eq!(Press::new(Some(Vec2::ZERO), None).clicked(None), None);
+        // A drag: nothing, whatever is under the box.
+        let mut d = Press::new(Some(Vec2::new(500.0, 300.0)), Some(head));
+        d.follow(Some(Vec2::new(540.0, 300.0)), None);
+        d.follow(Some(Vec2::new(500.0, 300.0)), None);
+        assert_eq!(d.clicked(Some(head)), None);
+        // No window pointer (a test aid's button press): a click, judged by the pointer on
+        // the map, on what is under the box at the release (#3324).
+        assert_eq!(Press::new(None, Some(head)).clicked(Some(head)), Some(head));
+        assert_eq!(Press::new(None, Some(head)).clicked(None), None);
+        let mut m = Press::new(None, None).on_map(Some(Vec2::new(100.0, 100.0)));
+        m.follow(None, Some(Vec2::new(140.0, 100.0)));
+        assert_eq!(m.clicked(Some(head)), None, "dragged on the map");
+    }
+
     /// Exterior and Interior Door Icons: each kind its picture; off, the plain door.
     #[test]
     fn doors_take_their_kind_s_picture_under_the_tweak() {
-        let door = |outside| MapMark { icon: None, custom_icon: None, highlighted: false, at: Vec2::ZERO, form: 0, uv: None, name: String::new(), detail: None, recent: false, outside };
+        let door = |outside| MapMark { icon: None, custom_icon: None, highlighted: false, at: Vec2::ZERO, form: 0, uv: None, name: String::new(), detail: None, head: None, tag: None, recent: false, outside };
         assert_eq!(door(None).picture(), DOOR_ICON);
         assert_eq!(door(Some(true)).picture(), DOOR_ICON_OUTSIDE);
         assert_eq!(door(Some(false)).picture(), DOOR_ICON_INSIDE);
@@ -5068,12 +5776,12 @@ mod tests {
         assert!(on_button(&st, WORLD, over));
         assert!(!on_button(&st, QUESTS, over), "the rects of another tab's buttons");
         // The press on the button is no press on the map.
-        assert_eq!(travel_ask(&mut st, WORLD, over, (true, false), false), None);
+        assert_eq!(travel_ask(&mut st, WORLD, over, None, (true, false), false), None);
         assert_eq!(st.press, None);
         // The release: the button's click (`travel`) asks once, for the Travel target.
-        assert_eq!(travel_ask(&mut st, WORLD, over, (false, true), true), Some(5));
+        assert_eq!(travel_ask(&mut st, WORLD, over, None, (false, true), true), Some(5));
         // A release over the button alone asks nothing.
-        assert_eq!(travel_ask(&mut st, WORLD, over, (false, true), false), None);
+        assert_eq!(travel_ask(&mut st, WORLD, over, None, (false, true), false), None);
         assert_eq!(st.travel_marker, Some(5));
         // On the map, a click on the marker under the box (as drawn on the release's frame:
         // the box is not drawn here, so the marker it was on), taken once the map is drawn.
@@ -5081,19 +5789,19 @@ mod tests {
         assert!(!on_button(&st, WORLD, on_map));
         let (mut world, mut game) = blank_game();
         let mut game = game.get_mut(&mut world).unwrap();
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (true, false), false), None);
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), None);
+        assert_eq!(travel_ask(&mut st, WORLD, on_map, None, (true, false), false), None);
+        assert_eq!(travel_ask(&mut st, WORLD, on_map, None, (false, true), false), None);
         take_click(&mut st, &mut game, false);
         assert_eq!((st.travel_pending.take(), st.travel_marker), (Some(7), Some(7)));
         // Enter in the same frame as that click still asks once.
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (true, false), false), None);
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), true), Some(7));
+        assert_eq!(travel_ask(&mut st, WORLD, on_map, None, (true, false), false), None);
+        assert_eq!(travel_ask(&mut st, WORLD, on_map, None, (false, true), true), Some(7));
         take_click(&mut st, &mut game, false);
         assert_eq!(st.travel_pending.take(), Some(7));
         // A click away from any marker drops the target.
         st.cursor_marker = None;
-        travel_ask(&mut st, WORLD, on_map, (true, false), false);
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), None);
+        travel_ask(&mut st, WORLD, on_map, None, (true, false), false);
+        assert_eq!(travel_ask(&mut st, WORLD, on_map, None, (false, true), false), None);
         take_click(&mut st, &mut game, false);
         assert_eq!((st.travel_pending, st.travel_marker), (None, None));
     }
@@ -5116,34 +5824,34 @@ mod tests {
         let p = Some(at);
         let moved = Some(MAIN.min + MAP.min + Vec2::new(100.0 + CLICK_SLOP + 4.0, 300.0));
         let mut st = DataState::default();
-        assert_eq!(travel_ask(&mut st, WORLD, p, (true, false), false), None);
+        assert_eq!(travel_ask(&mut st, WORLD, p, None, (true, false), false), None);
         assert_eq!(st.map_click, None, "the press alone is no click");
-        assert_eq!(travel_ask(&mut st, WORLD, p, (false, true), false), None);
+        assert_eq!(travel_ask(&mut st, WORLD, p, None, (false, true), false), None);
         assert_eq!(st.map_click, Some(WORLD), "the click, taken once the map is drawn");
         st.map_click = None;
         // A drag: moved past the slop while held, or in the release's frame.
-        travel_ask(&mut st, WORLD, p, (true, false), false);
-        travel_ask(&mut st, WORLD, moved, (false, false), false);
-        travel_ask(&mut st, WORLD, p, (false, true), false);
+        travel_ask(&mut st, WORLD, p, None, (true, false), false);
+        travel_ask(&mut st, WORLD, moved, None, (false, false), false);
+        travel_ask(&mut st, WORLD, p, None, (false, true), false);
         assert_eq!(st.map_click, None, "moved away and back: a drag");
-        travel_ask(&mut st, LOCAL, p, (true, false), false);
-        travel_ask(&mut st, LOCAL, moved, (false, true), false);
+        travel_ask(&mut st, LOCAL, p, None, (true, false), false);
+        travel_ask(&mut st, LOCAL, moved, None, (false, true), false);
         assert_eq!(st.map_click, None, "the pointer moved in the release's frame: a drag");
         // The Local Map: a click, and Enter never travels there.
         st.travel_marker = Some(5);
-        travel_ask(&mut st, LOCAL, p, (true, false), false);
-        assert_eq!(travel_ask(&mut st, LOCAL, p, (false, true), true), None);
+        travel_ask(&mut st, LOCAL, p, None, (true, false), false);
+        assert_eq!(travel_ask(&mut st, LOCAL, p, None, (false, true), true), None);
         assert_eq!(st.map_click, Some(LOCAL));
         st.map_click = None;
         // A press on a hint over the map is the hint's.
         let hint = Rect::from_center_size(at, Vec2::splat(40.0));
         st.button_rects = (WORLD, vec![hint]);
-        travel_ask(&mut st, WORLD, p, (true, false), false);
-        travel_ask(&mut st, WORLD, p, (false, true), false);
+        travel_ask(&mut st, WORLD, p, None, (true, false), false);
+        travel_ask(&mut st, WORLD, p, None, (false, true), false);
         assert_eq!(st.map_click, None);
         // No map on Quests.
-        travel_ask(&mut st, QUESTS, p, (true, false), false);
-        travel_ask(&mut st, QUESTS, p, (false, true), false);
+        travel_ask(&mut st, QUESTS, p, None, (true, false), false);
+        travel_ask(&mut st, QUESTS, p, None, (false, true), false);
         assert!(st.map_click.is_none() && st.press.is_none());
     }
 
@@ -6155,6 +6863,43 @@ mod tests {
         let gone = fnv_save::PluginRemap::from_names(&saved, &["FalloutNV.esm".into()]);
         assert_eq!(marker_from_save(&v, Some(&gone)), None);
         assert_eq!(marker_from_save(&serde_json::to_value(m).unwrap(), Some(&gone)), Some(m));
+    }
+
+    /// The host's quest log on a guest (split screen's player 2 too, plan split-screen.md
+    /// §8 "Quests"): every named quest of the host's story with an objective shown or done,
+    /// running and done alike, in the host's order (running first, newest first); the
+    /// host's active quest even before the story carries it; a quest that ended a moment
+    /// ago done at once; unnamed quests and quests with no objective shown left out; the
+    /// player's own hide-completed tweak drops the done ones.
+    #[test]
+    fn a_guests_list_is_the_hosts_whole_quest_log() {
+        use fnv_game::coop::{HostQuest, HostQuestState, HostStory};
+        let state = |seen: u64, ended: bool, objectives: &[(i32, bool)]| HostQuestState { stage: 10, running: !ended, ended, done: vec![10], failed: false, objectives: objectives.iter().copied().collect(), seen };
+        let mut story = HostStory::default();
+        story.quests.insert(FormId(0x100), state(1, true, &[(10, true)])); // done, oldest
+        story.quests.insert(FormId(0x200), state(2, false, &[(10, true), (20, false)])); // running
+        story.quests.insert(FormId(0x300), state(3, false, &[(10, false)])); // running, newest
+        story.quests.insert(FormId(0x400), state(4, false, &[])); // started, nothing shown yet
+        story.quests.insert(FormId(0x500), state(5, false, &[(10, false)])); // no name (a quest the list never shows)
+        story.quests.insert(FormId(0x600), state(6, false, &[(10, false)])); // ends a moment ago
+        let named = |q: FormId| q.0 != 0x500;
+        // The host's active quest, which the story has not carried yet.
+        let host = HostQuest { quest: FormId(0x700), objectives: [(10, false)].into(), completed: false, failed: false };
+        let ended = [(FormId(0x600), false)];
+        let rows = |hide| host_quest_log(&story, Some(&host), &ended, named, hide).iter().map(|k| (k.form, k.done)).collect::<Vec<_>>();
+        assert_eq!(rows(false), [(0x700, false), (0x300, false), (0x200, false), (0x600, true), (0x100, true)]);
+        assert_eq!(rows(true), [(0x700, false), (0x300, false), (0x200, false)]);
+        // Nothing heard yet: an empty list, not the guest's own quests.
+        assert!(host_quest_log(&HostStory::default(), None, &[], |_| true, false).is_empty());
+    }
+
+    /// The host's log is read only on a guest: the make-active hint is dim there, as on a
+    /// quest done, and bright on the host's own running quest.
+    #[test]
+    fn a_guests_make_active_hint_is_dim() {
+        let make_active = |f: &HintFacts| tab_buttons(QUESTS, f).into_iter().find(|b| matches!(b.kind, ButtonKind::MakeActive)).map(|b| b.hint.dim);
+        assert_eq!(make_active(&facts(true)), Some(false));
+        assert_eq!(make_active(&HintFacts { quests_read_only: true, ..facts(true) }), Some(true));
     }
 
     #[test]

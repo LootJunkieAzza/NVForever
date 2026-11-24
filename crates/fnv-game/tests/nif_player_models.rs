@@ -35,7 +35,7 @@ fn fixture() -> Fixture {
 fn tree(root: &str, x: f32) -> Vec<SceneNode> {
     let node = |name: &str, parent, x| SceneNode { name: name.into(), parent,
         translation: [x, 0.0, 0.0], rotation: [x, 0.0, 0.0], scale: x,
-        flags: 0, material: None, info: None };
+        flags: 0, world: [0.0; 3], material: None, info: None };
     vec![node(root, None, 0.0), node("SharedBone", Some(0), x)]
 }
 

@@ -420,6 +420,10 @@ fn mine_blast_throw_and_speed_perks() {
     assert!((at(&mut g, perks::ADJUST_EXPLOSION_RADIUS, 200.0) - 250.0).abs() < 1e-6);
     assert!((at(&mut g, perks::MODIFY_THROWING_VELOCITY, 1.0) - 1.5).abs() < 1e-6);
     assert!((at(&mut g, perks::MODIFY_RUN_SPEED, 1.0) - 1.1).abs() < 1e-6);
+    // A number SetNthPerkEntryValue1 gave the entry stands for the record's (JAM's
+    // sprint speeds the player up so).
+    g.jip2.perk_values.insert((FormId(TRAVEL), 0), 1.5);
+    assert!((at(&mut g, perks::MODIFY_RUN_SPEED, 1.0) - 1.5).abs() < 1e-6, "the set number counts");
     // Another actor's mine chance is its own (no perks).
     assert_eq!(g.entry_point(FormId(NPC_REF), perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0, 1.0);
 }

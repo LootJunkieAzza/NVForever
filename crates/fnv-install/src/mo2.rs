@@ -639,14 +639,16 @@ pub fn sync(game: &GameInstall) -> Result<Option<(PathBuf, PluginSync)>, Install
         Err(e) => return Err(InstallError::Io(path, e)),
     };
     let Some(names) = parse(&bytes) else { return Ok(None) };
-    Ok(Some((path, load(&names, &data_plugins(game)?))))
+    let mut s = load(&names, &data_plugins(game)?);
+    s.masters_moved = crate::plugins::masters_first_in(&mut s.load, game);
+    Ok(Some((path, s)))
 }
 
 /// MO2's active `names` against the plugins `present` in `Data`.
 fn load(names: &[String], present: &[String]) -> PluginSync {
     let list = PluginList { entries: names.iter().map(|n| PluginEntry { name: n.clone(), active: true }).collect() };
     let (load, missing, base_forced) = list.load_order(present);
-    PluginSync { load, from_mods: Vec::new(), added: Vec::new(), missing, base_forced, written: false }
+    PluginSync { load, from_mods: Vec::new(), added: Vec::new(), missing, base_forced, written: false, masters_moved: Vec::new() }
 }
 
 /// A profile's plugins resolved to their files without MO2 running, for tools that read a

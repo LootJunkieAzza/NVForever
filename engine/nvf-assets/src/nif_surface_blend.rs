@@ -769,9 +769,11 @@ mod tests {
         // type's `bind_group_layout_entries` is that type's, checked below): the same slot
         // types and texture count as the ordinary NIF type.
         let colour = NifSurfaceBlendColour::bindless_descriptor().unwrap();
-        // The ordinary type has two more since #2462 (the window environment map's cube and
-        // mask at 54 and 56, which the blend type has not), so the blend binds fewer.
-        assert_eq!((textures(&colour), textures(&ordinary)), (2, 4));
+        // The ordinary type has three more: since #2462 the window environment map's cube
+        // and mask at 54 and 56, and the fork's grass-fire burn map at 57
+        // (NifSurface::scorch_map, landscape only), which the blend type has not, so the
+        // blend binds fewer.
+        assert_eq!((textures(&colour), textures(&ordinary)), (2, 5));
         assert_eq!(&colour.resources[50..], &ordinary.resources[50..54], "same slot types: 50 data, 51 texture, 52 sampler, 53 texture");
         assert_eq!((colour.buffers[0].binding_number.0, colour.buffers[0].bindless_index.0, colour.buffers[0].size), (101, 50, Some(192)));
         let source = include_str!("nif_surface_blend.rs");
@@ -794,7 +796,7 @@ mod tests {
         assert_eq!(blend.index_tables.len(), 1, "no second table and no second storage binding");
         let (b, o) = (&blend.index_tables[0], &ordinary.index_tables[0]);
         assert_eq!((b.indices.start.0, b.indices.end.0, b.binding_number.0), (50, PALETTE_END, 100));
-        assert_eq!((o.indices.start.0, o.indices.end.0, o.binding_number.0), (50, 57, 100), "the ordinary NifSurface table is main's");
+        assert_eq!((o.indices.start.0, o.indices.end.0, o.binding_number.0), (50, 58, 100), "the ordinary NifSurface table: main's 50-56 and the burn map at 57");
         assert_eq!(PALETTE_END, 454, "the attribute on NifSurfaceBlendColour spells it out");
         assert!(palette_index_table(&blend).is_some_and(|t| t.binding_number.0 == 100));
         assert_eq!(blend.buffers.len(), colour.buffers.len(), "no buffer of its own");

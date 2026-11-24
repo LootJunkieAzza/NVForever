@@ -71,7 +71,11 @@
 //!   light actually makes you less stealthy" and Broad Daylight's "the light's sneak
 //!   penalty"; observed: the base effect PipLight 00021EC4, archetype Light, names that
 //!   LIGH; hypothesis: the penalty is that light in the light level, docs/design/detection.md §9].
-//!   Our own flashlight cone is not counted: it is not the game's light.
+//!   Our own flashlight cone is not counted: it is not the game's light. Nor is another
+//!   co-op player's (`flashlight::PeerFlashlight`): on the host, where their puppets are
+//!   measured, each puppet whose player has the flashlight on gets the Pip-Boy light at
+//!   its own chest instead, counted for it alone (`coop::LitPuppets`), so their light
+//!   makes them, not this player, easier to see [design].
 //! - **Moving and running**: from how far an actor went since the last measurement
 //!   [engineering choice]; the player moves only while its movement controls are held (a
 //!   placement settling, a push or a slide makes no footsteps; #2286) and runs when
@@ -160,6 +164,7 @@ pub struct DetectionPlugin;
 impl Plugin for DetectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DetectionState>()
+            .add_message::<crate::coop::PuppetShot>()
             .add_systems(Update, measure.after(nvf_play::PlaySet::Scripts).before(crate::residents::drive))
             .add_systems(Last, report);
     }
@@ -726,11 +731,15 @@ type Watched = (&'static ActorRig, &'static GlobalTransform, &'static InheritedV
 
 /// The light sources, the camera and the worldspace's records.
 type Scene<'w, 's> = (
-    Query<'w, 's, (&'static PointLight, &'static GlobalTransform, &'static InheritedVisibility)>,
-    Query<'w, 's, (&'static SpotLight, &'static GlobalTransform, &'static InheritedVisibility), Without<crate::flashlight::PlayerFlashlight>>,
+    Query<'w, 's, (&'static PointLight, &'static GlobalTransform, &'static InheritedVisibility), NotFlashlight>,
+    Query<'w, 's, (&'static SpotLight, &'static GlobalTransform, &'static InheritedVisibility), NotFlashlight>,
     Query<'w, 's, &'static GlobalTransform, With<PlayerCamera>>,
     Option<Res<'w, WorldData>>,
+    Option<Res<'w, crate::coop::LitPuppets>>,
 );
+
+/// Lights that are no flashlight: this player's or another co-op player's.
+type NotFlashlight = (Without<crate::flashlight::PlayerFlashlight>, Without<crate::flashlight::PeerFlashlight>);
 
 /// What the player is doing and where, the player's weapons and the sky.
 type Inputs<'w> = (
@@ -781,10 +790,12 @@ fn measure(
     mut phys: Option<ResMut<PhysState>>,
     (player, intent, control, location, combat, sky, flashlight): Inputs,
     mut shots: MessageReader<ShotFired>,
-    (mut impacts, mut hits, mut booms): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>),
+    (mut impacts, mut hits, mut booms, mut puppet_shots): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>, MessageReader<crate::coop::PuppetShot>),
     (sfx, visuals): (Option<Res<Sfx>>, Option<Res<ShotVisuals>>),
-    actors: Query<Watched>,
-    (point_lights, spot_lights, camera, world): Scene,
+    // Co-op puppets (coop.rs) are other players: on the host, targets as the player is
+    // (their actors' AI is off, so they watch nobody); elsewhere, not measured at all.
+    actors: Query<(Watched, Has<crate::coop::Puppet>)>,
+    (point_lights, spot_lights, camera, world, lit_puppets): Scene,
     mut gauges: Option<ResMut<nvf_play::sneak_gauges::SneakGauges>>,
     mut cover: Option<ResMut<nvf_play::sound_cover::SoundCover>>,
 ) {
@@ -792,6 +803,14 @@ fn measure(
     // Shots, heard at the next measurement.
     for s in shots.read() {
         hear_shot(state, combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)), s);
+    }
+    // The other players' shots too (coop.rs), heard as the player's are.
+    for s in puppet_shots.read() {
+        let level = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)).and_then(|w| w.sound_level.as_deref());
+        let loud = level.map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(l));
+        let heard = state.shots.entry(s.shooter.0).or_default();
+        *heard = heard.max(loud);
+        state.shot_levels.insert(s.shooter.0, loud);
     }
     let settings_now = state.settings.unwrap_or_default();
     let level = |l: Option<&str>| l.map(|l| settings_now.firing_sound(l));
@@ -907,8 +926,8 @@ fn measure(
     // The drawn bodies (dying or dead), measured from the player's camera alone for
     // GetLineOfSight ([`bodies_seen`]), at the point the camera looks for.
     let mut bodies: Vec<(u32, [f32; 3])> = Vec::new();
-    for (rig, g, vis, dying, corpse, name) in &actors {
-        if !vis.get() {
+    for ((rig, g, vis, dying, corpse, name), puppet) in &actors {
+        if !vis.get() || (puppet && !rt.game.is_coop_actor(FormId(rig.reference))) {
             continue;
         }
         if dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
@@ -958,16 +977,21 @@ fn measure(
     }
     // The Pip-Boy light, on the player while it is on (the module notes).
     let pip_on = flashlight.as_deref().is_some_and(|f| f.on);
-    if pip_on {
-        let pip = *state.pip_light.get_or_insert_with(|| {
+    let lit_puppets = lit_puppets.as_deref().map(|l| &l.0).filter(|l| !l.is_empty());
+    let pip = if pip_on || lit_puppets.is_some() {
+        *state.pip_light.get_or_insert_with(|| {
             let w = world.as_deref()?;
             let l = fnv_world::lighting::light_data(w.lo, w.schema, PIPBOY_LIGHT)?;
             Some((l.radius, strength(l.color.map(|b| b as f32 / 255.0))))
-        });
-        if let (Some((radius, lum)), Some(p)) = (pip, people.first()) {
-            lights.push((p.chest(), radius, lum));
-        }
+        })
+    } else {
+        None
+    };
+    if let (true, Some((radius, lum)), Some(p)) = (pip_on, pip, people.first()) {
+        lights.push((p.chest(), radius, lum));
     }
+    // Another player's Pip-Boy light, on their puppet's chest, for that puppet alone.
+    let own_light = |p: &Person| pip.filter(|_| lit_puppets.is_some_and(|l| l.contains(&p.id))).map(|(radius, lum)| (p.chest(), radius, lum));
     // Outdoors with the sun up, whether something shades each one from it.
     let sun = sky.as_deref().filter(|s| s.interior.is_none()).map(SkyState::sun_dir_game).filter(|d| d[2] > 0.0);
     let mut sunlit = vec![true; people.len()];
@@ -987,7 +1011,14 @@ fn measure(
         state.stats.sun_measured += people.len();
         state.stats.shaded += sunlit.iter().filter(|lit| !**lit).count();
     }
-    let light: Vec<f64> = people.iter().zip(&sunlit).map(|(p, &lit)| light_at(sky.as_deref(), &lights, p.chest(), lit)).collect();
+    let light: Vec<f64> = people
+        .iter()
+        .zip(&sunlit)
+        .map(|(p, &lit)| match own_light(p) {
+            Some(own) => light_at(sky.as_deref(), &[lights.as_slice(), &[own]].concat(), p.chest(), lit),
+            None => light_at(sky.as_deref(), &lights, p.chest(), lit),
+        })
+        .collect();
     if let Some(g) = gauges.as_deref_mut() {
         g.light = light.first().copied().unwrap_or(0.0) as f32;
     }
@@ -1058,6 +1089,12 @@ fn measure(
         // What the scripts read of movement, sneaking and swimming (IsMoving, IsRunning,
         // IsSneaking, IsSwimming): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
+        // Actors out of the loaded area measure no one (module notes): what they fought
+        // or searched for is hidden from them (`Game::out_of_reach`).
+        let away: Vec<FormId> = g.awareness.actors.keys().copied().filter(|a| !people.iter().any(|p| p.id == a.0)).collect();
+        for a in away {
+            g.out_of_reach(a);
+        }
         for p in &people {
             // The player's speed mode is the Walk toggle, moving or not (IsRunning).
             let run_mode = if p.id == FormId::PLAYER_REF.0 { player_run_mode } else { p.running };

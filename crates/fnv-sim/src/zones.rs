@@ -238,6 +238,12 @@ impl World<'_> {
         Some(l)
     }
 
+    /// Fix the level of `r` at `at`, fixed before or not (a co-op guest takes the level
+    /// the host's game reads `r`'s leveled lists at, so both pick alike); whether it changed.
+    pub fn set_level(&mut self, r: FormId, at: LevelAt) -> bool {
+        self.ref_levels.insert(r, at) != Some(at)
+    }
+
     /// Forget the level fixed for `r` (its cell was reset: it is made anew).
     pub fn unfix_level(&mut self, r: FormId) {
         self.ref_levels.remove(&r);

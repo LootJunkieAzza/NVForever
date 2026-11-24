@@ -541,7 +541,8 @@ impl FrameData {
             }
 
             for (buffer, diagnostic_path, is_f32) in self.value_buffers.drain(..) {
-                let buffer = buffer.get_mapped_range(..).unwrap();
+                // NVForever: no panic when the GPU device was lost (vendor/README.md).
+                let Ok(buffer) = buffer.get_mapped_range(..) else { continue };
                 diagnostics.push(RenderDiagnostic {
                     path: DiagnosticPath::from_components(
                         core::iter::once("render")
@@ -586,7 +587,10 @@ impl FrameData {
             return true;
         };
 
-        let data = read_buffer.slice(..).get_mapped_range().unwrap();
+        // NVForever: no panic when the GPU device was lost (vendor/README.md).
+        let Ok(data) = read_buffer.slice(..).get_mapped_range() else {
+            return true;
+        };
 
         let timestamps = data[..(self.num_timestamps * 8) as usize]
             .as_chunks()
@@ -683,7 +687,8 @@ impl FrameData {
         }
 
         for (buffer, diagnostic_path, is_f32) in self.value_buffers.drain(..) {
-            let buffer = buffer.get_mapped_range(..).unwrap();
+            // NVForever: no panic when the GPU device was lost (vendor/README.md).
+            let Ok(buffer) = buffer.get_mapped_range(..) else { continue };
             diagnostics.push(RenderDiagnostic {
                 path: DiagnosticPath::from_components(
                     core::iter::once("render").chain(core::iter::once(diagnostic_path.as_ref())),

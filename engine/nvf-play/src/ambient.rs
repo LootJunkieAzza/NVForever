@@ -51,7 +51,7 @@
 use crate::music::{cell_at, game_hour, AudioPlaces, LayeredMusic, Space};
 use crate::pause::Paused;
 use crate::player::Player;
-use crate::sfx::{distance_gain, folder_unlisted, one_shot_heard, pan_gains, resolve, static_gain, OneShotNow, Out, Pan, Panned, PcmSound, Resolved, Sfx, SfxSettings, SoundSource};
+use crate::sfx::{distance_gain, folder_unlisted, heard_distance, heard_gain, heard_pan, one_shot_heard, resolve, static_gain, OneShotNow, Out, Pan, Panned, PcmSound, Resolved, SecondListener, Sfx, SfxSettings, SoundSource};
 use crate::sim::SimState;
 use crate::sound_cover::SoundCover;
 use crate::sound_grid::FixedGrid;
@@ -258,7 +258,7 @@ fn play(
     sfx: Option<ResMut<Sfx>>,
     (d, loc, sim): (Res<PlayWorld>, Res<Location>, Res<SimState>),
     (state, paused, poker): (Res<State<PlayState>>, Res<Paused>, Option<Res<crate::poker::PokerScreen>>),
-    (player, intro): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>),
+    (player, intro, second): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>, Option<Res<SecondListener>>),
     data: Option<Res<nvf_assets::GameData>>,
     mut pcm: ResMut<Assets<PcmSound>>,
     mut streams: Streams,
@@ -330,6 +330,14 @@ fn play(
     } else {
         let grid = amb.marker_grids.entry(space).or_insert_with(|| marker_grid(markers, |s| sfx.forms.sounds.get(&FormId(s)).map(|r| r.max_distance)));
         grid.near(eye, |c, r| distance(c, eye) >= r, &mut amb.near);
+        // Split screen: the markers in player 2's earshot too (`SecondListener`).
+        if let Some(ear) = SecondListener::ear(second.as_deref()) {
+            let mut theirs = Vec::new();
+            grid.near(ear.eye, |c, r| distance(c, ear.eye) >= r, &mut theirs);
+            amb.near.extend(theirs);
+            amb.near.sort_unstable();
+            amb.near.dedup();
+        }
     }
     let mut heard: Vec<Heard> = amb
         .near
@@ -350,9 +358,11 @@ fn play(
     let mut sounding: Vec<u64> = Vec::new();
     for m in heard {
         let Some(s) = sfx.forms.sounds.get(&FormId(m.sound)) else { continue };
+        // The player's own distance (the sound cover), and the nearer listener's.
         let dist = distance(m.at, eye);
+        let heard_dist = heard_distance(eye, second.as_deref(), m.at);
         let playing = amb.loops.contains_key(&m.key);
-        if beyond(s.max_distance, dist, playing) {
+        if beyond(s.max_distance, heard_dist, playing) {
             continue;
         }
         if !in_hours(s.start_hour, s.stop_hour, hour) {
@@ -364,7 +374,7 @@ fn play(
         if s.has("Loop") || m.looping {
             // Under water a sound so flagged is held silent (audio.md §15.2).
             let muted = sfx.submerged && s.has("Mute When Submerged");
-            let gain = if muted { 0.0 } else { static_gain(s) * distance_gain(s, dist) * volume };
+            let gain = if muted { 0.0 } else { static_gain(s) * heard_gain(s, eye, second.as_deref(), m.at) * volume };
             // Heard at the listener while it sounds (`crate::sound_cover`), held loops not.
             if let (false, false, Some(cover)) = (muted, held, cover.as_deref_mut()) {
                 cover.note(Some(SoundCover::key(crate::sound_cover::AMBIENT_KIND, m.key)), static_gain(s) * distance_gain(s, dist), dist, crate::sound_cover::LOOP_HOLD, cover_now);
@@ -373,11 +383,11 @@ fn play(
             if let Some(p) = amb.loops.get(&m.key) {
                 p.set(gain);
                 if let Some(pan) = &p.pan {
-                    pan.set(pan_gains(eye, player.heading, m.at));
+                    pan.set(heard_pan(eye, player.heading, second.as_deref(), m.at));
                 }
             } else if !held {
                 // A 2D sound is not panned (audio.md §15.2).
-                let pan = (!s.has("2D")).then(|| Pan::new(pan_gains(eye, player.heading, m.at)));
+                let pan = (!s.has("2D")).then(|| Pan::new(heard_pan(eye, player.heading, second.as_deref(), m.at)));
                 if file_pending(amb, sfx, &data.vfs, m.sound) {
                     continue;
                 }
@@ -393,7 +403,7 @@ fn play(
         } else if s.has("Play At Random") && roll && amb.busy_until.get(&m.key).is_none_or(|&t| now >= t) {
             let chance = s.random_chance_percent / 100.0;
             if sfx.rng.next_f32() < chance {
-                let mut out = Out { commands: &mut commands, assets: &mut pcm, settings: &settings, player: Some(&*player) };
+                let mut out = Out { commands: &mut commands, assets: &mut pcm, settings: &settings, player: Some(&*player), second: second.as_deref() };
                 let mut pick = amb.picks.remove(&m.key);
                 let now_heard = one_shot_heard(&mut out, sfx, &data.vfs, FormId(m.sound), Some(m.at), &mut pick);
                 if let Some(p) = pick {

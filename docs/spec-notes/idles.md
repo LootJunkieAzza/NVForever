@@ -145,7 +145,14 @@ below 30).
   nvforever `player_body.rs` while `PlayerIdles::held` is set; logged as "player view:
   driven by an idle's camera node …" and "… back to the player"). The first-person rig
   keeps the heading and pitch the view had when the idle started. When the last idle is
-  over, the view's heading and pitch are taken from where the animation left it. The
+  over, the view's heading and pitch are taken from where the animation left it.
+  A first-person idle of the Movement section (`IDLE` DATA section 1 [documented: xEdit
+  wbIdleAnam]) does not take the view or hold the player: it plays on the first-person
+  rig while the player moves and looks as usual [hypothesis, from a mod that works in the
+  original: Just Assorted Mods' sprint plays `SpecialIdleSprint` (Movement, looping,
+  with a `Camera1st` track) with PlayIdle each time the player sprints, and ends the
+  sprint as soon as `IsMoving` reads 0; held in place, ours ended it after four frames
+  (2026-11-05)]. `idles.rs` `moves_with_player`. The
   original's scripts leave looking on during the wake-up (VCG01 stage 0
   `EnablePlayerControls 0 0 0 0 1`, then `DisablePlayerControls 1 1 1 1 0 0 1`
   [observed]), so the original may let the mouse turn the view there; until 2026-10-11
@@ -195,7 +202,16 @@ below 30).
 - **Collections** (`IdlePicker`) [documented unless tagged]: Random picks any listed
   idle, with the idle timer between two idles; Run In Sequence goes from the top, with
   the timer between whole sequences; Do Once plays the sequence once (a random collection
-  then plays one idle [hypothesis]). The first idle is not waited for [hypothesis].
+  then plays one idle [hypothesis]). The first idle is not waited for [hypothesis]. A package's Run
+  In Sequence collection that lists its begin idle counts that idle as its first pick:
+  it goes on from the entry after it, and one the begin idle ends plays nothing more while
+  the package lasts [hypothesis for the rule; it fits both observations of the original,
+  2026-11-15, observer-checks.md 122 and 135: Dead Money's wake-up is seen once, dropping
+  for about 1 s and rising smoothly to upright about 2 s before Father Elijah's greeting,
+  with no second drop (frames 0.26 s apart); and `VCG01PlayerSection2`, whose begin idle
+  LooseVCG01PlayerStandup is not in its collection, lies down and stands up again about
+  every 5-6 s, which this rule leaves as it is (queue item 209);
+  `fnv_game::idles::BEGIN_IDLE_COUNTS_IN_SEQUENCE` switches it off].
 - **A collection's idle must pass its own conditions** [hypothesis]: every package of
   Doc Mitchell lists `NPCSmokingIdle`, whose conditions he does not meet, and he does not
   smoke in the game [owner's capture: he sits with his hands on his knees]. Conditions

@@ -381,6 +381,16 @@ impl FunctionTable {
                 }
             }
         }
+        // Spellings mods' source uses that shipped source never does (so the catalogue's
+        // `observed_spellings` lacks them), each with the function its compiled bytes call.
+        for &(spelling, name) in MOD_SPELLINGS {
+            if let Some(op) = t.by_name(name) {
+                if let Some(f) = t.functions.get_mut(&op) {
+                    f.observed_spellings.push(spelling.to_string());
+                }
+                t.by_name.entry(spelling.to_ascii_lowercase()).or_insert(op);
+            }
+        }
         Ok(t)
     }
 
@@ -411,6 +421,12 @@ impl FunctionTable {
         self.enums.get(kind)?.get(&code).map(String::as_str)
     }
 }
+
+/// Function spellings seen only in mods' source, with the function the editor compiled
+/// them to. `MoveToMarker` is MoveTo (0x109E) [observed: NoticeBoard.esm, e.g. SCPT
+/// 0x100094AC, whose source lines `<ref>.movetomarker <marker>` are compiled as MoveTo
+/// calls on that reference in its SCDA].
+pub const MOD_SPELLINGS: &[(&str, &str)] = &[("MoveToMarker", "MoveTo")];
 
 /// The names of the actor value codes 0–76 [documented: xEdit `ActorValue`,
 /// `schemas/fnv/common.json`].
@@ -448,6 +464,57 @@ pub const AV_NAMES: [&str; 77] = [
     "Frost Resistance", "Energy Resistance", "EMP Resistance", "Variable01", "Variable02", "Variable03",
     "Variable04", "Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10",
     "Ignore Crippled Limbs", "Dehydration", "Hunger", "Sleep Deprivation", "Damage Threshold",
+];
+
+/// The names of the animation group codes 0–244, by code: what `IsAnimPlaying`,
+/// `PlayGroup` and the like take [observed: the GOG FalloutNV.exe (16,084,808
+/// bytes), its table of 245 animation groups, 36 bytes each, a name pointer first; the
+/// 14 codes `encodings.json` has from shipped source fall on the same names].
+/// JustAssortedMods.esp names `JumpStart` (227).
+pub const ANIM_GROUP_NAMES: [&str; 245] = [
+    "Idle", "DynamicIdle", "SpecialIdle", "Forward", "Backward", "Left", "Right", "FastForward",
+    "FastBackward", "FastLeft", "FastRight", "DodgeForward", "DodgeBack", "DodgeLeft",
+    "DodgeRight", "TurnLeft", "TurnRight", "Aim", "AimUp", "AimDown", "AimIS", "AimISUp",
+    "AimISDown", "Holster", "Equip", "Unequip", "AttackLeft", "AttackLeftUp", "AttackLeftDown",
+    "AttackLeftIS", "AttackLeftISUp", "AttackLeftISDown", "AttackRight", "AttackRightUp",
+    "AttackRightDown", "AttackRightIS", "AttackRightISUp", "AttackRightISDown", "Attack3",
+    "Attack3Up", "Attack3Down", "Attack3IS", "Attack3ISUp", "Attack3ISDown", "Attack4",
+    "Attack4Up", "Attack4Down", "Attack4IS", "Attack4ISUp", "Attack4ISDown", "Attack5",
+    "Attack5Up", "Attack5Down", "Attack5IS", "Attack5ISUp", "Attack5ISDown", "Attack6",
+    "Attack6Up", "Attack6Down", "Attack6IS", "Attack6ISUp", "Attack6ISDown", "Attack7",
+    "Attack7Up", "Attack7Down", "Attack7IS", "Attack7ISUp", "Attack7ISDown", "Attack8",
+    "Attack8Up", "Attack8Down", "Attack8IS", "Attack8ISUp", "Attack8ISDown", "AttackLoop",
+    "AttackLoopUp", "AttackLoopDown", "AttackLoopIS", "AttackLoopISUp", "AttackLoopISDown",
+    "AttackSpin", "AttackSpinUp", "AttackSpinDown", "AttackSpinIS", "AttackSpinISUp",
+    "AttackSpinISDown", "AttackSpin2", "AttackSpin2Up", "AttackSpin2Down", "AttackSpin2IS",
+    "AttackSpin2ISUp", "AttackSpin2ISDown", "AttackPower", "AttackForwardPower",
+    "AttackBackPower", "AttackLeftPower", "AttackRightPower", "AttackCustom1Power",
+    "AttackCustom2Power", "AttackCustom3Power", "AttackCustom4Power", "AttackCustom5Power",
+    "PlaceMine", "PlaceMineUp", "PlaceMineDown", "PlaceMineIS", "PlaceMineISUp",
+    "PlaceMineISDown", "PlaceMine2", "PlaceMine2Up", "PlaceMine2Down", "PlaceMine2IS",
+    "PlaceMine2ISUp", "PlaceMine2ISDown", "AttackThrow", "AttackThrowUp", "AttackThrowDown",
+    "AttackThrowIS", "AttackThrowISUp", "AttackThrowISDown", "AttackThrow2", "AttackThrow2Up",
+    "AttackThrow2Down", "AttackThrow2IS", "AttackThrow2ISUp", "AttackThrow2ISDown",
+    "AttackThrow3", "AttackThrow3Up", "AttackThrow3Down", "AttackThrow3IS", "AttackThrow3ISUp",
+    "AttackThrow3ISDown", "AttackThrow4", "AttackThrow4Up", "AttackThrow4Down",
+    "AttackThrow4IS", "AttackThrow4ISUp", "AttackThrow4ISDown", "AttackThrow5",
+    "AttackThrow5Up", "AttackThrow5Down", "AttackThrow5IS", "AttackThrow5ISUp",
+    "AttackThrow5ISDown", "Attack9", "Attack9Up", "Attack9Down", "Attack9IS", "Attack9ISUp",
+    "Attack9ISDown", "AttackThrow6", "AttackThrow6Up", "AttackThrow6Down", "AttackThrow6IS",
+    "AttackThrow6ISUp", "AttackThrow6ISDown", "AttackThrow7", "AttackThrow7Up",
+    "AttackThrow7Down", "AttackThrow7IS", "AttackThrow7ISUp", "AttackThrow7ISDown",
+    "AttackThrow8", "AttackThrow8Up", "AttackThrow8Down", "AttackThrow8IS", "AttackThrow8ISUp",
+    "AttackThrow8ISDown", "Counter", "stomp", "BlockIdle", "BlockHit", "Recoil", "ReloadWStart",
+    "ReloadXStart", "ReloadYStart", "ReloadZStart", "ReloadA", "ReloadB", "ReloadC", "ReloadD",
+    "ReloadE", "ReloadF", "ReloadG", "ReloadH", "ReloadI", "ReloadJ", "ReloadK", "ReloadL",
+    "ReloadM", "ReloadN", "ReloadO", "ReloadP", "ReloadQ", "ReloadR", "ReloadS", "ReloadW",
+    "ReloadX", "ReloadY", "ReloadZ", "JamA", "JamB", "JamC", "JamD", "JamE", "JamF", "JamG",
+    "JamH", "JamI", "JamJ", "JamK", "JamL", "JamM", "JamN", "JamO", "JamP", "JamQ", "JamR",
+    "JamS", "JamW", "JamX", "JamY", "JamZ", "Stagger", "Death", "Talking", "PipBoy",
+    "JumpStart", "JumpLoop", "JumpLand", "HandGrip1", "HandGrip2", "HandGrip3", "HandGrip4",
+    "HandGrip5", "HandGrip6", "JumpLoopForward", "JumpLoopBackward", "JumpLoopLeft",
+    "JumpLoopRight", "PipBoyChild", "JumpLandForward", "JumpLandBackward", "JumpLandLeft",
+    "JumpLandRight",
 ];
 
 #[cfg(test)]

@@ -192,6 +192,30 @@ pub fn enabled(lo: &LoadOrder, schema: &EsmSchema, p: &Placement, depth: usize) 
     }
 }
 
+/// The fewest grid steps around the camera's cell loaded in the Freeside worldspaces.
+/// The base game walls Freeside's streets in, so `--radius` (2, the game's
+/// uGridsToLoad=5) reaches everything a player sees; with the streets opened up (the
+/// owner's "Simple Open Freeside") a player sees across the whole district, whose
+/// references stand in cells x -2..2, y -3..1 of `FreesideWorld` [observed: `fnvtool
+/// world cells`, cells holding more than 20 references, base game with Simple Open
+/// Freeside: 24 cells, 4,243 references], so from one end the other is 4 cells away
+/// (owner, playtest 2026-11-04: "Freeside needs a further view/load distance"). The
+/// cells beyond are empty desert edges, so the larger square costs little [design].
+pub const FREESIDE_RADIUS: i32 = 4;
+
+/// The worldspaces drawn with [`FREESIDE_RADIUS`] (Editor IDs, lower case).
+const FREESIDE_WORLDS: [&str; 3] = ["freesideworld", "freesidenorthworld", "freesidefortworld"];
+
+/// Grid steps of cells loaded around the camera in worldspace `edid`: `--radius`, or
+/// more in Freeside ([`FREESIDE_RADIUS`]).
+pub fn load_radius(base: i32, edid: Option<&str>) -> i32 {
+    if edid.is_some_and(|e| FREESIDE_WORLDS.contains(&e.to_ascii_lowercase().as_str())) {
+        base.max(FREESIDE_RADIUS)
+    } else {
+        base
+    }
+}
+
 /// Marks the root that maps game space (Z up) to Bevy space (Y up).
 #[derive(Component)]
 pub struct WorldRoot;
@@ -255,6 +279,10 @@ pub struct Streamer {
     /// Destroyed references drawn with their destruction stage's replacement model
     /// (`destroyed.rs`): kept here so a cell drawn again draws them so.
     pub model_overrides: HashMap<u32, String>,
+    /// Co-op replication, the host's: its guests' surroundings, away from the host's own
+    /// (`coop::replication`). Not drawn here; their residents run in the high process as
+    /// those drawn do (`residents::simulated`).
+    pub coop_areas: Vec<fnv_ai::LoadedArea>,
     /// Door travels so far ([`travel`]): what drew the place left must go (the full-detail
     /// ring, full_detail.rs, clears itself when it changes).
     pub travels: u64,
@@ -390,6 +418,10 @@ pub fn stream(
     loading: Option<Res<nvf_play::loading::Loading>>,
     children: Query<&Children>,
 ) {
+    // A handoff's new run loads nothing while the old run still holds its game.
+    if !crate::handoff::old_run_gone() {
+        return;
+    }
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     streamer.stats.frames += 1;
     let before = (streamer.stats.actors.equipment_spawns, streamer.stats.actors.record_spawns);
@@ -2095,6 +2127,10 @@ pub fn spawn_model(
             if let Some((index, &e)) = n.addon.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {
                 crate::particles::place_addon(commands, e, r, &model.nodes, i, index);
             }
+            // Its billboards turn to the camera (`nvf_play::billboards`).
+            if let Some((mode, &e)) = n.billboard.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {
+                commands.entity(e).insert(nvf_play::billboards::Billboard { mode, bind: Transform::from_matrix(Mat4::from(n.local)).rotation });
+            }
         }
         // A light whose model's sequences drive it: the reference's light hangs from the
         // node holding it and takes its keys (lights.rs, docs/spec-notes/model-lights.md).
@@ -2153,6 +2189,15 @@ pub fn spawn_model(
             None => (parent, Mat4::from(rt * shape), false),
         };
         // External emittance: the reference's XEMI source drives the colour.
+        if let (Some(x), true) = (p.emittance, s.external_emittance) {
+            let m = models.materials.get(&s.material);
+            info!(
+                "emittance: 0x{r:08X} {path} shape {:?} XEMI {x:#010x}: glow map {}, emissive {:?}",
+                s.name,
+                m.is_some_and(|m| m.base.emissive_texture.is_some()),
+                m.map(|m| m.base.emissive)
+            );
+        }
         let material = p
             .emittance
             .filter(|_| s.external_emittance)
@@ -2771,6 +2816,15 @@ pub(crate) mod tests {
         assert_eq!(s.step(9, Some("Terminal camera")), None);
         assert_eq!(s.step(10, Some("Lockpicking camera")).as_deref(), Some("world: streaming kept running behind another 3D camera (Terminal camera): 2 frames"));
         assert_eq!(s.step(11, None).as_deref(), Some("world: streaming kept running behind another 3D camera (Lockpicking camera): 1 frames"));
+    }
+
+    #[test]
+    fn freeside_loads_further() {
+        assert_eq!(load_radius(2, Some("FreesideWorld")), FREESIDE_RADIUS);
+        assert_eq!(load_radius(2, Some("freesidenorthworld")), FREESIDE_RADIUS);
+        assert_eq!(load_radius(6, Some("FreesideFortWorld")), 6);
+        assert_eq!(load_radius(2, Some("WastelandNV")), 2);
+        assert_eq!(load_radius(2, None), 2);
     }
 
     #[test]

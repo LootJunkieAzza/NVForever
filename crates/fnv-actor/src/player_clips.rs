@@ -463,6 +463,13 @@ pub struct ClipKeys {
     /// action is worked: `_1stpersonhrattack8.kf` (the varmint rifle's) has `Hit` at
     /// 0.033 s and `Eject` at 0.800 s; nif-node-audit.md row 2].
     pub eject: Option<f32>,
+    /// `noBlend`, a kNVSE key: NVForever starts such a clip at once, not faded in
+    /// [hypothesis: from the key's name only; kNVSE's list of its text keys is on the GECK
+    /// wiki, which could not be read, and the key has a time (0.05 s and 0.15 s in Another
+    /// Millenia's akimbo attack clips), so its meaning may be narrower. Observed: those
+    /// clips put `Hit` at 0.017 s and key the `ProjectileNode` onto the gun that fires; a
+    /// faded start leaves part of the node at its rest place on the other gun].
+    pub no_blend: bool,
 }
 
 impl ClipKeys {
@@ -489,6 +496,8 @@ impl ClipKeys {
                     out.loop_end.get_or_insert(*t);
                 } else if lower == "eject" {
                     out.eject.get_or_insert(*t);
+                } else if lower == "noblend" {
+                    out.no_blend = true;
                 } else if let Some(v) = lower.strip_prefix("a:") {
                     out.next_attack.get_or_insert((*t, v.trim().to_string()));
                 }
@@ -500,6 +509,9 @@ impl ClipKeys {
     /// The blend-in time in seconds ([`Self::blend_frames`] at 30 per second), else
     /// `default`.
     pub fn blend_seconds(&self, default: f32) -> f32 {
+        if self.no_blend {
+            return 0.0;
+        }
         self.blend_frames.map_or(default, |f| f / 30.0)
     }
 }
@@ -635,6 +647,11 @@ mod tests {
         // _1stpersonhrattack8.kf's keys [observed].
         let k = ClipKeys::parse(&[(0.0, "start".into()), (0.033, "Hit".into()), (0.6, "Sound: WPNRifleHuntingReloadChamber".into()), (0.8, "Eject".into()), (1.267, "a:8".into())]);
         assert_eq!((k.hit, k.eject), (Some(0.033), Some(0.8)));
+        assert!(!k.no_blend && k.blend_seconds(0.2) == 0.2);
+        // kNVSE's `noBlend` (Another Millenia's akimbo attack clips): no fade in.
+        let k = ClipKeys::parse(&[(0.0, "start".into()), (0.0, "noBlend".into()), (0.017, "Hit".into()), (0.833, "end".into())]);
+        assert!(k.no_blend);
+        assert_eq!(k.blend_seconds(0.2), 0.0);
     }
 
     #[test]

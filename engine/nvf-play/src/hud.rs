@@ -273,12 +273,69 @@ pub struct HudView {
     pub armor: Option<f32>,
     /// A kill camera has the view, which hides the HUD (`crate::kill_cam`).
     pub kill_cam: bool,
+    /// A card game's, slot machine's or arm-wrestling table's end view has the view
+    /// (`PlayerControl::end_view`), which hides the HUD as the kill camera does: the bars,
+    /// the compass, the crosshair and its prompt, the corner and quest notices (they wait)
+    /// [owner 2026-11-12 via parity, ship 14: "an end view is a cutscene-style shot"].
+    pub end_view: bool,
+    /// The full Pip-Boy is up (`pipboy_hides_hud`), which hides the HUD's meters and
+    /// compass and holds the corner and quest notices (they wait) as a paused menu does.
+    pub pipboy_up: bool,
+    /// The player stands in a slideshow's room ([`slideshow_room`]): the ending's slides
+    /// or an add-on's intro slides have the view, which hides the whole HUD as an end view
+    /// does: the bars, the compass, the crosshair and its prompt, the corner and quest
+    /// notices (they wait) (owner, 2026-11-23: "HUD shouldn't draw during slideshow").
+    pub slideshow: bool,
+}
+
+impl HudView {
+    /// The corner and quest notices wait, hidden with their clocks stopped
+    /// (`crate::corner_messages`, `crate::quest_messages`): under a match's end view, the
+    /// full Pip-Boy or a slideshow.
+    pub fn holds_notices(&self) -> bool {
+        self.end_view || self.pipboy_up || self.slideshow
+    }
+}
+
+/// A slideshow's room, by its cell's Editor ID: the ending's slide room `Endgame`
+/// (0x00161E98: the ending's script DisablePlayerControls the player and MoveTos it to the
+/// room's XMarkerHeading 0x001639F6, facing the slide SlideGS01 0x001680A7) and the
+/// add-ons' intro rooms `NVDLC01Slideshow`, `NVDLC02SlideShow`, `NVDLC03Slideshow` and
+/// `NVDLC04SlideShow` [observed: fnvtool world refs --interiors and script decompile of
+/// FalloutNV.esm and the four add-ons; no other interior's Editor ID has "slideshow" in
+/// it]. The rooms hold only the slide, its light and the narrator: a player is there only
+/// for the slides, and the slideshow is over once a script moves the player out (or the
+/// ending's credits end the game). In the original the slideshow shows no HUD and no
+/// crosshair (owner, 2026-11-23: "HUD shouldn't draw during slideshow").
+pub fn slideshow_room(edid: &str) -> bool {
+    edid.eq_ignore_ascii_case("Endgame") || edid.to_ascii_lowercase().contains("slideshow")
+}
+
+/// Whether the interior cell `interior` is a slideshow's room ([`slideshow_room`]), its
+/// Editor ID looked up in the load order's cells (`RefTable::cell_edids`, lower case). A
+/// co-op guest and split screen's player 2 stand in the host's slide room too (the host's
+/// MoveTo takes them along, nvforever `coop::scene`), so each one's own cell says it.
+pub fn in_slideshow(interior: Option<u32>, cell_edids: &std::collections::HashMap<String, FormId>) -> bool {
+    interior.is_some_and(|c| cell_edids.iter().any(|(e, id)| id.0 == c && slideshow_room(e)))
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false }
+        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false, end_view: false, pipboy_up: false, slideshow: false }
     }
+}
+
+/// Whether the full Pip-Boy keeps the HUD off the screen: from coming up to gone down,
+/// not while it only warms up unseen. Paused, the Pip-Boy leaves `PlayState::Playing` and
+/// the HUD goes with it; in co-op it opens live (`crate::menu::LiveMenu`) and the state
+/// stays `Playing`, so it is asked here, as the crosshair asks it
+/// (`crate::reticle::pipboy_hides_crosshair`). [hypothesis: the original hides its HUD
+/// meters and quest messages while the Pip-Boy menu is open, as NVForever's paused
+/// Pip-Boy does; observer-checks.md "HUD under the Pip-Boy"; parity item 203b 2026-11-14:
+/// HP, AP, the compass and a quest objective drew over a co-op guest's open Pip-Boy.]
+/// The glance (G) is NVForever's own and keeps the HUD [design].
+pub fn pipboy_hides_hud(full: Option<&crate::pipboy::PipBoy>) -> bool {
+    full.is_some_and(|p| p.phase != crate::pipboy::Phase::Down)
 }
 
 /// The sneak word at the top middle while the player sneaks (§9).
@@ -527,6 +584,9 @@ pub(crate) fn label_places(font: &Font) -> [(f32, f32); 4] {
 
 /// Read what the HUD shows. Health and action points come from the script runtime's
 /// actor values; until it runs they read full.
+/// The views over the world that hide the HUD: VATS, the weapon wheel, the full Pip-Boy.
+type MenusUp<'w> = (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>, Option<Res<'w, crate::pipboy::PipBoy>>);
+
 #[allow(clippy::too_many_arguments)]
 fn gather(
     state: Res<State<PlayState>>,
@@ -537,10 +597,14 @@ fn gather(
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     mut view: ResMut<HudView>,
-    (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
+    (vats, wheel, pipboy): MenusUp,
     driven: Option<Res<crate::player::ViewDriven>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    arm: Option<Res<crate::armwrestle_coop::ArmSeat>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    location: Option<Res<crate::Location>>,
+    // The last interior looked up for a slideshow's room, and whether it is one.
+    mut slide_room: Local<Option<(u32, bool)>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -555,6 +619,10 @@ fn gather(
     let posed = driven.is_some_and(|d| d.0);
     let wheel_open = wheel.is_some_and(|w| w.is_open());
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
+    // Nor over an arm-wrestling bout and its result, which the table's own HUD draws
+    // (`ArmSeat::hud`): play runs under the match (script.rs hold_player), and Health, AP
+    // and the compass sat under the meter (armwrestle-a desktop runs 2026-11-12) [design].
+    let wrestling = arm.is_some_and(|a| a.hud);
     // Nor while the classic VATS style plays its queued attacks (`VatsMode::playing_back`).
     let playback = vats.as_ref().is_some_and(|v| v.playing_back());
     let camera = kill_cam.is_some_and(|k| k.active());
@@ -563,10 +631,35 @@ fn gather(
         let why = if camera { "the kill camera has the view" } else { "the VATS attacks play" };
         info!("hud: {}", if killcam { format!("hidden: {why}") } else { "back after the kill camera".to_string() });
     }
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam, kill_cam: killcam, ..view.clone() };
+    let end_view = control.as_ref().is_some_and(|c| c.end_view);
+    if end_view != view.end_view {
+        info!("hud: {}", if end_view { "hidden: the match's end view has the view" } else { "back after the match's end view" });
+    }
+    // Nor under the full Pip-Boy, also where it opens live (co-op) [item 203b].
+    let pipboy_up = pipboy_hides_hud(pipboy.as_deref());
+    if pipboy_up != view.pipboy_up {
+        info!("hud: {}", if pipboy_up { "hidden under the Pip-Boy" } else { "back from under the Pip-Boy" });
+    }
+    // Nor while a slideshow has the view (`slideshow_room`; owner, 2026-11-23: "HUD
+    // shouldn't draw during slideshow"), the room looked up once per cell.
+    let slideshow = match location.as_deref().and_then(|l| l.interior) {
+        Some(cell) => match *slide_room {
+            Some((c, at)) if c == cell => at,
+            _ => {
+                let at = in_slideshow(Some(cell), &sim.refs.cell_edids);
+                *slide_room = Some((cell, at));
+                at
+            }
+        },
+        None => false,
+    };
+    if slideshow != view.slideshow {
+        info!("hud: {}", if slideshow { "hidden: a slideshow has the view" } else { "back after the slideshow" });
+    }
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam && !wrestling && !end_view && !pipboy_up && !slideshow, kill_cam: killcam, end_view, pipboy_up, slideshow, ..view.clone() };
     // [design, #2659] Only the classic enemy piece survives playback, including its
     // attack camera. All other HUD visibility rules keep using `shown`.
-    now.enemy_shown = *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open
+    now.enemy_shown = *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !slideshow
         && (!killcam || vats.as_ref().is_some_and(|v| v.style() == crate::vats_classic::VatsStyle::Classic && v.active()));
     if let Some(p) = &player {
         // Where the camera looks, not where the character faces (third person).
@@ -661,6 +754,7 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudView>()
+            .init_resource::<crate::interface::HudBuild>()
             .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin, crate::hud_breath::HudBreathPlugin, crate::grenade_indicator::GrenadeIndicatorPlugin, crate::heartbeat::HeartbeatPlugin, crate::marker_added::MarkerAddedPlugin))
             .init_resource::<HudHidden>()
             .add_systems(Update, (gather, draw, pips, texts, enemy_colours, place_name, armor_row).chain().in_set(HudSet).in_set(PlaySet::Ui))
@@ -716,6 +810,10 @@ fn picture_node(picture: &Picture, color: Color) -> ImageNode {
 #[derive(Component)]
 pub(crate) struct HudRoot;
 
+/// The enemy's health piece's own root, beside [`HudRoot`] (made again with it, `draw`).
+#[derive(Component)]
+struct EnemyRoot;
+
 /// The health and compass piece, bottom left.
 #[derive(Component)]
 struct HpPiece;
@@ -766,10 +864,15 @@ fn place_name(
     (data, mut images, formats): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>),
     mut face_: Local<Option<Face>>,
     (mut shown, mut region): (Local<(Option<String>, Option<String>)>, Local<(Option<fnv_sim::FormId>, Option<String>)>),
-    text: Query<Entity, With<PlaceNameText>>,
+    (text, mut rebuild): (Query<Entity, With<PlaceNameText>>, crate::interface::HudRebuild),
     mut font_revision: Local<u32>,
 ) {
     let _hud = crate::interface::hud_units();
+    // The HUD made again (`draw`): its new line is written from the next frame.
+    if rebuild.stale() {
+        *shown = Default::default();
+        return;
+    }
     let Ok(e) = text.single() else { return };
     let words = (|| {
         let t = tweaks.as_deref().filter(|t| t.hud_marker_name && view.shown)?;
@@ -914,6 +1017,8 @@ fn armor_row(
     mut row: Query<(&mut Visibility, &mut Node), (With<ArmorRow>, Without<ArmorBar>)>,
     mut bar: Query<(&mut Node, &mut BackgroundColor), (With<ArmorBar>, Without<ArmorRow>)>,
 ) {
+    // The HUD's lengths at the UI scale (`crate::interface::hud_units`), as the row was made.
+    let _hud = crate::interface::hud_units();
     let Some(t) = tweaks.as_deref() else { return };
     let look = view.armor.map(|c| (c, armor_look(c, t.armor_visible_below, t.armor_red_below, t.armor_flash_below, time.elapsed_secs().fract() < 0.5)));
     let drop = if view.weapon.condition.is_none() && t.armor_in_weapon_place { 0.0 } else { ARMOR_DROP };
@@ -1099,7 +1204,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
         root.spawn((SneakText, piece, DrawnByTiles));
     });
     // [design, #2659] Independent of the corner root hidden during playback.
-    commands.spawn((screen, Pickable::IGNORE)).with_children(|root| {
+    commands.spawn((EnemyRoot, screen, Pickable::IGNORE)).with_children(|root| {
         // The enemy's health, bottom middle: its long line level with the corner pieces'
         // (§8).
         let red = crime_colour();
@@ -1162,16 +1267,24 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut art: Local<Option<Art>>,
-    mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>,
+    (mut root, all_roots): (Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>, Query<Entity, Or<(With<HudRoot>, With<EnemyRoot>)>>),
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
     mut enemy: Query<(&mut Visibility, &mut Node), (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>, Without<ConditionBar>, Without<Strip>)>,
     mut bar: Query<(&mut Node, &mut BackgroundColor), (With<ConditionBar>, Without<Strip>, Without<EnemyPiece>)>,
     mut strip: Query<(&mut Strip, &mut Node), (Without<ConditionBar>, Without<EnemyPiece>)>,
     (tweaks, time, vats): (Option<Res<crate::tweaks::TweakSettings>>, Res<Time<Real>>, Option<Res<crate::vats_mode::VatsMode>>),
-    mut classic_bar: Local<Option<bool>>,
+    (mut classic_bar, mut rebuild): (Local<Option<bool>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): made again at the new one from the next frame.
+    if rebuild.stale() {
+        for e in &all_roots {
+            commands.entity(e).try_despawn();
+        }
+        *art = None;
+        return;
+    }
     if art.is_none() {
         // The first frame the HUD is wanted: read the game's pictures and set it up.
         if view.shown {
@@ -1246,8 +1359,13 @@ fn pips(
     real: Res<Time<Real>>,
     mut set_for: Local<Option<(f32, f32)>>,
     mut tick: Local<Option<Option<Handle<Image>>>>,
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (tweaks, mut rebuild): (Option<Res<crate::tweaks::TweakSettings>>, crate::interface::HudRebuild),
 ) {
+    // The HUD made again (`draw`): its new rows get their ticks.
+    if rebuild.stale() {
+        *set_for = None;
+        return;
+    }
     if !view.shown && !view.enemy_shown {
         return;
     }
@@ -1381,10 +1499,15 @@ fn texts(
     name: Query<Entity, With<EnemyName>>,
     stats: Query<Entity, With<EnemyStats>>,
     sneak: Query<Entity, With<SneakText>>,
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (tweaks, mut rebuild): (Option<Res<crate::tweaks::TweakSettings>>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD made again (`draw`): its new texts are written from the next frame.
+    if rebuild.stale() {
+        *shown = Default::default();
+        return;
+    }
     if (!view.shown && !view.enemy_shown) || ammo.is_empty() {
         return;
     }
@@ -1503,6 +1626,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_full_pipboy_up_while_playing_hides_the_hud() {
+        use crate::pipboy::{Phase, PipBoy};
+        use bevy::ecs::system::RunSystemOnce;
+        assert!(!pipboy_hides_hud(None));
+        let mut full = PipBoy::default();
+        assert!(!pipboy_hides_hud(Some(&full)), "down");
+        for phase in [Phase::Raising, Phase::Up, Phase::Lowering] {
+            full.phase = phase;
+            assert!(pipboy_hides_hud(Some(&full)), "{phase:?}");
+        }
+        // The co-op Pip-Boy opens live: the state stays Playing, and the HUD still goes.
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin).insert_state(PlayState::Playing).insert_resource(SimState::over_placed([])).init_resource::<HudView>();
+        app.update();
+        let shown = |app: &mut App| {
+            app.world_mut().run_system_once(gather).unwrap();
+            let v = app.world().resource::<HudView>();
+            (v.shown, v.pipboy_up)
+        };
+        assert_eq!(shown(&mut app), (true, false), "playing, no Pip-Boy");
+        app.world_mut().insert_resource(PipBoy::default());
+        app.world_mut().resource_mut::<PipBoy>().phase = Phase::Up;
+        assert_eq!(shown(&mut app), (false, true), "the Pip-Boy up while playing");
+        app.world_mut().resource_mut::<PipBoy>().phase = Phase::Down;
+        assert_eq!(shown(&mut app), (true, false), "put away");
+    }
+
+    #[test]
     fn the_enemy_bar_stays_at_the_bottom_when_playback_hides_the_corners() {
         use crate::hud_target::TargetHealth;
         let _hud = crate::interface::hud_units();
@@ -1565,6 +1716,29 @@ mod tests {
         assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 1000.0, 10.0, false, 0), None);
         assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 10_000.0, 10.0, true, 0), None);
         assert_eq!(place_ahead(far, [0.0, 0.0], 0.0, 10_000.0, 10.0, false, 0).as_deref(), Some("Far North"));
+    }
+
+    #[test]
+    fn a_slideshow_hides_the_hud_and_holds_the_notices_until_the_room_is_left() {
+        // The rooms' Editor IDs as the data spells them, lower case as the table keeps them.
+        let mut cells = std::collections::HashMap::new();
+        for (e, c) in [("endgame", 0x0016_1E98), ("nvdlc01slideshow", 0x0101_09FF), ("nvdlc02slideshow", 0x0201_0124), ("gsdocmitchellhouse", 0x0010_4C6D)] {
+            cells.insert(e.to_string(), FormId(c));
+        }
+        assert!(slideshow_room("Endgame") && slideshow_room("NVDLC04SlideShow") && slideshow_room("NVDLC03Slideshow"));
+        assert!(!slideshow_room("GSDocMitchellHouse") && !slideshow_room("EndgameHall"));
+        // Into the ending's room or an add-on's: hidden; another room or outdoors: back.
+        assert!(in_slideshow(Some(0x0016_1E98), &cells));
+        assert!(in_slideshow(Some(0x0201_0124), &cells));
+        assert!(!in_slideshow(Some(0x0010_4C6D), &cells));
+        assert!(!in_slideshow(None, &cells));
+        let mut view = HudView { slideshow: true, ..HudView::default() };
+        assert!(view.holds_notices());
+        view.slideshow = false;
+        assert!(!view.holds_notices());
+        // The end view and the Pip-Boy still hold them as before.
+        assert!(HudView { end_view: true, ..HudView::default() }.holds_notices());
+        assert!(HudView { pipboy_up: true, ..HudView::default() }.holds_notices());
     }
 
     #[test]

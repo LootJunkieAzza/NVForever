@@ -64,6 +64,15 @@ pub const MAX_PITCH: f32 = 89.0 * std::f32::consts::PI / 180.0;
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ViewDriven(pub bool);
 
+/// Whether the view takes the look input: the pointer is captured, or this is split
+/// screen's player 2 (`crate::split_screen::PlayerTwo`), whose window never takes the
+/// focus, so its pointer is never captured; its view turns with the right stick all the
+/// same [design: the owner's split-screen playtest, 2026-11-21, "P2 couldn't look around
+/// with their controller"].
+pub fn look_input_on(cursor: &Query<&CursorOptions, With<PrimaryWindow>>, without_focus: bool) -> bool {
+    without_focus || cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None)
+}
+
 /// The console's ToggleCollision (`tcl`, `crate::console`): the character passes through
 /// everything, falls no more and flies where the player looks, by the swimming rule
 /// (forward and back along the view, sideways level) at the walking and running speeds [hypothesis: as the
@@ -582,7 +591,7 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view, creator, panel, talk, tweaks, vats): (
+    (intro, view, creator, panel, talk, tweaks, vats, photo): (
         Option<Res<crate::intro::Intro>>,
         Option<Res<ViewDriven>>,
         Option<Res<crate::creator::CreatorMenu>>,
@@ -590,9 +599,11 @@ fn grab_cursor(
         Option<Res<crate::dialogue_menu::DialogueMenu>>,
         Option<Res<crate::tweaks::TweakSettings>>,
         Option<Res<crate::vats_mode::VatsMode>>,
+        Option<Res<crate::photo_mode::PhotoMode>>,
     ),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
+    live: Option<Res<crate::menu::LiveMenu>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
     pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
 ) {
@@ -606,7 +617,10 @@ fn grab_cursor(
     // kept through a loading screen: the player is back in the world after it.
     // And while the console's free camera flies, also when it holds the world.
     let creating = creator.is_some_and(|c| c.is_open());
-    let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
+    // The Pip-Boy open live in co-op (`crate::menu::LiveMenu`) shows the pointer as a menu does.
+    let live_menu = live.is_some_and(|l| l.open);
+    // Photo mode turns its camera with the mouse, also while it holds the world.
+    let playing = !creating && !live_menu && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active) || photo.is_some_and(|p| p.active));
     let film = intro.as_ref().is_some_and(|i| i.is_playing());
     let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
     // The classic VATS style's target screen has the pointer: its parts and arrows are
@@ -675,9 +689,10 @@ fn read_input(
         return;
     }
     if seat.hold.is_some() {
-        // Held by furniture: no movement; a movement control asks to get up.
+        // Held by furniture: no movement; a movement control asks to get up, unless a
+        // game played from the seat has the keys (`PlayerSeat::game`).
         let moving = [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight, Control::Jump];
-        if moving.into_iter().any(|c| input.just_pressed(c)) {
+        if !seat.game && moving.into_iter().any(|c| input.just_pressed(c)) {
             seat.leave = true;
         }
         control.auto_move = false;
@@ -982,7 +997,7 @@ const SMOOTH_LOOK_RATE: f32 = 8.0;
 /// right stick's (`crate::pad`); while Toggle POV is held it circles the camera instead
 /// (control.rs). Not while a script has locked looking: the view stays where it is
 /// [documented: GECK wiki DisablePlayerControls, LookingFlag].
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     (pads, time, vats): (crate::pad::ActionPads, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
@@ -998,15 +1013,18 @@ pub(crate) fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     (assist, aim): (Option<Res<crate::aim_assist::AimAssistState>>, Option<Res<crate::aim_zoom::AimZoom>>),
-    (talk, switches, mut mouse_guard): (
+    (talk, switches, mut mouse_guard, hold, photo, rt): (
         Option<Res<crate::dialogue_zoom::DialogueZoom>>,
         Option<Res<crate::script_switches::ScriptSwitches>>,
         Local<DialogueMouseGuard>,
+        Option<Res<crate::bindings::ControlHold>>,
+        Option<Res<crate::photo_mode::PhotoMode>>,
+        Option<Res<crate::rt_vats::RtVats>>,
     ),
-    (tweaks, mut smooth): (Option<Res<crate::tweaks::TweakSettings>>, Local<Vec2>),
+    (tweaks, mut smooth, without_focus): (Option<Res<crate::tweaks::TweakSettings>>, Local<Vec2>, Option<Res<crate::split_screen::PlayerTwo>>),
 ) {
     let dialogue = *state.get() == PlayState::Dialogue;
-    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
+    let grabbed = look_input_on(&cursor, without_focus.is_some());
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
     // A zoomed conversation locks the view: the mouse moves only the cursor, even if the
@@ -1016,15 +1034,17 @@ pub(crate) fn mouse_look(
     if dialogue && talk.as_deref().is_some_and(crate::dialogue_look::view_locked) {
         return;
     }
-    // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
-    if vats.is_some_and(|v| v.holds_view()) {
+    // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5),
+    // and real-time VATS holds it on the locked target (`crate::rt_vats`).
+    if vats.is_some_and(|v| v.holds_view()) || rt.is_some_and(|r| r.locked().is_some()) {
         return;
     }
-    // The console's free camera takes the mouse (`crate::free_cam`), and so does the
-    // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
-    // it (`crate::kill_cam`). A script's HUD cursor has the mouse too (ToggleHUDCursor,
-    // `crate::script_switches`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
+    // The console's free camera takes the mouse (`crate::free_cam`), and so do photo mode
+    // (`crate::photo_mode`) and the weapon wheel while it is open (`crate::weapon_wheel`);
+    // a playing kill camera holds it (`crate::kill_cam`), and so does the Pip-Boy open
+    // live in co-op (`crate::menu::LiveMenu`).
+    // A script's HUD cursor has the mouse too (ToggleHUDCursor, `crate::script_switches`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || photo.is_some_and(|p| p.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || hold.is_some_and(|h| h.all) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
         return;
     }
     // The right stick's turn this frame, as mouse counts of a thousandth of a radian
@@ -1414,7 +1434,11 @@ fn step(
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
-    if *state.get() != PlayState::Playing {
+    // In a co-op session the world's physics goes on behind this player's menus and
+    // conversations (`crate::coop_tables`; the player itself stands: `read_input` asks
+    // for no movement there). Held, the NPCs' AI walked on with bodies that stood, and
+    // they were moved along their paths in jumps (desktop run for item 195).
+    if !crate::coop_tables::world_runs(state.get(), &crate::coop_tables::KeepWorld(crate::coop_tables::keeps_world())) {
         // No time reaches the stepper while not playing, so nothing steps; its remainder is
         // kept, and with it the share of a step everything is drawn at (`draw_alpha`), so
         // nothing drawn between steps shifts when a menu opens or closes. (Zeroed, it drew
@@ -1631,6 +1655,7 @@ fn step(
         let blocks_span = info_span!("phys::blocks").entered();
         let mut listed = None;
         let mut go = [vx, vy];
+        p.player_wish = vx.hypot(vy);
         let mut walking: Vec<[f32; 2]> = p.npcs.values().map(|b| b.velocity).collect();
         let mut pushed = [0.0f32; 2];
         c.passes_characters = blocks.is_some();
@@ -2061,6 +2086,43 @@ mod tests {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3
     }
 
+    /// One frame of mouse look, the cursor grabbed and the mouse moved, with `held`
+    /// inserted first: whether the view turned.
+    fn view_turns(held: impl FnOnce(&mut App)) -> bool {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .insert_resource(AccumulatedMouseMotion { delta: Vec2::new(40.0, 0.0) })
+            .init_resource::<Time>()
+            .init_resource::<Bindings>()
+            .init_resource::<crate::control::ControlLocks>()
+            .init_resource::<PlayerControl>()
+            .init_resource::<crate::furniture::PlayerSeat>()
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: EYE_HEIGHT, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .insert_state(PlayState::Playing)
+            .add_systems(Update, mouse_look);
+        app.world_mut().spawn((CursorOptions { grab_mode: CursorGrabMode::Locked, ..default() }, PrimaryWindow));
+        held(&mut app);
+        app.update();
+        app.world().resource::<Player>().heading != 0.0
+    }
+
+    #[test]
+    fn photo_mode_and_a_real_time_vats_lock_hold_the_view() {
+        assert!(view_turns(|_| {}), "the mouse turns the view");
+        // Photo mode open: its camera takes the mouse (`crate::photo_mode`).
+        assert!(!view_turns(|app| {
+            let mut photo = crate::photo_mode::PhotoMode::default();
+            photo.on = true;
+            app.insert_resource(photo);
+        }));
+        // Real-time VATS locked on a target holds the view on it (`crate::rt_vats`).
+        assert!(!view_turns(|app| {
+            let mut rt = crate::rt_vats::RtVats::default();
+            rt.lock_for_test(0x1234);
+            app.insert_resource(rt);
+        }));
+    }
+
     #[test]
     fn forward_follows_the_heading() {
         let fwd = MoveIntent { forward: 1.0, ..default() };
@@ -2179,6 +2241,29 @@ mod tests {
     #[test]
     fn interpolation() {
         assert_eq!(lerp3([0.0; 3], [2.0, 4.0, 6.0], 0.5), [1.0, 2.0, 3.0]);
+    }
+
+    /// Seated, Space (Jump) asks to get up, unless a game played from the seat has the
+    /// keys (the arm-wrestling stools: Space is its tap key; owner's playtest, ship13).
+    #[test]
+    fn a_seated_game_keeps_space_from_standing_the_player_up() {
+        let pressed_space = |game: bool| {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin)
+                .init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<crate::bindings::Bindings>()
+                .init_resource::<PlayerControl>()
+                .init_resource::<MoveIntent>()
+                .insert_resource(crate::furniture::PlayerSeat { hold: Some([0.0; 3]), on: Some(1), seated: true, game, ..Default::default() })
+                .insert_state(PlayState::Playing)
+                .add_systems(Update, read_input);
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Space);
+            app.update();
+            app.world().resource::<crate::furniture::PlayerSeat>().leave
+        };
+        assert!(pressed_space(false));
+        assert!(!pressed_space(true));
     }
 
     #[test]

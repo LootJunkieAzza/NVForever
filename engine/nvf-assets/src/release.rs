@@ -220,9 +220,21 @@ pub fn material_images(m: &crate::NifMaterial) -> impl Iterator<Item = &Handle<I
         &b.depth_map,
         &m.extension.holes_texture,
         &m.extension.facegen_offset,
+        &m.extension.scorch_map,
     ]
     .into_iter()
     .flatten()
+}
+
+/// Mark every material that samples one of `images` as changed, so the renderer makes its
+/// bind group again with the images as they are now (after [`TextureCache::reload_since`]);
+/// how many.
+pub fn touch_materials_using(materials: &mut Assets<crate::NifMaterial>, images: &std::collections::HashSet<AssetId<Image>>) -> usize {
+    let ids: Vec<_> = materials.iter().filter(|(_, m)| material_images(m).any(|h| images.contains(&h.id()))).map(|(id, _)| id).collect();
+    for id in &ids {
+        let _ = materials.get_mut(*id);
+    }
+    ids.len()
 }
 
 /// The GPU bytes of an image with its mip chain, from its descriptor (the pixels may be
@@ -290,7 +302,22 @@ struct Sweeps {
     textures: Unused<(String, crate::texture::TextureUsage, bool)>,
 }
 
+/// Sweep now, `passes` frames in a row, with these limits instead of the [`KeepLimits`]
+/// (nvforever `memory_budget.rs`: before a new cell uploads on a GPU near its budget). At
+/// least two passes: a model let go in the first frees its textures for the second.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct ReleaseNow {
+    pub passes: u8,
+    pub keep: KeepLimits,
+}
+
+/// What [`ReleaseNow`] passes let go so far (models, actor parts, textures), for the log.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct ReleasedNow(pub [usize; 3]);
+
+#[allow(clippy::too_many_arguments)]
 fn release_unused(
+    mut commands: Commands,
     time: Res<Time<Real>>,
     mut s: ResMut<Sweeps>,
     mut models: Option<ResMut<ModelCache>>,
@@ -298,9 +325,16 @@ fn release_unused(
     mut textures: Option<ResMut<TextureCache>>,
     materials: Option<Res<Assets<crate::NifMaterial>>>,
     limits: Option<Res<KeepLimits>>,
+    now_asked: Option<ResMut<ReleaseNow>>,
 ) {
     s.since += time.delta_secs();
-    if s.since < SWEEP_SECS {
+    let forced = now_asked.as_ref().map(|r| r.keep);
+    if let Some(mut r) = now_asked {
+        r.passes = r.passes.saturating_sub(1);
+        if r.passes == 0 {
+            commands.remove_resource::<ReleaseNow>();
+        }
+    } else if s.since < SWEEP_SECS {
         return;
     }
     s.since = 0.0;
@@ -308,7 +342,7 @@ fn release_unused(
     let s = &mut *s;
     let none = Assets::default();
     let materials = materials.as_deref().unwrap_or(&none);
-    let keep = limits.as_deref().copied().unwrap_or_default();
+    let keep = forced.unwrap_or_else(|| limits.as_deref().copied().unwrap_or_default());
     let mut dropped = [0usize; 4];
     // Models before textures: a dropped model's materials let go of their images, which
     // the texture sweep sees from the next sweep on, as unused since the model was.
@@ -321,6 +355,19 @@ fn release_unused(
     }
     if let Some(t) = textures.as_deref_mut() {
         dropped[3] = t.release(&mut s.textures, &s.hints, now, keep);
+    }
+    if forced.is_some() {
+        let (cached, held) = textures.as_deref().map_or((0, 0), |t| t.held_counts());
+        info!(
+            "assets released by a flush pass: {} models, {} actor parts, {} part materials, {} textures; {cached} textures stay cached, {held} of them in use",
+            dropped[0], dropped[1], dropped[2], dropped[3]
+        );
+        commands.queue(move |w: &mut World| {
+            let mut r = w.get_resource_or_insert_with(ReleasedNow::default);
+            r.0[0] += dropped[0];
+            r.0[1] += dropped[1];
+            r.0[2] += dropped[3];
+        });
     }
     if dropped.iter().any(|&n| n > 0) {
         debug!("assets released: {} models, {} actor parts, {} part materials, {} textures", dropped[0], dropped[1], dropped[2], dropped[3]);

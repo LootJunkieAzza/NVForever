@@ -641,6 +641,7 @@ fn play(
     mut world: Option<ResMut<WorldSounds>>,
     mut out: MessageWriter<PlaySound>,
     mut loops: MessageWriter<crate::sfx::LoopSound>,
+    anims: Option<Res<crate::ConsumeAnims>>,
 ) {
     let ui = &mut *ui;
     let now = seen_now(&active, wait.as_deref(), dialogue.as_deref(), paused.is_some_and(|p| p.0), page.as_deref().copied());
@@ -652,7 +653,13 @@ fn play(
     let Some(sfx) = sfx.as_deref() else { return };
     for UiSound { menu, event } in events {
         *ui.stats.by_menu.entry(menu).or_default() += 1;
-        let choice = sound_for(menu, event);
+        let mut choice = sound_for(menu, event);
+        // An item with an animation of its own plays its sound with it (`ConsumeAnims`).
+        if let (Choice::Consume(item), Some(a)) = (choice, anims.as_deref()) {
+            if a.items.contains(&item.0) {
+                choice = Choice::Silent("played with the item's animation");
+            }
+        }
         let sound = match choice {
             Choice::Named(e) | Choice::Loop(e, _) => ui.by_edid.get_or_insert_with(|| by_edid(sfx)).get(e).copied(),
             Choice::Item { item, up } => world.as_deref_mut().and_then(|w| w.item_sound_of(Some(sfx), item, up)),

@@ -24,7 +24,7 @@
 use crate::lod::{GenState, LodState};
 use crate::sky::{self, CloudLayer, MoonDisc, SkyDome, SkyState, Stars, Sun};
 use crate::water::DistantWater;
-use crate::world::WorldData;
+use crate::world::{load_radius, Streamer, WorldData};
 use crate::Args;
 use bevy::prelude::*;
 use nvf_assets::GameData;
@@ -145,6 +145,8 @@ pub fn switch(
     sky_entities: Query<Entity, SkyEntity>,
     game: Res<GameData>,
     args: Res<Args>,
+    mut streamer: ResMut<Streamer>,
+    distances: Option<ResMut<crate::draw_distance::DrawDistances>>,
 ) {
     let drawn = world.world;
     let Some(to) = msgs.read().last().and_then(|t| t.world).filter(|&w| w != drawn) else { return };
@@ -155,6 +157,15 @@ pub fn switch(
     let name = ws.edid.clone().unwrap_or_default();
     info!("render: worldspace {:08X} -> {to:08X} ({name})", world.world);
     world.set_world(to);
+    let radius = load_radius(args.radius, ws.edid.as_deref());
+    if radius != streamer.radius {
+        info!("render: {name}: cells loaded {radius} steps around the camera (was {})", streamer.radius);
+        streamer.radius = radius;
+        // The draw-distance sliders are parts of the farthest a loaded cell reaches.
+        if let Some(mut d) = distances {
+            d.reach = crate::draw_distance::full_reach(radius);
+        }
+    }
 
     match SkyState::new(&world, args.weather.as_deref(), None, sky.hour, sky.rng) {
         Ok(mut s) => {

@@ -259,6 +259,45 @@ fn a_fighter_whose_living_target_got_away_says_combat_to_lost_then_lost_to_norma
     assert_eq!(g.awareness.state(raider), State::Normal);
 }
 
+/// An actor that last noticed its target and then left the loaded area is measured no
+/// more: without `Game::out_of_reach` it stays Lost for ever; with it, its target counts
+/// as hidden and it goes back to Normal once its alarms run out (owner's overnight queue
+/// 2026-11-05: Dixon stayed Lost in the Freeside sewers).
+#[test]
+fn a_lost_fighter_out_of_the_loaded_area_calms_down() {
+    let f = fixture();
+    let raider = FormId(RAIDER_REF);
+    // Lost: the target undetected long enough (upstream's fCombatDetectionLostTime
+    // default, 15 s), last measured as noticed.
+    let lost = || {
+        let mut g = game(&f);
+        fight(&mut g, raider, FormId::PLAYER_REF);
+        for _ in 0..16 {
+            g.time += 1.0;
+            g.observe_threat(raider, FormId::PLAYER_REF, &seen(Band::Noticed), [3000.0, 0.0, 0.0]);
+            g.settle_awareness();
+        }
+        assert_eq!(g.awareness.state(raider), State::Lost);
+        g
+    };
+    // Measured no more: still Lost however long, the noticed target kept.
+    let mut g = lost();
+    for _ in 0..120 {
+        g.time += 1.0;
+        g.settle_awareness();
+    }
+    assert_eq!(g.awareness.state(raider), State::Lost);
+    // Out of reach: Normal once the alarms run out (the Lost search's own alarm lasts
+    // upstream's `LOST_SEARCH_STALL_SECONDS` when no search completes, #2010).
+    let mut g = lost();
+    for _ in 0..fnv_game::awareness::LOST_SEARCH_STALL_SECONDS as usize + 20 {
+        g.time += 1.0;
+        g.out_of_reach(raider);
+        g.settle_awareness();
+    }
+    assert_eq!(g.awareness.state(raider), State::Normal);
+}
+
 #[test]
 fn a_lost_fighter_that_sees_its_target_again_says_lost_to_combat() {
     let f = fixture();

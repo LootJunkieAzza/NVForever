@@ -77,6 +77,30 @@ use bevy::{ecs::system::SystemParam, prelude::*, window::PrimaryWindow};
 use fnv_game::ui_loading::{self, UiFiles};
 use fnv_ui::Value;
 use nvf_assets::GameData;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether a menu drawn from its file (one of `draw`'s, the Mods page) was drawn in the last
+/// frame: `screen()` is then that menu's, else the HUD's ([`MenuFiles::write`]). Written by
+/// [`draw::draw`] at the end of each frame it runs.
+static FILE_MENU_DRAWN: AtomicBool = AtomicBool::new(false);
+
+/// Note whether a menu drawn from its file was drawn this frame ([`FILE_MENU_DRAWN`]).
+pub(crate) fn note_file_menu_drawn(drawn: bool) {
+    FILE_MENU_DRAWN.store(drawn, Ordering::Relaxed);
+}
+
+/// What `screen()` is written for while no menu drawn from its file is up (only the HUD
+/// reads it then): `None` for the view itself, `Some(scale)` for the view the HUD is laid
+/// out in at a HUD scale other than 100% (`crate::interface::ui_scale`), 960 / scale units
+/// high ([`write_screen_scaled`]). A tile a mod adds to the HUD places itself by
+/// `screen()` (a crosshair at its middle) and is drawn at the HUD's scale, so with the view's
+/// own `screen()` it stood `scale` times as far from the top left corner as it should
+/// [observed: the owner's split-screen run of 2026-11-21, a crosshair at (1600, 450) in a
+/// 2560x720 half, the HUD at 125%]. A menu drawn from its file keeps the view's own: it is
+/// drawn at the menus' scale in a frame of its own (`draw::Target::in_frame`).
+pub fn hud_screen_scale(file_menu_up: bool, hud_scale: f32) -> Option<f32> {
+    (!file_menu_up && hud_scale.is_finite() && hud_scale > 0.0 && hud_scale != 1.0).then_some(hud_scale)
+}
 
 #[derive(SystemParam)]
 pub(crate) struct MenuFiles<'w, 's> {
@@ -177,6 +201,8 @@ impl MenuFiles<'_, '_> {
             let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m)) || game.ui_vats || mods_page;
             if game.ui_vats {
                 write_screen_scaled(&mut game.ui_tree, window.width(), window.height(), crate::interface::menu_scale());
+            } else if let Some(scale) = hud_screen_scale(mods_page || FILE_MENU_DRAWN.load(Ordering::Relaxed), crate::interface::ui_scale()).filter(|_| units) {
+                write_screen_scaled(&mut game.ui_tree, window.width(), window.height(), scale);
             } else {
                 write_screen(&mut game.ui_tree, window.width(), window.height(), units);
             }
@@ -305,6 +331,8 @@ struct HudTiles<'w> {
     loading: Option<Res<'w, crate::loading::Loading>>,
     bars: Option<Res<'w, crate::hud::HudView>>,
     compass: Option<Res<'w, crate::compass::CompassView>>,
+    pipboy: Option<Res<'w, crate::pipboy::PipBoy>>,
+    glance: Option<Res<'w, crate::pipboy::glance::Glance>>,
 }
 
 impl HudTiles<'_> {
@@ -317,7 +345,10 @@ impl HudTiles<'_> {
             && !self.loading.as_ref().is_some_and(|l| l.active());
         // A playing kill camera hides all of it, as an idle holding the camera does
         // (`crate::kill_cam`) [owner's playtest request #1034].
-        let driven = self.driven.as_ref().is_some_and(|d| d.0) || self.bars.as_ref().is_some_and(|b| b.kill_cam);
+        // So does a match's end view (`HudView::end_view`) [owner 2026-11-12, ship 14].
+        // And a slideshow (`HudView::slideshow`) (owner, 2026-11-23: "HUD shouldn't draw
+        // during slideshow").
+        let driven = self.driven.as_ref().is_some_and(|d| d.0) || self.bars.as_ref().is_some_and(|b| b.kill_cam || b.end_view || b.slideshow);
         let wheel = self.wheel.as_ref().is_some_and(|w| w.is_open());
         let creating = self.creator.as_ref().is_some_and(|c| c.is_open());
         let locks = self.locks.as_deref().copied().unwrap_or_default();
@@ -331,7 +362,12 @@ impl HudTiles<'_> {
         // reticle::draw: the prompt also goes under true sights/the scope, and when
         // the enemy bar names this target; only the crosshair obeys movement [design].
         let reticle = playing && !creating && !driven && !wheel && !self.sights.as_ref().is_some_and(|s| s.0) && !self.scope.as_ref().is_some_and(|s| s.on);
-        let info = reticle && !locks.rollover && self.target.as_ref().and_then(|t| t.0.as_ref()).is_some_and(|t| t.prompted() && !enemy.is_some_and(|e| crate::reticle::under_bar(t, e.form_id)));
+        // The Pip-Boy up while still playing (co-op's live Pip-Boy, the glance): no
+        // crosshair; no prompt under the full Pip-Boy (`reticle::draw`) [owner's playtest
+        // 2026-11-04].
+        let pip_up = crate::reticle::pipboy_hides_crosshair(self.pipboy.as_deref(), self.glance.as_deref());
+        let menu_up = self.pipboy.as_ref().is_some_and(|p| p.shown());
+        let info = reticle && !locks.rollover && !menu_up && self.target.as_ref().and_then(|t| t.0.as_ref()).is_some_and(|t| t.prompted() && !enemy.is_some_and(|e| crate::reticle::under_bar(t, e.form_id)));
         // corner_messages::draw and quest_messages::draw [design].
         let notices = !driven && *self.state.get() != PlayState::Dialogue && !self.panel.as_ref().is_some_and(|p| p.view.is_some());
         let quest = self.quests.as_ref().and_then(|q| q.showing());
@@ -356,7 +392,7 @@ impl HudTiles<'_> {
             aiming: playing && self.zoom.as_ref().is_some_and(|z| z.aimed),
             corners,
             sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak) && !self.tweaks.as_ref().is_some_and(|t| t.no_sneak_label),
-            reticle: reticle && !locks.movement && !self.tweaks.as_ref().is_some_and(|t| t.crosshair_hidden),
+            reticle: reticle && !locks.movement && !pip_up && !self.tweaks.as_ref().is_some_and(|t| t.crosshair_hidden),
             enemy: (corners || (classic && self.bars.as_ref().is_some_and(|b| b.enemy_shown))) && enemy.is_some(),
             quests: notices && quest.is_some() && !location,
             messages: notices && self.corner.as_ref().is_some_and(|c| c.showing().is_some()),
@@ -709,7 +745,12 @@ fn write(
     mut told: Local<[Option<String>; 4]>,
     mut menu_tiles: MenuTiles,
     mut mods_entry: ResMut<crate::pause::ModsEntry>,
+    (mut mods_back, mut reticle_hidden, mut prompt_hidden): (ResMut<crate::pause::ModsOwnBack>, ResMut<crate::reticle::ScriptHidesReticle>, ResMut<crate::reticle::ScriptHidesPrompt>),
+    // Whether the HUD's last write left its prompt tile visible (`ScriptHidesPrompt`).
+    mut info_written: Local<bool>,
     mut start_names: Local<mods::KeptNames>,
+    // The start menu's text sizes written (T11), then the HUD's mod texts' (below).
+    mut sizes: Local<(menus::SizesWritten, menus::SizesWritten)>,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     let before = counts_on().then(|| rt.game.ui_tree.trait_write_counts());
@@ -729,7 +770,28 @@ fn write(
         info!("tiles: {}", if mods_now.0 { "a mod's tiles in StartMenu: the pause menu has a Mods entry" } else { "no Mods entry in the pause menu" });
         *mods_entry = mods_now;
     }
+    let back = crate::pause::ModsOwnBack(mods_now.0 && mods::own_back(&rt.game.ui_tree));
+    if *mods_back != back {
+        *mods_back = back;
+    }
+    let hidden = crate::reticle::ScriptHidesReticle(crate::reticle::script_hides(&rt.game.ui_tree));
+    if *reticle_hidden != hidden {
+        *reticle_hidden = hidden;
+    }
     menu_tiles.write(&mut rt.game, *menus, &mut fonts, hud.sim.world.calendar().ok());
+    // T11: the start menu's text sizes while its Mods page can open, as the original's
+    // code writes them: MCM sizes its list rows by a hidden text's measured height
+    // (`MCM_ModList_Size`, "Pp") and widens its list by the rows' measured widths
+    // (GetMCMListWidth) [observed: MCM's ModList.xml and MCMMainScript; design: the T15a
+    // rule, `menus::write_text_sizes_of`].
+    if mods_now.0 {
+        if let Some(menu) = rt.game.ui_tree.menu(mods::START_MENU) {
+            let ui = &mut rt.game.ui_tree;
+            let texts: Vec<_> = ui.mod_added_tiles(menu).into_iter().flat_map(|r| menus::texts(ui, r)).collect();
+            let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+            menus::write_text_sizes_of(ui, &texts, &mut sizes.0, &size);
+        }
+    }
     drop(menus_span);
     let shown = {
         let _span = info_span!("tiles::write::shown").entered();
@@ -767,16 +829,51 @@ fn write(
         return;
     }
     rt.game.ui_hud_pending = None;
+    // A script's 0 on the prompt tile since the last write hides the hand-built prompt
+    // (`crate::reticle::ScriptHidesPrompt`), read before this write puts the HUD's back.
+    let hidden = crate::reticle::ScriptHidesPrompt(*info_written && crate::reticle::prompt_visible(&rt.game.ui_tree) == Some(false));
+    if *prompt_hidden != hidden {
+        info!("reticle: prompt {}", if hidden.0 { "hidden: a script hid the HUD's prompt tile" } else { "shown again" });
+        *prompt_hidden = hidden;
+    }
     {
         let _span = info_span!("tiles::write::hud_write").entered();
         fnv_game::ui_hud::write(&mut rt.game.ui_tree, shown, &texts);
     }
+    *info_written = crate::reticle::prompt_visible(&rt.game.ui_tree) == Some(true);
     // The text tiles' widths from the strings just written, before scripts read them
     // [design: ui-tile-tree.md §4.1; observed widths: hud.md §14.1].
     if rt.game.ui_files.is_some() {
         {
             let _span = info_span!("tiles::write::text_widths").entered();
             fonts.write_widths(&mut rt.game.ui_tree);
+        }
+        // The mods' HUD texts' sizes, as the start menu's above: JAM's loot menu sizes
+        // its rows by their texts' heights, rows made from a template by its script, and
+        // clips each row to that height [hypothesis: the original's code writes a text's
+        // width and height as it lays it out, menus::write_text_sizes_of; observed in
+        // NVForever 2026-11-05: unmeasured, the rows were 10 high and their texts clipped
+        // away].
+        if mod_tiles {
+            if let Some(menu) = rt.game.ui_tree.menu(draw::HUD_MENU) {
+                let ui = &mut rt.game.ui_tree;
+                let texts: Vec<_> = ui.mod_added_tiles(menu).into_iter().flat_map(|r| menus::texts(ui, r)).collect();
+                let used = menus::fonts_of(ui, &texts);
+                {
+                    let size = fonts.menu_measure(&used);
+                    menus::write_text_sizes_of(ui, &texts, &mut sizes.1, &size);
+                }
+                // The same measure for a script that sets a string and reads a size made
+                // from it before the next frame (`fnv_game::ui_hud::size_texts`).
+                let text_size = fonts.text_size(&used);
+                match rt.game.ui_sizer.as_mut() {
+                    Some(s) => {
+                        s.size = text_size;
+                        s.texts = texts;
+                    }
+                    None => rt.game.ui_sizer = Some(fnv_game::ui_hud::TextSizer::new(text_size, texts)),
+                }
+            }
         }
         if menus.hud {
             {
@@ -1084,7 +1181,7 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
             .add_systems(Update, global_image_metrics::update_globals.after(PlaySet::Scripts).before(update))
             .add_systems(Update, local_map_service::system.after(PlaySet::Scripts).before(update))
-            .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
+            .add_systems(Update, update.after(PlaySet::Scripts).after(crate::safe_zone::clear_jvo).before(PlaySet::Ui))
             .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
             // The Pip-Boy's STATS page: written after the tile input and before the scripts;
             // again after its keys and decided before the frame and the tile drawing read it.
@@ -1203,6 +1300,32 @@ mod tests {
         let mut ui = Ui::new();
         ui.load_menu(&src, "m.xml").unwrap();
         ui
+    }
+
+    /// A tile a mod adds to the HUD, centred by `screen()` (a crosshair), is drawn at the
+    /// view's middle at any HUD scale, as the HUD draws it: `screen()`'s units times the
+    /// window's height / 960 times the HUD scale [observed: the owner's split-screen run of
+    /// 2026-11-21, a crosshair at (1600, 450) of a 2560x720 half at 125%]. A menu drawn from
+    /// its file keeps the view's own `screen()`.
+    #[test]
+    fn a_mod_tile_centred_by_the_screen_stays_in_the_middle_at_any_hud_scale() {
+        for (w, h) in [(2560.0f32, 720.0f32), (1280.0, 1440.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
+            for s in [0.5f32, 0.8, 1.0, 1.25, 1.5] {
+                let mut ui = centred();
+                match hud_screen_scale(false, s) {
+                    Some(k) => write_screen_scaled(&mut ui, w, h, k),
+                    None => write_screen(&mut ui, w, h, true),
+                }
+                ui.update();
+                let x = ui.get_float("M/Box/x").unwrap() as f32;
+                // The box's middle in pixels, drawn as the HUD draws (`draw::hud`).
+                let middle = (x + 50.0) * h / 960.0 * s;
+                assert!((middle - w / 2.0).abs() < 0.01, "{w}x{h} at {s}: {middle}");
+            }
+        }
+        assert_eq!(hud_screen_scale(true, 1.25), None, "a menu drawn from its file keeps the view's");
+        assert_eq!(hud_screen_scale(false, 1.0), None, "at 100% the view's own, as before");
+        assert_eq!(hud_screen_scale(false, f32::NAN), None);
     }
 
     /// [design] The gate is global: `StatsMenu` beside the tile HUD changes what the HUD gets,

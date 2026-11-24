@@ -223,6 +223,97 @@ Vertical`; the Controls tab rebinds them (the next controller button pressed, a 
 the control that had it, Start cancels, Delete clears, Defaults puts back the game's).
 Start cannot be bound.
 
+## 2a. Binding kinds: hold, double tap, combo; the split holds
+
+[design, owner 2026-11-22: "just combos, double tap, and hold"; "break up controller
+settings that already exist on those like hold pipboy for light"; "only for controller
+though"; "give warnings when there's duplicate or overlapping bindings in any way"; "leave
+all defaults"]. Code: `engine/nvf-play/src/pad/binding.rs` (the kinds, their INI text),
+`pad/resolver.rs` (working them out each frame), `pad/capture.rs` (the Controls tab taking
+one by the gesture made), `bindings.rs` (`SPLITS`, `overlaps`).
+
+**The kinds.** A control's controller binding is one of:
+
+| Kind | INI text | Acts |
+|---|---|---|
+| Press | `A` | as before: while the button is down |
+| Hold | `Hold X` | once X has been held the Hold time, until let go |
+| Double tap | `Double Y` (`Double-tap Y` is read too) | on the second press inside the Double-tap window, while that press is held |
+| Combo | `LB + A` | when LB and A go down within the Combo window, in either order, or A while LB has been held longer; while A is held |
+| Built in | `With Menu Mode` | a split hold still in its original control (below) |
+
+Stick directions are presses only. Start is refused as a part of any kind. The Hold time
+(0.25-0.8 s, 0.4 by default), Double-tap window (0.2-0.5 s, 0.3 by default) and Combo
+window (50-200 ms, 100 by default) are rows under Controls › Input with a controller, kept
+as `Hold Time`, `Double Tap Window` and `Combo Window` in `[Controller]`.
+
+**Working them out.** A press on a button nothing else uses reads the raw button, with no
+delay. A press sharing its button with a hold or a double tap acts for one frame when the
+button is let go (or when the window ends with no second press); a combo uses up its
+button's press, so LB + A does not also Activate.
+
+**The combo window** [design, owner 2026-11-22 playtest: VATS on LB + RB and Sneak on LB
+took Sneak unless both were pressed "perfectly together"; "if there's 8ms between a button
+press in a combo, it still activates the combo bind and ignores the individual inputs"]. A
+press of any button that is part of a combo (its modifier or its button) waits the Combo
+window before its own binding acts:
+- the partner going down inside the window, in either order, fires the combo, and both
+  presses are used up until let go: neither button's own binding acts (no Sneak);
+- held past the window, the press acts as if it began then (a Hold still counts from the
+  press; a modifier's held control, `resolver::held_nature`: movement, Use, Block, Run,
+  Sprint, Grab, Activate, Ready Item, Toggle POV, the hotkeys, Jump, Rest, Crouch/Sneak,
+  goes down and stays live, and a combo button pressed later still fires the combo beside
+  it, as LT + A while aiming);
+- let go inside the window with no combo, its own binding acts late, for one frame (a tap
+  of LB still toggles Sneak).
+Buttons in no combo read raw, with no wait. The resolver's state is cleared when play stops
+(a menu) and when the device changes.
+
+**The split holds.** Five holds that were built into another control's button are controls
+of their own with a controller: Toggle Light (holding Menu Mode, 1.0 s), Holster Weapon
+(holding Ready Item, 0.5 s), Grab (Hold) (`Activate Grab` in the INI; holding Activate,
+0.4 s), Orbit Camera (holding Toggle POV) and Weapon Wheel (holding a hotkey, 0.25 s). Each
+is `With …` until the player binds it; then its original control's hold is off with the
+controller (Menu Mode opens the Pip-Boy when let go however long it was held; Ready Item
+only reloads; Activate activates at once; Toggle POV switches the view as it is pressed; no
+hotkey's hold opens the wheel, the Weapon Wheel binding opens it at once and a slice picked
+by the stick or a hotkey is used when it is let go). The keyboard keeps every built-in
+hold; Orbit Camera, Weapon Wheel and Grab (Hold) have no key row. With a controller, Toggle
+Light stands under Actions after Menu Mode and Holster Weapon under Combat after Ready Item
+(`controls:padbind:` in the layout table) [owner 2026-11-22: "Yes, move them"].
+
+**Old INIs.** A bare button name reads as a press. An INI written before the kinds
+(no `Binding Kinds=1` line in `[Controller]`) wrote `None` for Toggle Light and Holster
+Weapon, which then had no controller button: that `None` reads as `With …`, so their holds
+keep working.
+
+**Overlaps** are warned of and never refused (`bindings::overlaps`): in the row's note
+("Warning: …") and in the log (`controls: warning: …`), after a rebind and at the start.
+The same binding on two controls is still swapped unless the Duplicate Binds tweak is on.
+
+**Capture.** With a row waiting, a button pressed and let go is a press (taken once the
+Double-tap window has passed), held past the Hold time a hold (the row shows "Hold X" from
+then), pressed twice a double tap, and held while another is pressed a combo, the first its
+modifier; each is taken once every button is up. A stick direction is taken at once.
+
+## 2b. The screens' own controls (owner 2026-11-22)
+
+[design] Every key a world screen reads is a control with a row on both devices
+(`bindings::MODE_CONTROLS`, `MODE_PADS`): the co-op questions (Accept, Decline), the
+minigames (Start / Next, Leave, Choice 1-5, Bet Less/More, Back to the Menu, Throw, the
+knife race), a stake between two players, and the keys inside Photo Mode.
+
+- Each belongs to one screen (`ModeGroup`); a new binding is swapped only with a control of
+  the same screen, and these controls are left out of the overlap warnings and the binding
+  kinds' resolver: a screen's control is always a press.
+- While a question or a stake is on screen during play (`AskHold`) its buttons answer it
+  and the play controls sharing them read as up until they are let go: A accepts, it does
+  not jump.
+- Darts and pool aim with the right stick on a controller (pool's left stick moves the
+  point fast, the right one slowly); Throw (RT) throws or shoots. The hints name the
+  bindings of the device in use (`bindings::mode_key`).
+- The emote wheel picks with the right stick (B closes it) as the weapon wheel does.
+
 ## 3. Menus and prompts
 
 - Start is Esc (the pause menu) everywhere. In a menu the D-pad is the arrow keys, A
