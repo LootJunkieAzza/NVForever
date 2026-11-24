@@ -87,10 +87,52 @@ impl Plugin for NrOverlayPlugin {
             // handoff run (save load / back to menu) spawns its loading cover first, and the
             // context would stay on that inactive camera forever. Place it ourselves instead.
             .insert_resource(EguiGlobalSettings { auto_create_primary_context: false, ..default() })
-            .add_systems(Update, (place_primary_context, toggle_key, persist).chain())
+            .add_systems(
+                PreUpdate,
+                input_gate
+                    .after(bevy::input::InputSystems)
+                    .after(bevy_egui::EguiPreUpdateSet::ProcessInput),
+            )
+            .add_systems(Update, (place_primary_context, persist).chain())
+            .add_systems(Last, cursor_while_open)
             // The window draws inside the egui pass: adding a system to this schedule is also
             // what creates it (the context loop runs it per frame).
             .add_systems(bevy_egui::EguiPrimaryContextPass, draw);
+    }
+}
+
+/// F11 opens and closes the window. While it is open the game's own input is swallowed (keys,
+/// mouse buttons, look motion, scroll) after egui has read this frame's input, so the sliders
+/// can be dragged without the camera or the weapon reacting. Runs in PreUpdate, before the
+/// game's Update systems read the input.
+fn input_gate(
+    mut s: ResMut<NrSettings>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut buttons: ResMut<ButtonInput<MouseButton>>,
+    mut motion: ResMut<bevy::input::mouse::AccumulatedMouseMotion>,
+    mut scroll: ResMut<bevy::input::mouse::AccumulatedMouseScroll>,
+) {
+    if keys.just_pressed(KeyCode::F11) {
+        s.show = !s.show;
+        info!("NR overlay: F11 pressed, show={}", s.show);
+    }
+    if s.show {
+        keys.clear();
+        buttons.clear();
+        motion.delta = Vec2::ZERO;
+        scroll.delta = Vec2::ZERO;
+    }
+}
+
+/// The pointer is free and visible while the window is open; closed, the engine's own cursor
+/// state is left as it was (the main menu needs its pointer too).
+fn cursor_while_open(s: Res<NrSettings>, mut cursors: Query<&mut bevy::window::CursorOptions, With<PrimaryWindow>>) {
+    if !s.show {
+        return;
+    }
+    for mut cursor in &mut cursors {
+        cursor.visible = true;
+        cursor.grab_mode = bevy::window::CursorGrabMode::None;
     }
 }
 
@@ -132,13 +174,6 @@ fn place_primary_context(
     }
     if let Some(target) = cameras.iter().find(|(_, cam, rt)| on_window(cam, rt)).map(|(e, _, _)| e) {
         commands.entity(target).insert((EguiContext::default(), PrimaryEguiContext));
-    }
-}
-
-fn toggle_key(keys: Res<ButtonInput<KeyCode>>, mut s: ResMut<NrSettings>) {
-    if keys.just_pressed(KeyCode::F11) {
-        s.show = !s.show;
-        info!("NR overlay: F11 pressed, show={}", s.show);
     }
 }
 

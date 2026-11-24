@@ -89,6 +89,12 @@ pub struct NrInitPlugin;
 
 impl Plugin for NrInitPlugin {
     fn build(&self, app: &mut App) {
+        // RivaTuner's and ReShade's Vulkan layers crash device creation with the network's
+        // feature structs; keep them out of this process unless the player chose layers
+        // themselves. Set before DefaultPlugins creates the Vulkan instance.
+        if std::env::var_os("VK_LOADER_LAYERS_DISABLE").is_none() {
+            std::env::set_var("VK_LOADER_LAYERS_DISABLE", "VK_LAYER_RTSS,VK_LAYER_reshade");
+        }
         if !cfg!(windows) || !*ALLOWED {
             return;
         }
