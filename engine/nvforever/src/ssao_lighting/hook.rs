@@ -128,19 +128,115 @@ pub const HOOK_EDITS: [(&str, &str, Place); 6] = [
     (DEBUG_ANCHOR, DEBUG_TEXT, Place::Before),
 ];
 
+/// The point light accumulation line of `lights/display_shader.rs` `PHYSICAL_EDITS`.
+pub const PHYSICAL_POINT_LINE: &str = "        direct_light += light_contrib * shadow; // nvf_physical_point\n";
+
+/// Point lights without a shadow here take `nvf_ao_lamps` in world views under `NVF_PHYSICAL_PBR=1`.
+pub const PHYSICAL_POINT_LINE_HOOKED: &str = "        @if(!NVF_AMBIENT_OCCLUSION)
+        direct_light += light_contrib * shadow; // nvf_physical_point
+        // NVForever ambient occlusion (nvforever ssao_lighting.rs): lamps without a shadow here.
+        @if(NVF_AMBIENT_OCCLUSION)
+        direct_light += light_contrib * shadow * select(nvf_ao_lamps, vec3(1.0), !nvf_display || ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));
+";
+
+/// The spot light accumulation line of `lights/display_shader.rs` `PHYSICAL_EDITS`.
+pub const PHYSICAL_SPOT_LINE: &str = "        direct_light += light_contrib * shadow; // nvf_physical_spot\n";
+
+/// As [`PHYSICAL_POINT_LINE_HOOKED`], for spot lights.
+pub const PHYSICAL_SPOT_LINE_HOOKED: &str = "        @if(!NVF_AMBIENT_OCCLUSION)
+        direct_light += light_contrib * shadow; // nvf_physical_spot
+        // NVForever ambient occlusion (nvforever ssao_lighting.rs): lamps without a shadow here.
+        @if(NVF_AMBIENT_OCCLUSION)
+        direct_light += light_contrib * shadow * select(nvf_ao_lamps, vec3(1.0), !nvf_display || ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));
+";
+
+/// The IBL occlusion lines of `lights/display_shader.rs` `PHYSICAL_EDITS`.
+pub const PHYSICAL_IBL_AO_ANCHOR: &str = "    let nvf_ibl_diff_ao = diffuse_occlusion; // nvf_physical_ibl_diff_ao
+    let nvf_ibl_spec_ao = specular_occlusion; // nvf_physical_ibl_spec_ao
+";
+
+/// Once per fragment, before the light loops under `NVF_PHYSICAL_PBR=1`: local AO,
+/// architectural sky-visibility and sun contact shadow from one read of `nvf_ao_texture`.
+pub const PHYSICAL_LAMP_TEXT: &str = "    // NVForever ambient occlusion (nvforever ssao_lighting.rs): local AO, architectural
+    // sky-visibility and sun contact shadow, read once per fragment (first-person shapes take 1).
+    @if(NVF_AMBIENT_OCCLUSION && !FIRST_PERSON_DEPTH)
+    let nvf_ao_phys = nvf_physical_occlusion(in.frag_coord.xy, -view_z);
+    @if(NVF_AMBIENT_OCCLUSION && FIRST_PERSON_DEPTH)
+    let nvf_ao_phys = vec3<f32>(1.0);
+    @if(NVF_AMBIENT_OCCLUSION)
+    let nvf_ao_ambient = nvf_ao_phys.x;
+    @if(NVF_AMBIENT_OCCLUSION)
+    let nvf_sky_vis = nvf_ao_phys.y;
+    @if(NVF_AMBIENT_OCCLUSION)
+    let nvf_sun_contact = nvf_ao_phys.z;
+    @if(NVF_AMBIENT_OCCLUSION)
+    let nvf_ao_lamps = nvf_ao_multibounce(nvf_lamp_visibility(nvf_ao_ambient), diffuse_color);
+
+";
+
+/// Screen-space sun contact shadow applied to the primary outdoor/key directional light.
+pub const PHYSICAL_CONTACT_SHADOW_TEXT: &str = "            // NVForever sun contact shadow (nvforever ssao_lighting.rs, NVF_PHYSICAL_PBR).
+            @if(NVF_AMBIENT_OCCLUSION)
+            if (i == 0u && nvf_display) { shadow *= nvf_sun_contact; }
+";
+
+/// Multi-bounce diffuse AO, architectural sky-visibility, and Frostbite specular AO on `ENVIRONMENT_MAP` IBL under `NVF_PHYSICAL_PBR=1`.
+pub const PHYSICAL_IBL_AO_HOOKED: &str = "    @if(!NVF_AMBIENT_OCCLUSION)
+    let nvf_ibl_diff_ao = diffuse_occlusion; // nvf_physical_ibl_diff_ao
+    @if(!NVF_AMBIENT_OCCLUSION)
+    let nvf_ibl_spec_ao = specular_occlusion; // nvf_physical_ibl_spec_ao
+    // NVForever ambient occlusion (nvforever ssao_lighting.rs): local multi-bounce AO + architectural sky-visibility + Frostbite specular AO on IBL.
+    @if(NVF_AMBIENT_OCCLUSION)
+    let nvf_ibl_sky_factor = mix(0.28, 1.0, clamp(nvf_sky_vis, 0.0, 1.0));
+    @if(NVF_AMBIENT_OCCLUSION)
+    let nvf_ibl_diff_ao = diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient * nvf_ibl_sky_factor, diffuse_color);
+    @if(NVF_AMBIENT_OCCLUSION)
+    let nvf_ibl_spec_ao = specular_occlusion * nvf_specular_ao(NdotV, nvf_ao_ambient * nvf_ibl_sky_factor, roughness);
+";
+
+/// The fallback linear ambient line of `lights/display_shader.rs` `PHYSICAL_EDITS`.
+pub const PHYSICAL_AMBIENT_LINE: &str = "            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient\n";
+
+/// Linear ambient kept without the def, and scaled by the multi-bounce occlusion fit and architectural sky-visibility with it.
+pub const PHYSICAL_AMBIENT_LINE_HOOKED: &str = "            // NVForever ambient occlusion (nvforever ssao_lighting.rs): on the fallback linear
+            // ambient alone, never on direct directional lights nor on Bevy's ambient highlight.
+            @if(!NVF_AMBIENT_OCCLUSION)
+            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient
+            @if(NVF_AMBIENT_OCCLUSION)
+            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient * mix(0.28, 1.0, clamp(nvf_sky_vis, 0.0, 1.0)), diffuse_color);
+";
+
+/// The ambient occlusion hook in `apply_pbr_lighting` for the physical PBR patch
+/// (`lights/display_shader.rs` `PHYSICAL_EDITS`).
+pub const PHYSICAL_HOOK_EDITS: [(&str, &str, Place); 8] = [
+    (
+        "import bevy_render::maths::{E, powsafe};\n",
+        "// NVForever ambient occlusion (nvforever ssao_lighting.rs).
+@if(NVF_AMBIENT_OCCLUSION) import nvforever::ssao_lighting::{nvf_ambient_visibility, nvf_ao_debug, nvf_ao_multibounce, nvf_lamp_visibility, nvf_physical_occlusion};
+",
+        Place::After,
+    ),
+    (LAMP_ANCHOR, PHYSICAL_LAMP_TEXT, Place::Before),
+    (PHYSICAL_POINT_LINE, PHYSICAL_POINT_LINE_HOOKED, Place::Replace),
+    (PHYSICAL_SPOT_LINE, PHYSICAL_SPOT_LINE_HOOKED, Place::Replace),
+    ("            shadow *= in.directional_shadow_factor;\n", PHYSICAL_CONTACT_SHADOW_TEXT, Place::After),
+    (PHYSICAL_IBL_AO_ANCHOR, PHYSICAL_IBL_AO_HOOKED, Place::Replace),
+    (PHYSICAL_AMBIENT_LINE, PHYSICAL_AMBIENT_LINE_HOOKED, Place::Replace),
+    (DEBUG_ANCHOR, DEBUG_TEXT, Place::Before),
+];
+
 /// The index in [`HOOK_EDITS`] of the debug view's edit.
 pub const DEBUG_EDIT: usize = 5;
 
-/// `source` (lights.rs's display-value patch, and in the game the sun visibility's hook,
-/// made) with [`HOOK_EDITS`]; `None` when an anchor is missing or the debug view's anchor
-/// is not in `main_pass_post_lighting_processing` (Bevy or the display patch changed), and
-/// the caller keeps `source`.
-pub fn hook_patched(source: &str) -> Option<String> {
+/// The index in [`PHYSICAL_HOOK_EDITS`] of the debug view's edit.
+pub const PHYSICAL_DEBUG_EDIT: usize = 7;
+
+fn apply_edits(source: &str, edits: &[(&str, &str, Place)], debug_edit: usize) -> Option<String> {
     let mut out = String::with_capacity(source.len() + 2048);
     let mut rest = source;
-    for (i, (anchor, text, place)) in HOOK_EDITS.into_iter().enumerate() {
+    for (i, (anchor, text, place)) in edits.iter().copied().enumerate() {
         let at = rest.find(anchor)?;
-        if i == DEBUG_EDIT {
+        if i == debug_edit {
             let head = &rest[..at];
             if !head.rfind("\nfn ").is_some_and(|f| head[f..].starts_with(DEBUG_FUNCTION)) {
                 return None;
@@ -162,4 +258,19 @@ pub fn hook_patched(source: &str) -> Option<String> {
     }
     out.push_str(rest);
     Some(out)
+}
+
+/// `source` (lights.rs's display-value patch, and in the game the sun visibility's hook,
+/// made) with [`HOOK_EDITS`]; `None` when an anchor is missing or the debug view's anchor
+/// is not in `main_pass_post_lighting_processing` (Bevy or the display patch changed), and
+/// the caller keeps `source`.
+pub fn hook_patched(source: &str) -> Option<String> {
+    apply_edits(source, &HOOK_EDITS, DEBUG_EDIT)
+}
+
+/// `source` (`lights/display_shader.rs` `physical_patched`, and in the game
+/// `sun_visibility::hook_patched`) with [`PHYSICAL_HOOK_EDITS`]; `None` when an anchor is
+/// missing or the debug view's anchor is not in `main_pass_post_lighting_processing`.
+pub fn physical_hook_patched(source: &str) -> Option<String> {
+    apply_edits(source, &PHYSICAL_HOOK_EDITS, PHYSICAL_DEBUG_EDIT)
 }

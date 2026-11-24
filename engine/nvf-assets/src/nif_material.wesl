@@ -77,12 +77,13 @@ import bevy_pbr::{
 @if(!PREPASS_PIPELINE) import bevy_pbr::{
     render::forward_io::{VertexOutput, FragmentOutput},
     render::pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
-    render::pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
+    render::pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT, STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT},
     render::pbr_lighting::{EnvBRDFApprox, F_AB},
     render::mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler, fog},
     render::mesh_view_types::FOG_MODE_ATMOSPHERIC,
     render::view_transformations::{position_ndc_to_world, depth_ndc_to_view_z},
 };
+@if(!PREPASS_PIPELINE && BLEND_MULTIPLY && DISTANCE_FOG) import bevy_pbr::render::pbr_functions::apply_fog;
 @if(!PREPASS_PIPELINE && DEPTH_PREPASS) import bevy_pbr::prepass::utils as prepass_utils;
 @if(!PREPASS_PIPELINE) import bevy_pbr::render::mesh_functions::get_world_from_local;
 @if(!PREPASS_PIPELINE) import nvf_assets::first_person_depth;
@@ -105,7 +106,6 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
 @if(NVF_PBR_VIEW_HEIGHT && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_DEPTH_MAP_BIT;
 @if(NVF_PBR_PARALLAX_MASK && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types as parallax_mask_types;
 @if(MESH_TERRAIN_BLEND) import nvf_assets::nif_surface_bindings::{mesh_terrain_lookup, mesh_terrain_view, mesh_terrain_shading, mesh_terrain_unlit_view, mesh_terrain_diagnostic, mesh_terrain_blend_normal, mesh_terrain_target_colour, mesh_terrain_target_normal, mesh_terrain_face_up, MeshTerrainInputs, LOOKUP_SUCCESS, LAND_ROUGHNESS, LAND_REFLECTANCE};
-@if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
 @if(!NIF_SURFACE_BLEND) import nvf_assets::nif_surface_bindings::{env_cube_texel, env_mask_texel, env_mask_alpha};
 // NVF_PBR_VIEW=reflection (nvf-assets authored.rs `PbrView::Reflection`): the view's cube,
 // read here only by this opted-in fragment (NVF_PBR_REFLECT) in a view that has one.
@@ -537,6 +537,7 @@ const BODY_CLEARANCE: f32 = 24.0;
     unshadowed.flags |= NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT;
     let lit = apply_pbr_lighting(unshadowed);
     let k = (v_lit + share - sun_shadow_value(sun, in, wanted, view_z)) / missing;
+    @if(!NVF_PHYSICAL_PBR)
     if lights.ambient_color.a < 0.0 {
         // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
         // texture × sum^2.2, so its display value (^(1/2.2)) is linear in the shadow
@@ -545,12 +546,177 @@ const BODY_CLEARANCE: f32 = 24.0;
         let shadowed_d = pow(max(shadowed.rgb, vec3(0.0)), vec3(1.0 / 2.2));
         return vec4(pow(max(lit_d - (lit_d - shadowed_d) * k, vec3(0.0)), vec3(2.2)), shadowed.a);
     }
-    return lit - (lit - shadowed) * k;
+    return vec4(max(lit.rgb - (lit.rgb - shadowed.rgb) * k, vec3(0.0)), shadowed.a);
 }
 
 @if(FIRST_PERSON_DEPTH) struct FirstPersonOutput {
     @location(0) color: vec4<f32>,
     @builtin(frag_depth) depth: f32,
+}
+
+// NVF_EYE (an eye shape under NVF_SSS, nif_material.rs `NifSurface::eye`): the iris lies
+// below a clear cornea (nif_spawn.rs gives the eye a clear coat for it), so it is seen
+// through the cornea's refraction, shifting against the white as the view moves, and it
+// ends in a dark limbal ring. The game's eye mesh maps its texture along the gaze: its
+// foremost vertex has UV (0.51, 0.46), and the iris of the eye textures is a disc of
+// radius about 0.19 round (0.50, 0.44) [observed: meshes\characters\head\eyelefthuman.nif
+// (49 vertices, facing +Y), textures\characters\eyes\eyeblue.dds and eyedarkbrown.dds,
+// 128 x 128]. A texture with its iris elsewhere is only shifted and ringed where these
+// say, at worst a faint ring on the white.
+const EYE_IRIS_CENTRE: vec2<f32> = vec2(0.50, 0.44);
+const EYE_IRIS_RADIUS: f32 = 0.19;
+// The iris's depth below the cornea at its centre, game units: about 2.5 mm, the human
+// anterior chamber [hypothesis; 14.3 mm per unit, skin_curvature.rs], going to 0 at its
+// edge as the cornea meets the white.
+const EYE_IRIS_DEPTH: f32 = 0.17;
+// Air to cornea (IOR 1.376 [hypothesis: the common textbook figure]).
+const EYE_CORNEA_ETA: f32 = 0.7267;
+// How much of the iris's colour the limbal ring takes at its darkest, and its half-width
+// in iris radii [engineering choice].
+const EYE_LIMBUS_DARKEN: f32 = 0.35;
+const EYE_LIMBUS_WIDTH: f32 = 0.12;
+// The eye's own frame: every human eye mesh looks along its +Y with +Z up, at the shape's
+// identity transform, and maps its texture straight along that gaze, v growing downward
+// and the corner by the nose at low u in both eyes (the right eye mirrors the left)
+// [observed: meshes\characters\head\eyelefthuman.nif, eyerighthuman.nif,
+// eyelefthumanfemale.nif, eyerighthumanfemale.nif: foremost vertex at UV (0.51, 0.46),
+// topmost at v 0.19, lowest at v 0.88]. An eye is a rigid shape under the head bone
+// (actor.rs), so its world-from-local turns these axes with the head.
+//
+// Sky reflection through the socket (eye_sky_share). Bevy's sky reflection has no
+// occlusion of its own, so the cornea's clear coat mirrored the whole open sky over the
+// eye and turned it milky grey (owner's screenshot, 2026-11-23). The brow, lids and nose
+// hide most of the sky from an eye; it sees out through the opening in front. A
+// reflection pointing out of that opening (forward, up to about 20° above the gaze) keeps
+// EYE_SKY_OPEN of the sky, which gives the eye its catchlight of the bright sky or a
+// window; one pointing up into the brow or off to the sides keeps EYE_SKY_CLOSED
+// [engineering choice]. Highlights of the sun and lamps are direct light and keep their
+// full strength.
+const EYE_SKY_OPEN: f32 = 0.8;
+const EYE_SKY_CLOSED: f32 = 0.08;
+// Lid and socket shading (eye_socket_occlusion): the upper lid overhangs the top of the
+// eye and the corners sit deep in the socket, which shadow maps are far too coarse to
+// show; the eye texture paints some of it in, the lighting none [engineering choice]. In
+// texture space: darkest at EYE_LID_V (the upper lid's line, the painted dark band's lower
+// edge in the textures above) and gone by EYE_LID_CLEAR_V; the corners from EYE_CORNER_U
+// to EYE_CORNER_DEEP_U away from the iris's centre line.
+const EYE_LID_V: f32 = 0.30;
+const EYE_LID_CLEAR_V: f32 = 0.50;
+const EYE_LID_DARKEN: f32 = 0.45;
+const EYE_CORNER_U: f32 = 0.20;
+const EYE_CORNER_DEEP_U: f32 = 0.36;
+const EYE_CORNER_DARKEN: f32 = 0.30;
+
+// The share of the sky the cornea at world normal `n` reflects toward the viewer `v`, for
+// the eye whose mesh is instance `ii`.
+@if(NVF_EYE && !PREPASS_PIPELINE) fn eye_sky_share(ii: u32, n: vec3<f32>, v: vec3<f32>) -> f32 {
+    let m = get_world_from_local(ii);
+    let gaze = normalize((m * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+    let up = normalize((m * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+    let r = reflect(-v, n);
+    let open = smoothstep(0.15, 0.6, dot(r, gaze)) * (1.0 - smoothstep(0.30, 0.65, dot(r, up)));
+    return mix(EYE_SKY_CLOSED, EYE_SKY_OPEN, open);
+}
+
+// How much light the lids and socket leave the eye at texture coordinates `uv`.
+@if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) fn eye_socket_occlusion(uv: vec2<f32>) -> f32 {
+    let lid = 1.0 - smoothstep(EYE_LID_V, EYE_LID_CLEAR_V, uv.y);
+    let corner = smoothstep(EYE_CORNER_U, EYE_CORNER_DEEP_U, abs(uv.x - EYE_IRIS_CENTRE.x));
+    return max(1.0 - EYE_LID_DARKEN * lid - EYE_CORNER_DARKEN * corner, 0.35);
+}
+
+// The texture-coordinate shift that shows the iris point seen through the cornea at `uv`:
+// the view ray refracted at the surface (normal `n`, toward the viewer `v`) and followed
+// down to the iris, carried into texture space by the gradients of u and v along the
+// surface (the cotangent frame of the position and coordinate derivatives, Schüler 2013,
+// "Followup: Normal Mapping Without Precomputed Tangents"). 0 outside the iris.
+@if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) fn eye_iris_shift(uv: vec2<f32>, dp_dx: vec3<f32>, dp_dy: vec3<f32>, duv_dx: vec2<f32>, duv_dy: vec2<f32>, n: vec3<f32>, v: vec3<f32>) -> vec2<f32> {
+    let r = distance(uv, EYE_IRIS_CENTRE) / EYE_IRIS_RADIUS;
+    let dp2perp = cross(dp_dy, n);
+    let dp1perp = cross(n, dp_dx);
+    let det = dot(dp_dx, dp2perp);
+    if r >= 1.0 || abs(det) < 1e-12 {
+        return vec2(0.0);
+    }
+    let grad_u = (dp2perp * duv_dx.x + dp1perp * duv_dy.x) / det;
+    let grad_v = (dp2perp * duv_dx.y + dp1perp * duv_dy.y) / det;
+    let t = refract(-v, n, EYE_CORNEA_ETA);
+    let down = max(-dot(t, n), 0.25);
+    let along = (t + n * down) * (EYE_IRIS_DEPTH * (1.0 - r * r) / down);
+    return vec2(dot(grad_u, along), dot(grad_v, along));
+}
+
+// The limbal ring's darkening at `uv`: 1 away from the iris's edge.
+// The strand direction of a hair-shader shape, in world space, root to tip, unit length
+// (0 where there is none). The hair textures paint their strands along curves that turn
+// across the texture, so no texture axis is the strand: over the 67 HAIR models the texture
+// V axis follows the painted strands no better than a line straight down the head, both
+// |cos| 0.74 on average against 0.64 for a random line [observed: structure tensor of the
+// diffuse luma against each NoHat shape's UVs, 2026-11-23]. It is read here from the strokes
+// themselves: the structure tensor of the colour's luma over 4 x 4 texels at the mip about
+// 128 texels across, the strands' broad flow rather than single strokes (at 256 the
+// direction turned from stroke to stroke and the glint broke into flecks, owner's frames
+// 2026-11-24); the strand runs along the least change. Where the strokes give no
+// direction (flat texels), the line down the head; the sign is always down the head, so
+// the highlights' shift (sss.wesl) goes towards the root [engineering choice].
+@if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) fn hair_strand(ii: u32, uv: vec2<f32>, dp_dx: vec3<f32>, dp_dy: vec3<f32>, duv_dx: vec2<f32>, duv_dy: vec2<f32>, n: vec3<f32>) -> vec3<f32> {
+    let size = vec2<f32>(base_color_size(ii));
+    let level = max(log2(max(size.x, size.y) / 128.0), 0.0);
+    let step = exp2(level) / max(size, vec2(1.0));
+    var l: array<f32, 16>;
+    for (var j = 0; j < 4; j++) {
+        for (var i = 0; i < 4; i++) {
+            let c = base_color_texel_level(ii, uv + (vec2(f32(i), f32(j)) - 1.5) * step, level);
+            l[j * 4 + i] = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+        }
+    }
+    var jxx = 0.0;
+    var jyy = 0.0;
+    var jxy = 0.0;
+    for (var j = 0; j < 3; j++) {
+        for (var i = 0; i < 3; i++) {
+            let a = l[j * 4 + i];
+            let b = l[j * 4 + i + 1];
+            let c = l[(j + 1) * 4 + i];
+            let d = l[(j + 1) * 4 + i + 1];
+            let gx = 0.5 * (b + d - a - c);
+            let gy = 0.5 * (c + d - a - b);
+            jxx += gx * gx;
+            jyy += gy * gy;
+            jxy += gx * gy;
+        }
+    }
+    let spread = sqrt((jxx - jyy) * (jxx - jyy) + 4.0 * jxy * jxy);
+    let coherence = select(0.0, spread / (jxx + jyy), jxx + jyy > 1e-7);
+    // The least change: the gradient's direction turned a quarter, in texels, then in uv.
+    let ang = 0.5 * atan2(2.0 * jxy, jxx - jyy) + 1.5707963;
+    let s_uv = vec2(cos(ang), sin(ang)) * step;
+    // The surface's change per unit u and v, from the view pixel's.
+    let det = duv_dx.x * duv_dy.y - duv_dx.y * duv_dy.x;
+    let dp_du = (dp_dx * duv_dy.y - dp_dy * duv_dx.y) / det;
+    let dp_dv = (dp_dy * duv_dx.x - dp_dx * duv_dy.x) / det;
+    var t = dp_du * s_uv.x + dp_dv * s_uv.y;
+    t -= n * dot(t, n);
+    // Down the head (Bevy's -Y), on the surface.
+    var down = vec3(0.0, -1.0, 0.0) - n * -n.y;
+    let down_len = length(down);
+    down = select(vec3(0.0), down / max(down_len, 1e-6), down_len > 0.05);
+    let t_len = length(t);
+    if abs(det) < 1e-12 || t_len < 1e-9 || !(t_len < 1e30) {
+        return down;
+    }
+    t = t / t_len;
+    t = select(t, -t, dot(t, down) < 0.0);
+    let w = smoothstep(0.15, 0.5, coherence);
+    let mixed = mix(down, t, w);
+    let m_len = length(mixed);
+    return select(t, mixed / m_len, m_len > 1e-4);
+}
+
+@if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) fn eye_limbus(uv: vec2<f32>) -> f32 {
+    let r = distance(uv, EYE_IRIS_CENTRE) / EYE_IRIS_RADIUS;
+    let x = (r - 1.0) / EYE_LIMBUS_WIDTH;
+    return 1.0 - EYE_LIMBUS_DARKEN * exp(-x * x);
 }
 
 // A first-person shape (nif_material.rs "First-person depth"): its colour, at its depth
@@ -589,6 +755,24 @@ fn nif_fragment(
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dy = vec2(terrain_wdy.x, -terrain_wdy.z);
     // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
     @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
+    // Pre-integrated skin curvature (NVF_SKIN_SSS). A skin mesh carries its own, per vertex,
+    // in mm^-1 (UV_1 x, nvf-assets skin_curvature.rs); one without falls back to a
+    // screen-space estimate, taken in uniform control flow before any discard
+    // (1 game unit ≈ 14.3 mm).
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && !VERTEX_UVS_B) let skin_n_len = length(in.world_normal);
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && !VERTEX_UVS_B) let skin_n_unit = select(vec3(0.0, 1.0, 0.0), in.world_normal / skin_n_len, skin_n_len > 1e-6);
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && !VERTEX_UVS_B) let skin_curv_raw = length(fwidth(skin_n_unit)) / max(length(fwidth(in.world_position.xyz)), 1e-4);
+    // An eye's iris shift (eye_iris_shift), its derivatives likewise before any discard.
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_n = normalize(in.world_normal);
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_v = normalize(view.world_position - in.world_position.xyz);
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_shift = eye_iris_shift(in.uv, dpdx(in.world_position.xyz), dpdy(in.world_position.xyz), dpdx(in.uv), dpdy(in.uv), select(-eye_n, eye_n, is_front), eye_v);
+    // A hair-shader shape's strand direction (hair_strand): its texture coordinates and
+    // their change, and the position's, across a view pixel, before any discard.
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_uv = (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy;
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_duv_dx = dpdx(hair_uv);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_duv_dy = dpdy(hair_uv);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_dp_dx = dpdx(in.world_position.xyz);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_dp_dy = dpdy(in.world_position.xyz);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     let surface = nif_surface(in.instance_index);
     // NifSurface::pipboy_screen: the picture's texture coordinates and their change across a
@@ -612,6 +796,7 @@ fn nif_fragment(
     // values", #2435). Made linear at the vertices, the blend kept a colour falling to
     // black bright almost to the black edge: a glow card's soft wash became a board.
     var vin = in;
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) vin.uv = in.uv + eye_shift;
     @if(VERTEX_COLORS) if surface.emissive_rule.z > 0.5 {
         vin.color = vec4(display_to_linear(in.color.rgb), in.color.a);
     }
@@ -623,6 +808,14 @@ fn nif_fragment(
     // (#2981). No surface is rougher than 1; Bevy raises the low end to 0.089 where the
     // highlight's shape needs it, and 0 here only keeps a signed map's negative out.
     pbr_input.material.perceptual_roughness = clamp(pbr_input.material.perceptual_roughness, 0.0, 1.0);
+    // Carry skin curvature (mm^-1) in unused `material.thickness` for opaque skin. The
+    // baked curvature is the mesh's own: SKIN_CURVATURE_SCALE makes up for the bends a
+    // 2010 head's few polygons flatten, SKIN_CURVATURE_MIN keeps the broad cheek and
+    // forehead soft, and 0.45 is the top of the scattering fit (sss.wesl).
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && VERTEX_UVS_B) let SKIN_CURVATURE_SCALE = 1.5;
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && VERTEX_UVS_B) let SKIN_CURVATURE_MIN = 0.10;
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && VERTEX_UVS_B) pbr_input.material.thickness = clamp(in.uv_b.x * SKIN_CURVATURE_SCALE, SKIN_CURVATURE_MIN, 0.45);
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && !VERTEX_UVS_B) pbr_input.material.thickness = clamp(0.15 + 0.02 * skin_curv_raw, 0.15, 0.18);
     // NVF_PBR_PARALLAX_MASK (nvf-assets authored.rs `parallax_mask`, a development switch, off
     // unless NVF_PBR_PARALLAX_MASK=1 at the start): an alpha-tested shape may carry a height
     // map. Its alpha (material x vertex x texel) is read again at the unshifted coordinates,
@@ -672,8 +865,9 @@ fn nif_fragment(
         // base_color is material colour × vertex colour × texel: the texel is read again
         // as pbr_input_from_standard_material reads it, and its tinted value takes its
         // place in that product.
+        // At vin.uv, the coordinates the base colour was read at (an eye's are shifted).
         let standard = standard_material(in.instance_index);
-        let uv = (standard.uv_transform * vec3(in.uv, 1.0)).xy;
+        let uv = (standard.uv_transform * vec3(vin.uv, 1.0)).xy;
         let texel = base_color_texel(in.instance_index, uv, view.mip_bias).rgb;
         var factor = standard.base_color.rgb;
         @if(FACEGEN_TINT && VERTEX_UVS_A && VERTEX_COLORS) factor *= vin.color.rgb;
@@ -800,6 +994,17 @@ fn nif_fragment(
         let reflect_weight = select(0.0, reflect_share * pbr_input.diffuse_occlusion.x, surface.emissive_rule.w > 0.5 && nvf_view_has_cube());
         pbr_input.specular_occlusion = pbr_input.specular_occlusion * reflect_weight;
     }
+    // An eye: the socket hides most of the sky from its cornea (eye_sky_share); the lids and
+    // socket shade it (eye_socket_occlusion), its light and its sky reflection alike; the
+    // iris ends in its limbal ring. Here, after the FaceGen tint, on the final colour.
+    @if(NVF_EYE && !PREPASS_PIPELINE) pbr_input.specular_occlusion = pbr_input.specular_occlusion * eye_sky_share(in.instance_index, normalize(in.world_normal), normalize(view.world_position - in.world_position.xyz));
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_socket = eye_socket_occlusion(in.uv);
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.specular_occlusion = pbr_input.specular_occlusion * eye_socket;
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb * eye_limbus(vin.uv) * eye_socket, pbr_input.material.base_color.a);
+    // A hair-shader shape: the strand tangent for the strand BSDF (nvforever sss.wesl
+    // NVF_HAIR), in anisotropy_T, which Bevy reads only under its anisotropy, not set here.
+    @if(NVF_HAIR && !PREPASS_PIPELINE) pbr_input.anisotropy_T = vec3(0.0);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.anisotropy_T = hair_strand(in.instance_index, hair_uv, hair_dp_dx, hair_dp_dy, hair_duv_dx, hair_duv_dy, pbr_input.N);
     // base_color already holds texture × vertex colour × material colour.
     // Bevy's pbr_input_from_standard_material fills the emissive light in only for lit
     // materials, so an unlit shape's stays black: it is read from the material here
@@ -838,33 +1043,37 @@ fn nif_fragment(
         out.color = apply_pbr_lighting(pbr_input);
         @if(!PREPASS_PIPELINE && SHADE_LIGHT) out.color = with_shade_light(pbr_input, out.color);
         // Bevy's ambient specular, with the same inputs as in apply_pbr_lighting and
-        // bevy_pbr::ambient::ambient_light (no lightmaps are used here).
-        let m = pbr_input.material;
-        let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
-        let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
-        let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
-        let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
-        var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
-        if lights.ambient_color.a < 0.0 {
-            // A world view (nvforever lights.rs DISPLAY_HELPERS): the highlight Bevy added
-            // took the ambient colour as linear light (`nvf_ambient_ratio`).
-            ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+        // bevy_pbr::ambient::ambient_light (no lightmaps are used here). Disabled under
+        // `NVF_PHYSICAL_PBR`, which keeps full physical specular IBL.
+        @if(!NVF_PHYSICAL_PBR) {
+            let m = pbr_input.material;
+            let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
+            let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+            let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
+            let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
+            var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
+            if lights.ambient_color.a < 0.0 {
+                // A world view (nvforever lights.rs DISPLAY_HELPERS): the highlight Bevy added
+                // took the ambient colour as linear light (`nvf_ambient_ratio`).
+                ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+            }
+            // Removed in full, also from a metal (metallic 1 with reflections on): the reflection
+            // cube's light, where the view has one, takes the highlight's place (#2981 reflections).
+            @if(!NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
+            // NVF_PBR_METALLIC (nvf-assets authored.rs `metallic_debug`, a debug switch, not set
+            // while reflections are on, which retire it): on a
+            // material shaded from an authored set (emissive_rule.w), only the dielectric share
+            // (1 - m) of the highlight is removed, m the sampled metallic after the terrain mix,
+            // so a metal keeps its ambient highlight; m = 0 removes it all, as above. Other
+            // materials remove it all.
+            @if(NVF_PBR_METALLIC) let removed = select(1.0, 1.0 - saturate(m.metallic), surface.emissive_rule.w > 0.5);
+            @if(NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec * removed, vec3(0.0)), out.color.a);
         }
-        // Removed in full, also from a metal (metallic 1 with reflections on): the reflection
-        // cube's light, where the view has one, takes the highlight's place (#2981 reflections).
-        @if(!NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
-        // NVF_PBR_METALLIC (nvf-assets authored.rs `metallic_debug`, a debug switch, not set
-        // while reflections are on, which retire it): on a
-        // material shaded from an authored set (emissive_rule.w), only the dielectric share
-        // (1 - m) of the highlight is removed, m the sampled metallic after the terrain mix,
-        // so a metal keeps its ambient highlight; m = 0 removes it all, as above. Other
-        // materials remove it all.
-        @if(NVF_PBR_METALLIC) let removed = select(1.0, 1.0 - saturate(m.metallic), surface.emissive_rule.w > 0.5);
-        @if(NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec * removed, vec3(0.0)), out.color.a);
         // The lit colour without the hot light, for the environment map's received-light
         // debug switch below.
         @if(!NIF_SURFACE_BLEND) let lit_rgb = out.color.rgb;
-        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY) out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
+        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY && !NVF_PHYSICAL_PBR) out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
+        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY && NVF_PHYSICAL_PBR) out.color = vec4(out.color.rgb + hot_e, out.color.a);
         // Environment map (nif_material.rs NifSurface::env, env_how; docs/spec-notes/nif.md
         // §6 "Window glass and environment maps", "Environment maps on other shapes"): the
         // cube read in the view direction reflected about the normal, × the scale × the
@@ -933,6 +1142,13 @@ fn nif_fragment(
                 let luma_weights = vec3(0.2126, 0.7152, 0.0722);
                 reflection *= saturate(dot(lit_rgb, luma_weights) / max(dot(pbr_input.material.base_color.rgb, luma_weights), 0.02));
             }
+            @if(NVF_PHYSICAL_PBR) if surface.env_how.z < 0.5 {
+                let luma_w = vec3(0.2126, 0.7152, 0.0722);
+                let recv = clamp(dot(lit_rgb, luma_w) / max(dot(pbr_input.material.base_color.rgb, luma_w), 0.04), 0.02, 1.0);
+                let ndotv = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+                let fresnel_w = select(0.35 + 0.65 * pow(1.0 - ndotv, 3.0), 0.08 + 0.92 * pow(1.0 - ndotv, 4.0), surface.env.y < 0.5);
+                reflection *= recv * fresnel_w;
+            }
             out.color = vec4(out.color.rgb + reflection, out.color.a);
         }
     } else {
@@ -963,10 +1179,20 @@ fn nif_fragment(
         }
     }
     @if(!PREPASS_PIPELINE) out.color = vec4(mix(out.color.rgb, surface.holes_edge.rgb, holes_band), out.color.a);
-    // The colour is a factor, not light: no fog and no tonemapping. Bevy's multiply blend
-    // is destination × colour + destination × (1 − alpha), so the colour is premultiplied
-    // as bevy_pbr::pbr_functions::premultiply_alpha does.
-    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) let factor = multiply_factor(out.color.rgb, multiply_emissive);
+    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
+        out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
+    }
+    // The colour is a factor, not light: no tonemapping, and attenuated toward 1 by fog
+    // transmittance so baked grime/AO decals recede behind fog instead of punching through.
+    // Bevy's multiply blend is destination × colour + destination × (1 − alpha).
+    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) var factor = multiply_factor(out.color.rgb, multiply_emissive);
+    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY && DISTANCE_FOG) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT) != 0u {
+        let fog_black = apply_fog(fog, vec4(0.0, 0.0, 0.0, 1.0), pbr_input.world_position.xyz, view.world_position.xyz, pbr_input.frag_coord.xy).rgb;
+        let fog_white = apply_fog(fog, vec4(1.0, 1.0, 1.0, 1.0), pbr_input.world_position.xyz, view.world_position.xyz, pbr_input.frag_coord.xy).rgb;
+        let transmittance = saturate(fog_white - fog_black);
+        factor = mix(vec3(1.0), factor, transmittance);
+    }
     @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) out.color = vec4(factor * out.color.a, out.color.a);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && BLEND_PREMULTIPLIED_ALPHA) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
         // Additive: fog (and, in views without HDR, the tonemapping) on the colour at
@@ -996,10 +1222,6 @@ fn nif_fragment(
     // tone maps here when the view has no HDR (the Glow setting off).
     @if(PIPBOY_SCREEN) out.color.r = min(out.color.r, 0.67);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !BLEND_PREMULTIPLIED_ALPHA) out.color = main_pass_post_lighting_processing(pbr_input, out.color);
-    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
-        out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
-    }
     // NifSurface::pipboy_screen: the mark that keeps these pixels out of the image-space grade
     // (imagespace.wesl SCREEN_MARK).
     @if(PIPBOY_SCREEN) out.color.a = 0.25;

@@ -1188,7 +1188,7 @@ fn register_graphics(app: &mut App) {
         Setting { key: AO_KEY, group: GROUP_GRAPHICS, label: "Ambient occlusion", note: AO_NOTE, switches: "--graphics, --ambient-occlusion", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| AO_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: ao_chosen, pick: take_ao, save: ao_chosen, load: take_ao, ask_keep: false },
     );
-    let switches: [Switch; 24] = [
+    let switches: [Switch; 28] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1212,6 +1212,14 @@ fn register_graphics(app: &mut App) {
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().terrain_shadows,
             |w, on| w.resource_mut::<Graphics>().terrain_shadows = on,
+        ),
+        (
+            crate::graphics::GRASS_SHADOWS_KEY,
+            "Grass shadows",
+            GRASS_SHADOWS_NOTE,
+            GRASS_SHADOWS_SWITCHES,
+            |w| w.resource::<Graphics>().grass_shadows,
+            |w, on| w.resource_mut::<Graphics>().grass_shadows = on,
         ),
         (
             "bloom",
@@ -1244,6 +1252,30 @@ fn register_graphics(app: &mut App) {
             "--graphics-only",
             |w| w.resource::<Graphics>().neon_glow,
             |w, on| w.resource_mut::<Graphics>().neon_glow = on,
+        ),
+        (
+            crate::graphics::PHYSICAL_PBR_KEY,
+            "Physical PBR lighting",
+            PHYSICAL_PBR_NOTE,
+            PHYSICAL_PBR_SWITCHES,
+            |w| w.resource::<Graphics>().physical_pbr,
+            |w, on| w.resource_mut::<Graphics>().physical_pbr = on,
+        ),
+        (
+            crate::graphics::SUBSURFACE_SCATTERING_KEY,
+            "Subsurface scattering",
+            SUBSURFACE_SCATTERING_NOTE,
+            SUBSURFACE_SCATTERING_SWITCHES,
+            |w| w.resource::<Graphics>().subsurface_scattering,
+            |w, on| w.resource_mut::<Graphics>().subsurface_scattering = on,
+        ),
+        (
+            crate::graphics::SSGI_KEY,
+            "Screen-space global illumination",
+            SSGI_NOTE,
+            SSGI_SWITCHES,
+            |w| w.resource::<Graphics>().ssgi,
+            |w, on| w.resource_mut::<Graphics>().ssgi = on,
         ),
         (
             "sharpen",
@@ -1441,6 +1473,49 @@ pub(crate) fn authored_after_ini(command_line: bool, given: Option<&nvf_play::se
     nvf_play::settings::switch_after_ini(command_line, stored, given, AUTHORED_MATERIALS_SWITCHES)
 }
 
+pub(crate) const PHYSICAL_PBR_NOTE: &str = "On: linear Oren-Nayar diffuse, Cook-Torrance specular, sky IBL and Beer-Lambert fog instead of the original's display lighting. Takes effect at the next start.";
+pub(crate) const PHYSICAL_PBR_SWITCHES: &str = "--graphics-only";
+pub(crate) const SUBSURFACE_SCATTERING_NOTE: &str = "On: pre-integrated skin shading with warm backlit translucency on characters and two-sided light transmission on foliage. Takes effect at the next start.";
+pub(crate) const SUBSURFACE_SCATTERING_SWITCHES: &str = "--graphics-only";
+pub(crate) const SSGI_NOTE: &str = "On: sunlit surfaces, neon signs and lamps bounce one hop of indirect colour and light onto nearby walls, ceilings and ground on the screen. Off in both presets. Not in the original.";
+pub(crate) const SSGI_SWITCHES: &str = "--graphics-only";
+pub(crate) const GRASS_SHADOWS_NOTE: &str = "On: nearby grass and small tufts cast soft sun shadows across the ground, lengthening at dawn and dusk. Costs some frame rate. Needs sun shadows. Not in the original.";
+pub(crate) const GRASS_SHADOWS_SWITCHES: &str = "--graphics-only";
+
+fn env_or_ini_switch(
+    env_val: Option<&str>,
+    command_line: bool,
+    stored: Option<bool>,
+    given: Option<&nvf_play::settings::GivenSwitches>,
+    switches: &str,
+) -> bool {
+    if let Some(v) = env_val {
+        return v.trim() == "1";
+    }
+    match given {
+        Some(given) => nvf_play::settings::switch_after_ini(command_line, stored, given, switches),
+        None => command_line,
+    }
+}
+
+/// Resolve `physical-pbr` at startup: `NVF_PHYSICAL_PBR` env var overrides, otherwise INI/CLI precedence.
+pub(crate) fn physical_pbr_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    let env_val = std::env::var(nvf_assets::authored::PHYSICAL_PBR_ENV).ok();
+    let stored = given
+        .and_then(|_| stored_at_start(crate::graphics::PHYSICAL_PBR_KEY))
+        .and_then(|v| nvf_play::settings::parse_switch(&v));
+    env_or_ini_switch(env_val.as_deref(), command_line, stored, given, PHYSICAL_PBR_SWITCHES)
+}
+
+/// Resolve `subsurface-scattering` at startup: `NVF_SSS` env var overrides, otherwise INI/CLI precedence.
+pub(crate) fn sss_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    let env_val = std::env::var(nvf_assets::authored::SSS_ENV).ok();
+    let stored = given
+        .and_then(|_| stored_at_start(crate::graphics::SUBSURFACE_SCATTERING_KEY))
+        .and_then(|v| nvf_play::settings::parse_switch(&v));
+    env_or_ini_switch(env_val.as_deref(), command_line, stored, given, SUBSURFACE_SCATTERING_SWITCHES)
+}
+
 /// The Reflections on authored materials row's note (#2981 reflections): it needs a pack and
 /// Authored materials, and takes effect at the next start (main.rs).
 pub(crate) const AUTHORED_REFLECTIONS_NOTE: &str = "On: pack materials reflect the sky outdoors and an approximation of the room and nearby lights indoors. Needs a material pack and Authored materials on. Takes effect at the next start.";
@@ -1504,6 +1579,8 @@ fn register_pipeline_waits(app: &mut App) {
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-effects", "water-mirror", "sun-shadows", "grade",
         "terrain-height-blend", "terrain-anti-tiling", "terrain-parallax", "cloud-shadows", "terrain-shadows", "heat-haze", MESH_BLEND_KEY, "distant-lights",
+        crate::graphics::SSGI_KEY,
+        crate::graphics::GRASS_SHADOWS_KEY,
         // ALC shadows' first point and spot light shadow views specialize their passes.
         "light-shadows",
     ] {
@@ -3003,10 +3080,14 @@ dlss-model=Preset K
             ("fine-shadows", &["--shadow-distance", "--graphics"]),
             ("cloud-shadows", &["--graphics", "--graphics-only"]),
             ("terrain-shadows", &["--graphics", "--graphics-only"]),
+            (crate::graphics::GRASS_SHADOWS_KEY, &["--graphics-only"]),
             ("bloom", &["--graphics"]),
             ("glow", &["--graphics-only"]),
             ("eye-adaptation", &["--graphics-only"]),
             ("neon-glow", &["--graphics-only"]),
+            (crate::graphics::PHYSICAL_PBR_KEY, &["--graphics-only"]),
+            (crate::graphics::SUBSURFACE_SCATTERING_KEY, &["--graphics-only"]),
+            (crate::graphics::SSGI_KEY, &["--graphics-only"]),
             ("sharpen", &["--graphics"]),
             ("anisotropic", &["--graphics"]),
             (crate::graphics::AUTHORED_MATERIALS_KEY, &["--graphics-only"]),
@@ -3106,6 +3187,68 @@ dlss-model=Preset K
         assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(false));
         assert!(!app.world().resource::<Graphics>().authored_reflections);
         assert!(app.world().resource::<Graphics>().authored_materials, "the materials row is its own");
+    }
+
+    #[test]
+    fn physical_pbr_and_sss_rows_persist_in_ini_and_respect_env_precedence() {
+        let mut app = rows_app();
+        for (key, label, note) in [
+            (crate::graphics::PHYSICAL_PBR_KEY, "Physical PBR lighting", PHYSICAL_PBR_NOTE),
+            (crate::graphics::SUBSURFACE_SCATTERING_KEY, "Subsurface scattering", SUBSURFACE_SCATTERING_NOTE),
+            (crate::graphics::SSGI_KEY, "Screen-space global illumination", SSGI_NOTE),
+            (crate::graphics::GRASS_SHADOWS_KEY, "Grass shadows", GRASS_SHADOWS_NOTE),
+        ] {
+            let i = row(&app, key);
+            let s = app.world().resource::<Settings>().list()[i];
+            assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, label, note, "--graphics-only"));
+            assert_eq!(nvf_play::settings::note_over_budget(s.note), None);
+            assert!(!(s.get)(app.world()), "{key} defaults off");
+            assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(true));
+        }
+        assert!(app.world().resource::<Graphics>().physical_pbr);
+        assert!(app.world().resource::<Graphics>().subsurface_scattering);
+        assert!(app.world().resource::<Graphics>().ssgi);
+        assert!(app.world().resource::<Graphics>().grass_shadows);
+
+        let dir = std::env::temp_dir().join(format!("nvf-physical-pbr-sss-rows-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        let mut loaded = ini_app(
+            &path,
+            "[Settings]\nphysical-pbr=1\nsubsurface-scattering=1\nssgi=1\ngrass-shadows=1\n",
+            UpscalerChoice::Off,
+            GivenSwitches::default(),
+        );
+        assert!(loaded.world().resource::<Graphics>().physical_pbr);
+        assert!(loaded.world().resource::<Graphics>().subsurface_scattering);
+        assert!(loaded.world().resource::<Graphics>().ssgi);
+        assert!(loaded.world().resource::<Graphics>().grass_shadows);
+        for key in [
+            crate::graphics::PHYSICAL_PBR_KEY,
+            crate::graphics::SUBSURFACE_SCATTERING_KEY,
+            crate::graphics::SSGI_KEY,
+            crate::graphics::GRASS_SHADOWS_KEY,
+        ] {
+            let i = row(&loaded, key);
+            nvf_play::settings::flip(loaded.world_mut(), i);
+        }
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, crate::graphics::PHYSICAL_PBR_KEY), Some("0".to_string()));
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, crate::graphics::SUBSURFACE_SCATTERING_KEY), Some("0".to_string()));
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, crate::graphics::SSGI_KEY), Some("0".to_string()));
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, crate::graphics::GRASS_SHADOWS_KEY), Some("0".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Precedence: env var > CLI (when win/given) > INI > default.
+        let play_default = GivenSwitches::default();
+        let test_cli = GivenSwitches { given: ["--graphics-only".into()].into(), win: true };
+        assert!(env_or_ini_switch(Some("1"), false, Some(false), Some(&play_default), "--graphics-only"));
+        assert!(!env_or_ini_switch(Some("0"), true, Some(true), Some(&test_cli), "--graphics-only"));
+        assert!(env_or_ini_switch(None, true, Some(false), Some(&test_cli), "--graphics-only"));
+        assert!(env_or_ini_switch(None, false, Some(true), Some(&play_default), "--graphics-only"));
+        assert!(!env_or_ini_switch(None, false, None, Some(&play_default), "--graphics-only"));
+        assert!(env_or_ini_switch(None, true, Some(false), None, "--graphics-only"));
     }
 
     /// A settings page with the INI at `path` holding `text`, `apply_stored` run once.

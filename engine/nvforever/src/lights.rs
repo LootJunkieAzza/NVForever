@@ -19,23 +19,17 @@ use crate::world::WorldData;
 /// The embedded asset path under which bevy_pbr registers `bevy_pbr::lighting`.
 const PBR_LIGHTING: &str = "embedded://bevy_pbr/render/pbr_lighting.wesl";
 
-/// Bevy's attenuation: windowed inverse square [observed: bevy_pbr 0.20.1].
-const BEVY_ATTENUATION: &str = "return getRangeFalloff(distanceSquare, inverseRangeSquared) * 1.0 / max(distanceSquare, 0.0001);";
-
-/// The game's attenuation: 1 − (d / radius)², clamped [hypothesis: shape to calibrate
-/// against in-game captures; the LIGH falloff exponent, 1 for most lights, is not used].
-const GAME_ATTENUATION: &str = "return saturate(1.0 - distanceSquare * inverseRangeSquared);";
-
 /// The embedded asset path under which bevy_pbr registers `bevy_pbr::pbr_functions`.
 const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wesl";
 
 mod display_shader;
-pub(crate) use self::display_shader::display_patched;
 #[cfg(test)]
 pub(crate) use self::display_shader::{
-    spot_display_scale, spot_specular_scale, FIRST_PERSON_FLASHLIGHT_DIFFUSE,
-    FIRST_PERSON_FLASHLIGHT_SPECULAR,
+    lighting_patched, spot_display_scale, spot_specular_scale, BEVY_ATTENUATION,
+    FIRST_PERSON_FLASHLIGHT_DIFFUSE, FIRST_PERSON_FLASHLIGHT_SPECULAR, FRESNEL_EDIT,
+    GAME_ATTENUATION, PHYSICAL_ATTENUATION, SPECULAR_EDITS,
 };
+pub(crate) use self::display_shader::{display_patched, physical_patched};
 pub use self::display_shader::unix_lines;
 pub(crate) mod reflection_gate;
 
@@ -83,6 +77,14 @@ pub fn display_clip() -> bool {
     CLIP_INSTALLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Whether the main world view uses Bevy's `Tonemapping::AgX` + Punchy look
+/// (`NVF_PHYSICAL_PBR=1`, unless overridden with `NVF_TONEMAP=clip` or `tony`).
+pub fn physical_agx() -> bool {
+    nvf_assets::authored::physical_pbr()
+        && !std::env::var("NVF_TONEMAP")
+            .is_ok_and(|v| v.eq_ignore_ascii_case("clip") || v.eq_ignore_ascii_case("tony"))
+}
+
 pub struct LightsPlugin;
 
 impl Plugin for LightsPlugin {
@@ -114,6 +116,10 @@ fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shade
     state.patched = true;
     if std::env::var("NVF_TONEMAP").is_ok_and(|v| v.eq_ignore_ascii_case("tony")) {
         info!("lights: NVF_TONEMAP=tony, the main view keeps Tony McMapface");
+        return;
+    }
+    if physical_agx() {
+        info!("lights: NVF_PHYSICAL_PBR=1, the main view uses AgX");
         return;
     }
     let bevy::shader::Source::Wesl(source) = &shader.source else {
@@ -148,17 +154,22 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     }
     let Some(shader) = shaders.get(&state.handle) else { return };
     state.patched = true;
+    let physical = nvf_assets::authored::physical_pbr();
     let bevy::shader::Source::Wesl(source) = &shader.source else {
         error!("{PBR_FUNCTIONS}: not WESL; surfaces keep Bevy's linear lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
-        reflection_gate_failed();
+        if !physical {
+            reflection_gate_failed();
+        }
         return;
     };
     let source = unix_lines(source);
-    let Some(patched) = display_patched(&source) else {
+    let Some(patched) = (if physical { physical_patched(&source) } else { display_patched(&source) }) else {
         error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
-        reflection_gate_failed();
+        if !physical {
+            reflection_gate_failed();
+        }
         return;
     };
     // The sun visibility's hook goes into the same function, after these edits; it acts
@@ -172,7 +183,11 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     };
     // The ambient occlusion's hook goes in after the sun's; it too acts only under its
     // shader def (ssao_lighting.rs).
-    let (patched, ao_hooked) = match crate::ssao_lighting::hook_patched(&patched) {
+    let (patched, ao_hooked) = match if physical {
+        crate::ssao_lighting::physical_hook_patched(&patched)
+    } else {
+        crate::ssao_lighting::hook_patched(&patched)
+    } {
         Some(hooked) => (hooked, true),
         None => {
             error!("{PBR_FUNCTIONS}: the ambient occlusion hook's anchors not found (Bevy changed?); the occlusion stays on the picture");
@@ -180,12 +195,31 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
             (patched, false)
         }
     };
+    let patched = if nvf_assets::authored::sss_enabled() {
+        match crate::sss::hook_patched(&patched, physical) {
+            Some(hooked) => {
+                info!("lights: subsurface scattering hook installed (NVF_SSS=1)");
+                hooked
+            }
+            None => {
+                error!("{PBR_FUNCTIONS}: subsurface scattering hook's anchors not found (Bevy changed?); SSS disabled");
+                patched
+            }
+        }
+    } else {
+        patched
+    };
     // The reflection gate last (lights/reflection_gate.rs): the view's environment map light
     // reaches only fragments that opt in. Made whether or not reflections are on in this run;
-    // without the opt-in def its text compiles to what Bevy's did without a cube.
-    let (patched, gated) = match reflection_gate::gate_patched(&patched) {
-        Some(gated) => (gated, true),
-        None => (patched, false),
+    // without the opt-in def its text compiles to what Bevy's did without a cube. Under
+    // physical PBR (`NVF_PHYSICAL_PBR=1`), PhysicalIblPlugin provides full-scene IBL directly.
+    let (patched, gated) = if physical {
+        (patched, false)
+    } else {
+        match reflection_gate::gate_patched(&patched) {
+            Some(gated) => (gated, true),
+            None => (patched, false),
+        }
     };
     let patched = crate::fog::with_source(shader, patched);
     // Nothing is published as installed unless the patched shader is in place: a gate
@@ -193,19 +227,27 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     if let Err(e) = shaders.insert(&state.handle, patched) {
         error!("{PBR_FUNCTIONS}: the patched shader could not be stored ({e:?}); surfaces keep Bevy's lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
-        reflection_gate_failed();
+        if !physical {
+            reflection_gate_failed();
+        }
         return;
     }
-    info!("lights: display-value lighting sum installed");
+    if physical {
+        info!("lights: physical PBR linear lighting installed");
+    } else {
+        info!("lights: display-value lighting sum installed");
+    }
     if ao_hooked {
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Installed);
         info!("lights: ambient occlusion hook installed");
     }
-    if gated {
-        nvf_assets::reflection_cube::set_gate_state(nvf_assets::reflection_cube::GateState::Installed);
-        info!("lights: reflection gate installed (the environment map light reaches opted-in fragments only)");
-    } else {
-        reflection_gate_failed();
+    if !physical {
+        if gated {
+            nvf_assets::reflection_cube::set_gate_state(nvf_assets::reflection_cube::GateState::Installed);
+            info!("lights: reflection gate installed (the environment map light reaches opted-in fragments only)");
+        } else {
+            reflection_gate_failed();
+        }
     }
 }
 
@@ -507,79 +549,19 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
         return;
     };
     let source = unix_lines(source);
-    if !source.contains(BEVY_ATTENUATION) {
-        warn!("{PBR_LIGHTING}: distance attenuation not found (Bevy changed?); lights keep Bevy's inverse-square falloff");
+    let physical = nvf_assets::authored::physical_pbr();
+    let Some(patched) = display_shader::lighting_patched(&source, physical) else {
+        error!("{PBR_LIGHTING}: expected anchors not found (Bevy changed?); lights keep Bevy's defaults");
         return;
-    }
-    let mut patched = source.replace(BEVY_ATTENUATION, GAME_ATTENUATION);
-    if SPECULAR_EDITS.iter().all(|(from, _)| patched.matches(from).count() == 1) {
-        for (from, to) in SPECULAR_EDITS {
-            patched = patched.replace(from, to);
-        }
-    } else {
-        error!("{PBR_LIGHTING}: light colour lines not found (Bevy changed?); highlights take display colours as light");
-    }
-    if patched.matches(FRESNEL_EDIT.0).count() == 1 {
-        patched = patched.replace(FRESNEL_EDIT.0, FRESNEL_EDIT.1);
-        info!("lights: the highlight's Fresnel factor stays at F0 in world views");
-    } else {
-        error!("{PBR_LIGHTING}: the highlight's Fresnel line not found once (Bevy changed?); highlights keep Bevy's Fresnel rise");
-    }
+    };
     let patched = crate::fog::with_source(shader, patched);
     let _ = shaders.insert(&state.handle, patched);
-    info!("lights: game attenuation installed");
-}
-
-/// Bevy's point and directional lights apply their colour to what is left of their light
-/// in a world view, the specular highlight (`display_shader`: the diffuse part is
-/// summed apart). There the colour holds display values: the highlight takes its linear
-/// light, the display value raised to the display gamma, as before the display-value sum
-/// [observed: bevy_pbr 0.20.1 `pbr_lighting.wesl`; the helper goes in front of
-/// `getDistanceAttenuation`]. Without it, lamps put white sparkles on the floors of
-/// Jacobstown's lodge that the original does not show.
-/// The Fresnel factor of the direct lights' isotropic highlight in a world view stays at
-/// F0, in place of Bevy's Schlick Fresnel, which raises it towards f90 (for a grey F0,
-/// saturate(49.5 × F0)), up to about 50 times, as the view grazes the surface
-/// (bevy_pbr 0.20.1 `pbr_lighting.wesl` `fresnel`). The rest of the highlight (the GGX
-/// distribution, visibility and the multiscatter compensation) still varies with the
-/// angle. This covers the sun's highlight as well as the point and spot lights'. With that rise, a fire barrel in
-/// Primm drew a long orange streak on the shaded sidewalk where the original shows none
-/// [observed: #2266, a tester's run 2026-11-12, and both games at the same spots
-/// 2026-11-13; docs/spec-notes/world.md §8 "Highlights at grazing angles"]. The
-/// original's lighting is believed to have no Fresnel term on ordinary surfaces
-/// [hypothesis, nif.md "Specular"]. Only the direct lights' isotropic highlight
-/// (`specular`) changes: clearcoat, anisotropy, transmission and the environment keep
-/// Bevy's terms (no world material uses them), and views without the world mark (the
-/// minigame views) keep Bevy's Fresnel.
-const FRESNEL_EDIT: (&str, &str) = (
-    "    let F = fresnel(F0, LdotH);",
-    "    // NVForever (nvforever lights.rs FRESNEL_EDIT): F = F0 in a world view.
-    let F = select(fresnel(F0, LdotH), F0, view_bindings::lights.ambient_color.a < 0.0);",
-);
-
-const SPECULAR_EDITS: [(&str, &str); 3] = [
-    (
-        "fn getDistanceAttenuation(",
-        "// NVForever (nvforever lights.rs SPECULAR_EDITS): a light's colour uniform as linear light;
-// in a world view it holds display values (scaled by pi and the light unit).
-fn nvf_light_colour(c: vec3<f32>) -> vec3<f32> {
-    if view_bindings::lights.ambient_color.a >= 0.0 {
-        return c;
+    if physical {
+        info!("lights: physical PBR installed (EON diffuse, Cook-Torrance GGX, 0.045 roughness floor, inverse-square attenuation)");
+    } else {
+        info!("lights: game attenuation and display-value Fresnel installed");
     }
-    let k = view_bindings::view.exposure / PI;
-    return pow(max(c * k, vec3(0.0)), vec3(2.2)) / k;
 }
-
-fn getDistanceAttenuation(",
-    ),
-    (
-        "    return color_times_NdotL * (*light).color_inverse_square_range.rgb *
-        rangeAttenuation * texture_sample;",
-        "    return color_times_NdotL * nvf_light_colour((*light).color_inverse_square_range.rgb) *
-        rangeAttenuation * texture_sample;",
-    ),
-    ("color *= (*light).color.rgb * texture_sample;", "color *= nvf_light_colour((*light).color.rgb) * texture_sample;"),
-];
 
 /// Bevy lumens for a light that adds `brightness` × colour × attenuation × N·L on screen:
 /// Bevy divides lumens by 4π (candela) and Lambert diffuse by π; the camera exposure is
@@ -774,6 +756,77 @@ mod tests {
         assert!(display_patched(&source.replace("    // Total light\n", "")).is_none());
         // Windows line ends (a checkout with core.autocrlf, issue #946) still patch.
         assert!(display_patched(&unix_lines(&source.replace('\n', "\r\n"))).is_some());
+    }
+
+    #[test]
+    fn physical_pbr_patches_vendored_shaders_and_preserves_sun_hooks() {
+        let lighting_src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/pbr_lighting.wesl")).expect("vendored pbr_lighting.wesl");
+        let physical_lighting = lighting_patched(&lighting_src, true).expect("physical lighting_patched succeeds");
+        assert!(physical_lighting.contains("fn Fd_OrenNayar("));
+        assert!(physical_lighting.contains("fn nvf_dielectric_E("));
+        assert!(physical_lighting.contains(PHYSICAL_ATTENUATION), "physical inverse-square attenuation installed");
+        assert!(physical_lighting.contains("clamp(perceptualRoughness, 0.045, 1.0)"), "desktop 0.045 roughness floor installed");
+        assert_eq!(physical_lighting.matches("Fd_OrenNayar(input, &derived_input, diffuse_color)").count(), 2, "point_light and directional_light call EON Fd_OrenNayar");
+        assert!(!physical_lighting.contains("Fd_Burley(input, &derived_input)"), "no Fd_Burley calls remain");
+        assert!(physical_lighting.contains("    let F = fresnel(F0, LdotH);"), "Cook-Torrance keeps full Schlick Fresnel");
+        assert!(!physical_lighting.contains("select(fresnel(F0, LdotH), F0"), "display Fresnel clamp is absent");
+        assert!(physical_lighting.contains("fn nvf_light_colour("), "display-space light uniforms remain linearized");
+
+        let display_lighting = lighting_patched(&lighting_src, false).expect("display lighting_patched succeeds");
+        assert!(!display_lighting.contains("fn Fd_OrenNayar("));
+        assert!(display_lighting.contains(GAME_ATTENUATION));
+        assert!(display_lighting.contains("clamp(perceptualRoughness, 0.089, 1.0)"));
+        assert!(display_lighting.contains("let F = select(fresnel(F0, LdotH), F0,"));
+        assert_eq!(display_lighting.matches("Fd_Burley(input, &derived_input)").count(), 2);
+
+        let functions_src = unix_lines(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/pbr_functions.wesl")).expect("vendored pbr_functions.wesl"));
+        let physical_functions = physical_patched(&functions_src).expect("physical_patched succeeds");
+        assert!(physical_functions.contains("fn nvf_apply_pbr_lighting("));
+        assert!(physical_functions.contains("fn nvf_specular_ao("));
+        assert!(physical_functions.contains("// nvf_physical_ibl_diff_ao"));
+        assert!(physical_functions.contains("let nvf_ambient_lin = "));
+        assert!(!physical_functions.contains("nvf_point_display"));
+        let sun_patched = crate::sun_visibility::hook_patched(&physical_functions).expect("sun_visibility hook applies after physical_patched");
+        assert!(crate::ssao_lighting::physical_hook_patched(&sun_patched).is_some(), "physical AO hook applies after sun hook");
+    }
+
+    /// CPU white-furnace check for EON (`Fd_OrenNayar` without dielectric coupling):
+    /// integrating $\rho \, f_{\text{EON}}(\omega_i, \omega_o) \cos\theta_i$ with $\rho = 1$
+    /// over the upper hemisphere must equal 1.0 within `0.002` across all roughnesses.
+    #[test]
+    fn eon_diffuse_passes_white_furnace_conservation() {
+        let c1 = 0.5f32 - 2.0 / (3.0 * PI);
+        let c2 = 2.0f32 / 3.0 - 28.0 / (15.0 * PI);
+        let g = |mu: f32| -> f32 {
+            let x = 1.0 - mu.clamp(0.0, 1.0);
+            x * (0.057_108_53 + x * (0.491_881_87 + x * (-0.332_181_44 + x * 0.071_442_99)))
+        };
+        let (n_mu, n_phi) = (120usize, 120usize);
+        let (dmu, dphi) = (1.0 / n_mu as f32, PI / n_phi as f32);
+        for pr in [0.0f32, 0.25, 0.5, 0.75, 1.0] {
+            let af = 1.0 / (1.0 + c1 * pr);
+            let e_avg = af * (1.0 + pr * c2);
+            let rho_ms = e_avg / (1.0 - (1.0 - e_avg)).max(1e-6);
+            for mu_o in [0.1f32, 0.5, 0.9] {
+                let e_o = af * (1.0 + pr * g(mu_o));
+                let sin_o = (1.0 - mu_o * mu_o).max(0.0).sqrt();
+                let mut total = 0.0f32;
+                for i in 0..n_mu {
+                    let mu_i = (i as f32 + 0.5) * dmu;
+                    let sin_i = (1.0 - mu_i * mu_i).max(0.0).sqrt();
+                    let e_i = af * (1.0 + pr * g(mu_i));
+                    let f_ms = if pr > 1e-5 { (rho_ms / PI) * (1.0 - e_i) * (1.0 - e_o) / (1.0 - e_avg).max(1e-5) } else { 0.0 };
+                    for j in 0..n_phi {
+                        let phi = (j as f32 + 0.5) * dphi;
+                        let s = sin_i * sin_o * phi.cos();
+                        let t = if s > 0.0 { 1.0 / mu_i.max(mu_o) } else { 1.0 };
+                        let f_ss = (af * (1.0 + pr * s * t)) / PI;
+                        total += (f_ss + f_ms) * mu_i * dmu * dphi * 2.0;
+                    }
+                }
+                assert!((total - 1.0).abs() < 0.002, "EON white furnace failed at pr={pr}, mu_o={mu_o}: got {total}");
+            }
+        }
     }
 
     #[test]

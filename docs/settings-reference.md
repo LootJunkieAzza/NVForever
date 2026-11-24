@@ -1050,6 +1050,20 @@ below cover them all.
   shadows off too.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
+
+### `grass-shadows`: Grass shadows
+
+- On the page: On: nearby grass and small tufts cast soft sun shadows across the ground,
+  lengthening at dawn and dusk. Costs some frame rate. Needs sun shadows. Not in the
+  original.
+- In full: Enables sun shadow casting on grass chunks within the near shadow cascade
+  (~1,500 game units) with a core-thickened shadow prepass so clumps cast cohesive, smooth
+  shadows that sway with the wind and lengthen at dawn and dusk while outer tips stay
+  wispy. Off in both presets; takes effect immediately when toggled. Needs sun shadows.
+  Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `light-shadows`: ALC shadows
 
 - On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the
@@ -1203,6 +1217,49 @@ below cover them all.
   neon tubes and signs burn with a wide halo, as in the original. Needs the light glow.
 - Command-line switches: `--graphics-only`
 - More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `physical-pbr`: Physical PBR lighting
+
+- On the page: On: linear Oren-Nayar diffuse, Cook-Torrance specular, sky IBL and
+  Beer-Lambert fog instead of the original's display lighting. Takes effect at the next
+  start.
+- In full: Replaces the display-value lighting bypass with linear OpenPBR Energy-Conserving
+  Oren-Nayar diffuse, full Cook-Torrance GGX specular with reciprocal dielectric coupling,
+  procedural sky/ground/interior cubemap IBL, windowed inverse-square lamp falloff, linear
+  Beer-Lambert fog, and Tony McMapface tonemapping. Off in both presets; can also be
+  overridden per run via `NVF_PHYSICAL_PBR=1` / `0`. Read once at the start, so a change
+  applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `subsurface-scattering`: Subsurface scattering
+
+- On the page: On: pre-integrated skin shading with warm backlit translucency on characters
+  and two-sided light transmission on foliage. Takes effect at the next start.
+- In full: Enables Penner pre-integrated skin diffusion, dual-lobe sebum specular, and
+  shadow-map backlit transmittance on actor skin and FaceGen heads, plus energy-conserving
+  two-sided backlit translucency on grass, tree foliage, and plant meshes. With Physical
+  PBR on and no multisampling, skin's diffuse light from every source (sun, lamps, sky,
+  ambient) is instead blurred across the skin after the opaque pass by the skin diffusion
+  profile (screen-space scattering, `engine/nvforever/src/sss/screen.rs`; `NVF_SSSS=0`
+  keeps the pre-integrated shading). Off in both
+  presets; can also be overridden per run via `NVF_SSS=1` / `0`. Read once at the start,
+  so a change applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `ssgi`: Screen-space global illumination
+
+- On the page: On: sunlit surfaces, neon signs and lamps bounce one hop of indirect colour
+  and light onto nearby walls, ceilings and ground on the screen. Off in both presets. Not
+  in the original.
+- In full: Traces a half-resolution screen-space horizon march from the camera's depth and
+  lit HDR buffer with a two-stage bilateral plane- and roughness-aware denoiser, adding one
+  bounce of diffuse indirect irradiance from nearby sunlit terrain, walls, and glowing neon
+  or embers. Off in both presets; takes effect immediately when toggled and can also be
+  overridden per run via `NVF_SSGI=1` / `0` / `debug`. Not in the original.
+- Command-line switches: `--graphics-only`
 - Registered in `engine/nvforever/src/settings.rs`
 
 ## Graphics › Water

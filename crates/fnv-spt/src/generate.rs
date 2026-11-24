@@ -15,8 +15,8 @@ pub struct Leaf {
     pub size: [f32; 2],
     /// Attachment point as a fraction of width and height from the bottom left.
     pub pivot: [f32; 2],
-    /// Lighting normal: horizontally away from the middle of the crown, tilted up 45°
-    /// (a rule chosen by eye; speedtree.md §6).
+    /// Lighting normal: 3D ellipsoidal canopy dome around the lowered crown centroid
+    /// (tilted upward so bottom cards stay lit above horizon; speedtree.md §6).
     pub normal: [f32; 3],
 }
 
@@ -281,19 +281,28 @@ fn light_leaves(leaves: &mut [Leaf]) {
     if leaves.is_empty() {
         return;
     }
-    let mut c = [0.0; 3];
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
     for l in leaves.iter() {
-        c = add(c, l.position);
+        for axis in 0..3 {
+            lo[axis] = lo[axis].min(l.position[axis]);
+            hi[axis] = hi[axis].max(l.position[axis]);
+        }
     }
-    c = scale(c, 1.0 / leaves.len() as f32);
-    // Outward around the crown only (no vertical part): the top-to-bottom darkening is
-    // left to the CNAM dimming (Geometry::brightness), which would otherwise be counted
-    // twice by down-facing normals under the crown.
+    let core = [(lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, lo[2] + 0.35 * (hi[2] - lo[2])];
+    let max_r = leaves
+        .iter()
+        .map(|l| {
+            let d = sub(l.position, core);
+            dot(d, d).sqrt()
+        })
+        .fold(0.0f32, f32::max)
+        .max(1e-4);
+    // 3D ellipsoidal canopy dome around the lowered crown centroid; keep nz strictly
+    // upward so leaves shade as a dense crown while underside faces still catch sky light.
     for l in leaves.iter_mut() {
-        let out = sub(l.position, c);
-        let out = [out[0], out[1], 0.0];
-        let n = if dot(out, out) > 1e-12 { norm(out) } else { [0.0, 0.0, 0.0] };
-        l.normal = norm(add(n, [0.0, 0.0, 1.0]));
+        let d = sub(l.position, core);
+        let nz = (d[2].max(0.0) * 0.75 + 0.25 * max_r).max(0.18 * max_r);
+        l.normal = norm([d[0], d[1], nz]);
     }
 }
 

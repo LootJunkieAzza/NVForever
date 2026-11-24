@@ -106,6 +106,7 @@ mod light_shadow_casters;
 mod light_shadow_detail;
 mod light_shadows;
 mod lights;
+mod physical_ibl;
 mod limbs;
 mod lips;
 mod memory_budget;
@@ -193,6 +194,8 @@ mod sneaking;
 mod swimming;
 mod ssao;
 mod ssao_lighting;
+mod ssgi;
+mod sss;
 mod taa;
 mod fg_presenter;
 mod ffx_api;
@@ -589,7 +592,7 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, grass-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, physical-pbr, subsurface-scattering, ssgi, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
     /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
@@ -1813,24 +1816,38 @@ fn main() -> AppExit {
     // `fix_smooth_terrain`), still before the first cell.
     nvf_play::smooth_terrain::set_setting(if args.no_smooth_terrain { nvf_play::smooth_terrain::Smoothing::Off } else { args.smooth_terrain.unwrap_or(nvf_play::smooth_terrain::Smoothing::DEFAULT) });
     nvf_play::smooth_terrain::fix();
-    // Authored materials (#2981): the run's state, fixed before the first material is made
-    // (the command line's, then the INI's saved row by its precedence), so cached models
-    // never mix the two; the page's row changes the next start's.
-    let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    // Authored materials (#2981), Physical PBR, and Subsurface scattering: each run's state
+    // is fixed once before the first shader/material builds; the settings page stores the
+    // next start's choice. Env vars (`NVF_PHYSICAL_PBR`, `NVF_SSS`) keep top precedence.
+    let given_at_start = play.is_some().then(|| settings::given_switches(&args, &command_line()));
+    let authored = settings::authored_after_ini(graphics.authored_materials, given_at_start.as_ref());
     nvf_assets::authored::set_enabled(authored);
     app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
+    let physical_pbr = settings::physical_pbr_after_ini(graphics.physical_pbr, given_at_start.as_ref());
+    nvf_assets::authored::set_physical_pbr(physical_pbr);
+    let sss = settings::sss_after_ini(graphics.subsurface_scattering, given_at_start.as_ref());
+    nvf_assets::authored::set_sss_enabled(sss);
+    app.add_systems(Startup, move || {
+        if physical_pbr {
+            info!("physical PBR: on (linear Oren-Nayar diffuse, Cook-Torrance specular, sky IBL, Beer-Lambert fog)");
+        }
+        if sss {
+            info!("subsurface scattering: on (pre-integrated skin shading + backlit foliage translucency)");
+        }
+    });
     // Reflections on authored materials (#2981): the run's state by the same rule, fixed
     // before the first NIF pipeline (the opt-in def and the metallic factor); the world
     // camera's cube is made later, only where the mount has authored sets
-    // (reflection_sky.rs).
-    let reflections = settings::reflections_after_ini(graphics.authored_reflections, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    // (reflection_sky.rs). Inactive when physical PBR supplies full-scene IBL.
+    let reflections = !physical_pbr && settings::reflections_after_ini(graphics.authored_reflections, given_at_start.as_ref());
     nvf_assets::reflection_cube::set_enabled(reflections && authored);
     app.add_systems(Startup, move || {
         info!(
             "authored reflections: {}",
-            match (reflections, authored) {
-                (true, true) => "on (authored materials reflect the world camera's cube where the mount has authored sets)",
-                (true, false) => "off (Authored materials is off)",
+            match (physical_pbr, reflections, authored) {
+                (true, _, _) => "off (superseded by physical PBR sky/ground IBL)",
+                (false, true, true) => "on (authored materials reflect the world camera's cube where the mount has authored sets)",
+                (false, true, false) => "off (Authored materials is off)",
                 _ => "off (setting)",
             }
         )
@@ -1925,6 +1942,10 @@ fn main() -> AppExit {
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    // Opt-in subsurface scattering (NVF_SSS=1): skin + foliage shader helpers.
+    .add_plugins(sss::SssPlugin)
+    // Procedural HDR sky/ground/interior IBL cubemaps when NVF_PHYSICAL_PBR=1.
+    .add_plugins(physical_ibl::PhysicalIblPlugin)
     // Shadows of placed lights, the ALC shadows row (off by default).
     .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))
     .add_plugins(light_shadow_detail::LightShadowDetailPlugin)
@@ -2666,6 +2687,9 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         // camera's prepass).
         bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, sky::BODY_LAYER, decals::DECAL_LAYER]),
     )).id();
+    if crate::lights::physical_agx() {
+        commands.entity(cam).insert(bevy::core_pipeline::tonemapping::Tonemapping::AgX);
+    }
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
     }

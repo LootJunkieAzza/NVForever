@@ -98,6 +98,12 @@ pub(crate) const MOON_HIDDEN_Y: f32 = -0.1;
 /// How far south of the east-west line the sun's path runs, in radians (9°) [hypothesis,
 /// fitted to the original game's sun positions; fnv_world::sky::sun_direction].
 const SUN_SOUTH: f32 = 9.0 * PI / 180.0;
+/// Realistic southern Nevada (~35.8° N Goodsprings) solar declination offset for physical PBR.
+const PHYSICAL_SUN_SOUTH: f32 = 32.0 * PI / 180.0;
+
+fn effective_sun_south() -> f32 {
+    if nvf_assets::authored::physical_pbr() { PHYSICAL_SUN_SOUTH } else { SUN_SOUTH }
+}
 /// Elevation (radians) below which the directional light fades out towards the horizon.
 const HORIZON_FADE: f32 = 0.1;
 /// Game hours per real second at the default TimeScale of 30 [documented: GECK wiki
@@ -200,6 +206,118 @@ pub const SUN_SHARE: f32 = 0.75;
 pub const MOON_SHARE: f32 = 0.5;
 pub const INTERIOR_AMBIENT_SHARE: f32 = 1.0;
 pub const INTERIOR_DIRECTIONAL_SHARE: f32 = 1.0;
+const PHYSICAL_SUN_GAIN: f32 = 6.8;
+const PHYSICAL_MOON_GAIN: f32 = 1.2;
+const PHYSICAL_INTERIOR_DIR_GAIN: f32 = 0.85;
+
+/// Earth atmosphere constants (Hillaire EGSR 2020 / Nishita, km) tuned for Mojave elevation (~1.1 km).
+const ATMO_RE: f32 = 6360.0;
+const ATMO_RA: f32 = 6460.0;
+const ATMO_H0: f32 = 1.1;
+const ATMO_HR: f32 = 8.0;
+const ATMO_HM: f32 = 1.0;
+const BETA_R: Vec3 = Vec3::new(4.60e-3, 13.00e-3, 35.50e-3);
+const BETA_O: Vec3 = Vec3::new(1.10e-3, 2.35e-3, 0.06e-3);
+const ATMO_SUN_IRRADIANCE: f32 = 8.2;
+
+fn ray_sphere_exit(r: f32, mu: f32, rad: f32) -> f32 {
+    let disc = (r * r * (mu * mu - 1.0) + rad * rad).max(0.0);
+    (-r * mu + disc.sqrt()).max(0.0)
+}
+
+/// Mojave aerosol Mie scattering coefficient (`/km`) modulated by weather clearness `[0, 1]`.
+pub(crate) fn physical_mie_coeff(clearness: f32) -> f32 {
+    let c = clearness.clamp(0.0, 1.0);
+    14.0e-3 + (1.0e-3 - 14.0e-3) * c
+}
+
+/// Spherical Rayleigh + Mie + Chappuis ozone transmittance from radial altitude `r` (km) toward sun cosine `mu_s`.
+pub(crate) fn physical_sun_transmittance(r: f32, mu_s: f32, beta_m_ext: f32) -> Vec3 {
+    let mut earth_vis = 1.0f32;
+    if mu_s < 0.0 {
+        let min_r = r * (1.0 - mu_s * mu_s).max(0.0).sqrt();
+        earth_vis = smoothstep(ATMO_RE - 6.0, ATMO_RE + 1.0, min_r);
+        if earth_vis <= 1e-4 {
+            return Vec3::ZERO;
+        }
+    }
+    let t_max = ray_sphere_exit(r, mu_s, ATMO_RA);
+    let (mut od_r, mut od_m, mut od_o, mut prev_t) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    for j in 0..4 {
+        let u = (j + 1) as f32 / 4.0;
+        let cur_t = t_max * u * u;
+        let dt = cur_t - prev_t;
+        let mid_t = 0.5 * (prev_t + cur_t);
+        prev_t = cur_t;
+        let h = ((r * r + mid_t * mid_t + 2.0 * r * mid_t * mu_s).max(0.0).sqrt() - ATMO_RE).max(0.0);
+        od_r += (-h / ATMO_HR).exp() * dt;
+        od_m += (-h / ATMO_HM).exp() * dt;
+        od_o += (1.0 - (h - 25.0).abs() / 15.0).max(0.0) * dt;
+    }
+    let tau = BETA_R * od_r + Vec3::splat(beta_m_ext * od_m) + BETA_O * od_o;
+    Vec3::new((-tau.x).exp(), (-tau.y).exp(), (-tau.z).exp()) * earth_vis
+}
+
+/// 8-step quadratic spherical Rayleigh/Mie/Ozone sky radiance matching `sky.wesl` `eval_physical_sky`.
+pub(crate) fn eval_physical_sky(dir: Vec3, sun_dir: Vec3, clearness: f32) -> Vec3 {
+    let d = dir.normalize_or(Vec3::Y);
+    let s = sun_dir.normalize_or(Vec3::Y);
+    let c_clamped = clearness.clamp(0.0, 1.0);
+    let d_sky = if d.y < 0.004 {
+        let h2 = d.x * d.x + d.z * d.z;
+        let h_dir = if h2 > 1e-8 { Vec3::new(d.x, 0.0, d.z) / h2.sqrt() } else { Vec3::X };
+        (h_dir + Vec3::new(0.0, 0.004, 0.0)).normalize()
+    } else {
+        d
+    };
+    let mu_v = d_sky.y.max(0.004);
+    let cos_t = d_sky.dot(s).clamp(-1.0, 1.0);
+
+    let beta_m_s = physical_mie_coeff(c_clamped);
+    let beta_m_e = beta_m_s * 1.11;
+    let phase_r = (3.0 / (16.0 * PI)) * (1.0 + cos_t * cos_t);
+    let g = 0.68 + 0.14 * c_clamped;
+    let hg_d = (1.0 + g * g - 2.0 * g * cos_t).max(0.025);
+    let phase_m = (3.0 / (8.0 * PI)) * ((1.0 - g * g) * (1.0 + cos_t * cos_t)) / ((2.0 + g * g) * hg_d * hg_d.sqrt());
+
+    let r0 = ATMO_RE + ATMO_H0;
+    let t_max = ray_sphere_exit(r0, mu_v, ATMO_RA);
+    let mut accum = Vec3::ZERO;
+    let mut trans_v = Vec3::ONE;
+    let mut prev_t = 0.0f32;
+    for i in 0..8 {
+        let u = (i + 1) as f32 / 8.0;
+        let cur_t = t_max * u * u;
+        let dt = cur_t - prev_t;
+        let mid_t = 0.5 * (prev_t + cur_t);
+        prev_t = cur_t;
+        let p = Vec3::new(d_sky.x * mid_t, r0 + d_sky.y * mid_t, d_sky.z * mid_t);
+        let r = p.length();
+        let h = (r - ATMO_RE).max(0.0);
+        let rho_r = (-h / ATMO_HR).exp();
+        let rho_m = (-h / ATMO_HM).exp();
+        let rho_o = (1.0 - (h - 25.0).abs() / 15.0).max(0.0);
+        let mu_s = (p.dot(s) / r.max(1.0)).clamp(-1.0, 1.0);
+        let t_sun = physical_sun_transmittance(r, mu_s, beta_m_e);
+        let ext = BETA_R * rho_r + Vec3::splat(beta_m_e * rho_m) + BETA_O * rho_o;
+        let step_t = Vec3::new((-ext.x * dt).exp(), (-ext.y * dt).exp(), (-ext.z * dt).exp());
+        let ms_sun = smoothstep(-0.10, 0.20, mu_s);
+        let scat = BETA_R * (rho_r * phase_r) + Vec3::splat(beta_m_s * rho_m * phase_m);
+        let ms = (BETA_R * rho_r + Vec3::splat(beta_m_s * rho_m)) * (0.022 / (4.0 * PI) * ms_sun);
+        let s_tot = t_sun * scat + ms;
+        let integ = (s_tot - s_tot * step_t) / ext.max(Vec3::splat(1e-6));
+        accum += trans_v * integ;
+        trans_v *= step_t;
+    }
+
+    let night = Vec3::new(0.0007, 0.0016, 0.0040) * (0.6 + 0.5 * (1.0 - mu_v).powi(2));
+    let mut sky = accum * ATMO_SUN_IRRADIANCE + night;
+    if d.y < 0.0 {
+        let ground_tint = smoothstep(0.0, 0.15, -d.y);
+        sky = sky.lerp(sky * Vec3::new(0.30, 0.24, 0.17), ground_tint);
+    }
+    sky
+}
 
 /// Light level that makes a colour of 1.0 light a white surface to 1.0 on screen: the
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
@@ -239,15 +357,18 @@ pub struct SkyDisplay {
 /// additive quads after the inverse could not reproduce the game's glow over a bright sky.
 #[derive(Clone, Copy, Debug, Default, ShaderType, Reflect)]
 pub struct SkyLight {
-    /// x: scale; y: 1 for additive parts weighted by texture alpha (Alpha_Texture), 0 for
-    /// those adding their colour alone; z: 1 for parts the light applies to (the dome,
-    /// clouds and moon), 0 for additive ones (stars); w: 2 to draw the sun disc and glare (the dome), 1 the glare
-    /// only (clouds), 0 neither.
+    /// x: scale (`sky_scale`); y: `1` for additive parts weighted by texture alpha
+    /// (`Alpha_Texture`) and `1` for the moon disc (`AlphaMode::Blend`, linearizing its
+    /// sRGB-authored alpha halo and emitting direct HDR radiance under Tony McMapface),
+    /// `0` otherwise; z: `1` for parts sky daylight applies to (the dome and clouds),
+    /// `0` for stars and moon; w: `2` to draw the sun disc and glare (the dome), `1` the
+    /// glare only (clouds), `0` neither.
     pub params: Vec4,
     /// Linear RGB added; w 1 when the view's tonemapper is the clip (lights.rs
     /// `display_clip`), 0 for Tony McMapface.
     pub glow: Vec4,
-    /// xyz: direction to the sun (Bevy world space).
+    /// xyz: direction to the sun (Bevy world space); w: physical sky clearness (`> 0` under
+    /// physical PBR without `clip` tonemap override, `0` otherwise).
     pub sun_dir: Vec4,
     /// rgb: sun colour × strength (linear); w: tan of half the disc's angular size.
     pub sun: Vec4,
@@ -279,6 +400,23 @@ fn sky_material(base: StandardMaterial, sun: f32) -> SkyMaterial {
         base: StandardMaterial { unlit: true, fog_enabled: false, cull_mode: None, ..base },
         extension: SkyDisplay { light, ..default() },
     }
+}
+
+/// Material for the moon disc: alpha-blended (`params.y = 1`) and unscaled by daytime
+/// sky brightness (`params.z = 0`), so `sky.wesl` linearizes its sRGB-authored alpha halo
+/// without amplifying DXT5 noise or shifting low-alpha colour through `tony_inverse`.
+fn moon_material() -> SkyMaterial {
+    let mut m = sky_material(
+        StandardMaterial {
+            alpha_mode: AlphaMode::Blend,
+            depth_bias: SKY_SORT_BIAS - 20.0,
+            ..default()
+        },
+        0.0,
+    );
+    m.extension.light.params.y = 1.0;
+    m.extension.light.params.z = 0.0;
+    m
 }
 
 pub struct SkyPlugin;
@@ -402,7 +540,7 @@ pub struct SkyState {
     resume: Option<u32>,
     /// A lightning flash's light now (linear RGB, added to the ambient light and the
     /// sky's glow; `crate::weather_fx`).
-    flash: [f32; 3],
+    pub(crate) flash: [f32; 3],
     /// The scripts' wind (SetWindDirection, `fnv_game::nvse_jip12`): degrees from the
     /// game's +x toward +y; `None` leaves `crate::tree`'s fixed direction.
     pub script_wind: Option<f32>,
@@ -1193,23 +1331,100 @@ impl SkyState {
         self.changed = true;
     }
 
+    /// Clearness factor (`0.05..=1.0`) driving the physical Rayleigh/Mie desert sky model
+    /// across weather classes, fog range, and non-blue stylized skies (e.g. Dead Money).
+    pub(crate) fn physical_sky_clearness(&self) -> f32 {
+        let sun_y = self.sun_dir().y;
+        let weather_clearness = |w: &Weather| -> f32 {
+            let class_factor = if w.rainy || (w.classification & 4) != 0 {
+                0.25
+            } else if (w.classification & 2) != 0 {
+                0.55
+            } else {
+                1.0
+            };
+            let fog_factor = w
+                .fog_at(&self.climate, self.hour)
+                .map_or(1.0, |(_, far)| smoothstep(4_000.0, 28_000.0, far).clamp(0.25, 1.0));
+            let blueness = if sun_y > 0.08 {
+                let u = w.color(&self.climate, ColorType::SkyUpper, self.hour);
+                let sum = u[0] + u[1] + u[2];
+                if sum > 1e-4 {
+                    (((u[2] - u[0] * 0.8) / sum) * 3.0 + 0.5).clamp(0.15, 1.0)
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
+            class_factor * fog_factor * blueness
+        };
+        let cur = weather_clearness(&self.weather);
+        let blended = match &self.prev {
+            Some(p) => {
+                let old = weather_clearness(p);
+                old + (cur - old) * self.fade
+            }
+            None => cur,
+        };
+        blended.clamp(0.05, 1.0)
+    }
+
+    /// Physical solar spectral transmittance blended with weather sunlight attenuation.
+    pub(crate) fn physical_sun_color(&self) -> [f32; 3] {
+        let w_sun = Vec3::from_array(self.color(ColorType::Sunlight));
+        let sun_dir = self.sun_dir().normalize_or(Vec3::Y);
+        if sun_dir.y < 0.0 {
+            return w_sun.to_array();
+        }
+        let clearness = self.physical_sky_clearness();
+        let phys_weight = smoothstep(0.10, 0.85, clearness);
+        let t_sun = physical_sun_transmittance(ATMO_RE + ATMO_H0, sun_dir.y, physical_mie_coeff(clearness) * 1.11);
+        let w_luma = w_sun.dot(Vec3::new(0.2126, 0.7152, 0.0722));
+        let weather_atten = (w_luma / 0.75).clamp(0.20, 1.15);
+        w_sun.lerp(t_sun * weather_atten, phys_weight).to_array()
+    }
+
+    /// Horizon scattering colour matched to `eval_physical_sky` at 4° elevation so aerial
+    /// perspective fog and the physical sky dome meet seamlessly at distant ridges.
+    pub(crate) fn physical_horizon_color(&self) -> [f32; 3] {
+        let sun_dir = self.sun_dir().normalize_or(Vec3::Y);
+        let clearness = self.physical_sky_clearness();
+        let phys_weight = smoothstep(0.10, 0.85, clearness);
+        let perp = Vec3::new(-sun_dir.z, 0.0, sun_dir.x).normalize_or(Vec3::X);
+        let horizon_ray = (perp * 0.9975 + Vec3::Y * 0.07).normalize();
+        let phys_horizon = eval_physical_sky(horizon_ray, sun_dir, clearness);
+        let weather_fog = Vec3::from_array(self.color(ColorType::Fog));
+        let mut col = weather_fog.lerp(phys_horizon, phys_weight);
+        if sun_dir.y < -0.05 {
+            col = col.max(weather_fog);
+        }
+        col.to_array()
+    }
+
     /// How daylight changes the sky's display colours now (see [`SkyLight`]).
     pub fn light(&self) -> SkyLight {
         // The disc and glare fade out as the sun sets [hypothesis: the game shows no glare
         // once the sun is down].
         let fade = if self.interior.is_some() { 0.0 } else { smoothstep(-2.0, 3.0, self.sun_elevation()) };
         let sun_col = Vec3::from_array(self.color(ColorType::Sun)) * fade;
-        let dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH));
+        let south = effective_sun_south();
+        let dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, south));
         let half_tan = |deg: f32| (deg / 2.0).to_radians().tan();
         // The weather's Sun Glare, blended across a weather fade.
         let glare = self.weather.glare_scale();
         let glare = self.prev.as_ref().map_or(glare, |p| p.glare_scale() + (glare - p.glare_scale()) * self.fade);
+        let clearness = if nvf_assets::authored::physical_pbr() && !crate::lights::display_clip() {
+            self.physical_sky_clearness()
+        } else {
+            0.0
+        };
         SkyLight {
             params: Vec4::new(self.sky_scale(), 0.0, 1.0, 0.0),
             // w: 1 when the main view shows display values clipped (lights.rs
             // `display_clip`), so the sky leaves out its inverse of Tony McMapface.
             glow: Vec3::ZERO.extend(if crate::lights::display_clip() { 1.0 } else { 0.0 }),
-            sun_dir: dir.extend(0.0),
+            sun_dir: dir.extend(clearness),
             sun: (sun_col * SUN_STRENGTH).extend(half_tan(SUN_SIZE_DEG)),
             glare: (sun_col * GLARE_STRENGTH * glare).extend(half_tan(GLARE_SIZE_DEG)),
             // Written by night_sky.rs alone (update_sky keeps them).
@@ -1234,29 +1449,29 @@ impl SkyState {
 
     /// Direction towards the sun, in Bevy's axes (also below the horizon).
     pub fn sun_dir(&self) -> Vec3 {
-        game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH))
+        game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, effective_sun_south()))
     }
 
     /// Direction towards the sun, in game axes (also below the horizon).
     pub fn sun_dir_game(&self) -> [f32; 3] {
-        sun_direction(&self.climate, self.hour, SUN_SOUTH)
+        sun_direction(&self.climate, self.hour, effective_sun_south())
     }
 
     /// Compass heading of the sun in degrees (0 north, 90 east).
     pub fn sun_heading(&self) -> f32 {
-        let d = sun_direction(&self.climate, self.hour, SUN_SOUTH);
+        let d = sun_direction(&self.climate, self.hour, effective_sun_south());
         d[0].atan2(d[1]).to_degrees().rem_euclid(360.0)
     }
 
     /// Sun elevation above the horizon in degrees.
     pub fn sun_elevation(&self) -> f32 {
-        sun_direction(&self.climate, self.hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
+        sun_direction(&self.climate, self.hour, effective_sun_south())[2].clamp(-1.0, 1.0).asin().to_degrees()
     }
 
     /// Sun elevation in degrees at another `hour` of the same climate (any value; the
     /// heat haze's afternoon lag, `heat_haze.rs`).
     pub fn sun_elevation_at(&self, hour: f32) -> f32 {
-        sun_direction(&self.climate, hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
+        sun_direction(&self.climate, hour, effective_sun_south())[2].clamp(-1.0, 1.0).asin().to_degrees()
     }
 
     /// Star and moon visibility (0..1) at this hour.
@@ -1764,11 +1979,7 @@ pub fn setup_sky(
             Name::new("Moon disc"),
             MoonDisc { phases, shown: None },
             Mesh3d(meshes.add(Mesh::from(Rectangle::new(MOON_SIZE, MOON_SIZE)))),
-            MeshMaterial3d(materials.add(sky_material(StandardMaterial {
-                alpha_mode: AlphaMode::Blend,
-                depth_bias: SKY_SORT_BIAS - 20.0,
-                ..default()
-            }, 0.0))),
+            MeshMaterial3d(materials.add(moon_material())),
             Transform::from_scale(Vec3::ZERO),
             NotShadowCaster,
             NotShadowReceiver,
@@ -2070,7 +2281,7 @@ pub fn log_sun_cascades(
 /// the directional light is the moon, from the opposite side) and the share of its
 /// strength the light has at that height (it fades out within [`HORIZON_FADE`]; [`update_sky`]).
 pub fn sun_height_and_fade(sky: &SkyState) -> (f32, f32) {
-    let y = (game_to_bevy().rotation * Vec3::from_array(sun_direction(&sky.climate, sky.hour, SUN_SOUTH))).y;
+    let y = (game_to_bevy().rotation * Vec3::from_array(sun_direction(&sky.climate, sky.hour, effective_sun_south()))).y;
     (y, (y.abs() / HORIZON_FADE.sin()).min(1.0))
 }
 
@@ -2202,7 +2413,7 @@ pub fn update_night_sky(
     let Ok(cam_t) = cam.single() else { return };
     let cam_pos = cam_t.translation;
     let indoors = sky.interior.is_some();
-    let sun_dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&sky.climate, sky.hour, SUN_SOUTH));
+    let sun_dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&sky.climate, sky.hour, effective_sun_south()));
     let (star_vis, moon_vis) = if indoors { (0.0, 0.0) } else { sky.night_visibility() };
     let refresh = *last != Some((sky.hour, sky.days_passed));
     *last = Some((sky.hour, sky.days_passed));
@@ -2313,6 +2524,22 @@ pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<Fl
 /// Interior fog's far distance with the No Interior Fog tweak: farther than any room
 /// [design: docs/design/tweaks.md].
 const NO_FOG_FAR: f32 = 1_000_000.0;
+const PHYSICAL_INTERIOR_FOG_MIN_NEAR: f32 = 900.0;
+const PHYSICAL_INTERIOR_FOG_COLOR_SCALE: f32 = 0.35;
+
+/// Far-only interior fog parameters under `NVF_PHYSICAL_PBR=1` so small rooms stay crisp
+/// while large vaults/caverns still receive soft distant air depth before clip.
+pub(crate) fn physical_interior_fog(l: fnv_world::lighting::CellLighting) -> (f32, f32, f32) {
+    if l.fog_clip_dist > 0.0 {
+        let near = l.fog_near.max(0.0).max((l.fog_clip_dist * 0.45).min(PHYSICAL_INTERIOR_FOG_MIN_NEAR));
+        let far = l.fog_far.max(l.fog_clip_dist).max(near + 1200.0);
+        (near, far, PHYSICAL_INTERIOR_FOG_COLOR_SCALE)
+    } else {
+        let near = l.fog_near.max(PHYSICAL_INTERIOR_FOG_MIN_NEAR);
+        let far = (l.fog_far * 2.5).max(near + 2500.0);
+        (near, far, PHYSICAL_INTERIOR_FOG_COLOR_SCALE)
+    }
+}
 
 /// The sky's colours now, for GetCurrentSkyColor (`fnv_game::nvse_jg9`); none in an
 /// interior, which shows no sky.
@@ -2335,21 +2562,34 @@ pub(crate) fn interior_fog_active(l: fnv_world::lighting::CellLighting) -> bool 
 /// the same composition on exit, without waiting for the next weather refresh.
 pub(crate) fn apply_cell_fog(sky: &SkyState, fog: &mut DistanceFog, emissive_mod: f32, no_interior_fog: bool) {
     if let Some(l) = sky.interior {
-        let color = to_color(l.fog_color.map(fnv_world::sky::srgb_to_linear));
-        if interior_fog_active(l) {
-            fog.color = color;
+        let mut rgb = l.fog_color.map(fnv_world::sky::srgb_to_linear);
+        let physical = nvf_assets::authored::physical_pbr();
+        if physical && interior_fog_active(l) {
+            let (near, far, color_scale) = physical_interior_fog(l);
+            rgb = rgb.map(|c| c * color_scale);
+            fog.color = to_color(rgb);
+            let near = if no_interior_fog { l.fog_near.max(0.0) } else { near };
+            let far = if no_interior_fog { NO_FOG_FAR } else { far };
+            fog.falloff = crate::fog::falloff(near, far, l.fog_power, false, 1.0);
+        } else if interior_fog_active(l) {
+            fog.color = to_color(rgb);
             let far = if no_interior_fog { NO_FOG_FAR } else { l.fog_far };
             fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), far, l.fog_power, false, 1.0);
         } else {
             // Unset interior fog range (e.g. 0..0): disable fog via alpha 0, matching
             // exterior weathers (`Weather::fog_at`), instead of clamping far to near + 1.
-            fog.color = color.with_alpha(0.0);
+            fog.color = to_color(rgb).with_alpha(0.0);
             fog.falloff = crate::fog::falloff(0.0, NO_FOG_FAR, l.fog_power, false, 1.0);
         }
     } else {
         let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
         let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
-        fog.color = to_color(sky.color(ColorType::Fog)).with_alpha(strength);
+        let fog_rgb = if nvf_assets::authored::physical_pbr() {
+            sky.physical_horizon_color()
+        } else {
+            sky.color(ColorType::Fog)
+        };
+        fog.color = to_color(fog_rgb).with_alpha(strength);
         fog.falloff = crate::fog::falloff(near.max(0.0), far, sky.fog_power(), true, sky.emissive_scale() * emissive_mod);
     }
 }
@@ -2395,7 +2635,8 @@ pub fn update_sky(
         if !changed {
             return;
         }
-        let c = |v: [u8; 3]| to_color(v.map(fnv_world::sky::srgb_to_linear));
+        let fog_scale = if nvf_assets::authored::physical_pbr() { PHYSICAL_INTERIOR_FOG_COLOR_SCALE } else { 1.0 };
+        let c = |v: [u8; 3]| to_color(v.map(|b| fnv_world::sky::srgb_to_linear(b) * fog_scale));
         if let Ok((_, _, mut t)) = dome.single_mut() {
             t.scale = Vec3::ZERO;
         }
@@ -2406,8 +2647,14 @@ pub fn update_sky(
         if let Ok((mut light, mut t)) = sun.single_mut() {
             let from = game_to_bevy().rotation * interior_light_from(l.directional_rotation_xy, l.directional_rotation_z);
             *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-            light.color = crate::lights::display_color(shown(l.directional));
-            light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * INTERIOR_DIRECTIONAL_SHARE;
+            let physical = nvf_assets::authored::physical_pbr();
+            light.color = if physical {
+                to_color(l.directional.map(fnv_world::sky::srgb_to_linear))
+            } else {
+                crate::lights::display_color(shown(l.directional))
+            };
+            let gain = if physical { PHYSICAL_INTERIOR_DIR_GAIN } else { 1.0 };
+            light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * INTERIOR_DIRECTIONAL_SHARE * gain;
         }
         apply_cell_fog(&sky, &mut fog, emissive_mod, tweaks.as_ref().is_some_and(|t| t.no_interior_fog));
         let fog_key = (l.fog_near, l.fog_far, l.fog_power);
@@ -2437,7 +2684,7 @@ pub fn update_sky(
     }
     // The sun light turns with the game clock every frame, not with the sky's half-minute
     // steps (`SkyState::sun_light_hour`); its colour still changes with the sky below.
-    let light_dir = to_bevy.rotation * Vec3::from_array(sun_direction(c, sky.sun_light_hour(), SUN_SOUTH));
+    let light_dir = to_bevy.rotation * Vec3::from_array(sun_direction(c, sky.sun_light_hour(), effective_sun_south()));
     let moon_mult = sky.moon_brightness_multiplier();
     if let Ok((mut light, mut t)) = sun.single_mut() {
         aim_sun(&mut light, &mut t, light_dir, to_bevy.rotation * Vec3::Y, PI * unit * sky.sun_scale() * sun_mod, moon_mult);
@@ -2491,11 +2738,16 @@ pub fn update_sky(
             mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, cols);
         }
     }
-    clear.0 = to_color(lower);
+    let physical = nvf_assets::authored::physical_pbr();
+    clear.0 = to_color(if physical { sky.physical_horizon_color() } else { lower });
 
     let sunlight = sky.color(ColorType::Sunlight);
     if let Ok((mut light, _)) = sun.single_mut() {
-        light.color = crate::lights::display_color(sunlight.map(crate::lights::linear_to_display));
+        light.color = if physical {
+            to_color(sky.physical_sun_color())
+        } else {
+            crate::lights::display_color(sunlight.map(crate::lights::linear_to_display))
+        };
     }
     let amb = sky.color(ColorType::Ambient);
     ambient.color = crate::lights::display_ambient([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z].map(crate::lights::linear_to_display));
@@ -2555,11 +2807,10 @@ fn aim_sun(light: &mut Mut<DirectionalLight>, t: &mut Mut<Transform>, sun_dir: V
     // When `MoonlightNVSE.ini` is absent or disabled `moon_mult` is 1.0 and nighttime
     // illuminance stays bit-for-bit identical to vanilla.
     let share = if sun_dir.y >= 0.0 {
-        SUN_SHARE
-    } else if moon_mult == 1.0 {
-        MOON_SHARE
+        SUN_SHARE * if nvf_assets::authored::physical_pbr() { PHYSICAL_SUN_GAIN } else { 1.0 }
     } else {
-        MOON_SHARE * moon_mult
+        let moon = MOON_SHARE * if nvf_assets::authored::physical_pbr() { PHYSICAL_MOON_GAIN } else { 1.0 };
+        if moon_mult == 1.0 { moon } else { moon * moon_mult }
     };
     let illuminance = full * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * share;
     if light.illuminance != illuminance {
@@ -3377,6 +3628,83 @@ mod tests {
         assert!(dome_color([0.0, 0.0, 0.5], lower, horizon, upper)[2] < 0.5 * upper[2]);
     }
 
+    #[test]
+    fn moon_material_preserves_alpha_and_sky_scale_flags() {
+        let mat = moon_material();
+        assert!(matches!(mat.base.alpha_mode, AlphaMode::Blend));
+        let old = mat.extension.light;
+        assert_eq!(old.params.y, 1.0);
+        assert_eq!(old.params.z, 0.0);
+        assert_eq!(old.params.w, 0.0);
+
+        let updated = Vec4::new(1.87, 0.0, 1.0, 0.0)
+            .with_y(old.params.y)
+            .with_z(old.params.z)
+            .with_w(old.params.w);
+        assert_eq!(updated, Vec4::new(1.87, 1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn physical_sky_and_sun_transmittance_match_desert_optics() {
+        let afternoon_sun = Vec3::new(0.0, 0.50, -0.866_025_4).normalize();
+        let zenith = eval_physical_sky(Vec3::Y, afternoon_sun, 1.0);
+        let horizon = eval_physical_sky(Vec3::new(1.0, 0.08, 0.0).normalize(), afternoon_sun, 1.0);
+        assert!(zenith.z > zenith.y * 2.0 && zenith.y > zenith.x * 2.0 && zenith.z > zenith.x * 4.0, "clear desert zenith is deep cobalt: {zenith}");
+        let luma = |v: Vec3| v.dot(Vec3::new(0.2126, 0.7152, 0.0722));
+        assert!(luma(zenith) < luma(horizon), "zenith darker than horizon: zenith={zenith} horizon={horizon}");
+
+        let sunset_sun = Vec3::new(0.0, 0.0, -1.0);
+        let sunset_horizon = eval_physical_sky(Vec3::new(0.0, 0.05, -1.0).normalize(), sunset_sun, 1.0);
+        let sunset_zenith = eval_physical_sky(Vec3::Y, sunset_sun, 1.0);
+        assert!(sunset_horizon.x > sunset_horizon.z * 2.0, "sunset horizon scatters warm orange/red: {sunset_horizon}");
+        assert!(luma(sunset_zenith) < luma(sunset_horizon));
+
+        let t_high = physical_sun_transmittance(ATMO_RE + ATMO_H0, 0.75, physical_mie_coeff(1.0) * 1.11);
+        let t_low = physical_sun_transmittance(ATMO_RE + ATMO_H0, 0.04, physical_mie_coeff(1.0) * 1.11);
+        assert!(luma(t_high) > luma(t_low));
+        assert!(t_low.x > t_low.y && t_low.y > t_low.z, "low-sun transmittance reddens: {t_low}");
+
+        let night = eval_physical_sky(Vec3::Y, Vec3::new(0.0, -0.5, 0.866).normalize(), 1.0);
+        assert!(night.x > 0.0 && night.z > night.x && night.x < 0.01, "night sky is dim cool blue: {night}");
+    }
+
+    #[test]
+    fn physical_sky_clearness_separates_clear_cloudy_and_stylized_skies() {
+        let mut s = authored_session_sky();
+        s.climate.sunrise = (5.0, 7.0);
+        s.climate.sunset = (18.0, 20.0);
+        s.hour = 13.0;
+        let sky_colors = |rgb: [u8; 3]| {
+            let mut cols = vec![vec![[0, 0, 0]; 4]; 10];
+            cols[ColorType::SkyUpper as usize] = vec![rgb; 4];
+            cols
+        };
+        s.weather = Weather {
+            classification: 1,
+            fog: [5_000.0, 120_000.0, 0.0, 0.0, 1.0, 1.0],
+            colors: sky_colors([40, 46, 255]),
+            ..default()
+        };
+        assert!(s.physical_sky_clearness() > 0.9, "clear desert weather");
+
+        s.weather.classification = 4;
+        s.weather.rainy = true;
+        assert!(s.physical_sky_clearness() <= 0.3, "rainy weather lowers clearness");
+
+        s.weather.classification = 2;
+        s.weather.rainy = false;
+        s.weather.fog[1] = 10_000.0;
+        assert!(s.physical_sky_clearness() < 0.5, "foggy overcast weather lowers clearness");
+
+        s.weather = Weather {
+            classification: 1,
+            fog: [5_000.0, 120_000.0, 0.0, 0.0, 1.0, 1.0],
+            colors: sky_colors([180, 35, 25]),
+            ..default()
+        };
+        assert!(s.physical_sky_clearness() <= 0.3, "stylized crimson sky stays faithful: {}", s.physical_sky_clearness());
+    }
+
     fn assert_fog_falloff(actual: &FogFalloff, expected: &FogFalloff) {
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
@@ -3477,5 +3805,39 @@ mod tests {
         apply_cell_fog(&sky, &mut fog, 1.0, true);
         assert_eq!(fog.color.alpha(), 1.0);
         assert_fog_falloff(&fog.falloff, &crate::fog::falloff(27.0, NO_FOG_FAR, 1.7, false, 1.0));
+    }
+
+    #[test]
+    fn physical_interior_fog_keeps_small_rooms_clear_and_preserves_clipped_depth() {
+        let small = fnv_world::lighting::CellLighting {
+            fog_near: 0.0,
+            fog_far: 2200.0,
+            fog_clip_dist: 0.0,
+            ..Default::default()
+        };
+        let (near_s, far_s, scale_s) = physical_interior_fog(small);
+        assert!(near_s >= PHYSICAL_INTERIOR_FOG_MIN_NEAR, "small unclipped room starts clear: {near_s}");
+        assert!((far_s - 5500.0).abs() < 1e-3, "far stretched 2.5x: {far_s}");
+        assert_eq!(scale_s, PHYSICAL_INTERIOR_FOG_COLOR_SCALE);
+
+        let cavern = fnv_world::lighting::CellLighting {
+            fog_near: 64.0,
+            fog_far: 3300.0,
+            fog_clip_dist: 4000.0,
+            ..Default::default()
+        };
+        let (near_c, far_c, _) = physical_interior_fog(cavern);
+        assert_eq!(near_c, 900.0);
+        assert!(far_c >= 4000.0, "clipped interior reaches clip distance: {far_c}");
+
+        let tight_clip = fnv_world::lighting::CellLighting {
+            fog_near: 0.0,
+            fog_far: 1500.0,
+            fog_clip_dist: 1600.0,
+            ..Default::default()
+        };
+        let (near_t, far_t, _) = physical_interior_fog(tight_clip);
+        assert!((near_t - 720.0).abs() < 1e-3, "0.45 * clip_dist below min_near cap: {near_t}");
+        assert!(far_t >= near_t + 1200.0);
     }
 }

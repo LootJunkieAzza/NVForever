@@ -25,7 +25,8 @@ struct NvfAmbientOcclusion {
     // x: the strength the factor was made with; y: the weight of the factor on the light of
     // lamps that cast no shadow (0..1, ssao_lighting.rs `LAMPS`; 0 leaves them whole); z: 1
     // for the multi-bounce fit on the ambient (`nvf_ao_multibounce`, ssao_lighting.rs
-    // `MULTIBOUNCE`), 0 for the factor alone; w unused.
+    // `MULTIBOUNCE`), 0 for the factor alone; w: 1 when physical PBR macro sky-visibility (.b)
+    // and sun contact shadows (.a) are packed in `nvf_ao_texture`, 0 otherwise.
     extra: vec4<f32>,
 }
 
@@ -115,4 +116,60 @@ fn nvf_lamp_visibility(g: f32) -> f32 {
         return 1.0;
     }
     return mix(1.0, g, w);
+}
+
+// Local AO (.x), architectural sky-visibility (.y), and sun contact shadow (.z) from a
+// 3x3 depth-aware tent upsample of `nvf_ao_texture` with foliage-volume and distance
+// smoothing. When `extra.w <= 0.5`, `.yz` return 1.0.
+fn nvf_physical_occlusion(frag: vec2<f32>, dist: f32) -> vec3<f32> {
+    if !(dist > 0.0) || dist >= nvf_ao.params.z {
+        return vec3(1.0);
+    }
+    let size = vec2<i32>(textureDimensions(nvf_ao_texture));
+    let t = (frag - 0.5) * 0.5;
+    let center_q = vec2<i32>(round(t));
+    let dist_blur = smoothstep(110.0, 420.0, dist);
+    let tol_near = (0.08 + 0.30 * dist_blur) * dist + 10.0;
+    let tol_soft = 0.60 * dist + 110.0;
+    var sum_near = vec3(0.0);
+    var weight_near = 0.0;
+    var sum_soft = vec3(0.0);
+    var weight_soft = 0.0;
+    var tent_sum = 0.0;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let q = clamp(center_q + vec2(dx, dy), vec2(0), size - 1);
+            let texel = textureLoad(nvf_ao_texture, q, 0);
+            let off = abs(vec2<f32>(q) - t);
+            let tent = max(1.5 - off.x, 0.0) * max(1.5 - off.y, 0.0);
+            tent_sum += tent;
+            if texel.g <= 0.0 || texel.g >= 59000.0 {
+                continue;
+            }
+            let gap = abs(texel.g - dist);
+            let wn = tent * max(1.0 - gap / tol_near, 0.0);
+            let ws = tent * max(1.0 - gap / tol_soft, 0.0);
+            let v = vec3(texel.r, texel.b, texel.a);
+            sum_near += v * wn;
+            weight_near += wn;
+            sum_soft += v * ws;
+            weight_soft += ws;
+        }
+    }
+    if !(weight_soft >= NVF_AO_MIN_WEIGHT) {
+        return vec3(1.0);
+    }
+    let avg_soft = sum_soft / weight_soft;
+    let avg_near = select(avg_soft, sum_near / weight_near, weight_near >= NVF_AO_MIN_WEIGHT);
+    let vol_blend = max(dist_blur * 0.85, 1.0 - smoothstep(0.35, 0.90, weight_near / max(tent_sum, 1e-4)));
+    let chosen = mix(avg_near, avg_soft, vol_blend);
+    let edge_conf = smoothstep(NVF_AO_MIN_WEIGHT, 0.12, weight_soft);
+    let safe_ao = select(1.0, clamp(chosen.x, 0.0001, 1.0), chosen.x >= 0.0);
+    let local_ao = pow(safe_ao, nvf_ao.params.x);
+    if !(nvf_ao.extra.w > 0.5) {
+        return vec3(mix(1.0, local_ao, edge_conf), 1.0, 1.0);
+    }
+    let sky_vis = select(1.0, clamp(chosen.y, 0.0, 1.0), chosen.y >= 0.0);
+    let sun_contact = select(1.0, clamp(chosen.z, 0.0, 1.0), chosen.z >= 0.0);
+    return mix(vec3(1.0), vec3(local_ao, sky_vis, sun_contact), edge_conf);
 }

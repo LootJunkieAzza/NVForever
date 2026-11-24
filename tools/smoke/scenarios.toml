@@ -416,6 +416,28 @@ forbid = [
 ]
 
 [[scenario]]
+name = "screen-space-skin-scattering"
+source = "[design] engine/nvforever/src/sss/screen.rs (Jimenez et al. 2015 separable subsurface scattering, d'Eon & Irving 2007 profile): with subsurface scattering and physical PBR on and no multisampling, the skin hook goes in, the screen-space skin blur's pipelines compile and the pass runs after the opaque pass at Goodsprings noon, without a rendering or validation error. How the faces look is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/sss.rs", "engine/nvforever/src/sss.wesl", "engine/nvforever/src/sss/", "engine/nvforever/src/sss_screen.wesl", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_SSS = "1", NVF_PHYSICAL_PBR = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--msaa", "1"]
+run_seconds = 30
+expect = [
+  { text = "lights: subsurface scattering hook installed (NVF_SSS=1)", count = 1, label = "the skin hook goes into the lighting" },
+  { text = "authored materials: screen-space skin scattering on", count = 1, label = "the screen-space scattering is on" },
+  { text = "screen-space skin scattering: active", count = 1, label = "the blur runs after the opaque pass" },
+]
+forbid = [
+  { text = "screen-space skin scattering: blur_", label = "a pipeline of the skin blur that does not compile" },
+  { text = "subsurface scattering hook's anchors not found", label = "the skin hook's anchors missing" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the skin blur" },
+  { text = "Shader validation error", label = "a shader that does not validate with the skin blur" },
+  { text = "Validation Error", label = "a graphics API validation error with the skin blur" },
+  { text = "panicked", label = "a panic with the skin blur on" },
+]
+
+[[scenario]]
 name = "distant-objects-switch"
 source = "[design, #3014] docs/design/graphics-enhanced.md §3.21 (engine/nvforever/src/distant_objects.rs): the settings page's Distant objects row goes to 12 cells while the game runs at Goodsprings noon, the distant objects come on and stream in; then to 8 cells (the far ones fade out) and Off, without a rendering or validation error; the exit summary is logged as they were on"
 areas = ["renderer", "graphics", "settings"]
@@ -8792,11 +8814,11 @@ run_seconds = 10
 expect = [
   { re = 'lights: display-value lighting sum installed', label = "apply_pbr_lighting sums the light in display values" },
   { re = 'lights: display values shown clipped', label = "the main view clips in Tony McMapface's place" },
-  { re = 'lights: game attenuation installed', label = "lights fall off as the game's" },
+  { re = 'lights: game attenuation and display-value Fresnel installed', label = "lights fall off as the game's" },
   { re = 'light colour lines not found|apply_pbr_lighting not as expected|Tony McMapface not found|atmospheric fog not found', count = 0, label = "no patch missed its Bevy lines (a CRLF checkout once broke them all, #946)" },
   { re = 'failed to process shader', count = 0, label = "every shader builds (grass.wgsl needs the patched pbr_functions)" },
-  { re = "lights: the highlight's Fresnel factor stays at F0 in world views", label = "the lights' highlight takes F = F0 in world views (#2266)" },
-  { re = "the highlight's Fresnel line not found", count = 0, label = "the Fresnel patch found its Bevy line (#2266)" },
+  { re = 'lights: game attenuation and display-value Fresnel installed', label = "the lights' highlight takes F = F0 in world views (#2266)" },
+  { re = 'expected anchors not found', count = 0, label = "the Fresnel patch found its Bevy line (#2266)" },
 ]
 
 [[scenario]]
@@ -8809,8 +8831,8 @@ args = ["--play", "--world", "WastelandNV", "--pos=-53782.6,-52327.9,5828", "--h
 run_seconds = 12
 manual = "primm_barrel_no_streak.png: no orange glossy band on the shaded sidewalk between the camera and the barrel (#2266)"
 expect = [
-  { re = "lights: the highlight's Fresnel factor stays at F0 in world views", label = "primm: the lights' highlight takes F = F0 in world views" },
-  { re = "the highlight's Fresnel line not found", count = 0, label = "primm: the Fresnel patch found its Bevy line" },
+  { re = 'lights: game attenuation and display-value Fresnel installed', label = "primm: the lights' highlight takes F = F0 in world views" },
+  { re = 'expected anchors not found', count = 0, label = "primm: the Fresnel patch found its Bevy line" },
   { re = 'failed to process shader', count = 0, label = "primm: the patched lighting shader builds" },
   { re = 'Screenshot saved to .*primm_barrel_no_streak\.png', label = "primm: the frame was written" },
 ]

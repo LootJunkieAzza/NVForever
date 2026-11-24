@@ -256,18 +256,38 @@ pub struct Graphics {
     /// Twinkling stars, a moon glow and moonlit clouds (night_sky.rs; off in every preset)
     /// [design, #2995].
     pub night_sky_detail: bool,
+    /// Linear Oren-Nayar diffuse, Cook-Torrance specular, sky IBL, and Beer-Lambert fog
+    /// (`NVF_PHYSICAL_PBR`; off in both presets). Read once at the start (nvf_assets
+    /// `authored::set_physical_pbr`, main.rs); this field holds the next start's choice.
+    pub physical_pbr: bool,
+    /// Pre-integrated skin shading and backlit foliage translucency (`NVF_SSS`; off in both
+    /// presets). Read once at the start (nvf_assets `authored::set_sss_enabled`, main.rs);
+    /// this field holds the next start's choice.
+    pub subsurface_scattering: bool,
+    /// 1-bounce screen-space global illumination (ssgi.rs; off in both presets;
+    /// `NVF_SSGI=1` / `0` / `debug` overrides).
+    pub ssgi: bool,
+    /// Nearby grass casts dense, core-thickened sun shadows (grass.rs; off in both presets).
+    pub grass_shadows: bool,
 }
 
 /// The settings key of the Authored materials row (#2981).
 pub const AUTHORED_MATERIALS_KEY: &str = "authored-materials";
-
+/// The settings key of the Physical PBR lighting row.
+pub const PHYSICAL_PBR_KEY: &str = "physical-pbr";
+/// The settings key of the Subsurface scattering row.
+pub const SUBSURFACE_SCATTERING_KEY: &str = "subsurface-scattering";
+/// The settings key of the Screen-space global illumination row.
+pub const SSGI_KEY: &str = "ssgi";
+/// The settings key of the Grass shadows row.
+pub const GRASS_SHADOWS_KEY: &str = "grass-shadows";
 /// The settings key of the Reflections on authored materials row (#2981).
 pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
 /// shadow-filter, full-detail and distant-object choices that are not vanilla's, in the
 /// order of [`Graphics::describe`].
-pub const KEYS: [&str; 28] = [
+pub const KEYS: [&str; 32] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -296,6 +316,10 @@ pub const KEYS: [&str; 28] = [
     "aerial-perspective",
     "night-sky-detail",
     "distant-lights",
+    PHYSICAL_PBR_KEY,
+    SUBSURFACE_SCATTERING_KEY,
+    SSGI_KEY,
+    GRASS_SHADOWS_KEY,
 ];
 
 impl Graphics {
@@ -373,6 +397,13 @@ impl Graphics {
             aerial_perspective: false,
             // Off in every preset: an addition of our own [design, #2995].
             night_sky_detail: false,
+            // Opt-in physical lighting & SSS switches (restart required; `NVF_PHYSICAL_PBR` / `NVF_SSS`).
+            physical_pbr: false,
+            subsurface_scattering: false,
+            // Opt-in 1-bounce SSGI (live switch; `NVF_SSGI=1` / `0` / `debug` overrides).
+            ssgi: false,
+            // Nearby grass sun shadow casting (live switch; off in both presets).
+            grass_shadows: false,
         }
     }
 
@@ -397,11 +428,15 @@ impl Graphics {
             "terrain-parallax" => &mut self.terrain_parallax,
             "cloud-shadows" => &mut self.cloud_shadows,
             "terrain-shadows" => &mut self.terrain_shadows,
+            GRASS_SHADOWS_KEY => &mut self.grass_shadows,
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
             "aerial-perspective" => &mut self.aerial_perspective,
             "night-sky-detail" => &mut self.night_sky_detail,
             AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
+            PHYSICAL_PBR_KEY => &mut self.physical_pbr,
+            SUBSURFACE_SCATTERING_KEY => &mut self.subsurface_scattering,
+            SSGI_KEY => &mut self.ssgi,
             AUTHORED_REFLECTIONS_KEY => &mut self.authored_reflections,
             "distant-lights" => &mut self.distant_lights,
             _ => return None,
@@ -465,6 +500,7 @@ impl Graphics {
             (self.terrain_parallax, "terrain parallax"),
             (self.cloud_shadows, "cloud shadows"),
             (self.terrain_shadows, "terrain shadows"),
+            (self.grass_shadows, "grass shadows"),
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
             (!self.authored_materials, "no authored materials"),
@@ -474,6 +510,9 @@ impl Graphics {
             (self.aerial_perspective, "aerial perspective"),
             (self.night_sky_detail, "night sky detail"),
             (self.distant_lights, "distant lights"),
+            (self.physical_pbr, "physical PBR lighting"),
+            (self.subsurface_scattering, "subsurface scattering"),
+            (self.ssgi, "screen-space global illumination"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -702,7 +741,7 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(g)
             .insert_resource(MsaaSetting(self.1))
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
-            .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::heat_haze::HeatHazePlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
+            .add_plugins((crate::ssao::SsaoPlugin, crate::ssgi::SsgiPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::heat_haze::HeatHazePlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
             .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain())
             .add_systems(PostUpdate, log_shadow_map.before(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades));
@@ -1032,7 +1071,11 @@ fn apply(
         }
         // FSR already runs its own RCAS sharpening; do not sharpen the picture twice.
         if g.bloom || (g.sharpen && fsr.is_none()) {
-            e.insert(PostEffects::new(g.bloom, g.sharpen && fsr.is_none()));
+            e.insert(PostEffects::new_with_hdr_glow(
+                g.bloom,
+                g.sharpen && fsr.is_none(),
+                nvf_assets::authored::physical_pbr() && g.glow,
+            ));
         } else {
             e.remove::<PostEffects>();
         }
@@ -1046,12 +1089,12 @@ fn apply(
         } else {
             e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow)>();
         }
-        if temporal {
+        if temporal || nvf_assets::authored::physical_pbr() || crate::ssgi::effective_enabled(g.ssgi) {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
         // its own switch.
-        if g.glow && g.eye_adaptation {
+        if (g.glow || nvf_assets::authored::physical_pbr()) && g.eye_adaptation {
             e.insert(crate::eye_adapt::auto_exposure(&eye));
         } else {
             e.remove::<bevy::post_process::auto_exposure::AutoExposure>();
@@ -1120,6 +1163,11 @@ fn apply(
             e.insert(crate::heat_haze::HeatHaze::default());
         } else {
             e.remove::<crate::heat_haze::HeatHaze>();
+        }
+        if crate::ssgi::effective_enabled(g.ssgi) {
+            e.insert(crate::ssgi::ScreenSpaceGi::default());
+        } else {
+            e.remove::<crate::ssgi::ScreenSpaceGi>();
         }
     }
     let reach = if g.fine_shadows { FINE_SHADOW_REACH } else { 1.0 };
@@ -1729,6 +1777,55 @@ mod tests {
         *g.switch("desert-haze").expect("settings key") = true;
         assert_eq!(g, on);
         assert!(!Graphics::preset(Preset::Enhanced).describe().contains("haze"));
+    }
+
+    #[test]
+    fn physical_pbr_and_sss_are_off_in_both_looks_and_have_their_own_keys() {
+        for preset in [Preset::Vanilla, Preset::Enhanced] {
+            let g = Graphics::preset(preset);
+            assert!(!g.physical_pbr && !g.subsurface_scattering && !g.ssgi && !g.grass_shadows);
+        }
+        let enhanced = crate::quality::enhanced_keys();
+        assert!(
+            !enhanced.contains(&PHYSICAL_PBR_KEY)
+                && !enhanced.contains(&SUBSURFACE_SCATTERING_KEY)
+                && !enhanced.contains(&SSGI_KEY)
+                && !enhanced.contains(&GRASS_SHADOWS_KEY)
+        );
+        let on = Graphics::only(&[
+            PHYSICAL_PBR_KEY.into(),
+            SUBSURFACE_SCATTERING_KEY.into(),
+            SSGI_KEY.into(),
+            GRASS_SHADOWS_KEY.into(),
+        ])
+        .expect("keys");
+        assert!(on.physical_pbr && on.subsurface_scattering && on.ssgi && on.grass_shadows);
+        let desc = on.describe();
+        assert!(
+            desc.contains("physical PBR lighting")
+                && desc.contains("subsurface scattering")
+                && desc.contains("screen-space global illumination")
+                && desc.contains("grass shadows"),
+            "{desc}"
+        );
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch(PHYSICAL_PBR_KEY).expect("physical-pbr key") = true;
+        *g.switch(SUBSURFACE_SCATTERING_KEY).expect("subsurface-scattering key") = true;
+        *g.switch(SSGI_KEY).expect("ssgi key") = true;
+        *g.switch(GRASS_SHADOWS_KEY).expect("grass-shadows key") = true;
+        assert_eq!(g, on);
+
+        // SSGI camera component tracks Graphics.ssgi live via apply.
+        let (mut app, cam) = aa_app(ScreenAa::Off, false);
+        app.update();
+        assert!(!app.world().entity(cam).contains::<crate::ssgi::ScreenSpaceGi>());
+        app.world_mut().resource_mut::<Graphics>().ssgi = true;
+        app.update();
+        assert!(app.world().entity(cam).contains::<crate::ssgi::ScreenSpaceGi>());
+        assert!(app.world().entity(cam).contains::<bevy::camera::Hdr>());
+        app.world_mut().resource_mut::<Graphics>().ssgi = false;
+        app.update();
+        assert!(!app.world().entity(cam).contains::<crate::ssgi::ScreenSpaceGi>());
     }
 
     #[test]

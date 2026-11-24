@@ -1017,6 +1017,9 @@ fn cell_models(lo: &LoadOrder, schema: &EsmSchema, index: &WorldIndex, refs: &[u
         if is_drawn_marker(base.form_id, &path) || hide.iter().any(|h| path.contains(h.as_str())) {
             continue;
         }
+        if &base.sig == b"FLOR" || &base.sig == b"TREE" {
+            nvf_assets::nif_spawn::register_foliage_model(&path);
+        }
         if seen.insert((path.clone(), base.world_alt_textures.clone())) {
             out.push((path, base.world_alt_textures));
         }
@@ -2009,6 +2012,9 @@ pub fn spawn_model(
         *stats.skipped_types.entry("marker".into()).or_default() += 1;
         return false;
     }
+    if &base.sig == b"FLOR" || &base.sig == b"TREE" {
+        nvf_assets::nif_spawn::register_foliage_model(&path);
+    }
     // With the base's alternate textures on the shapes they name (texture-swaps.md §4).
     let Some(model) = models.model_swapped(&path, false, &base.world_alt_textures) else {
         stats.refs_no_model += 1;
@@ -2151,6 +2157,7 @@ pub fn spawn_model(
     // (#2549: a torch's glow card, else a flat sheet); a posed model stays as posed. Its
     // holder carries the reference's RefVisual, so moving and redrawing it take them along.
     let mut boards = nvf_assets::model::BakedBillboards::default();
+    let mut has_emittance_ray = false;
     for (index, s) in model.shapes.iter().enumerate() {
         let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);
         let board = match posed.is_none().then_some(scenery) {
@@ -2162,6 +2169,16 @@ pub fn spawn_model(
             Some((board, below)) => (board, Mat4::from(below), true),
             None => (parent, Mat4::from(rt * shape), false),
         };
+        if !scenery
+            && p.emittance.is_some()
+            && s.external_emittance
+            && models
+                .materials
+                .get(&s.material)
+                .is_some_and(|mat| mat.base.unlit && matches!(mat.base.alpha_mode, AlphaMode::Add))
+        {
+            has_emittance_ray = true;
+        }
         // External emittance: the reference's XEMI source drives the colour.
         let material = p
             .emittance
@@ -2212,6 +2229,38 @@ pub fn spawn_model(
     stats.billboards += boards.len();
     stats.refs_billboards += usize::from(!boards.is_empty());
     if !scenery {
+        if has_emittance_ray {
+            if let Some(xemi) = p.emittance.filter(|&x| emittance.is_weather_source(world, x)) {
+                if let Some(le) = emittance.light(world, xemi, LinearRgba::WHITE) {
+                    let (local_centre, extent) = match model.bounds {
+                        Some((min, max)) => {
+                            let inv = model.root.inverse();
+                            let a = inv.transform_point3(min);
+                            let b = inv.transform_point3(max);
+                            ((a + b) * 0.5, ((b - a).length() * 0.5 * p.scale).clamp(180.0, 650.0))
+                        }
+                        None => (Vec3::ZERO, (280.0 * p.scale).clamp(180.0, 650.0)),
+                    };
+                    let light_pos = rt.transform_point3(local_centre);
+                    let range = (extent * 2.4).clamp(480.0, 1100.0);
+                    let radius = (extent * 0.35).clamp(48.0, 140.0);
+                    commands.spawn((
+                        PointLight {
+                            color: Color::BLACK,
+                            intensity: crate::lights::lumens(1.35, crate::sky::light_unit()),
+                            range,
+                            radius,
+                            shadow_maps_enabled: false,
+                            ..default()
+                        },
+                        Transform::from_translation(light_pos),
+                        le,
+                        RefVisual(r),
+                        ChildOf(parent),
+                    ));
+                }
+            }
+        }
         spawn_emitters(commands, parent, r, &model, &path, rt);
     }
     // A model without shapes draws nothing (counted as drawn by the loaded cells, as

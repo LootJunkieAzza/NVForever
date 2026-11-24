@@ -678,6 +678,12 @@ pub struct LegacyLook {
     pub scripted_tint: Option<Color>,
 }
 
+/// Whether skin shapes may take authored PBR sets (`textures/pbr/`), enabled under
+/// `NVF_PHYSICAL_PBR=1` or `NVF_SSS=1`.
+pub fn allow_skin_authored() -> bool {
+    physical_pbr() || sss_enabled()
+}
+
 /// What became of a shape's own height map (texture-set slot 3 with the parallax flag,
 /// #2979) when its material was built ([`apply_game_height`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -713,12 +719,13 @@ pub fn apply_game_height(material: &mut crate::NifMaterial, image: Option<Handle
 }
 
 /// Whether a shape may take an authored set, by what is known when its material is made:
-/// lit, not refracting, not hair or skin (FaceGen), drawn neither additive nor multiplied
-/// (the final alpha mode), with texture coordinates, and not excluded by its caller
-/// (`no_authored`: particles, object LOD) [design, docs/spec-notes/pbr-materials.md "What a
-/// set changes"]. The key is checked by [`key_eligible`].
+/// lit, not refracting, not hair (and not skin unless [`allow_skin_authored`]), drawn
+/// neither additive nor multiplied (the final alpha mode), with texture coordinates, and
+/// not excluded by its caller (`no_authored`: particles, object LOD)
+/// [design, docs/spec-notes/pbr-materials.md "What a set changes"]. The key is checked by
+/// [`key_eligible`].
 pub fn shape_eligible(unlit: bool, refracts: bool, hair: bool, skin: bool, alpha_mode: AlphaMode, has_uv: bool, no_authored: bool) -> bool {
-    !unlit && !refracts && !hair && !skin && has_uv && !no_authored && !matches!(alpha_mode, AlphaMode::Add | AlphaMode::Multiply)
+    !unlit && !refracts && !hair && (!skin || allow_skin_authored()) && has_uv && !no_authored && !matches!(alpha_mode, AlphaMode::Add | AlphaMode::Multiply)
 }
 
 /// Whether a resolved diffuse key may take a set: not the Pip-Boy's or the interface's
@@ -731,11 +738,12 @@ pub fn key_eligible(key: &str) -> bool {
 /// no effect: no reflection source, docs/spec-notes/pbr-materials.md "Metallic"), or 1 in the
 /// metallic channel view ([`PbrView::Metallic`]), so the material's sample of the blue
 /// channel is the per-texel value the view shows, under the metallic debug switch
-/// ([`metallic_debug`]), so the blue channel takes effect, and with reflections on
-/// (`reflection_cube::enabled`), where nif_material.wesl holds the sampled value at 0 in every
-/// view without a reflection cube, so only a view with one shades a metal as a metal.
+/// ([`metallic_debug`]), so the blue channel takes effect, with reflections on
+/// (`reflection_cube::enabled`) where nif_material.wesl holds the sampled value at 0 in every
+/// view without a reflection cube, or under physical PBR ([`physical_pbr`]), where
+/// `PhysicalIblPlugin` supplies sky/environment IBL.
 pub fn authored_metallic() -> f32 {
-    if view() == PbrView::Metallic || metallic_debug() || crate::reflection_cube::enabled() { 1.0 } else { 0.0 }
+    if view() == PbrView::Metallic || metallic_debug() || crate::reflection_cube::enabled() || physical_pbr() { 1.0 } else { 0.0 }
 }
 
 /// The environment variable of the metallic debug switch ([`metallic_debug`]).
@@ -757,6 +765,88 @@ pub fn metallic_debug() -> bool {
         let on = std::env::var(METALLIC_ENV).is_ok_and(|v| v.trim() == "1");
         if on {
             info!("authored materials: metallic debug switch ({METALLIC_ENV}=1): authored materials are metallic by their ORM's blue channel and keep a metal's ambient highlight");
+        }
+        on
+    })
+}
+
+/// The environment variable of the physical PBR switch ([`physical_pbr`]).
+pub const PHYSICAL_PBR_ENV: &str = "NVF_PHYSICAL_PBR";
+
+static PHYSICAL_PBR: OnceLock<bool> = OnceLock::new();
+
+/// Fix the run's state of the physical PBR switch before shader hooks and IBL initialise.
+pub fn set_physical_pbr(on: bool) {
+    if PHYSICAL_PBR.set(on).is_err() && physical_pbr() != on {
+        warn!("physical PBR: already {} for this run; the setting takes effect at the next start", if physical_pbr() { "on" } else { "off" });
+    }
+}
+
+/// The physical PBR lighting switch (off by default; `NVF_PHYSICAL_PBR=1`, read once at the
+/// start): swaps `Fd_Burley` for trig-free qualitative Oren-Nayar diffuse (with Fresnel
+/// energy coupling), restores full Cook-Torrance GGX Schlick Fresnel in world views,
+/// replaces the display-value diffuse bypass with linear diffuse + ambient lighting, and
+/// keeps Tony McMapface tonemapping active.
+pub fn physical_pbr() -> bool {
+    *PHYSICAL_PBR.get_or_init(|| {
+        let on = std::env::var(PHYSICAL_PBR_ENV).is_ok_and(|v| v.trim() == "1");
+        if on {
+            info!("authored materials: physical PBR switch ({PHYSICAL_PBR_ENV}=1): linear Oren-Nayar diffuse + Cook-Torrance GGX specular with full Schlick Fresnel");
+        }
+        on
+    })
+}
+
+/// The environment variable of the subsurface scattering switch ([`sss_enabled`]).
+pub const SSS_ENV: &str = "NVF_SSS";
+
+static SSS: OnceLock<bool> = OnceLock::new();
+
+/// Fix the run's state of the subsurface scattering switch before shader hooks initialise.
+pub fn set_sss_enabled(on: bool) {
+    if SSS.set(on).is_err() && sss_enabled() != on {
+        warn!("subsurface scattering: already {} for this run; the setting takes effect at the next start", if sss_enabled() { "on" } else { "off" });
+    }
+}
+
+/// The subsurface scattering prototype switch (off by default; `NVF_SSS=1`, read once at
+/// the start): enables pre-integrated skin shading (`NVF_SKIN_SSS`) on skin shapes and
+/// backlit translucency (`NVF_FOLIAGE_SSS`) on grass, tree leaves/billboards, and NIF
+/// plant shapes.
+pub fn sss_enabled() -> bool {
+    *SSS.get_or_init(|| {
+        let on = std::env::var(SSS_ENV).is_ok_and(|v| v.trim() == "1");
+        if on {
+            info!("authored materials: subsurface scattering switch ({SSS_ENV}=1): pre-integrated skin shading + foliage translucency");
+        }
+        on
+    })
+}
+
+/// The environment variable of the screen-space skin scattering switch ([`screen_sss_enabled`]).
+pub const SCREEN_SSS_ENV: &str = "NVF_SSSS";
+
+/// The shader def of a skin shape whose diffuse light the screen-space scattering blurs
+/// (nif_material.rs `specialize`; nvforever sss/screen.rs).
+pub const SKIN_SPLIT_DEF: &str = "NVF_SKIN_SPLIT";
+
+static SCREEN_SSS: OnceLock<bool> = OnceLock::new();
+
+/// Whether `NVF_SSSS` turns the screen-space scattering off: `0`, `off`, `false` or `no`.
+pub fn screen_sss_env_off(value: Option<&str>) -> bool {
+    value.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "no"))
+}
+
+/// Screen-space skin scattering (Jimenez et al. 2015, separable; nvforever sss/screen.rs):
+/// on with subsurface scattering ([`sss_enabled`]) under physical PBR ([`physical_pbr`]),
+/// unless `NVF_SSSS=0` (read once at the start), which keeps the pre-integrated skin of
+/// `NVF_SKIN_SSS` alone. Skin's diffuse light, from every light and the sky, is then blurred
+/// across the skin by the diffusion profile after the opaque pass.
+pub fn screen_sss_enabled() -> bool {
+    *SCREEN_SSS.get_or_init(|| {
+        let on = sss_enabled() && physical_pbr() && !screen_sss_env_off(std::env::var(SCREEN_SSS_ENV).ok().as_deref());
+        if on {
+            info!("authored materials: screen-space skin scattering on (subsurface scattering under physical PBR; {SCREEN_SSS_ENV}=0 turns it off)");
         }
         on
     })
