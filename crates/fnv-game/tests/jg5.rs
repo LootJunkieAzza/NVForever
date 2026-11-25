@@ -315,7 +315,8 @@ fn weapon_and_armor_alt_textures() {
     assert_eq!(forms(&mut g, "GetArmorAltTextures TestArmor 4"), vec![TXST1]);
     assert_eq!(forms(&mut g, "GetArmorAltTextures TestArmor 1"), vec![TXST1], "the other models unchanged");
     assert_eq!(n(&mut g, "SetArmorAltTexture TestArmor 9 5 TestTextures1"), 0.0);
-    // TempCloneForm ARMO and WEAP resolve via unclone with clone isolation [observed: w6d3_26].
+    // TempCloneForm ARMO and WEAP resolve via unclone [observed: w6d3_26];
+    // source-record alt-texture clone isolation is [hypothesis] / [design].
     assert_eq!(
         q(
             &mut g,

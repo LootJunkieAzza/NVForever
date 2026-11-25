@@ -94,7 +94,7 @@
           "requires_fixture": false,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-jg5.md",
-          "spec_line": 25,
+          "spec_line": 24,
           "functions_tested": [
             "GetAltTexturesEx",
             "GetArmorAltTextures"
