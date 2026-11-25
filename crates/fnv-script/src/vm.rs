@@ -3427,8 +3427,11 @@ impl Vm<'_, '_> {
                 Ok(XVal::Str(u8::try_from(code).ok().filter(|c| *c > 0).map(|c| char::from(c).to_string()).unwrap_or_default()))
             }
             // Bits of 32-bit integers [documented: GetBit; SetBit; ClearBit; LeftShift;
-            // RightShift; LogicalAnd; LogicalOr; LogicalXor; LogicalNot]; the shifts are on
-            // the unsigned value [hypothesis].
+            // RightShift; LogicalAnd; LogicalOr; LogicalXor; LogicalNot]. Unsigned u32
+            // shifts/returns on RightShift, LeftShift, LogicalNot, and SetBit and GetBit's
+            // non-negative mod-32 index wrap are [observed: w6d5p2_10b_bitshift_exact];
+            // returning unsigned u32 on ClearBit, LogicalAnd, LogicalOr, and LogicalXor is
+            // [hypothesis].
             "getbit" | "setbit" | "clearbit" | "leftshift" | "rightshift" | "logicaland" | "logicalor" | "logicalxor" => {
                 let a = arg(self, 0)?.num()? as i64 as u32;
                 let b = arg(self, 1)?.num()? as i64;
