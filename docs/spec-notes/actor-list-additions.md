@@ -79,3 +79,6 @@ list as (level, form) pairs in the saved form changes, a level held as 16 bits;
 the Inventory-chain walk used by resurrection stops after 32 steps and at a
 repeated form; the renderer's actor-list copy is updated only for lists whose
 effective definition changed, including removal after a load.
+
+### Level clamping and 16-bit wrapping (`w6d7_35`)
+- **Level edge values accepted** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_35_add_npc_and_creature_to_leveled_list_edges` in `tools/capture/nvse/catalogs/wave6d7_actor_leveled_list_levels.json`]: both `AddNPCToLeveledList` and `AddCreatureToLeveledList` accept `0` (stored as `1`), `65535` (`0xFFFF`, read as `-1` by `GetNthLevItemLevel`), `70000` (wrapped mod `65536` to `4464`), and `-1` (`0xFFFF`, `-1`) (`PROBE|w6d7_35_add_npc_and_creature_to_leveled_list_edges|lvln(n=3->4/5/6/7,lv=1,4464,-1,-1)|lvlc(n=1->2/3/4,lv=1,4464,-1)`).

@@ -139,11 +139,15 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         let (Some(list), Some(actor), Some(XVal::Num(level))) = (form(args, 0), form(args, 1), args.get(2)) else { return Some(Ok(zero)) };
         if g.data.sig(list).as_ref() != Some(list_sig) || !g.data.leveled_actors.contains_key(&list)
             || !matches!(g.data.sig(actor), Some(s) if &s == actor_sig || &s == list_sig)
-            || !level.is_finite() || level.fract() != 0.0 || !(1.0..=f64::from(u16::MAX)).contains(level)
+            || !level.is_finite()
         {
             return Some(Ok(zero));
         }
-        let entry = (*level as u16, actor);
+        // Original FNV clamps level 0 to 1 and wraps out-of-range integer levels to 16 bits
+        // [observed 2026-11-25: w6d7_35_add_npc_and_creature_to_leveled_list_edges:
+        // 0 -> 1, 70000 -> 4464, 65535 -> 65535 (-1 as i16), -1 -> 65535 (-1 as i16)].
+        let wrapped = (*level as i64 as u16).max(1);
+        let entry = (wrapped, actor);
         g.forms.actor_list_additions.entry(list).or_default().push(entry);
         if let Some(l) = g.other.lev_actors.get_mut(&list) {
             l.entries.push((entry.0, actor, 1, None));
@@ -362,7 +366,7 @@ mod actor_addition_tests {
         for name in ["addnpctoleveledlist", "addcreaturetoleveledlist"] {
             let list = if name == "addnpctoleveledlist" { 0x821 } else { 0x831 };
             let actor = if name == "addnpctoleveledlist" { 0x802 } else { 0x812 };
-            for bad in [0.0, -1.0, 1.5, 65536.0, f64::NAN, f64::INFINITY] {
+            for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
                 call(&mut g, name, &[XVal::Ref(list), XVal::Ref(actor), XVal::Num(bad)]).unwrap().unwrap();
             }
             for (bad_list, bad_actor) in [(0, actor), (0x901, actor), (list, 0), (list, 0x901), (list, if actor == 0x802 { 0x812 } else { 0x802 })] {
@@ -372,6 +376,11 @@ mod actor_addition_tests {
         }
         assert!(g.forms.actor_list_additions.is_empty());
         assert!(g.other.lev_actors.is_empty());
+        // Level 0 clamps to 1; 70000 wraps to 4464; 65535 and -1 wrap to 65535 [observed: w6d7_35].
+        for (lvl, want) in [(0.0, 1u16), (65535.0, 65535), (70000.0, 4464), (-1.0, 65535)] {
+            call(&mut g, "addnpctoleveledlist", &[XVal::Ref(0x821), XVal::Ref(0x802), XVal::Num(lvl)]).unwrap().unwrap();
+            assert_eq!(g.forms.actor_list_additions[&FormId(0x821)].last().unwrap().0, want);
+        }
     }
 
     #[test]
