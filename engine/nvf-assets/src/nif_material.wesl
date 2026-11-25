@@ -58,6 +58,10 @@
 // pbr_input_from_standard_material; the rest of the fragment is as for any opaque or
 // blended lit shape.
 //
+// TERRAIN_LAYER (the landscape's own materials, main pass; nif_material.rs "Landscape
+// layers"): the alpha is the layer's painted opacity (vertex alpha x material alpha); the
+// diffuse texture's alpha is left out, as the original leaves it (#3789).
+//
 // PIPBOY_SCREEN (the Pip-Boy's screen with the menus on it, main pass; NifSurface::
 // pipboy_screen): the texel is the menus' picture as `pipboy_picture` makes it (rolled,
 // softened, washed, with noise; NifSurface::pipboy_a, pipboy_b), red stops at a ceiling and
@@ -77,12 +81,13 @@ import bevy_pbr::{
 @if(!PREPASS_PIPELINE) import bevy_pbr::{
     render::forward_io::{VertexOutput, FragmentOutput},
     render::pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
-    render::pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
+    render::pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT, STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT},
     render::pbr_lighting::{EnvBRDFApprox, F_AB},
     render::mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler, fog},
     render::mesh_view_types::FOG_MODE_ATMOSPHERIC,
     render::view_transformations::{position_ndc_to_world, depth_ndc_to_view_z},
 };
+@if(!PREPASS_PIPELINE && BLEND_MULTIPLY && DISTANCE_FOG && NVF_PHYSICAL_PBR) import bevy_pbr::render::pbr_functions::apply_fog;
 @if(!PREPASS_PIPELINE && DEPTH_PREPASS) import bevy_pbr::prepass::utils as prepass_utils;
 @if(!PREPASS_PIPELINE) import bevy_pbr::render::mesh_functions::get_world_from_local;
 @if(!PREPASS_PIPELINE) import nvf_assets::first_person_depth;
@@ -105,7 +110,6 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
 @if(NVF_PBR_VIEW_HEIGHT && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_DEPTH_MAP_BIT;
 @if(NVF_PBR_PARALLAX_MASK && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types as parallax_mask_types;
 @if(MESH_TERRAIN_BLEND) import nvf_assets::nif_surface_bindings::{mesh_terrain_lookup, mesh_terrain_view, mesh_terrain_shading, mesh_terrain_unlit_view, mesh_terrain_diagnostic, mesh_terrain_blend_normal, mesh_terrain_target_colour, mesh_terrain_target_normal, mesh_terrain_face_up, MeshTerrainInputs, LOOKUP_SUCCESS, LAND_ROUGHNESS, LAND_REFLECTANCE};
-@if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
 @if(!NIF_SURFACE_BLEND) import nvf_assets::nif_surface_bindings::{env_cube_texel, env_mask_texel, env_mask_alpha};
 // NVF_PBR_VIEW=reflection (nvf-assets authored.rs `PbrView::Reflection`): the view's cube,
 // read here only by this opted-in fragment (NVF_PBR_REFLECT) in a view that has one.
@@ -554,6 +558,7 @@ const BODY_CLEARANCE: f32 = 24.0;
     unshadowed.flags |= NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT;
     let lit = apply_pbr_lighting(unshadowed);
     let k = (v_lit + share - sun_shadow_value(sun, in, wanted, view_z)) / missing;
+    @if(!NVF_PHYSICAL_PBR)
     if lights.ambient_color.a < 0.0 {
         // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
         // texture × sum^2.2, so its display value (^(1/2.2)) is linear in the shadow
@@ -562,7 +567,9 @@ const BODY_CLEARANCE: f32 = 24.0;
         let shadowed_d = pow(max(shadowed.rgb, vec3(0.0)), vec3(1.0 / 2.2));
         return vec4(pow(max(lit_d - (lit_d - shadowed_d) * k, vec3(0.0)), vec3(2.2)), shadowed.a);
     }
-    return lit - (lit - shadowed) * k;
+    // Physical lighting: linear light, never below black, with the shadowed alpha.
+    @if(NVF_PHYSICAL_PBR) return vec4(max(lit.rgb - (lit.rgb - shadowed.rgb) * k, vec3(0.0)), shadowed.a);
+    @if(!NVF_PHYSICAL_PBR) return lit - (lit - shadowed) * k;
 }
 
 @if(FIRST_PERSON_DEPTH) struct FirstPersonOutput {
@@ -634,6 +641,9 @@ fn nif_fragment(
     }
     @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(vin, is_front);
     @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_standard(vin, is_front, terrain_fp);
+    // A landscape layer's alpha without its texture's (terrain_pbr_standard's is already so).
+    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING) pbr_input.material.base_color.a = standard_material(in.instance_index).base_color.a;
+    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING && VERTEX_COLORS) pbr_input.material.base_color.a *= vin.color.a;
     // An authored set's roughness is its scale (0 to 2, fnv-pbr `ROUGHNESS_SCALE_RANGE`) times
     // the ORM's green, so it can pass 1, which Bevy's sampling does not clamp: F_AB's
     // polynomial then leaves its range and the highlight terms blow up to white patches
@@ -855,33 +865,37 @@ fn nif_fragment(
         out.color = apply_pbr_lighting(pbr_input);
         @if(!PREPASS_PIPELINE && SHADE_LIGHT) out.color = with_shade_light(pbr_input, out.color);
         // Bevy's ambient specular, with the same inputs as in apply_pbr_lighting and
-        // bevy_pbr::ambient::ambient_light (no lightmaps are used here).
-        let m = pbr_input.material;
-        let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
-        let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
-        let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
-        let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
-        var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
-        if lights.ambient_color.a < 0.0 {
-            // A world view (nvforever lights.rs DISPLAY_HELPERS): the highlight Bevy added
-            // took the ambient colour as linear light (`nvf_ambient_ratio`).
-            ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+        // bevy_pbr::ambient::ambient_light (no lightmaps are used here). Not under Physical
+        // lighting, which keeps the physical specular image-based light.
+        @if(!NVF_PHYSICAL_PBR) {
+            let m = pbr_input.material;
+            let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
+            let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+            let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
+            let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
+            var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
+            if lights.ambient_color.a < 0.0 {
+                // A world view (nvforever lights.rs DISPLAY_HELPERS): the highlight Bevy added
+                // took the ambient colour as linear light (`nvf_ambient_ratio`).
+                ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+            }
+            // Removed in full, also from a metal (metallic 1 with reflections on): the reflection
+            // cube's light, where the view has one, takes the highlight's place (#2981 reflections).
+            @if(!NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
+            // NVF_PBR_METALLIC (nvf-assets authored.rs `metallic_debug`, a debug switch, not set
+            // while reflections are on, which retire it): on a
+            // material shaded from an authored set (emissive_rule.w), only the dielectric share
+            // (1 - m) of the highlight is removed, m the sampled metallic after the terrain mix,
+            // so a metal keeps its ambient highlight; m = 0 removes it all, as above. Other
+            // materials remove it all.
+            @if(NVF_PBR_METALLIC) let removed = select(1.0, 1.0 - saturate(m.metallic), surface.emissive_rule.w > 0.5);
+            @if(NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec * removed, vec3(0.0)), out.color.a);
         }
-        // Removed in full, also from a metal (metallic 1 with reflections on): the reflection
-        // cube's light, where the view has one, takes the highlight's place (#2981 reflections).
-        @if(!NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
-        // NVF_PBR_METALLIC (nvf-assets authored.rs `metallic_debug`, a debug switch, not set
-        // while reflections are on, which retire it): on a
-        // material shaded from an authored set (emissive_rule.w), only the dielectric share
-        // (1 - m) of the highlight is removed, m the sampled metallic after the terrain mix,
-        // so a metal keeps its ambient highlight; m = 0 removes it all, as above. Other
-        // materials remove it all.
-        @if(NVF_PBR_METALLIC) let removed = select(1.0, 1.0 - saturate(m.metallic), surface.emissive_rule.w > 0.5);
-        @if(NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec * removed, vec3(0.0)), out.color.a);
         // The lit colour without the hot light, for the environment map's received-light
         // debug switch below.
         @if(!NIF_SURFACE_BLEND) let lit_rgb = out.color.rgb;
-        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY) out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
+        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY && !NVF_PHYSICAL_PBR) out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
+        @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY && NVF_PHYSICAL_PBR) out.color = vec4(out.color.rgb + hot_e, out.color.a);
         // Environment map (nif_material.rs NifSurface::env, env_how; docs/spec-notes/nif.md
         // §6 "Window glass and environment maps", "Environment maps on other shapes"): the
         // cube read in the view direction reflected about the normal, × the scale × the
@@ -950,6 +964,15 @@ fn nif_fragment(
                 let luma_weights = vec3(0.2126, 0.7152, 0.0722);
                 reflection *= saturate(dot(lit_rgb, luma_weights) / max(dot(pbr_input.material.base_color.rgb, luma_weights), 0.02));
             }
+            // Physical lighting: the received light and a Schlick-shaped Fresnel weight
+            // (glass steeper than other shapes) [design, tuned by eye on #3828's branch].
+            @if(NVF_PHYSICAL_PBR) if surface.env_how.z < 0.5 {
+                let luma_w = vec3(0.2126, 0.7152, 0.0722);
+                let recv = clamp(dot(lit_rgb, luma_w) / max(dot(pbr_input.material.base_color.rgb, luma_w), 0.04), 0.02, 1.0);
+                let ndotv = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+                let fresnel_w = select(0.35 + 0.65 * pow(1.0 - ndotv, 3.0), 0.08 + 0.92 * pow(1.0 - ndotv, 4.0), surface.env.y < 0.5);
+                reflection *= recv * fresnel_w;
+            }
             out.color = vec4(out.color.rgb + reflection, out.color.a);
         }
     } else {
@@ -980,10 +1003,24 @@ fn nif_fragment(
         }
     }
     @if(!PREPASS_PIPELINE) out.color = vec4(mix(out.color.rgb, surface.holes_edge.rgb, holes_band), out.color.a);
+    // Physical lighting: a blended unlit colour is scaled before the fog and tonemapping
+    // (the original-look order scales it after them, below).
+    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && NVF_PHYSICAL_PBR) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && NVF_PHYSICAL_PBR) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
+        out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
+    }
     // The colour is a factor, not light: no fog and no tonemapping. Bevy's multiply blend
     // is destination × colour + destination × (1 − alpha), so the colour is premultiplied
-    // as bevy_pbr::pbr_functions::premultiply_alpha does.
-    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) let factor = multiply_factor(out.color.rgb, multiply_emissive);
+    // as bevy_pbr::pbr_functions::premultiply_alpha does. Under Physical lighting the
+    // factor goes towards 1 with the fog's transmittance, so grime and occlusion decals
+    // recede behind fog instead of showing through it.
+    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) var factor = multiply_factor(out.color.rgb, multiply_emissive);
+    @if(!PREPASS_PIPELINE && BLEND_MULTIPLY && DISTANCE_FOG && NVF_PHYSICAL_PBR) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT) != 0u {
+        let fog_black = apply_fog(fog, vec4(0.0, 0.0, 0.0, 1.0), pbr_input.world_position.xyz, view.world_position.xyz, pbr_input.frag_coord.xy).rgb;
+        let fog_white = apply_fog(fog, vec4(1.0, 1.0, 1.0, 1.0), pbr_input.world_position.xyz, view.world_position.xyz, pbr_input.frag_coord.xy).rgb;
+        let transmittance = saturate(fog_white - fog_black);
+        factor = mix(vec3(1.0), factor, transmittance);
+    }
     @if(!PREPASS_PIPELINE && BLEND_MULTIPLY) out.color = vec4(factor * out.color.a, out.color.a);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && BLEND_PREMULTIPLIED_ALPHA) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
         // Additive: fog (and, in views without HDR, the tonemapping) on the colour at
@@ -1013,8 +1050,8 @@ fn nif_fragment(
     // tone maps here when the view has no HDR (the Glow setting off).
     @if(PIPBOY_SCREEN) out.color.r = min(out.color.r, 0.67);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !BLEND_PREMULTIPLIED_ALPHA) out.color = main_pass_post_lighting_processing(pbr_input, out.color);
-    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
+    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !NVF_PHYSICAL_PBR) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+    @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !NVF_PHYSICAL_PBR) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
         out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
     }
     // NifSurface::pipboy_screen: the mark that keeps these pixels out of the image-space grade

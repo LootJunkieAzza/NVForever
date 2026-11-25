@@ -99,11 +99,23 @@ fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
-/// A world point on the screen: X and Y from 0 to 1 (left to right, top to bottom), the
-/// distance ahead of the camera, and whether it is on the screen. Off the screen, handle
+/// Default D3D9 camera clip planes for `WorldToScreen` NDC `zOut`
+/// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528,
+/// 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), `w6_t1_10d_jg_w2s_depth`
+/// (`tools/capture/nvse/catalogs/wave6_t1_jg_camera_w2s.json`): `zOut` matches
+/// `(5000 / (5000 - 5)) * (1 - 5 / d)` to 5 decimal places across `d = 50, 100, 200,
+/// 1000, -100, -200` (`0.90090, 0.95095, 0.97598, 0.99600, 1.05105, 1.02603`);
+/// hypothesis: exterior cells with larger far clip planes use the camera's far plane].
+const W2S_NEAR: f64 = 5.0;
+const W2S_FAR: f64 = 5_000.0;
+
+/// A world point on the screen: X and Y from 0 to 1 (left to right, top to bottom),
+/// D3D9 NDC depth `(far / (far - near)) * (1 - near / z)` (`< 1` in front of the
+/// camera, `> 1` behind it), and whether it is on the screen. Off the screen, handle
 /// type 0 puts it on the edge of the square, 1 on the circle round the centre, 2 leaves it
-/// where the projection put it [documented: WorldToScreen's table]. A point behind the
-/// camera is turned to the front for the edge [hypothesis].
+/// where the projection put it [documented: WorldToScreen's table; observed:
+/// `w6_t1_10b_jg_w2s_paren` and `w6_t1_10d_jg_w2s_depth`,
+/// `docs/spec-notes/ext-jg-nif-camera.md` §2].
 pub fn world_to_screen(v: &CameraView, p: [f32; 3], handle: i64) -> (f64, f64, f64, bool) {
     let [right, ahead, up] = camera_axes(v);
     let rel = [p[0] - v.pos[0], p[1] - v.pos[1], p[2] - v.pos[2]];
@@ -126,7 +138,9 @@ pub fn world_to_screen(v: &CameraView, p: [f32; 3], handle: i64) -> (f64, f64, f
             _ => {}
         }
     }
-    (f64::from((nx + 1.0) / 2.0), f64::from((1.0 - ny) / 2.0), f64::from(z), on)
+    let z_signed = if z >= 0.0 { f64::from(z).max(1e-4) } else { f64::from(z).min(-1e-4) };
+    let z_ndc = (W2S_FAR / (W2S_FAR - W2S_NEAR)) * (1.0 - W2S_NEAR / z_signed);
+    (f64::from((nx + 1.0) / 2.0), f64::from((1.0 - ny) / 2.0), z_ndc, on)
 }
 
 impl Game<'_> {
@@ -288,18 +302,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(1.0)
         }
         // ---- the camera
-        // `x y z worldOrLocal` (the VM writes x, y, z): the camera's place in the world, or
-        // (1) relative to the player in the player's frame, x right, y ahead, z up
+        // `x y z worldOrLocal` (the VM writes x, y, z): the camera's place in the world
+        // (`0`), or its local translation (`1`): `(0, 0, 0)` in first person [observed:
+        // `w6_t1_10a_jg_cam_trans`, `docs/spec-notes/ext-jg-nif-camera.md` §2], and in
+        // third person relative to the player in the player's frame, x right, y ahead, z up
         // [documented: "local or world camera position", the example's 1 local;
-        // hypothesis: the local frame]. 0 0 0 without an engine.
+        // hypothesis: third-person local frame]. 0 0 0 without an engine.
         "getcameratranslation" => {
             let local = num(args, 0, 0.0) != 0.0;
             let Some(v) = g.ui.camera.view else { return Some(Ok(outputs(g, 0.0, &[0.0, 0.0, 0.0]))) };
             let p = if local {
-                let (pp, pr) = g.ref_pos_rot(FormId::PLAYER_REF).unwrap_or(([0.0; 3], [0.0; 3]));
-                let d = [v.pos[0] - pp[0], v.pos[1] - pp[1], v.pos[2] - pp[2]];
-                let (s, c) = pr[2].sin_cos();
-                [d[0] * c - d[1] * s, d[0] * s + d[1] * c, d[2]]
+                if v.first_person {
+                    [0.0; 3]
+                } else {
+                    let (pp, pr) = g.ref_pos_rot(FormId::PLAYER_REF).unwrap_or(([0.0; 3], [0.0; 3]));
+                    let d = [v.pos[0] - pp[0], v.pos[1] - pp[1], v.pos[2] - pp[2]];
+                    let (s, c) = pr[2].sin_cos();
+                    [d[0] * c - d[1] * s, d[0] * s + d[1] * c, d[2]]
+                }
             } else {
                 v.pos
             };
@@ -360,9 +380,19 @@ mod tests {
     #[test]
     fn points_on_the_screen() {
         let v = view();
-        // Straight ahead: the centre.
-        let (x, y, z, on) = world_to_screen(&v, [0.0, 100.0, 0.0], 0);
-        assert!((x - 0.5).abs() < 1e-6 && (y - 0.5).abs() < 1e-6 && (z - 100.0).abs() < 1e-4 && on);
+        // Straight ahead: centre (0.5, 0.5) and D3D9 NDC depth across observed distances
+        // [observed: w6_t1_10d_jg_w2s_depth].
+        for (d, want_z, want_on) in [
+            (50.0, 0.90090, true),
+            (100.0, 0.95095, true),
+            (200.0, 0.97598, true),
+            (1000.0, 0.99600, true),
+            (-100.0, 1.05105, false),
+            (-200.0, 1.02603, false),
+        ] {
+            let (x, y, z, on) = world_to_screen(&v, [0.0, d, 0.0], 2);
+            assert!((x - 0.5).abs() < 1e-6 && (y - 0.5).abs() < 1e-6 && (z - want_z).abs() < 1e-5 && on == want_on, "d={d}: got ({x}, {y}, {z}, {on})");
+        }
         // At 45° right and up with a 90° view: the corner.
         let (x, y, _, on) = world_to_screen(&v, [100.0, 100.0, 100.0], 0);
         assert!((x - 1.0).abs() < 1e-5 && y.abs() < 1e-5 && on);

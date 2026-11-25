@@ -590,7 +590,8 @@ impl Vm<'_, '_> {
     }
 
     /// The regular-expression functions (jip-strings.md §1). The dialect is ECMAScript's
-    /// [hypothesis from ValidateRegex's error kinds]; `fancy-regex` has its groups,
+    /// [observed: `w4c_b1_24_jip_regex` (`wave4c_extenders.json`), see
+    /// docs/spec-notes/jip-strings.md §1]; `fancy-regex` has its groups,
     /// classes and back-references. An invalid pattern is a run-time error [decision: the
     /// original crashes, documented].
     pub(super) fn regex_function(&mut self, n: &str, c: &XCall) -> Result<XVal, VmError> {
@@ -743,8 +744,9 @@ impl Vm<'_, '_> {
     pub(super) fn strmap_function(&mut self, n: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
         let Some(op) = n.strip_prefix("auxstringmaparray") else { return Ok(None) };
         // `0|1`: every temporary (1) or saved (0) map, by name, each as a string map;
-        // no array when there is none [observed: sm.getall.0 none with no saved map,
-        // sm.getall.1 one with one temporary map; hypothesis: the flag picks the store].
+        // no array when there is none [observed: sm.getall.0, sm.getall.1, and
+        // `so_09_auxstrmap_getall_0_vs_1` (`wave4a_extenders.json`), see
+        // docs/spec-notes/ext-unlisted-rest.md §3].
         if op == "getall" {
             let temp = match self.jarg(c, 0)? {
                 Some(v) => v.num()? != 0.0,

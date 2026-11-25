@@ -926,23 +926,22 @@ and is off by default and in both presets [design].
   draw marches once, steep parallax with the relief refinement, as NIF shapes march (the
   vendored `parallaxed_uv`'s relief method: its steps, view vector, tangent frame, signs and
   grazing clamp; "The march" below), over one blended depth: the sum over the layers of share x the layer's own depth x (1 - height),
-  the share the layer's ordered share (painted opacity x the layer diffuse's alpha, laid
-  over the earlier layers as the ordinary blend lays them); the base and a layer without a
+  the share the layer's ordered share (painted opacity, laid
+  over the earlier layers as the ordinary blend lays them; the diffuse's alpha has no part in
+  it, world.md §3 "Landscape layers: the diffuse's alpha"); the base and a layer without a
   height map add no depth (flat at the surface). Then every texture of the quadrant, the
   base's and the layers', diffuse and normal map, is read at the one moved coordinate.
   Flat at the surface rather than mid-height so that the shift falls to nothing as a
   height-mapped layer's share does.
 - [design] **Weights, once.** The base's and the layers' weights are worked out once, at the
-  plain coordinate: the ordered shares of painted opacity x each layer's alpha, and with
-  Terrain height blending on its weights from the same texels (its heights and references
-  as its drawn path takes them). Both the march and the drawn blend use them: a hole in a
-  layer's texture stays where the march saw it (a pixel that starts in a hole of a dirt
-  overlay marches on the gravel under it and is drawn as gravel, not as displaced dirt), a
-  layer the height blend leaves out of a pixel does not move what is drawn there, and where
-  the shift is nothing the blend is the one without parallax. The cheaper of the consistent
-  rules (alpha and heights at every march step would add up to twelve reads a step); the
-  cost is that a hole's outline, and where the height blend lets a layer through, do not
-  move with the relief.
+  plain coordinate: the ordered shares of painted opacity, and with
+  Terrain height blending on its weights from the texels there (its heights and references
+  as its drawn path takes them; without it no texel is read for them). Both the march and the
+  drawn blend use them: a layer the height blend leaves out of a pixel does not move what is
+  drawn there, and where the shift is nothing the blend is the one without parallax. The
+  cheaper of the consistent rules (heights at every march step would add up to twelve reads a
+  step); the cost is that where the height blend lets a layer through does not move with the
+  relief.
 - [design] **Filtering.** Every drawn read (the base's diffuse and normal map, each layer's)
   is made at the moved coordinate with the plain coordinate's screen gradients (one unturned
   tap through the anti-tiling helpers, `parallax_tap`), so the mip level and anisotropy do
@@ -1054,7 +1053,42 @@ and is off by default and in both presets [design].
   blend off, a generic one (the tests `the_capture_refresh_compares_its_inputs`,
   `an_edit_after_a_blend_off_interval_still_remakes_the_capture`,
   `a_generic_edit_remakes_the_capture_even_with_equal_inputs`).
-- [design] **Checking it without a pack.** No data set has ground height maps, so two test
+- [design] **Heights from a ground pack's diffuse alpha** (#3486; asked for after jojokengly's
+  survey there). Ground packs for the original's terrain parallax shaders keep the height map
+  in the landscape diffuse's alpha, as DXT5 (Sandstone Desert: 64 of the 67 LTEX diffuses it
+  replaces; Tale of Two Landscapes 70 of 72 [observed: jojokengly, #3486]), with the specular mask left
+  in the `_n`'s alpha. This is a reader of packs that exist, no part of NVForever's own format:
+  nothing here is promised to pack authors, and it can be taken out without touching the
+  authored path. The rules:
+  - *An authored set always wins.* Where the index knows an active set for the diffuse
+    (authored or height-only; an incomplete one is no set here as elsewhere), the set alone
+    decides (its `_p`, or none), and the alpha is not looked at.
+  - *One height source.* The alpha becomes a BC4 texture at load, its blocks copied without
+    decoding (a DXT5 block's alpha half is laid out as a BC4 block [documented: Microsoft,
+    "Texture Block Compression in Direct3D 11"]), mips included, and goes into the layer's
+    height slot. The shader, the march, the weights and the edges are those above; only the
+    depth differs: 0.03 for every pack (`ALPHA_HEIGHT_DEPTH`; no scalar file sets it).
+  - *Which textures.* A folded layer's diffuse that is DXT5 with sides in multiples of 4 and
+    whose alpha varies by at least 16 of 255 on its largest level of at most 256 texels a side.
+    The diffuses FalloutNV.esm's LTEX records name are opaque DXT1 in the base game's archives
+    [observed: jojokengly, #3486; world.md §3], so nothing is read from them. Other layouts with alpha
+    (DXT3, BC7, uncompressed) are left out and stay flat, one log line for the first. An alpha
+    that means something else would be read wrongly [hypothesis: none seen].
+  - *Only while Terrain parallax is on* (and the run's Authored materials state is): the
+    textures are made when the switch is on, so a player who leaves it off pays nothing. Switched
+    on in a game, the loaded materials take theirs over some frames
+    (`terrain::sync_alpha_heights`: each file is read on the main thread, a few a frame);
+    switched off, they let go at once and the images leave graphics memory with the texture
+    cache's usual grace (five minutes, sooner when memory runs short). On, each such layer
+    costs half a byte a texel of graphics memory and a third more for the mips (a 2048 square
+    one 2.7 MiB), and its file is read once more (not when it was read ahead).
+  - *Not read:* a loose `textures\landscape\<name>_p.dds` beside the diffuse (most belong to
+    rock and rubble meshes [observed: jojokengly, #3486]).
+  - *Log:* `terrain: first folded material with heights from diffuse alphas: n of m layers`,
+    the count of materials and textures at each doubling, and at each switch how many of both. Smoke: `terrain-alpha-height`.
+- [design] **Checking it without a pack.** (`NVF_PLAY_TEST_PBR_GROUND_PACK=alpha` adds a flat
+  diffuse with a checkerboard alpha for each texture, for #3789: world.md §3.) No data set has
+  ground height maps, so two test
   aids stand in for a pack. `NVF_PLAY_TEST_PBR_GROUND_PACK=1`
   (`engine/nvf-assets/src/pbr_field/ground.rs`, the list from nvforever terrain.rs
   `ground_pack_diffuses`) writes a height-only set for every landscape texture the load
@@ -1073,8 +1107,7 @@ and is off by default and in both presets [design].
   `unsettled`, ...). With a pose it first finds its own spot near the player: the nearest
   landscape vertex where the folded layers with height maps make up nearly all of what shows
   (terrain.rs `CellCover`: the cell's stitched layers in drawing order, the folded material's
-  height-map bits, the layers past the folded ones drawn over them; each layer texture's alpha
-  taken as 1), with the physics' landscape under it and a grazing line of sight to it, and
+  height-map bits, the layers past the folded ones drawn over them), with the physics' landscape under it and a grazing line of sight to it, and
   stands the player there. Before the first shot it logs what the centre's physics ray meets
   and the share there the march would move; under half is `bare`, so a view on a quadrant's
   base, on layers drawn over the folded ones or on a placed object never passes as "still".
@@ -1101,7 +1134,7 @@ and is off by default and in both presets [design].
   engineering policy set from those numbers with margins (the grazing change would pass at
   three times its correlation, the head-on one at about twice its change):
   `terrain_parallax_ab.rs`. The cover under the centre is an estimate (the meshes'
-  interpolation of the painted opacities on the stored triangles, layer alpha taken as 1,
+  interpolation of the painted opacities on the stored triangles,
   layers the renderer leaves out skipped), so its limit (half) leaves a margin; the spot
   itself is chosen at vertices, where no interpolation enters.
 - **Not done in stage 1** (owed): a passing run of the two ground-pack scenarios; the

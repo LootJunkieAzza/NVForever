@@ -16,9 +16,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The volumes a new player starts with, 0-100, in GetGameVolume's order (master,
 /// footsteps, voice, effects, music, radio) [observed: the original's GetGameVolume on an
 /// install left at its defaults, 60 50 60 100 50 for music, footsteps, voice, effects and
-/// radio (engine `audio_out::DEFAULT_VOLUMES`); master 100]. SetGameVolume without a level
-/// goes back to these [hypothesis: the page's "the value defined in the game's INI file",
-/// Fallout_default.ini's fDefault…Volume, which these are].
+/// radio (engine `audio_out::DEFAULT_VOLUMES`); master 100]. SetGameVolume with a
+/// negative or omitted level goes back to these [observed: `b3_jip9_02_game_volume_neg_and_default`
+/// (`wave4b_extenders.json`) and `w4c_a04_set_game_volume_gt100` (`wave4c_extenders.json`),
+/// see docs/spec-notes/jip-ui-9.md §2].
 pub const DEFAULT_VOLUMES: [f32; 6] = [100.0, 50.0, 60.0, 100.0, 60.0, 50.0];
 
 /// What this batch keeps for the session; none of it is saved [hypothesis: the pages
@@ -205,8 +206,10 @@ impl Game<'_> {
 }
 
 /// The form type code of a base form's record type, for SetInteractionDisabledType: the
-/// numbering GetIsUsedItemType and RemoveAllTypedItems take, with NPC_ 42 and CREA 43
-/// [hypothesis: the same numbering continued, as `functions::furniture` has it].
+/// numbering GetIsUsedItemType and RemoveAllTypedItems take, with NPC_ 42 [observed:
+/// `jip_46_interaction_disabled_type_npc` (`wave4a_extenders.json`), see
+/// docs/spec-notes/jip-ui-9.md §3] and CREA 43 [hypothesis: the same numbering continued,
+/// as `functions::furniture` has it].
 pub fn type_code(sig: &[u8; 4]) -> Option<i32> {
     match sig {
         b"NPC_" => Some(42),

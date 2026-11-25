@@ -65,7 +65,8 @@
 //! Two things besides: the
 //! colours are rewritten only when `SkyState::changed` (the sky's half-minute steps), the
 //! illuminance every frame; and by night the "sun" light is the weather's night Sunlight
-//! colour from the opposite direction (sky.rs:2282), which the night gate declines.
+//! colour from the opposite direction (sky.rs:2282): the moon's light, drawn where the climate has a
+//! moon ([`air_source`]) with the moon's constants ([`MoonTune`]).
 //!
 //! The phase is two Henyey-Greenstein lobes [documented: Henyey and Greenstein 1941, "Diffuse
 //! radiation in the galaxy", Astrophysical Journal 93; Bauer 2019, slides 29-31 for mixing
@@ -1067,6 +1068,46 @@ pub fn day_by_aim(elevation_degrees: f32) -> bool {
     elevation_degrees > 0.0
 }
 
+/// What the light in the air is lit by this frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AirSource {
+    /// The sun, above the horizon.
+    Sun,
+    /// The moon: the sun at or under the horizon, in a climate with a moon.
+    Moon,
+    /// Nothing: night in a climate without a moon, or an elevation that is not a number.
+    None,
+}
+
+impl AirSource {
+    /// What lights the air, in the "on" line.
+    fn lit_by(self) -> &'static str {
+        match self {
+            AirSource::Sun => "lit by the sun",
+            AirSource::Moon => "lit by the moon",
+            AirSource::None => "lit by nothing",
+        }
+    }
+
+    /// The share's name in the "on" line.
+    fn share_name(self) -> &'static str {
+        if self == AirSource::Moon { "moonlit share" } else { "sunlit share" }
+    }
+}
+
+/// The light's source from the elevation that aimed the light ([`day_by_aim`]) and whether the climate has
+/// a moon (`Climate::has_moon`). At exactly 0 the light's strength, so the share, is 0 (sky.rs `aim_sun`),
+/// and the source changes there: the change itself cannot show [design].
+pub fn air_source(elevation_degrees: f32, has_moon: bool) -> AirSource {
+    if day_by_aim(elevation_degrees) {
+        AirSource::Sun
+    } else if elevation_degrees <= 0.0 && has_moon {
+        AirSource::Moon
+    } else {
+        AirSource::None
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Aids and the tune file
 // ---------------------------------------------------------------------------------------------
@@ -1246,6 +1287,57 @@ pub fn debug_walk(value: Option<&str>) -> AirWalkAid {
     }
 }
 
+/// What the strength is multiplied by in moonlight ([`MoonTune::strength`]) [design: the starting value, to be
+/// set with pictures].
+pub const MOON_STRENGTH: f32 = 1.0;
+
+/// The light's constants in moonlight where they are not the day's ([`AirTune::lit_by`]): each `None` is the
+/// day's value, a tune file's included (`MOON_RAYS` and so on) [design].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MoonTune {
+    /// `MOON_STRENGTH`: the factor on the strength, 0..=2; the product is held to the strength's range.
+    pub strength: f32,
+    /// `MOON_RAYS`, `MOON_LIFT`, `MOON_SHADE`, `MOON_G`, `MOON_CAP`, `MOON_SKY`, `MOON_SKYPHASE`: in the
+    /// ranges of the day's.
+    pub rays: Option<f32>,
+    pub lift: Option<f32>,
+    pub shade: Option<f32>,
+    pub g: Option<f32>,
+    pub cap: Option<f32>,
+    pub sky_weight: Option<f32>,
+    pub sky_phase: Option<f32>,
+}
+
+impl MoonTune {
+    /// The day's values, unchanged.
+    pub const DAY: MoonTune = MoonTune { strength: 1.0, rays: None, lift: None, shade: None, g: None, cap: None, sky_weight: None, sky_phase: None };
+    /// The moonlight's start values.
+    pub const START: MoonTune = MoonTune {
+        strength: MOON_STRENGTH,
+        rays: Some(8.0),
+        lift: Some(1.6),
+        shade: Some(0.4),
+        g: Some(0.7),
+        cap: Some(3.0),
+        sky_weight: Some(0.3),
+        sky_phase: Some(0.15),
+    };
+
+    /// The values by their tune keys, in their order.
+    fn named(&self) -> [(&'static str, Option<f32>); 8] {
+        [
+            ("MOON_STRENGTH", Some(self.strength)),
+            ("MOON_RAYS", self.rays),
+            ("MOON_LIFT", self.lift),
+            ("MOON_SHADE", self.shade),
+            ("MOON_G", self.g),
+            ("MOON_CAP", self.cap),
+            ("MOON_SKY", self.sky_weight),
+            ("MOON_SKYPHASE", self.sky_phase),
+        ]
+    }
+}
+
 /// The look's constants, from the start aids and then the tune file
 /// (`NVF_PLAY_DEBUG_MEDIUM_LIGHT_TUNE`, read at most every 0.5 s by the GPU half) [design].
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1301,6 +1393,8 @@ pub struct AirTune {
     /// The grid's columns, rows and slices when asked (`GRID`, or the start aid
     /// `NVF_PLAY_DEBUG_MEDIUM_LIGHT_GRID`); held by [`AirGrid::for_view`].
     pub grid: Option<[u32; 3]>,
+    /// The moonlight's own values ([`AirTune::lit_by`]).
+    pub moon: MoonTune,
 }
 
 impl Default for AirTune {
@@ -1332,6 +1426,7 @@ impl Default for AirTune {
             view: AirView::None,
             occluders: AirOccluders::All,
             grid: None,
+            moon: MoonTune::START,
         }
     }
 }
@@ -1356,6 +1451,27 @@ impl AirTune {
         AirTune { strength, ..self }
     }
 
+    /// The constants the light is drawn with under `source`: these by the sun; by the moon its values in their
+    /// place (its strength a factor on this one's, held to the strength's range). The result's own moon values
+    /// are the day's: used up by night, out of the way of the log by day.
+    pub fn lit_by(self, source: AirSource) -> AirTune {
+        let day = AirTune { moon: MoonTune::DAY, ..self };
+        if source != AirSource::Moon {
+            return day;
+        }
+        let m = self.moon;
+        AirTune {
+            g: m.g.unwrap_or(day.g),
+            cap: m.cap.unwrap_or(day.cap),
+            sky_weight: m.sky_weight.unwrap_or(day.sky_weight),
+            sky_phase: m.sky_phase.unwrap_or(day.sky_phase),
+            rays: m.rays.unwrap_or(day.rays),
+            lift: m.lift.unwrap_or(day.lift),
+            shade: m.shade.unwrap_or(day.shade),
+            ..day.with_strength(day.strength * m.strength)
+        }
+    }
+
     /// The phase these constants give.
     pub fn phase(&self) -> AirPhase {
         AirPhase { g: self.g, back_g: self.back_g, back_weight: self.back_weight, cap: self.cap }
@@ -1364,10 +1480,12 @@ impl AirTune {
     /// A `NAME=value` file over `base`: one per line, `#` starts a comment, blank lines
     /// skipped, names case-insensitive (`STRENGTH`, `SHARE`, `G`, `BACK`, `BACKWEIGHT`, `CAP`,
     /// `DEPTH`, `GRID` (`<x>,<y>,<z>`), `SKY`, `SKYPHASE`, `RAYS`, `FLOOR`, `REF`, `LIFT`,
-    /// `SHADE`, `SAMPLES` (a whole number), `FILTER` (0 or 1), `VIEW`, `OCCLUDERS`).
+    /// `SHADE`, `SAMPLES` (a whole number), `FILTER` (0 or 1), `VIEW`, `OCCLUDERS`; the moonlight's
+    /// `MOON_STRENGTH`, `MOON_RAYS`, `MOON_LIFT`, `MOON_SHADE`, `MOON_G`, `MOON_CAP`, `MOON_SKY`,
+    /// `MOON_SKYPHASE`).
     /// Unknown names and unreadable or non-finite values are ignored (the base value kept);
     /// every value is held to its field's range. `SHARE`, `DEPTH`, `GRID` and `REF` take `auto`
-    /// to clear the override.
+    /// to clear the override, the moonlight's keys but its strength to take the day's value.
     #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
     pub fn parse(text: &str, base: &AirTune) -> AirTune {
         let mut t = *base;
@@ -1377,6 +1495,7 @@ impl AirTune {
             let value = value.trim();
             let auto = value.eq_ignore_ascii_case("auto");
             let num = number(value);
+            let moon = |was: Option<f32>, lo: f32, hi: f32| if auto { None } else { num.map(|v| v.clamp(lo, hi)).or(was) };
             match name.trim().to_ascii_uppercase().as_str() {
                 "STRENGTH" => t.strength = num.map_or(t.strength, |v| v.clamp(AIR_STRENGTHS.0, AIR_STRENGTHS.1)),
                 "SHARE" if auto => t.share = None,
@@ -1399,6 +1518,14 @@ impl AirTune {
                 "SHADE" => t.shade = num.map_or(t.shade, |v| v.clamp(0.0, 1.0)),
                 "SAMPLES" => t.samples = num.map_or(t.samples, |v| v.round().clamp(1.0, 8.0) as u32),
                 "FILTER" => t.filter = num.map_or(t.filter, |v| v >= 0.5),
+                "MOON_STRENGTH" => t.moon.strength = num.map_or(t.moon.strength, |v| v.clamp(AIR_STRENGTHS.0, AIR_STRENGTHS.1)),
+                "MOON_RAYS" => t.moon.rays = moon(t.moon.rays, 0.0, 8.0),
+                "MOON_LIFT" => t.moon.lift = moon(t.moon.lift, 1.0, 3.0),
+                "MOON_SHADE" => t.moon.shade = moon(t.moon.shade, 0.0, 1.0),
+                "MOON_G" => t.moon.g = moon(t.moon.g, 0.0, 0.95),
+                "MOON_CAP" => t.moon.cap = moon(t.moon.cap, 1.0, 8.0),
+                "MOON_SKY" => t.moon.sky_weight = moon(t.moon.sky_weight, 0.0, 1.0),
+                "MOON_SKYPHASE" => t.moon.sky_phase = moon(t.moon.sky_phase, 0.0, 1.0),
                 "VIEW" => t.view = AirView::named(value).unwrap_or(t.view),
                 "OCCLUDERS" => t.occluders = AirOccluders::named(value).unwrap_or(t.occluders),
                 _ => {}
@@ -1415,7 +1542,8 @@ pub fn tune_changed(a: &AirTune, b: &AirTune) -> bool {
     let bits = |t: &AirTune| {
         [t.strength, t.share.unwrap_or(f32::NAN), t.g, t.back_g, t.back_weight, t.cap, t.depth.unwrap_or(f32::NAN), t.sky_weight, t.sky_phase, t.rays, t.floor, t.reference.unwrap_or(f32::NAN), t.lift, t.shade].map(f32::to_bits)
     };
-    bits(a) != bits(b) || a.share.is_some() != b.share.is_some() || a.depth.is_some() != b.depth.is_some() || a.view != b.view || a.occluders != b.occluders || a.grid != b.grid || a.samples != b.samples || a.filter != b.filter || a.reference.is_some() != b.reference.is_some()
+    let moon = |t: &AirTune| t.moon.named().map(|(_, v)| v.map(f32::to_bits));
+    bits(a) != bits(b) || moon(a) != moon(b) || a.share.is_some() != b.share.is_some() || a.depth.is_some() != b.depth.is_some() || a.view != b.view || a.occluders != b.occluders || a.grid != b.grid || a.samples != b.samples || a.filter != b.filter || a.reference.is_some() != b.reference.is_some()
 }
 
 /// The changed keys of `b` against `a`, as `NAME=value` in the tune file's spelling and
@@ -1465,6 +1593,11 @@ pub fn tune_diff(a: &AirTune, b: &AirTune) -> String {
     }
     if a.filter != b.filter {
         parts.push(format!("FILTER={}", u8::from(b.filter)));
+    }
+    for ((name, x), (_, y)) in a.moon.named().into_iter().zip(b.moon.named()) {
+        if x.map(f32::to_bits) != y.map(f32::to_bits) {
+            parts.push(format!("{name}={}", optional(y)));
+        }
     }
     if parts.is_empty() { "nothing".to_string() } else { parts.join(" ") }
 }
@@ -1556,8 +1689,8 @@ impl TuneFollower {
 // The gate and the log
 // ---------------------------------------------------------------------------------------------
 
-/// Why the light is not drawn (only the outdoor display-value fog by day is handled in
-/// S3-1; everything else is shown the plain way) [design].
+/// Why the light is not drawn (only the outdoor display-value fog under the sun or a moon is
+/// handled; everything else is shown the plain way) [design].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AirOff {
     Indoors,
@@ -1579,7 +1712,7 @@ impl AirOff {
             AirOff::NoSun => "no sun light",
             AirOff::UnusableFog => "the weather's fog cannot be read (no fog, far not beyond near, power or strength not above 0)",
             AirOff::LinearBlend => "the fog does not blend in display values",
-            AirOff::Night => "night (the direct light is the night light)",
+            AirOff::Night => "night, and the climate has no moon",
             AirOff::NoStrength => "the strength is 0",
             AirOff::NoShare => "the sunlit share is 0",
         }
@@ -1599,8 +1732,8 @@ pub struct AirGateInput {
     pub fog: AirFog,
     /// The fog blends in display values (fog.rs `bi.x > 0.5`).
     pub display_blend: bool,
-    /// The sun is above the horizon (the direct light is the sun, not the night light).
-    pub day: bool,
+    /// What the air is lit by ([`air_source`]).
+    pub source: AirSource,
     /// The strength k ([`applied_scale`]): at 0 the light changes no pixel, so it is not drawn.
     pub strength: f32,
     /// The effective share a ([`effective_share`]).
@@ -1608,9 +1741,9 @@ pub struct AirGateInput {
 }
 
 /// The light's gate, checked in this order: indoors, under water, no sun light, an
-/// unusable fog, a blend not in display values, night, a strength not above 0, a share not
-/// above 0 (NaN included in both).
-pub fn gate(input: &AirGateInput) -> Result<(), AirOff> {
+/// unusable fog, a blend not in display values, nothing to be lit by (night without a moon), a strength not above 0, a share not
+/// above 0 (NaN included in both). Open, it names the source.
+pub fn gate(input: &AirGateInput) -> Result<AirSource, AirOff> {
     if input.interior {
         Err(AirOff::Indoors)
     } else if input.submerged {
@@ -1621,14 +1754,14 @@ pub fn gate(input: &AirGateInput) -> Result<(), AirOff> {
         Err(AirOff::UnusableFog)
     } else if !input.display_blend {
         Err(AirOff::LinearBlend)
-    } else if !input.day {
+    } else if input.source == AirSource::None {
         Err(AirOff::Night)
     } else if input.strength.is_nan() || input.strength <= 0.0 {
         Err(AirOff::NoStrength)
     } else if input.share.is_nan() || input.share <= 0.0 {
         Err(AirOff::NoShare)
     } else {
-        Ok(())
+        Ok(input.source)
     }
 }
 
@@ -1703,8 +1836,8 @@ pub fn on_bounds(grid: &AirGrid, phase: &NormedPhase, s: f32, tune: &AirTune, fo
 /// The log line when the light first draws, again when a tune change alters its figures
 /// (medium_air_light.rs, [`tune_changed`]) and when its bounds moved ([`bounds_moved`], looked
 /// at every [`BOUND_RELOG_SECONDS`]):
-/// `volumetric medium: light in the air on: grid <x>x<y>x<z> to <d> units, phase g <g>, cap <c>,
-/// sunlit share <s>, strength <k>, near pixels at most +<near> x the fog colour, far pixels at
+/// `volumetric medium: light in the air on: grid <x>x<y>x<z> to <d> units, lit by the sun | lit by
+/// the moon, phase g <g>, cap <c>, sunlit share | moonlit share <s>, strength <k>, near pixels at most +<near> x the fog colour, far pixels at
 /// most +<far> x mix(fog colour, pixel, t), sky at most x<1 + sky> (display values; a snapshot
 /// for this weather, hour and view), sky <w>, sky phase <q>, rays <r>, floor <f>, ref <v> (set)
 /// | ref auto, lift <l>, shade <h>`; s is the share used (the tune's `SHARE` when set), the
@@ -1714,7 +1847,7 @@ pub fn on_bounds(grid: &AirGrid, phase: &NormedPhase, s: f32, tune: &AirTune, fo
 /// (The game computes the bounds once and calls [`on_line_with`]; this form is the tests'.)
 #[cfg(test)]
 pub fn on_line(grid: &AirGrid, phase: &NormedPhase, s: f32, tune: &AirTune, fog: AirFog, corner: f32) -> String {
-    on_line_with(grid, phase, s, tune, &on_bounds(grid, phase, s, tune, fog, corner))
+    on_line_with(grid, phase, s, tune, AirSource::Sun, &on_bounds(grid, phase, s, tune, fog, corner))
 }
 
 /// An "at most" figure rounded **up** to the line's three places (2.75044
@@ -1727,21 +1860,24 @@ pub fn round_up_3(v: f32) -> f32 {
 }
 
 /// [`on_line`] with the bounds already computed (medium_air_light.rs computes them once for
-/// the line and for the next comparison); the bounds printed rounded up ([`round_up_3`]).
-pub fn on_line_with(grid: &AirGrid, phase: &NormedPhase, s: f32, tune: &AirTune, b: &ViewBounds) -> String {
+/// the line and for the next comparison); the bounds printed rounded up ([`round_up_3`]). `tune` is the
+/// one drawn with under `source` ([`AirTune::lit_by`]).
+pub fn on_line_with(grid: &AirGrid, phase: &NormedPhase, s: f32, tune: &AirTune, source: AirSource, b: &ViewBounds) -> String {
     let used = tune.share.unwrap_or(s);
     // With REF=auto the reference is the clouds' mean transmittance, known on the render side
     // only: the render side's line `volumetric medium: light in the air: cloud shadow in use
     // (..., mean transmittance <m>, ...)` (medium_air_grid.rs) is where a reader finds it.
     let reference = tune.reference.map_or("ref auto".to_string(), |r| format!("ref {r} (set)"));
     format!(
-        "volumetric medium: light in the air on: grid {}x{}x{} to {:.0} units, phase g {}, cap {}, sunlit share {used:.2}, strength {}, near pixels at most +{:.3} x the fog colour, far pixels at most +{:.3} x mix(fog colour, pixel, t), sky at most x{:.3} (display values; a snapshot for this weather, hour and view), sky {}, sky phase {}, rays {}, floor {}, {reference}, lift {}, shade {}",
+        "volumetric medium: light in the air on: grid {}x{}x{} to {:.0} units, {}, phase g {}, cap {}, {} {used:.2}, strength {}, near pixels at most +{:.3} x the fog colour, far pixels at most +{:.3} x mix(fog colour, pixel, t), sky at most x{:.3} (display values; a snapshot for this weather, hour and view), sky {}, sky phase {}, rays {}, floor {}, {reference}, lift {}, shade {}",
         grid.nx,
         grid.ny,
         grid.nz,
         grid.depth,
+        source.lit_by(),
         phase.phase.g,
         phase.phase.cap,
+        source.share_name(),
         tune.strength,
         round_up_3(b.near),
         round_up_3(b.far),
@@ -1761,23 +1897,24 @@ pub fn on_line_with(grid: &AirGrid, phase: &NormedPhase, s: f32, tune: &AirTune,
 pub const OFF_HOLD_SECONDS: f64 = 0.5;
 
 /// The gate's log: "on" at once when the gate opens; an off reason only once it has held for
-/// [`OFF_HOLD_SECONDS`]; nothing while the answer is the one last logged [design].
+/// [`OFF_HOLD_SECONDS`]; nothing while the answer is the one last logged (another source is another
+/// answer) [design].
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct GateLog {
-    logged: Option<Result<(), AirOff>>,
+    logged: Option<Result<AirSource, AirOff>>,
     /// An off reason not yet logged and since when it holds.
     pending: Option<(AirOff, f64)>,
 }
 
 impl GateLog {
     /// This frame's answer at real time `now`: what to log, if anything.
-    pub fn step(&mut self, answer: Result<(), AirOff>, now: f64) -> Option<Result<(), AirOff>> {
+    pub fn step(&mut self, answer: Result<AirSource, AirOff>, now: f64) -> Option<Result<AirSource, AirOff>> {
         match answer {
-            Ok(()) => {
+            Ok(source) => {
                 self.pending = None;
-                (self.logged != Some(Ok(()))).then(|| {
-                    self.logged = Some(Ok(()));
-                    Ok(())
+                (self.logged != Some(Ok(source))).then(|| {
+                    self.logged = Some(Ok(source));
+                    Ok(source)
                 })
             }
             Err(off) => {
@@ -2643,6 +2780,14 @@ mod tests {
             AirTune { view: AirView::Delta, ..a },
             AirTune { occluders: AirOccluders::Terrain, ..a },
             AirTune { grid: Some([80, 44, 32]), ..a },
+            AirTune { moon: MoonTune { strength: a.moon.strength + 0.1, ..a.moon }, ..a },
+            AirTune { moon: MoonTune { rays: Some(3.5), ..a.moon }, ..a },
+            AirTune { moon: MoonTune { lift: Some(1.45), ..a.moon }, ..a },
+            AirTune { moon: MoonTune { shade: Some(0.95), ..a.moon }, ..a },
+            AirTune { moon: MoonTune { g: Some(0.55), ..a.moon }, ..a },
+            AirTune { moon: MoonTune { cap: Some(1.55), ..a.moon }, ..a },
+            AirTune { moon: MoonTune { sky_weight: Some(0.255), ..a.moon }, ..a },
+            AirTune { moon: MoonTune { sky_phase: Some(0.05), ..a.moon }, ..a },
         ];
         for b in changed {
             assert!(tune_changed(&a, &b), "{b:?}");
@@ -2716,8 +2861,9 @@ mod tests {
 
     #[test]
     fn the_gate_names_the_first_reason() {
-        let ok = AirGateInput { interior: false, submerged: false, sun: true, fog: CLEAR, display_blend: true, day: true, strength: 1.0, share: 0.4 };
-        assert_eq!(gate(&ok), Ok(()));
+        let ok = AirGateInput { interior: false, submerged: false, sun: true, fog: CLEAR, display_blend: true, source: AirSource::Sun, strength: 1.0, share: 0.4 };
+        assert_eq!(gate(&ok), Ok(AirSource::Sun));
+        assert_eq!(gate(&AirGateInput { source: AirSource::Moon, ..ok }), Ok(AirSource::Moon));
         let cases = [
             (AirGateInput { interior: true, ..ok }, AirOff::Indoors),
             (AirGateInput { submerged: true, ..ok }, AirOff::UnderWater),
@@ -2725,22 +2871,25 @@ mod tests {
             (AirGateInput { fog: AirFog { strength: 0.0, ..CLEAR }, ..ok }, AirOff::UnusableFog),
             (AirGateInput { fog: AirFog { near: f32::NAN, ..CLEAR }, ..ok }, AirOff::UnusableFog),
             (AirGateInput { display_blend: false, ..ok }, AirOff::LinearBlend),
-            (AirGateInput { day: false, ..ok }, AirOff::Night),
+            (AirGateInput { source: AirSource::None, ..ok }, AirOff::Night),
+            (AirGateInput { source: AirSource::Moon, share: 0.0, ..ok }, AirOff::NoShare),
+            (AirGateInput { source: AirSource::Moon, interior: true, ..ok }, AirOff::Indoors),
             (AirGateInput { strength: 0.0, ..ok }, AirOff::NoStrength),
             (AirGateInput { strength: f32::NAN, ..ok }, AirOff::NoStrength),
             (AirGateInput { share: 0.0, ..ok }, AirOff::NoShare),
             (AirGateInput { share: f32::NAN, ..ok }, AirOff::NoShare),
             // Strength 0 is named before a zero share, after night.
             (AirGateInput { strength: 0.0, share: 0.0, ..ok }, AirOff::NoStrength),
-            (AirGateInput { day: false, strength: 0.0, ..ok }, AirOff::Night),
+            (AirGateInput { source: AirSource::None, strength: 0.0, ..ok }, AirOff::Night),
             // The order: indoors before everything, night before a zero share.
-            (AirGateInput { interior: true, submerged: true, day: false, share: 0.0, ..ok }, AirOff::Indoors),
-            (AirGateInput { day: false, share: 0.0, ..ok }, AirOff::Night),
+            (AirGateInput { interior: true, submerged: true, source: AirSource::None, share: 0.0, ..ok }, AirOff::Indoors),
+            (AirGateInput { source: AirSource::None, share: 0.0, ..ok }, AirOff::Night),
         ];
         for (input, off) in cases {
             assert_eq!(gate(&input), Err(off), "{input:?}");
             assert!(!off.reason().is_empty());
         }
+        assert_eq!(AirOff::Night.reason(), "night, and the climate has no moon");
     }
 
     #[test]
@@ -2755,7 +2904,7 @@ mod tests {
         let line = on_line(&g, &phase, 0.5, &tune, fog, 1.0);
         assert_eq!(
             line,
-            "volumetric medium: light in the air on: grid 160x88x64 to 12000 units, phase g 0.6, cap 2.5, sunlit share 0.50, strength 1, near pixels at most +0.255 x the fog colour, far pixels at most +0.255 x mix(fog colour, pixel, t), sky at most x1.024 (display values; a snapshot for this weather, hour and view), sky 0.5, sky phase 0, rays 6, floor 1, ref auto, lift 1.5, shade 0.9"
+            "volumetric medium: light in the air on: grid 160x88x64 to 12000 units, lit by the sun, phase g 0.6, cap 2.5, sunlit share 0.50, strength 1, near pixels at most +0.255 x the fog colour, far pixels at most +0.255 x mix(fog colour, pixel, t), sky at most x1.024 (display values; a snapshot for this weather, hour and view), sky 0.5, sky phase 0, rays 6, floor 1, ref auto, lift 1.5, shade 0.9"
         );
         // A far fog: DEPTH 12,000, fog from 15,000 to 18,000: nothing on the centre
         // ray, but the corner ray of a 75 degree field at 16:9 (proj_y 1 / tan 37.5 = 1.30323,
@@ -3050,14 +3199,99 @@ mod tests {
         assert!(!day_by_aim(0.0) && !day_by_aim(-0.01) && !day_by_aim(-60.0) && !day_by_aim(f32::NAN));
     }
 
+    /// The source: the sun above the horizon whatever the climate, the moon at and under it where the climate
+    /// has one, nothing otherwise and for an elevation that is not a number.
+    #[test]
+    fn the_air_is_lit_by_the_sun_the_moon_or_nothing() {
+        for has_moon in [false, true] {
+            for e in [0.01f32, 4.0, 90.0] {
+                assert_eq!(air_source(e, has_moon), AirSource::Sun);
+            }
+            for e in [0.0f32, -0.0, -0.01, -60.0] {
+                assert_eq!(air_source(e, has_moon), if has_moon { AirSource::Moon } else { AirSource::None }, "{e}");
+            }
+            assert_eq!(air_source(f32::NAN, has_moon), AirSource::None);
+        }
+    }
+
+    /// The moon's values: the day's constants (a tune file's included) unless set, the strength a factor held to
+    /// the strength's range; the sun's constants and what is packed of them bit for bit what they are without them.
+    #[test]
+    fn the_moonlight_has_its_own_values() {
+        assert_eq!((AirTune::default().moon, MoonTune::START.strength), (MoonTune::START, MOON_STRENGTH));
+        let start = AirTune { moon: MoonTune::DAY, ..AirTune::start(1.0, AirView::None, AirOccluders::All, None) };
+        let day = AirTune::parse("G=0.4\nRAYS=2", &start);
+        // With nothing set the moonlight is drawn with the day's.
+        for source in [AirSource::Sun, AirSource::Moon, AirSource::None] {
+            assert_eq!(day.lit_by(source), day);
+        }
+        let text = "MOON_STRENGTH=0.5\nMOON_RAYS=6\nmoon_lift=2\nMOON_SHADE=0.7\nMOON_G=0.8\nMOON_CAP=8\nMOON_SKY=1\nMOON_SKYPHASE=1";
+        let t = AirTune::parse(text, &day);
+        // By the sun: the day's, the same bits packed, whatever the moon's values.
+        let grid = grid_at(48_000.0);
+        let packed = |t: &AirTune| pack(&grid, CLEAR, &t.phase().normed(), t, 0.4);
+        for source in [AirSource::Sun, AirSource::None] {
+            assert_eq!(t.lit_by(source), day);
+            assert_eq!(packed(&t.lit_by(source)), packed(&day));
+        }
+        let m = t.lit_by(AirSource::Moon);
+        assert_eq!((m.strength, m.rays, m.lift, m.shade, m.g, m.cap, m.sky_weight, m.sky_phase), (0.5, 6.0, 2.0, 0.7, 0.8, 8.0, 1.0, 1.0));
+        assert_eq!((m.floor, m.samples, m.share, m.reference, m.depth, m.grid, m.view), (day.floor, day.samples, day.share, day.reference, day.depth, day.grid, day.view));
+        assert_eq!(m.lit_by(AirSource::Moon), m, "used once");
+        // The slider and the moon's factor multiply, held to 2.
+        assert_eq!(AirTune { strength: 1.5, ..t }.lit_by(AirSource::Moon).strength, 0.75);
+        assert_eq!(AirTune::parse("MOON_STRENGTH=2", &day.with_strength(2.0)).lit_by(AirSource::Moon).strength, 2.0);
+        assert_eq!(AirTune::parse("MOON_STRENGTH=0", &day).lit_by(AirSource::Moon).strength, 0.0);
+        // Ranges, `auto`, unreadable values, the change's words.
+        let held = AirTune::parse("MOON_STRENGTH=9\nMOON_RAYS=99\nMOON_LIFT=0\nMOON_SHADE=-1\nMOON_G=-1\nMOON_CAP=99\nMOON_SKY=7\nMOON_SKYPHASE=7", &day).moon;
+        assert_eq!(held, MoonTune { strength: 2.0, rays: Some(8.0), lift: Some(1.0), shade: Some(0.0), g: Some(0.0), cap: Some(8.0), sky_weight: Some(1.0), sky_phase: Some(1.0) });
+        assert_eq!(AirTune::parse("MOON_RAYS=auto\nMOON_G=dark\nMOON_STRENGTH=auto", &t).moon, MoonTune { rays: None, ..t.moon });
+        assert_eq!(tune_diff(&day, &AirTune::parse("MOON_STRENGTH=0.5\nMOON_CAP=8", &day)), "MOON_STRENGTH=0.5 MOON_CAP=8");
+        assert_eq!(tune_diff(&t, &AirTune::parse("MOON_G=auto", &t)), "MOON_G=auto");
+        // The line's words.
+        let phase = m.phase().normed();
+        let line = on_line_with(&grid, &phase, 0.37, &m, AirSource::Moon, &on_bounds(&grid, &phase, 0.37, &m, CLEAR, 1.0));
+        assert!(line.contains(" units, lit by the moon, phase g 0.8, cap 8, moonlit share 0.37, strength 0.5, "), "{line}");
+    }
+
+    /// A halo round the moon can be had in the sky and on far land: with the moon's phase on the sky
+    /// (MOON_SKYPHASE, MOON_SKY, MOON_G, MOON_CAP) an open ray at the moon gains about as much again as the
+    /// sky's own light there, and near nothing well away from it; with the day's values (SKYPHASE 0) an open ray's
+    /// sky is left alone in every direction.
+    #[test]
+    fn a_halo_round_the_moon_is_in_the_keys_reach() {
+        let day = AirTune { moon: MoonTune::DAY, ..AirTune::start(1.0, AirView::None, AirOccluders::All, None) };
+        let moon = AirTune::parse("MOON_G=0.8\nMOON_CAP=8\nMOON_SKY=1\nMOON_SKYPHASE=1", &day).lit_by(AirSource::Moon);
+        // A clear night's order of share and fog at the grid's end, an open ray.
+        let sky = |t: &AirTune, degrees: f32, blend: f32| {
+            let p = phase_floor(t.phase().normed().phase(degrees.to_radians().cos()), t.floor);
+            blended_correction(1.0, p, t.sky_phase, applied_scale(t.strength, 0.37), 0.42, t.sky_weight, blend)
+        };
+        for blend in [1.0, 0.5] {
+            let at_moon = sky(&moon, 0.0, blend);
+            assert!(at_moon > 0.9, "{blend}: {at_moon}");
+            let mut last = at_moon;
+            for d in (5..=180).step_by(5) {
+                let now = sky(&moon, d as f32, blend);
+                assert!(now <= last + 1e-5 && now >= 0.0, "{blend}, {d}: {now}");
+                last = now;
+            }
+            assert!(sky(&moon, 45.0, blend) < 0.2 * at_moon, "{}", sky(&moon, 45.0, blend));
+        }
+        for d in [0.0, 20.0, 90.0] {
+            assert_eq!(sky(&day.lit_by(AirSource::Moon), d, 1.0), 0.0);
+        }
+    }
+
     #[test]
     fn the_gate_log_holds_off_reasons() {
         let mut log = GateLog::default();
         // At start: the fog not yet patched for 0.2 s, then on: no off line at all.
         assert_eq!(log.step(Err(AirOff::LinearBlend), 0.0), None);
         assert_eq!(log.step(Err(AirOff::LinearBlend), 0.2), None);
-        assert_eq!(log.step(Ok(()), 0.25), Some(Ok(())));
-        assert_eq!(log.step(Ok(()), 0.3), None);
+        let (sun, moon) = (Ok(AirSource::Sun), Ok(AirSource::Moon));
+        assert_eq!(log.step(sun, 0.25), Some(sun));
+        assert_eq!(log.step(sun, 0.3), None);
         // An off reason that holds 0.5 s is logged once.
         assert_eq!(log.step(Err(AirOff::Night), 10.0), None);
         assert_eq!(log.step(Err(AirOff::Night), 10.4), None);
@@ -3067,7 +3301,12 @@ mod tests {
         assert_eq!(log.step(Err(AirOff::NoShare), 12.0), None);
         assert_eq!(log.step(Err(AirOff::Indoors), 12.3), None);
         assert_eq!(log.step(Err(AirOff::Indoors), 12.8), Some(Err(AirOff::Indoors)));
-        assert_eq!(log.step(Ok(()), 13.0), Some(Ok(())));
+        assert_eq!(log.step(sun, 13.0), Some(sun));
+        // Another source is said at once, through the frame at the horizon whose share is 0.
+        assert_eq!(log.step(Err(AirOff::NoShare), 13.1), None);
+        assert_eq!(log.step(moon, 13.2), Some(moon));
+        assert_eq!(log.step(moon, 13.3), None);
+        assert_eq!(log.step(sun, 20.0), Some(sun));
     }
 
     /// RAYS amplifies the shadow's depth but keeps every bound: Vbar_c = clamp(1 - k (1 -

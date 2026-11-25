@@ -1204,12 +1204,12 @@ below cover them all.
 
 ### `volumetric-light`: Volumetric light (experimental)
 
-- On the page: On: sunlight shows in the air as rays and a glow toward a low sun, shaded by
-  hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of
-  NVForever's.
+- On the page: On: sunlight and moonlight show in the air as rays and a glow toward a low
+  sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An
+  addition of NVForever's.
 - While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
-  it draws). A prototype. Outdoors by day
-  only, in the main view only. Off in every preset; not in the original.
+  it draws). A prototype. Outdoors only, by the sun by day and by
+  the moon at night (nothing at night in a climate without one), in the main view only. Off in every preset; not in the original.
 - Greyed, and not drawn, while Physical lighting is on (its saved value is kept).
 - Command-line switches: `--graphics-only`
 - More: docs/design/volumetric-medium.md
@@ -1234,7 +1234,9 @@ below cover them all.
   start: the row changes the next start's lighting. Off by default and in every preset;
   the original's display-value lighting stays the default look. It does not work with the
   volumetric rows yet: while it is on, Volumetric clouds, Volumetric light and its strength
-  are greyed and do not run (their saved values are kept).
+  are greyed and do not run (their saved values are kept). With a material pack and
+  Reflections on authored materials, the pack's materials keep their reflections and other
+  surfaces take flat ambient light in place of the sky's.
 - Command-line switches: `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.25
 
@@ -1462,11 +1464,15 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   count as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
   collision, the mesh terrain blend and the distant landscape keep the plain surface, and
   so do layers drawn on their own (GPUs without bindless textures; a texture repeat that
-  does not divide the cell). Needs Authored materials: in the game, as this run has it
+  does not divide the cell). A layer whose texture has no set takes the height from its
+  diffuse's alpha where that is a varying DXT5 alpha, as the ground packs for the original's
+  terrain parallax shaders have it (depth 0.03; read only while the switch is on, over some
+  frames when it is switched on in a game). Needs
+  Authored materials: in the game, as this run has it
   (greyed until a restart when it was off at the start; still available after turning it
   off for the next start); in the launcher, as saved. The original draws no relief on its
   landscape [observed: the maintainer's run of observer check 268, 2026-11-22, by eye], so this
-  is an enhancement that acts only with an authored ground pack. Off by
+  is an enhancement that acts only with a ground pack. Off by
   default and in both presets until its cost is measured (the maintainer's call); switches
   at once, no restart.
 - Command-line switches: `--graphics-only` (`--graphics-only terrain-parallax`)

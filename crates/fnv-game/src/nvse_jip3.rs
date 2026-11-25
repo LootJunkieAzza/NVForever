@@ -283,15 +283,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let p = g.top_menu().and_then(|c| g.menu_picks(c).selected);
             pick_val(g, p)
         }
-        // `quest seconds`: the quest's script runs after `seconds` more (0: next frame)
-        // [documented: SetDelayElapsed; hypothesis: it returns the seconds given].
+        // `quest seconds`: the quest's script runs after `seconds` more (0: next frame);
+        // returns `0` (not `seconds`) [documented: SetDelayElapsed; observed 2026-11-24:
+        // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 10 official base
+        // masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging copy
+        // (read-only `PrintToConsole` probe; zero writes to game install or Saves),
+        // committed probe `w6t2_31_xnvse_items_ammo_rounds_and_ingrid`
+        // (`tools/capture/nvse/catalogs/wave6_t2_set_delay_elapsed.json`):
+        // `PROBE|w6t2_31_xnvse_items_ammo_rounds_and_ingrid|ammo(u=0,0=0,5=0)|grid(def=1,0=1)|del=0.00|tf(ref=0,arg=0)`;
+        // zero DLL, PDB, or third-party source consulted].
         "setdelayelapsed" => {
             let Some(q) = form(args, 0) else { return Some(Ok(zero)) };
             let secs = num(args, 1, 0.0).max(0.0);
             let delay = g.quests.get(&q).and_then(|s| s.delay).or_else(|| g.data.quests.get(&q).map(|d| d.script_delay())).unwrap_or(0.0);
             let s = g.quest(q);
             s.since_run = (delay - secs).max(0.0);
-            XVal::Num(secs)
+            zero
         }
         // Request that the engine rebuild the open item/recipe menu's displayed rows on
         // the next UI sync without closing the menu [documented: RefreshItemsList].

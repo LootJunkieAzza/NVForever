@@ -733,9 +733,10 @@ pub fn key_eligible(key: &str) -> bool {
 /// channel is the per-texel value the view shows, under the metallic debug switch
 /// ([`metallic_debug`]), so the blue channel takes effect, and with reflections on
 /// (`reflection_cube::enabled`), where nif_material.wesl holds the sampled value at 0 in every
-/// view without a reflection cube, so only a view with one shades a metal as a metal.
+/// view without a reflection cube, so only a view with one shades a metal as a metal; and
+/// under Physical lighting ([`physical_pbr`]), whose sky image-based light every view has.
 pub fn authored_metallic() -> f32 {
-    if view() == PbrView::Metallic || metallic_debug() || crate::reflection_cube::enabled() { 1.0 } else { 0.0 }
+    if view() == PbrView::Metallic || metallic_debug() || crate::reflection_cube::enabled() || physical_pbr() { 1.0 } else { 0.0 }
 }
 
 /// The environment variable of the metallic debug switch ([`metallic_debug`]).
