@@ -38,27 +38,17 @@ gap-aware text and the actual glyph advances, retaining exact spaced expectation
 Production is unchanged. Current validation results are recorded in PR #2914;
 native and installed-mod behavior remain unqualified.
 
-## Wave 6D-11 read-only GMST and INI getter baselines
+## Wave 6D-11 read-only GMST getter baselines
 
 - **GMST string and numeric getters (`xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730)`):**
-  `GetStringGameSetting` and `GetStringSetting` match case-insensitively (`"sYes"` / `"syes"`
-  -> `"Yes"`), return empty string for missing or numeric-prefixed names, and
-  `GetNumericGameSetting` returns exact integer/float values (`iAVDCarryWeightBase = 40`,
-  `fJumpHeightMin = 64`) and `-1` for missing or `s`-prefixed string GMSTs
+  `GetStringSetting` and `GetStringGameSetting` match case-insensitively (`"sYes"` / `"syes"`
+  -> `"Yes"`), return empty string for missing (`"sNoSuchGMST_W6D11"`) or numeric-prefixed
+  (`"iCrimeGoldAttack"`) names, and `GetNumericGameSetting` returns exact integer/float values
+  (`iCrimeGoldAttack = 40`, `fJumpHeightMin` / `fjumpheightmin = 64`) and `-1` for missing
+  (`"fNoSuchGMST_W6D11"`) or `s`-prefixed string (`"sYes"`) GMSTs
   [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
   xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole`
   probe `w6d11_33_gmst_string_and_numeric_getters_readonly`
   (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
   `yes(lu=[Yes],nv=[Yes],lo=[Yes]/[Yes])|mis(lu=0,nv=0)|xStr(lu=0,nv=0)|num(i=40,f=64,lo=64,mis=-1,str=-1)`;
-  no DLL or source consulted].
-- **INI read-only getters (`xNVSE 6.4.9 + ShowOffNVSE Plugin 184 + JIP LN NVSE 57.30 (5730)`):**
-  `GetNumericINISetting` (`-1` on missing / no-colon / string setting), `GetStringINISetting`
-  (`"ENGLISH"` for `"General:sLanguage"`), `GetINIFloat`/`GetINIString`/`GetINISection`/
-  `GetINISectionNames` on missing files, and ShowOff `HasINISetting`/`GetINIFloatOrCreate`/
-  `GetINIStringOrCreate` defaults confirmed
-  [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
-  xNVSE 6.4.9 + ShowOffNVSE Plugin 184 + JIP LN NVSE 57.30 (5730), 10 official base masters,
-  read-only `PrintToConsole` probe `w6d11_34_ini_getters_readonly_xnvse_lu_showoff`
-  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
-  `nvse(g=5:5,nc=-1,ms=-1,sn=-1,lang=[ENGLISH],f1L=39)|hlp(mis=2,numAsS=2)|lu(f=0,nc=0,sL=0,sec=0,nms=0)|so(has=0,f=42.5,s=[dflt])`;
   no DLL or source consulted].

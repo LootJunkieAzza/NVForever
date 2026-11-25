@@ -317,25 +317,16 @@ commands that touch the menus, the sky or the minimap ran one per launch].
   reference). NVForever hands them to SetContainerSound.
 - **RefMapArraySetValue** `name value key` (alias RefMapSetVal) answers `0` and expects its
   value argument wrapped as a 1-element array (`ar_List 77` — passing a bare scalar `5`
-  earlier produced the denormal readback `2.1e-310`); when given `ar_List 77`, `RefMapGetType`
-  reports `1` (float), `RefMapGetVal` returns a 1-element list holding `77`, `RefMapSetFlt`/
-  `RefMapSetStr`/`RefMapSetRef` return `0`, and `RefMapErase`/`RefMapDestroy`/`RefMapValidate`
-  match (`RefMapDestroy` returns `0`, `RefMapValidate` returns remaining key count)
-  [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
-  xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole`
-  probes `w6d11_38_refmap_set_get_types_null_and_setval` (`set(f=0,s=0,r=0,sz=3,cs=3.5)|typ(1,4,2,m=0,wrg=0,ov=0:t4)|nul(v=0:t4,k=0,sz=3)|val(s=0:t1,g=1:77,b=1,m=-1)`)
-  and `w6d11_39_refmap_iter_keys_getall_erase_validate` (`ord(00000014,0000000F,00104C0F)|it(pre=-1,p0=2:00000014,p2=2,end=-1)|ga(st=2,t=[StringMap],sz=1,has=1)|er(val=4,m=0,h=3,d1=0,d2=0)`)
-  in `tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`; no DLL or
-  source consulted]. Auxiliary variable basic setter/getter/type/null-owner/empty-array
-  baselines also confirmed (`AuxVarSetFromArr` with an empty list is a no-op returning `0`
-  leaving size unchanged) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
-  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base
-  masters, read-only `PrintToConsole` probes `w6d11_35_auxvar_set_get_types_neg_oob_and_null`
-  (`set(0=1,m1=1,eq=1,g=0,m2=1,sz=4)|typ(1,4,2,m1=1,m2=1,99=0)|wrg(f=0,sL=0,r=1)|nul(n=0:z0,ov=0:t1:f1.5)|ovr(1:t4)|noOwn(s=0,g=0,z=0)`)
-  and `w6d11_37_auxvar_asarray_and_setfromarr_edges`
-  (`mis(sz=-1)|lst(r=3,bk=3,t=1/4/2)|map(r=2,sz=2,0=[a])|sm(r=2,0=2)|nst(r=3,sz=3,t1=1)|emp(r=0,sz=3)|nul=0`)
-  in `tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`; no DLL or
-  source consulted].
+  earlier gave `RefMapArrayGetValue` a one-element list whose element read back as a denormal
+  float `2.1e-310`). With `ar_List 77`, `RefMapSetVal` returns `0`, `RefMapGetType` reports
+  `1` (float), and `RefMapGetVal` returns a 1-element list holding `77` (a 1-element list on
+  an existing string key, or `ar_Null` size `-1` on a null key) [observed: 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+  JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe
+  `w6d11_38_refmap_set_get_types_null_and_setval`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `val(s=0:t1,g=1:77,b=1,m=-1)`; no DLL or source consulted]. NVForever keeps the value as
+  given and lists it.
 - **HasActionRef**: takes 0 arguments (1-argument calls fail to compile) and returns `1`
   for references with active action/interaction state rather than unconditionally for every
   actor (`rest5.hasactionref.doc` observed `1` on sitting Doc Mitchell;
