@@ -44,7 +44,6 @@
           "spec_line": 58,
           "functions_tested": [
             "WeaponHasModType",
-            "EquippedWeaponHasModType",
             "GetWeaponItemMod",
             "GetWeaponItemModEffect",
             "GetWeaponItemModValue1",
