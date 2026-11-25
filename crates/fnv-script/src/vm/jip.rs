@@ -75,6 +75,10 @@ fn kind_of(op: &str) -> char {
     op.as_bytes().get(3).map_or('f', |b| *b as char)
 }
 
+#[cfg(test)]
+#[path = "w6d11_ar_cat_tests.rs"]
+mod w6d11_ar_cat_tests;
+
 /// Drop an emptied variable, and an owner left with none.
 fn prune(s: &mut JipStores, owner: u32, name: &str) {
     if let Some(m) = s.aux.get_mut(&owner) {
@@ -189,7 +193,16 @@ impl Vm<'_, '_> {
                 let id = |v: &XVal| if let XVal::Array(i) = v { Some(*i).filter(|&i| i != 0) } else { None };
                 let (Some(ia), Some(ib)) = (id(&a), id(&b)) else { return num(0.0) };
                 let store = self.store()?;
-                let list = store.array(ia).is_some_and(|x| x.kind == ArrayKind::List);
+                let (Some(ka), Some(kb)) = (store.array(ia).map(|x| x.kind), store.array(ib).map(|x| x.kind)) else {
+                    return num(0.0);
+                };
+                // Cross-kind concatenation is a no-op, and StringMap key collisions are
+                // case-insensitive [observed: `w6d11_19_ar_cat_jip_lists_maps_smap_case_and_cross`,
+                // `smap(a0=1,sz0=3,a1=99)|cross(st=2,sz=2)`].
+                if ka != kb {
+                    return num(0.0);
+                }
+                let list = ka == ArrayKind::List;
                 let mut len = store.array(ia).map_or(0, |x| x.entries.len());
                 let add: Vec<(XKey, XVal)> = store.array(ib).map(|x| x.entries.clone()).unwrap_or_default();
                 let have: Vec<XKey> = store.array(ia).map(|x| x.entries.iter().map(|(k, _)| k.clone()).collect()).unwrap_or_default();
@@ -197,7 +210,7 @@ impl Vm<'_, '_> {
                     if list {
                         self.set_element(&a, &XVal::Num(len as f64), v)?;
                         len += 1;
-                    } else if replace || !have.contains(&k) {
+                    } else if replace || !have.iter().any(|h| h.cmp(&k) == std::cmp::Ordering::Equal) {
                         self.set_element(&a, &k.value(), v)?;
                     }
                 }
