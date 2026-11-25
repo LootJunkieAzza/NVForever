@@ -230,13 +230,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // LU `flag [actorBase]`: a Template Data flag (1 Traits … 512 Script). Given a base
-        // as the argument it reads 0, with or without a calling reference; on a reference,
-        // its base's ACBS template flags when the base has a template (TPLT) [documented:
-        // GetActorTemplateFlag; observed: jip3a, six bases as the argument all 0; jip3b,
-        // a placed PowderGangerVault19TEMPLATE reads 942 on the reference (its base is one
-        // the game made, not the record, whose flags are 128) and 0 with the base given;
-        // hypothesis: references placed from the plugins read their record's flags].
+        // LU `flag [actorBase]`: Template Data flags (1 Traits … 512 Script; ACBS template_flags)
+        // [documented: GetActorTemplateFlag]. Resolves explicit `actorBase` or calling reference
+        // to its `NPC_`/`CREA` base without requiring an authored `TPLT`, returning 1 when any
+        // bit of `flag` is set [observed: `w6d2_28_actor_template_setters_and_flags`,
+        // `w6d2p2_51_actor_template_flag_mask3` in
+        // `tools/capture/nvse/catalogs/wave6d2_actor_template_flag_base_and_mask.json`; prior
+        // evidence preserved: `jip3a` saw 0 on six bases passed as the argument and `jip3b` saw
+        // 942 on a placed PowderGangerVault19TEMPLATE reference whose runtime base differed from
+        // the record's 128 vs 0 with that base given]. Returning 0 for `mask <= 0` is [design] /
+        // [hypothesis] (unprobed boundary).
         "getactortemplateflag" => {
             let Some(b) = form(args, 1).or(subject).map(|r| crate::functions::base_of(g, r).unwrap_or(r)) else { return Some(Ok(zero)) };
             if !matches!(g.data.sig(g.unclone(b)).as_ref(), Some(b"NPC_" | b"CREA")) {

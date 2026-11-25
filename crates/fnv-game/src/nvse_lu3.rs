@@ -231,9 +231,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // `flag state [actorBase]`: a Template Data flag, 1 Use Traits … 512 Use Script
-        // [documented: the page's table; ACBS template_flags]. One flag of the table at a
-        // time [hypothesis: the IDs are single bits].
+        // `flag state [actorBase]`: ACBS `template_flags` bits 1 Use Traits … 512 Use Script,
+        // accepting single bits or multi-bit masks [documented: the page's table; ACBS
+        // template_flags; observed: `w6d2_28_actor_template_setters_and_flags`,
+        // `w6d2p2_51_actor_template_flag_mask3`]. Clamping to `1..=0x3FF` (ignoring `raw <= 0`
+        // or bits outside `0x3FF`) is [design] / [hypothesis] (unprobed outside `1..=3` and
+        // the documented `1..=512` bit table).
         "setactortemplateflag" => {
             let raw = num(args, 0, 0.0) as i64;
             if let Some(a) = form(args, 2).or(subject).map(|f| base(g, f)).filter(|&a| of_sig(g, a, &[b"NPC_", b"CREA"])) {
