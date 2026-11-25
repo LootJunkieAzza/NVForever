@@ -43,12 +43,15 @@ impl Game<'_> {
     }
 }
 
-/// SetZoneOwner's and session SetZoneFlag bit-1 (`nvse_lutana`) changes to a zone
+/// SetZoneOwner's and session SetZoneFlag (`nvse_lutana`) changes to a zone
 /// (`min_level` and `match_pc_below_min` live on `fnv_sim::World` / `WorldSession`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ZoneChange {
     pub owner: Option<FormId>,
     pub never_resets: Option<bool>,
+    /// Mask of overridden ECZN DATA flag bits outside bits 0..=1 (`extra_flag_bits` holds values).
+    pub extra_flag_mask: u8,
+    pub extra_flag_bits: u8,
 }
 
 /// The functions of this file; `None` for any other name.

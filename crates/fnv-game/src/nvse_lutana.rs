@@ -559,12 +559,22 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let c = subject.and_then(|r| g.cell_of(r));
             reff(c.and_then(|c| crate::nvse_jg5::cell_zone(g, c)))
         }
-        // `zone flag`: 1 Never Resets, 2 Match PC Below Minimum Level [documented: the
-        // pages' table]; 1 when any bit of `flag` is set [observed: lutana1
-        // zone.flag.vault11zone.3].
+        // `zone flag`: 1 Never Resets, 2 Match PC Below Minimum Level, plus full u8 flag
+        // byte storage for higher bits like 4 [documented: the pages' table; observed:
+        // lutana1 zone.flag.vault11zone.3; observed: Fallout: New Vegas 1.4.0.525
+        // (040020D0) + xNVSE 6.4.9 + AnhNVSE 131 + ShowOffNVSE Plugin 184 + JIP LN NVSE
+        // 57.30 (5730) + JohnnyGuitarNVSE 528, 2026-11-25,
+        // `w6d10_11_encounter_zone_getinzone_cell_ref_and_flags`: `fl(1,0,b4=0->1)`].
         "getzoneflag" => {
-            let (Some(d), Some(bit)) = (form(args, 0).and_then(|z| g.zone(z)), num(args, 1).map(|b| b as i64 as u8)) else { return Some(Ok(zero)) };
-            let flags = u8::from(d.never_resets) | u8::from(d.match_pc_below_min) << 1;
+            let (Some(z), Some(bit)) = (form(args, 0), num(args, 1).map(|b| b as i64 as u8)) else { return Some(Ok(zero)) };
+            let Some(d) = g.zone(z) else { return Some(Ok(zero)) };
+            let base_flags = crate::nvse::record_value(g, z, "DATA", "flags")
+                .and_then(|v| v.num().ok())
+                .map_or(0u8, |x| x as u8);
+            let mut flags = (base_flags & !3u8) | u8::from(d.never_resets) | (u8::from(d.match_pc_below_min) << 1);
+            if let Some(c) = g.other.zone_changes.get(&z) {
+                flags = (flags & !c.extra_flag_mask) | (c.extra_flag_bits & c.extra_flag_mask);
+            }
             yes(flags & bit != 0)
         }
         // `zone flag on`: read wherever the zone's flags are read through `Game::zone`.
@@ -576,6 +586,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 }
                 if bit & 2 != 0 {
                     g.world.set_zone_match_level(z, on);
+                }
+                let extra = bit & !3u8;
+                if extra != 0 {
+                    let c = g.other.zone_changes.entry(z).or_default();
+                    c.extra_flag_mask |= extra;
+                    if on {
+                        c.extra_flag_bits |= extra;
+                    } else {
+                        c.extra_flag_bits &= !extra;
+                    }
                 }
             }
             zero
@@ -886,3 +906,7 @@ fn set_playable(g: &mut Game, f: FormId, on: bool) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+#[path = "w6d10_zone_flag_tests.rs"]
+mod w6d10_zone_flag_tests;
