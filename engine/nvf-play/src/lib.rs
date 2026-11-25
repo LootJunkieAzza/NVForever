@@ -407,16 +407,25 @@ pub struct OpenContainer {
 /// `restored`: sent by a load for a reference as the save has it, not for anything that
 /// happened now. Visuals and collision follow it all the same; what reads a change as a
 /// deed of this moment (`crate::crime`, `crate::world_sounds`) must not.
+///
+/// `taker`: an actor other than the player that picked the reference up (a script's
+/// `ref.Activate actor`, #3918), when known; such a pick-up is not the player's theft.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct RefChanged {
     pub form_id: u32,
     pub restored: bool,
+    pub taker: Option<u32>,
 }
 
 impl RefChanged {
     /// A change happening now.
     pub fn new(form_id: u32) -> RefChanged {
-        RefChanged { form_id, restored: false }
+        RefChanged { form_id, restored: false, taker: None }
+    }
+
+    /// A load's change: the reference as the save has it.
+    pub fn restored(form_id: u32) -> RefChanged {
+        RefChanged { form_id, restored: true, taker: None }
     }
 }
 

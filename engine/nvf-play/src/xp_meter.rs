@@ -394,16 +394,23 @@ fn level_up(
         note_wait(&mut waiting, reason);
         return;
     }
-    if *state.get() != PlayState::Playing || !view.shown || rt.game.in_menu() {
+    // Each hold says once why it holds (#3882: a level-up that never came, with none of
+    // the other reasons logged).
+    if let Some(why) = held_before_sound(*state.get(), &view, &rt.game) {
+        note_wait(&mut waiting, Some(why));
         return;
     }
     let Some(since) = since_sound.as_mut() else {
         // When No XP Meter in Combat defers showing the gain in `watch`, hold the
         // level-up sound too so it waits for the deferred XP bar to fill [design].
         if tweaks.as_ref().is_some_and(|t| t.no_xp_meter_in_combat) && crate::hud::sneak_now(&rt.game) == crate::hud::Sneak::Danger {
+            note_wait(&mut waiting, Some("the player is in a fight (the No XP Meter in Combat tweak)".to_string()));
             return;
         }
-        if meter.level_up_filled() || meter.idle() {
+        if !(meter.level_up_filled() || meter.idle()) {
+            note_wait(&mut waiting, Some("the XP meter is still filling".to_string()));
+        } else {
+            info!("xp: level up sound; the menu follows after {LEVEL_UP_DELAY:.1} s of play once nothing holds it");
             // The player's tweak: every so many levels another sound [design: docs/design/tweaks.md].
             let next = rt.game.player_level() as u32 + 1;
             let own = tweaks.as_deref().and_then(|t| alternate_level_sound(next, (t.level_sound_every_a as u32, &t.level_sound_a), (t.level_sound_every_b as u32, &t.level_sound_b)));
@@ -442,6 +449,24 @@ fn level_up(
     *since_sound = None;
     let (level, max) = with_world(rt, &mut sim, |rt| (experience::level_up(&mut rt.game), experience::max_level(&rt.game)));
     info!("xp: level up taken: level {level} (cap {max})");
+}
+
+/// What keeps an earned level-up from going on at all this frame: not in play, the HUD
+/// hidden (and why), or a menu or a conversation open (which one).
+fn held_before_sound(state: PlayState, view: &HudView, g: &fnv_game::Game) -> Option<String> {
+    if state != PlayState::Playing {
+        return Some(format!("the game is not in play ({state:?})"));
+    }
+    if !view.shown {
+        return Some(format!("the HUD is hidden: {}", view.hidden.unwrap_or("for no reason given")));
+    }
+    if let Some(c) = &g.dialogue {
+        return Some(format!("a conversation is open (with {})", c.actor));
+    }
+    if let Some(m) = g.menu {
+        return Some(format!("menu {m} is open"));
+    }
+    None
 }
 
 /// What still keeps an earned level-up's menu shut once its delay has run, with nothing
@@ -665,6 +690,23 @@ mod tests {
         assert_eq!(last.as_deref(), Some("a"));
         note_wait(&mut last, None);
         assert_eq!(last, None, "nothing waits: the next wait is logged again");
+    }
+
+    /// #3882: a level-up held before its sound says why: out of play, the HUD hidden (and
+    /// why), or a menu open (which).
+    #[test]
+    fn a_hold_before_the_level_up_sound_names_itself() {
+        let mut script = ScriptState::over_no_plugins();
+        let g = &mut script.rt.as_mut().unwrap().game;
+        let shown = HudView { shown: true, ..default() };
+        assert_eq!(held_before_sound(PlayState::Playing, &shown, g), None);
+        assert!(held_before_sound(PlayState::Dialogue, &shown, g).is_some_and(|w| w.contains("not in play")));
+        let hidden = HudView { shown: false, hidden: Some("the weapon wheel is open"), ..default() };
+        assert_eq!(held_before_sound(PlayState::Playing, &hidden, g).as_deref(), Some("the HUD is hidden: the weapon wheel is open"));
+        g.open_menu(1002);
+        assert_eq!(held_before_sound(PlayState::Playing, &shown, g).as_deref(), Some("menu 1002 is open"));
+        g.close_menu();
+        assert_eq!(held_before_sound(PlayState::Playing, &shown, g), None);
     }
 
     #[test]
