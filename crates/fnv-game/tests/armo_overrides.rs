@@ -383,3 +383,14 @@ fn temp_clone_form_armo_is_isolated_in_both_directions_and_equippable() {
     );
     assert_eq!(g.body_armor(FormId::PLAYER_REF), Some((2.0, ArmorClass::Heavy)), "detection::body_armor reads cloned torso armor overrides");
 }
+
+#[test]
+fn armor_with_zero_equipment_slots_mask_cannot_be_equipped() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    g.world.add_item(p, FormId(ARMOR_A), 1).unwrap();
+    q(&mut g, "SetEquipmentSlotsMask 0 TestArmorA");
+    assert!(matches!(g.world.equip(p, FormId(ARMOR_A)), Err(fnv_sim::world::SimError::NotEquippable(_))));
+    assert!(!g.world.peek(p).unwrap().inventory.as_ref().unwrap().is_equipped(FormId(ARMOR_A)));
+}

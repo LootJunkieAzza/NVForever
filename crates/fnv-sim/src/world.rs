@@ -1713,6 +1713,11 @@ impl<'a> World<'a> {
         if !matches!(it.kind, ItemKind::Weapon | ItemKind::Armor) {
             return Err(SimError::NotEquippable(item));
         }
+        // Armour with a zero biped slots mask (e.g. SetEquipmentSlotsMask 0) cannot be
+        // equipped [observed 2026-11-25: w6d7p2_31_set_equipment_slots_mask_settled].
+        if it.kind == ItemKind::Armor && self.effective_slots(item).unwrap_or(0) == 0 {
+            return Err(SimError::NotEquippable(item));
+        }
         // A live unit (a planted explosive, `Extra::live`) is not the actor's to equip.
         if inv.free_count(item) == 0 {
             return Err(SimError::NotCarried { actor, item });

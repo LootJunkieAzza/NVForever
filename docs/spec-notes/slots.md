@@ -169,3 +169,6 @@ observed: the five casinos]:
 - The words of the buttons, the info rows and the status line (a screenshot of the
   slot menu, one of a win and one of the payout list would settle them).
 - Whether Bet Max also spins.
+
+### Zero biped slots mask (`w6d7p2_31`)
+- **`SetEquipmentSlotsMask 0` makes armor unequippable** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p2_31_set_equipment_slots_mask_settled` in `tools/capture/nvse/catalogs/wave6d7_zero_slot_armor.json`]: clearing an `ARMO`'s biped slots mask to `0` prevents equipping it (`m0=0(eq=0,occ=72)`), while moving it to another non-zero slot (`128`, LeftHand) allows equipping alongside an UpperBody armor (`PROBE|w6d7p2_31_set_equipment_slots_mask_settled|orig=4|m80=128(l=1,c=1,s7=1,s2=1,occ=204)|m0=0(eq=0,occ=72)`).
