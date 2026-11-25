@@ -50,6 +50,10 @@ pub struct OtherState {
     /// The immutable placed-door graph, built lazily; run-time lock state is read
     /// for every route. Not persisted or rebuilt on each minimap callback.
     pub objective_doors: Option<crate::quest_targets::DoorGraph>,
+    /// Last objective index returned by GetCurrentObjective (0 initially, retained after
+    /// completion or ClearActiveQuest until another active quest has an open objective)
+    /// [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30, w6d9p2_05_getcurrentobjective_details].
+    pub last_current_objective: i32,
     /// The plugin and the script whose code made the extender call now running
     /// (`Exec::ext_call`); "" and `None` for the console, a query or a runtime script.
     pub plugin: String,
@@ -425,12 +429,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             });
             XVal::Ref(hit.and_then(|h| h.form).unwrap_or(0))
         }
-        // [documented: GetCurrentObjective] the active quest's first objective shown and
-        // not done [hypothesis: which objective counts as current], else -1 [hypothesis].
+        // [documented: GetCurrentObjective] the active quest's lowest displayed incomplete
+        // objective index; 0 before any active objective and retains the last active
+        // objective index after all objectives complete or ClearActiveQuest [observed:
+        // 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30, w6d9p2_05_getcurrentobjective_details:
+        // orig=00000000,co0=0|coF=10,coS=10|d30=10,all=10,clr=10].
         "getcurrentobjective" => {
-            let q = g.ui.active_quest.unwrap_or(FormId(0));
-            let st = g.quest_state(q);
-            XVal::Num(st.objectives.iter().find(|(_, o)| o.displayed && !o.completed).map_or(-1.0, |(&i, _)| f64::from(i)))
+            if let Some(q) = g.ui.active_quest {
+                if let Some((&i, _)) = g.quest_state(q).objectives.iter().find(|(_, o)| o.displayed && !o.completed) {
+                    g.other.last_current_objective = i;
+                }
+            }
+            XVal::Num(f64::from(g.other.last_current_objective))
         }
         // [documented: GetDefaultForms; GetNthDefaultForm; SetNthDefaultForm] the DOBJ
         // list [hypothesis: the game's own systems keep reading the record's].
@@ -860,3 +870,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_getcurrentobjective_tests.rs"]
+mod w6d9_getcurrentobjective_tests;
