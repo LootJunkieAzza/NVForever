@@ -61,9 +61,8 @@
 //! follow a frame late (its write is an asset event of the next frame), so:
 //! - an edit of what sets the alpha outline ([`Outline`]: texture transform, base texture,
 //!   alpha, cut, holes) takes the core away at once, and the material has none again for as
-//!   long as it is in the store (it is animated; while the light is off nothing is watched:
-//!   the material itself is marked, so one put in anew under its id is told apart when the light
-//!   comes back);
+//!   long as it is in the store (it is animated; watched with the light off too; the aid's "off"
+//!   watches nothing and marks the material itself, so one put in anew under its id is told apart);
 //! - any other edit (emissive, gloss) is written to the core's material, a frame late, which the
 //!   blended draw over it covers.
 //!
@@ -195,6 +194,9 @@ pub struct SolidCores {
     /// Materials whose outline changed while watched: no core as long as they are in the
     /// store, whatever wears them and however often the light is switched.
     animated: HashSet<AssetId<NifMaterial>>,
+    /// Materials that were watched and turned out to be (or became) none that can have a core: their
+    /// wearers are watched no more, and looked for again should another material come under the id.
+    dropped: HashSet<AssetId<NifMaterial>>,
     /// Whether a texture has a solid texel, by the path the material names.
     verdicts: HashMap<String, SolidTexels>,
     /// Textures being read for it.
@@ -480,6 +482,28 @@ fn follow(
         st.log = CountLog { since: time.elapsed_secs(), ..default() };
         changed_sources.extend(st.sources.keys().copied());
     }
+    let events: Vec<AssetEvent<NifMaterial>> = events.read().cloned().collect();
+    // Another material, one that can have a core, came under a dropped one's id: its wearers,
+    // which nothing else changed, are found again.
+    if !st.dropped.is_empty() {
+        let mut back = false;
+        for event in &events {
+            match event {
+                AssetEvent::Added { id } | AssetEvent::Modified { id } if st.dropped.contains(id) && materials.get(*id).is_some_and(|m| m.extension.solid_core.is_some()) => {
+                    st.dropped.remove(id);
+                    back = true;
+                }
+                // Nothing wears it any more.
+                AssetEvent::Unused { id } => {
+                    st.dropped.remove(id);
+                }
+                _ => {}
+            }
+        }
+        if back {
+            look.extend(all.iter());
+        }
+    }
     for &e in look.iter() {
         let source = shapes.get(e).ok().and_then(|(_, material, _, _, _, (clone, terrain), (skinned, morphs, cloaked))| {
             drawn_source(material, clone, terrain, &materials, blends.as_deref())
@@ -498,7 +522,7 @@ fn follow(
             }
         }
     }
-    for event in events.read() {
+    for event in &events {
         match event {
             AssetEvent::Added { id } | AssetEvent::Modified { id } | AssetEvent::LoadedWithDependencies { id } => {
                 if st.sources.contains_key(id) {
@@ -550,7 +574,9 @@ fn follow(
                     }
                     source.outline = Some(outline);
                     // How the texture's alpha is, asked only for a material that can have a core.
-                    let able = !st.animated.contains(&id) && solid_core(m, SOLID_CORE_CUT).is_some();
+                    // Glass and gleaming metal reflect: theirs is the light's alone.
+                    let reflects = m.extension.env_cube.is_some();
+                    let able = (want || !reflects) && !st.animated.contains(&id) && solid_core(m, SOLID_CORE_CUT).is_some();
                     let solid = able
                         .then(|| match st.verdicts.get(&s.texture) {
                             Some(answer) => *answer,
@@ -564,8 +590,7 @@ fn follow(
                             }
                         })
                         .filter(|&t| {
-                            // Glass and gleaming metal reflect: theirs is the light's alone.
-                            always = t == SolidTexels::Whole && m.extension.env_cube.is_none();
+                            always = t == SolidTexels::Whole && !reflects;
                             want || always
                         })
                         .and_then(SolidTexels::cut);
@@ -586,7 +611,9 @@ fn follow(
         };
         settle.extend(source.users.iter().copied());
         if !candidate {
-            // Watched before its material was in the store; it can have no core.
+            // Watched before its material was in the store, or another came under its id; it can
+            // have no core.
+            st.dropped.insert(id);
             for e in source.users.iter().copied().collect::<Vec<_>>() {
                 st.leave(e, &mut commands);
             }
@@ -720,6 +747,7 @@ impl SolidCores {
         self.on = false;
         self.watched.clear();
         self.sources.clear();
+        self.dropped.clear();
         self.asked.clear();
         self.count = 0;
         self.log = CountLog::default();
@@ -909,10 +937,9 @@ pub(crate) mod tests {
         let mut glass = tank();
         glass.extension.env_cube = Some(Handle::default());
         let glass = add(&mut app, glass);
-        let glass = place(&mut app, &glass);
+        place(&mut app, &glass);
         app.update();
         assert_eq!(count(&mut app), 0, "an environment map");
-        app.world_mut().despawn(glass);
         let m = add(&mut app, tank());
         let mut thin = tank();
         thin.extension.solid_core.as_mut().unwrap().texture = "thin.dds".into();
@@ -923,7 +950,8 @@ pub(crate) mod tests {
         app.update();
         let first = cores(&mut app);
         assert_eq!(first.len(), 1, "the light off: the tank's alone");
-        for (on, n) in [(true, 2), (false, 1), (true, 2), (false, 1)] {
+        // The light on: the glass and the thin one too.
+        for (on, n) in [(true, 3), (false, 1), (true, 3), (false, 1)] {
             app.insert_resource(AirDraws(on)).insert_resource(AirOpen(on));
             app.update();
             let now = cores(&mut app);
@@ -1105,6 +1133,60 @@ pub(crate) mod tests {
         app.world_mut().resource_mut::<Assets<NifMaterial>>().insert(m.id(), other).unwrap();
         app.update();
         assert_eq!(count(&mut app), 1);
+    }
+
+    /// One wearer that nothing else changes: a candidate, a material that can have no core and a
+    /// nearly whole one, one after another under one id (in place, and with the id empty between).
+    #[test]
+    fn another_material_under_a_dropped_ones_id_finds_its_wearers() {
+        for empty_between in [false, true] {
+            let mut app = app(None);
+            app.world_mut().resource_mut::<SolidCores>().verdicts.insert(TEXTURE.into(), SolidTexels::Whole);
+            app.insert_resource(AirDraws(false)).insert_resource(AirOpen(false));
+            let m = add(&mut app, tank());
+            place(&mut app, &m);
+            app.update();
+            assert_eq!(count(&mut app), 1);
+            let mut put = |app: &mut App, material: NifMaterial| {
+                let mut all = app.world_mut().resource_mut::<Assets<NifMaterial>>();
+                if empty_between {
+                    all.remove(m.id());
+                }
+                all.insert(m.id(), material).unwrap();
+                app.update();
+                app.update();
+            };
+            put(&mut app, nif_material(StandardMaterial::default()));
+            assert_eq!(count(&mut app), 0);
+            assert!(app.world().resource::<SolidCores>().watched.is_empty());
+            put(&mut app, tank());
+            assert_eq!(count(&mut app), 1, "empty between: {empty_between}");
+            assert!(app.world().resource::<SolidCores>().dropped.is_empty());
+        }
+    }
+
+    /// A texture's answer that comes after the light has gone: the light's core is not made, the
+    /// nearly whole one's is.
+    #[test]
+    fn a_late_answer_is_judged_by_the_light_as_it_is() {
+        for (answer, n) in [(SolidTexels::Mostly, 0), (SolidTexels::Whole, 1)] {
+            let mut app = app(None);
+            let m = add(&mut app, tank());
+            place(&mut app, &m);
+            let task = AsyncComputeTaskPool::get().spawn(async move { answer });
+            app.world_mut().resource_mut::<SolidCores>().asked.insert(TEXTURE.into(), task);
+            app.insert_resource(AirDraws(false)).insert_resource(AirOpen(false));
+            for _ in 0..200 {
+                app.update();
+                if app.world().resource::<SolidCores>().asked.is_empty() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(app.world().resource::<SolidCores>().asked.is_empty());
+            app.update();
+            assert_eq!(count(&mut app), n, "{answer:?}");
+        }
     }
 
     /// A core takes its shape's matrix of the frame before, so a core made anew under a moving
