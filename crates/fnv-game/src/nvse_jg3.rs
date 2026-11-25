@@ -192,11 +192,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     XVal::Num(1.0)
                 }
                 (Trait::Field(path, _), false) => XVal::Num(number(field(g, s, "DATA", path))),
-                // A colour set as one number reads back as given [observed: jg3
-                // efsh.set.nuke.4, 255 read 255]; kept to the three channels' 24 bits
-                // [hypothesis].
+                // A colour set as one number masks to the low 24 bits (wrapping modulo
+                // 0x100_0000: 16777216 -> 0, -5 -> 16777211) [observed: w6d3p3_28].
                 (Trait::Colour(path), true) => {
-                    g.field_overrides.insert((s, format!("DATA/{path}")), XVal::Num(v.trunc().clamp(0.0, f64::from(0xFF_FFFF))));
+                    let wrapped = ((v.trunc() as i64 as u32) & 0xFF_FFFF) as f64;
+                    g.field_overrides.insert((s, format!("DATA/{path}")), XVal::Num(wrapped));
                     XVal::Num(1.0)
                 }
                 (Trait::Colour(path), false) => match g.field_overrides.get(&(s, format!("DATA/{path}"))) {
