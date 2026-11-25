@@ -194,11 +194,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `typeID`, 0 None … 14 Vault [documented: the page's table]; another number is
-        // kept as given [hypothesis].
+        // `typeID`, 0 None … 14 Vault [documented: the page's table]; values outside
+        // 0..=14 are ignored without overwriting [observed: Fallout: New Vegas 1.4.0.525
+        // (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+        // `w6d10_37_mapmarker_name_type_oob_and_reputation`: `ty(3,14=14,20=14,-1=14)`].
         "setmapmarkertype" => {
-            if let Some(r) = subject.filter(|&r| g.marker_kind(r).is_some()) {
-                g.other.lutana.lu2.marker_kind.insert(r, num(args, 0, 0.0).clamp(0.0, 255.0) as u8);
+            let ty = num(args, 0, -1.0);
+            if ty.is_finite() && (0.0..=14.0).contains(&ty) {
+                if let Some(r) = subject.filter(|&r| g.marker_kind(r).is_some()) {
+                    g.other.lutana.lu2.marker_kind.insert(r, ty.trunc() as u8);
+                }
             }
             zero
         }
@@ -321,3 +326,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_mapmarker_type_tests.rs"]
+mod w6d10_mapmarker_type_tests;
