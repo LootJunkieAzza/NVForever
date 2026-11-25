@@ -161,11 +161,12 @@ pub fn stage(src: &Path, facts: FactsInput) -> Result<Staged, String> {
         return Err("Drop a folder or an archive (.zip, .7z, .rar, .fomod, .tar, .gz).".into());
     }
     let temp = make_temp()?;
-    if let Err(e) = extract_archive(src, &temp) {
+    let limit = unpack_limit(src);
+    if let Err(e) = extract_archive(src, &temp, limit) {
         let _ = std::fs::remove_dir_all(&temp);
         return Err(e);
     }
-    if let Err(e) = unwrap_nested(&temp) {
+    if let Err(e) = unwrap_nested(&temp, limit) {
         let _ = std::fs::remove_dir_all(&temp);
         return Err(e);
     }
@@ -1350,16 +1351,31 @@ enum ReadFail {
     Refused(String),
 }
 
-/// Unpack `src` into `dest`. The built-in zip and tar readers come first. An outside tool
-/// (`extract_external`) is used only for a format they do not read (`.7z`, `.rar`) or a file
-/// they cannot read as that format at all; an entry they refused stays refused.
-fn extract_archive(src: &Path, dest: &Path) -> Result<(), String> {
+/// How many times its own size an archive may unpack to, in the built-in readers. Mods
+/// compress far less than this; an archive bomb compresses far more.
+const UNPACK_MAX_RATIO: u64 = 100;
+
+/// The most bytes the built-in readers unpack from the archive `src` installs, the archive
+/// inside it included.
+fn unpack_limit(src: &Path) -> u64 {
+    std::fs::metadata(src).map(|m| m.len()).unwrap_or(0).saturating_mul(UNPACK_MAX_RATIO)
+}
+
+fn too_big() -> String {
+    format!("it unpacks to more than {UNPACK_MAX_RATIO} times the archive's size, so it is not unpacked")
+}
+
+/// Unpack `src` into `dest`. The built-in zip and tar readers come first, and unpack at most
+/// `limit` bytes. An outside tool (`extract_external`) is used only for a format they do not
+/// read (`.7z`, `.rar`) or a file they cannot read as that format at all; an entry they
+/// refused stays refused.
+fn extract_archive(src: &Path, dest: &Path, limit: u64) -> Result<(), String> {
     std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     let name = src.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase();
     let kind = archive_kind(src);
     let zip_like = kind == Some("zip") || name.ends_with(".zip") || name.ends_with(".fomod");
     if zip_like {
-        return match extract_zip(src, dest) {
+        return match extract_zip(src, dest, limit) {
             Ok(()) => reject_links(dest),
             Err(ReadFail::Refused(e)) => Err(e),
             Err(ReadFail::Unreadable(e)) => match extract_external(src, dest) {
@@ -1370,7 +1386,7 @@ fn extract_archive(src: &Path, dest: &Path) -> Result<(), String> {
     }
     let gzip = kind == Some("gz") || name.ends_with(".tar.gz") || name.ends_with(".tgz") || name.ends_with(".taz");
     if gzip || name.ends_with(".tar") {
-        match extract_tar(src, dest, gzip) {
+        match extract_tar(src, dest, gzip, limit) {
             Ok(()) => return reject_links(dest),
             Err(ReadFail::Refused(e)) => return Err(e),
             Err(ReadFail::Unreadable(_)) => {}
@@ -1380,7 +1396,7 @@ fn extract_archive(src: &Path, dest: &Path) -> Result<(), String> {
     reject_links(dest)
 }
 
-fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ReadFail> {
+fn extract_zip(archive: &Path, dest: &Path, limit: u64) -> Result<(), ReadFail> {
     let bad = |e: &dyn std::fmt::Display| format!("{}: {e}", archive.display());
     let refused = |e: &dyn std::fmt::Display| ReadFail::Refused(bad(e));
     let f = std::fs::File::open(archive).map_err(|e| ReadFail::Unreadable(bad(&e)))?;
@@ -1389,6 +1405,7 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ReadFail> {
     // final. Only when every name passes may an entry this build cannot decompress (it decodes
     // Stored and Deflated only) or an encrypted one hand the archive to an outside tool.
     let mut decodable = true;
+    let mut declared: u64 = 0;
     for i in 0..z.len() {
         let entry = z.by_index_raw(i).map_err(|e| refused(&e))?;
         let name = entry.name().map(|n| n.into_owned()).unwrap_or_default();
@@ -1401,6 +1418,11 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ReadFail> {
         if entry.encrypted() || !matches!(entry.compression(), zip::CompressionMethod::Stored | zip::CompressionMethod::Deflated) {
             decodable = false;
         }
+        declared = declared.saturating_add(entry.size());
+    }
+    // The sizes the entries declare, before any is unpacked.
+    if declared > limit {
+        return Err(refused(&too_big()));
     }
     if !decodable {
         return Err(ReadFail::Unreadable(bad(&"an entry is encrypted or packed in a way this reader does not decode")));
@@ -1421,26 +1443,30 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ReadFail> {
             continue;
         }
         let mut out = std::fs::File::create(&to).map_err(|e| ReadFail::Refused(format!("{}: {e}", to.display())))?;
+        // The zip reader stops an entry that unpacks to more than it declared, so with the
+        // check above the total stays within `limit`.
         std::io::copy(&mut entry, &mut out).map_err(|e| refused(&e))?;
     }
     Ok(())
 }
 
-fn extract_tar(src: &Path, dest: &Path, gzip: bool) -> Result<(), ReadFail> {
+fn extract_tar(src: &Path, dest: &Path, gzip: bool, limit: u64) -> Result<(), ReadFail> {
     let bad = |e: &dyn std::fmt::Display| format!("{}: {e}", src.display());
     let f = std::fs::File::open(src).map_err(|e| ReadFail::Unreadable(bad(&e)))?;
     if gzip {
-        unpack_tar(flate2::read::GzDecoder::new(f), dest, &bad)
+        unpack_tar(flate2::read::GzDecoder::new(f), dest, limit, &bad)
     } else {
-        unpack_tar(f, dest, &bad)
+        unpack_tar(f, dest, limit, &bad)
     }
 }
 
 /// A failure before the first entry was read means the stream is not a tar this reader
-/// reads (`Unreadable`); every failure after that is `Refused`.
-fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, bad: &impl Fn(&dyn std::fmt::Display) -> String) -> Result<(), ReadFail> {
+/// reads (`Unreadable`); every failure after that is `Refused`. At most `limit` bytes of
+/// entries are unpacked: a tar entry is exactly as long as its header says.
+fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl Fn(&dyn std::fmt::Display) -> String) -> Result<(), ReadFail> {
     let mut archive = tar::Archive::new(reader);
     let mut read_one = false;
+    let mut total: u64 = 0;
     let fail = |read_one: bool, e: String| if read_one { ReadFail::Refused(e) } else { ReadFail::Unreadable(e) };
     for entry in archive.entries().map_err(|e| ReadFail::Unreadable(bad(&e)))? {
         let mut entry = entry.map_err(|e| fail(read_one, bad(&e)))?;
@@ -1450,6 +1476,10 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, bad: &impl Fn(&dyn std::
         let kind = entry.header().entry_type();
         if !(kind.is_file() || kind.is_dir()) {
             return Err(ReadFail::Refused(bad(&format!("entry {} is not a file or folder", path.display()))));
+        }
+        total = total.saturating_add(entry.size());
+        if total > limit {
+            return Err(ReadFail::Refused(bad(&too_big())));
         }
         let to = place_in(dest, &rel).map_err(|e| ReadFail::Refused(bad(&e)))?;
         entry.unpack(&to).map_err(|e| ReadFail::Refused(format!("{}: {e}", to.display())))?;
@@ -1553,7 +1583,9 @@ fn reject_links(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn unwrap_nested(dir: &Path) -> Result<(), String> {
+/// Open the one archive inside `dir`, if it is the only thing there. `limit` is the limit of
+/// the archive that held it, so the two together unpack at most twice that.
+fn unwrap_nested(dir: &Path, limit: u64) -> Result<(), String> {
     let mut archives = Vec::new();
     let mut others = 0;
     let Ok(rd) = std::fs::read_dir(dir) else { return Ok(()) };
@@ -1575,7 +1607,7 @@ fn unwrap_nested(dir: &Path) -> Result<(), String> {
     if archives.len() == 1 && others == 0 {
         let inner = &archives[0];
         let sub = dir.join("_nvf_inner");
-        extract_archive(inner, &sub)?;
+        extract_archive(inner, &sub, limit)?;
         std::fs::remove_file(inner).map_err(|e| format!("{}: {e}", inner.display()))?;
         for entry in std::fs::read_dir(&sub).map_err(|e| format!("{}: {e}", sub.display()))?.flatten() {
             let to = dir.join(entry.file_name());
@@ -1924,11 +1956,12 @@ pub fn open_manual(src: &Path) -> Result<(Option<PathBuf>, PathBuf, ManFile), St
     }
     let temp = make_temp()?;
     if is_archive(src) {
-        if let Err(e) = extract_archive(src, &temp) {
+        let limit = unpack_limit(src);
+        if let Err(e) = extract_archive(src, &temp, limit) {
             let _ = std::fs::remove_dir_all(&temp);
             return Err(e);
         }
-        if let Err(e) = unwrap_nested(&temp) {
+        if let Err(e) = unwrap_nested(&temp, limit) {
             let _ = std::fs::remove_dir_all(&temp);
             return Err(e);
         }
@@ -1983,7 +2016,7 @@ mod tests {
         }
         let bad = |e: &dyn std::fmt::Display| e.to_string();
         // Refused by the path check itself (`rel_path`), not by a broken header.
-        assert_eq!(super::unpack_tar(&bytes[..], &dest, &bad), Err(super::ReadFail::Refused(super::rel_path(r"C:\Windows\x").unwrap_err())));
+        assert_eq!(super::unpack_tar(&bytes[..], &dest, u64::MAX, &bad), Err(super::ReadFail::Refused(super::rel_path(r"C:\Windows\x").unwrap_err())));
         assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2078,7 +2111,7 @@ mod tests {
         // 12 is bzip2, which this build of the zip reader does not decode.
         let packed = t.join("Packed.zip");
         zip_marked(&packed, &[("Mod/Plugin.esp", b"TES4")], 12);
-        assert!(matches!(super::extract_zip(&packed, &t.join("out")), Err(super::ReadFail::Unreadable(_))));
+        assert!(matches!(super::extract_zip(&packed, &t.join("out"), u64::MAX), Err(super::ReadFail::Unreadable(_))));
         assert!(!t.join("out").exists(), "nothing unpacked before the outside tool");
         // A refused name stays final, whatever the method: through `stage`, no outside tool
         // gets the archive after it.
@@ -2134,10 +2167,10 @@ mod tests {
         std::fs::create_dir_all(&t).unwrap();
         let fake = t.join("Fake.zip");
         std::fs::write(&fake, b"this is not a zip archive at all").unwrap();
-        assert!(matches!(super::extract_zip(&fake, &t.join("out")), Err(super::ReadFail::Unreadable(_))));
+        assert!(matches!(super::extract_zip(&fake, &t.join("out"), u64::MAX), Err(super::ReadFail::Unreadable(_))));
         let fake_tar = t.join("Fake.tar");
         std::fs::write(&fake_tar, vec![b'x'; 1024]).unwrap();
-        assert!(matches!(super::extract_tar(&fake_tar, &t.join("out"), false), Err(super::ReadFail::Unreadable(_))));
+        assert!(matches!(super::extract_tar(&fake_tar, &t.join("out"), false, u64::MAX), Err(super::ReadFail::Unreadable(_))));
         let _ = std::fs::remove_dir_all(&t);
     }
 
@@ -2456,6 +2489,98 @@ mod tests {
         std::fs::File::create(&xml).unwrap().set_len(XML_MAX_BYTES).unwrap();
         let e = stage_error(&t.join("Big"));
         assert!(!e.contains("larger than"), "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// `n` bytes that do not compress.
+    fn noise(n: usize) -> Vec<u8> {
+        let mut x: u32 = 0x9E37_79B9;
+        (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                x as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_zip_that_unpacks_to_over_100_times_its_size_is_refused() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-zip-bomb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let zip_with = |path: &Path, body: &[u8]| {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+            let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            z.start_file("Mod/Plugin.esp", o).unwrap();
+            z.write_all(body).unwrap();
+            z.finish().unwrap();
+        };
+        // A mebibyte of zeros packs into about a kibibyte.
+        let bomb = t.join("Bomb.zip");
+        zip_with(&bomb, &vec![0; 1 << 20]);
+        let e = stage_error(&bomb);
+        assert!(e.ends_with(&too_big()), "{e}");
+        // One that packs as mods do installs.
+        let fine = t.join("Fine.zip");
+        zip_with(&fine, &noise(64 * 1024));
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Tree { temp, .. } = stage(&fine, facts).unwrap() else { panic!("a zip with one plugin is not a choice") };
+        discard(&temp);
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_zip_entry_that_unpacks_to_more_than_its_header_says_is_refused() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-zip-liar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let liar = t.join("Liar.zip");
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&liar).unwrap());
+            let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            z.start_file("Mod/Plugin.esp", o).unwrap();
+            z.write_all(&noise(4000)).unwrap();
+            z.finish().unwrap();
+        }
+        // The headers then say the entry unpacks to 4 bytes: the unpacked size sits at offset
+        // 22 of the local header and 24 of the central one.
+        let mut b = std::fs::read(&liar).unwrap();
+        for (sig, at) in [(b"PK\x03\x04", 22), (b"PK\x01\x02", 24)] {
+            let p = b.windows(4).position(|w| w == sig).unwrap() + at;
+            b[p..p + 4].copy_from_slice(&4u32.to_le_bytes());
+        }
+        std::fs::write(&liar, b).unwrap();
+        // The zip reader's own refusal: the declared sizes are what the limit is checked against.
+        let e = stage_error(&liar);
+        assert!(e.contains("larger than its declared uncompressed size"), "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_tar_gz_that_unpacks_to_over_100_times_its_size_is_refused() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-tar-bomb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let mut tar_bytes = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut tar_bytes);
+            let mut h = tar::Header::new_gnu();
+            h.set_path("Mod/Plugin.esp").unwrap();
+            h.set_size(1 << 20);
+            h.set_mode(0o644);
+            h.set_entry_type(tar::EntryType::Regular);
+            h.set_cksum();
+            b.append(&h, &vec![0u8; 1 << 20][..]).unwrap();
+            b.finish().unwrap();
+        }
+        let bomb = t.join("Bomb.tar.gz");
+        let mut gz = flate2::write::GzEncoder::new(std::fs::File::create(&bomb).unwrap(), flate2::Compression::best());
+        gz.write_all(&tar_bytes).unwrap();
+        gz.finish().unwrap();
+        let e = stage_error(&bomb);
+        assert!(e.ends_with(&too_big()), "{e}");
         let _ = std::fs::remove_dir_all(&t);
     }
 }

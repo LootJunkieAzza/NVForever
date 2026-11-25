@@ -33,6 +33,9 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
 - An outside program first lists the archive, and every name it lists must pass the
   launcher's path rule (`rel_path`) before it unpacks anything. A refused name, or a listing
   with no names, ends the install [design; `extract_external`].
+- The launcher's own readers refuse an archive whose entries add up to more than 100 times the
+  archive's size; an archive inside it counts against the same limit. The outside programs are
+  not limited this way [design; `unpack_limit`].
 - The installer sits in a `fomod` folder holding `ModuleConfig.xml` (the installer) and
   `info.xml`, which has "no defined schema" [documented: S1, "Specification"].
 - The launcher reads a `ModuleConfig.xml` of at most 16 MiB, and refuses one whose elements
