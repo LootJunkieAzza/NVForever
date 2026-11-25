@@ -62,6 +62,12 @@ End
 SetFunctionValue (GetNoteSpeaker W6D9TxtNote)
 End
 ", RunCtx::default()).unwrap(), XVal::Ref(0));
+    // Rejected cross-type SetNoteSpeaker on a Type 0 note must return 0 and leave SNAM unchanged.
+    assert_eq!(num_q(&mut g, "SetNoteSpeaker W6D9TxtNote W6D9Npc"), 0.0);
+    assert_eq!(g.run_query("Begin Function { }
+SetFunctionValue (GetNoteSound W6D9TxtNote)
+End
+", RunCtx::default()).unwrap(), XVal::Ref(SOUN));
 
     // Voice note (type 3) accepts SetNoteSpeaker and returns 0 from GetNoteSound.
     assert_eq!(num_q(&mut g, "SetNoteSpeaker W6D9VoxNote W6D9Npc"), 1.0);
@@ -73,4 +79,10 @@ End
 SetFunctionValue (GetNoteSound W6D9VoxNote)
 End
 ", RunCtx::default()).unwrap(), XVal::Ref(0));
+    // Rejected cross-type SetNoteSound on a Type 3 note must return 0 and leave SNAM unchanged.
+    assert_eq!(num_q(&mut g, "SetNoteSound W6D9VoxNote W6D9Snd"), 0.0);
+    assert_eq!(g.run_query("Begin Function { }
+SetFunctionValue (GetNoteSpeaker W6D9VoxNote)
+End
+", RunCtx::default()).unwrap(), XVal::Ref(NPC));
 }
