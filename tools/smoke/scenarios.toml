@@ -9486,6 +9486,27 @@ order = [[
 ]]
 
 [[scenario]]
+name = "aid-rad-child"
+source = "issue #3471 (docs/spec-notes/aid-items.md §3): Rad Child regenerates Health by the second in a stage of radiation sickness, not once when the stage starts"
+note = "Health 200 damaged by 160, rads 650 (Radiation600, magnitude 6). Without the perk two readings 3 s apart are 40. The perk is added at 17.2 s; the game stands still while the console is open, so at 21 s it has had 2.6 to 3.6 s of play (its condition is checked once a second): about 56 to 62. At 29 s 7.7 s more: about 102 to 108. Before #3471 both readings were 46 (6 once, when the condition passed), outside both ranges and not rising. The perk is taken at 29.2 s (at most a second more); the readings at 32 s and 42 s must be the same within 0.5 (going on would add 57)"
+areas = ["aid", "perks"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/abilities.rs", "crates/fnv-game/src/needs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:damage:player:Health:160,3.5:set_av:player:RadiationRads:650", NVF_PLAY_TEST_CONSOLE = "14:PrintC \"nvf rc start %.2f\", (player.GetAV Health);14.4:close;17:PrintC \"nvf rc still %.2f\", (player.GetAV Health);17.2:player.addperk RadChild;17.4:close;21:PrintC \"nvf rc first %.2f\", (player.GetAV Health);21.3:close;29:PrintC \"nvf rc second %.2f\", (player.GetAV Health);29.2:player.removeperk RadChild;29.5:close;32:PrintC \"nvf rc less %.2f\", ((player.GetAV Health) - 0.5);32.2:PrintC \"nvf rc more %.2f\", ((player.GetAV Health) + 0.5);32.5:close;42:PrintC \"nvf rc last %.2f\", (player.GetAV Health);42.3:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 46
+expect = [
+  "test aid: 0x00000014 Health damaged by 160: now 40.0",
+  { re = 'needs: .* 650[\d.]*: Radiation600', label = "Critical radiation sickness" },
+  { re = 'nvf rc start 40\.00', label = "no regeneration without the perk" },
+  { re = 'nvf rc still 40\.00', label = "still none 3 s later" },
+  { re = 'nvf rc first (?P<n>[\d.]+)', range = [52, 72], label = "Health has risen by the second (46 before #3471)" },
+  { re = 'nvf rc second (?P<n>[\d.]+)', range = [92, 125], label = "and goes on rising 8 s later (46 before #3471)" },
+  { re = 'nvf rc second (?P<n>[\d.]+)', above = 'nvf rc first (?P<n>[\d.]+)', label = "the second reading is above the first" },
+  { re = 'nvf rc last (?P<n>[\d.]+)', above = 'nvf rc less (?P<n>[\d.]+)', label = "without the perk Health does not fall" },
+  { re = 'nvf rc more (?P<n>[\d.]+)', above = 'nvf rc last (?P<n>[\d.]+)', label = "without the perk Health stops rising" },
+]
+
+[[scenario]]
 name = "aid-hardcore"
 source = "aid leftovers (docs/spec-notes/aid-items.md §11): Hardcore needs, their stage effects, water lowering dehydration and a sleep lowering sleep deprivation"
 areas = ["aid", "wait", "hardcore"]
@@ -36349,6 +36370,24 @@ forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error" },
 ]
 note = "The same start, spot search and poses as terrain-parallax-ground-pack (round 2, 2026-11-22), not yet checked by a run. The shots are saved as terrain-parallax-ground-pack-off-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png."
+[[scenario]]
+name = "light-shafts-msaa"
+source = "[design] docs/design/graphics-enhanced.md §3.7 (engine/nvforever/src/shafts.wesl `sky_depth_at`): with --graphics-only light-shafts and 4x multisampling (FSR off, so the INI's upscaler does not turn it off) at Goodsprings in the late afternoon, the shafts' pipelines (the source pass reading every sample of the multisampled depth) are made and used without a pipeline or validation error. Whether a silhouette's edge against the sun still leaks into the shafts is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/shafts.wesl", "engine/nvforever/src/shafts.rs"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "17", "--fsr", "off", "--msaa", "4", "--graphics-only", "light-shafts"]
+run_seconds = 20
+expect = [
+  { re = 'graphics: .*sun shafts', label = "the graphics line names the sun shafts" },
+  { re = 'pipeline \d+ ready after \d+ ms: downsample depth multisample', label = "the view is multisampled" },
+  { re = 'pipeline \d+ ready after \d+ ms: shafts_pipeline', count = 4, label = "the shafts' source and composite were made for the start's view and again for the multisampled one (the MULTISAMPLED source)" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the shafts' source shader does not compile)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
 
 [[scenario]]
 name = "volumetric-light"
