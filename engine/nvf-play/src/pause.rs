@@ -7089,7 +7089,7 @@ mod tests {
         assert_eq!(value_of(&mut app, is_jump).as_deref(), Some(WAITING));
         app.world_mut().resource_mut::<Listening>().0 = None;
         assert!(Page::Settings { selected: Some(jump) }.opened_by("Settings"));
-        // With a controller the rows show its buttons: Jump is Y [hypothesis, `crate::pad`];
+        // With a controller the rows show its buttons: Jump is Y (see `crate::pad`);
         // the choice moves to the control's controller row.
         crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
         assert_eq!(value_of(&mut app, is_jump).as_deref(), Some("Y"));

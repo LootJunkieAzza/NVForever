@@ -76,7 +76,7 @@ class Scenario:
     order: list[list[Expect]] = field(default_factory=list)
     forbid: list[Expect] = field(default_factory=list)
     manual: str = ""  # what a person must still compare by hand (printed, not checked)
-    requires: list[str] = field(default_factory=list)  # env vars needed (else skipped)
+    requires: list[str] = field(default_factory=list)  # env vars needed, or with "!" needed unset (else skipped)
     platforms: list[str] = field(default_factory=list)  # systems it runs on (empty: any)
     commands: list[list[str]] = field(default_factory=list)  # tool scenarios: fnvtool arguments
     exit: int = 0

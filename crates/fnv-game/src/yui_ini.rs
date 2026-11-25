@@ -326,7 +326,7 @@ mod tests {
             .expect("config present")
         };
 
-        // yUI.ini bSortingIcons=1 + ySI.ini bSortingIcons=0 stays enabled [hypothesis].
+        // yUI.ini bSortingIcons=1 + ySI.ini bSortingIcons=0 stays enabled (see `YuiConfig` docs above).
         let yui1_ysi0 = load(
             Some(b"[General]\nbSortingIcons = 1\n"),
             Some(b"[General]\nbSortingIcons = 0\n"),
@@ -335,7 +335,7 @@ mod tests {
         assert!(yui1_ysi0.effective_sort_inventory());
         assert!(yui1_ysi0.effective_add_inventory_icons());
 
-        // yUI.ini bSortingIcons=0 + ySI.ini bSortingIcons=1 is enabled [hypothesis].
+        // yUI.ini bSortingIcons=0 + ySI.ini bSortingIcons=1 is enabled (see `YuiConfig` docs above).
         let yui0_ysi1 = load(
             Some(b"[General]\nbSortingIcons = 0\n"),
             Some(b"[General]\nbSortingIcons = 1\n"),
