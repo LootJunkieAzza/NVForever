@@ -113,6 +113,10 @@ fn mod_effect(g: &Game, w: FormId, slot: u8) -> Option<String> {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d12_getactiveeffects_tests.rs"]
+mod w6d12_getactiveeffects_tests;
+
 impl Game<'_> {
     /// SetConditionDamagePenalty's multiplier, else the hard-coded 0.67 [documented].
     pub fn condition_damage_penalty(&self) -> f32 {
@@ -502,11 +506,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [hypothesis: the elements are the items, not their base effects].
         "getactiveeffects" => {
             let Some(r) = subject else { return Some(Ok(XVal::Array(0))) };
-            let filter = num(args, 0).map_or(7, |f| f as i64).max(0);
-            let filter = if filter == 0 { 7 } else { filter };
+            let filter = num(args, 0).map_or(7i64, |f| f as i64);
             let mut out: Vec<FormId> = Vec::new();
             for e in g.effects.iter().filter(|e| e.target == r && !e.inactive) {
-                let kind = match g.data.sig(e.source).as_ref() {
+                let kind = match g.data.sig(g.unclone(e.source)).as_ref() {
                     Some(b"ENCH") => 1,
                     Some(b"SPEL") => 2,
                     Some(b"ALCH" | b"INGR") => 4,
