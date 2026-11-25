@@ -194,7 +194,7 @@ fn effect_shader_traits_and_textures() {
     // The colours as one number (red × 65536 + green × 256 + blue); 47-49 are colour
     // keys 1-3 and 50-52 are colour keys 1-3 alpha [observed: jg3; Wave 4
     // jg_03_efsh_trait_beyond_47 and w4d_30_jg_efsh_47_to_52]. Traits 53-60 continue
-    // through the remaining sequential numeric EFSH DATA fields [hypothesis]; < 0 and
+    // through the remaining sequential numeric EFSH DATA fields (see docs/spec-notes/ext-jg3.md); < 0 and
     // > 60 return 0 [design].
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 66051.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 14"), 0.0);

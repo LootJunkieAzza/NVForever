@@ -819,9 +819,9 @@ fn eval_truthiness_for_arrays_and_strings() {
 
 #[test]
 fn format_signs_and_huge_fields() {
-    // %g writes -0 as 0 [hypothesis], %f keeps its sign [observed: "%.4f" of -0 reads
-    // "-0.0000" in the original, #1919], + never doubles a minus, and a huge precision or
-    // width is cut (#1145 review, #1134) [hypothesis: the C library's forms].
+    // %g writes -0 as 0 (see crates/fnv-script/src/vm.rs, `printf_number`), %f keeps its sign
+    // [observed: "%.4f" of -0 reads "-0.0000" in the original, #1919], + never doubles a minus,
+    // and a huge precision or width is cut (#1145 review, #1134) [hypothesis: the C library's forms].
     let h = run("string_var s
 string_var t
 string_var u
