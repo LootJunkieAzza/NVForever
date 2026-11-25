@@ -2567,7 +2567,9 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
 #[test]
 fn format_v_returns_unknown_for_negative_or_out_of_range_actor_values() {
     let h = run(
-        "string_var s\n         begin GameMode\n         let s := sv_Construct \"17=[%v]|34=[%v]|n1=[%v]|999=[%v]\" 17 34 -1 999\n         end",
+        "string_var s\nfloat fNan\nfloat fInf\n         begin GameMode\n         let fNan := (-1) ^ 0.5\n         let fInf := 10 ^ 400\n         let s := sv_Construct \"17=[%v]|34=[%v]|n1=[%v]|999=[%v]|nan=[%v]|inf=[%v]\" 17 34 -1 999 fNan fInf\n         end",
     );
-    assert_eq!(h.text(1), "17=[MeleeDamage]|34=[EnergyWeapons]|n1=[unknown]|999=[unknown]");
+    assert!(matches!(h.0[&2], Value::Num(x) if x.is_nan()), "expected NaN, got {:?}", h.0[&2]);
+    assert!(matches!(h.0[&3], Value::Num(x) if x.is_infinite()), "expected Inf, got {:?}", h.0[&3]);
+    assert_eq!(h.text(1), "17=[MeleeDamage]|34=[EnergyWeapons]|n1=[unknown]|999=[unknown]|nan=[unknown]|inf=[unknown]");
 }

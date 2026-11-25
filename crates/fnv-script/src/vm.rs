@@ -2578,12 +2578,17 @@ impl Vm<'_, '_> {
                     self.host.form_text(f).unwrap_or_default()
                 }
                 'v' => {
-                    let raw = next("actor value")?.num()?.trunc() as i64;
-                    u16::try_from(raw)
-                        .ok()
-                        .and_then(|code| self.table.enum_name("actor_value", code))
-                        .unwrap_or("unknown")
-                        .to_string()
+                    // Reject non-finite values ([design]) and negative/out-of-range codes
+                    // ([observed: w6d5p2_02b_format_v_k_edges]) as "unknown".
+                    let n = next("actor value")?.num()?;
+                    let name = if n.is_finite() {
+                        u16::try_from(n.trunc() as i64)
+                            .ok()
+                            .and_then(|code| self.table.enum_name("actor_value", code))
+                    } else {
+                        None
+                    };
+                    name.unwrap_or("unknown").to_string()
                 }
                 'x' => {
                     // `%x4`: the digit after the code is the width [documented].
