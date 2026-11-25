@@ -1232,8 +1232,8 @@ fn own_lines(f: &Fixture, topic: FormId, lines: &[FormId]) -> Vec<FormId> {
     lines.iter().copied().filter(|i| f.data.topics[&topic].contains(i)).collect()
 }
 
-/// [hypothesis] Info Index belongs to the listing quest, not the entire topic
-/// (docs/spec-notes/dialogue.md §1.2). [design] Each shared line goes in among its
+/// Info Index belongs to the listing quest, not the entire topic
+/// (see docs/spec-notes/dialogue.md §1.2). [design] Each shared line goes in among its
 /// listing quest's own lines; the own lines keep their stored order, so equal priorities
 /// try them as `lines_by_priority` does, and the Random pools follow that order as in a
 /// topic without shared lines (`GameData::lines_tried`).
@@ -1994,7 +1994,7 @@ fn a_farewell_survives_a_snapshot_and_runs_its_end_script_after_the_load() {
 }
 
 /// A conversation through a talking activator keeps a chosen Goodbye line in the
-/// conversation until it is over, as before [hypothesis, `Game::choose`]. The fixture
+/// conversation until it is over, as before (see `Game::choose`). The fixture
 /// has no talking activator: the conversation is given a present reference to go
 /// through.
 #[test]
@@ -2106,6 +2106,72 @@ fn a_goodbye_greeting_ends_as_said_when_its_speaker_fights() {
     h.frames(1);
     assert!(h.speech.is_empty() && out(&h) == 4.0 && h.player.topics.contains(&FormId(T_ADDED)));
     assert!(!h.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. })));
+}
+
+/// Issue #3663: a Goodbye greeting started through the player's activation while its
+/// speaker is already searching (`State::Alert` or `State::Lost`) must play out rather
+/// than ending on the same frame, while entering a fight (`State::Combat`) mid-line still
+/// ends it at once with its end script and Add Topics.
+#[test]
+fn a_goodbye_greeting_while_searching_plays_out_and_still_ends_on_combat() {
+    use fnv_game::awareness::{Awareness, State};
+    use fnv_sim::world::Outcome;
+
+    let f = fixture();
+    // 1. Already searching (Alert, then Lost): player activation starts the Goodbye
+    //    greeting and it plays out across frames before running its end script.
+    for state in [State::Alert, State::Lost] {
+        let mut g = game(&f);
+        set_global(&mut g, G_GATE, 7.0);
+        g.frames(3);
+        g.awareness.actors.insert(actor(), Awareness { state, ..Default::default() });
+        assert_eq!(g.awareness.state(actor()), state);
+
+        let hand = g.default_activation_by_hand(actor()).unwrap().expect("player activates searching actor");
+        assert_eq!(hand.activation.outcome, Outcome::Talk { actor: actor() });
+        assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
+        // Must NOT end in the same frame or after a few ticks while still searching.
+        g.frames(5);
+        assert_eq!(g.speech.len(), 1, "{state:?}: Goodbye greeting must stay active while searching");
+        assert!(g.greets_player(actor()), "{state:?}: searching speaker pauses for its Goodbye greeting");
+        assert_eq!(out(&g), 3.0, "{state:?}: begin script ran, end script must wait for line end");
+        assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, .. } if info == FormId(A_BARK))));
+
+        // Plays out to completion and then runs its end script and Add Topics.
+        let f0 = g.frame;
+        for _ in 0..20_000 {
+            if g.speech.is_empty() {
+                break;
+            }
+            g.tick();
+        }
+        assert!(g.speech.is_empty() && g.frame - f0 > 30, "{state:?}: line must play out over time");
+        assert_eq!(out(&g), 4.0, "{state:?}: end script runs when line finishes");
+        assert!(g.player.topics.contains(&FormId(T_ADDED)));
+        assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(A_BARK))));
+    }
+
+    // 2. Starting while searching (Alert), then drawn into a fight (Combat) mid-line:
+    //    ends at once as if said to the end, running its end script and Add Topics.
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 7.0);
+    g.frames(3);
+    g.awareness.actors.insert(actor(), Awareness { state: State::Alert, ..Default::default() });
+    let hand = g.default_activation_by_hand(actor()).unwrap().expect("player activates Alert actor");
+    assert_eq!(hand.activation.outcome, Outcome::Talk { actor: actor() });
+    assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
+    g.frames(2);
+    assert_eq!(g.speech.len(), 1);
+    assert!(g.greets_player(actor()) && out(&g) == 3.0);
+
+    g.start_combat(actor(), FormId::PLAYER_REF);
+    assert_eq!(g.awareness.state(actor()), State::Combat);
+    assert!(!g.greets_player(actor()));
+    g.frames(1);
+    assert!(g.speech.is_empty());
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(A_BARK))));
+    assert_eq!(out(&g), 4.0);
+    assert!(g.player.topics.contains(&FormId(T_ADDED)));
 }
 
 #[test]
@@ -2741,10 +2807,11 @@ fn lines_said_to_someone_turn_the_two_to_each_other() {
     assert!(turns(&g).is_empty());
 }
 
-/// SayTo with `noTargetLookFlag` 1 turns nobody, body or head, whoever the target is
-/// (#2796, docs/design/dialogue-play.md §9.2): Curtis's radio call to the player.
+/// SayTo with `noTargetLookFlag` 1 turns the speaker to its target, and the target does
+/// not look back, whoever the target is (observer check 218, #3989,
+/// docs/design/dialogue-play.md §9.2).
 #[test]
-fn say_to_with_no_target_look_turns_nobody() {
+fn say_to_with_no_target_look_turns_the_speaker_alone() {
     let f = fixture();
     let r = |id: u32| ArgValue::Value(Value::Ref(id));
     let n = |x: f64| ArgValue::Value(Value::Num(x));
@@ -2754,12 +2821,10 @@ fn say_to_with_no_target_look_turns_nobody() {
         call(&mut g, 0x1034, NPC1_REF, &[r(target), r(GREETING), n(0.0), n(1.0)]);
         assert!(g.is_talking(FormId(NPC1_REF)), "the line is said to {target:08X}");
         assert_eq!(g.speech[0].target, Some(FormId(target)));
-        assert!(g.facings().is_empty(), "nobody turns for the line to {target:08X}");
+        let f = g.facings();
+        assert_eq!(f.len(), 1, "the speaker alone turns for the line to {target:08X}");
+        assert_eq!((f[0].who, f[0].to, f[0].body), (FormId(NPC1_REF), FormId(target), true));
     }
-    // A game saved while such a line was said before #2796 (look "Speaker") reads it as
-    // the new rule.
-    let old: fnv_game::game::LineLook = serde_json::from_str("\"Speaker\"").unwrap();
-    assert_eq!(old, fnv_game::game::LineLook::Nobody);
 }
 
 #[test]
