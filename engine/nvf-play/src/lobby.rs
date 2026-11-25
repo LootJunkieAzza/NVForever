@@ -59,7 +59,7 @@ const BROWSE_ROWS: usize = 8;
 const MAX_TEXT: usize = 40;
 /// The Browse table's columns: heading and width (interface units), adding up to the
 /// panel's inner width.
-const COLUMNS: [(&str, f32); 7] = [("Fav", 50.0), ("Name", 222.0), ("Location", 160.0), ("Players", 112.0), ("Ping", 100.0), ("Region", 80.0), ("", 48.0)];
+const COLUMNS: [(&str, f32); 7] = [("Fav", 62.0), ("Name", 206.0), ("Location", 150.0), ("Players", 104.0), ("Ping", 96.0), ("Region", 102.0), ("", 52.0)];
 /// A Browse cell drawn as a shape, not text: the favourite marker and the lock.
 const FAV_MARK: &str = "\u{1}fav";
 const LOCK_MARK: &str = "\u{1}lock";
@@ -70,6 +70,23 @@ const BRIGHT: f32 = 255.0;
 const DIM: f32 = 170.0;
 const FAINT: f32 = 90.0;
 const FILL: f32 = 40.0;
+/// A chosen option (a toggle on, the tab shown, the main action): a solid amber fill with
+/// dark words, so it reads apart from the cursor, which is a bright border.
+const SOLID: f32 = 200.0;
+/// The words on a solid fill.
+fn dark() -> Color {
+    Color::srgb(0.04, 0.03, 0.01)
+}
+/// A warning (Close Lobby, Leave Lobby, Ban): red, not amber.
+fn warn_red(bright: bool) -> Color {
+    if bright {
+        Color::srgb(1.0, 0.38, 0.28)
+    } else {
+        Color::srgb(0.78, 0.26, 0.2)
+    }
+}
+/// The Join screen's panel keeps one height whichever tab is up (the Browse tab's).
+const JOIN_HEIGHT: f32 = ITEM + 8.0 + 3.0 * (ITEM + 8.0) + ITEM + BROWSE_ROWS as f32 * (ITEM - 2.0) + (ITEM + 8.0) + 2.0 * PAD;
 /// Players a lobby takes: the host and `nvf_coop::net::MAX_GUESTS` guests (nvforever's
 /// co-op tests check the two agree).
 pub const LOBBY_PLAYERS: usize = 6;
@@ -854,6 +871,11 @@ enum Piece {
     Bar(Vec<Item>),
     /// Empty height (the Browse table's rows not filled, so the footer stays put).
     Space(f32),
+    /// Small print indented from the left edge, every wrapped line too.
+    Note(String, Shade),
+    /// The Browse table's scrollbar: the share of the rows above the window and in it, and
+    /// the height it spans (from here down). Takes no height itself.
+    Scroll(f32, f32, f32),
 }
 
 /// One item of a [`Piece::Bar`].
@@ -863,8 +885,8 @@ enum Item {
     Button(Act, String, Look),
     /// A field this wide (0: the room left on the line).
     Field(Act, String, f32),
-    /// Plain words (a label), this wide (0: as wide as the words).
-    Text(String, f32),
+    /// Plain words, this wide (0: as wide as the words): a label dim, other words bright.
+    Text(String, f32, Shade),
     /// The rest of the line's items go to its right end.
     Gap,
 }
@@ -892,7 +914,7 @@ fn field_text(screen: &LobbyScreen, f: FieldId) -> String {
 
 /// A labelled field on a line: the label, then the field to the line's end.
 fn labelled(screen: &LobbyScreen, label: &str, f: FieldId) -> Piece {
-    Piece::Bar(vec![Item::Text(label.into(), LABEL), Item::Field(Act::Field(f), field_text(screen, f), 0.0)])
+    Piece::Bar(vec![Item::Text(label.into(), LABEL, Shade::Dim), Item::Field(Act::Field(f), field_text(screen, f), 0.0)])
 }
 
 /// A labelled field's label width.
@@ -943,7 +965,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                 Hosting::Off => {
                     v.push(Line("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.".into(), Shade::Bright));
                     v.push(Bar(vec![
-                        Item::Text("Visibility:".into(), LABEL),
+                        Item::Text("Visibility:".into(), LABEL, Shade::Dim),
                         Item::Button(Act::SetPublic(false), "Private".into(), look(!screen.public)),
                         Item::Button(Act::SetPublic(true), "Public".into(), look(screen.public)),
                     ]));
@@ -952,7 +974,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     }
                     v.push(labelled(screen, "Password:", FieldId::HostPassword));
                     v.push(Line(if screen.public { "Listed in the server browser; empty title: your name's game. Empty password: none." } else { "Not listed: friends join with the code. Empty password: none." }.into(), Shade::Dim));
-                    v.push(Bar(vec![Item::Text("Options:".into(), LABEL), Item::Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire), look(state.friendly_fire))]));
+                    v.push(Bar(vec![Item::Text("Options:".into(), LABEL, Shade::Dim), Item::Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire), look(state.friendly_fire))]));
                     v.push(Bar(vec![Item::Button(Act::Emotes, "Emotes".into(), Look::Normal), Item::Button(Act::Back, "Back".into(), Look::Normal), Item::Gap, Item::Button(Act::Create, "Create Lobby".into(), Look::Primary)]));
                 }
                 Hosting::Opening => {
@@ -974,7 +996,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     }
                     for (peer, name) in &state.asking {
                         v.push(Bar(vec![
-                            Item::Text(format!("{name} wants to join."), 0.0),
+                            Item::Text(format!("{name} wants to join."), 0.0, Shade::Bright),
                             Item::Gap,
                             Item::Button(Act::Admit(*peer), "Let In".into(), Look::Primary),
                             Item::Button(Act::TurnAway(*peer), "Turn Away".into(), Look::Normal),
@@ -986,7 +1008,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     }
                     for (id, line) in &state.guests {
                         v.push(Bar(vec![
-                            Item::Text(format!("  {line}"), 0.0),
+                            Item::Text(format!("  {line}"), 0.0, Shade::Bright),
                             Item::Gap,
                             Item::Button(Act::Kick(*id), "Kick".into(), Look::Normal),
                             Item::Button(Act::Ban(*id), "Ban".into(), Look::Warning),
@@ -1055,13 +1077,14 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
         Item::Button(Act::HideEmpty, "Hide Empty".into(), look(screen.hide_empty)),
         Item::Button(Act::HideFull, "Hide Full".into(), look(screen.hide_full)),
         Item::Button(Act::AllVersions, "Other Versions".into(), look(screen.all_versions)),
-        Item::Field(Act::Field(FieldId::Search), field_text(screen, FieldId::Search), 0.0),
     ]));
+    v.push(Bar(vec![Item::Text("Search:".into(), 110.0, Shade::Dim), Item::Field(Act::Field(FieldId::Search), field_text(screen, FieldId::Search), 0.0)]));
     let rows = shown(screen, state);
     // The table's area: the heading and BROWSE_ROWS rows, filled or not, so the footer
     // stays put (the opened row's details come out of it).
     let area = ITEM + BROWSE_ROWS as f32 * ROW_H;
     let mut used = 0.0;
+    let mut window = (0, 0);
     let all = match &state.browse {
         Browse::Idle | Browse::Loading => {
             v.push(Line("Asking for the public lobbies...".into(), Shade::Bright));
@@ -1090,6 +1113,10 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
             // An opened row takes the room of three rows below it.
             let room = if screen.open_row.is_some() { BROWSE_ROWS - 3 } else { BROWSE_ROWS };
             let first = chosen_row.saturating_sub(room - 1).min(rows.len().saturating_sub(room));
+            window = (first, (first + room).min(rows.len()));
+            if rows.len() > room {
+                v.push(Scroll(first as f32 / rows.len() as f32, room as f32 / rows.len() as f32, BROWSE_ROWS as f32 * ROW_H));
+            }
             for (i, l) in rows.iter().enumerate().skip(first).take(room) {
                 let ping = l.ping_ms.map_or_else(|| "?".to_string(), |p| format!("~{p} ms"));
                 let cells = vec![
@@ -1105,13 +1132,17 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
                 used += ROW_H;
                 if screen.open_row.as_deref() == Some(l.code.as_str()) {
                     let ff = if l.friendly_fire { "on" } else { "off" };
-                    v.push(Line(format!("    Host: {}. Friendly fire {ff}. Ping is estimated from distance.", l.host_name), Shade::Dim));
+                    v.push(Note(format!("Host: {}. Friendly fire {ff}. Ping is estimated from distance.", l.host_name), Shade::Dim));
                     used += line_h(1);
                     let mut bar = Vec::new();
                     match &l.cannot {
-                        Some(why) => bar.push(Item::Text(why.clone(), 0.0)),
+                        Some(why) => {
+                            bar.push(Item::Text(String::new(), INDENT - 10.0, Shade::Dim));
+                            bar.push(Item::Text(why.clone(), 0.0, Shade::Bright));
+                        }
                         None if l.locked => {
-                            bar.push(Item::Text("    Password:".into(), 150.0));
+                            bar.push(Item::Text(String::new(), INDENT - 10.0, Shade::Dim));
+                            bar.push(Item::Text("Password:".into(), 120.0, Shade::Dim));
                             bar.push(Item::Field(Act::Field(FieldId::RowPassword), field_text(screen, FieldId::RowPassword), 220.0));
                         }
                         None => {}
@@ -1125,7 +1156,7 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
                     used += BAR_H;
                     // A join from this row that failed (a wrong password): said here.
                     if let Joining::Failed(why) = &state.joining {
-                        v.push(Line(format!("    {why}"), Shade::Bright));
+                        v.push(Note(why.clone(), Shade::Bright));
                         used += line_h(1);
                     }
                 }
@@ -1136,15 +1167,43 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
     if used < area {
         v.push(Space(area - used));
     }
-    let tail = if all > 0 { format!("{} of {all} shown", rows.len()) } else { String::new() };
-    v.push(Bar(vec![Item::Button(Act::Back, "Back".into(), Look::Normal), Item::Gap, Item::Text(tail, 0.0)]));
+    let tail = match (rows.len(), window) {
+        (0, _) if all > 0 => format!("None of {all} shown (the filters)"),
+        (0, _) => String::new(),
+        (n, (a, b)) if b - a < n => format!("Lobbies {}-{b} of {n} (the arrows scroll){}", a + 1, if n < all { format!(", {all} in all") } else { String::new() }),
+        (n, _) => format!("{n} of {all} shown"),
+    };
+    v.push(Bar(vec![Item::Button(Act::Back, "Back".into(), Look::Normal), Item::Gap, Item::Text(tail, 0.0, Shade::Dim)]));
 }
 
 /// The heights of a Browse row, a bar and a line of small print (`n` lines).
 const ROW_H: f32 = ITEM - 2.0;
+/// How far a [`Piece::Note`] sits in from the left.
+const INDENT: f32 = 40.0;
 const BAR_H: f32 = ITEM + 8.0;
 fn line_h(n: usize) -> f32 {
     n as f32 * STEP + 6.0
+}
+
+/// `t` cut to `width` (interface units) with "..", as the font measures it.
+fn fit(face: &crate::interface::Face, t: &str, width: f32) -> String {
+    if face.font.width(t) <= width {
+        return t.to_string();
+    }
+    let mut cut: String = t.to_string();
+    while !cut.is_empty() && face.font.width(&format!("{cut}..")) > width {
+        cut.pop();
+    }
+    format!("{}..", cut.trim_end())
+}
+
+/// `t` cut from the front to `width`: a field being typed in shows its end.
+fn fit_end(face: &crate::interface::Face, t: &str, width: f32) -> String {
+    let mut cut = t.to_string();
+    while !cut.is_empty() && face.font.width(&cut) > width {
+        cut.remove(0);
+    }
+    cut
 }
 
 /// A Browse cell's shape.
@@ -1264,8 +1323,13 @@ fn draw(
         Piece::Cols(..) => ROW_H,
         Piece::Bar(_) => BAR_H,
         Piece::Space(h) => *h,
+        Piece::Note(t, _) => f.small.font.lines(t, Some(inner - INDENT)).len().max(1) as f32 * STEP + 6.0,
+        Piece::Scroll(..) => 0.0,
     };
-    let total: f32 = now.iter().map(height).sum::<f32>() + 2.0 * PAD;
+    let mut total: f32 = now.iter().map(height).sum::<f32>() + 2.0 * PAD;
+    if screen.mode == Some(Mode::Join) && matches!(state.joining, Joining::Idle | Joining::Failed(_)) {
+        total = total.max(JOIN_HEIGHT);
+    }
     commands.spawn((LobbyRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(120))).with_children(|root| {
         // The menus under it keep still (and take no pointer).
         root.spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::BLACK.with_alpha(0.55)), Button));
@@ -1298,6 +1362,16 @@ fn draw(
                         p.spawn((node, BorderColor::all(amber(DIM)))).with_children(|n| text(n, &f.entry, t, 40.0, ITEM * 0.85, color(Shade::Bright)));
                     }
                     Piece::Space(_) => {}
+                    Piece::Note(t, shade) => {
+                        let node = Node { position_type: PositionType::Absolute, left: u(PAD + INDENT), top: u(y), width: u(inner - INDENT), height: u(h), ..default() };
+                        p.spawn(node).with_children(|n| wrapped(n, &f.small, t, inner - INDENT, STEP, color(*shade)));
+                    }
+                    Piece::Scroll(from, len, span) => {
+                        // A track at the table's right edge, its thumb where the window is.
+                        let x = PAD + inner + 6.0;
+                        p.spawn((Node { position_type: PositionType::Absolute, left: u(x), top: u(y), width: u(6.0), height: u(*span), ..default() }, BackgroundColor(amber(FAINT * 0.5))));
+                        p.spawn((Node { position_type: PositionType::Absolute, left: u(x), top: u(y + span * from), width: u(6.0), height: u((span * len).max(12.0)), ..default() }, BackgroundColor(amber(DIM))));
+                    }
                     Piece::Bar(items) => {
                         // The widths: buttons as wide as their words, a field 0 wide takes the
                         // room left; after a Gap the items sit at the line's right end.
@@ -1305,7 +1379,7 @@ fn draw(
                         let width = |it: &Item| match it {
                             Item::Button(_, t, _) => f.small.font.width(t) + 30.0,
                             Item::Field(_, _, w) => *w,
-                            Item::Text(t, w) => if *w > 0.0 { *w } else { f.small.font.width(t) + 8.0 },
+                            Item::Text(t, w, _) => if *w > 0.0 { *w } else { f.small.font.width(t) + 8.0 },
                             Item::Gap => 0.0,
                         };
                         let fixed: f32 = items.iter().map(width).sum::<f32>() + gap * items.len().saturating_sub(1) as f32;
@@ -1326,29 +1400,32 @@ fn draw(
                             };
                             let at = |w: f32| Node { position_type: PositionType::Absolute, left: u(PAD + x), top: u(y + 2.0), width: u(w), height: u(ITEM - 4.0), ..default() };
                             match it {
-                                Item::Text(t, _) => {
-                                    p.spawn(at(w)).with_children(|n| text(n, &f.small, t, 0.0, ITEM * 0.62, color(Shade::Dim)));
+                                Item::Text(t, _, shade) => {
+                                    let fitted = fit(&f.small, t, w);
+                                    p.spawn(at(w)).with_children(|n| text(n, &f.small, &fitted, 0.0, ITEM * 0.62, color(*shade)));
                                 }
                                 Item::Field(act, t, _) => {
                                     let on = Some(*act) == chosen;
                                     let shown = if on { format!("{t}_") } else { t.clone() };
-                                    let node = Node { border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..at(w) };
+                                    let shown = fit_end(&f.small, &shown, w - 20.0);
+                                    let node = Node { border: UiRect::all(Val::Px(if on { 2.0 } else { 1.0 })), overflow: Overflow::clip(), ..at(w) };
                                     p.spawn((node, BorderColor::all(amber(if on { BRIGHT } else { FAINT })), Button, *act)).with_children(|n| text(n, &f.small, &shown, 10.0, ITEM * 0.62, color(Shade::Bright)));
                                 }
                                 Item::Button(act, t, look) => {
-                                    let on = Some(*act) == chosen;
+                                    // The cursor: a bright 2 px border. Chosen (On, Primary): a
+                                    // solid fill with dark words. A warning: red.
+                                    let cursor = Some(*act) == chosen;
                                     let (border, fill, words) = match look {
-                                        Look::Normal => (if on { BRIGHT } else { FAINT }, on.then_some(FILL), Shade::Bright),
-                                        Look::On => (if on { BRIGHT } else { DIM }, Some(if on { FILL * 2.0 } else { FILL * 1.5 }), Shade::Bright),
-                                        Look::Primary => (BRIGHT, Some(if on { FILL * 2.5 } else { FILL * 1.5 }), Shade::Bright),
-                                        Look::Warning => (if on { BRIGHT } else { DIM }, on.then_some(FILL), Shade::Bright),
+                                        Look::Normal => (amber(if cursor { BRIGHT } else { FAINT }), cursor.then_some(amber(FILL)), color(Shade::Bright)),
+                                        Look::On | Look::Primary => (amber(if cursor { BRIGHT } else { SOLID }), Some(amber(SOLID)), dark()),
+                                        Look::Warning => (warn_red(cursor), cursor.then_some(warn_red(false).with_alpha(0.25)), warn_red(true)),
                                     };
-                                    let node = Node { border: UiRect::all(Val::Px(if *look == Look::Warning { 2.0 } else { 1.0 })), ..at(w) };
-                                    let mut e = p.spawn((node, BorderColor::all(amber(border)), Button, *act));
-                                    if let Some(a) = fill {
-                                        e.insert(BackgroundColor(amber(a)));
+                                    let node = Node { border: UiRect::all(Val::Px(if cursor { 2.0 } else { 1.0 })), ..at(w) };
+                                    let mut e = p.spawn((node, BorderColor::all(border), Button, *act));
+                                    if let Some(c) = fill {
+                                        e.insert(BackgroundColor(c));
                                     }
-                                    e.with_children(|n| text(n, &f.small, t, 15.0, ITEM * 0.62, color(words)));
+                                    e.with_children(|n| text(n, &f.small, t, 15.0, ITEM * 0.62, words));
                                 }
                                 Item::Gap => {}
                             }
@@ -1381,7 +1458,8 @@ fn draw(
                                         n.spawn(cell).with_children(|m| marker(m, Mark::Lock, color(shade)));
                                     }
                                     _ => {
-                                        n.spawn(cell).with_children(|m| text(m, &f.small, c, 0.0, ITEM * 0.62, color(shade)));
+                                        let fitted = fit(&f.small, c, *w - 12.0);
+                                        n.spawn(cell).with_children(|m| text(m, &f.small, &fitted, 0.0, ITEM * 0.62, color(shade)));
                                     }
                                 }
                                 x += w;
@@ -1459,7 +1537,7 @@ mod tests {
         let screen = opened(Mode::Host);
         let state = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, players: vec!["Veronica (host, you)".into()], asking: vec![(4, "Cass".into())], ..default() };
         let p = pieces(&screen, &state);
-        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("Cass wants to join.".into(), 0.0)) && i.contains(&Item::Button(Act::Admit(4), "Let In".into(), Look::Primary)))));
+        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("Cass wants to join.".into(), 0.0, Shade::Bright)) && i.contains(&Item::Button(Act::Admit(4), "Let In".into(), Look::Primary)))));
         assert!(bar_has(&p, Act::TurnAway(4)));
         assert_eq!(acts(&screen, &state), vec![Act::Admit(4), Act::TurnAway(4), Act::FriendlyFire, Act::Emotes, Act::Back, Act::Close]);
     }
@@ -1471,7 +1549,7 @@ mod tests {
         let state = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, players: vec!["Veronica (host, you)".into(), "Cass (LAN, 12 ms)".into()], guests: vec![(1, "Cass (LAN, 12 ms)".into())], ..default() };
         assert_eq!(acts(&screen, &state), vec![Act::Kick(1), Act::Ban(1), Act::FriendlyFire, Act::Emotes, Act::Back, Act::Close]);
         let p = pieces(&screen, &state);
-        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("  Cass (LAN, 12 ms)".into(), 0.0)) && i.contains(&Item::Button(Act::Ban(1), "Ban".into(), Look::Warning)))), "{p:?}");
+        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("  Cass (LAN, 12 ms)".into(), 0.0, Shade::Bright)) && i.contains(&Item::Button(Act::Ban(1), "Ban".into(), Look::Warning)))), "{p:?}");
     }
 
     #[test]
@@ -1483,7 +1561,7 @@ mod tests {
         let p = pieces(&screen, &state);
         assert!(p.contains(&Piece::Line(format!("  {}", names[0]), Shade::Bright)));
         for n in &names[1..] {
-            assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text(format!("  {n}"), 0.0)))), "{n} listed");
+            assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text(format!("  {n}"), 0.0, Shade::Bright)))), "{n} listed");
         }
         assert!(p.contains(&Piece::Line("Players (6 of 6):".into(), Shade::Dim)));
         // The panel's height as `draw` measures it, a long line taken as three lines of
@@ -1505,6 +1583,8 @@ mod tests {
                 Piece::Cols(..) => ROW_H,
                 Piece::Bar(_) => BAR_H,
                 Piece::Space(h) => *h,
+                Piece::Note(t, _) => (if t.len() > 50 { 2.0 } else { 1.0 }) * STEP + 6.0,
+                Piece::Scroll(..) => 0.0,
             })
             .sum::<f32>()
             + 2.0 * PAD
@@ -1549,6 +1629,8 @@ mod tests {
         let p = pieces(&screen, &many);
         assert!(TOP + panel_height(&p) <= 960.0, "a long list keeps the footer on screen");
         assert_eq!(p.iter().filter(|x| matches!(x, Piece::Cols(..))).count(), BROWSE_ROWS);
+        assert!(p.iter().any(|x| matches!(x, Piece::Scroll(..))), "a scrollbar when rows are hidden");
+        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("Lobbies 1-8 of 20 (the arrows scroll)".into(), 0.0, Shade::Dim)))), "{p:?}");
         let host = opened(Mode::Host);
         let p = pieces(&host, &LobbyState::default());
         assert_eq!(drawn_acts(&p), acts(&host, &LobbyState::default()));
@@ -1625,7 +1707,7 @@ mod tests {
         let failed = LobbyState { joining: Joining::Failed("Wrong password for this lobby.".into()), ..state.clone() };
         let fp = pieces(&screen, &failed);
         let row = fp.iter().position(|x| matches!(x, Piece::Cols(Act::Lobby(1), ..))).unwrap();
-        assert!(fp[row..row + 4].contains(&Piece::Line("    Wrong password for this lobby.".into(), Shade::Bright)), "{fp:?}");
+        assert!(fp[row..row + 4].contains(&Piece::Note("Wrong password for this lobby.".into(), Shade::Bright)), "{fp:?}");
         assert!(p.iter().any(|x| matches!(x, Piece::Cols(Act::Lobby(1), c, Shade::Bright) if c[6] == LOCK_MARK && c[1] == "LCK's game")), "{p:?}");
         assert!(p.iter().any(|x| matches!(x, Piece::Cols(Act::Lobby(0), c, _) if c[0] == FAV_MARK)), "the favourite's marker");
         assert!(bar_has(&p, Act::JoinRow));

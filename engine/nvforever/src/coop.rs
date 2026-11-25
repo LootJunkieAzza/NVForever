@@ -389,6 +389,7 @@ impl Plugin for CoopPlugin {
             favourites: browse::load_favourites(),
             place: String::new(),
             place_at: f32::NEG_INFINITY,
+            held_notice: None,
             browse_at: f32::NEG_INFINITY,
             join_code: None,
             joining: Joining::Idle,
@@ -653,6 +654,8 @@ pub(crate) struct Coop {
     favourites: Vec<String>,
     place: String,
     place_at: f32,
+    /// A failed join's reason, shown in the corner once the game plays.
+    held_notice: Option<String>,
     /// When the Browse tab last asked: at most one every [`BROWSE_EVERY`] seconds.
     browse_at: f32,
     /// Joining: the code looked for, how the search goes, and since when it has looked
@@ -1126,7 +1129,7 @@ fn at_main_menu(m: Option<&nvf_play::main_menu::MainMenu>) -> bool {
 }
 
 /// What the lobby's list reads besides the link: the tables, the game, the share answers.
-type LobbyReads<'w> = (Option<Res<'w, Tables>>, Option<Res<'w, nvf_play::script::ScriptState>>, Option<Res<'w, nvf_play::coop_progress::CoopProgress>>);
+type LobbyReads<'w> = (Option<Res<'w, Tables>>, Option<Res<'w, nvf_play::script::ScriptState>>, Option<Res<'w, nvf_play::coop_progress::CoopProgress>>, Option<Res<'w, State<nvf_play::PlayState>>>);
 
 /// The lobby screens' asks, the router's answer, and what the screens show.
 #[allow(clippy::too_many_arguments)]
@@ -1142,7 +1145,7 @@ fn lobby(
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     windows: Query<&mut Window, With<PrimaryWindow>>,
     mut titled: Local<Option<String>>,
-    (tables, script, progress): LobbyReads,
+    (tables, script, progress, play_state): LobbyReads,
     handoff: Option<Res<crate::handoff::Handoff>>,
 ) {
     let now = time.elapsed_secs();
@@ -1305,6 +1308,12 @@ fn lobby(
             coop.link = None;
             coop.left_lobby = true;
             coop.joining = Joining::Failed("No answer from the host: check the code, and that their lobby is open.".into());
+        }
+    }
+    // A failed join's reason, once the game plays (not behind a loading screen).
+    if play_state.as_deref().is_some_and(|s| *s.get() == nvf_play::PlayState::Playing) {
+        if let Some(n) = coop.held_notice.take() {
+            say(n);
         }
     }
     // The Browse tab's answer.
@@ -2509,10 +2518,9 @@ fn online_event(coop: &mut Coop, e: nvf_coop::online::OnlineEvent, corner: &mut 
         }
         OnlineEvent::Failed(why) => {
             warn!("co-op: {why}");
-            // Also on screen: a join from the command line has no Join screen up.
-            if let Some(c) = corner.as_mut() {
-                c.push(why.clone().into());
-            }
+            // Also on screen: a join from the command line has no Join screen up. Held until
+            // the game plays (a loading screen would hide it).
+            coop.held_notice = Some(why.clone());
             coop.link = None;
             coop.left_lobby = true;
             coop.joining = Joining::Failed(why);
