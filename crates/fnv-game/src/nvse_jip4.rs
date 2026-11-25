@@ -529,6 +529,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getcellclimate" => XVal::Ref(get_form(g, f0, "XCCM", "")),
         "getcelllightingtemplate" => XVal::Ref(get_form(g, f0, "LTMP", "")),
         "getcellnoisetexture" => XVal::Str(get_str(g, f0, "XNAM", "")),
+        // Omitted arg clears to 0; explicit null 0 and wrong-type replacement forms are no-ops
+        // [observed: w6d2_15, w6d2p2_50]; arg-0 CELL target check is [documented] / [hypothesis].
         "setcellclimate" | "setcelllightingtemplate" => {
             if g.data.sig(g.unclone(f0)) == Some(*b"CELL") {
                 let (sub, want) = if name == "setcellclimate" { ("XCCM", *b"CLMT") } else { ("LTMP", *b"LGTM") };
@@ -558,6 +560,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // GetWaterSound, GetWaterNoiseTexture and their setters].
         "getwatersound" => XVal::Ref(get_form(g, f0, "SNAM", "")),
         "getwaternoisetexture" => XVal::Str(get_str(g, f0, "NNAM", "")),
+        // Omitted arg clears to 0; explicit null 0 and non-SOUN replacement forms are no-ops
+        // [observed: w6d2_14, w6d2p2_50]; arg-0 WATR target check is [documented] / [hypothesis].
         "setwatersound" => {
             if g.data.sig(g.unclone(f0)) == Some(*b"WATR") {
                 let next = match args.get(1) {

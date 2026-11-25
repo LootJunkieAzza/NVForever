@@ -730,7 +730,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `cell [water]`: XCWT [documented: the page; the field: xEdit CELL]. Omitted arg
-        // clears to 0; explicit null 0 and non-WATR forms are no-ops [observed: w6d2_14, w6d2p2_50].
+        // clears to 0; explicit null 0 and non-WATR replacement forms are no-ops
+        // [observed: w6d2_14, w6d2p2_50]; arg-0 CELL target check is [documented] / [hypothesis].
         "setcellwaterform" => {
             if let Some(c) = of_sig(g, form(args, 0), b"CELL") {
                 match args.get(1) {
@@ -745,7 +746,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `water [effect]`: XNAM, an actor effect [documented: the page]. Omitted arg
-        // clears to None; explicit null 0 and non-SPEL forms are no-ops [observed: w6d2_14, w6d2p2_50].
+        // clears to None and explicit null 0 is a no-op [observed: w6d2_14, w6d2p2_50];
+        // arg-0 WATR target check and non-SPEL replacement rejection are [documented] / [hypothesis].
         "setwaterformeffect" => {
             if let Some(w) = of_sig(g, form(args, 0), b"WATR") {
                 match args.get(1) {

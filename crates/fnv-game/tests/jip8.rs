@@ -42,6 +42,10 @@ const WEAP_CALC: u32 = 0xA19;
 const CONT: u32 = 0xA1A;
 const NPC_REF: u32 = 0xA1B;
 const BOX_REF: u32 = 0xA1C;
+const CLMT: u32 = 0xA1D;
+const CLMT2: u32 = 0xA1E;
+const SOUN: u32 = 0xA1F;
+const SOUN2: u32 = 0xA20;
 
 fn f32b(v: f32) -> Vec<u8> {
     v.to_le_bytes().to_vec()
@@ -144,16 +148,28 @@ fn plugin_bytes() -> Vec<u8> {
         edid(b"BPTD", BPTD2, "TestBodyParts2", &[sub(b"BPTN", z("Torso")), sub(b"BPNN", z("Bip01")), bpnd(0)]),
     ]
     .concat();
-    // Interior (bit 0) and has water (bit 1); LNAM ambient colour (bit 0); a water.
-    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell")), sub(b"DATA", vec![0x03]), sub(b"LNAM", u32s(&[1])), sub(b"XCWT", u32s(&[WATR]))]);
+    // Interior (bit 0) and has water (bit 1); LNAM ambient colour (bit 0); a water and climate.
+    let cell = record(
+        b"CELL",
+        0,
+        CELL,
+        &[sub(b"EDID", z("TestCell")), sub(b"DATA", vec![0x03]), sub(b"LNAM", u32s(&[1])), sub(b"XCWT", u32s(&[WATR])), sub(b"XCCM", u32s(&[CLMT]))],
+    );
     let placed_refs = [
         record(b"ACHR", 0, NPC_REF, &[sub(b"EDID", z("TestNpcRef")), sub(b"NAME", u32s(&[NPC])), sub(b"DATA", vec![0; 24])]),
         record(b"REFR", 0, BOX_REF, &[sub(b"EDID", z("TestBoxRef")), sub(b"NAME", u32s(&[CONT])), sub(b"DATA", vec![0; 24])]),
     ]
     .concat();
     let cell_children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 8, &placed_refs));
+    let clmt = [edid(b"CLMT", CLMT, "TestClimate", &[]), edid(b"CLMT", CLMT2, "TestClimate2", &[])].concat();
+    let soun = [edid(b"SOUN", SOUN, "TestSound", &[]), edid(b"SOUN", SOUN2, "TestSound2", &[])].concat();
     let watr = [
-        edid(b"WATR", WATR, "TestWater", &[sub(b"ANAM", vec![75]), sub(b"FNAM", vec![2]), sub(b"XNAM", u32s(&[SPEL])), sub(b"DATA", vec![0, 0]), sub(b"DNAM", watr_dnam())]),
+        edid(
+            b"WATR",
+            WATR,
+            "TestWater",
+            &[sub(b"ANAM", vec![75]), sub(b"FNAM", vec![2]), sub(b"XNAM", u32s(&[SPEL])), sub(b"SNAM", u32s(&[SOUN])), sub(b"DATA", vec![0, 0]), sub(b"DNAM", watr_dnam())],
+        ),
         edid(b"WATR", WATR2, "TestWater2", &[sub(b"DATA", vec![0, 0])]),
     ]
     .concat();
@@ -174,6 +190,8 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"IMOD", &imod),
         top(b"IDLE", &idle),
         top(b"BPTD", &bptd),
+        top(b"CLMT", &clmt),
+        top(b"SOUN", &soun),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, cell_children].concat()))),
         top(b"WATR", &watr),
     ]
@@ -457,6 +475,25 @@ fn cells_and_water() {
     assert_eq!(n(&mut g, "GetWaterFormEffect TestWater"), f64::from(SPEL2));
     q(&mut g, "SetWaterFormEffect TestWater");
     assert_eq!(n(&mut g, "GetWaterFormEffect TestWater"), 0.0);
+    // Cell climate (SetCellClimate) and water sound (SetWaterSound): valid set, wrong-type
+    // replacement no-op, explicit null 0 no-op, omitted arg clear, and wrong target no-op
+    // [observed: w6d2_14, w6d2_15, w6d2p2_50].
+    assert_eq!(n(&mut g, "GetCellClimate TestCell"), f64::from(CLMT));
+    q(&mut g, "SetCellClimate TestCell TestClimate2");
+    assert_eq!(n(&mut g, "GetCellClimate TestCell"), f64::from(CLMT2));
+    q(&mut g, "SetCellClimate TestCell TestChem\nSetCellClimate TestCell 0\nSetCellClimate TestWater TestClimate");
+    assert_eq!(n(&mut g, "GetCellClimate TestCell"), f64::from(CLMT2));
+    assert_eq!(n(&mut g, "GetCellClimate TestWater"), 0.0);
+    q(&mut g, "SetCellClimate TestCell");
+    assert_eq!(n(&mut g, "GetCellClimate TestCell"), 0.0);
+    assert_eq!(n(&mut g, "GetWaterSound TestWater"), f64::from(SOUN));
+    q(&mut g, "SetWaterSound TestWater TestSound2");
+    assert_eq!(n(&mut g, "GetWaterSound TestWater"), f64::from(SOUN2));
+    q(&mut g, "SetWaterSound TestWater TestChem\nSetWaterSound TestWater 0\nSetWaterSound TestCell TestSound");
+    assert_eq!(n(&mut g, "GetWaterSound TestWater"), f64::from(SOUN2));
+    assert_eq!(n(&mut g, "GetWaterSound TestCell"), 0.0);
+    q(&mut g, "SetWaterSound TestWater");
+    assert_eq!(n(&mut g, "GetWaterSound TestWater"), 0.0);
     // Water traits [documented: the table].
     assert_eq!((n(&mut g, "GetWaterTrait TestWater 0"), n(&mut g, "GetWaterTrait TestWater 1")), (75.0, 2.0));
     assert_eq!((n(&mut g, "GetWaterTrait TestWater 6"), n(&mut g, "GetWaterTrait TestWater 41"), n(&mut g, "GetWaterTrait TestWater 50")), (6.0, 41.0, 50.0));
