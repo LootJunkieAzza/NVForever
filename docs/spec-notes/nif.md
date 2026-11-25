@@ -428,6 +428,16 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   Whether the game writes depth for blended shapes is open; within one blended mesh
   the triangles are drawn in their stored order.
 
+  Solid shapes that blend (#4290). The Goodsprings water tank and its hatch are one shape
+  (`nv_watertank.nif`, `DieselTankNV:2`): flags 4333 (blend, no test), BSShaderFlags2 bit 0
+  ZBuffer_Write set [documented: nif.xml flag names; values read with `fnvtool nif decode`], the hatch's side wall
+  last in the stored order, so here it was drawn over the tank's end. In the original the tank hides it from the end, and
+  from three other sides the hatch shows where it should [observed, captured 2026-11-25, the pictures private].
+  That the original writes depth there is a [hypothesis]. The renderers draw a shape of that kind (blended, lit, ZBuffer_Write,
+  nine tenths of its texture's texels solid, no environment map) a second time as its solid core, which
+  holds the depth [engineering choice; docs/design/volumetric-medium.md, "Solid cores of blended shapes"]. Blended shapes with
+  thinner textures still write no depth.
+
   One kind of shape is cut by alpha without a NiAlphaProperty: object LOD blocks, whose
   shader sets BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]. The renderers
   alpha-test those at alpha above 128 [hypothesis; evidence in world.md §7 "Objects"].

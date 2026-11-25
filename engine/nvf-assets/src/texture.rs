@@ -1272,7 +1272,7 @@ impl WorkerTextures {
 
     /// Whether the texture at a NIF texture path is solid ([`alpha_solidity`]), how far;
     /// false for a file that is missing or does not parse. Reads the file: call it on a task
-    /// (nvforever `solid_cores.rs` does, and only while cores are wanted). Read once per
+    /// (nvforever `solid_cores.rs` does). Read once per
     /// file and remembered, as [`Self::alpha_is_mask`].
     pub fn solid_texels(&self, raw_path: &str, data: &GameData) -> SolidTexels {
         let path = resolved_path(raw_path, |p| data.vfs.exists(p));

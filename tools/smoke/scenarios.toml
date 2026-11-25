@@ -36626,12 +36626,32 @@ expect = [
   { text = "test aid NVF_PLAY_TEST_PIPELINE_LOG: each pipeline logged", label = "the pipeline log is on, so an asked pipeline of the light would show" },
 ]
 forbid = [
-  { text = "solid cores:", label = "off means off: no solid core is made, and no line of them (solid_cores.rs)" },
+  { text = "solid cores:", label = "off means off: no solid core is made for the light (solid_cores.rs; those always drawn log 'solid shapes:', #4290)" },
   { text = "light in the air", label = "off means off: no line of the light at all" },
   { re = 'pipeline \d+ asked: medium_air_', label = "off means off: no pipeline of the light is asked for" },
   { re = '(?i)validation error|wgpu error', label = "a wgpu validation error" },
   { text = "Caught rendering error", label = "a rendering (validation) error" },
   { text = "panicked", label = "a panic" },
+]
+
+[[scenario]]
+name = "solid-shapes-tank"
+source = "[observed for the look, design for the means; #4290] docs/spec-notes/nif.md (Solid shapes that blend), engine/nvforever/src/solid_cores.rs, engine/nvf-assets/src/texture.rs (SolidTexels::Whole): with the light in the air off the Goodsprings water tank (reference 00106B5E, nv_watertank.nif, flags 4333) has its solid core, so its end hides the hatch, without a shader, pipeline or rendering error. Smoke cannot read which surface won a pixel: the frame is for the eye"
+areas = ["renderer", "models"]
+paths = ["engine/nvforever/src/solid_cores.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "1:180:12", NVF_PLAY_TEST_SHOTS = "14:solid_shapes_tank.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68245,1900,8230", "--hour", "12", "--weather", "NVWastelandClear", "--msaa", "4", "--graphics", "vanilla"]
+run_seconds = 18
+manual = "solid_shapes_tank.png: the tank's end from below; the hatch on top shows only above the tank's outline, not in front of it"
+expect = [
+  { re = 'solid shapes: [1-9]\d* \(draws of [1-9]\d* materials whose texture is nearly all solid\)', label = "the tank's kind has its core with the light off" },
+]
+forbid = [
+  { text = "solid cores:", label = "no core of the light's" },
+  { re = '(?i)validation error|wgpu error', label = "a wgpu validation error with the solid shapes" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the solid shapes" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good with the solid shapes" },
+  { text = "panicked", label = "a panic with the solid shapes" },
 ]
 
 [[scenario]]

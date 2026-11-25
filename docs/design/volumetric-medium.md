@@ -1143,7 +1143,9 @@ weather and the size were not kept].
 ### Solid cores of blended shapes
 
 An engineering choice of the enhanced look, never a parity claim (solid_cores.rs,
-nif_spawn.rs `solid_core_rules`, `solid_core`).
+nif_spawn.rs `solid_core_rules`, `solid_core`). One class is drawn with the light off too, for
+another reason (#4290): a shape whose texture is nearly all solid and that has no environment map
+("Always drawn" below; docs/spec-notes/nif.md, "Solid shapes that blend").
 
 **Why.** The composite tells each pixel's distance from the depth prepass, which holds no blended
 material. A shape whose NiAlphaProperty blends but which is solid to the eye was painted with the light
@@ -1154,7 +1156,7 @@ flags read from the model's NiAlphaProperty]. About 875 lit blended shapes, draw
 about 8,300 placed references, are of its plain class [hypothesis: counted on 2026-11-24 with a parser
 that is not committed].
 
-**What.** While the light in the air is drawn (and only then: from its gate's "on" line to its "off" line,
+**What.** While the light in the air is drawn (and, but for the class "Always drawn", only then: from its gate's "on" line to its "off" line,
 `AirDraws`, so not at night, indoors, under water or at a strength of 0; hidden from the first frame the
 composite stops, `AirOpen`, gone half a second later) such a shape is drawn once more as its
 solid core: the same mesh with a copy of its material as a cut-out at 0.85
@@ -1168,6 +1170,12 @@ above, three quarters or more are at 250 of 255 or above, so the rest are the ed
 otherwise (`SOLID_CORE_CUT_THIN`): a texture with thin parts in that range too (an atlas with a pane), and
 BC7, whose alpha is not read here (no CPU decoder) [engineering choice; texture.rs `SolidTexels`]. A BC7
 replacement of the tank's texture may so show the line along its rim again.
+
+**Always drawn** (#4290). Where nine tenths of all the texels of the texture's top level are at 250 of 255 or
+above (`SolidTexels::Whole`; the tank's 96 %) and the shape has no environment map, the core is
+drawn whether or not the light is, indoors and at night too, and is not hidden when the gate closes. What it
+fixes is the shape's own order: without depth its triangles paint in their stored order. The rest of this section holds for it
+[design; a texture whose alpha cannot be read here (BC7) is not of it].
 
 **The colour is close, not the same.** Where the texture's alpha is between 0.85 and 1 the
 blend let up to 15 % of the background through; that part is now the core's colour (the first cut, 0.98,
@@ -1219,14 +1227,15 @@ one frame: the GPU's instance history is kept by entity.
 picture: ambient occlusion round the shape, soft intersections, motion vectors, the copy the refracting and
 additive shapes read. A blended shape behind a core fails the depth test where the blend would
 have covered it anyway, and a concave shape's own far faces no longer show through its near ones
-where they were drawn out of order. All of it only while the light is drawn.
+where they were drawn out of order. All of it only while the light is drawn, for the class "Always drawn" at all times.
 
 **What stays wrong.** Glass and everything partly transparent (no solid texels), particles, water,
 windows, unlit effects, the soft edges themselves, skinned shapes, first-person and menu models: they
 take the light of what is behind them. **Shadows are unchanged**: a core casts none, and the blended
 shape casts none, as before.
 
-**Cost.** Off: two run conditions, and one optional texture name kept per candidate material. On: one extra
+**Cost.** With the light off the same passes run, and each core of the class "Always drawn" is one extra draw in the
+prepass and one in the main pass. With it on: one extra
 draw in the prepass and one in the main pass per loaded candidate (batched as other cut-outs are), a pass
 over the placed meshes' change ticks, one lookup and comparison a core, the material events and the removals each frame, one texture read per file.
 Measured (NVIDIA GeForce RTX 5070 Ti, four alternated pairs a view, one exe, cores on against
@@ -1244,7 +1253,8 @@ the count has rested and a core of that reference is in view (or after 20 s with
 reference <FormID>: <n> cores (<m> of them in view)`, and once, when some are drawn and the mesh terrain blend draws their shapes,
 `solid cores: reference <FormID>: <k> cores in view under a terrain blend clone`. In view: some view's visibility check passed it. Log: `solid cores: <n> (draws of
 <m> materials, for the light in the air)` once the count has rested a second, again when it is notably
-another; `solid cores: removed (...)` when the light is no longer drawn; nothing with the light off.
+another; with the light off `solid shapes: <n> (draws of
+<m> materials whose texture is nearly all solid)` for those always drawn, and no `solid cores:` line.
 
 ### Where we differ from the talk
 

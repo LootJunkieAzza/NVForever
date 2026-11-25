@@ -1128,8 +1128,7 @@ pub const SOLID_CORE_CUT: f32 = 0.85;
 pub const SOLID_CORE_CUT_THIN: f32 = 0.98;
 
 /// Whether a blended shape may have a solid core ([`solid_core`]) by what its file says, the
-/// cheap part of the question (the base texture's alpha is asked by nvforever `solid_cores.rs`,
-/// and only while cores are wanted): it blends SRC_ALPHA / INV_SRC_ALPHA, is lit, its shader
+/// cheap part of the question (the base texture's alpha is asked by nvforever `solid_cores.rs`): it blends SRC_ALPHA / INV_SRC_ALPHA, is lit, its shader
 /// writes depth ("ZBuffer_Write"), it has a base texture, and nothing but that texture sets
 /// its alpha: material alpha 1, no vertex alpha, no vertex-alpha cut, no alpha animation, no
 /// view-angle falloff, and it is no decal, hair, skin, refracting shape, window reflection or
