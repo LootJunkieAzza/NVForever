@@ -13,6 +13,7 @@ pub const NO_TEMPLATE: FormId = FormId(0xA02);
 pub const EMPTY_CELL: FormId = FormId(0xA03);
 pub const A: FormId = FormId(0xB00);
 pub const B: FormId = FormId(0xB01);
+pub const LIGHT: FormId = FormId(0xC00);
 
 pub struct Fixture {
     pub lo: &'static LoadOrder<'static>,
@@ -52,7 +53,17 @@ pub fn fixture() -> Fixture {
         cell(OTHER_CELL, "OwnedOtherCell", 2000.0, Some(A)),
         cell(NO_TEMPLATE, "OwnedNoTemplate", 3000.0, None),
         record(b"CELL", 0, EMPTY_CELL.0, &[sub(b"EDID", z("OwnedEmptyCell")), sub(b"DATA", vec![1])])].concat();
-    let bytes = [tes4(), top(b"LGTM", &[template(A, "OwnedLightA", [7, 8, 9], 10000.0),
+    let mut ligh_data = Vec::new();
+    ligh_data.extend(0i32.to_le_bytes());
+    ligh_data.extend(200u32.to_le_bytes());
+    ligh_data.extend([177u8, 100, 50, 0]);
+    ligh_data.extend(0u32.to_le_bytes());
+    ligh_data.extend(1.0f32.to_le_bytes());
+    ligh_data.extend(90.0f32.to_le_bytes());
+    ligh_data.extend(0u32.to_le_bytes());
+    ligh_data.extend(0.0f32.to_le_bytes());
+    let ligh = record(b"LIGH", 0, LIGHT.0, &[sub(b"EDID", z("OwnedLightForm")), sub(b"DATA", ligh_data)]);
+    let bytes = [tes4(), top(b"LIGH", &ligh), top(b"LGTM", &[template(A, "OwnedLightA", [7, 8, 9], 10000.0),
         template(B, "OwnedLightB", [70, 80, 90], 20000.0)].concat()),
         top(b"CELL", &group(0_i32.to_le_bytes(), 2, &group(0_i32.to_le_bytes(), 3, &cells)))].concat();
     let plugins: &'static [Plugin] = Box::leak(vec![Plugin::parse(&bytes, "OwnedLighting.esm".into()).unwrap()].into_boxed_slice());

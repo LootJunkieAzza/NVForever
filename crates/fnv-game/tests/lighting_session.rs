@@ -196,3 +196,21 @@ fn xcll_less_interior_receives_set_interior_lighting_traits_and_idempotent_write
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, EMPTY_CELL).unwrap().fog_clip_dist, 0.0);
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL).unwrap().fog_clip_dist, 20000.0);
 }
+
+/// `SetLightTraitNumeric` validates `LIGH`, wraps RGB channels `1..=3` modulo 256, and
+/// preserves signed radius (`0`) [observed: `w6d2_22_light_grass_txst_traits_and_flags`].
+#[test]
+fn set_light_trait_numeric_wraps_rgb_and_validates_ligh() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightTraitNumeric OwnedLightForm 0)"), XVal::Num(200.0));
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightTraitNumeric OwnedLightForm 1)"), XVal::Num(177.0));
+    set(&mut g, "SetLightTraitNumeric OwnedLightForm 0 -50\nSetLightTraitNumeric OwnedLightForm 1 300");
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightTraitNumeric OwnedLightForm 0)"), XVal::Num(-50.0));
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightTraitNumeric OwnedLightForm 1)"), XVal::Num(44.0));
+    set(&mut g, "SetLightTraitNumeric OwnedLightForm 1 -10");
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightTraitNumeric OwnedLightForm 1)"), XVal::Num(246.0));
+    // Non-LIGH form (LGTM) is ignored without mutation.
+    set(&mut g, "SetLightTraitNumeric OwnedLightA 0 99");
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightTraitNumeric OwnedLightA 0)"), XVal::Num(0.0));
+}

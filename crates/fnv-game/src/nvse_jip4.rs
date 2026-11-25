@@ -475,11 +475,20 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         "getlighttraitnumeric" => XVal::Num(light_trait(k).map_or(0.0, |(s, p)| get_num(g, f0, s, p))),
         "setlighttraitnumeric" => {
-            if let Some((s, p)) = light_trait(k) {
-                let value = num(args, 2, 0.0);
-                let changed = get_num(g, f0, s, p) != value;
-                set(g, f0, s, p, XVal::Num(value));
-                if changed { g.gaps.jip4.light_revision = g.gaps.jip4.light_revision.wrapping_add(1); }
+            if g.data.sig(g.unclone(f0)) == Some(*b"LIGH") {
+                if let Some((s, p)) = light_trait(k) {
+                    let raw = num(args, 2, 0.0);
+                    if raw.is_finite() {
+                        let value = match k {
+                            0 => raw.trunc(),
+                            1..=3 => (raw.trunc() as i64).rem_euclid(256) as f64,
+                            _ => raw,
+                        };
+                        let changed = get_num(g, f0, s, p) != value;
+                        set(g, f0, s, p, XVal::Num(value));
+                        if changed { g.gaps.jip4.light_revision = g.gaps.jip4.light_revision.wrapping_add(1); }
+                    }
+                }
             }
             zero
         }
