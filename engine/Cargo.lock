@@ -4667,6 +4667,7 @@ dependencies = [
  "fnv-world",
  "half",
  "naga",
+ "nvf-rtgi",
 ]
 
 [[package]]
