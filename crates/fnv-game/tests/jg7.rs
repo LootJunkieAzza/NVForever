@@ -153,7 +153,10 @@ fn interface_settings() {
     assert_eq!(g.ui_update_sound(2), None);
     q(&mut g, "PushUIQuestToTop TestQuest");
     assert_eq!(g.top_ui_quest(), Some(fnv_sim::FormId(QUST)));
-    // [observed: w6d3p2_22b: returns 1 for valid button 0..=2 and 0 for OOB 3].
+    // [observed: w6d3p2_22b: pl=1,0 for buttons 0 and 3; buttons 1, 2, < 0, and
+    // non-integer indices: hypothesis].
+    assert_eq!(n(&mut g, "ToggleNthPipboyLight 0 1"), 1.0);
+    assert_eq!(n(&mut g, "ToggleNthPipboyLight 0 0"), 1.0);
     assert_eq!(n(&mut g, "ToggleNthPipboyLight 1 1"), 1.0);
     assert_eq!(g.other.jg7.pipboy_lights, [false, true, false]);
     assert_eq!(n(&mut g, "ToggleNthPipboyLight 3 1"), 0.0);

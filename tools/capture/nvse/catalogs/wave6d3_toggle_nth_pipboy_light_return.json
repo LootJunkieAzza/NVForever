@@ -1,7 +1,7 @@
 {
   "schema": "nvf.nvse.probe.catalog/1",
   "catalog_id": "wave6d3-toggle-nth-pipboy-light-return",
-  "description": "Read-only clean-room probe verifying ToggleNthPipboyLight returns 1 for valid buttons 0..=2 and 0 for out-of-range button 3.",
+  "description": "Read-only clean-room probe verifying ToggleNthPipboyLight returns 1 for button 0 and 0 for out-of-range button 3.",
   "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
   "xnvse_version": "6.4.9",
   "official_masters": [
@@ -17,22 +17,25 @@
     "TribalPack.esm"
   ],
   "extender_versions": {
+    "jip_nvse.dll": "57.30",
     "johnnyguitar.dll": "528"
   },
   "batches": [
     {
       "id": "w6d3_toggle_nth_pipboy_light_return",
       "title": "Wave 6D-3: ToggleNthPipboyLight return value",
-      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
       "required_plugins": [
+        "jip_nvse.dll",
         "johnnyguitar.dll"
       ],
       "probes": [
         {
           "id": "w6d3p2_22b_jg7_lights_saves_queues_paused_refaddr",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
           "required_plugins": [
+            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,

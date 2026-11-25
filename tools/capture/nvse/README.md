@@ -121,7 +121,7 @@ Probes in `catalogs/` target:
     `collisionFlag` filtering across exterior terrain, actor, and interior floor
     geometry (1 batch, 3 probes: `w6_point_raycast`).
   - `wave6d3_toggle_nth_pipboy_light_return.json` — JohnnyGuitar
-    `ToggleNthPipboyLight` returns `1` on valid buttons `0..=2` and `0` on OOB
+    `ToggleNthPipboyLight` returns `1` on button `0` and `0` on OOB button `3`
     (1 batch, 1 probe: `w6d3_toggle_nth_pipboy_light_return`).
 - `tests/test_nvse_harness.py` — offline stdlib `unittest` suite (no game
   install or captured logs required).
