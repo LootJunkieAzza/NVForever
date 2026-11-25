@@ -163,7 +163,15 @@ Returns a bool [documented: Ar Insert]. Whether an index equal to the size appen
 what an index past it returns: open.
 
 **Ar_InsertRange** `Ar_InsertRange list, index, other`: as Ar_Insert for every element
-of the list `other`, in order [documented: Ar InsertRange].
+of the list `other`, in order; requires both target and source `other` to be lists (a
+`Map` source or target returns `0` without mutating, and `index == size` appends while
+negative or past-end indices return `0`) [documented: Ar InsertRange; observed:
+2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE
+6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole`
+probe `w6d11_14_ar_append_insert_and_insertrange_edges`
+(`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+`rng(r0=1,emp=1,eq=1,big=0,neg=0,mSrc=0)|fin(sz2=10,h0=100)|mapT(st=2,ins=0,rng=0)`; no
+DLL or source consulted].
 
 **Ar_Erase** `Ar_Erase a[, key or range]`: removes the element at `key`, or every
 element in a range `i:j` (both ends included), or with no second argument everything.

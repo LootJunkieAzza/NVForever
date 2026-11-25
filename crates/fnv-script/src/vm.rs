@@ -1203,6 +1203,10 @@ fn key_text(k: &XKey) -> String {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d11_ar_insertrange_tests.rs"]
+mod w6d11_ar_insertrange_tests;
+
 /// Two values the same, as Ar_Find and Ar_Unique judge it [hypothesis: as `==`, strings
 /// without regard to case; ext-arrays.md leaves it open].
 fn same(a: &XVal, b: &XVal) -> bool {
@@ -2250,7 +2254,13 @@ impl Vm<'_, '_> {
                 let (a, i, b) = (val(self, 0)?, val(self, 1)?.num()?, val(self, 2)?);
                 let (Some(id), Some(other)) = (array_of(&a), array_of(&b)) else { return num(0.0) };
                 let store = self.store()?;
-                let vals: Vec<XVal> = store.array(other).map(|o| o.entries.iter().map(|e| e.1.clone()).collect()).unwrap_or_default();
+                let Some(vals): Option<Vec<XVal>> = store
+                    .array(other)
+                    .filter(|o| o.kind == ArrayKind::List)
+                    .map(|o| o.entries.iter().map(|e| e.1.clone()).collect())
+                else {
+                    return num(0.0);
+                };
                 let ok = store.array(id).is_some_and(|arr| arr.kind == ArrayKind::List && i >= 0.0 && i as usize <= arr.entries.len());
                 if ok {
                     for v in &vals {
