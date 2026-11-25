@@ -14296,7 +14296,7 @@ env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-pre
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 23
 expect = [
-  { re = 'quality presets: Low, Medium, High, Very High from .*quality-presets; 9 key\(s\) set rows, 32 not used', count = 1, label = "the four made-up files are read once, at the start" },
+  { re = 'quality presets: Low, Medium, High, Very High, Steam Deck from .*quality-presets; 9 key\(s\) set rows, 32 not used', count = 1, label = "the four made-up files are read once, at the start (Steam Deck is made from High's, #3909)" },
   { text = "settings layout: quality -> Graphics > Quality", label = "the Quality row under its own heading" },
 ]
 order = [[
@@ -35894,3 +35894,37 @@ forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error" },
 ]
 note = "The same start, spot search and poses as terrain-parallax-ground-pack (round 2, 2026-11-22), not yet checked by a run. The shots are saved as terrain-parallax-ground-pack-off-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png."
+
+[[scenario]]
+name = "steam-deck-first-start"
+source = "[design, #3909] docs/spec-notes/quality-presets.md 'The Steam Deck preset': a Steam Deck's first start takes the Steam Deck quality preset (High's rows with sun shadows and smooth terrain off) and Anti-aliasing SMAA as picks on the page would, before the run's smooth terrain is fixed, so this run already draws without it (engine/nvforever/src/quality.rs deck_first_start)"
+note = "The made-up preset files of tools/smoke/fixtures/quality-presets. NVF_PLAY_TEST_STEAM_DECK=first: a Deck whose start counts as a first start though its home keeps an INI from the run before (the runner does not clear homes)."
+areas = ["settings", "renderer"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/smooth_terrain.rs", "tools/smoke/fixtures/quality-presets/"]
+env = { NVFOREVER_HOME = "steam-deck-first-start-home", NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets", NVF_PLAY_TEST_STEAM_DECK = "first", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--cell", "GSDocMitchellHouse", "--no-voice", "--no-messages", "--no-lodgen"]
+run_seconds = 12
+expect = [
+  "test aid NVF_PLAY_TEST_STEAM_DECK: first",
+  "quality presets: Low, Medium, High, Very High, Steam Deck from",
+  { re = 'steam deck: first start \((no|the test aid.s, ).*NVForever\.ini( kept)?\): the Steam Deck quality preset and anti-aliasing SMAA', count = 1 },
+  "quality presets: the Quality row reads Steam Deck",
+  { re = 'terrain: .* \(smoothing off: ', count = 1, label = "the first run already draws the landscape unsmoothed" },
+]
+
+[[scenario]]
+name = "steam-deck-not-a-deck"
+source = "[design, #3909] on a machine that is not a Steam Deck the start takes nothing (engine/nvforever/src/quality.rs deck_first_start); the Steam Deck preset is still offered with High"
+note = "NVF_PLAY_TEST_STEAM_DECK=0 decides it, whatever machine runs the smoke; an unattended run without a home reads and writes no INI, so this is a first start in every sense but the machine."
+areas = ["settings"]
+paths = ["engine/nvforever/src/quality.rs", "tools/smoke/fixtures/quality-presets/"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets", NVF_PLAY_TEST_STEAM_DECK = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--cell", "GSDocMitchellHouse", "--no-voice", "--no-messages", "--no-lodgen"]
+run_seconds = 10
+expect = [
+  "test aid NVF_PLAY_TEST_STEAM_DECK: 0",
+  "quality presets: Low, Medium, High, Very High, Steam Deck from",
+]
+forbid = [
+  { re = 'steam deck: first start', label = "not a Deck: nothing taken" },
+]

@@ -949,19 +949,22 @@ below cover them all.
 
 ### `quality`: Quality preset
 
-- On the page: Sets the rows the original's quality presets cover to the game folder's
-  low.ini to VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: those rows
-  match none of them.
+- On the page: Sets the rows the original's presets cover from low.ini to VeryHigh.ini, and
+  Smooth terrain. Steam Deck: High without sun shadows or smooth terrain. Custom: none match.
 - In full: Sets the rows the original's quality presets cover to the values of the game
   folder's low.ini, medium.ini, high.ini or VeryHigh.ini: Sun shadows, Shadow filtering,
   Light glow, Mirrored reflections and the object, actor, item, shadow and grass
   distances. It also sets Smooth terrain, a row of NVForever's own that no preset file
   names [design, #2864]: Off at Low and Medium (on an integrated GPU 4 x 4 costs about 9 ms
   of a 73 ms frame), 4 x 4, the default, at High and Very High; like the row itself the
-  change applies at the next start. Custom: those rows match none of them, Smooth terrain
-  included. A preset whose file is missing is not offered. A fresh install's default stays
-  4 x 4 whatever the Quality row reads. The effects, anti-aliasing and the upscaler keep
-  their own rows (the Enhanced effects row is gone since the menu overhaul).
+  change applies at the next start. Steam Deck [design, #3909], offered whenever high.ini
+  is read: High's values with Sun shadows Off (the original casts none from the world) and
+  Smooth terrain Off, the two that cost a Steam Deck's GPU most. A Steam Deck's first start
+  (no NVForever.ini yet) takes it, and Anti-aliasing SMAA (a Display row, which no preset
+  sets); rows the command line names keep its values. Custom: those rows match none of
+  them. A preset whose file is missing is not offered. Elsewhere a fresh install's default
+  stays 4 x 4 whatever the Quality row reads. The effects, anti-aliasing and the upscaler
+  keep their own rows (the Enhanced effects row is gone since the menu overhaul).
 - More: docs/spec-notes/quality-presets.md
 - Registered in `engine/nvforever/src/quality.rs`
 

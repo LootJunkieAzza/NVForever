@@ -143,12 +143,34 @@ pub const UNUSED: [(&str, &str); 32] = [
 /// noon) 4 x 4 costs 9 ms of a 73 ms frame and 2 x 2 3 ms [observed: #2864], so the two
 /// lower presets turn it off and the two upper ones keep the default. The row applies at
 /// the next start (`nvf_play::smooth_terrain`), and so does a preset's change to it.
-pub const OWN: [(&str, &str, &str); 4] = [
+pub const OWN: [(&str, &str, &str); 5] = [
     ("Low", nvf_play::smooth_terrain::KEY, "Off"),
     ("Medium", nvf_play::smooth_terrain::KEY, "Off"),
     ("High", nvf_play::smooth_terrain::KEY, "4 x 4"),
     ("Very High", nvf_play::smooth_terrain::KEY, "4 x 4"),
+    (STEAM_DECK, nvf_play::smooth_terrain::KEY, "Off"),
 ];
+
+/// NVForever's own preset for the Steam Deck (#3909), our own name [design]: the install's
+/// High (its file's rows, read as for the others, so no value of the file is here) with the
+/// two additions of NVForever that cost the most on the Deck's GPU turned off, as the
+/// original draws: no sun shadows (the original casts none from the world, docs/spec-notes/
+/// world.md §6) and no smooth terrain (not in the original, [`OWN`]). Offered only while
+/// High is: it is made from High's file.
+pub const STEAM_DECK: &str = "Steam Deck";
+
+/// The rows the Steam Deck preset takes from High with another value: (row, value as
+/// `Setting::value` gives it) [design, #3909: measured on a Steam Deck LCD at 1280x800,
+/// SMAA, Goodsprings, Novac and Primm at noon: sun shadows and smooth terrain off took 59.3,
+/// 52.5 and 54.6 frames a second to 67.6, 62.3 and 68.1].
+pub const STEAM_DECK_ROWS: [(&str, f32); 1] = [("sun-shadows", 0.0)];
+
+/// The Steam Deck preset from High ([`STEAM_DECK`]): High's rows with [`STEAM_DECK_ROWS`]
+/// in their place, and its own rows' choices ([`OWN`]).
+pub fn steam_deck_from(high: &QualityPreset) -> QualityPreset {
+    let rows = high.rows.iter().map(|&(k, v)| (k, STEAM_DECK_ROWS.iter().find(|(r, _)| *r == k).map_or(v, |(_, d)| *d))).collect();
+    QualityPreset { label: STEAM_DECK, rows, choices: own_choices(STEAM_DECK) }
+}
 
 /// A preset as rows: its name, each mapped row's value, as `Setting::value` gives it
 /// (a switch 1 or 0, a slider its part), and the choices of NVForever's own rows ([`OWN`]).
@@ -277,7 +299,11 @@ pub fn build(files: &[(&'static str, String)]) -> (Vec<QualityPreset>, Vec<Strin
             }
             QualityPreset { label, rows, choices: own_choices(label) }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    let mut presets = presets;
+    if let Some(deck) = presets.iter().find(|p| p.label == "High").map(steam_deck_from) {
+        presets.push(deck);
+    }
     (presets, problems)
 }
 
@@ -422,7 +448,7 @@ pub fn pick_quality(world: &mut World, name: &str) -> bool {
 /// kept on their own; module notes).
 fn load_quality(_world: &mut World, text: &str) -> bool {
     let t = text.trim();
-    PRESETS.iter().any(|(label, _)| label.eq_ignore_ascii_case(t)) || t.eq_ignore_ascii_case(CUSTOM)
+    PRESETS.iter().any(|(label, _)| label.eq_ignore_ascii_case(t)) || t.eq_ignore_ascii_case(STEAM_DECK) || t.eq_ignore_ascii_case(CUSTOM)
 }
 
 /// The switches `--graphics enhanced` turns on and `vanilla` leaves off, by settings key
@@ -437,6 +463,74 @@ pub fn enhanced_keys() -> Vec<&'static str> {
             _ => false,
         })
         .collect()
+}
+
+/// Test aid: `NVF_PLAY_TEST_STEAM_DECK=1` runs as on a Steam Deck, `0` as on any other
+/// machine ([`steam_deck`]); `first` as on a Steam Deck whose INI does not exist yet, though
+/// it may ([`deck_first_start`]: a smoke home keeps its INI from run to run).
+pub const STEAM_DECK_ENV: &str = "NVF_PLAY_TEST_STEAM_DECK";
+
+/// Whether this machine is a Steam Deck: the DMI system and board vendor both read `Valve`
+/// [observed: a Steam Deck LCD under SteamOS, `sys_vendor` and `board_vendor` `Valve`,
+/// `product_name` `Jupiter`]; the test aid [`STEAM_DECK_ENV`] wins. Elsewhere than Linux it
+/// is not known (false) [design, #3909].
+pub fn steam_deck() -> bool {
+    if let Some(v) = std::env::var(STEAM_DECK_ENV).ok().filter(|v| !v.trim().is_empty()) {
+        return matches!(v.trim(), "1" | "first");
+    }
+    let read = |f: &str| std::fs::read_to_string(Path::new("/sys/class/dmi/id").join(f)).map(|t| t.trim().to_string()).unwrap_or_default();
+    cfg!(target_os = "linux") && read("sys_vendor") == "Valve" && read("board_vendor") == "Valve"
+}
+
+/// Whether this run is on a Steam Deck ([`steam_deck`], found once at registration), and
+/// whether the test aid's `first` makes its start a first start.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct SteamDeck(pub bool, pub bool);
+
+/// The anti-aliasing a Steam Deck's first start takes ([`deck_first_start`]) [design, #3909:
+/// at 1280x800 on the Deck 4x multisampling cost 3-4 ms a frame more than SMAA].
+pub const STEAM_DECK_AA: &str = "SMAA";
+
+/// Whether a run's command line names a switch of the row `key` (its `Setting::switches`,
+/// `--a, --b`): that row keeps the command line's value.
+fn given_for(world: &World, settings: &Settings, key: &str) -> bool {
+    let Some(i) = settings.index(key) else { return false };
+    let Some(given) = world.get_resource::<settings::GivenSwitches>() else { return false };
+    settings.list()[i].switches.split(',').map(str::trim).filter(|s| !s.is_empty()).any(|s| given.given.iter().any(|g| g == s))
+}
+
+/// A Steam Deck's first start (no `NVForever.ini` yet, [`steam_deck`]): the Steam Deck
+/// preset and [`STEAM_DECK_AA`], each taken as a pick on the page would (so written to the
+/// INI, and the next start reads them as the player's). After the INI is applied and before
+/// the run's smooth terrain is fixed, so it takes effect in this run [design, #3909]. A row
+/// whose switch the command line gives keeps the command line's value, and a command line
+/// that names any row the preset sets leaves the preset untaken.
+pub fn deck_first_start(world: &mut World) {
+    let Some(path) = world.get_resource::<settings::SettingsFile>().and_then(|f| f.0.clone()) else { return };
+    let deck = world.get_resource::<SteamDeck>().copied().unwrap_or_default();
+    if !deck.0 || (path.exists() && !deck.1) {
+        return;
+    }
+    let Some(settings) = world.get_resource::<Settings>() else { return };
+    let preset = world.get_resource::<QualityPresets>().and_then(|p| p.presets.iter().find(|p| p.label == STEAM_DECK).cloned());
+    let named: Vec<&str> = preset.iter().flat_map(|p| p.rows.iter().map(|(k, _)| *k).chain(p.choices.iter().map(|(k, _)| *k))).filter(|k| given_for(world, settings, k)).collect();
+    let aa_given = given_for(world, settings, "anti-aliasing");
+    let aa_row = settings.index("anti-aliasing");
+    let mut took = Vec::new();
+    if preset.is_some() && named.is_empty() && pick_quality(world, STEAM_DECK) {
+        took.push(format!("the {STEAM_DECK} quality preset"));
+    } else if !named.is_empty() {
+        info!("steam deck: first start; the {STEAM_DECK} preset not taken: the command line sets {}", named.join(", "));
+    }
+    if let (Some(i), false) = (aa_row, aa_given) {
+        // Taken, or held already (a pick of the chosen name takes nothing).
+        let held = |w: &World| w.resource::<Settings>().choices(i).is_some_and(|c| (c.chosen)(w) == STEAM_DECK_AA);
+        if settings::pick(world, i, STEAM_DECK_AA) || held(world) {
+            took.push(format!("anti-aliasing {STEAM_DECK_AA}"));
+        }
+    }
+    let why = if path.exists() && deck.1 { format!("the test aid's, {} kept", path.display()) } else { format!("no {}", path.display()) };
+    info!("steam deck: first start ({why}): {}", if took.is_empty() { "nothing taken".to_string() } else { took.join(" and ") });
 }
 
 /// The folder the presets are read from: the test aid's, else the game folder (the
@@ -474,7 +568,13 @@ fn paused(p: Option<Res<nvf_play::pause::Paused>>) -> bool {
 /// effects row that set the effect rows at once is gone: the owner, 2026-11-15, "no need to
 /// have it twice" (the menu overhaul); each effect keeps its own row.
 pub fn register(app: &mut App, group: &'static str) {
-    app.add_systems(PostStartup, log_reading.after(settings::apply_stored));
+    app.add_systems(PostStartup, log_reading.after(settings::apply_stored).after(deck_first_start));
+    let first_aid = std::env::var(STEAM_DECK_ENV).is_ok_and(|v| v.trim() == "first");
+    if let Ok(v) = std::env::var(STEAM_DECK_ENV) {
+        info!("test aid {STEAM_DECK_ENV}: {}", v.trim());
+    }
+    app.insert_resource(SteamDeck(steam_deck(), first_aid));
+    app.add_systems(PostStartup, deck_first_start.after(settings::apply_stored).before(nvf_play::settings::fix_smooth_terrain));
     app.add_systems(Update, log_reading.run_if(paused));
     let dir = presets_dir(app.world().resource::<Args>());
     let (files, missing) = read_files(&dir);
@@ -499,7 +599,7 @@ pub fn register(app: &mut App, group: &'static str) {
             key: QUALITY_KEY,
             group,
             label: "Quality preset",
-            note: "Sets the rows the original's quality presets cover to the game folder's low.ini to VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: those rows match none of them.",
+            note: "Sets the rows the original's presets cover from low.ini to VeryHigh.ini, and Smooth terrain. Steam Deck: High without sun shadows or smooth terrain. Custom: none match.",
             switches: "",
             get: |_| false,
             set: |_, _| {},
@@ -745,6 +845,58 @@ mod tests {
         assert_eq!(w.resource::<Rows>().parts, [1.0; 5]);
         assert_eq!(quality_reading(w), "Very High");
         assert!(!settings::pick(w, row, "Medium"), "a preset without its file is not offered");
+    }
+
+    /// #3909: Steam Deck is High with sun shadows and smooth terrain off, offered only with
+    /// High, and taken and read back like the file presets.
+    #[test]
+    fn the_steam_deck_preset_is_high_without_sun_shadows_or_smooth_terrain() {
+        let mut deck_app = app(&[("Low", LOW), ("High", HIGH)]);
+        let w = deck_app.world_mut();
+        let presets = w.resource::<QualityPresets>().presets.clone();
+        assert_eq!(presets.iter().map(|p| p.label).collect::<Vec<_>>(), ["Low", "High", STEAM_DECK], "after the files' presets");
+        let (high, deck) = (&presets[1], &presets[2]);
+        assert_eq!(deck.rows.len(), high.rows.len());
+        for ((k, d), (hk, h)) in deck.rows.iter().zip(&high.rows) {
+            assert_eq!(k, hk);
+            assert_eq!(*d, if *k == "sun-shadows" { 0.0 } else { *h }, "{k}");
+        }
+        assert_eq!(deck.choices, vec![(nvf_play::smooth_terrain::KEY, "Off")]);
+        let row = w.resource::<Settings>().index(QUALITY_KEY).unwrap();
+        assert!(settings::pick(w, row, STEAM_DECK));
+        assert!(!w.resource::<Rows>().shadows);
+        assert_eq!(w.resource::<Smooth>().0, "Off");
+        assert_eq!(quality_reading(w), STEAM_DECK);
+        assert!(settings::pick(w, row, "High"));
+        assert_eq!(quality_reading(w), "High");
+        assert!(load_quality(w, "steam deck"), "the stored name is read");
+        // Without High's file there is nothing to make it from.
+        let mut low_only = app(&[("Low", LOW)]);
+        assert!(!low_only.world_mut().resource::<QualityPresets>().presets.iter().any(|p| p.label == STEAM_DECK));
+    }
+
+    /// #3909: a Steam Deck's first start (no INI) takes the preset and writes it; a start
+    /// with an INI, or on another machine, takes nothing.
+    #[test]
+    fn a_steam_decks_first_start_takes_the_preset_once() {
+        let dir = std::env::temp_dir().join(format!("nvf-quality-deck-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        for (deck, ini, taken) in [(true, false, true), (false, false, false), (true, true, false)] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            if ini {
+                std::fs::write(&path, "[Settings]\nquality=High\n").unwrap();
+            }
+            let mut app = app(&[("Low", LOW), ("High", HIGH)]);
+            app.insert_resource(settings::SettingsFile(Some(path.clone()))).init_resource::<settings::StoreAttempts>().insert_resource(SteamDeck(deck, false));
+            let w = app.world_mut();
+            assert_eq!(quality_reading(w), "High", "the rows start as High's");
+            deck_first_start(w);
+            assert_eq!(quality_reading(w) == STEAM_DECK, taken, "deck {deck}, INI {ini}");
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            assert_eq!(text.contains("quality=Steam Deck"), taken, "{text}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #2248: a preset sets its nine rows and writes `NVForever.ini` once, not once per row

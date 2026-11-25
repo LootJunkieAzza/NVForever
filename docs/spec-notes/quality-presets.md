@@ -145,6 +145,29 @@ N150's integrated GPU at 1920x1080 with the Low preset's rows, 4 x 4 costs 9 ms 
 frame and 2 x 2 3 ms [observed: #2864]. The Quality row reads a preset only when this row
 matches too. The row, and so a preset's change to it, applies at the next start.
 
+## The Steam Deck preset (#3909)
+
+[design] A fifth choice, **Steam Deck**, NVForever's own: High's rows as `high.ini` gives
+them, with Sun shadows Off and Smooth terrain Off (`quality::STEAM_DECK_ROWS`, `OWN`). Like
+the others it carries no value from the files: it is made from High's file each run, and is
+offered only when that file was read. The two rows it changes are the original's own look
+(no sun shadows from the world, docs/spec-notes/world.md §6; no smoothing of the landscape)
+and the two that cost a Steam Deck's GPU most besides multisampling.
+
+[design] **A Steam Deck's first start** (`quality::deck_first_start`): with no
+`NVForever.ini` yet and the machine a Deck (Linux DMI `sys_vendor` and `board_vendor` both
+`Valve`; test aid `NVF_PLAY_TEST_STEAM_DECK=1|0` decides instead; `first` also treats the start as a first start, for smoke homes that keep their INI), the start takes Steam Deck
+and Anti-aliasing SMAA as picks on the page would, so the INI keeps them and later starts
+are the player's. It runs after the INI is read and before the run's smooth terrain is
+fixed, so the first run already draws without it. A command line that names a row the
+preset sets leaves the preset untaken, and an anti-aliasing switch keeps its value. Other
+machines and later starts are unchanged. Windows on a Deck is not recognised.
+
+[observed] Steam Deck LCD, SteamOS, Mesa RADV, 1280x800, uncapped, SMAA, frames a second
+in the steady windows: Goodsprings 12:00 59.3 with High's rows, 67.6 with Steam Deck;
+Novac 12:00 52.5 and 62.3; Primm 12:00 54.6 and 68.1. With 4x multisampling instead of
+SMAA, Steam Deck gave 61.0, 58.8 and 58.4.
+
 ## Main-menu edit measurement (#2248)
 
 [design, #2248: engine/nvforever/src/quality_probe.rs;
