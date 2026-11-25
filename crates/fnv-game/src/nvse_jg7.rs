@@ -209,10 +209,13 @@ fn outputs(g: &mut Game, ret: f64, vals: &[f64]) -> XVal {
     XVal::Array(g.ext.new_array(ArrayKind::List, entries))
 }
 
-/// Hue (degrees), saturation and value (0-1) from 0-255 channels [documented: RGBtoHSV;
-/// the conversion is the standard hexcone one, hypothesis].
+/// Hue (degrees), saturation and value (0-1) from 0-255 channels without input clamping
+/// [documented: RGBtoHSV; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+/// JohnnyGuitarNVSE 528, 2026-11-24, `w6_t1_07_jg_hsv_rgb`
+/// (`tools/capture/nvse/catalogs/wave6_t1_jg_colors.json`, `ext-jg7.md`):
+/// `(300, -10, 128) -> (333.290, 1.033, 1.176)`].
 pub fn rgb_to_hsv(r: f64, g: f64, b: f64) -> [f64; 3] {
-    let (r, g, b) = (r.clamp(0.0, 255.0) / 255.0, g.clamp(0.0, 255.0) / 255.0, b.clamp(0.0, 255.0) / 255.0);
+    let (r, g, b) = (r / 255.0, g / 255.0, b / 255.0);
     let max = r.max(g).max(b);
     let d = max - r.min(g).min(b);
     let h = if d == 0.0 {
@@ -227,8 +230,8 @@ pub fn rgb_to_hsv(r: f64, g: f64, b: f64) -> [f64; 3] {
     [h, if max == 0.0 { 0.0 } else { d / max }, max]
 }
 
-/// 0-255 channels from hue, saturation and value, rounded [documented: HSVtoRGB; the
-/// hexcone conversion and the rounding, hypothesis].
+/// 0-255 channels from hue, saturation and value, rounded to whole channels [documented:
+/// HSVtoRGB; observed: same `w6_t1_07_jg_hsv_rgb` probe — `(30, 0.5, 0.5) -> (128, 96, 64)`].
 pub fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [f64; 3] {
     let (h, s, v) = (h.rem_euclid(360.0), s.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
     let c = v * s;

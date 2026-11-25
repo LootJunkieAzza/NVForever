@@ -3181,20 +3181,24 @@ already talking takes over at once, same topic or another; nothing is queued or 
      Guard05 (their health). Also: does a Securitron help when the player alone fights
      Oliver before the guards are down (it has its guard then)?
 
-## Added 2026-11-16 (SayTo's noTargetLookFlag, #2796)
+## Answered 2026-11-25 (SayTo's noTargetLookFlag, #2796)
+
 
 218. **Does `SayTo` with `noTargetLookFlag` 1 turn the speaker to its target?** (P2; #2796,
-     dialogue-play.md §9.2.) When an NPC runs `SayTo player <topic> 0 1`, does the speaker
-     turn to face the player? Ours: nobody turns, body or head [hypothesis]; without the
-     flag the speaker turns head and body to the target [owner decision 2026-10-11]. The
-     GECK wiki says only that the target "is not forced to look at the speaker"
-     [documented: GECK wiki SayTo]. Two places to watch: Camp McCarran's tower at night
-     during I Put a Spell on You (VMS08), entering the tower trigger with Curtis
-     (`CaptainCurtisREF` 0x000F6283) on the walkway behind the player's back: does he turn
-     for "Lupa, this is Frumentarius Picus, over." (VMS08CurtisRadio1) or keep talking
-     into the radio; and one of the McCarran monorail guards' warnings to the player.
-     Read his heading (`GetAngle Z`) and `GetHeadingAngle player` before and at the end of
-     the line. If he turns, the flag is the wiki's alone (only the target stays still).
+     dialogue-play.md §9.2.) Answered [observed, base game, 2026-11-25: capture jobs `o31_218_sayto_flag`, `o31_218b_sayto_flag` (outputs in the private capture folder)]:
+     **yes, the flag does not stop the speaker turning.** Ringo (nvftest, GSGasStation)
+     was moved 150 units in front of the player and faced away (GetHeadingAngle player
+     180), then `RingoRef.SayTo player GREETING 0 <flag>`: standing, he turned his body
+     to the player in about 0.8 s (≈ 30° per 6 frames, GetHeadingAngle 180 → 0) with flag 1
+     in 3 of 3 runs and with flag 0 in 2 of 2, the same rate; with no SayTo he stayed at 180.
+     Walking on his own package (his position changing every sample, procedure 48) he did
+     not turn with either flag (2 runs each). So the turn depends on whether the speaker is
+     free to turn, not on the flag; the flag can only be the wiki's (the *target* is not
+     made to look) [documented: GECK wiki SayTo]. Ours turns nobody with flag 1
+     (`crates/fnv-game/src/functions/misc.rs` `say_to`, test
+     `say_to_with_no_target_look_turns_nobody`): it differs. Still open: why Curtis does
+     not turn for VMS08CurtisRadio1 in the original (#2796's case: his package or idle at
+     the walkway, not the flag), and what the flag does to the target.
 
 ## Added 2026-11-16 (a talking activator's Say and SayTo, #2768)
 
@@ -3213,44 +3217,45 @@ already talking takes over at once, same topic or another; nothing is queued or 
      read `<activator>.IsTalking` and `<actor>.IsTalking`, and note whether a SayToDone
      block in the activator's script runs when it ends (a script print).
 
-## Added 2026-11-16 (an NPC saved while seated, #2797)
+## Answered 2026-11-25 (an NPC saved while seated, #2797)
+
 
 220. **Does an NPC saved while seated come back seated after a load?** (P2; #2797,
-     save-load.md §3.4, furniture.md.) Ours: a load stands every actor up (the saved
-     furniture use is cleared, GetSitting reads 0) and the NPC's AI seats it again from
-     where it stands if its package still sends it to a seat; the provisional reading of
-     the original is the same, it stands up and re-seats through its AI [hypothesis].
-     In Goodsprings at 09:00, with Easy Pete (`EasyPeteRef`) on his porch chair
-     (0x0010634A, `GetSitting` 3), save, load that save at once and log
-     `EasyPeteRef.GetSitting` every half second from the first frame for 20 s, with
-     `GetPos x/y`. If it reads 3 from the first frame with no getting-on, the original
-     keeps the seat in the save and puts the body straight back on it; if it reads 0
-     then 2, 3 (or he walks first), ours matches. The same with Colonel Hsu on his office
-     chair (0x000FB33A, CampMCTermInt02) gives a second case.
+     save-load.md §3.4, furniture.md.) Answered [observed, base game, 2026-11-25: capture jobs `o31_220a_pete_save`, `o31_220b_pete_load` (outputs in the private capture folder)]:
+     **yes, the original keeps the seat in the save.** Easy Pete (nvftest, GameHour set to
+     9, `GetSitting` 3 on his porch chair at -67968.8, 3450.4, 8387.3) was saved
+     (`save nvfo31pete`); on loading that save his `GetSitting` read 3 at the same position
+     to the tenth of a unit from the first sample (about 2 s after the load, when the
+     capture job could start) through 40 samples over 20 s: no 0, no getting-on (2), no
+     step. Ours stands every actor up on a load and lets the AI seat them again
+     (`Game::stand_everyone_up`): it differs. Not covered: the first 2 s after the load
+     (a re-seat that fast would also have moved him), Colonel Hsu's chair.
 
 ## Added 2026-11-16 (sentry bot missile pause, #2739)
 
+
 221. **How long does a sentry bot wait between two missile shots, and does it switch to its
-     gun between them?** (P1; #2739, combat-rules.md §4.1, combat-ai.md §19.) The owner saw
-     a pause between missiles in the original and none in NVForever [observed: owner
-     playtest]. The launcher `SentryBotMissileLauncher2HL` (0x00057E8F) has Clip Size 1,
-     Reload Animation ReloadB, 1.5789 Attack Shots/Sec and a Semi-Automatic Fire Delay of
-     0.1-0.5 s [documented: fnvtool esm decode, FalloutNV.esm]; the sentry bot's
-     `2hlattackleft.kf` runs 2.0 s with `Hit` at 0.067 s and `a:R` at 0.967 s, and its
-     folder has no reload clip [documented: fnvtool bsa list / nif decode, Fallout -
-     Meshes.bsa]. Ours now: a missile every 0.967 s (the player's rule: the next shot from
-     the `a:` key), no reload, the launcher kept until distance or a crippled limb makes
-     another gun suit [hypothesis]. Place a Hardened Sentry Bot (`CrSentryBotGLHard`
-     0x000E585D, launcher and laser gatling) about 1,500 units from the player in the
-     open, in combat with the player (god mode), and record a video of at least 30 s; then
-     the same with `CrSentryBotMGArmy` (0x000A5C6F, launcher and minigun), and once with
-     its gun arm crippled if the console allows. What to read off: the time from one
-     missile's launch to the next (0.97 s, 2.0 s for the whole clip, or longer); whether
-     anything like a reload plays between them; whether the gun fires between two
-     missiles and for how long; at what distances it uses the launcher at all; and how
-     many missiles it fires in a fight (does it run out: its inventory holds AmmoMissile
-     x1 plus up to four from AmmoMissilelauncher75). Also whether a robot whose folder has
-     no reload clip (Mister Gutsy's plasma gun or flamer) ever pauses as if reloading.
+     gun between them?** (P1; #2739, combat-rules.md §4.1, combat-ai.md §19.) Answered
+     [observed, base game, 2026-11-25: capture jobs `o31_221_sentry_missiles`, `o31_221b_sentry_hits` (outputs in the private capture folder)], no video: nvfairport,
+     player in god mode standing on the runway, each bot placed 1,500 units off with
+     StartCombat, `GetEquippedObject 5` every 2 frames, the hits on the player by weapon
+     from xNVSE's OnHitWith. **It fires one missile, then switches to its gun.**
+     - `CrSentryBotGLHard` (launcher and laser gatling), 40 s: launcher and gatling take
+       turns, 4.4-4.6 s with the launcher (the first turn 6.9 s) and 5.7-5.8 s with the
+       gatling (switches at
+       1.1, 8.0, 13.7, 18.3, 24.0, 28.6, 34.4, 38.8 s). Each launcher turn gives **one**
+       missile hit, 1.6-4.3 s after it was equipped (hits at 5.4, 15.8, 25.7, 36.0 s:
+       a missile every 9.9-10.4 s). Each gatling turn gives two bursts of 5-11 hits about
+       1.1-1.5 s apart.
+     - `CrSentryBotMGArmy` (launcher and minigun), 40 s: launcher 0-6.3 s (no hit seen),
+       minigun 6.3-12.5, launcher 12.5-17.1 (one missile, 14.4 s), minigun 17.1-35.0
+       (bursts every 4.5-5.5 s), launcher 35.0 (one missile, 36.9 s): missiles 22.5 s apart.
+     - Neither bot's `GetItemCount AmmoMissile` (4 and 2), Electron Charge Pack or 5mm count
+       went down: the fight spends none of its inventory, so it does not run out in 40 s.
+     - Both stopped closing in at about 1,110-1,330 units and held there.
+     Ours fires a missile every 0.967 s and keeps the launcher: it differs. Not covered:
+     a crippled gun arm, Mister Gutsy's guns, what plays between the missile and the switch
+     (the video).
 
 ## Answered 2026-11-16 (sky and grade, Capital Wasteland against the Mojave)
 
@@ -3327,39 +3332,42 @@ already talking takes over at once, same topic or another; nothing is queued or 
      and 10 (`player.setav perception`), to confirm Perception plays no part.
 
 
-## Added 2026-11-17 (OK on a message box without buttons, #2925)
+## Answered 2026-11-25 (OK on a message box without buttons, #2925)
+
 
 240. **What does GetButtonPressed give after OK on a message box that has no buttons?**
-     (P2; #2925, scripts.md §7.2 engine API.) The GECK wiki says a message box with no
-     buttons shows a default OK button and that GetButtonPressed gives the pressed
-     button's index from zero once, then -1 [documented: GECK wiki ShowMessage,
-     GetButtonPressed]; it does not say what the default OK gives. Ours: 0, once, then -1,
-     to the script that showed the box; a corner message (no Message Box flag) gives -1
-     [hypothesis: inferred from SCPT 0x000E9483, the Broken Mr. Handy in
-     BlackMountainTreasure, whose GameMode block waits for button 0 after BMRhondaFixMsg,
-     0x000E9551, a box without buttons]. In the Black Mountain treasure room with Science
-     60, activate REFR 0x000E84A4, pick "[Science] Check the robot's circuitry.", press OK
-     on the second box: if the robot gets up (`000E84A4.GetDead` 0, its new name, the
-     prompt no longer "Search"), the original gives 0. For a direct reading, a test
-     plugin's script that shows a buttonless message box and prints GetButtonPressed every
-     frame for a second after the OK (PrintC) gives the value and how many times it comes.
+     (P2; #2925, scripts.md §7.2 engine API.) Answered [observed, base game, 2026-11-25: capture jobs `o31_240_buttonless_ok` (outputs in the private capture folder)]:
+     **0.** In BlackMountainTreasure with Science 100, `RhondaREF.Activate player 1` opened
+     BMRhondaBrokenMsg (MenuMode 1001, two rows); JIP's ClickMenuButton on
+     `MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_ButtonList/MM_Button:0` (the lower row,
+     `_y` 52: "[Science] Check the robot's circuitry.", button 1) opened BMRhondaFixMsg
+     (one row, the default OK); a click on its OK closed it and Rhonda's GameMode block
+     took button 0: `RhondaREF.GetDead` went from 1 to 0 within a second. Ours gives 0:
+     the same. Two traps for the next run: a scripted `Activate player` skips the
+     OnActivate block (a dead creature's loot menu, 1008, opened); `Activate player 1` runs
+     it. The rows' names count from the bottom: `MM_Button:0` is the last row.
 
-## Added 2026-11-17 (SendAssaultAlarm on a faction with no member present, #2926)
+## Answered 2026-11-25 (SendAssaultAlarm on a faction with no member present, #2926)
+
 
 241. **What does `SendAssaultAlarm Player <faction>` do when no member of the faction is
-     present and alive?** (P3; #2926, crime-karma.md §3.5.) The wiki says only that it picks
-     "an NPC in the … faction" in place of the player [documented: GECK wiki
-     SendAssaultAlarm]. Ours: nobody turns and no crime is counted; the calling actor is
-     never the stand-in [hypothesis]. In Techatticup Mine, kill every raider of
-     `CaesarsLegionTechMineFaction` (0x001400F9) with the console, then free an NCR
-     hostage (`TechMineNCRHostage2REF`, button "Untie him."): log
-     `TechMineNCRHostage2REF.GetAlarmed`, `player.IsInCombat` and the hostage's combat
-     target for 10 s, and whether the second hostage's message box still opens. Then once
-     with the raiders alive: which raider turns (the nearest, the first in some order, or
-     all of them) and whether the guards at the entrance join. Ours picks the first member
-     in FormID order: TecLegionaryRaider5REF (0x0011F654) of 17 present and alive
-     [observed: our headless walkthrough techatticup-hostages-2926, #2926 probe].
-
+     present and alive?** (P3; #2926, crime-karma.md §3.5.) Answered
+     [observed, base game, 2026-11-25: capture jobs `o31_241a_alarm_dead`, `o31_241b_alarm_alive` (outputs in the private capture folder)]: nvftest, god mode, `coc
+     TechatticupMineInterior`, then `TechMineNCRHostage2REF.SendAssaultAlarm player
+     CaesarsLegionTechMineFaction` (the hostage script's line, run from a job).
+     - **All 17 members killed first** (`Kill`, no killer; two runs): nothing. For 10 s no
+       member, the hostage nor the player was in combat; afterwards
+       `TechMineNCRHostage1REF.Activate player 1` opened its message box (MenuMode 1001),
+       so the second hostage can still be freed. Ours: the same.
+     - **Members alive**: not one member but every one within about 1,900 units. 7 of the 17
+       were in combat 0.5 s later (6 on the player), 9 by 1.5 s, and the same 9 for the
+       rest of the 10 s, all with the player as their target: those 145-1,872 units from the
+       player (TecLegionaryRaider5REF 0x0011F654 among them); none of the 8 at 2,038 units
+       and more joined. None had been in combat before the call. Ours turns the first member
+       in FormID order (0x0011F654) and lets the combat-group alarm spread it: whether that
+       gives the same 9 is to be checked in a headless run.
+     Not covered: crime gold (the job's `player.GetCrimeGold` did not compile), the
+     guards at the entrance outside the cell.
 
 ## Added 2026-11-15 (radscorpion spacing and melee cadence, #2535)
 
