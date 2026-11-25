@@ -517,10 +517,20 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.jip4_set_quest_flag(f0, k, num(args, 2, 0.0) != 0.0);
             zero
         }
-        // Factions: the reputation (WMI1) [documented: Get/SetFactionReputationType].
+        // Factions: the reputation (WMI1) [documented: Get/SetFactionReputationType;
+        // observed: `w6d2p5_01_faction_reputation_validate` — non-REPU and explicit 0 are no-ops,
+        // omitted arg clears WMI1 to 0].
         "getfactionreputationtype" => XVal::Ref(get_form(g, f0, "WMI1", "")),
         "setfactionreputationtype" => {
-            set(g, f0, "WMI1", "", XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
+            if g.data.sig(g.unclone(f0)) == Some(*b"FACT") {
+                let next = match args.get(1) {
+                    None => Some(0),
+                    Some(_) => form(args, 1).filter(|&r| g.data.sig(g.unclone(r)) == Some(*b"REPU")).map(|r| r.0),
+                };
+                if let Some(id) = next {
+                    set(g, f0, "WMI1", "", XVal::Ref(id));
+                }
+            }
             zero
         }
         // Cells: climate (XCCM), lighting template (LTMP), water noise texture (XNAM)

@@ -1,0 +1,69 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d2-set-faction-reputation-validate",
+  "description": "Wave 6D-2 read-only clean-room JIP LN 57.30 probe for SetFactionReputationType (FACT/REPU validation, explicit 0 no-op, omitted-arg clear).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_nvse": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d2_set_faction_reputation_validate",
+      "title": "SetFactionReputationType REPU validation and omitted-arg clear",
+      "extender": "jip_nvse",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d2p5_01_faction_reputation_validate",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-traits-4.md",
+          "spec_line": 124,
+          "functions_tested": [
+            "GetFactionReputationType",
+            "SetFactionReputationType"
+          ],
+          "claim": "Verify SetFactionReputationType rejects non-REPU forms, treats explicit null 0 as no-op, and clears when omitted.",
+          "expected": "badEq0=1, badZ=0, nullZ=0, omitZ=1.",
+          "script_lines": [
+            "ref rNcr = GetFormFromMod \"FalloutNV.esm\" \"A46E7\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rNull = 0",
+            "ref rep0 = GetFactionReputationType rNcr",
+            "SetFactionReputationType rNcr rStim",
+            "ref repBad = GetFactionReputationType rNcr",
+            "SetFactionReputationType rNcr rNull",
+            "ref repNull = GetFactionReputationType rNcr",
+            "SetFactionReputationType rNcr",
+            "ref repOmit = GetFactionReputationType rNcr",
+            "SetFactionReputationType rNcr rep0",
+            "PrintToConsole \"PROBE|w6d2p5_01_faction_reputation_validate|badEq0=%g,badZ=%g,nullZ=%g,omitZ=%g\" (repBad == rep0) (repBad == 0) (repNull == 0) (repOmit == 0)"
+          ]
+        }
+      ]
+    }
+  ]
+}

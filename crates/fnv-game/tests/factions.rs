@@ -2558,3 +2558,58 @@ fn hostility_text_names_every_grudge_kind_and_neutral_aggression() {
     let aggro_text = g.hostility_text(lurker, player).expect("aggro grudge");
     assert!(aggro_text.contains("stayed inside its aggro radius"), "{aggro_text}");
 }
+
+/// Wave 6D-2 `w6d2p5_01_faction_reputation_validate` [observed]: `SetFactionReputationType`
+/// validates `FACT`/`REPU`, treats non-`REPU` and explicit `0` as no-ops, and clears `WMI1`
+/// only when arg 1 is omitted.
+#[test]
+fn set_faction_reputation_type_validates_repu_and_omitted_clear() {
+    use fnv_game::game::RunCtx;
+    use fnv_script::vm::XVal;
+
+    const FACT_ID: u32 = 0x9A0;
+    const REPU_A: u32 = 0x9A1;
+    const REPU_B: u32 = 0x9A2;
+    const NOT_REPU: u32 = 0x9A3;
+
+    let npc_player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]);
+    let fact = record(b"FACT", 0, FACT_ID, &[sub(b"EDID", z("TestRepFaction")), sub(b"WMI1", REPU_A.to_le_bytes().to_vec())]);
+    let repus = [
+        record(b"REPU", 0, REPU_A, &[sub(b"EDID", z("TestRepuA"))]),
+        record(b"REPU", 0, REPU_B, &[sub(b"EDID", z("TestRepuB"))]),
+    ]
+    .concat();
+    let misc = record(b"MISC", 0, NOT_REPU, &[sub(b"EDID", z("TestNotRepu"))]);
+    let bytes = [tes4(), top(b"NPC_", &npc_player), top(b"FACT", &fact), top(b"REPU", &repus), top(b"MISC", &misc)].concat();
+
+    let plugins = vec![Plugin::parse(&bytes, "RepFact.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig { strict: true, ..GameConfig::default() });
+
+    let run = |g: &mut Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), RunCtx::default()).unwrap_or_else(|e| panic!("{body}: {e}"))
+    };
+    let get = |g: &mut Game, expr: &str| match run(g, &format!("SetFunctionValue ({expr})")) {
+        XVal::Ref(r) => r,
+        XVal::Num(x) => x as u32,
+        v => panic!("{expr}: {v:?}"),
+    };
+
+    assert_eq!(get(&mut g, "GetFactionReputationType TestRepFaction"), REPU_A);
+    run(&mut g, "SetFactionReputationType TestRepFaction TestNotRepu");
+    assert_eq!(get(&mut g, "GetFactionReputationType TestRepFaction"), REPU_A);
+    run(&mut g, "SetFactionReputationType TestRepFaction 0");
+    assert_eq!(get(&mut g, "GetFactionReputationType TestRepFaction"), REPU_A);
+    run(&mut g, "SetFactionReputationType TestRepFaction TestRepuB");
+    assert_eq!(get(&mut g, "GetFactionReputationType TestRepFaction"), REPU_B);
+    run(&mut g, "SetFactionReputationType TestRepFaction");
+    assert_eq!(get(&mut g, "GetFactionReputationType TestRepFaction"), 0);
+}
