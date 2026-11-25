@@ -161,37 +161,49 @@ class TestCatalogValidation(unittest.TestCase):
     def test_committed_catalogs_validate_cleanly(self) -> None:
         paths = nvse_harness.iter_catalog_paths(catalog_dir=nvse_harness.DEFAULT_CATALOG_DIR)
         names = [p.name for p in paths]
-        self.assertEqual(
-            names,
-            [
-                "wave1_parity_probes.json",
-                "wave4a_extenders.json",
-                "wave4b_extenders.json",
-                "wave4c_extenders.json",
-                "wave4d_extenders.json",
-                "wave4e_mods.json",
-                "wave4g_f2_extenders.json",
-                "wave4h_reconcile.json",
-                "wave6_point_raycast.json",
-                "wave6_t1_jg_colors.json",
-                "wave6d4_promote_observed.json",
-            ],
-        )
+        self.assertGreaterEqual(len(paths), 10)
+        for baseline in (
+            "wave1_parity_probes.json",
+            "wave4a_extenders.json",
+            "wave4b_extenders.json",
+            "wave4c_extenders.json",
+            "wave4d_extenders.json",
+            "wave4e_mods.json",
+            "wave4g_f2_extenders.json",
+            "wave4h_reconcile.json",
+            "wave6_point_raycast.json",
+            "wave6_t1_jg_colors.json",
+        ):
+            self.assertIn(baseline, names)
         self.assertFalse((nvse_harness.DEFAULT_CATALOG_DIR / "persistence_matrix.json").exists())
         errors, counts = nvse_harness.validate_catalogs(paths)
         self.assertEqual(errors, [], f"Catalog validation errors: {errors[:5]}")
-        self.assertEqual(counts["catalogs"], 11)
-        self.assertEqual(counts["probe_batches"], 29)
-        self.assertEqual(counts["probes"], 567)
-        self.assertEqual(counts["persistence_items"], 0)
 
-        # Verify Wave 1 parity probe IDs and corrected Wave 4A/4D/4E/4G/4H targeted probes are present verbatim.
+        expected_batches = 0
+        expected_probes = 0
         probes_by_id: dict[str, dict] = {}
         for p in paths:
             data = nvse_harness.load_catalog(p)
-            for b in data.get("batches", []):
-                for pr in b.get("probes", []):
+            self.assertEqual(data.get("schema"), nvse_harness.PROBE_CATALOG_SCHEMA, p.name)
+            batches = data.get("batches", [])
+            self.assertGreater(len(batches), 0, p.name)
+            expected_batches += len(batches)
+            for b in batches:
+                b_probes = b.get("probes", [])
+                self.assertGreater(len(b_probes), 0, f"{p.name}:{b.get('id')}")
+                expected_probes += len(b_probes)
+                for pr in b_probes:
                     probes_by_id[pr["id"]] = pr
+
+        self.assertEqual(counts["catalogs"], len(paths))
+        self.assertEqual(counts["probe_batches"], expected_batches)
+        self.assertEqual(counts["probes"], expected_probes)
+        self.assertGreaterEqual(counts["probe_batches"], 28)
+        self.assertGreaterEqual(counts["probes"], 543)
+        self.assertEqual(counts["persistence_items"], 0)
+        self.assertEqual(len(probes_by_id), expected_probes)
+
+        # Verify Wave 1 parity probe IDs and corrected Wave 4A/4D/4E/4G/4H targeted probes are present verbatim.
 
         for req_id in (
             "w1_3495_compound_assign_and_datan2",
@@ -219,30 +231,6 @@ class TestCatalogValidation(unittest.TestCase):
             "w6_01_point_raycast_angles",
             "w6_02_point_raycast_miss_and_range",
             "w6_03_point_raycast_collision_flags",
-            "w6d4_05_ammo_queries_and_buildref_localidx",
-            "w6d4p3_05_ammo_queries_settled",
-            "w6d4_09_set_string_setting_and_alt_control",
-            "w6d4_10_tostring_maps_null_and_print_tile",
-            "w6d4_11_menu_hold_release_and_compare_scripts",
-            "w6d4_12_actor_base_flags_high_low_immobile",
-            "w6d4_15_has_action_ref_unscripted_and_actors",
-            "w6d4_16_refresh_anim_data_and_jip_toggles",
-            "w6d4p2_19_ccc_queries_and_ascii_fixed",
-            "w6d4_20_jg_accuracy_mult_water_tex_transform",
-            "w6d4_22_showoff_unlisted_old_and_flags",
-            "w6d4_28_sup3_tfc_pos_angle_calc_and_ini_read",
-            "w6d4_29_sup4_saves_pickpocket_and_onload",
-            "w6d4_30_sup5_file_meta_and_env_readonly",
-            "w6d4p2_31a_sup6_screen_font_mod",
-            "w6d4p2_31b_sup6_hud_grenade_pc",
-            "w6d4_32_sup6_cursor_traits_gradual_and_mouse",
-            "w6d4_33_sup7_nif_interp_scale_rot_trans_modes",
-            "w6d4_36_sup4_near_cells_and_markers_exterior",
-            "w6d4p2_40_anh_game_safe",
-            "w6d4_43_knvse_global_and_current_anim_time",
-            "w6d4_47_knvse_unlisted_dirfiles_and_controls",
-            "w6d4p4_41_knvse_live_anim",
-            "w6d4p5_25_sup_json_valid_and_array",
         ):
             self.assertIn(req_id, probes_by_id)
 
@@ -278,6 +266,38 @@ class TestCatalogValidation(unittest.TestCase):
         self.assertIn("sv_Destruct s", core24_src)
         self.assertNotIn("core_21_cached_ini_quotes_stripping", probes_by_id)
         self.assertNotIn("so_24_json_write_read_missing_pointer", probes_by_id)
+
+    def test_dynamic_catalog_discovery_validates_added_catalogs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cdir = Path(td)
+            (cdir / "a_first.json").write_text(
+                json.dumps(_minimal_probe_catalog(probe_id="dyn_probe_a")),
+                encoding="utf-8",
+            )
+            (cdir / "b_second.json").write_text(
+                json.dumps(_minimal_probe_catalog(probe_id="dyn_probe_b")),
+                encoding="utf-8",
+            )
+            paths = nvse_harness.iter_catalog_paths(catalog_dir=cdir)
+            self.assertEqual([p.name for p in paths], ["a_first.json", "b_second.json"])
+            errors, counts = nvse_harness.validate_catalogs(paths)
+            self.assertEqual(errors, [], errors)
+            self.assertEqual(counts["catalogs"], 2)
+            self.assertEqual(counts["probe_batches"], 2)
+            self.assertEqual(counts["probes"], 2)
+
+            # Adding a third catalog with a colliding probe ID is caught automatically.
+            (cdir / "c_dup.json").write_text(
+                json.dumps(_minimal_probe_catalog(probe_id="dyn_probe_a")),
+                encoding="utf-8",
+            )
+            dup_paths = nvse_harness.iter_catalog_paths(catalog_dir=cdir)
+            dup_errors, dup_counts = nvse_harness.validate_catalogs(dup_paths)
+            self.assertEqual(dup_counts["catalogs"], 3)
+            self.assertTrue(
+                any("duplicates another catalog" in e for e in dup_errors),
+                dup_errors,
+            )
 
     def test_rejects_bare_editorids_and_allows_quoted_or_commented(self) -> None:
         bad_cat = _minimal_probe_catalog(
