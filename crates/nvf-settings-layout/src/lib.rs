@@ -264,7 +264,7 @@ pub const SECTIONS: &[Section] = &[
     // Shadow resolution sizes the flashlight's maps too, so it needs no Sun shadows (no NEEDS
     // line) (#2843).
     section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows", "terrain-shadows", "light-shadows"]),
-    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "volumetric-clouds", "light-shafts", "heat-haze", "desert-haze", "volumetric-light", "volumetric-light-strength", "aerial-perspective", "night-sky-detail", "physical-pbr", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
+    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "volumetric-clouds", "light-shafts", "heat-haze", "desert-haze", "volumetric-light", "volumetric-light-strength", "aerial-perspective", "night-sky-detail", "physical-pbr", "subsurface-scattering", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
     section("Graphics", Some("Water"), &["water-reflections", "water-mirror", "water-effects"]),
     section("Graphics", Some("Detail and Distance"), &["distant-lod", "full-detail", "distant-objects", "grass", "anisotropic", "authored-materials", "authored-reflections", "terrain-height-blend", "terrain-anti-tiling", "terrain-parallax", "mesh-terrain-blend", "occlusion-culling", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance", "tree-distance", "distant-lights"]),
     section("Graphics", Some("World and Animation"), &["head-tracking", "foot-ik", "sky-clock"]),
@@ -1014,6 +1014,7 @@ pub const SECTIONS: &[Section] = &[
 /// "rows that can't apply: grey them out"]. `crate::settings::Settings::disabled_status`
 /// reads it; a row of a missing module is passed over.
 pub const NEEDS: &[(&str, &str, &str)] = &[
+    ("subsurface-scattering", "physical-pbr", "Needs Physical Lighting."),
     ("dialogue-recentre", "dialogue-look", "Needs Turn to Each Other."),
     ("volume-music", "music", "Needs Play Music."),
     ("volume-voice", "voice", "Needs Dialogue Voice."),

@@ -1232,6 +1232,19 @@ below cover them all.
   the original's display-value lighting stays the default look.
 - Command-line switches: `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.25
+
+### `subsurface-scattering`: Subsurface scattering (experimental)
+
+- On the page: On: light passes softly through skin and leaves; eyes get a wet cornea and
+  hair a strand sheen. Needs Physical lighting. Takes effect at the next start. Not in the
+  original.
+- In full: Skin takes pre-integrated scattering with per-vertex curvature and a warm shadow
+  edge, and its diffuse light is blurred on the screen; eyes take a cornea clear coat, iris
+  depth and lid occlusion; hair takes a strand BSDF along the texture's painted strands;
+  leaves and grass let light through from behind. Greyed while Physical lighting is off.
+  Read at the start. Off by default and in every preset.
+- Command-line switches: `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.26
 ### `bloom`: Bloom
 
 - On the page: On: light brighter than a sunlit white wall (the sun, lamps, windows) glows

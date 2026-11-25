@@ -1903,6 +1903,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // fixed before the first shader hook and material; the page's row changes the next start's.
     let physical_pbr = settings::physical_pbr_after_ini(graphics.physical_pbr, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::authored::set_physical_pbr(physical_pbr);
+    let sss = settings::sss_after_ini(graphics.subsurface_scattering, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::authored::set_sss_enabled(sss);
+    app.add_systems(Startup, move || info!("subsurface scattering: {}", if !sss { "off" } else if nvf_assets::authored::sss_enabled() { "on" } else { "off (needs Physical lighting)" }));
     app.add_systems(Startup, move || info!("physical PBR: {}", if physical_pbr { "on" } else { "off" }));
     app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
     // Reflections on authored materials (#2981): the run's state by the same rule, fixed

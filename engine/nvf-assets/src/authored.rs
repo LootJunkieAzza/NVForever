@@ -1453,5 +1453,24 @@ pub fn physical_pbr() -> bool {
     *PHYSICAL_PBR.get_or_init(|| false)
 }
 
+/// The run's Subsurface scattering state (the settings row `subsurface-scattering`;
+/// docs/design/graphics-enhanced.md §3.26), fixed at the start as [`PHYSICAL_PBR`] is. It
+/// needs Physical PBR: [`sss_enabled`] is off without it.
+static SSS: OnceLock<bool> = OnceLock::new();
+
+/// Fix the run's Subsurface scattering state before the first shader hook and material.
+pub fn set_sss_enabled(on: bool) {
+    if SSS.set(on).is_err() && sss_enabled() != on {
+        warn!("subsurface scattering: already {} for this run; the setting takes effect at the next start", if sss_enabled() { "on" } else { "off" });
+    }
+}
+
+/// Whether this run shades skin (pre-integrated scattering, screen-space diffusion), eyes
+/// (cornea, iris depth, lids), hair (the strand BSDF) and foliage (translucency): set at the
+/// start and only with [`physical_pbr`].
+pub fn sss_enabled() -> bool {
+    *SSS.get_or_init(|| false) && physical_pbr()
+}
+
 #[cfg(test)]
 pub(crate) mod tests;

@@ -1207,7 +1207,7 @@ fn register_graphics(app: &mut App) {
         Setting { key: CLOUDS_KEY, group: GROUP_GRAPHICS, label: "Volumetric clouds (experimental)", note: CLOUDS_NOTE, switches: "--graphics-only", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| CLOUD_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: clouds_chosen, pick: take_clouds, save: clouds_chosen, load: take_clouds, ask_keep: false },
     );
-    let switches: [Switch; 26] = [
+    let switches: [Switch; 27] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1387,6 +1387,14 @@ fn register_graphics(app: &mut App) {
             |w, on| w.resource_mut::<Graphics>().physical_pbr = on,
         ),
         (
+            "subsurface-scattering",
+            "Subsurface scattering (experimental)",
+            SSS_NOTE,
+            "--graphics-only",
+            |w| w.resource::<Graphics>().subsurface_scattering,
+            |w, on| w.resource_mut::<Graphics>().subsurface_scattering = on,
+        ),
+        (
             "distant-lights",
             "Distant lights (experimental)",
             "On: at night, lamps in the places beyond the loaded area show as small glows, so towns can be seen from afar. They light nothing. Not in the original.",
@@ -1545,6 +1553,21 @@ pub(crate) fn physical_pbr_after_ini(command_line: bool, given: Option<&nvf_play
     }
     let Some(given) = given else { return command_line };
     let stored = stored_at_start("physical-pbr").and_then(|v| nvf_play::settings::parse_switch(&v));
+    nvf_play::settings::switch_after_ini(command_line, stored, given, "--graphics-only")
+}
+
+/// The Subsurface scattering row's note (graphics-enhanced.md §3.26).
+const SSS_NOTE: &str = "On: light passes softly through skin and leaves; eyes get a wet cornea and hair a strand sheen. Needs Physical lighting. Takes effect at the next start. Not in the original.";
+
+/// The run's Subsurface scattering state, decided before the first shader hook and material
+/// by [`physical_pbr_after_ini`]'s rule (`NVF_SSS=1`/`0` overrides in a build with the
+/// developer aids). nvf_assets `authored::sss_enabled` is off without Physical PBR.
+pub(crate) fn sss_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    if let Some(v) = crate::dev_aids::var("NVF_SSS") {
+        return v.trim() == "1";
+    }
+    let Some(given) = given else { return command_line };
+    let stored = stored_at_start("subsurface-scattering").and_then(|v| nvf_play::settings::parse_switch(&v));
     nvf_play::settings::switch_after_ini(command_line, stored, given, "--graphics-only")
 }
 
@@ -3254,6 +3277,7 @@ dlss-model=Preset K
             ("aerial-perspective", &["--graphics", "--graphics-only"]),
             ("night-sky-detail", &["--graphics", "--graphics-only"]),
             ("physical-pbr", &["--graphics-only"]),
+            ("subsurface-scattering", &["--graphics-only"]),
             ("distant-lights", &["--graphics", "--graphics-only"]),
             (VOLUMETRIC_LIGHT_KEY, &["--graphics-only"]),
             (VOLUMETRIC_LIGHT_STRENGTH_KEY, &[]),

@@ -333,8 +333,8 @@ mod shared_table_tests {
     /// shadows row; #2981's authored materials row and its reflections row; #2701's
     /// full-detail scenery row; #3014's distant objects row; #2993's aerial perspective row;
     /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row; #2991's volumetric clouds row; #3783's occlusion culling row; #3032's volumetric light row and its
-    /// strength; the physical lighting row), by the group it registers with.
-    const KNOWN: [(&str, &str); 158] = [
+    /// strength; the physical lighting and subsurface scattering rows), by the group it registers with.
+    const KNOWN: [(&str, &str); 159] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -471,6 +471,7 @@ mod shared_table_tests {
         ("aerial-perspective", "Graphics"),
         ("night-sky-detail", "Graphics"),
         ("physical-pbr", "Graphics"),
+        ("subsurface-scattering", "Graphics"),
         ("distant-lights", "Graphics"),
         ("volumetric-light", "Graphics"),
         ("volumetric-light-strength", "Graphics"),
@@ -972,7 +973,7 @@ mod android_profile_tests {
     /// overhaul's menu font, the Advanced Movement rows of tech/movement-inertia, Weapon
     /// Inertia and Camera Motion in place of weapon sway and head bob, and the Quick Loot
     /// rows), by the group it registers with.
-    const KNOWN: [(&str, &str); 229] = [
+    const KNOWN: [(&str, &str); 230] = [
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -1109,6 +1110,7 @@ mod android_profile_tests {
         ("aerial-perspective", "Graphics"),
         ("night-sky-detail", "Graphics"),
         ("physical-pbr", "Graphics"),
+        ("subsurface-scattering", "Graphics"),
         ("distant-lights", "Graphics"),
         ("volumetric-light", "Graphics"),
         ("volumetric-light-strength", "Graphics"),

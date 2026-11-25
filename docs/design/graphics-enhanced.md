@@ -4307,6 +4307,78 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
   beams stay visible (`emittance.rs`).
 
 
+### 3.26 Skin, eyes and hair (`subsurface-scattering`; needs `physical-pbr`; off in every preset, #1503)
+
+**In progress** (the split of #3828, part 6, on part 5): the row and the run's switch are in; the shading below is being carried over from #3828's branch. Until then this section describes #3828's branch. Tuning variables it names (`NVF_*`) are read only in a build with the developer aids (dev_aids.rs).
+
+[design, #1503] An addition of NVForever's own, as §3.23: not a fact about the original,
+never a parity item. All of it is behind **Subsurface scattering**
+(`subsurface-scattering`, Graphics > Lighting and Effects; `NVF_SSS=1` / `0`; read once at
+the start); the screen-space skin pass and the hair also need Physical PBR. Which shapes
+count is read from the data: skin from the skin shader and FaceGen heads, eyes from the
+eye shapes (`nif_spawn::is_eye_shape`), hair from the Hair shader flag (BSShaderFlags bit
+18: hair, beards, brows) [documented: nif.xml BSShaderFlags; nif.md §6 "Hair"]. No Skyrim
+Community Shaders code was read or used (the clean-room rule of #1503).
+
+- **Skin, pre-integrated**: the diffuse of each direct light is looked up across the skin's
+  curvature [documented: Penner and Borshukov 2011, "Pre-Integrated Skin Shading", GPU
+  Pro 2], from the six-Gaussian skin diffusion profile [documented: d'Eon and Luebke 2007,
+  "Advanced Techniques for Realistic Real-Time Skin Rendering", GPU Gems 3 ch. 14; the
+  variances 0.0064 to 7.41 mm² and their RGB weights]. The curvature is per vertex, from
+  the mesh (`skin_curvature.rs`). Shadow edges take a warm penumbra, red scattering
+  farthest. Light through thin parts (ears, nostrils) comes from the shadow map's
+  thickness.
+- **Skin, screen-space** (with Physical PBR and no multisampling; `NVF_SSSS=0` keeps the
+  pre-integration): every diffuse light on the skin, the sky's and the ambient included,
+  is blurred across the skin after the opaque pass by the same profile, in two
+  one-dimensional passes sized by depth [documented: Jimenez, Sundstedt and Gutierrez
+  2009, "Screen-Space Perceptual Rendering of Human Skin"; Jimenez et al. 2015,
+  "Separable Subsurface Scattering"] (`sss/screen.rs`, `sss_screen.wesl`).
+- **Eyes**: a clear coat for the cornea, through which the iris is seen refracted and
+  shifting with the view; a dark limbal ring; the sky's reflection shut out by the lids
+  and brow except through the eye's opening; the upper lid's and the corners' shading
+  (nif_material.wesl `NVF_EYE`). The iris's place on the texture and the eye mesh's
+  frame are observed (the table).
+- **Hair**: a strand BSDF (sss.wesl `NVF_HAIR`): the R and TRT lobes [documented:
+  Marschner et al. 2003, "Light Scattering from Human Hair Fibers"] in the closed forms
+  of Karis 2016 [documented: "Physically Based Hair Shading in Unreal", SIGGRAPH course
+  notes], with no TT lobe, since the hair is a shell on the head and the light it would
+  carry ends in the head; a wrapped diffuse mixed with a third of Kajiya and Kay's
+  [documented: Kajiya and Kay 1989, "Rendering fur with three dimensional textures"],
+  tinted by the hair's colour in shadow. Both lobes fall with the shell's N·L, since a
+  single fibre's lobes have no surface normal: without it a sun behind the camera put
+  them at their peak over the whole hair, outline included (6.8 times Lambert at
+  N·V 0.15 for dark brown hair), a grey sheen through which the hair looked see-through
+  (owner's frames, 2026-11-24). The strand direction comes from the texture's painted
+  strokes, as nif.md §6 "Hair strand direction" says.
+
+| Constant | Value | Tag and basis |
+|---|---|---|
+| skin profile (`sss/screen.rs` `PROFILE`, `sss.rs` tests `GAUSSIANS`) | six Gaussians, 0.0064-7.41 mm² | [documented: d'Eon and Luebke 2007, GPU Gems 3 ch. 14] |
+| `MM_PER_UNIT` (skin_curvature.rs, sss/screen.rs, sss_screen.wesl) | 14.3 mm | [hypothesis] 70 units per metre, as combat-rules.md |
+| `REACH_MM`, `TAPS`, `MAX_STEP_PX` (sss/screen.rs) | 8 mm, 17, 96 px | 8 mm: three σ of the widest Gaussian, under 1 % of red past it [checked: tests]; the rest [design] |
+| `NVF_SKIN_PENUMBRA_SIGMA` (sss.wesl) | (0.20, 0.10, 0.06) penumbra widths | [design] red widest, blue narrowest, in the profile's order |
+| skin roughness (nif_spawn.rs) | 0.58-0.72 | [design] |
+| `EYE_IRIS_CENTRE`, `EYE_IRIS_RADIUS` (nif_material.wesl) | (0.50, 0.44), 0.19 | [observed: `eyelefthuman.nif`, `eyeblue.dds`, `eyedarkbrown.dds`] |
+| `EYE_IRIS_DEPTH` | 0.17 units | [hypothesis] about 2.5 mm, the human anterior chamber |
+| `EYE_CORNEA_ETA` | 1 / 1.376 | [hypothesis] the textbook cornea index |
+| `EYE_CORNEA_ROUGHNESS` (nif_spawn.rs), eye roughness | 0.06, 0.28-0.45 | [design] |
+| `EYE_LIMBUS_DARKEN`, `EYE_LIMBUS_WIDTH` | 0.35, 0.12 iris radii | [design] |
+| `EYE_SKY_OPEN`, `EYE_SKY_CLOSED` | 0.8, 0.08 | [design] the sky's reflection through the eye's opening and into the brow (owner's screenshot, 2026-11-23) |
+| `EYE_LID_V`, `EYE_LID_CLEAR_V`, `EYE_LID_DARKEN` | 0.30, 0.50, 0.45 | [design] darkest at the lower edge of the lid band the eye textures paint |
+| `EYE_CORNER_U`, `EYE_CORNER_DEEP_U`, `EYE_CORNER_DARKEN` | 0.20, 0.36, 0.30 | [design] |
+| `NVF_HAIR_F0` (sss.wesl) | 0.0465 | [documented: keratin's index 1.55, Marschner et al. 2003 §4] |
+| `NVF_HAIR_SHIFT` | 0.035 rad | [documented: Karis 2016, after Marschner's 3°]; R shifted by −2×, TRT by 4× |
+| `NVF_HAIR_WRAP` | 0.5 | [design] light reaches 60° past the terminator |
+| `NVF_HAIR_R_SHARE` | 0.3 | [design] the glint's mean a quarter of the diffuse for dark brown hair; at 1 the owner's frames of 2026-11-24 read wet and grey |
+| Kajiya-Kay share, half-Lambert | a third; `0.5 · (N·L + 1)` | [design] |
+| `HAIR_ROUGHNESS` (nif_spawn.rs) | 0.35-0.5 | [documented: lobe widths of 5-10° measured for real fibres, Marschner et al. 2003 Table 1] widened to 7-14° for the meshes' few strands [design] |
+| strand direction mip (nif_material.wesl `hair_strand`) | about 128 texels across | [design] at 256 the direction turned from stroke to stroke (owner's frames, 2026-11-24) |
+
+- **Cost**: not measured yet (to be measured as in §5: a face filling the screen in the
+  Prospector Saloon, and Goodsprings by day, each part alone).
+- **Screenshots**: before and after, for the owner, still to be taken.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on
