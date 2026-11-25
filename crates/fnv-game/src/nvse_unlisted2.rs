@@ -34,7 +34,13 @@ pub struct Unlisted2State {
     pub new_game: bool,
     /// SetRaceVoice / SetRaceAgeRace for the session: (race, voice, second) -> form.
     pub race_sets: std::collections::BTreeMap<(FormId, bool, bool), FormId>,
+    /// ToggleHitEffects: true when hit effects have been switched off (default false = enabled/1).
+    pub hit_effects_disabled: bool,
 }
+
+#[cfg(test)]
+#[path = "w6d12_toggle_hit_effects_tests.rs"]
+mod w6d12_toggle_hit_effects_tests;
 
 /// The current command an `_OLD` one answers as [observed: rest1.old.* and new.* read
 /// the same where both compiled: IsMatrix, Dump, ListAddArray] (§4).
@@ -395,8 +401,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             });
             XVal::Num(f64::from(u8::from(has)))
         }
-        // [observed: rest5.questtargetschanged 1, toggle.hiteffects 1]
-        "getquesttargetschanged" | "togglehiteffects" => XVal::Num(1.0),
+        // [observed: rest5.questtargetschanged 1]
+        "getquesttargetschanged" => XVal::Num(1.0),
+        // `[enable]`: returns previous enabled state (1 default), updating it when an arg
+        // is passed [observed: w6d12_23_toggle_hit_effects_and_highlight_bodypart_alt].
+        "togglehiteffects" => {
+            let prev = !g.other.unlisted2.hit_effects_disabled;
+            if let Some(n) = num_arg(args, 0) {
+                g.other.unlisted2.hit_effects_disabled = n == 0.0;
+            }
+            XVal::Num(f64::from(u8::from(prev)))
+        }
         "getobjectiveteleportlinks" => XVal::Array(0),
         "getcollisionnodes" => XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, Vec::new())),
         "getbodypartvatstarget" => XVal::Str(String::new()),

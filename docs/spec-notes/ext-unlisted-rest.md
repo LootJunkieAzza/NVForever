@@ -367,11 +367,13 @@ commands that touch the menus, the sky or the minimap ran one per launch].
   door" (`DOOR` with attached script), plus exact clearing rules on `ContainerMenu` close,
   cell unload, or unprobed reference types].
 
+- **ToggleHitEffects** `[enable]`: starts enabled (`1`), returns the previous enabled state (`1` or `0`), and when given an argument updates the session toggle (`0` disables, non-zero enables; `rest5.toggle.hiteffects` had probed only the initial `1`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, read-only `PrintToConsole` probe `w6d12_23_toggle_hit_effects_and_highlight_bodypart_alt` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `hit(q0=1,off=1,qOff=0,on=0,qOn=1)|hlDone=1`; no DLL or source consulted].
+
 **Constant answers** (each [observed] for the inputs probed; what each changes is not seen):
 
 | Answer | Commands |
 |---|---|
-| 1 | GetQuestTargetsChanged, ToggleHitEffects |
+| 1 | GetQuestTargetsChanged |
 | 0 | GetScriptBlockDisabled, SetScriptBlockDisabled, IsAttackQueued, GetRecipeMenuNumSubcategories, SetWaterTrait, ToggleDepthClear, ToggleNoMovementCombat, ToggleNoZPosReset, ToggleNodeCollision, SuppressQuestMessages, UnlockRecipeMenuQuantity, SetItemFilter, InitItemFilter, SetTextureTransformKey, ClearModelAltTextures, InitRockItLauncher, EnableImprovedRecipeMenu, SetWindSpeedMult, SwapObjectLOD, ScrollMouseWheel, InitMiniMap, UpdateMiniMap, ReloadCharController, ReloadCloudTextures, ResetClouds, ShowLevelUpMenuEx |
 | no array | GetObjectiveTeleportLinks (quest VMS01, objective 10) |
 
