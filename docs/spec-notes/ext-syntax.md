@@ -379,3 +379,7 @@ behaves like `>`: open.
   without emitting `unquoted_argument` [design]. Quoted strings, numeric codes, local
   variables, globals, dotted quest variables, function calls, and unknown bare words retain
   their existing `ParamEnc::Value` handling.
+
+## 13. Bitwise functions (`Logical*`, `SetBit`, `ClearBit`, `GetBit`, `LeftShift`, `RightShift`)
+
+- `LogicalAnd`, `LogicalOr`, `LogicalXor`, `LogicalNot`, `SetBit` (2-arg and 3-arg clear/set), `ClearBit`, `GetBit`, `LeftShift`, and `RightShift` operate on and return unsigned 32-bit values (`LogicalXor -1 0 = 4294967295`, `SetBit 0 31 = 2147483648`, `RightShift (LeftShift 1 31) 1 = 1073741824`, `LogicalNot -1 = 0`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, read-only `PrintToConsole` probe `w6d11_45_bitwise_logical_ops_setbit_3arg_and_oob` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `log(a=6/255/2147483648,o=15/2147483648,x=9/0/4294967295)|not=0|sb(2=8,3c=13,3s=8,31=2147483648,32=5,m1=2147483653)|cb(31=2147483647,32=14,m1=15)|gb(31=1,m1=1,32=1)|sh(l0=5,lm1=0,r0=8,rs1=1073741824,rs31=1)`; no DLL or source consulted].

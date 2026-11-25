@@ -3426,9 +3426,11 @@ impl Vm<'_, '_> {
                 let code = arg(self, 0)?.num()? as i64;
                 Ok(XVal::Str(u8::try_from(code).ok().filter(|c| *c > 0).map(|c| char::from(c).to_string()).unwrap_or_default()))
             }
-            // Bits of 32-bit integers [documented: GetBit; SetBit; ClearBit; LeftShift;
-            // RightShift; LogicalAnd; LogicalOr; LogicalXor; LogicalNot]; the shifts are on
-            // the unsigned value [hypothesis].
+            // Bits of unsigned 32-bit integers [documented: GetBit; SetBit; ClearBit;
+            // LeftShift; RightShift; LogicalAnd; LogicalOr; LogicalXor; LogicalNot;
+            // observed: `w6d11_45_bitwise_logical_ops_setbit_3arg_and_oob`, unsigned u32
+            // results `2147483648` / `4294967295` and unsigned logical right shift
+            // `rs1=1073741824,rs31=1`].
             "getbit" | "setbit" | "clearbit" | "leftshift" | "rightshift" | "logicaland" | "logicalor" | "logicalxor" => {
                 let a = arg(self, 0)?.num()? as i64 as u32;
                 let b = arg(self, 1)?.num()? as i64;
@@ -3445,9 +3447,9 @@ impl Vm<'_, '_> {
                     "logicalor" => a | b as u32,
                     _ => a ^ b as u32,
                 };
-                Ok(XVal::Num(f64::from(r as i32)))
+                Ok(XVal::Num(f64::from(r)))
             }
-            "logicalnot" => Ok(XVal::Num(f64::from(!(arg(self, 0)?.num()? as i64 as u32) as i32))),
+            "logicalnot" => Ok(XVal::Num(f64::from(!(arg(self, 0)?.num()? as i64 as u32)))),
             // [documented: IntToBin] padded to the width; the prefix is "0b" [hypothesis:
             // the page names the option without showing it].
             "inttobin" => {
@@ -3783,6 +3785,10 @@ fn xbinary(op: XOp, a: XVal, b: XVal) -> Result<XVal, VmError> {
         XOp::Slice | XOp::Pair | XOp::Subscript => return Err(VmError::NotBuilt("arrays (B3)".into())),
     })
 }
+
+#[cfg(test)]
+#[path = "w6d11_bitwise_tests.rs"]
+mod w6d11_bitwise_tests;
 
 /// A binary operator [hypothesis unless tagged: comparisons give 1 or 0, `&&` and `||`
 /// test for non-zero, arithmetic is in double precision; division by zero gives 0 and
