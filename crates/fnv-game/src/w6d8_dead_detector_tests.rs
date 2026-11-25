@@ -56,10 +56,12 @@ fn dead_detector_returns_zero_detection_level_and_no_detected_actors() {
     );
     assert_eq!(q(&mut g, "SetFunctionValue (ScoutRef.GetDetected Player)"), XVal::Num(1.0));
     assert_eq!(q(&mut g, "SetFunctionValue (ScoutRef.GetDetectionLevel Player)"), XVal::Num(3.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ScoutRef.GetDetectionValue Player)"), XVal::Num(80.0));
     assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (ScoutRef.GetDetectedActors))"), XVal::Num(1.0));
 
     g.extra.entry(FormId(NPC_REF)).or_default().dead = true;
     assert_eq!(q(&mut g, "SetFunctionValue (ScoutRef.GetDetected Player)"), XVal::Num(0.0));
     assert_eq!(q(&mut g, "SetFunctionValue (ScoutRef.GetDetectionLevel Player)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ScoutRef.GetDetectionValue Player)"), XVal::Num(-100.0));
     assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (ScoutRef.GetDetectedActors))"), XVal::Num(-1.0));
 }

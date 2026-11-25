@@ -52,8 +52,6 @@ comes from the masters, read offline, not from the observer.
 
 ## 2. Functions used [documented: GECK wiki page of each, origin as the wiki gives it]
 
-- **Dead detector queries (`GetDetected`, `GetDetectionLevel`, `GetDetectedActors`)** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8p2_42_detection_level_and_dead_detector`: `PROBE|w6d8p2_42_detection_level_and_dead_detector|detAP=0 lvlAP=0 valAP=-100 lvlAB=0 isDetP=0 arr1=-1 dtng1=1 dDet=0 dLvl=0 dVal=-100 dArr=-1`; no DLL, PDB, or third-party source consulted]: a dead detector reports `0` for `GetDetected` and `GetDetectionLevel`, `-100` for `GetDetectionValue`, and `ar_Null` (`-1`) for `GetDetectedActors`.
-
 - Scanning: `GetFirstRef` / `GetNextRef` / `GetNumRefs` (FOSE1; 200 = actors; GetNextRef
   continues within the same script run), `BuildRef`, `GetModIndex`, `GetFormIDString`
   (xNVSE; xnvse-capture.md §3).
