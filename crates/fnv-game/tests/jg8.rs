@@ -182,6 +182,8 @@ fn arrays_colours_and_menus() {
     assert_eq!(n(&mut g, "GetSystemColor 3"), f64::from(0x21E779u32));
     q(&mut g, "SetSystemColor 4 10 20 30");
     assert_eq!(s(&mut g, "int r\nint gg\nint b\nGetSystemColorAlt 4 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "10 20 30");
+    // Invalid type leaves caller variables untouched [observed: w6d3p2_20].
+    assert_eq!(s(&mut g, "int r\nint gg\nint b\nlet r := 111\nlet gg := 222\nlet b := 333\nGetSystemColorAlt -1 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "111 222 333");
     assert_eq!(n(&mut g, "GetSystemColor 6"), 0.0);
     // [documented: GetSleepWaitMenuState 0 closed, 1 wait, 2 sleep].
     assert_eq!(n(&mut g, "GetSleepWaitMenuState"), 0.0);

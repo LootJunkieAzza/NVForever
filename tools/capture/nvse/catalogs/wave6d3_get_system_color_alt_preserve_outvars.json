@@ -1,0 +1,77 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-get-system-color-alt-preserve-outvars",
+  "description": "Read-only clean-room probe verifying GetSystemColorAlt returns 0 and leaves caller output variables untouched for invalid system colour types.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_nvse.dll": "57.30",
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_get_system_color_alt_preserve_outvars",
+      "title": "Wave 6D-3: GetSystemColorAlt preserves out-vars on invalid ID",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_20_get_system_color_alt_edges_and_set",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 54,
+          "functions_tested": [
+            "GetSystemColor",
+            "GetSystemColorAlt",
+            "SetSystemColor"
+          ],
+          "claim": "Verify GetSystemColorAlt propagation from SetSystemColor (12, 34, 56) and negative type ID -1 out-var preservation.",
+          "expected": "Confirm SetSystemColor updates both getters and type -1 preserves caller vars.",
+          "script_lines": [
+            "float fR0 = 0",
+            "float fG0 = 0",
+            "float fB0 = 0",
+            "GetSystemColorAlt 1 (fR0) (fG0) (fB0)",
+            "SetSystemColor 1 12 34 56",
+            "int iPk = GetSystemColor 1",
+            "float fR1 = 0",
+            "float fG1 = 0",
+            "float fB1 = 0",
+            "int iRet1 = GetSystemColorAlt 1 (fR1) (fG1) (fB1)",
+            "float fRNeg = 111",
+            "float fGNeg = 222",
+            "float fBNeg = 333",
+            "int iRetN = GetSystemColorAlt -1 (fRNeg) (fGNeg) (fBNeg)",
+            "SetSystemColor 1 fR0 fG0 fB0",
+            "PrintToConsole \"PROBE|w6d3p2_20_get_system_color_alt_edges_and_set|pk=%g|alt=%g(%.0f,%.0f,%.0f)|neg=%g(%.0f,%.0f,%.0f)\" iPk iRet1 fR1 fG1 fB1 iRetN fRNeg fGNeg fBNeg"
+          ]
+        }
+      ]
+    }
+  ]
+}

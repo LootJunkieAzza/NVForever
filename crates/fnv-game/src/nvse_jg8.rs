@@ -576,8 +576,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // them as 0xRRGGBB [hypothesis]; GetSystemColorAlt writes the three variables.
         "getsystemcolor" => XVal::Num(system_colour(g, num(args, 0, 0.0) as i64).map_or(0.0, |c| f64::from((u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])))),
         "getsystemcoloralt" => {
-            let c = system_colour(g, num(args, 0, 0.0) as i64).unwrap_or([0; 3]);
-            return Some(Ok(outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])])));
+            // Invalid system colour type leaves caller out-variables untouched [observed: w6d3p2_20].
+            return Some(Ok(match system_colour(g, num(args, 0, 0.0) as i64) {
+                Some(c) => outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])]),
+                None => outputs(g, 0.0, &[]),
+            }));
         }
         // 0 closed, 1 wait, 2 sleep [documented: GetSleepWaitMenuState].
         "getsleepwaitmenustate" => XVal::Num(if !g.menu_open(crate::game::menus::SLEEP_WAIT) {
