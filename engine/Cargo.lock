@@ -4730,6 +4730,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-rtgi"
+version = "0.8.1"
+
+[[package]]
 name = "nvf-settings-layout"
 version = "0.8.1"
 dependencies = [
