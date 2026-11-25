@@ -136,9 +136,19 @@ pub type BoxSpan = (u32, f32, f32, bool);
 /// between the box's entry and exit, or its own precise box lying wholly between them
 /// (rough boxes do not count: an actor is not inside a doorway's box in any useful sense).
 /// What a collision hit hides stays hidden ([`choose`]'s limit), so a closed door or lid
-/// still covers what is behind it. Only a target that `holds` things (a container) gives
-/// way, as only a bed does in [`set_aside_enclosing`]; `raw` is the first collision hit as
-/// the ray met it (not a door promoted from behind it), so nothing behind a wall counts.
+/// still covers what is behind it. Only where `yields(target, inner)` does the target give
+/// way: a container to anything it holds, an activator to an item lying in its box (the
+/// note on the Old World Blues radio, #3937), as only a bed does in
+/// [`set_aside_enclosing`]; `raw` is the first collision hit as the ray met it (not a door
+/// promoted from behind it), so nothing behind a wall counts.
+///
+/// [design, #3937] In an Old World Blues interior (0x030086CB) a note lies on top of a
+/// table radio (0x0301057F, an activator). The ray enters the radio's render box, which
+/// reaches over the note, first, so the radio was the target wherever the crosshair was
+/// on the note [observed: player report R-FQ39PUHZ, `target 0x0301057F Radio (Activate)
+/// by Bounds at 55-87`, the note never a target]. An activator yields only to an item
+/// (something the prompt offers to take), never to another activator, so a switch panel
+/// keeps priority over a smaller switch behind it (#3323).
 ///
 /// [design, #3351] An open locker in the Sloan barracks (0x000E7610,
 /// `clutter\lockercabinet02.nif`, a container) holds a first aid kit on its upper shelf
@@ -156,7 +166,7 @@ pub fn choose_inside(
     raw: Option<RayHit>,
     boxes: impl IntoIterator<Item = BoxSpan>,
     reach: f32,
-    holds: impl Fn(u32) -> bool,
+    yields: impl Fn(u32, u32) -> bool,
     mut accept: impl FnMut(u32) -> bool,
 ) -> Option<Pick> {
     let all: Vec<BoxSpan> = boxes.into_iter().collect();
@@ -165,22 +175,21 @@ pub fn choose_inside(
     // Each step goes to a reference inside the last one; a reference is taken once.
     let mut seen = vec![picked.form_id];
     loop {
-        // Only something that holds things gives way (a container: the open locker); a
-        // chair or a switch panel keeps priority over what its box encloses (#3323).
-        if !holds(picked.form_id) {
-            return Some(picked);
-        }
+        // Only a target that yields to something gives way (a container to what it holds,
+        // an activator to an item); a chair or a switch panel keeps priority over another
+        // activator its box encloses (#3323).
+        let outer = picked.form_id;
         // The target's boxes as one stretch of the ray.
         let span = all.iter().filter(|b| b.0 == picked.form_id).fold(None, |s: Option<(f32, f32)>, b| Some(s.map_or((b.1, b.2), |(from, to)| (from.min(b.1), to.max(b.2)))));
         let Some((from, to)) = span else { return Some(picked) };
         let mut inner: Option<Pick> = None;
         if let Some((id, d)) = hit.and_then(|h| Some((h.form_id?, h.distance))) {
-            if !seen.contains(&id) && (from..=to).contains(&d) && d <= reach && accept(id) {
+            if !seen.contains(&id) && (from..=to).contains(&d) && d <= reach && yields(outer, id) && accept(id) {
                 inner = Some(Pick { form_id: id, distance: d, source: Source::Collision });
             }
         }
         for &(id, entry, exit, rough) in &all {
-            if rough || seen.contains(&id) || entry < from || exit > to || !(0.0..=limit).contains(&entry) {
+            if rough || seen.contains(&id) || entry < from || exit > to || !(0.0..=limit).contains(&entry) || !yields(outer, id) {
                 continue;
             }
             // Nearer wins; the collision hit's own box does not take its place.
@@ -329,6 +338,7 @@ mod tests {
     use bevy::math::{Quat, Vec3};
 
     const ANY: fn(u32) -> bool = |_| true;
+    const YIELDS: fn(u32, u32) -> bool = |_, _| true;
 
     #[test]
     fn collision_hit_on_an_activatable_reference_wins() {
@@ -429,51 +439,78 @@ mod tests {
         let locker = (10, 114.0, 151.0, false);
         // Aimed at the kit: its collision is hit at 132.5, inside the locker's box.
         let kit = RayHit { form_id: Some(12), distance: 132.5 };
-        let p = choose_inside(Some(kit), Some(kit), [locker, (12, 131.0, 141.0, false)], REACH, ANY, ANY).unwrap();
+        let p = choose_inside(Some(kit), Some(kit), [locker, (12, 131.0, 141.0, false)], REACH, YIELDS, ANY).unwrap();
         assert_eq!(p, Pick { form_id: 12, distance: 132.5, source: Source::Collision });
         // The rule before: the locker's box, entered first, won.
         assert_eq!(choose_precise_first(Some(kit), [(10, 114.0, false), (12, 131.0, false)], REACH, ANY).unwrap().form_id, 10);
         // Aimed at the book: the ray goes on to the locker's back wall at 149; the book's
         // box lies inside the locker's.
         let back = RayHit { form_id: Some(10), distance: 149.0 };
-        let p = choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, ANY, ANY).unwrap();
+        let p = choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, YIELDS, ANY).unwrap();
         assert_eq!(p, Pick { form_id: 13, distance: 128.0, source: Source::Bounds });
         // Aimed at an empty shelf: the locker.
-        let p = choose_inside(Some(back), Some(back), [locker], REACH, ANY, ANY).unwrap();
+        let p = choose_inside(Some(back), Some(back), [locker], REACH, YIELDS, ANY).unwrap();
         assert_eq!((p.form_id, p.source), (10, Source::Collision));
         // Two things inside: the nearer.
-        let p = choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false), (14, 120.0, 126.0, false)], REACH, ANY, ANY).unwrap();
+        let p = choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false), (14, 120.0, 126.0, false)], REACH, YIELDS, ANY).unwrap();
         assert_eq!(p.form_id, 14);
         // One that cannot be taken does not stand in the other's way, nor in the locker's.
-        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false), (14, 120.0, 126.0, false)], REACH, ANY, |id| id != 14).unwrap().form_id, 13);
-        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, ANY, |id| id != 13).unwrap().form_id, 10);
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false), (14, 120.0, 126.0, false)], REACH, YIELDS, |id| id != 14).unwrap().form_id, 13);
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, YIELDS, |id| id != 13).unwrap().form_id, 10);
         // The closed half: the door's collision at 114.6 hides what is behind it, and the
         // locked locker stays the target.
         let door = RayHit { form_id: Some(11), distance: 114.6 };
-        let p = choose_inside(Some(door), Some(door), [(11, 114.0, 151.0, false), (13, 128.0, 133.0, false)], REACH, ANY, ANY).unwrap();
+        let p = choose_inside(Some(door), Some(door), [(11, 114.0, 151.0, false), (13, 128.0, 133.0, false)], REACH, YIELDS, ANY).unwrap();
         assert_eq!((p.form_id, p.source), (11, Source::Collision));
         // A wall between: nothing behind it, inside a box or not.
         let wall = RayHit { form_id: None, distance: 100.0 };
-        assert!(choose_inside(Some(wall), Some(wall), [locker, (13, 128.0, 133.0, false)], REACH, ANY, ANY).is_none());
+        assert!(choose_inside(Some(wall), Some(wall), [locker, (13, 128.0, 133.0, false)], REACH, YIELDS, ANY).is_none());
         // Something that only sticks into the locker's box, or pokes out of its back, is
         // not inside it: the nearest wins as before.
-        assert_eq!(choose_inside(Some(back), Some(back), [locker, (15, 100.0, 120.0, false)], REACH, ANY, ANY).unwrap().form_id, 15);
-        assert_eq!(choose_inside(Some(back), Some(back), [locker, (16, 140.0, 160.0, false)], REACH, ANY, ANY).unwrap().form_id, 10);
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (15, 100.0, 120.0, false)], REACH, YIELDS, ANY).unwrap().form_id, 15);
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (16, 140.0, 160.0, false)], REACH, YIELDS, ANY).unwrap().form_id, 10);
         // An actor's rough box inside a box does not take the target.
-        assert_eq!(choose_inside(Some(back), Some(back), [locker, (8, 120.0, 140.0, true)], REACH, ANY, ANY).unwrap().form_id, 10);
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (8, 120.0, 140.0, true)], REACH, YIELDS, ANY).unwrap().form_id, 10);
         // A box inside a box inside a box: the innermost.
-        let p = choose_inside(None, None, [(20, 50.0, 140.0, false), (21, 60.0, 120.0, false), (22, 70.0, 80.0, false)], REACH, ANY, ANY).unwrap();
+        let p = choose_inside(None, None, [(20, 50.0, 140.0, false), (21, 60.0, 120.0, false), (22, 70.0, 80.0, false)], REACH, YIELDS, ANY).unwrap();
         assert_eq!(p.form_id, 22);
         // Without boxes it is `choose_precise_first`.
-        assert_eq!(choose_inside(Some(kit), Some(kit), [], REACH, ANY, ANY), Some(Pick { form_id: 12, distance: 132.5, source: Source::Collision }));
-        assert!(choose_inside(None, None, [], REACH, ANY, ANY).is_none());
+        assert_eq!(choose_inside(Some(kit), Some(kit), [], REACH, YIELDS, ANY), Some(Pick { form_id: 12, distance: 132.5, source: Source::Collision }));
+        assert!(choose_inside(None, None, [], REACH, YIELDS, ANY).is_none());
         // Only a holder gives way: a locker that is not a container (a chair, a panel) keeps
         // the crosshair over what its box encloses (#3323).
-        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, |id| id != 10, ANY).unwrap().form_id, 10);
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, |outer, _| outer != 10, ANY).unwrap().form_id, 10);
         // The cutoff is the raw hit: a wall at 125 hides the book at 128 even when a door
         // behind the wall was promoted to `hit`.
         let wall_at = RayHit { form_id: None, distance: 125.0 };
-        assert_eq!(choose_inside(Some(back), Some(wall_at), [locker, (13, 128.0, 133.0, false)], REACH, ANY, ANY).unwrap().form_id, 10);
+        assert_eq!(choose_inside(Some(back), Some(wall_at), [locker, (13, 128.0, 133.0, false)], REACH, YIELDS, ANY).unwrap().form_id, 10);
+    }
+
+    /// #3937: a note (31, a box only) lying on a table radio (30, an activator) whose render
+    /// box reaches over it. The radio's collision is its body below the note.
+    #[test]
+    fn an_item_lying_in_an_activator_s_box_wins_over_it() {
+        const RADIO: u32 = 30;
+        const NOTE: u32 = 31;
+        const SWITCH: u32 = 32;
+        // An activator yields to an item, never to another activator.
+        let yields = |outer: u32, inner: u32| outer == RADIO && inner == NOTE;
+        let radio = (RADIO, 55.0, 87.0, false);
+        // Aimed at the note: the ray passes over the radio's body and on to the wall at 120;
+        // the note's box lies inside the radio's.
+        let wall = RayHit { form_id: None, distance: 120.0 };
+        let p = choose_inside(Some(wall), Some(wall), [radio, (NOTE, 60.0, 64.0, false)], REACH, yields, ANY).unwrap();
+        assert_eq!(p, Pick { form_id: NOTE, distance: 60.0, source: Source::Bounds });
+        // The rule before: the radio's box, entered first, won.
+        assert_eq!(choose_inside(Some(wall), Some(wall), [radio, (NOTE, 60.0, 64.0, false)], REACH, |_, _| false, ANY).unwrap().form_id, RADIO);
+        // Aimed at the radio's body: its collision at 70, the note not on the ray.
+        let body = RayHit { form_id: Some(RADIO), distance: 70.0 };
+        let p = choose_inside(Some(body), Some(body), [radio], REACH, yields, ANY).unwrap();
+        assert_eq!((p.form_id, p.source), (RADIO, Source::Collision));
+        // A note that cannot be taken now leaves the radio the target.
+        assert_eq!(choose_inside(Some(wall), Some(wall), [radio, (NOTE, 60.0, 64.0, false)], REACH, yields, |id| id != NOTE).unwrap().form_id, RADIO);
+        // A smaller activator inside the radio's box does not take its place (#3323).
+        assert_eq!(choose_inside(Some(wall), Some(wall), [radio, (SWITCH, 60.0, 64.0, false)], REACH, yields, ANY).unwrap().form_id, RADIO);
     }
 
     #[test]

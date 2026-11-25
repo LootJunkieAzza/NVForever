@@ -479,6 +479,9 @@ pub fn check_views_need_specialization(
             if sun.terrain {
                 view_key |= MeshPipelineKey::NVF_TERRAIN_VISIBILITY;
             }
+            if sun.cloud_volume {
+                view_key |= MeshPipelineKey::NVF_CLOUD_VOLUME_VISIBILITY;
+            }
         }
 
         // NVForever ambient occlusion: as the sun visibility's, the component that decides
@@ -3165,7 +3168,10 @@ bitflags::bitflags! {
         // NVForever ambient occlusion (engine/vendor/README.md): the view has
         // `NvfAmbientOcclusionBindings`.
         const NVF_AMBIENT_OCCLUSION             = 1 << 28;
-        const LAST_FLAG                         = Self::NVF_AMBIENT_OCCLUSION.bits();
+        // NVForever sun visibility's light volume (engine/vendor/README.md): the view's
+        // `NvfSunVisibilityBindings` has `cloud_volume` (bindings 45-46).
+        const NVF_CLOUD_VOLUME_VISIBILITY       = 1 << 29;
+        const LAST_FLAG                         = Self::NVF_CLOUD_VOLUME_VISIBILITY.bits();
 
         const ALL_PREPASS_BITS                  = Self::DEPTH_PREPASS.bits()
                                                 | Self::NORMAL_PREPASS.bits()
@@ -3770,6 +3776,10 @@ impl SpecializedMeshPipeline for MeshPipeline {
             }
             if key.contains(MeshPipelineKey::NVF_TERRAIN_VISIBILITY) {
                 shader_defs.push("NVF_TERRAIN_VISIBILITY".into());
+            }
+            // Bindings 45-46 in the layout (the light volume's reader compiled in).
+            if key.contains(MeshPipelineKey::NVF_CLOUD_VOLUME_VISIBILITY) {
+                shader_defs.push("NVF_CLOUD_VOLUME".into());
             }
         }
 

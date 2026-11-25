@@ -572,12 +572,18 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             list(g, keyed.into_iter().map(|(_, v)| v).collect())
         }
         // ---- the system colours: 1 HUD, 2 HUD alt, 3 terminal, 4 Pip-Boy, 5 main menu
-        // [documented], SetSystemColor's (`nvse_jip9`) else [`default_colour`]. GetSystemColor packs
-        // them as 0xRRGGBB [hypothesis]; GetSystemColorAlt writes the three variables.
+        // [documented], SetSystemColor's (`nvse_jip9`) else [`default_colour`].
+        // GetSystemColor packs them as 0xRRGGBB; GetSystemColorAlt writes the three
+        // variables for types 1..=5 and leaves them unchanged for other ids [observed:
+        // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24,
+        // `w6_t1_08_jg_system_color_alt` (`tools/capture/nvse/catalogs/wave6_t1_jg_colors.json`,
+        // `ext-jg8.md` §2)].
         "getsystemcolor" => XVal::Num(system_colour(g, num(args, 0, 0.0) as i64).map_or(0.0, |c| f64::from((u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])))),
         "getsystemcoloralt" => {
-            let c = system_colour(g, num(args, 0, 0.0) as i64).unwrap_or([0; 3]);
-            return Some(Ok(outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])])));
+            return Some(Ok(match system_colour(g, num(args, 0, 0.0) as i64) {
+                Some(c) => outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])]),
+                None => outputs(g, 0.0, &[]),
+            }));
         }
         // 0 closed, 1 wait, 2 sleep [documented: GetSleepWaitMenuState].
         "getsleepwaitmenustate" => XVal::Num(if !g.menu_open(crate::game::menus::SLEEP_WAIT) {
