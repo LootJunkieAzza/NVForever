@@ -38,7 +38,13 @@ pages, IDs 0–10]:
 | 0–3 | tag skill #1–#4 (actor value codes) | DATA tag_skills[n] |
 | 4–10 | base Strength … Luck | ATTR strength … luck |
 
-SetClassTraitNumeric returns the value it set [documented: returnType traitValue].
+SetClassTraitNumeric returns `0` (not the trait value) while updating the trait [observed:
+Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe;
+zero writes to game install or Saves), `w6d2p3_24_class_and_faction_reputation_and_ranks`
+(`tools/capture/nvse/catalogs/wave6d2_set_class_trait_return_zero.json`):
+`PROBE|w6d2p3_24_class_and_faction_reputation_and_ranks|cls(ret=0,v=5->8,cf20=0->0)|rep(badEq0=1,badZ=0,nullZ=0,omitZ=1)|rk(nth=[Squire],arr0=[Squire])`;
+zero DLL, PDB, or third-party source consulted].
 
 `GetClassFlag class id` / `SetClassFlag class id value` [documented: IDs 0–19]:
 - 0 Playable and 1 Guard are DATA flags bits 0 and 1.

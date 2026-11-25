@@ -1,0 +1,95 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d2_set_class_trait_return_zero",
+  "description": "Wave 6D-2 read-only probe confirming SetClassTraitNumeric returns 0.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_ln_nvse": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d2_class_trait_ret",
+      "title": "Wave 6D-2: SetClassTraitNumeric returns 0",
+      "extender": "JIP LN NVSE 57.30",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d2p3_24_class_and_faction_reputation_and_ranks",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-traits-4.md",
+          "spec_line": 41,
+          "functions_tested": [
+            "GetClassTraitNumeric",
+            "SetClassTraitNumeric",
+            "GetClassFlag",
+            "SetClassFlag",
+            "GetFactionReputationType",
+            "SetFactionReputationType",
+            "GetFactionRankNames",
+            "GetNthFactionRankName",
+            "SetNthFactionRankNameEx"
+          ],
+          "claim": "Verify SetClassTraitNumeric return value (static audit SD-08: 0 vs v), SetClassFlag OOB 20, SetFactionReputationType omitted/null/non-REPU, and whether SetNthFactionRankNameEx propagates into GetFactionRankNames (static audit SD-04).",
+          "expected": "NVForever returns v from SetClassTraitNumeric and skips SetNthFactionRankNameEx overrides in GetFactionRankNames; probe verifies exact JIP/xNVSE behavior.",
+          "script_lines": [
+            "ref rCls = GetFormFromMod \"FalloutNV.esm\" \"8D424\"",
+            "ref rNcr = GetFormFromMod \"FalloutNV.esm\" \"A46E7\"",
+            "ref rBos = GetFormFromMod \"FalloutNV.esm\" \"1D3FE\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rNull = 0",
+            "float str0 = GetClassTraitNumeric rCls 4",
+            "float setRet = SetClassTraitNumeric rCls 4 8",
+            "float str1 = GetClassTraitNumeric rCls 4",
+            "SetClassTraitNumeric rCls 4 str0",
+            "int cf20a = GetClassFlag rCls 20",
+            "SetClassFlag rCls 20 1",
+            "int cf20b = GetClassFlag rCls 20",
+            "ref rep0 = GetFactionReputationType rNcr",
+            "SetFactionReputationType rNcr rStim",
+            "ref repBad = GetFactionReputationType rNcr",
+            "SetFactionReputationType rNcr rNull",
+            "ref repNull = GetFactionReputationType rNcr",
+            "SetFactionReputationType rNcr",
+            "ref repOmit = GetFactionReputationType rNcr",
+            "SetFactionReputationType rNcr rep0",
+            "string_var rn0 = GetNthFactionRankName rBos 0",
+            "SetNthFactionRankNameEx \"W6D2Rank0\" rBos 0",
+            "string_var rn1 = GetNthFactionRankName rBos 0",
+            "array_var aRns = GetFactionRankNames rBos",
+            "int nRns = ar_Size aRns",
+            "string_var arr0 = \"\"",
+            "if nRns > 0",
+            "  let arr0 := aRns[0]",
+            "endif",
+            "SetNthFactionRankNameEx \"Squire\" rBos 0",
+            "PrintToConsole \"PROBE|w6d2p3_24_class_and_faction_reputation_and_ranks|cls(ret=%.0f,v=%.0f->%.0f,cf20=%g->%g)|rep(badEq0=%g,badZ=%g,nullZ=%g,omitZ=%g)|rk(nth=[%z],arr0=[%z])\" setRet str0 str1 cf20a cf20b (repBad == rep0) (repBad == 0) (repNull == 0) (repOmit == 0) rn1 arr0"
+          ]
+        }
+      ]
+    }
+  ]
+}

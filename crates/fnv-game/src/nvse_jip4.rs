@@ -438,7 +438,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             if let Some((s, p)) = class_trait(k) {
                 set(g, f0, s, &p, XVal::Num(v));
             }
-            XVal::Num(v)
+            zero
         }
         // Combat styles [documented: Get/SetCombatStyleFlag, the flag IDs are CSTD flags'
         // bits as the schema names them; Get/SetCombatStyleTraitNumeric].

@@ -79,6 +79,17 @@ fn set_class_changes_what_the_class_getters_read() {
     });
 }
 
+/// `SetClassTraitNumeric` returns `0` while updating the class trait
+/// [observed: `w6d2p3_24_class_and_faction_reputation_and_ranks`].
+#[test]
+fn set_class_trait_numeric_returns_zero_and_updates_trait() {
+    with_game(|g| {
+        assert_eq!(q(g, "SetFunctionValue (SetClassTraitNumeric ClassA 4 8)"), 0.0);
+        assert_eq!(q(g, "SetFunctionValue (GetClassTraitNumeric ClassA 4)"), 8.0);
+        assert_eq!(q(g, "SetFunctionValue (GetClassFlag ClassA 20)"), 0.0);
+    });
+}
+
 /// A getter with an empty ref variable for its owner, on a script with no calling
 /// reference, gives the unset value, and the `let` takes it [documented:
 /// AuxiliaryVariableGetFloat, "return 0 if the variable is not defined"; hypothesis: no
