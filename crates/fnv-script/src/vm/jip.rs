@@ -70,6 +70,10 @@ fn typed(v: Option<&XVal>, want: char) -> XVal {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d11_reftostring_tests.rs"]
+mod w6d11_reftostring_tests;
+
 /// The type letter of a setter or getter name ("setfloat" -> 'f', "getref" -> 'r').
 fn kind_of(op: &str) -> char {
     op.as_bytes().get(3).map_or('f', |b| *b as char)
@@ -290,8 +294,12 @@ impl Vm<'_, '_> {
             // [documented: RefToString; observed: "FalloutNV.esm:104C0C"] upper-case hex
             // without the mod index or leading zeros.
             "reftostring" => {
+                // Passed as an argument, RefToString describes the base form; called on
+                // a reference it describes the reference itself [documented: RefToString;
+                // observed: `w6d11_09_formid_strings_reftostring_stringtoref`,
+                // `rts(on=[FalloutNV.esm:104C0F],arg=[FalloutNV.esm:104C0C],dm=[DeadMoney.esm:13F71],nul=[])`].
                 let f = match c.args.first() {
-                    Some(a) => self.xeval(a)?.value()?.as_form(),
+                    Some(a) => self.xeval(a)?.value()?.as_form().map(|f| self.host.base_form(f).unwrap_or(f)),
                     None => match &c.on {
                         Some(e) => self.xeval(e)?.value()?.as_form(),
                         None => None,
