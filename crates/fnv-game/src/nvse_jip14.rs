@@ -403,7 +403,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // and `w4d_16_add_new_effect_edges` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
         // #3679): n0=4 -> prepend ret=5, n=5, e0=00066EB8, e1=0000014E; duplicate append
         // ret=5, n=6, last=00066EB8; non-MGEF ret=-1, n=6; no DLL or source consulted];
-        // for the session [hypothesis: the page says nothing of saving].
+        // for the session (see docs/spec-notes/jip-last-14.md §1).
         "addneweffect" => {
             let (Some(item), Some(mgef), Some(dur), Some(mag)) = (form(args, 0), form(args, 1), num(args, 2), num(args, 3)) else { return Some(Ok(XVal::Num(-1.0))) };
             let kind_ok = g.data.sig(item).is_some_and(|s| MAGIC_ITEMS.contains(&&s));
@@ -517,7 +517,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // At the node's place in the reference's 3D [documented]; at the reference while
-        // its 3D is not known yet [hypothesis].
+        // its 3D is not known yet (see docs/spec-notes/jip-last-14.md §3).
         "playsound3dnode" => {
             let (Some(r), Some(s), Some(node)) = (subject, form(args, 0), text(args, 1)) else { return Some(Ok(zero)) };
             let point = node_place(g, r, &node, true).map(|(p, _)| p);
@@ -526,7 +526,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // Whether the actor wobbles its gun [documented: ToggleNoGunWobble, alias
         // SetNoGunWobble, "0/1"]: 1, or no argument as the page's example, no wobble; 0
-        // the wobble again [hypothesis: 1 is "no wobble", by the name]. The catalogue's
+        // the wobble again (see docs/spec-notes/jip-last-14.md §3). The catalogue's
         // parameter has no name and does not reach here yet (a follow-up): every call
         // switches the wobble off.
         "setnogunwobble" => {
@@ -597,8 +597,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // The weapon that fired the live projectile [documented]; the shot's record, read
-        // by the projectile getters and at the impact [hypothesis: what the impact
-        // inherits]. Returns the weapon.
+        // by the projectile getters and at the impact (see docs/spec-notes/jip-last-14.md §5).
+        // Returns the weapon.
         "setprojectilerefweapon" => {
             let (Some(r), Some(w)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Ref(0))) };
             match g.gaps.projs.shots.get_mut(&r) {
@@ -620,8 +620,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             None => return Some(Err(fnv_script::vm::VmError::NoReference(name.to_string()).to_string())),
         },
         // ---- animation sequences ----
-        // The frequency a script set; else 1 for a sequence of the drawn model [hypothesis:
-        // a sequence's own is 1 unless its file says otherwise]; -1 for a sequence the
+        // The frequency a script set; else 1 for a sequence of the drawn model (see
+        // docs/spec-notes/jip-last-14.md §4); -1 for a sequence the
         // model lacks [observed: jip14 seqfreq.doc]. Drawn object sequences are played at
         // this frequency by `nvforever::object_anims` (actor `.kf` paths remain stored
         // only [design]).
