@@ -2560,8 +2560,8 @@ fn hostility_text_names_every_grudge_kind_and_neutral_aggression() {
 }
 
 /// Wave 6D-2 `w6d2p5_01_faction_reputation_validate` [observed]: `SetFactionReputationType`
-/// validates `FACT`/`REPU`, treats non-`REPU` and explicit `0` as no-ops, and clears `WMI1`
-/// only when arg 1 is omitted.
+/// treats non-`REPU` and explicit `0` as no-ops and clears `WMI1` only when arg 1 is omitted
+/// (`FACT`-target validation and `TempCloneForm` `unclone()` handling are [design]/[hypothesis]).
 #[test]
 fn set_faction_reputation_type_validates_repu_and_omitted_clear() {
     use fnv_game::game::RunCtx;

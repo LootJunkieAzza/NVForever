@@ -519,7 +519,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // Factions: the reputation (WMI1) [documented: Get/SetFactionReputationType;
         // observed: `w6d2p5_01_faction_reputation_validate` — non-REPU and explicit 0 are no-ops,
-        // omitted arg clears WMI1 to 0].
+        // omitted arg clears WMI1 to 0; design/hypothesis: FACT-target validation and
+        // TempCloneForm unclone() resolution].
         "getfactionreputationtype" => XVal::Ref(get_form(g, f0, "WMI1", "")),
         "setfactionreputationtype" => {
             if g.data.sig(g.unclone(f0)) == Some(*b"FACT") {

@@ -122,15 +122,17 @@ not decode yet.
 ## 9. Factions, cells, waters, sounds
 
 - `Get/SetFactionReputationType faction`: FACT WMI1 [documented: its page; the field: the
-  schema's Reputation]. NCRFactionNV reads 0F43DE. `SetFactionReputationType` validates that
-  the target is `FACT` and any supplied form is `REPU`: non-`REPU` forms and explicit null
-  (`0`) are no-ops, while omitting the second argument clears `WMI1` to `0` [observed: Fallout:
-  New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse`
-  (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe;
-  zero writes to game install or Saves), `w6d2p5_01_faction_reputation_validate`
+  schema's Reputation]. NCRFactionNV reads 0F43DE. On a `FACT`, `SetFactionReputationType`
+  treats non-`REPU` forms and explicit null (`0`) as no-ops while omitting the second argument
+  clears `WMI1` to `0` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+  2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+  clean-room staging copy (read-only probe; zero writes to game install or Saves),
+  `w6d2p5_01_faction_reputation_validate`
   (`tools/capture/nvse/catalogs/wave6d2_set_faction_reputation_validate.json`):
   `PROBE|w6d2p5_01_faction_reputation_validate|badEq0=1,badZ=0,nullZ=0,omitZ=1`; zero DLL,
-  PDB, or third-party source consulted].
+  PDB, or third-party source consulted]; rejecting non-`FACT` targets and resolving
+  `TempCloneForm` aliases via `unclone()` on both arguments are [design] / [hypothesis]
+  (unprobed).
 - `Get/SetCellClimate`, `Get/SetCellLightingTemplate`, `Get/SetCellNoiseTexture`: CELL
   XCCM, LTMP and XNAM [documented: their pages]. Gomorrah00, the pages' example, has none
   of the first two (0).
