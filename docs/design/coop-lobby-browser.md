@@ -12,8 +12,8 @@ list of lobbies.
 
 The browser adds one:
 
-- **Host:** a host may make its lobby **public**, with a title and optionally a password. The
-  service then lists it.
+- **Host:** a host may make its lobby **public**, with a title, and may give any lobby, private
+  or public, a **password**. The service lists public lobbies.
 - **Guest:** the game's Join Lobby screen gets a **Browse** tab: a table of public lobbies with
   filters, search, favourites and Refresh.
 - **Joining:** picking a row joins as a typed code does today. Join approval, Kick and Ban
@@ -64,12 +64,22 @@ private: nothing changes for it.
   "place": "The Strip",
   "friendly_fire": false,
   "plugins": 14,
-  "password": "<hex of a salted hash, §4>"
+  "locked": true
 }
 ```
 
-**The host's socket** takes one new message. The service passes it to the Directory at most
-once every 5 s:
+`locked` only says a password will be set. The password's hash comes over the socket once the
+code is known, since the code salts it (§4):
+
+```json
+{"type": "password", "hash": "<hex, §4>"}
+```
+
+An empty `hash` removes the password. Until the first `password` arrives, a `locked` lobby
+declines every join (`bad_password`), so it is never open by accident.
+
+**The host's socket** also takes a `listing` message. The service passes it to the Directory at
+most once every 5 s:
 
 ```json
 {"type": "listing", "place": "Goodsprings", "public": true, "title": "…", "friendly_fire": false}
@@ -96,6 +106,9 @@ It answers at most 100 rows a page:
   "plugins": 14, "region": "OC/AU", "colo": "SYD", "age": 812}],
  "cursor": null, "total": 41}
 ```
+
+**Look-up** (`GET /v1/lobbies/{code}`) gains `locked`, so the game asks for the password before
+joining a private lobby by code.
 
 **Join** gains an optional `password` in `join`. The lobby's Durable Object checks it (§4).
 A wrong one gets `declined` `bad_password`; three wrong in a minute from one IP get the 429 of
@@ -127,13 +140,19 @@ that long too. The zone rule of today (10 requests per 10 s on `/v1/lobbies`) ga
 
 ## 4. Passwords and private lobbies
 
+Visibility and the password are two separate choices:
+
 - **Private** (the default): not listed. Joining by code works as today.
 - **Public:** listed. Anyone who finds it may ask to join, and join approval still asks the host
   (on by default, owner decision 2026-11-24).
-- **Public with a password:** listed with a lock. A guest types the password in the row, as in
-  the example screen.
-  - The host's game sends `password` as hex of SHA-256 over `lobby-password v1`, the lobby code
-    and the password. The guest's game sends the same hash. The service compares the two and
+- **A password, on either:** the lobby asks every guest for it before join approval.
+  - Private with a password: a guest needs the code and the password. The Code tab shows a
+    password box once the look-up says `locked`.
+  - Public with a password: listed with a lock, and the guest types the password in the row,
+    as in the example screen.
+- **How the password is checked:**
+  - The host's game sends, in its `password` message, hex of SHA-256 over `lobby-password v1`,
+    the lobby code and the password. The guest's game sends the same hash in `join`. The service compares the two and
     never sees the password itself.
   - The code is in the salt, so the same password hashes differently in each lobby [design].
   - A password is a gate against strangers, not secrecy: the content of the game is already
@@ -170,13 +189,15 @@ address. The browser estimates instead:
 
 **Host, in the Co-op Lobby (Create Lobby):**
 
-- **Visibility:** Private / Public / Public with password. A list row, Private first, and
-  remembered.
+- **Visibility:** Private / Public. A list row, Private first, and remembered.
 - **Title:** a text field; empty: "<name>'s game".
-- **Password:** shown with Public with password.
+- **Password:** a text field, empty for none, for either visibility. Typed characters are
+  hidden, with a Show button. It is not remembered: each new lobby starts with none [design:
+  a password left in NVForever.ini would sit in plain text].
 - **Mods:** the code line stays; a public lobby also says "Listed in the server browser".
 
-**Guest, Join Lobby:** two tabs, **Code** (today's screen) and **Browse**.
+**Guest, Join Lobby:** two tabs, **Code** (today's screen, plus a password box when the code's
+lobby is locked) and **Browse**.
 
 - **Toolbar:** Refresh, Hide empty, Hide full, Show all versions (off: only lobbies this game can
   join), Search.
