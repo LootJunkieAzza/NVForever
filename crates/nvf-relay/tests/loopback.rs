@@ -4,7 +4,7 @@
 use std::net::UdpSocket;
 use std::time::{Duration, Instant};
 
-use nvf_nat::hosted::{session_id, Client, Received, Side};
+use nvf_nat::hosted::{encode, session_id, Client, Op, Received, Side};
 use nvf_relay::{Relay, ServerConfig};
 
 fn recv(sock: &UdpSocket) -> Vec<u8> {
@@ -23,10 +23,18 @@ fn forwards_between_two_clients_on_loopback() {
     let mut clients = [Client::new(at, session, Side::Host), Client::new(at, session, Side::Guest)];
     let now = Instant::now();
     for (c, s) in clients.iter_mut().zip(&socks) {
+        // First Bind from an unproven address gets a Challenge; echoing its cookie yields Bound.
+        s.send_to(&c.poll(now).unwrap(), at).unwrap();
+        assert_eq!(c.on_datagram(&recv(s)), Received::Control);
+        assert!(!c.bound(), "first reply is a return-check challenge, not Bound");
         s.send_to(&c.poll(now).unwrap(), at).unwrap();
         assert_eq!(c.on_datagram(&recv(s)), Received::Control);
         assert!(c.bound());
     }
+    // Data from an unproven third socket is dropped and never forwarded.
+    let rogue = UdpSocket::bind("127.0.0.1:0").unwrap();
+    rogue.send_to(&encode(Op::Data, &session, Side::Guest, b"spoofed"), at).unwrap();
+
     socks[1].send_to(&clients[1].wrap(b"ciphertext from the guest"), at).unwrap();
     let got = recv(&socks[0]);
     assert_eq!(clients[0].on_datagram(&got), Received::Data(b"ciphertext from the guest"));

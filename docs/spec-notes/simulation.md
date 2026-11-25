@@ -790,7 +790,13 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     locker's own render box at its front, before anything on the shelves, so by the
     nearest rule alone the locker was always the target [observed: player reports
     R-BHSP2X8C and R-C6VJTJFT]. What the original picks there is not captured
-    [hypothesis: the things on an open shelf, as the reports expect].
+    [hypothesis: the things on an open shelf, as the reports expect]. Only a container
+    gives way to anything inside it; an activator gives way only to an item (a reference
+    whose prompt is Take) lying in its box, never to another activator (#3323) [design,
+    #3937]. The case: a note on top of a table radio (0x0301057F) in an Old World Blues
+    interior (0x030086CB); the radio's box reaches over the note, so the radio was the
+    target wherever the crosshair was on the note [observed: player report R-FQ39PUHZ,
+    every pick `target 0x0301057F Radio (Activate) by Bounds at 55-87`].
   - **Talking through bars** (#3233; `engine/nvf-play/src/activate/see_through.rs`): when
     the ray's first hit is a reference's collision on a see-through layer, Transparent (3),
     Transparent Small (26) or Transparent Small Anim (28), and nothing is offered (no

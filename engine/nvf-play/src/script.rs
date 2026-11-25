@@ -1003,6 +1003,62 @@ impl Runtime {
         true
     }
 
+    /// A living creature shown by name only (`Action::Name`, #3669): if its script has an
+    /// OnActivate block, run that block through [`Game::activate`] (`ActMode::Hand`). The
+    /// default activation behind it stays "nothing": any `Outcome::Talk` on `target`
+    /// emitted by the block's own plain `Activate` is skipped so it neither opens a
+    /// conversation nor posts a "has nothing to say" message. Returns `None` when
+    /// `target`'s script has no OnActivate block.
+    fn script_only(&mut self, target: FormId) -> Option<Result<ByHand, String>> {
+        let has_block = self.game.ref_script(target).and_then(|s| self.game.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
+        if !has_block {
+            return None;
+        }
+        if self.game.activation_refused(target) {
+            return Some(Ok(ByHand::Refused));
+        }
+        if self.game.parent_activate_only(target) {
+            info!("activate: {} is set off by its activate parents only", self.game.data.name(target));
+            return Some(Ok(ByHand::Refused));
+        }
+        self.observe_inventory();
+        let player = FormId::PLAYER_REF;
+        let from = self.game.events.len();
+        info!("script: activating {target} runs its OnActivate block instead of the default action");
+        let r = self.game.activate(player, target, ActMode::Hand).map(|done| {
+            if matches!(done["result"].as_str(), Some("prevented" | "destroyed")) { ByHand::Refused } else { ByHand::Script }
+        });
+        // A name-only creature has no Talk default action (#3669): suppress any
+        // Outcome::Talk on `target` emitted by the block's own `Activate` (e.g.
+        // CRBrahminScript calling plain `Activate` when standing or weapon-out).
+        let self_talks: Vec<usize> = self
+            .game
+            .events
+            .iter()
+            .enumerate()
+            .skip(from)
+            .filter_map(|(i, e)| match &e.kind {
+                EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
+                    Outcome::Talk { actor } if actor == target => Some(i),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        self.skip.extend(self_talks);
+        let r = match r {
+            Ok(done) => Ok(self.talk_after_except(from, Some(target)).unwrap_or(done)),
+            r => r,
+        };
+        self.snapshot_inventory();
+        Some(r)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_event_skipped(&self, index: usize) -> bool {
+        self.skip.contains(&index)
+    }
+
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
         // A destroyed door or activator cannot be activated (`Game::activation_refused`).
         if self.game.activation_refused(target) {
@@ -1090,6 +1146,10 @@ impl Runtime {
     /// shown like a SayTo line and the player stays free. Returns [`ByHand::Talk`] when a
     /// conversation started, else [`ByHand::Greeted`] when a greeting was said.
     fn talk_after(&mut self, from: usize) -> Option<ByHand> {
+        self.talk_after_except(from, None)
+    }
+
+    fn talk_after_except(&mut self, from: usize, skip_actor: Option<FormId>) -> Option<ByHand> {
         let player = FormId::PLAYER_REF;
         let wanted: Vec<(usize, FormId)> = self
             .game
@@ -1099,7 +1159,7 @@ impl Runtime {
             .skip(from)
             .filter_map(|(i, e)| match &e.kind {
                 EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
-                    Outcome::Talk { actor } => Some((i, actor)),
+                    Outcome::Talk { actor } if skip_actor != Some(actor) => Some((i, actor)),
                     _ => None,
                 },
                 _ => None,
@@ -1499,6 +1559,14 @@ pub fn talk_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target
 /// opened.
 pub fn choices_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> bool {
     script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.choices_only(FormId(target))))
+}
+
+/// A living creature shown by name only whose script has an OnActivate block
+/// (`Runtime::script_only`, #3669): runs its OnActivate block while keeping the default
+/// activation behind it "nothing". `None` when scripts are off or `target` has no
+/// OnActivate block.
+pub fn script_activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Option<Result<ByHand, String>> {
+    script.and_then(|s| s.rt.as_mut()).and_then(|rt| with_world(rt, sim, |rt| rt.script_only(FormId(target))))
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -2021,15 +2089,20 @@ fn time_multiplier(
         player_scale.0 = exempt;
     }
     // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
-    let vats_scale = kill_cam.and_then(|k| k.time_scale()).unwrap_or_else(|| vats.map_or(1.0, |v| v.time_scale()));
-    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
+    let kill_scale = kill_cam.and_then(|k| k.time_scale());
+    let vats_scale = kill_scale.unwrap_or_else(|| vats.as_deref().map_or(1.0, |v| v.time_scale()));
+    // Sounds follow VATS's own sound scale: while targets are chosen, no slower than firing
+    // (`VatsMode::sound_scale`, #3784).
+    let vats_sound = kill_scale.unwrap_or_else(|| vats.as_deref().map_or(1.0, |v| v.sound_scale()));
+    let others = scale.map_or(1.0, |s| s.0.max(0.0)) * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
+    let engine = others * vats_scale;
     let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);
     }
     if let Some(mut sound) = sound {
         let script_sound = if rt.game.ui.time_keeps_sound { 1.0 } else { asked };
-        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(engine) * script_sound));
+        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(others * vats_sound) * script_sound));
     }
 }
 
@@ -2286,7 +2359,7 @@ pub(crate) fn run_scripts(
                             rt.frozen_frames = 2;
                             // The drawn world follows the restored simulation.
                             for id in changed_refs {
-                                changed.write(RefChanged { form_id: id.0, restored: true });
+                                changed.write(RefChanged::restored(id.0));
                             }
                         }
                         Err(e) => {
@@ -2676,6 +2749,21 @@ pub(crate) fn run_scripts(
         info!("script: EnableLoadingMenu with no move of the player: no loading screen (a screen without travel is not built)");
     }
     let mut sent = BTreeSet::new();
+    // References a script had an actor other than the player pick up this frame (Ringo
+    // taking his own ammo at the start of Ghost Town Gunfight, #3918): not the player's
+    // deed. A pick-up by the player in the same frame wins.
+    let mut takers: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+    for e in &events {
+        if let EventKind::Activated { reference, by, outcome: Some(v) } = &e.kind {
+            if v["result"] == "picked_up" {
+                let other = (*by != FormId::PLAYER_REF).then_some(by.0);
+                let t = takers.entry(reference.0).or_insert(other);
+                if other.is_none() {
+                    *t = None;
+                }
+            }
+        }
+    }
     let feet = phys.player.as_ref().map(|c| c.feet);
     for e in effects {
         // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
@@ -2683,7 +2771,7 @@ pub(crate) fn run_scripts(
         match e {
             ScriptEffect::RefChanged(id) => {
                 if sent.insert(id) {
-                    changed.write(RefChanged::new(id));
+                    changed.write(RefChanged { taker: takers.get(&id).copied().flatten(), ..RefChanged::new(id) });
                 }
             }
             ScriptEffect::Fade { form_id, fade_in } => {
