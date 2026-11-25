@@ -306,7 +306,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `casino symbol stops`: the count as given; the page's "must equal 14" is the
-        // record's rule, not checked here [hypothesis].
+        // record's rule, not checked here (see docs/spec-notes/ext-lutana.md §2).
         "setcasinoreelstops" => {
             let (s, v) = (num(args, 1).map(|s| s as i64), num(args, 2).filter(|v| v.is_finite()).map(int_bits));
             if let (Some(s @ 1..=7), Some(v)) = (s, v) {
@@ -414,8 +414,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // subcategory) only when one is given [documented: GetFormRecipes]: the later
         // plugin's first, each plugin's in FormID order [observed: lutana1
         // rcpe.formrecipes.*]. GetFormRecipeOutputs their outputs, each once [documented:
-        // GetFormRecipeOutputs], in that order [hypothesis: lutana1 rcpe.recipeoutputs.*
-        // show another order, with no rule found].
+        // GetFormRecipeOutputs], in that order (see docs/spec-notes/ext-lutana.md §3).
         "getformrecipes" | "getformrecipeoutputs" => {
             let (Some(item), cat) = (form(args, 0), form(args, 1)) else { return Some(Ok(list(g, std::iter::empty()))) };
             let mut ids: Vec<FormId> = g.data.recipes.keys().copied().collect();
@@ -495,7 +494,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "istrait" => yes(form(args, 0).and_then(|p| g.perk_def(p)).is_some_and(|d| d.is_trait)),
         // `perk index`: an ability entry's spell, a quest stage entry's quest [documented:
         // "Ability for type 5, Quest for type 6"]; an entry point 0 (its leveled list is
-        // not kept decoded) [hypothesis], a negative index or past the entries 0.
+        // not kept decoded; see docs/spec-notes/ext-lutana.md §5), a negative index or past the entries 0.
         "getnthperkentryform" => {
             let e = form(args, 0).and_then(|p| num(args, 1).and_then(|i| crate::nvse_lu3::nth_entry_of(g, p, i)));
             reff(match e.map(|e| &e.effect) {
@@ -547,7 +546,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             string_map(g, xy.map_or_else(Vec::new, |(x, y)| vec![("x", x), ("y", y)]))
         }
         // `water`: the water type's actor effect (WATR XNAM) [documented:
-        // GetWaterFormEffect]; with no water, the player's cell's [hypothesis].
+        // GetWaterFormEffect]; with no water, the player's cell's (see docs/spec-notes/ext-lutana.md §5).
         "getwaterformeffect" => {
             let w = form(args, 0).or_else(|| g.cell_of(FormId::PLAYER_REF).and_then(|c| cell_water(g, c)));
             // SetWaterFormEffect's change first (`crate::nvse_jip8`).

@@ -179,7 +179,7 @@ fn mods_edit_the_real_plugin_list_and_shared_new_game_fields() {
     assert_eq!(mods()["ttw"], true);
     assert_eq!(fixture.call(json!({"action":"save_start", "fields":model["ttwDefaults"]})), json!({"data":null}));
     let fields: start::Fields = serde_json::from_value(mods()["fields"].clone()).unwrap();
-    assert_eq!(fields, start::ttw());
+    assert_eq!(fields, start::Fields::ttw());
 }
 
 #[test]
