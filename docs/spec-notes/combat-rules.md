@@ -325,8 +325,11 @@ between them in the original [observed: owner playtest, #2739].
   [documented: GECK wiki Weapons].
   - The sentry bot's launcher now fires every 0.967 s (its `a:R`), not 0.63 s. That is
     still no barrage-length pause: by the player's rule the clip's end (2.0 s) is not
-    waited for. Whether the original waits for the end, switches to its gun between
-    missiles, or has another pause is observer check 221 [hypothesis].
+    waited for. The original switches to its gun after each missile [observed
+    2026-11-25, observer check 221]: the Hardened Sentry Bot fires one missile per
+    launcher turn of about 4.6 s, then about 5.7 s of gatling bursts, a missile every
+    9.9-10.4 s at 1,100-1,250 units; the Army one's minigun turns last 6-18 s; neither
+    spends the missiles in its inventory.
   - The wiki also says Semi-Automatic Fire Delay Max "determines semi-auto weapon's fire
     rate when used by actors" [documented: GECK wiki Weapons]; NVForever waits that delay
     after each shot besides the cycle's interval (npc_combat module notes).
@@ -971,6 +974,11 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     rates are untested; irregular frames were not tested separately.
 - **Blocking.** `damage::blocked` takes `block` (60 %) off a melee hit taken while
   blocking [design]. Nothing attacks the player yet; NPC melee (Layer 6 AI) will use it.
+  While the player holds Block with fists or a melee weapon (`MeleeInput::blocking`),
+  tapping or holding Attack starts no swing, sound, or hit unless the opt-in
+  `Power Attack From a Block` tweak (`bPowerAttackIfBlocking`, `instant_power`) is on
+  [observed: player report in #3753; design: mid-block input suppression and post-block
+  Scribe Counter timing pending an original-game capture].
 - **The body.** A power attack plays `{prefix}attackpower.kf` (`1hmattackpower.kf`,
   `h2hattackpower.kf`). Normal swings use the weapon's attack animation, falling back to
   its `_a` variant (`1hmattackright_a.kf`).
