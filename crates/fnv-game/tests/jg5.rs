@@ -315,6 +315,16 @@ fn weapon_and_armor_alt_textures() {
     assert_eq!(forms(&mut g, "GetArmorAltTextures TestArmor 4"), vec![TXST1]);
     assert_eq!(forms(&mut g, "GetArmorAltTextures TestArmor 1"), vec![TXST1], "the other models unchanged");
     assert_eq!(n(&mut g, "SetArmorAltTexture TestArmor 9 5 TestTextures1"), 0.0);
+    // TempCloneForm ARMO and WEAP resolve via unclone with clone isolation [observed: w6d3_26].
+    assert_eq!(
+        q(
+            &mut g,
+            "ref rA\nref rW\n             let rA := TempCloneForm TestArmor\n             let rW := TempCloneForm TestWeapon\n             int iA\nint iW\n             let iA := SetArmorAltTexture rA 1 5 TestTextures2\n             let iW := SetWeaponAltTexture rW 2 TestTextures1\n             array_var aA\narray_var aW\n             let aA := GetArmorAltTextures rA 1\n             let aW := GetWeaponAltTextures rW\n             SetFunctionValue (iA * 1000 + (ar_Size aA) * 100 + iW * 10 + (ar_Size aW))"
+        ),
+        XVal::Num(1211.0),
+    );
+    assert_eq!(forms(&mut g, "GetArmorAltTextures TestArmor 1"), vec![TXST1], "source armor isolated from clone");
+    assert_eq!(forms(&mut g, "GetWeaponAltTextures TestWeapon"), Vec::<u32>::new(), "source weapon isolated from clone");
 }
 
 #[test]
@@ -332,6 +342,15 @@ fn armor_facegen_flags_and_icons() {
     assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 1 0"), 0.0);
     assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 3 0"), 1.0);
     assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 0 1"), 1.0, "the female flags unchanged");
+    // TempCloneForm ARMO FaceGen flag read/write isolation [observed: w6d3_26].
+    assert_eq!(
+        q(
+            &mut g,
+            "ref rA\n             let rA := TempCloneForm TestArmor\n             int iPre\nlet iPre := GetFacegenModelFlag rA 0 1\n             SetFacegenModelFlag rA 0 1 0\n             int iPost\nlet iPost := GetFacegenModelFlag rA 0 1\n             SetFunctionValue (iPre * 10 + iPost)"
+        ),
+        XVal::Num(10.0),
+    );
+    assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 0 1"), 1.0);
     // [documented: SetBipedIconPathAlt `path female form`, read by GetBipedIconPath].
     assert_eq!(s(&mut g, "GetBipedIconPath 1 TestArmor"), "icons\\f.dds");
     q(&mut g, "SetBipedIconPathAlt \"icons\\new_f.dds\" 1 TestArmor");

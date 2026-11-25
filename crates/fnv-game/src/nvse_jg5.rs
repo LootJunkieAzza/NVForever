@@ -117,7 +117,13 @@ pub fn alt_textures(g: &Game, form: FormId, sub: [u8; 4]) -> Vec<AltTexture> {
     if let Some(v) = g.other.jg5.alt_textures.get(&(form, sub)) {
         return v.clone();
     }
-    let Some(Json::Array(rows)) = g.data.record_fields.get(&form).and_then(|f| f.iter().find(|(s, _)| *s == sub)).map(|(_, v)| v) else { return Vec::new() };
+    let orig = g.unclone(form);
+    if orig != form {
+        if let Some(v) = g.other.jg5.alt_textures.get(&(orig, sub)) {
+            return v.clone();
+        }
+    }
+    let Some(Json::Array(rows)) = g.data.record_fields.get(&orig).and_then(|f| f.iter().find(|(s, _)| *s == sub)).map(|(_, v)| v) else { return Vec::new() };
     rows.iter()
         .filter_map(|r| {
             let shape = r.get("shape_name").and_then(Json::as_str).unwrap_or_default().to_string();
@@ -132,7 +138,7 @@ pub fn alt_textures(g: &Game, form: FormId, sub: [u8; 4]) -> Vec<AltTexture> {
 /// (MO4S) [documented: GetArmorAltTextures's model IDs; the subrecords: the models'
 /// order in ARMO, as `setbipedmodelpath` reads them (MODL, MOD3, MOD2, MOD4)].
 fn alt_sub(g: &Game, f: FormId, model: Option<i64>) -> Option<[u8; 4]> {
-    match (g.data.sig(f)?, model) {
+    match (g.data.sig(g.unclone(f))?, model) {
         (s, _) if &s == b"WEAP" => Some(*b"MODS"),
         (s, Some(1)) if &s == b"ARMO" => Some(*b"MODS"),
         (s, Some(2)) if &s == b"ARMO" => Some(*b"MO3S"),
@@ -268,7 +274,7 @@ pub(crate) fn region_map_name(g: &Game, cell: FormId) -> Option<String> {
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let zero = XVal::Num(0.0);
-    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(f) == Some(*sig));
+    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*sig));
     let field = |g: &Game, f: FormId, sub: &str, path: &str| crate::nvse::record_value(g, f, sub, path);
     let v = match name {
         // ---- alternate textures ----
@@ -283,7 +289,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if name == "getarmoralttextures" && of_sig(g, f, b"ARMO").is_some() && !(1..=4).contains(&index(args, 1).unwrap_or(0)) {
                 return Some(Ok(XVal::Array(0)));
             }
-            let sub = f.and_then(|f| alt_sub(g, f, index(args, 1)).filter(|_| (name == "getweaponalttextures") == (g.data.sig(f) == Some(*b"WEAP"))));
+            let sub = f.and_then(|f| alt_sub(g, f, index(args, 1)).filter(|_| (name == "getweaponalttextures") == (g.data.sig(g.unclone(f)) == Some(*b"WEAP"))));
             let mut rows = match (f, sub) {
                 (Some(f), Some(sub)) => alt_textures(g, f, sub),
                 _ => Vec::new(),

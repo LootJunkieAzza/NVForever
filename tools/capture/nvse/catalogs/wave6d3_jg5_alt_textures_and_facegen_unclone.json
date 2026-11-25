@@ -1,0 +1,124 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-jg5-alt-textures-and-facegen-unclone",
+  "description": "Read-only clean-room probes verifying TempCloneForm support and clone isolation for JohnnyGuitar alt-texture and FaceGen model flag functions.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_jg5_alt_textures_and_facegen_unclone",
+      "title": "Wave 6D-3: TempCloneForm support for JG5 alt textures & FaceGen flags",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_26_armor_alt_textures_and_facegen_model_flag",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg5.md",
+          "spec_line": 25,
+          "functions_tested": [
+            "GetWeaponAltTextures",
+            "GetArmorAltTextures",
+            "GetAltTexturesEx",
+            "SetWeaponAltTexture",
+            "SetArmorAltTexture",
+            "GetFacegenModelFlag",
+            "SetFacegenModelFlag",
+            "TempCloneForm"
+          ],
+          "claim": "Verify GetArmorAltTextures/GetAltTexturesEx (models 0..5 & omitted->3), GetWeaponAltTextures, SetArmorAltTexture (385 mod calls) & SetWeaponAltTexture on TempCloneForm (SD-02), and Get/SetFacegenModelFlag (11 mod calls) OOB & clone.",
+          "expected": "Confirm TempCloneForm ARMO/WEAP support (nvse_jg5.rs:271 omits unclone), model 0/5 ar_Size -1, omitted GetAltTexturesEx model=3, and FaceGen model flag bits 0..3 / OOB -1,4.",
+          "script_lines": [
+            "ref rArm = GetFormFromMod \"FalloutNV.esm\" \"23030\"",
+            "ref rDyn = GetFormFromMod \"FalloutNV.esm\" \"10108D\"",
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rTx = GetFormFromMod \"FalloutNV.esm\" \"444F\"",
+            "array_var aM0 = GetArmorAltTextures rArm 0",
+            "array_var aM1 = GetArmorAltTextures rArm 1",
+            "array_var aM3 = GetArmorAltTextures rArm 3",
+            "array_var aM5 = GetArmorAltTextures rArm 5",
+            "array_var aExDef = GetAltTexturesEx rArm",
+            "array_var aEx0 = GetAltTexturesEx rArm 0",
+            "array_var aW = GetWeaponAltTextures rDyn",
+            "ref rACl = TempCloneForm rLth",
+            "int sACl = SetArmorAltTexture rACl 1 0 rTx",
+            "array_var aACl = GetArmorAltTextures rACl 1",
+            "ref rWCl = TempCloneForm rDyn",
+            "int sWCl = SetWeaponAltTexture rWCl 5 rTx",
+            "array_var aWCl = GetWeaponAltTextures rWCl",
+            "int fgM1 = GetFacegenModelFlag rLth 1 0",
+            "int fgF1 = GetFacegenModelFlag rLth 1 1",
+            "int fgOob = GetFacegenModelFlag rLth 4 0",
+            "SetFacegenModelFlag rACl 0 0 1",
+            "int fgCl0 = GetFacegenModelFlag rACl 0 0",
+            "int fgOrig0 = GetFacegenModelFlag rLth 0 0",
+            "PrintToConsole \"PROBE|w6d3_26_armor_alt_textures_and_facegen_model_flag|arm=%g,%g,%g,%g|ex=%g,%g|weap=%g|clA=%g(n=%g),clW=%g(n=%g)|fg=%g,%g,oob=%g,cl=%g/%g\" (ar_Size aM0) (ar_Size aM1) (ar_Size aM3) (ar_Size aM5) (ar_Size aExDef) (ar_Size aEx0) (ar_Size aW) sACl (ar_Size aACl) sWCl (ar_Size aWCl) fgM1 fgF1 fgOob fgCl0 fgOrig0"
+          ]
+        },
+        {
+          "id": "w6d3p2_26b_alt_textures_ex_models",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg5.md",
+          "spec_line": 25,
+          "functions_tested": [
+            "GetAltTexturesEx",
+            "GetArmorAltTextures"
+          ],
+          "claim": "Verify GetAltTexturesEx across models 1..4, omitted, 0, and 5 on ArmorCombat (0x23030) and WeapDynamite (0x10108D).",
+          "expected": "Confirm why GetAltTexturesEx omitted returned -1 in w6d3_26 and map exact model IDs.",
+          "script_lines": [
+            "ref rArm = GetFormFromMod \"FalloutNV.esm\" \"23030\"",
+            "ref rDyn = GetFormFromMod \"FalloutNV.esm\" \"10108D\"",
+            "array_var aE1 = GetAltTexturesEx rArm 1",
+            "array_var aE2 = GetAltTexturesEx rArm 2",
+            "array_var aE3 = GetAltTexturesEx rArm 3",
+            "array_var aE4 = GetAltTexturesEx rArm 4",
+            "array_var aED = GetAltTexturesEx rArm",
+            "array_var aE0 = GetAltTexturesEx rArm 0",
+            "array_var aE5 = GetAltTexturesEx rArm 5",
+            "array_var aW0 = GetAltTexturesEx rDyn",
+            "array_var aW1 = GetAltTexturesEx rDyn 1",
+            "array_var aA2 = GetArmorAltTextures rArm 2",
+            "array_var aA4 = GetArmorAltTextures rArm 4",
+            "PrintToConsole \"PROBE|w6d3p2_26b_alt_textures_ex_models|ex=%g,%g,%g,%g,def=%g,0=%g,5=%g|weap=%g,%g|arm24=%g,%g\" (ar_Size aE1) (ar_Size aE2) (ar_Size aE3) (ar_Size aE4) (ar_Size aED) (ar_Size aE0) (ar_Size aE5) (ar_Size aW0) (ar_Size aW1) (ar_Size aA2) (ar_Size aA4)"
+          ]
+        }
+      ]
+    }
+  ]
+}
