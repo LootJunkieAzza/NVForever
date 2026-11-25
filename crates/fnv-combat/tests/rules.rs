@@ -1862,3 +1862,28 @@ fn ammo_use_zero_spends_no_round_and_never_reloads() {
         assert_eq!(c.magazine, magazine);
     }
 }
+
+#[test]
+fn split_beam_applies_30_percent_damage_bonus_after_additive_damage_mods() {
+    use fnv_combat::data::WeaponMod;
+    let base = WeaponStats {
+        base_damage: 22,
+        projectile_count: 1,
+        skill: Some("EnergyWeapons".into()),
+        mods: vec![
+            WeaponMod { slot: 1, item: None, effect: Some("Split Beam".into()), value_a: 2.0, value_b: 0.0 },
+            WeaponMod { slot: 3, item: None, effect: Some("Increase Weapon Damage".into()), value_a: 3.0, value_b: 0.0 },
+        ],
+        ..Default::default()
+    };
+    let a = Attacker { skill: 100.0, ..Default::default() };
+    let split = base.modded(1);
+    assert_eq!(split.projectile_count, 3);
+    let d_split = hit(&split, split.projectile_count, &a, &Target::default(), &[], HitPart::default(), 0.99);
+    // 22 * 1.3 / 3 = 9.5333 per beam (28.60 total across 3 beams).
+    assert!((d_split.dealt * 3.0 - 28.6).abs() < 1e-3);
+    let both = base.modded(5);
+    let d_both = hit(&both, both.projectile_count, &a, &Target::default(), &[], HitPart::default(), 0.99);
+    // (22 + 3) * 1.3 / 3 = 10.8333 per beam (32.50 total across 3 beams).
+    assert!((d_both.dealt * 3.0 - 32.5).abs() < 1e-3);
+}
