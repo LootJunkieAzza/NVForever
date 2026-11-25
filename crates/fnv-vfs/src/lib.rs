@@ -591,8 +591,10 @@ impl Vfs {
     /// [`Self::read`] of a file of at most `stored` bytes where it lies and `contents` bytes
     /// decoded. For an archived file the stored size is looked at before its buffer is made and
     /// the size its contents declare before they are inflated (what inflates to more is an error
-    /// already); a loose file, which is both, by the bytes it gives, whatever its folder says.
-    /// A larger file is an error of kind `FileTooLarge` that names the path and the size.
+    /// already). A loose file, which is both, is refused by the opened file's length before anything
+    /// is read, and when it gives more than that. A larger file is an error of kind
+    /// `FileTooLarge` that names the path and the size. In [`read_stats`] an archived file
+    /// counts once its stored bytes are read, a loose one when it is read whole.
     pub fn read_at_most(&self, path: &str, stored: usize, contents: usize) -> Option<std::io::Result<Vec<u8>>> {
         let key = normalize(path);
         Some(match *self.index.get(&key)? {
@@ -602,19 +604,10 @@ impl Vfs {
     }
 
     fn read_loose_at_most(&self, key: &str, most: usize) -> std::io::Result<Vec<u8>> {
-        use std::io::Read;
-        let named = |e: std::io::Error| std::io::Error::new(e.kind(), format!("{key}: {e}"));
         let t = std::time::Instant::now();
-        let file = std::fs::File::open(&self.loose[key]).map_err(named)?;
-        // The size the folder gives is only what is made room for at first.
-        let room = file.metadata().map_or(0, |m| m.len()).min(most as u64) as usize;
-        let mut bytes = Vec::with_capacity(room.saturating_add(1));
-        let r = file.take((most as u64).saturating_add(1)).read_to_end(&mut bytes);
+        let file = std::fs::File::open(&self.loose[key]).and_then(|f| Ok((f.metadata()?.len(), f)));
+        let bytes = file.and_then(|(len, f)| take_at_most(f, len, most)).map_err(|e| std::io::Error::new(e.kind(), format!("{key}: {e}")))?;
         count_read(bytes.len(), std::time::Duration::ZERO, t.elapsed());
-        r.map_err(named)?;
-        if bytes.len() > most {
-            return Err(too_large(key, format_args!("more than the {most} bytes allowed")));
-        }
         Ok(bytes)
     }
 
@@ -645,6 +638,22 @@ impl Vfs {
         let mut v: Vec<String> = self.index.keys().filter(|k| pred(k)).cloned().collect();
         v.sort();
         v
+    }
+}
+
+/// All of `from`, an opened file of `len` bytes, when that is at most `most`: nothing is read
+/// otherwise, and room is made for `len` and no more. One byte is asked for past them, so one
+/// that grew since is an error and is not read on.
+fn take_at_most(mut from: impl std::io::Read, len: u64, most: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::{Error, ErrorKind, Read as _};
+    let over = |size: u64| Error::new(ErrorKind::FileTooLarge, format!("{size} bytes, more than the {most} allowed"));
+    let room = usize::try_from(len).ok().filter(|n| *n <= most).ok_or_else(|| over(len))?;
+    let mut bytes = Vec::with_capacity(room);
+    from.by_ref().take(len).read_to_end(&mut bytes)?;
+    match from.take(1).read_to_end(&mut Vec::new())? {
+        0 => Ok(bytes),
+        _ if room == most => Err(over(len + 1)),
+        _ => Err(Error::other(format!("it grew past its {len} bytes while it was read"))),
     }
 }
 

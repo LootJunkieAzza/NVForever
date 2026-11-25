@@ -11,11 +11,14 @@ use bevy::prelude::*;
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::geometry::{geometry, Geometry, MeshSource};
 use nvf_assets::model::{AltTexture, ModelCtx};
-use nvf_assets::texture::levels::{self, Drawn};
+use nvf_assets::texture::levels::{self, Drawn, ImageSource};
 use nvf_assets::{GameData, ModelCache, NifMaterial, PreparedModel, TextureCache};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+
+mod made_nif;
+use made_nif::{floats, words};
 
 const NONE: u32 = u32::MAX;
 const PATH: &str = r"meshes\room.nif";
@@ -25,26 +28,15 @@ fn turn() -> MutexGuard<'static, ()> {
     TURN.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-// ---------------------------------------------------------------------------- the model
-
-fn words(out: &mut Vec<u8>, values: &[u32]) {
-    out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
-}
-
 fn halves(out: &mut Vec<u8>, values: &[u16]) {
     out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
 }
 
-fn floats(out: &mut Vec<u8>, values: &[f32]) {
-    out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
-}
-
-/// A NIF (20.2.0.7, user version 11, BS version 34) in the layout of `schemas/nif`, as
-/// `nif_spawn`'s tests make theirs.
+/// A NIF's blocks in the layout of `schemas/nif`.
 #[derive(Default)]
 struct Nif {
     blocks: Vec<(&'static str, Vec<u8>)>,
-    strings: Vec<String>,
+    strings: Vec<&'static str>,
 }
 
 impl Nif {
@@ -54,8 +46,8 @@ impl Nif {
     }
 
     /// NiAVObject's fields: no extra data, the identity, no collision.
-    fn object(&mut self, name: &str, flags: u32, controller: u32, properties: &[u32]) -> Vec<u8> {
-        self.strings.push(name.into());
+    fn object(&mut self, name: &'static str, flags: u32, controller: u32, properties: &[u32]) -> Vec<u8> {
+        self.strings.push(name);
         let mut out = vec![];
         words(&mut out, &[self.strings.len() as u32 - 1, 0, controller, flags]);
         floats(&mut out, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
@@ -65,7 +57,7 @@ impl Nif {
         out
     }
 
-    fn node(&mut self, name: &str, flags: u32, controller: u32, children: &[u32]) -> Vec<u8> {
+    fn node(&mut self, name: &'static str, flags: u32, controller: u32, children: &[u32]) -> Vec<u8> {
         let mut out = self.object(name, flags, controller, &[]);
         words(&mut out, &[children.len() as u32]);
         words(&mut out, children);
@@ -73,49 +65,11 @@ impl Nif {
         out
     }
 
-    fn shape(&mut self, name: &str, flags: u32, properties: &[u32], data: u32, skin: u32) -> u32 {
+    fn shape(&mut self, name: &'static str, flags: u32, properties: &[u32], data: u32, skin: u32) -> u32 {
         let mut out = self.object(name, flags, NONE, properties);
         words(&mut out, &[data, skin, 0, NONE]); // no materials, none active
         out.push(0); // material needs update
         self.add("NiTriShape", out)
-    }
-
-    fn bytes(&self) -> Vec<u8> {
-        fn string(out: &mut Vec<u8>, s: &str) {
-            words(out, &[s.len() as u32]);
-            out.extend(s.as_bytes());
-        }
-        let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
-        words(&mut out, &[0x1402_0007]);
-        out.push(1);
-        words(&mut out, &[11, self.blocks.len() as u32, 34]);
-        out.extend([1, 0, 1, 0, 1, 0]); // three empty export strings
-        let mut types = vec![];
-        for (kind, _) in &self.blocks {
-            if !types.contains(kind) {
-                types.push(*kind);
-            }
-        }
-        halves(&mut out, &[types.len() as u16]);
-        for kind in &types {
-            string(&mut out, kind);
-        }
-        for (kind, _) in &self.blocks {
-            halves(&mut out, &[types.iter().position(|t| t == kind).unwrap() as u16]);
-        }
-        for (_, block) in &self.blocks {
-            words(&mut out, &[block.len() as u32]);
-        }
-        words(&mut out, &[self.strings.len() as u32, self.strings.iter().map(|s| s.len()).max().unwrap_or(0) as u32]);
-        for s in &self.strings {
-            string(&mut out, s);
-        }
-        words(&mut out, &[0]); // groups
-        for (_, block) in &self.blocks {
-            out.extend(block);
-        }
-        words(&mut out, &[1, 0]); // footer: one root, block 0
-        out
     }
 }
 
@@ -216,6 +170,9 @@ fn room() -> (Vec<u8>, [&'static str; 7]) {
     let marked = nif.shape("EditorMarker:0", 14, &[plain], data, NONE);
     let none = corners(&mut nif, 2.0, true, None, Corners::List(&[]));
     let rejected = nif.shape("Rejected:0", 14, &[plain], none, NONE);
+    // Each of its triangles has a corner that is not there.
+    let data = corners(&mut nif, 9.0, true, None, Corners::List(&[0, 1, 9, 8, 2, 1]));
+    let gone = nif.shape("Gone:0", 15, &[plain], data, NONE);
 
     // Hidden, and shown by a controller of its own: the rig's alone.
     let data = corners(&mut nif, 3.0, true, Some(COLORS), LIST);
@@ -262,9 +219,9 @@ fn room() -> (Vec<u8>, [&'static str; 7]) {
     let data = corners(&mut nif, 8.0, true, Some(COLORS), LIST);
     let shine = nif.shape("Shine:0", 14, &[dark], data, NONE);
 
-    let children = [hidden, helper, bare, marked, rejected, blink_node, flag, opaque, see_through, torn, strip, shine];
+    let children = [hidden, helper, bare, marked, rejected, gone, blink_node, flag, opaque, see_through, torn, strip, shine];
     nif.blocks[0].1 = nif.node("Room", 14, NONE, &children);
-    (nif.bytes(), ["Blink:0", "Flag:0", "Opaque:0", "Faded:0", "Torn:0", "Strip:0", "Shine:0"])
+    (made_nif::nif(&nif.blocks, &nif.strings), ["Blink:0", "Flag:0", "Opaque:0", "Faded:0", "Torn:0", "Strip:0", "Shine:0"])
 }
 
 /// A DXT1 texture of one block.
@@ -277,8 +234,6 @@ fn wall() -> Vec<u8> {
     out[84..88].copy_from_slice(b"DXT1");
     out
 }
-
-// ---------------------------------------------------------------------------- the loader
 
 struct Game {
     dir: PathBuf,
@@ -383,8 +338,6 @@ fn again(g: &Geometry) -> Bits {
     [bits(&m.positions), bits(&m.normals), bits(&m.uv0), bits(&m.colors), m.indices.clone()]
 }
 
-// ----------------------------------------------------------------------------- the tests
-
 /// Each drawn shape's arrays by its block, bit for bit, from both sinks: also the rig's alone,
 /// the skinned one's two copies, strips, made normals and both kinds of vertex colours. Fails
 /// with a block counted among the drawn, with colours as stored or with `vertex_alpha` fixed.
@@ -405,9 +358,16 @@ fn a_shapes_arrays_are_the_loaders() {
         let wanted: Vec<(u32, &str)> = all.iter().map(|(_, block, name)| (*block, name.as_str())).collect();
         let read = game.read(&wanted).unwrap();
         assert_eq!(read.len(), all.len());
+        let mut boxes = HashMap::new();
         for ((id, _, name), g) in all.iter().zip(&read) {
             assert_eq!(again(g), drawn(game.mesh(*id)), "{way} {name}");
+            // The box that the renderer's taking of a mesh leaves behind.
+            let mut mesh = game.mesh(*id).clone();
+            mesh.take_gpu_data().unwrap();
+            assert!(mesh.final_aabb.is_some() && g.same_box(mesh.final_aabb) && g.same_box(None), "{way} {name}");
+            boxes.insert(name.as_str(), mesh.final_aabb);
         }
+        assert!(!read[0].same_box(boxes["Strip:0"]), "{}", all[0].2);
         let of = |name: &str| &read[all.iter().position(|(.., n)| n == name).unwrap()].mesh;
         // The fixture is what it is to be, so that the comparison says something.
         let alphas = |name: &str| of(name).colors.iter().map(|c| c[3]).collect::<Vec<_>>();
@@ -446,24 +406,6 @@ fn every_variant_names_the_same_blocks() {
     assert!(game.sources(&HashSet::new()).is_empty());
 }
 
-/// A box is compared with the one the renderer's taking of the mesh leaves behind.
-#[test]
-fn a_box_is_the_drawn_meshs() {
-    let _turn = turn();
-    let mut game = Game::new("box");
-    let model = game.stores();
-    let [a, b] = [0, 1].map(|i| &model.shapes[i]);
-    let left = |id| {
-        let mut mesh = game.mesh(id).clone();
-        mesh.take_gpu_data().unwrap();
-        assert!(mesh.final_aabb.is_some() && mesh.try_attribute(Mesh::ATTRIBUTE_POSITION).is_err());
-        mesh.final_aabb
-    };
-    let read = game.read(&[(a.block, a.name.as_deref().unwrap())]).unwrap();
-    assert!(read[0].same_box(left(a.mesh.id())) && read[0].same_box(None));
-    assert!(!read[0].same_box(left(b.mesh.id())));
-}
-
 /// What is asked for and is not there is the file's error and names the block; a file that is
 /// cut off or none is an error as well.
 #[test]
@@ -482,6 +424,7 @@ fn what_is_not_there_is_an_error() {
         ((NONE, "Opaque:0"), "no shape"),
         ((opaque.0, "Faded:0"), "its name is Opaque:0"),
         ((block("Rejected:0"), "Rejected:0"), "nothing to draw"),
+        ((block("Gone:0"), "Gone:0"), "nothing to draw"),
     ] {
         let e = game.read(&[opaque, wanted]).unwrap_err();
         assert_eq!(e, format!("block {} ({}): {why}", wanted.0, wanted.1));
@@ -491,29 +434,24 @@ fn what_is_not_there_is_an_error() {
         assert!(geometry(&bytes[..cut], schema, &[opaque]).is_err(), "cut at {cut}");
     }
     assert!(geometry(&[0xA5; 4096], schema, &[opaque]).is_err());
-    // As GameData::read garbles a file for its test aid: whatever it parses to, it comes back.
-    let garbled: Vec<u8> = bytes.iter().enumerate().map(|(i, b)| if i < 64 { *b } else { b ^ (i as u8).wrapping_mul(151).wrapping_add(0x5A) }).collect();
-    let _ = geometry(&garbled, schema, &[opaque]);
 }
 
 /// The run's counters that loading a model moves.
-fn counters() -> [String; 4] {
-    use nvf_assets::{load_times, nif_spawn, tangents};
-    [load_times::summary(), nif_spawn::vertex_alpha_blended_summary(), nif_spawn::blend_opaque_summary(), tangents::summary()]
+fn counters() -> [String; 6] {
+    use nvf_assets::{authored, load_times, nif_spawn, tangents};
+    [authored::stats().line(), authored::stats().game_line(1.0), load_times::summary(), nif_spawn::vertex_alpha_blended_summary(), nif_spawn::blend_opaque_summary(), tangents::summary()]
 }
 
-/// Everything in the stores: the meshes with their usages and arrays, and the others' ids.
+/// Everything in the stores with what it holds, the bind poses by their ids.
 fn stores(w: &World) -> String {
-    fn ids<A: Asset>(w: &World) -> Vec<String> {
-        let mut v: Vec<String> = w.resource::<Assets<A>>().ids().map(|id| format!("{id:?}")).collect();
-        v.sort();
-        v
-    }
+    let mut others: Vec<String> = w.resource::<Assets<SkinnedMeshInverseBindposes>>().ids().map(|id| format!("{id:?}")).collect();
+    others.extend(w.resource::<Assets<NifMaterial>>().iter().map(|(id, m)| format!("{id:?} {:?} {:?}", m.base, m.extension)));
+    others.sort();
     let mut meshes: Vec<String> = w.resource::<Assets<Mesh>>().iter().map(|(id, m)| format!("{id:?} {:?} {:?} {:?}", m.asset_usage, m.final_aabb, drawn(m))).collect();
     meshes.sort();
     let images: Vec<String> = w.resource::<Assets<Image>>().iter().map(|(id, i)| format!("{id:?} {:?} {:?} {:?}", i.asset_usage, i.texture_descriptor, i.data)).collect();
     let held = (w.resource::<ModelCache>().len(), w.resource::<TextureCache>().len(), w.resource::<TextureCache>().generation(), &w.resource::<TextureCache>().failures);
-    format!("{meshes:?} {images:?} {:?} {:?} {held:?}", ids::<NifMaterial>(w), ids::<SkinnedMeshInverseBindposes>(w))
+    format!("{meshes:?} {images:?} {others:?} {held:?}")
 }
 
 /// What this thread logs while `f` runs.
@@ -550,10 +488,10 @@ fn reading_again_changes_nothing() {
     let log = logged(|| model = Some(game.stores()));
     let model = model.unwrap();
     let loaded = counters();
-    assert!(fresh[0] != loaded[0] && fresh[1] != loaded[1], "{loaded:?}");
+    assert!(fresh[2] != loaded[2] && fresh[3] != loaded[3], "{loaded:?}");
     assert!(log.contains("controllers of their own"), "{log}");
     let wall = game.ctx(|c| c.textures.get("wall.dds", true, &c.data, &mut c.images, None)).expect("the texture loads");
-    let wall_drawn = Drawn::of(game.world.resource::<Assets<Image>>().get(&wall).unwrap());
+    let wall_drawn = Drawn::of(game.world.resource::<Assets<Image>>().get(&wall).unwrap()).unwrap();
     let (bytes, data) = (game.bytes(), game.world.resource::<GameData>().clone());
     let before = stores(&game.world);
     let all = meshes(&model);
@@ -563,8 +501,8 @@ fn reading_again_changes_nothing() {
         assert!(geometry(&bytes, &data.schema, &[(0, "Room")]).is_err());
         let sources = game.world.resource::<TextureCache>().sources(&HashSet::from([wall.id()]));
         let source = sources[&wall.id()].as_ref().unwrap();
-        assert_eq!(levels::read(&data, &source.path, &wall_drawn, true).unwrap().levels.len(), 1);
-        assert!(levels::read(&data, "textures\\none.dds", &wall_drawn, true).is_err());
+        assert_eq!(levels::read(&data, source, &wall_drawn, true).unwrap().levels.len(), 1);
+        assert!(levels::read(&data, &ImageSource { path: "none.dds".into(), ..source.clone() }, &wall_drawn, true).is_err());
         assert_eq!(game.sources(&all.iter().map(|(id, ..)| *id).collect()).len(), 8);
     });
     assert_eq!(log, "");

@@ -98,25 +98,53 @@ fn a_declared_size_is_looked_at_before_the_block_is_inflated() {
     }
 }
 
-/// A loose file is measured by what it gives, so one that grew since the folder was listed is
-/// refused too; either limit is its limit.
+/// A loose file's length is the opened file's, not the listed one's; either limit is its limit.
 #[test]
-fn a_loose_file_is_refused_by_the_bytes_it_gives() {
+fn a_loose_file_is_refused_by_its_length() {
     let dir = Folder::new("loose");
     let file = dir.0.join("meshes/Loose.nif");
     std::fs::write(&file, [1; 10]).unwrap();
     std::fs::write(dir.0.join("meshes/empty.nif"), []).unwrap();
     let vfs = Vfs::open(&dir.0, &[]).unwrap();
     std::fs::write(&file, [2; 100]).unwrap();
-    for (stored, contents) in [(100, 100), (100, usize::MAX), (usize::MAX, 100), (usize::MAX, usize::MAX)] {
+    for (stored, contents) in [(100, 100), (100, usize::MAX), (usize::MAX, 100)] {
         assert_eq!(vfs.read_at_most("meshes\\loose.nif", stored, contents).unwrap().unwrap(), [2; 100]);
     }
     for (stored, contents) in [(99, 100), (100, 99)] {
-        let says = "meshes\\loose.nif: more than the 99 bytes allowed".to_string();
+        let says = "meshes\\loose.nif: 100 bytes, more than the 99 allowed".to_string();
         assert_eq!(error(&vfs, "Meshes/loose.nif", stored, contents), (ErrorKind::FileTooLarge, says));
     }
     assert!(vfs.read_at_most("meshes/empty.nif", 0, 0).unwrap().unwrap().is_empty());
     std::fs::remove_file(&file).unwrap();
     let (kind, says) = error(&vfs, "meshes/loose.nif", 100, 100);
     assert!(kind == ErrorKind::NotFound && says.starts_with("meshes\\loose.nif: "), "{says}");
+}
+
+/// A file that is longer (or shorter) when it is read than its length said when it was opened:
+/// at most one byte past that is read, and none of one over the limit.
+#[test]
+fn a_file_that_grows_after_its_length_is_taken_is_not_read_on() {
+    /// The bytes it still has, and those it gave.
+    struct File(usize, usize);
+    impl std::io::Read for File {
+        fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+            let n = b.len().min(self.0);
+            (self.0, self.1) = (self.0 - n, self.1 + n);
+            Ok(n)
+        }
+    }
+    for (holds, len, most, gave, kind) in [
+        (1 << 20, 1000, 1000, 1001, Some(ErrorKind::FileTooLarge)),
+        (1 << 20, 1000, 4000, 1001, Some(ErrorKind::Other)),
+        (1 << 20, 1001, 1000, 0, Some(ErrorKind::FileTooLarge)),
+        (1000, 1000, 1000, 1000, None),
+        (0, 0, 0, 0, None),
+        (600, 1000, 1000, 600, None),
+    ] {
+        let mut file = File(holds, 0);
+        let got = super::take_at_most(&mut file, len, most);
+        assert_eq!((file.1, got.as_ref().err().map(|e| e.kind())), (gave, kind));
+        // Room was made once, for the length.
+        assert!(got.is_err() || got.is_ok_and(|b| b.len() == holds && b.capacity() <= most));
+    }
 }

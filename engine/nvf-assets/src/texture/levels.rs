@@ -43,19 +43,18 @@ pub struct Drawn {
 }
 
 impl Drawn {
-    pub fn of(image: &Image) -> Drawn {
-        let d = &image.texture_descriptor;
+    /// [`Lost::Sampler`] for an image whose sampler is the app's default or clamps to a border:
+    /// no texture of a file here has such a one, and what it shows past its edge is not known.
+    pub fn of(image: &Image) -> Result<Drawn, Lost> {
         let wrap = |mode| match mode {
-            ImageAddressMode::Repeat => Wrap::Repeat,
-            ImageAddressMode::MirrorRepeat => Wrap::Mirror,
-            ImageAddressMode::ClampToEdge | ImageAddressMode::ClampToBorder => Wrap::Clamp,
+            ImageAddressMode::Repeat => Ok(Wrap::Repeat),
+            ImageAddressMode::MirrorRepeat => Ok(Wrap::Mirror),
+            ImageAddressMode::ClampToEdge => Ok(Wrap::Clamp),
+            ImageAddressMode::ClampToBorder => Err(Lost::Sampler),
         };
-        let wrap = match &image.sampler {
-            ImageSampler::Descriptor(s) => [wrap(s.address_mode_u), wrap(s.address_mode_v)],
-            // The app's default; no texture of a file here has it.
-            ImageSampler::Default => [Wrap::Clamp; 2],
-        };
-        Drawn { format: d.format, width: d.size.width, height: d.size.height, mips: d.mip_level_count, wrap }
+        let ImageSampler::Descriptor(s) = &image.sampler else { return Err(Lost::Sampler) };
+        let (d, wrap) = (&image.texture_descriptor, [wrap(s.address_mode_u)?, wrap(s.address_mode_v)?]);
+        Ok(Drawn { format: d.format, width: d.size.width, height: d.size.height, mips: d.mip_level_count, wrap })
     }
 }
 
@@ -68,21 +67,23 @@ pub enum Lost {
     TooLarge(String),
     /// The file is no texture that was drawn so.
     Broken(String),
-    /// There is no decoder to RGBA8 on the CPU (BC7, and the formats of one and two channels,
-    /// which are no colours).
+    /// It is what was drawn, in a format without a decoder to RGBA8 here: BC7, and those of one
+    /// and two channels, which are no colours.
     Undecoded(Format),
+    /// Its sampler ([`Drawn::of`]).
+    Sampler,
 }
 
-/// The levels that rays read (`nvf_rtgi::levels_read`) of the texture file at `path`, drawn as
-/// `drawn`; `tested`: whether any material with it has an alpha cutoff.
-pub fn read(data: &GameData, path: &str, drawn: &Drawn, tested: bool) -> Result<Texture, Lost> {
-    read_within(data, path, drawn, tested, MOST_BYTES)
+/// The levels that rays read (`nvf_rtgi::levels_read`) of a texture's file, drawn as `drawn`;
+/// `tested`: whether any material with it has an alpha cutoff.
+pub fn read(data: &GameData, from: &ImageSource, drawn: &Drawn, tested: bool) -> Result<Texture, Lost> {
+    read_within(data, from, drawn, tested, MOST_BYTES)
 }
 
-fn read_within(data: &GameData, path: &str, drawn: &Drawn, tested: bool, most: usize) -> Result<Texture, Lost> {
+fn read_within(data: &GameData, from: &ImageSource, drawn: &Drawn, tested: bool, most: usize) -> Result<Texture, Lost> {
     // Guarded as the decode is: the test aid's broken files panic in the read.
-    match guarded(|| Ok(data.read_at_most(path, most, most))) {
-        Ok(Some(Ok(bytes))) => levels(&bytes, drawn, tested),
+    match guarded(|| Ok(data.read_at_most(&from.path, most, most))) {
+        Ok(Some(Ok(bytes))) => levels(&bytes, from.usage, drawn, tested),
         Ok(Some(Err(e))) => Err(match e.kind() {
             ErrorKind::FileTooLarge => Lost::TooLarge(e.to_string()),
             ErrorKind::NotFound => Lost::Missing,
@@ -94,17 +95,17 @@ fn read_within(data: &GameData, path: &str, drawn: &Drawn, tested: bool, most: u
 }
 
 /// [`read`] of a file's bytes.
-pub fn levels(bytes: &[u8], drawn: &Drawn, tested: bool) -> Result<Texture, Lost> {
-    guarded(|| Ok(levels_unguarded(bytes, drawn, tested))).unwrap_or_else(|panic| Err(Lost::Broken(panic)))
+pub fn levels(bytes: &[u8], usage: TextureUsage, drawn: &Drawn, tested: bool) -> Result<Texture, Lost> {
+    guarded(|| Ok(levels_unguarded(bytes, usage, drawn, tested))).unwrap_or_else(|panic| Err(Lost::Broken(panic)))
 }
 
-fn levels_unguarded(bytes: &[u8], drawn: &Drawn, tested: bool) -> Result<Texture, Lost> {
+fn levels_unguarded(bytes: &[u8], usage: TextureUsage, drawn: &Drawn, tested: bool) -> Result<Texture, Lost> {
     let dds = Dds::parse(bytes).map_err(|e| Lost::Broken(e.to_string()))?;
     let mips = dds.levels[0].len() as u32;
     colour_shape_ok(&dds, mips).map_err(Lost::Broken)?;
     let (width, height) = (dds.header.width, dds.header.height);
-    if (width, height, mips) != (drawn.width, drawn.height, drawn.mips) || !drawn_as(dds.format, drawn.format) {
-        return Err(Lost::Broken(format!("{} {width}x{height}, {mips} levels; drawn as {drawn:?}", dds.format.name())));
+    if (width, height, mips) != (drawn.width, drawn.height, drawn.mips) || !drawn_as(dds.format, usage, drawn.format) {
+        return Err(Lost::Broken(format!("{} {width}x{height}, {mips} levels; drawn for {usage:?} as {drawn:?}", dds.format.name())));
     }
     if matches!(dds.format, Format::Bc7 | Format::Bc4U | Format::Bc4S | Format::Bc5U | Format::Bc5S) {
         return Err(Lost::Undecoded(dds.format));
@@ -127,41 +128,59 @@ fn levels_unguarded(bytes: &[u8], drawn: &Drawn, tested: bool) -> Result<Texture
     Ok(Texture { levels: read.iter().map(level).collect::<Result<_, _>>()?, srgb: drawn.format.is_srgb(), wrap: drawn.wrap })
 }
 
-/// Whether the loader makes a texture of this format from such a file (`dds_image`): blocks as
-/// they are or decoded, all else as RGBA8.
-fn drawn_as(file: Format, drawn: TextureFormat) -> bool {
-    use TextureFormat::{Bc1RgbaUnorm, Bc2RgbaUnorm, Bc3RgbaUnorm, Bc7RgbaUnorm, Rgba8Unorm};
-    let drawn = drawn.remove_srgb_suffix();
-    match file {
-        Format::Dxt1 => [Bc1RgbaUnorm, Rgba8Unorm].contains(&drawn),
-        Format::Dxt3 => [Bc2RgbaUnorm, Rgba8Unorm].contains(&drawn),
-        Format::Dxt5 => [Bc3RgbaUnorm, Rgba8Unorm].contains(&drawn),
-        Format::Bc7 => drawn == Bc7RgbaUnorm,
-        // Not decoded, whatever they are drawn as.
-        Format::Bc4U | Format::Bc4S | Format::Bc5U | Format::Bc5S => true,
-        _ => drawn == Rgba8Unorm,
-    }
+/// Whether the loader makes a texture of this format from such a file for this usage
+/// (`dds_image_unguarded`).
+fn drawn_as(file: Format, usage: TextureUsage, drawn: TextureFormat) -> bool {
+    use TextureFormat::*;
+    use TextureUsage::{Linear, Normal, NormalTwoChannel};
+    let made: &[TextureFormat] = match (file, usage) {
+        (Format::Dxt1, _) => &[Bc1RgbaUnorm, Rgba8Unorm],
+        (Format::Dxt3, _) => &[Bc2RgbaUnorm, Rgba8Unorm],
+        (Format::Dxt5, _) => &[Bc3RgbaUnorm, Rgba8Unorm],
+        (Format::Bc7, _) => &[Bc7RgbaUnorm],
+        (Format::Bc4U, Linear) => &[Bc4RUnorm, R8Unorm],
+        (Format::Bc4S, Linear) => &[Bc4RSnorm, R8Snorm],
+        (Format::Bc5U, Linear | NormalTwoChannel) => &[Bc5RgUnorm, Rg8Unorm],
+        (Format::Bc5S, Linear) => &[Bc5RgSnorm, Rg8Snorm],
+        (Format::Bc5S, NormalTwoChannel) => &[Rg8Unorm],
+        (Format::Bc5U | Format::Bc5S, Normal) => &[Rgba8Unorm],
+        (Format::Bc4U | Format::Bc4S | Format::Bc5U | Format::Bc5S, _) => &[],
+        _ => &[Rgba8Unorm],
+    };
+    made.contains(&drawn.remove_srgb_suffix()) && drawn.is_srgb() == (usage == TextureUsage::Color)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Levels decoded on this thread.
+    static DECODED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// One level as RGBA8. Blocks that the GPU has (`compressed`) by the decoder that made the
-/// solver's reference pictures, those that the loader decoded itself by its own.
+/// solver's reference pictures, all else by the loader's, a row (of blocks) at a time.
 fn texels(format: Format, compressed: bool, w: usize, h: usize, src: &[u8]) -> Option<Vec<[u8; 4]>> {
+    #[cfg(test)]
+    DECODED.set(DECODED.get() + 1);
     let code = match format {
         Format::Dxt1 => Some(texpresso::Format::Bc1),
         Format::Dxt3 => Some(texpresso::Format::Bc2),
         Format::Dxt5 => Some(texpresso::Format::Bc3),
         _ => None,
     };
-    let bytes = match code {
-        Some(code) if compressed => {
-            let mut out = vec![[0; 4]; w * h];
-            code.decompress(src, w, h, out.as_flattened_mut());
-            return Some(out);
-        }
-        Some(_) => fnv_dds::decode_blocks(format, w as u32, h as u32, src)?,
-        None => fnv_dds::to_rgba8(format, src)?,
-    };
-    Some(bytes.as_chunks::<4>().0.to_vec()).filter(|t| t.len() == w * h)
+    if let Some(code) = code.filter(|_| compressed) {
+        let mut out = vec![[0; 4]; w * h];
+        code.decompress(src, w, h, out.as_flattened_mut());
+        return Some(out);
+    }
+    let mut out = Vec::with_capacity(w * h);
+    for row in src.chunks_exact(format.level_size(w as u32, 1)) {
+        let bytes = match code {
+            Some(_) => fnv_dds::decode_blocks(format, w as u32, (h - out.len() / w).min(4) as u32, row)?,
+            None => fnv_dds::to_rgba8(format, row)?,
+        };
+        out.extend_from_slice(bytes.as_chunks::<4>().0);
+    }
+    (out.len() == w * h).then_some(out)
 }
 
 impl TextureCache {
@@ -196,7 +215,7 @@ impl TextureCache {
 #[cfg(test)]
 mod tests {
     use super::super::bc5_tests::{dds, OwnedData};
-    use super::super::{dds_image, worker_texture, TextureSnapshot};
+    use super::super::{dds_image, dds_texture, worker_texture, TextureSnapshot};
     use super::*;
 
     /// Block data of a whole chain, each level of one colour: its red is 8 x the level.
@@ -229,7 +248,12 @@ mod tests {
     }
 
     fn drawn(bytes: &[u8], bc: bool) -> Drawn {
-        Drawn::of(&dds_image(bytes, true, bc).unwrap())
+        Drawn::of(&dds_image(bytes, true, bc).unwrap()).unwrap()
+    }
+
+    /// Of a colour.
+    fn levels(bytes: &[u8], d: &Drawn, tested: bool) -> Result<Texture, Lost> {
+        super::levels(bytes, TextureUsage::Color, d, tested)
     }
 
     fn sides(t: &Texture) -> Vec<[usize; 2]> {
@@ -262,10 +286,6 @@ mod tests {
             let bytes = chain(b"DXT1", w, h, 1);
             assert_eq!(sides(&levels(&bytes, &drawn(&bytes, true), tested).unwrap()), [[side, h as usize]]);
         }
-        // The blocks of the smallest levels are whole, their texels are not.
-        let bytes = chain(b"DXT5", 128, 4, 8);
-        let t = levels(&bytes, &drawn(&bytes, true), true).unwrap();
-        assert_eq!((sides(&t), t.levels[1].texels.len()), (vec![[128, 4], [64, 2]], 128));
     }
 
     /// What the loader decodes itself is what it drew: odd sides, a device without BC and the
@@ -290,7 +310,7 @@ mod tests {
         for (bytes, bc) in files {
             for srgb in [true, false] {
                 let image = dds_image(&bytes, srgb, bc).unwrap();
-                let t = levels(&bytes, &Drawn::of(&image), true).unwrap();
+                let t = super::levels(&bytes, TextureUsage::from_srgb(srgb), &Drawn::of(&image).unwrap(), true).unwrap();
                 let [level] = &t.levels[..] else { panic!("one level for both") };
                 assert_eq!([level.width as u32, level.height as u32], [image.width(), image.height()]);
                 let held = image.data.as_ref().unwrap();
@@ -299,15 +319,20 @@ mod tests {
         }
     }
 
-    /// Both axes, each its own.
+    /// Both axes, each its own; none is guessed.
     #[test]
     fn the_wrap_is_the_samplers() {
         let bytes = chain(b"DXT1", 4, 4, 1);
         let mut image = dds_image(&bytes, true, true).unwrap();
-        assert_eq!(levels(&bytes, &Drawn::of(&image), false).unwrap().wrap, [Wrap::Repeat; 2]);
-        let ImageSampler::Descriptor(s) = &mut image.sampler else { panic!("a sampler of its own") };
-        (s.address_mode_u, s.address_mode_v) = (ImageAddressMode::ClampToEdge, ImageAddressMode::MirrorRepeat);
-        assert_eq!(levels(&bytes, &Drawn::of(&image), false).unwrap().wrap, [Wrap::Clamp, Wrap::Mirror]);
+        use ImageAddressMode::{ClampToBorder, ClampToEdge, MirrorRepeat, Repeat};
+        assert_eq!(levels(&bytes, &Drawn::of(&image).unwrap(), false).unwrap().wrap, [Wrap::Repeat; 2]);
+        for (modes, wrap) in [([ClampToEdge, MirrorRepeat], Ok([Wrap::Clamp, Wrap::Mirror])), ([ClampToBorder, Repeat], Err(Lost::Sampler)), ([Repeat, ClampToBorder], Err(Lost::Sampler))] {
+            let ImageSampler::Descriptor(s) = &mut image.sampler else { panic!("a sampler of its own") };
+            [s.address_mode_u, s.address_mode_v] = modes;
+            assert_eq!(Drawn::of(&image).map(|d| levels(&bytes, &d, false).unwrap().wrap), wrap);
+        }
+        image.sampler = ImageSampler::Default;
+        assert_eq!(Drawn::of(&image), Err(Lost::Sampler));
     }
 
     /// The chosen level's side is limited, not the file's: a larger one with small levels is
@@ -318,7 +343,9 @@ mod tests {
         assert_eq!(sides(&levels(&at, &drawn(&at, true), true).unwrap()), [[2048, 4]]);
         for (w, h) in [(2052, 4), (4, 2052)] {
             let over = chain(b"DXT1", w, h, 1);
-            let lost = levels(&over, &drawn(&over, true), false).unwrap_err();
+            let (over, before) = (&over, DECODED.get());
+            let lost = levels(over, &drawn(over, true), false).unwrap_err();
+            assert_eq!(DECODED.get(), before, "nothing is decoded first");
             assert_eq!(lost, Lost::TooLarge(format!("its level of {w}x{h} is over the 2048 a side allowed")));
         }
         let long = chain(b"DXT1", 4096, 4, 13);
@@ -353,9 +380,29 @@ mod tests {
         bc7.extend([0; 16]);
         assert_eq!(levels(&bc7, &drawn(&bc7, true), true).unwrap_err(), Lost::Undecoded(Format::Bc7));
         assert!(broken(&bc7, &drawn(&chain(b"DXT1", 4, 4, 1), true)), "drawn as another");
-        let bc5 = dds(b"ATI2", 4, 4, 1, &[0; 16]);
-        let linear = Drawn::of(&dds_image(&bc5, false, true).unwrap());
-        assert_eq!(levels(&bc5, &linear, false).unwrap_err(), Lost::Undecoded(Format::Bc5U));
+    }
+
+    /// BC4 and BC5: undecoded in exactly the formats the loader makes of them for a usage; in
+    /// any other, and for a usage it refuses, not what was drawn.
+    #[test]
+    fn one_and_two_channels_are_undecoded_only_as_they_were_drawn() {
+        use TextureFormat::*;
+        let formats = [Bc4RUnorm, Bc4RSnorm, R8Unorm, R8Snorm, Bc5RgUnorm, Bc5RgSnorm, Rg8Unorm, Rg8Snorm, Rgba8Unorm, Rgba8UnormSrgb, Bc3RgbaUnorm, Bc3RgbaUnormSrgb];
+        let mut undecoded = 0;
+        for (tag, file, size) in [(b"BC4U", Format::Bc4U, 8), (b"BC4S", Format::Bc4S, 8), (b"ATI2", Format::Bc5U, 16), (b"BC5S", Format::Bc5S, 16)] {
+            let bytes = dds(tag, 4, 4, 1, &vec![0; size]);
+            for usage in super::super::TEXTURE_USAGES {
+                let made = [true, false].map(|bc| dds_texture(&bytes, usage, bc, false).ok().map(|t| t.image.texture_descriptor.format));
+                for format in formats {
+                    let d = Drawn { format, width: 4, height: 4, mips: 1, wrap: [Wrap::Repeat; 2] };
+                    let lost = super::levels(&bytes, usage, &d, true).unwrap_err();
+                    let is = made.contains(&Some(format));
+                    assert!(if is { lost == Lost::Undecoded(file) } else { matches!(lost, Lost::Broken(_)) }, "{usage:?} {format:?}: {lost:?}");
+                    undecoded += usize::from(is);
+                }
+            }
+        }
+        assert_eq!(undecoded, 2 + 2 + (2 + 1 + 2) + (2 + 1 + 1));
     }
 
     /// Out of the mounted files: the drawn image's own file, one that is gone and one over the
@@ -366,13 +413,14 @@ mod tests {
         let (mut cache, mut images) = (TextureCache::default(), Assets::<Image>::default());
         let image = cache.get("old.dds", true, &owned.data, &mut images, None).unwrap();
         let Some(source) = cache.sources(&HashSet::from([image.id()])).remove(&image.id()).flatten() else { panic!("its source") };
-        let d = Drawn::of(images.get(&image).unwrap());
-        let t = read(&owned.data, &source.path, &d, true).unwrap();
+        let d = Drawn::of(images.get(&image).unwrap()).unwrap();
+        let t = read(&owned.data, &source, &d, true).unwrap();
         assert_eq!((sides(&t), t.levels[0].texels[0], t.srgb), (vec![[4, 4]], [255; 4], true));
-        assert!(read_within(&owned.data, &source.path, &d, true, 144).is_ok());
-        assert!(matches!(read_within(&owned.data, &source.path, &d, true, 143), Err(Lost::TooLarge(e)) if e.contains("143")));
-        assert_eq!(read(&owned.data, r"textures\none.dds", &d, true).unwrap_err(), Lost::Missing);
-        assert!(matches!(read(&owned.data, r"textures\signed.dds", &d, true), Err(Lost::Undecoded(Format::Bc5S))));
+        assert!(read_within(&owned.data, &source, &d, true, 144).is_ok());
+        assert!(matches!(read_within(&owned.data, &source, &d, true, 143), Err(Lost::TooLarge(e)) if e.contains("143")));
+        let other = |name: &str| ImageSource { path: format!(r"textures\{name}"), ..source.clone() };
+        assert_eq!(read(&owned.data, &other("none.dds"), &d, true).unwrap_err(), Lost::Missing);
+        assert!(matches!(read(&owned.data, &other("signed.dds"), &d, true), Err(Lost::Broken(_))), "drawn as BC3");
     }
 
     /// The three places an image is held at: the cache's list, its clamped copies and the

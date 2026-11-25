@@ -41,10 +41,13 @@ impl Geometry {
     fn of(mut mesh: Mesh) -> Result<Geometry, String> {
         // Taken as the renderer takes a mesh, which is what sets the box of the drawn one too.
         let mut mesh = mesh.take_gpu_data().map_err(|e| e.to_string())?;
-        let mut out = nvf_rtgi::Mesh::default();
-        if let Some(VertexAttributeValues::Float32x3(v)) = mesh.remove_attribute(Mesh::ATTRIBUTE_POSITION) {
-            out.positions = v;
+        let Some(VertexAttributeValues::Float32x3(positions)) = mesh.remove_attribute(Mesh::ATTRIBUTE_POSITION) else { return Err("positions of another kind".into()) };
+        let Some(Indices::U32(indices)) = mesh.remove_indices() else { return Err("indices of another kind".into()) };
+        // Its triangles may all be of corners that are not there: the loader draws it empty.
+        if indices.is_empty() {
+            return Err("nothing to draw".into());
         }
+        let mut out = nvf_rtgi::Mesh { positions, indices, ..default() };
         if let Some(VertexAttributeValues::Float32x3(v)) = mesh.remove_attribute(Mesh::ATTRIBUTE_NORMAL) {
             out.normals = v;
         }
@@ -53,9 +56,6 @@ impl Geometry {
         }
         if let Some(VertexAttributeValues::Float32x4(v)) = mesh.remove_attribute(Mesh::ATTRIBUTE_COLOR) {
             out.colors = v;
-        }
-        if let Some(Indices::U32(v)) = mesh.remove_indices() {
-            out.indices = v;
         }
         Ok(Geometry { mesh: out, bounds: mesh.final_aabb })
     }
@@ -152,19 +152,16 @@ mod tests {
         Some(Arc::new(PreparedModel { shapes: vec![shape], ..default() }))
     }
 
-    /// The path ends at the key's first mark, whatever follows. An id from two places is not
-    /// known, in whichever order the map gives them and however often; one that is not asked
-    /// for is left out.
+    /// One place under two keys is one source; an id from two places is not known, in whichever
+    /// order the map gives them and however often. One that is not asked for is left out.
     #[test]
-    fn a_source_is_the_path_before_the_marks_and_one_place_only() {
+    fn a_source_is_one_place_only() {
         let mut meshes = Assets::<Mesh>::default();
         let mut made = || meshes.add(Mesh::from(Cuboid::default()));
-        let (plain, marked, twice, torn, other) = (made(), made(), made(), made(), made());
+        let (twice, torn, other) = (made(), made(), made());
         let mut cache = ModelCache::default();
         let a = r"meshes\a.nif";
         let mut put = |key: String, m: &Handle<Mesh>, block| cache.map.insert(key, model(m, block));
-        put(a.into(), &plain, 3);
-        put(format!("{a}|1stperson|cpu|swap0123456789abcdef"), &marked, 3);
         put(format!("{a}|attachment"), &twice, 4);
         put(format!("{a}|actor-idle-00012345"), &twice, 4);
         put(r"meshes\b.nif".into(), &torn, 4);
@@ -172,9 +169,9 @@ mod tests {
         put(r"meshes\c.nif".into(), &torn, 4);
         put(r"meshes\d.nif".into(), &other, 1);
         cache.map.insert(r"meshes\gone.nif".into(), None);
-        let wanted = HashSet::from([plain.id(), marked.id(), twice.id(), torn.id(), made().id()]);
-        let at = |block| Some(MeshSource { path: a.into(), block, name: "Wall:0".into() });
-        let expected = HashMap::from([(plain.id(), at(3)), (marked.id(), at(3)), (twice.id(), at(4)), (torn.id(), None)]);
+        let wanted = HashSet::from([twice.id(), torn.id(), made().id()]);
+        let source = MeshSource { path: a.into(), block: 4, name: "Wall:0".into() };
+        let expected = HashMap::from([(twice.id(), Some(source)), (torn.id(), None)]);
         assert_eq!(cache.sources(&wanted), expected);
     }
 }
