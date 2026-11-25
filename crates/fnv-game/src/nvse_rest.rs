@@ -98,14 +98,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 None => XVal::Ref(0),
             }
         }
-        // `count`: a placed stack's count [documented: SetRefCount]; an inventory
-        // reference's stack is not changed here [hypothesis: the page warns of older
-        // versions only].
+        // `count`: a placed stack's count [documented: SetRefCount]; non-positive counts
+        // (`<= 0`) are ignored and keep the prior count [observed: Fallout: New Vegas
+        // 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+        // `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+        // `w6d10_07_placeatme_count_dist_dir_and_refcount_edges`
+        // (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+        // `setRC(10=10,z=10,neg=10)`]; an inventory reference's stack is not changed here
+        // [hypothesis: the page warns of older versions only].
         "setrefcount" => {
-            let n = num(args, 0, 1.0).max(0.0) as i32;
-            if let Some(r) = subject.filter(|&r| g.temp_item(r).is_none()) {
-                if let Ok(s) = g.world.get(r) {
-                    s.count = n;
+            let raw = num(args, 0, 0.0);
+            if raw.is_finite() && raw >= 1.0 {
+                let n = raw.trunc().min(i32::MAX as f64) as i32;
+                if let Some(r) = subject.filter(|&r| g.temp_item(r).is_none()) {
+                    if let Ok(s) = g.world.get(r) {
+                        s.count = n;
+                    }
                 }
             }
             zero
@@ -181,3 +189,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let _ = ctx;
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_setrefcount_tests.rs"]
+mod w6d10_setrefcount_tests;
