@@ -127,10 +127,16 @@ struct Relays {
 const HELPERS_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// What a host sends the service when it makes its lobby.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct HostInfo {
     pub name: String,
     pub load_order_hash: String,
+    /// The lobby browser's listing (docs/design/coop-lobby-browser.md); None: private, no
+    /// password.
+    pub listing: Option<nvf_signal::wire::Listing>,
+    /// The lobby's password, empty for none: its hash goes to the service once the code is
+    /// known (the code salts it).
+    pub password: String,
 }
 
 struct Peer {
@@ -188,6 +194,12 @@ pub struct Online {
     relays: Relays,
     /// Keys the host banned ([`Online::ban`]).
     banned: Vec<[u8; 32]>,
+    /// The host's lobby password (sent hashed once the code is known), and the listing last
+    /// sent (to send only a change).
+    host_password: String,
+    listing_sent: Option<(bool, String, String, bool)>,
+    /// The guest's password hash, for its `join`.
+    join_hash: Option<String>,
 }
 
 impl Online {
@@ -201,8 +213,11 @@ impl Online {
             max_players: (crate::net::MAX_GUESTS + 1) as u8,
             host_key: key_hex(key),
             name: info.name.clone(),
+            listing: info.listing.clone(),
         };
-        Self::new(service, Some(SignalIo::create(service, body)), Side::Host { client: None, peers: HashMap::new(), asking: HashMap::new(), secret: None, code: None }, locals)
+        let mut o = Self::new(service, Some(SignalIo::create(service, body)), Side::Host { client: None, peers: HashMap::new(), asking: HashMap::new(), secret: None, code: None }, locals);
+        o.host_password = info.password;
+        o
     }
 
     /// A host taking its lobby back after a restart: the same code and secret.
@@ -212,10 +227,12 @@ impl Online {
         o
     }
 
-    /// A guest joining `code`.
-    pub fn guest(service: &str, code: Code, name: &str, load_order_hash: &str, locals: Vec<SocketAddr>) -> Self {
+    /// A guest joining `code`, with the lobby's password (empty: none).
+    pub fn guest(service: &str, code: Code, name: &str, load_order_hash: &str, locals: Vec<SocketAddr>, password: &str) -> Self {
+        let hash = (!password.is_empty()).then(|| nvf_signal::wire::password_hash(&code, password));
         let side = Side::Guest { name: name.into(), client: None, me: None, host_key: None, remotes: Vec::new(), agent: None, load_order_hash: load_order_hash.into(), connected: false };
         let mut o = Self::new(service, Some(SignalIo::lookup(service, code)), side, locals);
+        o.join_hash = hash;
         o.start_stun(&default_stun(), Instant::now());
         o
     }
@@ -230,7 +247,7 @@ impl Online {
         let portmap = locals.iter().find(|a| a.is_ipv4()).and_then(|a| PortMap::start(*a, Instant::now()));
         // The checks' local sockets: one per family (every address is the same socket).
         let locals: Vec<SocketAddr> = [locals.iter().find(|a| a.is_ipv4()), locals.iter().find(|a| a.is_ipv6())].into_iter().flatten().copied().collect();
-        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new() }
+        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new(), host_password: String::new(), listing_sent: None, join_hash: None }
     }
 
     /// The host key the service gave a guest: the only key its Noise session may have.
@@ -355,7 +372,10 @@ impl Online {
                         return self.fail("The host runs a different load order: both games need the same plugins in the same order.".into());
                     }
                     if info.full {
-                        self.fail("The host's lobby is full.".into());
+                        return self.fail("The host's lobby is full.".into());
+                    }
+                    if info.locked && self.join_hash.is_none() {
+                        self.fail("This lobby has a password: type it on the Join screen.".into());
                     }
                 }
             }
@@ -374,7 +394,7 @@ impl Online {
                         }
                     },
                     Side::Guest { name, client, .. } => {
-                        *client = Some(GuestClient::new(name, &key_hex(my_key), &found));
+                        *client = Some(GuestClient::joining(name, &key_hex(my_key), &found, self.join_hash.as_deref()));
                     }
                     Side::Host { secret: None, .. } => {}
                 }
@@ -414,6 +434,11 @@ impl Online {
                 for e in evs {
                     match e {
                         HostEvent::Hosting { code, .. } => {
+                            if !self.host_password.is_empty() {
+                                if let Some(lobby) = Code::parse(&code) {
+                                    c.password(&nvf_signal::wire::password_hash(&lobby, &self.host_password));
+                                }
+                            }
                             *kept = Some(code.clone());
                             let short = format!("{}-{}", &code[..3.min(code.len())], &code[3.min(code.len())..]);
                             self.events.push(OnlineEvent::Code { code: short, secret: secret.clone().unwrap_or_default() });
@@ -475,6 +500,9 @@ impl Online {
                             }
                         }
                         HostEvent::Closed { reason } => self.events.push(OnlineEvent::Failed(format!("The matchmaking service closed the lobby ({reason})."))),
+                        HostEvent::Error { error, message } if error == "too_many_public" => {
+                            self.events.push(OnlineEvent::Note(format!("not listed: too many public lobbies from this network ({message}); the lobby stays private")));
+                        }
                         HostEvent::Error { error, message } => self.events.push(OnlineEvent::Note(format!("the service: {error}: {message}"))),
                     }
                 }
@@ -523,6 +551,7 @@ impl Online {
                                 "declined" => "The host turned your request to join away.".to_string(),
                                 "no_answer" => "The host did not answer your request to join: try again, and tell them to look at their Co-op Lobby.".to_string(),
                                 "banned" => "The host banned you from this lobby.".to_string(),
+                                "bad_password" => "Wrong password for this lobby.".to_string(),
                                 _ => format!("The host's game turned this one away ({reason})."),
                             };
                             self.events.push(OnlineEvent::Failed(why));
@@ -534,6 +563,7 @@ impl Online {
                             let why = match error.as_str() {
                                 "full" => "The host's lobby is full.".to_string(),
                                 "host_away" => "The host's game is reconnecting: try again in a moment.".to_string(),
+                                "rate_limited" => "Too many wrong passwords: wait a minute, then try again.".to_string(),
                                 _ => format!("The matchmaking service refused ({error}: {message})."),
                             };
                             self.events.push(OnlineEvent::Failed(why));
@@ -784,6 +814,20 @@ impl Online {
             }
         }
         send
+    }
+
+    /// The host's listing now (the browser's title, the host's place in the game, friendly
+    /// fire), sent when it changed; `public: false` takes the lobby off the list.
+    pub fn set_listing(&mut self, public: bool, title: &str, place: &str, friendly_fire: bool) {
+        let now = (public, title.to_string(), place.to_string(), friendly_fire);
+        if self.listing_sent.as_ref() == Some(&now) {
+            return;
+        }
+        if let Side::Host { client: Some(c), .. } = &mut self.side {
+            c.listing(public, title, place, friendly_fire);
+            self.listing_sent = Some(now);
+            self.flush();
+        }
     }
 
     /// The host banned `key`: its later asks to join are turned away at once.

@@ -182,6 +182,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::Duration;
 
+mod browse;
 mod campfires;
 pub(crate) mod net_settings;
 mod story;
@@ -381,6 +382,14 @@ impl Plugin for CoopPlugin {
             reaching: None,
             online_pending: false,
             asking: Vec::new(),
+            host_options: Default::default(),
+            join_password: String::new(),
+            browse_job: None,
+            browse: Default::default(),
+            favourites: browse::load_favourites(),
+            place: String::new(),
+            place_at: f32::NEG_INFINITY,
+            browse_at: f32::NEG_INFINITY,
             join_code: None,
             joining: Joining::Idle,
             finding_since: None,
@@ -433,6 +442,14 @@ impl Plugin for CoopPlugin {
             parting: false,
             scene: Default::default(),
         };
+        // A lobby or join started from the command line takes its browser options from
+        // the environment (scripted runs and tests; the lobby screen sets them otherwise).
+        coop.host_options = nvf_play::lobby::HostOptions {
+            public: env(PUBLIC_ENV).is_some_and(|v| v.trim() == "1"),
+            title: env(TITLE_ENV).unwrap_or_default(),
+            password: env(PASSWORD_ENV).unwrap_or_default(),
+        };
+        coop.join_password = env(PASSWORD_ENV).unwrap_or_default();
         // The main menu's run after a lobby ended neither hosts nor joins, whatever the
         // command line it was started with says (`leave`).
         let ended = env(leave::NO_LOBBY_ENV).is_some();
@@ -448,6 +465,7 @@ impl Plugin for CoopPlugin {
             .insert_resource(coop)
             .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, (leash, rejoin::rejoin_host, syncing::syncing).chain(), scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .add_systems(Update, peer_emotes.after(social_mates))
+            .add_systems(Update, track_place)
             .add_systems(Update, hold_joining_world.before(nvf_play::PlaySet::Scripts))
             .add_systems(Update, (replication::dismember_out.before(replication::replicate), replication::dismember_in.after(replication::replicate), replication::grass_fire_out.before(replication::replicate), replication::grass_fire_in.after(replication::replicate)))
             .add_systems(Update, (replication::corpses_out.before(replication::replicate), replication::corpses_in.after(replication::replicate)))
@@ -473,7 +491,20 @@ pub fn set_story_plugins(plugins: &[String], masters: &[&str]) {
     let story = plugins.iter().enumerate().filter(|(_, p)| masters.iter().any(|m| m.eq_ignore_ascii_case(p))).map(|(i, _)| i as u8).collect();
     let _ = STORY_PLUGINS.set(story);
     let _ = LOAD_ORDER_HASH.set(load_order_hash(plugins));
+    let _ = PLUGIN_COUNT.set(plugins.len() as u32);
 }
+
+/// A command-line host's lobby browser options (docs/design/coop-lobby-browser.md): `1`
+/// lists it, with this title; the password (also a command-line guest's).
+pub const PUBLIC_ENV: &str = "NVF_COOP_PUBLIC";
+/// The Browse tab asks the service at most this often (seconds): its limit
+/// [documented: docs/design/coop-signal-wire.md, Lobby browser].
+const BROWSE_EVERY: f32 = 2.0;
+pub const TITLE_ENV: &str = "NVF_COOP_TITLE";
+pub const PASSWORD_ENV: &str = "NVF_COOP_PASSWORD";
+
+/// How many plugins the load order has (the lobby browser's listing shows the count).
+static PLUGIN_COUNT: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
 /// The load order's hash, given to the matchmaking service by a host and compared by a guest
 /// before it connects (`nvf_coop::online`).
@@ -517,13 +548,13 @@ fn host_session(port: u16, local: bool) -> Option<Link> {
 }
 
 /// A guest's session with the host a code or an address names.
-fn guest_session(at: &str, name: &str) -> Result<Link, String> {
+fn guest_session(at: &str, name: &str, password: &str) -> Result<Link, String> {
     if matches!(nvf_signal::code::JoinForm::parse(at), Some(nvf_signal::code::JoinForm::Online(_))) && nvf_coop::prefs::connection() == nvf_coop::prefs::Connection::LanOnly {
         return Err("That is an online code, and Co-op connection is set to LAN only: change it in Settings to join.".into());
     }
     // An online code: the matchmaking service says where the host is.
     if let (Some(nvf_signal::code::JoinForm::Online(code)), Some(service)) = (nvf_signal::code::JoinForm::parse(at), nvf_coop::signal_io::service()) {
-        return match Session::join_online(&service, code, name, &this_load_order()) {
+        return match Session::join_online(&service, code, name, &this_load_order(), password) {
             Ok(s) => {
                 let s = s.with_identity(identity());
                 info!("co-op: joining online code {at} through {service} as {name} (encrypted; this game's key {})", s.identity().fingerprint());
@@ -612,6 +643,18 @@ pub(crate) struct Coop {
     online_pending: bool,
     /// Players asking to join (join approval): the service's number for each, and its name.
     asking: Vec<(u32, String)>,
+    /// The lobby browser (docs/design/coop-lobby-browser.md): the host's choices for its
+    /// lobby, the password typed to join, the Browse tab's request and list, the favourite
+    /// hosts, the host's place for its listing and when it was last looked up.
+    host_options: nvf_play::lobby::HostOptions,
+    join_password: String,
+    browse_job: Option<browse::BrowseJob>,
+    browse: nvf_play::lobby::Browse,
+    favourites: Vec<String>,
+    place: String,
+    place_at: f32,
+    /// When the Browse tab last asked: at most one every [`BROWSE_EVERY`] seconds.
+    browse_at: f32,
     /// Joining: the code looked for, how the search goes, and since when it has looked
     /// (None: not yet timed; set on the first frame).
     join_code: Option<String>,
@@ -882,7 +925,8 @@ impl Coop {
                         return;
                     }
                     None => {
-                        link.go_online(&service, nvf_coop::online::HostInfo { name: self.name.clone(), load_order_hash: this_load_order() });
+                        let listing = browse::listing_for(&self.host_options, &self.name, &self.place, self.friendly_fire, PLUGIN_COUNT.get().copied().unwrap_or(0));
+                        link.go_online(&service, nvf_coop::online::HostInfo { name: self.name.clone(), load_order_hash: this_load_order(), listing, password: self.host_options.password.clone() });
                         self.online_pending = true;
                         info!("co-op: asking {service} for an online code");
                         return;
@@ -1024,7 +1068,7 @@ impl Coop {
     }
 
     fn start_joining(&mut self, at: &str) {
-        match guest_session(at, &self.name) {
+        match guest_session(at, &self.name, &self.join_password) {
             Ok(link) => {
                 self.link = Some(link);
                 self.left_lobby = false;
@@ -1127,11 +1171,36 @@ fn lobby(
     }
     for ask in asks.read() {
         match ask {
-            LobbyRequest::Create if coop.is_guest() => say("You are in another player's lobby: leave it to open your own".into()),
-            LobbyRequest::Create if coop.link.is_none() => coop.start_hosting(DEFAULT_PORT),
+            LobbyRequest::Create(_) if coop.is_guest() => say("You are in another player's lobby: leave it to open your own".into()),
+            LobbyRequest::Create(o) if coop.link.is_none() => {
+                coop.host_options = o.clone();
+                coop.start_hosting(DEFAULT_PORT);
+            }
             // A lobby for split screen only: open to online players now.
-            LobbyRequest::Create if coop.local_only() => coop.open_online(),
-            LobbyRequest::Create => {}
+            LobbyRequest::Create(o) if coop.local_only() => {
+                coop.host_options = o.clone();
+                coop.open_online();
+            }
+            LobbyRequest::Create(_) => {}
+            // One in flight, or one asked less than 2 s ago (the service's limit): the list
+            // shown stays.
+            LobbyRequest::Browse(_) if coop.browse_job.is_some() || now - coop.browse_at < BROWSE_EVERY => {}
+            LobbyRequest::Browse(q) => match browse::start(q) {
+                Some(job) => {
+                    coop.browse_at = now;
+                    coop.browse_job = Some(job);
+                    coop.browse = nvf_play::lobby::Browse::Loading;
+                }
+                None => coop.browse = nvf_play::lobby::Browse::Failed("The lobby browser needs the matchmaking service: Co-op connection is LAN only, or the service is turned off.".into()),
+            },
+            LobbyRequest::Favourite { host_fp, on } => {
+                browse::set_favourite(&mut coop.favourites, host_fp, *on);
+                if let nvf_play::lobby::Browse::Ready(rows) = &mut coop.browse {
+                    for r in rows.iter_mut().filter(|r| r.host_fp == *host_fp) {
+                        r.favourite = *on;
+                    }
+                }
+            }
             // Split screen's lobby open online: only the online part closes.
             LobbyRequest::Close if coop.is_host() && split_p1() && !coop.local_only() && coop.close_online() => {
                 say("Lobby closed to online players. Player 2 stays".into());
@@ -1168,7 +1237,8 @@ fn lobby(
                 }
                 coop.asking.retain(|(p, _)| p != peer);
             }
-            LobbyRequest::Find(code) => {
+            LobbyRequest::Find { code, password } => {
+                coop.join_password = password.clone();
                 if coop.is_host() {
                     say("Close your own lobby to join another".into());
                     continue;
@@ -1237,6 +1307,18 @@ fn lobby(
             coop.joining = Joining::Failed("No answer from the host: check the code, and that their lobby is open.".into());
         }
     }
+    // The Browse tab's answer.
+    if let Some(b) = coop.browse_job.as_ref().and_then(|j| browse::poll(j, &this_load_order(), &coop.favourites)) {
+        coop.browse = b;
+        coop.browse_job = None;
+    }
+    // The host's listing follows its place and friendly fire (the service sends at most one
+    // a few seconds to the list).
+    if coop.is_host() && (coop.host_options.public || !coop.host_options.password.is_empty()) {
+        if let Some(link) = &coop.link {
+            link.set_listing(coop.host_options.public, &browse::title(&coop.host_options, &coop.name), &coop.place, coop.friendly_fire);
+        }
+    }
     let hosting = match (&coop.code, coop.is_host(), coop.reaching.is_some() || coop.online_pending) {
         (Some(code), true, _) => Hosting::Open { code: code.clone(), note: coop.note.clone() },
         (_, true, true) => Hosting::Opening,
@@ -1277,7 +1359,7 @@ fn lobby(
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone(), guests });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone(), guests, public: coop.host_options.public, locked: !coop.host_options.password.is_empty(), browse: coop.browse.clone() });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
         None => "NVForever".to_string(),
@@ -2376,6 +2458,22 @@ fn take_events(
     }
     for o in online {
         online_event(coop, o, &mut corner);
+    }
+}
+
+/// The host's place for its lobby browser listing, looked up every
+/// [`browse::LISTING_EVERY`] seconds while it hosts a listed or locked lobby.
+fn track_place(world: &mut World) {
+    let now = world.resource::<Time>().elapsed_secs();
+    let due = world.get_resource::<Coop>().is_some_and(|c| c.is_host() && (c.host_options.public || !c.host_options.password.is_empty()) && now - c.place_at >= browse::LISTING_EVERY);
+    if !due {
+        return;
+    }
+    let place = browse::place_now(world).unwrap_or_default();
+    let mut coop = world.resource_mut::<Coop>();
+    coop.place_at = now;
+    if coop.place != place {
+        coop.place = place;
     }
 }
 

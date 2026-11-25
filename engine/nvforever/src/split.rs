@@ -1049,7 +1049,7 @@ fn p1_session(
                 // opens it to online players later (`crate::coop`).
                 info!("split: opening a lobby for player 2 (this PC only)");
                 std::env::set_var(crate::coop::HOST_LOCAL_ENV, "1");
-                lobby.write(nvf_play::lobby::LobbyRequest::Create);
+                lobby.write(nvf_play::lobby::LobbyRequest::Create(Default::default()));
                 std::env::set_var(OPENED_LOBBY_ENV, "1");
             }
             p1.state = P1State::Hosting;

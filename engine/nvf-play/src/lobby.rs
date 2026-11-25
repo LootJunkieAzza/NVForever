@@ -15,11 +15,19 @@
 //! Test aid `NVF_PLAY_TEST_LOBBY="<seconds>:<action>,..."` (real seconds from the start):
 //! `code=<code>` types a code, `join`, `open` (the lobby as the pause menu opens it),
 //! `create`, `close`, `back`, `admit` / `turn-away` (the first player asking to join),
-//! `kick` / `ban` (the host's first guest),
+//! `kick` / `ban` (the host's first guest), `public` (the host's lobby listed),
+//! `title=<text>`, `password=<text>` (the host's, or the join's on the Join screen), `browse`
+//! (the Join screen's Browse tab), `refresh`, `row=<n>` (open the n-th row shown, from 0),
+//! `join-row`, `search=<text>`,
 //! `pick=<n>` (the n-th
 //! save that can join, from 0), `shot=<file>` (a screenshot); for the Emotes menu,
 //! `emotes` (open it), `slot=<n>` (1-8: choose a slot), `equip=<emote>` (put the emote,
 //! by key, in the slot chosen), `empty` (empty it).
+//!
+//! The server browser (docs/design/coop-lobby-browser.md): a host chooses Private or Public
+//! and may set a title and a password; the Join screen has a Code tab (the code, and the
+//! password when the lobby has one) and a Browse tab listing public lobbies, with filters,
+//! search and favourites. A row opens to Join (and a password box when locked).
 //!
 //! The Emotes menu (queue item 137) chooses the eight emotes of the emote wheel
 //! (`crate::emotes`): a slot, then the emote for it, from every emote the load order has,
@@ -45,6 +53,13 @@ const STEP: f32 = 30.0;
 const SAVE_ROWS: usize = 8;
 /// Emotes and their categories' headings shown at once.
 const EMOTE_ROWS: usize = 10;
+/// Public lobbies shown at once on the Browse tab.
+const BROWSE_ROWS: usize = 8;
+/// The longest title, password or search typed (the service cuts titles at 40).
+const MAX_TEXT: usize = 40;
+/// The Browse table's columns: heading and width (interface units), adding up to the
+/// panel's inner width.
+const COLUMNS: [(&str, f32); 7] = [("", 40.0), ("Name", 250.0), ("Location", 170.0), ("Players", 90.0), ("Ping", 90.0), ("Region", 80.0), ("", 52.0)];
 /// Players a lobby takes: the host and `nvf_coop::net::MAX_GUESTS` guests (nvforever's
 /// co-op tests check the two agree).
 pub const LOBBY_PLAYERS: usize = 6;
@@ -61,16 +76,20 @@ pub enum Mode {
 /// What the screen asks of the network side.
 #[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub enum LobbyRequest {
-    /// Open a lobby on this game.
-    Create,
+    /// Open a lobby on this game, listed or not, with a password or not.
+    Create(HostOptions),
     /// Close it (guests are told the game ended).
     Close,
     /// A guest leaves its host's lobby.
     Leave,
     /// The host sets Friendly Fire (item 122): whether players can hurt each other.
     FriendlyFire(bool),
-    /// Look for the host of this code.
-    Find(String),
+    /// Look for the host of this code (with the lobby's password, empty for none).
+    Find { code: String, password: String },
+    /// Ask the service for the public lobbies.
+    Browse(BrowseQuery),
+    /// Add (`on`) or remove a host, by its key's fingerprint, from the favourites.
+    Favourite { host_fp: String, on: bool },
     /// Stop looking (or leave the host found).
     Cancel,
     /// Load this save and join the host found.
@@ -106,6 +125,56 @@ pub enum Joining {
     Failed(String),
 }
 
+/// The host's choices for a new lobby (docs/design/coop-lobby-browser.md §4, §7).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HostOptions {
+    /// Listed in the server browser.
+    pub public: bool,
+    /// The browser's name for it; empty: "<name>'s game".
+    pub title: String,
+    /// Empty: none.
+    pub password: String,
+}
+
+/// What the Browse tab asks the service for.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BrowseQuery {
+    pub search: String,
+    /// Lobbies of other versions and load orders too (greyed).
+    pub all_versions: bool,
+}
+
+/// A public lobby, as the Browse tab lists it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PublicLobby {
+    pub code: String,
+    pub title: String,
+    pub host_name: String,
+    pub place: String,
+    pub players: u8,
+    pub max_players: u8,
+    pub locked: bool,
+    pub friendly_fire: bool,
+    pub region: String,
+    /// Estimated (docs/design/coop-lobby-browser.md §5), milliseconds.
+    pub ping_ms: Option<u32>,
+    /// The host key's fingerprint, for favourites.
+    pub host_fp: String,
+    pub favourite: bool,
+    /// Why this game cannot join it (another version or load order); None: it can.
+    pub cannot: Option<String>,
+}
+
+/// The Browse tab's list.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Browse {
+    #[default]
+    Idle,
+    Loading,
+    Failed(String),
+    Ready(Vec<PublicLobby>),
+}
+
 /// What the network side says (written by nvforever `coop.rs`).
 #[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
 pub struct LobbyState {
@@ -122,6 +191,11 @@ pub struct LobbyState {
     pub asking: Vec<(u32, String)>,
     /// The host's guests, by id, for Kick and Ban.
     pub guests: Vec<(u8, String)>,
+    /// The host's lobby is listed in the server browser, and has a password.
+    pub public: bool,
+    pub locked: bool,
+    /// The Browse tab's public lobbies.
+    pub browse: Browse,
 }
 
 /// A save on the guest's list.
@@ -150,6 +224,22 @@ pub struct LobbyScreen {
     emotes: Option<Option<usize>>,
     /// The host's Remove a Player list is up.
     removing: bool,
+    /// The text fields other than the code (`typed`).
+    join_password: String,
+    title: String,
+    host_password: String,
+    search: String,
+    row_password: String,
+    /// The host's choice of Public.
+    public: bool,
+    /// The Join screen's Browse tab is up, not the Code tab.
+    browsing: bool,
+    /// The Browse tab's filters.
+    hide_empty: bool,
+    hide_full: bool,
+    all_versions: bool,
+    /// The row opened, by code.
+    open_row: Option<String>,
     /// The loadout and the emotes the load order has, as of this frame (from
     /// `crate::emotes`).
     loadout: [Option<usize>; crate::emotes::SLOTS],
@@ -165,6 +255,9 @@ impl LobbyScreen {
         self.saves = None;
         self.emotes = None;
         self.removing = false;
+        self.browsing = false;
+        self.open_row = None;
+        self.hide_empty = true;
         self.opened = self.frame;
     }
 
@@ -221,6 +314,33 @@ enum Act {
     Kick(u8),
     /// Remove it and keep it out while the lobby lasts.
     Ban(u8),
+    /// A text field, chosen to type in.
+    Field(FieldId),
+    /// The host's Private / Public.
+    Visibility,
+    /// The Join screen's other tab (Code, Browse).
+    Tab,
+    Refresh,
+    HideEmpty,
+    HideFull,
+    AllVersions,
+    /// Open (or close) the n-th public lobby of the list as shown.
+    Lobby(usize),
+    /// Add or remove the opened lobby's host from the favourites.
+    Favourite,
+    /// Join the opened lobby.
+    JoinRow,
+}
+
+/// The text fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FieldId {
+    Code,
+    JoinPassword,
+    Title,
+    HostPassword,
+    Search,
+    RowPassword,
 }
 
 pub struct LobbyPlugin;
@@ -261,7 +381,11 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
         None => Vec::new(),
         Some(Mode::Host) if state.guest => vec![Act::Leave, Act::Emotes, Act::Back],
         Some(Mode::Host) => match state.hosting {
-            Hosting::Off => vec![Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back],
+            Hosting::Off => [Act::Visibility]
+                .into_iter()
+                .chain(screen.public.then_some(Act::Field(FieldId::Title)))
+                .chain([Act::Field(FieldId::HostPassword), Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back])
+                .collect(),
             Hosting::Opening => vec![Act::Back],
             Hosting::Open { .. } => state
                 .asking
@@ -274,14 +398,95 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
         Some(Mode::Join) => match (&state.joining, &screen.saves) {
             (Joining::Found, Some(saves)) => saves.iter().enumerate().filter(|(_, s)| s.ok).map(|(i, _)| Act::Save(i)).chain([Act::Back]).collect(),
             (Joining::Finding | Joining::Found, _) => vec![Act::Back],
-            (Joining::Idle | Joining::Failed(_), _) => vec![Act::Join, Act::Back],
+            (Joining::Idle | Joining::Failed(_), _) if screen.browsing => browse_acts(screen, state),
+            (Joining::Idle | Joining::Failed(_), _) => vec![Act::Tab, Act::Field(FieldId::Code), Act::Field(FieldId::JoinPassword), Act::Join, Act::Back],
         },
     }
 }
 
-/// The code-typing step of the join screen.
-fn typing(screen: &LobbyScreen, state: &LobbyState) -> bool {
-    screen.mode == Some(Mode::Join) && matches!(state.joining, Joining::Idle | Joining::Failed(_))
+/// The Browse tab's choices: the tab, the filters, search, then each row shown (and the
+/// opened one's own choices under it).
+fn browse_acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
+    let mut v = vec![Act::Tab, Act::Refresh, Act::HideEmpty, Act::HideFull, Act::AllVersions, Act::Field(FieldId::Search)];
+    let rows = shown(screen, state);
+    for (i, l) in rows.iter().enumerate() {
+        v.push(Act::Lobby(i));
+        if screen.open_row.as_deref() == Some(l.code.as_str()) {
+            if l.locked && l.cannot.is_none() {
+                v.push(Act::Field(FieldId::RowPassword));
+            }
+            if l.cannot.is_none() {
+                v.push(Act::JoinRow);
+            }
+            v.push(Act::Favourite);
+        }
+    }
+    v.push(Act::Back);
+    v
+}
+
+/// The public lobbies the Browse tab shows: the filters applied, favourites first, then the
+/// nearest (estimated ping), then the fullest.
+fn shown<'a>(screen: &LobbyScreen, state: &'a LobbyState) -> Vec<&'a PublicLobby> {
+    let Browse::Ready(all) = &state.browse else { return Vec::new() };
+    let q = screen.search.trim().to_lowercase();
+    let mut v: Vec<&PublicLobby> = all
+        .iter()
+        .filter(|l| !(screen.hide_empty && l.players <= 1))
+        .filter(|l| !(screen.hide_full && l.players >= l.max_players))
+        .filter(|l| screen.all_versions || l.cannot.is_none())
+        .filter(|l| q.is_empty() || [&l.title, &l.host_name, &l.place].iter().any(|t| t.to_lowercase().contains(&q)))
+        .collect();
+    v.sort_by_key(|l| (!l.favourite, l.ping_ms.unwrap_or(u32::MAX), std::cmp::Reverse(l.players)));
+    v
+}
+
+/// The text field the choice stands on, if any: keys typed go there.
+fn typing(screen: &LobbyScreen, state: &LobbyState) -> Option<FieldId> {
+    match acts(screen, state).get(screen.selected) {
+        Some(Act::Field(f)) => Some(*f),
+        _ => None,
+    }
+}
+
+impl LobbyScreen {
+    fn text_mut(&mut self, f: FieldId) -> &mut String {
+        match f {
+            FieldId::Code => &mut self.typed,
+            FieldId::JoinPassword => &mut self.join_password,
+            FieldId::Title => &mut self.title,
+            FieldId::HostPassword => &mut self.host_password,
+            FieldId::Search => &mut self.search,
+            FieldId::RowPassword => &mut self.row_password,
+        }
+    }
+
+    fn text(&self, f: FieldId) -> &str {
+        match f {
+            FieldId::Code => &self.typed,
+            FieldId::JoinPassword => &self.join_password,
+            FieldId::Title => &self.title,
+            FieldId::HostPassword => &self.host_password,
+            FieldId::Search => &self.search,
+            FieldId::RowPassword => &self.row_password,
+        }
+    }
+
+    /// A character typed into field `f`: a code takes letters, digits and dashes, upper case.
+    fn type_char(&mut self, f: FieldId, c: char) {
+        let (max, ok) = match f {
+            FieldId::Code => (MAX_TYPED, c.is_ascii_alphanumeric() || c == '-'),
+            _ => (MAX_TEXT, !c.is_control()),
+        };
+        let t = self.text_mut(f);
+        if ok && t.chars().count() < max {
+            t.push(if f == FieldId::Code { c.to_ascii_uppercase() } else { c });
+        }
+    }
+
+    fn browse_query(&self) -> BrowseQuery {
+        BrowseQuery { search: self.search.trim().to_string(), all_versions: self.all_versions }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -331,6 +536,18 @@ fn input(
                 screen.open(Mode::Join);
             }
             screen.typed = code.to_string();
+        } else if let Some(t) = a.strip_prefix("title=") {
+            screen.title = t.to_string();
+        } else if let Some(t) = a.strip_prefix("password=") {
+            match screen.mode {
+                Some(Mode::Join) if screen.open_row.is_some() => screen.row_password = t.to_string(),
+                Some(Mode::Join) => screen.join_password = t.to_string(),
+                _ => screen.host_password = t.to_string(),
+            }
+        } else if let Some(t) = a.strip_prefix("search=") {
+            screen.search = t.to_string();
+        } else if let Some(n) = a.strip_prefix("row=").and_then(|n| n.parse::<usize>().ok()) {
+            take(&mut screen, &state, Act::Lobby(n), &mut asks, &mut loadout);
         } else if let Some(n) = a.strip_prefix("pick=").and_then(|n| n.parse::<usize>().ok()) {
             let save = screen.saves.as_ref().and_then(|s| s.iter().enumerate().filter(|(_, s)| s.ok).nth(n)).map(|(i, _)| i);
             match save {
@@ -366,6 +583,18 @@ fn input(
                     Some(Act::Create)
                 }
                 "close" => Some(Act::Close),
+                "public" => {
+                    screen.public = true;
+                    None
+                }
+                "browse" => {
+                    if screen.mode.is_none() {
+                        screen.open(Mode::Join);
+                    }
+                    (!screen.browsing).then_some(Act::Tab)
+                }
+                "refresh" => Some(Act::Refresh),
+                "join-row" => Some(Act::JoinRow),
                 "admit" => state.asking.first().map(|(p, _)| Act::Admit(*p)),
                 "turn-away" => state.asking.first().map(|(p, _)| Act::TurnAway(*p)),
                 "kick" => state.guests.first().map(|(id, _)| Act::Kick(*id)),
@@ -432,19 +661,28 @@ fn input(
             }
         }
     }
-    if typing(&screen, &state) {
+    if let Some(field) = typing(&screen, &state) {
         for k in typed.iter().filter(|k| k.state.is_pressed()) {
             match &k.logical_key {
                 Key::Backspace => {
-                    screen.typed.pop();
+                    screen.text_mut(field).pop();
                 }
-                Key::Enter => chosen = Some(Act::Join),
+                Key::Enter => {
+                    chosen = match field {
+                        FieldId::Code | FieldId::JoinPassword => Some(Act::Join),
+                        FieldId::Search => Some(Act::Refresh),
+                        FieldId::RowPassword => Some(Act::JoinRow),
+                        // The host's fields: on to the next choice.
+                        FieldId::Title | FieldId::HostPassword => {
+                            screen.selected = (screen.selected + 1) % list.len();
+                            None
+                        }
+                    };
+                }
                 _ => {
                     if let Some(t) = k.text.as_deref() {
-                        for c in t.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-') {
-                            if screen.typed.len() < MAX_TYPED {
-                                screen.typed.push(c.to_ascii_uppercase());
-                            }
+                        for c in t.chars() {
+                            screen.type_char(field, c);
                         }
                     }
                 }
@@ -516,7 +754,45 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
             screen.selected = back_to.unwrap_or(0);
         }
         Act::Create => {
-            asks.write(LobbyRequest::Create);
+            asks.write(LobbyRequest::Create(HostOptions { public: screen.public, title: screen.title.trim().to_string(), password: screen.host_password.clone() }));
+            // Not kept: a new lobby starts with no password (§7).
+            screen.host_password.clear();
+        }
+        Act::Field(_) => {}
+        Act::Visibility => screen.public = !screen.public,
+        Act::Tab => {
+            screen.browsing = !screen.browsing;
+            screen.selected = 0;
+            screen.open_row = None;
+            if screen.browsing {
+                asks.write(LobbyRequest::Browse(screen.browse_query()));
+            }
+        }
+        Act::Refresh => {
+            screen.open_row = None;
+            asks.write(LobbyRequest::Browse(screen.browse_query()));
+        }
+        Act::HideEmpty => screen.hide_empty = !screen.hide_empty,
+        Act::HideFull => screen.hide_full = !screen.hide_full,
+        Act::AllVersions => {
+            screen.all_versions = !screen.all_versions;
+            asks.write(LobbyRequest::Browse(screen.browse_query()));
+        }
+        Act::Lobby(i) => {
+            let code = shown(screen, state).get(i).map(|l| l.code.clone());
+            screen.open_row = if screen.open_row == code { None } else { code };
+            screen.row_password.clear();
+        }
+        Act::Favourite => {
+            if let Some(l) = shown(screen, state).into_iter().find(|l| Some(&l.code) == screen.open_row.as_ref()) {
+                asks.write(LobbyRequest::Favourite { host_fp: l.host_fp.clone(), on: !l.favourite });
+            }
+        }
+        Act::JoinRow => {
+            if let Some(l) = shown(screen, state).into_iter().find(|l| Some(&l.code) == screen.open_row.as_ref()) {
+                info!("lobby: joining public lobby {} ({})", l.code, l.title);
+                asks.write(LobbyRequest::Find { code: l.code.clone(), password: screen.row_password.clone() });
+            }
         }
         Act::Admit(peer) => {
             asks.write(LobbyRequest::Admit { peer, yes: true });
@@ -536,7 +812,7 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
         Act::Join => {
             let code = screen.typed.trim().to_string();
             if !code.is_empty() {
-                asks.write(LobbyRequest::Find(code));
+                asks.write(LobbyRequest::Find { code, password: screen.join_password.clone() });
             }
         }
         Act::Back => match (screen.mode, &state.joining) {
@@ -578,9 +854,23 @@ enum Piece {
     Title(String),
     Line(String, Shade),
     Big(String),
-    Field(String),
+    /// A text field: its choice, what it shows (a password as stars).
+    Field(Act, String),
     Button(Act, String),
     Row(Act, String, Shade),
+    /// The Browse table's heading, and a row of it: one text per column ([`COLUMNS`]).
+    Head(Vec<String>),
+    Cols(Act, Vec<String>, Shade),
+}
+
+/// A field's text as shown: a password as stars.
+fn field(screen: &LobbyScreen, f: FieldId) -> Piece {
+    let t = screen.text(f);
+    let shown = match f {
+        FieldId::JoinPassword | FieldId::HostPassword | FieldId::RowPassword => "*".repeat(t.chars().count()),
+        _ => t.to_string(),
+    };
+    Piece::Field(Act::Field(f), shown)
 }
 
 fn on_off(on: bool) -> &'static str {
@@ -630,6 +920,13 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
             match &state.hosting {
                 Hosting::Off => {
                     v.push(Line("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.".into(), Shade::Bright));
+                    v.push(Button(Act::Visibility, format!("Visibility: {}", if screen.public { "Public" } else { "Private" })));
+                    if screen.public {
+                        v.push(Line("Listed in the server browser as (empty: your name's game):".into(), Shade::Dim));
+                        v.push(field(screen, FieldId::Title));
+                    }
+                    v.push(Line("Password (empty: none):".into(), Shade::Dim));
+                    v.push(field(screen, FieldId::HostPassword));
                     v.push(Button(Act::Create, "Create Lobby".into()));
                     v.push(Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire)));
                     v.push(Button(Act::Emotes, "Emotes".into()));
@@ -641,6 +938,12 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     v.push(Line("Tell your friends this code. It is also in lobby-code.txt in the NVForever folder.".into(), Shade::Dim));
                     if let Some(n) = note {
                         v.push(Line(n.clone(), Shade::Bright));
+                    }
+                    match (state.public, state.locked) {
+                        (true, true) => v.push(Line("Listed in the server browser, with a password.".into(), Shade::Dim)),
+                        (true, false) => v.push(Line("Listed in the server browser.".into(), Shade::Dim)),
+                        (false, true) => v.push(Line("Not listed; joining needs the code and the password.".into(), Shade::Dim)),
+                        (false, false) => {}
                     }
                     for (peer, name) in &state.asking {
                         v.push(Line(format!("{name} wants to join."), Shade::Bright));
@@ -660,9 +963,18 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
         Some(Mode::Join) => {
             v.push(Title("Join Lobby".into()));
             match (&state.joining, &screen.saves) {
+                (Joining::Idle | Joining::Failed(_), _) if screen.browsing => {
+                    browse_pieces(&mut v, screen, state);
+                    if let Joining::Failed(why) = &state.joining {
+                        v.push(Line(why.clone(), Shade::Bright));
+                    }
+                }
                 (Joining::Idle | Joining::Failed(_), _) => {
+                    v.push(Button(Act::Tab, "Browse Public Lobbies".into()));
                     v.push(Line("Type the host's lobby code:".into(), Shade::Bright));
-                    v.push(Field(screen.typed.clone()));
+                    v.push(field(screen, FieldId::Code));
+                    v.push(Line("Password, if the lobby has one:".into(), Shade::Dim));
+                    v.push(field(screen, FieldId::JoinPassword));
                     if let Joining::Failed(why) = &state.joining {
                         v.push(Line(why.clone(), Shade::Bright));
                     }
@@ -692,6 +1004,67 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
         v.push(Button(Act::Back, "Back".into()));
     }
     v
+}
+
+/// The Browse tab: the filters, then the table of public lobbies, a window of
+/// [`BROWSE_ROWS`] round the one chosen, the opened one's choices under it.
+fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
+    use Piece::*;
+    let tick = |on: bool| if on { "[x]" } else { "[ ]" };
+    v.push(Button(Act::Tab, "Join by Code".into()));
+    v.push(Button(Act::Refresh, "Refresh".into()));
+    v.push(Row(Act::HideEmpty, format!("{} Hide empty lobbies", tick(screen.hide_empty)), Shade::Bright));
+    v.push(Row(Act::HideFull, format!("{} Hide full lobbies", tick(screen.hide_full)), Shade::Bright));
+    v.push(Row(Act::AllVersions, format!("{} Show lobbies of other versions and load orders", tick(screen.all_versions)), Shade::Bright));
+    v.push(Line("Search:".into(), Shade::Dim));
+    v.push(field(screen, FieldId::Search));
+    let rows = shown(screen, state);
+    match &state.browse {
+        Browse::Idle | Browse::Loading => v.push(Line("Asking for the public lobbies...".into(), Shade::Bright)),
+        Browse::Failed(why) => v.push(Line(why.clone(), Shade::Bright)),
+        Browse::Ready(all) if rows.is_empty() => {
+            let why = if all.is_empty() { "No public lobbies right now. Host one, or join a friend's by code." } else { "No public lobby matches the filters." };
+            v.push(Line(why.into(), Shade::Bright));
+        }
+        Browse::Ready(all) => {
+            v.push(Head(COLUMNS.iter().map(|(h, _)| h.to_string()).collect()));
+            let list = acts(screen, state);
+            let chosen_row = match list.get(screen.selected) {
+                Some(Act::Lobby(i)) => *i,
+                _ => rows.iter().position(|l| Some(&l.code) == screen.open_row.as_ref()).unwrap_or(0),
+            };
+            let first = chosen_row.saturating_sub(BROWSE_ROWS - 1).min(rows.len().saturating_sub(BROWSE_ROWS));
+            for (i, l) in rows.iter().enumerate().skip(first).take(BROWSE_ROWS) {
+                let ping = l.ping_ms.map_or_else(|| "?".to_string(), |p| format!("~{p} ms"));
+                let cells = vec![
+                    if l.favourite { "<3".into() } else { String::new() },
+                    l.title.clone(),
+                    l.place.clone(),
+                    format!("{}/{}", l.players, l.max_players),
+                    ping,
+                    l.region.clone(),
+                    if l.locked { "Lock".into() } else { String::new() },
+                ];
+                v.push(Cols(Act::Lobby(i), cells, if l.cannot.is_none() { Shade::Bright } else { Shade::Dim }));
+                if screen.open_row.as_deref() == Some(l.code.as_str()) {
+                    let ff = if l.friendly_fire { "on" } else { "off" };
+                    v.push(Line(format!("Host: {}. Friendly fire {ff}. Ping is estimated from distance.", l.host_name), Shade::Dim));
+                    match &l.cannot {
+                        Some(why) => v.push(Line(why.clone(), Shade::Bright)),
+                        None => {
+                            if l.locked {
+                                v.push(Line("Password:".into(), Shade::Dim));
+                                v.push(field(screen, FieldId::RowPassword));
+                            }
+                            v.push(Button(Act::JoinRow, "Join".into()));
+                        }
+                    }
+                    v.push(Button(Act::Favourite, if l.favourite { "Remove from Favourites".into() } else { "Add to Favourites".into() }));
+                }
+            }
+            v.push(Line(format!("{} of {} public lobbies shown", rows.len(), all.len()), Shade::Dim));
+        }
+    }
 }
 
 /// The Emotes menu: the slots, or (`slot` chosen) the emotes for it by category, a window
@@ -789,8 +1162,8 @@ fn draw(
         Piece::Title(_) => ITEM + 8.0,
         Piece::Line(t, _) => f.small.font.lines(t, Some(inner)).len().max(1) as f32 * STEP + 6.0,
         Piece::Big(_) => ITEM + 16.0,
-        Piece::Field(_) | Piece::Button(..) => ITEM + 6.0,
-        Piece::Row(..) => ITEM,
+        Piece::Field(..) | Piece::Button(..) => ITEM + 6.0,
+        Piece::Row(..) | Piece::Head(_) | Piece::Cols(..) => ITEM,
     };
     let total: f32 = now.iter().map(height).sum::<f32>() + 2.0 * PAD;
     commands.spawn((LobbyRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(120))).with_children(|root| {
@@ -823,9 +1196,31 @@ fn draw(
                         let w = f.entry.font.width(t);
                         p.spawn(at(inner, ITEM + 8.0)).with_children(|n| text(n, &f.entry, t, ((inner - w) / 2.0).max(0.0), ITEM * 0.8, color(Shade::Bright)));
                     }
-                    Piece::Field(t) => {
+                    Piece::Field(act, t) => {
+                        let on = Some(*act) == chosen;
                         let node = Node { border: UiRect::all(u(LINE)), ..at(inner, ITEM) };
-                        p.spawn((node, BorderColor::all(amber(200.0)))).with_children(|n| text(n, &f.entry, &format!("{t}_"), 12.0, ITEM * 0.72, color(Shade::Bright)));
+                        let shown = if on { format!("{t}_") } else { t.clone() };
+                        let mut e = if on { p.spawn(highlight(node)) } else { p.spawn(node) };
+                        e.insert((BorderColor::all(amber(200.0)), Button, *act)).with_children(|n| text(n, &f.entry, &shown, 12.0, ITEM * 0.72, color(Shade::Bright)));
+                    }
+                    Piece::Head(cells) | Piece::Cols(_, cells, _) => {
+                        let (shade, act) = match piece {
+                            Piece::Cols(a, _, s) => (*s, Some(*a)),
+                            _ => (Shade::Dim, None),
+                        };
+                        let node = at(inner, ITEM);
+                        let mut e = if act.is_some() && act == chosen { p.spawn(highlight(node)) } else { p.spawn(node) };
+                        if let Some(a) = act {
+                            e.insert((Button, a));
+                        }
+                        e.with_children(|n| {
+                            let mut x = 8.0;
+                            for ((_, w), c) in COLUMNS.iter().zip(cells) {
+                                let fit: String = c.chars().take((w / 11.0) as usize).collect();
+                                n.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(0.0), width: u(*w), height: u(ITEM), ..default() }).with_children(|m| text(m, &f.small, &fit, 0.0, ITEM * 0.66, color(shade)));
+                                x += w;
+                            }
+                        });
                     }
                     Piece::Button(act, t) | Piece::Row(act, t, _) => {
                         let shade = if let Piece::Row(_, _, s) = piece { *s } else { Shade::Bright };
@@ -869,7 +1264,7 @@ mod tests {
         // Left: the normal choice again.
         assert!(p.contains(&Piece::Line("Friendly fire: Off (the host's choice)".into(), Shade::Dim)));
         let alone = LobbyState::default();
-        assert_eq!(acts(&screen, &alone), vec![Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back]);
+        assert_eq!(acts(&screen, &alone), vec![Act::Visibility, Act::Field(FieldId::HostPassword), Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back]);
     }
 
     #[test]
@@ -931,11 +1326,80 @@ mod tests {
             Piece::Title(_) => ITEM + 8.0,
             Piece::Line(t, _) => (if t.len() > 50 { 3.0 } else { 1.0 }) * STEP + 6.0,
             Piece::Big(_) => ITEM + 16.0,
-            Piece::Field(_) | Piece::Button(..) => ITEM + 6.0,
-            Piece::Row(..) => ITEM,
+            Piece::Field(..) | Piece::Button(..) => ITEM + 6.0,
+            Piece::Row(..) | Piece::Head(_) | Piece::Cols(..) => ITEM,
         };
         let total: f32 = p.iter().map(height).sum::<f32>() + 2.0 * PAD;
         assert!(TOP + total <= 960.0, "the six-player lobby reaches {}", TOP + total);
+    }
+
+    fn lobby(code: &str, players: u8, ping: u32) -> PublicLobby {
+        PublicLobby { code: code.into(), title: format!("{code}'s game"), host_name: "Host".into(), place: "Goodsprings".into(), players, max_players: 6, region: "OC/AU".into(), ping_ms: Some(ping), host_fp: format!("fp{code}"), ..default() }
+    }
+
+    /// The host's options: Private by default; Public shows the title field; the password
+    /// is typed as stars and goes with Create, then is not kept.
+    #[test]
+    fn the_host_chooses_visibility_title_and_password() {
+        let mut screen = opened(Mode::Host);
+        let state = LobbyState::default();
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Button(Act::Visibility, "Visibility: Private".into())));
+        assert!(!acts(&screen, &state).contains(&Act::Field(FieldId::Title)), "no title while private");
+        screen.public = true;
+        assert_eq!(acts(&screen, &state)[..3], [Act::Visibility, Act::Field(FieldId::Title), Act::Field(FieldId::HostPassword)]);
+        for c in "Strip run".chars() {
+            screen.type_char(FieldId::Title, c);
+        }
+        for c in "hunter2".chars() {
+            screen.type_char(FieldId::HostPassword, c);
+        }
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Field(Act::Field(FieldId::HostPassword), "*******".into())), "{p:?}");
+        assert!(p.contains(&Piece::Field(Act::Field(FieldId::Title), "Strip run".into())));
+        // The code field takes only a code's characters, upper case.
+        for c in "k7q-m2x!".chars() {
+            screen.type_char(FieldId::Code, c);
+        }
+        assert_eq!(screen.typed, "K7Q-M2X");
+        let open = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, public: true, locked: true, ..default() };
+        assert!(pieces(&screen, &open).contains(&Piece::Line("Listed in the server browser, with a password.".into(), Shade::Dim)));
+    }
+
+    /// The Browse tab: filters, favourites first then the nearest, a row opens to Join with a
+    /// password box when locked; lobbies this game cannot join are hidden unless asked for.
+    #[test]
+    fn the_browse_tab_lists_filters_and_opens_lobbies() {
+        let mut screen = opened(Mode::Join);
+        screen.browsing = true;
+        let mut far = lobby("FAR", 3, 180);
+        far.favourite = true;
+        let mut locked = lobby("LCK", 2, 20);
+        locked.locked = true;
+        let mut other = lobby("OLD", 2, 10);
+        other.cannot = Some("The host runs another version of NVForever.".into());
+        let state = LobbyState { browse: Browse::Ready(vec![lobby("EMP", 1, 5), lobby("NEAR", 4, 30), far, locked, other, lobby("FULL", 6, 40)]), ..default() };
+        let codes = |s: &LobbyScreen| shown(s, &state).iter().map(|l| l.code.clone()).collect::<Vec<_>>();
+        assert_eq!(codes(&screen), ["FAR", "LCK", "NEAR", "FULL"], "favourite first, then by ping; empty and other versions hidden");
+        screen.hide_full = true;
+        assert_eq!(codes(&screen), ["FAR", "LCK", "NEAR"]);
+        screen.all_versions = true;
+        assert!(codes(&screen).contains(&"OLD".to_string()));
+        screen.all_versions = false;
+        screen.search = "near".into();
+        assert_eq!(codes(&screen), ["NEAR"]);
+        screen.search.clear();
+        // Open the locked one: its password field and Join follow its row.
+        screen.open_row = Some("LCK".into());
+        let a = acts(&screen, &state);
+        let at = a.iter().position(|x| *x == Act::Lobby(1)).unwrap();
+        assert_eq!(a[at + 1..at + 4], [Act::Field(FieldId::RowPassword), Act::JoinRow, Act::Favourite]);
+        let p = pieces(&screen, &state);
+        assert!(p.iter().any(|x| matches!(x, Piece::Cols(Act::Lobby(1), c, Shade::Bright) if c[6] == "Lock" && c[1] == "LCK's game")), "{p:?}");
+        assert!(p.contains(&Piece::Button(Act::JoinRow, "Join".into())));
+        // Nothing public: says so.
+        let none = LobbyState { browse: Browse::Ready(Vec::new()), ..default() };
+        assert!(pieces(&screen, &none).contains(&Piece::Line("No public lobbies right now. Host one, or join a friend's by code.".into(), Shade::Bright)));
     }
 
     #[test]

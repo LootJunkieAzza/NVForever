@@ -151,6 +151,21 @@ fn answer<T: serde::de::DeserializeOwned>(resp: Result<ureq::http::Response<ureq
     }
 }
 
+/// The public lobbies (`GET /v1/browse`, the lobby browser), blocking: call it from a
+/// thread of its own.
+pub fn browse(service: &str, query: &nvf_signal::wire::BrowseQuery) -> Result<nvf_signal::wire::BrowseAnswer, String> {
+    let agent = agent();
+    let url = format!("{service}/v1/browse{}", query.to_query());
+    answer(tries(|| agent.get(url.as_str()).call()), "The matchmaking service has no lobby browser: update the service.")
+}
+
+/// Report a public lobby (`POST /v1/lobbies/{code}/report`), blocking.
+pub fn report(service: &str, code: &str) -> Result<(), String> {
+    let agent = agent();
+    let url = format!("{service}/v1/lobbies/{}/report", code.replace('-', ""));
+    answer::<serde_json::Value>(tries(|| agent.post(url.as_str()).header("content-type", "application/json").send("{}")), "That lobby has closed.").map(|_| ())
+}
+
 fn ws_url(service: &str, code: &str) -> String {
     let base = service.replacen("https://", "wss://", 1).replacen("http://", "ws://", 1);
     format!("{base}/v1/lobbies/{code}/ws")
@@ -376,7 +391,7 @@ mod tests {
     fn live_lobby_attempts() {
         let svc = nvf_signal::DEFAULT_SERVICE;
         for i in 0..5 {
-            let body = CreateLobby { wire: 1, protocol: crate::net::VERSION as u32, build: "test".into(), load_order_hash: String::new(), max_players: 6, host_key: "ab".repeat(32), name: "probe".into() };
+            let body = CreateLobby { wire: 1, protocol: crate::net::VERSION as u32, build: "test".into(), load_order_hash: String::new(), max_players: 6, host_key: "ab".repeat(32), name: "probe".into(), listing: None };
             let resp = agent().post(format!("{svc}/v1/lobbies")).header("content-type", "application/json").send(serde_json::to_string(&body).unwrap().as_str());
             let made: LobbyCreated = match answer(resp, "404") {
                 Ok(m) => m,

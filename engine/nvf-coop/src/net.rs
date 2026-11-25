@@ -1340,6 +1340,13 @@ impl Session {
         }
     }
 
+    /// The host's listing in the lobby browser ([`Online::set_listing`]).
+    pub fn set_listing(&mut self, public: bool, title: &str, place: &str, friendly_fire: bool) {
+        if let Some(o) = &mut self.online {
+            o.set_listing(public, title, place, friendly_fire);
+        }
+    }
+
     /// A host started again (a load) takes its lobby's online code back.
     pub fn go_online_again(&mut self, service: &str, code: &str, secret: &str) {
         if self.is_host() {
@@ -1349,7 +1356,7 @@ impl Session {
 
     /// Join the lobby with an online `code`: the service says where the host is, and checks
     /// find the path ([`crate::online`]).
-    pub fn join_online(service: &str, code: nvf_signal::code::Code, name: &str, load_order_hash: &str) -> std::io::Result<Self> {
+    pub fn join_online(service: &str, code: nvf_signal::code::Code, name: &str, load_order_hash: &str, password: &str) -> std::io::Result<Self> {
         let role = Role::Guest {
             candidates: Vec::new(),
             host: None,
@@ -1364,7 +1371,7 @@ impl Session {
         };
         let mut s = Self::with(Transport::guest_anywhere()?, role)?;
         let locals = s.local_candidates();
-        s.online = Some(Online::guest(service, code, name, load_order_hash, locals));
+        s.online = Some(Online::guest(service, code, name, load_order_hash, locals, password));
         Ok(s)
     }
 
@@ -2825,6 +2832,11 @@ impl Link {
         self.with(|s| s.admit(peer, yes));
     }
 
+    /// [`Session::set_listing`].
+    pub fn set_listing(&self, public: bool, title: &str, place: &str, friendly_fire: bool) {
+        self.with(|s| s.set_listing(public, title, place, friendly_fire));
+    }
+
     /// [`Session::kick`].
     pub fn kick(&self, id: u8, ban: bool) -> bool {
         self.with(|s| s.kick(id, ban))
@@ -4244,7 +4256,7 @@ mod tests {
     fn live_join_by_online_code() {
         let svc = nvf_signal::DEFAULT_SERVICE;
         let mut host = Session::host(0).unwrap();
-        host.go_online(svc, HostInfo { name: "Probe host".into(), load_order_hash: String::new() });
+        host.go_online(svc, HostInfo { name: "Probe host".into(), ..Default::default() });
         let mut clock = Instant::now();
         let step = Duration::from_millis(10);
         let mut code = None;
@@ -4265,7 +4277,7 @@ mod tests {
         }
         let code = code.unwrap_or_else(|| panic!("no code: {log:#?}"));
         println!("code {code}");
-        let mut guest = Session::join_online(svc, nvf_signal::code::Code::parse(&code).unwrap(), "Probe guest", "").unwrap();
+        let mut guest = Session::join_online(svc, nvf_signal::code::Code::parse(&code).unwrap(), "Probe guest", "", "").unwrap();
         for _ in 0..3000 {
             clock += step;
             for (who, s) in [("host", &mut host), ("guest", &mut guest)] {
