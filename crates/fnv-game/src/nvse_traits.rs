@@ -470,13 +470,18 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             if name == "getweatherrgbcolor" {
                 XVal::Num(changed(g, COLOR, slot).unwrap_or_else(|| weather_color(g, x, t, time, layer)))
             } else {
-                // RRRGGGBBB [observed: rgb-ui, 31 values fit]: above 255255255 the call is
-                // ignored; the parts are packed unmasked as R + G·256 + B·65536 and read
-                // back as bytes, the rest carried into B (100999999 reads 100232002).
-                let v = num(args, 3, 0.0).max(0.0) as i64;
-                if v > 255_255_255 {
+                // RRRGGGBBB [observed: rgb-ui, 31 values fit; observed: Fallout: New Vegas
+                // 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+                // `w6d10_15_weather_rgb_color_nam0_pnam_layers_and_packing`:
+                // `set(ok=120200050,cry=100232002,ov=100232002,neg=100232002,p2=10020030)`]:
+                // negative values and values above 255255255 are ignored without overwriting;
+                // the parts are packed unmasked as R + G·256 + B·65536 and read back as
+                // bytes, the rest carried into B (100999999 reads 100232002).
+                let raw = num(args, 3, -1.0);
+                if !raw.is_finite() || raw < 0.0 || raw > 255_255_255.0 {
                     return Some(Ok(zero));
                 }
+                let v = raw as i64;
                 let w = v / 1_000_000 + (v / 1000 % 1000) * 256 + (v % 1000) * 65536;
                 let (r, gg, b) = (w & 255, (w >> 8) & 255, w >> 16);
                 let packed = (r * 1_000_000 + gg * 1000 + b) as f64;
@@ -526,3 +531,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_weatherrgb_neg_tests.rs"]
+mod w6d10_weatherrgb_neg_tests;
