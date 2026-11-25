@@ -118,6 +118,8 @@ every PACK and IDLM subrecord of the six masters decodes with nothing left over
 
 ## 2. What the masters hold [observed: `fnvtool ai survey`, six masters]
 
+- **`AddPackageAt` non-`PACK` validation & empty-list append** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8p2_03_package_list_add_remove_doc`: `PROBE|w6d8p2_03_package_list_add_remove_doc|orig=9 cnt0=9 add0=0 cnt1=10 n0=1 addEnd=9 cnt2=11 addHi=-1 addBad=0 cntBad=11 rem0V=1 cnt3=10 emp=0 addEmp=0 cntAE=1 rest=9`; no DLL, PDB, or third-party source consulted]: passing a non-`PACK` form returns `0` without mutating the package list, and appending with index `-1` returns `n.saturating_sub(1)` (`9` when `cnt1=10`, `0` when the list is empty).
+
 - **4,885 packages** (FalloutNV.esm 4,160, DeadMoney 144, HonestHearts 367,
   OldWorldBlues 72, LonesomeRoad 142). 4,872 have a 12-byte PKDT, 13 an 8-byte one
   (which ends after the Fallout behaviour flags: no type-specific flags).
