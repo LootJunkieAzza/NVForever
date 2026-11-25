@@ -86,6 +86,114 @@ const SUN_SIZE_DEG: f32 = 20.0;
 const SUN_STRENGTH: f32 = 1.8;
 const GLARE_SIZE_DEG: f32 = 130.0;
 const GLARE_STRENGTH: f32 = 0.12;
+// Angular footprints of the same climate textures in clear daytime volume skies [design].
+const FAIR_SUN_SIZE_DEG: f32 = 11.0;
+const FAIR_GLARE_SIZE_DEG: f32 = 100.0;
+const FAIR_GLARE_GAIN: f32 = 0.75;
+// The sun there [design; judged by eye from stills and a play test, 2026-11-24]: the sun texture's
+// halo widens to the plain sky's size as the sun sinks between these elevations (degrees), its
+// bright middle, 16 of 512 texels across, is drawn as a disc this wide (degrees; the texture's
+// own is 0.34 at 11), and the rest of the texture is dimmed by this factor so the disc shows
+// against it.
+const FAIR_SUN_LOW_FROM: f32 = 32.0;
+const FAIR_SUN_LOW_TO: f32 = 14.0;
+const FAIR_DISC_DEG: f32 = 1.5;
+const FAIR_HALO: f32 = 0.6;
+
+/// The sun over the fair volume sky [design]: the constants above, or what the debug aid
+/// `NVF_PLAY_DEBUG_FAIR_SUN` says instead (pictures only): `size=<deg>,glare=<deg>,gain=<x>` for
+/// the high sun and, where `from` is above `to`, `lowsize=`, `lowglare=`, `lowgain=` for a sun at
+/// or below `to` degrees of elevation, eased in from `from` degrees; `disc=<deg>` (0: the
+/// texture's own) and `halo=<x>`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FairSun {
+    high: [f32; 3],
+    low: [f32; 3],
+    from: f32,
+    to: f32,
+    /// The bright middle's width in degrees, 0 for the texture's own; and the factor on the
+    /// sun texture outside it.
+    disc: f32,
+    halo: f32,
+}
+
+/// Radius of the bright middle of the game's sun texture, in uv: it ends 8 texels from the
+/// centre of 512 [observed, 2026-11-24: `textures\sky\sun.dds` of the Steam game's `Fallout -
+/// Textures2.bsa`, extracted with `fnvtool bsa extract` and decoded, the mean of alpha over rings of one
+/// texel around the centre: 255 to 4 texels, 135 at 8, 109 at 12, falling to 0 at 252].
+const SUN_MIDDLE_UV: f32 = 8.0 / 512.0;
+
+impl FairSun {
+    const DEFAULT: FairSun = {
+        let v = [FAIR_SUN_SIZE_DEG, FAIR_GLARE_SIZE_DEG, FAIR_GLARE_GAIN];
+        FairSun { high: v, low: [SUN_SIZE_DEG, v[1], v[2]], from: FAIR_SUN_LOW_FROM, to: FAIR_SUN_LOW_TO, disc: FAIR_DISC_DEG, halo: FAIR_HALO }
+    };
+
+    /// The aid's value; a key it does not name, or one that is no finite number, keeps its
+    /// default (the low glare the high one's value).
+    #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+    fn parse(text: &str) -> FairSun {
+        let mut f = Self::DEFAULT;
+        let mut low = [None; 3];
+        for part in text.split(',') {
+            let Some((k, v)) = part.split_once('=') else { continue };
+            let Some(v) = v.trim().parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0) else { continue };
+            match k.trim() {
+                "size" => f.high[0] = v.clamp(1.0, 90.0),
+                "glare" => f.high[1] = v.clamp(1.0, 160.0),
+                "gain" => f.high[2] = v.min(8.0),
+                "lowsize" => low[0] = Some(v.clamp(1.0, 90.0)),
+                "lowglare" => low[1] = Some(v.clamp(1.0, 160.0)),
+                "lowgain" => low[2] = Some(v.min(8.0)),
+                "from" => f.from = v,
+                "to" => f.to = v,
+                "disc" => f.disc = v.min(20.0),
+                "halo" => f.halo = v.min(8.0),
+                _ => {}
+            }
+        }
+        let default = [f.low[0], f.high[1], f.high[2]];
+        f.low = std::array::from_fn(|i| low[i].unwrap_or(default[i]));
+        f
+    }
+
+    /// [`FairSun::DEFAULT`], which a build without the developer aids (dev_aids.rs) always has.
+    #[cfg(not(any(test, debug_assertions, feature = "dev-aids")))]
+    #[inline]
+    const fn get() -> FairSun {
+        Self::DEFAULT
+    }
+
+    /// The aid, read once; its absence is [`FairSun::DEFAULT`].
+    #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+    fn get() -> FairSun {
+        static AID: std::sync::OnceLock<FairSun> = std::sync::OnceLock::new();
+        *AID.get_or_init(|| {
+            let Some(text) = crate::dev_aids::var("NVF_PLAY_DEBUG_FAIR_SUN") else { return Self::DEFAULT };
+            let f = Self::parse(&text);
+            info!("sky: fair sun aid: {f:?}");
+            f
+        })
+    }
+
+    /// [`SkyLight::disc`] for a sun texture spread over `size` degrees, the disc drawn at
+    /// `weight` (0..=1).
+    fn disc_light(&self, size: f32, weight: f32) -> Vec4 {
+        if self.disc <= 0.0 || weight <= 0.0 {
+            return Vec4::ZERO;
+        }
+        // The texture lies on a plane facing the sun (sky.wesl `sun_texel`), hence the tangents.
+        let half_tan = |deg: f32| (deg / 2.0).to_radians().tan();
+        let k = 1.0 + (half_tan(self.disc) / (2.0 * SUN_MIDDLE_UV * half_tan(size)) - 1.0) * weight;
+        Vec4::new(k.clamp(1.001, 0.2 / SUN_MIDDLE_UV), SUN_MIDDLE_UV, 1.0 + (self.halo - 1.0) * weight, 0.0)
+    }
+
+    /// Size and glare size (degrees) and glare gain at a sun elevation (degrees).
+    fn at(&self, elevation: f32) -> [f32; 3] {
+        let low = if self.from > self.to { 1.0 - smoothstep(self.to, self.from, elevation) } else { 0.0 };
+        std::array::from_fn(|i| self.high[i] + (self.low[i] - self.high[i]) * low)
+    }
+}
 /// Moon quad size at SUN_DISTANCE; the disc fills about 30% of the masser textures
 /// [observed], so this draws it about 3.6 degrees across [tuned by eye].
 const MOON_SIZE: f32 = 2.4 * SUN_SIZE;
@@ -109,7 +217,7 @@ const GAME_HOURS_PER_SECOND: f32 = 30.0 / 3600.0;
 /// [documented: bevy_core_pipeline 0.19 Transparent3d], so a large negative bias draws the
 /// sky (centred on the camera) first; blended world meshes write no depth and would
 /// otherwise be painted over. Within the sky, lower biases are drawn first.
-const SKY_SORT_BIAS: f32 = -1.0e6;
+pub(crate) const SKY_SORT_BIAS: f32 = -1.0e6;
 /// The cloud shapes' size against the atmosphere dome's. The dome is opaque and writes
 /// depth, and the blended sky parts carry [`SKY_SORT_BIAS`], which Bevy also applies as the
 /// pipeline's depth bias: with reversed depth that moves a part about 14 % farther off
@@ -262,6 +370,9 @@ pub struct SkyLight {
     /// cells per unit of direction; on the dome and clouds rgb the moon term's gain and w its
     /// cap (0: none).
     pub night: Vec4,
+    /// The sun's disc enlarged (the fair sun aid): x the magnification of the sun texture's
+    /// middle (0: none), y that middle's radius in the texture (uv), z the factor on the rest.
+    pub disc: Vec4,
 }
 
 impl MaterialExtension for SkyDisplay {
@@ -385,6 +496,15 @@ pub struct SkyState {
     /// shadow jump about once a real second. `None` until the clock is seen, and again
     /// after the hour is set another way. [engineering choice]
     sun_hour: Option<f32>,
+    /// A weather fade moves with every clock reading, not with the half-minute steps: the
+    /// volumetric clouds are drawn ([`fade_cadence`]). Off, the steps' cadence.
+    pub(crate) smooth_fade: bool,
+    /// The hours since the last half-minute step that smooth readings have given the fade
+    /// already; the next step gives it the rest, so switching [`Self::smooth_fade`] between
+    /// two steps moves nothing by itself and counts no time twice or not at all.
+    fade_given: f32,
+    /// The hours since the last half-minute step of the last clock reading, smooth or not.
+    clock_ahead: f32,
     /// The list (region FormID, `None` for the climate) and its eligible weathers the
     /// last roll was made for.
     rolled_for: Option<(Option<u32>, Vec<u32>)>,
@@ -614,6 +734,9 @@ impl SkyState {
             region_cell: None,
             clock_seen: false,
             sun_hour: None,
+            smooth_fade: false,
+            fade_given: 0.0,
+            clock_ahead: 0.0,
             rolled_for: None,
             pick: wid,
             rolls: 0,
@@ -636,6 +759,10 @@ impl SkyState {
     /// [design: worldspace.rs::carry_sky] Keep override visuals and their adapters,
     /// including an unfinished fade, without importing the old climate's roll lists.
     pub(crate) fn carry_weather_from(&mut self, from: &SkyState) {
+        // The clock goes on in the same step: what it has read of it, and given the fade.
+        if self.hour == from.hour {
+            (self.clock_ahead, self.fade_given) = (from.clock_ahead, from.fade_given);
+        }
         if from.script.is_none() && !from.pinned {
             return;
         }
@@ -970,6 +1097,7 @@ impl SkyState {
     pub fn set_hour(&mut self, hour: f32, instant: bool) {
         self.hour = hour.rem_euclid(24.0);
         self.sun_hour = None;
+        (self.clock_ahead, self.fade_given) = (0.0, 0.0);
         self.follow_climate(instant);
         self.changed = true;
     }
@@ -986,9 +1114,20 @@ impl SkyState {
     pub fn follow_game_clock(&mut self, hour: f32, days_passed: f32) {
         self.clock_seen = true;
         let ahead = (hour - self.hour).rem_euclid(24.0);
+        // While the volume is drawn an ongoing fade also moves between the steps, by the
+        // interval since the last clock reading, so the cloud field and its cached sunlight
+        // move together.
+        if ahead < 1.0 / 120.0 {
+            let give = (ahead - self.clock_ahead).min(ahead - self.fade_given);
+            if self.smooth_fade && give > 0.0 {
+                self.fade_given += give;
+                self.advance_fade(give);
+            }
+            self.clock_ahead = ahead;
+        }
         if (1.0 / 120.0..12.0).contains(&ahead) {
             self.days_passed = days_passed.floor();
-            self.advance_fade(ahead);
+            self.advance_fade((ahead - self.fade_given).max(0.0));
             self.set_hour(hour, false);
         } else if ahead >= 12.0 {
             // The game's clock was set back (or far on): a jump, not time passing.
@@ -1194,13 +1333,15 @@ impl SkyState {
     }
 
     /// How daylight changes the sky's display colours now (see [`SkyLight`]).
-    pub fn light(&self) -> SkyLight {
+    fn light(&self, fair_sun: f32, fair_disc: f32) -> SkyLight {
         // The disc and glare fade out as the sun sets [hypothesis: the game shows no glare
         // once the sun is down].
         let fade = if self.interior.is_some() { 0.0 } else { smoothstep(-2.0, 3.0, self.sun_elevation()) };
         let sun_col = Vec3::from_array(self.color(ColorType::Sun)) * fade;
         let dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH));
         let half_tan = |deg: f32| (deg / 2.0).to_radians().tan();
+        let fair_value = |base: f32, fair: f32| base + (fair - base) * fair_sun;
+        let [fair_size, fair_glare, fair_gain] = FairSun::get().at(self.sun_elevation());
         // The weather's Sun Glare, blended across a weather fade.
         let glare = self.weather.glare_scale();
         let glare = self.prev.as_ref().map_or(glare, |p| p.glare_scale() + (glare - p.glare_scale()) * self.fade);
@@ -1210,8 +1351,9 @@ impl SkyState {
             // `display_clip`), so the sky leaves out its inverse of Tony McMapface.
             glow: Vec3::ZERO.extend(if crate::lights::display_clip() { 1.0 } else { 0.0 }),
             sun_dir: dir.extend(0.0),
-            sun: (sun_col * SUN_STRENGTH).extend(half_tan(SUN_SIZE_DEG)),
-            glare: (sun_col * GLARE_STRENGTH * glare).extend(half_tan(GLARE_SIZE_DEG)),
+            sun: (sun_col * SUN_STRENGTH).extend(half_tan(fair_value(SUN_SIZE_DEG, fair_size))),
+            glare: (sun_col * GLARE_STRENGTH * glare * fair_value(1.0, fair_gain)).extend(half_tan(fair_value(GLARE_SIZE_DEG, fair_glare))),
+            disc: FairSun::get().disc_light(fair_value(SUN_SIZE_DEG, fair_size), fair_disc),
             // Written by night_sky.rs alone (update_sky keeps them).
             moon: Vec4::ZERO,
             night: Vec4::ZERO,
@@ -1488,7 +1630,7 @@ impl SkyDome {
 
 #[cfg(test)]
 impl SkyDome {
-    /// A dome without vertex weights (night_sky.rs's system test).
+    /// A dome without vertex weights (other modules' tests: night_sky.rs, the volumetric clouds).
     pub(crate) fn for_test() -> Self {
         SkyDome(Vec::new())
     }
@@ -1505,15 +1647,15 @@ pub struct CloudLayer {
 }
 
 impl CloudLayer {
-    /// Layer 0 of set 0, showing nothing yet (night_sky.rs's system test).
-    #[cfg(test)]
-    pub(crate) fn for_test() -> Self {
-        CloudLayer { layer: 0, set: 0, shows: None }
-    }
-
     /// The WTHR cloud layer (0-3) this dome shape draws (cloud_shadows.rs).
     pub(crate) fn layer(&self) -> usize {
         self.layer
+    }
+
+    /// A layer of set 0 showing nothing yet, for other modules' tests.
+    #[cfg(test)]
+    pub(crate) fn for_test(layer: usize) -> Self {
+        CloudLayer { layer, set: 0, shows: None }
     }
 }
 
@@ -2354,6 +2496,16 @@ pub(crate) fn apply_cell_fog(sky: &SkyState, fog: &mut DistanceFog, emissive_mod
     }
 }
 
+/// Before the sky follows the game's clock (main.rs): a weather fade moves between the sky's
+/// half-minute steps only while the volumetric clouds are on and drawn. `CloudVolumeShown` is last
+/// frame's, so the row itself is asked too: switched off, not one more reading moves the fade.
+pub fn fade_cadence(mut sky: ResMut<SkyState>, graphics: Option<Res<crate::graphics::Graphics>>, shown: Option<Res<crate::volumetric_clouds::CloudVolumeShown>>) {
+    let smooth = graphics.is_some_and(|g| g.volumetric_clouds) && shown.is_some_and(|v| v.0);
+    if sky.smooth_fade != smooth {
+        sky.smooth_fade = smooth;
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn update_sky(
     mut sky: ResMut<SkyState>,
@@ -2370,6 +2522,8 @@ pub fn update_sky(
     mut last_interior_fog: Local<Option<(f32, f32, f32)>>,
     screen: Option<Res<crate::imagespace::ScreenModifiers>>,
     tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
+    volume: (Option<Res<crate::volumetric_clouds::CloudVolumeShown>>, Option<Res<crate::cloud_shadows::CloudCoverPublished>>),
+    mut last_fair_sun: Local<[f32; 2]>,
 ) {
     let mut cam = cam;
     // What the image space modifiers on the screen do to the Sunlight Dimmer and the
@@ -2442,12 +2596,29 @@ pub fn update_sky(
     if let Ok((mut light, mut t)) = sun.single_mut() {
         aim_sun(&mut light, &mut t, light_dir, to_bevy.rotation * Vec3::Y, PI * unit * sky.sun_scale() * sun_mod, moon_mult);
     }
-    if !changed {
+    // Use the same authored cover and weather bias as the fair cumulus, before the
+    // renderer splits low and high layers. A volume handover can occur at a frozen hour.
+    // The disc's weight is the same without the sun's elevation: it stays to the horizon.
+    let [fair_sun, fair_disc] = if volume.0.as_ref().is_some_and(|v| v.0) {
+        volume.1.as_ref().and_then(|p| p.0.as_ref())
+            .and_then(|c| crate::volumetric_clouds::blend_covers(c.contributors(&sky), &c.weathers))
+            .map_or([0.0; 2], |c| {
+                let bias = crate::volumetric_clouds::sky_bias(sky.weather.classification, sky.prev.as_ref().map(|w| w.classification), sky.fade);
+                [sky.sun_elevation(), 90.0].map(|e| crate::volumetric_clouds::fair_daylight_weight(c.amount, bias, e))
+            })
+    } else {
+        [0.0; 2]
+    };
+    // A weight that reached 0 is written whatever it was: without the fair volume sky the sun is
+    // exactly the plain sky's.
+    let ended = [(fair_sun, last_fair_sun[0]), (fair_disc, last_fair_sun[1])].iter().any(|&(now, was)| now == 0.0 && was != 0.0);
+    if !changed && !ended && (fair_sun - last_fair_sun[0]).abs() < 1e-4 && (fair_disc - last_fair_sun[1]).abs() < 1e-4 {
         return;
     }
+    *last_fair_sun = [fair_sun, fair_disc];
 
     // Daylight on every sky part that takes it (see SkyLight).
-    let mut light = sky.light();
+    let mut light = sky.light(fair_sun, fair_disc);
     let flash = Vec3::from_array(sky.flash);
     light.glow += flash.extend(0.0);
     // Written only when the light moved noticeably: each write remakes the material's
@@ -2460,8 +2631,8 @@ pub fn update_sky(
         let old = m.extension.light;
         // The night sky detail's fields are night_sky.rs's own: kept as they are.
         let new = SkyLight { params: light.params.with_y(old.params.y).with_z(old.params.z).with_w(old.params.w), moon: old.moon, night: old.night, ..light };
-        let same = |a: Vec4, b: Vec4| a.abs_diff_eq(b, 1e-3);
-        if same(old.params, new.params) && same(old.glow, new.glow) && same(old.sun_dir, new.sun_dir) && same(old.sun, new.sun) && same(old.glare, new.glare) {
+        let same = |a: Vec4, b: Vec4| if ended { a == b } else { a.abs_diff_eq(b, 1e-3) };
+        if same(old.params, new.params) && same(old.glow, new.glow) && same(old.sun_dir, new.sun_dir) && same(old.sun, new.sun) && same(old.glare, new.glare) && same(old.disc, new.disc) {
             continue;
         }
         if let Some(mut m) = materials.get_mut(id) {
@@ -2610,6 +2781,59 @@ mod tests {
     /// Issue #2408: the base game's and its add-ons' weathers may name a cloud texture
     /// no archive has without a warning; a mod's weather, or one of no known file, may not.
     #[test]
+    fn the_fair_sun_grows_as_it_sinks_and_has_a_disc() {
+        let d = FairSun::parse("");
+        assert_eq!(d, FairSun::DEFAULT);
+        assert_eq!(d.at(40.0), [FAIR_SUN_SIZE_DEG, FAIR_GLARE_SIZE_DEG, FAIR_GLARE_GAIN]);
+        assert_eq!(d.at(FAIR_SUN_LOW_FROM), d.at(90.0));
+        for e in [FAIR_SUN_LOW_TO, 3.0, -5.0] {
+            assert_eq!(d.at(e), [SUN_SIZE_DEG, FAIR_GLARE_SIZE_DEG, FAIR_GLARE_GAIN]);
+        }
+        let mut last = d.at(-5.0)[0];
+        for e in 0..60 {
+            let size = d.at(e as f32)[0];
+            assert!(size <= last && (FAIR_SUN_SIZE_DEG..=SUN_SIZE_DEG).contains(&size), "{e}");
+            last = size;
+        }
+        // The disc is as wide as asked whatever the halo's size; none at no weight, so a sky
+        // that is not the fair volume sky keeps the texture's own sun.
+        for size in [FAIR_SUN_SIZE_DEG, 15.0, SUN_SIZE_DEG] {
+            assert_eq!(d.disc_light(size, 0.0), Vec4::ZERO);
+            let l = d.disc_light(size, 1.0);
+            let drawn = 2.0 * (l.x * 2.0 * SUN_MIDDLE_UV * (size / 2.0).to_radians().tan()).atan().to_degrees();
+            assert!((drawn - FAIR_DISC_DEG).abs() < 1e-4 && (l.z - FAIR_HALO).abs() < 1e-6, "{size} {l}");
+            // What the shader draws is inside the texture, before its warp ends (sky.wesl).
+            assert!(l.x > 1.0 && l.x * l.y * 1.2 < (l.x * l.y * 4.0).min(0.48), "{size} {l}");
+        }
+        let f = FairSun::parse("size=11,gain=1,lowsize=20,from=20,to=8,glare=NaN,junk,disc=0");
+        assert_eq!(f.at(30.0), [11.0, FAIR_GLARE_SIZE_DEG, 1.0]);
+        assert_eq!(f.at(8.0), [20.0, FAIR_GLARE_SIZE_DEG, 1.0]);
+        let mid = f.at(14.0)[0];
+        assert!((mid - 15.5).abs() < 1e-3, "{mid}");
+        assert_eq!(f.disc_light(11.0, 1.0), Vec4::ZERO);
+    }
+
+    /// The disc's warp (sky.wesl `sun_texel`, the same numbers): the radius read rises with the
+    /// radius drawn, so no part of the texture is drawn twice, and is the texture's own outside.
+    #[test]
+    fn the_sun_discs_warp_never_folds() {
+        for size in [FAIR_SUN_SIZE_DEG, 15.0, SUN_SIZE_DEG] {
+            let l = FairSun::DEFAULT.disc_light(size, 1.0);
+            let edge = l.x * l.y;
+            let read = |r: f32| r * (1.0 / l.x + (1.0 - 1.0 / l.x) * smoothstep(edge * 1.2, (edge * 4.0).min(0.48), r));
+            let mut last = 0.0;
+            for i in 1..=500 {
+                let r = i as f32 * 0.001;
+                assert!(read(r) > last, "{size} {r}");
+                last = read(r);
+            }
+            assert!((read(edge) - l.y).abs() < 1e-5 && (read(0.5) - 0.5).abs() < 1e-5);
+        }
+        let wesl = include_str!("sky.wesl");
+        assert!(wesl.contains("smoothstep(edge * 1.2, min(edge * 4.0, 0.48), r)"));
+    }
+
+    #[test]
     fn only_the_games_own_plugins_are_excused_a_missing_cloud_texture() {
         for name in ["FalloutNV.esm", "falloutnv.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "CaravanPack.esm"] {
             assert!(official_plugin(Some(name)), "{name}");
@@ -2674,6 +2898,9 @@ mod tests {
             region_cell: None,
             clock_seen: false,
             sun_hour: None,
+            smooth_fade: false,
+            fade_given: 0.0,
+            clock_ahead: 0.0,
             rolled_for: None,
             pick: SAVED,
             rolls: 0,
@@ -2747,6 +2974,9 @@ mod tests {
             region_cell: None,
             clock_seen: false,
             sun_hour: None,
+            smooth_fade: false,
+            fade_given: 0.0,
+            clock_ahead: 0.0,
             rolled_for: None,
             pick: HELD,
             rolls: 0,
@@ -3027,6 +3257,128 @@ mod tests {
         sky.fade = 0.3;
         sky.fade_to(Weather { form_id: 5, ..Default::default() }, false);
         assert_eq!((sky.weather.form_id, sky.prev.as_ref().map(|p| p.form_id), sky.fade), (5, Some(LISTED), 0.0));
+    }
+
+    /// A fade of a quarter game hour from noon, the sky just made at 12.0.
+    fn fading_sky() -> SkyState {
+        let mut sky = sky_started_on_held();
+        sky.set_hour(12.0, true);
+        let weather = Weather { form_id: 0x1234, trans_delta: Some(255), ..Default::default() };
+        sky.script_weather(weather, [None; 6], false, true);
+        sky
+    }
+
+    #[test]
+    fn a_smooth_weather_fade_follows_each_clock_interval_once() {
+        let mut sky = fading_sky();
+        sky.smooth_fade = true;
+        for offset in [0.002, 0.004, 0.004, 0.009, 0.011] {
+            sky.follow_game_clock(12.0 + offset, 25.0);
+            assert!((sky.fade - offset / 0.25).abs() < 1e-5);
+        }
+    }
+
+    /// Without the volume a fade moves with the half-minute steps alone, by the whole step, and
+    /// the readings between them change nothing the sky draws.
+    #[test]
+    fn a_weather_fade_moves_with_the_half_minute_steps() {
+        let mut sky = fading_sky();
+        sky.changed = false;
+        // What the fade is after each reading: only a step of a half game minute moves it.
+        for (offset, faded) in [(0.002, 0.0), (0.004, 0.0), (0.009, 0.009), (0.011, 0.009), (0.0175, 0.0175)] {
+            let before = sky.fade;
+            sky.follow_game_clock(12.0 + offset, 25.0);
+            assert!((sky.fade - faded / 0.25).abs() < 5e-5, "{offset}: {}", sky.fade);
+            assert_eq!(std::mem::take(&mut sky.changed), sky.fade != before, "{offset}");
+        }
+    }
+
+    /// The volume switched on or off between two steps: the switch moves nothing, and the next
+    /// step gives the fade exactly the time it has not had.
+    #[test]
+    fn switching_the_volume_in_a_fade_neither_jumps_nor_loses_time() {
+        // On in the middle of a step: smooth from here, the time before it paid at the step.
+        let mut sky = fading_sky();
+        sky.follow_game_clock(12.004, 25.0);
+        assert_eq!(sky.fade, 0.0);
+        sky.smooth_fade = true;
+        sky.follow_game_clock(12.004, 25.0);
+        assert_eq!(sky.fade, 0.0);
+        sky.follow_game_clock(12.006, 25.0);
+        assert!((sky.fade - 0.002 / 0.25).abs() < 5e-5, "{}", sky.fade);
+        sky.follow_game_clock(12.009, 25.0);
+        assert!((sky.fade - 0.009 / 0.25).abs() < 5e-5, "{}", sky.fade);
+        // Off in the middle of a step: it holds, and the step does not count the smooth part twice.
+        sky.follow_game_clock(12.012, 25.0);
+        let held = sky.fade;
+        assert!((held - 0.012 / 0.25).abs() < 5e-5, "{held}");
+        sky.smooth_fade = false;
+        sky.follow_game_clock(12.015, 25.0);
+        assert_eq!(sky.fade, held);
+        sky.follow_game_clock(12.018, 25.0);
+        assert!((sky.fade - 0.018 / 0.25).abs() < 5e-5, "{}", sky.fade);
+    }
+
+    /// A sky made by a worldspace door in the middle of a step takes over the last clock reading
+    /// and what the fade was given of the step: read again at the same hour the fade stays, and the
+    /// step gives it the rest once, whether all or only a part of the step was given before.
+    #[test]
+    fn a_door_in_a_step_counts_no_time_of_a_fade_twice() {
+        for smooth_from_the_start in [true, false] {
+            let mut sky = fading_sky();
+            sky.smooth_fade = smooth_from_the_start;
+            sky.follow_game_clock(12.004, 25.0);
+            sky.smooth_fade = true;
+            sky.follow_game_clock(12.006, 25.0);
+            let given = if smooth_from_the_start { 0.006 } else { 0.002 };
+            assert!((sky.fade - given / 0.25).abs() < 5e-5, "{}", sky.fade);
+            let mut next = sky_started_on_held();
+            next.set_hour(sky.hour, true);
+            next.carry_weather_from(&sky);
+            next.smooth_fade = true;
+            next.follow_game_clock(12.006, 25.0);
+            assert!((next.fade - given / 0.25).abs() < 5e-5, "the same reading again: {}", next.fade);
+            next.follow_game_clock(12.007, 25.0);
+            assert!((next.fade - (given + 0.001) / 0.25).abs() < 5e-5, "{}", next.fade);
+            next.follow_game_clock(12.009, 25.0);
+            assert!((next.fade - 0.009 / 0.25).abs() < 5e-5, "the step pays the rest: {}", next.fade);
+        }
+    }
+
+    /// The row switched off: `CloudVolumeShown` still says drawn when the clock is read in that
+    /// frame (it is written in `PostUpdate`), and the reading moves no fade all the same.
+    #[test]
+    fn the_fade_is_smooth_no_more_in_the_frame_the_row_goes_off() {
+        use crate::graphics::{Graphics, Preset};
+        use crate::volumetric_clouds::CloudVolumeShown;
+        #[derive(Resource)]
+        struct Clock(f32);
+        let mut app = App::new();
+        app.insert_resource(Graphics { volumetric_clouds: true, ..Graphics::preset(Preset::Vanilla) })
+            .insert_resource(CloudVolumeShown(true))
+            .insert_resource(fading_sky())
+            .insert_resource(Clock(12.002))
+            .add_systems(Update, (fade_cadence, |mut sky: ResMut<SkyState>, clock: Res<Clock>| sky.follow_game_clock(clock.0, 25.0)).chain())
+            // As `show_volume` and the rest of the volume leave it at the frame's end.
+            .add_systems(PostUpdate, |g: Res<Graphics>, mut shown: ResMut<CloudVolumeShown>| shown.0 = g.volumetric_clouds);
+        let fade = |app: &App| app.world().resource::<SkyState>().fade;
+        app.update();
+        assert!((fade(&app) - 0.002 / 0.25).abs() < 5e-5, "on and drawn: every reading");
+        app.world_mut().resource_mut::<Graphics>().volumetric_clouds = false;
+        app.world_mut().resource_mut::<Clock>().0 = 12.004;
+        assert!(app.world().resource::<CloudVolumeShown>().0, "last frame's");
+        app.update();
+        assert!((fade(&app) - 0.002 / 0.25).abs() < 5e-5, "off: {}", fade(&app));
+        app.world_mut().resource_mut::<Clock>().0 = 12.009;
+        app.update();
+        assert!((fade(&app) - 0.009 / 0.25).abs() < 5e-5, "the step gives the rest");
+        // On again and not drawn yet: the steps alone.
+        app.world_mut().resource_mut::<Graphics>().volumetric_clouds = true;
+        app.world_mut().resource_mut::<Clock>().0 = 12.011;
+        app.update();
+        assert!((fade(&app) - 0.009 / 0.25).abs() < 5e-5);
+        // The game's chain asks before it reads the clock.
+        assert!(include_str!("main.rs").contains("worldspace::script_sky, sky::fade_cadence, sky_follows_game, "));
     }
 
     #[test]
