@@ -1452,9 +1452,18 @@ impl Game<'_> {
     /// other (`Awareness::settle`) [engineering choice]. The target's combat group (the
     /// catalogue's second case) is not built: there are no combat groups yet.
     pub fn start_combat(&mut self, actor: FormId, target: FormId) {
-        // A fixture or combat-disabled actor takes no combat target (`Game::is_fixture`,
-        // `Game::combat_disabled`, issue #2431).
-        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) || self.is_fixture(actor) || self.combat_disabled(actor) {
+        // A fixture, combat-disabled, or restrained actor takes no combat target
+        // (`Game::is_fixture`, `Game::combat_disabled`, issue #2431; SetRestrained 1
+        // blocked StartCombat Player with IsInCombat=0, GetLifeState=5 [observed:
+        // 2026-11-25, FNV 1.4.0.525, w6d8_09_set_restrained_lifestate_and_combat]).
+        if actor == FormId::PLAYER_REF
+            || actor == target
+            || self.is_dead(actor)
+            || self.is_dead(target)
+            || self.is_fixture(actor)
+            || self.combat_disabled(actor)
+            || self.extra.get(&actor).is_some_and(|e| e.restrained)
+        {
             return;
         }
         self.awareness.forced.insert((actor, target));
@@ -1995,3 +2004,7 @@ mod tests {
         assert!(State::Lost.in_combat() && !State::Normal.in_combat() && !State::Combat.searching());
     }
 }
+
+#[cfg(test)]
+#[path = "w6d8_restrained_combat_tests.rs"]
+mod w6d8_restrained_combat_tests;
