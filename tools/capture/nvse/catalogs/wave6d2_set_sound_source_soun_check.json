@@ -1,0 +1,83 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d2_set_sound_source_soun_check",
+  "description": "Wave 6D-2 read-only probe for SetSoundSourceFile SOUN validation and TempCloneForm isolation.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_ln_nvse": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d2_sound_source_check",
+      "title": "Wave 6D-2: SetSoundSourceFile SOUN check & clone isolation",
+      "extender": "JIP LN NVSE 57.30",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d2p3_07_sound_source_file_and_clone",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-traits-4.md",
+          "spec_line": 152,
+          "functions_tested": [
+            "GetSoundSourceFile",
+            "SetSoundSourceFile",
+            "GetSoundTraitNumeric",
+            "SetSoundTraitNumeric",
+            "TempCloneForm"
+          ],
+          "claim": "Verify SetSoundSourceFile / GetSoundSourceFile (26 active mod calls in B42 Inject; static audit SD-11; jip-traits-4.md:152): normal SOUN, empty path, non-SOUN rejection, TempCloneForm SOUN pre-clone inheritance, post-clone isolation (silencing original with trait 3 = -99), and clone-of-clone.",
+          "expected": "Check pre-clone snapshot inheritance, post-clone isolation for both source path and trait 3 (-99), empty string handling, non-SOUN rejection, and clone-of-clone isolation.",
+          "script_lines": [
+            "ref rSnd = GetFormFromMod \"FalloutNV.esm\" \"174325\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "string_var p0 = GetSoundSourceFile rSnd",
+            "float att0 = GetSoundTraitNumeric rSnd 3",
+            "SetSoundSourceFile rStim \"w6d2_bad.wav\"",
+            "string_var pBad = GetSoundSourceFile rStim",
+            "SetSoundSourceFile rSnd \"w6d2_pre.wav\"",
+            "SetSoundTraitNumeric rSnd 3 -12",
+            "ref rCl1 = TempCloneForm rSnd",
+            "string_var pCl1Pre = GetSoundSourceFile rCl1",
+            "float attCl1Pre = GetSoundTraitNumeric rCl1 3",
+            "string_var sEmpty = \"\"",
+            "SetSoundSourceFile rSnd sEmpty",
+            "SetSoundTraitNumeric rSnd 3 -99",
+            "string_var pOrigEmp = GetSoundSourceFile rSnd",
+            "string_var pCl1Post = GetSoundSourceFile rCl1",
+            "float attCl1Post = GetSoundTraitNumeric rCl1 3",
+            "ref rCl2 = TempCloneForm rCl1",
+            "SetSoundSourceFile rCl1 \"w6d2_mid.wav\"",
+            "string_var pCl2Post = GetSoundSourceFile rCl2",
+            "SetSoundSourceFile rSnd p0",
+            "SetSoundTraitNumeric rSnd 3 att0",
+            "PrintToConsole \"PROBE|w6d2p3_07_sound_source_file_and_clone|len0=%g,badLen=%g|cl1Pre=[%z]/%.1f|origEmp=[%z]|cl1Post=[%z]/%.1f|cl2Post=[%z]\" (sv_Length p0) (sv_Length pBad) pCl1Pre attCl1Pre pOrigEmp pCl1Post attCl1Post pCl2Post"
+          ]
+        }
+      ]
+    }
+  ]
+}

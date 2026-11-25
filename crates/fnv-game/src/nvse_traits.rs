@@ -436,8 +436,10 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         }
         "getsoundsourcefile" => XVal::Str(g.sound_source_override(x).map(str::to_string).unwrap_or_else(|| g.sub(x, *b"FNAM").and_then(Json::as_str).unwrap_or("").to_string())),
         "setsoundsourcefile" => {
-            if let Some(XVal::Str(p)) = args.get(1) {
-                g.traits.sources.insert(x, p.clone());
+            if g.data.sig(g.unclone(x)) == Some(*b"SOUN") {
+                if let Some(XVal::Str(p)) = args.get(1) {
+                    g.traits.sources.insert(x, p.clone());
+                }
             }
             zero
         }
