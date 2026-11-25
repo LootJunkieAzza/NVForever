@@ -684,17 +684,23 @@ pub fn get_faction_rank(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     Ok(Value::Num(faction_rank(g, r, a.form(0)?) as f64))
 }
 
-/// `AddToFaction` / `SetFactionRank`: the actor reference joins at the rank. −1 takes it
-/// out [documented: GECK wiki SetFactionRank example]; any lower rank is read back as −1
-/// too [hypothesis: below −1 is no rank either].
+/// `AddToFaction` / `SetFactionRank`: the actor reference joins at the rank. Any
+/// negative rank leaves `GetInFaction == 0` while preserving the signed i8 rank for
+/// `GetFactionRank` (`SetFactionRank rF1 -5` reads `-5`, `GetInFaction == 0`) [observed:
+/// 2026-11-25, FNV 1.4.0.525, `w6d8_27_faction_rank_bounds_mod_remove_samefaction`:
+/// `rkNeg=-5 inNeg=0`].
 pub fn add_to_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let f = a.form(0)?;
-    let rank = (a.num_or(1, 0.0) as i8).max(-1);
+    let rank = (a.num_or(1, 0.0) as i64).clamp(i64::from(i8::MIN), i64::from(i8::MAX)) as i8;
     g.extra.entry(r).or_default().factions.insert(f, rank);
     forget_factions(g, r);
     none()
 }
+
+#[cfg(test)]
+#[path = "../w6d8_faction_rank_neg_tests.rs"]
+mod w6d8_faction_rank_neg_tests;
 
 pub fn remove_from_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;

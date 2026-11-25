@@ -14,6 +14,8 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
 
 ## 1. Records
 
+- **Negative ranks in `SetFactionRank`** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_27_faction_rank_bounds_mod_remove_samefaction`: `PROBE|w6d8_27_faction_rank_bounds_mod_remove_samefaction|same0=1 samePc=0 non0=-1 modNon=1 rk3=3 rkNeg=-5 inNeg=0 gsAll=0 sameAft=1`; no DLL, PDB, or third-party source consulted]: `SetFactionRank rF1 -5` preserves the negative signed rank (`rkNeg=-5`) when read back with `GetFactionRank` while `GetInFaction` returns `0` (`inNeg=0`).
+
 - NPC_ and CREA `SNAM`: one per faction, the faction and a rank [documented: xEdit;
   schema `gameplay.json`].
 - ACBS template flags, one bit per group of data the template supplies: 1 Traits,
