@@ -2563,3 +2563,11 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn format_v_returns_unknown_for_negative_or_out_of_range_actor_values() {
+    let h = run(
+        "string_var s\n         begin GameMode\n         let s := sv_Construct \"17=[%v]|34=[%v]|n1=[%v]|999=[%v]\" 17 34 -1 999\n         end",
+    );
+    assert_eq!(h.text(1), "17=[MeleeDamage]|34=[EnergyWeapons]|n1=[unknown]|999=[unknown]");
+}

@@ -2578,8 +2578,12 @@ impl Vm<'_, '_> {
                     self.host.form_text(f).unwrap_or_default()
                 }
                 'v' => {
-                    let code = next("actor value")?.num()? as u16;
-                    self.table.enum_name("actor_value", code).unwrap_or_default().to_string()
+                    let raw = next("actor value")?.num()?.trunc() as i64;
+                    u16::try_from(raw)
+                        .ok()
+                        .and_then(|code| self.table.enum_name("actor_value", code))
+                        .unwrap_or("unknown")
+                        .to_string()
                 }
                 'x' => {
                     // `%x4`: the digit after the code is the width [documented].

@@ -144,3 +144,7 @@ official .esm files, 2026-11-06, issue #1720]: `&PCName;` in topic names (DIAL F
 note texts (2 each); the key codes of the table above (`&sUActn…;`, `&-sUActn…;`,
 `&sKB…;`, `&sMouse…;`, `&sDeviceMouse;`, `&sXB…;`) only in message texts (MESG DESC).
 No INFO prompt or response carries one.
+
+### Wave 6D-5 observation: `%v` out-of-range fallback & `%k` scancodes
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p2_02b_format_v_k_edges` (`tools/capture/nvse/catalogs/wave6d5_format_v_unknown.json`); zero DLL, PDB, or third-party source consulted] `%v` formats valid actor-value codes using their enum spellings (`MeleeDamage`, `LeftAttackCondition`, `EnergyWeapons`, `Lockpick`, `Chameleon`) and formats negative or out-of-range codes (`-1`, `999`) as `"unknown"`; `%k` matches `GetKeyName`: `PROBE|w6d5p2_02b_format_v_k_edges|v(17=[MeleeDamage]|27=[LeftAttackCondition]|34=[EnergyWeapons]|36=[Lockpick]|49=[Chameleon]|n1=[unknown]|999=[unknown])|k(257=[Mouse2]|258=[Wheel]|264=[WheelUp]|265=[WheelDown]|29=[L-Ctrl]|42=[L-Shift]|200=[Up])`.

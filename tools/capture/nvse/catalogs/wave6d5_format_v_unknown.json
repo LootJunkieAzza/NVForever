@@ -1,0 +1,59 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_format_v_unknown",
+  "description": "Wave 6D-5 read-only probe verifying %v actor-value names and 'unknown' fallback plus %k scancode parity.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d5_format_v_unknown",
+      "title": "Format %v unknown fallback and %k scancodes",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d5p2_02b_format_v_k_edges",
+          "bucket": "vm_formatting",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-format.md",
+          "spec_line": 63,
+          "functions_tested": [
+            "sv_Construct",
+            "GetKeyName",
+            "PrintToConsole"
+          ],
+          "claim": "Verify %v actor value spellings for multi-word AVs (17 ActionPoints, 27 DamageResist, 34 EnergyWeapons, 36 Lockpick, 49 RadiationRads, 76 DamageThreshold, -1, 999) and %k key names across 257..265.",
+          "expected": "Check exact %v strings and %k mouse/wheel names vs NVForever keys.rs.",
+          "script_lines": [
+            "string_var svV = sv_Construct \"17=[%v]|27=[%v]|34=[%v]|36=[%v]|49=[%v]|n1=[%v]|999=[%v]\" 17 27 34 36 49 -1 999",
+            "string_var svK = sv_Construct \"257=[%k]|258=[%k]|264=[%k]|265=[%k]|29=[%k]|42=[%k]|200=[%k]\" 257 258 264 265 29 42 200",
+            "PrintToConsole \"PROBE|w6d5p2_02b_format_v_k_edges|v(%z)|k(%z)\" svV svK"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}
