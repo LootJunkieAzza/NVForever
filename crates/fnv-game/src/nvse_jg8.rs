@@ -517,9 +517,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let n = text(args, 0).unwrap_or_default();
             yes(!n.is_empty() && crate::mod_files::archives().iter().any(|a| a.eq_ignore_ascii_case(&n)))
         }
-        // `path`, under Data\Textures [documented: GetTexture…]; 0 without the file.
-        // GetTextureFormat: 1-5 for DXT1-DXT5 [documented], 0 for another format
-        // [hypothesis].
+        // `path`, under Data\Textures [documented: GetTexture…]; 0 without the file or with
+        // a forward-slash `textures/` prefix (`textures\` backslash prefix works)
+        // [observed: w6d3_12_texture_format_dxt1_dxt3_dxt5_uncomp].
+        // GetTextureFormat: 1/3/5 for DXT1/DXT3/DXT5 (including pimpboy3billion_n.dds f=5)
+        // and -48 for the probed uncompressed 24-bit DDS [observed: w6d3_12]; 2/4 for
+        // DXT2/DXT4 [documented], generalizing -48 to other zero-FourCC uncompressed DDS
+        // and 0 to other non-zero FourCC formats [hypothesis].
         "gettexturewidth" | "gettextureheight" | "gettexturemipmapcount" | "gettextureformat" => {
             let p = text(args, 0).unwrap_or_default();
             let path = if p.to_ascii_lowercase().starts_with("textures\\") { p } else { format!("textures\\{p}") };
@@ -528,8 +532,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 "gettexturewidth" => f64::from(w),
                 "gettextureheight" => f64::from(ht),
                 "gettexturemipmapcount" => f64::from(mips),
-                // DXT1..DXT5 return 1..5; uncompressed DDS with FourCC [0,0,0,0] returns
-                // -48 (0 - '0') [observed: w6d3_12_texture_format_dxt1_dxt3_dxt5_uncomp].
+                // DXT1/3/5 -> 1/3/5 (including pimpboy3billion_n.dds f=5) and probed
+                // uncompressed 24-bit DDS -> -48 [observed: w6d3_12_texture_format_dxt1_dxt3_dxt5_uncomp];
+                // DXT2/4 -> 2/4 [documented]; generalizing -48 to other zero-FourCC
+                // uncompressed DDS and 0 to other non-zero FourCC formats [hypothesis].
                 _ => match &cc {
                     b"DXT1" => 1.0,
                     b"DXT2" => 2.0,

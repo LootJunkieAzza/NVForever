@@ -48,8 +48,8 @@
             "GetTextureMipMapCount",
             "GetTextureFormat"
           ],
-          "claim": "Verify GetTextureFormat / Width / Height / MipMapCount across all 5 vanilla BSA DDS formats (DXT1, DXT3, DXT5, uncompressed 32-bit, uncompressed 24-bit), plus textures\\ and forward-slash textures/ prefix handling (SD-03).",
-          "expected": "Confirm exact JG format codes for DXT1(1), DXT3(3), DXT5(5), uncompressed 32-bit & 24-bit (0 vs non-zero), mip counts, and whether forward-slash textures/ prefix works.",
+          "claim": "Verify GetTextureFormat / Width / Height / MipMapCount across vanilla BSA DDS files (DXT1, DXT3, DXT5 including pimpboy3billion_n.dds which is DXT5 f=5, and uncompressed 24-bit), plus textures\\ and forward-slash textures/ prefix handling (SD-03).",
+          "expected": "Confirm exact JG format codes for DXT1(1), DXT3(3), DXT5(5), pimpboy3billion_n.dds (DXT5, 5), uncompressed 24-bit (-48), mip counts, and whether forward-slash textures/ prefix works.",
           "script_lines": [
             "int w1 = GetTextureWidth \"clutter\\snowglobes\\snowglobenelisafb_d.dds\"",
             "int h1 = GetTextureHeight \"clutter\\snowglobes\\snowglobenelisafb_d.dds\"",

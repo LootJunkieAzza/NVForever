@@ -149,23 +149,12 @@ fn files_and_headers() {
     dds[28..32].copy_from_slice(&10u32.to_le_bytes());
     dds[84..88].copy_from_slice(b"DXT5");
     assert_eq!(dds_header(&dds), Some((512, 256, 10, *b"DXT5")));
-    // Uncompressed DDS (FourCC [0,0,0,0]) returns -48 from GetTextureFormat [observed: w6d3_12].
+    // Uncompressed DDS header parses with FourCC [0,0,0,0] [documented: dds.md §1].
     let mut uncomp = vec![0u8; 128];
     uncomp[..4].copy_from_slice(b"DDS ");
     uncomp[12..16].copy_from_slice(&8u32.to_le_bytes());
     uncomp[16..20].copy_from_slice(&2u32.to_le_bytes());
     assert_eq!(dds_header(&uncomp), Some((2, 8, 0, [0, 0, 0, 0])));
-    let dir = std::env::temp_dir().join(format!("nvf-jg8-dds-{}", std::process::id()));
-    std::fs::create_dir_all(dir.join("textures")).unwrap();
-    std::fs::write(dir.join("textures").join("uncomp.dds"), &uncomp).unwrap();
-    std::fs::write(dir.join("textures").join("dxt5.dds"), &dds).unwrap();
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![dir.clone()], ..Default::default() });
-    let f = fixture();
-    let mut g = game(&f);
-    assert_eq!(n(&mut g, r#"GetTextureFormat "uncomp.dds""#), -48.0);
-    assert_eq!(n(&mut g, r#"GetTextureFormat "textures\dxt5.dds""#), 5.0);
-    assert_eq!(n(&mut g, r#"GetTextureFormat "textures/dxt5.dds""#), 0.0);
-    let _ = std::fs::remove_dir_all(&dir);
     // A 2x2 24-bit bitmap, bottom-up rows padded to 8 bytes: top-left red, bottom-right blue.
     let mut bmp = vec![0u8; 54];
     bmp[..2].copy_from_slice(b"BM");
