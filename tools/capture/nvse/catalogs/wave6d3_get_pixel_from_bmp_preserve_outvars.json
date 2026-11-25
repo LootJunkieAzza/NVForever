@@ -1,0 +1,65 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-get-pixel-from-bmp-preserve-outvars",
+  "description": "Read-only clean-room probe verifying GetPixelFromBMP returns 0 and leaves caller out-variables untouched when the BMP file is missing.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_get_pixel_from_bmp_preserve_outvars",
+      "title": "Wave 6D-3: GetPixelFromBMP preserves out-vars on failure",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p3_13_get_pixel_from_bmp_missing_only",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 51,
+          "functions_tested": [
+            "GetPixelFromBMP"
+          ],
+          "claim": "Verify GetPixelFromBMP return value and output-var preservation on missing BMP file.",
+          "expected": "Check whether missing BMP leaves pre-seeded (111,222,333) unchanged or zeros them.",
+          "script_lines": [
+            "float fR1 = 111",
+            "float fG1 = 222",
+            "float fB1 = 333",
+            "int iRet1 = GetPixelFromBMP \"Data\\W6D3_NoSuch.bmp\" fR1 fG1 fB1 0 0",
+            "float fR3 = 111",
+            "float fG3 = 222",
+            "float fB3 = 333",
+            "int iRet3 = GetPixelFromBMP \"Data\\W6D3_NoSuch.bmp\" fR3 fG3 fB3 -1 -1",
+            "PrintToConsole \"PROBE|w6d3p3_13_get_pixel_from_bmp_missing_only|miss=%g(%.0f,%.0f,%.0f)|neg=%g(%.0f,%.0f,%.0f)\" iRet1 fR1 fG1 fB1 iRet3 fR3 fG3 fB3"
+          ]
+        }
+      ]
+    }
+  ]
+}

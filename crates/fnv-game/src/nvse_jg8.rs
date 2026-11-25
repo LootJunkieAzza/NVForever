@@ -538,12 +538,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 },
             }))
         }
-        // `path rOut gOut bOut x y` (the VM passes path, x, y) [documented]; 0 0 0 when
-        // the file or the pixel is not there [hypothesis].
+        // `path rOut gOut bOut x y` (the VM passes path, x, y) [documented]; returns 0
+        // and leaves caller output variables untouched when the file or pixel is missing
+        // [observed: w6d3p3_13_get_pixel_from_bmp_missing_only].
         "getpixelfrombmp" => {
             let px = text(args, 0).and_then(|p| game_file(&p)).and_then(|b| bmp_pixel(&b, num(args, 1, 0.0) as i64, num(args, 2, 0.0) as i64));
-            let c = px.unwrap_or([0; 3]);
-            return Some(Ok(outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])])));
+            return Some(Ok(match px {
+                Some(c) => outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])]),
+                None => outputs(g, 0.0, &[]),
+            }));
         }
         // ---- arrays [documented: Ar_Shuffle, a new shuffled array; Ar_SortEditor, a new
         // array of the forms by editor ID, `reverse` the other way; hypothesis: the IDs

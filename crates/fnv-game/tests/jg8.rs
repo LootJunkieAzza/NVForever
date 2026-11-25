@@ -162,6 +162,16 @@ fn files_and_headers() {
     assert_eq!(bmp_pixel(&bmp, 1, 0), Some([0, 255, 0]));
     assert_eq!(bmp_pixel(&bmp, 1, 1), Some([0, 0, 255]));
     assert_eq!(bmp_pixel(&bmp, 2, 0), None);
+    // Missing BMP file returns 0 and leaves caller (r, g, b) untouched [observed: w6d3p3_13].
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(
+        s(
+            &mut g,
+            "float fR\nfloat fG\nfloat fB\nint iRet\nlet fR := 111\nlet fG := 222\nlet fB := 333\nlet iRet := GetPixelFromBMP \"Data\\nvseprobe_no_such.bmp\" fR fG fB 0 0\nSetFunctionValue (sv_Construct \"%g:%g,%g,%g\" iRet fR fG fB)"
+        ),
+        "0:111,222,333"
+    );
 }
 
 #[test]
