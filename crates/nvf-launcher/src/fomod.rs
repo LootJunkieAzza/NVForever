@@ -1385,6 +1385,26 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ReadFail> {
     let refused = |e: &dyn std::fmt::Display| ReadFail::Refused(bad(e));
     let f = std::fs::File::open(archive).map_err(|e| ReadFail::Unreadable(bad(&e)))?;
     let mut z = zip::ZipArchive::new(f).map_err(|e| ReadFail::Unreadable(bad(&e)))?;
+    // First every entry's name, without decompressing anything: a name or link refused here is
+    // final. Only when every name passes may an entry this build cannot decompress (it decodes
+    // Stored and Deflated only) or an encrypted one hand the archive to an outside tool.
+    let mut decodable = true;
+    for i in 0..z.len() {
+        let entry = z.by_index_raw(i).map_err(|e| refused(&e))?;
+        let name = entry.name().map(|n| n.into_owned()).unwrap_or_default();
+        if entry.enclosed_name().is_none() {
+            return Err(refused(&format!("entry {name} would land outside the folder")));
+        }
+        if entry.is_symlink() {
+            return Err(refused(&format!("entry {name} is a link")));
+        }
+        if entry.encrypted() || !matches!(entry.compression(), zip::CompressionMethod::Stored | zip::CompressionMethod::Deflated) {
+            decodable = false;
+        }
+    }
+    if !decodable {
+        return Err(ReadFail::Unreadable(bad(&"an entry is encrypted or packed in a way this reader does not decode")));
+    }
     std::fs::create_dir_all(dest).map_err(|e| ReadFail::Refused(format!("{}: {e}", dest.display())))?;
     for i in 0..z.len() {
         let mut entry = z.by_index(i).map_err(|e| refused(&e))?;
@@ -1955,6 +1975,51 @@ mod tests {
         let e = stage_error(&tar_path);
         assert!(e.ends_with(&super::rel_path(r"C:\Windows\x").unwrap_err()), "{e}");
         assert_eq!(std::fs::read_dir(&t).unwrap().count(), 1, "only the archive");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// A zip of `entries` (name, bytes), stored, then marked as packed with method `method` in
+    /// every local and central header, so the entries claim a method this build cannot decode.
+    fn zip_marked(path: &Path, entries: &[(&str, &[u8])], method: u16) {
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+            let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            for (name, body) in entries {
+                z.start_file(*name, o).unwrap();
+                z.write_all(body).unwrap();
+            }
+            z.finish().unwrap();
+        }
+        let mut b = std::fs::read(path).unwrap();
+        let set = |b: &mut Vec<u8>, sig: &[u8], at: usize| {
+            let mut i = 0;
+            while let Some(k) = b[i..].windows(4).position(|w| w == sig) {
+                let p = i + k + at;
+                b[p..p + 2].copy_from_slice(&method.to_le_bytes());
+                i += k + 4;
+            }
+        };
+        set(&mut b, b"PK\x03\x04", 8);
+        set(&mut b, b"PK\x01\x02", 10);
+        std::fs::write(path, b).unwrap();
+    }
+
+    #[test]
+    fn an_entry_this_build_cannot_decode_leaves_the_archive_to_an_outside_tool_only_after_its_names_pass() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-method-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        // 12 is bzip2, which this build of the zip reader does not decode.
+        let packed = t.join("Packed.zip");
+        zip_marked(&packed, &[("Mod/Plugin.esp", b"TES4")], 12);
+        assert!(matches!(super::extract_zip(&packed, &t.join("out")), Err(super::ReadFail::Unreadable(_))));
+        assert!(!t.join("out").exists(), "nothing unpacked before the outside tool");
+        // A refused name stays final, whatever the method: through `stage`, no outside tool
+        // gets the archive after it.
+        let evil = t.join("Evil.zip");
+        zip_marked(&evil, &[("Mod/Plugin.esp", b"TES4"), ("../evil.esp", b"TES4")], 12);
+        let e = stage_error(&evil);
+        assert!(e.contains("would land outside the folder"), "{e}");
         let _ = std::fs::remove_dir_all(&t);
     }
 
