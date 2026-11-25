@@ -1200,7 +1200,8 @@ impl Vm<'_, '_> {
 
 /// ValidateRegex's code for a pattern error [documented: ValidateRegex lists the codes;
 /// observed: `w6d11_31_validateregex_error_codes_and_outvar` (`brk=5`, `par=6`, `brc=8`
-/// for `a{3,1}`, `rng=9` for `[z-a]`, `rep=11`, `esc=3`); mapping of remaining
+/// for `a{3,1}`, `rng=9` for `[z-a]`, `rep=11`, `esc=3`); `a{x}` (`bx=8:90`) still returns
+/// `0` under `fancy-regex`'s literal-`{` fallback (deferred follow-up); mapping of remaining
 /// `fancy-regex` error strings is our reading, hypothesis]: 5 brackets, 6 parentheses,
 /// 8 bad brace range, 7 other braces, 3 escape, 4 back-reference, 9 range, 11 repeat,
 /// else 14 (unknown).
