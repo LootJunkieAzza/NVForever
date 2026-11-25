@@ -171,9 +171,11 @@ fn arrays_colours_and_menus() {
     // [documented: Ar_SortEditor by editor ID, reverse with 1].
     assert_eq!(s(&mut g, "array_var a\nlet a := Ar_SortEditor (Ar_List ZuluThing, AlphaThing)\nSetFunctionValue (GetEditorID a[0])"), "AlphaThing");
     assert_eq!(s(&mut g, "array_var a\nlet a := Ar_SortEditor (Ar_List AlphaThing, ZuluThing) 1\nSetFunctionValue (GetEditorID a[0])"), "ZuluThing");
-    // [documented: Ar_Shuffle keeps the elements].
+    // [documented: Ar_Shuffle keeps the elements; observed: w6d3p5_15 empty -> ar_Null (-1)].
     assert_eq!(n(&mut g, "Ar_Size (Ar_Shuffle (Ar_List 1, 2, 3, 4, 5))"), 5.0);
     assert_eq!(q(&mut g, "array_var a\nlet a := Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)\nSetFunctionValue (a[0] + a[1] + a[2] + a[3] + a[4])"), XVal::Num(15.0));
+    assert_eq!(n(&mut g, "Ar_Size (Ar_Shuffle (Ar_List 77))"), 1.0);
+    assert_eq!(n(&mut g, "Ar_Size (Ar_Shuffle (Ar_Construct \"array\"))"), -1.0);
     // [documented: GetSystemColor / GetSystemColorAlt, SetSystemColor's colour, amber
     // before].
     // [observed: probe set jg8, 1/4/5 FFB642, 2 FF432A, 3 21E779].
