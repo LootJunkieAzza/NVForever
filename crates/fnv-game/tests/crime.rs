@@ -482,15 +482,15 @@ fn killing_by_alignment_and_murder() {
     sees(&mut g, SHOPKEEPER_REF);
     g.crimes.take_notes();
     assert!(g.kill(FormId(TOWNSMAN_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), 0.0);
+    assert_eq!(karma(&mut g), 50.0);
     assert_eq!(call(&mut g, IS_PC_A_MURDERER, None, &[]), 1.0);
     let notes = g.crimes.take_notes();
     assert!(notes.iter().any(|n| matches!(n, Note::FactionEnemy { faction } if *faction == FormId(TOWN))));
     assert!(notes.iter().any(|n| matches!(n, Note::Crime { kind: Kind::Murder, hostile, .. } if hostile == &vec![FormId(SHOPKEEPER_REF)])));
     assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
-    // A Neutral stranger murdered unseen: a quarter of the setting.
+    // A Neutral stranger murdered unseen: a quarter of the setting (owner [design]).
     assert!(g.kill(FormId(STRANGER_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), -25.0);
+    assert_eq!(karma(&mut g), 25.0);
     // A convict made from the Fiend's template is as Evil as the Fiend to scripts, but
     // holds 0 itself: killing it gives no karma (the NCRCF convict of 2026-10-19 gave
     // none), and is no murder.
@@ -498,15 +498,15 @@ fn killing_by_alignment_and_murder() {
     assert_eq!(g.alignment(FormId(CONVICT)), Alignment::Evil);
     assert_eq!(g.kill_alignment(FormId(CONVICT_REF)), Alignment::Neutral);
     assert!(g.kill(FormId(CONVICT_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), -25.0);
+    assert_eq!(karma(&mut g), 25.0);
     assert_eq!(g.crimes.take_notes().iter().filter(|n| matches!(n, Note::Crime { kind: Kind::Murder, .. })).count(), 1);
-    // Very Evil: + the setting; Very Good: − the setting (observed: a Sunny copy, 900).
+    // Very Evil: +fKarmaModKillingVeryEvilActor (+2); Very Good: −100 (observed: w6d8p2_31).
     assert_eq!(g.alignment(FormId(BOSS_REF)), Alignment::VeryEvil);
     assert!(g.kill(FormId(BOSS_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), 75.0);
+    assert_eq!(karma(&mut g), 27.0);
     assert_eq!(g.alignment(FormId(SAINT_REF)), Alignment::VeryGood);
     assert!(g.kill(FormId(SAINT_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), -25.0);
+    assert_eq!(karma(&mut g), -73.0);
 }
 
 #[test]
@@ -514,10 +514,10 @@ fn kill_karma_by_alignment() {
     use fnv_game::crime::{kill_karma, Settings};
     let s = Settings::default();
     for (a, fight, murder) in [
-        (Alignment::VeryEvil, 100.0, 100.0),
+        (Alignment::VeryEvil, 2.0, 2.0),
         (Alignment::Evil, 100.0, 100.0),
         (Alignment::Neutral, 0.0, -25.0),
-        (Alignment::Good, -100.0, -100.0),
+        (Alignment::Good, -50.0, -50.0),
         (Alignment::VeryGood, -100.0, -100.0),
     ] {
         assert_eq!(kill_karma(a, false, true, &s), fight, "{a:?} in a fight");

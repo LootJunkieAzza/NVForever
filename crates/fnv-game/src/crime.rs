@@ -285,6 +285,9 @@ pub enum Note {
 pub struct Settings {
     pub stealing: f64,
     pub killing_evil: f64,
+    /// fKarmaModKillingVeryEvilActor (2.0 in FalloutNV.esm) [observed: 2026-11-25,
+    /// w6d8p4_31c_karma_gmsts_and_extra_kills & w6d8p5_31d_karma_kill_gmsts_all].
+    pub killing_very_evil: f64,
     pub guard_warnings: f64,
     pub warning_timer: f64,
     /// KarmaVeryEvil, KarmaEvil, KarmaGood, KarmaVeryGood.
@@ -298,7 +301,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { stealing: -5.0, killing_evil: 100.0, guard_warnings: 2.0, warning_timer: 5.0, bounds: [-750.0, -250.0, 250.0, 750.0], cool_down_days: 3.0 }
+        Settings { stealing: -5.0, killing_evil: 100.0, killing_very_evil: 2.0, guard_warnings: 2.0, warning_timer: 5.0, bounds: [-750.0, -250.0, 250.0, 750.0], cool_down_days: 3.0 }
     }
 }
 
@@ -310,6 +313,7 @@ impl Settings {
         Settings {
             stealing: s("fKarmaModStealing", d.stealing),
             killing_evil: s("fKarmaModKillingEvilActor", d.killing_evil),
+            killing_very_evil: s("fKarmaModKillingVeryEvilActor", d.killing_very_evil),
             guard_warnings: s("iGuardWarnings", d.guard_warnings),
             warning_timer: s("fAITrespassWarningTimer", d.warning_timer),
             cool_down_days: s("iCoolDownTimerSetting", d.cool_down_days),
@@ -341,19 +345,24 @@ const EXPIRY_SLACK_DAYS: f64 = 1e-4;
 pub const NEUTRAL_MURDER_SHARE: f64 = 0.25;
 
 /// The karma for the player's kill of an actor of `alignment` (the kill's,
-/// [`Game::kill_alignment`]): an Evil or Very Evil NPC gives `fKarmaModKillingEvilActor`
-/// [observed: −500 victims gave +100, capture o6_02 2026-10-31, crime-karma.md §4.1;
-/// Very Evil: hypothesis, the setting's name], a Good or Very Good one takes as much
-/// [observed for Very Good (900): −100, o6_02; Good: hypothesis], a `murder`ed Neutral one a
-/// quarter of it [design]. Creatures give none: their karma includes plain animals (a
-/// dead radroach is Evil in FalloutNV.esm) [design].
+/// [`Game::kill_alignment`]): an Evil NPC gives `fKarmaModKillingEvilActor` (+100), a
+/// Very Evil NPC gives `fKarmaModKillingVeryEvilActor` (+2 in FalloutNV.esm), a Very Good
+/// NPC takes `fKarmaModKillingEvilActor` (−100), and a Good NPC takes half of it (−50)
+/// [observed: capture o6_02 2026-10-31 and 2026-11-25 live probes `w6d8p2_31_kill_karma_all_alignments`
+/// (`vg=-100 g=-50 n=0 e=100 ve=2 cr=0 tpl=0`), `w6d8p4_31c_karma_gmsts_and_extra_kills`
+/// (`gEv=100 gVEv=2 ... doc(k=500,d=-50) ... trHost(d=-50)`), and `w6d8p5_31d_karma_kill_gmsts_all`
+/// (`e=100 ve=2`), crime-karma.md §4]; a `murder`ed Neutral NPC takes a quarter of
+/// `fKarmaModKillingEvilActor` (−25) [design: owner policy preserved; original gave 0 for
+/// `Kill Player` on GSChet]. Creatures give none [observed: `cr=0` for Evil CrRadroach].
 pub fn kill_karma(alignment: Alignment, murder: bool, npc: bool, s: &Settings) -> f64 {
     match alignment {
         _ if !npc => 0.0,
-        a if a.evil() => s.killing_evil,
-        a if a.good() => -s.killing_evil,
-        _ if murder => -s.killing_evil * NEUTRAL_MURDER_SHARE,
-        _ => 0.0,
+        Alignment::VeryEvil => s.killing_very_evil,
+        Alignment::Evil => s.killing_evil,
+        Alignment::VeryGood => -s.killing_evil,
+        Alignment::Good => -s.killing_evil * 0.5,
+        Alignment::Neutral if murder => -s.killing_evil * NEUTRAL_MURDER_SHARE,
+        Alignment::Neutral => 0.0,
     }
 }
 
@@ -1252,3 +1261,7 @@ mod tests {
         assert!(!CellDef::from_raw(&[sub(b"DATA", vec![0x01])], 0, &Some).matters());
     }
 }
+
+#[cfg(test)]
+#[path = "w6d8_kill_karma_tests.rs"]
+mod w6d8_kill_karma_tests;
