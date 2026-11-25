@@ -8,8 +8,13 @@ are kept on the other machine); choices the pages leave open are tagged [hypothe
 Setters change the form for the session and are read by this batch's getters and the
 earlier ones (GetAmmoSpeed, GetAmmoConsumedPercent, GetAmmoCasing, GetNumAmmoEffects,
 GetNthAmmoEffect, GetAmmoEffectTraitNumeric, GetClimateNumWeatherTypes,
-GetClimateNthWeather…). The setters of a trait return 0 [hypothesis: as the record
-setters of batch 5 were observed to, jip-records-5.md].
+GetClimateNthWeather…). The setters of a trait return 0 [observed: jip7 below; Fallout:
+New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe
+`b3_jip_ex_04_set_ammo_trait_ret` (`tools/capture/nvse/catalogs/wave4b_extenders.json`,
+#3679, calling `SetAmmoTraitNumeric rAm 0 1.5` on 10mm Ammo `0x4241`):
+`PROBE|b3_jip_ex_04_set_ammo_trait_ret|s0=1.00,ret=0,s1=1.50`; no DLL or source
+consulted].
 
 ## 1. Ammunition and ammo effects
 

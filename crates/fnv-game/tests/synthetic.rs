@@ -3505,6 +3505,63 @@ fn event_handlers_are_set_dispatched_filtered_and_removed() {
 }
 
 #[test]
+fn set_event_handler_and_alt_deduplicate_identical_registrations() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("ref cb\nint r1\nint r2\nint r3\nBegin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    // SetEventHandler: duplicate returns 0 and dispatches once.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x}
+               let TestGlobal := TestGlobal + x
+             End)
+             let r1 := SetEventHandler \"W6Dup\" cb
+             let r2 := SetEventHandler \"W6Dup\" cb
+             DispatchEventAlt \"W6Dup\" 1
+             SetFunctionValue (r1 * 10 + r2)",
+        ),
+        XVal::Num(10.0)
+    );
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 1.0);
+    // SetEventHandlerAlt: duplicate with identical filter returns 0 and dispatches once;
+    // distinct priority is accepted.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x}
+               let TestGlobal := TestGlobal + x
+             End)
+             let r1 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5
+             let r2 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5
+             DispatchEventAlt \"W6DupAlt\" 5
+             let r3 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5 \"priority\"::2
+             SetFunctionValue (r1 * 100 + r2 * 10 + r3)",
+        ),
+        XVal::Num(101.0)
+    );
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 6.0);
+    // Multiset filter equality: repeated filter pairs (1::5, 1::5) must not match distinct
+    // pairs of equal length (1::5, 2::6), while reordered identical pairs (2::6, 1::5) deduplicate.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x, int y}
+               let TestGlobal := TestGlobal + x + y
+             End)
+             let r1 := SetEventHandlerAlt \"W6DupMulti\" cb 1::5 1::5
+             let r2 := SetEventHandlerAlt \"W6DupMulti\" cb 1::5 2::6
+             let r3 := SetEventHandlerAlt \"W6DupMulti\" cb 2::6 1::5
+             SetFunctionValue (r1 * 100 + r2 * 10 + r3)",
+        ),
+        XVal::Num(110.0)
+    );
+}
+
+#[test]
 fn get_game_loaded_and_restarted_are_true_once_per_script() {
     // [documented: GetGameLoaded; GetGameRestarted] once per script after a load / per
     // session; a session's SetEventHandler registrations carry over a load.
@@ -3652,6 +3709,35 @@ fn refresh_items_list_sets_one_shot_transient_request() {
     assert!(g.take_refresh_items_list());
     assert!(!g.refresh_items_list_pending());
     assert!(!g.take_refresh_items_list());
+}
+
+#[test]
+fn set_delay_elapsed_returns_zero_and_updates_remaining_delay() {
+    // [observed 2026-11-24: w6t2_31_xnvse_items_ammo_rounds_and_ingrid -> del=0.00]
+    use fnv_script::vm::XVal;
+    let q_data = [vec![1u8, 0, 0, 0], 5.0f32.to_le_bytes().to_vec()].concat();
+    let quest = record(b"QUST", 0, 0x0000_0820, &[sub(b"EDID", z("TestDelayQuest")), sub(b"DATA", q_data)]);
+    let bytes = [tes4(), top(b"QUST", &quest)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "DelayQuest.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+
+    // SetDelayElapsed returns 0.0 (not secs) and adjusts remaining delay.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed TestDelayQuest 2.5)"), XVal::Num(0.0), "SetDelayElapsed returns 0.0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDelayElapsed TestDelayQuest)"), XVal::Num(2.5), "remaining delay updated to 2.5s");
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed TestDelayQuest 0)"), XVal::Num(0.0), "SetDelayElapsed 0 returns 0.0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDelayElapsed TestDelayQuest)"), XVal::Num(0.0), "remaining delay updated to 0.0s");
+    // Missing/null form returns 0.0 safely.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed 0 2.5)"), XVal::Num(0.0), "null quest returns 0.0");
 }
 
 #[test]

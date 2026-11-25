@@ -334,7 +334,7 @@ mod shared_table_tests {
     /// full-detail scenery row; #3014's distant objects row; #2993's aerial perspective row;
     /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row; #2991's volumetric clouds row; #3783's occlusion culling row; #3032's volumetric light row and its
     /// strength; the physical lighting row), by the group it registers with.
-    const KNOWN: [(&str, &str); 158] = [
+    pub(super) const KNOWN: &[(&str, &str)] = &[
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
@@ -496,11 +496,11 @@ mod shared_table_tests {
     ];
 
     /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).
-    const TWEAK_PREFIX: &str = "tweak-";
+    pub(super) const TWEAK_PREFIX: &str = "tweak-";
 
     /// Every row #1892 registers under Tweaks (PR head 25bc53a28, `engine/nvf-play/src/tweaks.rs`),
     /// in its order, without [`TWEAK_PREFIX`]: what the table places ahead of it.
-    const TWEAK_ROWS: &str = "\
+    pub(super) const TWEAK_ROWS: &str = "\
         discovered-sound level-sound-every-a level-sound-a level-sound-every-b level-sound-b xp-multiplier \
         no-xp-messages no-karma-messages no-quest-failed no-location-popup no-objective-popup disable-fast-travel \
         midair-fast-travel fast-travel-enemies fast-travel-encumbered no-red-crosshair hide-enemy-markers \
@@ -608,17 +608,17 @@ mod shared_table_tests {
         sneak-run-ap-cost sneak-run-ap-endurance no-lock-encounter-zone-levels faster-sleep-wait";
 
     /// [`TWEAK_ROWS`] as keys, under the Tweaks tab's group.
-    fn tweak_rows() -> Vec<(&'static str, &'static str)> {
+    pub(super) fn tweak_rows() -> Vec<(&'static str, &'static str)> {
         TWEAK_ROWS.split_whitespace().map(|k| (&*Box::leak(format!("{TWEAK_PREFIX}{k}").into_boxed_str()), TWEAKS_TAB)).collect()
     }
 
     /// Whether `key` is one of [`TWEAK_ROWS`].
-    fn is_tweak(key: &str) -> bool {
+    pub(super) fn is_tweak(key: &str) -> bool {
         key.strip_prefix(TWEAK_PREFIX).is_some_and(|k| TWEAK_ROWS.split_whitespace().any(|r| r == k))
     }
 
     /// Stewie's Tweaks' groups as the Tweaks tab lists them [design: owner 2026-11-15].
-    const TWEAK_GROUPS: [&str; 8] = ["Gameplay", "Combat", "Quality of Life", "HUD", "Menus", "Hotkeys", "Cheats", "Misc"];
+    pub(super) const TWEAK_GROUPS: [&str; 8] = ["Gameplay", "Combat", "Quality of Life", "HUD", "Menus", "Hotkeys", "Cheats", "Misc"];
 
     #[test]
     fn the_table_names_each_key_once_in_one_of_the_tabs() {
@@ -636,7 +636,7 @@ mod shared_table_tests {
         // Every row there is has its place in the table; the table names no other but the
         // Controls tab's own rows and #1892's tweaks, each of those on the Tweaks tab.
         let named: Vec<&str> = SECTIONS.iter().flat_map(|s| s.keys.iter().copied()).filter(|k| !k.starts_with(CONTROL_PREFIX)).collect();
-        for (k, _) in KNOWN {
+        for &(k, _) in KNOWN {
             assert!(named.contains(&k), "{k} has no place");
         }
         for k in &named {
@@ -675,14 +675,14 @@ mod shared_table_tests {
         // Desktop reference strictly matches the desktop layout (no ANDROID_SECTIONS).
         let desktop_ref = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/settings-reference.md")).unwrap();
         let desktop_listed = parse_ref(&desktop_ref);
-        let desktop_list = registry(&KNOWN);
+        let desktop_list = registry(KNOWN);
         let desktop_layout = super::resolve_desktop_layout(&desktop_list);
         for (key, tab, heading) in &desktop_listed {
             let i = desktop_list.iter().position(|s| s.key == key).unwrap_or_else(|| panic!("{key}: in docs/settings-reference.md, but desktop KNOWN has no such row"));
             let p = desktop_layout.placement_of(i).unwrap();
             assert_eq!((p.tab, p.heading), (tab.as_str(), heading.as_deref()), "{key}: the reference places it under {tab} › {heading:?}, the page under {}", p.path());
         }
-        for (k, _) in KNOWN {
+        for &(k, _) in KNOWN {
             let p = desktop_layout.placement_of(desktop_list.iter().position(|s| s.key == k).unwrap()).unwrap();
             assert!(p.tab == TWEAKS_TAB || desktop_listed.iter().any(|(n, _, _)| n == k), "{k} ({}) is not in docs/settings-reference.md", p.path());
         }
@@ -716,7 +716,7 @@ mod shared_table_tests {
 
     #[test]
     fn the_tabs_come_first_with_every_row_once_in_the_tables_order() {
-        let list = registry(&KNOWN);
+        let list = registry(KNOWN);
         let l = resolve_layout(&list);
         assert_eq!(l.tab_names(), TAB_ORDER, "no group is a tab of its own: every row is named");
         assert_eq!(l.unnamed(), 0);
@@ -768,13 +768,13 @@ mod shared_table_tests {
         // (#3000); only its binding is, while it is off.
         assert!(needs("sprint").is_empty());
         // The registry itself is left as it was: its order and each row's group.
-        let again = registry(&KNOWN);
+        let again = registry(KNOWN);
         assert!(list.iter().zip(&again).all(|(a, b)| a.key == b.key && a.group == b.group && a.label == b.label && a.note == b.note));
     }
 
     #[test]
     fn a_closed_category_keeps_its_heading_and_an_empty_line_follows_only_an_open_one() {
-        let list = registry(&KNOWN);
+        let list = registry(KNOWN);
         let l = resolve_layout(&list);
         let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
         let g = lines(&list, &l, "Gameplay", closed);
@@ -839,11 +839,17 @@ mod shared_table_tests {
     #[test]
     fn every_tweak_of_1892_has_its_group_and_category() {
         let tweaks = tweak_rows();
-        // 564 less the console and screenshot keys, bindings since 2026-11-16 (Controls),
-        // plus Keep Chosen Ammo (#3305), the four Stewie 9.45 sub-options (#3179),
-        // Running Costs AP sneak options (#3183), Stewie 9.65-9.70 sub-options (#3184),
-        // and No Encounter Zone Level Lock (#3878), plus Faster Sleep and Wait (#3193).
-        assert_eq!(tweaks.len(), 575);
+        let expected_tweaks = TWEAK_ROWS.split_whitespace().count();
+        let placed_tweaks = SECTIONS
+            .iter()
+            .flat_map(|s| s.keys.iter())
+            .filter(|k| k.starts_with(TWEAK_PREFIX))
+            .count();
+        let unique_tweaks: std::collections::HashSet<&str> = tweaks.iter().map(|(k, _)| *k).collect();
+        assert_eq!(unique_tweaks.len(), tweaks.len(), "duplicate tweak key in TWEAK_ROWS");
+        assert_eq!(tweaks.len(), expected_tweaks);
+        assert_eq!(tweaks.len(), placed_tweaks, "TWEAK_ROWS must match tweaks placed in SECTIONS");
+        assert!(tweaks.len() >= 575);
         let mut rows: Vec<(&'static str, &'static str)> = KNOWN.to_vec();
         rows.extend(&tweaks);
         let list = registry(&rows);
@@ -883,7 +889,7 @@ mod shared_table_tests {
         assert_eq!(needs("tweak-no-self-explosion-non-hostiles")[0].parent, "tweak-no-self-explosion-damage");
         assert_eq!(needs("tweak-grabbing-is-theft-min-value")[0].parent, "tweak-grabbing-is-theft");
         // The engine's own tabs are as they were.
-        assert_eq!(keys(&list, &l, "Audio"), keys(&registry(&KNOWN), &resolve_layout(&registry(&KNOWN)), "Audio"));
+        assert_eq!(keys(&list, &l, "Audio"), keys(&registry(KNOWN), &resolve_layout(&registry(KNOWN)), "Audio"));
     }
 
     #[test]
@@ -919,6 +925,7 @@ mod shared_table_tests {
 #[cfg(test)]
 mod android_profile_tests {
     use super::*;
+    use super::shared_table_tests::{is_tweak, tweak_rows, TWEAK_GROUPS, TWEAK_PREFIX, TWEAK_ROWS};
     use crate::settings::Settings;
     use super::DESKTOP_TAB_ORDER as TAB_ORDER;
 
@@ -930,212 +937,9 @@ mod android_profile_tests {
         resolve_layout_with(list, &MOBILE_TAB_ORDER, MOBILE_SECTIONS, ANDROID_SECTIONS)
     }
 
-    // Test metadata only: the shared-reference case must check the selected file
-    // against every registered key, including its explicit Android rows.
-    pub(super) fn registered_rows() -> &'static [(&'static str, &'static str)] {
-        &KNOWN
-    }
-
-    fn row(key: &'static str, group: &'static str) -> Setting {
-        Setting { key, group, label: key, note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None }
-    }
-
-    /// The registry as `Settings::add` orders it.
-    fn registry(rows: &[(&'static str, &'static str)]) -> Vec<Setting> {
-        let mut s = Settings::default();
-        for (k, g) in rows {
-            s.add(row(k, g));
-        }
-        s.list().to_vec()
-    }
-
-    /// A tab's lines, every category open, every line shown: `[Heading]`, keys, `@control`,
-    /// and "" for an empty line.
-    fn keys(list: &[Setting], l: &ResolvedLayout, tab: &str) -> Vec<String> {
-        lines(list, l, tab, |_| true)
-    }
-
-    fn lines(list: &[Setting], l: &ResolvedLayout, tab: &str, open: impl Fn(&Placement) -> bool) -> Vec<String> {
-        l.tab_entries(tab, None, |_| true, open)
-            .into_iter()
-            .map(|e| match e {
-                LayoutEntry::Heading(p) => format!("[{}]", p.heading.unwrap_or("")),
-                LayoutEntry::Setting(i) => list[i].key.to_string(),
-                LayoutEntry::Control(c) => format!("@{c}"),
-                LayoutEntry::Gap => String::new(),
-            })
-            .collect()
-    }
-
-    /// Every row the registry can hold today (upstream main be6db0948: #1966's quality row
-    /// (its enhanced row removed by the menu overhaul), #2014's counter rows, the VATS rows,
-    /// #2198's upscaler rows, #2169's FSR library row, #2242's upscaling counter row, #2317's
-    /// Generated frames row, the field of view rows, the menu scale and Physics rate rows,
-    /// #2662's grass fires, #2550's terrain height blending, #2551's terrain anti-tiling,
-    /// #2688's sound cover, #2149's smooth terrain and its Debug row terrain wireframe, the
-    /// overhaul's menu font, the Advanced Movement rows of tech/movement-inertia, Weapon
-    /// Inertia and Camera Motion in place of weapon sway and head bob, and the Quick Loot
-    /// rows), by the group it registers with.
-    const KNOWN: [(&str, &str); 229] = [
-        ("detached-camera", "Gameplay"),
-        ("gore-shake", "Gameplay"),
-        ("advanced-movement", "Gameplay"),
-        ("movement-weight", "Gameplay"),
-        ("movement-inertia", "Gameplay"),
-        ("weapon-handling", "Gameplay"),
-        ("advanced-recoil", "Gameplay"),
-        ("sprint", "Gameplay"),
-        ("animation-smoothing", "Gameplay"),
-        ("sound-cover", "Gameplay"),
-        ("menu-pause", "Gameplay"),
-        ("dialogue-goodbye-hint", "Gameplay"),
-        ("reload-slows", "Gameplay"),
-        ("grass-fire", "Gameplay"),
-        ("quick-loot", "Gameplay"),
-        ("quick-loot-scale", "Gameplay"),
-        ("quick-loot-background", "Gameplay"),
-        ("quick-loot-weight", "Gameplay"),
-        ("quick-loot-value", "Gameplay"),
-        ("quick-loot-value-per-weight", "Gameplay"),
-        ("music", "Gameplay"),
-        ("voice", "Gameplay"),
-        ("dialogue-look", "Gameplay"),
-        ("dialogue-recentre", "Gameplay"),
-        ("dialogue-zoom", "Gameplay"),
-        ("dynamic-crosshair", "Gameplay"),
-        ("crosshair-style", "Gameplay"),
-        ("sneak-gauges", "Gameplay"),
-        ("UsePipBoy", "Gameplay"),
-        ("kill-camera", "Gameplay"),
-        ("vats-style", "Gameplay"),
-        ("vats-slowdown", "Gameplay"),
-        ("difficulty", "Gameplay"),
-        ("difficulty-player-damage", "Gameplay"),
-        ("difficulty-npc-damage", "Gameplay"),
-        ("difficulty-kill-xp", "Gameplay"),
-        ("hardcore", "Gameplay"),
-        ("lip-sync", "Gameplay"),
-        ("true-iron-sights", "Gameplay"),
-        ("scope-3d", "Gameplay"),
-        ("button-style", "Controller"),
-        ("aim-assist", "Controller"),
-        ("aim-slowdown", "Controller"),
-        ("aim-lock", "Controller"),
-        ("autosave-travel", "Saving"),
-        ("autosave-fast-travel", "Saving"),
-        ("autosave-wait", "Saving"),
-        ("autosave-sleep", "Saving"),
-        ("autosave-scripts", "Saving"),
-        ("hud-colour", "Interface"),
-        ("hud-red", "Interface"),
-        ("hud-green", "Interface"),
-        ("hud-blue", "Interface"),
-        ("pipboy-colour", "Interface"),
-        ("pipboy-red", "Interface"),
-        ("pipboy-green", "Interface"),
-        ("pipboy-blue", "Interface"),
-        ("language", "Interface"),
-        ("menu-font", "Interface"),
-        ("head-tracking", "World"),
-        ("foot-ik", "World"),
-        ("sky-clock", "World"),
-        ("resolution", "Display"),
-        ("borderless", "Display"),
-        ("hdr-output", "Display"),
-        ("monitor", "Display"),
-        ("first-person-body", "Display"),
-        ("weapon-inertia", "Display"),
-        ("camera-motion", "Display"),
-        ("weapon-lower", "Display"),
-        ("sun-shadows", "Display"),
-        ("grass", "Display"),
-        ("distant-lod", "Display"),
-        ("grade", "Display"),
-        ("field-of-view", "Display"),
-        ("viewmodel-field-of-view", "Display"),
-        ("ui-scale", "Display"),
-        ("menu-scale", "Display"),
-        ("fps-counter", "Display"),
-        ("fps-counter-fps", "Display"),
-        ("fps-counter-low", "Display"),
-        ("fps-counter-graph", "Display"),
-        ("fps-counter-split", "Display"),
-        ("fps-counter-cpu", "Display"),
-        ("fps-counter-gpu", "Display"),
-        ("fps-counter-vram", "Display"),
-        ("fps-counter-ram", "Display"),
-        ("fps-counter-loaded", "Display"),
-        ("fps-counter-upscaling", "Display"),
-        ("display-sync", "Display"),
-        ("frame-cap", "Display"),
-        ("physics-rate", "Display"),
-        ("object-distance", "Display"),
-        ("actor-distance", "Display"),
-        ("item-distance", "Display"),
-        ("shadow-distance", "Display"),
-        ("grass-distance", "Display"),
-        ("tree-distance", "Display"),
-        ("upscaler", "Graphics"),
-        ("upscaler-quality", "Graphics"),
-        ("dlss-model", "Graphics"),
-        ("fsr-library", "Graphics"),
-        ("frame-generation", "Graphics"),
-        ("frame-generation-frames", "Graphics"),
-        ("anti-aliasing", "Graphics"),
-        ("latency-reduction", "Graphics"),
-        ("shadow-filter", "Graphics"),
-        ("shadow-resolution", "Graphics"),
-        ("ambient-occlusion", "Graphics"),
-        ("fine-shadows", "Graphics"),
-        ("cloud-shadows", "Graphics"),
-        ("terrain-shadows", "Graphics"),
-        ("light-shadows", "Graphics"),
-        ("bloom", "Graphics"),
-        ("glow", "Graphics"),
-        ("eye-adaptation", "Graphics"),
-        ("neon-glow", "Graphics"),
-        ("sharpen", "Graphics"),
-        ("anisotropic", "Graphics"),
-        ("authored-materials", "Graphics"),
-        ("authored-reflections", "Graphics"),
-        ("terrain-height-blend", "Graphics"),
-        ("terrain-anti-tiling", "Graphics"),
-        ("terrain-parallax", "Graphics"),
-        ("mesh-terrain-blend", "Graphics"),
-        ("occlusion-culling", "Graphics"),
-        ("full-detail", "Graphics"),
-        ("distant-objects", "Graphics"),
-        ("smooth-terrain", "Graphics"),
-        ("light-shafts", "Graphics"),
-        ("heat-haze", "Graphics"),
-        ("desert-haze", "Graphics"),
-        ("volumetric-clouds", "Graphics"),
-        ("aerial-perspective", "Graphics"),
-        ("night-sky-detail", "Graphics"),
-        ("physical-pbr", "Graphics"),
-        ("distant-lights", "Graphics"),
-        ("volumetric-light", "Graphics"),
-        ("volumetric-light-strength", "Graphics"),
-        ("water-reflections", "Graphics"),
-        ("water-effects", "Graphics"),
-        ("water-mirror", "Graphics"),
-        ("quality", "Graphics"),
-        ("volume-master", "Sound"),
-        ("volume-music", "Sound"),
-        ("volume-footstep", "Sound"),
-        ("volume-voice", "Sound"),
-        ("volume-effects", "Sound"),
-        ("volume-radio", "Sound"),
-        ("reverb", "Sound"),
-        ("voice-reverb", "Sound"),
-        ("overlay", "Debug"),
-        ("hit-markers", "Debug"),
-        ("god-mode", "Debug"),
-        ("navmesh", "Debug"),
-        ("terrain-wireframe", "Debug"),
-        ("send-reports", "Reports"),
-        ("reports-delete", "Reports"),
-            ("lockpick-touch-hints", "Touch"),
+    /// Android-only rows registered on top of `shared_table_tests::KNOWN`.
+    const ANDROID_ONLY_KNOWN: &[(&str, &str)] = &[
+        ("lockpick-touch-hints", "Touch"),
         ("touch-pipboy-dismiss-left", "Controls"),
         ("touch-pipboy-dismiss-right", "Controls"),
         ("touch-pipboy-dismiss-side-v2", "Controls"),
@@ -1208,130 +1012,49 @@ mod android_profile_tests {
         ("mobile-thermal-status", "Display"),
     ];
 
-    /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).
-    const TWEAK_PREFIX: &str = "tweak-";
-
-    /// Every row #1892 registers under Tweaks (PR head 25bc53a28, `engine/nvf-play/src/tweaks.rs`),
-    /// in its order, without [`TWEAK_PREFIX`]: what the table places ahead of it.
-    const TWEAK_ROWS: &str = "\
-        discovered-sound level-sound-every-a level-sound-a level-sound-every-b level-sound-b xp-multiplier \
-        no-xp-messages no-karma-messages no-quest-failed no-location-popup no-objective-popup disable-fast-travel \
-        midair-fast-travel fast-travel-enemies fast-travel-encumbered no-red-crosshair hide-enemy-markers \
-        no-sneak-label no-reputation-messages no-combat-music no-loading-tips no-explosion-blur no-chem-wore-off \
-        kill-cam-exit-key skip-skill-page no-empty-book-message recipe-caps weapon-ammo-use book-effects \
-        deselect-hotkeys map-remembers terminal-number-keys faster-hacking dialogue-music dialogue-radio \
-        console-skips-player holster-real-time power-armor-no-screen-blood no-red-crosshair-cloaked \
-        god-mode-quiet-landing console-compress-repeats console-timestamps living-anatomy-dr sync-categories \
-        sync-categories-keep-empty \
-        perks-per-level special-points pick-without-skill hack-without-skill no-terminal-lockout no-casino-bans \
-        loot-unconscious revive-companions revive-down-seconds pickpocket-worn no-sneak-criticals reload-when-empty \
-        no-travel-time power-armor-fall weightless-armor weightless-aid weightless-ammo weightless-weapons \
-        weightless-misc weightless-worn-armor show-poison-effects no-poison-confirm map-summon-companions \
-        summon-unconscious no-min-companion-distance map-unconscious-companions companions-location-font \
-        map-door-kinds hostiles-prefer-player prefer-player-start prefer-player-mid prefer-player-detection \
-        equip-broken-items keep-broken-equipped hardcore-tweaks hardcore-ammo-weight hardcore-essential-companions \
-        hardcore-sleep-heals weightless-worn-power-armor no-travel-crippled-leg wait-only-seated kill-reward-ap \
-        jump-ap-cost jump-ap-danger-only jump-without-enough-ap run-ap-cost no-selling custom-skill-points skill-point-base skill-points-per-int \
-        no-unconscious-message no-voice-filter no-skip-dialogue lockpick-mouse no-max-casino-bet no-aiming-slowdown \
-        repeat-jumping hold-to-sneak vats-entry-ap power-attack-ap quest-marker-reach scope-zoom-time drop-key \
-        no-container-after-pick no-door-after-pick mark-unvisited-doors no-exit-hacking no-grab-owned agility-speed \
-        auto-unlock-terminals auto-unlock-margin weapons-unhurt-by-hits god-mode-no-jams knockdown-by-strength \
-        drowning-drains-ap aiming-draws-weapon walk-angle crippled-leg-jump aid-at-full-health grabbing-is-theft \
-        vendor-lists key-name no-skill-tags no-npc-addiction pickpocket-fleeing full-reload-swaps melee-reach \
-        repair-xp repair-caps-container no-wear-on-dead encumbered-ap-regen light-step-companions no-player-stagger \
-        ready-does-not-draw jam-reload-pace no-hotkeys-reloading wading-pace sleep-on-chairs stealing-no-alarm \
-        no-companion-kill-xp no-disarm-companions no-self-explosion-damage sneak-criticals-melee teammates-meltdown \
-        speed-scales-jump no-tutorials no-knockdown-god show-current-skill min-splatter xp-sound-at-cap hold-to-wait \
-        no-sight-zoom hide-misc-quest tab-click-sorts hotkey-toggles-in-hand no-interior-fog mark-unspoken \
-        no-caps-added subtitle-names compass-pips-danger neutral-foes-compass sneak-label-standing no-xp-meter-combat \
-        no-limb-indicator skip-death-cam skip-death-cam-attack help-is-console heartbeat-fade heartbeat-fade-seconds \
-        terminal-fade terminal-fade-seconds containers-show-ammo descriptive-marker-added no-grenade-indicator \
-        grenade-indicator-harmless grenade-indicator-destructibles keep-acting-notes hide-completed-quests \
-        hide-marker-reputation no-show-quest-location hide-trait-ranks hide-quest-item-figures single-item-figures \
-        mark-other-ammo show-fame-infamy take-all-confirm take-all-confirm-min repair-all-confirm repair-all-threshold \
-        take-all-stays hide-equipped-barter hide-equipped-containers title-case-categories no-right-click-drop \
-        quiet-undiscovered repair-any-armor sort-misc-stats effect-time-left perk-plugin-names item-added-seconds \
-        pipboy-12-hour notes-of-all-quests aim-turn-x aim-turn-y pickpocket-after-caught wait-anywhere radio-music \
-        radio-talk camera-wheel-pov quiet-hotkeys detached-beams god-mode-off-on-load no-stealth-shimmer-pipboy \
-        quiet-teammate-steps no-weapon-hotkeys pipboy-opens-items hide-crosshair-reloading kill-xp-per-level \
-        key-xp-share password-xp-share invert-x nearest-unfound discovered-in-corner power-armor-radiation \
-        power-armor-limbs fall-height-endurance invert-title-wheel armor-condition armor-visible-below armor-red-below \
-        armor-flash-below armor-in-weapon-place scale-explosion-shake explosion-shake toggle-device hud-fatigue \
-        key-repeat-accel key-repeat-delay key-repeat-mult key-repeat-delay-alt key-repeat-mult-alt precise-rad-meter \
-        rad-decimals compass-doors compass-doors-exterior compass-doors-interior compass-doors-fade detected-by-whom \
-        detected-names quest-text-in-menus continue-shows-save auto-continue hide-ammo-label barter-by-kind \
-        barter-water-unscaled barter-sell-armor barter-sell-weapon barter-sell-aid barter-sell-ammo barter-sell-misc \
-        barter-sell-weapon-mod barter-buy-armor barter-buy-weapon barter-buy-aid barter-buy-ammo barter-buy-misc \
-        barter-buy-weapon-mod free-item-price skip-easy-locks skip-lock-margin pick-up-disarmed npc-weapons-whole \
-        lethal-knockdowns duplicate-binds crippling-never-disarms no-spin-up god-mode-free-crafting pov-follows-weapon \
-        kill-cam-chance subtitle-distance sneak-criticals-head compare-weapons warn-encumbrance mark-nearby-places \
-        scale-ash-piles pipboy-buzz per-bullet-reload reload-rounds-per-press reload-press-queue reload-while-firing \
-        semi-auto-queue repair-scales-crafting no-healing-in-combat power-attack-if-blocking breath-regain \
-        vats-hip-fire pickpocket-caught-detects agility-jump lockpick-force-near contact-mines-player \
-        contact-mines-npcs sleep-heal-min-hours barter-repair-discount armor-condition-penalty vats-ignores-companions \
-        no-pipboy-in-combat frenzy-kill-xp free-wild-wasteland stats-xp-percent repair-same-first repair-low-first \
-        repair-kits-in-list repair-preview crippled-fall-pain quantity-companion-cap armor-blocks-blood embolden-tags \
-        pickpocket-overhaul pp-base pp-agility pp-luck pp-sneak pp-perception pp-detection pp-value pp-weight pp-worn \
-        pp-free-items pp-reward-xp hold-activate hold-containers hold-furniture hold-water quick-use \
-        vats-throw-visibility quiet-followers crit-message-limb no-dehydration-messages no-sleep-messages need-icons \
-        repair-at-workbench character-radiation character-radiation-stages reallocate-skill-points \
-        local-map-reset-cells hold-release-throws npcs-disarm-player npcs-drop-live-grenades water-shows-h2o no-respec \
-        weapon-impacts robots-heal-with-scrap robot-heal-base robot-heal-per-repair robot-heal-expert \
-        no-weapon-move-penalty unequip-broken-armor hide-crosshair-first hide-crosshair-third no-skill-books-at-max \
-        red-hp-below red-ap-below weapon-cnd-red-below weapon-cnd-flash-below blackjack-total player-pain-gap \
-        pause-on-load swap-ammo-holstered slots-hold-to-spin no-auto-continue-dialogue shift-talks-sneaking \
-        no-quest-set-on-objective no-quest-set-on-complete hide-read-notes tab-closes-terminals \
-        tab-back-in-pause unsafe-fast-travel vats-auto-head vats-drops-disarmed-shots vats-target-projectiles \
-        vats-target-mines vats-target-own-projectiles vats-ignore-non-explosive vats-burst-stops-on-kill \
-        repair-needs-weapon-skill date-style hide-unknown-names vats-keeps-holstered no-hotkey-wheel ammo-label-under \
-        companion-pip female-facial-hair terminal-password-prompt lockpick-move-keys store-all map-recentre-key \
-        map-marker-distance quantity-shows-price quantity-shows-weight hide-empty-reputation quick-load-in-menus \
-        preview-perks pick-locks-with-key right-click-previous-category mark-notes-unread full-barter-total \
-        compass-fade-left custom-dead-zones left-dead-zone right-dead-zone custom-trigger-dead-zones lt-dead-zone \
-        rt-dead-zone responsive-stick faster-pad-orbit vanity-returns-first horizontal-look vats-shift-ignores-friends \
-        remember-console-history console-output-file console-text-shadow click-to-exit-loading \
-        select-unavailable-radios radiation-radio-static barter-caps-change no-self-meltdown max-level \
-        standing-sneak-attacks no-companion-item-damage modding-needs-skill planting-needs-skill travel-costs-bottle \
-        jump-swims-up armor-sinks remember-pin-health force-spares-lock no-condition-damage-penalty \
-        no-condition-damage-buffer crit-ignores-fire-rate crit-damage-scale npc-dr-ignores-condition \
-        npc-dt-ignores-condition explosion-radius-buff npcs-sneak-crit-player fatal-crits-gib fall-deaths-dismember \
-        splash-torso-gib npcs-drop-holstered npcs-earn-casings first-person-vats no-ammo-casings crosshair-when-aiming \
-        move-during-vats-camera stack-figures seated-wide no-turn-clip no-land-clip hide-unmapped-places \
-        vigor-review-first scope-delay no-pointer-message-box no-pointer-dialogue levelup-wheel compare-armor \
-        detailed-stats minigames-timescale no-name-limit seat-keeps-on-activate plain-going-out \
-        mark-recurring-challenges hide-hotkeyed-containers hide-hotkeyed-barter hide-hotkeyed-repair \
-        map-zoom-at-pointer console-homes shift-screenshot-hides print-plugin-names \
-        weapon-requirements-matter console-model-details back-pace strafe-pace hack-no-single-chars \
-        hack-no-repeat-words hack-dud-when-full hack-spare-guessed hack-mark-guesses-as-duds \
-        hack-keep-matching-chars hack-compact-guesses hack-replenish-bonus run-overencumbered over-run-ap over-jump-ap \
-        npc-melee-part-damage disarm-needs-skill disarm-mult disarm-explode-mult cap-skills-by-special skill-cap-base \
-        skill-cap-per-special skill-cap-per-luck skill-cap-most cap-skills-spare-tagged hold-breath breath-activate breath-sway \
-        breath-ap scope-wheel-zoom wheel-cycles-hotkeys dpad-cycles-hotkeys keys-with-pad double-tap-ammo \
-        improved-weather vats-stop-following-dead night-vision-toggle night-vision-off-first night-vision-by-day \
-        kill-cam-outside-vats kill-cam-hit-location weather-trip-distance compass-pips-fade compass-places-fade \
-        buffed-health-bars recent-dead-secs armor-sounds-3d mine-blasts-heard blasts-spare-items grabbed-weighs \
-        usable-ammo-first better-flycam recent-markers-red compass-quest-height compass-marker-height hud-marker-name \
-        hud-region-names move-during-pipboy-raise region-borders-message-only marker-name-angle \
-        marker-name-hide-unfound marker-name-units hide-hud-compass hide-hud-ammo hide-hud-needs hide-hud-sneak \
-        hide-hud-on-load grey-read-notes remember-item-places player-weapon-volume npc-weapon-volume \
-        keep-fall-height-on-load no-marker-popup marker-shift-removes marker-removed-on-it clear-marker-within \
-        place-marker-here-says repeat-activate-takes-only hi-res-npc-weapons empty-reload-swaps-ammo keep-chosen-ammo \
-        objectives-on-arrival objectives-gap sleep-in-owned-beds power-armor-no-training \
-        sleep-misc-stat-requires-duration revive-on-cell-change no-self-explosion-non-hostiles grabbing-is-theft-min-value \
-        sneak-run-ap-cost sneak-run-ap-endurance no-lock-encounter-zone-levels faster-sleep-wait";
-
-    /// [`TWEAK_ROWS`] as keys, under the Tweaks tab's group.
-    fn tweak_rows() -> Vec<(&'static str, &'static str)> {
-        TWEAK_ROWS.split_whitespace().map(|k| (&*Box::leak(format!("{TWEAK_PREFIX}{k}").into_boxed_str()), TWEAKS_TAB)).collect()
+    // Test metadata only: the shared-reference case must check the selected file
+    // against every registered key, including its explicit Android rows.
+    pub(super) fn registered_rows() -> &'static [(&'static str, &'static str)] {
+        static ALL: std::sync::OnceLock<Vec<(&'static str, &'static str)>> = std::sync::OnceLock::new();
+        ALL.get_or_init(|| {
+            super::shared_table_tests::KNOWN
+                .iter()
+                .chain(ANDROID_ONLY_KNOWN)
+                .copied()
+                .collect()
+        })
     }
 
-    /// Whether `key` is one of [`TWEAK_ROWS`].
-    fn is_tweak(key: &str) -> bool {
-        key.strip_prefix(TWEAK_PREFIX).is_some_and(|k| TWEAK_ROWS.split_whitespace().any(|r| r == k))
+    fn row(key: &'static str, group: &'static str) -> Setting {
+        Setting { key, group, label: key, note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None }
     }
 
-    /// Stewie's Tweaks' groups as the Tweaks tab lists them [design: owner 2026-11-15].
-    const TWEAK_GROUPS: [&str; 8] = ["Gameplay", "Combat", "Quality of Life", "HUD", "Menus", "Hotkeys", "Cheats", "Misc"];
+    /// The registry as `Settings::add` orders it.
+    fn registry(rows: &[(&'static str, &'static str)]) -> Vec<Setting> {
+        let mut s = Settings::default();
+        for (k, g) in rows {
+            s.add(row(k, g));
+        }
+        s.list().to_vec()
+    }
+
+    /// A tab's lines, every category open, every line shown: `[Heading]`, keys, `@control`,
+    /// and "" for an empty line.
+    fn keys(list: &[Setting], l: &ResolvedLayout, tab: &str) -> Vec<String> {
+        lines(list, l, tab, |_| true)
+    }
+
+    fn lines(list: &[Setting], l: &ResolvedLayout, tab: &str, open: impl Fn(&Placement) -> bool) -> Vec<String> {
+        l.tab_entries(tab, None, |_| true, open)
+            .into_iter()
+            .map(|e| match e {
+                LayoutEntry::Heading(p) => format!("[{}]", p.heading.unwrap_or("")),
+                LayoutEntry::Setting(i) => list[i].key.to_string(),
+                LayoutEntry::Control(c) => format!("@{c}"),
+                LayoutEntry::Gap => String::new(),
+            })
+            .collect()
+    }
 
     #[test]
     fn the_table_names_each_key_once_in_one_of_the_tabs() {
@@ -1349,12 +1072,13 @@ mod android_profile_tests {
         assert!(check(&headless).is_err());
         // Every row there is has its place in the table; the table names no other but the
         // Controls tab's own rows and #1892's tweaks, each of those on the Tweaks tab.
+        let known = registered_rows();
         let named: Vec<&str> = SECTIONS.iter().chain(ANDROID_SECTIONS).flat_map(|s| s.keys.iter().copied()).filter(|k| !k.starts_with(CONTROL_PREFIX)).collect();
-        for (k, _) in KNOWN {
+        for &(k, _) in known {
             assert!(named.contains(&k), "{k} has no place");
         }
         for k in &named {
-            assert!(KNOWN.iter().any(|(n, _)| n == k) || is_tweak(k), "{k} is placed but no row has it");
+            assert!(known.iter().any(|(n, _)| n == k) || is_tweak(k), "{k} is placed but no row has it");
         }
         for s in SECTIONS.iter().chain(ANDROID_SECTIONS) {
             for k in s.keys.iter().filter(|k| k.starts_with(TWEAK_PREFIX)) {
@@ -1365,7 +1089,7 @@ mod android_profile_tests {
 
     #[test]
     fn the_tabs_come_first_with_every_row_once_in_the_tables_order() {
-        let list = registry(&KNOWN);
+        let list = registry(registered_rows());
         let l = resolve_layout(&list);
         assert_eq!(l.tab_names(), TAB_ORDER, "no group is a tab of its own: every row is named");
         assert_eq!(l.unnamed(), 0);
@@ -1394,13 +1118,13 @@ mod android_profile_tests {
         assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
         assert_eq!(l.control_placement("bind:Jump").unwrap().path(), "Controls > Movement");
         // The registry itself is left as it was: its order and each row's group.
-        let again = registry(&KNOWN);
+        let again = registry(registered_rows());
         assert!(list.iter().zip(&again).all(|(a, b)| a.key == b.key && a.group == b.group && a.label == b.label && a.note == b.note));
     }
 
     #[test]
     fn a_closed_category_keeps_its_heading_and_an_empty_line_follows_only_an_open_one() {
-        let list = registry(&KNOWN);
+        let list = registry(registered_rows());
         let l = resolve_layout(&list);
         let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
         let g = lines(&list, &l, "Gameplay", closed);
@@ -1465,12 +1189,18 @@ mod android_profile_tests {
     #[test]
     fn every_tweak_of_1892_has_its_group_and_category() {
         let tweaks = tweak_rows();
-        // 564 less the console and screenshot keys, bindings since 2026-11-16 (Controls),
-        // plus Keep Chosen Ammo (#3305), the four Stewie 9.45 sub-options (#3179),
-        // Running Costs AP sneak options (#3183), Stewie 9.65-9.70 sub-options (#3184),
-        // and No Encounter Zone Level Lock (#3878), plus Faster Sleep and Wait (#3193).
-        assert_eq!(tweaks.len(), 575);
-        let mut rows: Vec<(&'static str, &'static str)> = KNOWN.to_vec();
+        let expected_tweaks = TWEAK_ROWS.split_whitespace().count();
+        let placed_tweaks = SECTIONS
+            .iter()
+            .flat_map(|s| s.keys.iter())
+            .filter(|k| k.starts_with(TWEAK_PREFIX))
+            .count();
+        let unique_tweaks: std::collections::HashSet<&str> = tweaks.iter().map(|(k, _)| *k).collect();
+        assert_eq!(unique_tweaks.len(), tweaks.len(), "duplicate tweak key in TWEAK_ROWS");
+        assert_eq!(tweaks.len(), expected_tweaks);
+        assert_eq!(tweaks.len(), placed_tweaks, "TWEAK_ROWS must match tweaks placed in SECTIONS");
+        assert!(tweaks.len() >= 575);
+        let mut rows: Vec<(&'static str, &'static str)> = registered_rows().to_vec();
         rows.extend(&tweaks);
         let list = registry(&rows);
         let l = resolve_layout(&list);
@@ -1491,7 +1221,7 @@ mod android_profile_tests {
         assert_eq!(next("tweak-take-all-confirm"), "tweak-take-all-confirm-min");
         assert_eq!(next("tweak-revive-companions"), "tweak-revive-down-seconds");
         // The engine's own tabs are as they were.
-        assert_eq!(keys(&list, &l, "Audio"), keys(&registry(&KNOWN), &resolve_layout(&registry(&KNOWN)), "Audio"));
+        assert_eq!(keys(&list, &l, "Audio"), keys(&registry(registered_rows()), &resolve_layout(&registry(registered_rows())), "Audio"));
     }
 
     #[test]
@@ -1531,13 +1261,14 @@ mod android_profile_tests {
 
     #[test]
     fn android_groups_the_same_registered_rows_once_without_changing_the_registry() {
-        let list = registry(&KNOWN);
+        let known = registered_rows();
+        let list = registry(known);
         let before: Vec<_> = list.iter().map(|s| (s.key, s.group, s.label, s.note)).collect();
         let mobile = resolve_mobile_layout(&list);
         assert_eq!(mobile.tab_names(), MOBILE_TAB_ORDER);
         assert_eq!(mobile.unnamed(), 0);
         let mut indices: Vec<_> = mobile.ordered_settings().collect();
-        assert_eq!(indices.len(), KNOWN.len());
+        assert_eq!(indices.len(), known.len());
         indices.sort_unstable();
         assert_eq!(indices, (0..list.len()).collect::<Vec<_>>());
         let mut mobile_keys = std::collections::HashSet::new();
@@ -1567,7 +1298,7 @@ mod android_profile_tests {
     fn android_mobile_sections_use_existing_visibility_search_and_hardware_routes() {
         use crate::bindings::{Control, InputDevice};
         use crate::settings_view::{self as view, ControlRow, Found, RowId, SettingsScope, ViewEntry, Visibility};
-        let list = registry(&KNOWN);
+        let list = registry(registered_rows());
         let mobile = resolve_mobile_layout(&list);
         let at = |key| list.iter().position(|s| s.key == key).unwrap();
         let empty = Found::default();
@@ -1626,7 +1357,7 @@ mod android_profile_tests {
         struct Consent(bool);
         let mut app = App::new();
         app.init_resource::<Consent>().insert_resource(SettingsFile(None));
-        for (key, group) in KNOWN {
+        for &(key, group) in registered_rows() {
             let mut setting = row(key, group);
             if key == "mobile-thermal-auto" {
                 setting.get = |world| world.resource::<Consent>().0;

@@ -1395,7 +1395,10 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         // Green points down the image (DirectX style), Bevy expects up [observed,
         // docs/spec-notes/nif.md §6 "Normal maps"].
         flip_normal_map_y: true,
-        perceptual_roughness: gloss_roughness(gloss),
+        // Physical lighting: shapes without the specular flag (or hair) are rough, at least
+        // 0.86, so the sky's image-based light does not gloss them [design, tuned by eye on
+        // #3828's branch].
+        perceptual_roughness: if crate::authored::physical_pbr() && !props.specular && !props.hair { gloss_roughness(gloss).max(0.86) } else { gloss_roughness(gloss) },
         metallic: 0.0,
         reflectance,
         emissive: emissive.unwrap_or(LinearRgba::BLACK),

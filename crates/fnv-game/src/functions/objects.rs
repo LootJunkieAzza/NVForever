@@ -102,7 +102,7 @@ pub fn place_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         let r = g.place_scene_base(base, cell, pos, rot, each)?;
         note_created(g, r);
         if explodes {
-            g.combat_requests.push(crate::combat::CombatRequest::Explode { explosion: base, at: pos });
+            g.combat_requests.push(crate::combat::CombatRequest::Explode { explosion: base, at: pos, source: Some(at) });
         }
         last = Some(r);
     }
