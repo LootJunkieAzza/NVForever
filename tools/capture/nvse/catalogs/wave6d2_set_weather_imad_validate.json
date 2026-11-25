@@ -1,0 +1,85 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d2-set-weather-imad-validate",
+  "description": "Wave 6D-2 read-only clean-room JIP LN 57.30 probe for SetWeatherImageSpaceMod (WTHR/IMAD validation, explicit 0 no-op, omitted-arg clear).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_nvse": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d2_set_weather_imad_validate",
+      "title": "SetWeatherImageSpaceMod IMAD validation and omitted-arg clear",
+      "extender": "jip_nvse",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d2p2_17_weather_traits_rgb_imad_textures",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-7.md",
+          "spec_line": 74,
+          "functions_tested": [
+            "GetWeatherTraitNumeric",
+            "SetWeatherTraitNumeric",
+            "GetWeatherImageSpaceMod",
+            "SetWeatherImageSpaceMod",
+            "GetWeatherTexture",
+            "SetWeatherTransitionTimeOverride"
+          ],
+          "claim": "Verify GetWeatherTraitNumeric/SetWeatherTraitNumeric fog trait 15 & OOB 21, SetWeatherImageSpaceMod omitted vs explicit null 0 vs non-IMAD, GetWeatherTexture layer 0 vs OOB 4, and SetWeatherTransitionTimeOverride.",
+          "expected": "Confirm fog trait round-trip, SetWeatherImageSpaceMod null/non-IMAD behavior, and cloud texture OOB layer returning empty.",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"FFC88\"",
+            "ref rIm = GetFormFromMod \"FalloutNV.esm\" \"173904\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rNull = 0",
+            "float f15 = GetWeatherTraitNumeric rW 15",
+            "float f21 = GetWeatherTraitNumeric rW 21",
+            "SetWeatherTraitNumeric rW 15 1234.5",
+            "float f15s = GetWeatherTraitNumeric rW 15",
+            "SetWeatherTraitNumeric rW 15 f15",
+            "ref im0 = GetWeatherImageSpaceMod rW 1",
+            "SetWeatherImageSpaceMod rW 1 rIm",
+            "ref imSet = GetWeatherImageSpaceMod rW 1",
+            "SetWeatherImageSpaceMod rW 1 rStim",
+            "ref imBad = GetWeatherImageSpaceMod rW 1",
+            "SetWeatherImageSpaceMod rW 1 rNull",
+            "ref imNull = GetWeatherImageSpaceMod rW 1",
+            "SetWeatherImageSpaceMod rW 1",
+            "ref imOmit = GetWeatherImageSpaceMod rW 1",
+            "SetWeatherImageSpaceMod rW 1 im0",
+            "string_var tx0 = GetWeatherTexture rW 0",
+            "string_var tx4 = GetWeatherTexture rW 4",
+            "SetWeatherTransitionTimeOverride 5",
+            "SetWeatherTransitionTimeOverride 0",
+            "PrintToConsole \"PROBE|w6d2p2_17_weather_traits_rgb_imad_textures|f15=%.1f->%.1f,oob21=%.1f|im(set=%g,badEqI=%g,badZ=%g,nullEqI=%g,nullZ=%g,omitZ=%g)|txLen=%g/%g\" f15 f15s f21 (imSet == rIm) (imBad == rIm) (imBad == 0) (imNull == rIm) (imNull == 0) (imOmit == 0) (sv_Length tx0) (sv_Length tx4)"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -497,10 +497,17 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         }
         "setweatherimagespacemod" => {
             let time = num(args, 1, -1.0) as i64;
-            let id = form(args, 2).map_or(0, |f| f.0);
-            let prev = g.traits.ism.insert((x, time), id);
-            if prev != Some(id) && (0..=5).contains(&time) {
-                g.traits.note_weather_visual_change();
+            if g.data.sig(g.unclone(x)) == Some(*b"WTHR") && (0..=5).contains(&time) {
+                let next = match args.get(2) {
+                    None => Some(0),
+                    Some(_) => form(args, 2).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"IMAD")).map(|f| f.0),
+                };
+                if let Some(id) = next {
+                    let prev = g.traits.ism.insert((x, time), id);
+                    if prev != Some(id) {
+                        g.traits.note_weather_visual_change();
+                    }
+                }
             }
             zero
         }
