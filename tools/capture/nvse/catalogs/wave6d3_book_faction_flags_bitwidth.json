@@ -1,7 +1,7 @@
 {
   "schema": "nvf.nvse.probe.catalog/1",
   "catalog_id": "wave6d3-book-faction-flags-bitwidth",
-  "description": "Read-only clean-room probe verifying SetBookFlags 8-bit wrap (-1 -> 255) and SetFactionFlags 32-bit unsigned storage (65792, -1 -> 0xFFFFFFFF).",
+  "description": "Read-only clean-room probe verifying SetBookFlags 8-bit wrap (257 -> 1, -1 -> 255) and SetFactionFlags 32-bit unsigned storage (65792, -1 -> 4.29497e+09 via %g).",
   "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
   "xnvse_version": "6.4.9",
   "official_masters": [

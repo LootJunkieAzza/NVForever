@@ -178,8 +178,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getbookflags" => XVal::Num(of_sig(g, form(args, 0), b"BOOK").and_then(|b| field(g, b, "DATA", "flags")).and_then(|v| v.num().ok()).unwrap_or(0.0)),
         "setbookflags" => {
             if let Some(b) = of_sig(g, form(args, 0), b"BOOK") {
-                // DATA's flags are one byte; negative values wrap modulo 256 (-1 -> 255)
-                // [documented: xEdit BOOK DATA; observed: w6d3p2_31a].
+                // DATA's flags are one byte; 257 -> 1 and -1 -> 255
+                // [documented: xEdit BOOK DATA; observed: w6d3p2_31a_books_factions_races_containers
+                // (`bf=0,1,255`)]; general `.trunc() as i64 as u32` wrapping for fractional or
+                // other overflow inputs is [hypothesis].
                 let byte = (num(args, 1, 0.0).trunc() as i64 as u32) & 0xFF;
                 g.field_overrides.insert((b, "DATA/flags".into()), XVal::Num(f64::from(byte)));
             }
@@ -217,8 +219,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "setfactionflags" => {
             if let Some(f) = of_sig(g, form(args, 0), b"FACT") {
-                // Full 32-bit unsigned flags (65792 and -1 -> 0xFFFFFFFF round-trip)
-                // [observed: w6d3p2_31a_books_factions_races_containers].
+                // 65792 round-trips and -1 prints 4.29497e+09 via %g
+                // [observed: w6d3p2_31a_books_factions_races_containers (`ff=256,65792,4.29497e+09`)].
+                // Exact u32::MAX (0xFFFFFFFF) for -1 (since %g shows 6 sig figs) and general
+                // `.trunc() as i64 as u32` wrapping for fractional/other overflow inputs are
+                // [hypothesis]; storing the 32-bit override under `DATA/flags32` alongside
+                // `DATA/flags1`/`flags2` is [design].
                 let m = num(args, 1, 0.0).trunc() as i64 as u32;
                 g.field_overrides.insert((f, "DATA/flags1".into()), XVal::Num(f64::from(m & 0xFF)));
                 g.field_overrides.insert((f, "DATA/flags2".into()), XVal::Num(f64::from((m >> 8) & 0xFF)));

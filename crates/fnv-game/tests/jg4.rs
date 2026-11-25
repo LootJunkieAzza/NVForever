@@ -230,8 +230,12 @@ fn race_flags_and_faction_members() {
     // jg_11_faction_members_neg_rank, JohnnyGuitarNVSE 528].
     assert!(forms(&mut g, "GetFactionMembers TestFaction -2").is_empty());
     assert!(forms(&mut g, "GetFactionMembers TestFaction -5").is_empty());
-    // SetBookFlags wraps negative values modulo 256 (-1 -> 255) and SetFactionFlags keeps
-    // full 32-bit unsigned flags (65792 and -1 -> u32::MAX) [observed: w6d3p2_31a].
+    // SetBookFlags maps 257 -> 1 and -1 -> 255, and SetFactionFlags preserves 65792 and
+    // prints 4.29497e+09 for -1 via %g [observed: w6d3p2_31a_books_factions_races_containers];
+    // exact u32::MAX (0xFFFFFFFF) for -1 and general `.trunc() as i64 as u32` wrapping are
+    // [hypothesis].
+    q(&mut g, "SetBookFlags TestBook 257");
+    assert_eq!(n(&mut g, "GetBookFlags TestBook"), 1.0);
     q(&mut g, "SetBookFlags TestBook -1");
     assert_eq!(n(&mut g, "GetBookFlags TestBook"), 255.0);
     q(&mut g, "SetFactionFlags TestFaction 65792");
