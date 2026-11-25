@@ -1072,7 +1072,7 @@ fn extract_sun_visibility(
     (gpu.cloud_on, gpu.source, gpu.strength) = (cloud, vis.cloud_source, vis.cloud_strength);
     // The automatic source's gate (#3032 stage 2i M2): read every frame the light volume is asked
     // for, as the sky's state changes without the switches changing.
-    let row = graphics.as_deref().is_some_and(|g| g.volumetric_clouds);
+    let row = graphics.as_deref().is_some_and(|g| g.volumetric_clouds_run());
     let wanted = volume_wanted(cloud, row);
     gpu.gate = AutoGate {
         row,
