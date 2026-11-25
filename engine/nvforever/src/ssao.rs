@@ -178,10 +178,10 @@ pub struct AmbientOcclusion {
     /// the estimate as shipped.
     pub variant: Vec4,
     /// View-space world-up direction (xyz) and macro architectural sky-visibility strength
-    /// (w: 0 off, 1 outdoors, 0.25 indoors) under `NVF_PHYSICAL_PBR=1`.
+    /// (w: 0 off, 1 outdoors, 0.25 indoors) under Physical lighting.
     pub up_view: Vec4,
     /// View-space direction toward the primary shadow-casting directional light (xyz) and
-    /// sun contact shadow strength (w: 0..1) under `NVF_PHYSICAL_PBR=1`.
+    /// sun contact shadow strength (w: 0..1) under Physical lighting.
     pub sun_view: Vec4,
 }
 
@@ -684,7 +684,7 @@ fn smoothstep_unit(a: f32, b: f32, x: f32) -> f32 {
 }
 
 /// View-space world-up + macro sky-visibility strength and primary directional light vector
-/// + contact shadow strength for `NVF_PHYSICAL_PBR=1`.
+/// + contact shadow strength for Physical lighting.
 fn physical_occlusion_vectors(
     cam_rotation: Quat,
     sky_interior: bool,
@@ -965,7 +965,7 @@ const BEFORE_FSR_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 /// How open a texel is, and its distance (the apply pass weighs texels by it).
 const OCCLUSION_FORMAT: TextureFormat = TextureFormat::Rg16Float;
 
-/// Half-res AO texture format: `Rgba16Float` when `NVF_PHYSICAL_PBR=1` (adds `.b` macro
+/// Half-res AO texture format: `Rgba16Float` under Physical lighting (adds `.b` macro
 /// sky-visibility and `.a` screen-space sun contact shadow); `Rg16Float` otherwise.
 fn occlusion_format() -> TextureFormat {
     if nvf_assets::authored::physical_pbr() {

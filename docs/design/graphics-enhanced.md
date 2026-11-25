@@ -4280,7 +4280,7 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
 
 ### 3.25 Physical lighting (`physical-pbr`; off in every preset, #3827)
 
-**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion inside the physical light loop (part 2, #4287; until then the occlusion stays on the picture under this row, logged once), the canopy shading (part 3b, #4266), the window rays' room light (part 7, #4285), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
+**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion's physical channels and its place inside the physical light loop (part 2, #4287, below; until then the occlusion stays on the picture under this row, logged once), the canopy shading (part 3b, #4266), the window rays' room light (part 7, #4285), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
 
 **Not with the volumetric rows yet** [design: the user's decision 2026-11-25, until they and
 spooknik agree how the two work together]: under Physical lighting, Volumetric clouds and
@@ -4360,6 +4360,20 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
   `RAY_MESH_PHYSICAL_BOOST` so thin daytime beams stay visible through AgX, and the weather
   sources' daylight brightness is kept for the image-based light (`emittance.rs`).
 
+- *Ambient occlusion* (with Ambient occlusion on, §3.1; part 2, #4287, in progress): under
+  this row the occlusion pass also writes a long-range sky visibility for architecture
+  (about 3 m, foliage counted only by its thickness so a crown does not act as a wall)
+  into its texture's blue channel, and a short screen-space contact shadow towards the
+  sun into its alpha (`ssao.wesl`; the texture is `Rgba16Float` under the row). The sky
+  visibility counts a quarter indoors; the contact shadow is off indoors and fades in as
+  the sun rises from 3 to 14 % above the horizon (ssao.rs `physical_occlusion_vectors`).
+  All three channels go through a two-stage denoise: a 4 × 4 core with a stride-2 ring,
+  then a 7 × 7 separable à-trous pass (`denoise_wide`), blurring more with distance (110 to
+  420 units) and over foliage [design]. Still to come: the lighting side that reads them
+  (the depth-aware upsample, the sky term in the multi-bounce, the contact shadow in the
+  sun's light, the specular occlusion of the image-based light); until then the occlusion
+  stays on the picture under this row. Without the row the occlusion looks as before.
+
 | Constant | Value | Tag and basis |
 |---|---|---|
 | `PHYSICAL_ATTENUATION` (display_shader.rs) | `w² · 0.22 / (u + 0.09)` | [design] core of 0.30 R, matched at 0.35 R |
@@ -4380,6 +4394,11 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
 | `PHYSICAL_LIFT_SLOPE`, `PHYSICAL_MAX_LIFT`, `PHYSICAL_DARKEN_SLOPE`, `PHYSICAL_MAX_DARKEN` | 0.68, 2.6, 0.45, 1.4 | [design] |
 | `PHYSICAL_METER_FILTER` | 10-98 % | [design] the display-value meter's 10-100 % (eye_adapt.rs `METER_FILTER`) less the brightest 2 % |
 | the Punchy look (imagespace.wesl) | gain 1.05, power 1.22, saturation 1.36 | [design] |
+| `MACRO_RADIUS`, `MACRO_STEPS` (ssao.wesl) | 220 units, 8 | [design] about 3 m of architecture |
+| `MACRO_HORIZON_BIAS`, `MACRO_FALLOFF_START`, `MACRO_THIN_RISE`, `MACRO_THIN_DECAY` | 0.04, 0.35, 0.22, 0.55 | [design] |
+| `MACRO_FADE_START`, `MACRO_FADE_END` | 3,200, 6,500 units | [design] |
+| `CONTACT_STEPS`, `CONTACT_LENGTH`, `CONTACT_FADE_START`, `CONTACT_FADE_END` | 12, 24 units (at most 24 px on screen), 160, 380 units | [design] |
+| sky visibility indoors (ssao.rs) | 0.25 | [design] |
 | `RAY_MESH_PHYSICAL_BOOST` (emittance.rs) | 1.85 | [design] |
 
 - **Cost**: not measured yet (to be measured as in §5, the Goodsprings and Prospector
