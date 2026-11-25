@@ -461,6 +461,9 @@ impl Online {
                             self.events.push(OnlineEvent::Code { code: short, secret: secret.clone().unwrap_or_default() });
                         }
                         HostEvent::JoinRequest { peer, name, key, candidates } => {
+                            // Two players of one name (the default "Courier"): the ask names
+                            // the key's first characters too, as its fingerprint starts.
+                            let shown = format!("{name} ({})", key.get(..4).unwrap_or("?"));
                             let Some(key) = unhex32(&key) else {
                                 c.decline(peer, "bad_key");
                                 continue;
@@ -479,7 +482,7 @@ impl Online {
                                 peers.insert(peer, Peer { key, remotes, agent: None });
                             } else {
                                 self.events.push(OnlineEvent::Note(format!("{name} (guest {peer}) asks to join: asking the host")));
-                                self.events.push(OnlineEvent::JoinAsk { peer, name: name.clone() });
+                                self.events.push(OnlineEvent::JoinAsk { peer, name: shown });
                                 asking.insert(peer, Asking { name, key, candidates, since: now });
                             }
                         }
@@ -1253,11 +1256,11 @@ mod tests {
         let key = "ab".repeat(32);
         // Join approval: the host is asked first, and lets this one in.
         o.on_text(&format!(r#"{{"type":"join","peer":2,"name":"Late","key":"{key}","candidates":[]}}"#), now);
-        assert!(o.take_events().contains(&OnlineEvent::JoinAsk { peer: 2, name: "Late".into() }));
+        assert!(o.take_events().contains(&OnlineEvent::JoinAsk { peer: 2, name: "Late (abab)".into() }));
         o.tick(now + ASK_FOR + Duration::from_secs(1), &[0; 32]);
         assert!(o.take_events().contains(&OnlineEvent::JoinAskOver(2)), "unanswered: turned away");
         o.on_text(&format!(r#"{{"type":"join","peer":1,"name":"G","key":"{key}","candidates":[{{"kind":"host","addr":"192.168.1.3:50000"}}]}}"#), now);
-        assert!(o.take_events().contains(&OnlineEvent::JoinAsk { peer: 1, name: "G".into() }));
+        assert!(o.take_events().contains(&OnlineEvent::JoinAsk { peer: 1, name: "G (abab)".into() }));
         o.admit(1, true);
         assert!(o.take_events().contains(&OnlineEvent::JoinAskOver(1)));
         o.on_text(r#"{"type":"go","peer":1}"#, now);

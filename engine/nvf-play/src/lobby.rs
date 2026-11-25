@@ -44,8 +44,13 @@ use nvf_assets::GameData;
 use std::path::PathBuf;
 
 /// The screen's width and top, interface units.
-const WIDTH: f32 = 820.0;
-const TOP: f32 = 150.0;
+/// The panel's narrowest and widest (interface units: the screen is 960 tall), and the share
+/// of the screen's width it takes between them [design: the owner, 2026-11-25: "use more of
+/// the screen"].
+const MIN_WIDTH: f32 = 820.0;
+const MAX_WIDTH: f32 = 1600.0;
+const WIDTH_SHARE: f32 = 0.8;
+const TOP: f32 = 50.0;
 const PAD: f32 = 24.0;
 /// Small print's line step.
 const STEP: f32 = 30.0;
@@ -54,12 +59,21 @@ const SAVE_ROWS: usize = 8;
 /// Emotes and their categories' headings shown at once.
 const EMOTE_ROWS: usize = 10;
 /// Public lobbies shown at once on the Browse tab.
-const BROWSE_ROWS: usize = 8;
+const BROWSE_ROWS: usize = 10;
 /// The longest title, password or search typed (the service cuts titles at 40).
 const MAX_TEXT: usize = 40;
 /// The Browse table's columns: heading and width (interface units), adding up to the
 /// panel's inner width.
-const COLUMNS: [(&str, f32); 7] = [("Fav", 62.0), ("Name", 206.0), ("Location", 150.0), ("Players", 104.0), ("Ping", 96.0), ("Region", 102.0), ("", 52.0)];
+const COLUMNS: [&str; 7] = ["Fav", "Name", "Location", "Players", "Ping", "Region", ""];
+
+/// The Browse table's column widths for a panel `inner` wide: Fav, Players, Ping, Region and
+/// the lock fixed, Name and Location sharing the rest (a title runs to 40 characters, a place
+/// to 32).
+fn column_widths(inner: f32) -> [f32; 7] {
+    let fixed = [62.0, 104.0, 96.0, 110.0, 52.0];
+    let rest = (inner - fixed.iter().sum::<f32>()).max(300.0);
+    [fixed[0], rest * 0.56, rest * 0.44, fixed[1], fixed[2], fixed[3], fixed[4]]
+}
 /// A Browse cell drawn as a shape, not text: the favourite marker and the lock.
 const FAV_MARK: &str = "\u{1}fav";
 const LOCK_MARK: &str = "\u{1}lock";
@@ -1105,7 +1119,7 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
             all.len()
         }
         Browse::Ready(all) => {
-            v.push(Head(COLUMNS.iter().map(|(h, _)| h.to_string()).collect()));
+            v.push(Head(COLUMNS.iter().map(|h| h.to_string()).collect()));
             used += ITEM;
             let list = acts(screen, state);
             let chosen_row = match list.get(screen.selected) {
@@ -1281,6 +1295,9 @@ fn players(v: &mut Vec<Piece>, state: &LobbyState) {
 }
 
 
+/// What was drawn last: the pieces, the choice, the panel's width.
+type Drawn = (Vec<Piece>, Option<Act>, u32);
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
@@ -1291,15 +1308,19 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     roots: Query<Entity, With<LobbyRoot>>,
-    mut last: Local<Option<(Vec<Piece>, Option<Act>)>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut last: Local<Option<Drawn>>,
 ) {
     let now = pieces(&screen, &state);
     let list = acts(&screen, &state);
     let chosen = list.get(screen.selected).copied();
-    if last.as_ref().is_some_and(|(p, c)| *p == now && *c == chosen) {
+    // The panel's width follows the window's shape: interface units are 960 to its height.
+    let screen_units = windows.single().ok().map_or(1280.0, |w| 960.0 * w.width() / w.height().max(1.0));
+    let width = (screen_units * WIDTH_SHARE).clamp(MIN_WIDTH, MAX_WIDTH.min(screen_units - 40.0).max(MIN_WIDTH));
+    if last.as_ref().is_some_and(|(p, c, w)| *p == now && *c == chosen && *w == width as u32) {
         return;
     }
-    *last = Some((now.clone(), chosen));
+    *last = Some((now.clone(), chosen, width as u32));
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -1314,7 +1335,8 @@ fn draw(
         return;
     };
     let f = &look.0;
-    let inner = WIDTH - 2.0 * PAD;
+    let inner = width - 2.0 * PAD;
+    let columns = column_widths(inner);
     // The pieces' heights.
     let height = |p: &Piece| match p {
         Piece::Title(_) => ITEM + 8.0,
@@ -1334,13 +1356,13 @@ fn draw(
     }
     commands.spawn((LobbyRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(120))).with_children(|root| {
         // The menus under it keep still (and take no pointer).
-        root.spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::BLACK.with_alpha(0.55)), Button));
+        root.spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::BLACK.with_alpha(0.85)), Button));
         let panel = Node {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
-            margin: UiRect::left(u(-WIDTH / 2.0)),
+            margin: UiRect::left(u(-width / 2.0)),
             top: u(TOP),
-            width: u(WIDTH),
+            width: u(width),
             height: u(total),
             ..default()
         };
@@ -1450,7 +1472,7 @@ fn draw(
                         }
                         e.with_children(|n| {
                             let mut x = 8.0;
-                            for ((_, w), c) in COLUMNS.iter().zip(cells) {
+                            for (w, c) in columns.iter().zip(cells) {
                                 let cell = Node { position_type: PositionType::Absolute, left: u(x), top: u(0.0), width: u(*w - 8.0), height: u(ITEM - 6.0), overflow: Overflow::clip(), ..default() };
                                 match c.as_str() {
                                     FAV_MARK => {
@@ -1632,7 +1654,7 @@ mod tests {
         assert!(TOP + panel_height(&p) <= 960.0, "a long list keeps the footer on screen");
         assert_eq!(p.iter().filter(|x| matches!(x, Piece::Cols(..))).count(), BROWSE_ROWS);
         assert!(p.iter().any(|x| matches!(x, Piece::Scroll(..))), "a scrollbar when rows are hidden");
-        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("Lobbies 1-8 of 20 (the arrows scroll)".into(), 0.0, Shade::Dim)))), "{p:?}");
+        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("Lobbies 1-10 of 20 (the arrows scroll)".into(), 0.0, Shade::Dim)))), "{p:?}");
         let host = opened(Mode::Host);
         let p = pieces(&host, &LobbyState::default());
         assert_eq!(drawn_acts(&p), acts(&host, &LobbyState::default()));
