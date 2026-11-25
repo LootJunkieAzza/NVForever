@@ -4262,6 +4262,12 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
 
 **In progress** (the split of #3828, part 5): the row and the run's switch are in; the lighting below is being carried over from #3828's branch and made to work with the volumetric clouds, their shadows and the light in the air (§3.23, docs/design/volumetric-medium.md), with them on and off. Until then this section describes #3828's branch.
 
+**Not with the volumetric rows yet** [design: the user's decision 2026-11-25, until they and
+spooknik agree how the two work together]: under Physical lighting, Volumetric clouds and
+Volumetric light (and its strength) are greyed (settings_layout `NEEDS_CHOICE`) and do not
+run (graphics.rs `volumetric_clouds_run`, `volumetric_light_run`; their saved values are
+kept). One look or the other.
+
 [design, #3827] An addition of NVForever's own for the enhanced look: not a fact about the
 original game, never a parity item, and never to be used to explain a difference from the
 original's frames. Off in both presets; with every row below off, the picture is the

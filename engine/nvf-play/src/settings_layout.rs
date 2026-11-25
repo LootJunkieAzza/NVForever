@@ -753,8 +753,12 @@ mod shared_table_tests {
         assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
         assert_eq!(at("volumetric-light"), "Graphics > Lighting and Effects", "with the other experimental effects (#3032)");
         assert_eq!(at("volumetric-light-strength"), "Graphics > Lighting and Effects", "right after its switch");
-        // The strength is greyed while its switch is off.
-        assert_eq!(needs("volumetric-light-strength"), vec![Rule { parent: "volumetric-light", choices: &[], why: "Needs Volumetric Light." }]);
+        // The strength is greyed while its switch is off, and every volumetric row while
+        // Physical lighting is on (the two do not work together yet).
+        let not_physical = Rule { parent: "physical-pbr", choices: &["Off"], why: "Not with Physical Lighting." };
+        assert_eq!(needs("volumetric-light-strength"), vec![Rule { parent: "volumetric-light", choices: &[], why: "Needs Volumetric Light." }, not_physical]);
+        assert_eq!(needs("volumetric-light"), vec![not_physical]);
+        assert_eq!(needs("volumetric-clouds"), vec![not_physical]);
         // Sun shafts have no shared rule: whether Volumetric light replaces them depends on its
         // strength (nvforever settings.rs `shafts_status`, the game's page alone).
         assert_eq!(needs("light-shafts"), vec![]);

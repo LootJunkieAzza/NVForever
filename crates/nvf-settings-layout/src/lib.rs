@@ -1121,6 +1121,13 @@ pub const SHOWN_WITH: &[(&str, &str, &[&str])] = &[
 /// (`nvf_play::settings::Settings::disabled_status`) and the launcher both go by it.
 pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[
     ("vats-slowdown", "vats-style", &["Classic"], "Classic V.A.T.S. only."),
+    // The volumetric rows do not run under Physical lighting yet (graphics-enhanced.md
+    // §3.25; nvforever graphics.rs `volumetric_clouds_run`) [design: the user's decision
+    // 2026-11-25, until they and spooknik agree how the two work together]. A switch parent's
+    // choices are "On" and "Off".
+    ("volumetric-clouds", "physical-pbr", &["Off"], "Not with Physical Lighting."),
+    ("volumetric-light", "physical-pbr", &["Off"], "Not with Physical Lighting."),
+    ("volumetric-light-strength", "physical-pbr", &["Off"], "Not with Physical Lighting."),
     // The Custom difficulty's own three, greyed under the five levels [design: #3570
     // review, maintainer decision 2026-11-24: greyed, not hidden].
     ("difficulty-player-damage", "difficulty", &["Custom"], "Custom difficulty only."),
@@ -1135,7 +1142,8 @@ pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[
 ];
 
 /// What a row needs of another row to apply: `parent` on (a switch on, a list past its first
-/// choice) when `choices` is empty, else `parent` on one of `choices` (by name). `why` is
+/// choice) when `choices` is empty, else `parent` on one of `choices` (by name; a switch's
+/// choices are "On" and "Off"). `why` is
 /// what the page says while it does not hold (English; the game shows it translated).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rule {

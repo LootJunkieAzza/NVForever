@@ -2500,7 +2500,7 @@ pub(crate) fn apply_cell_fog(sky: &SkyState, fog: &mut DistanceFog, emissive_mod
 /// half-minute steps only while the volumetric clouds are on and drawn. `CloudVolumeShown` is last
 /// frame's, so the row itself is asked too: switched off, not one more reading moves the fade.
 pub fn fade_cadence(mut sky: ResMut<SkyState>, graphics: Option<Res<crate::graphics::Graphics>>, shown: Option<Res<crate::volumetric_clouds::CloudVolumeShown>>) {
-    let smooth = graphics.is_some_and(|g| g.volumetric_clouds) && shown.is_some_and(|v| v.0);
+    let smooth = graphics.is_some_and(|g| g.volumetric_clouds_run()) && shown.is_some_and(|v| v.0);
     if sky.smooth_fade != smooth {
         sky.smooth_fade = smooth;
     }
