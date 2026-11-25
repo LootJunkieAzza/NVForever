@@ -63,6 +63,16 @@ below.
 - **Not saved** [hypothesis: SUP's pages say a hot reload loses the bars' variables; the
   interpolations likewise run in the session only].
 
+### 1.1 Wave 6D-4 clean-room `[observed]` confirmation
+
+Confirmed `NifBlockInterpolateScale` / `Rotation` / `Translation` return `1`,
+`IsNifBlockInterpolated` returns `0` with no block and `1` for types `0`/`1`/`2`,
+`NifBlockInterpolateSetTrait` returns `0`, and `NifBlockInterpolateStop` returns `1` on
+matching active interpolations in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, SUP NVSE 855 [observed: probe
+`w6d4_33_sup7_nif_interp_scale_rot_trans_modes`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`):
+`PROBE|w6d4_33_sup7_nif_interp_scale_rot_trans_modes|start(1,1,1)|is(b=0,any=0,t=1/1/1,miss=0)|trt=0|stop(t0=1,after0=0,all=1,end=0)`].
+
 ## 2. The vertices
 
 | Function | NVForever |

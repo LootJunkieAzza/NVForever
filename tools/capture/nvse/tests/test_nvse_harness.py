@@ -173,14 +173,15 @@ class TestCatalogValidation(unittest.TestCase):
                 "wave4g_f2_extenders.json",
                 "wave4h_reconcile.json",
                 "wave6_point_raycast.json",
+                "wave6d4_promote_observed.json",
             ],
         )
         self.assertFalse((nvse_harness.DEFAULT_CATALOG_DIR / "persistence_matrix.json").exists())
         errors, counts = nvse_harness.validate_catalogs(paths)
         self.assertEqual(errors, [], f"Catalog validation errors: {errors[:5]}")
-        self.assertEqual(counts["catalogs"], 9)
-        self.assertEqual(counts["probe_batches"], 27)
-        self.assertEqual(counts["probes"], 541)
+        self.assertEqual(counts["catalogs"], 10)
+        self.assertEqual(counts["probe_batches"], 28)
+        self.assertEqual(counts["probes"], 565)
         self.assertEqual(counts["persistence_items"], 0)
 
         # Verify Wave 1 parity probe IDs and corrected Wave 4A/4D/4E/4G/4H targeted probes are present verbatim.
@@ -217,6 +218,30 @@ class TestCatalogValidation(unittest.TestCase):
             "w6_01_point_raycast_angles",
             "w6_02_point_raycast_miss_and_range",
             "w6_03_point_raycast_collision_flags",
+            "w6d4_05_ammo_queries_and_buildref_localidx",
+            "w6d4p3_05_ammo_queries_settled",
+            "w6d4_09_set_string_setting_and_alt_control",
+            "w6d4_10_tostring_maps_null_and_print_tile",
+            "w6d4_11_menu_hold_release_and_compare_scripts",
+            "w6d4_12_actor_base_flags_high_low_immobile",
+            "w6d4_15_has_action_ref_unscripted_and_actors",
+            "w6d4_16_refresh_anim_data_and_jip_toggles",
+            "w6d4p2_19_ccc_queries_and_ascii_fixed",
+            "w6d4_20_jg_accuracy_mult_water_tex_transform",
+            "w6d4_22_showoff_unlisted_old_and_flags",
+            "w6d4_28_sup3_tfc_pos_angle_calc_and_ini_read",
+            "w6d4_29_sup4_saves_pickpocket_and_onload",
+            "w6d4_30_sup5_file_meta_and_env_readonly",
+            "w6d4p2_31a_sup6_screen_font_mod",
+            "w6d4p2_31b_sup6_hud_grenade_pc",
+            "w6d4_32_sup6_cursor_traits_gradual_and_mouse",
+            "w6d4_33_sup7_nif_interp_scale_rot_trans_modes",
+            "w6d4_36_sup4_near_cells_and_markers_exterior",
+            "w6d4p2_40_anh_game_safe",
+            "w6d4_43_knvse_global_and_current_anim_time",
+            "w6d4_47_knvse_unlisted_dirfiles_and_controls",
+            "w6d4p4_41_knvse_live_anim",
+            "w6d4p5_25_sup_json_valid_and_array",
         ):
             self.assertIn(req_id, probes_by_id)
 

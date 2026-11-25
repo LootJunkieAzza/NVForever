@@ -52,6 +52,15 @@ xNVSE's own forms (QFromAxisAngle …) are different functions with observed con
 | GetZoneMinLevel, GetZoneMatchLevel, GetZoneOwner `zone` | the ECZN record's minimum level, "Match PC Below Minimum Level" flag and owner [documented] |
 | SetZoneMinLevel `zone level`, SetZoneOwner `zone owner` | round-trips through `GetZoneMinLevel` / `GetZoneOwner`, `GetZoneLevel` on an unentered zone stays `0` after `SetZoneMinLevel 15`, and `SetZoneOwner zone 0` leaves the current owner unchanged [documented: the pages' examples; observed: 2026-11-23 & 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 with the 10 official base masters, probes `anh_07_zone_level_min_owner` (`0,6,12`), `anh_11_zone_owner_readback` (`Vault11Zone` `000E9081`: `GetZoneOwner` `00000000 -> 000A46E7 -> 00104C6E -> 00104C6E`), and `w4d_29_anh_scancode_table_and_zone` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3802): `zone(0->0,docZ=00000000)`; no DLL or source consulted]; session-only lifetime (carried across same-run loads via `WorldSession` / `Game::Session`, not saved) and keeping an already-entered zone's level remain [hypothesis] |
 
+### 3.1 Wave 6D-4 clean-room `[observed]` confirmation
+
+Confirmed `Get/SetArmorArmorRatingAlt` (`0 -> 12`), `GetQuestCompletedAlt` (`0`), and
+`GetZoneMatchLevel` / `GetZoneMinLevel` / `GetZoneOwner` (`0,6,00000000`) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
+AnhNVSE 131 [observed: probe `w6d4p2_40_anh_game_safe`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`):
+`PROBE|w6d4p2_40_anh_game_safe|ar(0->12)|qc=0|z(m=0,min=6,own=00000000)|a2s(l=[1.0000002.000000],sm=[1.000000])`].
+(`ArrayToString` retains NVForever's documented `[decision]` formatting in `ext-small.md` §1.)
+
 ## 4. The last three (2026-11-01)
 
 ArrayToString (the VM), GetCameraFOV and UpdateTubeMesh (`nvse_small.rs`): ext-small.md

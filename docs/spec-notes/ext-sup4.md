@@ -105,3 +105,14 @@ The rule (§1's table) fits every row:
 
 Built (`nvse_sup4.rs` `near_cells`, #2039): the loaded cells are `Game::loaded_cells`; the
 sup4 `near` row is equal since.
+
+### 5.1 Wave 6D-4 clean-room `[observed]` confirmations
+
+Confirmed fresh New Game `GetLoadedSaveSize` / `GetSavedSaveSize` (`-1`),
+`CallFunctionNextFrame` (`inFrames=2` fires: `ret=1,fired=1`), and exterior Goodsprings
+(`0x000DAEBB`) `GetNearCells` (`1,9,23`) and `GetNearMapMarkers` (`1,1`) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
+SUP NVSE 855 + JIP LN 57.30 [observed: probes `w6d4_29_sup4_saves_pickpocket_and_onload`:
+`PROBE|w6d4_29_sup4_saves_pickpocket_and_onload|save(ls=-1/-1,ss=-1,snLen=-1)|cp(0,0,0)|mol=0|nf(ret=1,fired=1)`
+and `w6d4_36_sup4_near_cells_and_markers_exterior`:
+`PROBE|w6d4_36_sup4_near_cells_and_markers_exterior|cell=000DAEBB|cells(1,9,23)|marks(1,1)`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`)].

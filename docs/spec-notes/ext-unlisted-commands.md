@@ -166,6 +166,14 @@ cmd3.condpenalty.0-4]. No game setting holds 0.67 [observed: FalloutNV.esm GMSTs
 gives no array (ar_Size -1) [observed: cmd2.listtoarray, 18 of NVCompanionWeapons' 18,
 first and last as ListGetNthForm; listtoarray.notlist].
 
+### 3.6 Wave 6D-4 clean-room `[observed]` confirmation (`CCC*` & `StringContainsOnlyASCII`)
+
+Confirmed `CCCGetDistance`, `CCCInFaction`, `CCCLocationName`, `CCCGetReputation`,
+`CCCSavedForm`, and `StringContainsOnlyASCII` in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30 +
+SUP NVSE 855 [observed: probe `w6d4p2_19_ccc_queries_and_ascii_fixed`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`):
+`PROBE|w6d4p2_19_ccc_queries_and_ascii_fixed|d(665.1,z=0.6)|fac(0,0)|loc=[in Doc Mitchell's House]|rep(p=00000000,d=00104C22)|sf=00000000|asc(1,1)`].
+
 ## 4. Switches kept without an effect
 
 ToggleDetectionFix and ToggleIgnoreLockedDoors answer 0 [observed: cmd1.detfix.*,

@@ -377,6 +377,28 @@ commands that touch the menus, the sky or the minimap ran one per launch].
 and answer 0 or "": CCCTaskPackageFlags, GetCameraMovement, GetTranslatedPos,
 GetWorldMapPosMults, TransformWorldToLocal.
 
+### 9.1 Wave 6D-4 clean-room `[observed]` confirmations (`wave6d4_promote_observed.json`)
+
+All probes below ran in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted:
+
+- **`HasActionRef`** (JIP LN 57.30): `0` on Player, Chair, Dresser, Rorschach; `1` on
+  DocMitchellREF and front Door [observed: probe `w6d4_15_has_action_ref_unscripted_and_actors`:
+  `PROBE|w6d4_15_has_action_ref_unscripted_and_actors|p=0,doc=1,chair=0,dresser=0,door=1,ror=0`].
+- **`RefreshAnimData` and JIP switches** (JIP LN 57.30): `RefreshAnimData`,
+  `LockEquipment`, `SetTeammateUsingAmmo`, `ToggleDetectionFix`, `ToggleIgnoreLockedDoors`,
+  and `DisableScriptedActivate` all return `0` [observed: probe
+  `w6d4_16_refresh_anim_data_and_jip_toggles`:
+  `PROBE|w6d4_16_refresh_anim_data_and_jip_toggles|ra(0,0)|lk(0,0)|tmAmmo(1,s=0,1)|tog(df=0/0,ld=0/0,da=0/0)`].
+- **JohnnyGuitar / JIP unlisted getters & setters** (JIP LN 57.30 + JohnnyGuitar 528):
+  `GetExtraAccuracyPenaltyMult` (`1.00`), `SetWaterTrait` (`0`), `SetTextureTransformKey`
+  (`0`), `GetCasinoDeckTexture` OOB `""` [observed: probe
+  `w6d4_20_jg_accuracy_mult_water_tex_transform`:
+  `PROBE|w6d4_20_jg_accuracy_mult_water_tex_transform|acc(g=1.00->1.00->1.00,s=1.00->1.00)|wt=0|tt=0|cas(0=[terminals\NV_PlayingCards\DeckB\cardB_Back.dds],1=[terminals\NV_PlayingCards\DeckB\cardB_Back.dds],9=[])`].
+- **ShowOff `_OLD` aliases & unlisted getters** (ShowOffNVSE 184): `Matrix_IsMatrix_OLD`,
+  `Matrix_Transpose_OLD`, `IsTemporaryReference`, `Get/SetNoEquipShowOff`, `SayTo_*`, and
+  `GetPipboyRadioVoiceEntryData` [observed: probe `w6d4_22_showoff_unlisted_old_and_flags`:
+  `PROBE|w6d4_22_showoff_unlisted_old_and_flags|mat(is=1,1d=1,tr=3)|tmp(doc=0,pl=0)|noEq(0,0,0)|say(00000000,00000000)|radSz=0`].
+
 ## 10. Where this leaves the catalogue
 
 Every name the installed plugins register in nvse.log now has a catalogue row (checked

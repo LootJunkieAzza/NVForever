@@ -90,6 +90,15 @@ the NiNode functions among them.
 - 11 extra rows: lines the game's compiler refused (the `…Ex` getters, GetCalculatedPos
   and …Alt); NVForever runs them.
 
+### 5.1 Wave 6D-4 clean-room `[observed]` confirmation
+
+Confirmed `GetTFCPos`/`GetTFCAngle` outside TFC (`0.0`), `GetCalculatedAngleXForTFCCamera`
+(`-45.00`), `GetCalculatedAngleZForTFCCamera` (`90.00`/`0.00`), and `ReadINIFloatFromFile`
+missing (`0.0`) vs `ReadINIFloatFromFileAlt` missing (`nan`) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, SUP NVSE
+855 [observed: probe `w6d4_28_sup3_tfc_pos_angle_calc_and_ini_read`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`):
+`PROBE|w6d4_28_sup3_tfc_pos_angle_calc_and_ini_read|tfc(0.0,0.0,a=0.0/0.0)|calc(x=-45.00,z=90.00/0.00)|ini(dec=10.0,m1=0.0,m2=nan,q=[00102037],secs=44,wKeys=20)`].
+
 ## 6. Not in this batch
 
 SUP's other 101 names: Excel, JSON, file times and sizes, the clipboard, screenshots,

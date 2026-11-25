@@ -106,6 +106,40 @@ name of highlighted UI component"]; nothing with none [hypothesis]. The highligh
 is the tile tree's pointer's (`Game::ui_pointer`, #957), as GetActiveUIComponentName reads
 it. The console's exact line is not documented: the name alone [hypothesis].
 
+## 5a. Wave 6D-4 clean-room `[observed]` confirmations (`wave6d4_promote_observed.json`)
+
+All probes below ran in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted:
+
+- **Ammo queries, `BuildRef`, and `GetLocalRefIndex`**: `BuildRef` returns the loaded
+  form for valid `(modIdx, localIdx)` and `00000000` for `255`/`-1`/missing IDs;
+  `GetLocalRefIndex` masks the low 24 bits; settled ammo queries (`GetWeaponCanUseAmmo`,
+  `HasAmmoEquipped`, `GetEquippedWeaponCanUseAmmo`, `IsEquippedAmmoInList`,
+  `GetEquippedWeaponUsesAmmoList`, `GetPlayerCurrentAmmo`) agree with NVForever
+  [observed: probes `w6d4_05_ammo_queries_and_buildref_localidx`:
+  `PROBE|w6d4_05_ammo_queries_and_buildref_localidx|ammo(0,0,has=0,eq=0/0,lst=0/0,cur=0)|build(ok=1,255=00000000,neg=00000000,miss=00000000)|loc(17231,1.06805e+06,4897)`
+  and `w6d4p3_05_ammo_queries_settled`:
+  `PROBE|w6d4p3_05_ammo_queries_settled|can(1,0)|has(1,0)|eqCan(1,0)|lst(1,1)|cur=1`].
+- **`SetStringSetting` and `GetAltControl` / `SetAltControl`**: `SetStringSetting`
+  round-trips string GMSTs and returns `0` without aborting on missing or float GMSTs
+  (matching NVForever default non-strict mode; `strict=true` errors remain [design]);
+  `GetAltControl` / `SetAltControl` round-trip (`-1 -> 38 -> -1`) and return `-1` for
+  negative/OOB control codes [observed: probe `w6d4_09_set_string_setting_and_alt_control`:
+  `PROBE|w6d4_09_set_string_setting_and_alt_control|gmst(ok=0,mod=[W6D4Talk],restEq=1,miss=0,flt=0)|ctrl(c0=-1,c1=38,rest=-1,neg=-1,oob=-1)`].
+- **`ToString` and `PrintActiveTile`**: `ToString` returns `"NULL"` for `ar_Null`,
+  list arrays, numeric maps, and stringmaps, ref display names for forms, and formatted
+  numbers for floats; `PrintActiveTile` returns `0` [observed: probe
+  `w6d4_10_tostring_maps_null_and_print_tile`:
+  `PROBE|w6d4_10_tostring_maps_null_and_print_tile|ts(null=[NULL],lst=[NULL],map=[NULL],smap=[NULL],ref=[Doc Mitchell],flt=[3.5])|pat=0|ui(v0=-999.0,v1=-999.0,miss=-999.0)`].
+- **`MenuHoldKey` / `MenuReleaseKey` and `CompareScripts`**: both key helpers return
+  `0` on valid and invalid codes; `CompareScripts` returns `0` for identical, distinct,
+  and non-script forms [observed: probe `w6d4_11_menu_hold_release_and_compare_scripts`:
+  `PROBE|w6d4_11_menu_hold_release_and_compare_scripts|key(h=0,r=0,hb=0,rb=0)|cmp(eq=0,neq=0,bad=0)`].
+- **`SetActorBaseFlagsLow` / `SetActorBaseFlagsHigh` and `ActorHasBaseFlag`**: low/high
+  16-bit flag setters align with `ActorHasBaseFlag` bits `1` and `16` on `TempCloneForm`
+  NPCs [observed: JIP LN 57.30 + ShowOffNVSE 184, probe
+  `w6d4_12_actor_base_flags_high_low_immobile`:
+  `PROBE|w6d4_12_actor_base_flags_high_low_immobile|lo(0->2,b1=1)|hi(0->1,b16=1)|imm(0->0)`].
+
 ## 6. Not a function
 
 - `eval` is the if-statement form (ext-syntax.md), built in the compiler; the census
