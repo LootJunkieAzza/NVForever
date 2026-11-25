@@ -4,7 +4,7 @@ use crate::GameData;
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_script::vm::XVal;
 use fnv_script::FunctionTable;
-use fnv_sim::{FormStore, RefTable, SimConfig, World};
+use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use serde_json::Value as Json;
 
 const QUST: u32 = 0x901;
@@ -67,4 +67,22 @@ let a := TopicInfoGetAllChoices 0x{INFO:08X}
         RunCtx::default(),
     ).unwrap();
     assert_eq!(res, XVal::Num(11.0));
+}
+
+#[test]
+fn topicinfo_replacechoice_rejects_omitted_and_non_finite_positions() {
+    let (data, forms, placed) = make_game();
+    let world = World::new(&forms, &placed, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig::default());
+
+    // Omitting the position argument must not coerce to -1 and overwrite choices[0].
+    let omitted = crate::nvse_dialogue::call(&mut g, &RunCtx::default(), "topicinforeplacechoice", None, &[XVal::Ref(INFO), XVal::Ref(DIAL_ALT)]);
+    assert_eq!(omitted.unwrap().unwrap(), XVal::Num(0.0));
+    assert_eq!(g.dialogue_view().info(&FormId(INFO)).unwrap().choices, vec![FormId(DIAL_C0), FormId(DIAL_C1)]);
+
+    // NaN and infinities must be rejected rather than saturating to index 0.
+    assert!(!g.replace_choice(FormId(INFO), FormId(DIAL_ALT), f64::NAN));
+    assert!(!g.replace_choice(FormId(INFO), FormId(DIAL_ALT), f64::NEG_INFINITY));
+    assert!(!g.replace_choice(FormId(INFO), FormId(DIAL_ALT), f64::INFINITY));
+    assert_eq!(g.dialogue_view().info(&FormId(INFO)).unwrap().choices, vec![FormId(DIAL_C0), FormId(DIAL_C1)]);
 }
