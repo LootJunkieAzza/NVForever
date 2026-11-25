@@ -337,3 +337,15 @@ or source consulted].
 Rigging, and already-equipped Power Armor training checks) re-evaluates immediately
 without re-equipping or reloading the cell remains uncaptured; overrides retain the
 module's session-only lifetime.
+
+## 12. Read-only INI getters (`GetNumericINISetting`, `GetStringINISetting`)
+
+- `GetNumericINISetting "key:section"` and `GetStringINISetting "key:section"` look up INI
+  keys case-insensitively and return `-1` for missing numeric keys, keys without a `:section`
+  suffix, or string-typed keys queried via `GetNumericINISetting` [observed: Fallout: New Vegas
+  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+  10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to
+  game install or Saves), `w6d2p3_20_numeric_and_string_ini_readonly`
+  (`tools/capture/nvse/catalogs/wave6d2_jip_lutana_observed.json`):
+  `PROBE|w6d2p3_20_numeric_and_string_ini_readonly|wh=1280/720,eqLo=1|fov=75.0,grid=5|miss=-1,noCol=-1,strNum=-1|lang=[ENGLISH]`;
+  zero DLL, PDB, or third-party source consulted].

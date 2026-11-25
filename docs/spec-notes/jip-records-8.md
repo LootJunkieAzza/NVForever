@@ -33,7 +33,7 @@ page's nothing (0, none) [documented: each page's `ref.F` and `F … baseForm` f
 | Add/RemoveBaseEffectListEffect `effect [base]` | the list, an actor effect (SPEL) only; added at the front, once [documented: "the specified Actor Effect"; observed: after two adds the list is one longer and the old first is second] |
 | SetBodyPartData `creature bpd` | CREA PNAM [documented]; GetBodyPartData reads it |
 | SetCRESkeletonModel `creature path`, SetNPCSkeletonModel `npc [path]` | MODL; an NPC's path left out, sNPCModelMale or sNPCModelFemale by its ACBS Female bit [documented]; GetSkeletonModel reads it |
-| Get/SetExcludedCombatActions `[mask]` | the calling actor's mask of the 27 combat actions, bits past 26 dropped; 0 until set; not saved [documented: "reset upon loading a game"] |
+| Get/SetExcludedCombatActions `[mask]` | the calling actor's mask of the 27 combat actions, bits past 26 dropped; 0 until set; not saved [documented: "reset upon loading a game"; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to game install or Saves), `w6d2_31_actor_leveling_effects_and_factions` (`tools/capture/nvse/catalogs/wave6d2_jip_lutana_observed.json`): `PROBE\|w6d2_31_actor_leveling_effects_and_factions\|lv=0.75,oob=0\|splo=1,2,2,2,1,e0=1\|facN=3\|ex=0->1.34218e+08`; zero DLL, PDB, or third-party source consulted] |
 
 The actor records keep INAM, TPLT and SPLO for these (`ACTOR_SUBS`, data.rs).
 
@@ -80,7 +80,7 @@ next part, holding the BPND of that part type [documented: xEdit BPTD].
 
 | Function | NVForever |
 |---|---|
-| SetCellFlag `cell flag set` | 0-7 DATA's bits (4 too, which the table leaves out), 8-16 the lighting template inherit flags, LNAM bits 0-8 [documented: the table; observed: 4 is set; GetCellFlag 8-16 follow LNAM in this order on Doc Mitchell's house and the saloon]. GetCellFlag reads 8-16 the same way now (it read DATA, so 0) |
+| SetCellFlag `cell flag set` | 0-7 DATA's bits (4 too, which the table leaves out), 8-16 the lighting template inherit flags, LNAM bits 0-8 [documented: the table; observed: 4 is set; GetCellFlag 8-16 follow LNAM in this order on Doc Mitchell's house and the saloon]. GetCellFlag reads 8-16 the same way now (it read DATA, so 0); `GetCellFlag` returns `0` on `WRLD` (even after `SetWorldspaceFlag` sets bit 0), `FLST`, null `0`, and out-of-range flags `-1`/`17` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to game install or Saves), `w6d2p2_49_get_cell_flag_wrld_3757` (`tools/capture/nvse/catalogs/wave6d2_jip_lutana_observed.json`): `PROBE\|w6d2p2_49_get_cell_flag_wrld_3757\|wnv(wf=0->1,cf=0->0)\|free(wf=1,cf=0)\|fl=0,null=0\|doc(0=1,neg=0,17=0)`; zero DLL, PDB, or third-party source consulted] |
 | SetCellWaterForm `cell water` | XCWT, a water (WATR) [documented]; GetCellWaterForm reads it |
 | SetWaterFormEffect `water [effect]` | the actor effect, or none; GetWaterFormEffect and drinking (`Game::drink_from`) read it. In the original it has no result (`let x := SetWaterFormEffect …` does not compile) |
 | GetWaterTrait `water trait` | 0 opacity (ANAM), 1 the flags (FNAM), 2-50 DNAM in its order; colours 12-14 as R × 1000000 + G × 1000 + B; the table's "Unknown" 9 (unused bytes), and past 50, 0 [documented: the table; observed: NVCleanWater's 0-14 and 16-50] |

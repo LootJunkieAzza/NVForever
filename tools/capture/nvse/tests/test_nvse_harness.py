@@ -173,14 +173,15 @@ class TestCatalogValidation(unittest.TestCase):
                 "wave4g_f2_extenders.json",
                 "wave4h_reconcile.json",
                 "wave6_point_raycast.json",
+                "wave6d2_jip_lutana_observed.json",
             ],
         )
         self.assertFalse((nvse_harness.DEFAULT_CATALOG_DIR / "persistence_matrix.json").exists())
         errors, counts = nvse_harness.validate_catalogs(paths)
         self.assertEqual(errors, [], f"Catalog validation errors: {errors[:5]}")
-        self.assertEqual(counts["catalogs"], 9)
-        self.assertEqual(counts["probe_batches"], 27)
-        self.assertEqual(counts["probes"], 541)
+        self.assertEqual(counts["catalogs"], 10)
+        self.assertEqual(counts["probe_batches"], 28)
+        self.assertEqual(counts["probes"], 562)
         self.assertEqual(counts["persistence_items"], 0)
 
         # Verify Wave 1 parity probe IDs and corrected Wave 4A/4D/4E/4G/4H targeted probes are present verbatim.
@@ -217,6 +218,27 @@ class TestCatalogValidation(unittest.TestCase):
             "w6_01_point_raycast_angles",
             "w6_02_point_raycast_miss_and_range",
             "w6_03_point_raycast_collision_flags",
+            "w6d2p2_49_get_cell_flag_wrld_3757",
+            "w6d2_09_armor_class_ar_dt_rct_biped",
+            "w6d2_12_impact_data_no_dodt_and_material",
+            "w6d2_13_worldspace_parent_persistent_extcell",
+            "w6d2p4_19b_music_type",
+            "w6d2p3_20_numeric_and_string_ini_readonly",
+            "w6d2_21_imagespace_and_imad_traits_bounds",
+            "w6d2_27_actors_by_processing_level_and_combat_style",
+            "w6d2_31_actor_leveling_effects_and_factions",
+            "w6d2_34_lutana_perk_entry_form_and_flags",
+            "w6d2p2_35_equip_data_next_tick",
+            "w6d2_36_lutana_set_radius_and_recipe_skill",
+            "w6d2_37_menu_target_selected_and_item_filters",
+            "w6d2_40_script_disabled_events_and_children",
+            "w6d2_41_primitives_add_has_get_set_bounds",
+            "w6d2_42_jip14_ref_model_wobble_vats_detonation",
+            "w6d2p4_43_jip14_extra_cameras_and_ttw_funcs",
+            "w6d2p2_44_jip9_hotkey_ref_font_and_material",
+            "w6d2_45_jip4_ref_type_teleport_global_poison",
+            "w6d2_46_jip_outvars_posex_vel_and_nif_alt",
+            "w6d2p4_48_jip13_physics_layers_props_and_moves",
         ):
             self.assertIn(req_id, probes_by_id)
 

@@ -197,7 +197,13 @@ not decode yet.
   [observed: jip4, 2 in the `nvftest` save, where Ringo, not hostile, stands near the
   player; hypothesis: 3 in combat, not probed]. With no measure it reads 0. NVForever never reads
   -1, because the function runs only in a game.
-- `GetRefType` [documented: the type code of the reference, not its base]: the
+- `GetRefType` [documented: the type code of the reference, not its base; observed: Fallout:
+  New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe;
+  zero writes to game install or Saves), `w6d2_45_jip4_ref_type_teleport_global_poison`
+  (`tools/capture/nvse/catalogs/wave6d2_jip_lutana_observed.json`):
+  `PROBE|w6d2_45_jip4_ref_type_teleport_global_poison|rt=59,59,58,58|td=1/1|gr=1/1|pois=0,det=0,del=0.01`;
+  zero DLL, PDB, or third-party source consulted]: the
   reference's own record type. The player is an ACHR; an inventory reference or one made
   at run time is a REFR, an ACHR or an ACRE by its base, as the script host names it.
 - `GetTeleportDoor` [documented]: the door at the other end, SetDoorTeleport's change
