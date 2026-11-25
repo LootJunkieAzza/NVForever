@@ -2309,23 +2309,24 @@ impl Vm<'_, '_> {
                 // page's "as text"; numbers first, hypothesis].
                 let mut keyed: Vec<(u8, String, f64, XVal)> = Vec::new();
                 let alpha = n == "ar_sortalpha";
-                // Both Ar_Sort and Ar_SortAlpha keep elements of the first element's type
-                // and drop the rest [observed: w6d5p2_18 & w6d5p3_18b, Ar_SortAlpha
-                // [10, 2, "b", "a", rDocBase] -> [2, 10] (size 2)].
+                // Ar_Sort keeps the elements of the first element's type and drops the rest
+                // ([3, "x"] → [3], ["x", 3] → ["x"]) [observed: the original game, which beats
+                // the page's "empty array"; with more elements of each type, hypothesis].
+                // Ar_SortAlpha does the same on number-first mixed arrays
+                // [observed: w6d5p3_18b_alpha_find_unique_any_all, [10, 2, "b", "a", rDocBase]
+                // -> [2, 10] (size 2); generalizing to string-first / form-first arrays is
+                // hypothesis].
                 let first = vals.first().map(std::mem::discriminant);
                 let vals: Vec<XVal> = vals.into_iter().filter(|v| Some(std::mem::discriminant(v)) == first).collect();
-                let same_kind = true;
-                if alpha || same_kind {
-                    for v in vals {
-                        let is_num = matches!(v, XVal::Num(_));
-                        let t = if !is_num && (alpha || matches!(v, XVal::Str(_))) { self.text_of(&v)?.to_lowercase() } else { String::new() };
-                        let x = if is_num || !alpha { v.num().unwrap_or(0.0) } else { 0.0 };
-                        keyed.push((u8::from(!is_num), t, x, v));
-                    }
-                    keyed.sort_by(|p, q| p.0.cmp(&q.0).then(p.1.cmp(&q.1)).then(p.2.partial_cmp(&q.2).unwrap_or(std::cmp::Ordering::Equal)));
-                    if desc {
-                        keyed.reverse();
-                    }
+                for v in vals {
+                    let is_num = matches!(v, XVal::Num(_));
+                    let t = if !is_num && (alpha || matches!(v, XVal::Str(_))) { self.text_of(&v)?.to_lowercase() } else { String::new() };
+                    let x = if is_num || !alpha { v.num().unwrap_or(0.0) } else { 0.0 };
+                    keyed.push((u8::from(!is_num), t, x, v));
+                }
+                keyed.sort_by(|p, q| p.0.cmp(&q.0).then(p.1.cmp(&q.1)).then(p.2.partial_cmp(&q.2).unwrap_or(std::cmp::Ordering::Equal)));
+                if desc {
+                    keyed.reverse();
                 }
                 let es = keyed.into_iter().enumerate().map(|(i, (_, _, _, v))| (XKey::Num(i as f64), v)).collect();
                 Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))

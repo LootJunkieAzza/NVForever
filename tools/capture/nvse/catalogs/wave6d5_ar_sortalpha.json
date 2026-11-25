@@ -43,6 +43,7 @@
           "spec_file": "docs/spec-notes/script-compiler.md",
           "spec_line": 595,
           "functions_tested": [
+            "GetFormFromMod",
             "ar_SortAlpha",
             "ar_Find",
             "ar_Unique",
