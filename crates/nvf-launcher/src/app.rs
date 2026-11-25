@@ -1575,8 +1575,8 @@ impl App {
     }
 
     /// A new game's start (src/start.rs, #2945): the start quest and intro film typed in,
-    /// written to NVForever.ini's `[General]` by Save; TTW's values one click away while its
-    /// master is in the load order.
+    /// written to NVForever.ini's `[General]` by Save. A TTW on/off switch: on is TTW's start,
+    /// off is the base game's (quest `00102037`, `FNVIntro.bik`).
     fn start_box(&mut self, ui: &mut egui::Ui) {
         use crate::start;
         let ttw = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(start::TTW_PLUGIN))).map(|e| e.active);
@@ -1587,7 +1587,7 @@ impl App {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("New game start").strong());
             ui.label(
-                RichText::new("For mods that start somewhere else (their install guide gives the values). Empty: the New Vegas opening and its film. Saved to NVForever.ini's [General].")
+                RichText::new("For mods that start somewhere else (their install guide gives the values). TTW off is the New Vegas opening and its film. Saved to NVForever.ini's [General].")
                     .small()
                     .color(WEAK),
             );
@@ -1605,11 +1605,10 @@ impl App {
             });
             ui.horizontal(|ui| {
                 save = ui.add_enabled(self.start_edit != saved, egui::Button::new("Save start")).clicked();
-                if ttw.is_some() && !self.start_edit.is_ttw() && ui.button("Use Tale of Two Wastelands' start").on_hover_text("Start quest 001FFFF8 and no intro film; Save to keep it").clicked() {
-                    self.start_edit = start::ttw();
-                }
-                if self.start_edit != start::Fields::default() && ui.button("Clear").on_hover_text("Back to the New Vegas opening; Save to keep it").clicked() {
-                    self.start_edit = start::Fields::default();
+                let mut ttw_on = self.start_edit.is_ttw();
+                let label = if ttw_on { "TTW on" } else { "TTW off" };
+                if ui.checkbox(&mut ttw_on, label).on_hover_text("On: quest 001FFFF8 and no intro film. Off: the base game, quest 00102037 and FNVIntro.bik. Save to keep it.").changed() {
+                    self.start_edit = if ttw_on { start::Fields::ttw() } else { start::Fields::original() };
                 }
                 if self.start_edit != saved && ui.button("Undo").clicked() {
                     self.start_edit = saved.clone();
@@ -1626,7 +1625,7 @@ impl App {
                 Ok(()) => {
                     self.ini_text = self.ini_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
                     self.start_edit = start::Fields::read(&self.ini_text);
-                    let what = if self.start_edit == start::Fields::default() { "New games start at the New Vegas opening." } else { "New game start saved." };
+                    let what = if self.start_edit == start::Fields::original() { "New games start at the New Vegas opening." } else { "New game start saved." };
                     self.message = Some((what.to_string(), false));
                 }
                 Err(e) => self.message = Some((e, true)),
