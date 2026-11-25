@@ -542,3 +542,11 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 - Living actors losing limbs: dismemberment here happens only on the killing hit or on a corpse.
   The original does not dismember living actors either [observed: no target in §4.1 lost a part
   to a hit that did not kill it].
+
+### `IsLimbGone` reversed range (`first > last`) [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6_41_kill_actor_limb_gone_and_cause_of_death` (`tools/capture/nvse/catalogs/wave6d6_is_limb_gone_reversed.json`)]: With limb `3` dismembered, `IsLimbGone 1 5` returns `1` (`rng=1`) while reversed `IsLimbGone 5 1` returns `0` (`rev=0`); note also that `KillActor Player 1 2` and `KillActor Player 1 3` left `GetCauseofDeath == -1`:
+
+```text
+PROBE|w6d6_41_kill_actor_limb_gone_and_cause_of_death|a(lg1=0,lg13=0,lg3=0->1,rng=1,rev=0,kbl=-1,cod=-1,isk=1,kil=00000014)|b(lg0=0,kbl=-1,cod=-1)
+```

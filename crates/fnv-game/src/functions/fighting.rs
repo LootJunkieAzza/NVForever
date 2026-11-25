@@ -192,8 +192,11 @@ pub fn is_limb_gone(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     let r = ctx.subject()?;
     let first = a.int(0)?;
     let last = a.int(1).unwrap_or(first);
-    let (lo, hi) = (first.min(last), first.max(last));
-    yes(g.extra.get(&r).is_some_and(|e| e.limbs_gone.range(lo..=hi).next().is_some()))
+    // Reversed ranges (first > last) return 0 [observed: w6d6_41_kill_actor_limb_gone_and_cause_of_death].
+    if first > last {
+        return yes(false);
+    }
+    yes(g.extra.get(&r).is_some_and(|e| e.limbs_gone.range(first..=last).next().is_some()))
 }
 
 /// `actor.GetKillingBlowLimb`: the location of the hit that killed the actor, −1 while it

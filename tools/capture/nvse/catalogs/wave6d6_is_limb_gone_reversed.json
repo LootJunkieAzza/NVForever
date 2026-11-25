@@ -1,0 +1,118 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_is_limb_gone_reversed",
+  "description": "Wave 6D-6 read-only probe verifying IsLimbGone returns 0 on reversed ranges (first > last).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_is_limb_gone_reversed",
+      "title": "IsLimbGone reversed range returns 0",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_41_kill_actor_limb_gone_and_cause_of_death",
+          "bucket": "combat_dismemberment",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/dismemberment.md",
+          "spec_line": 416,
+          "functions_tested": [
+            "KillActor",
+            "IsLimbGone",
+            "GetKillingBlowLimb",
+            "GetCauseofDeath",
+            "GetKiller",
+            "IsKiller"
+          ],
+          "claim": "SD-17: Test KillActor on placed WastelanderAM with limb=1 (Head), limb=0 (Torso), limb=3 (LeftArm), checking GetKillingBlowLimb, GetCauseofDeath, GetKiller, IsKiller, IsLimbGone (single, range 0..13, reversed 5..1, shared Brain 13), and post-mortem KillActor dismemberment.",
+          "expected": "Record exact dismemberment flags and killer/cause/killing-blow readback across living and already-dead kills.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rA = Player.PlaceAtMe rBase 1 110 0",
+            "ref rB = Player.PlaceAtMe rBase 1 140 0",
+            "rA.SetRestrained 1",
+            "rB.SetRestrained 1",
+            "Player.AuxVarSetRef \"*w6d641_a\" rA",
+            "Player.AuxVarSetRef \"*w6d641_b\" rB",
+            "rA.KillActor Player 1 2",
+            "rB.KillActor Player 0 4"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "post_mortem",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rA = Player.AuxVarGetRef \"*w6d641_a\"",
+                "ref rB = Player.AuxVarGetRef \"*w6d641_b\"",
+                "Player.AuxVarSetFlt \"*w6d641_a1\" (rA.IsLimbGone 1)",
+                "Player.AuxVarSetFlt \"*w6d641_a13\" (rA.IsLimbGone 13)",
+                "Player.AuxVarSetFlt \"*w6d641_a3a\" (rA.IsLimbGone 3)",
+                "Player.AuxVarSetFlt \"*w6d641_akbl\" (rA.GetKillingBlowLimb)",
+                "Player.AuxVarSetFlt \"*w6d641_acod\" (rA.GetCauseofDeath)",
+                "Player.AuxVarSetFlt \"*w6d641_aisk\" (rA.IsKiller Player)",
+                "Player.AuxVarSetRef \"*w6d641_akil\" (rA.GetKiller)",
+                "Player.AuxVarSetFlt \"*w6d641_b0\" (rB.IsLimbGone 0)",
+                "Player.AuxVarSetFlt \"*w6d641_bkbl\" (rB.GetKillingBlowLimb)",
+                "Player.AuxVarSetFlt \"*w6d641_bcod\" (rB.GetCauseofDeath)",
+                "rA.KillActor Player 3 2"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rA = Player.AuxVarGetRef \"*w6d641_a\"",
+                "ref rB = Player.AuxVarGetRef \"*w6d641_b\"",
+                "int iA1 = Player.AuxVarGetFlt \"*w6d641_a1\"",
+                "int iA13 = Player.AuxVarGetFlt \"*w6d641_a13\"",
+                "int iA3a = Player.AuxVarGetFlt \"*w6d641_a3a\"",
+                "int iA3b = rA.IsLimbGone 3",
+                "int iARng = rA.IsLimbGone 0 13",
+                "int iARev = rA.IsLimbGone 5 1",
+                "int iAKbl = Player.AuxVarGetFlt \"*w6d641_akbl\"",
+                "int iACod = Player.AuxVarGetFlt \"*w6d641_acod\"",
+                "int iAIsk = Player.AuxVarGetFlt \"*w6d641_aisk\"",
+                "ref rAKil = Player.AuxVarGetRef \"*w6d641_akil\"",
+                "int iB0 = Player.AuxVarGetFlt \"*w6d641_b0\"",
+                "int iBKbl = Player.AuxVarGetFlt \"*w6d641_bkbl\"",
+                "int iBCod = Player.AuxVarGetFlt \"*w6d641_bcod\"",
+                "rA.Disable",
+                "rA.MarkForDelete",
+                "rB.Disable",
+                "rB.MarkForDelete",
+                "PrintToConsole \"PROBE|w6d6_41_kill_actor_limb_gone_and_cause_of_death|a(lg1=%g,lg13=%g,lg3=%g->%g,rng=%g,rev=%g,kbl=%g,cod=%g,isk=%g,kil=%i)|b(lg0=%g,kbl=%g,cod=%g)\" iA1 iA13 iA3a iA3b iARng iARev iAKbl iACod iAIsk rAKil iB0 iBKbl iBCod"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
