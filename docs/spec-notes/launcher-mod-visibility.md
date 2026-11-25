@@ -7,8 +7,8 @@ copied. The game `Data` folder is not written.
 
 ## What Apply does
 
-[documented: `App::apply_mods` and `App::save_mods` in
-`crates/nvf-launcher/src/app.rs`] **Apply** writes three text files in the
+(code: `App::apply_mods` and `App::save_mods` in
+`crates/nvf-launcher/src/app.rs`) **Apply** writes three text files in the
 launcher home: `plugins.txt` (which plugins are on), `mod-order.txt` (which
 mod folders are on, and their order) and `mod-locks.txt` (the locked folders). It does not copy, hard-link, or symlink
 mod files anywhere. A profile **Save** or **Load** writes or reads
@@ -17,16 +17,16 @@ mod files anywhere. A profile **Save** or **Load** writes or reads
 `mod-order.txt` is read by the launcher when it draws the page and when it
 starts the game. The game process does not read it. The launcher passes each
 enabled folder as `--mod-layer`, lowest priority first (the last one wins)
-[documented: `plugins::mod_content_layers`, `launch::spawn`].
+(code: `plugins::mod_content_layers`, `launch::spawn`).
 
 ## What the game process reads
 
 The launcher starts NVForever. NVForever indexes files itself. It does not
 ask the original executable to look in a second folder.
 
-[documented: `layered_plugin_files` and `plugin_path_layered` in
+(code: `layered_plugin_files` and `plugin_path_layered` in
 `crates/fnv-install/src/plugins.rs`, and `engine/nvforever/src/main.rs` when
-`--mo2` is not set]
+`--mo2` is not set)
 
 - A plugin is opened from the enabled mod layers, the **highest priority**
   layer that has it first, including a file nested in a subfolder of that mod.
@@ -38,7 +38,7 @@ ask the original executable to look in a second folder.
   is still read.
 - Loose files and archives in `Data` are still read. Each enabled mod folder
   is a layer over that. The same relative path in a later layer wins
-  [documented: `Vfs::open_launcher_mods`]. A mod's meshes and textures are
+  (code: `Vfs::open_launcher_mods`). A mod's meshes and textures are
   read from `mods/<Name>/` (or from `mods/<Name>/Data/` when that folder exists),
   not as `<Name>/meshes/...`.
 - An archive is mounted by the base game's rule wherever it sits (Data, a mod
@@ -52,9 +52,9 @@ ask the original executable to look in a second folder.
 - Folder on/off and the launcher's order are applied only through `--mod-layer`.
   A start that was not given those arguments layers every mod folder in name
   order. On/off is not applied on that path, because the game does not read
-  `mod-order.txt` [documented: `plugins::mod_folder_layers`].
-- [documented: `Layout::mod_roots`, `Vfs::open_for_plugins_layered` and
-  `plugins::plugin_path_in`] A start with `--mo2` is as on main: each enabled
+  `mod-order.txt` (code: `plugins::mod_folder_layers`).
+- (code: `Layout::mod_roots`, `Vfs::open_for_plugins_layered` and
+  `plugins::plugin_path_in`) A start with `--mo2` is as on main: each enabled
   mod folder of that instance, then its overwrite folder. A plugin is taken from
   the top of those folders, highest first, then Data. Nothing is linked, copied
   or written into the instance.
@@ -63,8 +63,8 @@ ask the original executable to look in a second folder.
 
 Nothing in the launcher links or deletes files in the game `Data` folder.
 
-[documented: `link_into_mods` and `symlink_file` in
-`crates/fnv-install/src/plugins.rs`] The only link still made is into the mods
+(code: `link_into_mods` and `symlink_file` in
+`crates/fnv-install/src/plugins.rs`) The only link still made is into the mods
 folder, and only when `NVFOREVER_PLUGIN_SEARCH` finds a plugin that is in
 neither the mods folder nor `Data`. The destination is refused if it would be
 inside the game folder.

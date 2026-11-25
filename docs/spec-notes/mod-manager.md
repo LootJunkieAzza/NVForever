@@ -16,31 +16,31 @@ profile). `--mo2` is a different, read-only path
 [design] Each mod is one folder under the launcher home's `mods` directory.
 The home is `~/.local/share/nvforever` on Linux (or `$XDG_DATA_HOME/nvforever`)
 and `Documents\My Games\NVForever` on Windows, unless `NVFOREVER_HOME` is set
-[documented: `EngineHome::default_root` in `crates/fnv-install/src/lib.rs`].
+(code: `EngineHome::default_root` in `crates/fnv-install/src/lib.rs`).
 
 A mod's meshes, textures, and archives sit in that folder, or in a `Data`
-folder inside it when the mod has one [documented: `plugins::mod_content_root`].
+folder inside it when the mod has one (code: `plugins::mod_content_root`).
 They are not copied, hard-linked, or symlinked into the game `Data` folder.
 
 A plugin, archive, or loose file that is already in `Data` is still read. The
 mods folder does not hide the base game or a mod that was installed there by
-hand [documented: `plugin_path_layered`, `Vfs::open_launcher_mods`].
+hand (code: `plugin_path_layered`, `Vfs::open_launcher_mods`).
 
 ## The home lists
 
-[documented: `App::save_mods` and `App::remember_lists`] The launcher
+(code: `App::save_mods` and `App::remember_lists`) The launcher
 keeps three text files in the home:
 
 - `plugins.txt`: which plugins are on, and their load order. A `*` turns a
   line on. The format is NVForever's own
-  [documented: `crates/fnv-install/src/plugins.rs`].
+  (code: `crates/fnv-install/src/plugins.rs`).
 - `mod-order.txt`: which mod folders are on, and their order, in Mod Organizer
   2's `modlist.txt` form, so MO2 can read it [design: every list
   file stays readable by MO2]. One line a row, the **highest priority
   first**: `+name` on, `-name` off, a separator as `-<name>_separator`, CRLF
   line ends, no header [documented: docs/spec-notes/mod-organizer-profile.md,
   `modlist.txt`; `fnv_install::mod_order`]. The first on-line wins a loose-file
-  overlap [documented: `plugins::mod_content_layers`]. The page shows that
+  overlap (code: `plugins::mod_content_layers`). The page shows that
   winner at the bottom of the list.
 - `mod-locks.txt`: the locked mods, one name a line. MO2's list has no lock
   mark, so locks are kept beside it [design].
@@ -48,21 +48,21 @@ keeps three text files in the home:
 A `mod-order.txt` in the launcher's earlier form is still read: lowest priority
 first, `*` on, a bare name off, `=` locked, `% name` a separator, `;` a comment.
 The `;` comment, a `*` line or a bare name marks that form. The next write
-turns it into MO2's form [documented: `mod_order::read_mod_order` and its
-tests].
+turns it into MO2's form (code: `mod_order::read_mod_order` and its
+tests).
 
 All three are written when the list changes, with no profile open and without
-pressing **Save** [documented: `App::save_mods`, `App::write_mod_order`]. Closing the launcher and opening it again restores that
+pressing **Save** (code: `App::save_mods`, `App::write_mod_order`). Closing the launcher and opening it again restores that
 list. A profile is not required for this.
 
 When the page opens, a plugin found only in mod folders that are off is
 unticked; it stays in the load order. A plugin the game would still read on a
 start through the launcher keeps its tick: one that a folder that is on has,
 one loose at the top of the mods folder, or one in `Data` [design]
-[documented: `App::drop_inactive_mod_plugins`, `only_in_off_folders`].
+(code: `App::drop_inactive_mod_plugins`, `only_in_off_folders`).
 
 Writing them does not make a backup. A dated copy is made only when
-**Save backup** is pressed [documented: `App::save_dated_backup`].
+**Save backup** is pressed (code: `App::save_dated_backup`).
 Lowering the number of backups kept asks before the oldest copies are deleted.
 The mods themselves are not deleted.
 
@@ -92,11 +92,11 @@ splits `PATH` (`;` on Windows), so `C:\Mods` stays whole [design].
 
 The game process does not read `mod-order.txt`. When the launcher starts the
 game it passes each enabled folder as `--mod-layer`, lowest priority first
-[documented: `launch::spawn`]. The last layer wins.
+(code: `launch::spawn`). The last layer wins.
 
 A start that was not given `--mod-layer` still layers every mod folder, in
 name order. Folder on/off is not applied on that path
-[documented: `plugins::mod_folder_layers`].
+(code: `plugins::mod_folder_layers`).
 
 `--mo2` is not this path. It still only reads another program's instance.
 The launcher does not write that instance.
@@ -113,13 +113,13 @@ still exist on their own.
 ## Not in this manager
 
 - The game `Data` folder is not written. Neither is
-  `Documents\My Games\FalloutNV` [documented: `guard_write` in
-  `crates/fnv-install/src/lib.rs`].
+  `Documents\My Games\FalloutNV` (code: `guard_write` in
+  `crates/fnv-install/src/lib.rs`).
 - An `overwrite` folder is not a layer: the game is not given it, so a file
-  there does not win over a mod folder [documented: `launch::spawn`,
-  `plugins::mod_content_layers`]. The launcher uses `<home>/overwrite` only for
+  there does not win over a mod folder (code: `launch::spawn`,
+  `plugins::mod_content_layers`). The launcher uses `<home>/overwrite` only for
   **Make mod below**, which moves that folder's loose files into a new mod and
-  then makes the folder again, empty [documented: `App::make_mod_below`]. Nothing
+  then makes the folder again, empty (code: `App::make_mod_below`). Nothing
   else creates it. As the highest layer it is planned, not built
   [design: docs/design/launcher-mods.md].
 - Nexus and ModPub downloads are not part of the running launcher.

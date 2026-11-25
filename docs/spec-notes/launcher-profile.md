@@ -40,8 +40,8 @@ The launcher's own text files, not a format read out of the original game:
 - `archives.txt`: archive names stored with the profile, one per line, sorted.
   The mod list does not show them [design].
 
-A save writes all six [documented: `App::write_profile_lists`,
-`App::write_profile_side`]. Saving the same name again replaces these six
+A save writes all six (code: `App::write_profile_lists`,
+`App::write_profile_side`). Saving the same name again replaces these six
 files. Any other file in the folder is left in place. **Save backup** writes
 only the four lists, into `plugin-backups/lists-<stamp>/`, with
-`plugins-<stamp>.txt` beside it [documented: `App::save_dated_backup`].
+`plugins-<stamp>.txt` beside it (code: `App::save_dated_backup`).
