@@ -602,9 +602,37 @@ fn calc_weapon_dps_divides_crit_mult_by_fire_rate_for_automatic_weapons() {
     let f = fixture();
     let mut g = game(&f);
     q(&mut g, "PlayerREF.ForceAV Guns 100\nPlayerREF.ForceAV CritChance 50");
-    // Mark CalcGun automatic (flags1 bit 1 = 2); DNAM attack_shots_per_sec=2.0, crit_damage=30, crit_mult=2.0.
+    // Mark CalcGun automatic (flags1 bit 1 = 2); base_damage=20, attack_shots_per_sec=2.0,
+    // crit_damage=30, crit_mult=2.0, fire_rate=0.0 initially.
     q(&mut g, "SetWeaponFlags1 2 CalcGun");
-    // Without fire_rate override (0.0 in fixture), falls back to attack_shots_per_sec without div-by-zero.
+    // fire_rate == 0.0 falls back to attack_shots_per_sec=2.0 without dividing by zero:
+    // (20 + 0.5 * 30 * 2.0) * 2.0 = 100.0.
     let dps_no_fr = n(&mut g, "PlayerREF.GetCalculatedWeaponDPS CalcGun");
-    assert!(dps_no_fr.is_finite() && dps_no_fr > 0.0);
+    assert!((dps_no_fr - 100.0).abs() < 1e-4, "fire_rate=0 fallback: expected 100.0, got {dps_no_fr}");
+
+    // With non-zero fire_rate=9.0, automatic weapons divide crit_percent_mult by fire_rate:
+    // (20 + 0.5 * 30 * (2.0 / 9.0)) * 9.0 = 210.0.
+    q(&mut g, "SetWeaponFireRate 9.0 CalcGun");
+    let dps_auto = n(&mut g, "PlayerREF.GetCalculatedWeaponDPS CalcGun");
+    assert!((dps_auto - 210.0).abs() < 1e-4, "auto fire_rate=9: expected 210.0, got {dps_auto}");
+
+    // Stewie's crit_ignores_fire_rate skips dividing crit_percent_mult by fire_rate:
+    // (20 + 0.5 * 30 * 2.0) * 9.0 = 450.0.
+    g.tweaks.crit_ignores_fire_rate = true;
+    let dps_ignore = n(&mut g, "PlayerREF.GetCalculatedWeaponDPS CalcGun");
+    assert!((dps_ignore - 450.0).abs() < 1e-4, "crit_ignores_fire_rate: expected 450.0, got {dps_ignore}");
+    g.tweaks.crit_ignores_fire_rate = false;
+
+    // TempCloneForm with its own fire_rate override respects record_value (set Guns=0 so
+    // scaled=10.0 independent of clone skill lookup):
+    // (10 + 0.5 * 30 * (2.0 / 4.0)) * 4.0 = 70.0 (vs 120.0 at fire_rate=9 or 80.0 at 2).
+    q(&mut g, "PlayerREF.ForceAV Guns 0");
+    let dps_clone = match q(
+        &mut g,
+        "ref rCl\nlet rCl := TempCloneForm CalcGun\nSetWeaponFlags1 2 rCl\nSetWeaponFireRate 4.0 rCl\nSetFunctionValue (PlayerREF.GetCalculatedWeaponDPS rCl)",
+    ) {
+        XVal::Num(v) => v,
+        other => panic!("expected Num, got {other:?}"),
+    };
+    assert!((dps_clone - 70.0).abs() < 1e-4, "clone fire_rate=4: expected 70.0, got {dps_clone}");
 }

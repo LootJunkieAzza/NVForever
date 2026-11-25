@@ -17,7 +17,8 @@
     "TribalPack.esm"
   ],
   "extender_versions": {
-    "JIP LN NVSE": "57.30 (5730)"
+    "JIP LN NVSE": "57.30 (5730)",
+    "JohnnyGuitarNVSE": "528"
   },
   "batches": [
     {
@@ -25,7 +26,8 @@
       "title": "GetCalculatedWeaponDPS automatic crit rate scaling",
       "extender": "JIP LN NVSE",
       "required_plugins": [
-        "jip_nvse.dll"
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
       ],
       "probes": [
         {
@@ -33,7 +35,8 @@
           "bucket": "combat_damage_calc",
           "extender": "JIP LN NVSE",
           "required_plugins": [
-            "jip_nvse.dll"
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
