@@ -363,3 +363,15 @@ fn get_threshold_av_resolves_bare_perception_and_caps_special_values() {
     q(&mut g, "PlayerREF.ModActorValue Perception 5");
     assert_eq!(n(&mut g, "PlayerREF.GetThresholdAV Perception"), 10.0);
 }
+
+#[test]
+fn jip_get_actor_value_modifier_filter_codes_0_1_2_3() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "player.ModAV Strength 2");
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength"), 2.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 0"), 0.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 1"), 0.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 2"), 2.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 3"), 2.0);
+}

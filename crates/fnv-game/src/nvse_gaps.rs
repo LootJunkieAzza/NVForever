@@ -812,13 +812,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 },
                 _ => return Some(Ok(zero)),
             };
-            let parts = crate::functions::actor::actor_value_parts(g, a, code).map(|p| p[1]).unwrap_or(0.0);
+            // JIP filter codes [observed 2026-11-25: w6d7_02 & w6d7p3_02]:
+            // 0 = 0.0, 1 = temp/effect modifier, 2 = permanent ModAV modifier, 3 or omitted = perm + temp.
+            let perm = crate::functions::actor::actor_value_parts(g, a, code).map(|p| p[1]).unwrap_or(0.0);
             let temp = crate::functions::actor::temporary(g, a, code);
             XVal::Num(match args.get(1) {
-                Some(XVal::Num(t)) if *t == 0.0 => parts,
+                Some(XVal::Num(t)) if *t == 0.0 => 0.0,
                 Some(XVal::Num(t)) if *t == 1.0 => temp,
+                Some(XVal::Num(t)) if *t == 2.0 => perm,
+                Some(XVal::Num(t)) if *t == 3.0 => perm + temp,
                 Some(XVal::Num(_)) => 0.0,
-                _ => parts + temp,
+                _ => perm + temp,
             })
         }
         // ---- base forms ----
