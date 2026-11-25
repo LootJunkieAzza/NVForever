@@ -1256,6 +1256,10 @@ fn deep_copy(store: &mut ExtStore, id: u32, copies: &mut std::collections::HashM
     new
 }
 
+#[cfg(test)]
+#[path = "w6d11_sv_replace_tests.rs"]
+mod w6d11_sv_replace_tests;
+
 /// Same key-element pairs in the same order, nested arrays included; two nulls are equal
 /// [documented: Ar DeepEquals].
 /// A pair of arrays met again on the way down is taken as equal, so arrays that hold
@@ -2731,7 +2735,8 @@ impl Vm<'_, '_> {
                 let Some(var) = self.string_var_arg(c.args.get(k))? else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
                 let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
-                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let start_raw = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                let search_len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let max = opt(self, k + 4)?.map(|v| v.num()).transpose()?.map(|m| m as usize);
                 let (old, new) = pair.split_once('|').unwrap_or((pair.as_str(), ""));
@@ -2741,12 +2746,20 @@ impl Vm<'_, '_> {
                     self.host.script_error("Sv_Replace with an empty text to replace");
                     return Ok(Some(XVal::Num(0.0)));
                 }
+                if start_raw < 0.0 {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
+                let start = start_raw as usize;
                 let chars: Vec<char> = s.chars().collect();
                 let old: Vec<char> = old.chars().collect();
                 let from = start.min(chars.len());
+                let limit = match search_len {
+                    Some(l) if l >= 0.0 => from.saturating_add(l as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 let (mut out, mut count, mut at): (String, usize, usize) = (chars[..from].iter().collect(), 0, from);
                 while max.is_none_or(|m| count < m) {
-                    let Some(i) = find_chars(&chars, &old, at, case) else { break };
+                    let Some(i) = find_chars(&chars[..limit], &old, at, case) else { break };
                     out.extend(&chars[at..i]);
                     out.push_str(new);
                     at = i + old.len();
