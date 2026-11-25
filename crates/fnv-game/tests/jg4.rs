@@ -192,7 +192,9 @@ fn region_weather_lists() {
     assert_eq!(n(&mut g, "GetRegionWeatherPriority TestRegion"), 40.0);
     q(&mut g, "AddRegionWeather TestRegion TestWeather3 150 TestGlobal");
     q(&mut g, "AddRegionWeather TestRegion TestWeather3 99");
-    // Listed first, once [observed: jg4]; chance stored unclamped [observed: w6d3_29].
+    // Listed first, once [observed: jg4]; positive chance > 100 stored unclamped
+    // (150 -> 150) [observed: w6d3_29]; negative-chance signed i32 storage/readback
+    // [hypothesis/design].
     assert_eq!(forms(&mut g, "GetRegionWeathers TestRegion"), vec![WTHR3, WTHR1, WTHR2]);
     assert_eq!(n(&mut g, "GetNthRegionWeatherChance TestRegion 1"), 70.0);
     assert_eq!(fnv_game::nvse_jg4::region_weathers(&g, FormId(REGN)).unwrap().list[0].chance, 150);

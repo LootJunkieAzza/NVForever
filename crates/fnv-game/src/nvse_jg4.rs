@@ -204,7 +204,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "addregionweather" => {
             let weather = of_sig(g, form(args, 1), b"WTHR");
             let global = of_sig(g, form(args, 3), b"GLOB");
-            // Stored unclamped (150 reads back 150) [observed: w6d3_29].
+            // Positive values > 100 are stored unclamped (150 at index 1 reads back 150)
+            // [observed: w6d3_29: ch=0/150/100]; signed i32 storage/readback for negative
+            // chance values [hypothesis/design: w6d3_29 only read index 1 (150), not the
+            // negative entry at index 0].
             let chance = num(args, 2, 0.0).trunc() as i32;
             if let (Some(r), Some(weather)) = (of_sig(g, form(args, 0), b"REGN"), weather) {
                 if let Some(ws) = weathers_mut(g, r) {
