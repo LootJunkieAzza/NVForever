@@ -187,7 +187,8 @@ fn weapons_and_scopes() {
     // [documented: the weapon's own scope when a weapon is given].
     q(&mut g, "SetWeaponScopeUIModel \"ignored.nif\" TestScoped");
     assert_eq!(g.script_scope(), (Some("interface\\hud\\testscope.nif"), None));
-    q(&mut g, "ToggleWeaponScopeUIModel 0");
+    // [observed: w6d3p2_42: ToggleWeaponScopeUIModel returns 1].
+    assert_eq!(n(&mut g, "ToggleWeaponScopeUIModel 0"), 1.0);
     assert_eq!(g.script_scope().1, Some(false));
     q(&mut g, "ClearWeaponScopeUIModel");
     assert_eq!(g.script_scope(), (Some(""), Some(false)));

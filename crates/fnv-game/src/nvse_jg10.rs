@@ -362,10 +362,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             zero
         }
-        // `visible`: 0 hides the scope, 1 shows it [documented].
+        // `visible`: 0 hides the scope, 1 shows it; returns 1 [documented;
+        // observed: w6d3p2_42_jg10_scope_ui_highlight_path_remap_ui: sc=0,0,1,0].
         "toggleweaponscopeuimodel" => {
             g.other.jg10.scope_visible = Some(num(args, 0, 0.0) != 0.0);
-            zero
+            XVal::Num(1.0)
         }
         // Hides the scope and takes its picture away [documented].
         "clearweaponscopeuimodel" => {
