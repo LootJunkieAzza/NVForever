@@ -442,12 +442,21 @@ fn cells_and_water() {
     assert_eq!(n(&mut g, "GetCellFlag TestCell 4"), 1.0);
     assert_eq!((n(&mut g, "GetCellFlag TestCell 1"), n(&mut g, "GetCellFlag TestCell 5"), n(&mut g, "GetCellFlag TestCell 16")), (0.0, 1.0, 1.0));
     // Water form and effect, read by GetCellWaterForm and GetWaterFormEffect.
+    // Wrong-type forms and explicit null 0 are no-ops; omitted arg clears [observed: w6d2_14, w6d2p2_50].
     assert_eq!(n(&mut g, "GetCellWaterForm TestCell"), f64::from(WATR));
     q(&mut g, "SetCellWaterForm TestCell TestWater2");
     assert_eq!(n(&mut g, "GetCellWaterForm TestCell"), f64::from(WATR2));
+    q(&mut g, "SetCellWaterForm TestCell TestChem\nSetCellWaterForm TestCell 0");
+    assert_eq!(n(&mut g, "GetCellWaterForm TestCell"), f64::from(WATR2));
+    q(&mut g, "SetCellWaterForm TestCell");
+    assert_eq!(n(&mut g, "GetCellWaterForm TestCell"), 0.0);
     assert_eq!(n(&mut g, "GetWaterFormEffect TestWater"), f64::from(SPEL));
     q(&mut g, "SetWaterFormEffect TestWater TestAbility2");
     assert_eq!(n(&mut g, "GetWaterFormEffect TestWater"), f64::from(SPEL2));
+    q(&mut g, "SetWaterFormEffect TestWater TestChem\nSetWaterFormEffect TestWater 0");
+    assert_eq!(n(&mut g, "GetWaterFormEffect TestWater"), f64::from(SPEL2));
+    q(&mut g, "SetWaterFormEffect TestWater");
+    assert_eq!(n(&mut g, "GetWaterFormEffect TestWater"), 0.0);
     // Water traits [documented: the table].
     assert_eq!((n(&mut g, "GetWaterTrait TestWater 0"), n(&mut g, "GetWaterTrait TestWater 1")), (75.0, 2.0));
     assert_eq!((n(&mut g, "GetWaterTrait TestWater 6"), n(&mut g, "GetWaterTrait TestWater 41"), n(&mut g, "GetWaterTrait TestWater 50")), (6.0, 41.0, 50.0));

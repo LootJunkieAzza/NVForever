@@ -125,7 +125,17 @@ not decode yet.
   schema's Reputation]. NCRFactionNV reads 0F43DE.
 - `Get/SetCellClimate`, `Get/SetCellLightingTemplate`, `Get/SetCellNoiseTexture`: CELL
   XCCM, LTMP and XNAM [documented: their pages]. Gomorrah00, the pages' example, has none
-  of the first two (0).
+  of the first two (0). `SetCellClimate` (`CLMT`), `SetCellLightingTemplate` (`LGTM`), and
+  `SetWaterSound` (`SOUN`) clear to `0` only when the 2nd arg is omitted and treat explicit
+  null (`0`) and wrong-type forms as no-ops [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
+  6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base
+  masters, isolated clean-room staging copy (read-only probes; zero writes to game install
+  or Saves), `w6d2_15_cell_imagespace_climate_lgtm_noise` and
+  `w6d2p2_50_ref_setters_omit_null`
+  (`tools/capture/nvse/catalogs/wave6d2_cell_water_ref_setters_validate.json`):
+  `PROBE|w6d2_15_cell_imagespace_climate_lgtm_noise|is=1|cc(set=1,badEqC=1,badZ=0)|lt(set=1,badEqL=1,badZ=0)|cf17=0->0`
+  and `PROBE|w6d2p2_50_ref_setters_omit_null|cc(nZ=0,oZ=1)|lt(nZ=0,oZ=1)|ws(nZ=0,oZ=1)|we(oZ=1)|cw(oZ=1)|bm(oZ=1)`;
+  zero DLL, PDB, or third-party source consulted].
 - `Get/SetWaterSound`, `Get/SetWaterNoiseTexture`: WATR SNAM and NNAM [documented]. NVCleanWater:
   sound 167340, noise `Data\Textures\Water\WastelandWaterPotomac.dds`. Not built:
   GetWaterTrait's 51 IDs, many of which its page leaves "Unknown".

@@ -37,9 +37,13 @@ fn inheritance_flags_and_explicit_null_template_preserve_cell_values() {
     set(&mut g, "SetCellFlag OwnedLightCell 15 0");
     assert_eq!(query(&mut g, "SetFunctionValue (GetCellFlag OwnedLightCell 15)"), XVal::Num(0.0));
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL).unwrap().fog_clip_dist, 1000.0, "clearing inheritance must select the cell's own clip");
-    set(&mut g, "SetCellFlag OwnedLightCell 15 1\nSetCellLightingTemplate OwnedLightCell 0");
+    // Explicit null 0 and wrong-type forms are no-ops; omitted 2nd arg clears LTMP to 0
+    // [observed: w6d2_15_cell_imagespace_climate_lgtm_noise, w6d2p2_50_ref_setters_omit_null].
+    set(&mut g, "SetCellFlag OwnedLightCell 15 1\nSetCellLightingTemplate OwnedLightCell 0\nSetCellLightingTemplate OwnedLightCell OwnedOtherCell");
+    assert_eq!(query(&mut g, "SetFunctionValue (GetCellLightingTemplate OwnedLightCell)"), XVal::Ref(A.0));
+    set(&mut g, "SetCellLightingTemplate OwnedLightCell");
     assert_eq!(query(&mut g, "SetFunctionValue (GetCellLightingTemplate OwnedLightCell)"), XVal::Ref(0));
-    assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL).unwrap().fog_clip_dist, 1000.0, "explicit null is distinct from no override");
+    assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL).unwrap().fog_clip_dist, 1000.0, "omitted-arg clear is distinct from no override");
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, OTHER_CELL).unwrap().fog_clip_dist, 10000.0);
 }
 

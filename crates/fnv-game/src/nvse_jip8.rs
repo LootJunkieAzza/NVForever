@@ -729,18 +729,35 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `cell water`: XCWT [documented: the page; the field: xEdit CELL].
+        // `cell [water]`: XCWT [documented: the page; the field: xEdit CELL]. Omitted arg
+        // clears to 0; explicit null 0 and non-WATR forms are no-ops [observed: w6d2_14, w6d2p2_50].
         "setcellwaterform" => {
-            if let (Some(c), Some(w)) = (of_sig(g, form(args, 0), b"CELL"), of_sig(g, form(args, 1), b"WATR")) {
-                g.set_field8(c, "XCWT", "", XVal::Ref(w.0));
+            if let Some(c) = of_sig(g, form(args, 0), b"CELL") {
+                match args.get(1) {
+                    None => g.set_field8(c, "XCWT", "", XVal::Ref(0)),
+                    Some(_) => {
+                        if let Some(w) = of_sig(g, form(args, 1), b"WATR") {
+                            g.set_field8(c, "XCWT", "", XVal::Ref(w.0));
+                        }
+                    }
+                }
             }
             zero
         }
-        // `water effect`: XNAM, an actor effect [documented: the page].
+        // `water [effect]`: XNAM, an actor effect [documented: the page]. Omitted arg
+        // clears to None; explicit null 0 and non-SPEL forms are no-ops [observed: w6d2_14, w6d2p2_50].
         "setwaterformeffect" => {
-            let e = form(args, 1);
-            if let Some(w) = of_sig(g, form(args, 0), b"WATR").filter(|_| e.is_none_or(|e| g.data.sig(e) == Some(*b"SPEL"))) {
-                g.other.jip8.water_effects.insert(w, e);
+            if let Some(w) = of_sig(g, form(args, 0), b"WATR") {
+                match args.get(1) {
+                    None => {
+                        g.other.jip8.water_effects.insert(w, None);
+                    }
+                    Some(_) => {
+                        if let Some(e) = form(args, 1).filter(|&e| g.data.sig(g.unclone(e)) == Some(*b"SPEL")) {
+                            g.other.jip8.water_effects.insert(w, Some(e));
+                        }
+                    }
+                }
             }
             zero
         }

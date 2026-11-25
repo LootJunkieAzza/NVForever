@@ -530,16 +530,23 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getcelllightingtemplate" => XVal::Ref(get_form(g, f0, "LTMP", "")),
         "getcellnoisetexture" => XVal::Str(get_str(g, f0, "XNAM", "")),
         "setcellclimate" | "setcelllightingtemplate" => {
-            let sub = if name == "setcellclimate" { "XCCM" } else { "LTMP" };
-            let next = XVal::Ref(form(args, 1).map_or(0, |r| r.0));
-            let prev = if name == "setcelllightingtemplate" {
-                g.field_overrides.get(&(f0, "LTMP/".into())).cloned()
-            } else {
-                None
-            };
-            set(g, f0, sub, "", next.clone());
-            if name == "setcelllightingtemplate" && prev != Some(next) {
-                g.bump_lighting_revision();
+            if g.data.sig(g.unclone(f0)) == Some(*b"CELL") {
+                let (sub, want) = if name == "setcellclimate" { ("XCCM", *b"CLMT") } else { ("LTMP", *b"LGTM") };
+                let next = match args.get(1) {
+                    None => Some(XVal::Ref(0)),
+                    Some(_) => form(args, 1).filter(|&r| g.data.sig(g.unclone(r)) == Some(want)).map(|r| XVal::Ref(r.0)),
+                };
+                if let Some(next) = next {
+                    let prev = if name == "setcelllightingtemplate" {
+                        g.field_overrides.get(&(f0, "LTMP/".into())).cloned()
+                    } else {
+                        None
+                    };
+                    set(g, f0, sub, "", next.clone());
+                    if name == "setcelllightingtemplate" && prev != Some(next) {
+                        g.bump_lighting_revision();
+                    }
+                }
             }
             zero
         }
@@ -552,7 +559,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getwatersound" => XVal::Ref(get_form(g, f0, "SNAM", "")),
         "getwaternoisetexture" => XVal::Str(get_str(g, f0, "NNAM", "")),
         "setwatersound" => {
-            set(g, f0, "SNAM", "", XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
+            if g.data.sig(g.unclone(f0)) == Some(*b"WATR") {
+                let next = match args.get(1) {
+                    None => Some(XVal::Ref(0)),
+                    Some(_) => form(args, 1).filter(|&r| g.data.sig(g.unclone(r)) == Some(*b"SOUN")).map(|r| XVal::Ref(r.0)),
+                };
+                if let Some(next) = next {
+                    set(g, f0, "SNAM", "", next);
+                }
+            }
             zero
         }
         "setwaternoisetexture" => {
