@@ -109,15 +109,21 @@ it. The console's exact line is not documented: the name alone [hypothesis].
 ## 5a. `GetAgeClass` (`nvse_items.rs`)
 
 `actor.GetAgeClass` returns the actor's race age class rather than constant `-1`: Adult
-(`1`, race has both `ONAM` older and `YNAM` younger links) on `Player` and `SunnySmiles`,
-Old (`2`, race has `YNAM` only) on `DocMitchell`, and `-1` on non-actor references
-(superseding the earlier `nvse-fourth` `-1` stub) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, probes
-`w6d4_06_headparts_lev_refs_age_grids_ingrid` and `w6d4p3_06b_age_class_races`
-(`tools/capture/nvse/catalogs/wave6d4_age_class.json`):
+(`1`, race has both `ONAM` older and `YNAM` younger links) on `Player` and `SunnyRef`,
+Old (`2`, race has `YNAM` only) on `DocMitchellREF`, and `-1` on loaded non-actor
+references (`DocMitchellDresserRef`), superseding the earlier `nvse-fourth` `-1` stub
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25,
+`GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging
+copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL,
+PDB, or third-party source consulted, probes `w6d4_06_headparts_lev_refs_age_grids_ingrid`
+and `w6d4p3_06b_age_class_races` (`tools/capture/nvse/catalogs/wave6d4_age_class.json`):
 `PROBE|w6d4_06_headparts_lev_refs_age_grids_ingrid|hp(2,0)|lvln(2,0)|lvlc(2,0)|age(1,2)|grids=5|inG(1,1)`
-and `PROBE|w6d4p3_06b_age_class_races|p=1,doc=2,sun=1,tru=0,dog=0,dr=-1`].
-Returning `0` for Child (`ONAM` only), `-1` for ageless `RACE` / `CREA` forms, and
-accepting the optional `actor` parameter remain [hypothesis].
+and `PROBE|w6d4p3_06b_age_class_races|p=1,doc=2,sun=1,tru=0,dog=0,dr=-1`]. In
+`w6d4p3_06b_age_class_races`, `0x00104E8A` and `0x00104E86` are non-persistent unloaded
+`STAT` references rather than Trudy or Cheyenne, so `GetFormFromMod` resolved both to null
+(`00000000`) and calling `.GetAgeClass` on a null reference evaluated to `0` (`tru=0,dog=0`).
+Returning `0` for Child (`ONAM` only), `-1` for ageless `RACE` / `CREA` forms (unprobed by
+`w6d4p3_06b_age_class_races`), and accepting the optional `actor` parameter remain [hypothesis].
 
 ## 6. Not a function
 

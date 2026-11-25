@@ -240,13 +240,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: GetSelfAlt] the calling reference, or none.
         "getselfalt" => XVal::Ref(ctx.self_ref.map_or(0, |r| r.0)),
         // Age class from the NPC's race `ONAM` (older) / `YNAM` (younger) chain:
-        // Child = 0 (`ONAM` only, [hypothesis]), Adult = 1 (`ONAM` & `YNAM`),
-        // Old = 2 (`YNAM` only), non-actor / ageless / CREA = -1 [observed:
-        // 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
-        // xNVSE 6.4.9, `w6d4_06_headparts_lev_refs_age_grids_ingrid` (`age(1,2)`) and
-        // `w6d4p3_06b_age_class_races` (`p=1,doc=2,sun=1,tru=0,dog=0,dr=-1`,
-        // `wave6d4_age_class.json`): Player/Sunny Adult=1, DocMitchell Old=2, Dresser=-1;
-        // hypothesis: Child=0 from `RACE` `ONAM`-only link, ageless/CREA=-1, optional arg].
+        // Adult = 1 (`ONAM` & `YNAM`), Old = 2 (`YNAM` only), loaded non-actor = -1
+        // [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, `w6d4_06_headparts_lev_refs_age_grids_ingrid`
+        // (`age(1,2)`) and `w6d4p3_06b_age_class_races` (`p=1,doc=2,sun=1,tru=0,dog=0,dr=-1`,
+        // `wave6d4_age_class.json`): Player/SunnyRef Adult=1, DocMitchellREF Old=2,
+        // DocMitchellDresserRef=-1; `0x00104E8A`/`0x00104E86` in `w6d4p3_06b` are non-persistent
+        // unloaded `STAT` refs rather than Trudy/Cheyenne so `GetFormFromMod` resolved them to
+        // null `00000000` and the null-ref calls returned `0`]. Child = 0 (`ONAM` only),
+        // ageless `RACE` / `CREA` = -1 (unprobed), and optional `actor` arg remain [hypothesis].
         "getageclass" => {
             let target = form(args, 0).or(subject);
             let age = target.and_then(|r| {

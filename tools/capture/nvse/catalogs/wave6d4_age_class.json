@@ -17,20 +17,25 @@
     "TribalPack.esm"
   ],
   "extender_versions": {
-    "xNVSE": "6.4.9"
+    "xNVSE": "6.4.9",
+    "JIP LN": "57.30"
   },
   "batches": [
     {
       "id": "w6d4_age_class",
       "title": "Wave 6D-4: xNVSE GetAgeClass race age-class lookup",
       "extender": "xNVSE",
-      "required_plugins": [],
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
       "probes": [
         {
           "id": "w6d4_06_headparts_lev_refs_age_grids_ingrid",
           "bucket": "xnvse_core_items",
-          "extender": "xNVSE",
-          "required_plugins": [],
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": false,
@@ -74,8 +79,10 @@
         {
           "id": "w6d4p3_06b_age_class_races",
           "bucket": "xnvse_core_items",
-          "extender": "xNVSE",
-          "required_plugins": [],
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": false,
@@ -86,7 +93,7 @@
           "functions_tested": [
             "GetAgeClass"
           ],
-          "claim": "Pin GetAgeClass return values across Player (Caucasian), DocMitchellREF (CaucasianOld), SunnySmiles, Trudy, Cheyenne (CREA), and non-actor DocMitchellDresserRef.",
+          "claim": "Pin GetAgeClass return values across Player (Caucasian, 1), DocMitchellREF (CaucasianOld, 2), SunnyRef (Hispanic, 1), loaded non-actor DocMitchellDresserRef (-1), and two null-ref calls (0x00104E8A and 0x00104E86 are non-persistent unloaded STAT refs rather than Trudy/Cheyenne, so GetFormFromMod resolves them to 00000000 -> 0).",
           "expected": "Confirm age-class mapping vs NVForever hardcoded -1.",
           "script_lines": [
             "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
