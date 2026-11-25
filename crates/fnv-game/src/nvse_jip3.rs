@@ -417,15 +417,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // the order is the effects' own].
         "gettempeffects" => {
             let Some(a) = subject else { return Some(Ok(zero)) };
+            // Exclude hidden USAGE_MONITOR and inactive conditional effects, and report scaled
+            // magnitude when present [observed 2026-11-25: w6d7p2_18].
             let rows: Vec<Vec<XVal>> = g
                 .effects
                 .iter()
-                .filter(|e| e.target == a && !e.permanent && e.duration > 0.0)
+                .filter(|e| e.target == a && !e.permanent && !e.inactive && e.duration > 0.0 && e.effect != crate::aid::USAGE_MONITOR)
                 .map(|e| {
+                    let mag = e.change.map_or(f64::from(e.magnitude), |c| c.amount.abs());
                     vec![
                         XVal::Ref(e.source.0),
                         XVal::Ref(e.effect.0),
-                        XVal::Num(f64::from(e.magnitude)),
+                        XVal::Num(mag),
                         XVal::Num((e.duration - e.elapsed).max(0.0)),
                         XVal::Ref(e.caster.map_or(0, |c| c.0)),
                         XVal::Num(e.duration),

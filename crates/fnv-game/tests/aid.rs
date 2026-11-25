@@ -1137,3 +1137,37 @@ fn grab_triggers_theft_respects_min_value_and_stack_count() {
     assert!(g.grab_triggers_theft(FormId(VAL5), 2));
     assert!(g.grab_triggers_theft(FormId(VAL15), 1));
 }
+
+#[test]
+fn temp_effects_hide_usage_monitor_and_inactive_and_report_scaled_magnitude() {
+    let f = fixture();
+    let mut g = game(&f);
+    let run_q = |g: &mut Game, body: &str| -> f64 {
+        match g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap() {
+            fnv_script::vm::XVal::Num(v) => v,
+            other => panic!("expected num, got {other:?}"),
+        }
+    };
+    // Outside Hardcore, StimGated's Hardcore-only HoT is inactive and must not appear in GetTempEffects.
+    g.ingest(P, FormId(STIM_GATED));
+    assert_eq!(run_q(&mut g, "SetFunctionValue (ar_Size (Player.GetTempEffects))"), -1.0);
+    assert_eq!(run_q(&mut g, "SetFunctionValue (ar_Size (GetTempIngestibleEffects))"), 0.0);
+
+    // Buff has MOD_STR (4s) + USAGE_MONITOR (0x14F, 100s); UMON must be hidden.
+    g.ingest(P, FormId(BUFF));
+    assert_eq!(run_q(&mut g, "SetFunctionValue (ar_Size (Player.GetTempEffects))"), 1.0, "only active non-monitor Buff effect");
+    assert_eq!(run_q(&mut g, "SetFunctionValue (ar_Size (GetTempIngestibleEffects))"), 1.0, "one ingestible row");
+    let ing_dur = run_q(&mut g, "array_var a\narray_var r\nlet a := GetTempIngestibleEffects\nlet r := a[0]\nSetFunctionValue (r[2])");
+    assert_eq!(ing_dur, 4.0, "GetTempIngestibleEffects does not report 100s USAGE_MONITOR");
+    assert_eq!(run_q(&mut g, "SetFunctionValue (Player.RemoveNthTempEffect 0)"), 1.0);
+    assert_eq!(run_q(&mut g, "SetFunctionValue (ar_Size (Player.GetTempEffects))"), -1.0);
+
+    // Hardcore StimGated at Medicine 100 reports scaled magnitude (5 * 3.0 = 15.0).
+    g.dispel(P, None, |_| true);
+    g.set_hardcore(true);
+    set_actor_value_current(&mut g, P, MEDICINE, 100.0).unwrap();
+    g.ingest(P, FormId(STIM_GATED));
+    assert_eq!(run_q(&mut g, "SetFunctionValue (ar_Size (Player.GetTempEffects))"), 1.0, "one active HC stimpak effect");
+    let mag = run_q(&mut g, "array_var t\narray_var r\nlet t := Player.GetTempEffects\nlet r := t[0]\nSetFunctionValue (r[2])");
+    assert_eq!(mag, 15.0, "GetTempEffects reports scaled magnitude");
+}

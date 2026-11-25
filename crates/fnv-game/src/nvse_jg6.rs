@@ -108,7 +108,12 @@ pub fn activation_prompt(g: &Game, r: FormId) -> Option<String> {
 /// The temporary effects GetTempEffects lists for `a`, in its order (indices into
 /// `g.effects`).
 fn temp_effects(g: &Game, a: FormId) -> Vec<usize> {
-    g.effects.iter().enumerate().filter(|(_, e)| e.target == a && !e.permanent && e.duration > 0.0).map(|(i, _)| i).collect()
+    g.effects
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.target == a && !e.permanent && !e.inactive && e.duration > 0.0 && e.effect != crate::aid::USAGE_MONITOR)
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// The JohnnyGuitar batch-6 functions; `None` for any other name.

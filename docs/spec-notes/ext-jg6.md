@@ -62,3 +62,6 @@ furniture probe and the prompt probe were rewritten to forms the game compiles (
 and wait for the next run. Left as they are: IsCellVisited and IsCellExpired on Doc
 Mitchell's house and GetMoonPhase hang on the save; GetLightingTemplateCell after the
 setter has no rule yet.
+
+### `GetTempEffects`, `GetTempIngestibleEffects`, and `RemoveNthTempEffect` filtering (`w6d7p2_18`)
+- **Exclude `USAGE_MONITOR` and inactive effects; report scaled magnitude** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p2_18_temp_effects_and_ingestible_effects_fixed` in `tools/capture/nvse/catalogs/wave6d7_temp_effects_filter.json`]: `Buffout` reports `3` active effects (`240.0 s`, hiding the `108,000 s` `USAGE_MONITOR` `0x14F`), non-Hardcore `Stimpak` hides its inactive Hardcore HoT (`jipN=-1, jgN=0`), and Hardcore `Stimpak` at Medicine 100 reports scaled magnitude `15.0` (`PROBE|w6d7p2_18_temp_effects_and_ingestible_effects_fixed|buf(jipN=3,minD=240.0,maxD=240.0,jgN=1,jgL=239.9,jgD=240.0,rmN=2)|nhStim(jipN=-1,jgN=0)|hcStim(jipN=1,jgN=1,mag=15.0,dur=6.0)`).
