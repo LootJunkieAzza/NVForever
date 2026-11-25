@@ -41,7 +41,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-format.md",
-          "spec_line": 63,
+          "spec_line": 68,
           "functions_tested": [
             "sv_Construct",
             "PrintToConsole"

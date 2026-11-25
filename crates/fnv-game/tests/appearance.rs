@@ -24,6 +24,13 @@ const JOE: u32 = 0x400;
 const JOE_REF: u32 = 0x500;
 const GHOUL_NPC: u32 = 0x401;
 const GHOUL_REF: u32 = 0x501;
+const JANE: u32 = 0x402;
+const DOG: u32 = 0x403;
+const LVLN_MALE: u32 = 0x410;
+const LVLN_FEMALE: u32 = 0x411;
+const LVL_MALE_REF: u32 = 0x510;
+const LVL_FEMALE_REF: u32 = 0x511;
+const DOG_REF: u32 = 0x512;
 const KNIFE: u32 = 0x600;
 const SWORD: u32 = 0x601;
 const BLADES: u32 = 0x610;
@@ -74,14 +81,27 @@ fn aidt_confidence(confidence: u8) -> fnv_esm::raw::Subrecord {
     sub(b"AIDT", d)
 }
 
-fn npc(fid: u32, edid: &str, race: u32, extra: Vec<fnv_esm::raw::Subrecord>) -> Vec<u8> {
-    let mut subs = vec![sub(b"EDID", z(edid)), acbs(false), sub(b"RNAM", race.to_le_bytes().to_vec()), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())];
+fn npc_sex(fid: u32, edid: &str, race: u32, female: bool, extra: Vec<fnv_esm::raw::Subrecord>) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), acbs(female), sub(b"RNAM", race.to_le_bytes().to_vec()), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())];
     subs.extend(extra);
     record(b"NPC_", 0, fid, &subs)
 }
 
+fn npc(fid: u32, edid: &str, race: u32, extra: Vec<fnv_esm::raw::Subrecord>) -> Vec<u8> {
+    npc_sex(fid, edid, race, false, extra)
+}
+
 fn placed(fid: u32, base: u32) -> Vec<u8> {
     record(b"ACHR", 0, fid, &[sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])])
+}
+
+fn placed_named(sig: &[u8; 4], fid: u32, edid: &str, base: u32) -> Vec<u8> {
+    record(sig, 0x0400, fid, &[sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])])
+}
+
+fn lvln(fid: u32, edid: &str, entry: u32) -> Vec<u8> {
+    let lvlo = [1i16.to_le_bytes().to_vec(), vec![0; 2], entry.to_le_bytes().to_vec(), 1i16.to_le_bytes().to_vec(), vec![0; 2]].concat();
+    record(b"LVLN", 0, fid, &[sub(b"EDID", z(edid)), sub(b"LVLD", vec![0]), sub(b"LVLF", vec![0]), sub(b"LVLO", lvlo)])
 }
 
 fn misc(fid: u32, edid: &str) -> Vec<u8> {
@@ -123,10 +143,20 @@ fn plugin_bytes() -> Vec<u8> {
         // that fights in `a_child_in_a_fight_only_flees`.
         npc(JOE, "Joe", HUMAN, vec![sub(b"CNTO", [BLADES.to_le_bytes(), 1i32.to_le_bytes()].concat()), aidt_confidence(2)]),
         npc(GHOUL_NPC, "Gus", GHOUL, vec![]),
+        npc_sex(JANE, "Jane", HUMAN, true, vec![]),
     ]
     .concat();
+    let crea = record(b"CREA", 0, DOG, &[sub(b"EDID", z("Dog")), acbs(false)]);
+    let lvlns = [lvln(LVLN_MALE, "LeveledMaleList", JOE), lvln(LVLN_FEMALE, "LeveledFemaleList", JANE)].concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let refs = [placed(JOE_REF, JOE), placed(GHOUL_REF, GHOUL_NPC)].concat();
+    let refs = [
+        placed(JOE_REF, JOE),
+        placed(GHOUL_REF, GHOUL_NPC),
+        placed_named(b"ACHR", LVL_MALE_REF, "LeveledMaleRef", LVLN_MALE),
+        placed_named(b"ACHR", LVL_FEMALE_REF, "LeveledFemaleRef", LVLN_FEMALE),
+        placed_named(b"ACRE", DOG_REF, "DogRef", DOG),
+    ]
+    .concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
@@ -135,6 +165,8 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"ARMO", &[armo(POWER_ARMOR, "T45", 0x20 | 0x80), armo(LEATHER, "Leather", 0x08)].concat()),
         top(b"LVLI", &lvli),
         top(b"NPC_", &npcs),
+        top(b"CREA", &crea),
+        top(b"LVLN", &lvlns),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
     .concat()
@@ -379,15 +411,29 @@ fn format_pronouns_resolve_male_female_neuter_and_null_forms() {
     let f = fixture();
     let mut g = game(&f);
     let run = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap();
-    // Joe is male; flip player female via SexChange to cover both sexes plus neuter Knife and null 0.
+    // Cover unplaced male & female NPC_ base forms (Joe, Jane), placed player after SexChange,
+    // placed LVLN male & female leveled NPCs, placed CREA (DogRef), neuter item (Knife), and null 0.
     call(&mut g, Some(P), SEX_CHANGE, &[]);
     let out = run(
         &mut g,
         r#"ref rNull
 let rNull := 0
 string_var s
-let s := sv_Construct "m=[%ps/%po/%pp]|f=[%ps/%po/%pp]|n=[%ps/%po/%pp]|z=[%ps/%po/%pp]" Joe Joe Joe player player player Knife Knife Knife rNull rNull rNull
+let s := sv_Construct "m=[%ps/%po/%pp]|fBase=[%ps/%po/%pp]|fPl=[%ps/%po/%pp]|n=[%ps/%po/%pp]|z=[%ps/%po/%pp]" Joe Joe Joe Jane Jane Jane player player player Knife Knife Knife rNull rNull rNull
 SetFunctionValue s"#,
     );
-    assert_eq!(out, fnv_script::vm::XVal::Str("m=[he/him/his]|f=[she/her/her]|n=[it/it/its]|z=[//]".into()));
+    assert_eq!(
+        out,
+        fnv_script::vm::XVal::Str("m=[he/him/his]|fBase=[she/her/her]|fPl=[she/her/her]|n=[it/it/its]|z=[//]".into()),
+    );
+    let leveled = run(
+        &mut g,
+        r#"string_var s
+let s := sv_Construct "lm=[%ps/%po/%pp]|lf=[%ps/%po/%pp]|c=[%ps/%po/%pp]" LeveledMaleRef LeveledMaleRef LeveledMaleRef LeveledFemaleRef LeveledFemaleRef LeveledFemaleRef DogRef DogRef DogRef
+SetFunctionValue s"#,
+    );
+    assert_eq!(
+        leveled,
+        fnv_script::vm::XVal::Str("lm=[he/him/his]|lf=[she/her/her]|c=[it/it/its]".into()),
+    );
 }

@@ -7754,11 +7754,35 @@ impl Host for Exec<'_, '_> {
         }
         let f = FormId(form);
         let g = &*self.game;
-        let base = crate::functions::base_of(g, f).unwrap_or(f);
-        let orig = g.unclone(base);
-        let is_npc = f == FormId::PLAYER_REF || g.data.sig(orig) == Some(*b"NPC_");
-        if is_npc {
-            let female = g.actor_female(f);
+        let is_npc_and_female = if f == FormId::PLAYER_REF {
+            Some(g.actor_female(f))
+        } else if crate::functions::base_of(g, f).is_some() {
+            // Placed reference: resolve through traits_source so LVLN carriers resolve to
+            // their seeded NPC_ (and CREA/LVLC fall through to neuter) [hypothesis].
+            g.traits_source(f).filter(|(_, def)| &def.sig == b"NPC_").map(|_| g.actor_female(f))
+        } else {
+            // Unplaced base form: check NPC_ directly and read female flag through
+            // face_from_base / base_template_source + acbs_flag so female, cloned, and
+            // templated NPC_ base forms resolve accurately [observed: w6d5p4_format_pronouns;
+            // cloned/templated base inheritance is hypothesis].
+            let orig = g.unclone(f);
+            if g.data.sig(orig) == Some(*b"NPC_") {
+                let src = g
+                    .face_from_base
+                    .get(&f)
+                    .copied()
+                    .unwrap_or_else(|| g.data.base_template_source(orig, |d| d.template_traits));
+                let flag_id = if src == orig { f } else { src };
+                let female = g.data.actors.get(&src).is_some_and(|a| {
+                    &a.sig == b"NPC_"
+                        && g.acbs_flag(flag_id, a, crate::actor_values::acbs::FEMALE, |d| d.female)
+                });
+                Some(female)
+            } else {
+                None
+            }
+        };
+        if let Some(female) = is_npc_and_female {
             match (kind, female) {
                 ('s', false) => "he",
                 ('o', false) => "him",
@@ -7768,7 +7792,10 @@ impl Host for Exec<'_, '_> {
                 ('p', true) => "her",
                 _ => "",
             }
-        } else if g.data.sig(orig).is_some() || g.world.peek(f).is_some() {
+        } else if crate::functions::base_of(g, f).is_some()
+            || g.data.sig(g.unclone(f)).is_some()
+            || g.world.peek(f).is_some()
+        {
             match kind {
                 's' | 'o' => "it",
                 'p' => "its",
