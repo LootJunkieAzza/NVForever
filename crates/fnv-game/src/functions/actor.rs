@@ -1103,17 +1103,24 @@ pub fn factions_between(g: &Game, mine: &[FormId], o: FormId, theirs: &[FormId])
     if o == FormId::PLAYER_REF && player_enemy_of_factions(g, mine, theirs) {
         return 1;
     }
+    // Ally (2) outranks Friend (3) when an actor has both reactions toward the target
+    // [observed: 2026-11-25, FNV 1.4.0.525, w6d8_26_multifaction_precedence_and_disguise_override
+    // (alFr=2) and w6d8p2_26_multifaction_swap_order (frAl=2)].
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
-    if all.contains(&3) {
-        3
-    } else if all.contains(&2) {
+    if all.contains(&2) {
         2
+    } else if all.contains(&3) {
+        3
     } else if all.contains(&1) {
         1
     } else {
         0
     }
 }
+
+#[cfg(test)]
+#[path = "../w6d8_multifaction_precedence_tests.rs"]
+mod w6d8_multifaction_precedence_tests;
 
 /// Whether a mine owned by `owner` spares `actor`: its owner itself; the player's
 /// teammates for a mine of the player's; for a faction's mine, a member of that faction

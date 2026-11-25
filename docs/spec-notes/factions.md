@@ -132,7 +132,7 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
 - `GetFactionRelation` for actors in several factions: any Friend or Ally reaction of
   the first actor's factions towards the second's wins over an Enemy pair, since Allies and Friends "cannot
   attack each other under any circumstances" [documented: wiki
-  GetFactionCombatReaction]; Friend before Ally stays a [hypothesis]. The data is built
+  GetFactionCombatReaction]; **Ally (2) outranks Friend (3)** regardless of faction order [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_26_multifaction_precedence_and_disguise_override` (`PROBE|w6d8_26_multifaction_precedence_and_disguise_override|enAl=2 enFr=3 alFr=2 pcFlag=1 pcEnFr=1 pcEnAl=2 pcEnOnly=1 pcClr=0`) and `w6d8p2_26_multifaction_swap_order` (`PROBE|w6d8p2_26_multifaction_swap_order|frAl=2 frPcEn=3 alPcEn=2 sameAlPcEn=1`); no DLL, PDB, or third-party source consulted]. The data is built
   for this rule [observed, FalloutNV.esm]: FortVulpesInculta is in VCaesarsLegionFaction
   (which names itself an Ally) and in ArmorNCRFactionNVEnemy (which VCaesarsLegionFaction
   names an Enemy), and he lives among the Legion in the original (#2560, owner); he and
