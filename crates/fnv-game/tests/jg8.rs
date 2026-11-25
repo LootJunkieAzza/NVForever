@@ -14,11 +14,15 @@ use fnv_script::FunctionTable;
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use serde_json::Value as Json;
 
+const XMARKER: u32 = 0x3B;
 const GLOB: u32 = 0x900;
 const QUST: u32 = 0x901;
 const REPU: u32 = 0x902;
 const MISC_A: u32 = 0x903;
 const MISC_B: u32 = 0x904;
+const NPC_BASE: u32 = 0x905;
+const NPC_REF: u32 = 0x906;
+const CELL: u32 = 0x907;
 
 fn edid(sig: &[u8; 4], fid: u32, name: &str) -> Vec<u8> {
     record(sig, 0, fid, &[sub(b"EDID", z(name))])
@@ -26,13 +30,19 @@ fn edid(sig: &[u8; 4], fid: u32, name: &str) -> Vec<u8> {
 
 fn plugin_bytes() -> Vec<u8> {
     let glob = record(b"GLOB", 0, GLOB, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let npcs = [edid(b"NPC_", 0x7, "Player"), edid(b"NPC_", NPC_BASE, "TestNpc")].concat();
+    let achr = record(b"ACHR", 0x400, NPC_REF, &[sub(b"EDID", z("TestNpcRef")), sub(b"NAME", NPC_BASE.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 8, &achr));
     [
         tes4(),
-        top(b"NPC_", &edid(b"NPC_", 0x7, "Player")),
+        top(b"STAT", &edid(b"STAT", XMARKER, "XMarker")),
+        top(b"NPC_", &npcs),
         top(b"GLOB", &glob),
         top(b"QUST", &edid(b"QUST", QUST, "TestQuest")),
         top(b"REPU", &edid(b"REPU", REPU, "TestReputation")),
         top(b"MISC", &[edid(b"MISC", MISC_A, "ZuluThing"), edid(b"MISC", MISC_B, "AlphaThing")].concat()),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
     .concat()
 }
@@ -132,15 +142,15 @@ fn handlers_hear_the_game() {
     q(&mut g, "ref h\nlet h := (begin function {int m}\nlet TestGlobal := TestGlobal + 99\nend)\nSetOnKBCTrlUIDeltaHandler 1 h 0 1002\nSetOnKBCTrlUIDeltaHandler 0 h 0 1002");
     assert_eq!(g.other.jg8.handlers.len(), before);
     // [observed: w6d3p3_17c_npc_av_trunc_multitick & w6d3_17_npc_av_change_trunc_and_xmarker]
-    // flag & 1 == 0 truncates toward zero (64.40 -> 63.80 reports 64.0 -> 63.0, not 64 -> 64),
-    // and XMarker (0x3B) acts as a wildcard on form filter slots while still skipping the player.
-    q(&mut g, "let TestGlobal := 0\nSetOnNPCActorValueChangeEventHandler 1 (begin function {ref rA, int iAv, float fOld, float fNew}\nlet TestGlobal := fOld * 1000 + fNew\nend) 0 59 16");
-    g.jg8_fire(
-        fnv_game::nvse_jg8::Ev::NpcActorValue,
-        &[XVal::Ref(MISC_A), XVal::Num(16.0)],
-        vec![XVal::Ref(MISC_A), XVal::Num(16.0), XVal::Num(64.4), XVal::Num(63.8)],
-    );
-    assert_eq!(global(&mut g), 64_063.0, "integer mode truncates 64.40->64 and 63.80->63 via XMarker wildcard");
+    // flag & 1 == 0 truncates positive values toward zero (64.40 -> 63.80 reports 64.0 -> 63.0,
+    // not 64 -> 64), and XMarker (XVal::Ref(0x3B)) acts as a wildcard on the actor form filter
+    // slot while still excluding the player through the real jg8_actor_value dispatch path.
+    q(&mut g, "TestNpcRef.ForceActorValue Health 64.4\nPlayerREF.ForceActorValue Health 80");
+    q(&mut g, "let TestGlobal := 0\nSetOnNPCActorValueChangeEventHandler 1 (begin function {ref rA, int iAv, float fOld, float fNew}\nlet TestGlobal := fOld * 1000 + fNew\nend) 0 XMarker 16");
+    q(&mut g, "PlayerREF.DamageActorValue Health 1");
+    assert_eq!(global(&mut g), 0.0, "XMarker wildcard must still exclude PlayerREF");
+    q(&mut g, "TestNpcRef.DamageActorValue Health 0.6");
+    assert_eq!(global(&mut g), 64_063.0, "integer mode truncates 64.40->64 and 63.80->63 via real XMarker wildcard and jg8_actor_value");
 }
 
 #[test]

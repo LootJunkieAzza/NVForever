@@ -115,7 +115,8 @@ impl Game<'_> {
             }
             // NPCs' actor values truncate toward zero unless flag bit 0 asks for floats
             // [documented: SetOnNPCActorValueChangeEventHandler; observed: w6d3p3_17c,
-            // 64.40 -> 63.80 reports 64.0 -> 63.0].
+            // positive 64.40 -> 63.80 reports 64.0 -> 63.0; hypothesis: negative values
+            // also use trunc toward zero rather than floor].
             let args = if ev == Ev::NpcActorValue && h.flag & 1 == 0 {
                 args.iter().map(|a| if let XVal::Num(n) = a { XVal::Num(n.trunc()) } else { a.clone() }).collect()
             } else {
@@ -474,10 +475,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 .enumerate()
                 .map(|(k, a)| match a {
                     XVal::Ref(0) => None,
-                    // XMarker (0x0000003B) acts as a wildcard on form filter slots
-                    // [observed: w6d3_17_npc_av_change_trunc_and_xmarker, xm=2,pSeen=0].
-                    XVal::Ref(0x3B) if !numeric.contains(&k) => None,
-                    XVal::Num(n) if !numeric.contains(&k) && (*n == 0.0 || *n == 59.0) => None,
+                    // XMarker (0x0000003B) acts as a wildcard on SetOnNPCActorValueChangeEventHandler's
+                    // actor form filter slot [observed: w6d3_17_npc_av_change_trunc_and_xmarker, xm=2,pSeen=0].
+                    XVal::Ref(0x3B) if ev == Ev::NpcActorValue && k == 0 => None,
+                    XVal::Num(n) if !numeric.contains(&k) && *n == 0.0 => None,
                     XVal::Num(n) if ev == Ev::KeyboardSelection && *n <= 0.0 => None,
                     XVal::Num(n) if numeric.contains(&k) && ev != Ev::SleepWait && *n < 0.0 => None,
                     x => Some(x.clone()),
