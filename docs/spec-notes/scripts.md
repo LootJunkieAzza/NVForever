@@ -1556,3 +1556,7 @@ and Trudy's lines in the VCG02 / VCG03 part are still `say_info` / `say_first` i
 - The game clock: `Game::tick` does not move GameHour (the engine and `fnv-sim` own the
   clock); `L5.quest.script_order` showed the game clock advances before object scripts
   run in a frame, which matters once the runner advances it.
+
+### Wave 6D-5 observation: ref/number assignment coercions
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe in `tools/capture/nvse/catalogs/wave6d5_promote_observed.json`; zero DLL, PDB, or third-party source consulted, `w6d5p2_15_ref_num_coercion_fixed`] Direct `let int := Player` and `let float := Player` fail compilation (`iPl=0,fPl=0`); `let rX := 20` and `set rX to 20` compile (`r20=1, setR=1`), with `rX == Player` evaluating `0`: `PROBE|w6d5p2_15_ref_num_coercion_fixed|cmp(iPl=0,fPl=0,r20=1:0,rFr=1,rNeg=1,setR=1:0)|int(pos=2,neg=-3,ovf=3e+09)`.

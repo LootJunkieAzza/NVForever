@@ -144,3 +144,7 @@ official .esm files, 2026-11-06, issue #1720]: `&PCName;` in topic names (DIAL F
 note texts (2 each); the key codes of the table above (`&sUActn…;`, `&-sUActn…;`,
 `&sKB…;`, `&sMouse…;`, `&sDeviceMouse;`, `&sXB…;`) only in message texts (MESG DESC).
 No INFO prompt or response carries one.
+
+### Wave 6D-5 observations: `%x`, `%a`, `%{ ... %}`, and argument mismatches
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe in `tools/capture/nvse/catalogs/wave6d5_promote_observed.json`; zero DLL, PDB, or third-party source consulted (JIP LN NVSE 57.30), `w6d5_03_format_x_a_cond_mismatch`] `%x`/`%x4`/`%x8`/`%x0` format `255` as `FF`/`00FF`/`000000FF`/`FF` and negative `-2` as 64-bit `FFFFFFFFFFFFFFFE`; `%a` 65 emits `A`; `%{ ... %}` handles true/false/nested/skipped blocks; unclosed `%{` with `0` or `1` still emits trailing text (`drop`/`keep`); extra values are ignored (`ex=[7]`); too-few args in `SetFormDescription` return `0` without applying: `PROBE|w6d5_03_format_x_a_cond_mismatch|x(x=[FF]|x4=[00FF]|x8=[000000FF]|x0=[FF]|neg=[FFFFFFFFFFFFFFFE]|neg8=[FFFFFFFFFFFFFFFE]|a65=[A])|cond(t=[yes]|f=[]|nf=[]|nt=[outin]|ns=[])|uncl(u0=[drop]|u1=[keep])|extra(ex=[7])|few(ok=1,v=[svBad])|descFew(ret=0,txt=[])`.

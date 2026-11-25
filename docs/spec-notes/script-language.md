@@ -433,3 +433,7 @@ selection and the real startup method. They cover a startup-registered load-even
 recipient, retained no-argument/1013/pause/page/gameplay admission, group-4 queries,
 repeated startup frames and save/restore context lifetime. Source registration
 alone does not establish mod support.
+
+### Wave 6D-5 observation: base form as explicit calling reference
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe in `tools/capture/nvse/catalogs/wave6d5_promote_observed.json`; zero DLL, PDB, or third-party source consulted (JIP LN NVSE 57.30), `w6d5_23_base_form_as_calling_reference`] Calling vanilla or NVSE/JIP commands on a base form (`Caps001` `MISC`, `DocMitchell` `NPC_`) inside `CompileScript` UDFs logs `"Attempting to call a function on a base object (this must be a reference)"` and continues execution without assigning: `PROBE|w6d5_23_base_form_as_calling_reference|pos=10|dis=10|gn=9|gt=0|gbo=10|av=10|aux=10`.

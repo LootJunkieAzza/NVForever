@@ -172,3 +172,7 @@ The coordinated canonical runner repair is included in this topic. PR #2585
 stays Draft until the real opted-in launcher boundary is validated and independent
 review closes the blocker on the exact resulting head, with current checks. No
 game execution, native acceptance or blocker closure is implied by integration.
+
+### Wave 6D-5 observation: vanilla `|| > &&` precedence with grouped inline call operands & spaced dot
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe in `tools/capture/nvse/catalogs/wave6d5_promote_observed.json`; zero DLL, PDB, or third-party source consulted (JIP LN NVSE 57.30), `w6d5_31_vanilla_inline_call_operands_and_prec`] Vanilla `if 0 && 1 || 1` evaluates `0` (`||` tighter than `&&`) while `if eval 0 && 1 || 1` evaluates `1`; grouped inline call operands in vanilla `if` preserve `|| > &&` (`g0=0, g1=1`), vanilla `set fSet to 1 + (Player.GetAV Strength)` gives `6`, and spaced-dot `Player .GetAV Strength` compiles and runs (`spDot(1:1)`): `PROBE|w6d5_31_vanilla_inline_call_operands_and_prec|van(1:[vp=0,ep=1,g0=0,g1=1,set=6])|spDot(1:1)`.

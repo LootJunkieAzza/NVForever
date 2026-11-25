@@ -1,0 +1,1951 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_promote_observed",
+  "description": "Wave 6D-5 confirmed-match and settled-observation read-only probes for Script Compiler, VM, Null Call Context, Player-Source Commands, Temporary Scene Bases, and UDF/Lambda semantics (27 disjoint probes).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "AnhNVSE": "131"
+  },
+  "batches": [
+    {
+      "id": "w6d5_promote_observed",
+      "title": "Wave 6D-5 Confirmed Matches and Settled Observations",
+      "extender": "xNVSE / JIP LN NVSE / AnhNVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "AnhNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d5_03_format_x_a_cond_mismatch",
+          "bucket": "vm_formatting",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-format.md",
+          "spec_line": 72,
+          "functions_tested": [
+            "sv_Construct",
+            "SetFormDescription",
+            "GetFormDescription",
+            "PrintToConsole"
+          ],
+          "claim": "SD-01: Verify %x width digits (0/4/8) on positive & negative ints, %a ASCII codes, %{ ... %} conditional/nested/unclosed blocks, %z on non-string values, and format specifier count mismatches in sv_Construct vs SetFormDescription.",
+          "expected": "NVForever vm.rs:2591 formats negative %x as 64-bit i64 (16 hex digits), rejects too-few args in sv_Construct, and silently returns 0 in SetFormDescription.",
+          "script_lines": [
+            "ref rCaps = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "string_var svX = sv_Construct \"x=[%x]|x4=[%x4]|x8=[%x8]|x0=[%x0]|neg=[%x]|neg8=[%x8]|a65=[%a]\" 255 255 255 255 -2 -2 65",
+            "string_var svCond = sv_Construct \"t=[%{yes%}]|f=[%{no%}]|nf=[%{out%{in%}%}]|nt=[%{out%{in%}%}]|ns=[%{skip%g%}]\" 1 0 0 1 1 1 0 99",
+            "string_var svUncl = sv_Construct \"u0=[%{drop]|u1=[%{keep]\" 0 1",
+            "string_var svExtra = sv_Construct \"ex=[%g]\" 7 99",
+            "Player.AuxVarSetFlt \"*w6d5_03_ok\" 0",
+            "Player.AuxVarSetStr \"*w6d5_03_val\" \"UNSET\"",
+            "ref fFew = CompileScript \"w6d5_03_few.gek\"",
+            "if fFew",
+            "  Call fFew",
+            "endif",
+            "int iFewOk = Player.AuxVarGetFlt \"*w6d5_03_ok\"",
+            "string_var svFewVal = Player.AuxVarGetStr \"*w6d5_03_val\"",
+            "string_var svOrigDesc = GetFormDescription rCaps",
+            "SetFormDescription rCaps \"NVF_TEMP_ORIG\"",
+            "int iDescFew = SetFormDescription rCaps \"should_not_apply %g %g\" 1",
+            "string_var svAfterFew = GetFormDescription rCaps",
+            "SetFormDescription rCaps svOrigDesc",
+            "PrintToConsole \"PROBE|w6d5_03_format_x_a_cond_mismatch|x(%z)|cond(%z)|uncl(%z)|extra(%z)|few(ok=%g,v=[%z])|descFew(ret=%g,txt=[%z])\" svX svCond svUncl svExtra iFewOk svFewVal iDescFew svAfterFew"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_03_few.gek": [
+              "string_var svBad = sv_Construct \"need %g and %g\" 5",
+              "Player.AuxVarSetStr \"*w6d5_03_val\" svBad",
+              "Player.AuxVarSetFlt \"*w6d5_03_ok\" 1"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_05_arraytostring_printvar_ardump",
+          "bucket": "vm_formatting",
+          "extender": "xNVSE / AnhNVSE",
+          "required_plugins": [
+            "AnhNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 597,
+          "functions_tested": [
+            "ArrayToString",
+            "PrintVar",
+            "Ar_Dump",
+            "PrintToConsole"
+          ],
+          "claim": "SD-03: Verify AnhNVSE ArrayToString output on list, numeric map, empty array, nested array, and ar_Null; plus invoke xNVSE PrintVar and Ar_Dump between sentinel markers to capture exact console format.",
+          "expected": "NVForever vm/anh.rs:257-260 formats ArrayToString as '[1, 2]' / '[k: v]' / '' for null, and vm.rs:1945/2898 use invented single-line dump/bracket formats for Ar_Dump and PrintVar.",
+          "script_lines": [
+            "int iSample = 42",
+            "float fSample = 2.5",
+            "string_var svSample = \"hello\"",
+            "array_var aL = ar_List 1, 2, \"hi\"",
+            "array_var aM = ar_Map 10::1, 2::20",
+            "array_var aEmp = ar_Construct \"array\"",
+            "array_var aInner = ar_List 7, 8",
+            "array_var aNest = ar_List aInner, 9",
+            "array_var aNull",
+            "string_var svAL = ArrayToString aL",
+            "string_var svAM = ArrayToString aM",
+            "string_var svAE = ArrayToString aEmp",
+            "string_var svAN = ArrayToString aNest",
+            "string_var svAZ = ArrayToString aNull",
+            "PrintToConsole \"W6D5_05_PV_BEGIN\"",
+            "PrintVar iSample fSample svSample aL aM",
+            "PrintToConsole \"W6D5_05_PV_END\"",
+            "PrintToConsole \"W6D5_05_DUMP_BEGIN\"",
+            "Ar_Dump aL",
+            "Ar_Dump aM",
+            "Ar_Dump aNull",
+            "PrintToConsole \"W6D5_05_DUMP_END\"",
+            "PrintToConsole \"PROBE|w6d5_05_arraytostring_printvar_ardump|list=[%z]|nmap=[%z]|emp=[%z]|nest=[%z]|null=[%z]\" svAL svAM svAE svAN svAZ"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d5_10_inttobin_bitshift_funcs_vs_ops",
+          "bucket": "vm_operators",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 64,
+          "functions_tested": [
+            "RightShift",
+            "LeftShift",
+            "LogicalNot",
+            "GetBit",
+            "SetBit",
+            "ClearBit",
+            "IntToBin",
+            "NumToHex",
+            "PrintToConsole"
+          ],
+          "claim": "SD-12: Compare RightShift -8 1 vs -8 >> 1 (unsigned vs arithmetic shift), LeftShift 1 31 vs 1 << 31, shift by >=32/-1, LogicalNot 0, GetBit/SetBit/ClearBit boundaries, and IntToBin prefix ('0b') & width.",
+          "expected": "NVForever vm.rs:3431 uses unsigned u32 checked_shr for RightShift [hypothesis] (returning 2147483644 for -8 >> 1) vs signed i64 for >> (-4), and vm.rs:3451 uses '0b' prefix for IntToBin [hypothesis].",
+          "script_lines": [
+            "int rsFunc = RightShift -8 1",
+            "int rsOp = -8 >> 1",
+            "int lsFunc = LeftShift 1 31",
+            "int lsOp = 1 << 31",
+            "int rs32 = RightShift 1 32",
+            "int ls32 = LeftShift 1 32",
+            "int rsNeg = RightShift 8 -1",
+            "int lnot0 = LogicalNot 0",
+            "int gb0 = GetBit 5 0",
+            "int gb31 = GetBit -2147483648 31",
+            "int gb32 = GetBit 5 32",
+            "int sb1 = SetBit 0 3 1",
+            "int cb1 = ClearBit 15 1",
+            "string_var b0 = IntToBin 5 0 0",
+            "string_var b8 = IntToBin 5 8 0",
+            "string_var bP = IntToBin 5 8 1",
+            "string_var bN = IntToBin -1 8 0",
+            "string_var hN = NumToHex -1 8 1",
+            "PrintToConsole \"PROBE|w6d5_10_inttobin_bitshift_funcs_vs_ops|sh(rsF=%g,rsOp=%g,lsF=%g,lsOp=%g,rs32=%g,ls32=%g,rsNeg=%g)|bit(not0=%g,gb=%g/%g/%g,sb=%g,cb=%g)|bin(0=[%z],8=[%z],p=[%z],n=[%z])|hexN=[%z]\" rsFunc rsOp lsFunc lsOp rs32 ls32 rsNeg lnot0 gb0 gb31 gb32 sb1 cb1 b0 b8 bP bN hN"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d5_16_short_circuit_let_while_testexpr",
+          "bucket": "vm_operators",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 111,
+          "functions_tested": [
+            "Call",
+            "TestExpr",
+            "PrintToConsole"
+          ],
+          "claim": "SD-11: Verify whether && and || short-circuit RHS side-effect calls in let, while, TestExpr, and if eval, plus verify deciding-operand return values on numbers, refs, strings, and arrays.",
+          "expected": "ext-syntax.md:111 marks short-circuiting outside eval as open; NVForever short-circuits all extended expressions and coerces non-number deciding operands to 1/0.",
+          "script_lines": [
+            "int iHits = 0",
+            "ref rInc = ({} => (iHits += 1))",
+            "int r1 = 0 && (Call rInc)",
+            "int h1 = iHits",
+            "int r2 = 1 || (Call rInc)",
+            "int h2 = iHits",
+            "while 0 && (Call rInc)",
+            "  break",
+            "loop",
+            "int h3 = iHits",
+            "int te1 = TestExpr (0 && (Call rInc))",
+            "int h4 = iHits",
+            "if eval (1 || (Call rInc))",
+            "  let iHits += 0",
+            "endif",
+            "int h5 = iHits",
+            "int vOr1 = 1 || 2",
+            "int vOr2 = 0 || 2",
+            "int vAnd1 = -5 && -3",
+            "int vAnd2 = 1 && -5",
+            "int vAnd3 = 0 && -5",
+            "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "string_var svHi = \"hi\"",
+            "array_var aL = ar_List 1",
+            "int vRefA = rDocRef && 7",
+            "int vRefO = rDocRef || 7",
+            "int vStrO = svHi || 7",
+            "int vArrO = aL || 7",
+            "PrintToConsole \"PROBE|w6d5_16_short_circuit_let_while_testexpr|hits(%g,%g,%g,%g,%g)|vals(or=%g/%g,and=%g/%g/%g)|nonNum(rA=%g,rO=%g,sO=%g,aO=%g)\" h1 h2 h3 h4 h5 vOr1 vOr2 vAnd1 vAnd2 vAnd3 vRefA vRefO vStrO vArrO"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d5_20_foreach_edges_and_label_goto",
+          "bucket": "vm_control_flow",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 237,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "ar_Erase",
+            "PrintToConsole"
+          ],
+          "claim": "SD-09 & SD-14: Verify ForEach over ar_Null, empty list, empty string, FLST (post-loop var state), and ar_Erase during iteration; plus Label/GoTo backward loop, forward GoTo, GoTo out of If, and Label 255 vs 256.",
+          "expected": "NVForever vm.rs:1989 errors on ForEach over non-array, preserves FLST iterator var after loop, supports forward GoTo in same statement list, and has no 0..=255 Label cap.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w6d5_20_null_ok\" 0",
+            "ref fNull = CompileScript \"w6d5_20_fe_null.gek\"",
+            "if fNull",
+            "  Call fNull",
+            "endif",
+            "int feNullOk = Player.AuxVarGetFlt \"*w6d5_20_null_ok\"",
+            "array_var aEmp = ar_Construct \"array\"",
+            "array_var it",
+            "int cEmpA = 0",
+            "foreach it <- aEmp",
+            "  let cEmpA += 1",
+            "loop",
+            "string_var svEmp = \"\"",
+            "string_var svCh",
+            "int cEmpS = 0",
+            "foreach svCh <- svEmp",
+            "  let cEmpS += 1",
+            "loop",
+            "ref rFlst = GetFormFromMod \"FalloutNV.esm\" \"1537E6\"",
+            "ref rMem = 0",
+            "int cFlst = 0",
+            "foreach rMem <- rFlst",
+            "  let cFlst += 1",
+            "loop",
+            "int flstPostValid = IsFormValid rMem",
+            "array_var aMut = ar_List 1, 2, 3, 4",
+            "int sumMut = 0",
+            "foreach it <- aMut",
+            "  let sumMut += *it",
+            "  if eval (*it == 2)",
+            "    ar_Erase aMut it[\"key\"]",
+            "  endif",
+            "loop",
+            "ref fGoto = CompileScript \"w6d5_20_goto.gek\"",
+            "string_var svGoto = \"FAIL\"",
+            "if fGoto",
+            "  let svGoto := Call fGoto",
+            "endif",
+            "ref fLab256 = CompileScript \"w6d5_20_lab256.gek\"",
+            "int r256 = -9",
+            "if fLab256",
+            "  let r256 := Call fLab256",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5_20_foreach_edges_and_label_goto|fe(nullOk=%g,empA=%g,empS=%g,flst=%g:post=%g,mutSum=%g:sz=%g)|goto(%g:[%z])|l256(%g:%g)\" feNullOk cEmpA cEmpS cFlst flstPostValid sumMut (ar_Size aMut) (fGoto != 0) svGoto (fLab256 != 0) r256"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_20_fe_null.gek": [
+              "array_var aNull",
+              "array_var it",
+              "int iCnt = 0",
+              "foreach it <- aNull",
+              "  let iCnt += 1",
+              "loop",
+              "Player.AuxVarSetFlt \"*w6d5_20_null_ok\" (iCnt + 1)"
+            ],
+            "w6d5_20_goto.gek": [
+              "int iBack = 0",
+              "Label 1",
+              "let iBack += 1",
+              "if iBack < 3",
+              "  GoTo 1",
+              "endif",
+              "int iFwd = 0",
+              "GoTo 2",
+              "let iFwd := 99",
+              "Label 2",
+              "let iFwd += 1",
+              "int i255 = 0",
+              "Label 255",
+              "let i255 += 1",
+              "if i255 < 2",
+              "  GoTo 255",
+              "endif",
+              "SetFunctionValue (sv_Construct \"b=%g,f=%g,l255=%g\" iBack iFwd i255)"
+            ],
+            "w6d5_20_lab256.gek": [
+              "int iVal = 0",
+              "Label 256",
+              "let iVal += 1",
+              "if iVal < 2",
+              "  GoTo 256",
+              "endif",
+              "SetFunctionValue iVal"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_21_null_ref_vanilla_commands",
+          "bucket": "null_call_context",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/null-call-context.md",
+          "spec_line": 8,
+          "functions_tested": [
+            "GetDisabled",
+            "GetActorValue",
+            "GetPos",
+            "GetItemCount",
+            "CompileScript",
+            "Call",
+            "PrintToConsole"
+          ],
+          "claim": "SD-10: Verify whether an explicit null ref receiver (ref rNull = 0) aborts the script or returns 0 and continues on vanilla commands (GetDisabled standalone/if/let, GetAV Health, GetPos Z, GetItemCount, vanilla set).",
+          "expected": "NVForever Vm::call/xcall does not emit no_reference_call on null ref and relies on per-command Host::call error returns, whereas o5_00 observed rNull.GetDisabled continuing in a UDF.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w6d5_21_d1\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_21_d2\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_21_av\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_21_pos\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_21_cnt\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_21_setv\" -9",
+            "Player.AuxVarSetFlt \"*w6d5_21_setok\" 0",
+            "Call (CompileScript \"w6d5_21_dis_stmt.gek\")",
+            "Call (CompileScript \"w6d5_21_dis_let.gek\")",
+            "Call (CompileScript \"w6d5_21_av.gek\")",
+            "Call (CompileScript \"w6d5_21_pos.gek\")",
+            "Call (CompileScript \"w6d5_21_cnt.gek\")",
+            "Call (CompileScript \"w6d5_21_set.gek\")",
+            "int d1 = Player.AuxVarGetFlt \"*w6d5_21_d1\"",
+            "int d2 = Player.AuxVarGetFlt \"*w6d5_21_d2\"",
+            "int av = Player.AuxVarGetFlt \"*w6d5_21_av\"",
+            "int ps = Player.AuxVarGetFlt \"*w6d5_21_pos\"",
+            "int cn = Player.AuxVarGetFlt \"*w6d5_21_cnt\"",
+            "int iSetV = Player.AuxVarGetFlt \"*w6d5_21_setv\"",
+            "int iSetOk = Player.AuxVarGetFlt \"*w6d5_21_setok\"",
+            "PrintToConsole \"PROBE|w6d5_21_null_ref_vanilla_commands|disStmt=%g|disLet=%g|av=%g|pos=%g|cnt=%g|set(v=%g,ok=%g)\" d1 d2 av ps cn iSetV iSetOk"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_21_dis_stmt.gek": [
+              "ref rNull = 0",
+              "rNull.GetDisabled",
+              "Player.AuxVarSetFlt \"*w6d5_21_d1\" 1"
+            ],
+            "w6d5_21_dis_let.gek": [
+              "ref rNull = 0",
+              "int iV = rNull.GetDisabled",
+              "Player.AuxVarSetFlt \"*w6d5_21_d2\" (10 + iV)"
+            ],
+            "w6d5_21_av.gek": [
+              "ref rNull = 0",
+              "float fV = rNull.GetAV Health",
+              "Player.AuxVarSetFlt \"*w6d5_21_av\" (10 + fV)"
+            ],
+            "w6d5_21_pos.gek": [
+              "ref rNull = 0",
+              "float fV = rNull.GetPos Z",
+              "Player.AuxVarSetFlt \"*w6d5_21_pos\" (10 + fV)"
+            ],
+            "w6d5_21_cnt.gek": [
+              "ref rNull = 0",
+              "ref rCaps = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+              "int iV = rNull.GetItemCount rCaps",
+              "Player.AuxVarSetFlt \"*w6d5_21_cnt\" (10 + iV)"
+            ],
+            "w6d5_21_set.gek": [
+              "ref rNull = 0",
+              "float fX = 77",
+              "set fX to rNull.GetAV Health",
+              "Player.AuxVarSetFlt \"*w6d5_21_setv\" fX",
+              "Player.AuxVarSetFlt \"*w6d5_21_setok\" 1"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_22_null_ref_nvse_jip_and_out_calls",
+          "bucket": "null_call_context",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/null-call-context.md",
+          "spec_line": 43,
+          "functions_tested": [
+            "GetBaseObject",
+            "GetType",
+            "GetSourceModIndex",
+            "ListGetCount",
+            "GetPosEx",
+            "GetRefType",
+            "AuxVarGetFlt",
+            "GetName",
+            "PrintToConsole"
+          ],
+          "claim": "SD-10: Verify explicit null receiver (ref rNull = 0) across NVSE/JIP commands routed through distinct NVForever VM paths (string_function vs out_call vs host_function).",
+          "expected": "NVForever silently returns 0 and continues for string_function & out_call (GetBaseObject/GetType/GetPosEx) but aborts with VmError::NoReference for host_function (GetRefType/GetName/AuxVarGetFlt).",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w6d5_22_gbo\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_22_gt\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_22_smi\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_22_lgc\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_22_gpe\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_22_grt\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_22_aux\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_22_gn\" -1",
+            "Call (CompileScript \"w6d5_22_gbo.gek\")",
+            "Call (CompileScript \"w6d5_22_gt.gek\")",
+            "Call (CompileScript \"w6d5_22_smi.gek\")",
+            "Call (CompileScript \"w6d5_22_lgc.gek\")",
+            "Call (CompileScript \"w6d5_22_gpe.gek\")",
+            "Call (CompileScript \"w6d5_22_grt.gek\")",
+            "Call (CompileScript \"w6d5_22_aux.gek\")",
+            "Call (CompileScript \"w6d5_22_gn.gek\")",
+            "PrintToConsole \"PROBE|w6d5_22_null_ref_nvse_jip_and_out_calls|gbo=%g|gt=%g|smi=%g|lgc=%g|gpe=%g|grt=%g|aux=%g|gn=%g\" (Player.AuxVarGetFlt \"*w6d5_22_gbo\") (Player.AuxVarGetFlt \"*w6d5_22_gt\") (Player.AuxVarGetFlt \"*w6d5_22_smi\") (Player.AuxVarGetFlt \"*w6d5_22_lgc\") (Player.AuxVarGetFlt \"*w6d5_22_gpe\") (Player.AuxVarGetFlt \"*w6d5_22_grt\") (Player.AuxVarGetFlt \"*w6d5_22_aux\") (Player.AuxVarGetFlt \"*w6d5_22_gn\")"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_22_gbo.gek": [
+              "ref rNull = 0",
+              "ref rOut = rNull.GetBaseObject",
+              "Player.AuxVarSetFlt \"*w6d5_22_gbo\" (10 + (rOut != 0))"
+            ],
+            "w6d5_22_gt.gek": [
+              "ref rNull = 0",
+              "int iV = rNull.GetType",
+              "Player.AuxVarSetFlt \"*w6d5_22_gt\" (10 + iV)"
+            ],
+            "w6d5_22_smi.gek": [
+              "ref rNull = 0",
+              "int iV = rNull.GetSourceModIndex",
+              "Player.AuxVarSetFlt \"*w6d5_22_smi\" (100 + iV)"
+            ],
+            "w6d5_22_lgc.gek": [
+              "ref rNull = 0",
+              "int iV = rNull.ListGetCount",
+              "Player.AuxVarSetFlt \"*w6d5_22_lgc\" (10 + iV)"
+            ],
+            "w6d5_22_gpe.gek": [
+              "ref rNull = 0",
+              "float px = 1",
+              "float py = 2",
+              "float pz = 3",
+              "rNull.GetPosEx px py pz",
+              "Player.AuxVarSetFlt \"*w6d5_22_gpe\" (10 + px)"
+            ],
+            "w6d5_22_grt.gek": [
+              "ref rNull = 0",
+              "int iV = rNull.GetRefType",
+              "Player.AuxVarSetFlt \"*w6d5_22_grt\" (10 + iV)"
+            ],
+            "w6d5_22_aux.gek": [
+              "ref rNull = 0",
+              "float fV = rNull.AuxVarGetFlt \"*nonexistent\"",
+              "Player.AuxVarSetFlt \"*w6d5_22_aux\" (10 + fV)"
+            ],
+            "w6d5_22_gn.gek": [
+              "ref rNull = 0",
+              "string_var svN = rNull.GetName",
+              "Player.AuxVarSetFlt \"*w6d5_22_gn\" (10 + (sv_Length svN))"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p2_22b_null_ref_lgc_gpe",
+          "bucket": "null_call_context",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/null-call-context.md",
+          "spec_line": 43,
+          "functions_tested": [
+            "ListGetCount",
+            "GetPosEx",
+            "CompileScript",
+            "Call",
+            "PrintToConsole"
+          ],
+          "claim": "Verify explicit null receiver on ListGetCount (1-arg) and GetPosEx (3-outvar).",
+          "expected": "Check whether ListGetCount and GetPosEx continue or abort on rNull.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w6d5p2_lgc\" -1",
+            "Player.AuxVarSetFlt \"*w6d5p2_gpe\" -1",
+            "ref fLgc = CompileScript \"w6d5p2_22_lgc.gek\"",
+            "if fLgc",
+            "  Call fLgc",
+            "endif",
+            "ref fGpe = CompileScript \"w6d5p2_22_gpe.gek\"",
+            "if fGpe",
+            "  Call fGpe",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5p2_22b_null_ref_lgc_gpe|lgc(cmp=%g,v=%g)|gpe(cmp=%g,v=%g)\" (fLgc != 0) (Player.AuxVarGetFlt \"*w6d5p2_lgc\") (fGpe != 0) (Player.AuxVarGetFlt \"*w6d5p2_gpe\")"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p2_22_lgc.gek": [
+              "ref rNull = 0",
+              "ref rFlst = GetFormFromMod \"FalloutNV.esm\" \"1537E6\"",
+              "int iV = rNull.ListGetCount rFlst",
+              "Player.AuxVarSetFlt \"*w6d5p2_lgc\" (10 + iV)"
+            ],
+            "w6d5p2_22_gpe.gek": [
+              "ref rNull = 0",
+              "float fX = 1",
+              "float fY = 2",
+              "float fZ = 3",
+              "rNull.GetPosEx fX fY fZ",
+              "Player.AuxVarSetFlt \"*w6d5p2_gpe\" (10 + fX)"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_23_base_form_as_calling_reference",
+          "bucket": "null_call_context",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-language.md",
+          "spec_line": 94,
+          "functions_tested": [
+            "GetPos",
+            "GetDisabled",
+            "GetName",
+            "GetType",
+            "GetBaseObject",
+            "GetActorValue",
+            "AuxVarSetFlt",
+            "AuxVarGetFlt",
+            "PrintToConsole"
+          ],
+          "claim": "SD-10: Verify calling vanilla and NVSE/JIP commands with a BASE form (Caps001 0xF MISC or DocMitchell 0x104C0C NPC_) as the explicit calling reference.",
+          "expected": "NVForever passes base forms through Vm::call/string_function while host_function aborts only if ext_call returns NoReference wording.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w6d5_23_pos\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_23_dis\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_23_gn\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_23_gt\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_23_gbo\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_23_av\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_23_aux\" -1",
+            "Call (CompileScript \"w6d5_23_pos.gek\")",
+            "Call (CompileScript \"w6d5_23_dis.gek\")",
+            "Call (CompileScript \"w6d5_23_gn.gek\")",
+            "Call (CompileScript \"w6d5_23_gt.gek\")",
+            "Call (CompileScript \"w6d5_23_gbo.gek\")",
+            "Call (CompileScript \"w6d5_23_av.gek\")",
+            "Call (CompileScript \"w6d5_23_aux.gek\")",
+            "PrintToConsole \"PROBE|w6d5_23_base_form_as_calling_reference|pos=%g|dis=%g|gn=%g|gt=%g|gbo=%g|av=%g|aux=%g\" (Player.AuxVarGetFlt \"*w6d5_23_pos\") (Player.AuxVarGetFlt \"*w6d5_23_dis\") (Player.AuxVarGetFlt \"*w6d5_23_gn\") (Player.AuxVarGetFlt \"*w6d5_23_gt\") (Player.AuxVarGetFlt \"*w6d5_23_gbo\") (Player.AuxVarGetFlt \"*w6d5_23_av\") (Player.AuxVarGetFlt \"*w6d5_23_aux\")"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_23_pos.gek": [
+              "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+              "float fZ = rBase.GetPos Z",
+              "Player.AuxVarSetFlt \"*w6d5_23_pos\" (10 + (fZ != 0))"
+            ],
+            "w6d5_23_dis.gek": [
+              "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+              "int iD = rBase.GetDisabled",
+              "Player.AuxVarSetFlt \"*w6d5_23_dis\" (10 + iD)"
+            ],
+            "w6d5_23_gn.gek": [
+              "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+              "string_var svN = rBase.GetName",
+              "Player.AuxVarSetFlt \"*w6d5_23_gn\" (10 + (sv_Length svN))"
+            ],
+            "w6d5_23_gt.gek": [
+              "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+              "int iT = rBase.GetType",
+              "Player.AuxVarSetFlt \"*w6d5_23_gt\" iT"
+            ],
+            "w6d5_23_gbo.gek": [
+              "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+              "ref rB = rBase.GetBaseObject",
+              "Player.AuxVarSetFlt \"*w6d5_23_gbo\" (10 + (rB == rBase))"
+            ],
+            "w6d5_23_av.gek": [
+              "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+              "float fS = rDocBase.GetAV Strength",
+              "Player.AuxVarSetFlt \"*w6d5_23_av\" (10 + fS)"
+            ],
+            "w6d5_23_aux.gek": [
+              "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+              "rBase.AuxVarSetFlt \"*w6d5_bf\" 7",
+              "float fV = rBase.AuxVarGetFlt \"*w6d5_bf\"",
+              "Player.AuxVarSetFlt \"*w6d5_23_aux\" (10 + fV)"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_25_player_source_remove_rep_exact_edges",
+          "bucket": "player_source_commands",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/player-source-commands.md",
+          "spec_line": 48,
+          "functions_tested": [
+            "RemoveReputationExact",
+            "SetReputation",
+            "GetReputation",
+            "PrintToConsole"
+          ],
+          "claim": "SD-10: Verify RemoveReputationExact fractional loss, floor clamp at 0, negative amount, zero amount, above-scale subtraction, invalid axis (axis=2 abort vs continue), and explicit Doc/null receivers.",
+          "expected": "NVForever player_source.rs delegates to reputation::write_axis (aborts on axis=2) and reputation::change (clamps loss at 0, negative amount adds up to scale) and allows explicit null receivers [hypothesis].",
+          "script_lines": [
+            "ref rRep = GetFormFromMod \"FalloutNV.esm\" \"104C22\"",
+            "float fOrigF = GetReputation rRep 1",
+            "float fOrigI = GetReputation rRep 0",
+            "SetReputation rRep 1 5.5",
+            "RemoveReputationExact rRep 1 1.25",
+            "float vSub = GetReputation rRep 1",
+            "RemoveReputationExact rRep 1 0.0",
+            "float vZero = GetReputation rRep 1",
+            "RemoveReputationExact rRep 1 -2.0",
+            "float vNeg = GetReputation rRep 1",
+            "RemoveReputationExact rRep 1 100.0",
+            "float vFlr = GetReputation rRep 1",
+            "SetReputation rRep 1 20.0",
+            "RemoveReputationExact rRep 1 1.5",
+            "float vAbv = GetReputation rRep 1",
+            "Player.AuxVarSetFlt \"*w6d5_25_ax2\" 0",
+            "Player.AuxVarSetFlt \"*w6d5_25_doc\" 0",
+            "Player.AuxVarSetFlt \"*w6d5_25_null\" 0",
+            "Call (CompileScript \"w6d5_25_ax2.gek\")",
+            "SetReputation rRep 1 6.0",
+            "Call (CompileScript \"w6d5_25_doc.gek\")",
+            "float vDoc = GetReputation rRep 1",
+            "Call (CompileScript \"w6d5_25_null.gek\")",
+            "float vNull = GetReputation rRep 1",
+            "SetReputation rRep 1 fOrigF",
+            "SetReputation rRep 0 fOrigI",
+            "PrintToConsole \"PROBE|w6d5_25_player_source_remove_rep_exact_edges|vals(sub=%.2f,z=%.2f,neg=%.2f,flr=%.2f,abv=%.2f)|ax2=%g|rcvr(doc=%g:%.2f,null=%g:%.2f)\" vSub vZero vNeg vFlr vAbv (Player.AuxVarGetFlt \"*w6d5_25_ax2\") (Player.AuxVarGetFlt \"*w6d5_25_doc\") vDoc (Player.AuxVarGetFlt \"*w6d5_25_null\") vNull"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_25_ax2.gek": [
+              "ref rRep = GetFormFromMod \"FalloutNV.esm\" \"104C22\"",
+              "RemoveReputationExact rRep 2 1.0",
+              "Player.AuxVarSetFlt \"*w6d5_25_ax2\" 1"
+            ],
+            "w6d5_25_doc.gek": [
+              "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+              "ref rRep = GetFormFromMod \"FalloutNV.esm\" \"104C22\"",
+              "rDocRef.RemoveReputationExact rRep 1 1.0",
+              "Player.AuxVarSetFlt \"*w6d5_25_doc\" 1"
+            ],
+            "w6d5_25_null.gek": [
+              "ref rNull = 0",
+              "ref rRep = GetFormFromMod \"FalloutNV.esm\" \"104C22\"",
+              "rNull.RemoveReputationExact rRep 1 1.0",
+              "Player.AuxVarSetFlt \"*w6d5_25_null\" 1"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_29_tempcloneform_chain_and_post_place_edit",
+          "bucket": "clone_and_scene_bases",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/temporary-scene-bases.md",
+          "spec_line": 37,
+          "functions_tested": [
+            "TempCloneForm",
+            "PlaceAtMe",
+            "SetModelPath",
+            "GetModelPath",
+            "GetScript",
+            "IsClonedForm",
+            "PrintToConsole"
+          ],
+          "claim": "SD-11: Verify clone-of-clone PlaceAtMe admission, post-placement SetModelPath on placed clone & original STAT, and whether TempCloneForm of a scripted NPC_ (DocMitchell) inherits the original's script.",
+          "expected": "NVForever objects.rs:47-56 refuses PlaceAtMe on clone-of-clone, refuses post-placement SetModelPath on placed clone/original, and temporary-scene-bases.md:63 notes clones do not inherit scripts.",
+          "script_lines": [
+            "ref rStat = GetFormFromMod \"FalloutNV.esm\" \"9DD\"",
+            "string_var svOrigM = GetModelPath rStat",
+            "ref c1 = TempCloneForm rStat",
+            "ref c2 = TempCloneForm c1",
+            "int ic2 = IsClonedForm c2",
+            "ref p2 = Player.PlaceAtMe c2 1",
+            "int okP2 = (IsFormValid p2) && (p2.GetBaseObject == c2)",
+            "ref p1 = Player.PlaceAtMe c1 1",
+            "SetModelPath \"w6d5_post_c1.nif\" c1",
+            "string_var mC1 = GetModelPath c1",
+            "SetModelPath \"w6d5_post_orig.nif\" rStat",
+            "string_var mOrig = GetModelPath rStat",
+            "string_var mC1After = GetModelPath c1",
+            "SetModelPath svOrigM rStat",
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref sOrig = GetScript rDocBase",
+            "ref cNpc = TempCloneForm rDocBase",
+            "ref sClone = GetScript cNpc",
+            "if p1",
+            "  p1.Disable",
+            "  p1.MarkForDelete",
+            "endif",
+            "if p2",
+            "  p2.Disable",
+            "  p2.MarkForDelete",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5_29_tempcloneform_chain_and_post_place_edit|chain(ic2=%g,p2=%g)|post(c1=[%z],orig=[%z],c1After=[%z])|scr(origValid=%g,eq=%g)\" ic2 okP2 mC1 mOrig mC1After (sOrig != 0) (sClone == sOrig)"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d5_31_vanilla_inline_call_operands_and_prec",
+          "bucket": "compiler_inline_operands",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/vanilla-inline-call-operands.md",
+          "spec_line": 26,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "GetItemCount",
+            "GetActorValue",
+            "PrintToConsole"
+          ],
+          "claim": "SD-12: Verify vanilla if mixed &&/|| precedence (0 && 1 || 1: || tighter than && in vanilla vs && tighter than || in if eval), grouped inline call operand inside vanilla if with mixed &&/||, spaced-dot receiver (Player .GetAV Strength), and vanilla Set with grouped call.",
+          "expected": "NVForever gen.rs:844-879 bridges grouped call operands inside vanilla expressions while keeping vanilla || > && precedence [hypothesis].",
+          "script_lines": [
+            "ref fVan = CompileScript \"w6d5_31_vanilla_inline.gek\"",
+            "string_var svRes = \"COMPILE_FAIL\"",
+            "if fVan",
+            "  let svRes := Call fVan",
+            "endif",
+            "ref fSpDot = CompileScript \"w6d5_31_spaced_dot.gek\"",
+            "int rSpDot = -9",
+            "if fSpDot",
+            "  let rSpDot := Call fSpDot",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5_31_vanilla_inline_call_operands_and_prec|van(%g:[%z])|spDot(%g:%g)\" (fVan != 0) svRes (fSpDot != 0) rSpDot"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_31_vanilla_inline.gek": [
+              "int iVanPrec = 0",
+              "if 0 && 1 || 1",
+              "  set iVanPrec to 1",
+              "endif",
+              "int iEvalPrec = 0",
+              "if eval 0 && 1 || 1",
+              "  set iEvalPrec to 1",
+              "endif",
+              "int iGrp = 0",
+              "if 0 && Player.GetItemCount (GetFormFromMod \"FalloutNV.esm\" \"F\") >= 0 || 1",
+              "  set iGrp to 1",
+              "endif",
+              "int iGrpT = 0",
+              "if Player.GetItemCount (GetFormFromMod \"FalloutNV.esm\" \"F\") >= 0 && 1 || 0",
+              "  set iGrpT to 1",
+              "endif",
+              "float fSet = 0",
+              "set fSet to 1 + (Player.GetAV Strength)",
+              "SetFunctionValue (sv_Construct \"vp=%g,ep=%g,g0=%g,g1=%g,set=%.0f\" iVanPrec iEvalPrec iGrp iGrpT fSet)"
+            ],
+            "w6d5_31_spaced_dot.gek": [
+              "float fS = Player .GetAV Strength",
+              "SetFunctionValue (fS > 0)"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_34_inline_decl_scope_and_outvar_parens",
+          "bucket": "compiler_grammar",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 170,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "GetPosEx",
+            "TestExpr",
+            "ar_Size",
+            "ar_List",
+            "PrintToConsole"
+          ],
+          "claim": "SD-12: Verify inline-declared variable scope across if/while blocks, parenthesized out-var inline declarations Player.GetPosEx (float px) (float py) (float pz), inline decl inside if TestExpr and if (int n = 5) == 5, and nested inline decl in initializer.",
+          "expected": "NVForever parse.rs:301 treats all inline declarations as script-scoped and supports parenthesized out-var declarations [hypothesis].",
+          "script_lines": [
+            "ref fScope = CompileScript \"w6d5_34_scope.gek\"",
+            "ref fOut = CompileScript \"w6d5_34_outvar.gek\"",
+            "ref fCond = CompileScript \"w6d5_34_ifcond.gek\"",
+            "ref fNest = CompileScript \"w6d5_34_nested.gek\"",
+            "string_var rScope = \"FAIL\"",
+            "int rOut = -9",
+            "string_var rCond = \"FAIL\"",
+            "int rNest = -9",
+            "if fScope",
+            "  let rScope := Call fScope",
+            "endif",
+            "if fOut",
+            "  let rOut := Call fOut",
+            "endif",
+            "if fCond",
+            "  let rCond := Call fCond",
+            "endif",
+            "if fNest",
+            "  let rNest := Call fNest",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5_34_inline_decl_scope_and_outvar_parens|scope(%g:[%z])|out(%g:%g)|cond(%g:[%z])|nest(%g:%g)\" (fScope != 0) rScope (fOut != 0) rOut (fCond != 0) rCond (fNest != 0) rNest"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_34_scope.gek": [
+              "if 1",
+              "  int iInIf = 42",
+              "endif",
+              "int iIdx = 0",
+              "while iIdx < 2",
+              "  int iInWhile = iIdx * 10 + 5",
+              "  let iIdx += 1",
+              "loop",
+              "SetFunctionValue (sv_Construct \"if=%g,w=%g\" iInIf iInWhile)"
+            ],
+            "w6d5_34_outvar.gek": [
+              "Player.GetPosEx (float px) (float py) (float pz)",
+              "SetFunctionValue ((px != 0) || (py != 0) || (pz != 0))"
+            ],
+            "w6d5_34_ifcond.gek": [
+              "int bTe = 0",
+              "if TestExpr (int iTe = 77)",
+              "  let bTe := iTe",
+              "endif",
+              "int bEq = 0",
+              "if (int iEq = 5) == 5",
+              "  let bEq := iEq",
+              "endif",
+              "SetFunctionValue (sv_Construct \"te=%g,eq=%g\" bTe bEq)"
+            ],
+            "w6d5_34_nested.gek": [
+              "int iN = ar_Size (array_var aIn = ar_List 1, 2, 3)",
+              "SetFunctionValue (iN * 10 + (ar_Size aIn))"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p2_34b_ifcond_split",
+          "bucket": "compiler_grammar",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 170,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "TestExpr",
+            "PrintToConsole"
+          ],
+          "claim": "Disambiguate inline decl in `if TestExpr (int iTe = 77)` vs `if (int iEq = 5) == 5` vs `if eval (int iEq = 5) == 5`.",
+          "expected": "Identify which inline-decl-in-if forms compile in xNVSE 6.4.9.",
+          "script_lines": [
+            "ref fTe = CompileScript \"w6d5p2_34_te.gek\"",
+            "ref fEq = CompileScript \"w6d5p2_34_eq.gek\"",
+            "ref fEv = CompileScript \"w6d5p2_34_ev.gek\"",
+            "int rTe = -9",
+            "int rEq = -9",
+            "int rEv = -9",
+            "if fTe",
+            "  let rTe := Call fTe",
+            "endif",
+            "if fEq",
+            "  let rEq := Call fEq",
+            "endif",
+            "if fEv",
+            "  let rEv := Call fEv",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5p2_34b_ifcond_split|te(%g:%g)|eq(%g:%g)|ev(%g:%g)\" (fTe != 0) rTe (fEq != 0) rEq (fEv != 0) rEv"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p2_34_te.gek": [
+              "int bTe = 0",
+              "if TestExpr (int iTe = 77)",
+              "  let bTe := iTe",
+              "endif",
+              "SetFunctionValue bTe"
+            ],
+            "w6d5p2_34_eq.gek": [
+              "int bEq = 0",
+              "if (int iEq = 5) == 5",
+              "  let bEq := iEq",
+              "endif",
+              "SetFunctionValue bEq"
+            ],
+            "w6d5p2_34_ev.gek": [
+              "int bEq = 0",
+              "if eval (int iEq = 5) == 5",
+              "  let bEq := iEq",
+              "endif",
+              "SetFunctionValue bEq"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_35_runtime_compiler_refusals_boundaries",
+          "bucket": "compiler_grammar",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 310,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "ar_Init",
+            "sv_SubString",
+            "SetBaseKarma",
+            "GetPackageLocation",
+            "GetFormIDString",
+            "IsFormValid",
+            "PrintToConsole"
+          ],
+          "claim": "SD-12: Verify runtime compiler refusal boundaries: fractional literals for xNVSE int params (ar_Init 2.5, sv_SubString 1.5) vs plugin int param (SetBaseKarma 37.5 vs 37.0 vs float var), untyped GetPackageLocation passed to GetFormIDString vs IsFormValid, and bare hex form IDs (f, 14).",
+          "expected": "NVForever gen/x.rs:929-957 permits fractional literals for xNVSE functions [hypothesis], refuses non-zero fractional literals for plugin int params (allowing 37.0 [hypothesis]), and refuses UNTYPED_RESULTS in ANY form param [hypothesis].",
+          "script_lines": [
+            "ref fNvse1 = CompileScript \"w6d5_35_arinit_frac.gek\"",
+            "ref fNvse2 = CompileScript \"w6d5_35_substr_frac.gek\"",
+            "ref fPlgFrac = CompileScript \"w6d5_35_karma_frac.gek\"",
+            "ref fPlgDot0 = CompileScript \"w6d5_35_karma_dot0.gek\"",
+            "ref fPlgVar = CompileScript \"w6d5_35_karma_fvar.gek\"",
+            "ref fUnt1 = CompileScript \"w6d5_35_untyped_gfs.gek\"",
+            "ref fUnt2 = CompileScript \"w6d5_35_untyped_ifv.gek\"",
+            "ref fHexF = CompileScript \"w6d5_35_bare_hex.gek\"",
+            "int rN1 = -9",
+            "string_var rN2 = \"FAIL\"",
+            "int rUnt2 = -9",
+            "string_var rHex = \"FAIL\"",
+            "if fNvse1",
+            "  let rN1 := Call fNvse1",
+            "endif",
+            "if fNvse2",
+            "  let rN2 := Call fNvse2",
+            "endif",
+            "if fUnt2",
+            "  let rUnt2 := Call fUnt2",
+            "endif",
+            "if fHexF",
+            "  let rHex := Call fHexF",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5_35_runtime_compiler_refusals_boundaries|nvse(init=%g:%g,sub=%g:[%z])|plg(frac=%g,dot0=%g,fvar=%g)|untyped(gfs=%g,ifv=%g:%g)|hex(%g:[%z])\" (fNvse1 != 0) rN1 (fNvse2 != 0) rN2 (fPlgFrac != 0) (fPlgDot0 != 0) (fPlgVar != 0) (fUnt1 != 0) (fUnt2 != 0) rUnt2 (fHexF != 0) rHex"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_35_arinit_frac.gek": [
+              "array_var aX = ar_Init 2.5 1",
+              "SetFunctionValue (ar_Size aX)"
+            ],
+            "w6d5_35_substr_frac.gek": [
+              "string_var svSub = sv_SubString \"abcd\" 1.5 2",
+              "SetFunctionValue svSub"
+            ],
+            "w6d5_35_karma_frac.gek": [
+              "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+              "if 0",
+              "  SetBaseKarma 37.5 rDocBase",
+              "endif",
+              "SetFunctionValue 1"
+            ],
+            "w6d5_35_karma_dot0.gek": [
+              "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+              "if 0",
+              "  SetBaseKarma 37.0 rDocBase",
+              "endif",
+              "SetFunctionValue 1"
+            ],
+            "w6d5_35_karma_fvar.gek": [
+              "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+              "float fK = 37.5",
+              "if 0",
+              "  SetBaseKarma fK rDocBase",
+              "endif",
+              "SetFunctionValue 1"
+            ],
+            "w6d5_35_untyped_gfs.gek": [
+              "ref rPkg = GetFormFromMod \"FalloutNV.esm\" \"3939\"",
+              "string_var svId = GetFormIDString (GetPackageLocation rPkg)",
+              "SetFunctionValue (sv_Length svId)"
+            ],
+            "w6d5_35_untyped_ifv.gek": [
+              "ref rPkg = GetFormFromMod \"FalloutNV.esm\" \"3939\"",
+              "int iV = IsFormValid (GetPackageLocation rPkg)",
+              "SetFunctionValue iV"
+            ],
+            "w6d5_35_bare_hex.gek": [
+              "string_var sv1 = GetFormIDString f",
+              "string_var sv2 = GetFormIDString 14",
+              "SetFunctionValue (sv_Construct \"%z/%z\" sv1 sv2)"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_37_udf_recursion_depth_limit",
+          "bucket": "vm_udf_lambda",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-udf.md",
+          "spec_line": 63,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "SetFunctionValue",
+            "PrintToConsole"
+          ],
+          "claim": "SD-13: Verify exact UDF recursion nesting limit (depths 10, 29, 30, 31, 35), max depth reached, return value at overflow, and whether the caller continues after overflow.",
+          "expected": "NVForever game.rs:2555 sets MAX_UDF_DEPTH = 30 and returns an error on the 31st nested call; ext-udf.md:66 leaves exact 31st-call return value open.",
+          "script_lines": [
+            "ref fRec = CompileScript \"w6d5_37_rec.gek\"",
+            "Player.AuxVarSetFlt \"*w6d5_37_max\" 0",
+            "int r10 = Call fRec fRec 10 1",
+            "int m10 = Player.AuxVarGetFlt \"*w6d5_37_max\"",
+            "Player.AuxVarSetFlt \"*w6d5_37_max\" 0",
+            "int r29 = Call fRec fRec 29 1",
+            "int m29 = Player.AuxVarGetFlt \"*w6d5_37_max\"",
+            "Player.AuxVarSetFlt \"*w6d5_37_max\" 0",
+            "int r30 = Call fRec fRec 30 1",
+            "int m30 = Player.AuxVarGetFlt \"*w6d5_37_max\"",
+            "Player.AuxVarSetFlt \"*w6d5_37_max\" 0",
+            "int r31 = Call fRec fRec 31 1",
+            "int m31 = Player.AuxVarGetFlt \"*w6d5_37_max\"",
+            "Player.AuxVarSetFlt \"*w6d5_37_max\" 0",
+            "int r35 = Call fRec fRec 35 1",
+            "int m35 = Player.AuxVarGetFlt \"*w6d5_37_max\"",
+            "PrintToConsole \"PROBE|w6d5_37_udf_recursion_depth_limit|d10(%g:%g)|d29(%g:%g)|d30(%g:%g)|d31(%g:%g)|d35(%g:%g)\" r10 m10 r29 m29 r30 m30 r31 m31 r35 m35"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_37_rec.gek": [
+              "begin Function {ref rSelf, int iTarget, int iCur}",
+              "if iCur > (Player.AuxVarGetFlt \"*w6d5_37_max\")",
+              "  Player.AuxVarSetFlt \"*w6d5_37_max\" iCur",
+              "endif",
+              "if iCur >= iTarget",
+              "  SetFunctionValue iCur",
+              "  return",
+              "endif",
+              "int iSub = Call rSelf rSelf iTarget (iCur + 1)",
+              "SetFunctionValue iSub"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p3_37b_rec_return_val",
+          "bucket": "vm_udf_lambda",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-udf.md",
+          "spec_line": 63,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "SetFunctionValue",
+            "PrintToConsole"
+          ],
+          "claim": "Verify recursive UDF return value at depth 5, 28, 29 without early return bug.",
+          "expected": "Confirm exact return values at depth 5, 28, and overflow depth 29.",
+          "script_lines": [
+            "ref fnRec = CompileScript \"w6d5p3_37_rec.gek\"",
+            "int r5 = Call fnRec fnRec 5 1",
+            "int r28 = Call fnRec fnRec 28 1",
+            "int r29 = Call fnRec fnRec 29 1",
+            "PrintToConsole \"PROBE|w6d5p3_37b_rec_return_val|d5=%g|d28=%g|d29=%g\" r5 r28 r29"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p3_37_rec.gek": [
+              "begin Function {ref rSelf, int iTarget, int iCur}",
+              "if iCur >= iTarget",
+              "  SetFunctionValue iCur",
+              "else",
+              "  int iSub = Call rSelf rSelf iTarget (iCur + 1)",
+              "  SetFunctionValue (iSub + 100)",
+              "endif"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_38_lambda_capture_lifetime_and_reassign",
+          "bucket": "vm_udf_lambda",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-udf.md",
+          "spec_line": 125,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "SetFunctionValue",
+            "PrintToConsole"
+          ],
+          "claim": "SD-13: Verify (a) lambda returned from a UDF and invoked twice AFTER the UDF returns (captured local persistence), (b) reassigning a ref variable holding a lambda under the ordinary compiler, and (c) one-line lambda with chained assignment ({} => iA = iB = 7).",
+          "expected": "NVForever game.rs:7935/4038 captures Temp locals into LambdaDef.captured [hypothesis] and allows reassigning lambda ref vars; ext-udf.md:114/126/134 leaves all three open.",
+          "script_lines": [
+            "ref fMaker = CompileScript \"w6d5_38_maker.gek\"",
+            "ref rClosure = Call fMaker 10",
+            "int c1 = Call rClosure",
+            "int c2 = Call rClosure",
+            "ref rLam = ({int iX} => iX + 1)",
+            "int l1 = Call rLam 5",
+            "let rLam := ({int iX} => iX + 100)",
+            "int l2 = Call rLam 5",
+            "int iA = 0",
+            "int iB = 0",
+            "ref rChain = ({} => iA = iB = 7)",
+            "int chRet = Call rChain",
+            "PrintToConsole \"PROBE|w6d5_38_lambda_capture_lifetime_and_reassign|closure(valid=%g,c1=%g,c2=%g)|reassign(l1=%g,l2=%g)|chain(ret=%g,a=%g,b=%g)\" (rClosure != 0) c1 c2 l1 l2 chRet iA iB"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_38_maker.gek": [
+              "begin Function {int iSeed}",
+              "int iCnt = iSeed",
+              "ref rL = ({} => (iCnt += 1))",
+              "SetFunctionValue rL"
+            ]
+          }
+        },
+        {
+          "id": "w6d5_40_eval_let_nested_and_unquoted_bare_word",
+          "bucket": "compiler_grammar",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 156,
+          "functions_tested": [
+            "eval",
+            "CompileScript",
+            "Call",
+            "GetBaseActorValueAlt",
+            "PrintToConsole"
+          ],
+          "claim": "SD-12: Verify nested `eval x && let i += 5` short-circuiting, return value of `eval (iC = 9)`, spaced `let iD : = 11`, unquoted unknown word inside parens `(NoSuchWordXYZ)`, and bare actor_value keyword in extender function `Player.GetBaseAVAlt Strength` vs numeric `5`.",
+          "expected": "NVForever vm.rs:3474 supports nested let in eval, parse.rs:135 joins spaced ': =', gen/x.rs:527 turns unknown bare word in parens into string, and ext-syntax.md:370 resolves bare AV keywords on extender functions.",
+          "script_lines": [
+            "int iA = 10",
+            "int iB = 10",
+            "eval 1 && let iA += 5",
+            "eval 0 && let iB += 5",
+            "int iC = 0",
+            "int rEvAsgn = eval (iC = 9)",
+            "ref fSpaced = CompileScript \"w6d5_40_spaced_assign.gek\"",
+            "int rSpaced = -9",
+            "if fSpaced",
+            "  let rSpaced := Call fSpaced",
+            "endif",
+            "ref fUnq = CompileScript \"w6d5_40_unquoted.gek\"",
+            "string_var svUnq = \"FAIL\"",
+            "if fUnq",
+            "  let svUnq := Call fUnq",
+            "endif",
+            "ref fAv = CompileScript \"w6d5_40_ext_av.gek\"",
+            "string_var svAv = \"FAIL\"",
+            "if fAv",
+            "  let svAv := Call fAv",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5_40_eval_let_nested_and_unquoted_bare_word|nestLet(a=%g,b=%g)|evAsgn(r=%g,c=%g)|spaced(%g:%g)|unq(%g:[%z])|extAv(%g:[%z])\" iA iB rEvAsgn iC (fSpaced != 0) rSpaced (fUnq != 0) svUnq (fAv != 0) svAv"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_40_spaced_assign.gek": [
+              "int iD = 0",
+              "let iD : = 11",
+              "SetFunctionValue iD"
+            ],
+            "w6d5_40_unquoted.gek": [
+              "SetFunctionValue (NoSuchWordXYZ)"
+            ],
+            "w6d5_40_ext_av.gek": [
+              "float fWord = Player.GetBaseAVAlt Strength",
+              "float fNum = Player.GetBaseAVAlt 5",
+              "SetFunctionValue (sv_Construct \"%.1f/%.1f\" fWord fNum)"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p2_14_string_cmp_and_mixed_fixed",
+          "bucket": "vm_expressions",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-values.md",
+          "spec_line": 114,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "TestExpr",
+            "ar_List",
+            "PrintToConsole"
+          ],
+          "claim": "Verify string ==/!= and </>/<=/>= case-insensitivity and mixed-type compile vs runtime TestExpr outcomes.",
+          "expected": "Isolate compile-rejected mixed-type ops into helper scripts.",
+          "script_lines": [
+            "string_var svHi = \"Abc\"",
+            "string_var svLo = \"abc\"",
+            "string_var svA = \"a\"",
+            "string_var svB = \"B\"",
+            "int sEq = (svHi == svLo)",
+            "int sNe = (svHi != svLo)",
+            "int sLt = (svA < svB)",
+            "int sGt = (svB > svA)",
+            "ref fSN = CompileScript \"w6d5p2_14_sn.gek\"",
+            "ref fNS = CompileScript \"w6d5p2_14_ns.gek\"",
+            "ref fEqSN = CompileScript \"w6d5p2_14_eqsn.gek\"",
+            "ref fEqRN = CompileScript \"w6d5p2_14_eqrn.gek\"",
+            "ref fEqPl = CompileScript \"w6d5p2_14_eqpl.gek\"",
+            "ref fEqAN = CompileScript \"w6d5p2_14_eqan.gek\"",
+            "ref fEqZN = CompileScript \"w6d5p2_14_eqzn.gek\"",
+            "int rRN = -9",
+            "int rPl = -9",
+            "int rAN = -9",
+            "int rZN = -9",
+            "if fEqRN",
+            "  let rRN := Call fEqRN",
+            "endif",
+            "if fEqPl",
+            "  let rPl := Call fEqPl",
+            "endif",
+            "if fEqAN",
+            "  let rAN := Call fEqAN",
+            "endif",
+            "if fEqZN",
+            "  let rZN := Call fEqZN",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5p2_14_string_cmp_and_mixed_fixed|str(eq=%g,ne=%g,lt=%g,gt=%g)|cmp(sn=%g,ns=%g,eqSN=%g)|ref(rn=%g:%g,pl=%g:%g)|arr(an=%g:%g,zn=%g:%g)\" sEq sNe sLt sGt (fSN != 0) (fNS != 0) (fEqSN != 0) (fEqRN != 0) rRN (fEqPl != 0) rPl (fEqAN != 0) rAN (fEqZN != 0) rZN"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p2_14_sn.gek": [
+              "int iX = TestExpr (\"5\" + 1)",
+              "SetFunctionValue iX"
+            ],
+            "w6d5p2_14_ns.gek": [
+              "int iX = TestExpr (1 + \"5\")",
+              "SetFunctionValue iX"
+            ],
+            "w6d5p2_14_eqsn.gek": [
+              "int iX = TestExpr (\"5\" == 5)",
+              "SetFunctionValue iX"
+            ],
+            "w6d5p2_14_eqrn.gek": [
+              "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+              "int iT = TestExpr (rDocRef == 1068047)",
+              "int iV = -9",
+              "if iT",
+              "  let iV := (rDocRef == 1068047)",
+              "endif",
+              "SetFunctionValue (iT * 10 + iV)"
+            ],
+            "w6d5p2_14_eqpl.gek": [
+              "int iT = TestExpr (Player == 20)",
+              "int iV = -9",
+              "if iT",
+              "  let iV := (Player == 20)",
+              "endif",
+              "SetFunctionValue (iT * 10 + iV)"
+            ],
+            "w6d5p2_14_eqan.gek": [
+              "array_var aList = ar_List 1",
+              "int iT = TestExpr (aList == 0)",
+              "SetFunctionValue iT"
+            ],
+            "w6d5p2_14_eqzn.gek": [
+              "array_var aNull",
+              "int iT = TestExpr (aNull == 0)",
+              "int iV = -9",
+              "if iT",
+              "  let iV := (aNull == 0)",
+              "endif",
+              "SetFunctionValue (iT * 10 + iV)"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p2_15_ref_num_coercion_fixed",
+          "bucket": "vm_values",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/scripts.md",
+          "spec_line": 491,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "IsFormValid",
+            "GetFormIDString",
+            "TestExpr",
+            "PrintToConsole"
+          ],
+          "claim": "Verify ref-to-number and number-to-ref compile vs runtime coercions and let int truncation/overflow.",
+          "expected": "Isolate compile-rejected ref<->num assignments into helper scripts.",
+          "script_lines": [
+            "ref fIPl = CompileScript \"w6d5p2_15_ipl.gek\"",
+            "ref fFPl = CompileScript \"w6d5p2_15_fpl.gek\"",
+            "ref fR20 = CompileScript \"w6d5p2_15_r20.gek\"",
+            "ref fRFr = CompileScript \"w6d5p2_15_rfr.gek\"",
+            "ref fRNeg = CompileScript \"w6d5p2_15_rneg.gek\"",
+            "ref fSetR = CompileScript \"w6d5p2_15_setr.gek\"",
+            "int rR20 = -9",
+            "int rSetR = -9",
+            "if fR20",
+            "  let rR20 := Call fR20",
+            "endif",
+            "if fSetR",
+            "  let rSetR := Call fSetR",
+            "endif",
+            "int iPos = 2.7",
+            "int iNeg = -2.7",
+            "int iOvf = 3000000000.5",
+            "PrintToConsole \"PROBE|w6d5p2_15_ref_num_coercion_fixed|cmp(iPl=%g,fPl=%g,r20=%g:%g,rFr=%g,rNeg=%g,setR=%g:%g)|int(pos=%g,neg=%g,ovf=%g)\" (fIPl != 0) (fFPl != 0) (fR20 != 0) rR20 (fRFr != 0) (fRNeg != 0) (fSetR != 0) rSetR iPos iNeg iOvf"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p2_15_ipl.gek": [
+              "int iX = 0",
+              "let iX := Player",
+              "SetFunctionValue iX"
+            ],
+            "w6d5p2_15_fpl.gek": [
+              "float fX = 0",
+              "let fX := Player",
+              "SetFunctionValue fX"
+            ],
+            "w6d5p2_15_r20.gek": [
+              "ref rX = 0",
+              "let rX := 20",
+              "SetFunctionValue (rX == Player)"
+            ],
+            "w6d5p2_15_rfr.gek": [
+              "ref rX = 0",
+              "let rX := 20.5",
+              "SetFunctionValue (IsFormValid rX)"
+            ],
+            "w6d5p2_15_rneg.gek": [
+              "ref rX = 0",
+              "let rX := -1",
+              "SetFunctionValue (IsFormValid rX)"
+            ],
+            "w6d5p2_15_setr.gek": [
+              "ref rX = 0",
+              "set rX to 20",
+              "SetFunctionValue (rX == Player)"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p2_30_ref_set_and_remote_var_fixed",
+          "bucket": "compiler_variables",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 483,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "HasVariable",
+            "GetVariable",
+            "GetFormFromMod",
+            "PrintToConsole"
+          ],
+          "claim": "Verify Ref.Set localVar to val syntax, HasVariable/GetVariable missing & null, and GetFormFromMod edge cases using string_var for empty mod name.",
+          "expected": "Clean capture of w6d5_30.",
+          "script_lines": [
+            "ref fRefSet = CompileScript \"w6d5p2_30_refset.gek\"",
+            "int rRefSet = -9",
+            "if fRefSet",
+            "  let rRefSet := Call fRefSet",
+            "endif",
+            "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rNull = 0",
+            "int hvMissing = HasVariable \"NoSuchVarXYZ\" rDocRef",
+            "int hvNull = HasVariable \"NoSuchVarXYZ\" rNull",
+            "float gvMissing = GetVariable \"NoSuchVarXYZ\" rDocRef",
+            "string_var svEmp = \"\"",
+            "ref gfm0 = GetFormFromMod svEmp \"F\"",
+            "ref gfmBad = GetFormFromMod \"NoSuchPluginXYZ.esp\" \"F\"",
+            "ref gfmPad = GetFormFromMod \"FalloutNV.esm\" \"0000000F\"",
+            "ref gfmShort = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref gfm0x = GetFormFromMod \"FalloutNV.esm\" \"0xF\"",
+            "PrintToConsole \"PROBE|w6d5p2_30_ref_set_and_remote_var_fixed|refSet(cmp=%g,val=%g)|var(hvM=%g,hvN=%g,gvM=%g)|gfm(emp=%g,bad=%g,padEq=%g,0xEq=%g)\" (fRefSet != 0) rRefSet hvMissing hvNull gvMissing (gfm0 != 0) (gfmBad != 0) (gfmPad == gfmShort) (gfm0x == gfmShort)"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p2_30_refset.gek": [
+              "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+              "int iLocal = 5",
+              "rDocRef.Set iLocal to 42",
+              "SetFunctionValue iLocal"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p2_33_braced_comma_box_fixed",
+          "bucket": "compiler_grammar",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 814,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "ar_List",
+            "ListGetNthForm",
+            "PrintToConsole"
+          ],
+          "claim": "Verify braced arith {1+2, 3*4}, braced ar_List {10, 20}, joined Call(begin function...), comma-after-fn, and Call fn, &iVal without variable name 'r' collision.",
+          "expected": "Clean capture of all 5 cases of w6d5_33.",
+          "script_lines": [
+            "ref fArith = CompileScript \"w6d5p2_33_arith.gek\"",
+            "ref fNonCall = CompileScript \"w6d5p2_33_arlist.gek\"",
+            "ref fJoined = CompileScript \"w6d5p2_33_joined.gek\"",
+            "ref fComma = CompileScript \"w6d5p2_33_comma.gek\"",
+            "ref fBox = CompileScript \"w6d5p2_33_box.gek\"",
+            "int rArith = -9",
+            "int rNonCall = -9",
+            "int rJoined = -9",
+            "int rComma = -9",
+            "int rBox = -9",
+            "if fArith",
+            "  let rArith := Call fArith",
+            "endif",
+            "if fNonCall",
+            "  let rNonCall := Call fNonCall",
+            "endif",
+            "if fJoined",
+            "  let rJoined := Call fJoined",
+            "endif",
+            "if fComma",
+            "  let rComma := Call fComma",
+            "endif",
+            "if fBox",
+            "  let rBox := Call fBox",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5p2_33_braced_comma_box_fixed|arith(%g:%g)|arlist(%g:%g)|joined(%g:%g)|comma(%g:%g)|box(%g:%g)\" (fArith != 0) rArith (fNonCall != 0) rNonCall (fJoined != 0) rJoined (fComma != 0) rComma (fBox != 0) rBox"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p2_33_add2.gek": [
+              "begin Function {int iA, int iB}",
+              "SetFunctionValue (iA * 100 + iB)"
+            ],
+            "w6d5p2_33_unbox.gek": [
+              "begin Function {array_var aBox}",
+              "SetFunctionValue (*aBox + 10)"
+            ],
+            "w6d5p2_33_arith.gek": [
+              "ref fn = CompileScript \"w6d5p2_33_add2.gek\"",
+              "int iRes = call fn {1 + 2, 3 * 4}",
+              "SetFunctionValue iRes"
+            ],
+            "w6d5p2_33_arlist.gek": [
+              "array_var aL = ar_List {10, 20}",
+              "SetFunctionValue (ar_Size aL)"
+            ],
+            "w6d5p2_33_joined.gek": [
+              "int iRes = Call(begin function {int iA}",
+              "  SetFunctionValue (iA + 7)",
+              "end) 5",
+              "SetFunctionValue iRes"
+            ],
+            "w6d5p2_33_comma.gek": [
+              "ref rFlst = GetFormFromMod \"FalloutNV.esm\" \"1537E6\"",
+              "ref rF = ListGetNthForm, rFlst, 0",
+              "SetFunctionValue (IsFormValid rF)"
+            ],
+            "w6d5p2_33_box.gek": [
+              "ref fn = CompileScript \"w6d5p2_33_unbox.gek\"",
+              "int iVal = 32",
+              "int iRes = Call fn, &iVal",
+              "SetFunctionValue iRes"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p2_36_udf_mismatches_fixed",
+          "bucket": "vm_udf_lambda",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-udf.md",
+          "spec_line": 41,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "SetFunctionValue",
+            "PrintToConsole"
+          ],
+          "claim": "Verify Call arg count mismatches (2/1/0/3 args), type mismatches (str->int, int->str), Call rNull, and Call rStim without variable name 'r' collision.",
+          "expected": "Clean capture of all 8 cases of w6d5_36.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w6d5p2_36_ok2\" -9",
+            "Player.AuxVarSetFlt \"*w6d5p2_36_few1\" -9",
+            "Player.AuxVarSetFlt \"*w6d5p2_36_few0\" -9",
+            "Player.AuxVarSetFlt \"*w6d5p2_36_many\" -9",
+            "Player.AuxVarSetFlt \"*w6d5p2_36_s2i\" -9",
+            "Player.AuxVarSetFlt \"*w6d5p2_36_i2s\" -9",
+            "Player.AuxVarSetFlt \"*w6d5p2_36_cnull\" -9",
+            "Player.AuxVarSetFlt \"*w6d5p2_36_cnon\" -9",
+            "Call (CompileScript \"w6d5p2_36_ok2.gek\")",
+            "Call (CompileScript \"w6d5p2_36_few1.gek\")",
+            "Call (CompileScript \"w6d5p2_36_few0.gek\")",
+            "Call (CompileScript \"w6d5p2_36_many.gek\")",
+            "Call (CompileScript \"w6d5p2_36_s2i.gek\")",
+            "Call (CompileScript \"w6d5p2_36_i2s.gek\")",
+            "Call (CompileScript \"w6d5p2_36_cnull.gek\")",
+            "Call (CompileScript \"w6d5p2_36_cnon.gek\")",
+            "PrintToConsole \"PROBE|w6d5p2_36_udf_mismatches_fixed|ok2=%g|few1=%g|few0=%g|many=%g|s2i=%g|i2s=%g|cnull=%g|cnon=%g\" (Player.AuxVarGetFlt \"*w6d5p2_36_ok2\") (Player.AuxVarGetFlt \"*w6d5p2_36_few1\") (Player.AuxVarGetFlt \"*w6d5p2_36_few0\") (Player.AuxVarGetFlt \"*w6d5p2_36_many\") (Player.AuxVarGetFlt \"*w6d5p2_36_s2i\") (Player.AuxVarGetFlt \"*w6d5p2_36_i2s\") (Player.AuxVarGetFlt \"*w6d5p2_36_cnull\") (Player.AuxVarGetFlt \"*w6d5p2_36_cnon\")"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p2_36_twoint.gek": [
+              "begin Function {int iA, int iB}",
+              "SetFunctionValue (iA * 10 + iB + 100)"
+            ],
+            "w6d5p2_36_onestr.gek": [
+              "begin Function {string_var svIn}",
+              "SetFunctionValue (sv_Length svIn)"
+            ],
+            "w6d5p2_36_ok2.gek": [
+              "ref fn = CompileScript \"w6d5p2_36_twoint.gek\"",
+              "int iRes = Call fn 3 4",
+              "Player.AuxVarSetFlt \"*w6d5p2_36_ok2\" iRes"
+            ],
+            "w6d5p2_36_few1.gek": [
+              "ref fn = CompileScript \"w6d5p2_36_twoint.gek\"",
+              "int iRes = Call fn 3",
+              "Player.AuxVarSetFlt \"*w6d5p2_36_few1\" iRes"
+            ],
+            "w6d5p2_36_few0.gek": [
+              "ref fn = CompileScript \"w6d5p2_36_twoint.gek\"",
+              "int iRes = Call fn",
+              "Player.AuxVarSetFlt \"*w6d5p2_36_few0\" iRes"
+            ],
+            "w6d5p2_36_many.gek": [
+              "ref fn = CompileScript \"w6d5p2_36_twoint.gek\"",
+              "int iRes = Call fn 3 4 5",
+              "Player.AuxVarSetFlt \"*w6d5p2_36_many\" iRes"
+            ],
+            "w6d5p2_36_s2i.gek": [
+              "ref fn = CompileScript \"w6d5p2_36_twoint.gek\"",
+              "int iRes = Call fn \"hello\" 4",
+              "Player.AuxVarSetFlt \"*w6d5p2_36_s2i\" iRes"
+            ],
+            "w6d5p2_36_i2s.gek": [
+              "ref fn = CompileScript \"w6d5p2_36_onestr.gek\"",
+              "int iRes = Call fn 42",
+              "Player.AuxVarSetFlt \"*w6d5p2_36_i2s\" iRes"
+            ],
+            "w6d5p2_36_cnull.gek": [
+              "ref rNull = 0",
+              "int iRes = Call rNull 1",
+              "Player.AuxVarSetFlt \"*w6d5p2_36_cnull\" (10 + iRes)"
+            ],
+            "w6d5p2_36_cnon.gek": [
+              "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+              "int iRes = Call rStim 1",
+              "Player.AuxVarSetFlt \"*w6d5p2_36_cnon\" (10 + iRes)"
+            ]
+          }
+        },
+        {
+          "id": "w6d5p3_09_sv_replace_and_plain_str",
+          "bucket": "vm_strings",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 650,
+          "functions_tested": [
+            "sv_Replace",
+            "sv_Erase",
+            "sv_SubString",
+            "sv_Split",
+            "sv_Percentify",
+            "PrintToConsole"
+          ],
+          "claim": "Verify Sv_Replace inline assignment, Sv_Erase, Sv_SubString on string_var, Sv_Split multi-char vs whole-delimiter (no semicolon in literal), and sv_Percentify.",
+          "expected": "Clean capture of w6d5_09 without semicolon comment truncation.",
+          "script_lines": [
+            "string_var svTarget = \"init\"",
+            "int iRep = sv_Replace \"a|B\" (svTarget = \"axax\")",
+            "string_var svEr = \"abcdef\"",
+            "sv_Erase svEr 2 2",
+            "string_var svEr1 = sv_Construct \"%z\" svEr",
+            "sv_Erase svEr 2",
+            "string_var svEr2 = sv_Construct \"%z\" svEr",
+            "string_var svSrc = \"abcdef\"",
+            "string_var svSub1 = sv_SubString svSrc 2 3",
+            "string_var svSub2 = sv_SubString svSrc 4 99",
+            "string_var svSub3 = sv_SubString svSrc 2",
+            "array_var aSp0 = sv_Split \",a,,b:c,\" \",:\" 0",
+            "array_var aSp1 = sv_Split \"a--b-c--\" \"--\" 1",
+            "string_var svPct = sv_Percentify \"a%b%%c\"",
+            "string_var p1 = sv_Construct \"rep(%g:[%z])|er([%z],[%z])|sub([%z],[%z],[%z])\" iRep svTarget svEr1 svEr2 svSub1 svSub2 svSub3",
+            "string_var p2 = sv_Construct \"sp0(%g:%z/%z/%z)|sp1(%g:%z/%z)|pct=[%z]\" (ar_Size aSp0) (aSp0[0]) (aSp0[1]) (aSp0[2]) (ar_Size aSp1) (aSp1[0]) (aSp1[1]) svPct",
+            "PrintToConsole \"PROBE|w6d5p3_09_sv_replace_and_plain_str|%z|%z\" p1 p2"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d5p3_12_eval_truthy_clean",
+          "bucket": "vm_expressions",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-values.md",
+          "spec_line": 101,
+          "functions_tested": [
+            "eval",
+            "ar_List",
+            "PrintToConsole"
+          ],
+          "claim": "Verify truthiness of if eval (svEmp), if eval svUninit, while svEmp, eval (aStr[0]), eval (aStr[1]), standalone eval 5/-3/rDocRef, and svEmp && 7.",
+          "expected": "Clean capture of eval truthiness without mixed-type || assignment.",
+          "script_lines": [
+            "string_var svEmp = \"\"",
+            "string_var svUninit",
+            "array_var aStr = ar_List \"\", \"x\"",
+            "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "int pIf = 0",
+            "if eval (svEmp)",
+            "  let pIf := 1",
+            "endif",
+            "int uIf = 0",
+            "if eval svUninit",
+            "  let uIf := 1",
+            "endif",
+            "int wCnt = 0",
+            "while svEmp",
+            "  let wCnt += 1",
+            "  break",
+            "loop",
+            "int andL = svEmp && 7",
+            "int orEvL = eval (svEmp || 0)",
+            "int orEvR = eval (0 || svEmp)",
+            "int el0 = eval (aStr[0])",
+            "int el1 = eval (aStr[1])",
+            "int ev5 = eval 5",
+            "int evM3 = eval -3",
+            "int evRef = eval rDocRef",
+            "PrintToConsole \"PROBE|w6d5p3_12_eval_truthy_clean|pIf=%g,uIf=%g,wCnt=%g|logic(andL=%g,orL=%g,orR=%g)|elem(0=%g,1=%g)|sa(5=%g,m3=%g,ref=%g)\" pIf uIf wCnt andL orEvL orEvR el0 el1 ev5 evM3 evRef"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d5p3_32_nvse_aware_prec_clean",
+          "bucket": "compiler_grammar",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 442,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "ar_HasKey",
+            "ar_Size",
+            "ar_Map",
+            "ar_Find",
+            "IsModLoaded",
+            "PrintToConsole"
+          ],
+          "claim": "Verify NVSE-aware function argument precedence independently without fMod variable-name collision.",
+          "expected": "Clean capture of all 6 precedence helpers.",
+          "script_lines": [
+            "ref fnHas = CompileScript \"w6d5p3_32_has.gek\"",
+            "ref fnMod = CompileScript \"w6d5p3_32_mod.gek\"",
+            "ref fnModP = CompileScript \"w6d5p3_32_modp.gek\"",
+            "ref fnAdd = CompileScript \"w6d5p3_32_add.gek\"",
+            "ref fnCalc = CompileScript \"w6d5p3_32_calc.gek\"",
+            "ref fnRng = CompileScript \"w6d5p3_32_rng.gek\"",
+            "int rHas = -9",
+            "int rMod = -9",
+            "int rModP = -9",
+            "int rAdd = -9",
+            "int rCalc = -9",
+            "int rRng = -9",
+            "if fnHas",
+            "  let rHas := Call fnHas",
+            "endif",
+            "if fnMod",
+            "  let rMod := Call fnMod",
+            "endif",
+            "if fnModP",
+            "  let rModP := Call fnModP",
+            "endif",
+            "if fnAdd",
+            "  let rAdd := Call fnAdd",
+            "endif",
+            "if fnCalc",
+            "  let rCalc := Call fnCalc",
+            "endif",
+            "if fnRng",
+            "  let rRng := Call fnRng",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5p3_32_nvse_aware_prec_clean|has(%g:%g)|mod(%g:%g)|modP(%g:%g)|add(%g:%g)|calc(%g:%g)|rng(%g:%g)\" (fnHas != 0) rHas (fnMod != 0) rMod (fnModP != 0) rModP (fnAdd != 0) rAdd (fnCalc != 0) rCalc (fnRng != 0) rRng"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p3_32_has.gek": [
+              "array_var aMap = ar_Map \"k\"::10",
+              "int bH = 0",
+              "if eval ar_HasKey aMap, \"k\" == 1",
+              "  let bH := 1",
+              "endif",
+              "SetFunctionValue bH"
+            ],
+            "w6d5p3_32_mod.gek": [
+              "int bM = 0",
+              "if eval IsModLoaded \"FalloutNV.esm\" == 1",
+              "  let bM := 1",
+              "endif",
+              "SetFunctionValue bM"
+            ],
+            "w6d5p3_32_modp.gek": [
+              "array_var aL = ar_List 10, 20, 30",
+              "int bM = 0",
+              "if eval (IsModLoaded \"FalloutNV.esm\") == 1 && ar_Size aL == 3",
+              "  let bM := 1",
+              "endif",
+              "SetFunctionValue bM"
+            ],
+            "w6d5p3_32_add.gek": [
+              "array_var aL = ar_List 10, 20, 30",
+              "int nAdd = ar_Size aL + 10",
+              "SetFunctionValue nAdd"
+            ],
+            "w6d5p3_32_calc.gek": [
+              "array_var aC = ar_Map \"a\"::1 + 2, \"b\"::3 * 4",
+              "SetFunctionValue (aC[\"a\"] * 100 + aC[\"b\"])"
+            ],
+            "w6d5p3_32_rng.gek": [
+              "array_var aL = ar_List 10, 20, 30",
+              "int bR = 0",
+              "if eval ar_Find 20, aL, 0:2 == 1",
+              "  let bR := 1",
+              "endif",
+              "SetFunctionValue bR"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

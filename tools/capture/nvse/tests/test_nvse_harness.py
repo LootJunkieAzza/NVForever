@@ -174,14 +174,15 @@ class TestCatalogValidation(unittest.TestCase):
                 "wave4h_reconcile.json",
                 "wave6_point_raycast.json",
                 "wave6_t1_jg_colors.json",
+                "wave6d5_promote_observed.json",
             ],
         )
         self.assertFalse((nvse_harness.DEFAULT_CATALOG_DIR / "persistence_matrix.json").exists())
         errors, counts = nvse_harness.validate_catalogs(paths)
         self.assertEqual(errors, [], f"Catalog validation errors: {errors[:5]}")
-        self.assertEqual(counts["catalogs"], 10)
-        self.assertEqual(counts["probe_batches"], 28)
-        self.assertEqual(counts["probes"], 543)
+        self.assertEqual(counts["catalogs"], 11)
+        self.assertEqual(counts["probe_batches"], 29)
+        self.assertEqual(counts["probes"], 570)
         self.assertEqual(counts["persistence_items"], 0)
 
         # Verify Wave 1 parity probe IDs and corrected Wave 4A/4D/4E/4G/4H targeted probes are present verbatim.
@@ -218,6 +219,33 @@ class TestCatalogValidation(unittest.TestCase):
             "w6_01_point_raycast_angles",
             "w6_02_point_raycast_miss_and_range",
             "w6_03_point_raycast_collision_flags",
+            "w6d5_03_format_x_a_cond_mismatch",
+            "w6d5_05_arraytostring_printvar_ardump",
+            "w6d5_10_inttobin_bitshift_funcs_vs_ops",
+            "w6d5_16_short_circuit_let_while_testexpr",
+            "w6d5_20_foreach_edges_and_label_goto",
+            "w6d5_21_null_ref_vanilla_commands",
+            "w6d5_22_null_ref_nvse_jip_and_out_calls",
+            "w6d5p2_22b_null_ref_lgc_gpe",
+            "w6d5_23_base_form_as_calling_reference",
+            "w6d5_25_player_source_remove_rep_exact_edges",
+            "w6d5_29_tempcloneform_chain_and_post_place_edit",
+            "w6d5_31_vanilla_inline_call_operands_and_prec",
+            "w6d5_34_inline_decl_scope_and_outvar_parens",
+            "w6d5p2_34b_ifcond_split",
+            "w6d5_35_runtime_compiler_refusals_boundaries",
+            "w6d5_37_udf_recursion_depth_limit",
+            "w6d5p3_37b_rec_return_val",
+            "w6d5_38_lambda_capture_lifetime_and_reassign",
+            "w6d5_40_eval_let_nested_and_unquoted_bare_word",
+            "w6d5p2_14_string_cmp_and_mixed_fixed",
+            "w6d5p2_15_ref_num_coercion_fixed",
+            "w6d5p2_30_ref_set_and_remote_var_fixed",
+            "w6d5p2_33_braced_comma_box_fixed",
+            "w6d5p2_36_udf_mismatches_fixed",
+            "w6d5p3_09_sv_replace_and_plain_str",
+            "w6d5p3_12_eval_truthy_clean",
+            "w6d5p3_32_nvse_aware_prec_clean",
         ):
             self.assertIn(req_id, probes_by_id)
 
