@@ -2210,6 +2210,8 @@ pub(crate) mod tests {
             ("terminal", crate::terminal_view::MONITOR_LAYER), ("blackjack", crate::blackjack_view::TABLE_LAYER),
             ("roulette", crate::roulette_view::ROULETTE_LAYER), ("poker", crate::poker_view::POKER_LAYER),
             ("decal", crate::decals::DECAL_LAYER), ("scope", crate::scope_view::SCOPE_LAYER),
+            ("scope_multiply", crate::scope_view::SCOPE_MULTIPLY_LAYER),
+            ("scope_add", crate::scope_view::SCOPE_ADD_LAYER),
             ("vigor", nvf_play::chargen::vigor::VIGOR_LAYER), ("creator", crate::creator_view::STUDIO_LAYER),
             ("vats", crate::vats_highlight::MASK_LAYER), ("bake", BAKE_LAYER),
             ("overlay_pre_is", crate::camera_overlay::OVERLAY_PRE_IS_LAYER),

@@ -1,12 +1,16 @@
 //! A weapon's scope while it is up (`nvf_play::aim_zoom::Scope`,
 //! docs/spec-notes/weapon-scopes.md): its picture, its night vision and its sway.
 //!
-//! - **The picture** (§3): the weapon's MOD3 model (`interface\HUD\*.nif`) drawn by an
-//!   orthographic camera of its own looking along the model's +Y, [`VIEW_HEIGHT`] model
-//!   units high [hypothesis: the black mask's rectangle, 1480 × 920, is the screen at
-//!   16:10], on a render layer of its own, into a picture shown full-screen under the HUD
-//!   [design]. Black bars stand beyond the mask's sides on wider screens [design]. The
-//!   materials are the model's own.
+//! - **The picture** (§3): the weapon's MOD3 model (`interface\HUD\*.nif`) drawn by
+//!   orthographic cameras of its own looking along the model's +Y, [`VIEW_HEIGHT`] model
+//!   units high [hypothesis: the black mask's rectangle, 1480 × 920 in base scopes and
+//!   1349 × 923 in add-on scopes, spans the screen height], split by blend mode (`over` for
+//!   opaque/alpha-tested/alpha-blended shapes, `multiply` over white for multiply-blended
+//!   filters/reticles such as Red Glare's `SuperRedFilter:0`, and `add` over black for
+//!   additive glare/filters) and composited over the post-graded zoomed world before the HUD
+//!   (`scope_composite_pass`, `scope_composite.wesl`) [design]. Black bars stand beyond the
+//!   mask's sides on wider screens, sized to the model's horizontal mask extent [design]. The
+//!   materials are the model's own (additive shapes use linear add on the off-screen target).
 //! - **Night vision** (§4): a night-vision scope holds `NightScopeISFX` on the screen at its
 //!   first keys in an interior or at night [documented: GECK wiki "Weapons"; hypothesis:
 //!   the record, and night as sunset's end to sunrise's start].
@@ -22,38 +26,64 @@
 //!   without its black mask. The camera's angle keeps the full zoom's magnification for
 //!   the lens's size on screen [design].
 
-use crate::imagespace::ScreenModifiers;
+use crate::imagespace::{ImageSpaceGrade, LensGrade, ScreenModifiers};
+use crate::scope_lens::LensMount;
 use crate::sky::SkyState;
 use crate::world::WorldData;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ImageRenderTarget, RenderTarget, ScalingMode};
+use bevy::core_pipeline::fullscreen_material::fullscreen_material_system;
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
 use bevy::light::AmbientLight;
 use bevy::math::Affine3A;
+use bevy::pbr::DistanceFog;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
+use bevy::render::render_asset::RenderAssets;
+use bevy::render::render_resource::binding_types::{sampler, texture_2d};
+use bevy::render::render_resource::{
+    BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, CachedRenderPipelineId, ColorTargetState, ColorWrites, Extent3d, FilterMode,
+    FragmentState, Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+    SamplerDescriptor, ShaderStages, TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+    TextureViewDescriptor,
+};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
+use bevy::render::texture::GpuImage;
+use bevy::render::view::{ExtractedView, ViewTarget};
+use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::window::PrimaryWindow;
 use fnv_nif::anim::TransformTrack;
 use nvf_assets::data::GameData;
-use nvf_assets::model::ModelCtx;
+use nvf_assets::model::{ModelCtx, PreparedModel};
+use nvf_assets::nif_material::NifMaterial;
 use nvf_play::aim_zoom::Scope;
 use nvf_play::combat::Combat;
 use nvf_play::player::{Player, MAX_PITCH};
 use nvf_play::PlayerCamera;
-use crate::scope_lens::LensMount;
-use bevy::pbr::DistanceFog;
 use std::sync::Arc;
 
-/// The render layer of the scope's picture and its camera.
+/// The render layer of the scope's `over` picture (opaque mask, side bars, reticle) and its camera.
 pub const SCOPE_LAYER: usize = 13;
+/// The render layer of the scope's multiply-blended shapes (tinted filters/vignettes/reticles)
+/// rendered onto opaque white before multiplying the zoomed world [design, #3225].
+pub const SCOPE_MULTIPLY_LAYER: usize = 20;
+/// The render layer of the scope's additive shapes (lens glare, OWB colour filters) rendered
+/// onto black before adding to the zoomed world [design, #3225].
+pub const SCOPE_ADD_LAYER: usize = 21;
 /// Where the picture is put, far from the world and the other menus' models (Bevy space)
 /// [design].
 const PLACE: Vec3 = Vec3::new(0.0, -220_000.0, 0.0);
 /// Model units across the screen's height [hypothesis, module docs].
 pub const VIEW_HEIGHT: f32 = 920.0;
-/// The mask's half width: black beyond it [observed: `keepScope01:0` spans ±740].
+/// Default mask half width when a scope model carries no usable horizontal bounds: black
+/// beyond it [observed: `keepScope01:0` spans ±740].
 const MASK_HALF_WIDTH: f32 = 740.0;
+/// Bounds sanity range for computing a scope model's mask half width from `PreparedModel::bounds`
+/// [design: base scopes are ±740, Gauss Rifle ±779, Red Glare and OWB scopes ±674.5].
+const MASK_HALF_WIDTH_RANGE: std::ops::RangeInclusive<f32> = 100.0..=2000.0;
 /// The night-vision scope's image space modifier, by Editor ID [hypothesis, §4]. No DOBJ
 /// place names a scope image space (default-objects.md §1), so it stays an Editor ID.
 pub const NIGHT_SCOPE_IMAD: &str = "NightScopeISFX";
@@ -72,6 +102,102 @@ const LENS_WORLD_PX: u32 = 768;
 /// 3D scopes: the reticle drawn this far in front of the world disc (model units).
 const RETICLE_LIFT: f32 = 0.02;
 
+/// Which off-screen pass draws a scope NIF shape [design, #3225].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopePass {
+    /// Opaque masks, alpha-tested/alpha-blended reticles and rings, plus black side bars.
+    Over,
+    /// Multiply-blended tint filters, vignettes, and reticles (rendered onto white).
+    Multiply,
+    /// Additive lens glare and tint quads (rendered onto black with linear add).
+    Add,
+}
+
+/// Counts of shapes placed into each pass of a full-screen scope overlay.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ScopePassCounts {
+    pub over: usize,
+    pub multiply: usize,
+    pub add: usize,
+}
+
+/// Classify a scope NIF shape's `AlphaMode` into its composite pass [design, #3225].
+pub fn classify_alpha_mode(mode: AlphaMode) -> ScopePass {
+    match mode {
+        AlphaMode::Multiply => ScopePass::Multiply,
+        AlphaMode::Add => ScopePass::Add,
+        _ => ScopePass::Over,
+    }
+}
+
+/// Horizontal mask half-width for the side bars that pad screens wider than the scope's own
+/// mask, derived from the model's game-space bounds (`PreparedModel::bounds`) with fallback
+/// to [`MASK_HALF_WIDTH`] [design, #3225].
+pub fn mask_half_width_from_bounds(bounds: Option<(Vec3, Vec3)>) -> f32 {
+    match bounds {
+        Some((min, max)) => {
+            let half = (-min.x).min(max.x);
+            if half.is_finite() && MASK_HALF_WIDTH_RANGE.contains(&half) {
+                half
+            } else {
+                MASK_HALF_WIDTH
+            }
+        }
+        None => MASK_HALF_WIDTH,
+    }
+}
+
+/// CPU mirror of `scope_composite.wesl`: multiply `world` by `mul`, add `add`, then lay
+/// premultiplied `over` on top [design, #3225].
+#[cfg(test)]
+pub fn composite_scope_pixel(world: [f32; 3], mul: [f32; 3], add: [f32; 3], over: [f32; 4]) -> [f32; 3] {
+    let inv_a = 1.0 - over[3];
+    std::array::from_fn(|i| {
+        let tinted = world[i].max(0.0) * mul[i] + add[i];
+        over[i] + tinted * inv_a
+    })
+}
+
+/// Whether a scope NIF shape is excluded from a 3D scope's reticle-only texture (masks,
+/// additive glare/tint, multiply filters/shading) [design].
+fn is_lens_veil(name: &str, mode: AlphaMode) -> bool {
+    if matches!(mode, AlphaMode::Multiply | AlphaMode::Add) {
+        return true;
+    }
+    let lower = name.to_ascii_lowercase();
+    let prefixes = [
+        "keepscope",
+        "maskring",
+        "tintring",
+        "additive",
+        "inner lens shading",
+        "superredfilter",
+        "redfilter",
+        "greenfilter",
+        "rededge",
+        "blueedge",
+        "dlcanchgaussscope",
+    ];
+    lower == "scope:0" || lower == "scope01:0" || lower == "edge:0" || prefixes.iter().any(|p| lower.starts_with(p))
+}
+
+/// Active off-screen scope overlay image handles extracted to the render world for
+/// [`scope_composite_pass`] [design, #3225].
+#[derive(Resource, Default, Clone, PartialEq, Eq)]
+struct ScopeCompositeTargets {
+    over: Option<AssetId<Image>>,
+    multiply: Option<AssetId<Image>>,
+    add: Option<AssetId<Image>>,
+}
+
+impl ExtractResource<RenderApp> for ScopeCompositeTargets {
+    type Source = ScopeCompositeTargets;
+
+    fn extract_resource(source: &Self::Source) -> Self {
+        source.clone()
+    }
+}
+
 /// The second world camera of a 3D scope (it takes the sun visibility too:
 /// sun_visibility.rs).
 #[derive(Component)]
@@ -81,21 +207,142 @@ pub struct ScopeViewPlugin;
 
 impl Plugin for ScopeViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (
-                show.after(nvf_play::PlaySet::Ui).before(nvf_play::PlaySet::Sync),
-                night_vision.after(nvf_play::PlaySet::Sync),
-                sway.in_set(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>),
-                // After the desert haze and the aerial perspective (fog.rs FogWriters): the
-                // lens copies the main camera's fog.
-                lens_camera.after(show).after(crate::fog::FogWriters),
-            ),
-        )
-        // After underwater_fog in PostUpdate so the 3D scope lens receives the current
-        // frame's underwater fog or freshly restored weather/interior fog.
-        .add_systems(PostUpdate, sync_lens_fog.after(crate::underwater::underwater_fog));
+        bevy::asset::embedded_asset!(app, "scope_composite.wesl");
+        app.init_resource::<ScopeCompositeTargets>()
+            .add_plugins(ExtractResourcePlugin::<ScopeCompositeTargets>::default())
+            .add_systems(
+                Update,
+                (
+                    show.after(nvf_play::PlaySet::Ui).before(nvf_play::PlaySet::Sync),
+                    night_vision.after(nvf_play::PlaySet::Sync),
+                    sway.in_set(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>),
+                    // After the desert haze and the aerial perspective (fog.rs FogWriters): the
+                    // lens copies the main camera's fog.
+                    lens_camera.after(show).after(crate::fog::FogWriters),
+                ),
+            )
+            // After underwater_fog in PostUpdate so the 3D scope lens receives the current
+            // frame's underwater fog or freshly restored weather/interior fog.
+            .add_systems(PostUpdate, sync_lens_fog.after(crate::underwater::underwater_fog));
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        render_app
+            .add_systems(RenderStartup, init_scope_composite)
+            .add_systems(Render, prepare_scope_composite.in_set(RenderSystems::Prepare))
+            .add_systems(Core3d, scope_composite_pass.in_set(Core3dSystems::PostProcess).after(fullscreen_material_system::<ImageSpaceGrade>));
     }
+}
+
+/// Render-world pipelines and 1×1 identity fallback views for [`scope_composite_pass`].
+#[derive(Resource)]
+struct ScopeCompositePipelines {
+    layout: BindGroupLayoutDescriptor,
+    sampler: Sampler,
+    white: TextureView,
+    black: TextureView,
+    base: RenderPipelineDescriptor,
+    by_format: HashMap<TextureFormat, CachedRenderPipelineId>,
+}
+
+/// Pipeline specialized for the main camera's target format.
+#[derive(Component)]
+struct ScopeCompositePipelineId(CachedRenderPipelineId, TextureFormat);
+
+fn fallback_1x1(device: &RenderDevice, queue: &RenderQueue, label: &'static str, rgba: [u8; 4]) -> TextureView {
+    let texture = device.create_texture_with_data(
+        queue,
+        &TextureDescriptor {
+            label: Some(label),
+            size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        TextureDataOrder::LayerMajor,
+        &rgba,
+    );
+    texture.create_view(&TextureViewDescriptor::default())
+}
+
+fn init_scope_composite(mut commands: Commands, device: Res<RenderDevice>, queue: Res<RenderQueue>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
+    let tex = || texture_2d(TextureSampleType::Float { filterable: true });
+    let layout = BindGroupLayoutDescriptor::new(
+        "scope_composite_layout",
+        &BindGroupLayoutEntries::sequential(ShaderStages::FRAGMENT, (tex(), sampler(SamplerBindingType::Filtering), tex(), tex(), tex())),
+    );
+    let sampler = device.create_sampler(&SamplerDescriptor { mag_filter: FilterMode::Linear, min_filter: FilterMode::Linear, ..default() });
+    let white = fallback_1x1(&device, &queue, "scope_composite_white", [255, 255, 255, 255]);
+    let black = fallback_1x1(&device, &queue, "scope_composite_black", [0, 0, 0, 0]);
+    let base = RenderPipelineDescriptor {
+        label: Some("scope_composite_pipeline".into()),
+        layout: vec![layout.clone()],
+        vertex: fullscreen.to_vertex_state(),
+        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/scope_composite.wesl"), ..default() }),
+        ..default()
+    };
+    commands.insert_resource(ScopeCompositePipelines { layout, sampler, white, black, base, by_format: HashMap::default() });
+}
+
+type ScopeCompositeViews<'w, 's> = Query<'w, 's, (Entity, &'static ExtractedView), (With<ImageSpaceGrade>, Without<LensGrade>)>;
+
+fn prepare_scope_composite(
+    mut commands: Commands,
+    cache: Res<PipelineCache>,
+    mut pipelines: ResMut<ScopeCompositePipelines>,
+    views: ScopeCompositeViews,
+) {
+    let ScopeCompositePipelines { base, by_format, .. } = &mut *pipelines;
+    for (entity, view) in &views {
+        let format = view.target_format;
+        let id = *by_format.entry(format).or_insert_with(|| {
+            let mut d = base.clone();
+            if let Some(f) = d.fragment.as_mut() {
+                f.targets = vec![Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })];
+            }
+            cache.queue_render_pipeline(d)
+        });
+        commands.entity(entity).insert(ScopeCompositePipelineId(id, format));
+    }
+}
+
+fn scope_composite_pass(
+    view: ViewQuery<(&ViewTarget, &ScopeCompositePipelineId)>,
+    targets: Res<ScopeCompositeTargets>,
+    gpu_images: Res<RenderAssets<GpuImage>>,
+    pipelines: Res<ScopeCompositePipelines>,
+    cache: Res<PipelineCache>,
+    device: Res<RenderDevice>,
+    mut ctx: RenderContext,
+) {
+    let Some(over_id) = targets.over else { return };
+    let (target, pid) = view.into_inner();
+    if !crate::ssao::format_matches(target, pid.1) {
+        return;
+    }
+    let Some(pipeline) = cache.get_render_pipeline(pid.0) else { return };
+    let Some(over) = gpu_images.get(over_id) else { return };
+    let mul = targets.multiply.and_then(|id| gpu_images.get(id)).map_or(&pipelines.white, |g| &g.texture_view);
+    let add = targets.add.and_then(|id| gpu_images.get(id)).map_or(&pipelines.black, |g| &g.texture_view);
+    let layout = cache.get_bind_group_layout(&pipelines.layout);
+    let post = target.post_process_write();
+    let bind_group = device.create_bind_group(
+        "scope_composite_bind_group",
+        &layout,
+        &BindGroupEntries::sequential((post.source, &pipelines.sampler, &over.texture_view, mul, add)),
+    );
+    let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+        label: Some("scope_composite_pass"),
+        color_attachments: &[Some(RenderPassColorAttachment { view: post.destination, depth_slice: None, resolve_target: None, ops: Operations::default() })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, &bind_group, &[]);
+    pass.draw(0..3, 0..1);
 }
 
 /// The game path of a MOD3 model (stored without `meshes\`).
@@ -125,12 +372,127 @@ struct Drawn {
     warned: Option<String>,
 }
 
+fn overlay_image(images: &mut Assets<Image>, size: UVec2, fill: [u8; 4]) -> Handle<Image> {
+    let mut image = Image::new_fill(
+        Extent3d { width: size.x, height: size.y, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        &fill,
+        TextureFormat::Bgra8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    images.add(image)
+}
+
+fn spawn_scope_camera(commands: &mut Commands, name: &'static str, order: isize, clear: Color, target: Handle<Image>, place: Affine3A, layer: RenderLayers) -> Entity {
+    let to = |p: Vec3| place.transform_point3(p);
+    let eye = Vec3::new(0.0, -1000.0, 0.0);
+    commands
+        .spawn((
+            Name::new(name),
+            Camera3d::default(),
+            Camera { order, clear_color: ClearColorConfig::Custom(clear), ..default() },
+            RenderTarget::Image(ImageRenderTarget::from(target)),
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: ScalingMode::FixedVertical { viewport_height: VIEW_HEIGHT },
+                near: 0.0,
+                far: 3000.0,
+                ..OrthographicProjection::default_3d()
+            }),
+            Tonemapping::Linear,
+            Msaa::Sample4,
+            AmbientLight { color: Color::WHITE, brightness: 500.0, ..default() },
+            Transform::from_translation(to(eye)).looking_at(to(Vec3::ZERO), Vec3::Y),
+            layer,
+        ))
+        .id()
+}
+
+/// Spawn the off-screen cameras, shapes and side bars of a full-screen scope overlay,
+/// partitioned by blend mode (`Over`, `Multiply`, `Add`) [design, #3225].
+fn spawn_scope_overlay(
+    commands: &mut Commands,
+    model: &PreparedModel,
+    materials: &mut Assets<NifMaterial>,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+    plain: &mut Assets<StandardMaterial>,
+    size: UVec2,
+) -> (Vec<Entity>, ScopeCompositeTargets, ScopePassCounts, f32) {
+    let over_layer = RenderLayers::layer(SCOPE_LAYER);
+    let mul_layer = RenderLayers::layer(SCOPE_MULTIPLY_LAYER);
+    let add_layer = RenderLayers::layer(SCOPE_ADD_LAYER);
+    // Game space (Z up) into Bevy's (Y up), as the world root does.
+    let place = Affine3A::from_translation(PLACE) * Affine3A::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    let to = |p: Vec3| place.transform_point3(p);
+    let mut entities = Vec::new();
+    let mut counts = ScopePassCounts::default();
+    for s in &model.shapes {
+        let world = place * model.root * s.transform;
+        let name = s.name.as_deref().unwrap_or("");
+        let mode = materials.get(&s.material).map_or(AlphaMode::Opaque, |m| m.base.alpha_mode);
+        let pass = classify_alpha_mode(mode);
+        let (layer, mat) = match pass {
+            ScopePass::Over => {
+                counts.over += 1;
+                (over_layer.clone(), s.material.clone())
+            }
+            ScopePass::Multiply => {
+                counts.multiply += 1;
+                (mul_layer.clone(), s.material.clone())
+            }
+            ScopePass::Add => {
+                counts.add += 1;
+                // Off-screen scope cameras have no view transmission texture; linear add
+                // writes the shape's colour directly into the black-cleared additive target
+                // (as `dialogue_pipboy.rs` does) [design, #3225].
+                let mat = match materials.get(&s.material).cloned() {
+                    Some(mut copy) if !copy.extension.add_linear => {
+                        copy.extension.add_linear = true;
+                        materials.add(copy)
+                    }
+                    _ => s.material.clone(),
+                };
+                (add_layer.clone(), mat)
+            }
+        };
+        entities.push(commands.spawn((Name::new(format!("Scope {name}")), Mesh3d(s.mesh.clone()), MeshMaterial3d(mat), Transform::from_matrix(Mat4::from(world)), layer)).id());
+    }
+    // Black beyond the mask's sides, for screens wider than the mask's own aspect ratio.
+    let half_width = mask_half_width_from_bounds(model.bounds);
+    let bar = meshes.add(Rectangle::new(4.0 * VIEW_HEIGHT, 2.0 * VIEW_HEIGHT));
+    let black = plain.add(StandardMaterial { base_color: Color::BLACK, unlit: true, ..default() });
+    for side in [-1.0f32, 1.0] {
+        let at = to(Vec3::new(side * (half_width + 2.0 * VIEW_HEIGHT - 1.0), 0.0, 0.0));
+        entities.push(commands.spawn((Name::new("Scope side bar"), Mesh3d(bar.clone()), MeshMaterial3d(black.clone()), Transform::from_translation(at), over_layer.clone())).id());
+    }
+    let over_image = overlay_image(images, size, [0, 0, 0, 0]);
+    entities.push(spawn_scope_camera(commands, "Scope camera", -5, Color::NONE, over_image.clone(), place, over_layer));
+    let mul_image = (counts.multiply > 0).then(|| {
+        let img = overlay_image(images, size, [255, 255, 255, 255]);
+        entities.push(spawn_scope_camera(commands, "Scope multiply camera", -6, Color::WHITE, img.clone(), place, mul_layer));
+        img
+    });
+    let add_image = (counts.add > 0).then(|| {
+        let img = overlay_image(images, size, [0, 0, 0, 0]);
+        entities.push(spawn_scope_camera(commands, "Scope add camera", -7, Color::BLACK, img.clone(), place, add_layer));
+        img
+    });
+    let targets = ScopeCompositeTargets {
+        over: Some(over_image.id()),
+        multiply: mul_image.as_ref().map(Handle::id),
+        add: add_image.as_ref().map(Handle::id),
+    };
+    (entities, targets, counts, half_width)
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn show(
     mut commands: Commands,
     scope: Res<Scope>,
     mut models: ModelCtx,
     mut plain: ResMut<Assets<StandardMaterial>>,
+    mut composite: ResMut<ScopeCompositeTargets>,
     window: Query<&Window, With<PrimaryWindow>>,
     (mounts, main_cam): (Query<(Entity, &LensMount)>, Query<Entity, With<PlayerCamera>>),
     mut drawn: Local<Drawn>,
@@ -143,6 +505,7 @@ fn show(
             commands.entity(e).despawn();
         }
         drawn.model = None;
+        *composite = ScopeCompositeTargets::default();
     }
     let Some(path) = want else { return };
     if drawn.model.is_some() {
@@ -161,58 +524,26 @@ fn show(
         info!("scope view: {path} in the lens (3D scope), radius {:.2}, reticle cut to {LENS_CIRCLE} units", m.radius);
         drawn.model = Some(path);
         drawn.lens = true;
+        *composite = ScopeCompositeTargets::default();
         return;
     }
-    let mut image = Image::new_fill(Extent3d { width: size.x, height: size.y, depth_or_array_layers: 1 }, TextureDimension::D2, &[0, 0, 0, 0], TextureFormat::Bgra8UnormSrgb, RenderAssetUsages::default());
-    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
-    let image = models.images.add(image);
-    let layer = RenderLayers::layer(SCOPE_LAYER);
-    // Game space (Z up) into Bevy's (Y up), as the world root does.
-    let place = Affine3A::from_translation(PLACE) * Affine3A::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    let to = |p: Vec3| place.transform_point3(p);
-    let mut entities = Vec::new();
-    for s in &model.shapes {
-        let world = place * model.root * s.transform;
-        let name = s.name.as_deref().unwrap_or("");
-        entities.push(commands.spawn((Name::new(format!("Scope {name}")), Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(world)), layer.clone())).id());
-    }
-    // Black beyond the mask's sides, for screens wider than 16:10.
-    let bar = models.meshes.add(Rectangle::new(4.0 * VIEW_HEIGHT, 2.0 * VIEW_HEIGHT));
-    let black = plain.add(StandardMaterial { base_color: Color::BLACK, unlit: true, ..default() });
-    for side in [-1.0f32, 1.0] {
-        let at = to(Vec3::new(side * (MASK_HALF_WIDTH + 2.0 * VIEW_HEIGHT - 1.0), 0.0, 0.0));
-        entities.push(commands.spawn((Name::new("Scope side bar"), Mesh3d(bar.clone()), MeshMaterial3d(black.clone()), Transform::from_translation(at), layer.clone())).id());
-    }
-    let eye = Vec3::new(0.0, -1000.0, 0.0);
-    entities.push(
-        commands
-            .spawn((
-                Name::new("Scope camera"),
-                Camera3d::default(),
-                Camera { order: -5, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
-                RenderTarget::Image(ImageRenderTarget::from(image.clone())),
-                Projection::Orthographic(OrthographicProjection { scaling_mode: ScalingMode::FixedVertical { viewport_height: VIEW_HEIGHT }, near: 0.0, far: 3000.0, ..OrthographicProjection::default_3d() }),
-                Tonemapping::Linear,
-                Msaa::Sample4,
-                AmbientLight { color: Color::WHITE, brightness: 500.0, ..default() },
-                Transform::from_translation(to(eye)).looking_at(to(Vec3::ZERO), Vec3::Y),
-                layer.clone(),
-            ))
-            .id(),
+    let (entities, targets, counts, half_width) = spawn_scope_overlay(
+        &mut commands,
+        &model,
+        &mut models.materials,
+        &mut models.meshes,
+        &mut models.images,
+        &mut plain,
+        size,
     );
-    // Under the HUD (whose nodes sit at the default z index), over the world.
-    entities.push(
-        commands
-            .spawn((
-                Name::new("Scope picture"),
-                Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-                ImageNode::new(image),
-                GlobalZIndex(-1),
-                Pickable::IGNORE,
-            ))
-            .id(),
+    *composite = targets;
+    info!(
+        "scope view: {path} drawn ({} shapes), {VIEW_HEIGHT} units high ({} over, {} multiply, {} add, mask ±{half_width:.1})",
+        model.shapes.len(),
+        counts.over,
+        counts.multiply,
+        counts.add,
     );
-    info!("scope view: {path} drawn ({} shapes), {VIEW_HEIGHT} units high", model.shapes.len());
     drawn.entities = entities;
     drawn.model = Some(path);
     drawn.lens = false;
@@ -236,14 +567,15 @@ fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, 
     let layer = RenderLayers::layer(SCOPE_LAYER);
     let place = Affine3A::from_translation(PLACE) * Affine3A::from_rotation_x(-std::f32::consts::FRAC_PI_2);
     for s in &model.shapes {
-        let name = s.name.as_deref().unwrap_or("").to_ascii_lowercase();
-        // The reticle only: not the black mask (vanilla `keepScope01:0`; `MaskRing*` in
-        // the other layouts), nor the tint ring, the glare (`Additive01:5`) or the inner
-        // shading, which over the lens drew as a dark veil (drawn into a clear image they
-        // keep their alpha) [observed: scope-3d-lens-interior, the lens much darker than
-        // the door behind it until they were left out].
-        let veil = ["keepscope", "maskring", "tintring", "additive", "inner lens shading"];
-        if veil.iter().any(|v| name.starts_with(v)) {
+        let name = s.name.as_deref().unwrap_or("");
+        let mode = models.materials.get(&s.material).map_or(AlphaMode::Opaque, |m| m.base.alpha_mode);
+        // The reticle only: not the black mask (vanilla `keepScope01:0`; `Scope:0` and
+        // `MaskRing*` in the other layouts), nor the tint ring, the glare (`Additive*`),
+        // or multiply/additive lens filters (`SuperRedFilter:0`, `Inner Lens Shading:3`),
+        // which over the lens drew as a dark veil (drawn into a clear image they keep
+        // their alpha) [observed: scope-3d-lens-interior, the lens much darker than the
+        // door behind it until they were left out].
+        if is_lens_veil(name, mode) {
             continue;
         }
         let world = place * model.root * s.transform;
@@ -516,6 +848,36 @@ fn sway(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nvf_assets::model::PreparedShape;
+
+    fn test_shape(name: &str, mode: AlphaMode, meshes: &mut Assets<Mesh>, materials: &mut Assets<NifMaterial>) -> PreparedShape {
+        let mut base = StandardMaterial { alpha_mode: mode, unlit: true, ..default() };
+        if mode == AlphaMode::Multiply {
+            base.base_color = Color::srgb(0.84, 0.46, 0.31);
+        }
+        PreparedShape {
+            mesh: meshes.add(Rectangle::new(100.0, 100.0)),
+            material: materials.add(nvf_assets::nif_material::nif_material(base)),
+            transform: Affine3A::IDENTITY,
+            name: Some(name.to_string()),
+            ancestors: Vec::new(),
+            node: None,
+            own: Affine3A::IDENTITY,
+            cpu: None,
+            segments: Vec::new(),
+            external_emittance: false,
+            look: nvf_assets::material_anim::Look {
+                colour: [0.0; 3],
+                mult: 1.0,
+                uv: [0.0; 2],
+                scale: [1.0; 2],
+                rotate: 0.0,
+                alpha: 1.0,
+                refraction: 0.0,
+            },
+            missing_diffuse: None,
+        }
+    }
 
     #[test]
     fn night_runs_from_sunset_end_to_sunrise_begin() {
@@ -531,5 +893,163 @@ mod tests {
     fn mod3_paths_gain_the_meshes_folder_once() {
         assert_eq!(model_path("interface\\HUD\\mildotscope.NIF"), "meshes\\interface\\HUD\\mildotscope.NIF");
         assert_eq!(model_path("Meshes\\interface\\hud\\x.nif"), "Meshes\\interface\\hud\\x.nif");
+    }
+
+    #[test]
+    fn classify_alpha_mode_partitions_multiply_add_and_over() {
+        assert_eq!(classify_alpha_mode(AlphaMode::Opaque), ScopePass::Over);
+        assert_eq!(classify_alpha_mode(AlphaMode::Mask(0.5)), ScopePass::Over);
+        assert_eq!(classify_alpha_mode(AlphaMode::Blend), ScopePass::Over);
+        assert_eq!(classify_alpha_mode(AlphaMode::Premultiplied), ScopePass::Over);
+        assert_eq!(classify_alpha_mode(AlphaMode::Multiply), ScopePass::Multiply);
+        assert_eq!(classify_alpha_mode(AlphaMode::Add), ScopePass::Add);
+    }
+
+    #[test]
+    fn mask_half_width_tracks_base_red_glare_and_gauss_bounds() {
+        // Base 4-shape scope (`keepScope01:0`): ±740 × ±460.
+        assert_eq!(mask_half_width_from_bounds(Some((Vec3::new(-740.0, -70.0, -460.0), Vec3::new(740.0, 166.0, 460.0)))), 740.0);
+        // Red Glare & Old World Blues (`Scope:0`): ±674.5 × ±461.7.
+        let red_glare = mask_half_width_from_bounds(Some((Vec3::new(-674.52, 0.0, -461.69), Vec3::new(674.52, 236.29, 461.69))));
+        assert!((red_glare - 674.52).abs() < 1e-3, "{red_glare}");
+        // Gauss Rifle (`DLCAnchGaussScope01:0`): ±778.9 × ±485.0.
+        let gauss = mask_half_width_from_bounds(Some((Vec3::new(-778.9, -224.5, -483.4), Vec3::new(779.0, 109.0, 485.0))));
+        assert!((gauss - 778.9).abs() < 1e-3, "{gauss}");
+        // Missing or degenerate bounds fall back to the vanilla 740.
+        assert_eq!(mask_half_width_from_bounds(None), MASK_HALF_WIDTH);
+        assert_eq!(mask_half_width_from_bounds(Some((Vec3::new(-10.0, 0.0, -10.0), Vec3::new(10.0, 0.0, 10.0)))), MASK_HALF_WIDTH);
+    }
+
+    #[test]
+    fn composite_scope_pixel_tints_world_and_masks_frame() {
+        // Open window of Red Glare: SuperRedFilter multiplies world contrast instead of hiding it.
+        let bright = composite_scope_pixel([0.8, 0.6, 0.4], [0.84, 0.46, 0.31], [0.02, 0.01, 0.0], [0.0, 0.0, 0.0, 0.0]);
+        let dark = composite_scope_pixel([0.2, 0.2, 0.2], [0.84, 0.46, 0.31], [0.02, 0.01, 0.0], [0.0, 0.0, 0.0, 0.0]);
+        assert!(bright[0] > dark[0] && bright[0] > bright[1] && bright[1] > bright[2], "red tint preserves scene contrast: {bright:?} vs {dark:?}");
+        assert!((bright[0] - (0.8 * 0.84 + 0.02)).abs() < 1e-5);
+        // Opaque black mask (`Scope:0`, over = (0, 0, 0, 1)) hides world, multiply overhang, and glare.
+        let masked = composite_scope_pixel([0.8, 0.6, 0.4], [0.84, 0.46, 0.31], [0.2, 0.2, 0.2], [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(masked, [0.0, 0.0, 0.0]);
+        // Semi-transparent reticle (`Plane01:0`, premultiplied white at alpha 0.5) blends over tinted world.
+        let reticle = composite_scope_pixel([0.8, 0.6, 0.4], [0.84, 0.46, 0.31], [0.0, 0.0, 0.0], [0.5, 0.5, 0.5, 0.5]);
+        assert!((reticle[0] - (0.5 + 0.8 * 0.84 * 0.5)).abs() < 1e-5, "{reticle:?}");
+        // Vanilla 4-shape scope (identity mul = 1, no add, transparent centre): world passes through untouched.
+        let plain = composite_scope_pixel([0.3, 0.5, 0.7], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(plain, [0.3, 0.5, 0.7]);
+    }
+
+    #[test]
+    fn red_glare_five_shape_layout_spawns_multiply_over_white_and_narrower_side_bars() {
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<NifMaterial>::default();
+        let mut images = Assets::<Image>::default();
+        let mut plain = Assets::<StandardMaterial>::default();
+        // Exact 5-shape layout of `nvdlc04RedGlareScope.NIF` (#3225).
+        let model = PreparedModel {
+            shapes: vec![
+                test_shape("Plane01:0", AlphaMode::Blend, &mut meshes, &mut materials),
+                test_shape("Additive:5", AlphaMode::Add, &mut meshes, &mut materials),
+                test_shape("SuperRedFilter:0", AlphaMode::Multiply, &mut meshes, &mut materials),
+                test_shape("TintRing:0", AlphaMode::Add, &mut meshes, &mut materials),
+                test_shape("Scope:0", AlphaMode::Opaque, &mut meshes, &mut materials),
+            ],
+            bounds: Some((Vec3::new(-674.52, 0.0, -461.69), Vec3::new(674.52, 236.29, 461.69))),
+            ..default()
+        };
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let (entities, targets, counts, half_width) = {
+            let mut commands = Commands::new(&mut queue, &world);
+            spawn_scope_overlay(&mut commands, &model, &mut materials, &mut meshes, &mut images, &mut plain, UVec2::new(1280, 720))
+        };
+        queue.apply(&mut world);
+
+        assert_eq!(counts, ScopePassCounts { over: 2, multiply: 1, add: 2 });
+        assert!((half_width - 674.52).abs() < 1e-3);
+        assert!(targets.over.is_some() && targets.multiply.is_some() && targets.add.is_some());
+        assert_eq!(entities.len(), 5 + 2 + 3, "5 shapes + 2 side bars + 3 cameras");
+
+        // Verify SuperRedFilter:0 sits on SCOPE_MULTIPLY_LAYER and Scope multiply camera clears to white.
+        let mut saw_mul_shape = false;
+        let mut saw_mul_cam = false;
+        let mut saw_add_linear = 0usize;
+        let mut side_bar_xs = Vec::new();
+        for &e in &entities {
+            let er = world.entity(e);
+            let name = er.get::<Name>().map(Name::as_str).unwrap_or("");
+            if name == "Scope SuperRedFilter:0" {
+                assert_eq!(er.get::<RenderLayers>(), Some(&RenderLayers::layer(SCOPE_MULTIPLY_LAYER)));
+                saw_mul_shape = true;
+            }
+            if name == "Scope multiply camera" {
+                let cam = er.get::<Camera>().expect("camera");
+                assert!(matches!(cam.clear_color, ClearColorConfig::Custom(c) if c == Color::WHITE));
+                assert_eq!(er.get::<RenderLayers>(), Some(&RenderLayers::layer(SCOPE_MULTIPLY_LAYER)));
+                saw_mul_cam = true;
+            }
+            if name == "Scope Additive:5" || name == "Scope TintRing:0" {
+                assert_eq!(er.get::<RenderLayers>(), Some(&RenderLayers::layer(SCOPE_ADD_LAYER)));
+                let mat_handle = er.get::<MeshMaterial3d<NifMaterial>>().expect("material");
+                assert!(materials.get(&mat_handle.0).expect("asset").extension.add_linear);
+                saw_add_linear += 1;
+            }
+            if name == "Scope Plane01:0" || name == "Scope Scope:0" {
+                assert_eq!(er.get::<RenderLayers>(), Some(&RenderLayers::layer(SCOPE_LAYER)));
+            }
+            if name == "Scope side bar" {
+                side_bar_xs.push(er.get::<Transform>().expect("transform").translation.x.abs());
+            }
+        }
+        assert!(saw_mul_shape && saw_mul_cam && saw_add_linear == 2);
+        assert_eq!(side_bar_xs.len(), 2);
+        let expected_bar_x = 674.52 + 2.0 * VIEW_HEIGHT - 1.0;
+        for x in side_bar_xs {
+            assert!((x - expected_bar_x).abs() < 1e-2, "side bar at {x}, expected {expected_bar_x}");
+        }
+    }
+
+    #[test]
+    fn base_four_shape_scope_omits_multiply_camera_and_keeps_vanilla_mask_width() {
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<NifMaterial>::default();
+        let mut images = Assets::<Image>::default();
+        let mut plain = Assets::<StandardMaterial>::default();
+        // Exact 4-shape layout of `mildotscope.nif` / `varmitscope.nif`.
+        let model = PreparedModel {
+            shapes: vec![
+                test_shape("keepAdditive03:0", AlphaMode::Blend, &mut meshes, &mut materials),
+                test_shape("keepScope01:0", AlphaMode::Opaque, &mut meshes, &mut materials),
+                test_shape("TintRing:0", AlphaMode::Add, &mut meshes, &mut materials),
+                test_shape("Additive01:5", AlphaMode::Add, &mut meshes, &mut materials),
+            ],
+            bounds: Some((Vec3::new(-740.0, -70.3, -460.0), Vec3::new(740.0, 165.8, 460.0))),
+            ..default()
+        };
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let (entities, targets, counts, half_width) = {
+            let mut commands = Commands::new(&mut queue, &world);
+            spawn_scope_overlay(&mut commands, &model, &mut materials, &mut meshes, &mut images, &mut plain, UVec2::new(1280, 720))
+        };
+        queue.apply(&mut world);
+
+        assert_eq!(counts, ScopePassCounts { over: 2, multiply: 0, add: 2 });
+        assert_eq!(half_width, 740.0);
+        assert!(targets.over.is_some());
+        assert!(targets.multiply.is_none(), "base 4-shape scopes spawn no multiply camera");
+        assert!(targets.add.is_some());
+        assert_eq!(entities.len(), 4 + 2 + 2, "4 shapes + 2 side bars + 2 cameras");
+    }
+
+    #[test]
+    fn lens_veil_filters_masks_and_multiply_add_shapes_while_keeping_reticles() {
+        assert!(!is_lens_veil("keepAdditive03:0", AlphaMode::Blend));
+        assert!(!is_lens_veil("Plane01:0", AlphaMode::Blend));
+        assert!(is_lens_veil("keepScope01:0", AlphaMode::Opaque));
+        assert!(is_lens_veil("Scope:0", AlphaMode::Opaque));
+        assert!(is_lens_veil("SuperRedFilter:0", AlphaMode::Multiply));
+        assert!(is_lens_veil("RedFilter:0", AlphaMode::Add));
+        assert!(is_lens_veil("Additive:5", AlphaMode::Add));
+        assert!(is_lens_veil("TintRing:0", AlphaMode::Add));
     }
 }

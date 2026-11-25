@@ -4234,3 +4234,17 @@ capture setup, so every part of a check that needs an interior is still open.
      and note the lowest value at which it still reads 1. Then `SetDisposition` towards
      another actor at 100 with the player's at 0: does it read 1 (not towards the player
      only)?
+
+## Added 2026-11-25 (Red Glare and add-on scope appearance, #3225)
+
+293. **What do the Red Glare's and Old World Blues' scopes look like when aimed in the
+     original?** (P2; #3225, `docs/spec-notes/weapon-scopes.md` §3.) Ours [design]:
+     `nvdlc04redglarescope.nif`'s `SuperRedFilter:0` (flags 4163 `ZERO`/`SRC_COLOR`,
+     vertex colour R 0.73–1.00, G 0.33–0.63, B 0.24–0.41) multiplies the zoomed world
+     inside the rectangular `Scope:0` window, `Additive:5` and `TintRing:0` add on top,
+     and `Plane01:0` (`Laserscope_o.dds`) blends over it; `nvdlc03circletechscopegreen.nif`
+     (K9000) and `nvdlc03circletechscopered.nif` (FIDO) apply their `BlueEdge:0` /
+     `RedEdge:0` multiply vignette and `GreenFilter:0` / `RedFilter:0` additive tint the
+     same way. Capture a frame aimed down the Red Glare (`NVDLC04WeapRedGlare`) in daylight
+     or a lit interior (and optionally the K9000/FIDO and Gauss Rifle) and confirm the
+     window shape, red tint strength, reticle colour/opacity, and edge framing.
