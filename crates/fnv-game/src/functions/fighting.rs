@@ -147,16 +147,15 @@ pub fn push_actor_away(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 /// The GetCauseofDeath code of a death by a weapon of WEAP DNAM animation type
 /// `record_type`, or by a hit with no weapon (`None`, a creature's attack or fists).
-/// [documented: catalogue notes, the codes −1 none, 0 explosion, 2 gun, 3 blunt weapon, 4
-/// hand to hand, 5 object impact, 6 poison, 7 radiation; code 1 is not on the page.]
-/// Which weapon types give which code is [hypothesis]: hand to hand (0) and no weapon
-/// 4; melee (1, 2) 3, the page naming no blade; pistols, rifles and Handle (3–8) 2; the
-/// launcher, grenades and mines (9–12) 0; thrown weapons (13) 5.
+/// Ranged guns (3..=8: 10mm Pistol, Varmint Rifle, Sniper Rifle, Laser Rifle) return `1`
+/// [observed: w6d6_42_live_kill_dismember_no_dismember_and_bm, w6d6p2_44_cause_of_death_and_beanbag,
+/// w6d6p3_44b_cause_of_death_gun_expl_killactor]. Hand-to-hand/melee/explosive/thrown mappings
+/// remain [hypothesis] pending dedicated live kills.
 pub fn cause_code(record_type: Option<i64>) -> i32 {
     match record_type {
         None | Some(0) => 4,
         Some(1 | 2) => 3,
-        Some(3..=8) => 2,
+        Some(3..=8) => 1,
         Some(9..=12) => 0,
         Some(13) => 5,
         Some(_) => -1,

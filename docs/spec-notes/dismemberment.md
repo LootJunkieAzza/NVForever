@@ -542,3 +542,14 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 - Living actors losing limbs: dismemberment here happens only on the killing hit or on a corpse.
   The original does not dismember living actors either [observed: no target in §4.1 lost a part
   to a hit that did not kill it].
+
+### `GetCauseofDeath` returns `1` for ranged gun kills [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted), `w6d6_42_live_kill_dismember_no_dismember_and_bm`, `w6d6p2_44_cause_of_death_and_beanbag`, `w6d6p3_44b_cause_of_death_gun_expl_killactor`, and `w6d6p4_44c_cod_40mm_explosion` (`tools/capture/nvse/catalogs/wave6d6_getcauseofdeath_gun_code.json`)]: All 4 live ranged gun kills (10mm Pistol, Varmint Rifle, Sniper Rifle, Laser Rifle) returned `GetCauseofDeath == 1` (contrary to the wiki note claiming `2` for guns); a 40mm grenade explosion kill and `KillActor Player 1 3` both returned `-1`:
+
+```text
+PROBE|w6d6_42_live_kill_dismember_no_dismember_and_bm|varmintBM(dead=1,lg=0,kbl=0,cod=1)|sniperBM(dead=1,lg=1,kbl=10,cod=1)
+PROBE|w6d6p2_44_cause_of_death_and_beanbag|bb(h=0.00,f=0.00,fat=190.0->190.0)|cod(10=0:-1,las=1:1,expl=0:-1)
+PROBE|w6d6p3_44b_cause_of_death_gun_expl_killactor|gun10(1:1)|expl(0:-1)|ka3(1:-1)
+PROBE|w6d6p4_44c_cod_40mm_explosion|dead=1|cod=-1
+```
