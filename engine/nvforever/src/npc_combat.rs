@@ -547,6 +547,10 @@ struct Fighter {
     blast_held: Option<u32>,
     /// A dodge or a grenade run was handed to the AI last frame.
     urgent_posted: Option<PostKind>,
+    /// Clock time when this fighter's target first became absent (e.g. stepped through a
+    /// load door) or briefly Lost, so the fighter keeps its combat plan across brief
+    /// transitions ([`TARGET_ABSENT_GRACE`], #3224).
+    target_absent_since: Option<f32>,
 }
 
 /// A fighter's last melee blow (module notes).
@@ -1511,6 +1515,28 @@ fn use_hold(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_g
 /// `Fighter::opp_blows_unseen`, so none of them raises one either), and its combat crouch ends (the caller takes it out of
 /// `Awareness::crouching`; the stance rolls run again once the fight has the actor back).
 /// Its sight time, magazine, post and the rest stay (#2145 review) [design].
+/// Seconds a fighter keeps its combat state (tactic timers, cover/flank rolls, magazine,
+/// anchor) when its target briefly leaves the drawn area (e.g. steps through a load door)
+/// or slips into `State::Lost`, so a returning target does not make the whole squad drop
+/// its fight and re-plan from scratch [design, #3224].
+const TARGET_ABSENT_GRACE: f32 = 5.0;
+
+/// Whether a fighter whose target is temporarily not drawn or briefly Lost keeps its
+/// combat state for [`TARGET_ABSENT_GRACE`] instead of being dropped and re-planned on
+/// return [design, #3224].
+fn keep_fighter_while_target_absent(fighter: &mut Fighter, state: State, target_tracked: bool, target_alive_and_present: bool, clock: f32) -> bool {
+    if !matches!(state, State::Combat | State::Lost) || !target_tracked || !target_alive_and_present {
+        return false;
+    }
+    let since = *fighter.target_absent_since.get_or_insert(clock);
+    if clock - since < TARGET_ABSENT_GRACE {
+        hold_for_use(fighter);
+        true
+    } else {
+        false
+    }
+}
+
 fn hold_for_use(x: &mut Fighter) {
     x.blows.clear();
     x.swing = None;
@@ -1693,15 +1719,35 @@ pub(crate) fn fight(
                 UseHold::Taken => g.weapon_use_taken(me),
                 UseHold::Free => {}
             }
-            let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
+            let Some(aw) = g.awareness.get(me).filter(|a| matches!(a.state, State::Combat | State::Lost)) else { continue };
             // The target it detects; just after losing sight of it (still in Combat, not
             // yet Lost), the one detected last, so it keeps its distance to close in
             // (`fnv_ai::alert`) instead of standing where it cannot see [design: the
             // fiends at Cook-Cook's camp stood still behind a rise and went Lost and back
             // every few seconds].
             let latest = || aw.targets.iter().filter(|(_, t)| t.detected.is_some()).max_by(|x, y| x.1.detected.unwrap_or(0.0).total_cmp(&y.1.detected.unwrap_or(0.0))).map(|(id, t)| (*id, t));
-            let Some((target, _)) = aw.combat_target().or_else(latest) else { continue };
-            let Some(&(tfeet, teyes, _)) = places.get(&target.0) else { continue };
+            let visible_target = (aw.state == State::Combat)
+                .then(|| aw.combat_target().or_else(latest))
+                .flatten()
+                .and_then(|(target, _)| places.get(&target.0).map(|&p| (target, p)));
+            let Some((target, (tfeet, teyes, _))) = visible_target else {
+                // Target briefly absent (e.g. stepped through a load door) or Lost: keep
+                // the fighter's state and tactics across the grace window so the squad
+                // does not drop its fight and re-plan from scratch on return (#3224).
+                if let Some(x) = f.fighters.get_mut(&id) {
+                    let tracked = aw.targets.contains_key(&x.target);
+                    let alive_present = g.present(x.target) && !g.extra.get(&x.target).is_some_and(|e| e.dead);
+                    if keep_fighter_while_target_absent(x, aw.state, tracked, alive_present, clock) {
+                        g.awareness.aiming.remove(&me);
+                        g.awareness.crouching.remove(&me);
+                        still.push(id);
+                    }
+                }
+                continue;
+            };
+            if let Some(x) = f.fighters.get_mut(&id) {
+                x.target_absent_since = None;
+            }
             still.push(id);
             // How fast it runs (`pace`).
             // Not for a creature's body weapon: it carries nothing in its hands (§19).
@@ -1874,6 +1920,7 @@ pub(crate) fn fight(
                         evading: None,
                         blast_held: None,
                         urgent_posted: None,
+                        target_absent_since: None,
                     },
                 );
                 // This fight's confidence modifier, not for the foolhardy; the first
@@ -4367,5 +4414,82 @@ mod tests {
         assert!(st.left_arm_crippled && !st.right_arm_crippled && st.head_crippled);
         assert_eq!((st.skill, st.strength, st.aiming_move_divisor, st.strength_req_cut), (62.0, 7.0, 1.0, 0.0));
         assert_eq!(shot_gait(None), ShotGait::default());
+    }
+
+    /// #3224: a fighter whose target briefly leaves the drawn area (e.g. through a load
+    /// door) or slips into `State::Lost` keeps its `Fighter` state and tactical timers
+    /// within [`TARGET_ABSENT_GRACE`] instead of dropping and re-planning from scratch;
+    /// past the grace window, on target death/removal, or back in `State::Normal` it drops.
+    #[test]
+    fn fighter_keeps_combat_plan_across_brief_target_absence_and_drops_past_grace() {
+        let tactic = Tactic { cover_roll_in: 7.5, flank_in: 4.25, use_cover: true, ..Tactic::default() };
+        let mut x = Fighter {
+            target: FormId(0xD6F51),
+            arm: Arm::Gun(FormId(0x100)),
+            seen_for: 3.0,
+            firing_for: 1.0,
+            ranged: None,
+            strike_in: 0.0,
+            pulled: false,
+            blows: Vec::new(),
+            sights: false,
+            ready_sights: None,
+            pull_in: 0.0,
+            burst: Default::default(),
+            confidence_mod: 0.0,
+            flee_check_in: 2.0,
+            tactic,
+            stagger_seen: None,
+            idle_hold_seen: None,
+            temper: Temperament { crouch: 0.3, cover: 0.7, guard: 0.2 },
+            crouched_since: Some(9.0),
+            still_for: 0.0,
+            last_feet: None,
+            stance_in: 1.0,
+            unseen_for: 0.0,
+            block: None,
+            react: None,
+            seen_opp_blows: 0,
+            opp_blows_unseen: false,
+            blows_begun: 0,
+            recoil_until: 0.0,
+            approach: Default::default(),
+            swing: None,
+            walk_feet: None,
+            velocity: [0.0, 0.0],
+            hiding: false,
+            hide_seen: 0.0,
+            hide_moves: 0,
+            range_held: None,
+            opened_fire: true,
+            maneuver_until: 0.0,
+            dodge: None,
+            rush: None,
+            lunge_rolled: false,
+            lunge_at: 0.0,
+            target_feet: None,
+            target_velocity: [0.0, 0.0],
+            anchor: [100.0, 200.0, 0.0],
+            anchor_health: 100.0,
+            leashed: false,
+            evading: None,
+            blast_held: None,
+            urgent_posted: None,
+            target_absent_since: None,
+        };
+        // Guard steps through door at t = 10.0s (still Combat, then Lost at t = 11.5s):
+        // fighter stays alive in `f.fighters` and preserves its tactic timers & temper.
+        assert!(keep_fighter_while_target_absent(&mut x, State::Combat, true, true, 10.0));
+        assert_eq!(x.target_absent_since, Some(10.0));
+        assert_eq!(x.crouched_since, None, "active crouch cleared while target is absent");
+        assert!(keep_fighter_while_target_absent(&mut x, State::Lost, true, true, 12.5));
+        assert_eq!((x.tactic.cover_roll_in, x.tactic.flank_in, x.tactic.use_cover), (7.5, 4.25, true));
+        // Past TARGET_ABSENT_GRACE (10.0 + 5.0 = 15.0): dropped.
+        assert!(!keep_fighter_while_target_absent(&mut x, State::Lost, true, true, 10.0 + TARGET_ABSENT_GRACE));
+        // Reset grace: target dead/unpresent, untracked, or Normal all drop immediately.
+        x.target_absent_since = None;
+        assert!(!keep_fighter_while_target_absent(&mut x, State::Combat, true, false, 20.0));
+        assert!(!keep_fighter_while_target_absent(&mut x, State::Combat, false, true, 20.0));
+        assert!(!keep_fighter_while_target_absent(&mut x, State::Normal, true, true, 20.0));
     }
 }

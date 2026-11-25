@@ -203,6 +203,20 @@ pub const FLEE_WALK_SECONDS: f64 = 30.0;
 /// Behind a cover edge a fleeing actor stands this far in from it, game units [design:
 /// about an actor's width].
 pub const COVER_STANDOFF: f32 = 48.0;
+/// Maximum ratio of path length to direct distance allowed for a combat tactical post
+/// (flank, cover, shift, etc.) once beyond [`POST_MIN_DETOUR_ALLOWANCE`] [design, #3224:
+/// prevents fighters from detouring thousands of units around a compound wall for a nearby
+/// flank post].
+pub const POST_MAX_DETOUR: f32 = 3.0;
+/// Minimum path length always allowed for a same-space combat tactical post regardless of
+/// direct-distance ratio, game units (covers short steps around rocks or corners) [design, #3224].
+pub const POST_MIN_DETOUR_ALLOWANCE: f32 = 512.0;
+
+/// Whether a planned combat post route is acceptable: stays in the fighter's current space
+/// (`legs == 1`, no load doors) and does not exceed the detour cap [design, #3224].
+pub fn post_route_allowed(away: f32, length: f32, legs: usize) -> bool {
+    legs == 1 && length <= (away * POST_MAX_DETOUR).max(POST_MIN_DETOUR_ALLOWANCE)
+}
 
 /// Why a walk to a post ended away from it ([`AiEvent::PostFailed`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -770,13 +784,28 @@ impl Ai {
             }
             _ => {}
         }
-        let params = self.path_params(game, actor);
+        let mut params = self.path_params(game, actor);
+        // Combat tactical posts (flank, cover, peek, sidestep, back-off, shift, guard,
+        // bound) are always in the fighter's current space; never route out through a load
+        // door into another space to reach them [design, #3224].
+        params.doors = false;
         let speed = self.post_speed(game, actor, post);
         let a = self.agents.get_mut(&actor).expect("listed");
         let from = a.walker.feet;
         let point = nav.nearest(space, post.at, 256.0).map(|(_, p)| p);
         (a.walker.speed, a.walk_pace) = (speed, None);
-        let path = point.and_then(|p| a.walker.go_to(nav, Place { space, pos: p }, &params).ok()).map(|path| path.length);
+        let path = point.and_then(|p| {
+            let path = a.walker.go_to(nav, Place { space, pos: p }, &params).ok()?;
+            let length = path.length;
+            let legs = path.legs.len();
+            if post_route_allowed(goal::dist(from, p), length, legs) {
+                Some(length)
+            } else {
+                a.walker.follower = None;
+                a.activity = Activity::There;
+                None
+            }
+        });
         match (point, path) {
             (Some(p), Some(length)) => {
                 a.activity = Activity::Travelling;

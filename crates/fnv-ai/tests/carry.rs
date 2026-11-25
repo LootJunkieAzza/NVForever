@@ -7197,3 +7197,63 @@ fn set_package_flag_location_and_travel_to_ref_reach_ai_carry() {
     assert_eq!(loner_running, Some(true));
     assert!(dist(travel.feet(R_LONER), [350.0, 350.0, 0.0]) < 80.0, "TravelToRef moved R_LONER to MarkA: {:?}", travel.feet(R_LONER));
 }
+
+/// #3224: combat tactical posts (flank, cover, etc.) must never route through a load door
+/// into another space (even when a two-door shortcut connects two disconnected islands of
+/// the same space), and excessive same-space detours are rejected while short steps stay allowed.
+#[test]
+fn combat_post_refuses_load_door_route_and_excessive_detours() {
+    use fnv_ai::alert::{post_route_allowed, POST_MAX_DETOUR, POST_MIN_DETOUR_ALLOWANCE};
+    use fnv_game::combat_group::{Post, PostKind};
+    use fnv_nav::{NavGraph, Place};
+
+    // Pure route policy checks: load-door paths (legs > 1) and long compound detours are refused;
+    // short steps around walls/corners stay allowed.
+    assert!(!post_route_allowed(1536.0, 4733.0, 2), "route crossing a load door is refused");
+    assert!(!post_route_allowed(905.0, 7953.0, 1), "8.8x same-space detour is refused");
+    assert!(post_route_allowed(100.0, 450.0, 1), "short step under floor allowance is permitted");
+    assert!(post_route_allowed(1000.0, 1000.0 * POST_MAX_DETOUR, 1));
+    assert!(post_route_allowed(50.0, POST_MIN_DETOUR_ALLOWANCE, 1));
+
+    // Two disconnected navmesh islands in space C joined ONLY via load doors through
+    // interior space B (mirrors NCRCF door 000D7843).
+    let (d_out_1, d_in_1, d_in_2, d_out_2) = (0xD7843, 0xD7844, 0xD7845, 0xD7846);
+    let mut island1 = grid_of(10, [10000.0, 10000.0], 10, 100.0, 0.0);
+    let mut room = grid_of(11, [5000.0, 5000.0], 4, 100.0, 0.0);
+    let mut island2 = grid_of(12, [12000.0, 10000.0], 4, 100.0, 0.0);
+    island1.door_links.push(DoorLink { door: d_out_1, triangle: 0 });
+    island1.triangles[0].flags |= tri_flags::DOOR;
+    room.door_links.push(DoorLink { door: d_in_1, triangle: 0 });
+    room.triangles[0].flags |= tri_flags::DOOR;
+    let room_far = room.triangles.len() - 1;
+    room.door_links.push(DoorLink { door: d_in_2, triangle: room_far as u16 });
+    room.triangles[room_far].flags |= tri_flags::DOOR;
+    island2.door_links.push(DoorLink { door: d_out_2, triangle: 0 });
+    island2.triangles[0].flags |= tri_flags::DOOR;
+    let input = [(&island1, Some(CELL_C), Some(C)), (&room, Some(CELL_B), Some(B)), (&island2, Some(CELL_C), Some(C))];
+    let mut nav = NavGraph::assemble(&input);
+    nav.join_doors(&input, |door| match door {
+        d if d == d_out_1 => Some((d_in_1, [5050.0, 5050.0, 0.0], 0.0, B)),
+        d if d == d_in_1 => Some((d_out_1, [10050.0, 10050.0, 0.0], 0.0, C)),
+        d if d == d_in_2 => Some((d_out_2, [12050.0, 10050.0, 0.0], 0.0, C)),
+        d if d == d_out_2 => Some((d_in_2, [5350.0, 5350.0, 0.0], 0.0, B)),
+        _ => None,
+    });
+    // Sanity check: with doors allowed, the pathfinder WOULD route through the load doors into B!
+    let with_doors = nav.find_path(Place { space: C, pos: [10450.0, 10450.0, 0.0] }, Place { space: C, pos: [12200.0, 10200.0, 0.0] }, &fnv_nav::PathParams::default());
+    assert!(with_doors.as_ref().is_ok_and(|p| p.legs.len() == 3), "baseline path crosses load doors into B: {with_doors:?}");
+
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.nav = nav;
+    s.run(1.0);
+    fighting(&mut s, R_SB_NOTHING, [10500.0, 10900.0, 0.0]);
+    s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (2000.0, 2500.0));
+    // Ask for a Flank post on island 2 (only reachable via load doors through B): must be refused!
+    s.game.awareness.tactics.posts.insert(FormId(R_SB_NOTHING), Post { at: [12200.0, 10200.0, 0.0], kind: PostKind::Flank, run: true });
+    s.run(2.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::NoPost { post: PostKind::Flank })), "load-door flank must be refused: {ev:?}");
+    assert!(!s.game.awareness.tactics.posts.contains_key(&FormId(R_SB_NOTHING)));
+    assert_eq!(s.ai.agents[&FormId(R_SB_NOTHING)].walker.space, C, "fighter never left its space through the load door");
+}
