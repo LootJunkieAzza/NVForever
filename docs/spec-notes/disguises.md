@@ -122,3 +122,7 @@ whole faction when a sniffer near the player starts fighting.
   (a turret's or a scripted projectile, or a shooter not in the high process).
 - Reputation's hostility (Vilified NCR attacking on sight) is not built (reputation.md §4);
   when it is, the disguise's reset of the reputations to 0 is what hides it.
+
+## Wave 6D-8 Live Observation (2026-11-25)
+
+- **Multi-faction PC enemy flag interaction (`SetFactionRelation` / `SetPlayerEnemy`)** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8_26_multifaction_precedence_and_disguise_override` (`PROBE|w6d8_26_multifaction_precedence_and_disguise_override|enAl=2 enFr=3 alFr=2 pcFlag=1 pcEnFr=1 pcEnAl=2 pcEnOnly=1 pcClr=0`) and `w6d8p2_26_multifaction_swap_order` (`PROBE|w6d8p2_26_multifaction_swap_order|frAl=2 frPcEn=3 alPcEn=2 sameAlPcEn=1`)]: setting a faction's PC-enemy flag forces `Enemy (1)` when paired with `Friend (3)` on the same faction (`pcEnFr=1`), while an `Ally (2)` pair on a second faction still reports `2` (`pcEnAl=2`, `alPcEn=2`), and clearing the flag restores `Neutral (0)` (`pcClr=0`).

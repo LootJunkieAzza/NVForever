@@ -408,3 +408,7 @@ RemoveAllItemsShowOff.
   [hypothesis: non-actor, melee, and god-mode edge cases unprobed in original ShowOff].
 - Free when no `ShowOff:OnFireWeapon` handler is registered (unmodded vanilla weapon
   firing is unchanged). No ShowOff DLL or source code was consulted.
+
+## Wave 6D-8 Live Observation (2026-11-25)
+
+- **ShowOff `SetOwnershipTemp` REF-to-base normalization and cell mode** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8p2_36_setownershiptemp_fixed`: `PROBE|w6d8p2_36_setownershiptemp_fixed|ret1=1 eqB1=1 isB1=1 ret2=1 eqF2=1 retC=1 co1=1 pco1=1 isCO1=1 coEnd=1`]: passing an actor REF to `SetOwnershipTemp` normalizes to its base `NPC_` (`ret1=1 eqB1=1 isB1=1`), faction ownership succeeds (`ret2=1 eqF2=1`), and cell-mode `SetOwnershipTemp` sets cell ownership visible via `GetOwnerOfCell`, `GetParentCellOwner`, and `IsCellOwner` (`retC=1 co1=1 pco1=1 isCO1=1 coEnd=1`).
