@@ -177,8 +177,9 @@ right after the first), #2701's `full-detail` and #3014's `distant-objects` (Gra
 and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distance, the last
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
-after `resolution`: a list, so before the switch `borderless`), and #3783's `occlusion-culling`
-(Detail and Distance, after `mesh-terrain-blend`; read at the next start). The
+after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start), and `grass-shadows`
+(Graphics › Shadows, after `terrain-shadows`). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
 [observed: #1953], hence Interface there.
 

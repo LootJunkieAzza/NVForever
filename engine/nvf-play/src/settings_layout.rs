@@ -333,7 +333,7 @@ mod shared_table_tests {
     /// shadows row; #2981's authored materials row and its reflections row; #2701's
     /// full-detail scenery row; #3014's distant objects row; #2993's aerial perspective row;
     /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row; #2991's volumetric clouds row; #3783's occlusion culling row; #3032's volumetric light row and its
-    /// strength), by the group it registers with.
+    /// strength; the grass shadows row), by the group it registers with.
     pub(super) const KNOWN: &[(&str, &str)] = &[
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
@@ -447,6 +447,7 @@ mod shared_table_tests {
         ("fine-shadows", "Graphics"),
         ("cloud-shadows", "Graphics"),
         ("terrain-shadows", "Graphics"),
+        ("grass-shadows", "Graphics"),
         ("light-shadows", "Graphics"),
         ("bloom", "Graphics"),
         ("glow", "Graphics"),
@@ -748,6 +749,7 @@ mod shared_table_tests {
         assert_eq!(nvf_settings_layout::needs("terrain-parallax").iter().map(|r| r.parent).collect::<Vec<_>>(), ["authored-materials"], "it draws the authored height maps");
         assert_eq!(at("cloud-shadows"), "Graphics > Shadows", "after Longer sun shadows (#2670)");
         assert_eq!(at("terrain-shadows"), "Graphics > Shadows", "after Cloud shadows (#2671)");
+        assert_eq!(at("grass-shadows"), "Graphics > Shadows", "after Terrain shadows");
         assert_eq!(at("light-shadows"), "Graphics > Shadows", "after Terrain shadows (light_shadows.rs)");
         assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
         assert_eq!(at("volumetric-light"), "Graphics > Lighting and Effects", "with the other experimental effects (#3032)");

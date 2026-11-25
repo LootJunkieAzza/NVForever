@@ -21,8 +21,9 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject, Transform as NifTransform};
 use fnv_nif::{NifFile, Struct, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
+use std::sync::{OnceLock, RwLock};
 
 /// Marks the root of a spawned NIF.
 #[derive(Component)]
@@ -196,6 +197,8 @@ pub(crate) struct Props {
     /// The caller keeps the shape off authored sets (#2981): particle systems, object LOD
     /// (`crate::authored::shape_eligible`).
     pub(crate) no_authored: bool,
+    /// Shape comes from a known foliage model (FLOR/TREE record or botanical NIF path).
+    pub(crate) foliage_model: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -1270,6 +1273,218 @@ pub(crate) fn shape_material_reusing_tangents(
     shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats }, Tangents::Keep)
 }
 
+static FOLIAGE_MODELS: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+
+fn foliage_models() -> &'static RwLock<HashSet<String>> {
+    FOLIAGE_MODELS.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+/// Record a NIF model path used by a `FLOR` or `TREE` base object so all its cutout/double-sided
+/// shapes automatically receive foliage shading and canopy normals regardless of mod folder layout.
+pub fn register_foliage_model(path: &str) {
+    let norm = fnv_vfs::normalize(path);
+    if norm.is_empty() {
+        return;
+    }
+    if let Ok(read) = foliage_models().read() {
+        if read.contains(&norm) {
+            return;
+        }
+    }
+    if let Ok(mut write) = foliage_models().write() {
+        write.insert(norm);
+    }
+}
+
+pub(crate) fn is_registered_foliage_model(path: &str) -> bool {
+    let norm = fnv_vfs::normalize(path);
+    foliage_models().read().is_ok_and(|set| set.contains(&norm))
+}
+
+fn contains_any_token(s: &str, tokens: &[&str]) -> bool {
+    tokens.iter().any(|t| s.contains(t))
+}
+
+fn is_vanilla_foliage_folder(norm: &str) -> bool {
+    norm.contains("textures/landscape/plants/")
+        || norm.contains("textures/plants/")
+        || norm.contains("textures/trees/leaves/")
+        || norm.contains("textures/clutter/plants/")
+}
+
+fn is_non_foliage_folder(norm: &str) -> bool {
+    contains_any_token(
+        norm,
+        &[
+            "architecture/",
+            "weapons/",
+            "armor/",
+            "characters/",
+            "creatures/",
+            "interface/",
+            "effects/",
+            "vehicles/",
+            "furniture/",
+            "sky/",
+            "dungeons/",
+            "interiors/",
+            "pipboy",
+            "signs/",
+            "clutter/junk/",
+        ],
+    )
+}
+
+fn is_bark_or_non_foliage(path: &str) -> bool {
+    let norm = path.replace('\\', "/").to_ascii_lowercase();
+    contains_any_token(
+        &norm,
+        &[
+            "bark",
+            "trunk",
+            "stump",
+            "/log.",
+            "/log_",
+            "_log",
+            "logs/",
+            "trees/branches/",
+            "planter",
+            "/pot.",
+            "/pot_",
+            "_pot",
+            "pots/",
+            "characters/",
+            "eyes/",
+            "eyecubemap",
+            "skin",
+            "hair",
+            "metal",
+            "concrete",
+            "brick",
+            "plaster",
+            "powerplant",
+            "implant",
+            "vinegar",
+            "casino",
+            "fence",
+            "crate",
+            "sign",
+            "landscape/dirt",
+            "landscape/rock",
+            "clutter/wood",
+            "wood/",
+            "_wood",
+            "/wood.",
+            "/wood_",
+        ],
+    )
+}
+
+/// Whether a NIF diffuse path belongs to placed foliage (plants, shrubs, leaves) that
+/// should receive backlit translucency when `NVF_SSS=1`.
+pub(crate) fn is_foliage_texture(path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    let norm = path.replace('\\', "/").to_ascii_lowercase();
+    if is_bark_or_non_foliage(&norm) {
+        return false;
+    }
+    if is_vanilla_foliage_folder(&norm) {
+        return true;
+    }
+    if is_non_foliage_folder(&norm) {
+        return false;
+    }
+    contains_any_token(
+        &norm,
+        &[
+            "plants/",
+            "flora/",
+            "foliage/",
+            "leaves/",
+            "shrubs/",
+            "bushes/",
+            "grass/",
+            "bush",
+            "shrub",
+            "leaves",
+            "leaf",
+            "foliage",
+            "fern",
+            "flora",
+            "yucca",
+            "joshua",
+            "creosote",
+            "sagebrush",
+            "agave",
+            "frond",
+            "tumbleweed",
+            "bramble",
+            "mesquite",
+            "ocotillo",
+            "pinyon",
+            "juniper",
+            "canopy",
+            "cattail",
+            "hedge",
+            "clover",
+            "pricklypear",
+            "barrelcactus",
+            "cactus",
+            "ivy",
+            "grass",
+        ],
+    )
+}
+
+/// Whether a NIF path itself is a known vegetation model (registered `FLOR`/`TREE` record or
+/// botanical NIF path outside LOD/wood).
+pub(crate) fn is_foliage_model_path(path: &str) -> bool {
+    if is_registered_foliage_model(path) {
+        return true;
+    }
+    let norm = path.replace('\\', "/").to_ascii_lowercase();
+    if norm.contains("lod") || is_non_foliage_folder(&norm) || is_bark_or_non_foliage(&norm) {
+        return false;
+    }
+    contains_any_token(
+        &norm,
+        &[
+            "plants/",
+            "trees/",
+            "flora/",
+            "foliage/",
+            "shrub",
+            "bush",
+            "fern",
+            "yucca",
+            "joshua",
+            "creosote",
+            "sagebrush",
+            "agave",
+            "tumbleweed",
+            "cactus",
+            "mesquite",
+            "ocotillo",
+            "pinyon",
+            "juniper",
+        ],
+    )
+}
+
+fn is_foliage_shape(props: &Props, diffuse: Option<&str>, alpha_mode: AlphaMode, cutout: Option<f32>) -> bool {
+    if props.skin || props.hair || props.unlit || props.decal || props.lod_building || props.refraction.is_some() {
+        return false;
+    }
+    if diffuse.is_some_and(is_bark_or_non_foliage) {
+        return false;
+    }
+    let vanilla_folder = diffuse.is_some_and(|d| is_vanilla_foliage_folder(&d.replace('\\', "/").to_ascii_lowercase()));
+    let is_card = matches!(alpha_mode, AlphaMode::Mask(_)) || cutout.is_some() || props.double_sided;
+    vanilla_folder || (is_card && (diffuse.is_some_and(is_foliage_texture) || props.foliage_model))
+}
+
 /// [`shape_material`] with its textures from `textures` and the normal map's tangents from
 /// `tangents`: the static models (`crate::model`) give the ones stored in the shape's data
 /// block ([`crate::tangents`]); every other caller generates them (or keeps them,
@@ -1432,6 +1647,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         unlit_vertex_colors(&mut material);
     }
     material.extension.decal = props.decal;
+    material.extension.foliage = is_foliage_shape(props, diffuse.map(String::as_str), alpha_mode, cutout);
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
     }
@@ -3476,5 +3692,63 @@ mod bc5_material_tests {
             };
             assert_eq!(props_cull(&props), expected, "load-time props_cull must match stencil_cull for mode {mode}");
         }
+    }
+
+    #[test]
+    fn foliage_texture_classification_matches_plants_and_leaves_only() {
+        for yes in [
+            r"textures\landscape\plants\maize_d.dds",
+            r"textures\landscape\plants\woodlandfern01.dds",
+            r"Data\Textures\Landscape\Plants\JoshuaTree01.dds",
+            r"textures\plants\yucca01.dds",
+            r"textures\trees\leaves\NVTreeLeaves.dds",
+            r"textures/clutter/plants/fern01.dds",
+            r"textures\wfo\flora\creosote_branch_d.dds",
+            r"textures\mods\mojaveflora\joshua_fronds.dds",
+            r"textures\mods\desert\sagebrush_d.dds",
+        ] {
+            assert!(is_foliage_texture(yes), "expected foliage: {yes}");
+        }
+        for no in [
+            r"textures\trees\branches\bark01.dds",
+            r"textures\wfo\bark\pinebark_d.dds",
+            r"textures\landscape\dirt01.dds",
+            r"textures\landscape\rock01.dds",
+            r"textures\characters\male\headhuman.dds",
+            r"textures\clutter\metal\tincan.dds",
+            r"textures\architecture\powerplant\wall01.dds",
+            r"textures\clutter\wine_vinegar.dds",
+            r"textures\signs\message01.dds",
+            r"textures\architecture\palmcasino\trim.dds",
+            r"textures\weapons\pine_wood.dds",
+            "",
+        ] {
+            assert!(!is_foliage_texture(no), "unexpected foliage: {no}");
+        }
+
+        register_foliage_model(r"meshes\mods\customflora\desertshrub99.nif");
+        assert!(is_registered_foliage_model(r"meshes/Mods/CustomFlora/DesertShrub99.NIF"));
+        assert!(is_foliage_model_path(r"meshes\mods\customflora\desertshrub99.nif"));
+
+        let flor_props = Props {
+            foliage_model: true,
+            double_sided: true,
+            textures: vec![r"textures\custompack\exotic01.dds".into()],
+            ..Default::default()
+        };
+        assert!(is_foliage_shape(&flor_props, flor_props.textures.first().map(String::as_str), AlphaMode::Mask(0.5), None));
+        let opaque_flor_props = Props {
+            foliage_model: true,
+            double_sided: false,
+            textures: vec![r"textures\custompack\exotic01.dds".into()],
+            ..Default::default()
+        };
+        assert!(!is_foliage_shape(&opaque_flor_props, opaque_flor_props.textures.first().map(String::as_str), AlphaMode::Opaque, None));
+        let bark_props = Props {
+            foliage_model: true,
+            textures: vec![r"textures\custompack\oak_bark.dds".into()],
+            ..Default::default()
+        };
+        assert!(!is_foliage_shape(&bark_props, bark_props.textures.first().map(String::as_str), AlphaMode::Opaque, None));
     }
 }

@@ -554,6 +554,7 @@ impl From<&NifSurfaceBlendColour> for NifSurfaceBlendKey {
             // An object blended into the landscape, not a landscape layer: bevy_pbr's rule
             // decides its ambient occlusion.
             terrain_layer: false,
+            foliage: false,
             // A soft distance, as in the ordinary type's key (NVF_SOFT_FADE, #2868).
             soft: s.soft.x > 0.0,
             // HDR output, as in the ordinary type's key (a live switch prepares both again).

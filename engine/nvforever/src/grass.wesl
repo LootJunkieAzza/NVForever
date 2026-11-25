@@ -104,6 +104,11 @@ fn deform(base: vec3<f32>, uv_b: vec2<f32>, wind: vec4<f32>, motion: vec4<f32>, 
     let t = time * motion.x;
     let swing = 0.5 + 0.35 * sin(t - phase) + 0.15 * sin(2.31 * t - 1.7 * phase);
     world += along * (wind.w * uv_b.x * swing);
+    // The sun's shadow pass (orthographic) draws the plants as they stand: its camera is
+    // the light's, whose distance says nothing about the grass distance.
+    @if(VIEW_PROJECTION_ORTHOGRAPHIC)
+    let far = 0.0;
+    @if(!VIEW_PROJECTION_ORTHOGRAPHIC)
     let far = clamp((distance(camera, world) - motion.y) / motion.z, 0.0, 1.0);
     let gone = max(far, saturate(burn * 2.0 - 1.0));
     world.y -= gone * (uv_b.y + SINK);

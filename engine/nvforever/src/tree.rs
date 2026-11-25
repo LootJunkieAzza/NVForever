@@ -123,6 +123,8 @@ impl MaterialExtension for LeafCards {
         descriptor.vertex.shader_defs.push("TREE_LEAVES".into());
         // Trees fade in and out with their cells (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        // The sun's shadow from the cards, thickened under the Grass shadows row.
+        nvf_assets::foliage_shadow_prepass(descriptor, key.mesh_key);
         nvf_assets::soft_edges(descriptor, key.mesh_key);
         if !LEAVES_READ_AMBIENT_OCCLUSION {
             nvf_assets::ambient_occlusion_opt_out(descriptor);
