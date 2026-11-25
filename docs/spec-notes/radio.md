@@ -118,7 +118,6 @@ conditions are run on.
   the Pip-Boy's file [documented: Creating Radio Stations: "This mono file will be what is
   played out of speakers and radios in-game"]. All 48 loose MP3s in
   `Data\Sound\songs\radionv\` have a `<name>_mono.ogg` in `Fallout - Sound.bsa`
-- **Bare `GetAvailableRadios` parity** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`, `w6d9_20_radio_broadcast_state_and_station_lists`: `PROBE|w6d9_20_radio_broadcast_state_and_station_lists|isRad(1,0)|bcast(rnv=0->0->0,emg=0)|all=29|avail(pl=1,bare=1)`; no DLL, PDB, or third-party source consulted]: calling `GetAvailableRadios` without an explicit calling reference returns the same Pip-Boy station list as `Player.GetAvailableRadios`.
   [observed].
 - **DJ lines** have no sound and are voice files in the station's voice type (Mr. New
   Vegas: `sound\voice\falloutnv.esm\maleuniquemrnewvegas\radionewvegas_…`).
@@ -355,6 +354,7 @@ No texts are printed.
   [observed]. The engine looks at every radio each frame, so it is only counted
   [design].
 - `SetRadioToDialogueOnlyMode`: not called by the masters' scripts; not built.
+- **Bare `GetAvailableRadios` parity** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`, `w6d9_20_radio_broadcast_state_and_station_lists`: `PROBE|w6d9_20_radio_broadcast_state_and_station_lists|isRad(1,0)|bcast(rnv=0->0->0,emg=0)|all=29|avail(pl=1,bare=1)`; no DLL, PDB, or third-party source consulted]: calling `GetAvailableRadios` without an explicit calling reference returns the same Pip-Boy station list as `Player.GetAvailableRadios`.
 
 ## 10. Loudness: what the data says
 
