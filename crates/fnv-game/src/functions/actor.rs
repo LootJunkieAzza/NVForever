@@ -461,7 +461,9 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         shift_growing(g, r, code, a.num(1)?)?;
         return none();
     }
-    let amount = a.num(1)?;
+    // Negative amounts damage by their magnitude [observed 2026-11-25:
+    // w6d7_01_av_four_pools_set_mod_force_dmg_rest, dmgNeg1(4.0), hp dNeg10=-5.0].
+    let amount = a.num(1)?.abs();
     // God mode (`god_keeps_whole`) and JIP `ToggleImmortalMode 2` (for Health) keep
     // scripted `DamageActorValue` from hurting the player [observed: Fallout: New Vegas
     // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, probe jip_45_immortal_mode_damageav_bypass:
@@ -508,7 +510,9 @@ pub fn restore_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
         shift_growing(g, r, code, -a.num(1)?.max(0.0))?;
         return none();
     }
-    let d = damage(g, r, code) - a.num(1)?.max(0.0);
+    // Negative amounts restore by their magnitude [observed 2026-11-25:
+    // w6d7_01_av_four_pools_set_mod_force_dmg_rest, restNeg2(6.0), hp rNeg5=0.0].
+    let d = damage(g, r, code) - a.num(1)?.abs();
     set_damage(g, r, code, d);
     none()
 }

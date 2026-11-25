@@ -283,3 +283,6 @@ between portable source behavior and unmeasured native behavior are recorded in
 [player source commands](player-source-commands.md). Portable controls passed for c4
 in hosted composite `23388a32d`; revision-specific results are recorded in PR #2772.
 No additional original-game observation is claimed.
+
+### `DamageActorValue` and `RestoreActorValue` sign handling (`w6d7_01`)
+- **Absolute magnitude on negative arguments** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_01_av_four_pools_set_mod_force_dmg_rest` in `tools/capture/nvse/catalogs/wave6d7_damage_restore_abs.json`]: on both `Strength` and `Health`, negative `DamageAV` still applies damage (`dmgNeg1(4.0)` from `5.0`, `hp dNeg10=-5.0` from `5.0`) and negative `RestoreAV` still restores damage (`restNeg2(6.0)` from `4.0`, `hp rNeg5=0.0` from `-5.0`) (`PROBE|w6d7_01_av_four_pools_set_mod_force_dmg_rest|init(6.0,6.0,6.0)|set6mod2(6.0,8.0,8.0)|dmg3(p=8.0,c=5.0)|dmgNeg1(4.0)|restNeg2(6.0)|rest5(8.0)|force4(6.0,4.0,4.0)|hp(d20=5.0,dNeg10=-5.0,rNeg5=0.0)`).

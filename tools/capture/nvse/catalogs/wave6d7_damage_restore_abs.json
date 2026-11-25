@@ -1,0 +1,98 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_damage_restore_abs",
+  "description": "Wave 6D-7 read-only console probe for AV four-pool mutations and negative DamageAV/RestoreAV arguments.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_damage_restore_abs",
+      "title": "Wave 6D-7: DamageAV and RestoreAV negative argument magnitude",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_01_av_four_pools_set_mod_force_dmg_rest",
+          "bucket": "actor_values_pools",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 145,
+          "functions_tested": [
+            "GetAV",
+            "GetBaseAV",
+            "GetPermAV",
+            "SetAV",
+            "ModAV",
+            "ForceAV",
+            "DamageAV",
+            "RestoreAV"
+          ],
+          "claim": "SD-02(c): Verify 4 AV pool transitions across SetAV, ModAV, ForceAV, positive/negative DamageAV, and positive/negative RestoreAV on Strength and Health.",
+          "expected": "Record Base/Perm/Cur after each operation including negative DamageAV (heal vs noop) and negative RestoreAV (clamped vs damage).",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 120 0",
+            "float fB0 = rNpc.GetBaseAV Strength",
+            "float fP0 = rNpc.GetPermAV Strength",
+            "float fC0 = rNpc.GetAV Strength",
+            "rNpc.SetAV Strength 6",
+            "rNpc.ModAV Strength 2",
+            "float fB1 = rNpc.GetBaseAV Strength",
+            "float fP1 = rNpc.GetPermAV Strength",
+            "float fC1 = rNpc.GetAV Strength",
+            "rNpc.DamageAV Strength 3",
+            "float fP2 = rNpc.GetPermAV Strength",
+            "float fC2 = rNpc.GetAV Strength",
+            "rNpc.DamageAV Strength -1",
+            "float fC3 = rNpc.GetAV Strength",
+            "rNpc.RestoreAV Strength -2",
+            "float fC4 = rNpc.GetAV Strength",
+            "rNpc.RestoreAV Strength 5",
+            "float fC5 = rNpc.GetAV Strength",
+            "rNpc.ForceAV Strength 4",
+            "float fB6 = rNpc.GetBaseAV Strength",
+            "float fP6 = rNpc.GetPermAV Strength",
+            "float fC6 = rNpc.GetAV Strength",
+            "rNpc.DamageAV Health 20",
+            "float fHp1 = rNpc.GetAV Health",
+            "rNpc.DamageAV Health -10",
+            "float fHp2 = rNpc.GetAV Health",
+            "rNpc.RestoreAV Health -5",
+            "float fHp3 = rNpc.GetAV Health",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "string_var sOut = sv_Construct \"PROBE|w6d7_01_av_four_pools_set_mod_force_dmg_rest|init(%.1f,%.1f,%.1f)|set6mod2(%.1f,%.1f,%.1f)\" fB0 fP0 fC0 fB1 fP1 fC1",
+            "let sOut += sv_Construct \"|dmg3(p=%.1f,c=%.1f)|dmgNeg1(%.1f)|restNeg2(%.1f)|rest5(%.1f)\" fP2 fC2 fC3 fC4 fC5",
+            "let sOut += sv_Construct \"|force4(%.1f,%.1f,%.1f)|hp(d20=%.1f,dNeg10=%.1f,rNeg5=%.1f)\" fB6 fP6 fC6 fHp1 fHp2 fHp3",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        }
+      ]
+    }
+  ]
+}

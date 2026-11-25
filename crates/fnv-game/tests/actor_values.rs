@@ -525,3 +525,21 @@ fn speed_mult_scales_the_players_speed() {
     call(&mut g, MOD, PLAYER, &[code(av::SPEED_MULTIPLIER), n(-500.0)]);
     assert_eq!(g.move_speed_mult(p), 0.0);
 }
+
+#[test]
+fn damage_and_restore_actor_value_use_absolute_magnitude_for_negative_args() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, SET, GUARD_REF, &[code(av::STRENGTH), n(6.0)]);
+    call(&mut g, MOD, GUARD_REF, &[code(av::STRENGTH), n(2.0)]);
+    call(&mut g, DAMAGE, GUARD_REF, &[code(av::STRENGTH), n(3.0)]);
+    assert_eq!(get(&mut g, GUARD_REF, av::STRENGTH), 5.0);
+    // Negative DamageAV still damages by abs(amount).
+    call(&mut g, DAMAGE, GUARD_REF, &[code(av::STRENGTH), n(-1.0)]);
+    assert_eq!(get(&mut g, GUARD_REF, av::STRENGTH), 4.0);
+    // Negative RestoreAV still restores by abs(amount).
+    call(&mut g, RESTORE, GUARD_REF, &[code(av::STRENGTH), n(-2.0)]);
+    assert_eq!(get(&mut g, GUARD_REF, av::STRENGTH), 6.0);
+    call(&mut g, RESTORE, GUARD_REF, &[code(av::STRENGTH), n(5.0)]);
+    assert_eq!(get(&mut g, GUARD_REF, av::STRENGTH), 8.0);
+}
