@@ -373,9 +373,23 @@ commands that touch the menus, the sky or the minimap ran one per launch].
   future lab result may differ. This is not renderer or native-call qualification.
 - **GetBodyPartVATSTarget** did not compile into a number; NVForever gives "".
 
+- **GetWorldMapPosMults** `ref.GetWorldMapPosMults fX fY`: returns `0` and writes the
+  reference's normalized world-map coordinates `(u, v)` into the two float out-variables
+  for exterior references (matching `WorldMap::uv` with `MAP_SPAN = 51/64` and `CELL =
+  4096.0` over `WRLD MNAM` cell bounds), while leaving caller out-variables untouched on
+  interior references [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30, probes
+  `w6d4_13_get_world_map_pos_mults_outvars` and `w6d4p3_13c_world_map_pos_mults_4markers`
+  (`tools/capture/nvse/catalogs/wave6d4_world_map_pos_mults.json`):
+  `PROBE|w6d4_13_get_world_map_pos_mults_outvars|p(r=0,-9.0000,-9.0000)|d(r=0,-9.0000,-9.0000)|m(r=0,0.3323,0.5636)`
+  and
+  `PROBE|w6d4p3_13c_world_map_pos_mults_4markers|gs(-70992,2560->0.3323,0.5636)|nel(34322,125976->0.6682,0.1701)|srch(26319,-96652->0.6427,0.8800)|nov(22205,-32624->0.6296,0.6758)`].
+  Child worldspace `ONAM` map-scale/offset inheritance and worldspaces lacking `MNAM`
+  bounds leaving caller out-vars unchanged remain [hypothesis]; clamping degenerate
+  cell spans to `>= 1` is [design].
+
 **No argument pattern compiled**, so the shape is unknown. These get optional arguments
 and answer 0 or "": CCCTaskPackageFlags, GetCameraMovement, GetTranslatedPos,
-GetWorldMapPosMults, TransformWorldToLocal.
+TransformWorldToLocal.
 
 ## 10. Where this leaves the catalogue
 

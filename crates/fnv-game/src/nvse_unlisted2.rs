@@ -404,8 +404,46 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         | "suppressquestmessages" | "unlockrecipemenuquantity" | "setitemfilter" | "settexturetransformkey" | "clearmodelalttextures"
         | "initrockitlauncher" | "enableimprovedrecipemenu" | "setwindspeedmult" | "swapobjectlod" | "scrollmousewheel"
         | "inititemfilter" | "initminimap" | "updateminimap" | "reloadcharcontroller" | "reloadcloudtextures"
-        | "resetclouds" | "executescript" | "showlevelupmenuex" | "ccctaskpackageflags" | "gettranslatedpos" | "getworldmapposmults"
+        | "resetclouds" | "executescript" | "showlevelupmenuex" | "ccctaskpackageflags" | "gettranslatedpos"
         | "transformworldtolocal" => XVal::Num(0.0),
+        // `ref.GetWorldMapPosMults fX fY`: returns 0 and writes the reference's normalized
+        // world-map `(u, v)` (matching `WorldMap::uv`, `MAP_SPAN = 51/64`, `CELL = 4096.0`)
+        // into the two float out-vars when the reference sits in an exterior worldspace with
+        // `MNAM` map bounds; on interior references (or missing bounds), returns 0 without
+        // modifying the caller's out-vars [observed: 2026-11-25, `GSDocMitchellHouse`
+        // (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+        // `w6d4_13_get_world_map_pos_mults_outvars` (`p(r=0,-9.0000,-9.0000)|d(r=0,-9.0000,-9.0000)|m(r=0,0.3323,0.5636)`)
+        // and `w6d4p3_13c_world_map_pos_mults_4markers` (`gs(-70992,2560->0.3323,0.5636)|nel(34322,125976->0.6682,0.1701)|srch(26319,-96652->0.6427,0.8800)|nov(22205,-32624->0.6296,0.6758)`);
+        // hypothesis: child worldspace `ONAM` map-scale/offset inheritance and worldspaces
+        // without `MNAM` bounds leave out-vars unchanged; design: clamp cell span to >= 1].
+        "getworldmapposmults" => {
+            let uv = subject.and_then(|r| {
+                let cell = g.cell_of(r)?;
+                let world = g.world.placed.world_of(cell)?;
+                let [nw_x, nw_y, se_x, se_y] = g.world_map_bounds(world)?;
+                let (pos, _) = g.ref_pos_rot(r)?;
+                const CELL: f64 = 4096.0;
+                const MAP_SPAN: f64 = 51.0 / 64.0;
+                let across = f64::from((se_x - nw_x + 1).max(1));
+                let down = f64::from((nw_y - se_y + 1).max(1));
+                let cx = (f64::from(pos[0]) / CELL - f64::from(nw_x)) / across;
+                let cy = (f64::from(nw_y + 1) - f64::from(pos[1]) / CELL) / down;
+                let u = 0.5 + MAP_SPAN * (cx - 0.5);
+                let v = 0.5 + MAP_SPAN * (cy - 0.5);
+                Some((u, v))
+            });
+            match uv {
+                Some((u, v)) => {
+                    let entries = vec![
+                        (fnv_script::vm::XKey::Num(0.0), XVal::Num(0.0)),
+                        (fnv_script::vm::XKey::Num(1.0), XVal::Num(u)),
+                        (fnv_script::vm::XKey::Num(2.0), XVal::Num(v)),
+                    ];
+                    XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+                }
+                None => XVal::Num(0.0),
+            }
+        }
         // 1 in a game started from the New Game menu until a save is loaded [observed:
         // rest1.isnewgame 0 in a loaded save; hypothesis: the rest] (§5).
         "isnewgame" => XVal::Num(f64::from(u8::from(g.other.unlisted2.new_game))),

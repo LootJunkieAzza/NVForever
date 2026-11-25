@@ -627,7 +627,7 @@ PAGELESS += [
     _x("ReloadCharController", _J, "int", ref="reference"), _x("ReloadCloudTextures", _J, "int"), _x("ResetClouds", _J, "int"),
     _x("ExecuteScript", _J, "int"), _x("ShowLevelUpMenuEx", _J, "int", [_I("mode")]),
     _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "string_var", list(_ANY)),
-    _x("GetTranslatedPos", _J, "int", list(_ANY)), _x("GetWorldMapPosMults", _J, "int", list(_ANY)),
+    _x("GetTranslatedPos", _J, "int", list(_ANY)), _x("GetWorldMapPosMults", _J, "int", [_F("fX"), _F("fY")], ref="reference"),
     _x("TransformWorldToLocal", _J, "int", list(_ANY)),
 ]
 
