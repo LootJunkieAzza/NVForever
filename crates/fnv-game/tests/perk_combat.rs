@@ -481,4 +481,35 @@ fn equal_priority_perk_entries_execute_in_lifo_add_order() {
     perks::gain_rank(&mut g, p_add);
     perks::gain_rank(&mut g, p_mul);
     assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 13.0).abs() < 1e-6);
+
+    // Cross-writer sync: RemoveAllPerks clears perk_order alongside player.perks so
+    // re-adding in the opposite order does not inherit stale LIFO positions.
+    g.run_query("Begin Function { }\nPlayerREF.RemoveAllPerks\nEnd\n", Default::default()).unwrap();
+    assert!(g.player.perks.is_empty());
+    assert!(g.player.perk_order.is_empty());
+    perks::gain_rank(&mut g, p_set);
+    perks::gain_rank(&mut g, p_add);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 0.0).abs() < 1e-6);
+
+    // Cross-writer sync: TraitSheet::apply pushes newly chosen traits and removes dropped
+    // traits from perk_order.
+    g.run_query("Begin Function { }\nPlayerREF.RemoveAllPerks\nEnd\n", Default::default()).unwrap();
+    let mut sheet = fnv_game::chargen::TraitSheet {
+        traits: vec![p_add, p_set],
+        chosen: [p_add].into_iter().collect(),
+        max: 2,
+        free: None,
+    };
+    sheet.apply(&mut g);
+    assert_eq!(g.player.perk_order, vec![p_add]);
+    // Choosing p_set second pushes it after p_add -> LIFO runs p_set (0) then p_add (+1) => 1.0.
+    sheet.chosen.insert(p_set);
+    sheet.apply(&mut g);
+    assert_eq!(g.player.perk_order, vec![p_add, p_set]);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 1.0).abs() < 1e-6);
+    // Dropping p_set removes it from both perks and perk_order -> only p_add (+1) => 11.0.
+    sheet.chosen.remove(&p_set);
+    sheet.apply(&mut g);
+    assert_eq!(g.player.perk_order, vec![p_add]);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 11.0).abs() < 1e-6);
 }
