@@ -208,8 +208,8 @@ fn angles_of(m: &Mat) -> [f32; 3] {
 /// The material code's place in JIP's table, 0 stone, 1 dirt, 2 grass, 3 glass, 4 metal,
 /// 5 wood, 6 organic, 7 cloth, 8 water, 9 hollow metal [documented: GetGroundMaterial],
 /// by the impact material the collision code (nif.xml's `Fallout3HavokMaterial`, mod 32)
-/// stands for: the table of `fnv_combat::fx::impact_material` [hypothesis, from the
-/// names]; no code (terrain) dirt.
+/// stands for: the table of `fnv_combat::fx::impact_material` (see
+/// docs/spec-notes/jip-physics-13.md §2); no code (terrain) dirt.
 pub fn material_id(code: Option<u32>) -> i32 {
     let Some(code) = code else { return 1 };
     match code % 32 {
@@ -346,7 +346,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     let v = match name {
         // ---- the collision objects' velocities ----
         // On the node's moving body, in revolutions a second [documented]; world axes
-        // for the one-axis getter [hypothesis].
+        // for the one-axis getter (see docs/spec-notes/jip-physics-13.md §1).
         "getangularvelocity" | "getangvel" => {
             let (Some(r), Some(node), Some(a)) = (subject, text(args, 0), axis(args, 1)) else { return Some(Ok(zero)) };
             match g.moving_body(r, &node) {
@@ -555,7 +555,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- pushes ----
         // Knocked down and thrown away from (or, negative, toward) the actor's place moved
         // by the offsets [documented]; not the dead [documented]. The speed is
-        // PushActorAway's for the force [hypothesis].
+        // PushActorAway's for the force (see docs/spec-notes/jip-physics-13.md §3).
         "pushactorawayalt" => {
             let (Some(r), Some(force)) = (subject, num(args, 0)) else { return Some(Ok(zero)) };
             if g.is_dead(r) {
@@ -571,7 +571,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // Along a Z angle, or away from a reference [documented], without a fall; the
-        // speed is PushActorAway's for the force [hypothesis].
+        // speed is PushActorAway's for the force (see docs/spec-notes/jip-physics-13.md §3).
         "pushactornoragdoll" => {
             let (Some(r), Some(force)) = (subject, num(args, 0)) else { return Some(Ok(zero)) };
             let dir = match form(args, 2).and_then(|o| g.ref_pos_rot(o)).zip(g.ref_pos_rot(r)) {
@@ -618,7 +618,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // ---- moves ----
         // To the node's place in the target's 3D, plus the offsets [documented]; 0 while
-        // the target's 3D is not known yet (its first ask) [hypothesis].
+        // the target's 3D is not known yet (its first ask; see docs/spec-notes/jip-physics-13.md §4).
         "movetonode" => {
             let (Some(r), Some(t), Some(node)) = (subject, form(args, 0), text(args, 1)) else { return Some(Ok(zero)) };
             let Some((pos, _)) = node_place(g, t, &node, true) else { return Some(Ok(zero)) };
@@ -628,7 +628,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             yes(true)
         }
         // To the reticle's point within the range (10,000 by default) [documented]; 0
-        // when it points at nothing within it [hypothesis].
+        // when it points at nothing within it (see docs/spec-notes/jip-physics-13.md §4).
         "movetoreticle" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let range = num(args, 0).filter(|&x| x > 0.0).unwrap_or(10_000.0) as f32;
@@ -723,8 +723,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // The reference kept at the target's node (its root without one), its angles too
         // (1), raised by the offset [documented: the arguments]; without a target it is let
-        // go [hypothesis: the page says only "moves the calling reference to a specified
-        // node"; kept there frame after frame as the angles lock suggests].
+        // go (see docs/spec-notes/jip-physics-13.md §4).
         "synchronizeposition" | "syncpos" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             match form(args, 0) {
