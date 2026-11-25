@@ -6,7 +6,7 @@ use fnv_ui::{MemSource, Ui, Value};
 use crate::common;
 
 // Columns are 4:3, 16:10 and 16:9. The half-unit reticle offset follows the
-// truncated middle [hypothesis: hud.md §14, its child's 607.5/735.5/820.5].
+// truncated middle (see docs/spec-notes/hud.md §14, its child's 607.5/735.5/820.5).
 const PLACES: &[(&str, [f64; 3], f64)] = &[
     ("HitPoints", [40.0, 40.0, 40.0], 803.0),
     ("ActionPoints", [894.0, 1150.0, 1320.0], 803.0),
@@ -434,7 +434,7 @@ fn copy_tree(omit: &[&str]) -> Ui {
     ui
 }
 
-// Ordering [observed: hud.md §14–§14.4]; uncaptured names [hypothesis: hud.md §14.6].
+// Ordering [observed: hud.md §14–§14.4]; uncaptured names (see docs/spec-notes/hud.md §14.6).
 fn assert_copy_paths(ui: &Ui) {
     for (parent, names) in [
         ("HitPoints", &["compass_window", "justify_left_text", "meter", "left_bracket"][..]),

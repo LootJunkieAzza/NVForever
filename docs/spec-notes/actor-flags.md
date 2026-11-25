@@ -69,6 +69,17 @@ prompt says Talk) when it has the flag and a greeting to say. Before, the greeti
 decided ([hypothesis: both]; the CREA page is not in the wiki export). It is read from the
 definition supplying its base data. As before, a hostile creature only shows its name.
 
+A living non-hostile creature shown by name only (`Action::Name`) whose script carries an
+`OnActivate` block still runs that block on E (`script_activate_by_hand`, #3669; e.g.
+`CRBrahminScript` brahmin pushing [documented: GECK wiki PlayIdle uses the Brahmin Push as
+its activation example]). The name-only prompt stays, and the default activation behind
+the block stays "nothing": if the block falls through to plain `Activate` on the living
+creature (e.g. standing or with a weapon out), any resulting `Outcome::Talk` on that
+creature is suppressed so it neither opens a conversation nor posts a "has nothing to say"
+message [design: preserves playtest list 4 item 19 and #3669]. Dead creatures keep
+`Action::Search`, creatures without an `OnActivate` block are unchanged, and hostile
+actors keep #2536's rule.
+
 ## 5. NPC_ NAM6 Height
 
 0 on 2,601 NPCs and 1.0 on 1,124; the rest lie between 0.85 and 1.1. The drawn scale of an
