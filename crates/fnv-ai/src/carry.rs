@@ -1234,6 +1234,14 @@ impl Ai {
         let Some(place) = goal::place_of_ref(game, actor) else { return };
         // From the new place a package set aside as out of reach may be reachable (#3472).
         game.unblock_packages_of(actor);
+        let old_space = self.agents.get(&actor).map(|a| a.walker.space);
+        if old_space.is_some_and(|s| s != place.space) {
+            // Alarms carry coordinates without a space; moving to another space leaves
+            // old-space search points invalid (#3031) [design].
+            game.clear_stale_space_alarms(actor);
+        } else {
+            game.awareness.unreachable_noticed.retain(|&(a, _), _| a != actor);
+        }
         let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
         self.script_moved.insert(actor, game.time);
         self.set_using(game, actor, None);

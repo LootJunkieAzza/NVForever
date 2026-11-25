@@ -287,11 +287,14 @@ pub enum Search {
     /// `centre` for `owner`'s alarm that was at `alarm` then; `points` searched of this
     /// complete search [design: `Ai::search_at`].
     Going { owner: FormId, to: [f32; 3], since: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
-    /// Looking about at `at` until `until` for `owner`'s alarm [design: `Ai::alert_step`].
-    Looking { owner: FormId, at: [f32; 3], until: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
-    /// [design, #2010] Finished its shares: wait for the party, another alarm or
-    /// Normal. Keep the search marker so `Ai::search_over` returns to the package.
-    Waiting,
+    /// Looking about at `at` until `until` for `owner`'s alarm; `walked` is whether at
+    /// least one point of this search planned a navmesh path [design: `Ai::alert_step`,
+    /// #3031].
+    Looking { owner: FormId, at: [f32; 3], until: f64, centre: [f32; 3], alarm: [f32; 3], points: u32, walked: bool },
+    /// [design, #2010, #3031] Finished its shares for `owner`: wait for the party,
+    /// another alarm or Normal. Keep the search marker so `Ai::search_over` returns to
+    /// the package.
+    Waiting { owner: FormId },
     /// In Combat: standing, facing its target.
     Holding { target: FormId },
     /// In Normal, giving aggro radius or trespass warnings: standing, facing whom it warns.
@@ -545,7 +548,7 @@ impl Ai {
         if aw.state == State::Lost && game.searches_done(actor, alarm.owner) >= game.group_settings().remove_search_count {
             game.searched_once(actor, alarm.owner);
             let a = self.agents.get_mut(&actor).expect("listed");
-            a.search = Some(Search::Waiting);
+            a.search = Some(Search::Waiting { owner: alarm.owner });
             a.walker.follower = None;
             a.activity = Activity::There;
             return true;
@@ -555,6 +558,10 @@ impl Ai {
         let centre_for = |feet: [f32; 3]| if alarm.cause == Cause::Noticed { midway(feet, alarm.at) } else { alarm.at };
         let feet = a.walker.feet;
         match a.search {
+            // [design, #3031] Keep waiting for `settle_awareness` (or a Lost party) on
+            // the alarm owner just finished, instead of restarting `search_at` every
+            // frame and looping `SearchLook` indefinitely.
+            Some(Search::Waiting { owner }) if owner == alarm.owner => {}
             // [design, #2010] Point progress belongs to one alarm owner, even when
             // a replacement alarm is within RECENTRE of the previous one.
             Some(Search::Going { owner, to, since, centre, alarm: was, points }) if owner == alarm.owner => {
@@ -562,44 +569,61 @@ impl Ai {
                     let a = self.agents.get_mut(&actor).expect("listed");
                     a.walker.follower = None;
                     a.activity = Activity::There;
-                    a.search = Some(Search::Looking { owner, at: to, until: now + LOOK_SECONDS, centre, alarm: was, points });
+                    a.search = Some(Search::Looking { owner, at: to, until: now + LOOK_SECONDS, centre, alarm: was, points, walked: true });
                     self.log(game, actor, AiEvent::SearchLook { at: to, seconds: LOOK_SECONDS as f32 });
                 }
             }
-            Some(Search::Looking { owner, until, centre, alarm: was, points, .. }) if owner == alarm.owner => {
+            Some(Search::Looking { owner, until, centre, alarm: was, points, walked, .. }) if owner == alarm.owner => {
                 self.face(game, actor, Place { space, pos: alarm.at }, dt);
                 if now >= until {
-                    if goal::dist(was, alarm.at) > RECENTRE {
+                    let moved = goal::dist(was, alarm.at) > RECENTRE;
+                    if moved && walked {
                         // The alarm moved (the hostile was noticed elsewhere): search there.
                         let c = centre_for(feet);
-                        self.search_at(game, nav, actor, c, c, alarm.at, 0, alarm.owner);
+                        self.search_at(game, nav, actor, c, c, alarm.at, 0, true, alarm.owner);
                     } else {
-                        // On round its share; each complete search counts.
+                        // On round its share; each complete search counts. For an
+                        // unreachable search (`!walked`), keep advancing `points` even if
+                        // an unseen patrolling hostile moved past RECENTRE so it finishes
+                        // instead of looping `SearchLook` forever (#3031) [design].
                         let mut points = points + 1;
                         if points >= SEARCH_POINTS {
                             points = 0;
+                            if !walked && state == State::Alert {
+                                game.abandon_unreachable_alert(actor, alarm.owner);
+                                self.agents.get_mut(&actor).expect("listed").search = Some(Search::Waiting { owner: alarm.owner });
+                                return true;
+                            }
+                            if !walked && state == State::Lost && alarm.cause == Cause::Noticed {
+                                game.abandon_unreachable_alert(actor, alarm.owner);
+                            }
                             if game.searched_once(actor, alarm.owner)
                                 || (game.awareness.state(actor) == State::Lost && game.searches_done(actor, alarm.owner) >= game.group_settings().remove_search_count) {
-                                self.agents.get_mut(&actor).expect("listed").search = Some(Search::Waiting);
+                                self.agents.get_mut(&actor).expect("listed").search = Some(Search::Waiting { owner: alarm.owner });
                                 return true;
                             }
                         }
-                        let (index, party) = game.search_party(actor, alarm.owner);
-                        let indoors = matches!(space, Space::Interior(_));
-                        let gs = game.group_settings();
-                        let radii = if indoors { gs.search_interior } else { gs.search_exterior };
-                        let r = if game.searches_done(actor, alarm.owner) == 0 { radii[0] } else { radii[1] };
-                        let share = std::f32::consts::TAU / party.max(1) as f32;
-                        let angle = share * (index as f32 + self.social.rng.range(0.0, 1.0));
-                        let d = self.social.rng.range(0.4, 1.0) * r;
-                        let to = [centre[0] + d * angle.cos(), centre[1] + d * angle.sin(), centre[2]];
-                        self.search_at(game, nav, actor, to, centre, was, points, alarm.owner);
+                        if moved {
+                            let c = centre_for(feet);
+                            self.search_at(game, nav, actor, c, c, alarm.at, points, walked, alarm.owner);
+                        } else {
+                            let (index, party) = game.search_party(actor, alarm.owner);
+                            let indoors = matches!(space, Space::Interior(_));
+                            let gs = game.group_settings();
+                            let radii = if indoors { gs.search_interior } else { gs.search_exterior };
+                            let r = if game.searches_done(actor, alarm.owner) == 0 { radii[0] } else { radii[1] };
+                            let share = std::f32::consts::TAU / party.max(1) as f32;
+                            let angle = share * (index as f32 + self.social.rng.range(0.0, 1.0));
+                            let d = self.social.rng.range(0.4, 1.0) * r;
+                            let to = [centre[0] + d * angle.cos(), centre[1] + d * angle.sin(), centre[2]];
+                            self.search_at(game, nav, actor, to, centre, was, points, walked, alarm.owner);
+                        }
                     }
                 }
             }
             _ => {
                 let c = centre_for(feet);
-                self.search_at(game, nav, actor, c, c, alarm.at, 0, alarm.owner);
+                self.search_at(game, nav, actor, c, c, alarm.at, 0, false, alarm.owner);
             }
         }
         true
@@ -634,7 +658,7 @@ impl Ai {
     /// `centre` for the alarm that was at `alarm`, `points` of its complete search done;
     /// without a way there the actor looks about where it stands.
     #[allow(clippy::too_many_arguments)]
-    fn search_at(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, to: [f32; 3], centre: [f32; 3], alarm: [f32; 3], points: u32, about: FormId) {
+    fn search_at(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, to: [f32; 3], centre: [f32; 3], alarm: [f32; 3], points: u32, walked: bool, about: FormId) {
         let params = self.path_params(game, actor);
         let speed = self.alert_speeds(actor).walk;
         let now = game.time;
@@ -656,7 +680,7 @@ impl Ai {
             _ => {
                 a.walker.follower = None;
                 a.activity = Activity::There;
-                a.search = Some(Search::Looking { owner: about, at: from, until: now + LOOK_SECONDS, centre, alarm, points });
+                a.search = Some(Search::Looking { owner: about, at: from, until: now + LOOK_SECONDS, centre, alarm, points, walked });
                 self.log(game, actor, AiEvent::SearchLook { at: from, seconds: LOOK_SECONDS as f32 });
             }
         }

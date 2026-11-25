@@ -615,6 +615,13 @@ pub struct Awarenesses {
     pub forced: std::collections::BTreeSet<(FormId, FormId)>,
     /// Combat groups' state: strengths, posts, flights, searches (`crate::combat_group`).
     pub tactics: crate::combat_group::Tactics,
+    /// `(actor, target) -> Game::time` until which an unreachable `Cause::Noticed` alarm
+    /// is suppressed after `actor` found no navmesh path to any point of its search
+    /// ([`Game::abandon_unreachable_alert`], #3031) [design: prevents an unseen hostile
+    /// behind a locked door or on another floor from holding an actor in `State::Alert`
+    /// indefinitely; `Band::Detected` clears the entry immediately so real sight enters
+    /// `State::Combat` with no delay].
+    pub unreachable_noticed: BTreeMap<(FormId, FormId), f64>,
     rng: u64,
 }
 
@@ -1044,6 +1051,7 @@ impl Game<'_> {
     /// What others do is no threat; a target it no longer would attack is forgotten.
     pub fn observe_threat(&mut self, detector: FormId, target: FormId, det: &Detection, at: [f32; 3]) {
         if !self.would_attack(detector, target) {
+            self.awareness.unreachable_noticed.remove(&(detector, target));
             if let Some(a) = self.awareness.actors.get_mut(&detector) {
                 a.forget(target);
             }
@@ -1054,6 +1062,20 @@ impl Game<'_> {
         }
         let t = self.awareness_timers();
         let now = self.time;
+        match det.band {
+            Band::Detected => {
+                self.awareness.unreachable_noticed.remove(&(detector, target));
+            }
+            Band::Noticed => {
+                if let Some(&until) = self.awareness.unreachable_noticed.get(&(detector, target)) {
+                    if now < until {
+                        return;
+                    }
+                    self.awareness.unreachable_noticed.remove(&(detector, target));
+                }
+            }
+            Band::Hidden => {}
+        }
         // Nothing to keep for a hidden hostile the actor knows nothing of.
         if det.band == Band::Hidden && !self.awareness.actors.contains_key(&detector) {
             return;
@@ -1062,6 +1084,49 @@ impl Game<'_> {
         let a = self.awareness.actors.entry(detector).or_default();
         a.at = me.or(a.at);
         a.observe(target, det, at, now, &t);
+    }
+
+    /// `actor` finished a search for `about` without finding a navmesh path to any search
+    /// point (#3031) [design]: drop its unreachable alarm and suppress re-raising
+    /// `Cause::Noticed` for `about` for [`Timers::alarm`] seconds so it can return to
+    /// `Normal` and carry out its package. Real detection (`Band::Detected`) clears the
+    /// suppression immediately and enters `Combat`.
+    pub fn abandon_unreachable_alert(&mut self, actor: FormId, about: FormId) {
+        let t = self.awareness_timers();
+        let now = self.time;
+        self.awareness.unreachable_noticed.insert((actor, about), now + t.alarm);
+        let Some(a) = self.awareness.actors.get_mut(&actor) else { return };
+        match a.state {
+            State::Alert => {
+                a.alarms.retain(|x| x.owner != about);
+                self.awareness.tactics.searched.remove(&(actor, about));
+            }
+            State::Lost => {
+                a.alarms.retain(|x| !(x.owner == about && x.cause == Cause::Noticed));
+                if let Some(target) = a.targets.get_mut(&about).filter(|x| x.band == Band::Noticed) {
+                    target.band = Band::Hidden;
+                    target.hidden_since.get_or_insert(now);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `actor` was moved to another space (`MoveTo` / `Ai::relocate`, #3031) [design]:
+    /// alarms carry coordinates without a space, so drop alarms from the previous space
+    /// and any unreachable-noticed cooldowns from it.
+    pub fn clear_stale_space_alarms(&mut self, actor: FormId) {
+        let now = self.time;
+        self.awareness.unreachable_noticed.retain(|&(a, _), _| a != actor);
+        if let Some(a) = self.awareness.actors.get_mut(&actor) {
+            a.alarms.clear();
+            for target in a.targets.values_mut() {
+                if target.band == Band::Noticed {
+                    target.band = Band::Hidden;
+                    target.hidden_since.get_or_insert(now);
+                }
+            }
+        }
     }
 
     /// `detector` would attack `target` only as a Very Aggressive actor attacks a
@@ -1172,11 +1237,13 @@ impl Game<'_> {
     pub fn settle_awareness(&mut self) {
         let t = self.awareness_timers();
         let now = self.time;
+        self.awareness.unreachable_noticed.retain(|_, until| *until > now);
         self.share_sightings();
         let ids: Vec<FormId> = self.awareness.actors.keys().copied().collect();
         for id in ids {
             if !self.present(id) || self.is_dead(id) || self.extra.get(&id).is_some_and(|e| e.dead) {
                 self.awareness.actors.remove(&id);
+                self.awareness.unreachable_noticed.retain(|&(a, _), _| a != id);
                 self.provocations.calm(id);
                 self.awareness.tactics.calm(id);
                 continue;
@@ -1499,6 +1566,7 @@ impl Game<'_> {
     /// StartCombat forced on it is undone. It may start again on what it perceives next.
     pub fn stop_combat(&mut self, actor: FormId) {
         self.awareness.forced.retain(|(a, _)| *a != actor);
+        self.awareness.unreachable_noticed.retain(|&(a, _), _| a != actor);
         self.provocations.calm(actor);
         self.awareness.tactics.calm(actor);
         self.forgive_crimes(actor);

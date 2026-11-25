@@ -7197,3 +7197,101 @@ fn set_package_flag_location_and_travel_to_ref_reach_ai_carry() {
     assert_eq!(loner_running, Some(true));
     assert!(dist(travel.feet(R_LONER), [350.0, 350.0, 0.0]) < 80.0, "TravelToRef moved R_LONER to MarkA: {:?}", travel.feet(R_LONER));
 }
+
+#[test]
+fn unreachable_noticed_alert_abandons_after_search_and_resumes_use_weapon_package() {
+    // #3031: an unseen patrolling hostile in an unreachable area (another floor / behind
+    // a locked door) repeatedly triggers Band::Noticed. Before the fix, `Search::Waiting`
+    // fell through to `search_at`, and moving alarms reset `points = 0`, looping
+    // `SearchLook` ("looks about for 4s") forever and preventing a Use Weapon package
+    // from walking to its marker and activating.
+    use fnv_game::detection::{Band, Detection};
+    use fnv_game::use_weapon::Source;
+
+    let f = fixture();
+    let mut s = sim(&f, &[R_SHOOTER]);
+    let actor = FormId(R_SHOOTER);
+    // Make R_SHOOTER hostile to the player so observe_threat accepts Band::Noticed.
+    s.game.awareness.forced.insert((actor, FormId::PLAYER_REF));
+
+    let noticed = Detection { value: -10.0, band: Band::Noticed, ..Detection::default() };
+    // Unreachable position far off cell A's navmesh (and moving > RECENTRE every step
+    // like a patrolling robot on another floor).
+    let mut patrol = 0.0f32;
+    for _ in 0..80 {
+        patrol += 100.0;
+        let far_unreachable = [9000.0 + (patrol % 400.0), 9000.0, 2000.0];
+        s.game.observe_threat(actor, FormId::PLAYER_REF, &noticed, far_unreachable);
+        s.game.settle_awareness();
+        s.run(0.5);
+        if s.game.awareness.state(actor) == State::Normal && s.game.active_weapon_use(actor).is_some_and(|w| w.in_place) {
+            break;
+        }
+    }
+    assert_eq!(s.game.awareness.state(actor), State::Normal, "abandoned unreachable Alert");
+    let looks = s.events(R_SHOOTER).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+    assert_eq!(looks, 3, "exactly one complete search of 3 unreachable looks, not an infinite loop");
+    let w = s.game.active_weapon_use(actor).expect("Use Weapon package active again once Normal");
+    assert_eq!(w.source, Source::Package(FormId(P_SHOOT)));
+    assert!(w.in_place, "walked to MarkA and entered weapon-use position");
+    assert!(dist(s.feet(R_SHOOTER), [350.0, 350.0, 0.0]) <= 40.0, "arrived at MarkA: {:?}", s.feet(R_SHOOTER));
+
+    // Real detection immediately clears the unreachable suppression and enters Combat.
+    let seen = Detection { value: 50.0, band: Band::Detected, ..Detection::default() };
+    s.game.observe_threat(actor, FormId::PLAYER_REF, &seen, [360.0, 350.0, 0.0]);
+    s.game.settle_awareness();
+    assert_eq!(s.game.awareness.state(actor), State::Combat);
+}
+
+#[test]
+fn alert_waiting_does_not_restart_search_look_before_settle() {
+    // #3031: once an Alert actor finishes its unreachable search and enters Search::Waiting,
+    // extra AI ticks before settle_awareness() must not fall through and start a new SearchLook.
+    use fnv_game::detection::{Band, Detection};
+
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    let actor = FormId(R_RADIUS);
+    s.run(1.0);
+    s.game.awareness.forced.insert((actor, FormId::PLAYER_REF));
+    let noticed = Detection { value: -10.0, band: Band::Noticed, ..Detection::default() };
+    s.game.observe_threat(actor, FormId::PLAYER_REF, &noticed, [9000.0, 9000.0, 2000.0]);
+    s.game.settle_awareness();
+    assert_eq!(s.game.awareness.state(actor), State::Alert);
+
+    // Run 3 looks (12s) without settling yet so the actor sits in Search::Waiting.
+    for _ in 0..32 {
+        s.run(0.5);
+    }
+    let looks_after = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+    assert_eq!(looks_after, 3, "three unreachable looks then waiting");
+    assert!(matches!(s.ai.agents[&actor].search, Some(fnv_ai::alert::Search::Waiting { .. })));
+
+    // Additional AI ticks while still waiting for settle must not add more SearchLooks.
+    for _ in 0..20 {
+        s.run(0.5);
+    }
+    let looks_more = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+    assert_eq!(looks_more, 3, "Search::Waiting must not fall through to search_at");
+}
+
+#[test]
+fn relocate_to_another_space_clears_stale_alarms_and_starts_package_walk() {
+    // #3031: MoveTo into another cell drops alarms whose coordinates belonged to the old
+    // space so the actor settles back to Normal and walks its package from where it was put.
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    alert(&mut s, R_TRAVEL, [300.0, 300.0, 0.0]);
+    s.run(0.5);
+    assert_eq!(s.game.awareness.state(actor), State::Alert);
+
+    // MoveTo into cell B (a different Space, navmesh around [5000..5500, 5000..5500, 50]).
+    let cell_b = FormId(CELL_B);
+    s.game.set_actor_place(actor, Some(cell_b), [5050.0, 5050.0, 50.0], 0.0).unwrap();
+    s.ai.relocate(&mut s.game, actor);
+    s.game.settle_awareness();
+    assert_eq!(s.game.awareness.state(actor), State::Normal, "stale cell-A alarm cleared on cross-space MoveTo");
+    s.run(20.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) <= 36.0, "package walk ran from MoveTo spot: {:?}", s.feet(R_TRAVEL));
+}

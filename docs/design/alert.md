@@ -198,6 +198,15 @@ docs/spec-notes/crime-karma.md); the player's reputation does not.
   [design: `fnv_ai::alert`] It walks, looks for 4 s, and counts three points as its share
   of one search. A walk that has not arrived after 30 s ends where it is; an unreachable
   point becomes a look in place. Lost party members wait until all have finished (section 2).
+  [design, #3031] If every point of a complete `State::Alert` search had no navmesh path
+  from the actor (e.g. a hostile behind a locked door or on another floor noticed through
+  walls), the actor abandons that unreachable alarm (`Game::abandon_unreachable_alert`) and
+  suppresses re-raising `Cause::Noticed` for that target for `Timers::alarm` seconds so it
+  can return to `Normal` and carry out its package; actually detecting the target
+  (`Band::Detected`) clears the suppression immediately and enters `Combat`. A `Search::Waiting`
+  actor waiting for `settle_awareness` stays waiting for the same alarm owner rather than
+  restarting `SearchLook`. Moving an actor to another space (`Ai::relocate` / `MoveTo`)
+  clears stale alarms from the previous space (`Game::clear_stale_space_alarms`).
 - **Combat**: it closes in to where it can attack and faces its target; the attacks are
   the combat AI's (docs/design/combat-ai.md). Cover and fleeing were built later (combat-ai.md §12.2, §12.6). A target
   it no longer detects (behind a rise, say) it keeps closing in on, whatever the
