@@ -309,8 +309,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "getviewmodelclipdistance" => XVal::Num(g.other.jg7.viewmodel_clip),
         "setnilodlevel" => {
-            // Truncates finite numeric arguments toward zero (e.g. 1.5 -> 1)
-            // [observed: w6d3p2_22a_jg7_switches_and_lod_float: lod=-1,2,1,-1].
+            // Positive float arguments truncate toward zero (1.5 -> 1)
+            // [observed: w6d3p2_22a_jg7_switches_and_lod_float: lod=-1,2,1,-1];
+            // negative-float truncation direction (trunc vs floor) [hypothesis];
+            // non-finite (NaN/inf) resetting lod_level to None (-1) [design].
             let v = num(args, 0, f64::NAN);
             g.other.jg7.lod_level = v.is_finite().then_some(v.trunc() as i64);
             zero
