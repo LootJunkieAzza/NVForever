@@ -1,6 +1,6 @@
 # Co-op lobby browser: public sessions on coop.nv-forever.com
 
-Status: design, 2026-11-24, at the owner's request. Builds on docs/design/coop-networking.md
+Status: design, 2026-11-24, at the owner's request; its four decisions taken 2026-11-25 (§10). Builds on docs/design/coop-networking.md
 (#3795) and the matchmaking service's wire, docs/design/coop-signal-wire.md. Nothing here is
 built yet.
 
@@ -226,14 +226,12 @@ Test: the stand-in server lists lobbies offline (`nvf-signal-server`). A smoke s
 a public lobby and browses it from a second game. A two-machine run browses and joins a
 public lobby, then a locked one.
 
-## 10. Decisions for the owner
+## 10. Decisions (owner, 2026-11-25)
 
-1. **Default visibility:** Private (recommended: nothing changes unless the host chooses) or
-   Public.
-2. **Reports:** hide a lobby at 5 reports (recommended), or no reports at all.
-3. **The ping column:** estimated bars (recommended, no addresses), or a real ping. A real ping
-   needs each browser to probe each host, which gives every browser every host's address.
-4. **Word filter:** NVForever's own short list (recommended), or none.
+1. **Default visibility: Private.** Nothing changes unless the host chooses Public.
+2. **Reports: on.** A lobby is hidden from browse at 5 reports from 5 IPs.
+3. **Ping: estimated bars.** No addresses; the real ping only after joining.
+4. **Word filter: NVForever's own short list**, kept in the Worker's repository.
 
 ## Sources
 
