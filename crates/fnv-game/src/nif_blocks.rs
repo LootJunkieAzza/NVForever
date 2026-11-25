@@ -549,8 +549,11 @@ pub fn alpha_item_get(a: [f32; 2], item: usize) -> Option<f32> {
 }
 
 /// Writes one JohnnyGuitar `SetAlphaPropertyValue` item (`0..=5`) into packed
-/// `NiAlphaProperty` `[flags, threshold]`, masking each bitfield to its width;
-/// `false` for `item >= 6` [observed: `w6d3_03`, `w6d3p2_03b`, `w6d3p3_03c`].
+/// `NiAlphaProperty` `[flags, threshold]`; probed writes (`0` `4845->1`, `1` `64->0`,
+/// `3` `0->0`, `5` `77->77`, and `item >= 6` returning `false`) are
+/// [observed: `w6d3_03`, `w6d3p2_03b`, `w6d3p3_03c`]; writes to unprobed items `2` and `4`
+/// as well as unprobed overflow masking/wrapping (`& 0xFF` vs clamping on item `5`,
+/// overflow on item `3`, and negative inputs) are [hypothesis] / [design].
 pub fn alpha_item_set(a: &mut [f32; 2], item: usize, v: f32) -> bool {
     let raw = v.trunc() as i64 as u32;
     let flags = a[0].trunc() as i64 as u32;
