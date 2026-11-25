@@ -41,12 +41,12 @@
           "requires_fixture": false,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
-          "spec_line": 17,
+          "spec_line": 36,
           "functions_tested": [
             "Update3DAlt",
             "UpdateScenegraph"
           ],
-          "claim": "Verify Update3DAlt across flag bits 0/1/16/32/64/-1 on actor (Doc Mitchell), non-actor placed ref (dresser 0x103E37), and without calling ref; verify UpdateScenegraph types 0/1/2/-1 on ref vs bare.",
+          "claim": "Verify Update3DAlt across flag bits 0/16/32/64/-1 on actor (Doc Mitchell), non-actor placed ref (dresser 0x103E37), and without calling ref; verify UpdateScenegraph types 0/1/2/-1 on ref vs bare.",
           "expected": "Resolve nvse_jg_nif.rs:277-289 hypotheses: return value without calling reference (0 vs 1), non-actor behavior, and UpdateScenegraph types.",
           "script_lines": [
             "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",

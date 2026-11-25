@@ -273,14 +273,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(code.map_or(-1.0, f64::from))
         }
         // The engine updates every drawn node each frame, so there is nothing to bring up
-        // to date [decision]. Returns 1 for type >= 0 (including bare calls without a
-        // calling reference) and 0 for negative type [observed: w6d3_07].
+        // to date [decision]. Returns 1 for probed types 0/1/2 on a reference and bare
+        // UpdateScenegraph 0, and 0 for UpdateScenegraph -1 on a reference
+        // [observed: w6d3_07]; generalizing to unprobed type > 2 returning 1 and bare
+        // UpdateScenegraph < 0 returning 0 is [hypothesis].
         "updatescenegraph" => XVal::Num(f64::from(u8::from(num(args, 0, 0.0) >= 0.0))),
         // `flags`: 1 the model, 2 the skin, 4 the head, 8 the face drawn again (an NPC's
         // through the appearance changes the engine draws, `crate::appearance`); 16 scale,
         // 32 lights and 64 position the engine takes each frame [documented: the flag
-        // table; decision: those need no request]. Returns 0 when flags == 0, else 1
-        // (including bare calls with non-zero flags) [observed: w6d3_07].
+        // table; decision: those need no request]. Returns 0 for flags == 0 on a reference
+        // and 1 for probed non-zero flags (16/32/64/-1 on a reference and bare 32)
+        // [observed: w6d3_07]; bare Update3DAlt 0 returning 0 and other unprobed non-zero
+        // flags returning 1 are [hypothesis].
         "update3dalt" => {
             let flags = num(args, 0, 0.0) as i64;
             if flags == 0 {
