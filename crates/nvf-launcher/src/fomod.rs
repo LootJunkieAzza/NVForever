@@ -1102,7 +1102,33 @@ const COPY_MAX_RATIO: u64 = 4;
 /// The least an installer may copy, so one with many small files listed often still installs.
 const COPY_MIN_BYTES: u64 = 16 * 1024 * 1024;
 
-/// The size of the files under `root`, without following links.
+/// What one file or folder counts as, at least, against the size limits: about a disk block. An
+/// empty file still takes a block and an inode, so a flood of empty entries is not free.
+const ENTRY_COST: u64 = 4096;
+
+/// The size a file of `len` bytes counts as against the size limits.
+fn entry_cost(len: u64) -> u64 {
+    len.max(ENTRY_COST)
+}
+
+/// Take `cost` from `left`; past it the installer is stopped.
+fn charge(left: &mut u64, cost: u64) -> Result<(), String> {
+    if cost > *left {
+        return Err(format!("The installer copies more than {COPY_MAX_RATIO} times the size of its files, so it was stopped."));
+    }
+    *left -= cost;
+    Ok(())
+}
+
+/// Take `ENTRY_COST` from `left` for each folder from `dir` up that does not exist yet: the
+/// folders an item's destination is about to make.
+fn charge_new_folders(dir: &Path, left: &mut u64) -> Result<(), String> {
+    let missing = dir.ancestors().take_while(|a| !a.exists()).count();
+    charge(left, u64::try_from(missing).unwrap_or(u64::MAX).saturating_mul(ENTRY_COST))
+}
+
+/// The size of the files and folders under `root` as the limits count them, without following
+/// links.
 fn tree_size(root: &Path) -> u64 {
     let mut total: u64 = 0;
     let mut stack = vec![root.to_path_buf()];
@@ -1111,9 +1137,10 @@ fn tree_size(root: &Path) -> u64 {
         for entry in rd.flatten() {
             let Ok(meta) = entry.path().symlink_metadata() else { continue };
             if meta.is_dir() {
+                total = total.saturating_add(ENTRY_COST);
                 stack.push(entry.path());
             } else if meta.is_file() {
-                total = total.saturating_add(meta.len());
+                total = total.saturating_add(entry_cost(meta.len()));
             }
         }
     }
@@ -1135,7 +1162,10 @@ fn copy_items(root: &Path, dest: &Path, items: &[Item]) -> Result<(), String> {
             let into = if item.destination.trim().is_empty() {
                 dest.to_path_buf()
             } else {
-                let into = place_in(dest, &rel_path(&item.destination)?)?;
+                let rel = rel_path(&item.destination)?;
+                // `copy_children` charges `into` itself.
+                charge_new_folders(dest.join(&rel).parent().unwrap_or(dest), &mut left)?;
+                let into = place_in(dest, &rel)?;
                 std::fs::create_dir_all(&into).map_err(|e| format!("{}: {e}", into.display()))?;
                 into
             };
@@ -1147,6 +1177,7 @@ fn copy_items(root: &Path, dest: &Path, items: &[Item]) -> Result<(), String> {
             } else {
                 rel_path(&item.destination)?
             };
+            charge_new_folders(dest.join(&rel).parent().unwrap_or(dest), &mut left)?;
             let to = place_in(dest, &rel)?;
             copy_counted(&src, &to, &mut left)?;
         }
@@ -1154,14 +1185,13 @@ fn copy_items(root: &Path, dest: &Path, items: &[Item]) -> Result<(), String> {
     Ok(())
 }
 
-/// Copy one file, taking its size from `left`; a copy that would go past it is refused.
+/// Copy one file, taking what it counts as (`entry_cost`) from `left`; a copy that would go past
+/// it is refused.
 fn copy_counted(src: &Path, to: &Path, left: &mut u64) -> Result<(), String> {
     let size = std::fs::metadata(src).map_err(|e| format!("{}: {e}", src.display()))?.len();
-    if size > *left {
-        return Err(format!("The installer copies more than {COPY_MAX_RATIO} times the size of its files, so it was stopped."));
-    }
+    charge(left, entry_cost(size))?;
     let copied = std::fs::copy(src, to).map_err(|e| format!("{}: {e}", src.display()))?;
-    *left = left.saturating_sub(copied.max(size));
+    *left = left.saturating_sub(copied.saturating_sub(size));
     Ok(())
 }
 
@@ -1176,6 +1206,7 @@ fn copy_tree(src: &Path, dest: &Path) -> Result<(), String> {
 fn copy_children(src: &Path, dest: &Path, left: &mut u64) -> Result<(), String> {
     let mut stack = vec![(src.to_path_buf(), dest.to_path_buf())];
     while let Some((from, into)) = stack.pop() {
+        charge(left, ENTRY_COST)?;
         std::fs::create_dir_all(&into).map_err(|e| format!("{}: {e}", into.display()))?;
         for entry in std::fs::read_dir(&from).map_err(|e| format!("{}: {e}", from.display()))?.flatten() {
             let path = entry.path();
@@ -1577,7 +1608,7 @@ fn extract_zip(archive: &Path, dest: &Path, limit: u64) -> Result<(), ReadFail> 
         if entry.encrypted() || !matches!(entry.compression(), zip::CompressionMethod::Stored | zip::CompressionMethod::Deflated) {
             decodable = false;
         }
-        declared = declared.saturating_add(entry.size());
+        declared = declared.saturating_add(entry_cost(entry.size()));
     }
     // The sizes the entries declare, before any is unpacked.
     if declared > limit {
@@ -1674,7 +1705,7 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl F
         if !(kind.is_file() || kind.is_dir()) {
             return Err(ReadFail::Refused(bad(&format!("entry {} is not a file or folder", path.display()))));
         }
-        total = total.saturating_add(entry.size());
+        total = total.saturating_add(entry_cost(entry.size()));
         if total > limit {
             return Err(ReadFail::Refused(bad(&too_big())));
         }
@@ -3244,6 +3275,83 @@ mod tests {
         let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
         let Err(e) = stage(&root, facts) else { panic!("a path past the limit opens no installer") };
         assert!(e.contains("longer than 1024 bytes"), "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// RESEXHAUST-003: a small tar.gz of empty entries cannot flood the temporary folder: each
+    /// entry counts as a block against the unpack limit.
+    #[test]
+    fn a_tar_gz_of_many_empty_entries_is_refused() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-empty-entries-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let mut tar_bytes = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut tar_bytes);
+            for i in 0..50_000 {
+                let mut h = tar::Header::new_gnu();
+                h.set_path(format!("Mod/{i}.txt")).unwrap();
+                h.set_size(0);
+                h.set_mode(0o644);
+                h.set_entry_type(tar::EntryType::Regular);
+                h.set_cksum();
+                b.append(&h, &[][..]).unwrap();
+            }
+            b.finish().unwrap();
+        }
+        let flood = t.join("Flood.tar.gz");
+        let mut gz = flate2::write::GzEncoder::new(std::fs::File::create(&flood).unwrap(), flate2::Compression::best());
+        gz.write_all(&tar_bytes).unwrap();
+        gz.finish().unwrap();
+        let e = stage_error(&flood);
+        assert!(e.ends_with(&too_big()), "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// RESEXHAUST-002: copies of empty files and folders count too, so an installer cannot fill
+    /// the disk's file table with them.
+    #[test]
+    fn an_installer_copying_empty_files_over_and_over_is_stopped() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-empty-copies-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let root = t.join("Empty");
+        std::fs::create_dir_all(root.join("fomod")).unwrap();
+        std::fs::create_dir_all(root.join("f")).unwrap();
+        for i in 0..100 {
+            std::fs::write(root.join("f").join(format!("{i}.txt")), b"").unwrap();
+        }
+        let folders: String = (0..100).map(|i| format!(r#"<folder source="f" destination="d{i}"/>"#)).collect();
+        let xml = format!("<config><moduleName>Empty</moduleName><requiredInstallFiles>{folders}</requiredInstallFiles></config>");
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), xml).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Plan(plan) = stage(&root, facts).unwrap() else { panic!("an installer with no choice is a plan") };
+        let mods = t.join("mods");
+        let e = place_plan(&mods, &plan).unwrap_err();
+        assert!(e.contains("copies more than 4 times the size of its files"), "{e}");
+        assert!(!mods.join("Empty").exists(), "a stopped install leaves no folder");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// RESEXHAUST-002 of the fourth review: the folders a deep destination makes count against the
+    /// copy limit, so an installer cannot make millions of them from one small file.
+    #[test]
+    fn an_installer_making_many_deep_folders_is_stopped() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-deep-dest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let root = t.join("Deep");
+        std::fs::create_dir_all(root.join("fomod")).unwrap();
+        std::fs::write(root.join("a.txt"), b"a").unwrap();
+        // 500 files, each 11 new folders deep: about 6000 entries of 4 KiB, past the 16 MiB floor.
+        // Under `textures`, so without the limit the install would be kept.
+        let files: String = (0..500).map(|i| format!(r#"<file source="a.txt" destination="textures/d{i}/a/b/c/d/e/f/g/h/i/j/x.dds"/>"#)).collect();
+        let xml = format!("<config><moduleName>Deep</moduleName><requiredInstallFiles>{files}</requiredInstallFiles></config>");
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), xml).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Plan(plan) = stage(&root, facts).unwrap() else { panic!("an installer with no choice is a plan") };
+        let mods = t.join("mods");
+        let e = place_plan(&mods, &plan).unwrap_err();
+        assert!(e.contains("copies more than 4 times the size of its files"), "{e}");
+        assert!(!mods.join("Deep").exists(), "a stopped install leaves no folder");
         let _ = std::fs::remove_dir_all(&t);
     }
 }

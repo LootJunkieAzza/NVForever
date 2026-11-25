@@ -37,8 +37,9 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
   launcher's path rule (`rel_path`) before it unpacks anything. A refused name, or a listing
   with no names, ends the install [design; `extract_external`].
 - The launcher's own readers refuse an archive whose entries add up to more than 100 times the
-  archive's size; an archive inside it counts against the same limit. The outside programs are
-  not limited this way [design; `unpack_limit`].
+  archive's size; an archive inside it counts against the same limit, and each entry counts as at
+  least 4 KiB (a disk block), so many empty entries are not free. The outside programs are not
+  limited this way [design; `unpack_limit`, `entry_cost`].
 - A tar's long name or extended header is held whole in memory while it is read, so a tar is
   read no further than twice that limit plus 1 MiB; a longer one is refused [design;
   `unpack_tar`].
@@ -53,9 +54,13 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
 - The launcher reads a `ModuleConfig.xml` of at most 16 MiB, and refuses one whose elements
   nest more than 64 deep [design; `read_xml`, `parse_xml`].
 - An installer may copy at most four times the size of its unpacked files in all (never less
-  than 16 MiB), so a file listed for many places cannot fill the disk; past that the install
-  stops. Folders are copied from a list, not by a call per level, so a deep one cannot use up
-  the stack [design; `copy_items`, `copy_children`].
+  than 16 MiB), each file and folder counting as at least 4 KiB, the folders a destination makes
+  too, so a file listed for many places, many empty ones or many deep destinations cannot fill
+  the disk; past that the install stops. Only the first 100 000
+  paths an installer would write are checked for clashes with other mods, and an installer naming
+  a `source` or `destination` longer than 1024 bytes is refused when it opens. Folders are copied from
+  a list, not by a call per level, so a deep one cannot use up the stack [design; `copy_items`,
+  `copy_children`, `charge_new_folders`, `plan_loose_files`, `paths_fit`].
 - An installer's pictures are shown only up to 8 MiB a file and 2048 pixels each way (by the
   picture's header), and up to 256 MiB for all of them once decoded; a picture past that is not
   shown. They are let go when the installer closes [design; `image_fits`, `forget_images`]. A
