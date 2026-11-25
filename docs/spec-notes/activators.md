@@ -589,3 +589,7 @@ baseline are unexecuted at authoring; the engine callback is direct compiled sou
 not an assertion that original initialization or OnCrosshairOn has run. The separate
 event-producer contribution requires its own composition/execution. Original
 profile, native, rendered and full Contextual Prompts/yUI acceptance remain open.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Activator water type, prompts, radio station, and sound round-trips** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_30_activator_water_prompt_radio_and_sounds`: `PROBE|w6d9_30_activator_water_prompt_radio_and_sounds|wat(0,0,set=1)|ap(Read Journal->NVF Prompt)|rp(NVF Ref Prompt)|rad=1|snd(a=1,l=1)`]: confirms `Get/SetActivatorWaterType`, `Get/SetActivatorPrompt` (`Read Journal->NVF Prompt`), `Get/SetRefActivationPromptOverride` (`NVF Ref Prompt`), `GetActivatorRadioStation` (`rad=1`), and `Get/SetActivatorSoundActivate`/`Looping` (`snd(a=1,l=1)`) all round-trip cleanly.

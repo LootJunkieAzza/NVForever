@@ -172,3 +172,7 @@ sample while a menu is open (the game in a 1,280 × 720 window).
   the two conditions is false in the original here, or the bunker quests must have
   reached a stage]. NVForever says the line and keeps the conversation open (smoke
   `talking-activator-intercom`): a difference left open for the owner (owner-review).
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **`SetTalkingActivatorActor`, `IsTalkingActivatorActor`, `GetTalkingActivatorActor`, `IsActorTalkingThroughActivator`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_22_talking_activators_actor_assignment_and_queries`: `PROBE|w6d9_22_talking_activators_actor_assignment_and_queries|pre(is=0,g=0,th=0)|set(is=1,oth=0,gRef=0,gBase=1,th=0)|clr(is=0,g=0)`]: confirms `SetTalkingActivatorActor` updates `IsTalkingActivatorActor` (`0 -> 1 -> 0`) and leaves `IsActorTalkingThroughActivator == 0` outside dialogue (`th=0`); in JohnnyGuitar 528, `GetTalkingActivatorActor` returned the assigned actor on the base `TACT` form (`gBase=1`) and `0` on the placed reference (`gRef=0`), noted here while preserving NVForever's existing placed-ref support.

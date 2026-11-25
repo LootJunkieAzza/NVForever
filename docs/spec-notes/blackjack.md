@@ -229,3 +229,7 @@ numeric encoding.
 - What happens at the table the moment the max winnings threshold is reached (levels 1–3
   at `1/4`, `2/4`, `3/4` of `max_winnings` and `4` at `max_winnings` are now observed in §4).
 - The bet steps of Increase/Decrease Bet.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Casino winnings levels, quarter thresholds, untouched no-op & invalid-arg safety** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_43_casino_winnings_level_and_jg_winnings`: `PROBE|w6d9_43_casino_winnings_level_and_jg_winnings|init(0,0)|ulUnt=0|q(0,1,2,3,4)|neg(w=-100,l=0)|slv2(w=1250,l=2)|bad(l5=2,nc=2)`]: confirms quarter thresholds on Vikki & Vance (max 2500: `624->0, 625->1, 1250->2, 1875->3, 2500->4`), confirms `SetCasinoWinningsLevel` on an untouched casino is a no-op (`ulUnt=0`), confirms negative winnings store verbatim (`neg(w=-100,l=0)`), confirms tracked `SetCasinoWinningsLevel 2` sets earnings to `1250`, and confirms level `5` and non-casino forms do not abort (`bad(l5=2,nc=2)`).

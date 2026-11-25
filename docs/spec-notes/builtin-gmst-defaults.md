@@ -51,3 +51,7 @@ Unmodded vanilla gameplay is unchanged:
 - The other six settings have no gameplay consumer reading them yet, and `FormStore::settings`
   continues to hold only loaded plugin `GMST` records.
 - Unknown setting names continue to fail cleanly (`No game setting <name>` / `0`).
+
+## Wave 6D-9 Live Economy & Lockpick GMST Baseline (2026-11-25)
+
+- **Vanilla barter, repair, lockpick & luck GMSTs and `SetNumericGameSetting` round-trip** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_45_barter_repair_lock_speech_gmsts_and_mod_roundtrip`: `PROBE|w6d9_45_barter_repair_lock_speech_gmsts_and_mod_roundtrip|barter(1.55,-0.45,0.45,0.45)|rep(-1.00,4.00,10.00)|lock(0,25,50,75,100)|luck=0.50|rt(1.75->1.55)`]: confirms exact vanilla runtime values `fBarterBuyBase=1.55`, `fBarterBuyMult=-0.45`, `fBarterSellBase=0.45`, `fBarterSellMult=0.45`, `fRepairCostMult=-1.00`, `fRepairSkillBase=4.00`, `fRepairSkillMax=10.00`, `iLockLevelMaxVeryEasy..VeryHard=(0,25,50,75,100)`, `fAVDSkillLuckBonusMult=0.50`, and clean `SetNumericGameSetting` round-trip (`1.75->1.55`).

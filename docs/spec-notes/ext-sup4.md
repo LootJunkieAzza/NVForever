@@ -105,3 +105,7 @@ The rule (§1's table) fits every row:
 
 Built (`nvse_sup4.rs` `near_cells`, #2039): the loaded cells are `Game::loaded_cells`; the
 sup4 `near` row is equal since.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Objective teleport links & `GetQuestTargetsChanged`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `SUP NVSE Plugin 855`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_07_objective_teleport_links_and_targets_changed`: `PROBE|w6d9_07_objective_teleport_links_and_targets_changed|chg(0,1)|in(x=3,sup=3,jip=3)|rem(x=3,sup=3)|clr(x=0,sup=0)`]: with VMS04 objective 10 active, xNVSE `GetCurrentQuestObjectiveTeleportLinks`, SUP `GetCurrentQuestObjectiveTeleportLinksAlt`, and JIP `GetObjectiveTeleportLinks` all returned 3 entries (`in(x=3,sup=3,jip=3)`), clearing active quest returned 0 (`clr(x=0,sup=0)`), and `GetQuestTargetsChanged` transitioned `0 -> 1` after modifying targets.

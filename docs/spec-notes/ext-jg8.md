@@ -98,3 +98,7 @@ audio to play files by path.
 5. `sleepwait`: GetSleepWaitMenuState outside the menu (0).
 6. `sorteditor`: Ar_SortEditor on Stimpak, Caps001 and the 10mm pistol, and reversed.
 7. `shuffle`: Ar_Shuffle keeps size and elements.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **JohnnyGuitar quest start/stop/fail handler registration baseline** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probes `w6d9_11_quest_start_stop_fail_event_handlers`: `PROBE|w6d9_11_quest_start_stop_fail_event_handlers|reg(0,0,0)|fired(start=0,stop=0,fail=0)` and `w6d9p2_11_jg_quest_events_unfiltered`: `PROBE|w6d9p2_11_jg_quest_events_unfiltered|reg(0,0,0)|fired(start=0,stop=0,fail=0)`]: confirms `SetJohnnyOnStartQuestEventHandler`, `SetJohnnyOnStopQuestEventHandler`, and `SetJohnnyOnFailQuestEventHandler` return `0` on registration (both filtered and unfiltered).
