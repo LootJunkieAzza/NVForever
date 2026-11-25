@@ -1,0 +1,153 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_apply_weapon_poison_class",
+  "description": "Wave 6D-6 read-only probe verifying ApplyWeaponPoison accepts Melee/Unarmed/Thrown weapons and rejects ranged guns.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "JohnnyGuitarNVSE": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d6_apply_weapon_poison_class",
+      "title": "ApplyWeaponPoison weapon-class gate",
+      "extender": "JIP LN NVSE / JohnnyGuitarNVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p2_32_weapon_poison_classes_settled",
+          "bucket": "weapon_poison",
+          "extender": "JohnnyGuitarNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 549,
+          "functions_tested": [
+            "ApplyWeaponPoison",
+            "GetEquippedWeaponPoison"
+          ],
+          "claim": "SD-18: Verify ApplyWeaponPoison across Melee (Knife), Unarmed (BrassKnuckles), Ranged (10mmPistol), Thrown (ThrowingKnife), and unarmed after equip settles.",
+          "expected": "Record ApplyWeaponPoison return value and GetEquippedWeaponPoison for each class and post-rejection retention.",
+          "script_lines": [
+            "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+            "Player.AddItemHealthPercent rKn 1 1.0",
+            "Player.EquipItem rKn 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_kn",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rBleak = GetFormFromMod \"FalloutNV.esm\" \"1613D0\"",
+                "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+                "ref rBk = GetFormFromMod \"FalloutNV.esm\" \"4324\"",
+                "Player.AuxVarSetFlt \"*p232_knOk\" (Player.ApplyWeaponPoison rBleak)",
+                "Player.AuxVarSetRef \"*p232_knP1\" (Player.GetEquippedWeaponPoison)",
+                "Player.AuxVarSetFlt \"*p232_rejSt\" (Player.ApplyWeaponPoison rStim)",
+                "Player.AuxVarSetRef \"*p232_knP2\" (Player.GetEquippedWeaponPoison)",
+                "Player.AuxVarSetFlt \"*p232_rejAm\" (Player.ApplyWeaponPoison rA10)",
+                "Player.AuxVarSetRef \"*p232_knP3\" (Player.GetEquippedWeaponPoison)",
+                "Player.ApplyWeaponPoison",
+                "Player.UnequipItem rKn 0 1",
+                "Player.RemoveItem rKn 1 1",
+                "Player.AddItemHealthPercent rBk 1 1.0",
+                "Player.EquipItem rBk 0 1"
+              ]
+            },
+            {
+              "suffix": "s2_bk",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rBleak = GetFormFromMod \"FalloutNV.esm\" \"1613D0\"",
+                "ref rBk = GetFormFromMod \"FalloutNV.esm\" \"4324\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*p232_bkOk\" (Player.ApplyWeaponPoison rBleak)",
+                "Player.AuxVarSetRef \"*p232_bkP\" (Player.GetEquippedWeaponPoison)",
+                "Player.ApplyWeaponPoison",
+                "Player.UnequipItem rBk 0 1",
+                "Player.RemoveItem rBk 1 1",
+                "Player.AddItemHealthPercent r10 1 1.0",
+                "Player.EquipItem r10 0 1"
+              ]
+            },
+            {
+              "suffix": "s3_10",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rBleak = GetFormFromMod \"FalloutNV.esm\" \"1613D0\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rTk = GetFormFromMod \"FalloutNV.esm\" \"161246\"",
+                "Player.AuxVarSetFlt \"*p232_10Ok\" (Player.ApplyWeaponPoison rBleak)",
+                "Player.AuxVarSetRef \"*p232_10P\" (Player.GetEquippedWeaponPoison)",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.AddItemHealthPercent rTk 1 1.0",
+                "Player.EquipItem rTk 0 1"
+              ]
+            },
+            {
+              "suffix": "s4_tk",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rBleak = GetFormFromMod \"FalloutNV.esm\" \"1613D0\"",
+                "ref rTk = GetFormFromMod \"FalloutNV.esm\" \"161246\"",
+                "Player.AuxVarSetFlt \"*p232_tkOk\" (Player.ApplyWeaponPoison rBleak)",
+                "Player.AuxVarSetRef \"*p232_tkP\" (Player.GetEquippedWeaponPoison)",
+                "Player.ApplyWeaponPoison",
+                "Player.UnequipItem rTk 0 1",
+                "Player.RemoveItem rTk 1 1"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rBleak = GetFormFromMod \"FalloutNV.esm\" \"1613D0\"",
+                "int iUnOk = Player.ApplyWeaponPoison rBleak",
+                "int iKnOk = Player.AuxVarGetFlt \"*p232_knOk\"",
+                "ref rKnP1 = Player.AuxVarGetRef \"*p232_knP1\"",
+                "int iRejSt = Player.AuxVarGetFlt \"*p232_rejSt\"",
+                "ref rKnP2 = Player.AuxVarGetRef \"*p232_knP2\"",
+                "int iRejAm = Player.AuxVarGetFlt \"*p232_rejAm\"",
+                "ref rKnP3 = Player.AuxVarGetRef \"*p232_knP3\"",
+                "int iBkOk = Player.AuxVarGetFlt \"*p232_bkOk\"",
+                "ref rBkP = Player.AuxVarGetRef \"*p232_bkP\"",
+                "int i10Ok = Player.AuxVarGetFlt \"*p232_10Ok\"",
+                "ref r10P = Player.AuxVarGetRef \"*p232_10P\"",
+                "int iTkOk = Player.AuxVarGetFlt \"*p232_tkOk\"",
+                "ref rTkP = Player.AuxVarGetRef \"*p232_tkP\"",
+                "PrintToConsole \"PROBE|w6d6p2_32_weapon_poison_classes_settled|kn(%g:%i)|rejSt(%g:%i)|rejAm(%g:%i)|bk(%g:%i)|10(%g:%i)|tk(%g:%i)|un=%g\" iKnOk rKnP1 iRejSt rKnP2 iRejAm rKnP3 iBkOk rBkP i10Ok r10P iTkOk rTkP iUnOk"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

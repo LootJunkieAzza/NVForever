@@ -309,7 +309,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 },
                 None => return Some(Ok(zero)),
             };
-            if sig(g, key.1) != Some(*b"WEAP") {
+            if sig(g, key.1) != Some(*b"WEAP") || !g.poisonable(key.1) {
                 return Some(Ok(zero));
             }
             match form(args, 0) {

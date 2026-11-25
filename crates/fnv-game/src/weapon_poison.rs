@@ -57,9 +57,13 @@ impl Game<'_> {
         effects.iter().all(|e| self.magic_effect_def(e.effect).is_some_and(|m| m.has(MagicEffectDef::DETRIMENTAL) && m.has(MagicEffectDef::HOSTILE)))
     }
 
-    /// Whether `weapon` takes a poison: a Melee Weapons or Unarmed weapon [hypothesis, module notes].
+    /// Whether `weapon` takes a poison: Melee Weapons (incl. thrown knives) or Unarmed
+    /// [observed: w6d6p2_32_weapon_poison_classes_settled].
     pub fn poisonable(&self, weapon: FormId) -> bool {
-        self.data.weapon_skills.get(&weapon).is_some_and(|&s| s == i64::from(crate::actor_values::MELEE_WEAPONS) || s == i64::from(crate::actor_values::UNARMED))
+        self.data
+            .weapon_skills
+            .get(&self.unclone(weapon))
+            .is_some_and(|&s| s == i64::from(crate::actor_values::MELEE_WEAPONS) || s == i64::from(crate::actor_values::UNARMED))
     }
 
     /// The player used the poison `item` (already taken from the inventory): it goes on the

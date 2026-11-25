@@ -25,6 +25,7 @@ const ALCH_STIM: u32 = 0x916;
 const MISC_CAP: u32 = 0x917;
 const MGEF_POISON: u32 = 0x918;
 const MGEF_HEAL: u32 = 0x919;
+const WEAP_MELEE: u32 = 0x91A;
 
 fn edid(sig: &[u8; 4], fid: u32, name: &str) -> Vec<u8> {
     record(sig, 0, fid, &[sub(b"EDID", z(name))])
@@ -64,7 +65,17 @@ fn alch_with_effect(fid: u32, name: &str, mgef_id: u32) -> Vec<u8> {
 fn plugin_bytes() -> Vec<u8> {
     let fggs: Vec<u8> = (0..50).flat_map(|i| (i as f32 * 0.5).to_le_bytes()).collect();
     let npc = record(b"NPC_", 0, NPC, &[sub(b"EDID", z("TestFace")), sub(b"FGGS", fggs)]);
-    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("TestScoped")), sub(b"MOD3", z("interface\\hud\\testscope.nif"))]);
+    let mut gun_dnam = vec![0u8; 204];
+    gun_dnam[0..4].copy_from_slice(&3u32.to_le_bytes());
+    gun_dnam[104..108].copy_from_slice(&41u32.to_le_bytes()); // Guns
+    let mut melee_dnam = vec![0u8; 204];
+    melee_dnam[0..4].copy_from_slice(&1u32.to_le_bytes());
+    melee_dnam[104..108].copy_from_slice(&38u32.to_le_bytes()); // Melee Weapons
+    let weap = [
+        record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("TestScoped")), sub(b"MOD3", z("interface\\hud\\testscope.nif")), sub(b"DNAM", gun_dnam)]),
+        record(b"WEAP", 0, WEAP_MELEE, &[sub(b"EDID", z("TestBlade")), sub(b"DNAM", melee_dnam)]),
+    ]
+    .concat();
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("TestHairList")), sub(b"LNAM", HAIR_A.to_le_bytes().to_vec())]);
     // MGEF flags: 1 Hostile | 4 Detrimental -> poison; 0 -> non-poison aid (Stimpak).
     let mgefs = [mgef(MGEF_POISON, "TestVenomMgef", 1 | 4), mgef(MGEF_HEAL, "TestHealMgef", 0)].concat();
@@ -201,7 +212,12 @@ fn weapons_and_scopes() {
     // (returns 1), and rejects non-poison ALCH (returns 0) [observed:
     // w4h_09_apply_weapon_poison_stimpak]; non-ALCH and preserving an existing poison on
     // rejection (see docs/spec-notes/ext-jg10.md).
+    // Ranged guns reject weapon poisons [observed: w6d6p2_32_weapon_poison_classes_settled].
     q(&mut g, "PlayerREF.AddItem TestScoped 1 1\nPlayerREF.EquipItem TestScoped 0 1");
+    assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestPoison"), 0.0, "ranged gun rejects poison");
+    assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponPoison"), 0.0);
+    // Melee weapons accept weapon poisons.
+    q(&mut g, "PlayerREF.AddItem TestBlade 1 1\nPlayerREF.EquipItem TestBlade 0 1");
     assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestPoison"), 1.0);
     assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponPoison"), f64::from(ALCH));
     assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestCap"), 0.0);

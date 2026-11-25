@@ -97,3 +97,11 @@ not be FGGS/FGGA/FGTS, or the values may be ones the game works out for the load
 Left out, because they move actors, open menus, draw on the screen or need a poison form
 not listed here: PathToPoint, PathToRef, ShowBarberMenuEx, TriggerScreenSplatterEx,
 ApplyWeaponPoison, EjectCasing and the scope picture functions.
+
+### `ApplyWeaponPoison` weapon-class gate [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p2_32_weapon_poison_classes_settled` (`tools/capture/nvse/catalogs/wave6d6_apply_weapon_poison_class.json`)]: `ApplyWeaponPoison` accepts Melee (`kn`), Unarmed (`bk`), and Thrown melee (`tk`) weapons (`1:001613D0`), rejects ranged guns (`10(0:00000000)`) and unarmed with no weapon (`un=0`), and leaves existing poisons intact on invalid inputs (`rejSt`, `rejAm`):
+
+```text
+PROBE|w6d6p2_32_weapon_poison_classes_settled|kn(1:001613D0)|rejSt(0:001613D0)|rejAm(0:001613D0)|bk(1:001613D0)|10(0:00000000)|tk(1:001613D0)|un=0
+```
