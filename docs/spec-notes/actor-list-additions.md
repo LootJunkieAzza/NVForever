@@ -25,12 +25,13 @@ NVForever's `AddItemToLeveledList` converts finite levels via `(level as i64) as
 non-finite inputs map to `0` [design], and `count` below `1` remains clamped to `1`
 [hypothesis].
 
-[hypothesis] For actor lists (`AddNPCToLeveledList` / `AddCreatureToLeveledList`, not directly
-probed by `w4d_41`), NVForever currently accepts integral levels `1` through `65535` and ignores
-invalid forms, the wrong actor family, missing arguments, nonfinite numbers and levels outside
-that range. A direct LVLN/LVLC capture must establish the original's actor-list level/invalid-input
-behavior and duplicate-entry ordering. Appending preserves the order of all existing entries and
-permits duplicate additions.
+For actor lists (`AddNPCToLeveledList` / `AddCreatureToLeveledList`), finite level clamping
+(`0 -> 1`) and 16-bit wrapping (`65535`/`-1 -> 65535`, `70000 -> 4464`) are now [observed]
+below (`### Level clamping and 16-bit wrapping (w6d7_35)`); rejecting nonfinite level numbers
+remains a [design] guard. [hypothesis] Invalid forms, the wrong actor family, missing arguments,
+and duplicate-entry ordering remain unprobed on `LVLN`/`LVLC`; NVForever ignores invalid forms,
+wrong-family actors, and missing arguments, while appending preserves the order of all existing
+entries and permits duplicate additions.
 
 [hypothesis] Existing generated inventories keep their contents; subsequent
 actor template selection and newly generated inventories see additions.

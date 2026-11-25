@@ -377,9 +377,11 @@ mod actor_addition_tests {
         assert!(g.forms.actor_list_additions.is_empty());
         assert!(g.other.lev_actors.is_empty());
         // Level 0 clamps to 1; 70000 wraps to 4464; 65535 and -1 wrap to 65535 [observed: w6d7_35].
-        for (lvl, want) in [(0.0, 1u16), (65535.0, 65535), (70000.0, 4464), (-1.0, 65535)] {
-            call(&mut g, "addnpctoleveledlist", &[XVal::Ref(0x821), XVal::Ref(0x802), XVal::Num(lvl)]).unwrap().unwrap();
-            assert_eq!(g.forms.actor_list_additions[&FormId(0x821)].last().unwrap().0, want);
+        for (name, list, actor) in [("addnpctoleveledlist", 0x821, 0x802), ("addcreaturetoleveledlist", 0x831, 0x812)] {
+            for (lvl, want) in [(0.0, 1u16), (65535.0, 65535), (70000.0, 4464), (-1.0, 65535)] {
+                call(&mut g, name, &[XVal::Ref(list), XVal::Ref(actor), XVal::Num(lvl)]).unwrap().unwrap();
+                assert_eq!(g.forms.actor_list_additions[&FormId(list)].last().unwrap().0, want);
+            }
         }
     }
 
