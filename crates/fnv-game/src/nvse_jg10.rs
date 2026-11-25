@@ -362,8 +362,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             zero
         }
-        // `visible`: 0 hides the scope, 1 shows it; returns 1 [documented;
-        // observed: w6d3p2_42_jg10_scope_ui_highlight_path_remap_ui: sc=0,0,1,0].
+        // `visible`: 0 hides the scope, 1 shows it [documented]; `ToggleWeaponScopeUIModel 0`
+        // returns 1 [observed: w6d3p2_42_jg10_scope_ui_highlight_path_remap_ui: sc=0,0,1,0];
+        // returning 1 for `visible != 0` (1) or an omitted argument is [hypothesis].
         "toggleweaponscopeuimodel" => {
             g.other.jg10.scope_visible = Some(num(args, 0, 0.0) != 0.0);
             XVal::Num(1.0)
