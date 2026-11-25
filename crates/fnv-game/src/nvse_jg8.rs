@@ -576,7 +576,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // them as 0xRRGGBB [hypothesis]; GetSystemColorAlt writes the three variables.
         "getsystemcolor" => XVal::Num(system_colour(g, num(args, 0, 0.0) as i64).map_or(0.0, |c| f64::from((u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])))),
         "getsystemcoloralt" => {
-            // Invalid system colour type leaves caller out-variables untouched [observed: w6d3p2_20].
+            // Valid types 1..=5 [documented; GetSystemColor observed: jg_31]; type 1 writes
+            // (R, G, B) and returns 0, and invalid type -1 returns 0 while leaving caller
+            // out-variables untouched [observed: w6d3p2_20]; leaving caller out-variables
+            // untouched for other invalid type IDs (0, >= 6) is [hypothesis].
             return Some(Ok(match system_colour(g, num(args, 0, 0.0) as i64) {
                 Some(c) => outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])]),
                 None => outputs(g, 0.0, &[]),
