@@ -450,14 +450,13 @@ fn weapon_damage(g: &mut Game, actor: FormId, w: FormId, condition: Option<f32>,
     let skill_code = g.data.weapon_skills.get(&base_w).map(|&s| s as u16);
     let skill = skill_code.and_then(|s| crate::functions::actor::actor_value(g, actor, s).ok()).unwrap_or(0.0);
     let scaled = damage * (skill_base + skill_mult * skill.clamp(0.0, 100.0) / 100.0);
-    let (scaled_perked, _) = g.entry_point_with(actor, crate::perks::CALCULATE_WEAPON_DAMAGE, &[Some(w)], scaled);
     let raw_hit = match skill_code {
         Some(MELEE_WEAPONS) => scaled + crate::functions::actor::actor_value(g, actor, MELEE_DAMAGE).unwrap_or(0.0),
         Some(UNARMED) => damage + crate::functions::actor::actor_value(g, actor, UNARMED_DAMAGE).unwrap_or(0.0),
         _ => scaled,
     };
     let (hit, _) = g.entry_point_with(actor, crate::perks::CALCULATE_WEAPON_DAMAGE, &[Some(w)], raw_hit);
-    (scaled_perked, hit)
+    (scaled, hit)
 }
 
 /// Run a snippet's lines on a reference, as the console runs a line; an error is logged.

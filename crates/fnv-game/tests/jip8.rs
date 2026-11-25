@@ -181,10 +181,29 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"WRLD", &wrld),
         top(b"WATR", &watr),
         top(
+            b"PERK",
+            &record(
+                b"PERK",
+                0,
+                0xA20,
+                &[
+                    sub(b"EDID", z("CalcDmgPerk")),
+                    sub(b"FULL", z("CalcDmgPerk")),
+                    sub(b"DATA", vec![0, 1, 1, 1, 0]),
+                    sub(b"PRKE", vec![2, 0, 0]),
+                    sub(b"DATA", vec![fnv_game::perks::CALCULATE_WEAPON_DAMAGE, fnv_game::perks::MULTIPLY_VALUE, 1]),
+                    sub(b"EPFT", vec![1]),
+                    sub(b"EPFD", f32b(1.05)),
+                    sub(b"PRKF", vec![]),
+                ],
+            ),
+        ),
+        top(
             b"GMST",
             &[
                 edid(b"GMST", 0xA1E, "fDamageWeaponMult", &[sub(b"DATA", f32b(1.0))]),
                 edid(b"GMST", 0xA1F, "fDamageSkillBase", &[sub(b"DATA", f32b(0.5))]),
+                edid(b"GMST", 0xA21, "fDamageSkillMult", &[sub(b"DATA", f32b(0.5))]),
             ]
             .concat(),
         ),
@@ -616,11 +635,21 @@ fn calc_weapon_damage_reads_gmsts_unclones_and_applies_weapon_damage_perks() {
         other => panic!("expected Num, got {other:?}"),
     };
     assert!((cloned - 20.0).abs() < 1e-5, "cloned gun uses Guns=100 -> 20.0, got {cloned}");
+    // CALCULATE_WEAPON_DAMAGE (EP 0) perks scale GetCalculatedWeaponDamage (e.g. BloodyMess 1.05x).
+    assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDamage CalcGun") - 20.0).abs() < 1e-5);
+    q(&mut g, "PlayerREF.AddPerk CalcDmgPerk");
+    assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDamage CalcGun") - 21.0).abs() < 1e-5);
+    // GetCalculatedWeaponDPS leaves `scaled` unperked (EP 0 in DPS not isolated in w6d6_06).
+    assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDPS CalcGun") - 40.0).abs() < 1e-5);
+    q(&mut g, "PlayerREF.RemovePerk CalcDmgPerk");
+    assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDamage CalcGun") - 20.0).abs() < 1e-5);
     // GMST fDamageWeaponMult scales calculated weapon damage.
     q(&mut g, "SetNumericGameSetting \"fDamageWeaponMult\" 2.0");
     assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDamage CalcGun") - 40.0).abs() < 1e-5);
     q(&mut g, "SetNumericGameSetting \"fDamageWeaponMult\" 1.0");
-    // GMST fDamageSkillBase scales skill=0 baseline.
+    // GMST fDamageSkillBase / fDamageSkillMult scale skill curve.
     q(&mut g, "PlayerREF.ForceAV Guns 0\nSetNumericGameSetting \"fDamageSkillBase\" 0.25");
     assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDamage CalcGun") - 5.0).abs() < 1e-5);
+    q(&mut g, "PlayerREF.ForceAV Guns 100\nSetNumericGameSetting \"fDamageSkillBase\" 0.5\nSetNumericGameSetting \"fDamageSkillMult\" 1.0");
+    assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDamage CalcGun") - 30.0).abs() < 1e-5);
 }

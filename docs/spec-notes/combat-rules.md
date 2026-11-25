@@ -2135,8 +2135,11 @@ three passes are scoped to `5a61bc59`, not transferred to its successor or basel
 
 ### `GetCalculatedWeaponDamage` GMSTs, `TempCloneForm`, and EP 0 perks [observed]
 
-- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6_06_calc_weapon_damage_dps_guns_melee_unarmed` (`tools/capture/nvse/catalogs/wave6d6_calc_weapon_damage.json`)]: `GetCalculatedWeaponDamage` resolves `TempCloneForm` weapon skills (`cl=22.00`), applies `Calculate Weapon Damage` perks (`BloodyMess` `22.00 -> 23.10`), caps skill at `100` (`g150=22.00`), and reads `fDamageWeaponMult` (`gmst2=44.00`):
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6_06_calc_weapon_damage_dps_guns_melee_unarmed` (`tools/capture/nvse/catalogs/wave6d6_calc_weapon_damage.json`)]: `GetCalculatedWeaponDamage` resolves `TempCloneForm` weapon skills (`cl=22.00`), applies `Calculate Weapon Damage` perks (`BloodyMess` `22.00 -> 23.10`), caps skill at `100` (`g150=22.00`), and reads `fDamageWeaponMult` (`gmst2=44.00`):
 
 ```text
 PROBE|w6d6_06_calc_weapon_damage_dps_guns_melee_unarmed|10mm=22.00/60.50|smg=19.00/171.00|cl=22.00|kn=13.00/24.00|bk(100,0)=24.25,19.25|pf(100,0)=46.25,41.25|g150=22.00|bm=23.10|fsFinDps=63.52|gmst2=44.00
 ```
+
+- [documented: GECK wiki Weapon Damage Formula; hypothesis: `GetCalculatedWeaponDamage` reads `fDamageSkillBase` and `fDamageSkillMult`]: `w6d6_06` did not vary `fDamageSkillBase` or `fDamageSkillMult`; `weapon_damage` reads both GMSTs with defaults `0.5` / `0.5` to match the documented weapon damage skill formula (`fDamageSkillBase + fDamageSkillMult * skill / 100`).
+- `GetCalculatedWeaponDPS` leaves `scaled` unperked: in `w6d6_06`, `fsFinDps=63.52` (`60.50 * 1.05 = 63.525`) was taken with both `BloodyMess` (`+5%` EP 0) and `Finesse` (`+5%` CritChance) active simultaneously, so EP 0 application inside `GetCalculatedWeaponDPS` is not isolated by this probe.
