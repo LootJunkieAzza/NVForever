@@ -30,7 +30,7 @@ use crate::{game::RunCtx, nvse_items};
 use fnv_script::vm::XVal;
 
 #[test]
-fn buildref_resolves_dynamic_0xff_world_refs_and_temp_clones() {
+fn buildref_resolves_dynamic_0xff_world_refs() {
     let bytes = [
         tes4(),
         top(b"MISC", &record(b"MISC", 0, 0xF, &[sub(b"EDID", z("Caps001"))])),
@@ -44,15 +44,15 @@ fn buildref_resolves_dynamic_0xff_world_refs_and_temp_clones() {
     let r_dyn = nvse_items::call(&mut g, &ctx, "buildref", None, &[XVal::Num(255.0), XVal::Num(f64::from(local))]).unwrap().unwrap();
     assert_eq!(r_dyn, XVal::Ref(dyn_ref.0));
 
-    let clone = match crate::nvse::call(&mut g, &ctx, "tempcloneform", None, &[XVal::Ref(0xF)]).unwrap().unwrap() {
-        XVal::Ref(id) => FormId(id),
-        other => panic!("expected clone ref, got {other:?}"),
-    };
-    let cl_mod = clone.0 >> 24;
-    let cl_local = clone.0 & 0x00FF_FFFF;
-    let r_cl = nvse_items::call(&mut g, &ctx, "buildref", None, &[XVal::Num(f64::from(cl_mod)), XVal::Num(f64::from(cl_local))]).unwrap().unwrap();
-    assert_eq!(r_cl, XVal::Ref(clone.0));
+    let r_caps = nvse_items::call(&mut g, &ctx, "buildref", None, &[XVal::Num(0.0), XVal::Num(15.0)]).unwrap().unwrap();
+    assert_eq!(r_caps, XVal::Ref(0xF));
+
+    let r_plr = nvse_items::call(&mut g, &ctx, "buildref", None, &[XVal::Num(0.0), XVal::Num(20.0)]).unwrap().unwrap();
+    assert_eq!(r_plr, XVal::Ref(FormId::PLAYER_REF.0));
 
     let r_zero = nvse_items::call(&mut g, &ctx, "buildref", None, &[XVal::Num(0.0), XVal::Num(0.0)]).unwrap().unwrap();
     assert_eq!(r_zero, XVal::Ref(0));
+
+    let r_miss_dyn = nvse_items::call(&mut g, &ctx, "buildref", None, &[XVal::Num(255.0), XVal::Num(f64::from(0x00FF_FFFFu32))]).unwrap().unwrap();
+    assert_eq!(r_miss_dyn, XVal::Ref(0));
 }

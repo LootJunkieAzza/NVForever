@@ -232,7 +232,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         },
         // [documented: BuildRef; GetLocalRefIndex; observed:
         // `w6d11_08_form_resolution_gffm_buildref_sourcemod`, `br(c=1,p=1,dm=1,z=1,m=0,dyn=1)`]
-        // resolves loaded plugin records, PlayerRef, dynamic 0xFF world refs, and clones.
+        // resolves loaded plugin records, PlayerRef, and dynamic 0xFF world references.
         "buildref" => {
             let m = int(args, 0, -1);
             let id = ((m as u32) << 24) | (int(args, 1, 0) as u32 & 0x00FF_FFFF);
@@ -240,8 +240,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let ok = m >= 0
                 && (g.data.sig(fid).is_some()
                     || id == FormId::PLAYER_REF.0
-                    || g.world.get(fid).is_ok()
-                    || g.clones.contains_key(&fid));
+                    || g.world.get(fid).is_ok());
             XVal::Ref(if ok { id } else { 0 })
         }
         "getlocalrefindex" => XVal::Num(f64::from(form(args, 0).or(subject).map_or(0, |f| f.0 & 0x00FF_FFFF))),
