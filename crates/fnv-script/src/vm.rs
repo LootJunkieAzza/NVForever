@@ -1281,6 +1281,10 @@ fn deep_equal_in(store: &ExtStore, a: &XVal, b: &XVal, seen: &mut std::collectio
     }
 }
 
+#[cfg(test)]
+#[path = "w6d11_sv_sub_erase_tests.rs"]
+mod w6d11_sv_sub_erase_tests;
+
 /// A number as `$` and ToString write it: whole numbers without decimals, others with up
 /// to six [hypothesis: ext-values.md §2 leaves `$` of a float open; probes G3 strings].
 pub fn number_text(x: f64) -> String {
@@ -2780,11 +2784,18 @@ impl Vm<'_, '_> {
                 let Some(var) = self.string_var_arg(c.args.first())? else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
                 let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
-                let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let at_raw = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                if at_raw < 0.0 {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
+                let at = at_raw as usize;
                 let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
                 let chars: Vec<char> = s.chars().collect();
                 let at = at.min(chars.len());
-                let end = n.map_or(chars.len(), |n| (at + n.max(0.0) as usize).min(chars.len()));
+                let end = match n {
+                    Some(n) if n >= 0.0 => at.saturating_add(n as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 let out: String = chars[..at].iter().chain(&chars[end..]).collect();
                 self.write_var(var, XVal::Str(out))?;
                 XVal::Num(0.0)
@@ -2792,11 +2803,18 @@ impl Vm<'_, '_> {
             // [documented: Sv SubString] `count` characters from the position.
             "sv_substring" => {
                 let s = text(val(self, 0)?).unwrap_or_default();
-                let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let at_raw = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                if at_raw < 0.0 {
+                    return Ok(Some(XVal::Str(String::new())));
+                }
+                let at = at_raw as usize;
                 let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
                 let chars: Vec<char> = s.chars().collect();
                 let at = at.min(chars.len());
-                let end = n.map_or(chars.len(), |n| (at + n.max(0.0) as usize).min(chars.len()));
+                let end = match n {
+                    Some(n) if n >= 0.0 => at.saturating_add(n as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 XVal::Str(chars[at..end].iter().collect())
             }
             // [documented: Sv ToUpper; Sv ToLower] a new string; the source is kept.

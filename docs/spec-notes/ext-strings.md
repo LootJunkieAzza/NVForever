@@ -174,7 +174,15 @@ from 0 throughout [documented: Sv Length; Sv Find].
   number is a count, not an end position).
 - **Edge cases**: kept for old scripts; a slice is the newer form. Both arguments left
   out: open.
-- **Evidence**: [documented: Sv SubString].
+- **Evidence**: [documented: Sv SubString]; for both `Sv_SubString` and `Sv_Erase`,
+  a negative `startPos` returns `""` / leaves the string unchanged, while a negative
+  `howMany` (`-1`) extends to the end of the string (and omitting both args on
+  `Sv_SubString` returns the full string) [observed: 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters,
+  read-only `PrintToConsole` probe `w6d11_26_sv_substring_and_sv_erase_neg_and_bounds`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `sub(all=[abcdef],ns=[],nl=[cdef],ns2=[],oob=[],z=[])|er(ns=[abcdef],nl=[ab],ns2=[abcdef],oob=[abcdef],z=[abcdef])`;
+  no DLL or source consulted].
 
 ### Sv_GetChar
 
