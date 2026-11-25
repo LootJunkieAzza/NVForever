@@ -58,6 +58,13 @@ pub fn on() -> bool {
     bevy::render::view::window::NVF_HDR_SURFACE.load(Relaxed) || std::env::var("NVF_HDR").is_ok_and(|v| v.trim() == "1")
 }
 
+/// The tests that set or read `on` (one flag for the process) run one after another.
+#[cfg(test)]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn set_wanted(on: bool) {
     WANTED.store(on, Relaxed);
     // Live: the window's surface is reconfigured on the next frame (vendored bevy_render
@@ -504,6 +511,7 @@ mod tests {
 
     #[test]
     fn the_row_keeps_on_and_the_calibration() {
+        let _lock = test_lock();
         assert!(hdr_load("On;peak=1200;paper=240"));
         assert_eq!((WANTED.load(Relaxed), PEAK_NITS.load(Relaxed), paper_nits()), (true, 1200, 240));
         assert_eq!(hdr_saved(), "On;peak=1200;paper=240");
