@@ -1248,7 +1248,8 @@ below cover them all.
   the depth, denoised, and added before bloom; weaker indoors. Only what is on the screen
   bounces. Switches at once. Off by default and in every preset.
 - Command-line switches: `--graphics-only`
-- More: docs/design/graphics-enhanced.md §3.25
+- More: docs/design/graphics-enhanced.md §3.27
+
 ### `bloom`: Bloom
 
 - On the page: On: light brighter than a sunlit white wall (the sun, lamps, windows) glows

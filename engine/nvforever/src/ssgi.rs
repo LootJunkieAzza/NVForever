@@ -1,4 +1,4 @@
-//! 1-bounce linear HDR Screen-Space Global Illumination (the `ssgi` row, docs/design/graphics-enhanced.md §3.25; #3827).
+//! 1-bounce linear HDR Screen-Space Global Illumination (the `ssgi` row, docs/design/graphics-enhanced.md §3.27; #3827).
 //!
 //! Runs on the main [`FlyCam`] view in [`Core3dSystems::EarlyPostProcess`] after any
 //! temporal upscaler (`dlss_pass`, `fsr_pass`) and before `bloom`, `bright_pass_hdr`, and

@@ -1,6 +1,6 @@
-// 1-bounce linear HDR Screen-Space Global Illumination (nvforever ssgi.rs; Phase 2 under
-// `NVF_PHYSICAL_PBR=1`). Runs at half resolution after temporal upscaling and before bloom,
-// auto-exposure, and AgX tonemapping: traces indirect diffuse bounce radiance from nearby
+// 1-bounce linear HDR Screen-Space Global Illumination (nvforever ssgi.rs; the `ssgi` row,
+// graphics-enhanced.md §3.27). Runs at half resolution after temporal upscaling and before
+// bloom, auto-exposure, and tonemapping: traces indirect diffuse bounce radiance from nearby
 // lit surfaces using horizon-based differential form factors, denoises with a reverse-Z
 // plane-aware bilateral filter, and composites onto world pixels using estimated diffuse
 // reflectance (skipping sky, `SCREEN_MARK` Pip-Boy screen, and `FIRST_PERSON_DEPTH` arms).
