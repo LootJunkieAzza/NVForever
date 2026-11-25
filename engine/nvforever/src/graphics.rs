@@ -273,6 +273,10 @@ pub struct Graphics {
     /// Physical PBR lighting (graphics-enhanced.md §3.25; off in both presets, fixed at the
     /// start: nvf_assets `authored::set_physical_pbr`) [design, #3827].
     pub physical_pbr: bool,
+    /// One bounce of screen-space indirect light (ssgi.rs; off in both presets; a live
+    /// switch; `NVF_SSGI=1`/`0`/`debug` overrides it in a build with the developer aids)
+    /// [design, #3827].
+    pub ssgi: bool,
     /// The sun's light in the air (medium_air_demand.rs; a prototype, off in every preset)
     /// [design, #3032 stage 3].
     pub volumetric_light: bool,
@@ -287,7 +291,7 @@ pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
 /// shadow-filter, full-detail, distant-object and cloud-level choices that are not vanilla's, in the
 /// order of [`Graphics::describe`].
-pub const KEYS: [&str; 33] = [
+pub const KEYS: [&str; 34] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -320,6 +324,7 @@ pub const KEYS: [&str; 33] = [
     "aerial-perspective",
     "night-sky-detail",
     "physical-pbr",
+    "ssgi",
     "distant-lights",
 ];
 
@@ -402,6 +407,7 @@ impl Graphics {
             // Off in every preset: an addition of our own [design, #2995].
             night_sky_detail: false,
             physical_pbr: false,
+            ssgi: false,
             // Off in every preset: a prototype of our own [design, #3032 stage 3].
             volumetric_light: false,
         }
@@ -434,6 +440,7 @@ impl Graphics {
             "aerial-perspective" => &mut self.aerial_perspective,
             "night-sky-detail" => &mut self.night_sky_detail,
             "physical-pbr" => &mut self.physical_pbr,
+            "ssgi" => &mut self.ssgi,
             AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
             AUTHORED_REFLECTIONS_KEY => &mut self.authored_reflections,
             "distant-lights" => &mut self.distant_lights,
@@ -520,6 +527,7 @@ impl Graphics {
             (self.aerial_perspective, "aerial perspective"),
             (self.night_sky_detail, "night sky detail"),
             (self.physical_pbr, "physical PBR lighting"),
+            (self.ssgi, "screen-space global illumination"),
             (self.distant_lights, "distant lights"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
@@ -749,7 +757,7 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(g)
             .insert_resource(MsaaSetting(self.1))
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
-            .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::heat_haze::HeatHazePlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
+            .add_plugins((crate::ssao::SsaoPlugin, crate::ssgi::SsgiPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::heat_haze::HeatHazePlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
             .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain())
             .add_systems(PostUpdate, log_shadow_map.before(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades));
@@ -1112,7 +1120,7 @@ fn apply(
         // tonemapping (medium.rs, volumetric_clouds.rs), so its row keeps the view HDR whatever
         // the glow and the upscaler say [design, #3032 decision 10]; the light in the air of
         // stage 3 likewise.
-        if temporal || g.volumetric_clouds || crate::hdr::on() || air {
+        if temporal || g.volumetric_clouds || crate::hdr::on() || air || crate::ssgi::effective_enabled(g.ssgi) {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
@@ -1186,6 +1194,11 @@ fn apply(
             e.insert(crate::heat_haze::HeatHaze::default());
         } else {
             e.remove::<crate::heat_haze::HeatHaze>();
+        }
+        if crate::ssgi::effective_enabled(g.ssgi) {
+            e.insert(crate::ssgi::ScreenSpaceGi::default());
+        } else {
+            e.remove::<crate::ssgi::ScreenSpaceGi>();
         }
     }
     let reach = if g.fine_shadows { FINE_SHADOW_REACH } else { 1.0 };

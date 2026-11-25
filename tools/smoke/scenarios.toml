@@ -36820,3 +36820,20 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error in the clustering passes" },
 ]
+[[scenario]]
+name = "ssgi"
+source = "[design, #3827 part 4] engine/nvforever/src/ssgi.rs: with --graphics-only ssgi at Goodsprings at noon, the graphics line names the screen-space global illumination and its pipelines are made, without a pipeline or rendering error. The look and the cost are checked in pictures and GPU spans by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/ssgi.rs", "engine/nvforever/src/ssgi.wesl"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "ssgi"]
+run_seconds = 20
+expect = [
+  { re = 'graphics: .*screen-space global illumination', label = "the graphics line names the SSGI" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the SSGI shader does not compile)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+note = "Written 2026-11-25 without a run (the split of #3828; smoke runs to follow)."

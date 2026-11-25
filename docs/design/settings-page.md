@@ -175,7 +175,8 @@ row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficult
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
 (Detail and Distance, after `mesh-terrain-blend`; read at the next start), `physical-pbr`
-(Lighting and Effects, after `night-sky-detail`; read at the next start) (`KNOWN` in
+(Lighting and Effects, after `night-sky-detail`; read at the next start), `ssgi` (after
+`physical-pbr`) (`KNOWN` in
 `settings_layout.rs`); a test keeps
 it so (`settings_layout.rs`, `the_table_names_each_key_once_in_one_of_the_tabs`). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category

@@ -232,6 +232,7 @@ mod sneaking;
 mod swimming;
 mod ssao;
 mod ssao_lighting;
+mod ssgi;
 mod taa;
 mod fg_presenter;
 mod ffx_api;

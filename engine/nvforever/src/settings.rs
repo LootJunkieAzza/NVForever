@@ -1207,7 +1207,7 @@ fn register_graphics(app: &mut App) {
         Setting { key: CLOUDS_KEY, group: GROUP_GRAPHICS, label: "Volumetric clouds (experimental)", note: CLOUDS_NOTE, switches: "--graphics-only", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| CLOUD_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: clouds_chosen, pick: take_clouds, save: clouds_chosen, load: take_clouds, ask_keep: false },
     );
-    let switches: [Switch; 26] = [
+    let switches: [Switch; 27] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1385,6 +1385,14 @@ fn register_graphics(app: &mut App) {
             "--graphics-only",
             |w| w.resource::<Graphics>().physical_pbr,
             |w, on| w.resource_mut::<Graphics>().physical_pbr = on,
+        ),
+        (
+            "ssgi",
+            "Screen-space bounce light (experimental)",
+            "On: sunlit surfaces, signs and lamps bounce one hop of coloured light onto nearby walls, ceilings and ground seen on screen. Costs frame rate. Not in the original.",
+            "--graphics-only",
+            |w| w.resource::<Graphics>().ssgi,
+            |w, on| w.resource_mut::<Graphics>().ssgi = on,
         ),
         (
             "distant-lights",
@@ -3254,6 +3262,7 @@ dlss-model=Preset K
             ("aerial-perspective", &["--graphics", "--graphics-only"]),
             ("night-sky-detail", &["--graphics", "--graphics-only"]),
             ("physical-pbr", &["--graphics-only"]),
+            ("ssgi", &["--graphics-only"]),
             ("distant-lights", &["--graphics", "--graphics-only"]),
             (VOLUMETRIC_LIGHT_KEY, &["--graphics-only"]),
             (VOLUMETRIC_LIGHT_STRENGTH_KEY, &[]),

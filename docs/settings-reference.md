@@ -1232,6 +1232,16 @@ below cover them all.
   the original's display-value lighting stays the default look.
 - Command-line switches: `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.25
+
+### `ssgi`: Screen-space bounce light (experimental)
+
+- On the page: On: sunlit surfaces, signs and lamps bounce one hop of coloured light onto
+  nearby walls, ceilings and ground seen on screen. Costs frame rate. Not in the original.
+- In full: One bounce of indirect light is gathered on the screen from the lit picture and
+  the depth, denoised, and added before bloom; weaker indoors. Only what is on the screen
+  bounces. Switches at once. Off by default and in every preset.
+- Command-line switches: `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.25
 ### `bloom`: Bloom
 
 - On the page: On: light brighter than a sunlit white wall (the sun, lamps, windows) glows
