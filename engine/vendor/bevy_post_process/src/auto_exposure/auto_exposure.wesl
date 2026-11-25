@@ -191,15 +191,19 @@ fn compute_average(@builtin(local_invocation_index) local_index: u32) {
         - avg_lum;
 
     // Smoothly adjust the `exposure` towards the `target_exposure`
+    // NVForever (#3917): use exact exponential decay (1 - exp(-k * dt)) and clamp the step
+    // to `delta` so large `speed * dt` (e.g. instant adaptation or slow frames) never
+    // overshoots `target_exposure` into a frame-to-frame black/bright oscillation.
     let delta = target_exposure - exposure;
+    let transition = max(settings.exponential_transition_distance, 1e-6);
     if target_exposure > exposure {
-        let speed_down = settings.speed_down * globals.delta_time;
-        let exp_down = speed_down / settings.exponential_transition_distance;
-        exposure = exposure + min(speed_down, delta * exp_down);
+        let speed_down = max(settings.speed_down * globals.delta_time, 0.0);
+        let exp_down = speed_down / transition;
+        exposure = exposure + min(delta, min(speed_down, delta * (1.0 - exp(-exp_down))));
     } else {
-        let speed_up = settings.speed_up * globals.delta_time;
-        let exp_up = speed_up / settings.exponential_transition_distance;
-        exposure = exposure + max(-speed_up, delta * exp_up);
+        let speed_up = max(settings.speed_up * globals.delta_time, 0.0);
+        let exp_up = speed_up / transition;
+        exposure = exposure + max(delta, max(-speed_up, delta * (1.0 - exp(-exp_up))));
     }
 
     // Apply the exposure to the color grading settings, from where it will be used for the color

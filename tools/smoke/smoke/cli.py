@@ -457,7 +457,7 @@ def run_launches(launches: list[Launch], env: Env, locks, jobs: int, a, say) -> 
             return
         missing = sorted({r for s in x.scenarios for r in missing_requirements(s)})
         if missing:
-            skip(i, f"set {', '.join(missing)}")
+            skip(i, "; ".join(f"unset {r[1:]}" if r.startswith("!") else f"set {r}" for r in missing))
             return
         others = sorted({p for s in x.scenarios for p in unmet_platforms(s)})
         if others:

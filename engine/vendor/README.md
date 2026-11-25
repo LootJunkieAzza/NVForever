@@ -140,6 +140,23 @@ main has the same guard.
 HDR output: `src/msaa_writeback.rs` fills `BlitPipelineKey`'s two new fields (`false`,
 `false`), as the vendored bevy_core_pipeline's key needs them.
 
+A third auto-exposure change (#3917), marked `NVForever (#3917)`, in `src/auto_exposure/`:
+
+- `auto_exposure.wesl` (`compute_average`): replaces the unclamped forward-Euler
+  exponential step `delta * exp_down` / `delta * exp_up` with exact exponential decay
+  `delta * (1.0 - exp(-exp_down))` clamped to `delta`. Upstream overshot `target_exposure`
+  whenever `speed * delta_time / exponential_transition_distance > 1.0`, and diverged into
+  a sustained `±(speed * delta_time)` EV period-2 black/bright strobe whenever that ratio
+  reached `2.0` (e.g. under slow frames or fast adaptation speeds after switching Quality
+  presets back up with Light glow re-enabled).
+- `buffers.rs` and `mod.rs`: maps `RemovedComponents<AutoExposure>` main-world entities to
+  `RenderEntity` (and prunes inactive views), removes `ViewAutoExposurePipeline` when
+  `AutoExposure` is removed, and guards `auto_exposure` with `With<AutoExposure>` and
+  `camera.hdr`. Upstream passed main-world entities into an `EntityHashMap` keyed by
+  `RenderEntity` and left `ViewAutoExposurePipeline` attached, so removing `AutoExposure`
+  (switching Light glow off via Quality Low) left the compute pass running on SDR views
+  and carried stale GPU exposure state into a later switch back up.
+
 ## bevy_pbr 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 Skinning storage-buffer wrapping and normal hardening in `src/render/skinning.wesl`:
@@ -523,11 +540,22 @@ marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
   terrain map is `Rgba32Float`, which is filterable only with the optional
   `FLOAT32_FILTERABLE` feature, so nvforever reads it with `textureLoad` and never with
   the sampler; its stand-in while no map is uploaded is nvforever's own one-texel
-  `Rgba32Float` texture, not Bevy's fallback image.
+  `Rgba32Float` texture, not Bevy's fallback image. Bindings 45 and 46 (2026-11-20,
+  #3032 stage 2i M2), under the key bit `MeshPipelineViewLayoutKey::NVF_CLOUD_VOLUME`
+  (with `NVF_SUN_VISIBILITY` only; the component's `cloud_volume`): the volumetric
+  clouds' light volume, its near and far completed front sets (`light_near`,
+  `light_far`: filterable float 2D arrays, `R16Float`, sampled with 42), which the cloud
+  shadows read from the volume (nvforever `light_volume_reader.wesl`); nvforever's own
+  one-texel, two-layer stand-in when there is none. nvforever leaves `cloud_volume` off
+  while its Volumetric clouds row is off and on an adapter whose fragment stage has too few sampled textures for two more (the
+  weather-only layout, `sun_visibility.rs` `CloudVolumeRoom`). The entries 39-46 are
+  made by the public `nvf_sun_visibility_layout_entries`, which the tests read.
 - `src/render/mesh.rs`: `MeshPipelineKey::NVF_SUN_VISIBILITY`, `NVF_CLOUD_VISIBILITY` and
   `NVF_TERRAIN_VISIBILITY` (bits 25-27; the key's bit fields above them move up by three,
-  well below the base mesh key's bits from 58), set by `check_views_need_specialization`
-  from the same component, and the shader defs of the same names. The pipelines' layout
+  well below the base mesh key's bits from 58), and `NVF_CLOUD_VOLUME_VISIBILITY` (bit 29,
+  after the ambient occlusion's 28; shader def `NVF_CLOUD_VOLUME`), set by
+  `check_views_need_specialization` from the same component, and the shader defs of the
+  same names. The pipelines' layout
   key and the view's bind group are both read from that one component in the same frame,
   so they cannot disagree; the component is inserted, changed and removed only during
   extraction.

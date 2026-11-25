@@ -66,7 +66,7 @@ fn gun_damage_skill_and_dt() {
 #[test]
 fn a_damage_type_takes_its_resistance_as_well_as_dr() {
     // DR cuts a laser's hit [observed, damage-armour.md §4] and Energy Resistance does
-    // too [hypothesis, weapon-data-fields.md §3]; DT first.
+    // too (see docs/spec-notes/weapon-data-fields.md §3); DT first.
     let laser = WeaponStats { resist: Some("Energy Resistance".into()), ..gun(20) };
     assert_eq!(damage::resistance_of(&laser), Some("Energy Resistance"));
     let d = hit(&laser, 1, &skilled(), &Target { dt: 5.0, dr: 50.0, resist: 20.0, ..Target::default() }, &[], HitPart::default(), 0.99);
