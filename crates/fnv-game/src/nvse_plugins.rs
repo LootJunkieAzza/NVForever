@@ -566,12 +566,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 form(args, 1).map(|s| crate::functions::list_members(g, s)).unwrap_or_default()
             };
             let mut members = crate::functions::list_members(g, l);
-            let at = num(args, 2, 0.0);
-            if at < 0.0 || at as usize > members.len() {
+            let at = num(args, 2, 0.0) as i64;
+            let insert_at = if at == -2 {
+                members.len()
+            } else if at < 0 || at as usize > members.len() {
                 return Some(Ok(zero));
-            }
+            } else {
+                at as usize
+            };
             for (k, f) in add.into_iter().enumerate() {
-                members.insert(at as usize + k, f);
+                members.insert(insert_at + k, f);
             }
             g.list_edits.insert(l, members);
             XVal::Num(1.0)
@@ -738,3 +742,7 @@ mod tests {
         assert_eq!([f("bounce", 0), f("bounce", 1), f("bounce", 2)], [273.0, 4726.0, 1171.0]);
     }
 }
+
+#[cfg(test)]
+#[path = "w6d11_listaddarray_tests.rs"]
+mod w6d11_listaddarray_tests;

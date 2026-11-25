@@ -408,3 +408,7 @@ RemoveAllItemsShowOff.
   [hypothesis: non-actor, melee, and god-mode edge cases unprobed in original ShowOff].
 - Free when no `ShowOff:OnFireWeapon` handler is registered (unmodded vanilla weapon
   firing is unchanged). No ShowOff DLL or source code was consulted.
+
+## 12. `ListAddArray` and `ListAddList` append sentinel (`-2`)
+
+- Both `ListAddArray` and `ListAddList` accept index `-2` to append elements at the end of the target FormList (returning `1`), while rejecting `-1` and indices past the end (`999`) with `0` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin 184 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_05_listaddarray_and_listaddlist_showoff` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `arr(a0=1:n2,mix=1:n4,emp=1,big=0)|neg(m2=1:n6,m1=0:n6,bad=1)|lst(l0=1:n8,m2=1:n10,big=0)`; no DLL or source consulted].
