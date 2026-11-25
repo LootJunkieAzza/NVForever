@@ -6,6 +6,10 @@
 use crate::game::{Game, RunCtx};
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
+
+#[cfg(test)]
+#[path = "w6d9_setvaluealt_alch_tests.rs"]
+mod w6d9_setvaluealt_alch_tests;
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -932,11 +936,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.field_overrides.insert((f, "DESC/".into()), XVal::Str(text(args, 1)));
             XVal::Num(1.0)
         }
-        // The value GetValue reads (DATA value); returns 0 [observed: gaps6, 999 reads
-        // back].
+        // Writes ENIT/value for ALCH ingestibles and DATA/value for other forms so
+        // GetValueAlt reads back the updated value on Stimpaks/aid items too [observed:
+        // gaps6, 999 reads back; 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+        // w6d9_39_item_value_setitemvalue_getvaluealt_setvaluealt:
+        // weap(750:750->888:888)|armo(160:160->444:444)|misc(1:1)|stim(0:75->0:123)].
         "setvaluealt" => {
             if let Some(f) = form(args, 0) {
-                g.field_overrides.insert((f, "DATA/value".into()), XVal::Num(num(args, 1, 0.0)));
+                let key = if g.data.sig(g.unclone(f)) == Some(*b"ALCH") { "ENIT/value" } else { "DATA/value" };
+                g.field_overrides.insert((f, key.into()), XVal::Num(num(args, 1, 0.0)));
             }
             zero
         }
