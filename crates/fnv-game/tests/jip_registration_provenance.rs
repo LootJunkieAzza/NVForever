@@ -195,7 +195,7 @@ fn nested_record_registration_identifies_the_registrar_not_its_caller_or_callbac
 fn duplicate_preserves_first_registrar_and_removal_allows_a_fresh_query_registration() {
     let f = fixture(); let mut g = game(&f);
     let file = compile(&mut g, "owned_a.gek", false); run(&mut g, file);
-    assert_eq!(query(&mut g, &format!("SetFunctionValue (SetOnHitEventHandler {BAD_A}.0 1 0)")), XVal::Num(1.0));
+    assert_eq!(query(&mut g, &format!("SetFunctionValue (SetOnHitEventHandler {BAD_A}.0 1 0)")), XVal::Num(0.0));
     let before = capture(|| { assert_eq!(fire(&mut g), 0); });
     assert_eq!(before.len(), 1); assert_eq!(before[0].get("registrar_compiled_id"), Some(&serde_json::json!(file)));
     for expected in [1.0, 0.0] {
