@@ -240,12 +240,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `region [priority]`: RDAT's priority byte [documented: Get/
-        // SetRegionWeatherPriority]; a priority outside 0-255 changes nothing [observed:
-        // jg4 regn.setpriority.gs.300 and .neg kept 100].
+        // SetRegionWeatherPriority]; a priority outside 0-100 changes nothing [observed:
+        // jg4 regn.setpriority.gs.300 and .neg kept 100; observed: Fallout: New Vegas
+        // 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-25,
+        // `w6d10_41_region_weather_override_priority_and_no_block`:
+        // `prSet(77=77,150=77,255=77,256=77,-1=77)`].
         "getregionweatherpriority" => XVal::Num(form(args, 0).and_then(|r| region_weathers(g, r)).map_or(0.0, |w| f64::from(w.priority))),
         "setregionweatherpriority" => {
-            let p = num(args, 1, 0.0);
-            if (0.0..=255.0).contains(&p) {
+            let p = num(args, 1, -1.0);
+            if (0.0..=100.0).contains(&p) {
                 if let Some(ws) = form(args, 0).and_then(|r| weathers_mut(g, r)) {
                     ws.priority = p as u8;
                 }
@@ -302,3 +305,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let _ = (ctx, subject);
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_region_priority_tests.rs"]
+mod w6d10_region_priority_tests;
