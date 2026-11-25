@@ -564,9 +564,20 @@ impl Game<'_> {
         self.turn_on_player(actor, kind)
     }
 
+    /// Effective 16-bit FACT flags for `faction`, checking saved `FormChanges::faction_flags`
+    /// overrides before the authored `GameData::faction_flags`.
+    pub fn faction_flags(&self, faction: FormId) -> u16 {
+        self.forms
+            .faction_flags
+            .get(&faction)
+            .copied()
+            .or_else(|| self.data.faction_flags.get(&faction).copied())
+            .unwrap_or(0)
+    }
+
     fn karma_for_theft(&mut self, o: &Ownership) -> bool {
         if self.is_faction(o.owner) {
-            let f = self.data.faction_flags.get(&o.owner).copied().unwrap_or(0);
+            let f = self.faction_flags(o.owner);
             return f & faction_flags::TRACK_CRIME != 0 && f & faction_flags::EVIL == 0;
         }
         !self.alignment(o.owner).evil()
@@ -683,7 +694,7 @@ impl Game<'_> {
         let owners: Vec<FormId> = seen_by.iter().copied().filter(|&w| self.speaks_for(w, o)).collect();
         // A faction that does not track crime does not remember it [documented: GECK wiki
         // Category:Factions, Track Crime].
-        let tracks = !self.is_faction(o.owner) || self.data.faction_flags.get(&o.owner).is_some_and(|f| f & faction_flags::TRACK_CRIME != 0);
+        let tracks = !self.is_faction(o.owner) || (self.faction_flags(o.owner) & faction_flags::TRACK_CRIME != 0);
         let mut hostile = Vec::new();
         if tracks {
             for &w in &owners {
@@ -777,7 +788,7 @@ impl Game<'_> {
         // count restarts (§3.7, #2467).
         if cared {
             for f in factions_of(self, victim) {
-                let tracks = self.data.faction_flags.get(&f).is_some_and(|x| x & faction_flags::TRACK_CRIME != 0);
+                let tracks = self.faction_flags(f) & faction_flags::TRACK_CRIME != 0;
                 if tracks {
                     self.make_player_enemy_of(f);
                 }

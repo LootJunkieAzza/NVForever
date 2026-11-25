@@ -9,15 +9,16 @@
 //! converted and skipped/unsupported `.fos` section.
 
 use crate::actor_values::{CARRY_WEIGHT, HEALTH, LIMB_CONDITIONS, SPECIALS};
-use crate::aid::{grows as av_grows, RAD_LEVEL};
+use crate::aid::{grows as av_grows, ChangeKind, RAD_LEVEL, USAGE_MONITOR};
 use crate::chargen::Look;
-use crate::game::{Game, GameConfig, GameSnapshot, InstKey};
+use crate::game::{ActiveEffect, Game, GameConfig, GameSnapshot, InstKey};
 use crate::GameData;
 use fnv_save::fos::{
-    Fos, FosItem, FosItemEntry, FosScriptVars, VarValue, FORM_DEAD, FORM_DELETED, FORM_DISABLED,
-    FORM_TALKED_TO_PC, PLAYER_BASE, PLAYER_REF, TYPE_ACHR, TYPE_ACRE, TYPE_CELL, TYPE_CHAL,
-    TYPE_CLAS, TYPE_ECZN, TYPE_FACT, TYPE_FLST, TYPE_INFO, TYPE_LVLI, TYPE_NOTE, TYPE_NPC,
-    TYPE_QUST, TYPE_REFR, TYPE_REPU,
+    Fos, FosCreatedActor, FosItem, FosItemEntry, FosScriptVars, VarValue, FORM_DEAD, FORM_DELETED,
+    FORM_DESTROYED,
+    FORM_DISABLED, FORM_TALKED_TO_PC, PLAYER_BASE, PLAYER_REF, TYPE_ACHR, TYPE_ACRE, TYPE_CELL,
+    TYPE_CHAL, TYPE_CLAS, TYPE_CREA, TYPE_ECZN, TYPE_FACT, TYPE_FLST, TYPE_INFO, TYPE_LVLI,
+    TYPE_MISC, TYPE_NOTE, TYPE_NPC, TYPE_PGRE, TYPE_QUST, TYPE_REFR, TYPE_REPU, TYPE_TACT,
 };
 use fnv_save::{EngineSnapshot, Place, PluginEntry, PluginRemap, SaveBody, SaveHeader, SaveKind};
 use fnv_script::vm::Value;
@@ -229,6 +230,16 @@ pub fn inspect_fos(fos: &Fos, cosave_present: bool) -> FosInspectReport {
     count_res("encounter_zones", ez_ok, ez_err);
     let (cl_ok, cl_err) = partition_results(fos.cells());
     count_res("cells", cl_ok, cl_err);
+    let (pg_ok, pg_err) = partition_results(fos.pgre_changes());
+    count_res("pgre_changes", pg_ok, pg_err);
+    let (ca_ok, ca_err) = partition_results(fos.created_actors());
+    count_res("created_actors", ca_ok, ca_err);
+    let (ab_ok, ab_err) = partition_results(fos.actor_base_changes());
+    count_res("actor_base_changes", ab_ok, ab_err);
+    let (ta_ok, ta_err) = partition_results(fos.talking_activators());
+    count_res("talking_activators", ta_ok, ta_err);
+    let (mc_ok, mc_err) = partition_results(fos.misc_changes());
+    count_res("misc_changes", mc_ok, mc_err);
     decoded_counts.insert("ref_extras".into(), fos.ref_extras().len());
     decoded_counts.insert("actor_changes".into(), fos.actor_changes().len());
     decoded_counts.insert("notes".into(), fos.notes().len());
@@ -266,6 +277,7 @@ pub fn inspect_fos(fos: &Fos, cosave_present: bool) -> FosInspectReport {
                 if let Some(rounds) = p.active_weapon_magazine {
                     decoded_counts.insert("player_active_weapon_magazine".into(), rounds as usize);
                 }
+                decoded_counts.insert("player_active_effects".into(), p.active_effects.len());
                 (
                     p.place.is_some(),
                     p.special.is_some(),
@@ -493,6 +505,106 @@ pub fn convert_fos(
         }
     }
 
+    // 3c. Pre-place created 0xFF REFR and ACHR/ACRE records so their dynamic FormIds are
+    // available in `created_map` for quest/actor/reference 0xFF script ref variables (original
+    // game allocates a single monotonic 0xFF counter [observed]; placing created_refs before
+    // created_actors in `created_map` is an internal remapping order [design]).
+    let mut handled_created_refs: BTreeSet<u32> = BTreeSet::new();
+    let mut created_map: BTreeMap<u32, FormId> = BTreeMap::new();
+    for cr_res in fos.created_refs() {
+        let Ok(cr) = cr_res else {
+            inc_skip("created_ref", "32-byte header not understood");
+            continue;
+        };
+        let base_id = match cr.base.ok_or("not in save form ID array").and_then(&map_id) {
+            Ok(id) => id,
+            Err(why) => {
+                inc_skip("created_ref", why);
+                continue;
+            }
+        };
+        let Some((raw_at, pos, rot)) = cr.place else {
+            inc_skip("created_ref", "missing cell or worldspace");
+            continue;
+        };
+        if !finite_transform(pos, rot) {
+            inc_skip("created_ref", "non-finite transform");
+            continue;
+        }
+        let at = match map_id(raw_at) {
+            Ok(id) => id,
+            Err(why) => {
+                inc_skip("created_ref", why);
+                continue;
+            }
+        };
+        let Some(cell) = resolve_cell(refs, at, pos) else {
+            inc_skip("created_ref", "cell or worldspace not present in load order");
+            continue;
+        };
+        if let Ok(placed_id) = g.world.place(base_id, Some(cell), pos, rot, 1) {
+            handled_created_refs.insert(cr.form);
+            created_map.insert(cr.form, placed_id);
+            inc_ok("created_refs");
+        } else {
+            inc_skip("created_ref", "base form not placeable in load order");
+        }
+    }
+
+    let mut handled_created_actors: BTreeSet<u32> = BTreeSet::new();
+    let mut placed_created_actors: Vec<(FormId, FosCreatedActor)> = Vec::new();
+    let mut created_actor_bases: Vec<(FormId, FormId)> = Vec::new();
+    for ca_res in fos.created_actors() {
+        let Ok(ca) = ca_res else {
+            inc_skip("created_actor", "32-byte header not understood");
+            continue;
+        };
+        let base_id = match ca.base.ok_or("not in save form ID array").and_then(&map_id) {
+            Ok(id) => id,
+            Err(why) => {
+                inc_skip("created_actor", why);
+                continue;
+            }
+        };
+        let Some((raw_at, pos, rot)) = ca.place else {
+            inc_skip("created_actor", "missing cell or worldspace");
+            continue;
+        };
+        if !finite_transform(pos, rot) {
+            inc_skip("created_actor", "non-finite transform");
+            continue;
+        }
+        let at = match map_id(raw_at) {
+            Ok(id) => id,
+            Err(why) => {
+                inc_skip("created_actor", why);
+                continue;
+            }
+        };
+        let Some(cell) = resolve_cell(refs, at, pos) else {
+            inc_skip("created_actor", "cell or worldspace not present in load order");
+            continue;
+        };
+        let Ok(placed_id) = g.world.place(base_id, Some(cell), pos, rot, 1) else {
+            inc_skip("created_actor", "base form not placeable in load order");
+            continue;
+        };
+        handled_created_actors.insert(ca.form);
+        created_map.insert(ca.form, placed_id);
+        inc_ok("created_actors");
+        created_actor_bases.push((placed_id, base_id));
+        placed_created_actors.push((placed_id, ca));
+    }
+
+    let map_ref_id = |id: u32| -> Result<FormId, &'static str> {
+        if id >> 24 == 0xFF {
+            if let Some(&mapped) = created_map.get(&id) {
+                return Ok(mapped);
+            }
+        }
+        map_id(id)
+    };
+
     // 4. Quests (flags, delay, stages, objectives, script variables).
     for qres in fos.quests() {
         let Ok(q) = qres else {
@@ -536,10 +648,13 @@ pub fn convert_fos(
                     g.store(InstKey::Quest { quest: qid }, Some(sid), i, Value::Ref(0), "fos_convert", false);
                     inc_ok("quest_vars");
                 }
-                VarValue::Ref(Some(raw_r)) => match map_id(*raw_r) {
+                VarValue::Ref(Some(raw_r)) => match map_ref_id(*raw_r) {
                     Ok(r) => {
                         g.store(InstKey::Quest { quest: qid }, Some(sid), i, Value::Ref(r.0), "fos_convert", false);
                         inc_ok("quest_vars");
+                        if *raw_r >> 24 == 0xFF {
+                            inc_ok("created_ref_script_vars");
+                        }
                     }
                     Err(why) => inc_skip("quest_ref_variable", why),
                 },
@@ -607,9 +722,6 @@ pub fn convert_fos(
             if let Some(female) = p.female {
                 g.player.female = Some(female);
                 inc_ok("player_sex");
-                if !p.female_from_bit24 {
-                    inc_hyp("player_sex (NPC_ bit 1 ACBS) [hypothesis]");
-                }
             }
             for raw_sp in &p.spells {
                 match raw_sp.ok_or("not in save form ID array").and_then(&map_id) {
@@ -742,8 +854,9 @@ pub fn convert_fos(
                 if sync_carry_needed {
                     crate::functions::actor::sync_carry(&mut g, FormId::PLAYER_REF, CARRY_WEIGHT);
                 }
-                // AV3: current damage deltas (negative for AP/limbs/etc.) [observed] and any
-                // positive growing rads/needs fallback [hypothesis].
+                // AV3: current damage deltas (negative for AP/limbs/etc.) and natural positive
+                // growing rads/needs meters (RadiationRads 54 & Hardcore 73-75) [observed: vanilla
+                // 1.4.0.525 A/B save pairs].
                 for &(code, val) in &p.av_damage {
                     if !val.is_finite() {
                         inc_skip("player_av_damage", "non-finite value");
@@ -760,10 +873,8 @@ pub fn convert_fos(
                                 .or_insert(0.0) += f64::from(val);
                             if code_u16 == RAD_LEVEL {
                                 inc_ok("player_rads");
-                                inc_hyp("player_rads (AV3 code 54) [hypothesis]");
                             } else {
                                 inc_ok("player_hardcore_needs");
-                                inc_hyp("player_hardcore_needs (AV3 codes 73-75) [hypothesis]");
                             }
                         }
                     } else if val < 0.0 {
@@ -913,6 +1024,76 @@ pub fn convert_fos(
                 }
             }
 
+            // Player timed active magic effects (ACHR tail; [observed: vanilla 1.4.0.525 A/B
+            // save pairs; skipping permanent/worn entries and holding active ChangeKind::Modifier
+            // effects via `hold_modifier` is [design]]).
+            // Permanent abilities (duration <= 0) and worn gear enchantments (worn_item != None)
+            // are already rebuilt from `spells` / equipped gear by `sync_abilities` / `sync_worn`.
+            for ae in &p.active_effects {
+                if !ae.duration.is_finite() || !ae.elapsed.is_finite() || !ae.magnitude.is_finite() {
+                    inc_skip("player_active_effect", "non-finite value");
+                    continue;
+                }
+                if ae.duration <= 0.0 || ae.worn_item.is_some() || ae.elapsed >= ae.duration {
+                    continue;
+                }
+                let source = match ae.source.ok_or("not in save form ID array").and_then(&map_id) {
+                    Ok(id) => id,
+                    Err(why) => {
+                        inc_skip("player_active_effect", why);
+                        continue;
+                    }
+                };
+                let Some(eff_item) = data.effect_items.get(&source).and_then(|l| l.get(usize::from(ae.effect_index))) else {
+                    inc_skip("player_active_effect", "effect index not in source record");
+                    continue;
+                };
+                let caster = ae.caster.and_then(|raw| map_ref_id(raw).ok());
+                let mgef = g.magic_effect_def(eff_item.effect);
+                let mag_u32 = if ae.magnitude.abs() > 0.0 {
+                    ae.magnitude.abs().round().min(u32::MAX as f32) as u32
+                } else {
+                    eff_item.magnitude
+                };
+                let mut eff_override = eff_item.clone();
+                eff_override.magnitude = mag_u32;
+                eff_override.duration = ae.duration.round().max(1.0).min(u32::MAX as f32) as u32;
+                let mut change = mgef
+                    .as_ref()
+                    .and_then(|m| crate::aid::value_change(m, &eff_override, 1.0, false));
+                let label = format!("{} effect {}", data.name(source), ae.effect_index);
+                let inactive = !g.conditions_pass(&eff_item.conditions, Some(FormId::PLAYER_REF), caster, &label);
+                if !inactive {
+                    if let Some(ref mut c) = change {
+                        if c.kind == ChangeKind::Modifier {
+                            g.hold_modifier(FormId::PLAYER_REF, c);
+                        }
+                    }
+                }
+                let script = mgef.as_ref().and_then(|m| m.script).filter(|s| data.scripts.contains_key(s));
+                let usage = if eff_item.effect == USAGE_MONITOR { f64::from(mag_u32) } else { 0.0 };
+                let id = g.next_effect;
+                g.next_effect += 1;
+                g.effects.push(ActiveEffect {
+                    id,
+                    target: FormId::PLAYER_REF,
+                    source,
+                    effect: eff_item.effect,
+                    index: usize::from(ae.effect_index),
+                    magnitude: mag_u32,
+                    duration: f64::from(ae.duration),
+                    elapsed: f64::from(ae.elapsed.max(0.0)),
+                    permanent: false,
+                    caster,
+                    script,
+                    change,
+                    usage,
+                    worn: None,
+                    inactive,
+                });
+                inc_ok("player_active_effects");
+            }
+
             // Player place: prefer PLAYER_REF place (has rotation), else global type 1 fallback.
             let chosen_place = p.place.or_else(|| {
                 loc_global
@@ -1040,8 +1221,11 @@ pub fn convert_fos(
         }
     }
 
-    // 7b2. Non-player actor state (flags/dead, scale, script vars 0x0D, factions 0x5E, inventory/worn gear).
+    // 7b2. Non-player actor state (flags/dead, scale, script vars 0x0D, factions 0x5E,
+    // dismembered limbs 0x5F, ash piles 0x89, inventory/worn gear, current AI package,
+    // and process_level <= 3 + bit-23 AV damage/permanent modifiers).
     let mut handled_actors: BTreeSet<u32> = BTreeSet::new();
+    let mut pending_ash_piles: Vec<(FormId, u32)> = Vec::new();
     for ac in fos.actor_changes() {
         let rid = match map_id(ac.form) {
             Ok(id) if refs.get(id).is_some() => id,
@@ -1071,6 +1255,15 @@ pub fn convert_fos(
                 Err(why) => inc_skip("actor_faction", why),
             }
         }
+        for &(bp, exploded) in &ac.limbs_gone {
+            g.extra.entry(rid).or_default().limbs_gone.insert(i32::from(bp), exploded);
+            inc_ok("actor_limbs_gone");
+            applied_any = true;
+        }
+        if let Some(raw_ash) = ac.ash_pile {
+            pending_ash_piles.push((rid, raw_ash));
+            applied_any = true;
+        }
         if let Some(ref sv) = ac.script_vars {
             if apply_ref_script_vars(
                 &mut g,
@@ -1079,11 +1272,10 @@ pub fn convert_fos(
                 rid,
                 sv,
                 &map_id,
+                &created_map,
                 "actor_script_vars",
-                "actor_script_vars (actor extra 0x0D) [hypothesis]",
                 "actor_script_var",
                 &mut inc_ok,
-                &mut inc_hyp,
                 &mut inc_skip,
             ) {
                 applied_any = true;
@@ -1104,14 +1296,38 @@ pub fn convert_fos(
                 applied_any = true;
             }
         }
+        if let Some(raw_pkg) = ac.current_package {
+            match map_id(raw_pkg) {
+                Ok(pid) if data.sig(pid).as_ref() == Some(b"PACK") => {
+                    g.extra.entry(rid).or_default().current_package = Some(pid);
+                    inc_ok("actor_packages");
+                    applied_any = true;
+                }
+                Ok(_) => {}
+                Err(why) => inc_skip("actor_package", why),
+            }
+        }
+        if apply_actor_avs(
+            &mut g,
+            rid,
+            &ac.av_damage,
+            &ac.av_base_overrides,
+            &ac.av_permanent,
+            &mut inc_ok,
+            &mut inc_skip,
+        ) {
+            applied_any = true;
+        }
         if applied_any {
             handled_actors.insert(ac.form);
         }
     }
 
-    // 7b3. Placed REFR extras: locks (0x2A), door open state (bit 23/28), owners (0x21, bit 6/31),
-    // script variables (0x0D), and container inventories combined with extra lists.
+    // 7b3. Placed REFR extras: locks (0x2A), terminals (0x50), destructibles (0x5B), door
+    // open state & object animation groups (bit 23/28), owners (0x21, bit 6/31), script
+    // variables (0x0D), scale (bit 4), and container inventories (extra list + bits 5/27).
     let mut handled_ref_extras: BTreeSet<u32> = BTreeSet::new();
+    let mut restored_object_anims: BTreeMap<FormId, (u16, String)> = BTreeMap::new();
     for re in fos.ref_extras() {
         let rid = match map_id(re.form) {
             Ok(id) if refs.get(id).is_some() => id,
@@ -1154,11 +1370,111 @@ pub fn convert_fos(
                 }
             }
         }
+        if let Some(tm) = re.terminal {
+            if base_sig.as_ref() == Some(b"TERM") {
+                let mut wrote_term = false;
+                if tm.is_hacked() {
+                    g.terminals.access.insert(rid, crate::terminal::Access::Hacked);
+                    inc_hyp("terminals (extra 0x50 bit-7 hacked) [hypothesis]");
+                    wrote_term = true;
+                } else if tm.is_locked_out() {
+                    g.terminals.access.insert(rid, crate::terminal::Access::LockedOut);
+                    wrote_term = true;
+                }
+                if tm.lock_level == 0xFE {
+                    g.terminals.script_locks.insert(rid, crate::terminal::ScriptLock { locked: false, level: -1 });
+                    wrote_term = true;
+                } else if tm.lock_level < 0xFD {
+                    g.terminals
+                        .script_locks
+                        .insert(rid, crate::terminal::ScriptLock { locked: true, level: i32::from(tm.lock_level) });
+                    wrote_term = true;
+                }
+                if wrote_term {
+                    inc_ok("terminals");
+                    applied_any = true;
+                }
+            }
+        }
+        // Destructible object state: 0x56 remaining HP (`f32 |`), 0x5B 0-based `DSTD` stage
+        // index, and `FORM_DESTROYED` (bit 23 `0x0080_0000`) [observed: vanilla 1.4.0.525 A/B
+        // save pairs]. Set `destroyed = true` only when `FORM_DESTROYED` is set, the reached
+        // `DSTD` stage has `DestructionStage::DESTROY`, or remaining HP `0x56 <= 0.0` (so
+        // intermediate multi-stage destructibles keep `destroyed = false` while restoring
+        // `RefExtra::damage`).
+        let dest_def = refs.get(rid).and_then(|r| data.destructibles.get(&r.base));
+        let mut wrote_dest = false;
+        if let Some(hp) = re.destructible_health {
+            if !hp.is_finite() {
+                inc_skip("destructible_health", "non-finite value");
+            } else if let Some(def) = dest_def {
+                if def.health > 0 {
+                    let health = f64::from(def.health);
+                    let dmg = (health - f64::from(hp)).clamp(0.0, health);
+                    g.extra.entry(rid).or_default().damage = Some(dmg);
+                    wrote_dest = true;
+                }
+            }
+        }
+        let stage_destroys = re.destructible_stage.is_some_and(|st| {
+            dest_def.is_some_and(|def| {
+                def.stages
+                    .iter()
+                    .find(|s| u32::from(s.index) == st)
+                    .or_else(|| def.stages.get(st as usize))
+                    .is_some_and(|s| s.flags & crate::data::DestructionStage::DESTROY != 0)
+            })
+        });
+        let is_destroyed = re.form_flags.is_some_and(|ff| ff & FORM_DESTROYED != 0)
+            || stage_destroys
+            || re
+                .destructible_health
+                .is_some_and(|hp| hp.is_finite() && hp <= 0.0 && (dest_def.is_some() || re.destructible_stage.is_some()));
+        if is_destroyed {
+            let ex = g.extra.entry(rid).or_default();
+            ex.destroyed = true;
+            if ex.damage.is_none() {
+                if let Some(def) = dest_def {
+                    if def.health > 0 {
+                        ex.damage = Some(f64::from(def.health));
+                    }
+                }
+            }
+            wrote_dest = true;
+        } else if let (Some(st), Some(def)) = (re.destructible_stage, dest_def) {
+            // Intermediate non-destroy stage when 0x56 remaining HP was absent: set minimum
+            // threshold damage for that stage so GetDestructionStage matches while keeping
+            // GetDestroyed == 0 [design].
+            if g.extra.get(&rid).and_then(|e| e.damage).is_none() && def.health > 0 {
+                if let Some(stage) =
+                    def.stages.iter().find(|s| u32::from(s.index) == st).or_else(|| def.stages.get(st as usize))
+                {
+                    let health = f64::from(def.health);
+                    let dmg = (health * f64::from(100u8.saturating_sub(stage.health_percent)) / 100.0)
+                        .clamp(0.0, health);
+                    g.extra.entry(rid).or_default().damage = Some(dmg);
+                    wrote_dest = true;
+                }
+            }
+        }
+        if wrote_dest {
+            inc_ok("destructibles");
+            applied_any = true;
+        }
         if let Some(open) = re.door_open {
             if base_sig.as_ref() == Some(b"DOOR") {
                 if let Ok(st) = g.world.get(rid) {
                     st.open = open;
                     inc_ok("doors_open_state");
+                    applied_any = true;
+                }
+            }
+        }
+        if let Some(ref anim) = re.anim_group {
+            if base_sig.as_ref() != Some(b"DOOR") {
+                if let Some(code) = g.anim_group_code(anim) {
+                    restored_object_anims.insert(rid, (code, anim.clone()));
+                    inc_ok("object_anim_groups");
                     applied_any = true;
                 }
             }
@@ -1184,11 +1500,10 @@ pub fn convert_fos(
                 rid,
                 sv,
                 &map_id,
+                &created_map,
                 "ref_script_vars",
-                "ref_script_vars (REFR extra 0x0D) [hypothesis]",
                 "ref_script_var",
                 &mut inc_ok,
-                &mut inc_hyp,
                 &mut inc_skip,
             ) {
                 applied_any = true;
@@ -1216,6 +1531,9 @@ pub fn convert_fos(
         if applied_any {
             handled_ref_extras.insert(re.form);
         }
+    }
+    if !restored_object_anims.is_empty() {
+        g.anims.restore_asked(restored_object_anims);
     }
 
     // 7c. Map marker REFR discovery/visibility flags (bit 31 extra 0x2C; [observed]).
@@ -1251,49 +1569,156 @@ pub fn convert_fos(
         engine.extra.insert("map_markers_found".into(), serde_json::json!(found_ids));
     }
 
-    // 7d. Created 0xFF REFR records (32-byte header -> World::place; [observed]).
-    let mut handled_created_refs: BTreeSet<u32> = BTreeSet::new();
-    for cr_res in fos.created_refs() {
-        let Ok(cr) = cr_res else {
-            inc_skip("created_ref", "32-byte header not understood");
-            continue;
-        };
-        let base_id = match cr.base.ok_or("not in save form ID array").and_then(&map_id) {
-            Ok(id) => id,
-            Err(why) => {
-                inc_skip("created_ref", why);
-                continue;
+    // 7d2. Apply actor bodies for created 0xFF ACHR/ACRE records placed in Step 3c ([observed]).
+    for (placed_id, ca) in placed_created_actors {
+        if let Some(flags) = ca.form_flags {
+            let _ = g.world.set_enabled(placed_id, flags & FORM_DISABLED == 0);
+            let _ = g.world.set_deleted(placed_id, flags & FORM_DELETED != 0);
+            if flags & FORM_TALKED_TO_PC != 0 {
+                g.extra.entry(placed_id).or_default().talked_to_pc = true;
             }
-        };
-        let Some((raw_at, pos, rot)) = cr.place else {
-            inc_skip("created_ref", "missing cell or worldspace");
-            continue;
-        };
-        if !finite_transform(pos, rot) {
-            inc_skip("created_ref", "non-finite transform");
-            continue;
+            if flags & FORM_DEAD != 0 {
+                g.extra.entry(placed_id).or_default().dead = true;
+                inc_ok("actor_dead");
+            }
         }
-        let at = match map_id(raw_at) {
-            Ok(id) => id,
-            Err(why) => {
-                inc_skip("created_ref", why);
-                continue;
+        if let Some(sc) = ca.scale {
+            if !sc.is_finite() {
+                inc_skip("actor_scale", "non-finite value");
+            } else if sc > 0.0 && (sc - 1.0).abs() > 1e-5 {
+                if let Ok(st) = g.world.get(placed_id) {
+                    st.scale = Some(sc);
+                    inc_ok("actor_scales");
+                }
             }
-        };
-        let Some(cell) = resolve_cell(refs, at, pos) else {
-            inc_skip("created_ref", "cell or worldspace not present in load order");
-            continue;
-        };
-        if g.world.place(base_id, Some(cell), pos, rot, 1).is_ok() {
-            handled_created_refs.insert(cr.form);
-            inc_ok("created_refs");
+        }
+        for &(raw_fac, rank) in &ca.factions {
+            if let Ok(fid) = raw_fac.ok_or("not in save form ID array").and_then(&map_id) {
+                if data.sig(fid).as_ref() == Some(b"FACT") {
+                    g.extra.entry(placed_id).or_default().factions.insert(fid, rank);
+                    inc_ok("actor_factions");
+                }
+            }
+        }
+        for &(bp, exploded) in &ca.limbs_gone {
+            g.extra.entry(placed_id).or_default().limbs_gone.insert(i32::from(bp), exploded);
+            inc_ok("actor_limbs_gone");
+        }
+        if let Some(raw_ash) = ca.ash_pile {
+            pending_ash_piles.push((placed_id, raw_ash));
+        }
+        if let Some(ref sv) = ca.script_vars {
+            apply_ref_script_vars(
+                &mut g,
+                data,
+                refs,
+                placed_id,
+                sv,
+                &map_id,
+                &created_map,
+                "actor_script_vars",
+                "actor_script_var",
+                &mut inc_ok,
+                &mut inc_skip,
+            );
+        }
+        if let Some(ref items) = ca.inventory {
+            if apply_actor_inventory(
+                &mut g,
+                forms,
+                placed_id,
+                items,
+                &map_id,
+                &mut inc_ok,
+                &mut inc_hyp,
+                &mut inc_skip,
+            ) {
+                inc_ok("actor_inventories");
+            }
+        }
+        if let Some(raw_pkg) = ca.current_package {
+            if let Ok(pid) = map_id(raw_pkg) {
+                if data.sig(pid).as_ref() == Some(b"PACK") {
+                    g.extra.entry(placed_id).or_default().current_package = Some(pid);
+                    inc_ok("actor_packages");
+                }
+            }
+        }
+        apply_actor_avs(
+            &mut g,
+            placed_id,
+            &ca.av_damage,
+            &ca.av_base_overrides,
+            &ca.av_permanent,
+            &mut inc_ok,
+            &mut inc_skip,
+        );
+    }
+
+    // Link actor ash piles (extra 0x89; [observed]) to their remapped placed or created pile references.
+    for (actor_id, raw_ash) in pending_ash_piles {
+        let pile_id = if raw_ash >> 24 == 0xFF {
+            created_map.get(&raw_ash).copied()
         } else {
-            inc_skip("created_ref", "base form not placeable in load order");
+            map_id(raw_ash).ok().filter(|&id| refs.get(id).is_some())
+        };
+        if let Some(pid) = pile_id {
+            g.extra.entry(actor_id).or_default().ash_pile = Some(pid);
+            g.extra.entry(pid).or_default().ash_pile_source = Some(actor_id);
+            inc_ok("actor_ash_piles");
+        } else {
+            inc_skip("actor_ash_pile", "ash pile reference not placed in load order");
         }
     }
 
-    // 8. Faction relations (FACT flag 2; [observed]).
+    // 7d3. Non-created placed grenade/mine references (PGRE, kind 4; [observed]).
+    let mut handled_pgres: BTreeSet<u32> = BTreeSet::new();
+    for pres in fos.pgre_changes() {
+        let Ok(pr) = pres else {
+            inc_skip("pgre", "change flags of unmapped layout");
+            continue;
+        };
+        let rid = match map_id(pr.form) {
+            Ok(id) if refs.get(id).is_some() => id,
+            Ok(_) => {
+                inc_skip("pgre", "not a placed reference of load order");
+                continue;
+            }
+            Err(why) => {
+                inc_skip("pgre", why);
+                continue;
+            }
+        };
+        let mut applied_any = false;
+        if let Some(flags) = pr.form_flags {
+            let _ = g.world.set_enabled(rid, flags & FORM_DISABLED == 0);
+            let _ = g.world.set_deleted(rid, flags & FORM_DELETED != 0);
+            inc_ok("pgre_flags");
+            applied_any = true;
+        }
+        if let Some((raw_at, pos, rot)) = pr.place {
+            if !finite_transform(pos, rot) {
+                inc_skip("pgre_place", "non-finite transform");
+            } else if let Ok(at) = map_id(raw_at) {
+                if let Some(cell) = resolve_cell(refs, at, pos) {
+                    if let Ok(st) = g.world.get(rid) {
+                        st.cell = Some(cell);
+                        st.pos = pos;
+                        st.rot = rot;
+                        inc_ok("pgre_places");
+                        applied_any = true;
+                    }
+                }
+            }
+        }
+        if applied_any {
+            handled_pgres.insert(pr.form);
+        }
+    }
+
+    // 8. Faction relations & modifiers (FACT bits 1, 2, 31; [observed]).
     let mut factions_changed = false;
+    let mut handled_factions: BTreeSet<u32> = BTreeSet::new();
     for fres in fos.faction_relations() {
         let Ok(f) = fres else {
             inc_skip("faction", "record not understood");
@@ -1306,14 +1731,30 @@ pub fn convert_fos(
                 continue;
             }
         };
-        for (other, _modifier, reaction) in f.relations {
+        if let Some(flags) = f.flags {
+            g.forms.faction_flags.insert(fid, (flags & 0xFFFF) as u16);
+            handled_factions.insert(f.form);
+            inc_ok("faction_flags");
+        }
+        if !f.relations.is_empty() {
+            handled_factions.insert(f.form);
+        }
+        for (other, modifier, reaction) in f.relations {
             match other.ok_or("not in save form ID array").and_then(&map_id) {
-                Ok(oid) if reaction <= 3 => {
-                    g.forms.faction_reactions.entry(fid).or_default().insert(oid, i64::from(reaction));
-                    factions_changed = true;
-                    inc_ok("faction_relations");
+                Ok(oid) => {
+                    if reaction <= 3 {
+                        g.forms.faction_reactions.entry(fid).or_default().insert(oid, i64::from(reaction));
+                        factions_changed = true;
+                        inc_ok("faction_relations");
+                    } else {
+                        inc_skip("faction_relation", "reaction outside 0..=3");
+                    }
+                    if modifier != 0 {
+                        g.forms.faction_modifiers.entry(fid).or_default().insert(oid, i64::from(modifier));
+                        factions_changed = true;
+                        inc_ok("faction_modifiers");
+                    }
                 }
-                Ok(_) => inc_skip("faction_relation", "reaction outside 0..=3"),
                 Err(why) => inc_skip("faction_relation", why),
             }
         }
@@ -1489,7 +1930,7 @@ pub fn convert_fos(
         }
     }
 
-    // 14b. Encounter zones (ECZN bit 31: locked zone level; [observed]).
+    // 14b. Encounter zones (ECZN bit 1 never_resets, bit 31 locked zone level; [observed]).
     for ezres in fos.encounter_zones() {
         let Ok(ez) = ezres else {
             inc_skip("encounter_zone", "record not understood");
@@ -1506,15 +1947,19 @@ pub fn convert_fos(
                 continue;
             }
         };
+        if let Some(nr) = ez.never_resets {
+            g.world.set_zone_respawns(zid, !nr);
+            inc_ok("encounter_zone_respawns");
+        }
         if let Some(level) = u16::try_from(ez.level).ok().filter(|&l| l >= 1) {
             g.world.set_zone_level(zid, level);
             inc_ok("encounter_zones");
-        } else {
+        } else if ez.never_resets.is_none() {
             inc_skip("encounter_zone", "zone level out of range");
         }
     }
 
-    // 14c. Cells (CELL bits 3/30/31: visited cells, detach timestamps, cell owners; [observed]).
+    // 14c. Cells (CELL bits 1/3/30/31: public flags, visited cells, detach timestamps, cell owners; [observed]).
     let mut handled_cells: BTreeSet<u32> = BTreeSet::new();
     for cres in fos.cells() {
         let Ok(cell) = cres else {
@@ -1533,6 +1978,11 @@ pub fn convert_fos(
             }
         };
         let mut applied_any = false;
+        if let Some(fl) = cell.cell_flags {
+            g.forms.public_cells.insert(cid, fl & 0x20 != 0);
+            inc_ok("cell_public_flags");
+            applied_any = true;
+        }
         if cell.detach_hours.is_some() || cell.has_fog {
             g.forms.visited_cells.insert(cid);
             inc_ok("visited_cells");
@@ -1560,10 +2010,161 @@ pub fn convert_fos(
         }
     }
 
+    // 14d. Non-player actor base changes (NPC_ excluding 0x7, CREA: bit 1 Essential/Female,
+    // bit 5 name, bit 24 SexChange; [observed]).
+    let mut handled_actor_bases: BTreeSet<u32> = BTreeSet::new();
+    for abres in fos.actor_base_changes() {
+        let Ok(ab) = abres else {
+            inc_skip("actor_base", "record layout not understood");
+            continue;
+        };
+        let bid = match map_id(ab.form) {
+            Ok(id) if matches!(data.sig(id).as_ref(), Some(b"NPC_" | b"CREA")) => id,
+            Ok(_) => continue,
+            Err(_) => continue,
+        };
+        let mut applied_any = false;
+        if let Some(ess) = ab.essential {
+            g.forms.essential.insert(bid, ess);
+            inc_ok("actor_base_essential");
+            applied_any = true;
+        }
+        if let Some(ref name) = ab.name {
+            if !name.is_empty() {
+                g.forms.names.remove(&bid);
+                g.forms.saved_names.insert(bid, name.clone());
+                inc_ok("actor_base_names");
+                applied_any = true;
+            }
+        }
+        if let Some(female) = ab.female {
+            if data.sig(bid).as_ref() == Some(b"NPC_") {
+                let explicit_sex_change = ab.flags & (1 << 24) != 0;
+                let differs_from_authored = data.actors.get(&bid).is_some_and(|a| a.female != female);
+                if explicit_sex_change || differs_from_authored {
+                    let mut applied_sex = false;
+                    for (&rid, placed) in &refs.refs {
+                        if placed.base == bid {
+                            g.extra.entry(rid).or_default().female = Some(female);
+                            applied_sex = true;
+                        }
+                    }
+                    for &(placed_id, base_id) in &created_actor_bases {
+                        if base_id == bid {
+                            g.extra.entry(placed_id).or_default().female = Some(female);
+                            applied_sex = true;
+                        }
+                    }
+                    if applied_sex {
+                        inc_ok("actor_base_sex");
+                        applied_any = true;
+                    } else if explicit_sex_change {
+                        applied_any = true;
+                    }
+                }
+            }
+        }
+        if applied_any {
+            handled_actor_bases.insert(ab.form);
+        }
+    }
+
+    // 14e. Talking activators (TACT, kind 13: bit 2 name, bit 23 talking actor -> placed TACT refs; [observed]).
+    let mut handled_tacts: BTreeSet<u32> = BTreeSet::new();
+    for tares in fos.talking_activators() {
+        let Ok(ta) = tares else {
+            inc_skip("talking_activator", "record layout not understood");
+            continue;
+        };
+        let tid = match map_id(ta.form) {
+            Ok(id) if data.sig(id).as_ref() == Some(b"TACT") => id,
+            Ok(_) => continue,
+            Err(_) => continue,
+        };
+        let mut applied_any = false;
+        if let Some(ref name) = ta.name {
+            if !name.is_empty() {
+                g.forms.names.remove(&tid);
+                g.forms.saved_names.insert(tid, name.clone());
+                inc_ok("tact_names");
+                applied_any = true;
+            }
+        }
+        if let Some(opt_raw_actor) = ta.talking_actor {
+            let mapped_actor = match opt_raw_actor {
+                Some(raw_a) => match map_id(raw_a) {
+                    Ok(aid) if refs.get(aid).is_some() => Some(aid),
+                    Ok(_) => {
+                        inc_skip("talking_activator_actor", "not a placed reference of load order");
+                        if applied_any {
+                            handled_tacts.insert(ta.form);
+                        }
+                        continue;
+                    }
+                    Err(why) => {
+                        inc_skip("talking_activator_actor", why);
+                        if applied_any {
+                            handled_tacts.insert(ta.form);
+                        }
+                        continue;
+                    }
+                },
+                None => None,
+            };
+            let mut applied_actor = false;
+            for (&rid, placed) in &refs.refs {
+                if placed.base == tid {
+                    let e = g.extra.entry(rid).or_default();
+                    e.talking_actor = mapped_actor;
+                    e.talking_actor_set = true;
+                    applied_actor = true;
+                }
+            }
+            if applied_actor {
+                inc_ok("talking_activator_actors");
+                applied_any = true;
+            }
+        }
+        if applied_any {
+            handled_tacts.insert(ta.form);
+        }
+    }
+
+    // 14f. Non-created miscellaneous item base changes (MISC, kind 22: bit 0 Quest Item, bit 1 value; [observed]).
+    let mut handled_miscs: BTreeSet<u32> = BTreeSet::new();
+    for mres in fos.misc_changes() {
+        let Ok(mc) = mres else {
+            inc_skip("misc", "record layout not understood");
+            continue;
+        };
+        let mid = match map_id(mc.form) {
+            Ok(id) if data.sig(id).as_ref() == Some(b"MISC") => id,
+            Ok(_) => continue,
+            Err(_) => continue,
+        };
+        let mut applied_any = false;
+        if let Some(ff) = mc.form_flags {
+            g.forms.quest_items.insert(mid, ff & 0x400 != 0);
+            inc_ok("misc_quest_items");
+            applied_any = true;
+        }
+        if let Some(val) = mc.value {
+            g.forms.item_values.insert(mid, val);
+            inc_ok("misc_values");
+            applied_any = true;
+        }
+        if applied_any {
+            handled_miscs.insert(mc.form);
+        }
+    }
+
     // 15. Truthfully account for all remaining unmapped/unsupported changed-form records.
     for cf in &fos.changed {
         if cf.form >> 24 == 0xFF {
             if cf.kind == TYPE_REFR && handled_created_refs.contains(&cf.form) {
+                continue;
+            }
+            if matches!(cf.kind, TYPE_ACHR | TYPE_ACRE) && handled_created_actors.contains(&cf.form) {
                 continue;
             }
             inc_skip("changed_form", &format!("created {} (0xFF) unsupported", fnv_save::fos::kind_name(cf.kind)));
@@ -1571,24 +2172,30 @@ pub fn convert_fos(
         }
         let handled = match cf.kind {
             TYPE_QUST => true,
-            TYPE_FACT => cf.flags & (1 << 2) != 0,
-            TYPE_FLST | TYPE_LVLI | TYPE_ECZN => cf.flags & (1 << 31) != 0,
+            TYPE_FACT => handled_factions.contains(&cf.form),
+            TYPE_FLST | TYPE_LVLI => cf.flags & (1 << 31) != 0,
+            TYPE_ECZN => cf.flags & ((1 << 1) | (1 << 31)) != 0,
             TYPE_INFO | TYPE_NOTE => cf.flags & (1 << 31) != 0 && cf.data.is_empty(),
             TYPE_REPU | TYPE_CHAL => cf.flags & (1 << 1) != 0,
             TYPE_CELL => handled_cells.contains(&cf.form),
             TYPE_NPC => {
-                cf.form == PLAYER_BASE
-                    && (cf.flags & ((1 << 1) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 11) | (1 << 24)) != 0)
+                (cf.form == PLAYER_BASE
+                    && (cf.flags & ((1 << 1) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 11) | (1 << 24)) != 0))
+                    || handled_actor_bases.contains(&cf.form)
             }
+            TYPE_CREA => handled_actor_bases.contains(&cf.form),
+            TYPE_TACT => handled_tacts.contains(&cf.form),
+            TYPE_MISC => handled_miscs.contains(&cf.form),
+            TYPE_PGRE => handled_pgres.contains(&cf.form),
             TYPE_CLAS => cf.form == fnv_save::fos::PLAYER_CLASS && (cf.flags & (1 << 1) != 0),
             TYPE_REFR => {
-                (cf.flags & 0b111 != 0)
+                (cf.flags & 0b1111 != 0)
                     || ((cf.flags & ((1 << 5) | (1 << 27))) != 0
                         && (cf.flags & !((1 << 5) | (1 << 27) | (1 << 28))) == 0)
                     || handled_map_markers.contains(&cf.form)
                     || handled_ref_extras.contains(&cf.form)
             }
-            TYPE_ACHR | TYPE_ACRE => cf.form == PLAYER_REF || (cf.flags & 0b111 != 0) || handled_actors.contains(&cf.form),
+            TYPE_ACHR | TYPE_ACRE => cf.form == PLAYER_REF || (cf.flags & 0b1111 != 0) || handled_actors.contains(&cf.form),
             _ => false,
         };
         if !handled {
@@ -1721,6 +2328,7 @@ fn apply_container_inventory(
                             equipped: false,
                             mods: entry.weapon_mods,
                             live: false,
+                            magazine: None,
                         };
                         if g.world.add_item_extra(holder, id, stack_n, extra).is_ok() {
                             remaining -= stack_n;
@@ -1772,20 +2380,60 @@ fn apply_player_inventory(
     inc_hyp: &mut impl FnMut(&str),
     inc_skip: &mut impl FnMut(&str, &str),
 ) {
-    // Pass 1: count hotkeys (not persisted in NVFSAVE v1) and apply inventory deltas & sub-stacks.
+    // Pass 1: wire hotkeys (0x4A) + per-weapon chosen ammo (0x6E) and apply inventory deltas & sub-stacks.
+    let mut hotkey_slots: [Option<serde_json::Value>; 8] = Default::default();
     for it in items {
+        let mapped_item = it.item.ok_or("not in save form ID array").and_then(map_id);
         for entry in &it.entries {
-            if entry.hotkey.is_some() {
-                inc_skip("player_hotkey", "not persisted in NVFSAVE v1");
+            if let Some(slot_byte) = entry.hotkey {
+                let slot_idx = usize::from(slot_byte);
+                if slot_idx >= 8 || slot_idx == 1 {
+                    inc_skip("player_hotkey", "reserved or out-of-range hotkey slot");
+                } else {
+                    match mapped_item {
+                        Ok(id)
+                            if forms.item(id).is_some_and(|item| {
+                                matches!(item.kind, ItemKind::Weapon | ItemKind::Armor | ItemKind::Aid | ItemKind::Book)
+                            }) =>
+                        {
+                            for prev in &mut hotkey_slots {
+                                if prev.as_ref().and_then(|v| v.get("item")).and_then(|v| v.as_u64())
+                                    == Some(u64::from(id.0))
+                                {
+                                    *prev = None;
+                                }
+                            }
+                            hotkey_slots[slot_idx] =
+                                Some(serde_json::json!({ "item": id.0, "mods": entry.weapon_mods }));
+                            inc_ok("player_hotkeys");
+                        }
+                        Ok(_) => inc_skip("player_hotkey", "item kind cannot be hotkeyed"),
+                        Err(why) => inc_skip("player_hotkey", why),
+                    }
+                }
             }
-            if !entry.worn && entry.ammo.is_some() {
-                inc_skip("player_weapon_magazine", "unequipped weapon magazine not persisted in NVFSAVE v1");
+            if let Some((raw_ammo, _rounds)) = entry.ammo {
+                if let Ok(id) = mapped_item {
+                    if forms.item(id).is_some_and(|item| item.kind == ItemKind::Weapon) {
+                        if let Some(raw) = raw_ammo {
+                            match map_id(raw) {
+                                Ok(aid) if forms.item(aid).is_some_and(|item| item.kind == ItemKind::Ammo) => {
+                                    engine.chosen_ammo.insert(id.0, aid.0);
+                                    inc_ok("player_chosen_ammo");
+                                    inc_hyp("player_chosen_ammo (extra 0x6E) [hypothesis]");
+                                }
+                                Ok(_) => inc_skip("player_chosen_ammo", "not an AMMO record"),
+                                Err(why) => inc_skip("player_chosen_ammo", why),
+                            }
+                        }
+                    }
+                }
             }
         }
         if it.count == 0 {
             continue;
         }
-        match it.item.ok_or("not in save form ID array").and_then(map_id) {
+        match mapped_item {
             Ok(id) => {
                 if it.count > 0 {
                     let mut remaining = it.count;
@@ -1822,16 +2470,25 @@ fn apply_player_inventory(
                             }
                             None => None,
                         };
+                        let saved_mag = (!entry.worn
+                            && forms.item(id).is_some_and(|item| item.kind == ItemKind::Weapon))
+                            .then(|| entry.ammo.map(|(_, rounds)| rounds))
+                            .flatten();
                         let extra = Extra {
                             condition: cond,
                             owner,
                             equipped: false,
                             mods: entry.weapon_mods,
                             live: false,
+                            magazine: saved_mag,
                         };
                         if g.world.add_item_extra(FormId::PLAYER_REF, id, stack_n, extra).is_ok() {
                             remaining -= stack_n;
                             added_any = true;
+                            if saved_mag.is_some() {
+                                inc_ok("player_unequipped_magazines");
+                                inc_hyp("player_unequipped_magazines (extra 0x6E) [hypothesis]");
+                            }
                         } else {
                             failed = true;
                             break;
@@ -1861,6 +2518,10 @@ fn apply_player_inventory(
             }
             Err(why) => inc_skip("player_item", why),
         }
+    }
+
+    if hotkey_slots.iter().any(Option::is_some) {
+        engine.extra.insert("hotkeys".into(), serde_json::json!(hotkey_slots));
     }
 
     // Pass 2: equip worn sub-stacks (after all counts are in place) and wire worn weapon magazine.
@@ -1971,18 +2632,23 @@ fn apply_ref_script_vars(
     rid: FormId,
     sv: &FosScriptVars,
     map_id: &impl Fn(u32) -> Result<FormId, &'static str>,
+    created_map: &BTreeMap<u32, FormId>,
     ok_key: &str,
-    hyp_key: &str,
     skip_key: &str,
     inc_ok: &mut impl FnMut(&str),
-    inc_hyp: &mut impl FnMut(&str),
     inc_skip: &mut impl FnMut(&str, &str),
 ) -> bool {
     let script_id = sv
         .script
         .and_then(|raw| map_id(raw).ok())
         .filter(|&sid| data.script(sid).is_some())
-        .or_else(|| refs.get(rid).and_then(|r| data.script_of_base(r.base)).filter(|&sid| data.script(sid).is_some()));
+        .or_else(|| {
+            refs.get(rid)
+                .map(|r| r.base)
+                .or_else(|| g.world.peek(rid).map(|s| s.base))
+                .and_then(|base| data.script_of_base(base))
+                .filter(|&sid| data.script(sid).is_some())
+        });
     let Some(sid) = script_id else {
         if !sv.vars.is_empty() {
             inc_skip(skip_key, "reference has no script in load order");
@@ -2003,7 +2669,6 @@ fn apply_ref_script_vars(
                 if x.is_finite() {
                     g.store(InstKey::Ref { reference: rid }, Some(sid), i, Value::Num(*x), "fos_convert", false);
                     inc_ok(ok_key);
-                    inc_hyp(hyp_key);
                     applied_any = true;
                 } else {
                     inc_skip(skip_key, "non-finite value");
@@ -2012,18 +2677,26 @@ fn apply_ref_script_vars(
             VarValue::Ref(None) => {
                 g.store(InstKey::Ref { reference: rid }, Some(sid), i, Value::Ref(0), "fos_convert", false);
                 inc_ok(ok_key);
-                inc_hyp(hyp_key);
                 applied_any = true;
             }
-            VarValue::Ref(Some(raw_r)) => match map_id(*raw_r) {
-                Ok(r) => {
-                    g.store(InstKey::Ref { reference: rid }, Some(sid), i, Value::Ref(r.0), "fos_convert", false);
-                    inc_ok(ok_key);
-                    inc_hyp(hyp_key);
-                    applied_any = true;
+            VarValue::Ref(Some(raw_r)) => {
+                let mapped = if *raw_r >> 24 == 0xFF {
+                    created_map.get(raw_r).copied().ok_or("created form (0xFF)")
+                } else {
+                    map_id(*raw_r)
+                };
+                match mapped {
+                    Ok(r) => {
+                        g.store(InstKey::Ref { reference: rid }, Some(sid), i, Value::Ref(r.0), "fos_convert", false);
+                        inc_ok(ok_key);
+                        if *raw_r >> 24 == 0xFF {
+                            inc_ok("created_ref_script_vars");
+                        }
+                        applied_any = true;
+                    }
+                    Err(why) => inc_skip(skip_key, why),
                 }
-                Err(why) => inc_skip(skip_key, why),
-            },
+            }
             VarValue::Unresolved => inc_skip(skip_key, "not in save form ID array"),
         }
     }
@@ -2084,6 +2757,7 @@ fn apply_actor_inventory(
                             equipped: false,
                             mods: entry.weapon_mods,
                             live: false,
+                            magazine: None,
                         };
                         if g.world.add_item_extra(holder, id, stack_n, extra).is_ok() {
                             remaining -= stack_n;
@@ -2154,6 +2828,65 @@ fn apply_actor_inventory(
     if equipped_any {
         if let Ok(st) = g.world.get(holder) {
             st.outfitted = true;
+        }
+    }
+    applied_any
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_actor_avs(
+    g: &mut Game<'_>,
+    rid: FormId,
+    av_damage: &[(u8, f32)],
+    av_base_overrides: &[(u8, f32)],
+    av_permanent: &[(u8, f32)],
+    inc_ok: &mut impl FnMut(&str),
+    inc_skip: &mut impl FnMut(&str, &str),
+) -> bool {
+    let mut applied_any = false;
+    for &(code, val) in av_damage {
+        if !val.is_finite() {
+            inc_skip("actor_av_damage", "non-finite value");
+            continue;
+        }
+        let code_u16 = u16::from(code);
+        if code_u16 >= 77 {
+            continue;
+        }
+        if av_grows(code_u16) {
+            if val > 0.0 {
+                g.extra.entry(rid).or_default().actor_values.insert(code_u16, f64::from(val));
+                inc_ok("actor_av_damage");
+                applied_any = true;
+            }
+        } else if val < 0.0 {
+            g.extra.entry(rid).or_default().av_damage.insert(code_u16, f64::from(-val));
+            inc_ok("actor_av_damage");
+            applied_any = true;
+        }
+    }
+    for &(code, val) in av_base_overrides {
+        if !val.is_finite() {
+            inc_skip("actor_av_base_override", "non-finite value");
+            continue;
+        }
+        let code_u16 = u16::from(code);
+        if code_u16 < 77 {
+            g.extra.entry(rid).or_default().actor_values.insert(code_u16, f64::from(val));
+            inc_ok("actor_av_base_overrides");
+            applied_any = true;
+        }
+    }
+    for &(code, val) in av_permanent {
+        if !val.is_finite() {
+            inc_skip("actor_av_permanent", "non-finite value");
+            continue;
+        }
+        let code_u16 = u16::from(code);
+        if code_u16 < 77 && val != 0.0 {
+            g.extra.entry(rid).or_default().av_permanent.insert(code_u16, f64::from(val));
+            inc_ok("actor_av_permanent");
+            applied_any = true;
         }
     }
     applied_any

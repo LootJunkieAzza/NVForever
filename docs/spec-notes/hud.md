@@ -309,8 +309,10 @@ the compass the eight directions' letters in Bevy's font.
   up within 0.34 s, held about 1.3 s. [hypothesis] `xp_meter.rs` fits the notice at
   7.2 s, with a 1.2 s gap and symmetric 0.34 s fades (experience.md §6). History:
   0.25 s fade, 3 s hold, immediate eased 0.6 s slide and LEVEL UP replacing +n XP.
-  [design: owner 2026-10-24; maintainer's choice T12b B/M4; needs an issue] The filled-bar
-  sound and 5 s sound-to-menu wait stay; the original's sound moment is not captured.
+  [owner 2026-10-24; observed: private job hud_xp_limbs2, x9_level_up_long; design: #3438]
+  The filled-bar sound stays at 4.0 s and `LEVEL_UP_DELAY` is 5.35 s so the menu opens at
+  the observed 9.35 s after the `LEVEL UP` fade (9.18 s); the original's sound moment is
+  still uncaptured.
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
 - The breath meter is built: drowning.md §3 (`hud_breath.rs`); from its `nif` tile with
   `[UI] TileMenus=HUDMainMenu` (§14.12).
@@ -458,7 +460,8 @@ them.
 
 Shown while the player sneaks (`PlayerControl::sneak`), with the rest of the HUD. Which
 word [hypothesis: the meaning players give the words; not documented]: `[DANGER]` when
-an actor is in Combat with the player as its target; else `[CAUTION]` when an actor in
+an actor is in Combat with the player as its detected target (an enemy left in an unloaded
+cell, or out of reach, detects the player no more: alert.md §2, #3390); else `[CAUTION]` when an actor in
 Alert or Lost has the player among its threats or an alarm the player caused
 (`fnv_game::awareness`); else `[DETECTED]` when some actor's latest detection of the
 player is in the detected band (`Game::detection`, value above 0); else `[HIDDEN]`.
@@ -500,38 +503,44 @@ menu's (`dialogue_menu.rs`).
   `Map Markers`] An actor is a tick over the strip, red when hostile and amber (the HUD's
   colour) otherwise; a map marker is a small triangle under the letters, hollow before
   the player has been there (`glow_hud_compass_landmark.dds`) and filled after
-  (`…_landmark_discovered.dds`). The sizes and places NVForever uses are fitted to those
-  screenshots: the tick drawn 26 units high, the triangle drawn at 0.6 of its texture
-  with its middle 46.7 down the window. Until #3310 the hand-built tick's top stood 9
-  below the window's (its bar from under the bracket's line to the strip's).
-- [#3310: a player's report and screenshot of the hand-built HUD, v0.8.1 at 1920 x 1080,
-  the log's `[UI] TileMenus` without `HUDMainMenu`] The actor ticks stood "slightly
-  lower" than the original's. The original's box puts them higher. The template's
-  actor group stands at y 5 [documented: `hudtemplates.xml`,
-  `template_compass_npc_icon_group`], but the copy the original's code makes reads y 10
-  at run time [observed: §14.4, read from the original]: the code overrides the
-  template's 5, and NVForever writes the 10 (`ui_hud::copies`). Each tick is at y -10
-  in the group, 32 x 32 [documented: `hudtemplates.xml`, `compass_npc_icon`], so the
-  box's top is the window's top, where the tile HUD draws it. [observed: the
-  screenshot, a crop resized to about 2.28 pixels a unit (N and NE 292 pixels apart;
-  1.125 a unit at 1920 x 1080, §4)] The hand-built bar fades in over about 18 units and
-  ends solid on the strip's upper line.
-  [hypothesis] The tick picture's bar is its top 22 of 32 texel rows (18 units at 26/32
-  of a unit a row; as the corner bars' `hud_tick_mark.dds`'s 22-row block, §3). Then
-  the window's top lies 9 units over where the bar's fade starts (the old `TICK_TOP`),
-  which puts the strip's upper line about 26 units down the window (inferred from that
-  origin, not measured; the left bracket's line at texels 66-70 falls where this origin
-  puts it, a check), and the original, drawing the picture a texel a unit in its box,
-  ends its bar 22 down the window, about 4 above the strip's upper line, where the
-  hand-built's ended on it. The row count, the window origin, the strip line's 26 and
-  that alignment are all this hypothesis; observer check 261 measures the original's
-  bar against the strip's line on a raw 1920 x 1080 frame.
-  [design] NVForever keeps the fitted 26-unit size and the bar's middle on the bearing
-  and stands the hand-built tick so its bar ends at 22 (`compass::TICK_BAR_END`,
-  `TICK_TOP` 4.125): 4.9 units higher than before, for neutral, hostile and companion
-  ticks alike; the map marker, quest and player icons are unchanged. Observer check 261
-  says where the original's bar ends against the strip's line (test
-  `compass::tests::an_actor_tick_stands_where_the_originals_box_puts_its_bar`).
+  (`…_landmark_discovered.dds`). The triangle's size and place are fitted to those
+  screenshots: drawn at 0.6 of its texture with its middle 46.7 down the window. So were
+  the tick's until #3310 (26 units high, its top 9 below the window's).
+- **The actor ticks' box** (#3310; the hand-built HUD, `compass::mark_box`; the tile HUD
+  draws the file's box).
+  - The template's actor group stands at y 5 [documented: `hudtemplates.xml`,
+    `template_compass_npc_icon_group`], but the copy the original's code makes reads y 10
+    at run time [observed: §14.4, read from the original], which NVForever writes
+    (`ui_hud::copies`). Each tick is at y -10 in the group, 32 x 32 [documented:
+    `hudtemplates.xml`, `compass_npc_icon`], so the box's top is the window's top.
+  - The picture's bar is whole in texel columns 6-11 and rows 4-26, its alpha and colour
+    rising downwards to full at rows 22-26; row 27 has alpha 184 of 255 and a colour of
+    129, row 28 125 and 68 [observed: `glow_hud_tick_mark.dds`, 32 x 32, from `Fallout -
+    Textures2.bsa`, decoded]. Drawn a texel a unit it is 6.2 units wide and ends 27 down
+    [both worked out from the texels, at half contrast over a mid-grey ground].
+  - [observed 2026-11-24: the original, base game + xNVSE 6.4.9 + JIP LN, save hudtest,
+    Goodsprings at night looking up 60 degrees into a black sky, 1920 x 1080 windowed,
+    1.125 pixels a unit, private job `compass_310`, grabbed at native size]
+    - The visible tick (`compass_window/*:0/*:8`) reads x 177.88, y -10, width and height
+      32, zoom -1, depth -10, alpha and brightness 255; its group y 10, depth 2; the window
+      y 65, height 64, depth 1.
+    - With the strip and the bracket set to alpha 0 the tick's column of pixels is the
+      picture's colour times its alpha, drawn 37 pixels high (36 rounded up) from 976.5
+      pixels down the screen, to 0.004 of full brightness (rms over 38 rows); the same
+      picture 26 units high does not fit. Its bar ends at about 1007.6, the strip's upper
+      line starts at 1009: the strip's line is at rows 29 and 30 of its 64, so the window's
+      top is at 976.4 and the two agree.
+    - The strip and the bracket are drawn over the tick (its depth is -10): their dark
+      halos (alpha over half within four rows of a line) dim the bar's top and its last
+      five or so pixels, which is why its end reads softer than the picture's.
+  - [design] The hand-built tick has that box: 32 x 32 at the window's top, its bar's
+    middle on the bearing, under the bracket and the strip (`hud::CompassTicks`, #3777). At
+    1920 x 1080 it is 36 pixels, so its bar ends a pixel above the original's [observed: a
+    run beside the frame above]; why the original's is 37 is not known. Before #3310 it was 26 units high with its top 9 down, the bar
+    ending 30.9 down, on the strip's line (a player: slightly low). #3310's first change
+    put its top at 4.125, taking the bar for the top 22 of 32 rows, which the decoded
+    picture does not bear out: it ended 26.1 down and was too thin (the same player: now
+    too high).
 - [hypothesis] Which actors: the living NPCs and creatures of the loaded cells within
   Perception × 300 units of the player; no game setting for this range is in the
   masters. Hostile is the enemy bar's rule (§8). Each mark stands at its bearing from the
@@ -1249,9 +1258,10 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   +5 example]; further gains update the endpoint. LEVEL UP alone appears around
   7.2 s, rises within 0.34 s, holds about 1.3 s, falls by 9.35 s. [design] Tile-only
   `ui_hud::Animation` clocks pause without the HUD and reset on tree rebuild or XP/
-  level reset. They do not schedule sounds/menus: the hand-built menu delay can
-  interrupt this longer visual sequence [documented: nvf-play/src/xp_meter.rs,
-  LEVEL_UP_DELAY]. Reconciling that owner's delay is outside part A.
+  level reset. They do not schedule sounds/menus: `xp_meter` keeps `UILevelUpText` at the
+  filled bar (4.0 s, owner 2026-10-24) and opens the menu `LEVEL_UP_DELAY` (5.35 s) later
+  at 9.35 s, matching the observed menu opening after the `LEVEL UP` fade finishes at
+  9.18 s [documented: nvf-play/src/xp_meter.rs, LEVEL_UP_DELAY; #3438].
 - [observed: private job hud_xp_limbs l1-l3] Limb pictures at zoom 75:
 
   | Picture | x,y | width,height |

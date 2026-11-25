@@ -227,6 +227,15 @@ pub struct RefState {
     /// on a load (`World::made_at_from_saved_place`, #3042).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub made_at: Option<(Option<FormId>, [f32; 3])>,
+    /// A reference created at run time ([`World::place`]): the Euler angles (radians)
+    /// it was created with, answered by `GetStartingAngle` [observed: Fallout: New Vegas
+    /// 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23, `GSDocMitchellHouse`
+    /// (`0x00103DF9`), 10 official base masters, `b3_jip4_02_session_time_and_start_angle`
+    /// (`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3679):
+    /// `PROBE|b3_jip4_02_session_time_and_start_angle|sess=5.31,docZ=22.92,dynZ=270.00`;
+    /// no DLL or source consulted; hypothesis: X/Y axes and save persistence].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub made_rot: Option<[f32; 3]>,
     /// A shot's temporary reference for scripts (`fnv_game::nvse_proj`): the engine draws
     /// the shot's flying model along its flight, so this reference is neither drawn nor
     /// given collision as a dropped item (#2186).
@@ -601,6 +610,10 @@ pub struct World<'a> {
     /// Pick Locks Even With Key tweak and Shift are on (NVForever's tweaks,
     /// docs/design/tweaks.md); not saved.
     player_ignores_keys: bool,
+    /// Encounter zones do not freeze their level on first visit (`bNoLockEncounterZoneLevels`,
+    /// set by the game layer, [`World::set_no_lock_encounter_zone_levels`]) [design:
+    /// docs/design/tweaks.md]; not saved.
+    pub(crate) no_lock_encounter_zone_levels: bool,
     /// Encounter zones entered and their levels (`crate::zones`).
     pub(crate) zone_levels: BTreeMap<FormId, u16>,
     /// SetZoneRespawns: zone → whether it respawns, over its "Never Resets" flag.
@@ -677,6 +690,7 @@ impl<'a> World<'a> {
             power_armor_training: false,
             player_equips_broken: false,
             player_ignores_keys: false,
+            no_lock_encounter_zone_levels: false,
             zone_levels: BTreeMap::new(),
             zone_respawns: BTreeMap::new(),
             ref_levels: BTreeMap::new(),
@@ -735,6 +749,16 @@ impl<'a> World<'a> {
     /// Whether the player's carried key is left unused on a lock ([`World::activate`]).
     pub fn set_player_ignores_keys(&mut self, on: bool) {
         self.player_ignores_keys = on;
+    }
+
+    /// Whether encounter zones avoid freezing their level on first visit
+    /// (`bNoLockEncounterZoneLevels`; not saved) [design: docs/design/tweaks.md].
+    pub fn set_no_lock_encounter_zone_levels(&mut self, on: bool) {
+        self.no_lock_encounter_zone_levels = on;
+    }
+
+    pub fn no_lock_encounter_zone_levels(&self) -> bool {
+        self.no_lock_encounter_zone_levels
     }
 
     pub fn power_armor_training(&self) -> bool {
@@ -865,6 +889,7 @@ impl<'a> World<'a> {
                 equipped: false,
                 mods: 0,
                 live: false,
+                magazine: None,
             },
             actor_values: BTreeMap::new(),
             last_restock: None,
@@ -872,6 +897,7 @@ impl<'a> World<'a> {
             equip_locks: BTreeMap::new(),
             dropped_by: None,
             made_at: None,
+            made_rot: None,
             shot: false,
             outfitted: false,
         })
@@ -1576,6 +1602,7 @@ impl<'a> World<'a> {
                     equip_locks: BTreeMap::new(),
                     dropped_by: None,
                     made_at: None,
+                    made_rot: None,
                     shot: false,
                 },
             );
@@ -2318,6 +2345,7 @@ impl<'a> World<'a> {
                 equip_locks: BTreeMap::new(),
                 dropped_by: None,
                 made_at: Some((cell, pos)),
+                made_rot: Some(rot),
                 shot: false,
             },
         );

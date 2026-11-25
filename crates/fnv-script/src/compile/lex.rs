@@ -305,10 +305,17 @@ impl XTok {
 }
 
 /// Operators of the extender's expressions, longest first [documented: NVSE Expressions;
-/// `<<=` and `>>=` compound shift assignments, hypothesis].
-const XOPS: [&str; 35] = [
-    "<<=", ">>=", "<-", "=>", ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&",
-    "||", ":", "|", "&", "+", "-", "*", "/", "%", "^", "<", ">", "=",
+/// observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas 1.4.0.525 +
+/// xNVSE 6.4.9 (10 official base masters), #3678 / PR #3679 probes
+/// `b3_syn_01_shift_compound_assign` (`let iA <<= 4; let iB >>= 2` -> `Error: Too many
+/// operators.`, RHS fallback `4, 2`) and `w1_3495_compound_assign_and_datan2` (`CompileScript`
+/// probes: bare `x <<= 2`/`x >>= 2` fail to precompile; `let x <<= 2`/`let x >>= 2` log
+/// `Error: Too many operators.` and assign RHS `2`; binary `3 << 2 = 12`, `20 >> 2 = 5`);
+/// design: NVForever rejects `let x <<= y` / `let x >>= y` at compile time rather than
+/// assigning the RHS].
+const XOPS: [&str; 33] = [
+    "<-", "=>", ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&", "||", ":", "|",
+    "&", "+", "-", "*", "/", "%", "^", "<", ">", "=",
 ];
 
 /// Tokens of a line in the extender's grammar. Words and numbers as in [`tokens`]; `!`,
@@ -344,7 +351,7 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
             i += n;
             continue;
         }
-        let rest: String = cs[i..(i + 3).min(cs.len())].iter().collect();
+        let rest: String = cs[i..(i + 2).min(cs.len())].iter().collect();
         if let Some(op) = XOPS.iter().find(|o| rest.starts_with(**o)) {
             let spaced = i > 0 && cs[i - 1].is_whitespace();
             // `*` and `&` with a space before and a name or `(` right after are the unbox

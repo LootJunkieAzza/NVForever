@@ -87,8 +87,6 @@ fn infix(t: &XTok) -> Option<(u8, u8, Infix)> {
         "^=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Pow)),
         "|=" => (r(2).0, r(2).1, Infix::Assign(XAssign::BitOr)),
         "&=" => (r(2).0, r(2).1, Infix::Assign(XAssign::BitAnd)),
-        "<<=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Shl)),
-        ">>=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Shr)),
         "%=" => (r(2).0, r(2).1, Infix::Assign(XAssign::Mod)),
         ":" => (l(3).0, l(3).1, Infix::Bin(XOp::Slice)),
         "::" => (l(3).0, l(3).1, Infix::Bin(XOp::Pair)),

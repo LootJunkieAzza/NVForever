@@ -32,8 +32,13 @@ These come from [LEGAL.md](LEGAL.md), which has the full reasoning.
 3. **Write it down first.** Formats and behaviour are described in plain language in
    `docs/spec-notes/`, and then the code is written from those notes. Tag every factual
    claim in a note:
-   - `[documented]`: from a public source. Cite the page or file.
-   - `[observed]`: measured on your own install or in the running original game. Say how.
+   - `[documented]`: from a public source. Cite the page or file. For a mod or plugin,
+     give its page (Nexus or other), the version, and quote the text (readme, INI comment,
+     changelog) the fact comes from.
+   - `[observed]`: measured on your own install or in the running original game. Say how:
+     the date, the game and extender versions, the start point and the steps. A claim
+     from a probe names a **committed** probe (in a `tools/capture` catalog or in the same
+     pull request) whose printed output contains the values quoted.
    - `[hypothesis]`: not yet verified.
 
    Never invent offsets, opcodes or field meanings. A `[hypothesis]` tag is fine. A guess
@@ -78,7 +83,9 @@ people building the same thing:
   for your topic. A draft pull request means the work is under way. An issue labelled
   `in progress` has been claimed.
 - **Claim it.** Comment on the issue that you are taking it (or open one first, if there
-  is none). The maintainer labels it `in progress`. Issues labelled `help wanted` or
+  is none). Open the issue when you start the work, not when the pull request is ready:
+  it is how others learn the work is taken, and how the maintainer can say early whether
+  it is wanted. The maintainer labels it `in progress`. Issues labelled `help wanted` or
   `good first issue` are free to take.
 - **Open your pull request early, as a draft**, once you have a first commit, and mark it
   ready for review when it is done. If you stop, say so on the issue so someone else can
@@ -137,7 +144,8 @@ people building the same thing:
 ### What a good pull request looks like
 
 - **One topic per pull request.** A fix and an unrelated clean-up go in separate pull
-  requests.
+  requests, and so do two unrelated behaviours of the same extender or system. A pull
+  request that bundles several is asked to split.
 - **Tests.** A new behaviour comes with a test. A user-visible feature that needs the
   game to check comes with a `[[scenario]]` in `tools/smoke/scenarios.toml`. Never loosen
   an expectation to make a run pass. Mark it `known_failing` with the reason instead.

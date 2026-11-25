@@ -66,6 +66,14 @@ pub enum AnimAction {
     /// 9: reloading [documented; observed: about two seconds after a magazine's last
     /// shot, every gun of the gunfight].
     Reload,
+    /// 9: weapon jam (`GetAnimAction == 9` while `IsAnimPlayingEx 4 == 0` and without
+    /// firing `SetOnReloadWeaponEventHandler`) [observed: Fallout: New Vegas 1.4.0.525,
+    /// xNVSE 6.4.9, ShowOffNVSE Plugin 184, 2026-11-23, GSDocMitchellHouse (0x00103DF9),
+    /// 10 official base masters, probe `w1_3632_onfireweapon_and_forcejam` in #3679
+    /// (`Player.ForceWeaponJamAnim` on drawn `Weap10mmPistol` `0x0000434F` ->
+    /// `GetAnimAction == 9`, `IsAnimPlayingEx 4 == 0`); hypothesis: natural vanilla
+    /// weapon-condition jams (`Phase::Jammed`) likewise report `9` instead of `13`].
+    Jam,
     /// 12: ANIM_ACTION_WAIT_FOR_SPECIAL_IDLE [documented: the name]. No NPC of the
     /// campaign `anim_actions` read 10–12 [observed]. The player read 12
     /// for about 49 frames, starting about 50 frames after a jump [observed: capture
@@ -99,7 +107,7 @@ impl AnimAction {
             AnimAction::Thrown => 6,
             AnimAction::Block => 7,
             AnimAction::Stagger => 8,
-            AnimAction::Reload => 9,
+            AnimAction::Reload | AnimAction::Jam => 9,
             AnimAction::WaitForSpecialIdle => 12,
             AnimAction::ForceScriptAnim => 13,
             AnimAction::ReloadOpen => 17,
@@ -277,7 +285,22 @@ impl Game<'_> {
             }
         }
         if next_action != prev_action {
+            if prev_action == Some(AnimAction::Equip)
+                && !self.extra.get(&actor).is_some_and(|e| e.weapon_out)
+                && !self.hud.weapon_due.get(&actor).is_some_and(|(o, _, _)| *o)
+            {
+                if next_action == Some(AnimAction::Unequip) {
+                    self.showoff.unholster_pending.remove(&actor);
+                } else if let Some(slot) = self.showoff.unholster_pending.get_mut(&actor) {
+                    *slot = Some(self.frame);
+                }
+            }
             if let Some(action) = next_action {
+                if action == AnimAction::Equip {
+                    self.showoff_begin_unholster(actor);
+                } else if action == AnimAction::Unequip {
+                    self.showoff.unholster_pending.remove(&actor);
+                }
                 self.fire_anim_action(actor, action.code());
             }
         }
@@ -291,6 +314,7 @@ impl Game<'_> {
     /// The actor left the engine's view: forget its body's state.
     pub fn forget_anim_state(&mut self, actor: FormId) {
         self.senses.anim.remove(&actor);
+        self.showoff.unholster_pending.remove(&actor);
     }
 
     /// The actor's body as last told, until the engine forgets it.
@@ -435,6 +459,7 @@ mod tests {
             (AnimAction::Block, 7),
             (AnimAction::Stagger, 8),
             (AnimAction::Reload, 9),
+            (AnimAction::Jam, 9),
             (AnimAction::WaitForSpecialIdle, 12),
             (AnimAction::ForceScriptAnim, 13),
             (AnimAction::ReloadOpen, 17),

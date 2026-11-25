@@ -16,6 +16,8 @@
 //! - detection events (CreateDetectionEvent, impacts and explosions the engine raises,
 //!   [`Game::queue_detection_event`]) that the actor hears ([`Game::hear_event`]), and
 //!   being hurt by a hostile ([`Game::hurt_by`]): an alarm at where it happened;
+//! - [`Game::lose_unmeasured`], in each round of the engine's measurements: a target
+//!   whose pair is measured no more counts as hidden (#3390);
 //! - [`Game::settle_awareness`], after each round of measurements: alarms and targets
 //!   time out, and the state follows the documented transitions.
 //!
@@ -33,7 +35,7 @@ use crate::package::flags;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const AGGRESSION: u16 = crate::actor_values::AGGRESSION;
 
@@ -311,7 +313,16 @@ pub struct Awareness {
     pub prefer_player: bool,
     #[serde(default)]
     pub rolled_for: Option<FormId>,
+    /// Targets a script's StartCombat gave it that the engine has not measured since:
+    /// not being measured yet does not hide them ([`Awareness::lose_unmeasured`]). Saved
+    /// as `GameSnapshot::scripted_combat`.
+    #[serde(skip)]
+    pub scripted: BTreeSet<FormId>,
 }
+
+/// The detection value StartCombat gives its target, until it is measured
+/// ([`Game::start_combat`]) [engineering choice].
+const STARTED_VALUE: f64 = 100.0;
 
 /// A fighter keeps its target while it detects it, unless another detected one is more
 /// than this above it in detection value [design: owner 2026-10-16, NCR troopers
@@ -350,6 +361,7 @@ pub struct Change {
 impl Awareness {
     /// A measurement of a hostile `target`, at `at`.
     pub fn observe(&mut self, target: FormId, det: &Detection, at: [f32; 3], now: f64, t: &Timers) {
+        self.scripted.remove(&target);
         match det.band {
             Band::Detected => {
                 let e = self.targets.entry(target).or_insert(Target { band: det.band, value: det.value, at, detected: None, hidden_since: None });
@@ -374,6 +386,39 @@ impl Awareness {
                 }
             }
         }
+    }
+
+    /// Every target that is not `measured` any more counts as hidden from `now`: the
+    /// engine's round has no measurement of the pair (the actor or the target left the
+    /// loaded area, or they are out of detection reach), and nothing but a measurement
+    /// moves a target's band, so it would stay detected, and the actor in Combat, for good
+    /// (#3390) [design: an actor that perceives nothing of a target does not detect it;
+    /// documented: Category:Detection, Combat to Lost "whenever all my targets are
+    /// undetected"]. The timers go on as for a target measured hidden. A target a
+    /// StartCombat gave it and not measured since is kept as the script set it.
+    pub fn lose_unmeasured(&mut self, now: f64, measured: impl Fn(FormId) -> bool) {
+        for (id, x) in &mut self.targets {
+            // Detected in this round: measured.
+            if x.band == Band::Hidden || x.detected == Some(now) || self.scripted.contains(id) || measured(*id) {
+                continue;
+            }
+            x.band = Band::Hidden;
+            x.hidden_since.get_or_insert(now);
+        }
+    }
+
+    /// A Lost actor out of the loaded area, where the AI carries out no search (`fnv_ai`
+    /// process.rs), gives each target up once it has been hidden for
+    /// [`Timers::forget_target`], as outside an active search [design, #3390: the search's
+    /// own bound, [`LOST_SEARCH_STALL_SECONDS`], would have an enemy left in an unloaded
+    /// cell hunt the player for 5 more minutes].
+    pub fn give_up_search(&mut self, now: f64, t: &Timers) {
+        if self.state != State::Lost {
+            return;
+        }
+        let targets = &self.targets;
+        let over = |o: &FormId| targets.get(o).is_none_or(|x| x.hidden_since.is_some_and(|h| now - h >= t.forget_target));
+        self.alarms.retain(|a| a.cause != Cause::LostTarget || !over(&a.owner));
     }
 
     /// Put an alarm on the alert list, or refresh the one of the same owner and cause.
@@ -402,6 +447,7 @@ impl Awareness {
     pub fn forget(&mut self, who: FormId) {
         self.targets.remove(&who);
         self.shared.remove(&who);
+        self.scripted.remove(&who);
         self.alarms.retain(|a| a.owner != who);
     }
 
@@ -449,6 +495,7 @@ impl Awareness {
                 || shared.get(id).is_some_and(|s| now - s < t.forget_target)
         });
         self.shared.retain(|id, _| self.targets.contains_key(id));
+        self.scripted.retain(|id| self.targets.contains_key(id));
         // Called by an ally and not fighting yet: it takes the alarm's owner, the first of
         // the foe's side to start, while it detects it (§2).
         if self.fighting.is_none() {
@@ -515,6 +562,7 @@ impl Awareness {
             self.fighting = None;
             self.committed = false;
             self.shared.clear();
+            self.scripted.clear();
         }
         Some(Change { actor, from, to, time: now, about, cause, at, value })
     }
@@ -531,7 +579,7 @@ pub struct DetectionEvent {
 }
 
 /// Every actor's [`Awareness`], the events not yet heard and the changes not yet told.
-/// Not part of the saved state: the engine measures again.
+/// Saves keep the actors in a fight and `forced` (#971); the rest the engine measures again.
 #[derive(Debug, Clone, Default)]
 pub struct Awarenesses {
     pub actors: BTreeMap<FormId, Awareness>,
@@ -763,11 +811,24 @@ impl Game<'_> {
     /// the player too.
     pub fn hostility_text(&mut self, actor: FormId, other: FormId) -> Option<String> {
         let why = self.hostility_reason(actor, other)?;
-        let name = |g: &Game, r: FormId| g.data.name(r);
+        let name = |g: &Game, r: FormId| if r == FormId::PLAYER_REF { "the player".to_string() } else { g.data.name(r) };
         Some(match why {
             Hostile::No => unreachable!("filtered"),
             Hostile::Forced => "StartCombat made them hostile".to_string(),
-            Hostile::Grudge => format!("it holds a grudge against {} (it was attacked)", name(self, other)),
+            Hostile::Grudge => {
+                let other_name = name(self, other);
+                match self.provocations.grudges.get(&(actor, other)).map(|g| g.why) {
+                    Some(crate::provocation::Why::Assist { victim }) => {
+                        format!("it holds a grudge against {other_name} (helps {} against {other_name})", name(self, victim))
+                    }
+                    Some(crate::provocation::Why::Aggro) => {
+                        format!("it holds a grudge against {other_name} (stayed inside its aggro radius)")
+                    }
+                    Some(crate::provocation::Why::Assault) | None => {
+                        format!("it holds a grudge against {other_name} (it was attacked)")
+                    }
+                }
+            }
             Hostile::AsAgainstThePlayer => {
                 let inner = self.hostility_text(actor, FormId::PLAYER_REF).unwrap_or_else(|| "?".to_string());
                 format!("{} is the player's teammate, and it would attack the player: {inner}", name(self, other))
@@ -1006,15 +1067,21 @@ impl Game<'_> {
     /// `detector` would attack `target` only as a Very Aggressive actor attacks a
     /// Neutral (no grudge, no forced fight, not the player), it has an aggro radius
     /// that its package allows, and `at` (where it measured the target) is outside that
-    /// radius, and it is not in Combat: it leaves the target alone for now [hypothesis, #2547: HELIOS One's guard
-    /// dogs (CrDogNCRAggressive, Very Aggressive, aggro radius 2,000 on) went for the NCR
-    /// troopers 2,800 units off, which the owner never saw in the original; the radius
-    /// is the one distance the records give such an actor; observer checks 144 and 163].
+    /// radius, and it is not already fighting `target`: it leaves the target alone for
+    /// now [hypothesis, #2547: HELIOS One's guard dogs (CrDogNCRAggressive, Very
+    /// Aggressive, aggro radius 2,000 on) went for the NCR troopers 2,800 units off,
+    /// which the owner never saw in the original; the radius is the one distance the
+    /// records give such an actor; observer checks 144 and 163]. A fight with a third
+    /// party (such as the player) does not drop the bound for unrelated Neutral
+    /// bystanders [design, #3459].
     /// The player is left to the aggro radius rules ([`Game::aggro_tick`]) and the
     /// on-sight rule as before.
     pub(crate) fn neutral_out_of_reach(&mut self, detector: FormId, target: FormId, at: [f32; 3]) -> bool {
-        // A fight once begun goes on wherever the target runs [design].
-        if target == FormId::PLAYER_REF || detector == FormId::PLAYER_REF || self.awareness.state(detector) == State::Combat {
+        // A fight once begun with `target` goes on wherever `target` runs [design].
+        if target == FormId::PLAYER_REF
+            || detector == FormId::PLAYER_REF
+            || self.awareness.get(detector).is_some_and(|a| matches!(a.state, State::Combat | State::Lost) && a.targets.contains_key(&target))
+        {
             return false;
         }
         if self.awareness.forced.contains(&(detector, target)) || self.provocations.holds(detector, target) {
@@ -1071,6 +1138,31 @@ impl Game<'_> {
         let now = self.time;
         self.awareness.actors.entry(actor).or_default().alarm(by, at, 0.0, Cause::Hurt, now, &t);
         true
+    }
+
+    /// After a round's pairs, before [`Game::settle_awareness`], with the old pairs
+    /// forgotten (`Detections::forget_older_than`): a target whose pair is not in the table
+    /// counts as hidden ([`Awareness::lose_unmeasured`]), and a Lost actor that is not
+    /// among `drawn` (the actors this round measured: the loaded area) gives its search up
+    /// in time ([`Awareness::give_up_search`]) (#3390). Only the engine's rounds call this,
+    /// and a round measures every pair within reach (none waits its turn): without them
+    /// (headless runs) nothing is ever measured, and that hides nobody.
+    ///
+    /// Left as they are: actors with their AI off (SetActorsAI 0, `tai`), which measure
+    /// nothing and do not search; and the player as a target while nobody's sight of the
+    /// player is measured (`tdetect`, the test aid that leaves the player unseen).
+    pub fn lose_unmeasured(&mut self, drawn: &BTreeSet<FormId>) {
+        let t = self.awareness_timers();
+        let now = self.time;
+        let ids: Vec<FormId> = self.awareness.actors.keys().copied().filter(|&id| !self.ai_off(id)).collect();
+        let detection = &self.detection;
+        for id in ids {
+            let Some(a) = self.awareness.actors.get_mut(&id) else { continue };
+            a.lose_unmeasured(now, |o| (o == FormId::PLAYER_REF && !detection.measures_player) || detection.pairs.contains_key(&(id, o)));
+            if !drawn.contains(&id) {
+                a.give_up_search(now, &t);
+            }
+        }
     }
 
     /// After a round of measurements: every actor's alarms and targets time out and its
@@ -1332,6 +1424,27 @@ impl Game<'_> {
 }
 
 impl Game<'_> {
+    /// The StartCombat targets not measured since, for a save.
+    pub(crate) fn scripted_combat(&self) -> BTreeSet<(FormId, FormId)> {
+        self.awareness.actors.iter().flat_map(|(&a, x)| x.scripted.iter().map(move |&t| (a, t))).collect()
+    }
+
+    /// [`Game::scripted_combat`] from a save, after its actors and forced pairs. `None`: a
+    /// save from before it was kept (#3390). There a forced pair's target counts as not
+    /// measured while it still has what StartCombat gave it, the value above all: a
+    /// measurement overwrites it, and a measured value (a sum of unclamped terms,
+    /// `Settings::evaluate`) is exactly that only by coincidence. So an enemy a script set
+    /// on the player that was measured and then left behind is not taken for one [design].
+    pub(crate) fn restore_scripted_combat(&mut self, saved: Option<&BTreeSet<(FormId, FormId)>>) {
+        let untouched = |x: &Target| x.band == Band::Detected && x.value == STARTED_VALUE && x.detected.is_some() && x.hidden_since.is_none();
+        for &(actor, target) in saved.unwrap_or(&self.awareness.forced) {
+            let Some(a) = self.awareness.actors.get_mut(&actor) else { continue };
+            if a.targets.get(&target).is_some_and(|x| saved.is_some() || untouched(x)) {
+                a.scripted.insert(target);
+            }
+        }
+    }
+
     /// `actor.StartCombat target`: the actor fights `target` from now on, whatever the
     /// records say of hostility, until StopCombat [documented: catalogue notes, "Forces
     /// the calling actor to start combat with a target actor"]. It counts as detecting the
@@ -1349,7 +1462,8 @@ impl Game<'_> {
         let now = self.time;
         let at = position(self, target).unwrap_or_default();
         let a = self.awareness.actors.entry(actor).or_default();
-        a.targets.insert(target, Target { band: Band::Detected, value: 100.0, at, detected: Some(now), hidden_since: None });
+        a.targets.insert(target, Target { band: Band::Detected, value: STARTED_VALUE, at, detected: Some(now), hidden_since: None });
+        a.scripted.insert(target);
         if let Some(c) = a.settle(actor, now, &t, true) {
             self.awareness.changes.push(c);
             if let Some(topic) = c.from.topic_to(c.to) {

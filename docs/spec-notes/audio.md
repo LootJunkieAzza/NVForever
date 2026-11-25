@@ -457,6 +457,10 @@ Seen [observed 2026-10-11, Goodsprings]: a shot bottle falling off the fence,
 collision material 30 BABY_RATTLE) rolling, `PHYBabyRattle`. `PHYTumbleweed` exists but
 nothing links it to the tumbleweed (its MSTT has no `SNAM`) [observed].
 
+Mods may supply per-form collision sound overrides via
+`Data\NVSE\Plugins\SoundExtender\` (`*.json` / `*.txt`, `sound-extender.md`); when no
+overrides are present, knocks take the material table above unchanged.
+
 ### 11.3 Items, containers, activators
 
 | Record | Fields [documented: xEdit] | Records | Naming a pick-up / drop sound [observed] |
@@ -1191,8 +1195,8 @@ Submerged 2,846, Start at Random Position 110. 2,423 keep the attenuation curve
   lapping]. The type is the cell's `XCWT`, else the worldspace's, as for radiation
   (`radiation.rs`); a placed water volume's is its PWAT's.
 - **SOUN 2D** (`nvf_play::sfx`, `nvf_play::ambient`): a sound with the 2D flag played at
-  a place is not panned; its loudness still falls with distance [hypothesis: 2D means
-  "not positioned", and 2D Radius (102 sounds) is the flag for a distance rule].
+  a place is not panned. Nor does its loudness fall with distance, unless it also has 2D
+  Radius: §15.6 (until #3444 it did).
 - **Start at Random Position**: a loop with the flag starts at a random point of its
   file instead of its start [documented: the flag's name].
 - **Mute When Submerged**: while the listener (the player's eye) is under the surface
@@ -1317,6 +1321,68 @@ From the ESM audit (docs/handoff/esm-full-audit-2026-10-24.md, gaps 7, 15, 17). 
     nothing heard [hypothesis: it may name the pre-processing done to the files, or
     another use; nothing shows it]. Whether the original filters a helmet wearer's voice
     is not captured (observer-checks).
+
+### 15.6 2D sounds have no radii (#3444, 2026-11-23)
+
+- **The flags** [documented: GECK wiki Sound]: 2D "forces playback in 2D with no 3D
+  positioning or inner/outer radii settings in the game world"; 2D radius "forces playback
+  in 2D but with 3D positioning and inner/outer radii settings in the game world. Use with
+  stereo files only."
+- **The records** [observed 2026-11-23: a one-off script over the plugins' SOUN records,
+  `SNDD` flag bits 6 and 11 and the maximum distance]: of FalloutNV.esm's 440 sounds with 2D, 232 store 0
+  for the maximum distance and 1 has 2D Radius as well; of Lonesome Road's 30 with 2D, 11
+  store 0 and 10 have 2D Radius as well, all 10 with distances. A record with no distances
+  heard by distance is silent beyond a few units.
+- **The missile launch** at Lonesome Road's second silo [observed, LonesomeRoad.esm and
+  its archives]: the launch quest's script (SCPT xx00868E) plays Forward (13.33 s) on
+  `NVDLC04MissileLaunchREF` (xx007CEE, `nvdlc04_silo-launch.nif`) and 13 s later Backward
+  (53.30 s, in which the node `Rocket_Root` climbs and flies 13,300 units off). Forward's
+  sound key at 0.1 s names `NVDLC04QSTMissileLaunchPt1` (2D and 2D Radius, 1,275 to
+  25,500 units, a flat curve, 9.25 dB off; 18.7 s, quiet for its first 10), Backward's at
+  0.067 s `NVDLC04QSTMissileLaunchPt2` (2D, both distances 0, nothing off; 21.3 s, loud
+  from its start). Both files are stereo 16-bit PCM at 24 kHz. The script that starts the
+  quest moves the player to `NVDLC04MissileLaunchViewMarkerREF`, 2,900 units from the
+  reference: there Pt2's gain by distance was 0.0003, under the 0.001 a sound needs to be
+  started, the silent flight of the report. The other sounds of the launch are
+  `PlaySound`s, at the listener: `musNVDLC04WarheardExplode` (xx00D0BA, a musical sting)
+  with Forward, `NVDLC04QSTMissileLaunchPt3` with the explosion 33 s later. No sound is
+  moved with the flying node: Pt2 is 2D, so it has no place [documented, above].
+- **As built** (`sfx::no_radii`, `sfx::placed_gain`): a one-shot at a place (object keys,
+  PlaySound3D, doors, explosions, random markers in reach; not other actors', below) with
+  2D and without 2D Radius is as loud at any distance [documented, above]. With both flags the radii hold [hypothesis:
+  the radius flag wins; most such records are placed loops with radii]; 2D Radius alone is
+  as before (panned, by its radii).
+- **Kept** [design]: a placed loop (a sound marker, an object's own sound) still sounds
+  within its maximum distance and falls toward it whatever its flags: heard from anywhere,
+  one marker would sound over its whole worldspace. A Play At Random marker is still only
+  rolled within its maximum distance.
+- **Other actors** [design] (`sfx::ActorSound`): the sounds of another actor's or a
+  creature's clips (sound keys, footfalls, armour footfalls, rustles, creature sound
+  types), its jumps and landings, a creature's hit and death, a load door it passes
+  (`DRSVegasDoorOpen`, the Freeside gates'), an effect hitting it and the sound a placed
+  line plays instead of a voice (107 responses name a 2D one, 106 of them files under
+  `songs\` [observed 2026-11-23: the same script over the INFO `TRDT` sounds of FalloutNV.esm
+  and five add-ons, load-order winners]) go by the record's distances whatever its flags, gain and reach both,
+  as before #3444; the player's own keys and placed objects' keys do not. The generic
+  `chair_leftexit.kf` (IDLE `ChairLeftStand`) keys `NPCDocMStandUp` (2D, 265 to 1,600
+  units): whole, every actor rising from a seat within 3,000 units (`ACTOR_RANGE`) would be
+  heard. The falling
+  gain is kept, not a whole one cut at the reach: it changes nothing from before, and has
+  no edge to step over. 12 sounds are such clip keys [observed 2026-11-23: `fnv-nif`'s `kf_sound_keys` example over the game's mesh archives, its
+  keys matched to the 2D SOUN records]: nine
+  of Doc Mitchell's and the opening's clips, all with distances, and Mr House's
+  `NPCMrHouseWakeUp`, `NPCMrHouseElectro` and `NPCMrHouseDeath`, with none. Those three stay
+  as before: 1 ÷ distance, all but silent (0.01 at 100 units); his terminals' scripts also
+  play them with `PlaySound`, at the listener. An effect's `FXPoisonStinger`, with none
+  too, is as silent on another actor as it was.
+- **Log**: each sound key an object's group passes says what became of it: `sfx: sound key
+  <EDID> starts: <file>, <s> s, gain <g>[, 2D], asked at (x, y, z), <n> units away`, or
+  `not heard (too quiet | muted under water | voice limit | sounds off): …`, `not heard: no
+  file to play`, `not heard: <file> cannot be played`, `dropped: ready <n> ms after it was
+  asked for` (§7's 150 ms).
+- What the original does with 2D alone, 2D Radius and both: observer check
+  3444-2d-sounds-and-distance. Smoke
+  scenario `missile-launch-sounds`.
 
 ## 16. Creature sound audit (owner's playtest list 7 item 46, 2026-10-23)
 
@@ -1489,3 +1555,38 @@ run-long `MixBus`):
   mix's overloads stay counted), `post` after it (M should be 0 and Q at most 0.98), K
   the frames it played below unity. It works on the 48 kHz bus; what the device's own
   conversion does after it is not measured here.
+
+## 19. BulletSnap.ini pass-by snap audio
+
+Clean-room native support for the `BulletSnap.ini` configuration schema (`fnv_combat::bullet_snap`, `nvf_play::bullet_snap`, wired from `nvf_play::combat::fly` and `nvforever::own_sounds`).
+
+**Sources and provenance.** Only the public Nexus Mods page, the shipped INI file comments, and the loose sound-folder hierarchy of **Bullet Snap - ReRedux v1.2** (by LowbeeBob, `https://www.nexusmods.com/newvegas/mods/89474`) were consulted; the third-party plugin's DLL/binary and source code were never consulted.
+
+- **Vanilla unchanged when absent** [design]: when `Data\NVSE\Plugins\BulletSnapConfig\BulletSnap.ini` is absent from the VFS (or when no BulletSnap audio folders exist under `Data\Sound\fx\`), `BulletSnap` remains inactive: no folders are scanned, no synthetic SOUN records are registered, no snap audio is emitted, and vanilla `PROJ` `Supersonic` whizzes (`own_sounds.rs`, §15.5) behave identically to unmodded vanilla.
+- **INI location, sections, keys and defaults** [documented: Bullet Snap - ReRedux v1.2 (`https://www.nexusmods.com/newvegas/mods/89474`), shipped `Data\NVSE\Plugins\BulletSnapConfig\BulletSnap.ini` and its inline `;` comments]:
+  - Path: `Data\NVSE\Plugins\BulletSnapConfig\BulletSnap.ini` (case-insensitive VFS lookup).
+  - `[General]`:
+    - `ImpactedPlayerSnap = 0`: whether to play a snap when a projectile hits the player (`; Snap when hit player`).
+    - `DistancedBasedSnap = 1`: whether to classify pass-by snaps into the four `[DistanceBased]` bands (`; Will check distance between projectile and player when bullet pass by player when enable`).
+    - `Subsonic = 1`: whether projectiles slower than `SubsonicThresholdSpeed` play subsonic pass-by audio (`; enable subsonic bullet pass sound`).
+    - `SubsonicThresholdSpeed = 21000`: projectile speed threshold (game units/s) dividing subsonic from supersonic snaps (`; Will do subsonic 'snap' when projectiles' speed lower than this value`).
+    - `SnapAngle = 75`: threshold angle in degrees between the projectile's flight direction and the vector from the projectile to the player camera (`; Check the angle between projectiles and player camera / ; Greater than this angle will do snap. / ; 90 Means that the projs' direction is perpendicular to the vector of proj to player's camera`).
+  - `[DistanceBased]` (active when `DistancedBasedSnap = 1`; `; Setting the max distance for each snap sounds.`):
+    - `VeryClose = 768`, `Close = 1536`, `Distance = 4092`, `Far = 8192` (maximum distance in game units for each band).
+  - `[DamageBased]`:
+    - Key names and defaults `middledmg = 32`, `highdmg = 46` [documented: Bullet Snap - ReRedux v1.2 shipped `BulletSnap.ini`]. Because the shipped INI and public mod page do not state which damage value `middledmg`/`highdmg` measure (base weapon damage vs. ammo-modified or effective damage), comparing them against weapon `base_damage` to select the medium/high-caliber (`HCCloseMid`) and very-high-caliber (`VeryHighCaliber`) supersonic audio tiers is `[hypothesis]`.
+- **Parsing and clamping** [design]: parsed directly from raw bytes (`&[u8]`) with optional UTF-8 BOM stripping, `;`/`#` comment stripping, ASCII case-insensitive section/key matching, and finite monotonic clamping (`SnapAngle` in `0..=180`, non-negative speed/damage thresholds, `VeryClose <= Close <= Distance <= Far`, `middledmg <= highdmg`), so non-ASCII or legacy Windows-1252 bytes in comments or unknown keys never panic.
+- **Pass-by detection and eligibility** [hypothesis/design]:
+  - Non-player-owned ballistic projectiles (`Motion::Missile`, excluding mines, remote-detonated charges, beams, flames, lobbers, and non-supersonic explosive rockets) are tracked across swept movement segments (including hitscan `Ghost` flights).
+  - A projectile must approach the listener (`dot(dir, eye - from) > 0`, angle `< 90°`) before crossing `angle > SnapAngle`; it snaps at most once per pass-by at the closest point on that segment to the player's eye (`closest_on_segment`).
+  - When a projectile hits the player, `ImpactedPlayerSnap = 0` suppresses snapping for that projectile; `ImpactedPlayerSnap = 1` triggers one snap at the impact point.
+  - When active, `BulletSnap` suppresses the duplicate vanilla `PROJ` `Supersonic` whiz (`FXBulletWhiz`) in `own_sounds::projectiles` while leaving non-supersonic looping projectile sounds unchanged [design].
+- **Sound folder layout and playback**:
+  - Loose `.wav` folder hierarchy under `Data\Sound\fx\` [observed: Bullet Snap - ReRedux v1.2 (`https://www.nexusmods.com/newvegas/mods/89474`) release archive loose directory layout — 10 folders: `SubSonic\Close` (10 files), `SubSonic\Mid` (18), `GeneralCloseMid\Close` (10), `GeneralCloseMid\Mid` (12), `GeneralFar` (26), `HCCloseMid\Close` (23), `HCCloseMid\Mid` (15), `VeryHighCaliber\Close` (12), `VeryHighCaliber\Mid` (12), `VeryHighCaliber\Far` (8)]:
+  - Tier/band folder selection [hypothesis/design]:
+    - Subsonic (`speed < SubsonicThresholdSpeed` with `Subsonic = 1`): `SubSonic\Close` (`VeryClose`/`Close`), `SubSonic\Mid` (`Distance`/`Far`).
+    - Supersonic General (`damage < middledmg`): `GeneralCloseMid\Close` (`VeryClose`/`Close`), `GeneralCloseMid\Mid` (`Distance`), `GeneralFar` (`Far`).
+    - Supersonic High-Caliber (`middledmg <= damage < highdmg`): `HCCloseMid\Close` (`VeryClose`/`Close`), `HCCloseMid\Mid` (`Distance`), falling back to `GeneralFar` (`Far`).
+    - Supersonic Very-High-Caliber (`damage >= highdmg`): `VeryHighCaliber\Close` (`VeryClose`/`Close`), `VeryHighCaliber\Mid` (`Distance`), `VeryHighCaliber\Far` (`Far`).
+  - Synthetic `SOUN` FormID allocation [design]: each non-empty folder is registered once on `Sfx` inside the reserved audio-only subrange `0xFE7E_0000..0xFE7F_0000` (`fnv_game::game::BULLET_SNAP_SOUND_BASE..fnv_game::game::CAMERA_OVERLAY_BASE`), recorded in `docs/spec-notes/callable-identity.md` and strictly disjoint from `TEMP_REF_BASE..BULLET_SNAP_SOUND_BASE` (`0xFE40_0000..0xFE7E_0000`, enforced in `Game::temp_ref` and `Game::temp_item`), `CAMERA_OVERLAY_BASE` (`0xFE7F_0000..0xFE80_0000`), `LAMBDA_BASE`/`MADE_PACKAGE_BASE` (`0xFE80_0000..0xFF00_0000`), `FormId::FIRST_DYNAMIC` (`0xFF00_0000..`), `CLONE_BASE`/`COMPILED_BASE` (`0xFE00_0000..0xFE40_0000`), and normal plugin indices (`0x00..=0xFD`). Registration never overwrites an existing entry in `Sfx::forms.sounds`: if a loaded `SOUN` record already occupies a preferred slot, the loaded record wins untouched and BulletSnap selects the next free ID in `0xFE7E_000A..0xFE7F_0000`. Registered sounds use reach `max(Far, 8192) * 1.25` and attenuation curve `[100, 80, 60, 40, 15]`, played via `ScaledSound` with per-band gain (`VeryClose` 1.0, `Close` 0.85, `Distance` 0.65, `Far` 0.45; `1.0` with `Close` folder within `8192` units when `DistancedBasedSnap = 0`) so snaps get 3D panning, reverb, volume sliders, and voice limits through the existing `Sfx` pipeline.
+

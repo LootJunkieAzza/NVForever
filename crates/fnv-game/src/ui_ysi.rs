@@ -27,6 +27,8 @@ pub const YSI_NO_TAG_TEMPLATE: &str = "ySINoTag";
 pub const YSI_IMAGE_TILE: &str = "ySIImage";
 /// Private trait tracking which template built an instantiated [`YSI_IMAGE_TILE`] child.
 const YSI_TEMPLATE_TRAIT: &str = "_ysi_template";
+/// Private trait recording a row's `ListItemText` base `x` prior to ySI icon spacing.
+const YSI_BASE_X_TRAIT: &str = "_ysi_base_x";
 
 /// Resolved ySI sorting tag, icon texture filename, and XML template name for an item form
 /// [design: `docs/spec-notes/ysi-filename.md`].
@@ -41,7 +43,12 @@ pub struct YsiItemDisplay {
 }
 
 /// Picks the icon template name: explicit non-empty rule template, else `ySIDefault` when
-/// tagged/icon-bearing or `ySINoTag` otherwise [design: `docs/spec-notes/ysi-filename.md`].
+/// tagged/icon-bearing or `ySINoTag` otherwise [documented: ySI - Sorting Ycons v1.4b
+/// (Nexus Mods 74358), shipped `menus/ySI/ySI.xml` and `menus/ySI/ySI.json` declare the
+/// `ySIDefault` and `ySINoTag` template names (no yUI/ySI DLL or source consulted);
+/// hypothesis: unprobed row-rendering fallback from an omitted rule template to
+/// `ySIDefault`/`ySINoTag` (note `ySIGetTrait "template"` returns `""` in yUI v1.4d per
+/// `w4e_02_ysi_metadata_traits`)].
 pub fn row_template_or_default(template: Option<&str>, has_icon_or_tag: bool) -> String {
     if let Some(t) = template.map(str::trim).filter(|s| !s.is_empty()) {
         return t.to_string();
@@ -69,8 +76,12 @@ pub fn menu_has_ysi(ui: &Ui, tile: TileId) -> bool {
 /// Menu class code of `HUDMainMenu` (`fnv_ui::value::MENU_CLASSES`).
 const HUD_MENU_CODE: u16 = 1004;
 
-/// Menus that host `menus/ySI/ySI.xml` when present in the VFS [design:
-/// `docs/spec-notes/ysi-ui-injection.md`].
+/// Menus that host `menus/ySI/ySI.xml` when present in the VFS [documented: ySI - Sorting
+/// Ycons v1.4b (Nexus Mods 74358), shipped `menus/ySI/ySI.xml` (no yUI/ySI DLL or source
+/// consulted); observed: `BarterMenu` injection (`barter(mm=1053,ysi=1,pip=0)`, i.e.
+/// `_ySI=1`, `_ySIPipBoy=0`) in `w4e_05_ysi_ini_precedence_and_gating`
+/// (`tools/capture/nvse/catalogs/wave4e_mods.json`, #3803); hypothesis: remaining target
+/// menu list (`docs/spec-notes/ysi-ui-injection.md`)].
 pub const TARGET_MENUS: &[(u16, &str)] = &[
     (HUD_MENU_CODE, "HUDMainMenu"),
     (menus::INVENTORY, "InventoryMenu"),
@@ -260,7 +271,75 @@ pub fn apply_row_icon(
         ui.set_trait(tile, "filename", fnv_ui::Value::Str(filename.to_string()));
         ui.set_trait(tile, "visible", fnv_ui::Value::Num(1.0));
     }
+    position_row_icon(ui, row_tile, tile, icon_path.is_some());
     true
+}
+
+/// Position `ySIImage`'s `x` and shift `ListItemText`'s literal `x` according to the
+/// `ySI` rect's `_ySIWidth` / `_ySISpaceLeft` (`user0`) / `_ySISpaceRight` (`user1`) /
+/// `_ySIBlanks` traits [documented: Sorting Icons 1.4b package, `menus/ySI/ySI.xml`;
+/// no ySI/yUI DLL or source code was consulted; design: idempotent literal `ListItemText/x`
+/// shifting via private `_ysi_base_x` while preserving expression-driven `ListItemText/x`
+/// on custom UI overhauls untouched].
+fn position_row_icon(ui: &mut Ui, row_tile: TileId, icon_tile: TileId, has_icon: bool) {
+    let Some(text_tile) = has_direct_child(ui, row_tile, "ListItemText") else {
+        return;
+    };
+    let root = ui.root_of(row_tile);
+    let ysi_rect = has_direct_child(ui, root, YSI_ROOT_TILE);
+    let ysi_num = |trait_name: &str| {
+        ysi_rect
+            .and_then(|r| ui.tile(r).get(trait_name))
+            .map(fnv_ui::Value::num)
+    };
+    let icon_num = |trait_name: &str| ui.tile(icon_tile).get(trait_name).map(fnv_ui::Value::num);
+
+    let blanks_on = ysi_num("_ySIBlanks").is_none_or(|v| v != 0.0);
+    let width = if has_icon || blanks_on {
+        ysi_num("_ySIWidth")
+            .or_else(|| icon_num("width"))
+            .unwrap_or(0.0)
+            .max(0.0)
+    } else {
+        0.0
+    };
+    let space_left = ysi_num("_ySISpaceLeft")
+        .or_else(|| icon_num("user0"))
+        .unwrap_or(0.0);
+    let space_right = ysi_num("_ySISpaceRight")
+        .or_else(|| icon_num("user1"))
+        .unwrap_or(0.0);
+
+    let text_x_has_expr = ui
+        .tile(text_tile)
+        .trait_index("x")
+        .is_some_and(|idx| ui.tile(text_tile).traits[idx].expr.is_some());
+
+    let base_x = if text_x_has_expr {
+        ui.tile(text_tile).get("x").map_or(0.0, fnv_ui::Value::num)
+    } else if let Some(saved) = ui.tile(text_tile).get(YSI_BASE_X_TRAIT) {
+        saved.num()
+    } else {
+        let initial = ui.tile(text_tile).get("x").map_or(0.0, fnv_ui::Value::num);
+        ui.set_trait(text_tile, YSI_BASE_X_TRAIT, fnv_ui::Value::Num(initial));
+        initial
+    };
+
+    if width > 0.0 {
+        ui.set_trait(icon_tile, "x", fnv_ui::Value::Num(base_x + space_left));
+        if !text_x_has_expr {
+            ui.set_trait(
+                text_tile,
+                "x",
+                fnv_ui::Value::Num(base_x + space_left + width + space_right),
+            );
+        }
+    } else {
+        ui.set_trait(icon_tile, "x", fnv_ui::Value::Num(base_x));
+        if !text_x_has_expr {
+            ui.set_trait(text_tile, "x", fnv_ui::Value::Num(base_x));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -426,5 +505,87 @@ mod tests {
             .count();
         assert_eq!(images, 1);
         assert_eq!(ui.get_string("InventoryMenu/Row/ySIImage/filename").as_deref(), Some("icons\\untagged_item.dds"));
+    }
+
+    #[test]
+    fn apply_row_icon_positions_icon_and_shifts_literal_list_text_idempotently() {
+        let menu_xml = r#"<menu name="InventoryMenu"><class>&InventoryMenu;</class>
+          <rect name="RowLiteral"><text name="ListItemText"><x>40</x><string>Item</string></text></rect>
+          <rect name="RowExpr"><text name="ListItemText"><x><copy>55</copy></x><string>ExprItem</string></text></rect>
+        </menu>"#;
+        let ysi_xml = r#"
+<rect name="ySI">
+  <_ySI> 1 </_ySI>
+  <_ySIBlanks> 1 </_ySIBlanks>
+  <_ySIWidth> 32 </_ySIWidth>
+  <_ySIHeight> 32 </_ySIHeight>
+  <_ySISpaceLeft> -5 </_ySISpaceLeft>
+  <_ySISpaceRight> 5 </_ySISpaceRight>
+</rect>
+<template name="ySIDefault">
+  <image name="ySIImage">
+    <filename> icons\default.dds </filename>
+    <width> <copy src="ySI" trait="_ySIWidth"/> </width>
+    <height> <copy src="ySI" trait="_ySIHeight"/> </height>
+    <user0> <copy src="ySI" trait="_ySISpaceLeft"/> </user0>
+    <user1> <copy src="ySI" trait="_ySISpaceRight"/> </user1>
+    <x> 0 </x>
+    <visible> 1 </visible>
+  </image>
+</template>
+<template name="ySINoTag">
+  <image name="ySIImage">
+    <filename> icons\blank.dds </filename>
+    <width> <copy src="ySI" trait="_ySIWidth"/> <onlyif src="ySI" trait="_ySIBlanks"/> </width>
+    <height> <copy src="ySI" trait="_ySIHeight"/> </height>
+    <user0> <copy src="ySI" trait="_ySISpaceLeft"/> </user0>
+    <user1> <copy src="ySI" trait="_ySISpaceRight"/> </user1>
+    <x> 0 </x>
+    <visible> 1 </visible>
+  </image>
+</template>
+"#;
+        let src = MemSource::default()
+            .with("menus/inv.xml", menu_xml)
+            .with(YSI_XML_PATH, ysi_xml);
+        let mut ui = Ui::new();
+        let inv = ui.load_menu(&src, "menus/inv.xml").unwrap();
+        assert!(publish_for_menu(&mut ui, &src, inv, Some(menus::INVENTORY)));
+
+        let tagged = YsiItemDisplay {
+            tag: Some("(a01)".into()),
+            icon: Some("icons\\pistol.dds".into()),
+            template: YSI_DEFAULT_TEMPLATE.into(),
+        };
+        let row_lit = ui.find_tile("InventoryMenu/RowLiteral").unwrap();
+        let row_expr = ui.find_tile("InventoryMenu/RowExpr").unwrap();
+
+        // Calling apply_row_icon on an expression-driven row BEFORE ui.update() must not
+        // freeze base_x at the unevaluated 0.0; once ui.update() evaluates ListItemText/x
+        // to 55.0, the next apply_row_icon updates ySIImage/x to 55.0 + (-5.0) = 50.0.
+        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/x"), Some(0.0));
+        assert!(apply_row_icon(&mut ui, &src, row_expr, Some(&tagged)));
+        let expr_text = ui.find_tile("InventoryMenu/RowExpr/ListItemText").unwrap();
+        assert!(ui.tile(expr_text).get(YSI_BASE_X_TRAIT).is_none());
+        ui.update();
+        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/x"), Some(55.0));
+        assert!(apply_row_icon(&mut ui, &src, row_expr, Some(&tagged)));
+        ui.update();
+        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ySIImage/x"), Some(50.0));
+        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/x"), Some(55.0));
+
+        // Repeated calls are idempotent: icon x = 40 + (-5) = 35, text x = 40 - 5 + 32 + 5 = 72.
+        assert!(apply_row_icon(&mut ui, &src, row_lit, Some(&tagged)));
+        assert!(apply_row_icon(&mut ui, &src, row_lit, Some(&tagged)));
+        ui.update();
+        assert_eq!(ui.get_float("InventoryMenu/RowLiteral/ySIImage/x"), Some(35.0));
+        assert_eq!(ui.get_float("InventoryMenu/RowLiteral/ListItemText/x"), Some(72.0));
+
+        // Disabling _ySIBlanks restores literal ListItemText/x to its original 40 on untagged rows.
+        ui.set_float("InventoryMenu/ySI/_ySIBlanks", 0.0);
+        ui.update();
+        assert!(apply_row_icon(&mut ui, &src, row_lit, None));
+        ui.update();
+        assert_eq!(ui.get_float("InventoryMenu/RowLiteral/ListItemText/x"), Some(40.0));
     }
 }

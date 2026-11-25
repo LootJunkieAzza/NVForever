@@ -81,11 +81,11 @@ impl Game<'_> {
     }
 
     pub(crate) fn persistent(&self, r: FormId) -> bool {
-        if r == FormId::PLAYER_REF {
-            return true;
-        }
         if let Some(&on) = self.other.persistent_overrides.get(&r) {
             return on;
+        }
+        if r == FormId::PLAYER_REF {
+            return true;
         }
         self.world.placed.get(r).is_some_and(|p| p.flags & fnv_sim::refs::FLAG_PERSISTENT != 0 || p.in_persistent_group)
     }

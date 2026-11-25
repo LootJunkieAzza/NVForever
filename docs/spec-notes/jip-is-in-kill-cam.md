@@ -12,6 +12,14 @@ before `PlaySet::Scripts`) publishes `KillCam::kill_playing()` (true only for `K
 excluding non-kill classic VATS attack cameras, and `false` when `KillCam` is absent) into
 `fnv_game::nvse_jip2::PlayerTold::kill_cam`, which `IsInKillCam` returns as `1.0` or `0.0`.
 
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+`GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging
+copy (read-only `PrintToConsole` probe; zero writes to game install or Saves),
+`w4e_c15_door_default_open_air_killcam_speech`
+(`tools/capture/nvse/catalogs/wave4e_mods.json`, PR #3803 / #3802):
+`PROBE|w4e_c15_door_default_open_air_killcam_speech|door=0->1->0|air0=0|kc0=0|spS=0,spF=0`;
+zero DLL, PDB, or third-party source consulted] Idle gameplay `IsInKillCam` returns `0`.
+
 [hypothesis] Native edge cases such as whether non-VATS cinematic kill cameras, VATS
 kill-shot transition frames, or CTDA condition evaluation differ from `Kind::Kill` have not
 been measured in an original-game capture.

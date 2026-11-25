@@ -117,6 +117,14 @@ fn sounds_from_files_and_holotapes() {
     assert!(g.other.jg9.fades_out.iter().all(|f| f.1 == 1.5));
     assert_eq!(n(&mut g, r#"PlaySoundFile "Data\Sound\fx\test.wav" 0 1"#), 1.0);
     assert!(g.other.jg9.path_sounds[3].file);
+    // Nonexistent WAV path still returns 1 without adding a path sound
+    // [observed: b3_jg9_01_sound_runspeed_compass_pipboy]; escaping Data\ also plays
+    // nothing and returns 1 [design].
+    let before_paths = g.other.jg9.path_sounds.len();
+    assert_eq!(n(&mut g, r#"PlaySoundFile "sound\fx\nvseprobe_no_such.wav""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlaySoundFile "Data\Sound\fx\nosuch.wav""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlaySoundFile "..\escape.wav""#), 1.0);
+    assert_eq!(g.other.jg9.path_sounds.len(), before_paths);
     // PlaySoundFade: a SOUN at the player, faded in.
     assert_eq!(n(&mut g, "player.PlaySoundFade TestSound 2"), 1.0);
     assert_eq!(g.sound_requests.last().map(|r| (r.sound, r.at)), Some((FormId(SOUN), Some(FormId::PLAYER_REF))));
@@ -196,7 +204,7 @@ fn markers_moves_and_told_values() {
     assert_eq!(q(&mut g, "int r\nint gr\nint b\nGetCurrentSkyColor 4 r gr b\nSetFunctionValue (r * 1000000 + gr * 1000 + b)"), XVal::Num(255_227_170.0));
     g.other.jg9.sky_colors = None;
     assert_eq!(n(&mut g, "GetCurrentSkyColor 4 0 0 0"), 0.0, "no sky indoors");
-    // FOV: the INI's defaults without a SetCameraFOV [hypothesis there: 75 and 55].
+    // FOV: the INI's defaults without a SetCameraFOV (75 and 55; see docs/spec-notes/ext-jg9.md).
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 75.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 55.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 55.0, "first person until the engine tells");
@@ -224,4 +232,52 @@ fn markers_moves_and_told_values() {
     // Karma: neutral at 0 between the globals; the level 1 neutral title.
     assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Neutral");
     assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Drifter");
+}
+
+#[test]
+fn ttw_ini_karma_titles_override_levels_1_through_50() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Without TTW.ini: vanilla titles unchanged (levels above 30 clamp to 30).
+    g.player.level = Some(1);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Drifter");
+    g.player.level = Some(45);
+    fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, fnv_game::actor_values::KARMA, -500.0).unwrap();
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Evil");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Devil");
+    g.player.level = Some(50);
+    fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, fnv_game::actor_values::KARMA, 800.0).unwrap();
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Very Good");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Messiah");
+
+    // Synthetic TTW.ini providing custom level 1..=50 karma titles.
+    let mut ini = String::from("[Karma Titles]\n");
+    for lvl in 1..=50 {
+        ini.push_str(&format!("sKarmicTitleGood{lvl}=TestGood{lvl}\n"));
+        ini.push_str(&format!("sKarmicTitleNeutral{lvl}=TestNeutral{lvl}\n"));
+        ini.push_str(&format!("sKarmicTitleEvil{lvl}=TestEvil{lvl}\n"));
+    }
+    assert!(g.mod_files.write_bytes("NVSE/Plugins/TTW.ini", ini.as_bytes()));
+
+    // Good & Very Good
+    g.player.level = Some(50);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Very Good");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestGood50");
+    g.player.level = Some(1);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestGood1");
+
+    // Neutral
+    fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, fnv_game::actor_values::KARMA, 0.0).unwrap();
+    g.player.level = Some(35);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Neutral");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestNeutral35");
+
+    // Evil & Very Evil (and clamping above 50 to top defined tier 50)
+    fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, fnv_game::actor_values::KARMA, -900.0).unwrap();
+    g.player.level = Some(31);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Very Evil");
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestEvil31");
+    g.player.level = Some(55);
+    assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "TestEvil50");
 }

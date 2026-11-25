@@ -111,6 +111,100 @@ fn synchronized_categories_stay_on_emptied_category_after_transfer() {
     assert_eq!(b.category, [Category::Weapons; 2], "emptying a synchronized barter category keeps Weapons");
 }
 
+#[test]
+fn synchronized_categories_switch_to_all_when_prevent_switch_is_off_and_preserve_search_hidden() {
+    let f = fixture();
+    // Container mode with prevent_switch_when_emptying_category = false: emptying Weapons returns both columns to All.
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    m.sync_categories = true;
+    m.prevent_switch_when_emptying_category = false;
+    m.apply(&mut w, Command::SetCategory(Side::Player, Category::Weapons));
+    assert_eq!(m.category, [Category::Weapons; 2]);
+    select(&mut m, Side::Player, "Pistol");
+    assert!(m.apply(&mut w, Command::One).changed);
+    assert_eq!(m.category, [Category::All; 2], "emptying a synchronized category switches both columns to All when prevent_switch is off");
+
+    // Search hiding another item in the category does not count as emptying the category.
+    let mut ws = World::new(&f.forms, &f.refs, SimConfig::default());
+    ws.add_item(PLAYER, FormId(RIFLE), 1).unwrap();
+    let mut ms = MenuModel::open_container(&mut ws, FormId(BOX_REF)).unwrap();
+    ms.sync_categories = true;
+    ms.prevent_switch_when_emptying_category = false;
+    ms.apply(&mut ws, Command::SetCategory(Side::Player, Category::Weapons));
+    ms.set_search(&mut ws, "pistol").unwrap();
+    assert_eq!(names(ms.list(Side::Player)), [("Pistol", 1)]);
+    assert_eq!(ms.search_hidden(Side::Player), 1);
+    select(&mut ms, Side::Player, "Pistol");
+    assert!(ms.apply(&mut ws, Command::One).changed);
+    assert_eq!(ms.category, [Category::Weapons; 2], "items still exist in Weapons behind the search filter");
+
+    // Barter mode with prevent_switch_when_emptying_category = false: accepting the last weapon switches both columns to All.
+    let mut wb = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut b = barter(&mut wb);
+    b.sync_categories = true;
+    b.prevent_switch_when_emptying_category = false;
+    b.apply(&mut wb, Command::SetCategory(Side::Player, Category::Weapons));
+    select(&mut b, Side::Player, "Pistol");
+    assert!(b.apply(&mut wb, Command::One).changed);
+    assert!(b.apply(&mut wb, Command::Accept).changed);
+    assert_eq!(b.category, [Category::All; 2], "emptying a synchronized barter category switches to All when prevent_switch is off");
+
+    // Vanilla default (sync_categories = false): emptying a column keeps its category unchanged.
+    let mut wv = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut v = MenuModel::open_container(&mut wv, FormId(BOX_REF)).unwrap();
+    v.sync_categories = false;
+    v.prevent_switch_when_emptying_category = false;
+    v.apply(&mut wv, Command::SetCategory(Side::Player, Category::Weapons));
+    select(&mut v, Side::Player, "Pistol");
+    assert!(v.apply(&mut wv, Command::One).changed);
+    assert_eq!(v.category[Side::Player as usize], Category::Weapons, "vanilla default stays unchanged");
+}
+
+#[test]
+fn barter_buy_sell_flags_keep_stimpaks_separate_from_chems() {
+    use fnv_game::services::{name, CHEMS, STIMPAKS};
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // Reuse two distinct items as synthetic Stimpak (STIMPAKS flag) and Chem (CHEMS flag)
+    // through the same service-bit predicate used by vendor_sells (Stewie 9.65: Stimpaks
+    // ignore the chem buy/sell flag).
+    let stim = FormId(AID);
+    let chem = FormId(CAN);
+    w.add_item(PLAYER, stim, 1).unwrap();
+    w.add_item(PLAYER, chem, 1).unwrap();
+    let item_flag = move |id: FormId| {
+        if id == stim {
+            Some(STIMPAKS)
+        } else if id == chem {
+            Some(CHEMS)
+        } else {
+            None
+        }
+    };
+    let sells_for = move |mask: u32| {
+        Sells(std::sync::Arc::new(move |id| item_flag(id).filter(|c| mask & c == 0).map(name)))
+    };
+
+    // Chem-only vendor (CHEMS without STIMPAKS): with vendor_lists_both = true, Stimpak is refused on player side.
+    let mut m = barter(&mut w);
+    m.vendor_lists_both = true;
+    m.set_sells(&mut w, sells_for(CHEMS)).unwrap();
+    assert!(m.list(Side::Player).rows.iter().any(|r| r.item == chem), "chem-only vendor buys chems");
+    assert!(!m.list(Side::Player).rows.iter().any(|r| r.item == stim), "Stimpaks ignore chem buy/sell flag");
+
+    // Stimpak-only vendor (STIMPAKS without CHEMS): accepts Stimpak, refuses Chem.
+    m.set_sells(&mut w, sells_for(STIMPAKS)).unwrap();
+    assert!(m.list(Side::Player).rows.iter().any(|r| r.item == stim), "stimpak vendor buys Stimpaks");
+    assert!(!m.list(Side::Player).rows.iter().any(|r| r.item == chem), "stimpak-only vendor refuses chems");
+
+    // Vanilla default (vendor_lists_both = false): player side offers both regardless of vendor service flags.
+    m.vendor_lists_both = false;
+    m.refresh(&mut w).unwrap();
+    assert!(m.list(Side::Player).rows.iter().any(|r| r.item == stim));
+    assert!(m.list(Side::Player).rows.iter().any(|r| r.item == chem));
+}
+
 fn search_in_app(app: &mut App, text: &str) {
     app.world_mut()
         .resource_scope(|world, mut active: bevy::prelude::Mut<crate::menu::ActiveMenu>| {

@@ -105,9 +105,13 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// missing" messages although NVForever runs the functions TTW calls from them
 /// (`TTW_GetPlugins` and the other `TTW_*`, StewieGetValue; `fnv_game::nvse_small`)
 /// [design, owner 2026-11-08: "technically the dll is present, just in engine"]:
-/// Stewie's Tweaks is reported at 941, the lowest TTW 3.4 accepts, and ttw_nvse at 1,
-/// as TTW only asks whether it is there. Most of Stewie's tweaks themselves are not
-/// built (ext-small.md).
+/// Stewie's Tweaks started at 941 (TTW 3.4's minimum), was promoted to 945 once the
+/// 9.42–9.45 changelog features and Casino Rewards Fix 1.1 consumers were verified
+/// (#3179), and was promoted to 960 once the 9.50–9.60 changelog features, live
+/// `StewVal`/`StewieGetValue` settings, live `GetPipBoyMode`, and menu search-bar tile
+/// publication were verified (#3183, ext-version.md §5.1); ttw_nvse stays at 1, as TTW
+/// only asks whether it is there. The higher gate (970, #3184) remains unpromoted until
+/// its own step is verified.
 ///
 /// The same holds for every other plugin whose functions the engine builds: a mod that
 /// asks `IsPluginInstalled "SUP NVSE Plugin"` before calling SUP's functions got 0 and
@@ -122,6 +126,13 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 ///   theirs (JIP 57.30 = 57.30, JohnnyGuitar 528 = 5.28, ShowOff 184 ≥ 1.83, kNVSE 37 ≥ 30).
 /// - SUP, JIP PP LN, AnhNVSE, NX and UIO at [`UNOBSERVED_VERSION`]: their pages name no
 ///   version and none was read in the original.
+/// - Improved Console (`"Improved Console"`) at `3.0` [documented: ext-version.md §2a
+///   registered name `"Improved Console"`; observed: Fallout: New Vegas 1.4.0.525 +
+///   xNVSE 6.4.9 + Improved Console v3 (10 official masters), `nvse.log` version `3`,
+///   `GetPluginVersion "Improved Console" == 3`]. It has no script functions of its own:
+///   NVForever provides persistent console locals (`int`/`float`/`ref`/`string_var`/
+///   `array_var`) and transparent expression/statement result printing directly in the
+///   interactive console (`docs/design/console.md`, `docs/spec-notes/ext-version.md` §5).
 ///
 /// UIO has no script functions: the engine reads its `uio\public` lists itself
 /// (`fnv_ui`), which is all the plugin does for a mod that asks whether it is there.
@@ -129,14 +140,14 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// functions are built, its menus are not, and a mod that finds it goes on to read its
 /// tiles), and the plugins whose registered name no page gives (ITR, One111, ppNVSE,
 /// vheyes-nvse and the smaller ones): ext-version.md §6.
-pub const PLUGINS: [(&str, f64); 15] = [
+pub const PLUGINS: [(&str, f64); 16] = [
     ("JIP NVSE Plugin", JIP_VERSION),
     ("JIP LN NVSE", JIP_VERSION),
     ("ShowOffNVSE Plugin", 184.0),
     ("kNVSE", 37.0),
     ("JohnnyGuitarNVSE", 528.0),
     ("MCM Extensions", 1.0),
-    ("lStewieAl's Tweaks", 941.0),
+    ("lStewieAl's Tweaks", 960.0),
     ("ttw_nvse", 1.0),
     ("CUI", 120.0),
     ("hNVSE", 120.0),
@@ -145,6 +156,7 @@ pub const PLUGINS: [(&str, f64); 15] = [
     ("AnhNVSE", UNOBSERVED_VERSION),
     ("Extensions for NVSE", UNOBSERVED_VERSION),
     ("UI Organizer Plugin", UNOBSERVED_VERSION),
+    ("Improved Console", 3.0),
 ];
 
 /// The version reported for a plugin the engine builds whose own number is neither
@@ -458,7 +470,12 @@ impl Vm<'_, '_> {
                 })))
             }
             // The current or last hit of the actor it is called on (task J7,
-            // jip-hit-info.md §1): 0, no form or an empty list array without a hit.
+            // jip-hit-info.md §1): 0, no form, or ar_Null (Ar_Size -1) without a hit or on
+            // invalid GetHit3DData dataType [observed: 2026-11-23, GSDocMitchellHouse
+            // (0x00103DF9), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 (10
+            // official base masters), #3678 / PR #3679 probe
+            // `w1_3606_hit_3d_dir_and_base_damage`: `Ar_Size (rDoc.GetHit3DData 0/1/2/9)`
+            // pre-hit returns `-1`].
             "gethitattacker" | "gethitweapon" | "gethitprojectile" | "gethithealthdamage" | "gethitlimbdamage" | "gethitfatiguedamage" | "gethitbaseweapondamage" | "gethitextendedflag" | "gethit3ddata" => {
                 let who = match &c.on {
                     Some(e) => self.xeval(e)?.value()?.as_form(),
@@ -483,7 +500,7 @@ impl Vm<'_, '_> {
                 }
                 Ok(Some(match what {
                     "attacker" | "weapon" | "projectile" => XVal::Ref(0),
-                    "3d" => self.jlist(Vec::new())?,
+                    "3d" => XVal::Array(0),
                     _ => XVal::Num(0.0),
                 }))
             }
@@ -1313,8 +1330,8 @@ mod hit_info_tests {
                 "3d" => {
                     let vals: &[f64] = match k {
                         0 => &[10.0, 20.0, 30.0],
-                        1 => &[-5.0, 0.0, 90.0],
-                        2 => &[10.0, 20.0, 30.0, -5.0, 0.0, 90.0],
+                        1 => &[0.0, 1.0, 0.0],
+                        2 => &[10.0, 20.0, 30.0, 0.0, 1.0, 0.0],
                         _ => return None,
                     };
                     let entries = vals.iter().enumerate().map(|(i, &v)| (XKey::Num(i as f64), XVal::Num(v))).collect();
@@ -1354,21 +1371,21 @@ let fSz1 := Ar_Size (GetHit3DData 1)
 let fSz2 := Ar_Size (GetHit3DData 2)
 let fSzBad := Ar_Size (GetHit3DData 9)";
 
-        // Absent hit -> null ref, 0.0, empty lists.
+        // Absent hit -> null ref, 0.0, ar_Null (Ar_Size == -1).
         run_block(&mut host, decls, body);
         assert_eq!(host.vars[&1], Value::Ref(0));
         assert_eq!(host.vars[&2], Value::Num(0.0));
         assert_eq!(host.vars[&3], Value::Num(0.0));
         assert_eq!(host.vars[&4], Value::Num(0.0));
-        assert_eq!(host.vars[&5], Value::Num(0.0));
-        assert_eq!(host.vars[&6], Value::Num(0.0));
-        assert_eq!(host.vars[&7], Value::Num(0.0));
-        assert_eq!(host.vars[&8], Value::Num(0.0));
+        assert_eq!(host.vars[&5], Value::Num(-1.0));
+        assert_eq!(host.vars[&6], Value::Num(-1.0));
+        assert_eq!(host.vars[&7], Value::Num(-1.0));
+        assert_eq!(host.vars[&8], Value::Num(-1.0));
 
         // Populated hit -> routed values from Host::hit_value.
         host.populated = true;
         let body_full = format!(
-            "{body}\nlet fP1 := (GetHit3DData 0)[1]\nlet fA2 := (GetHit3DData 1)[2]\nlet fB5 := (GetHit3DData 2)[5]"
+            "{body}\nlet fP1 := (GetHit3DData 0)[1]\nlet fA2 := (GetHit3DData 1)[1]\nlet fB5 := (GetHit3DData 2)[4]"
         );
         run_block(&mut host, decls, &body_full);
         assert_eq!(host.vars[&1], Value::Ref(0xFF00_00CC));
@@ -1378,16 +1395,16 @@ let fSzBad := Ar_Size (GetHit3DData 9)";
         assert_eq!(host.vars[&5], Value::Num(3.0));
         assert_eq!(host.vars[&6], Value::Num(3.0));
         assert_eq!(host.vars[&7], Value::Num(6.0));
-        assert_eq!(host.vars[&8], Value::Num(0.0));
+        assert_eq!(host.vars[&8], Value::Num(-1.0));
         assert_eq!(host.vars[&9], Value::Num(20.0));
-        assert_eq!(host.vars[&10], Value::Num(90.0));
-        assert_eq!(host.vars[&11], Value::Num(90.0));
+        assert_eq!(host.vars[&10], Value::Num(1.0));
+        assert_eq!(host.vars[&11], Value::Num(1.0));
 
         // Different calling ref receives absent defaults.
         host.calling = Some(0x0000_0099);
         run_block(&mut host, decls, body);
         assert_eq!(host.vars[&1], Value::Ref(0));
         assert_eq!(host.vars[&2], Value::Num(0.0));
-        assert_eq!(host.vars[&5], Value::Num(0.0));
+        assert_eq!(host.vars[&5], Value::Num(-1.0));
     }
 }

@@ -482,13 +482,13 @@ fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_dat
     let f = fixture();
     let mut g = game(&f);
 
-    // Unhit actor returns 0 / null ref / empty 3D array.
+    // Unhit actor returns 0 / null ref / invalid 3D array (Ar_Size == -1).
     assert_eq!(q(&mut g, "SetFunctionValue (GuardRef.GetHitProjectile)"), XVal::Ref(0));
     assert_eq!(q(&mut g, "SetFunctionValue (GuardRef.GetHitBaseWeaponDamage)"), XVal::Num(0.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GuardRef.GetHitFatigueDamage)"), XVal::Num(0.0));
-    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 0))"), XVal::Num(0.0));
-    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 1))"), XVal::Num(0.0));
-    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 2))"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 0))"), XVal::Num(-1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 1))"), XVal::Num(-1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GuardRef.GetHit3DData 2))"), XVal::Num(-1.0));
 
     // Register an OnHit handler that captures all JIP hit-info getters before health damage applies.
     q(
@@ -500,6 +500,7 @@ fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_dat
            PlayerREF.AuxVarSetFlt \"*hi_blk\" (GetHitExtendedFlag 0) -1\n\
            PlayerREF.AuxVarSetFlt \"*hi_snk\" (GetHitExtendedFlag 7) -1\n\
            PlayerREF.AuxVarSetFlt \"*hi_exp\" (GetHitExtendedFlag 8) -1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_msk\" (GetHitExtendedFlag 256) -1\n\
            array_var aPos\n\
            let aPos := GetHit3DData 0\n\
            PlayerREF.AuxVarSetFlt \"*hi_p0sz\" (Ar_Size aPos) -1\n\
@@ -508,25 +509,33 @@ fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_dat
              PlayerREF.AuxVarSetFlt \"*hi_py\" (aPos[1]) -1\n\
              PlayerREF.AuxVarSetFlt \"*hi_pz\" (aPos[2]) -1\n\
            endif\n\
-           array_var aAng\n\
-           let aAng := GetHit3DData 1\n\
-           PlayerREF.AuxVarSetFlt \"*hi_a1sz\" (Ar_Size aAng) -1\n\
-           if (Ar_Size aAng) == 3\n\
-             PlayerREF.AuxVarSetFlt \"*hi_ax\" (aAng[0]) -1\n\
-             PlayerREF.AuxVarSetFlt \"*hi_az\" (aAng[2]) -1\n\
+           array_var aDir\n\
+           let aDir := GetHit3DData 1\n\
+           PlayerREF.AuxVarSetFlt \"*hi_a1sz\" (Ar_Size aDir) -1\n\
+           if (Ar_Size aDir) == 3\n\
+             PlayerREF.AuxVarSetFlt \"*hi_dx\" (aDir[0]) -1\n\
+             PlayerREF.AuxVarSetFlt \"*hi_dy\" (aDir[1]) -1\n\
+             PlayerREF.AuxVarSetFlt \"*hi_dz\" (aDir[2]) -1\n\
            endif\n\
            array_var aBoth\n\
            let aBoth := GetHit3DData 2\n\
            PlayerREF.AuxVarSetFlt \"*hi_b2sz\" (Ar_Size aBoth) -1\n\
-           PlayerREF.AuxVarSetFlt \"*hi_bad\" (Ar_Size (GetHit3DData 3)) -1\n\
+           if (Ar_Size aBoth) == 6\n\
+             PlayerREF.AuxVarSetFlt \"*hi_b3\" (aBoth[3]) -1\n\
+             PlayerREF.AuxVarSetFlt \"*hi_b4\" (aBoth[4]) -1\n\
+             PlayerREF.AuxVarSetFlt \"*hi_b5\" (aBoth[5]) -1\n\
+           endif\n\
+           PlayerREF.AuxVarSetFlt \"*hi_bad\" (Ar_Size (GetHit3DData 9)) -1\n\
          End) 1 GuardRef",
     );
 
-    // 1. Projectile hit with fatigue damage, base weapon damage, sneak attack, and 3D data.
+    // 1. Projectile crit hit with fatigue damage, base+crit weapon damage (22 + 200 = 222),
+    // sneak attack, and non-unit incoming direction normalized to a unit 3D vector.
     let proj_ref = g
-        .projectile_fired(FormId(BULLET), FormId::PLAYER_REF, FormId(PISTOL), 24.0, [0.0, 0.0, 50.0])
+        .projectile_fired(FormId(BULLET), FormId::PLAYER_REF, FormId(PISTOL), 22.0, [0.0, 0.0, 50.0])
         .expect("live projectile ref");
-    let angles = fnv_game::combat::hit_angles_from_dir([1.0, 0.0, 0.0]).expect("east dir angles");
+    let raw_dir = [-0.608, 1.774, -0.694];
+    let want_dir = fnv_game::combat::unit_hit_dir(raw_dir).expect("unit incoming direction");
     g.hit(
         GUARD_REF,
         18.0,
@@ -537,28 +546,36 @@ fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_dat
             location: 1,
             critical: true,
             sneak_attack: true,
-            base_weapon_damage: 24.0,
+            base_weapon_damage: 222.0,
             fatigue_damage: 125.0,
             hit_pos: Some([12.5, 34.0, 78.25]),
-            hit_angles: Some(angles),
+            hit_dir: Some(raw_dir),
             ..HitInfo::default()
         },
     );
     assert_eq!(aux_ref(&mut g, "*hi_proj", 0), proj_ref);
-    assert_eq!(aux_flt(&mut g, "*hi_base", 0), 24.0);
+    assert_eq!(aux_flt(&mut g, "*hi_base", 0), 222.0);
     assert_eq!(aux_flt(&mut g, "*hi_fat", 0), 125.0);
     assert_eq!(aux_flt(&mut g, "*hi_blk", 0), 0.0);
     assert_eq!(aux_flt(&mut g, "*hi_snk", 0), 1.0);
     assert_eq!(aux_flt(&mut g, "*hi_exp", 0), 0.0);
+    assert_eq!(aux_flt(&mut g, "*hi_msk", 0), 0.0, "GetHitExtendedFlag takes bit index, not bitmask 256");
     assert_eq!(aux_flt(&mut g, "*hi_p0sz", 0), 3.0);
     assert_eq!((aux_flt(&mut g, "*hi_px", 0), aux_flt(&mut g, "*hi_py", 0), aux_flt(&mut g, "*hi_pz", 0)), (12.5, 34.0, 78.25));
     assert_eq!(aux_flt(&mut g, "*hi_a1sz", 0), 3.0);
-    assert!(aux_flt(&mut g, "*hi_ax", 0).abs() < 1e-3);
-    assert!((aux_flt(&mut g, "*hi_az", 0) - 90.0).abs() < 1e-3);
+    let (dx, dy, dz) = (aux_flt(&mut g, "*hi_dx", 0), aux_flt(&mut g, "*hi_dy", 0), aux_flt(&mut g, "*hi_dz", 0));
+    let norm = (dx * dx + dy * dy + dz * dz).sqrt();
+    assert!((norm - 1.0).abs() < 1e-5, "GetHit3DData 1 must be unit length, got ({dx}, {dy}, {dz}) norm={norm}");
+    assert!((dx - f64::from(want_dir[0])).abs() < 1e-5);
+    assert!((dy - f64::from(want_dir[1])).abs() < 1e-5);
+    assert!((dz - f64::from(want_dir[2])).abs() < 1e-5);
     assert_eq!(aux_flt(&mut g, "*hi_b2sz", 0), 6.0);
-    assert_eq!(aux_flt(&mut g, "*hi_bad", 0), 0.0);
+    assert!((aux_flt(&mut g, "*hi_b3", 0) - dx).abs() < 1e-5);
+    assert!((aux_flt(&mut g, "*hi_b4", 0) - dy).abs() < 1e-5);
+    assert!((aux_flt(&mut g, "*hi_b5", 0) - dz).abs() < 1e-5);
+    assert_eq!(aux_flt(&mut g, "*hi_bad", 0), -1.0, "invalid dataType=9 returns ar_Null (Ar_Size == -1)");
 
-    // 2. Melee blocked hit: no projectile (Ref(0)), flag 0 = 1, flag 8 = 0.
+    // 2. Melee blocked hit: no projectile (Ref(0)), flag 0 = 1, flag 8 = 0, unit east direction [1, 0, 0].
     g.hit(
         GUARD_REF,
         6.0,
@@ -569,7 +586,7 @@ fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_dat
             blocking: true,
             base_weapon_damage: 14.0,
             hit_pos: Some([1.0, 2.0, 3.0]),
-            hit_angles: Some([0.0, 0.0, 0.0]),
+            hit_dir: Some([3.0, 0.0, 0.0]),
             ..HitInfo::default()
         },
     );
@@ -580,9 +597,10 @@ fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_dat
     assert_eq!(aux_flt(&mut g, "*hi_blk", 1), 1.0);
     assert_eq!(aux_flt(&mut g, "*hi_snk", 1), 0.0);
     assert_eq!(aux_flt(&mut g, "*hi_exp", 1), 0.0);
+    assert_eq!((aux_flt(&mut g, "*hi_dx", 1), aux_flt(&mut g, "*hi_dy", 1), aux_flt(&mut g, "*hi_dz", 1)), (1.0, 0.0, 0.0));
 
-    // 3. Explosion hit: live EXPL ref (GetType == 81, IsReference == 1), flag 8 = 1,
-    // GetHit3DData returns all zeros (3 / 3 / 6).
+    // 3. Explosion hit: live EXPL ref (GetType == 81, IsReference == 1), flag 8 = 1 (256 = 0),
+    // GetHitBaseWeaponDamage returns EXPL base damage (125.0), and GetHit3DData returns all zeros (3 / 3 / 6).
     let expl_ref = g
         .explosion_placed(FormId(BLAST), Some(FormId::PLAYER_REF), [5.0, 6.0, 7.0], 200.0)
         .expect("live explosion ref");
@@ -593,6 +611,7 @@ fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_dat
             projectile: Some(expl_ref),
             location: -1,
             explosion: true,
+            base_weapon_damage: 125.0,
             ..HitInfo::default()
         },
     );
@@ -600,26 +619,44 @@ fn jip_hit_info_queries_cover_projectile_melee_explosion_fatigue_base_and_3d_dat
     assert_eq!(aux_ref(&mut g, "*hi_proj", 1), expl_ref);
     assert_eq!(q(&mut g, "SetFunctionValue (IsReference (GuardRef.GetHitProjectile))"), XVal::Num(1.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GetType (GuardRef.GetHitProjectile))"), XVal::Num(81.0));
+    assert_eq!(aux_flt(&mut g, "*hi_base", 2), 125.0, "explosion hit reports EXPL base damage");
     assert_eq!(aux_flt(&mut g, "*hi_exp", 2), 1.0);
+    assert_eq!(aux_flt(&mut g, "*hi_msk", 2), 0.0, "bitmask 256 returns 0 even when flag 8 is set");
     assert_eq!(aux_flt(&mut g, "*hi_p0sz", 2), 3.0);
     assert_eq!(aux_flt(&mut g, "*hi_a1sz", 2), 3.0);
     assert_eq!(aux_flt(&mut g, "*hi_b2sz", 2), 6.0);
     assert_eq!((aux_flt(&mut g, "*hi_px", 2), aux_flt(&mut g, "*hi_py", 2), aux_flt(&mut g, "*hi_pz", 2)), (0.0, 0.0, 0.0));
+    assert_eq!((aux_flt(&mut g, "*hi_dx", 2), aux_flt(&mut g, "*hi_dy", 2), aux_flt(&mut g, "*hi_dz", 2)), (0.0, 0.0, 0.0));
+    assert_eq!((aux_flt(&mut g, "*hi_b3", 2), aux_flt(&mut g, "*hi_b4", 2), aux_flt(&mut g, "*hi_b5", 2)), (0.0, 0.0, 0.0));
 
-    // 4. Non-finite coordinates are guarded and yield empty 3D arrays rather than NaN.
+    // 4. Non-finite coordinates and zero-length non-explosion direction are guarded and yield ar_Null (Ar_Size == -1).
     g.hit(
         GUARD_REF,
         1.0,
         HitInfo {
             location: 0,
             hit_pos: Some([f32::NAN, 1.0, 2.0]),
-            hit_angles: Some([0.0, f32::INFINITY, 0.0]),
+            hit_dir: Some([0.0, f32::INFINITY, 0.0]),
             ..HitInfo::default()
         },
     );
-    assert_eq!(aux_flt(&mut g, "*hi_p0sz", 3), 0.0);
-    assert_eq!(aux_flt(&mut g, "*hi_a1sz", 3), 0.0);
-    assert_eq!(aux_flt(&mut g, "*hi_b2sz", 3), 0.0);
+    assert_eq!(aux_flt(&mut g, "*hi_p0sz", 3), -1.0);
+    assert_eq!(aux_flt(&mut g, "*hi_a1sz", 3), -1.0);
+    assert_eq!(aux_flt(&mut g, "*hi_b2sz", 3), -1.0);
+
+    g.hit(
+        GUARD_REF,
+        1.0,
+        HitInfo {
+            location: 0,
+            hit_pos: Some([1.0, 2.0, 3.0]),
+            hit_dir: Some([0.0, 0.0, 0.0]),
+            ..HitInfo::default()
+        },
+    );
+    assert_eq!(aux_flt(&mut g, "*hi_p0sz", 4), 3.0);
+    assert_eq!(aux_flt(&mut g, "*hi_a1sz", 4), -1.0, "zero-length non-explosion direction yields ar_Null");
+    assert_eq!(aux_flt(&mut g, "*hi_b2sz", 4), -1.0);
 
     // 5. ToggleImmortalMode 2 on the player zeroes health damage only (jip-ui-9.md §3);
     // GetHitFatigueDamage still records the hit's fatigue damage.

@@ -23,6 +23,15 @@ preserving other `Motion` fields). Drawn actors' `Motion::in_air` is also carrie
 `nvforever::detection::measure` from `PhysState::player` / `PhysState::npcs` so periodic
 detection updates never clobber `in_air`.
 
-[hypothesis] Native edge cases — including whether swimming, brief step-downs/slopes,
-ragdolled/seated actors, or CTDA condition evaluation (`0x17B5`, left out of scope here)
-differ from `!grounded && !swimming` — have not been measured in an original-game capture.
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+`GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging
+copy (read-only `PrintToConsole` probe; zero writes to game install or Saves),
+`w4e_c15_door_default_open_air_killcam_speech`
+(`tools/capture/nvse/catalogs/wave4e_mods.json`, PR #3803 / #3802):
+`PROBE|w4e_c15_door_default_open_air_killcam_speech|door=0->1->0|air0=0|kc0=0|spS=0,spF=0`;
+zero DLL, PDB, or third-party source consulted] Grounded standing `Player.IsInAir` returns `0`.
+
+[hypothesis] Native edge cases — including airborne jumps, whether swimming, brief
+step-downs/slopes, ragdolled/seated actors, or CTDA condition evaluation (`0x17B5`, left
+out of scope here) differ from `!grounded && !swimming` — have not been measured in an
+original-game capture.

@@ -130,7 +130,7 @@ fn no_errors(g: &Game) {
 }
 
 #[test]
-fn missing_improved_console_guard_still_stops_before_registration() {
+fn improved_console_guard_passes_and_missing_plugin_guard_still_stops() {
     let f = fixture(false);
     let mut g = game(&f);
     assert_eq!(
@@ -138,13 +138,35 @@ fn missing_improved_console_guard_still_stops_before_registration() {
             &mut g,
             "SetFunctionValue (IsPluginInstalled (\"Improved Console\"))"
         ),
-        XVal::Num(0.0)
+        XVal::Num(1.0)
     );
+    assert_eq!(
+        query(
+            &mut g,
+            "SetFunctionValue (GetPluginVersion (\"Improved Console\"))"
+        ),
+        XVal::Num(3.0)
+    );
+    assert_eq!(
+        query(
+            &mut g,
+            "SetFunctionValue (GetPluginVersion (\"Improved Console\") >= 1)"
+        ),
+        XVal::Num(1.0)
+    );
+    // Negative control: a genuinely missing plugin still stops before registration.
+    query(&mut g,"if eval !(IsPluginInstalled (\"NoSuchConsolePlugin\"))\nSetModLocalData \"owned.missing_guard\" 1\nreturn\nendif\nSetModLocalData \"owned.missing_after\" 1");
+    assert_eq!(num(&mut g, "owned.missing_guard"), 1.0);
+    assert_eq!(num(&mut g, "owned.missing_after"), 0.0);
+    // Positive control: the Improved Console guard now passes and registers the handler.
     query(&mut g,"if eval !(IsPluginInstalled (\"Improved Console\"))\nSetModLocalData \"owned.guard\" 1\nreturn\nendif\nSetEventHandlerAlt \"ShowOff:OnPreActivate\" OwnedZero\nSetModLocalData \"owned.after_guard\" 1");
-    assert_eq!(num(&mut g, "owned.guard"), 1.0);
-    assert_eq!(num(&mut g, "owned.after_guard"), 0.0);
+    assert_eq!(num(&mut g, "owned.guard"), 0.0);
+    assert_eq!(num(&mut g, "owned.after_guard"), 1.0);
     let trader = target(&mut g, "owned.trader");
-    assert!(g.default_activation_by_hand(trader).unwrap().is_some());
+    assert!(
+        g.default_activation_by_hand(trader).unwrap().is_none(),
+        "registered preactivation handler cancels hand activation"
+    );
     no_errors(&g);
 }
 

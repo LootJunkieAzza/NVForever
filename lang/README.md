@@ -5,8 +5,8 @@ hacking log. The original game's text is not copied (LEGAL.md). The game's own t
 (items, dialogue, quests) comes from the plugins of your install, so a localized install
 already shows it in its language. Only NVForever's own words need a translation, and
 this folder holds them, one file per language (#1443). Shipped (#1948): `de.toml`
-(Deutsch), `es.toml` (Español), `fr.toml` (Français), `it.toml` (Italiano) and `ru.toml`
-(Русский).
+(Deutsch), `es.toml` (Español), `fr.toml` (Français), `it.toml` (Italiano), `ru.toml`
+(Русский) and `zh.toml` (简体中文).
 
 ## A language file
 
@@ -72,16 +72,25 @@ name with no line (a resolution, a display's name, a language's own name) shows 
 is. A note that names a choice names it as the page shows it, so a translated choice
 name is translated in the notes too.
 
-The game's fonts hold 256 glyphs in the install's code page (docs/spec-notes/fonts.md),
-so a translation can only use the letters that code page has: Cyrillic on a Russian
-install (`[Text] CodePage=1251`), but not Chinese.
-
 The ammo card's fallback labels also use these files when an AMEF has no FULL name:
 `Damage`, `Damage resist`, `Damage threshold`, `Spread`, `Weapon wear`, `Fatigue`,
 `Ammo effect` [design, #2502; `engine/nvf-play/src/pipboy/items.rs`]. An effect's own
 FULL remains the load order's text [design, #2502].
 
-So the language shown must suit the install's code page: German, French, Italian and
-Spanish need Windows-1252 (an English, German, French, Italian or Spanish install), and
-Russian needs Windows-1251 (a Russian install). A letter the fonts lack is drawn as `?`.
+## Simplified Chinese and fonts
+
+Choose **简体中文** under Display → Interface → Language, or set `language=zh` in
+the `[Settings]` section of `NVForever.ini`. This selects NVForever's UTF-8 interface
+text. Item names, dialogue, quests and other game text come from the installed plugins,
+decoded with the game's text code page. An English install still supplies English
+item names. Reading Chinese game content requires localized plugins and a build that
+supports their text encoding.
+
+The game's 256-glyph bitmap fonts cover a single-byte code page. Windows-1252 covers
+German, French, Italian and Spanish in the shipped files. Windows-1251 covers Russian.
 Every file here keeps to its code page's letters (no `œ`).
+The bundled Sharp menu face covers Latin and Cyrillic. Displaying the Simplified
+Chinese translation requires a build with CJK font fallback and a font with the
+needed glyphs. On those builds, NVForever can use a system font or a TrueType or
+OpenType font or collection specified by `[Interface] CjkFontPath` in
+`NVForever.ini`. The translation file itself only supplies text.

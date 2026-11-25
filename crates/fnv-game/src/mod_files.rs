@@ -14,7 +14,8 @@ use crate::game::Game;
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The host's answer for a path in the archives too: 0 none, 1 a loose file, 2 inside an
 /// archive.
@@ -39,11 +40,19 @@ pub struct Roots {
 }
 
 static ROOTS: Mutex<Option<Roots>> = Mutex::new(None);
+static ROOTS_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// Monotonic revision bumped whenever process-wide file roots change (`set_roots` /
+/// `update_roots`).
+pub fn roots_generation() -> u64 {
+    ROOTS_GEN.load(Ordering::Acquire)
+}
 
 /// Set the roots for the games made after this (the engine, `fnvtool --config`).
 pub fn set_roots(r: Roots) {
     if let Ok(mut g) = ROOTS.lock() {
         *g = Some(r);
+        ROOTS_GEN.fetch_add(1, Ordering::Release);
     }
 }
 
@@ -52,6 +61,7 @@ pub fn set_roots(r: Roots) {
 pub fn update_roots(f: impl FnOnce(&mut Roots)) {
     if let Ok(mut g) = ROOTS.lock() {
         f(g.get_or_insert_with(Roots::default));
+        ROOTS_GEN.fetch_add(1, Ordering::Release);
     }
 }
 
@@ -181,6 +191,12 @@ pub struct ModFiles {
     showoff_json: HashMap<String, serde_json::Value>,
     /// Folders CreateFolder made this session (under the game's folder, lower case).
     folders: std::collections::HashSet<String>,
+    /// Monotonic counter bumped whenever this session's written files change.
+    generation: u64,
+    /// Cached `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (`OnceLock` so
+    /// `&Game` readers stay allocation-free and `Send + Sync`; cleared on session writes)
+    /// [design].
+    ttw_karma_titles: OnceLock<crate::karma_titles::TtwKarmaTitles>,
 }
 
 /// The folder of NVForever's layer standing for the game's own folder.
@@ -336,6 +352,55 @@ pub fn read_loose(rel: &str) -> Option<Vec<u8>> {
     roots().read.iter().find_map(|root| std::fs::read(find_file(root, rel)?).ok())
 }
 
+/// Strip a leading UTF-8 BOM (either decoded as `\u{feff}` or as three latin-1 chars
+/// `\u{ef}\u{bb}\u{bf}`) from INI text.
+fn strip_bom(text: String) -> String {
+    if let Some(rest) = text.strip_prefix('\u{feff}') {
+        rest.to_string()
+    } else if let Some(rest) = text.strip_prefix("\u{ef}\u{bb}\u{bf}") {
+        rest.to_string()
+    } else {
+        text
+    }
+}
+
+/// Read all loose `.ini` files directly inside `folder` across `roots` (earlier root wins
+/// on case-insensitive filename collision; path components matched without regard to
+/// case), sorted case-insensitively (`A..Z`) by filename.
+pub fn read_folder_inis_from_roots(roots: &[PathBuf], folder: &str) -> Vec<(String, String)> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut entries: Vec<(String, PathBuf)> = Vec::new();
+    for root in roots {
+        let Some(dir) = find_dir(root, folder) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let path = e.path();
+            if !path.is_file() {
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            let lower = name.to_ascii_lowercase();
+            if lower.ends_with(".ini") && seen.insert(lower) {
+                entries.push((name, path));
+            }
+        }
+    }
+    entries.sort_by_key(|(name, _)| name.to_ascii_lowercase());
+    entries
+        .into_iter()
+        .filter_map(|(name, path)| {
+            let bytes = std::fs::read(path).ok()?;
+            Some((name, strip_bom(latin1(&bytes))))
+        })
+        .collect()
+}
+
+/// Read all loose `.ini` files directly inside `folder` across the current read roots,
+/// sorted case-insensitively (`A..Z`) by filename.
+pub fn read_data_folder_inis(folder: &str) -> Vec<(String, String)> {
+    read_folder_inis_from_roots(&roots().read, folder)
+}
+
 /// Whether NVForever may write `path`: never inside the game's install or the original
 /// game's user folder (`fnv_install::guard_write`), nor under the game folder the Data
 /// read root stands in (a headless run that did not register the install).
@@ -369,10 +434,45 @@ fn norm(p: &str) -> String {
 }
 
 impl ModFiles {
+    /// Monotonic counter bumped on session file writes and deletes.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// [`ModFiles::read`] for the other files of the crate: a Data file's text, this
     /// session's write first.
     pub(crate) fn read_text(&self, rel: &str) -> Option<String> {
         self.read(rel)
+    }
+
+    /// A Data file's text with case-insensitive path matching on disk, this session's
+    /// write first, with any leading UTF-8 BOM stripped.
+    pub(crate) fn read_text_any_case(&self, rel: &str) -> Option<String> {
+        if let Some(t) = self.written.get(&norm(rel)) {
+            return Some(strip_bom(t.clone()));
+        }
+        let rel = rel.replace('/', "\\");
+        on_disk(Path::new(""), &rel)?;
+        read_loose(&rel).map(|b| strip_bom(latin1(&b)))
+    }
+
+    /// Loose `.ini` files directly inside `folder` across the current read roots and this
+    /// session's in-memory writes, sorted case-insensitively (`A..Z`) by filename.
+    /// Session writes override disk files with the same case-insensitive filename.
+    pub fn read_folder_inis(&self, folder: &str) -> Vec<(String, String)> {
+        let mut by_lower: std::collections::BTreeMap<String, (String, String)> = std::collections::BTreeMap::new();
+        for (name, text) in read_data_folder_inis(folder) {
+            by_lower.insert(name.to_ascii_lowercase(), (name, text));
+        }
+        let prefix = format!("{}\\", norm(folder).trim_end_matches('\\'));
+        for (path_lower, text) in &self.written {
+            if let Some(file_lower) = path_lower.strip_prefix(&prefix) {
+                if !file_lower.is_empty() && !file_lower.contains('\\') && file_lower.ends_with(".ini") {
+                    by_lower.insert(file_lower.to_string(), (file_lower.to_string(), strip_bom(text.clone())));
+                }
+            }
+        }
+        by_lower.into_values().collect()
     }
 
     /// A file's text: this session's write, else NVForever's layer, else the game's Data.
@@ -448,9 +548,40 @@ impl ModFiles {
                 return false;
             }
         }
+        self.invalidate_plugin_ini_cache(&key);
         self.written_bytes.insert(key.clone(), bytes.to_vec());
         self.written.insert(key, text);
+        self.generation = self.generation.wrapping_add(1);
         true
+    }
+
+    fn invalidate_plugin_ini_cache(&mut self, norm_key: &str) {
+        if norm_key == "nvse\\plugins\\ttw.ini" {
+            let _ = self.ttw_karma_titles.take();
+        }
+    }
+
+    /// Read a plugin INI under `Data` (case-insensitive across read roots and VFS
+    /// archives), preferring session writes first.
+    fn read_plugin_ini(&self, rel: &str) -> Option<String> {
+        let key = norm(rel);
+        if let Some(b) = self.written_bytes.get(&key) {
+            return Some(String::from_utf8(b.clone()).unwrap_or_else(|e| latin1(e.as_bytes())));
+        }
+        if let Some(t) = self.written.get(&key) {
+            return Some(t.clone());
+        }
+        let bytes = read_data_file(rel)?;
+        Some(String::from_utf8(bytes).unwrap_or_else(|e| latin1(e.as_bytes())))
+    }
+
+    /// Loaded `Data\NVSE\Plugins\TTW.ini` `[Karma Titles]` overrides (empty when absent).
+    pub fn ttw_karma_titles(&self) -> &crate::karma_titles::TtwKarmaTitles {
+        self.ttw_karma_titles.get_or_init(|| {
+            self.read_plugin_ini("NVSE\\Plugins\\TTW.ini")
+                .map(|text| crate::karma_titles::TtwKarmaTitles::parse(&text))
+                .unwrap_or_default()
+        })
     }
 
     /// [`ModFiles::read_root`] for the other files of the crate.
@@ -529,12 +660,16 @@ impl ModFiles {
             return false;
         }
         let key = norm(rel);
+        self.invalidate_plugin_ini_cache(&key);
         let mut gone = self.written.remove(&key).is_some();
         gone |= self.written_bytes.remove(&key).is_some();
         if let Some(p) = roots().write.and_then(|w| find_file(&w, rel)) {
             if may_write(&p) && std::fs::remove_file(&p).is_ok() {
                 gone = true;
             }
+        }
+        if gone {
+            self.generation = self.generation.wrapping_add(1);
         }
         gone
     }
@@ -858,10 +993,13 @@ fn xval_to_json(g: &Game, v: &XVal, depth: usize) -> serde_json::Value {
     }
 }
 
-/// Put `value` at a JSON Pointer (RFC 6901) in `root`, making the objects on the way
-/// that are missing [hypothesis: the page does not say what a pointer into a missing
-/// part does]; an array index at or past the end (or `-`) appends. False when the path
-/// runs through a value that is neither an object nor an array.
+/// Put `value` at a JSON Pointer (RFC 6901) in `root`. Promotes a `null` root (including
+/// a missing file) into `{}` so single-level pointers such as `"/k"` succeed, while
+/// failing when any intermediate segment is missing rather than auto-creating intermediate
+/// objects [hypothesis: the page does not specify missing-path creation; root-object
+/// creation is retained for missing files / null roots while missing intermediate segments
+/// return false]. An array index at the final segment equal to `len` (or `-`) appends.
+/// False when any intermediate segment is missing or traverses a non-container value.
 fn json_set(root: &mut serde_json::Value, pointer: &str, value: serde_json::Value) -> bool {
     use serde_json::Value as J;
     if pointer.is_empty() {
@@ -870,32 +1008,35 @@ fn json_set(root: &mut serde_json::Value, pointer: &str, value: serde_json::Valu
     }
     let Some(rest) = pointer.strip_prefix('/') else { return false };
     let parts: Vec<String> = rest.split('/').map(|p| p.replace("~1", "/").replace("~0", "~")).collect();
+    if root.is_null() {
+        *root = J::Object(serde_json::Map::new());
+    }
     let mut cur = root;
     let mut value = Some(value);
     for (i, part) in parts.iter().enumerate() {
         let last = i + 1 == parts.len();
-        if cur.is_null() {
-            *cur = J::Object(serde_json::Map::new());
-        }
         cur = match cur {
             J::Object(m) => {
                 if last {
                     m.insert(part.clone(), value.take().unwrap_or(J::Null));
                     return true;
                 }
-                m.entry(part.clone()).or_insert(J::Null)
+                let Some(next) = m.get_mut(part) else { return false };
+                next
             }
             J::Array(items) => {
                 let at = match part.parse::<usize>() {
-                    Ok(n) => n.min(items.len()),
-                    Err(_) if part == "-" => items.len(),
-                    Err(_) => return false,
+                    Ok(n) if last => n.min(items.len()),
+                    Ok(n) if n < items.len() => n,
+                    Err(_) if last && part == "-" => items.len(),
+                    _ => return false,
                 };
-                if at == items.len() {
-                    items.push(J::Null);
-                }
                 if last {
-                    items[at] = value.take().unwrap_or(J::Null);
+                    if at == items.len() {
+                        items.push(value.take().unwrap_or(J::Null));
+                    } else {
+                        items[at] = value.take().unwrap_or(J::Null);
+                    }
                     return true;
                 }
                 &mut items[at]
@@ -907,9 +1048,14 @@ fn json_set(root: &mut serde_json::Value, pointer: &str, value: serde_json::Valu
 }
 
 /// A JSON file under the game's folder: with `use_cache`, the cache's copy when present;
-/// otherwise the UTF-8 file parsed fresh (UTF-8 BOM stripped). Every parser mode reads
-/// standard JSON [hypothesis: JAXN (1) and TaoConfig (2) extend it; their extensions are
-/// not read, so such a file fails to parse].
+/// otherwise the UTF-8 file parsed fresh (UTF-8 BOM stripped). All three parser modes
+/// (`0` JSON, `1` JAXN, `2` TaoConfig) read standard JSON [observed: Fallout: New Vegas
+/// 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-24, `GSDocMitchellHouse`
+/// (`0x00103DF9`), 10 official base masters, `w4d_38_showoff_perk_stagger_fade`
+/// (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+/// `json(42,42,42,0/1,0/1)` (standard JSON across modes 0/1/2, JAXN in modes 0/1,
+/// TaoConfig in modes 0/2); no DLL or source consulted]; JAXN (1) and
+/// TaoConfig (2) syntax extensions are [not built], so such files fail to parse.
 fn json_file(g: &Game, path: &str, use_cache: bool) -> Option<serde_json::Value> {
     if use_cache {
         if let Some(v) = g.mod_files.showoff_json.get(&norm(path)) {
@@ -1300,7 +1446,10 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         }
         // `toWrite filepath [jsonPointer] [parserMode] [useCache] [saveFile]
         // [compactFormatting]`: the value converted and put at the pointer of the file's
-        // JSON (a file that is missing or not JSON starts from nothing); cached when
+        // JSON (a missing file, malformed non-JSON file, or `null` root starts from `null`
+        // and promotes the root to `{}` for a single-level pointer, while missing
+        // intermediate segments return `0` without creating intermediate objects
+        // [hypothesis]); cached when
         // asked, saved unless saveFile is 0, minified or indented [documented:
         // WriteToJSON]. Saved into NVForever's layer, never the game's folder
         // (`write_root`). 1 when done [documented: "success"].

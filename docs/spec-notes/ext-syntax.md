@@ -52,10 +52,9 @@ observe)**; the compile cases settle it from the compiled order.
 | 0 | `:=` | 2 | Assign the right side to the variable or array element on the left. **Right-associative**; its value is the value assigned, so `a := b := c := 0` sets all three. A string is copied, an array is shared. |
 | 1 | `\|\|` | 2 | Logical or (§3). |
 | 2 | `&&` | 2 | Logical and (§3). |
-| 2 | `+=` `-=` `*=` `/=` `^=` | 2 | Arithmetic on the left variable or array element, then assign. `^=` raises to a power. |
-| 2 | `\|=` `&=` | 2 | Bitwise or (and) after demoting both sides to integers, then assign. |
-| 2 | `<<=` `>>=` | 2 | Shift left (right) by a number of bits after demoting both sides to integers, then assign [hypothesis: extends documented `<<` and `>>` to compound assignment]. |
-| 2 | `%=` | 2 | Remainder of integer division, then assign. |
+| 2 | `+=` `-=` `*=` `/=` `^=` | 2 | Arithmetic on the left variable or array element, then assign. `^=` raises to a power (`let x ^= y` confirmed: `3 ^= 4 = 81` [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, `#3678` / PR `#3679` probe `w1_3495_compound_assign_and_datan2`: `int x = 3; let x ^= 4` -> `81`; no DLL or source consulted]). |
+| 2 | `\|=` `&=` | 2 | Bitwise or (and) after demoting both sides to integers, then assign (`5 \|= 2 = 7`, `7 &= 3 = 3`, float truncation `5.9 \|= 2.8 = 7` [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, `#3678` / PR `#3679` probe `w1_3495_compound_assign_and_datan2`: `let x \|= 2`, `let x &= 3`, and `float f = 5.9; let f \|= 2.8` -> `7`; no DLL or source consulted]). |
+| 2 | `%=` | 2 | Remainder of integer division, then assign (`13 %= 5 = 3` [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, `#3678` / PR `#3679` probe `w1_3495_compound_assign_and_datan2`: `int x = 13; let x %= 5` -> `3`; no DLL or source consulted]). |
 | 3 | `:` | 2 | Range (slice): a substring, or a copy of the array elements in the range; **the upper end is included**; negative string indexes count from the end. |
 | 3 | `::` | 2 | Key–value pair: a number or string key, a value of any type. |
 | 4 | `==` `!=` | 2 | Equality of comparable values. Arrays: by top-level contents since xNVSE 6.2.1 (by identity before); nested arrays by identity. |
@@ -130,10 +129,22 @@ assigned with `let`, not `set` [documented: Let; SetFunctionValue; Ar List].
 **The let macro** (xNVSE 6.1.0): a line `x = 10`, `x += 10`, `x -= 5`, `x *= 5` with no
 keyword is a `let` [documented: Let Macro]. `x /= 5` is taken too [observed:
 JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting …` in JBTOnFireWeaponUDF with
-compiled bytes, so the original's compiler takes it]. NVForever also accepts the remaining
-compound assignments (`^=`, `%=`, `|=`, `&=`, `<<=`, `>>=`) in bare Let-macro form
-[hypothesis: extends documented Let Macro and NVSE Expressions compound assignments so bare
-statements match `let`].
+compiled bytes, so the original's compiler takes it]. Bare `|=`, `&=`, and `%=` (alongside
+`+=`, `-=`, `*=`, `/=`) also compile and execute without `let`, whereas bare `^=` fails to
+precompile (requires `let`), and `<<=`/`>>=` do not exist even under `let` (bare forms fail
+to precompile, while `let x <<= y` / `let x >>= y` log `Error: Too many operators.` and
+fall back to plain RHS assignment, whereas binary `<<` and `>>` work: `3 << 2 = 12`,
+`20 >> 2 = 5`) [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New
+Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, `#3678` / PR `#3679` probes
+`b3_syn_01_shift_compound_assign` (`let iA <<= 4; let iB >>= 2` -> `a=4, b=2`),
+`b3_syn_02_bare_compound_assign` (bare `iV += 5; iV -= 3; iV *= 2; iV /= 4` -> `6`), and
+`w1_3495_compound_assign_and_datan2` (individual `CompileScript` + `Call` scripts testing
+bare `+=`, `/=`, `|=`, `&=`, `%=` -> `8, 5, 7, 3, 3`; bare `^=`, `<<=`, `>>=` ->
+`COMPILE_FAIL`; `let <<=`/`>>=` -> `Error: Too many operators.` + RHS `2`; binary
+`3 << 2 = 12`, `20 >> 2 = 5`); no DLL or source consulted]. NVForever rejects both bare and
+`let` forms of `<<=`/`>>=` at compile time rather than emitting a fallback RHS assignment,
+and restricts bare inline typed declarations (`int x <op> ...`) to the same `MACRO_OPS` set
+[design].
 
 **eval / if eval** `if eval expr`, `elseif eval expr`: the condition is compiled as an
 extender expression and reduced to true or false. It is needed when the condition uses

@@ -780,3 +780,287 @@ fn an_alert_actor_that_never_fought_reads_search_and_no_target() {
     assert_eq!(call(&mut g, IS_IN_COMBAT, raider, &[]), 1.0);
     assert!(g.draws_weapon(raider) && g.alert_stance(raider), "it still draws its weapon");
 }
+
+// ---- targets the engine no longer measures (#3390) ---------------------------------------
+
+/// One engine round `dt` seconds on: `pairs` measured (detector, target, band), the other
+/// pairs dropped from the table in time, as `nvforever` detection.rs does; `drawn` are the
+/// actors of the loaded area.
+fn round(g: &mut Game, dt: f64, drawn: &[FormId], pairs: &[(FormId, FormId, Band)]) {
+    g.time += dt;
+    g.detection.measures_player = true;
+    for &(d, t, band) in pairs {
+        g.detection.record(d, t, seen(band), g.time);
+        g.observe_threat(d, t, &seen(band), [100.0, 0.0, 0.0]);
+    }
+    g.detection.forget_older_than(g.time - 1.0);
+    g.lose_unmeasured(&drawn.iter().copied().collect());
+    g.settle_awareness();
+}
+
+/// `actor` fights `target`, the pair measured in an engine round.
+fn measured_fight(g: &mut Game, actor: FormId, target: FormId) {
+    round(g, 0.0, &[actor], &[(actor, target, Band::Detected)]);
+    assert_eq!(g.awareness.state(actor), State::Combat, "{actor:?} fights {target:?}");
+    g.awareness.barks.clear();
+    g.awareness.changes.clear();
+    g.speech.clear();
+}
+
+/// Whether `actor` fights the player as the sneak word's [DANGER] reads it
+/// (`nvf_play::hud::sneak_now`).
+fn danger(g: &Game, actor: FormId) -> bool {
+    g.awareness.get(actor).is_some_and(|a| a.state == State::Combat && a.combat_target().is_some_and(|(t, _)| t == FormId::PLAYER_REF))
+}
+
+#[test]
+fn an_enemy_left_in_an_unloaded_cell_loses_the_player_and_goes_back_to_normal() {
+    // #3390: the raider's cell unloads (it is drawn no more, no pair of it is measured).
+    let f = fixture();
+    let mut g = game(&f);
+    let (raider, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    measured_fight(&mut g, raider, player);
+    assert!(danger(&g, raider));
+    let mut topics = Vec::new();
+    let mut states = vec![State::Combat];
+    for s in 1..=40 {
+        round(&mut g, 1.0, &[], &[]);
+        assert!(s < 2 || !danger(&g, raider), "{s} s: no [DANGER]");
+        topics.extend(said(&mut g, raider));
+        g.speech.clear();
+        let state = g.awareness.state(raider);
+        if states.last() != Some(&state) {
+            states.push(state);
+        }
+        // fCombatDetectionLostTime (15) without detecting it, then given up once hidden for
+        // fCombatTargetLostRemoveTime (30): nobody carries its search out there.
+        let t = fnv_game::awareness::Timers::default();
+        assert_eq!(state == State::Combat, f64::from(s) < t.lost, "{s} s: {state:?}");
+        assert_eq!(state == State::Normal, f64::from(s) >= 2.0 + t.forget_target, "{s} s: {state:?}");
+    }
+    assert_eq!(states, vec![State::Combat, State::Lost, State::Normal]);
+    assert_eq!(topics, vec!["CombatToLost", "LostToNormal"]);
+    assert!(!g.awareness.hunted(player));
+    assert_eq!(target(&mut g, raider), 0.0);
+    // Met again, it fights again.
+    round(&mut g, 1.0, &[raider], &[(raider, player, Band::Detected)]);
+    assert!(danger(&g, raider));
+}
+
+#[test]
+fn an_enemy_out_of_reach_searches_as_for_any_lost_target() {
+    // #3390, the same cell: still drawn, only the pair is out of reach. Its Lost search is
+    // the AI's to carry out: it ends with the shares, not with the forget timer.
+    let f = fixture();
+    let mut g = game(&f);
+    let (raider, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    two_searches(&mut g);
+    measured_fight(&mut g, raider, player);
+    for s in 1..=60 {
+        round(&mut g, 1.0, &[raider], &[]);
+        assert!(s < 2 || !danger(&g, raider), "{s} s: no [DANGER]");
+        assert_eq!(g.awareness.state(raider), if f64::from(s) < 15.0 { State::Combat } else { State::Lost }, "{s} s");
+    }
+    assert!(!g.searched_once(raider, player));
+    assert!(g.searched_once(raider, player));
+    round(&mut g, 1.0, &[raider], &[]);
+    assert_eq!(g.awareness.state(raider), State::Normal);
+}
+
+#[test]
+fn a_noticed_target_no_longer_measured_does_not_hold_the_search_open() {
+    // Last measured noticed, not detected: not hidden either, so it kept Lost from ending.
+    let f = fixture();
+    let mut g = game(&f);
+    let (raider, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    measured_fight(&mut g, raider, player);
+    round(&mut g, 1.0, &[raider], &[(raider, player, Band::Noticed)]);
+    for _ in 0..40 {
+        round(&mut g, 1.0, &[], &[]);
+    }
+    assert_eq!(g.awareness.state(raider), State::Normal);
+}
+
+#[test]
+fn measured_fights_do_not_flicker() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (raider, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    measured_fight(&mut g, raider, player);
+    // Rounds come at 0.25 s; a slow one, or one that misses the pair, changes nothing.
+    for dt in [0.25, 0.25, 0.9, 0.25, 5.0] {
+        round(&mut g, dt, &[raider], &[(raider, player, Band::Detected)]);
+        assert!(danger(&g, raider), "{dt}");
+        round(&mut g, 0.25, &[raider], &[]);
+        assert!(danger(&g, raider), "a round without the pair after {dt}");
+    }
+    // A menu: the clock stands, however many rounds run.
+    for _ in 0..100 {
+        round(&mut g, 0.0, &[], &[]);
+    }
+    assert!(danger(&g, raider));
+    // A few seconds out of the rounds (a body not drawn yet): hidden, and at once detected
+    // again with no change of state.
+    for _ in 0..5 {
+        round(&mut g, 1.0, &[], &[]);
+    }
+    round(&mut g, 1.0, &[raider], &[(raider, player, Band::Detected)]);
+    assert!(danger(&g, raider));
+    assert!(g.awareness.changes.is_empty(), "{:?}", g.awareness.changes);
+}
+
+#[test]
+fn a_scripts_target_is_held_until_it_is_measured() {
+    // StartCombat on actors that are not loaded, or beyond reach of each other: the fight
+    // waits for them to be measured; once it has been, it can be lost like any other.
+    let f = fixture();
+    let mut g = game(&f);
+    let (raider, watchman) = (FormId(RAIDER_REF), FormId(WATCHMAN_REF));
+    g.start_combat(watchman, raider);
+    for _ in 0..400 {
+        round(&mut g, 1.0, &[], &[]);
+    }
+    assert_eq!(g.awareness.state(watchman), State::Combat);
+    assert_eq!(g.fighting_target_of(watchman), Some(raider));
+    // Through a save too.
+    let json = serde_json::to_string(&g.snapshot()).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    let mut h = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &back.sim).unwrap(), g.cfg, &back).unwrap();
+    for _ in 0..40 {
+        round(&mut h, 1.0, &[], &[]);
+    }
+    assert_eq!(h.fighting_target_of(watchman), Some(raider));
+    // Measured once, then left behind: NPC against NPC, both out of the loaded area.
+    round(&mut g, 1.0, &[raider, watchman], &[(watchman, raider, Band::Detected)]);
+    for _ in 0..40 {
+        round(&mut g, 1.0, &[], &[]);
+    }
+    assert_eq!(g.awareness.state(watchman), State::Normal);
+    // StartCombat again holds it again.
+    g.start_combat(watchman, raider);
+    for _ in 0..40 {
+        round(&mut g, 1.0, &[], &[]);
+    }
+    assert_eq!(g.fighting_target_of(watchman), Some(raider));
+}
+
+#[test]
+fn a_save_made_with_an_enemy_left_behind_recovers() {
+    let f = fixture();
+    let (raider, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    // By its records, and set on the player by a script: measured, then left behind.
+    for scripted in [false, true] {
+        let mut g = game(&f);
+        if scripted {
+            g.start_combat(raider, player);
+        }
+        fight(&mut g, raider, player);
+        g.time += 1000.0;
+        let mut h = reloaded(&f, &g, true);
+        assert!(danger(&h, raider));
+        for _ in 0..40 {
+            round(&mut h, 1.0, &[], &[]);
+        }
+        assert_eq!(h.awareness.state(raider), State::Normal, "scripted: {scripted}");
+    }
+}
+
+/// `g` saved and loaded, the save as a build before #3390 wrote it when `old`.
+fn reloaded<'a>(f: &'a Fixture, g: &Game, old: bool) -> Game<'a> {
+    let mut json = serde_json::to_value(g.snapshot()).unwrap();
+    let field = json.as_object_mut().unwrap();
+    assert_eq!(field.contains_key("scripted_combat"), field.contains_key("forced_combat"));
+    if old {
+        field.remove("scripted_combat");
+    }
+    let back: fnv_game::game::GameSnapshot = serde_json::from_value(json).unwrap();
+    Game::restore(&f.data, World::restore(&f.forms, &f.refs, &back.sim).unwrap(), g.cfg, &back).unwrap()
+}
+
+#[test]
+fn an_old_save_keeps_a_scripts_fight_not_measured_yet() {
+    // Saved between StartCombat on two unloaded actors and their first measurement, by a
+    // build that did not write which targets were not measured yet.
+    let f = fixture();
+    let (raider, watchman) = (FormId(RAIDER_REF), FormId(WATCHMAN_REF));
+    let mut g = game(&f);
+    g.start_combat(watchman, raider);
+    g.start_combat(raider, watchman);
+    for _ in 0..40 {
+        round(&mut g, 1.0, &[], &[]);
+    }
+    let mut h = reloaded(&f, &g, true);
+    for _ in 0..40 {
+        round(&mut h, 1.0, &[], &[]);
+    }
+    assert_eq!(h.fighting_target_of(watchman), Some(raider));
+    assert_eq!(h.fighting_target_of(raider), Some(watchman));
+    // Once measured they can be lost, as in a game that was not loaded.
+    round(&mut h, 1.0, &[raider, watchman], &[(watchman, raider, Band::Detected)]);
+    for _ in 0..40 {
+        round(&mut h, 1.0, &[], &[]);
+    }
+    assert_eq!(h.awareness.state(watchman), State::Normal);
+    assert_eq!(h.awareness.state(raider), State::Combat, "its own target was not measured");
+}
+
+#[test]
+fn a_new_save_says_which_targets_were_not_measured() {
+    // A measured value that happens to be StartCombat's own: a new save's empty list says
+    // it was measured, so nothing is guessed from the value.
+    let f = fixture();
+    let (raider, watchman) = (FormId(RAIDER_REF), FormId(WATCHMAN_REF));
+    let mut g = game(&f);
+    g.start_combat(watchman, raider);
+    assert!(reloaded(&f, &g, false).awareness.get(watchman).unwrap().scripted.contains(&raider));
+    // The snapshot is its own JSON round trip, and restored without JSON says the same.
+    let snap = g.snapshot();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
+    assert_eq!(back, snap);
+    let h = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), g.cfg, &snap).unwrap();
+    assert_eq!(h.awareness.actors, g.awareness.actors, "scripted too");
+    let again = h.snapshot();
+    assert_eq!((again.awareness, again.scripted_combat), (snap.awareness, snap.scripted_combat), "and saved the same again");
+    g.observe_threat(watchman, raider, &Detection { value: 100.0, band: Band::Detected, ..Detection::default() }, [100.0, 0.0, 0.0]);
+    let mut h = reloaded(&f, &g, false);
+    assert!(h.awareness.get(watchman).unwrap().scripted.is_empty());
+    for _ in 0..40 {
+        round(&mut h, 1.0, &[], &[]);
+    }
+    assert_eq!(h.awareness.state(watchman), State::Normal);
+}
+
+#[test]
+fn what_measures_nothing_loses_nothing() {
+    let f = fixture();
+    let (raider, watchman, player) = (FormId(RAIDER_REF), FormId(WATCHMAN_REF), FormId::PLAYER_REF);
+    // No rounds at all (a headless run): the fight goes on.
+    let mut g = game(&f);
+    fight(&mut g, raider, player);
+    for _ in 0..400 {
+        g.time += 1.0;
+        g.settle_awareness();
+    }
+    assert!(danger(&g, raider));
+    // The player unseen (tdetect, the test aid): its pairs are not measured, others are.
+    let mut g = game(&f);
+    measured_fight(&mut g, raider, player);
+    measured_fight(&mut g, raider, watchman);
+    for _ in 0..40 {
+        g.time += 1.0;
+        g.detection.measures_player = false;
+        g.detection.forget_older_than(g.time - 1.0);
+        g.lose_unmeasured(&[raider].into_iter().collect());
+        g.settle_awareness();
+    }
+    let bands: Vec<_> = [player, watchman].iter().map(|t| g.awareness.get(raider).and_then(|a| a.targets.get(t)).map(|x| x.band)).collect();
+    assert_eq!(bands, vec![Some(Band::Detected), None], "the player kept, the watchman hidden and forgotten");
+    // AI off: it measures nothing and nothing of its changes.
+    let mut g = game(&f);
+    measured_fight(&mut g, raider, player);
+    g.extra.entry(raider).or_default().ai_off = true;
+    for _ in 0..40 {
+        round(&mut g, 1.0, &[raider], &[]);
+    }
+    assert!(danger(&g, raider));
+}

@@ -65,8 +65,16 @@ fn set_class_changes_what_the_class_getters_read() {
         assert_eq!(q(g, "SetFunctionValue (TestNpc.GetIsClass ClassB)"), 1.0);
         assert_eq!(q(g, "SetFunctionValue (TestNpc.GetIsClass ClassA)"), 0.0);
         assert_eq!(q(g, "ref r\nlet r := GetClass TestNpc\nSetFunctionValue r"), f64::from(CLASS_B));
-        // Not a class: nothing changes.
-        q(g, "TestNpc.SetClass TestMisc");
+        // Non-CLAS or null class argument aborts at runtime (even in default non-strict
+        // mode) and leaves the actor's class unchanged (w4g_05).
+        assert_eq!(
+            g.run_query("Begin Function { }\nTestNpc.SetClass TestMisc\nSetFunctionValue 91\nEnd\n", Default::default()),
+            Err("setclass requires a CLAS form".into()),
+        );
+        assert_eq!(
+            g.run_query("ref rNull\nBegin Function { }\nlet rNull := 0\nTestNpc.SetClass rNull\nSetFunctionValue 91\nEnd\n", Default::default()),
+            Err("setclass requires a CLAS form".into()),
+        );
         assert_eq!(q(g, "SetFunctionValue (TestNpc.GetIsClass ClassB)"), 1.0);
     });
 }

@@ -5,7 +5,7 @@
 //! `bindings::ControlInput` leaves out, so the player's controls ignore them), and the
 //! keys scripts tapped are pressed for one frame.
 
-use crate::bindings::{dik_key, Binding, Bindings, GAME_CONTROLS, GAME_INI_CONTROLS};
+use crate::bindings::{dik_key, Binding, Bindings, Control, ControlInput, GAME_CONTROLS, GAME_INI_CONTROLS};
 use bevy::prelude::*;
 use bevy::input::mouse::MouseWheel;
 use bevy::window::PrimaryWindow;
@@ -25,6 +25,7 @@ impl Plugin for ScriptInputPlugin {
             .configure_sets(PreUpdate, ScriptInputSet.after(bevy::input::InputSystems))
             // [design, #2200] Scripts see consumed switching presses as absent too.
             .add_systems(PreUpdate, script_input.in_set(ScriptInputSet).after(crate::pad::device::automatic).after(crate::pad::update_stick_buttons))
+            .add_systems(PreUpdate, publish_virtual_controls.run_if(resource_exists::<Bindings>).after(script_input).after(crate::pad::PlatformInputSystems::Remember).before(bevy::ui::UiSystems::Focus))
             // The player's state the scripts read (sights up, for the HUD bars' aiming
             // condition) is handed over after combat has updated it this frame and before
             // the scripts run [design]. `tell_magazine` keeps its own place: it also
@@ -40,6 +41,18 @@ impl Plugin for ScriptInputPlugin {
 pub struct ScriptBlocked {
     pub keys: Vec<KeyCode>,
     pub mouse: Vec<MouseButton>,
+}
+
+/// The actual non-key movement view used by IsControlPressed, without inventing
+/// physical keys. Both the publisher and App regression use this central admission.
+pub fn admitted_virtual_controls(input: &ControlInput) -> std::collections::BTreeSet<u8> {
+    GAME_CONTROLS[..GAME_INI_CONTROLS].iter().enumerate().filter_map(|(i,(c,_,_))|
+        (matches!(c,Control::Forward|Control::Back|Control::SlideLeft|Control::SlideRight) && input.touch_movement_pressed(*c)).then_some(i as u8)).collect()
+}
+fn publish_virtual_controls(input: ControlInput, mut script: Option<ResMut<crate::script::ScriptState>>) {
+    if let Some(rt)=script.as_deref_mut().and_then(|s|s.rt.as_mut()) {
+        rt.game.input.virtual_controls=admitted_virtual_controls(&input);
+    }
 }
 
 /// The extender's code of a mouse button: 256 left, 257 right, 258 middle, then the extra
@@ -213,6 +226,7 @@ fn script_moves(
     // The flags as the keys: forward and back, left and right, walking, running and
     // sneaking, jumping (SetPlayerMovementFlags' page lists them).
     if let (Some(f), Some(i)) = (st.move_flags.take(), intent.as_deref_mut()) {
+        i.analog_scale = 1.0; // An explicit script movement request owns its native pace.
         let axis = |plus: u32, minus: u32| f32::from(u8::from(f & plus != 0)) - f32::from(u8::from(f & minus != 0));
         i.forward = axis(1, 2);
         i.right = axis(8, 4);
@@ -396,18 +410,35 @@ fn tell_player_state(
     sync_pad_state(&mut rt.game, &pads);
 }
 
-/// Once the game's Data is open: mods' files are read from NVForever's mods layer, then
-/// the game's Data, and the archives answer FileExists (fnv_game::mod_files).
-fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>) {
-    let Some(d) = data.filter(|_| !*done) else { return };
-    *done = true;
+/// Marker inserted once [`init_mod_file_roots`] has populated `fnv_game::mod_files` for
+/// this `App` (either early during `PlayPlugin::build` or on the first `Update`).
+#[derive(Resource)]
+pub(crate) struct ModFileRootsReady;
+
+/// Populate `fnv_game::mod_files` read roots, archive list, and VFS hooks from `data`:
+/// NVForever's mods layer first, then any mounted loose layers highest-precedence first,
+/// with the game's `Data` folder last (so `mod_files::data_dir` remains `Data`).
+pub(crate) fn init_mod_file_roots(d: &nvf_assets::GameData) {
     let vfs = d.vfs.clone();
     let reader_vfs = d.vfs.clone();
     let mods = fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods());
     let data_dir = vfs.data_dir().to_path_buf();
+    let mut read_roots: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(m) = mods {
+        read_roots.push(m);
+    }
+    for root in vfs.loose_roots().iter().rev() {
+        if !read_roots.iter().any(|existing| existing == root) {
+            read_roots.push(root.clone());
+        }
+    }
+    if read_roots.last() != Some(&data_dir) {
+        read_roots.retain(|existing| existing != &data_dir);
+        read_roots.push(data_dir);
+    }
     let archives: Vec<String> = vfs.archives().map(str::to_string).collect();
     fnv_game::mod_files::update_roots(move |r| {
-        r.read = mods.into_iter().chain(std::iter::once(data_dir)).collect();
+        r.read = read_roots;
         r.archives = archives;
         r.reader = Some(std::sync::Arc::new(move |p: &str| reader_vfs.read(p).and_then(Result::ok)));
         r.lookup = Some(std::sync::Arc::new(move |p: &str| {
@@ -420,6 +451,27 @@ fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>
             }
         }));
     });
+}
+
+/// Once the game's Data is open: mods' files are read from NVForever's mods layer, then
+/// the game's Data, and the archives answer FileExists (fnv_game::mod_files). Also reloads
+/// `kNVSE.ini` (`[Anim Fixes] sLegacyAnimTimePaths`) because `Game::new` can run before
+/// VFS roots are populated here.
+fn mod_file_roots(
+    data: Option<Res<nvf_assets::GameData>>,
+    ready: Option<Res<ModFileRootsReady>>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+    mut done: Local<bool>,
+) {
+    if ready.is_some() || *done {
+        return;
+    }
+    let Some(d) = data else { return };
+    *done = true;
+    init_mod_file_roots(&d);
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        rt.game.reload_knvse_ini();
+    }
 }
 
 #[cfg(test)]
@@ -564,6 +616,58 @@ mod kill_cam_state_tests {
         app.world_mut().remove_resource::<crate::phys::PhysState>();
         app.update();
         assert_eq!(is_in_air(&mut app, None), XVal::Num(0.0));
+    }
+
+    #[test]
+    fn mod_file_roots_reloads_knvse_ini_into_existing_script_runtime() {
+        let mut previous = None;
+        fnv_game::mod_files::update_roots(|r| previous = Some(std::mem::take(r)));
+        struct Guard {
+            root: std::path::PathBuf,
+            previous: Option<fnv_game::mod_files::Roots>,
+        }
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                if let Some(prev) = self.previous.take() {
+                    fnv_game::mod_files::set_roots(prev);
+                }
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("nvf-mod-file-roots-knvse-ini-{}-{stamp}", std::process::id()));
+        let plugins = root.join("NVSE").join("Plugins");
+        std::fs::create_dir_all(&plugins).unwrap();
+        let _guard = Guard { root: root.clone(), previous };
+
+        std::fs::write(
+            plugins.join("kNVSE.ini"),
+            b"[Anim Fixes]\nsLegacyAnimTimePaths = B42Inject,B42Interact,B42Loot\n",
+        )
+        .unwrap();
+
+        // Game::new runs BEFORE mod_file_roots populates VFS roots: defaults hold initially.
+        let mut app = App::new();
+        app.insert_resource(ScriptState::over_no_plugins())
+            .add_systems(Update, mod_file_roots);
+        {
+            let game = &app.world().resource::<ScriptState>().rt.as_ref().unwrap().game;
+            assert!(game.knvse_ini.legacy_anim_time_paths.is_empty());
+        }
+
+        // Once GameData opens, mod_file_roots updates roots and reloads kNVSE.ini immediately.
+        let data = nvf_assets::GameData::new(
+            std::sync::Arc::new(fnv_vfs::Vfs::open(&root, &[]).unwrap()),
+            std::sync::Arc::new(fnv_nif::Schema::default()),
+        );
+        app.insert_resource(data);
+        app.update();
+
+        let game = &app.world().resource::<ScriptState>().rt.as_ref().unwrap().game;
+        assert_eq!(game.knvse_ini.legacy_anim_time_paths, vec!["b42inject", "b42interact", "b42loot"]);
     }
 }
 

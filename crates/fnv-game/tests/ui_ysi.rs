@@ -179,3 +179,100 @@ fn malformed_ysi_xml_and_missing_templates_refuse_gracefully_without_panicking()
     assert!(ui_ysi::instantiate_icon(&mut g.ui_tree, files, "HUDMainMenu/ListRow", "NoSuchTemplate", None).is_none());
     assert!(g.ui_tree.find_tile("HUDMainMenu/ListRow/ySIImage").is_none());
 }
+
+#[test]
+fn yui_ini_gates_xml_injection_sorting_icons_and_hotkey_icons() {
+    let f = fixture();
+    let item = fnv_sim::FormId(0x0000_0820);
+
+    // 1. Shipped yUI.ini with bSortingIcons = 0 skips ySI.xml injection and disables UI gates,
+    //    yet script ySIGetTrait queries remain active (see crates/fnv-game/src/yui_ini.rs).
+    let mut g_off = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    g_off.small.ysi_tag.insert(item, "(fba1)".into());
+    g_off.small.ysi_icon_by_tag.insert("(fba1)".into(), "Owned/item_icon.dds".into());
+    g_off.set_yui_config(Some(fnv_game::yui_ini::YuiConfig::parse(
+        b"[General]\nbSortingIcons = 0\nbMatchingCursor = 0\n[Sorting and Icons]\nbSortInventory = 1\nbAddInventoryIcons = 1\nbReplaceHotkeyIcons = 1\n",
+    )));
+    assert!(!g_off.ysi_xml_enabled());
+    assert!(!g_off.ysi_active());
+    assert!(!g_off.ysi_sort_inventory());
+    assert!(!g_off.ysi_add_inventory_icons());
+    assert!(!g_off.ysi_replace_hotkey_icons());
+    assert!(!g_off.yui_matching_cursor());
+    assert_eq!(g_off.ysi_hotkey_icon_path(item), None);
+    let src_off = base_menus().with(ui_ysi::YSI_XML_PATH, SYNTHETIC_YSI_XML);
+    let paths_off = src_off.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g_off, Box::new(src_off), paths_off);
+    assert!(g_off.ui_tree.find_tile("HUDMainMenu/ySI").is_none(), "bSortingIcons=0 must skip ySI.xml injection");
+    assert_eq!(
+        g_off.run_query(
+            "begin Function {}\nSetFunctionValue (ySIGetTrait \"tag\" 2080)\nend",
+            fnv_game::game::RunCtx::default(),
+        ).unwrap(),
+        s("(fba1)")
+    );
+    assert_eq!(
+        g_off.run_query(
+            "begin Function {}\nSetFunctionValue (ySIGetTrait \"icon\" 2080)\nend",
+            fnv_game::game::RunCtx::default(),
+        ).unwrap(),
+        s("Owned/item_icon.dds")
+    );
+
+    // 2. Layering menus\ySI\ySI.ini (bSortingIcons = 1) over yUI.ini (bSortingIcons = 0) enables XML injection & all gates.
+    let layered = fnv_game::yui_ini::YuiConfig::load_with(|p| {
+        if p.eq_ignore_ascii_case(fnv_game::yui_ini::YUI_INI_PATH) {
+            Some(b"[General]\nbSortingIcons = 0\n[Sorting and Icons]\nbSortInventory = 1\nbAddInventoryIcons = 1\nbReplaceHotkeyIcons = 1\n".to_vec())
+        } else if p.eq_ignore_ascii_case(fnv_game::yui_ini::YSI_INI_PATH) {
+            Some(b"[General]\nbSortingIcons = 1\n".to_vec())
+        } else {
+            None
+        }
+    });
+    let mut g_on = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    g_on.small.ysi_icon.insert(item, "Owned/item_icon.dds".into());
+    g_on.set_yui_config(layered);
+    assert!(g_on.ysi_xml_enabled());
+    assert!(g_on.ysi_active());
+    assert!(g_on.ysi_sort_inventory());
+    assert!(g_on.ysi_add_inventory_icons());
+    assert!(g_on.ysi_replace_hotkey_icons());
+    assert_eq!(g_on.ysi_hotkey_icon_path(item).as_deref(), Some("Owned/item_icon.dds"));
+    let src_on = base_menus().with(ui_ysi::YSI_XML_PATH, SYNTHETIC_YSI_XML);
+    let paths_on = src_on.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g_on, Box::new(src_on), paths_on);
+    assert!(g_on.ui_tree.find_tile("HUDMainMenu/ySI").is_some(), "ySI.ini overlay must enable ySI.xml injection");
+
+    // 2b. yUI.ini bSortingIcons=1 + ySI.ini bSortingIcons=0 keeps XML injection & gates active (see crates/fnv-game/src/yui_ini.rs).
+    let yui1_ysi0 = fnv_game::yui_ini::YuiConfig::load_with(|p| {
+        if p.eq_ignore_ascii_case(fnv_game::yui_ini::YUI_INI_PATH) {
+            Some(b"[General]\nbSortingIcons = 1\n".to_vec())
+        } else if p.eq_ignore_ascii_case(fnv_game::yui_ini::YSI_INI_PATH) {
+            Some(b"[General]\nbSortingIcons = 0\n".to_vec())
+        } else {
+            None
+        }
+    });
+    let mut g_or = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    g_or.small.ysi_icon.insert(item, "Owned/item_icon.dds".into());
+    g_or.set_yui_config(yui1_ysi0);
+    assert!(g_or.ysi_xml_enabled());
+    assert!(g_or.ysi_active());
+    let src_or = base_menus().with(ui_ysi::YSI_XML_PATH, SYNTHETIC_YSI_XML);
+    let paths_or = src_or.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g_or, Box::new(src_or), paths_or);
+    assert!(g_or.ui_tree.find_tile("HUDMainMenu/ySI").is_some(), "yUI=1 + ySI=0 must still inject ySI.xml");
+
+    // 3. Individual [Sorting and Icons] toggles and bMatchingCursor apply independently.
+    let mut g_split = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    g_split.small.ysi_icon.insert(item, "Owned/item_icon.dds".into());
+    g_split.set_yui_config(Some(fnv_game::yui_ini::YuiConfig::parse(
+        b"[General]\nbSortingIcons = 1\nbMatchingCursor = 1\n[Sorting and Icons]\nbSortInventory = 1\nbAddInventoryIcons = 0\nbReplaceHotkeyIcons = 0\n",
+    )));
+    assert!(g_split.yui_matching_cursor());
+    assert!(g_split.ysi_active());
+    assert!(g_split.ysi_sort_inventory());
+    assert!(!g_split.ysi_add_inventory_icons());
+    assert!(!g_split.ysi_replace_hotkey_icons());
+    assert_eq!(g_split.ysi_hotkey_icon_path(item), None);
+}

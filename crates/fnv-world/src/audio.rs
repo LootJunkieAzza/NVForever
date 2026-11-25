@@ -386,12 +386,120 @@ pub fn cell_audio(lo: &LoadOrder, schema: &Schema, cell: u32) -> CellAudio {
     CellAudio { music: f.formid(b"XCMO", lo), acoustic_space: f.formid(b"XCAS", lo) }
 }
 
-/// CELL `XCLR`: the regions an exterior cell is in.
+/// Parse `bMergeRegionLists` from `Data/NVSE/Plugins/hNVSE.ini`.
+///
+/// [documented: hNVSE 1.2 (Nexus Mods ID 85748,
+/// `https://www.nexusmods.com/newvegas/mods/85748`, authors DuncanWasHere & A User)
+/// public changelog and shipped `Data\NVSE\Plugins\hNVSE.ini` comments (`[Main]`
+/// `bMergeRegionLists = 1`); DLL/PDB/source not consulted]
+/// [observed: FalloutNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + hNVSE 120 on exterior
+/// cell `188TradingPost` (`0x000DDF1C`) with a single-record override ESP: `[Main]`
+/// `bMergeRegionLists = 1` enables merging, whereas `[General]` `bMergeRegionLists = 1`
+/// is ignored and leaves vanilla last-writer-wins]
+/// [design: ASCII case-insensitive `[Main]` section and key matching, UTF-8 BOM and
+/// `;`/`#` comment stripping, non-zero integer or `"true"` enables merging].
+///
+/// Returns `false` when `[Main] bMergeRegionLists` is absent, `0`, or unparseable
+/// (vanilla unchanged).
+pub fn parse_hnvse_merge_region_lists(text: &str) -> bool {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut in_main = false;
+    let mut main_val: Option<bool> = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with(';') || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix('[') {
+            let section = rest.split(']').next().unwrap_or("").trim();
+            in_main = section.eq_ignore_ascii_case("main");
+            continue;
+        }
+        if !in_main {
+            continue;
+        }
+        let Some((k, v)) = trimmed.split_once('=') else { continue };
+        if !k.trim().eq_ignore_ascii_case("bMergeRegionLists") {
+            continue;
+        }
+        let val = v.split([';', '#']).next().unwrap_or("").trim();
+        let parsed = if val.eq_ignore_ascii_case("true") {
+            Some(true)
+        } else if val.eq_ignore_ascii_case("false") {
+            Some(false)
+        } else {
+            val.parse::<i64>().ok().map(|n| n != 0)
+        };
+        if let Some(flag) = parsed {
+            main_val = Some(flag);
+        }
+    }
+    main_val.unwrap_or(false)
+}
+
+/// CELL `XCLR`: the regions an exterior cell is in (winning plugin only; vanilla rule).
 pub fn cell_regions(lo: &LoadOrder, schema: &Schema, cell: u32) -> Vec<u32> {
     let Some((pi, r)) = winner(lo, cell) else { return Vec::new() };
     let Ok(f) = Fields::new(r, pi, schema) else { return Vec::new() };
     let Some(Value::Array(v)) = f.get(b"XCLR") else { return Vec::new() };
     v.iter().filter_map(|x| global(lo, pi, formid_of(x)?)).collect()
+}
+
+/// CELL `XCLR`: the regions an exterior cell is in, optionally unioning `XCLR` across
+/// overriding plugins when `merge` is `true` (`hNVSE.ini` `[Main] bMergeRegionLists=1`).
+///
+/// When `merge` is `false`, behaves identically to [`cell_regions`] (vanilla last-writer-wins).
+/// When `merge` is `true` on an exterior `CELL`, walks non-deleted definitions of `cell`
+/// from the winning override back to the earliest defining plugin, maps each `XCLR` FormID
+/// through [`global`], and returns the deduplicated union keeping first occurrence
+/// [documented: hNVSE 1.2 (Nexus Mods ID 85748,
+/// `https://www.nexusmods.com/newvegas/mods/85748`) public changelog and shipped
+/// `Data\NVSE\Plugins\hNVSE.ini` comments ("Force-merges cell region lists (XCLR
+/// subrecord in xEdit) during loading"); DLL/PDB/source not consulted]
+/// [observed: FalloutNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + hNVSE 120 on exterior
+/// cell `188TradingPost` (`0x000DDF1C`) with a single-record override ESP: overriding
+/// plugin's regions appear first, followed by base master's remaining non-duplicate
+/// regions]
+/// [design: preserving NVForever's per-record `XCLR` order within each plugin and skipping
+/// interior `CELL` records (`DATA` bit 0 set) and deleted overrides].
+pub fn cell_regions_merged(lo: &LoadOrder, schema: &Schema, cell: u32, merge: bool) -> Vec<u32> {
+    if !merge {
+        return cell_regions(lo, schema, cell);
+    }
+    let Some(defs) = lo.index.get(&cell) else { return Vec::new() };
+    let Some(last) = defs.last() else { return Vec::new() };
+    let win = lo.records[last.plugin as usize][last.ordinal as usize];
+    if &win.header.sig != b"CELL" {
+        return Vec::new();
+    }
+    let is_interior = win
+        .subrecords()
+        .ok()
+        .and_then(|subs| subs.into_iter().find(|s| &s.sig == b"DATA"))
+        .is_some_and(|s| s.data.first().is_some_and(|&b| b & 1 != 0));
+    if is_interior {
+        return cell_regions(lo, schema, cell);
+    }
+    let mut out = Vec::new();
+    for def in defs.iter().rev() {
+        let pi = def.plugin as usize;
+        let r = lo.records[pi][def.ordinal as usize];
+        if &r.header.sig != b"CELL" || r.header.flags & ref_flags::DELETED != 0 {
+            continue;
+        }
+        let Ok(subs) = r.subrecords() else { continue };
+        for s in subs.iter().filter(|s| &s.sig == b"XCLR") {
+            for chunk in s.data.as_chunks::<4>().0 {
+                let local = u32::from_le_bytes(*chunk);
+                if let Some(g) = global(lo, pi, local) {
+                    if !out.contains(&g) {
+                        out.push(g);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// WRLD `ZNAM`: the worldspace's music type.
@@ -593,5 +701,90 @@ mod tests {
         assert_eq!(a.loop_at(18.0), Some(1));
         assert_eq!(a.loop_at(23.0), Some(4));
         assert_eq!(a.loop_at(2.0), Some(4));
+    }
+
+    #[test]
+    fn parse_hnvse_ini_variants() {
+        assert!(!parse_hnvse_merge_region_lists(""));
+        assert!(!parse_hnvse_merge_region_lists("[Main]\nbMergeRegionLists=0\n"));
+        assert!(parse_hnvse_merge_region_lists("[Main]\nbMergeRegionLists = 1 ; enable\n"));
+        assert!(parse_hnvse_merge_region_lists("\u{feff}[main]\nbmergeregionlists=true\n"));
+        // Observed in hNVSE 120: [General] and top-level keys outside [Main] are ignored.
+        assert!(!parse_hnvse_merge_region_lists("\u{feff}[General]\nbmergeregionlists=1\n"));
+        assert!(!parse_hnvse_merge_region_lists("bMergeRegionLists=true\n"));
+        assert!(!parse_hnvse_merge_region_lists("[Other]\nbMergeRegionLists=1\n"));
+        assert!(!parse_hnvse_merge_region_lists("[General]\nbMergeRegionLists=1\n[Main]\nbMergeRegionLists=0\n"));
+        assert!(parse_hnvse_merge_region_lists("[General]\nbMergeRegionLists=0\n[Main]\nbMergeRegionLists=1\n"));
+    }
+
+    #[test]
+    fn cell_regions_merged_unions_overrides_only_when_enabled() {
+        use fnv_esm::raw::{write_subrecords, Subrecord};
+        use fnv_esm::Plugin;
+
+        fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
+            Subrecord { sig: *sig, data, extended: false }
+        }
+        fn z(s: &str) -> Vec<u8> {
+            [s.as_bytes(), &[0]].concat()
+        }
+        fn u32s(v: &[u32]) -> Vec<u8> {
+            v.iter().flat_map(|x| x.to_le_bytes()).collect()
+        }
+        fn rec(sig: &[u8; 4], flags: u32, id: u32, subs: &[Subrecord]) -> Vec<u8> {
+            let payload = write_subrecords(subs);
+            [&sig[..], &(payload.len() as u32).to_le_bytes(), &flags.to_le_bytes(), &id.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+        }
+        fn tes4(masters: &[&str]) -> Vec<u8> {
+            let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+            let mut subs = vec![sub(b"HEDR", hedr)];
+            for m in masters {
+                subs.push(sub(b"MAST", z(m)));
+                subs.push(sub(b"DATA", 0u64.to_le_bytes().to_vec()));
+            }
+            rec(b"TES4", 0, 0, &subs)
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &sig[..], &0i32.to_le_bytes(), &[0; 8], body].concat()
+        }
+
+        const CELL: u32 = 0x0000_0900;
+        const REG_BASE_A: u32 = 0x0000_0801;
+        const REG_BASE_B: u32 = 0x0000_0802;
+        const REG_WEATHER_LOCAL: u32 = 0x0100_0810; // plugin 1 own form (1 master -> high byte 01)
+        const REG_AUDIO_LOCAL: u32 = 0x0100_0820; // plugin 2 own form (1 master -> high byte 01 -> global 0x0200_0820)
+
+        let p0 = [
+            tes4(&[]),
+            top(b"CELL", &rec(b"CELL", 0, CELL, &[sub(b"DATA", vec![0]), sub(b"XCLR", u32s(&[REG_BASE_A, REG_BASE_B]))])),
+        ]
+        .concat();
+        // Plugin 1 overrides CELL with its own weather region plus duplicate REG_BASE_B.
+        let p1 = [
+            tes4(&["Master.esm"]),
+            top(b"CELL", &rec(b"CELL", 0, CELL, &[sub(b"DATA", vec![0]), sub(b"XCLR", u32s(&[REG_WEATHER_LOCAL, REG_BASE_B]))])),
+        ]
+        .concat();
+        // Plugin 2 overrides CELL with only its audio region (wiping earlier regions in vanilla).
+        let p2 = [
+            tes4(&["Master.esm"]),
+            top(b"CELL", &rec(b"CELL", 0, CELL, &[sub(b"DATA", vec![0]), sub(b"XCLR", u32s(&[REG_AUDIO_LOCAL]))])),
+        ]
+        .concat();
+
+        let plugins = [
+            Plugin::parse(&p0, "Master.esm".into()).unwrap(),
+            Plugin::parse(&p1, "Weather.esp".into()).unwrap(),
+            Plugin::parse(&p2, "Audio.esp".into()).unwrap(),
+        ];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+
+        // Vanilla (merge = false): last writer (plugin 2) wins alone.
+        assert_eq!(cell_regions(&lo, &schema, CELL), vec![0x0200_0820]);
+        assert_eq!(cell_regions_merged(&lo, &schema, CELL, false), vec![0x0200_0820]);
+        // hNVSE [Main] bMergeRegionLists=1 (merge = true): overriding plugin first,
+        // followed by earlier plugins' remaining non-duplicate regions.
+        assert_eq!(cell_regions_merged(&lo, &schema, CELL, true), vec![0x0200_0820, 0x0100_0810, REG_BASE_B, REG_BASE_A]);
     }
 }

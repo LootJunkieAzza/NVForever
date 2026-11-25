@@ -62,7 +62,8 @@ Each is also listed in the module notes of `detection.rs`.
 | Detector alert, or fighting someone else | alert in a combat state (Alert, Combat, Lost); fSneakCombatMod only in Combat against an actor outside its target list, so 1.2 against its foes and 0.8 against anyone else (§9); Lost stays 1.2 | [observed: captures run15b_t1 and run15b_t2, 2026-11-15; actor-behaviour.md §2.1a]; Lost: [design: §9] |
 | Interval | 0.25 s | [engineering choice] |
 
-Pairs not measured for 1 s of game time are dropped from the table.
+Pairs not measured for 1 s of game time are dropped from the table, and their targets
+count as hidden in the detectors' states (`Game::lose_unmeasured`, alert.md §2, #3390).
 
 **The original's light at the player** (GetActorLightAmount, JIP; no Pip-Boy light, god
 mode, standing at the `coc Goodsprings` spot or the interiors' `coc` spots; weather as the

@@ -31,12 +31,18 @@ pub(super) fn objects(
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     while let Some((block, parent)) = pending.pop() {
-        let Some(o) = by_block.get(&block).filter(|_| seen.insert(block)) else {
-            continue;
-        };
         let Some(raw) = dec.get(block as i32) else {
             continue;
         };
+        let scene_obj = by_block.get(&block).copied();
+        let is_particle_sys = scene_obj.is_none()
+            && (dec.is_a(block, "NiParticleSystem") || dec.is_a(block, "BSStripParticleSystem"));
+        if scene_obj.is_none() && !is_particle_sys {
+            continue;
+        }
+        if !seen.insert(block) {
+            continue;
+        }
         let mut material = None;
         let mut alpha = None;
         let mut stencil = None;
@@ -77,12 +83,19 @@ pub(super) fn objects(
                 ]);
             }
         }
+        let (name, local) = match scene_obj {
+            Some(o) => (o.name.clone(), to_bevy(&o.transform)),
+            None => (
+                raw.text("name").map(str::to_string),
+                to_bevy(&fnv_nif::scene::Transform::from_struct(raw).unwrap_or(fnv_nif::scene::Transform::IDENTITY)),
+            ),
+        };
         let at = out.len();
         out.push(ModelObject {
             block,
-            name: o.name.clone(),
+            name,
             parent,
-            local: to_bevy(&o.transform),
+            local,
             flags: raw.int("flags").unwrap_or(0) as u32,
             material,
             alpha,
@@ -90,17 +103,35 @@ pub(super) fn objects(
             shape: shapes.get(&block).copied(),
             rig_node: rig.and_then(|index| index.get(&block).copied()),
         });
-        pending.extend(
-            o.children
+        if let Some(o) = scene_obj {
+            // For non-rig attachments, also include direct particle-system child blocks
+            // (`NiParticleSystem` / `BSStripParticleSystem`) omitted from `scene_objects`
+            // so script particle queries/setters can address them by block name [design].
+            let mut children: Vec<usize> = o
+                .children
                 .iter()
-                .rev()
-                .filter(|&&c| {
+                .copied()
+                .filter(|&c| {
                     by_block
                         .get(&c)
                         .is_some_and(|child| child.parent == Some(block))
                 })
-                .map(|&c| (c, Some(at))),
-        );
+                .collect();
+            if rig.is_none() {
+                for &c in raw.refs("children").unwrap_or_default() {
+                    if let Ok(c) = usize::try_from(c) {
+                        if !by_block.contains_key(&c)
+                            && (dec.is_a(c, "NiParticleSystem")
+                                || dec.is_a(c, "BSStripParticleSystem"))
+                            && !children.contains(&c)
+                        {
+                            children.push(c);
+                        }
+                    }
+                }
+            }
+            pending.extend(children.into_iter().rev().map(|c| (c, Some(at))));
+        }
     }
     out
 }

@@ -50,6 +50,8 @@ fn carry_sky(from: &SkyState, s: &mut SkyState) {
     s.weather_visual_overrides = from.weather_visual_overrides.clone();
     s.script_wind = from.script_wind;
     s.moon_textures = from.moon_textures.clone();
+    s.moonlight = from.moonlight;
+    s.cloud_upgrade = from.cloud_upgrade;
 }
 
 /// Seed current gates before restoring sampled placement and selecting weather

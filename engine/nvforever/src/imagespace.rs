@@ -336,7 +336,19 @@ impl Plugin for ImageSpacePlugin {
 fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&nvf_play::script::ScriptState>, now: f32) -> (ScreenEffect, Vec<u32>, String, String) {
     let mut playing: Vec<(u32, f32)> = Vec::new();
     if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
-        playing.extend(rt.game.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)));
+        // Draw at most one active instance per IMAD form (keeping the most recently
+        // applied entry, preserving pre-stacking visuals for unmodded scripts such as
+        // VCG00's Addiction01ISFX while Game counts stacked instances for OnRemoveIMOD)
+        // [design].
+        for m in &rt.game.image_modifiers {
+            let form = m.modifier.0;
+            let elapsed = m.elapsed as f32;
+            if let Some(slot) = playing.iter_mut().find(|(f, _)| *f == form) {
+                slot.1 = elapsed;
+            } else {
+                playing.push((form, elapsed));
+            }
+        }
     }
     for f in mods.forced.clone() {
         let seconds = f.at.unwrap_or_else(|| {

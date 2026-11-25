@@ -818,8 +818,8 @@ parity; parsing this caller does not establish B42 Optics compatibility.
   limit, while `{params} => expr` keeps its lambda grammar and an unclosed `{` still fails with
   `syntax: missing }`. Original xNVSE runtime behavior for multi-argument braced lists remains to
   be confirmed by a game compile probe.
-- **Preserved catalogue signatures**: `SetCritDam` remains unregistered pending the original-game
-  `GetCommandOpcode` capture in `docs/spec-notes/ext-last-core.md` §7; `IsAnimPlayingEx` (3
+- **Preserved catalogue signatures**: `SetCritDam` is registered via `encodings.json` (`compiler.aliases`) as an `[observed]` alias of
+  `SetWeaponCritDamage` (`docs/spec-notes/ext-last-core.md` §7, `#2704`, `#3678` / PR `#3679` probes `b3_core_02_setcritdam_alias_check` & `w1_2704_setcritdam_alias`, `2026-11-23`, `GSDocMitchellHouse`); `IsAnimPlayingEx` (3
   params, §9 above), `SetJohnnyOnRenderUpdateEventHandler` (3 params, `ext-script-runner.md` §6
   and observer check 81), `PushActorNoRagdoll` (3 params, `jip-physics-13.md`), and
   `GetReticleRange` (0 params in the GECK wiki export) keep their documented catalogue signatures

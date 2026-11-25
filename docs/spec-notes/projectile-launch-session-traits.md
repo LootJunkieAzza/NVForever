@@ -56,7 +56,19 @@ claimed here.
 
 [documented: public main da13f4f8a65cb56d9f4f38823d79a0126ff9467b, crates/fnv-game/src/nvse_jip7.rs num_field/set_field; crates/fnv-combat/src/data.rs CombatForms/projectiles; engine/nvf-play/src/combat.rs fire/actor_attacks] Existing Game setters retain session field overrides, while the original physical launch reads imported typed CombatForms records. Getter readback alone does not establish new-shot velocity or carried impact force. The existing trait mapping identifies speed as2 and impact force as9; portable schemas/catalogue define ammo/weapon projectile selection.
 
-[hypothesis] Resolve the selected ammo/weapon projectile for each new shot. Clearing the ammo projectile falls back to the weapon's. Resolve a temporary PROJ form through the existing original-form relationship, keep the requested identity and its own overrides before inherited original overrides, and copy only supported speed/impact-force values into a per-shot record. Preserve finite signed values including zero; refuse nonfinite or nonrepresentable f32 overrides. Leave typed caches, unrelated forms and existing flights unchanged.
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+`GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy,
+read-only, committed probe `w4g_11_ammo_clear_and_proj_delete` in
+`tools/capture/nvse/catalogs/wave4g_f2_extenders.json` (companion catalog PR #3803);
+no DLL or source consulted] `SetAmmoProjectile` clears an ammo's projectile only when
+the optional 2nd argument is omitted (`SetAmmoProjectile rAmmo`, yielding `00000000`);
+passing an explicit null ref (`0`) as the 2nd argument (`SetAmmoProjectile rAmmo rNull`)
+is a no-op that leaves the current projectile unchanged (verified on both authored
+`Ammo12GaSlug` `0x0013E447` and session-overridden `Ammo10mm` `0x00004241`). Verbatim
+printed probe output:
+`slug(p0=001572C5,null=001572C5,omitCmp=1,omit=00000000)|a10(p0=00000000,set=0002CD5F,clr=0002CD5F)`.
+
+[hypothesis] Resolve the selected ammo/weapon projectile for each new shot. Clearing the ammo projectile (by omitting the 2nd argument of `SetAmmoProjectile`) falls back to the weapon's. Resolve a temporary PROJ form through the existing original-form relationship, keep the requested identity and its own overrides before inherited original overrides, and copy only supported speed/impact-force values into a per-shot record. Preserve finite signed values including zero; refuse nonfinite or nonrepresentable f32 overrides. Leave typed caches, unrelated forms and existing flights unchanged.
 
 [hypothesis] Share the existing random spread/spawn operation between ordinary and edited shots. Preserve no-runtime/no-override typed behavior, vanilla weapon speed multipliers, normal player ammo/magazine/counters/animation, and the distinction between a selected missing typed record (effects/counters but no physical flight) versus no selected projectile (the existing silent path). This leaf adds no setter and broadens no generic World placement admission.
 
@@ -214,12 +226,20 @@ separate).
   (or cloned `LIGH`) otherwise; `SetProjectileSound` accepts `PROJ`/`SOUN` (including
   `TempCloneForm` aliases) for slots `1..=3`; `SetProjectileTraitNumeric` rejects
   non-integer/out-of-range trait IDs without mutating state.
-- **`TempCloneForm` snapshotting and fallback** [design]: cloning a `PROJ` snapshots
-  active non-flag overrides from the cloned source onto the new clone
-  (`Game::snapshot_projectile_traits`), so pre-clone edits carry onto clones and
-  clone-of-clone chains and stay isolated from later edits on the source, while fields
-  left untouched on the original before cloning keep the existing clone-to-original
-  fallback required by initial-launch controls.
+- **`TempCloneForm` copy-at-creation snapshot isolation** [observed: Fallout: New Vegas
+  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+  10 official base masters, isolated staging copy, read-only, committed probe
+  `w4g_02_tempcloneform_world_proj_csty` in
+  `tools/capture/nvse/catalogs/wave4g_f2_extenders.json` (companion catalog PR #3803),
+  verbatim printed output
+  `proj(0002CD5F:t1=3.00,t2=27520.0,t4=0.0|cl1=1234.5/0.75|afterSrc=5678.5:cl2=1234.5/0.75|cl2sub=1234.5)`;
+  no DLL or source consulted]: cloning a `PROJ` snapshots all active session overrides
+  (numeric traits, `DATA/flags`, form slots, and model/muzzle-flash paths) from the
+  cloned source onto the new clone (`Game::snapshot_projectile_traits`), so pre-clone
+  edits carry onto clones and clone-of-clone chains, while post-clone edits on the
+  source (or parent clone) never bleed into already-created clones. Untouched fields on
+  a cloned `PROJ` read directly from the authored record instead of live-inheriting
+  later overrides on the original.
 - **Headless combat consumer adapter** [design]: `fnv_combat::projectile_overrides::ProjectileOverrides`
   applies sparse non-flag overrides onto per-shot / per-mine `ProjectileStats`,
   `ShotChain`, and `ProjectileFx` copies (feeding `Projectile::spawn`, `fire_projectile`,

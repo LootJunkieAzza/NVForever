@@ -86,6 +86,14 @@ pub struct TextureCache {
     pub failures: Vec<String>,
 }
 
+impl TextureCache {
+    /// The state shared with the worker threads, for a background task to ask a texture's
+    /// alpha of ([`WorkerTextures::solid_texels`]).
+    pub fn worker_textures(&self) -> Arc<WorkerTextures> {
+        self.workers.clone()
+    }
+}
+
 /// Seconds a texture read ahead waits to be loaded before it is dropped.
 const AHEAD_KEEP_SECS: f64 = 30.0;
 
@@ -111,6 +119,8 @@ pub struct WorkerTextures {
     /// Whether every texel of a texture is opaque, by resolved path
     /// ([`Self::alpha_is_opaque`]).
     opaques: Mutex<HashMap<String, bool>>,
+    /// Whether a texture has a solid texel, by resolved path ([`Self::solid_texels`]).
+    solids: Mutex<HashMap<String, SolidTexels>>,
     /// Authored material sets' scalar files and warnings (`crate::authored::find`), shared
     /// by the main thread and the workers.
     pub(crate) authored: crate::authored::Memo,
@@ -274,8 +284,8 @@ pub fn sampler() -> ImageSampler {
     })
 }
 
-/// Build a GPU image from DDS bytes; `None` for cube maps, unsupported formats, or BC
-/// textures the device cannot sample.
+/// Build a GPU image from DDS bytes. DXT1/3/5 are decoded to RGBA when the device
+/// cannot sample BC; cube maps and unsupported formats still return an error.
 pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
     // A panic while decoding is this texture's failure, not the game's (guard.rs).
     dds_texture(bytes, TextureUsage::from_srgb(srgb), bc_supported, false).map(|d| d.image)
@@ -296,28 +306,25 @@ fn dds_texture(bytes: &[u8], usage: TextureUsage, bc_supported: bool, top_only: 
 fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, top_only: bool) -> Result<DecodedTexture, String> {
     let srgb = usage == TextureUsage::Color;
     let dds = Dds::parse(bytes).map_err(|e| e.to_string())?;
-    if dds.header.is_cubemap() {
-        return Err("cube map (not used by the viewer)".into());
-    }
-    let (w, h) = (dds.header.width, dds.header.height);
     let levels = if top_only { &dds.levels[0][..1] } else { &dds.levels[0][..] };
+    colour_shape_ok(&dds, levels.len() as u32)?;
+    let (w, h) = (dds.header.width, dds.header.height);
     // The GPU takes block formats only when the top level's sides are multiples of 4.
     let aligned = w % 4 == 0 && h % 4 == 0;
     // The colour space follows the role, never a DX10 header's `_SRGB` code (#2981,
     // dds.md §6): legacy files state none, and the hint is only reported.
     let (format, data) = match dds.format {
         Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
-            if !aligned {
-                // Such a texture (a mod's 179×196 DXT5, dds.md §3) is decoded here
-                // instead [#2164].
+            if !bc_supported || !aligned {
+                // Reuse the bounded DDS decoder when BC sampling is unavailable, or
+                // dimensions cannot use a block texture (dds.md §3, #2164). Keep all
+                // parsed mip levels and the caller's diffuse/linear colour intent.
                 let mut out = Vec::new();
                 for (m, l) in levels.iter().enumerate() {
                     let (lw, lh) = dds.header.level_dims(m as u32);
                     out.extend(fnv_dds::decode_blocks(dds.format, lw, lh, l).ok_or("block data too short")?);
                 }
                 (if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm }, out)
-            } else if !bc_supported {
-                return Err("GPU lacks BC texture support".into());
             } else {
                 let f = match (dds.format, srgb) {
                     (Format::Dxt1, true) => TextureFormat::Bc1RgbaUnormSrgb,
@@ -435,6 +442,25 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
 
 fn normal_byte(value: f32) -> u8 {
     ((value + 1.0) * 0.5 * 255.0).round() as u8
+}
+
+/// The shape a colour texture must have for this loader (and the cloud volume, which follows
+/// it: nvforever cloud_shadows.rs `volume_alpha_of`): a plain 2D texture, not a cube map; its
+/// sides within [`MAX_TEXTURE_SIDE`]; no more of its `mips` levels than its size allows (as
+/// [`checked_image`] checks them, before anything is decoded).
+pub fn colour_shape_ok(dds: &Dds, mips: u32) -> Result<(), String> {
+    if dds.header.is_cubemap() {
+        return Err("cube map (not used by the viewer)".into());
+    }
+    let (w, h) = (dds.header.width, dds.header.height);
+    if w == 0 || h == 0 || w > MAX_TEXTURE_SIDE || h > MAX_TEXTURE_SIDE {
+        return Err(format!("size {w}x{h} out of range (1 to {MAX_TEXTURE_SIDE})"));
+    }
+    let most = 32 - w.max(h).leading_zeros();
+    if mips == 0 || mips > most {
+        return Err(format!("{mips} mip levels for a {w}x{h} texture (at most {most})"));
+    }
+    Ok(())
 }
 
 /// The end of a texture path that asks for the file as a cube map ([`cube_path`]): the
@@ -1021,6 +1047,84 @@ pub fn alpha_all_opaque(bytes: &[u8]) -> Option<bool> {
     }
 }
 
+/// The least alpha (of 255) of a solid texel (250 / 255 = 0.98, engineering choice).
+pub const SOLID_ALPHA: u8 = 250;
+
+/// How solid a texture is, for a blended shape's solid core (`nif_spawn::solid_core`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SolidTexels {
+    /// No solid texel: no core.
+    None,
+    /// Some solid texels, or an alpha that cannot be read here (BC7): a core of the solid texels
+    /// alone, so a thin part elsewhere in the texture stays see-through.
+    Some,
+    /// Of the texels a lower cut would take (`nif_spawn::SOLID_CORE_CUT`), all but a quarter at
+    /// most are solid: the rest are the edges of what is solid (a border, a filtered seam).
+    Mostly,
+}
+
+impl SolidTexels {
+    /// The core's alpha cut, `None` for no core.
+    pub fn cut(self) -> Option<f32> {
+        match self {
+            SolidTexels::None => None,
+            SolidTexels::Some => Some(crate::nif_spawn::SOLID_CORE_CUT_THIN),
+            SolidTexels::Mostly => Some(crate::nif_spawn::SOLID_CORE_CUT),
+        }
+    }
+
+    /// From how many texels the lower cut would take and how many of them are solid.
+    fn of(taken: usize, solid: usize) -> SolidTexels {
+        match solid {
+            0 => SolidTexels::None,
+            n if n * 4 >= taken * 3 => SolidTexels::Mostly,
+            _ => SolidTexels::Some,
+        }
+    }
+}
+
+/// How solid a DDS file's top level is ([`SolidTexels`]). A layout without alpha is mostly
+/// solid (a shape with one is drawn opaque already: `nif_spawn::blend_is_opaque`). BC7 cannot be
+/// told here (no CPU decoder). `None` for a file that does not parse.
+pub fn alpha_solidity(bytes: &[u8]) -> Option<SolidTexels> {
+    let dds = Dds::parse(bytes).ok()?;
+    if dds.alpha_opaque() {
+        return Some(SolidTexels::Mostly);
+    }
+    let top = *dds.levels.first()?.first()?;
+    let (w, h) = (dds.header.width as usize, dds.header.height as usize);
+    let least = (crate::nif_spawn::SOLID_CORE_CUT * 255.0).ceil() as u8;
+    let (mut taken, mut solid) = (0usize, 0usize);
+    let mut count = |a: u8| {
+        taken += usize::from(a >= least);
+        solid += usize::from(a >= SOLID_ALPHA);
+    };
+    match dds.format {
+        Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
+            let size = dds.format.block_bytes()?;
+            let blocks = (w.div_ceil(4) * h.div_ceil(4)).min(top.len() / size);
+            let across = w.div_ceil(4).max(1);
+            for (i, b) in top.chunks_exact(size).take(blocks).enumerate() {
+                // A block past the image's edge holds padding texels.
+                let (x, y) = (i % across * 4, i / across * 4);
+                for (k, &a) in block_alpha(dds.format, b).iter().enumerate() {
+                    if x + k % 4 < w && y + k / 4 < h {
+                        count(a);
+                    }
+                }
+            }
+        }
+        Format::A8R8G8B8 | Format::A4R4G4B4 | Format::A8B8G8R8 | Format::A1R5G5B5 | Format::A8L8 => {
+            let rgba = to_rgba8(dds.format, top)?;
+            rgba.as_chunks::<4>().0.iter().for_each(|p| count(p[3]));
+        }
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8
+        | Format::Bc5U | Format::Bc5S | Format::Bc4U | Format::Bc4S => return Some(SolidTexels::Mostly),
+        Format::Bc7 => return Some(SolidTexels::Some),
+    }
+    Some(SolidTexels::of(taken, solid))
+}
+
 /// A texture's top-level alpha, one byte per texel, rows from the top.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AlphaMap {
@@ -1032,7 +1136,11 @@ pub struct AlphaMap {
 /// The top-level alpha of a DDS file. `None` for files that do not parse and for layouts
 /// without alpha.
 pub fn alpha_map(bytes: &[u8]) -> Option<AlphaMap> {
-    let dds = Dds::parse(bytes).ok()?;
+    alpha_map_of(&Dds::parse(bytes).ok()?)
+}
+
+/// [`alpha_map`] of a texture already parsed (one parse for the reader and its checks).
+pub fn alpha_map_of(dds: &Dds) -> Option<AlphaMap> {
     let top = *dds.levels.first()?.first()?;
     let (width, height) = (dds.header.width as usize, dds.header.height as usize);
     if width == 0 || height == 0 {
@@ -1155,11 +1263,20 @@ impl WorkerTextures {
         let path = resolved_path(raw_path, |p| data.vfs.exists(p));
         remembered(&self.opaques, path, |path| data.read(path).and_then(|bytes| alpha_all_opaque(&bytes)).unwrap_or(false))
     }
+
+    /// Whether the texture at a NIF texture path is solid ([`alpha_solidity`]), how far;
+    /// false for a file that is missing or does not parse. Reads the file: call it on a task
+    /// (nvforever `solid_cores.rs` does, and only while cores are wanted). Read once per
+    /// file and remembered, as [`Self::alpha_is_mask`].
+    pub fn solid_texels(&self, raw_path: &str, data: &GameData) -> SolidTexels {
+        let path = resolved_path(raw_path, |p| data.vfs.exists(p));
+        remembered(&self.solids, path, |path| data.read(path).and_then(|bytes| alpha_solidity(&bytes)).unwrap_or(SolidTexels::None))
+    }
 }
 
 /// `compute`'s answer for `key`, worked out the first time only. The map is not held while
 /// it is worked out, so two threads asking at once may both compute it, to the same answer.
-fn remembered(known: &Mutex<HashMap<String, bool>>, key: String, compute: impl FnOnce(&str) -> bool) -> bool {
+fn remembered<T: Copy>(known: &Mutex<HashMap<String, T>>, key: String, compute: impl FnOnce(&str) -> T) -> T {
     if let Some(&answer) = known.lock().expect("alpha masks").get(&key) {
         return answer;
     }
@@ -1466,6 +1583,31 @@ mod tests {
         many[last..].copy_from_slice(&dxt1);
         assert_eq!(super::alpha_all_opaque(&dds(b"DXT1", 256, 256, &many)), Some(false));
         assert_eq!(super::alpha_all_opaque(b"not a dds"), None);
+        // A solid texel: alpha 250 or more, in any block; DXT1's clear texels are 0.
+        use super::SolidTexels;
+        let solidity = |blocks: &[u8], w: u32| super::alpha_solidity(&dds(b"DXT5", w, 4, blocks));
+        assert_eq!(solidity(&dxt5_block(255), 4), Some(SolidTexels::Mostly));
+        assert_eq!(solidity(&dxt5_block(250), 4), Some(SolidTexels::Mostly));
+        assert_eq!(solidity(&dxt5_block(249), 4), Some(SolidTexels::None));
+        // Clear texels do not count against it; a pane's do, though one texel is solid.
+        assert_eq!(solidity(&[dxt5_block(0), dxt5_block(255)].concat(), 8), Some(SolidTexels::Mostly));
+        assert_eq!(solidity(&[dxt5_block(230), dxt5_block(230), dxt5_block(255)].concat(), 12), Some(SolidTexels::Some));
+        // A border of 230 on three blocks of 255 is the edge of what is solid.
+        assert_eq!(solidity(&[dxt5_block(255), dxt5_block(255), dxt5_block(255), dxt5_block(230)].concat(), 16), Some(SolidTexels::Mostly));
+        assert_eq!(super::alpha_solidity(&dds(b"DXT1", 4, 4, &dxt1)), Some(SolidTexels::Mostly));
+        assert_eq!((SolidTexels::None.cut(), SolidTexels::Some.cut(), SolidTexels::Mostly.cut()), (None, Some(0.98), Some(0.85)));
+        // A 1 texel wide pane of 230 in a block padded with 255: the first column of each row.
+        let mut pane = dxt5_block(255);
+        pane[..8].copy_from_slice(&{
+            // Alpha endpoints 255 and 230, index 0 for 255 and 1 for 230, 3 bits a texel.
+            let bits = (0..16u64).filter(|k| k.is_multiple_of(4)).fold(0u64, |bits, k| bits | 1 << (3 * k));
+            let mut block = (bits << 16).to_le_bytes();
+            (block[0], block[1]) = (255, 230);
+            block
+        });
+        assert_eq!(super::alpha_solidity(&dds(b"DXT5", 1, 4, &pane)), Some(SolidTexels::None));
+        assert_eq!(super::alpha_solidity(&dds(b"DXT5", 4, 4, &pane)), Some(SolidTexels::Mostly));
+        assert_eq!(super::alpha_solidity(b"not a dds"), None);
         // DXT3: explicit 4-bit alphas, 0x0F → 255 then 0.
         let mut dxt3 = [0u8; 16];
         dxt3[..8].copy_from_slice(&[0x0F; 8]);
@@ -1483,6 +1625,135 @@ mod tests {
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\LaserRifle02.dds", exists), None);
         // Already a first-person texture: kept.
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\1stPersonLaserRifle01.dds", |_| true), None);
+    }
+    // Authored BC blocks, not game data: colour index zero selects the first RGB565
+    // endpoint. DXT3 uses explicit 8/15 alpha, DXT5 endpoint96, DXT1 opaque colour.
+    fn colour_block(fourcc: &[u8; 4], rgb565: u16) -> Vec<u8> {
+        let mut colour = vec![0u8; 8];
+        colour[..2].copy_from_slice(&rgb565.to_le_bytes());
+        match fourcc {
+            b"DXT1" => colour,
+            b"DXT3" => { let mut block = vec![0x88; 8]; block.extend(colour); block }
+            b"DXT5" => { let mut block = vec![96, 96, 0, 0, 0, 0, 0, 0]; block.extend(colour); block }
+            _ => unreachable!(),
+        }
+    }
+    fn alpha_for(fourcc: &[u8; 4]) -> u8 {
+        match fourcc { b"DXT1" => 255, b"DXT3" => 136, b"DXT5" => 96, _ => unreachable!() }
+    }
+    fn mip_fixture(fourcc: &[u8; 4]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let mut payload = Vec::new();
+        let mut expected = Vec::new();
+        let mut top = Vec::new();
+        for (size, colour, rgb) in [(8u32, 0xf800, [255, 0, 0]), (4, 0x07e0, [0, 255, 0]), (2, 0x001f, [0, 0, 255]), (1, 0xffff, [255, 255, 255])] {
+            for _ in 0..size.div_ceil(4).pow(2) { payload.extend(colour_block(fourcc, colour)); }
+            let pixel = [rgb[0], rgb[1], rgb[2], alpha_for(fourcc)];
+            for _ in 0..size*size { expected.extend(pixel); if size == 8 { top.extend(pixel); } }
+        }
+        let mut bytes = dds(fourcc, 8, 8, &payload);
+        bytes[8..12].copy_from_slice(&0x0002_1007u32.to_le_bytes());
+        bytes[28..32].copy_from_slice(&4u32.to_le_bytes());
+        bytes[108..112].copy_from_slice(&0x0040_1008u32.to_le_bytes());
+        (bytes, expected, top)
+    }
+
+    #[test]
+    fn aligned_bc_textures_without_bc_support_keep_colour_alpha_mips_and_colour_space() {
+        for fourcc in [b"DXT1", b"DXT3", b"DXT5"] {
+            let (bytes, expected, _) = mip_fixture(fourcc);
+            for srgb in [false, true] {
+                let image = dds_image(&bytes, srgb, false).unwrap();
+                assert_eq!((image.width(), image.height(), image.texture_descriptor.mip_level_count), (8, 8, 4));
+                assert_eq!(image.texture_descriptor.format, if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm });
+                assert_eq!(image.data.as_ref().unwrap(), &expected);
+                assert_eq!(expected.len(), (8*8 + 4*4 + 2*2 + 1)*4);
+            }
+        }
+    }
+    #[test]
+    fn dxt1_cutout_transparency_survives_the_non_bc_fallback() {
+        // Equal black endpoints plus colour index3: the authored BC1 transparent entry.
+        let block = [0, 0, 0, 0, 255, 255, 255, 255];
+        for srgb in [false, true] {
+            let image = dds_image(&dds(b"DXT1", 4, 4, &block), srgb, false).unwrap();
+            assert_eq!(image.data.unwrap(), vec![0; 4 * 4 * 4]);
+        }
+    }
+    #[test]
+    fn top_only_bc_fallback_decodes_only_the_requested_largest_level() {
+        for fourcc in [b"DXT1", b"DXT3", b"DXT5"] {
+            let (bytes, _, expected) = mip_fixture(fourcc);
+            for srgb in [false, true] {
+                let image = super::dds_image_top(&bytes, srgb, false).unwrap();
+                assert_eq!(image.texture_descriptor.mip_level_count, 1);
+                assert_eq!((image.width(), image.height()), (8, 8));
+                assert_eq!(image.texture_descriptor.format, if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm });
+                assert_eq!(image.data.as_ref().unwrap(), &expected);
+            }
+        }
+    }
+    #[test]
+    fn bc_capable_aligned_textures_keep_compressed_format_bytes_and_mips() {
+        for (fourcc, linear, srgb_format) in [(b"DXT1", TextureFormat::Bc1RgbaUnorm, TextureFormat::Bc1RgbaUnormSrgb), (b"DXT3", TextureFormat::Bc2RgbaUnorm, TextureFormat::Bc2RgbaUnormSrgb), (b"DXT5", TextureFormat::Bc3RgbaUnorm, TextureFormat::Bc3RgbaUnormSrgb)] {
+            let (bytes, _, _) = mip_fixture(fourcc);
+            for srgb in [false, true] {
+                let image = dds_image(&bytes, srgb, true).unwrap();
+                assert_eq!(image.texture_descriptor.format, if srgb { srgb_format } else { linear });
+                assert_eq!((image.width(), image.height(), image.texture_descriptor.mip_level_count), (8, 8, 4));
+                assert_eq!(image.data.as_ref().unwrap(), &bytes[128..]);
+                let top = super::dds_image_top(&bytes, srgb, true).unwrap();
+                assert_eq!(top.texture_descriptor.mip_level_count, 1);
+                let length = if fourcc == b"DXT1" { 32 } else { 64 };
+                assert_eq!(top.data.as_ref().unwrap(), &bytes[128..128+length]);
+            }
+        }
+    }
+    #[test]
+    fn npot_bc_fallback_crops_edge_blocks_identically_with_and_without_bc_support() {
+        for fourcc in [b"DXT1", b"DXT3", b"DXT5"] {
+            let mut payload = Vec::new();
+            for colour in [0xf800, 0x07e0, 0x001f, 0xffff] { payload.extend(colour_block(fourcc, colour)); }
+            let bytes = dds(fourcc, 6, 5, &payload);
+            let colours = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]];
+            for srgb in [false, true] {
+                let cpu = dds_image(&bytes, srgb, false).unwrap();
+                let supported = dds_image(&bytes, srgb, true).unwrap();
+                assert_eq!(cpu.data, supported.data);
+                assert_eq!(cpu.texture_descriptor.format, supported.texture_descriptor.format);
+                assert_eq!((cpu.width(), cpu.height()), (6, 5));
+                let pixels = cpu.data.as_ref().unwrap();
+                for y in 0..5usize { for x in 0..6usize {
+                    let rgb = colours[(y/4)*2+x/4];
+                    assert_eq!(&pixels[(y*6+x)*4..(y*6+x)*4+4], &[rgb[0], rgb[1], rgb[2], alpha_for(fourcc)]);
+                }}
+            }
+        }
+    }
+    #[test]
+    fn unsupported_or_malformed_dds_remains_an_error_in_both_capability_paths() {
+        for bc in [false, true] {
+            assert!(dds_image(&dds(b"ATI2", 4, 4, &[0; 16]), true, bc).is_err());
+            assert!(dds_image(&dds(b"DX10", 4, 4, &[0; 16]), true, bc).is_err());
+            assert!(dds_image(&dds(b"DXT1", 4, 4, &[0; 7]), true, bc).is_err());
+            assert!(dds_image(&dds(b"DXT5", 0, 4, &[0; 16]), false, bc).is_err());
+            assert!(dds_image(&dds(b"DXT5", super::MAX_TEXTURE_SIDE + 4, 4, &[0; 16]), false, bc).is_err());
+            let mut cube = dds(b"DXT1", 4, 4, &[0; 48]);
+            cube[112..116].copy_from_slice(&0x0000_fe00u32.to_le_bytes());
+            assert!(dds_image(&cube, true, bc).unwrap_err().contains("cube map"));
+        }
+    }
+
+    #[test]
+    fn checked_image_keeps_validated_multi_level_rgba_data() {
+        // Authored bytes for an 8x8, 4x4, 2x2, 1x1 chain. Image::new's debug-only
+        // base-level assertion must not reject this valid 340-byte payload.
+        let data: Vec<u8> = (0..340).map(|i| (i % 251) as u8).collect();
+        for format in [TextureFormat::Rgba8Unorm, TextureFormat::Rgba8UnormSrgb] {
+            let image = super::checked_image(8, 8, 4, format, data.clone()).unwrap();
+            assert_eq!((image.width(), image.height(), image.texture_descriptor.mip_level_count), (8, 8, 4));
+            assert_eq!(image.texture_descriptor.format, format);
+            assert_eq!(image.data.as_ref().unwrap(), &data);
+        }
     }
 
     /// A legacy 32-bit `A8R8G8B8` DDS file with `mips` levels, optionally flagged as a

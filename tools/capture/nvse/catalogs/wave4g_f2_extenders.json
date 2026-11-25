@@ -1,0 +1,1032 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave4g_f2_extenders",
+  "description": "Wave 4G strictly read-only console-only clean-room probe catalog covering newly surfaced Bucket (f2) observable [hypothesis] items (Ticket T03; excludes save/load probe w4g_12).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184",
+    "JohnnyGuitarNVSE": "528",
+    "kNVSE": "37",
+    "SUP NVSE Plugin": "855",
+    "AnhNVSE": "131",
+    "yUI": "140 (1.4d)",
+    "UI Organizer Plugin": "230",
+    "hNVSE": "120",
+    "lStewieAl's Tweaks": "1005"
+  },
+  "batches": [
+    {
+      "id": "w4g_01_bucket_f2_readonly",
+      "title": "Wave 4G - Newly Surfaced Bucket (f2) Observable [hypothesis] Probes (Strictly \u00a710 Read-Only)",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + ShowOff 184 + SUP 855",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ShowOffNVSE.dll",
+        "supNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4g_04_weather_cold_start",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/current-weather-percent.md",
+          "spec_line": 48,
+          "functions_tested": [
+            "GetCurrentWeatherPercent",
+            "IsSnowing",
+            "IsRaining",
+            "IsPleasant",
+            "IsCloudy",
+            "GetCurrentWeather",
+            "GetIsCurrentWeather"
+          ],
+          "claim": "Cold-start interior weather queries return 1.0/pleasant for NVDefaultWeather (0x00064609) rather than 0.0.",
+          "expected": "ae5028f5a0a weather.rs:132,138 returns 0.0 unmeasured on cold interior start.",
+          "script_lines": [
+            "float fPct = GetCurrentWeatherPercent",
+            "int iSnow = IsSnowing",
+            "int iRain = IsRaining",
+            "float fPls = IsPleasant",
+            "float fCld = IsCloudy",
+            "ref rCur = GetCurrentWeather",
+            "ref rDefW = BuildRef 0 350",
+            "int iIsDef = GetIsCurrentWeather rDefW",
+            "int iIsCur = 0",
+            "if rCur",
+            "  let iIsCur := GetIsCurrentWeather rCur",
+            "endif",
+            "PrintToConsole \"PROBE|w4g_04_weather_cold_start|cold(pct=%.4f,snow=%g,rain=%g,pls=%.4f,cld=%.4f,cur=%i,isDef=%g,isCur=%g)\" fPct iSnow iRain fPls fCld rCur iIsDef iIsCur"
+          ]
+        },
+        {
+          "id": "w4g_01_getisformtype_case",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/form-type-source-call.md",
+          "spec_line": 21,
+          "functions_tested": [
+            "GetIsFormType"
+          ],
+          "claim": "GetIsFormType ASCII 4-byte signature comparison case-sensitivity and placed-reference vs base-form receiver check.",
+          "expected": "ae5028f5a0a form-type-source-call.md:21 compares case-insensitively and allows direct base-form receivers.",
+          "helper_scripts": {
+            "w4g_01_weap_base.gek": [
+              "ref rWeap = BuildRef 0 17231",
+              "int wU = rWeap.GetIsFormType \"WEAP\"",
+              "int wL = rWeap.GetIsFormType \"weap\"",
+              "int wM = rWeap.GetIsFormType \"Weap\"",
+              "int wWrong = rWeap.GetIsFormType \"DOOR\"",
+              "PrintToConsole \"PROBE|w4g_01_getisformtype_case|weapBase(WEAP=%g,weap=%g,Weap=%g,DOOR=%g)\" wU wL wM wWrong"
+            ],
+            "w4g_01_weap_ref.gek": [
+              "ref rWeap = BuildRef 0 17231",
+              "ref rWRef = Player.PlaceAtMe rWeap 1",
+              "int wU = rWRef.GetIsFormType \"WEAP\"",
+              "int wL = rWRef.GetIsFormType \"weap\"",
+              "int wM = rWRef.GetIsFormType \"Weap\"",
+              "int wWrong = rWRef.GetIsFormType \"DOOR\"",
+              "rWRef.Disable 0",
+              "rWRef.MarkForDelete",
+              "PrintToConsole \"PROBE|w4g_01_getisformtype_case|weapRef(WEAP=%g,weap=%g,Weap=%g,DOOR=%g)\" wU wL wM wWrong"
+            ]
+          },
+          "script_lines": [
+            "ref rDoor = BuildRef 0 1064545",
+            "int dU = rDoor.GetIsFormType \"DOOR\"",
+            "int dL = rDoor.GetIsFormType \"door\"",
+            "int dM = rDoor.GetIsFormType \"Door\"",
+            "int dA = rDoor.GetIsFormType \"dOoR\"",
+            "int dWrong = rDoor.GetIsFormType \"ACTI\"",
+            "int dShort = rDoor.GetIsFormType \"DOO\"",
+            "int dLong = rDoor.GetIsFormType \"DOORS\"",
+            "string_var sEmp = \"\"",
+            "int dEmp = rDoor.GetIsFormType sEmp",
+            "PrintToConsole \"PROBE|w4g_01_getisformtype_case|door(DOOR=%g,door=%g,Door=%g,dOoR=%g,ACTI=%g,DOO=%g,DOORS=%g,emp=%g)\" dU dL dM dA dWrong dShort dLong dEmp",
+            "ref fWB = CompileScript \"w4g_01_weap_base.gek\"",
+            "if fWB",
+            "  Call fWB",
+            "endif",
+            "ref fWR = CompileScript \"w4g_01_weap_ref.gek\"",
+            "if fWR",
+            "  Call fWR",
+            "endif"
+          ]
+        },
+        {
+          "id": "w4g_02_tempcloneform_world_proj_csty",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/cloned-projectile-records.md",
+          "spec_line": 28,
+          "functions_tested": [
+            "TempCloneForm",
+            "SetModelPath",
+            "GetModelPath",
+            "SetProjectileTraitNumeric",
+            "GetProjectileTraitNumeric",
+            "SetCombatStyleTraitNumeric",
+            "GetCombatStyleTraitNumeric",
+            "SetCombatStyleFlag",
+            "GetCombatStyleFlag"
+          ],
+          "claim": "TempCloneForm copy-at-creation snapshot isolation vs live inheritance across STAT, MISC, PROJ, and CSTY.",
+          "expected": "ae5028f5a0a snapshots CSTY at creation but still live-inherits PROJ and MODL via unclone().",
+          "script_lines": [
+            "ref rStat = BuildRef 0 2525",
+            "string_var sStatOrig = GetModelPath rStat",
+            "SetModelPath \"w4g_pre_stat.nif\" rStat",
+            "ref rClStat = TempCloneForm rStat",
+            "string_var sClStat1 = GetModelPath rClStat",
+            "SetModelPath \"w4g_post_stat.nif\" rStat",
+            "string_var sStatPost = GetModelPath rStat",
+            "string_var sClStat2 = GetModelPath rClStat",
+            "SetModelPath \"w4g_cl_stat.nif\" rClStat",
+            "string_var sStatAfterCl = GetModelPath rStat",
+            "string_var sClStat3 = GetModelPath rClStat",
+            "SetModelPath sStatOrig rStat",
+            "PrintToConsole \"PROBE|w4g_02_tempcloneform_world_proj_csty|stat(orig=%z|cl1=%z|postSrc=%z|cl2=%z|srcAfterCl=%z|cl3=%z)\" sStatOrig sClStat1 sStatPost sClStat2 sStatAfterCl sClStat3",
+            "ref rMisc = BuildRef 0 15",
+            "string_var sMiscOrig = GetModelPath rMisc",
+            "SetModelPath \"w4g_pre_misc.nif\" rMisc",
+            "ref rClMisc = TempCloneForm rMisc",
+            "string_var sClMisc1 = GetModelPath rClMisc",
+            "SetModelPath \"w4g_post_misc.nif\" rMisc",
+            "string_var sMiscPost = GetModelPath rMisc",
+            "string_var sClMisc2 = GetModelPath rClMisc",
+            "SetModelPath sMiscOrig rMisc",
+            "PrintToConsole \"PROBE|w4g_02_tempcloneform_world_proj_csty|misc(orig=%z|cl1=%z|postSrc=%z|cl2=%z)\" sMiscOrig sClMisc1 sMiscPost sClMisc2",
+            "ref r10mm = BuildRef 0 17231",
+            "ref rProj = GetWeaponProjectile r10mm",
+            "float p0_t1 = GetProjectileTraitNumeric rProj 1",
+            "float p0_t2 = GetProjectileTraitNumeric rProj 2",
+            "float p0_t4 = GetProjectileTraitNumeric rProj 4",
+            "SetProjectileTraitNumeric rProj 2 1234.5",
+            "SetProjectileTraitNumeric rProj 1 0.75",
+            "ref rClProj = TempCloneForm rProj",
+            "float pCl1_t2 = GetProjectileTraitNumeric rClProj 2",
+            "float pCl1_t1 = GetProjectileTraitNumeric rClProj 1",
+            "SetProjectileTraitNumeric rProj 2 5678.5",
+            "SetProjectileTraitNumeric rProj 1 0.25",
+            "float pSrc2_t2 = GetProjectileTraitNumeric rProj 2",
+            "float pCl2_t2 = GetProjectileTraitNumeric rClProj 2",
+            "float pCl2_t1 = GetProjectileTraitNumeric rClProj 1",
+            "ref rClProj2 = TempCloneForm rClProj",
+            "SetProjectileTraitNumeric rClProj 2 9999.0",
+            "float pCl2Sub_t2 = GetProjectileTraitNumeric rClProj2 2",
+            "SetProjectileTraitNumeric rProj 2 p0_t2",
+            "SetProjectileTraitNumeric rProj 1 p0_t1",
+            "PrintToConsole \"PROBE|w4g_02_tempcloneform_world_proj_csty|proj(%i:t1=%.2f,t2=%.1f,t4=%.1f|cl1=%.1f/%.2f|afterSrc=%.1f:cl2=%.1f/%.2f|cl2sub=%.1f)\" rProj p0_t1 p0_t2 p0_t4 pCl1_t2 pCl1_t1 pSrc2_t2 pCl2_t2 pCl2_t1 pCl2Sub_t2",
+            "ref rCs = BuildRef 0 173131",
+            "float c0_t0 = GetCombatStyleTraitNumeric rCs 0",
+            "int c0_f0 = GetCombatStyleFlag rCs 0",
+            "SetCombatStyleTraitNumeric rCs 0 77.5",
+            "SetCombatStyleFlag rCs 0 1",
+            "ref rClCs = TempCloneForm rCs",
+            "float cCl1_t0 = GetCombatStyleTraitNumeric rClCs 0",
+            "int cCl1_f0 = GetCombatStyleFlag rClCs 0",
+            "SetCombatStyleTraitNumeric rCs 0 33.5",
+            "SetCombatStyleFlag rCs 0 0",
+            "float cSrc2_t0 = GetCombatStyleTraitNumeric rCs 0",
+            "float cCl2_t0 = GetCombatStyleTraitNumeric rClCs 0",
+            "int cCl2_f0 = GetCombatStyleFlag rClCs 0",
+            "ref rClCs2 = TempCloneForm rClCs",
+            "SetCombatStyleTraitNumeric rClCs 0 11.5",
+            "float cCl2Sub_t0 = GetCombatStyleTraitNumeric rClCs2 0",
+            "SetCombatStyleTraitNumeric rCs 0 c0_t0",
+            "SetCombatStyleFlag rCs 0 c0_f0",
+            "PrintToConsole \"PROBE|w4g_02_tempcloneform_world_proj_csty|csty(%i:t0=%.1f,f0=%g|cl1=%.1f/%g|afterSrc=%.1f:cl2=%.1f/%g|cl2sub=%.1f)\" rCs c0_t0 c0_f0 cCl1_t0 cCl1_f0 cSrc2_t0 cCl2_t0 cCl2_f0 cCl2Sub_t0"
+          ]
+        },
+        {
+          "id": "w4g_03_jip_callback_getsecondspassed",
+          "bucket": "B",
+          "extender": "JIP LN 57.30 + xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-callback-clock.md",
+          "spec_line": 25,
+          "functions_tested": [
+            "SetGameMainLoopCallback",
+            "GetSecondsPassed",
+            "CallAfterSeconds"
+          ],
+          "claim": "GetSecondsPassed inside SetGameMainLoopCallback (delay 1 and 5), repeated read, nested UDF Call, and ordinary CallAfterSeconds UDF.",
+          "expected": "ae5028f5a0a jip-callback-clock.md:25,33 accumulates across multi-frame callDelay and returns 0 in ordinary UDFs.",
+          "wait_ticks_after": 3,
+          "helper_scripts": {
+            "w4g_03_nested.gek": [
+              "float fG = GetSecondsPassed",
+              "SetFunctionValue fG"
+            ],
+            "w4g_03_cb1.gek": [
+              "int n = Player.AuxVarGetFlt \"*w4g03_n1\"",
+              "Player.AuxVarSetFlt \"*w4g03_n1\" (n + 1)",
+              "float a = GetSecondsPassed",
+              "float b = GetSecondsPassed",
+              "ref rNest = CompileScript \"w4g_03_nested.gek\"",
+              "float c = Call rNest",
+              "PrintToConsole \"PROBE|w4g_03_jip_callback_getsecondspassed|cb_d1(tick=%g,r1=%.6f,r2=%.6f,nest=%.6f)\" n a b c",
+              "if n >= 2",
+              "  SetGameMainLoopCallback (CompileScript \"w4g_03_cb1.gek\") 0",
+              "endif"
+            ],
+            "w4g_03_cb5.gek": [
+              "int n = Player.AuxVarGetFlt \"*w4g03_n5\"",
+              "Player.AuxVarSetFlt \"*w4g03_n5\" (n + 1)",
+              "float a = GetSecondsPassed",
+              "float b = GetSecondsPassed",
+              "ref rNest = CompileScript \"w4g_03_nested.gek\"",
+              "float c = Call rNest",
+              "PrintToConsole \"PROBE|w4g_03_jip_callback_getsecondspassed|cb_d5(tick=%g,r1=%.6f,r2=%.6f,nest=%.6f)\" n a b c",
+              "if n >= 2",
+              "  SetGameMainLoopCallback (CompileScript \"w4g_03_cb5.gek\") 0",
+              "endif"
+            ],
+            "w4g_03_cas.gek": [
+              "float a = GetSecondsPassed",
+              "float b = GetSecondsPassed",
+              "ref rNest = CompileScript \"w4g_03_nested.gek\"",
+              "float c = Call rNest",
+              "PrintToConsole \"PROBE|w4g_03_jip_callback_getsecondspassed|callAfterSec(r1=%.6f,r2=%.6f,nest=%.6f)\" a b c"
+            ]
+          },
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w4g03_n1\" 0",
+            "Player.AuxVarSetFlt \"*w4g03_n5\" 0",
+            "float fLoop1 = GetSecondsPassed",
+            "float fLoop2 = GetSecondsPassed",
+            "ref rNest = CompileScript \"w4g_03_nested.gek\"",
+            "float fLoopNest = Call rNest",
+            "PrintToConsole \"PROBE|w4g_03_jip_callback_getsecondspassed|harnessLoop(r1=%.6f,r2=%.6f,nest=%.6f)\" fLoop1 fLoop2 fLoopNest",
+            "ref rCb1 = CompileScript \"w4g_03_cb1.gek\"",
+            "ref rCb5 = CompileScript \"w4g_03_cb5.gek\"",
+            "ref rCas = CompileScript \"w4g_03_cas.gek\"",
+            "SetGameMainLoopCallback rCb1 1 1 1",
+            "SetGameMainLoopCallback rCb5 1 5 1",
+            "CallAfterSeconds 0.05 rCas 1"
+          ]
+        },
+        {
+          "id": "w4g_05_isactordetected_and_setclass_invalid",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-flags.md",
+          "spec_line": 125,
+          "functions_tested": [
+            "IsActorDetected",
+            "GetDetectingActors",
+            "KillActor",
+            "SetClass",
+            "GetClass"
+          ],
+          "claim": "IsActorDetected invalid/player/dead-detector expiry and SetClass non-actor, null-ref, and non-CLAS argument behavior.",
+          "expected": "ae5028f5a0a aborts on null receiver for SetClass and continues on invalid arg; defers dead-detector expiry.",
+          "wait_ticks_after": 4,
+          "helper_scripts": {
+            "w4g_05_det_door.gek": [
+              "ref rDoor = BuildRef 0 1064545",
+              "int v = rDoor.IsActorDetected",
+              "Player.AuxVarSetFlt \"*w4g05_dd_v\" v",
+              "Player.AuxVarSetFlt \"*w4g05_dd_ok\" 1"
+            ],
+            "w4g_05_det_null.gek": [
+              "ref rNull = 0",
+              "int v = rNull.IsActorDetected",
+              "Player.AuxVarSetFlt \"*w4g05_dn_v\" v",
+              "Player.AuxVarSetFlt \"*w4g05_dn_ok\" 1"
+            ],
+            "w4g_05_sc_door.gek": [
+              "ref rDoor = BuildRef 0 1064545",
+              "ref rArcade = BuildRef 0 1533307",
+              "rDoor.SetClass rArcade",
+              "Player.AuxVarSetFlt \"*w4g05_sd_ok\" 1"
+            ],
+            "w4g_05_sc_nonclas.gek": [
+              "ref rDoc = BuildRef 0 1068047",
+              "ref rStim = BuildRef 0 86377",
+              "rDoc.SetClass rStim",
+              "Player.AuxVarSetFlt \"*w4g05_sn_ok\" 1"
+            ],
+            "w4g_05_sc_null.gek": [
+              "ref rNull = 0",
+              "ref rArcade = BuildRef 0 1533307",
+              "rNull.SetClass rArcade",
+              "Player.AuxVarSetFlt \"*w4g05_s0_ok\" 1"
+            ],
+            "w4g_05_sc_nonclas2.gek": [
+              "ref rDoc = BuildRef 0 1068047",
+              "ref rStim = BuildRef 0 86377",
+              "rDoc.SetClass rStim",
+              "Player.AuxVarSetFlt \"*w4g05_sn2_ok\" 1"
+            ],
+            "w4g_05_sc_nullclas.gek": [
+              "ref rDoc = BuildRef 0 1068047",
+              "ref rNull = 0",
+              "rDoc.SetClass rNull",
+              "Player.AuxVarSetFlt \"*w4g05_snc_ok\" 1"
+            ]
+          },
+          "script_lines": [
+            "ref rDoc = BuildRef 0 1068047",
+            "ref cls0 = rDoc.GetClass",
+            "Player.AuxVarSetFlt \"*w4g05_dd_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g05_dd_v\" -9",
+            "Player.AuxVarSetFlt \"*w4g05_dn_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g05_dn_v\" -9",
+            "Player.AuxVarSetFlt \"*w4g05_sd_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g05_sn_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g05_s0_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g05_sn2_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g05_snc_ok\" 0",
+            "Call (CompileScript \"w4g_05_det_door.gek\")",
+            "Call (CompileScript \"w4g_05_det_null.gek\")",
+            "Call (CompileScript \"w4g_05_sc_door.gek\")",
+            "Call (CompileScript \"w4g_05_sc_nonclas.gek\")",
+            "Call (CompileScript \"w4g_05_sc_null.gek\")",
+            "ref cls1 = rDoc.GetClass",
+            "int ddOk = Player.AuxVarGetFlt \"*w4g05_dd_ok\"",
+            "int ddV = Player.AuxVarGetFlt \"*w4g05_dd_v\"",
+            "int dnOk = Player.AuxVarGetFlt \"*w4g05_dn_ok\"",
+            "int dnV = Player.AuxVarGetFlt \"*w4g05_dn_v\"",
+            "int sdOk = Player.AuxVarGetFlt \"*w4g05_sd_ok\"",
+            "int snOk = Player.AuxVarGetFlt \"*w4g05_sn_ok\"",
+            "int s0Ok = Player.AuxVarGetFlt \"*w4g05_s0_ok\"",
+            "PrintToConsole \"PROBE|w4g_05_isactordetected_and_setclass_invalid|invalid(detDoor=%g:%g,detNull=%g:%g|scDoor=%g,scNonClas=%g,docCls=%i->%i,scNull=%g)\" ddOk ddV dnOk dnV sdOk snOk cls0 cls1 s0Ok",
+            "ref f1 = CompileScript \"w4g_05_sc_nonclas2.gek\"",
+            "if f1",
+            "  Call f1",
+            "endif",
+            "ref c1 = rDoc.GetClass",
+            "ref f2 = CompileScript \"w4g_05_sc_nullclas.gek\"",
+            "if f2",
+            "  Call f2",
+            "endif",
+            "ref c2 = rDoc.GetClass",
+            "int ok1 = Player.AuxVarGetFlt \"*w4g05_sn2_ok\"",
+            "int ok2 = Player.AuxVarGetFlt \"*w4g05_snc_ok\"",
+            "PrintToConsole \"PROBE|w4g_05_isactordetected_and_setclass_invalid|setclassArg(nonClas:cmp=%g,ok=%g,cls=%i->%i|nullClas:cmp=%g,ok=%g,cls=%i)\" (eval f1) ok1 cls0 c1 (eval f2) ok2 c2",
+            "Player.MoveTo rDoc 0 80 0",
+            "ref rDocBase = BuildRef 0 1068044",
+            "ref rA1 = rDoc.PlaceAtMe rDocBase 1 80 0",
+            "rA1.SetPlayerTeammate 1",
+            "Player.AuxVarSetRef \"*w4g05_a1\" rA1"
+          ],
+          "extra_steps": [
+            {
+              "suffix": "kill",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rA1 = Player.AuxVarGetRef \"*w4g05_a1\"",
+                "ref rDoc = BuildRef 0 1068047",
+                "array_var aDet0 = Player.GetDetectingActors",
+                "int nDet0 = ar_Size aDet0",
+                "int pIsDet0 = Player.IsActorDetected",
+                "int dIsDet0 = rDoc.IsActorDetected",
+                "int a1IsDet0 = rA1.IsActorDetected",
+                "int dDetP = rDoc.GetDetected Player",
+                "int a1DetP = rA1.GetDetected Player",
+                "int dDetA1 = rDoc.GetDetected rA1",
+                "int a1DetD = rA1.GetDetected rDoc",
+                "int pDetD = Player.GetDetected rDoc",
+                "rA1.KillActor Player",
+                "rDoc.KillActor Player",
+                "array_var aDetS = Player.GetDetectingActors",
+                "int nDetS = ar_Size aDetS",
+                "int pIsDetS = Player.IsActorDetected",
+                "int dIsDetS = rDoc.IsActorDetected",
+                "int a1IsDetS = rA1.IsActorDetected",
+                "PrintToConsole \"PROBE|w4g_05_isactordetected_and_setclass_invalid|detLive(nDet=%g,p=%g,d=%g,a1=%g|gd:dP=%g,a1P=%g,dA1=%g,a1D=%g,pD=%g|killSame:nDet=%g,p=%g,d=%g,a1=%g)\" nDet0 pIsDet0 dIsDet0 a1IsDet0 dDetP a1DetP dDetA1 a1DetD pDetD nDetS pIsDetS dIsDetS a1IsDetS"
+              ]
+            },
+            {
+              "suffix": "next",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rA1 = Player.AuxVarGetRef \"*w4g05_a1\"",
+                "ref rDoc = BuildRef 0 1068047",
+                "array_var aDetN = Player.GetDetectingActors",
+                "int nDetN = ar_Size aDetN",
+                "int pIsDetN = Player.IsActorDetected",
+                "int dIsDetN = rDoc.IsActorDetected",
+                "int a1IsDetN = rA1.IsActorDetected",
+                "rA1.Disable 0",
+                "rA1.MarkForDelete",
+                "PrintToConsole \"PROBE|w4g_05_isactordetected_and_setclass_invalid|detNext(nDet=%g,p=%g,d=%g,a1=%g)\" nDetN pIsDetN dIsDetN a1IsDetN"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4g_06_player_cmds_explicit_receiver",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/player-source-commands.md",
+          "spec_line": 70,
+          "functions_tested": [
+            "ModPCAttribute"
+          ],
+          "claim": "ModPCAttribute with explicit non-player NPC, non-actor door, and null (0) receivers.",
+          "expected": "ae5028f5a0a player-source-commands.md:70-72 ignores valid receivers but fails before dispatch on null/empty receivers.",
+          "helper_scripts": {
+            "w4g_06_doc.gek": [
+              "ref rDoc = BuildRef 0 1068047",
+              "rDoc.ModPCAttribute Strength 1",
+              "Player.AuxVarSetFlt \"*w4g06_doc_ok\" 1"
+            ],
+            "w4g_06_door.gek": [
+              "ref rDoor = BuildRef 0 1064545",
+              "rDoor.ModPCAttribute Strength 1",
+              "Player.AuxVarSetFlt \"*w4g06_door_ok\" 1"
+            ],
+            "w4g_06_null.gek": [
+              "ref rNull = 0",
+              "rNull.ModPCAttribute Strength 1",
+              "Player.AuxVarSetFlt \"*w4g06_null_ok\" 1"
+            ]
+          },
+          "script_lines": [
+            "ref rDoc = BuildRef 0 1068047",
+            "float p0 = Player.GetAV Strength",
+            "float d0 = rDoc.GetAV Strength",
+            "Player.AuxVarSetFlt \"*w4g06_doc_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g06_door_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g06_null_ok\" 0",
+            "Call (CompileScript \"w4g_06_doc.gek\")",
+            "float p1 = Player.GetAV Strength",
+            "float d1 = rDoc.GetAV Strength",
+            "Call (CompileScript \"w4g_06_door.gek\")",
+            "float p2 = Player.GetAV Strength",
+            "Call (CompileScript \"w4g_06_null.gek\")",
+            "float p3 = Player.GetAV Strength",
+            "int okDoc = Player.AuxVarGetFlt \"*w4g06_doc_ok\"",
+            "int okDoor = Player.AuxVarGetFlt \"*w4g06_door_ok\"",
+            "int okNull = Player.AuxVarGetFlt \"*w4g06_null_ok\"",
+            "int diff = p3 - p0",
+            "if diff != 0",
+            "  ModPCAttribute Strength (0 - diff)",
+            "endif",
+            "PrintToConsole \"PROBE|w4g_06_player_cmds_explicit_receiver|str(p0=%.0f,d0=%.0f|afterDoc:ok=%g,p=%.0f,d=%.0f|afterDoor:ok=%g,p=%.0f|afterNull:ok=%g,p=%.0f)\" p0 d0 okDoc p1 d1 okDoor p2 okNull p3"
+          ]
+        },
+        {
+          "id": "w4g_07_sup_getfiletime_tz_and_missing",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/host-local-time.md",
+          "spec_line": 6,
+          "functions_tested": [
+            "GetFileTime",
+            "GetFileTimeSTR"
+          ],
+          "claim": "SUP GetFileTime and GetFileTimeSTR timezone (local vs UTC), return shape/format, and missing-file return.",
+          "expected": "ae5028f5a0a nvse_sup5.rs:329-340 returns a 6-element numeric List and 2-digit-year single-space string.",
+          "script_lines": [
+            "array_var aMiss1 = GetFileTime \"Data\\__w4g_no_such_file__.txt\" 2",
+            "string_var sMissFirst0 = GetFileTimeSTR \"Data\\__w4g_no_such_file__.txt\" 2 0",
+            "int nMiss1 = ar_Size aMiss1",
+            "int lMF0 = sv_Length sMissFirst0",
+            "array_var aM = GetFileTime \"Data\\FalloutNV.esm\" 2",
+            "string_var sM0 = GetFileTimeSTR \"Data\\FalloutNV.esm\" 2 0",
+            "string_var sM1 = GetFileTimeSTR \"Data\\FalloutNV.esm\" 2 1",
+            "int nM = ar_Size aM",
+            "string_var mY = aM[\"Year\"]",
+            "string_var mMo = aM[\"Month\"]",
+            "string_var mD = aM[\"Day\"]",
+            "string_var mH = aM[\"Hour\"]",
+            "string_var mMi = aM[\"Minute\"]",
+            "PrintToConsole \"PROBE|w4g_07_sup_getfiletime_tz_and_missing|miss(n=%g,l0=%g,s0=[%z])|esmM(n=%g,s0=[%z],s1=[%z])\" nMiss1 lMF0 sMissFirst0 nM sM0 sM1",
+            "PrintToConsole \"PROBE|w4g_07_sup_getfiletime_tz_and_missing|mapM(Y=[%z],Mo=[%z],D=[%z],H=[%z],Mi=[%z])\" mY mMo mD mH mMi"
+          ]
+        },
+        {
+          "id": "w4g_08_preactivation_events_return",
+          "bucket": "B",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/preactivation-events.md",
+          "spec_line": 21,
+          "functions_tested": [
+            "SetEventHandlerAlt",
+            "RemoveEventHandler",
+            "Activate"
+          ],
+          "claim": "ShowOff:OnPreActivate and ShowOff:OnPreScriptedActivate priority ordering, void continuation, and sticky veto.",
+          "expected": "ae5028f5a0a preactivation-events.md:21 matches ShowOff priority ordering, void non-veto, and sticky 0 veto.",
+          "helper_scripts": {
+            "w4g_08_pre_reg.gek": [
+              "begin Function { ref rAct, int iAllow }",
+              "ref rTgt = This",
+              "PrintToConsole \"PROBE|w4g_08_preactivation_events_return|ev_PreReg(tgt=%i,act=%i,allow=%g)\" rTgt rAct iAllow"
+            ],
+            "w4g_08_h1_void.gek": [
+              "begin Function { ref rAct, int iBlk, int iAllow }",
+              "ref rTgt = This",
+              "PrintToConsole \"PROBE|w4g_08_preactivation_events_return|ev_H1v(tgt=%i,act=%i,blk=%g,allow=%g)\" rTgt rAct iBlk iAllow"
+            ],
+            "w4g_08_h2_void.gek": [
+              "begin Function { ref rAct, int iBlk, int iAllow }",
+              "ref rTgt = This",
+              "PrintToConsole \"PROBE|w4g_08_preactivation_events_return|ev_H2v(tgt=%i,act=%i,blk=%g,allow=%g)\" rTgt rAct iBlk iAllow"
+            ],
+            "w4g_08_h1_veto.gek": [
+              "begin Function { ref rAct, int iBlk, int iAllow }",
+              "ref rTgt = This",
+              "PrintToConsole \"PROBE|w4g_08_preactivation_events_return|ev_H1z(tgt=%i,act=%i,blk=%g,allow=%g)\" rTgt rAct iBlk iAllow",
+              "SetFunctionValue 0"
+            ],
+            "w4g_08_h2_unveto.gek": [
+              "begin Function { ref rAct, int iBlk, int iAllow }",
+              "ref rTgt = This",
+              "PrintToConsole \"PROBE|w4g_08_preactivation_events_return|ev_H2u(tgt=%i,act=%i,blk=%g,allow=%g)\" rTgt rAct iBlk iAllow",
+              "SetFunctionValue 1"
+            ]
+          },
+          "script_lines": [
+            "ref rDoor = BuildRef 0 1073836",
+            "ref rPreReg = CompileScript \"w4g_08_pre_reg.gek\"",
+            "ref rH1v = CompileScript \"w4g_08_h1_void.gek\"",
+            "ref rH2v = CompileScript \"w4g_08_h2_void.gek\"",
+            "ref rH1z = CompileScript \"w4g_08_h1_veto.gek\"",
+            "ref rH2u = CompileScript \"w4g_08_h2_unveto.gek\"",
+            "SetEventHandlerAlt \"ShowOff:OnPreActivate\" rPreReg",
+            "SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" rH1v \"priority\"::2",
+            "SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" rH2v \"priority\"::1",
+            "int st0 = rDoor.GetOpenState",
+            "rDoor.Activate Player 1",
+            "int st1 = rDoor.GetOpenState",
+            "PrintToConsole \"PROBE|w4g_08_preactivation_events_return|caseA_void(st=%g->%g)\" st0 st1",
+            "RemoveEventHandler \"ShowOff:OnPreScriptedActivate\" rH1v",
+            "RemoveEventHandler \"ShowOff:OnPreScriptedActivate\" rH2v",
+            "SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" rH1z \"priority\"::2",
+            "SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" rH2u \"priority\"::1",
+            "rDoor.Activate Player 1",
+            "int st2 = rDoor.GetOpenState",
+            "PrintToConsole \"PROBE|w4g_08_preactivation_events_return|caseB_veto(st=%g->%g)\" st1 st2",
+            "RemoveEventHandler \"ShowOff:OnPreScriptedActivate\" rH1z",
+            "RemoveEventHandler \"ShowOff:OnPreScriptedActivate\" rH2u",
+            "RemoveEventHandler \"ShowOff:OnPreActivate\" rPreReg"
+          ]
+        },
+        {
+          "id": "w4g_09_global_image_metrics_missing",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/global-image-metrics.md",
+          "spec_line": 61,
+          "functions_tested": [
+            "InjectUIComponent",
+            "GetUIFloat",
+            "GetUIString",
+            "SetUIString",
+            "SetUIStringEx"
+          ],
+          "claim": "Hidden <image> filewidth/fileheight availability and missing/empty filename metric behavior.",
+          "expected": "ae5028f5a0a global-image-metrics.md:27,61 populates hidden images and zeroes missing/empty filename metrics to 0.",
+          "wait_ticks_after": 2,
+          "script_lines": [
+            "int okV = InjectUIComponent \"HUDMainMenu\" \"<image name=%qw4g_vis%q><filename>Interface\\HUD\\glow_crosshair.dds</filename><width>64</width><height>64</height><visible>1</visible></image>\"",
+            "int okH = InjectUIComponent \"HUDMainMenu\" \"<image name=%qw4g_hid%q><filename>Interface\\HUD\\glow_crosshair.dds</filename><width>64</width><height>64</height><visible>0</visible></image>\"",
+            "int okM = InjectUIComponent \"HUDMainMenu\" \"<image name=%qw4g_initmiss%q><filename>interface\\__w4g_missing__.dds</filename><width>64</width><height>64</height><visible>1</visible></image>\"",
+            "int okE = InjectUIComponent \"HUDMainMenu\" \"<image name=%qw4g_initemp%q><filename></filename><width>64</width><height>64</height><visible>1</visible></image>\"",
+            "float wV0 = GetUIFloat \"HUDMainMenu/w4g_vis/filewidth\"",
+            "float hV0 = GetUIFloat \"HUDMainMenu/w4g_vis/fileheight\"",
+            "float wH0 = GetUIFloat \"HUDMainMenu/w4g_hid/filewidth\"",
+            "float hH0 = GetUIFloat \"HUDMainMenu/w4g_hid/fileheight\"",
+            "PrintToConsole \"PROBE|w4g_09_global_image_metrics_missing|inj(okV=%g,vis=%.1fx%.1f|okH=%g,hid=%.1fx%.1f)\" okV wV0 hV0 okH wH0 hH0"
+          ],
+          "extra_steps": [
+            {
+              "suffix": "set_miss",
+              "wait_ticks": 2,
+              "script_lines": [
+                "float wV1 = GetUIFloat \"HUDMainMenu/w4g_vis/filewidth\"",
+                "float wH1 = GetUIFloat \"HUDMainMenu/w4g_hid/filewidth\"",
+                "float wM1 = GetUIFloat \"HUDMainMenu/w4g_initmiss/filewidth\"",
+                "float wE1 = GetUIFloat \"HUDMainMenu/w4g_initemp/filewidth\"",
+                "SetUIString \"HUDMainMenu/w4g_vis/filename\" \"interface\\__w4g_missing__.dds\"",
+                "SetUIString \"HUDMainMenu/w4g_hid/filename\" \"interface\\__w4g_missing__.dds\"",
+                "PrintToConsole \"PROBE|w4g_09_global_image_metrics_missing|settled(vis=%.1f,hid=%.1f,initMiss=%.1f,initEmp=%.1f)\" wV1 wH1 wM1 wE1"
+              ]
+            },
+            {
+              "suffix": "after_miss_set_emp",
+              "wait_ticks": 2,
+              "script_lines": [
+                "float wVM = GetUIFloat \"HUDMainMenu/w4g_vis/filewidth\"",
+                "float wHM = GetUIFloat \"HUDMainMenu/w4g_hid/filewidth\"",
+                "string_var sEmp = \"\"",
+                "SetUIStringEx \"HUDMainMenu/w4g_vis/filename\" \"%z\" sEmp",
+                "PrintToConsole \"PROBE|w4g_09_global_image_metrics_missing|missNext(vis=%.1f,hid=%.1f)\" wVM wHM"
+              ]
+            },
+            {
+              "suffix": "after_emp",
+              "wait_ticks": 0,
+              "script_lines": [
+                "string_var fnV = GetUIString \"HUDMainMenu/w4g_vis/filename\"",
+                "float wVE = GetUIFloat \"HUDMainMenu/w4g_vis/filewidth\"",
+                "PrintToConsole \"PROBE|w4g_09_global_image_metrics_missing|trueEmpNext(fn=[%z],vis=%.1f)\" fnV wVE"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4g_10_project_ui_tile_errors",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/held-ui-projection-state.md",
+          "spec_line": 50,
+          "functions_tested": [
+            "ProjectUITile"
+          ],
+          "claim": "ProjectUITile return value and script-continuation vs abort on valid, 1x1, missing tile, 0x0, negative, fractional, and null-ref calls.",
+          "expected": "ae5028f5a0a held-ui-projection-state.md:50 returns script-aborting Err on invalid/missing tile or viewport.",
+          "helper_scripts": {
+            "w4g_10_a.gek": [
+              "float fRet = Player.ProjectUITile \"HUDMainMenu/ReticleCenter/reticle_center\" \"Bip01 Head\" 0 0 64 64",
+              "Player.AuxVarSetFlt \"*w4g10_r\" fRet",
+              "Player.AuxVarSetFlt \"*w4g10_ok\" 1"
+            ],
+            "w4g_10_b.gek": [
+              "float fRet = Player.ProjectUITile \"HUDMainMenu/ReticleCenter/reticle_center\" \"Bip01 Head\" 0 0 1 1",
+              "Player.AuxVarSetFlt \"*w4g10_r\" fRet",
+              "Player.AuxVarSetFlt \"*w4g10_ok\" 1"
+            ],
+            "w4g_10_c.gek": [
+              "float fRet = Player.ProjectUITile \"NoSuchMenu/NoSuchTile\" \"Bip01 Head\" 0 0 64 64",
+              "Player.AuxVarSetFlt \"*w4g10_r\" fRet",
+              "Player.AuxVarSetFlt \"*w4g10_ok\" 1"
+            ],
+            "w4g_10_d.gek": [
+              "float fRet = Player.ProjectUITile \"HUDMainMenu/ReticleCenter/reticle_center\" \"Bip01 Head\" 0 0 0 0",
+              "Player.AuxVarSetFlt \"*w4g10_r\" fRet",
+              "Player.AuxVarSetFlt \"*w4g10_ok\" 1"
+            ],
+            "w4g_10_e.gek": [
+              "float fRet = Player.ProjectUITile \"HUDMainMenu/ReticleCenter/reticle_center\" \"Bip01 Head\" 0 0 -10 -10",
+              "Player.AuxVarSetFlt \"*w4g10_r\" fRet",
+              "Player.AuxVarSetFlt \"*w4g10_ok\" 1"
+            ],
+            "w4g_10_f.gek": [
+              "float fRet = Player.ProjectUITile \"HUDMainMenu/ReticleCenter/reticle_center\" \"Bip01 Head\" 0 0 64.7 64.7",
+              "Player.AuxVarSetFlt \"*w4g10_r\" fRet",
+              "Player.AuxVarSetFlt \"*w4g10_ok\" 1"
+            ],
+            "w4g_10_g.gek": [
+              "ref rNull = 0",
+              "float fRet = rNull.ProjectUITile \"HUDMainMenu/ReticleCenter/reticle_center\" \"Bip01 Head\" 0 0 64 64",
+              "Player.AuxVarSetFlt \"*w4g10_r\" fRet",
+              "Player.AuxVarSetFlt \"*w4g10_ok\" 1"
+            ]
+          },
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w4g10_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g10_r\" -9",
+            "Call (CompileScript \"w4g_10_a.gek\")",
+            "int okA = Player.AuxVarGetFlt \"*w4g10_ok\"",
+            "float rA = Player.AuxVarGetFlt \"*w4g10_r\"",
+            "Player.AuxVarSetFlt \"*w4g10_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g10_r\" -9",
+            "Call (CompileScript \"w4g_10_b.gek\")",
+            "int okB = Player.AuxVarGetFlt \"*w4g10_ok\"",
+            "float rB = Player.AuxVarGetFlt \"*w4g10_r\"",
+            "Player.AuxVarSetFlt \"*w4g10_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g10_r\" -9",
+            "Call (CompileScript \"w4g_10_c.gek\")",
+            "int okC = Player.AuxVarGetFlt \"*w4g10_ok\"",
+            "float rC = Player.AuxVarGetFlt \"*w4g10_r\"",
+            "Player.AuxVarSetFlt \"*w4g10_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g10_r\" -9",
+            "Call (CompileScript \"w4g_10_d.gek\")",
+            "int okD = Player.AuxVarGetFlt \"*w4g10_ok\"",
+            "float rD = Player.AuxVarGetFlt \"*w4g10_r\"",
+            "Player.AuxVarSetFlt \"*w4g10_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g10_r\" -9",
+            "Call (CompileScript \"w4g_10_e.gek\")",
+            "int okE = Player.AuxVarGetFlt \"*w4g10_ok\"",
+            "float rE = Player.AuxVarGetFlt \"*w4g10_r\"",
+            "Player.AuxVarSetFlt \"*w4g10_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g10_r\" -9",
+            "Call (CompileScript \"w4g_10_f.gek\")",
+            "int okF = Player.AuxVarGetFlt \"*w4g10_ok\"",
+            "float rF = Player.AuxVarGetFlt \"*w4g10_r\"",
+            "Player.AuxVarSetFlt \"*w4g10_ok\" 0",
+            "Player.AuxVarSetFlt \"*w4g10_r\" -9",
+            "Call (CompileScript \"w4g_10_g.gek\")",
+            "int okG = Player.AuxVarGetFlt \"*w4g10_ok\"",
+            "float rG = Player.AuxVarGetFlt \"*w4g10_r\"",
+            "PrintToConsole \"PROBE|w4g_10_project_ui_tile_errors|valid(ok=%g,r=%.1f)|w1x1(ok=%g,r=%.1f)|miss(ok=%g,r=%.1f)|zero(ok=%g,r=%.1f)\" okA rA okB rB okC rC okD rD",
+            "PrintToConsole \"PROBE|w4g_10_project_ui_tile_errors|neg(ok=%g,r=%.1f)|frac(ok=%g,r=%.1f)|null(ok=%g,r=%.1f)\" okE rE okF rF okG rG"
+          ]
+        },
+        {
+          "id": "w4g_11_ammo_clear_and_proj_delete",
+          "bucket": "B",
+          "extender": "JIP LN 57.30 + xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/projectile-launch-session-traits.md",
+          "spec_line": 59,
+          "functions_tested": [
+            "GetAmmoProjectile",
+            "SetAmmoProjectile",
+            "Disable",
+            "Enable",
+            "MarkForDelete",
+            "GetFormFlag"
+          ],
+          "claim": "SetAmmoProjectile null vs omitted clear semantics and Disable/MarkForDelete lifecycle on PlaceAtMe refs.",
+          "expected": "ae5028f5a0a projectile-launch-session-traits.md:59,157,173 assumes null-clear and distinct Disable vs MarkForDelete timing.",
+          "wait_ticks_after": 1,
+          "helper_scripts": {
+            "w4g_11_omit.gek": [
+              "ref rSlug = BuildRef 0 1303623",
+              "SetAmmoProjectile rSlug"
+            ]
+          },
+          "script_lines": [
+            "ref rSlug = BuildRef 0 1303623",
+            "ref rAmmo10 = BuildRef 0 16961",
+            "ref rProj10 = BuildRef 0 183647",
+            "ref rNull = 0",
+            "ref pSlug0 = GetAmmoProjectile rSlug",
+            "SetAmmoProjectile rSlug rNull",
+            "ref pSlugAfterNull = GetAmmoProjectile rSlug",
+            "SetAmmoProjectile rSlug pSlug0",
+            "ref fOmit = CompileScript \"w4g_11_omit.gek\"",
+            "int iOmitCmp = 0",
+            "ref pSlugAfterOmit = pSlug0",
+            "if fOmit",
+            "  let iOmitCmp := 1",
+            "  Call fOmit",
+            "  let pSlugAfterOmit := GetAmmoProjectile rSlug",
+            "  SetAmmoProjectile rSlug pSlug0",
+            "endif",
+            "ref p10_0 = GetAmmoProjectile rAmmo10",
+            "SetAmmoProjectile rAmmo10 rProj10",
+            "ref p10_set = GetAmmoProjectile rAmmo10",
+            "SetAmmoProjectile rAmmo10 rNull",
+            "ref p10_clr = GetAmmoProjectile rAmmo10",
+            "ref rStat = BuildRef 0 2525",
+            "ref rObj = Player.PlaceAtMe rStat 1",
+            "Player.AuxVarSetRef \"*w4g11_obj\" rObj",
+            "int v0 = IsFormValid rObj",
+            "int dis0 = rObj.GetDisabled",
+            "rObj.Disable 0",
+            "int dis1 = rObj.GetDisabled",
+            "rObj.Enable 0",
+            "int dis2 = rObj.GetDisabled",
+            "rObj.MarkForDelete",
+            "int vSame = IsFormValid rObj",
+            "int disSame = rObj.GetDisabled",
+            "int flSame = GetFormFlag rObj 32",
+            "PrintToConsole \"PROBE|w4g_11_ammo_clear_and_proj_delete|slug(p0=%i,null=%i,omitCmp=%g,omit=%i)|a10(p0=%i,set=%i,clr=%i)\" pSlug0 pSlugAfterNull iOmitCmp pSlugAfterOmit p10_0 p10_set p10_clr",
+            "PrintToConsole \"PROBE|w4g_11_ammo_clear_and_proj_delete|obj(%i:v0=%g,dis=%g->%g->%g|mfdSame:v=%g,dis=%g,fl32=%g)\" rObj v0 dis0 dis1 dis2 vSame disSame flSame"
+          ],
+          "extra_steps": [
+            {
+              "suffix": "next",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rObj = Player.AuxVarGetRef \"*w4g11_obj\"",
+                "int vNext = IsFormValid rObj",
+                "PrintToConsole \"PROBE|w4g_11_ammo_clear_and_proj_delete|mfdNext(ref=%i,v=%g)\" rObj vNext"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4g_13_isidleplaying_and_idle_replace",
+          "bucket": "B",
+          "extender": "JIP LN 57.30 + xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/local-idle-path-replacement.md",
+          "spec_line": 19,
+          "functions_tested": [
+            "IsIdlePlaying",
+            "IsIdlePlayingEx",
+            "PlayIdleEx",
+            "GetPlayedIdle",
+            "GetIdleAnimPath",
+            "SetIdleAnimPath",
+            "GetModelPath",
+            "SetModelPath",
+            "TempCloneForm"
+          ],
+          "claim": "Unqualified IsIdlePlaying after PlayIdleEx, cloned IDLE playback identity, and TempCloneForm IDLE path snapshot vs live inheritance.",
+          "expected": "ae5028f5a0a local-idle-path-replacement.md:19,34 keeps clone FormID on playback but walks unclone() for MODL/ overrides.",
+          "wait_ticks_after": 1,
+          "script_lines": [
+            "ref rIdle = BuildRef 0 124402",
+            "ref rDoc = BuildRef 0 1068047",
+            "int pPlay0 = Player.IsIdlePlaying",
+            "int pEx0 = Player.IsIdlePlayingEx rIdle",
+            "ref pGet0 = Player.GetPlayedIdle",
+            "int dPlay0 = rDoc.IsIdlePlaying",
+            "int dEx0 = rDoc.IsIdlePlayingEx rIdle",
+            "ref dGet0 = rDoc.GetPlayedIdle",
+            "Player.PlayIdleEx rIdle",
+            "rDoc.PlayIdleEx rIdle",
+            "int pPlay1 = Player.IsIdlePlaying",
+            "int pEx1 = Player.IsIdlePlayingEx rIdle",
+            "ref pGet1 = Player.GetPlayedIdle",
+            "int dPlay1 = rDoc.IsIdlePlaying",
+            "int dEx1 = rDoc.IsIdlePlayingEx rIdle",
+            "ref dGet1 = rDoc.GetPlayedIdle",
+            "PrintToConsole \"PROBE|w4g_13_isidleplaying_and_idle_replace|play(pl=%g/%g/%i->%g/%g/%i|doc=%g/%g/%i->%g/%g/%i)\" pPlay0 pEx0 pGet0 pPlay1 pEx1 pGet1 dPlay0 dEx0 dGet0 dPlay1 dEx1 dGet1",
+            "string_var sOrigPath = GetIdleAnimPath rIdle",
+            "string_var sOrigModl = GetModelPath rIdle",
+            "SetModelPath \"Characters\\_Male\\IdleAnims\\Talk_HeadNod_Neutral.kf\" rIdle",
+            "string_var sAfterSetModl = GetIdleAnimPath rIdle",
+            "ref rClIdle = TempCloneForm rIdle",
+            "string_var sCl1 = GetIdleAnimPath rClIdle",
+            "string_var sClModl1 = GetModelPath rClIdle",
+            "SetIdleAnimPath rIdle \"Characters\\_Male\\IdleAnims\\WriteOnBlackBoardA.kf\"",
+            "string_var sSrc2 = GetIdleAnimPath rIdle",
+            "string_var sCl2 = GetIdleAnimPath rClIdle",
+            "SetIdleAnimPath rIdle sOrigPath",
+            "Player.AuxVarSetRef \"*w4g13_cl\" rClIdle",
+            "PrintToConsole \"PROBE|w4g_13_isidleplaying_and_idle_replace|clone1(orig=%z|origModl=%z|afterSetModl=%z)\" sOrigPath sOrigModl sAfterSetModl",
+            "PrintToConsole \"PROBE|w4g_13_isidleplaying_and_idle_replace|clone2(cl1=%z|clModl1=%z|src2=%z|cl2=%z)\" sCl1 sClModl1 sSrc2 sCl2"
+          ],
+          "extra_steps": [
+            {
+              "suffix": "next",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rIdle = BuildRef 0 124402",
+                "ref rDoc = BuildRef 0 1068047",
+                "ref rClIdle = Player.AuxVarGetRef \"*w4g13_cl\"",
+                "int pPlayN = Player.IsIdlePlaying",
+                "int pExN = Player.IsIdlePlayingEx rIdle",
+                "ref pGetN = Player.GetPlayedIdle",
+                "int dPlayN = rDoc.IsIdlePlaying",
+                "int dExN = rDoc.IsIdlePlayingEx rIdle",
+                "ref dGetN = rDoc.GetPlayedIdle",
+                "rDoc.PlayIdleEx rClIdle",
+                "int dClPlay = rDoc.IsIdlePlaying",
+                "int dClExCl = rDoc.IsIdlePlayingEx rClIdle",
+                "int dClExOrig = rDoc.IsIdlePlayingEx rIdle",
+                "ref dClGet = rDoc.GetPlayedIdle",
+                "PrintToConsole \"PROBE|w4g_13_isidleplaying_and_idle_replace|next(pl=%g/%g/%i|doc=%g/%g/%i)|playClone(cl=%i:play=%g,exCl=%g,exOrig=%g,get=%i)\" pPlayN pExN pGetN dPlayN dExN dGetN rClIdle dClPlay dClExCl dClExOrig dClGet"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4g_04_weather_exterior",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/current-weather-percent.md",
+          "spec_line": 48,
+          "functions_tested": [
+            "MoveTo",
+            "GetCurrentWeatherPercent",
+            "IsSnowing",
+            "IsPleasant",
+            "GetCurrentWeather"
+          ],
+          "claim": "Exterior Goodsprings weather contrast after cold-start interior weather probe.",
+          "expected": "Exterior Goodsprings resolves NVGoodspringsWeather (0x001237D7) at 1.0 pleasant.",
+          "wait_ticks_after": 3,
+          "script_lines": [
+            "ref rExtMk = BuildRef 0 843601",
+            "Player.MoveTo rExtMk",
+            "PrintToConsole \"PROBE|w4g_04_weather_exterior|moved=1\""
+          ],
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "float fPct = GetCurrentWeatherPercent",
+                "int iSnow = IsSnowing",
+                "int iRain = IsRaining",
+                "float fPls = IsPleasant",
+                "float fCld = IsCloudy",
+                "ref rCur = GetCurrentWeather",
+                "int iIsCur = 0",
+                "if rCur",
+                "  let iIsCur := GetIsCurrentWeather rCur",
+                "endif",
+                "PrintToConsole \"PROBE|w4g_04_weather_exterior|ext(pct=%.4f,snow=%g,rain=%g,pls=%.4f,cld=%.4f,cur=%i,isCur=%g)\" fPct iSnow iRain fPls fCld rCur iIsCur"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

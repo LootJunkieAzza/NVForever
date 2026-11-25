@@ -207,6 +207,10 @@ pub struct EngineSnapshot {
     pub magazine: Option<(u32, u32)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub magazine_ammo: Option<u32>,
+    /// Player's remembered ammo type per weapon base form for the Keep Chosen Ammo tweak
+    /// (mirrors `nvf_play::save::EngineSnapshot::chosen_ammo`). Absent in older saves: empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub chosen_ammo: BTreeMap<u32, u32>,
     #[serde(default)]
     pub active_quest: Option<u32>,
     #[serde(default)]

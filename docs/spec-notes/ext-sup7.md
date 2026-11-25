@@ -22,7 +22,7 @@ below.
 | NifBlockInterpolateTranslation `block x0 y0 z0 x1 y1 z1 timer mode world pc calcStart` | the block's translation from start to end in `timer` seconds by mode [documented]; 1 when it runs, 0 without a reference or a block name [hypothesis] |
 | NifBlockInterpolateRotation `block x0 y0 z0 x1 y1 z1 timer mode pc calcStart` | the rotation (degrees, as GetNifBlockRotation) the same way [documented] |
 | NifBlockInterpolateScale `block s0 s1 timer mode pc calcStart` | the scale the same way [documented] |
-| NifBlockInterpolateStop `[block] [type] [pc]` | stops the matching ones; 1 when one matched [hypothesis: "success:bool"], -1 when none [observed]; without arguments 0 and nothing stopped [observed]; the block keeps the value it had [hypothesis] |
+| NifBlockInterpolateStop `[block] [type] [pc]` | stops the matching ones; 0 without arguments (nothing stopped) OR when the reference has zero active interpolations, 1 when one matched, and -1 when the reference has active interpolations but none match [observed: sup7; `sup_23_nif_interp_stop_and_type` (`0,1,1,-1`); Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + SUP NVSE 855, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `w4d_36_sup_random_keymap_and_dialog` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679): `nifStop(0arg=0,miss=0)`; no DLL or source consulted]; the block keeps the value it had [hypothesis] |
 | IsNifBlockInterpolated `[block] [type] [pc]` | 1 when one matches [documented]; without a block 0 [observed: with a scale running, against the page's example] |
 | NifBlockInterpolateSetTrait `trait value [block] [type] [pc]` | trait 0: the start value set again when it ends [documented]; 0 [observed: on a running one and for trait 5] |
 | SetSUPOnInterpolateFinishEvent `udf [loops]` | the handler, called `{ref, block, type, fromLoop, pcNode}` when one ends (pcNode 1 on the player's third-person model [observed]; read as "the reference is the player" [hypothesis: the name]), and with `loops` at each loop's end too [documented: the handler skeleton]; the same handler again changes its loops flag [hypothesis] |
@@ -75,7 +75,10 @@ in the shape's own space as its mesh holds them (`SceneMirror::set_vertices`). A
 first time they come with the next frame, as the JIP block functions' trees do; until then,
 GetNifBlockNumVerticles gives -2 for a block of the tree with none told and -1 for a
 missing block, NifBlockGetVerticles an empty array [observed: "Bip01 Head" -2, a made-up
-name -1, both empty]. A mesh kept only on
+name -1, both empty; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout:
+New Vegas 1.4.0.525 + xNVSE 6.4.9 + SUP NVSE 855 with the 10 official base masters,
+clean-room script probe `sup_35_nif_block_num_verticles` (`GetNifBlockNumVerticles`):
+`-2,-1`; no DLL or source consulted]. A mesh kept only on
 the GPU tells none, and a skinned shape's are its bind pose [hypothesis; engine follow-up
 if a mod needs a posed one]. pc is not read (the drawn model only).
 
@@ -99,7 +102,7 @@ if a mod needs a posed one]. pc is not read (the drawn model only).
   value will be passed", read as the meter's share 0.00-1.00 as HudBarSetValuePercentage,
   the value text showing the raw value [hypothesis].
 - 1 when set [observed: the UDF source on a made bar]; -1 for a missing bar or a refused source, as the other value setters
-  [hypothesis: "success:int"]. A new source replaces the bar's old one; a destroyed bar
+  [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + SUP NVSE 855 with the 10 official base masters, clean-room script probe `sup_24_hud_bar_missing_source_ret` (`HudBarSetValueUDF`): `-1`; no DLL or source consulted]. A new source replaces the bar's old one; a destroyed bar
   takes its source with it [hypothesis].
 
 ## 4. Left as nothing values

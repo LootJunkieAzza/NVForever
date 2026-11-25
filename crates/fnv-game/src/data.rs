@@ -1128,6 +1128,20 @@ pub struct GameData {
     /// Cells with an owner, the Public place flag or the Off Limits form flag
     /// (`crate::crime::CellDef`).
     pub cells: HashMap<FormId, crate::crime::CellDef>,
+    /// Whether `Data\NVSE\Plugins\hNVSE.ini` enabled `[Main] bMergeRegionLists=1` at
+    /// load time. Read once at load (never re-read after script writes) so script queries
+    /// and world consumers always agree [documented: hNVSE 1.2 (Nexus Mods ID 85748,
+    /// `https://www.nexusmods.com/newvegas/mods/85748`) public changelog and shipped
+    /// `Data\NVSE\Plugins\hNVSE.ini` comments ("Force-merges cell region lists (XCLR
+    /// subrecord in xEdit) during loading"); DLL/PDB/source not consulted].
+    pub hnvse_merge_region_lists: bool,
+    /// Union of `CELL` `XCLR` region FormIDs across load-order overrides for overridden
+    /// exterior cells (overriding plugin first, duplicates removed), populated lazily via
+    /// [`GameData::enable_hnvse_region_merge`] ONLY when `hNVSE.ini` enables
+    /// `[Main] bMergeRegionLists=1` at load time so startup cost is zero when absent or
+    /// disabled [observed: hNVSE 120 on 188TradingPost (`0x000DDF1C`) with a test
+    /// override ESP; design: skipping interior cells and deleted overrides].
+    pub merged_cell_regions: HashMap<FormId, Vec<FormId>>,
     /// XRNK of placed references: the faction rank that owns them (with an XOWN faction).
     pub owner_ranks: HashMap<FormId, i32>,
     pub destructibles: HashMap<FormId, DestructionDef>,
@@ -1893,6 +1907,42 @@ impl GameData {
         Self::build_with(lo, schema, table, functions, refs, false)
     }
 
+    /// Enable `hNVSE.ini` `[Main] bMergeRegionLists=1` merging and compute
+    /// [`GameData::merged_cell_regions`] for overridden exterior `CELL`s.
+    ///
+    /// Called only at load time when `hNVSE.ini` enables merging, so unmodded vanilla
+    /// and disabled loads pay zero startup cost [design].
+    pub fn enable_hnvse_region_merge(&mut self, lo: &LoadOrder, schema: &Schema) {
+        self.hnvse_merge_region_lists = true;
+        self.merged_cell_regions = lo
+            .index
+            .iter()
+            .filter_map(|(&g, defs)| {
+                if defs.len() <= 1 {
+                    return None;
+                }
+                let last = defs.last()?;
+                let win = lo.records[last.plugin as usize][last.ordinal as usize];
+                if &win.header.sig != b"CELL" {
+                    return None;
+                }
+                let regions = fnv_world::audio::cell_regions_merged(lo, schema, g, true);
+                Some((FormId(g), regions.into_iter().map(FormId).collect()))
+            })
+            .collect();
+    }
+
+    /// Read `Data\NVSE\Plugins\hNVSE.ini` bytes once at load time and, only if
+    /// `[Main] bMergeRegionLists=1` is enabled, populate [`GameData::merged_cell_regions`].
+    pub fn load_hnvse_region_merge(&mut self, lo: &LoadOrder, schema: &Schema, ini_bytes: Option<&[u8]>) -> bool {
+        let enabled = ini_bytes
+            .is_some_and(|bytes| fnv_world::audio::parse_hnvse_merge_region_lists(&String::from_utf8_lossy(bytes)));
+        if enabled {
+            self.enable_hnvse_region_merge(lo, schema);
+        }
+        enabled
+    }
+
     /// [`GameData::build`] without its shortcuts, for a test to compare with it
     /// (tests/build_shortcuts.rs, #1732): every record is read and its subrecords copied, the
     /// source compile runs and is put in before the records are read, and units found by
@@ -2045,6 +2095,8 @@ impl GameData {
             faction_flags: HashMap::new(),
             faction_reputations: HashMap::new(),
             cells: HashMap::new(),
+            hnvse_merge_region_lists: false,
+            merged_cell_regions: HashMap::new(),
             owner_ranks: HashMap::new(),
             destructibles: HashMap::new(),
             weapon_skills: HashMap::new(),

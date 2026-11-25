@@ -106,8 +106,9 @@ fn distances_and_bounds() {
     assert!((n(&mut g, "PlayerREF.Get3DDistanceFromHitToNiNode \"Bip01 Head\"") - 40.0).abs() < 1e-3);
     // The root's bound without a block.
     assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound\nSetFunctionValue aR[2] * 1000 + aR[3]"), 60_070.0);
-    // A block it does not have: the root's.
-    assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\nSetFunctionValue aR[2] * 1000 + aR[3]"), 60_070.0);
+    // A missing block returns a 4-element zero-radius array [observed: w4c_b3_11b_jgnif_nodes_bounds].
+    assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\nSetFunctionValue (ar_Size aR)"), 4.0);
+    assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\nSetFunctionValue aR[3]"), 0.0);
 }
 
 #[test]
@@ -124,10 +125,14 @@ fn particles_properties_and_switches() {
     assert_eq!(n(&mut g, "PlayerREF.GetParticleEmitterSpawnRate \"ParticleEmitter\""), 1000.0);
     let edits = g.scene.take_edits();
     assert!(edits.contains(&SceneEdit::Particle { r: P, node: "ParticleEmitter".into(), id: 20, v: 1000.0 }));
-    // The properties: read, set, kept over the next tree the engine tells.
+    // The properties: read, set, kept over the next tree the engine tells, and queued for the engine.
+    g.scene.take_edits();
     assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1"), 128.0);
     assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 1 64"), 1.0);
     assert_eq!(n(&mut g, "PlayerREF.SetStencilPropertyValue \"Glass\" 1 3"), 1.0);
+    let prop_edits = g.scene.take_edits();
+    assert!(prop_edits.contains(&SceneEdit::AlphaProperty { r: P, node: "Glass".into(), item: 1, v: 64.0 }));
+    assert!(prop_edits.contains(&SceneEdit::StencilProperty { r: P, node: "Glass".into(), item: 1, v: 3.0 }));
     g.scene.set_tree(P, tree());
     assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1") * 10.0 + n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 1"), 643.0);
     // The switch shows its second child alone.
@@ -293,5 +298,46 @@ fn camera_overlay_refs_resolve_and_accept_nif_edits() {
             "ref rSlot\nlet rSlot := EditorIDToFormID \"LoadedAtOverlaySlot\"\nSetFunctionValue (GetEditorID rSlot)",
         ),
         XVal::Str("LoadedAtOverlaySlot".into()),
+    );
+}
+
+#[test]
+fn camera_overlay_refs_support_model_has_block_and_vanilla_watch_fast_path() {
+    let f = fixture();
+    let mut g = game(&f);
+    let pre_is = fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS;
+    let pre_ui = fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_UI;
+
+    // Vanilla fast-path: neither overlay ref is watched until a script touches it.
+    assert!(!g.scene.is_watched(pre_is));
+    assert!(!g.scene.is_watched(pre_ui));
+
+    // ModelHasBlock on an overlay ref marks it watched and returns 0 before publication.
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (ModelHasBlock rCam \"OverlayNode\")"),
+        0.0,
+    );
+    assert!(g.scene.is_watched(pre_is));
+    assert!(!g.scene.is_watched(pre_ui));
+
+    // Once the engine publishes the overlay tree, ModelHasBlock matches exact block names.
+    g.scene.set_tree(
+        pre_is,
+        vec![
+            node("Scene Root", None, [0.0; 3], NodeInfo::default()),
+            node("OverlayNode", Some(0), [0.0, 7.5, 0.0], NodeInfo::default()),
+        ],
+    );
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (ModelHasBlock rCam \"OverlayNode\")"),
+        1.0,
+    );
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (ModelHasBlock rCam \"overlaynode\")"),
+        0.0,
+    );
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (ModelHasBlock rCam \"Missing\")"),
+        0.0,
     );
 }

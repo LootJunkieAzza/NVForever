@@ -45,6 +45,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use crate::ui_pointer::PointerState;
 use fnv_game::chargen as rules;
 use fnv_game::game::menus;
@@ -120,6 +121,18 @@ pub struct ChargenMenus {
     /// [`draw_menus`] last left the menu to its tiles.
     tiles_draw: bool,
     kit: Option<draw::Kit>,
+}
+impl ChargenMenus {
+    /// The name (or a script's text input) field is open and not yet answered.
+    pub fn name_open(&self) -> bool { matches!(self.open, Some(OpenMenu::Name(_))) && !self.answered }
+    #[cfg(test)]
+    pub(crate) fn open_name_for_test(&mut self) {
+        self.open = Some(OpenMenu::Name(NameMenu { text: String::new(), hover_ok: false, prompt: String::new(),
+            ok: String::new(), script: None, limit: 30 }));
+        self.answered = false;
+    }
+    #[cfg(test)]
+    pub(crate) fn answer_for_test(&mut self) { self.answered = true; }
 }
 
 /// [design] The open trait or tag-skill list, as the tile drawing reads it. The sheet
@@ -330,6 +343,25 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
     });
 }
 
+/// Mouse wheel operations on the character-creation list menu: when `levelup_wheel` is
+/// enabled on the S.P.E.C.I.A.L. attributes menu, wheel up raises and wheel down lowers
+/// the hovered arrow's attribute (or the selected one); otherwise scrolls as usual
+/// [design; Stewie's Tweaks 9.65/9.70 public changelogs].
+fn chargen_wheel_ops(wheel: f32, levelup_wheel: bool, attributes: bool, hover: Option<ListButton>) -> Vec<Op> {
+    if wheel.abs() < 1.0 {
+        return Vec::new();
+    }
+    if levelup_wheel && attributes {
+        let target = match hover {
+            Some(ListButton::Plus(r) | ListButton::Minus(r)) => Some(r),
+            _ => None,
+        };
+        vec![Op::Adjust(target, wheel > 0.0); wheel.abs().round() as usize]
+    } else {
+        vec![Op::Scroll(-wheel.round() as i32)]
+    }
+}
+
 fn list_or_none(names: &[String]) -> String {
     if names.is_empty() {
         "none".into()
@@ -354,6 +386,7 @@ fn input(
     mut sounds: MessageWriter<UiSound>,
     mut traits: Option<ResMut<crate::tiles::trait_menu::TraitTiles>>,
     mut tags: Option<ResMut<crate::tiles::tag_menu::TagTiles>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let keys = keys.snapshot();
     use KeyCode::*;
@@ -453,8 +486,11 @@ fn input(
                     ops.push((op, "key"));
                 }
             }
-            if wheel.abs() >= 1.0 && !tiled {
-                ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));
+            if !tiled {
+                let wheel_sets = tweaks.as_ref().is_some_and(|t| t.levelup_wheel);
+                for op in chargen_wheel_ops(wheel, wheel_sets, m.attributes(), m.hover) {
+                    ops.push((op, "wheel"));
+                }
             }
             for (i, r) in &rows {
                 match i {
@@ -712,6 +748,9 @@ fn draw_menus(
     glyphs: Res<crate::pad::PadGlyphs>,
     traits: Option<Res<crate::tiles::trait_menu::TraitTiles>>,
     tags: Option<Res<crate::tiles::tag_menu::TagTiles>>,
+    soft_keyboard: Option<Res<crate::soft_keyboard::SoftKeyboard>>,
+    (windows, safe): (Query<&Window, With<PrimaryWindow>>, Option<Res<crate::touch_safe_area::SafeInsets>>),
+    mut last_frame: Local<Option<(Vec2, crate::touch_safe_area::SafeInsets, f32)>>,
 ) {
     // The drawing's own decision, this frame's (`crate::tiles::trait_menu::drawn`): the menu
     // goes the frame its tiles draw, and comes back whole, its sheet as it stands, when they
@@ -723,10 +762,17 @@ fn draw_menus(
         st.tiles_draw = tiled;
         st.dirty = true;
     }
+    let view_px = windows.single().map_or(Vec2::new(1280.0, 720.0), |w| Vec2::new(w.width(), w.height()));
+    let safe_insets = safe.as_deref().copied().unwrap_or_default();
+    let frame_key = (view_px, safe_insets, crate::interface::unit_scale());
+    if st.open.is_some() && *last_frame != Some(frame_key) {
+        st.dirty = true;
+    }
     if !st.dirty {
         return;
     }
     st.dirty = false;
+    *last_frame = Some(frame_key);
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -752,14 +798,27 @@ fn draw_menus(
     let st = st.into_inner();
     let kit = st.kit.get_or_insert_with(|| draw::Kit::load(data.as_deref(), &mut images, bc));
     let mut c = draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
-    let root = Node {
-        position_type: PositionType::Absolute,
-        width: Val::Percent(100.0),
-        height: Val::Percent(100.0),
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        ..default()
+    let ime = soft_keyboard.is_some_and(|k| k.enabled);
+    let fit = match &view {
+        View::Name(m) => name::fit_layout(frame_key.2, view_px, safe_insets, m.size(), ime),
+        // `lists::MAIN` is 1024 × 800, with list at x = -15, button hits to 1054, title at y = -10.
+        View::List(_) => crate::interface::fit_centered_box(frame_key.2, view_px, safe_insets, 1088.0, 840.0),
     };
+    let mut root = match &view {
+        View::Name(_) => name::root_node(ime),
+        View::List(_) => Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+    };
+    if let Some((_, pad)) = fit {
+        root.padding = pad;
+    }
+    let _units = fit.map(|(s, _)| crate::interface::units_at(s));
     commands.spawn((root, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing(), ChargenRoot)).with_children(|r| match &view {
         View::Name(m) => name::spawn(r, m, &mut c),
         View::List(v) => lists::spawn(r, v, &mut c),
@@ -880,6 +939,18 @@ mod tests {
         assert!(st.tags_open().is_none());
         let Some(OpenMenu::List(menu)) = st.open.as_ref() else { panic!("missing sheet") };
         assert!(tile_ops(menu, TileAct::SkillClick(32)).is_empty());
+    }
+
+    #[test]
+    fn chargen_wheel_adjusts_special_attributes_when_enabled() {
+        // Default off: scrolls as before.
+        assert_eq!(chargen_wheel_ops(1.0, false, true, Some(ListButton::Plus(2))), vec![Op::Scroll(-1)]);
+        // Enabled on SPECIAL attributes menu: raises/lowers hovered +/- attribute or selected row.
+        assert_eq!(chargen_wheel_ops(1.0, true, true, Some(ListButton::Plus(2))), vec![Op::Adjust(Some(2), true)]);
+        assert_eq!(chargen_wheel_ops(-2.0, true, true, Some(ListButton::Minus(5))), vec![Op::Adjust(Some(5), false), Op::Adjust(Some(5), false)]);
+        assert_eq!(chargen_wheel_ops(1.0, true, true, None), vec![Op::Adjust(None, true)]);
+        // Tag skills / traits still scroll.
+        assert_eq!(chargen_wheel_ops(-1.0, true, false, None), vec![Op::Scroll(1)]);
     }
 
 }

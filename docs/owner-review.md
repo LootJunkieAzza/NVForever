@@ -3,7 +3,8 @@
 Only decisions that change how the game plays and that need **you**: design choices,
 feel, and places where NVForever chose to differ from the original. Most important first.
 Anything that asks "what does the original do here?" is not here: the observer can
-answer it, and it is in [observer-checks.md](handoff/observer-checks.md).
+answer it, and it is in [observer-checks.md](handoff/observer-checks.md) or, the newer ones,
+in [observer-checks/](handoff/observer-checks/README.md).
 
 Condensed 2026-10-24 from the full running log (8,300 lines, 2026-10-09 to 2026-10-23).
 Merge records, tooling, look-only guesses and items already ruled were dropped. The full
@@ -17,9 +18,9 @@ and 2026-10-25 were folded in below (items 27-32). That last full copy is
 in their spec notes.
 
 **Adding an item:** one bullet in the right tier, what was chosen and what changes if you
-rule otherwise, with its spec link. If the original game can answer it, add it to
-observer-checks.md instead. **Ruling on one:** delete the bullet and note the ruling in
-the spec it links to.
+rule otherwise, with its spec link. If the original game can answer it, add a file to
+[observer-checks/](handoff/observer-checks/README.md) instead. **Ruling on one:** delete
+the bullet and note the ruling in the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
@@ -87,6 +88,8 @@ the spec it links to.
    - [design, #2010] A Lost search with no completed share for 300 s gives up, even
      with shares still pending; each completed share renews that safety deadline.
      A different bound changes how long unavailable navigation/AI holds combat.
+     Out of the loaded area nobody searches: it gives up once its target has been
+     hidden for 30 s (#3390).
      ([alert section 2](design/alert.md))
    - Fire only with the target within 30° ahead, turning at 240°/s.
    - Creatures start blows on the run from up to 200 units beyond reach (minimum
@@ -172,6 +175,13 @@ the spec it links to.
     soldiers with Helps Friends and Allies join the player's fights. If allies now pile
     into fights you start (they join once the other side fights back), say where.
     Observer check 217 asks the original. ([combat-ai §10.3](design/combat-ai.md))
+
+- **While VATS targets are chosen, world sounds and voices slow only as far as while
+  VATS fires (0.71 speed), no longer to 0.4 (#3784).** A player took 17 s to mark in the
+  NCRCF fight and read the voices, played more than an octave down all that time, as
+  broken sound. Your "more drawn out and lower pitch like the base game" still holds;
+  rule otherwise for the old 0.4 drone, or for silence (or ducking) while marking.
+  [docs/design/vats-mode.md](design/vats-mode.md) §4.
 
 ## Tier 2: movement and controls feel
 
@@ -338,13 +348,12 @@ the spec it links to.
   a mean bone-weight share of `PART_TRIANGLE_SHARE = 0.5`, then filled at the same mask
   opacity as whole parts. A different threshold changes the boundary, not its strength;
   coarse meshes may need finer clipping. [Classic VATS §12](design/vats-classic.md#12-the-selected-part-lit-on-the-target-2026-11-10).
-- **SayTo's "no target look" flag turns nobody (#2796).** [hypothesis, #2796] A SayTo with
-  `noTargetLookFlag` 1 now turns neither the speaker nor the target, so Curtis talks into
-  his radio in the McCarran tower without turning to the player below. Without the flag
-  the speaker still turns to whom it talks (your 2026-10-11 rule). This changes the 22
-  shipped SayTo calls to the player that carry the flag (the monorail guards would warn
-  you without turning). The narrower reading, the speaker stays only when the target is
-  the player, is a one-line change. ([dialogue-play §9.2](design/dialogue-play.md))
+- **SayTo's "no target look" flag turns the speaker again (#3989).** [observed, check 218]
+  The original turns a standing speaker to its target with the flag as without it; only
+  the target is not made to look. NVForever now does the same, so Curtis may turn to the
+  player for his radio call in the McCarran tower again (#2796), until what keeps him
+  still in the original (his package or idle there, check 218's open part) is matched.
+  ([dialogue-play §9.2](design/dialogue-play.md))
 - **Hold CLAMP effect idles (#2685).** [design, #2685] `HOLD_CLAMP_EFFECT_IDLES` keeps
   a CLAMP actor idle with material/emitter tracks at its exact end until replacement or
   stop, overriding repeat counts. This keeps attached chamber effects and pod glow;
@@ -504,13 +513,10 @@ the spec it links to.
     Slash, Mauler, Lights Out, Grand Slam: WEAP VATS/VANM) need a choice per mark, which
     VATS mode does not have, so they are not built. Wanted, and how would you pick one
     (a key cycling the mark's attack)? ([weapon-data-fields §7](spec-notes/weapon-data-fields.md))
-31a. **Which VATS style V starts (a contribution from the fork h9x000,
-    2026-11-11).** A classic style is built: the original's flow, the world stopped, a
-    target and a body part chosen from their chances, a queue of attacks, cameras as
-    they play. It is one row away on the settings page ("V.A.T.S. style"); Dead Eye,
-    your VATS mode ("Mark and Fire" on that page, a name of ours for you to change),
-    stays what V starts until you say otherwise (the fork's owner plays Classic as the
-    default). What Dead Eye shares with it and so changes too: marks on a dead target
+31a. **The classic VATS style's other choices (a contribution from the fork h9x000,
+    2026-11-11).** You ruled on 2026-11-24 that Classic is what V starts; Dead Eye
+    ("Mark and Fire" on the settings page, a name of ours for you to change) stays one
+    row away. What Dead Eye shares with Classic and so changes too: marks on a dead target
     are dropped and the mode ends 2 s later, the HUD hides from the first shot, the
     enemy bar is at the top, explosives hold the mode's end, and every kill camera's
     last shot is held 3 s longer (vats-classic.md §13).

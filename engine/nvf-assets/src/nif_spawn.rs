@@ -139,6 +139,10 @@ pub(crate) struct Props {
     vertex_alpha: bool,
     /// NiStencilProperty draw mode DRAW_BOTH; also set on dismemberment caps (actor.rs).
     pub(crate) double_sided: bool,
+    /// NiStencilProperty draw mode (`0..=3`: `DRAW_CCW_OR_BOTH` / `DRAW_CCW`, `DRAW_CW`,
+    /// `DRAW_BOTH`) [documented: nif.xml StencilDrawMode], mapped through
+    /// [`stencil_draw_mode_cull`] so load-time and live `SetStencilPropertyValue` culling match.
+    stencil_draw_mode: Option<i64>,
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
@@ -164,6 +168,10 @@ pub(crate) struct Props {
     /// The Fire Refraction shader flag is set too ([`fire_period`]): seconds for the
     /// normal map to scroll once, else 0.
     fire_period: f32,
+    /// BSShaderFlags2 bit 0 "ZBuffer_Write" [documented: nif.xml]: the shape asks to write
+    /// depth although it is blended. Read for the solid cores only ([`solid_core_rules`]);
+    /// depth writes otherwise follow the alpha mode, as before.
+    z_write: bool,
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
@@ -455,6 +463,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.decal = is_decal(flags);
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
         p.fire_period = fire_period(flags, s.int("refraction_fire_period"));
+        p.z_write = s.int("shader_flags_2").unwrap_or(0) & 1 != 0;
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
         p.parallax = false;
@@ -503,7 +512,9 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         "NiStencilProperty" => {
             // 20.1.0.3+: draw mode in flags bits 10-11; older files: draw_mode field.
             let mode = s.int("draw_mode").or_else(|| s.int("flags").map(|f| (f >> 10) & 3)).unwrap_or(0);
-            p.double_sided = mode == 3;
+            let (double_sided, _) = stencil_draw_mode_cull(mode);
+            p.double_sided = double_sided;
+            p.stencil_draw_mode = Some(mode);
         }
         "NiVertexColorProperty" => p.vertex_colors_tint = true,
         _ => {}
@@ -536,7 +547,7 @@ pub fn is_editor_marker(name: Option<&str>) -> bool {
 /// so GREATER moves the cutoff half a step above the threshold; other functions keep ≥.
 pub(crate) const BLEND_TEST_CUT: i64 = 64;
 
-pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
+pub fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
     let (src, dst) = ((flags >> 1) & 0xF, (flags >> 5) & 0xF);
     let (blend, test) = (flags & 1 != 0, flags & 0x200 != 0);
     let strict = (flags >> 10) & 7 == 4;
@@ -548,6 +559,35 @@ pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
         (true, _, 1 | 4, _) => AlphaMode::Multiply,
         (true, ..) => AlphaMode::Blend,
         _ => AlphaMode::Opaque,
+    }
+}
+
+/// Double-sided flag and face culling from a `NiStencilProperty` `StencilDrawMode`
+/// (`0/1` `DRAW_CCW_OR_BOTH`/`DRAW_CCW` -> back-face cull, `2` `DRAW_CW` -> front-face cull,
+/// `3` `DRAW_BOTH` -> double-sided / no cull) [documented: nif.xml StencilDrawMode;
+/// design: shared by load-time `NiStencilProperty` material creation and live
+/// `SetStencilPropertyValue` updates so both paths produce identical culling].
+pub fn stencil_draw_mode_cull(draw_mode: i64) -> (bool, Option<bevy::render::render_resource::Face>) {
+    match draw_mode & 3 {
+        3 => (true, None),
+        2 => (false, Some(bevy::render::render_resource::Face::Front)),
+        _ => (false, Some(bevy::render::render_resource::Face::Back)),
+    }
+}
+
+/// Double-sided flag and face culling from `NiStencilProperty` flags bits 10-11
+/// (`draw_mode`: 0/1 `DRAW_CCW`, 2 `DRAW_CW`, 3 `DRAW_BOTH`) [documented: nif.xml
+/// StencilDrawMode; design: Bevy's `StandardMaterial` does not expose per-material
+/// hardware stencil reference/mask state, so only the face-cull mode applies live].
+pub fn stencil_cull(flags: i64) -> (bool, Option<bevy::render::render_resource::Face>) {
+    stencil_draw_mode_cull((flags >> 10) & 3)
+}
+
+fn props_cull(props: &Props) -> (bool, Option<bevy::render::render_resource::Face>) {
+    if props.double_sided {
+        stencil_draw_mode_cull(3)
+    } else {
+        stencil_draw_mode_cull(props.stencil_draw_mode.unwrap_or(0))
     }
 }
 
@@ -1076,6 +1116,98 @@ pub(crate) fn blend_is_opaque(props: &Props, cut: Option<f32>, alpha_mode: Alpha
     matches!(alpha_mode, AlphaMode::Blend) && source_over && nothing_thins_it && opaque_texture()
 }
 
+/// The alpha from which a blended shape's texels belong to its solid core ([`solid_core`])
+/// [engineering choice: at 0.85 and above the blend shows at most 15% of what lies behind, so
+/// the texel is a surface to everything that reads depth. At 0.98, the first choice, the
+/// border texels of `NV_WaterTank.dds` (226 to 244 of 255 [hypothesis: read from the texture on 2026-11-24;
+/// the steps were not kept]) were left out, and the light of what is behind drew a bright line along
+/// the tank's rim, judged by eye in a play test, 2026-11-24].
+pub const SOLID_CORE_CUT: f32 = 0.85;
+/// The cut where the texture has thin parts in that range too, or its alpha cannot be read
+/// (`texture::SolidTexels`): what is solid beyond doubt.
+pub const SOLID_CORE_CUT_THIN: f32 = 0.98;
+
+/// Whether a blended shape may have a solid core ([`solid_core`]) by what its file says, the
+/// cheap part of the question (the base texture's alpha is asked by nvforever `solid_cores.rs`,
+/// and only while cores are wanted): it blends SRC_ALPHA / INV_SRC_ALPHA, is lit, its shader
+/// writes depth ("ZBuffer_Write"), it has a base texture, and nothing but that texture sets
+/// its alpha: material alpha 1, no vertex alpha, no vertex-alpha cut, no alpha animation, no
+/// view-angle falloff, and it is no decal, hair, skin, refracting shape, window reflection or
+/// object LOD block [engineering choice of the enhanced look, docs/design/volumetric-medium.md
+/// "Solid cores"; the flags' names documented: nif.xml]. A shape with a test below
+/// [`BLEND_TEST_CUT`] (the corn rows, [`blended_cutout`]) is included: it is drawn blended
+/// where no temporal upscaler runs. The Goodsprings water tank
+/// (`architecture\goodsprings\nv_watertank.nif`, flags 4333: blend on, no test) is such a
+/// shape (painted with the light of what is behind it: that document says how it was seen).
+pub(crate) fn solid_core_rules(props: &Props, cut: Option<f32>, alpha_mode: AlphaMode) -> bool {
+    let Some((flags, _)) = props.alpha else { return false };
+    let source_over = (flags >> 1) & 0xF == 6 && (flags >> 5) & 0xF == 7;
+    matches!(alpha_mode, AlphaMode::Blend)
+        && flags & 1 != 0
+        && source_over
+        && props.z_write
+        && props.textures.first().is_some_and(|t| !t.is_empty())
+        && cut.is_none()
+        && !props.vertex_alpha
+        && props.material_alpha.unwrap_or(1.0) >= 1.0
+        && !props.animated_alpha
+        && !props.alpha_gated
+        && props.falloff.is_none()
+        && !props.unlit
+        && !props.decal
+        && props.refraction.is_none()
+        && !props.hair
+        && !props.skin
+        && !props.lod_building
+        && !props.env.is_some_and(|e| e.window)
+}
+
+/// The solid core of a blended material as it stands now: a copy drawn as a cut-out at
+/// [`SOLID_CORE_CUT`], so its solid texels are in the depth prepass, or `None` where it has
+/// none. The blended shape goes on being drawn over it: at the core's own depth the main
+/// pass's test (greater or equal) lets it through (as a hair model's layer over its core,
+/// [`hair_model_layer`]), so the soft edges stay the blend's. The colour is not exactly what
+/// it was: the part of the background the blend let through (up to 1 - `cut`) is
+/// now the core's colour, which may also take ambient occlusion the blend does not.
+///
+/// Everything that can change a material while the game runs is asked of the material
+/// itself, not of who changed it: a fade, a script's alpha, a stealth field, an effect
+/// shader's holes, a swapped texture or the FSR cut-outs' alpha test all leave a state this
+/// refuses. The core's cut is hard (`NifSurface::hard_edges`): a soft one would widen the
+/// solid part past the cut. The caller keeps the core from casting a shadow.
+pub fn solid_core(m: &NifMaterial, cut: f32) -> Option<NifMaterial> {
+    let (b, s) = (&m.base, &m.extension);
+    let source = s.solid_core.as_ref()?;
+    let plain = matches!(b.alpha_mode, AlphaMode::Blend)
+        && b.base_color.alpha() >= 1.0
+        && b.base_color_texture.as_ref().is_some_and(|t| t.id() == source.image)
+        && !b.unlit
+        && b.depth_bias == 0.0
+        && b.depth_map.is_none()
+        && b.specular_transmission == 0.0
+        && b.diffuse_transmission == 0.0
+        && s.alpha_cut <= 0.0
+        && s.falloff == Falloff::NONE.params
+        && s.holes == crate::nif_material::NO_HOLES
+        && s.holes_texture.is_none()
+        && s.facegen_offset.is_none()
+        && s.soft == Vec4::ZERO
+        && s.terrain_repeat == 0.0
+        && s.env_how.z == 0.0
+        && !(s.refract || s.decal || s.shade_light || s.depth_write || s.first_person || s.add_linear || s.pipboy_screen);
+    if !plain {
+        return None;
+    }
+    let mut core = m.clone();
+    core.base.alpha_mode = AlphaMode::Mask(cut);
+    core.extension.hard_edges = true;
+    // The core is no source of anything: no FSR switch, no core of its own, no texture swap.
+    core.extension.blended_cutout = None;
+    core.extension.solid_core = None;
+    core.extension.legacy = None;
+    Some(core)
+}
+
 /// How many materials [`blend_is_opaque`] turned opaque this run, and the first few
 /// textures they were for (the exit's summary line).
 static BLEND_DRAWN_OPAQUE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -1254,6 +1386,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         .flatten()
         .and_then(|t| textures.texture(t, true));
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
+    let (double_sided, cull_mode) = props_cull(props);
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
         base_color_texture: base,
@@ -1268,8 +1401,8 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
         emissive_texture: glow,
         alpha_mode,
-        double_sided: props.double_sided,
-        cull_mode: if props.double_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
+        double_sided,
+        cull_mode,
         unlit: props.unlit,
         ..default()
     };
@@ -1279,6 +1412,11 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     }
     material.extension.alpha_cut = cut.unwrap_or(0.0);
     material.extension.blended_cutout = cutout;
+    if solid_core_rules(props, cut, alpha_mode) {
+        material.extension.solid_core = diffuse
+            .zip(material.base.base_color_texture.as_ref())
+            .map(|(t, image)| crate::nif_material::SolidCoreSource { texture: t.clone(), image: image.id(), animated: false });
+    }
     if props.hair && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
         material.extension.alpha_cut = HAIR_DEPTH_CUT;
         material.extension.depth_write = true;
@@ -1425,9 +1563,158 @@ pub fn refraction_material(material: &mut NifMaterial, strength: f32, fire_perio
     crate::authored::recheck_height(material);
 }
 
+/// Numeric mesh admission is an Android-only engine policy; see nif-numeric-admission.md.
+#[cfg(any(target_os = "android", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NumericStream {
+    Position,
+    Normal,
+    Uv,
+    Tangent,
+    Color,
+    Weight,
+    NormalizedWeight,
+    InverseBind,
+}
+
+#[cfg(any(target_os = "android", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NumericError {
+    stream: NumericStream,
+    element: usize,
+}
+
+#[cfg(any(target_os = "android", test))]
+fn finite_stream<const N: usize>(values: &[[f32; N]], stream: NumericStream) -> Result<(), NumericError> {
+    match values.iter().position(|v| v.iter().any(|x| !x.is_finite())) {
+        Some(element) => Err(NumericError { stream, element }),
+        None => Ok(()),
+    }
+}
+
+/// Check the actual streams after material preparation, including repaired colours
+/// and generated tangents. Does not rewrite values or discard individual vertices.
+#[cfg(any(target_os = "android", test))]
+fn finite_mesh(mesh: &Mesh) -> Result<(), NumericError> {
+    for (attribute, stream) in [
+        (Mesh::ATTRIBUTE_POSITION, NumericStream::Position),
+        (Mesh::ATTRIBUTE_NORMAL, NumericStream::Normal),
+        (Mesh::ATTRIBUTE_UV_0, NumericStream::Uv),
+        (Mesh::ATTRIBUTE_TANGENT, NumericStream::Tangent),
+        (Mesh::ATTRIBUTE_COLOR, NumericStream::Color),
+        (Mesh::ATTRIBUTE_JOINT_WEIGHT, NumericStream::NormalizedWeight),
+    ] {
+        match mesh.attribute(attribute) {
+            Some(VertexAttributeValues::Float32x2(v)) => finite_stream(v, stream)?,
+            Some(VertexAttributeValues::Float32x3(v)) => finite_stream(v, stream)?,
+            Some(VertexAttributeValues::Float32x4(v)) => finite_stream(v, stream)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+pub(crate) struct AdmittedShape {
+    pub mesh: Mesh,
+    pub triangles: usize,
+    pub skin: Option<Skin>,
+    pub stored: StoredArrays,
+}
+
+/// Numeric errors are separate from absent/unusable optional skin data. A numeric
+/// failure must not become an ordinary unskinned shape in any of the three loaders.
+#[cfg(any(target_os = "android", test))]
+fn admit_shape(dec: &Decoded, shape: &Struct, data: &Struct) -> Result<Option<AdmittedShape>, NumericError> {
+    let Some((mesh, triangles, stored)) = build_mesh(data)? else { return Ok(None) };
+    let skin = shape_skin(dec, shape, mesh.count_vertices())?;
+    Ok(Some(AdmittedShape { mesh, triangles, skin, stored }))
+}
+
+#[cfg(not(target_os = "android"))]
+fn admit_shape_desktop(dec: &Decoded, shape: &Struct, data: &Struct) -> Option<AdmittedShape> {
+    let (mesh, triangles, stored) = build_mesh_desktop(data)?;
+    let skin = shape_skin_desktop(dec, shape, mesh.count_vertices());
+    Some(AdmittedShape { mesh, triangles, skin, stored })
+}
+
+#[derive(Default)]
+pub(crate) struct NumericRejections {
+    #[cfg(any(target_os = "android", test))]
+    total: usize,
+    #[cfg(any(target_os = "android", test))]
+    first: Vec<(usize, NumericError)>,
+}
+
+impl NumericRejections {
+    #[cfg(any(target_os = "android", test))]
+    fn record(&mut self, block: usize, error: NumericError) {
+        self.total = self.total.saturating_add(1);
+        if self.first.len() < 8 {
+            self.first.push((block, error));
+        }
+    }
+
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn admit_android(&mut self, block: usize, dec: &Decoded, shape: &Struct, data: &Struct) -> Option<AdmittedShape> {
+        match admit_shape(dec, shape, data) {
+            Ok(shape) => shape,
+            Err(error) => {
+                self.record(block, error);
+                None
+            }
+        }
+    }
+
+    pub fn admit(&mut self, block: usize, dec: &Decoded, shape: &Struct, data: &Struct) -> Option<AdmittedShape> {
+        #[cfg(target_os = "android")]
+        {
+            self.admit_android(block, dec, shape, data)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = block;
+            admit_shape_desktop(dec, shape, data)
+        }
+    }
+
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn accept_mesh_android(&mut self, block: usize, mesh: &Mesh) -> bool {
+        match finite_mesh(mesh) {
+            Ok(()) => true,
+            Err(error) => {
+                self.record(block, error);
+                false
+            }
+        }
+    }
+
+    pub fn accept_mesh(&mut self, block: usize, mesh: &Mesh) -> bool {
+        #[cfg(target_os = "android")]
+        {
+            self.accept_mesh_android(block, mesh)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (block, mesh);
+            true
+        }
+    }
+
+    pub fn report(&self, source: &str) {
+        #[cfg(any(target_os = "android", test))]
+        if self.total > 0 {
+            let source: String = source.chars().take(240).collect();
+            warn!("NIF numeric admission: {source}: {} shape(s) rejected; first block/reasons: {:?}", self.total, self.first);
+        }
+        #[cfg(not(any(target_os = "android", test)))]
+        let _ = source;
+    }
+}
+
 /// The mesh of a shape-data block, its triangle count, and the tangent arrays it stores
-/// (for [`Tangents::Stored`]; empty when it stores none).
-pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
+/// (for [`Tangents::Stored`]; empty when it stores none) — desktop path matching `main`.
+#[cfg(not(target_os = "android"))]
+fn build_mesh_desktop(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
     let md = mesh_data(data);
     if md.positions.is_empty() || md.triangles.is_empty() {
         return None;
@@ -1446,8 +1733,7 @@ pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
     if md.colors.len() == n {
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, md.colors);
     }
-    let max = n as u32;
-    let idx: Vec<u32> = md.triangles.iter().filter(|t| t.iter().all(|&i| i < max)).flatten().copied().collect();
+    let idx: Vec<u32> = md.triangles.into_iter().filter(|&[a, b, c]| (a as usize) < n && (b as usize) < n && (c as usize) < n).flatten().collect();
     mesh.insert_indices(Indices::U32(idx));
     if !has_normals {
         mesh.compute_normals();
@@ -1455,11 +1741,46 @@ pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
     Some((mesh, tris, StoredArrays { tangents: md.tangents, bitangents: md.bitangents }))
 }
 
+/// The mesh of a shape-data block, its triangle count, and the tangent arrays it stores
+/// (for [`Tangents::Stored`]; empty when it stores none) — Android finite-admission path.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn build_mesh(data: &Struct) -> Result<Option<(Mesh, usize, StoredArrays)>, NumericError> {
+    let md = mesh_data(data);
+    if md.positions.is_empty() || md.triangles.is_empty() {
+        return Ok(None);
+    }
+    finite_stream(&md.positions, NumericStream::Position)?;
+    let n = md.positions.len();
+    let tris = md.triangles.len();
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, md.positions);
+    let has_normals = md.normals.len() == n;
+    if has_normals {
+        finite_stream(&md.normals, NumericStream::Normal)?;
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, md.normals);
+    }
+    if let Some(uv) = md.uv_sets.first().filter(|u| u.len() == n) {
+        finite_stream(uv, NumericStream::Uv)?;
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv.clone());
+    }
+    if md.colors.len() == n {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, md.colors);
+    }
+    let max = n as u32;
+    let idx: Vec<u32> = md.triangles.iter().filter(|t| t.iter().all(|&i| i < max)).flatten().copied().collect();
+    mesh.insert_indices(Indices::U32(idx));
+    if !has_normals {
+        mesh.compute_normals();
+    }
+    Ok(Some((mesh, tris, StoredArrays { tangents: md.tangents, bitangents: md.bitangents })))
+}
+
 /// Per-vertex joint indices and normalised weights (four influences per vertex).
 type SkinWeights = (Vec<[u16; 4]>, Vec<[f32; 4]>);
 
-/// Joint indices and weights per vertex from NiSkinData (top four influences).
-fn skin_weights(skin_data: &Struct, vertices: usize) -> Option<SkinWeights> {
+/// Joint indices and weights per vertex from NiSkinData (top four influences) — desktop path.
+#[cfg(not(target_os = "android"))]
+fn skin_weights_desktop(skin_data: &Struct, vertices: usize) -> Option<SkinWeights> {
     let bones = skin_data.list("bone_list")?;
     let mut infl: Vec<Vec<(u16, f32)>> = vec![Vec::new(); vertices];
     for (b, bone) in bones.iter().enumerate() {
@@ -1496,6 +1817,60 @@ fn skin_weights(skin_data: &Struct, vertices: usize) -> Option<SkinWeights> {
     Some((joints, weights))
 }
 
+/// Joint indices and weights per vertex from NiSkinData (top four influences) — Android path.
+#[cfg(any(target_os = "android", test))]
+fn skin_weights(skin_data: &Struct, vertices: usize) -> Result<Option<SkinWeights>, NumericError> {
+    let Some(bones) = skin_data.list("bone_list") else { return Ok(None) };
+    let mut infl: Vec<Vec<(u16, f32)>> = vec![Vec::new(); vertices];
+    for (b, bone) in bones.iter().enumerate() {
+        let Value::Struct(bone) = bone else { continue };
+        for w in bone.list("vertex_weights").unwrap_or_default() {
+            let Value::Struct(w) = w else { continue };
+            let (Some(i), Some(wt)) = (w.int("index"), w.float("weight")) else { continue };
+            if let Some(v) = infl.get_mut(i as usize) {
+                if !wt.is_finite() {
+                    return Err(NumericError { stream: NumericStream::Weight, element: i as usize });
+                }
+                v.push((b as u16, wt));
+            }
+        }
+    }
+    if infl.iter().all(|v| v.is_empty()) {
+        return Ok(None);
+    }
+    let mut joints = Vec::with_capacity(vertices);
+    let mut weights = Vec::with_capacity(vertices);
+    for (vertex, mut v) in infl.into_iter().enumerate() {
+        v.sort_by(|a, b| b.1.total_cmp(&a.1));
+        v.truncate(4);
+        // Four finite f32 values cannot overflow f64. Compensation also preserves
+        // a small residual when finite signed influences nearly cancel.
+        let (mut sum, mut correction) = (0.0_f64, 0.0_f64);
+        for &(_, weight) in &v {
+            let weight = f64::from(weight);
+            let next = sum + weight;
+            correction += if sum.abs() >= weight.abs() { (sum - next) + weight } else { (weight - next) + sum };
+            sum = next;
+        }
+        let sum = sum + correction;
+        let mut j = [0u16; 4];
+        let mut w = [0f32; 4];
+        for (k, (b, wt)) in v.iter().enumerate() {
+            j[k] = *b;
+            w[k] = if sum > 0.0 { (f64::from(*wt) / sum) as f32 } else { 0.0 };
+            if !w[k].is_finite() {
+                return Err(NumericError { stream: NumericStream::NormalizedWeight, element: vertex });
+            }
+        }
+        if sum <= 0.0 {
+            w[0] = 1.0;
+        }
+        joints.push(j);
+        weights.push(w);
+    }
+    Ok(Some((joints, weights)))
+}
+
 /// A shape's skin: the bone blocks it binds to, per bone the inverse bind matrix in
 /// shape space (the bone's stored skin transform, docs/spec-notes/nif.md §6), and per
 /// vertex the joint indices and weights.
@@ -1515,8 +1890,9 @@ impl Skin {
     }
 }
 
-/// The skin of `shape` (with `vertices` vertices), if it has a usable one.
-pub(crate) fn shape_skin(dec: &Decoded, shape: &Struct, vertices: usize) -> Option<Skin> {
+/// The skin of `shape` (with `vertices` vertices), if it has a usable one — desktop path.
+#[cfg(not(target_os = "android"))]
+fn shape_skin_desktop(dec: &Decoded, shape: &Struct, vertices: usize) -> Option<Skin> {
     let si = shape.block_ref("skin_instance").and_then(|r| dec.get(r))?;
     let bones: Vec<usize> = si.refs("bones").unwrap_or_default().iter().map(|&b| usize::try_from(b).ok()).collect::<Option<_>>()?;
     let sd = si.block_ref("data").and_then(|r| dec.get(r))?;
@@ -1532,7 +1908,30 @@ pub(crate) fn shape_skin(dec: &Decoded, shape: &Struct, vertices: usize) -> Opti
     if inverse_binds.len() != bones.len() {
         return None;
     }
-    Some(Skin { bones, inverse_binds, weights: skin_weights(sd, vertices)? })
+    Some(Skin { bones, inverse_binds, weights: skin_weights_desktop(sd, vertices)? })
+}
+
+/// The skin of `shape` (with `vertices` vertices), if it has a usable one — Android path.
+#[cfg(any(target_os = "android", test))]
+fn shape_skin(dec: &Decoded, shape: &Struct, vertices: usize) -> Result<Option<Skin>, NumericError> {
+    let Some(si) = shape.block_ref("skin_instance").and_then(|r| dec.get(r)) else { return Ok(None) };
+    let Some(sd) = si.block_ref("data").and_then(|r| dec.get(r)) else { return Ok(None) };
+    let weights = skin_weights(sd, vertices)?;
+    let Some(bones) = si.refs("bones").unwrap_or_default().iter().map(|&b| usize::try_from(b).ok()).collect::<Option<Vec<usize>>>() else { return Ok(None) };
+    let mut inverse_binds = Vec::new();
+    for (element, bone) in sd.list("bone_list").unwrap_or_default().iter().enumerate() {
+        let Value::Struct(bone) = bone else { return Ok(None) };
+        let Some(transform) = bone.strukt("skin_transform").and_then(NifTransform::from_struct) else { return Ok(None) };
+        let bind = Mat4::from(affine(&transform));
+        if !bind.is_finite() {
+            return Err(NumericError { stream: NumericStream::InverseBind, element });
+        }
+        inverse_binds.push(bind);
+    }
+    if inverse_binds.len() != bones.len() {
+        return Ok(None);
+    }
+    Ok(weights.map(|weights| Skin { bones, inverse_binds, weights }))
 }
 
 impl SpawnCtx<'_, '_> {
@@ -1626,11 +2025,12 @@ impl SpawnCtx<'_, '_> {
         let to_y_up = Affine3A::from_rotation_x(-FRAC_PI_2);
 
         // Pass 2: geometry and materials.
+        let mut rejected = NumericRejections::default();
         for o in objects.iter().filter(|o| !o.is_node) {
             let Ok(shape) = &dec.blocks[o.block] else { continue };
             let Some(data_ref) = shape.block_ref("data") else { continue };
             let Some(data) = dec.get(data_ref) else { continue };
-            let Some((mut mesh, tris, _)) = build_mesh(data) else { continue };
+            let Some(AdmittedShape { mut mesh, triangles: tris, skin, .. }) = rejected.admit(o.block, &dec, shape, data) else { continue };
 
             let mut props = shape_props(&file, &dec, o, &by_block);
             // Landscape LOD takes no authored set (#2981), as in the model loader.
@@ -1643,6 +2043,9 @@ impl SpawnCtx<'_, '_> {
                 &mut self.images,
                 self.formats.as_deref(),
             );
+            if !rejected.accept_mesh(o.block, &mesh) {
+                continue;
+            }
             report.textures_missing.extend(missing);
             if props.is_helper(shaded) {
                 self.commands.entity(entity_of[&o.block]).insert((NifHidden, Visibility::Hidden));
@@ -1654,7 +2057,7 @@ impl SpawnCtx<'_, '_> {
                 by_name.or_else(|| entity_of.get(b)).copied()
             };
             let mut skinned = None;
-            if let Some(skin) = shape_skin(&dec, shape, mesh.count_vertices()) {
+            if let Some(skin) = skin {
                 if let Some(joints) = skin.bones.iter().map(joint).collect::<Option<Vec<Entity>>>() {
                     let binds = skin.insert_into(&mut mesh);
                     skinned = Some(SkinnedMesh { inverse_bindposes: self.bindposes.add(binds), joints });
@@ -1688,6 +2091,7 @@ impl SpawnCtx<'_, '_> {
             report.shapes += 1;
             report.triangles += tris;
         }
+        rejected.report(path);
         Ok(report)
     }
 }
@@ -1823,6 +2227,96 @@ mod tests {
         ] {
             assert_eq!(shape_material_with(&props, &mut quad(), &mut MaskTextures, Tangents::Generate).0.extension.blended_cutout, None, "{props:?}");
         }
+    }
+
+    /// The water tank's shape (flags 4333, z-write, a base texture) may have a solid core;
+    /// what can thin it, or sets its alpha otherwise, keeps it from one.
+    #[test]
+    fn solid_core_rules_take_only_lit_depth_writing_blends_whose_texture_alone_sets_alpha() {
+        let tank = Props { alpha: Some((4333, 0)), z_write: true, textures: vec!["tank.dds".into()], ..Default::default() };
+        let rules = |p: &Props| solid_core_rules(p, None, shape_alpha_mode(p));
+        assert!(rules(&tank));
+        assert!(rules(&Props { material_alpha: Some(1.0), ..tank.clone() }));
+        // The corn rows: blend and test below the cut.
+        assert!(rules(&Props { alpha: Some((0x12ED, 0)), ..tank.clone() }));
+        assert!(!solid_core_rules(&tank, Some(0.5), AlphaMode::Blend), "a vertex-alpha cut");
+        assert!(!solid_core_rules(&tank, None, AlphaMode::Opaque), "drawn opaque");
+        assert!(!solid_core_rules(&tank, None, AlphaMode::Premultiplied), "a window's reflection");
+        for p in [
+            Props { z_write: false, ..tank.clone() },
+            Props { alpha: None, ..tank.clone() },
+            // Blend off, additive, alpha-tested at a cut of its own.
+            Props { alpha: Some((4332, 0)), ..tank.clone() },
+            Props { alpha: Some((4333 & !(0xF << 5), 0)), ..tank.clone() },
+            Props { alpha: Some((0x12ED, 128)), ..tank.clone() },
+            Props { textures: Vec::new(), ..tank.clone() },
+            Props { textures: vec![String::new()], ..tank.clone() },
+            Props { vertex_alpha: true, ..tank.clone() },
+            Props { material_alpha: Some(0.99), ..tank.clone() },
+            Props { animated_alpha: true, ..tank.clone() },
+            Props { alpha_gated: true, ..tank.clone() },
+            Props { falloff: Some(Falloff { params: Vec4::new(1.0, 0.0, 1.0, 0.0) }), ..tank.clone() },
+            Props { unlit: true, ..tank.clone() },
+            Props { decal: true, ..tank.clone() },
+            Props { refraction: Some(0.1), ..tank.clone() },
+            Props { hair: true, ..tank.clone() },
+            Props { skin: true, ..tank.clone() },
+            Props { lod_building: true, ..tank.clone() },
+            Props { env: Some(crate::env_map::EnvFlags { scale: 1.0, window: true, light_fade: false }), ..tank.clone() },
+        ] {
+            assert!(!rules(&p), "{p:?}");
+        }
+    }
+
+    /// The built material names its core's texture only for such a shape, and the core is a
+    /// hard cut-out copy of it; every run-time change of the blend takes the core away.
+    #[test]
+    fn a_solid_core_is_a_hard_cut_out_copy_and_goes_with_any_change_of_the_blend() {
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        tri.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]]);
+        let tank = Props { alpha: Some((4333, 0)), z_write: true, textures: vec!["tank.dds".into()], ..Default::default() };
+        let build = |p: &Props| shape_material_with(p, &mut tri.clone(), &mut AllTextures, Tangents::Generate).0;
+        let m = build(&tank);
+        let source = m.extension.solid_core.clone().expect("a candidate");
+        assert_eq!(source.texture, "tank.dds");
+        assert_eq!(Some(source.image), m.base.base_color_texture.as_ref().map(Handle::id));
+        assert!(build(&Props { z_write: false, ..tank.clone() }).extension.solid_core.is_none());
+        // Without its texture there is nothing to cut.
+        assert!(shape_material_with(&tank, &mut tri.clone(), &mut NoTextures, Tangents::Generate).0.extension.solid_core.is_none());
+
+        let core = solid_core(&m, SOLID_CORE_CUT).expect("a core");
+        assert_eq!(core.base.alpha_mode, AlphaMode::Mask(SOLID_CORE_CUT));
+        assert!(core.extension.hard_edges);
+        assert!(core.extension.solid_core.is_none() && core.extension.blended_cutout.is_none() && core.extension.legacy.is_none());
+        assert_eq!(core.base.base_color_texture, m.base.base_color_texture);
+        assert!(solid_core(&core, SOLID_CORE_CUT).is_none(), "no core of a core");
+        assert!(!crate::nif_material::see_through(&core));
+
+        type Change = fn(&mut NifMaterial);
+        let changes: [(&str, Change); 12] = [
+            ("a fade's or a script's alpha", |m| m.base.base_color.set_alpha(0.99)),
+            ("drawn opaque", |m| m.base.alpha_mode = AlphaMode::Opaque),
+            ("FSR's cut-out", |m| m.base.alpha_mode = AlphaMode::Mask(0.5)),
+            ("a stealth field", |m| refraction_material(m, 0.1, 0.0)),
+            ("an effect shader's holes", |m| m.extension.holes = Vec4::new(128.0, 0.0, 0.0, 0.0)),
+            ("a texture swap", |m| m.base.base_color_texture = Some(bevy::asset::uuid_handle!("6d0f3f0e-6f5b-4a1c-9a64-2f8f5c7d1e90"))),
+            ("no texture", |m| m.base.base_color_texture = None),
+            ("an alpha cut", |m| m.extension.alpha_cut = 0.5),
+            ("a height map", |m| m.base.depth_map = Some(Handle::default())),
+            ("a first-person copy", |m| m.extension.first_person = true),
+            ("depth written by the blend", |m| m.extension.depth_write = true),
+            ("a decal copy", |m| m.extension.decal = true),
+        ];
+        for (what, change) in changes {
+            let mut c = m.clone();
+            change(&mut c);
+            assert!(solid_core(&c, SOLID_CORE_CUT).is_none(), "{what}");
+        }
+        // Followed, not refused: a changed emissive colour is the core's too.
+        let mut lit = m.clone();
+        lit.base.emissive = LinearRgba::rgb(0.5, 0.2, 0.1);
+        assert_eq!(solid_core(&lit, SOLID_CORE_CUT).expect("still a core").base.emissive, lit.base.emissive);
     }
 
     /// #3230: a shape that asks to be blended and that nothing can thin is drawn opaque.
@@ -2640,7 +3134,7 @@ mod tests {
         let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
         let shape = objects.iter().find(|o| !o.is_node).expect("the shape");
         let props = shape_props(&file, &dec, shape, &by_block);
-        let (mut mesh, ..) = build_mesh(dec.get(4).unwrap()).unwrap();
+        let (mut mesh, ..) = build_mesh(dec.get(4).unwrap()).unwrap().unwrap();
         let material = shape_material_with(&props, &mut mesh, &mut AllTextures, Tangents::Generate).0;
         (props, material)
     }
@@ -2916,6 +3410,9 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+#[path = "nif_numeric_admission_tests.rs"]
+mod numeric_admission_tests;
 
 #[cfg(test)]
 mod authored_tests;
@@ -2961,5 +3458,23 @@ mod bc5_material_tests {
         assert!(refused.base.normal_map_texture.is_none());
         assert!(refused.base.specular_texture.is_none());
         assert_eq!(refused.base.reflectance, 0.3);
+    }
+
+    #[test]
+    fn stencil_cull_maps_draw_mode_bits() {
+        assert_eq!(stencil_cull(0), (false, Some(bevy::render::render_resource::Face::Back)));
+        assert_eq!(stencil_cull(1 << 10), (false, Some(bevy::render::render_resource::Face::Back)));
+        assert_eq!(stencil_cull(2 << 10), (false, Some(bevy::render::render_resource::Face::Front)));
+        assert_eq!(stencil_cull(3 << 10), (true, None));
+        for mode in 0..=3i64 {
+            let flags = (mode << 10) | 0x0015;
+            let expected = stencil_cull(flags);
+            let props = Props {
+                double_sided: mode == 3,
+                stencil_draw_mode: Some(mode),
+                ..Default::default()
+            };
+            assert_eq!(props_cull(&props), expected, "load-time props_cull must match stencil_cull for mode {mode}");
+        }
     }
 }

@@ -1,0 +1,878 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave1_parity_probes",
+  "description": "Wave 1/2 clean-room read-only console-only probes backing parity fixes for xNVSE compound assignments & dATan2 (#3495/#3699), JIP hit 3D direction/base damage/reticle limb (#3606/#3689), ShowOff OnFireWeapon & ForceWeaponJamAnim (#3632), ShowOff objective/unholster & xNVSE IMOD events (#3656/#3701), and SetCritDam alias (#2704/#3702).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184",
+    "JohnnyGuitarNVSE": "528",
+    "kNVSE": "37",
+    "SUP NVSE Plugin": "855"
+  },
+  "batches": [
+    {
+      "id": "w1_parity",
+      "title": "Wave 1/2 Parity Probes (xNVSE / JIP LN / ShowOff)",
+      "extender": "xNVSE 6.4.9 / JIP LN 57.30 / ShowOffNVSE 184",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ShowOffNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w1_3495_compound_assign_and_datan2",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": false,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-syntax.md",
+          "spec_line": 57,
+          "functions_tested": [
+            "syntax",
+            "dATan2",
+            "ATan2"
+          ],
+          "claim": "xNVSE 6.4.9 compound assignment operators (let |= &= %= ^= <<= >>=, float truncation 5.9 |= 2.8, bare += /= |= &= %= ^= <<= >>=, plain << >>) and dATan2(y, x) degree outputs including (1, 1.7320508).",
+          "expected": "let |=, &=, %=, ^= and 5.9|=2.8=7 work; let <<= and >>= do not shift (assign RHS after error); bare +=, /=, |=, &=, %= compile & run; bare ^=, <<=, >>= fail compile; 3<<2=12, 20>>2=5; dATan2(1,1.7320508)=30.000002",
+          "helper_scripts": {
+            "nvseprobe_s_w1_op_let_or.gek": [
+              "int x = 5",
+              "let x |= 2",
+              "PrintToConsole \"OP let_or (5|=2)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_let_and.gek": [
+              "int x = 7",
+              "let x &= 3",
+              "PrintToConsole \"OP let_and (7&=3)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_let_mod.gek": [
+              "int x = 13",
+              "let x %= 5",
+              "PrintToConsole \"OP let_mod (13%%=5)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_let_pow.gek": [
+              "int x = 3",
+              "let x ^= 4",
+              "PrintToConsole \"OP let_pow (3^=4)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_let_shl.gek": [
+              "int x = 3",
+              "let x <<= 2",
+              "PrintToConsole \"OP let_shl (3<<=2)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_let_shr.gek": [
+              "int x = 20",
+              "let x >>= 2",
+              "PrintToConsole \"OP let_shr (20>>=2)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_let_flt_or.gek": [
+              "float f = 5.9",
+              "let f |= 2.8",
+              "PrintToConsole \"OP let_flt_or (5.9|=2.8)=%g\" f"
+            ],
+            "nvseprobe_s_w1_op_bare_add.gek": [
+              "int x = 5",
+              "x += 3",
+              "PrintToConsole \"OP bare_add (5+=3)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_bare_div.gek": [
+              "int x = 10",
+              "x /= 2",
+              "PrintToConsole \"OP bare_div (10/=2)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_bare_or.gek": [
+              "int x = 5",
+              "x |= 2",
+              "PrintToConsole \"OP bare_or (5|=2)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_bare_and.gek": [
+              "int x = 7",
+              "x &= 3",
+              "PrintToConsole \"OP bare_and (7&=3)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_bare_mod.gek": [
+              "int x = 13",
+              "x %= 5",
+              "PrintToConsole \"OP bare_mod (13%%=5)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_bare_pow.gek": [
+              "int x = 3",
+              "x ^= 4",
+              "PrintToConsole \"OP bare_pow (3^=4)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_bare_shl.gek": [
+              "int x = 3",
+              "x <<= 2",
+              "PrintToConsole \"OP bare_shl (3<<=2)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_bare_shr.gek": [
+              "int x = 20",
+              "x >>= 2",
+              "PrintToConsole \"OP bare_shr (20>>=2)=%g\" x"
+            ],
+            "nvseprobe_s_w1_op_expr_shl.gek": [
+              "int x = 3 << 2",
+              "int y = 20 >> 2",
+              "PrintToConsole \"OP expr_shift (3<<2)=%g (20>>2)=%g\" x y"
+            ]
+          },
+          "script_lines": [
+            "ref rFn",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_let_or.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP let_or=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_let_and.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP let_and=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_let_mod.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP let_mod=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_let_pow.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP let_pow=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_let_shl.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP let_shl=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_let_shr.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP let_shr=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_let_flt_or.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP let_flt_or=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_bare_add.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP bare_add=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_bare_div.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP bare_div=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_bare_or.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP bare_or=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_bare_and.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP bare_and=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_bare_mod.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP bare_mod=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_bare_pow.gek\"",
+            "int iBarePowOk = IsFormValid rFn",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP bare_pow=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_bare_shl.gek\"",
+            "int iBareShlOk = IsFormValid rFn",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP bare_shl=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_bare_shr.gek\"",
+            "int iBareShrOk = IsFormValid rFn",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP bare_shr=COMPILE_FAIL\"",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_op_expr_shl.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "else",
+            "  PrintToConsole \"OP expr_shl=COMPILE_FAIL\"",
+            "endif",
+            "PrintToConsole \"dATan2(0,0)=%.6f\" (dATan2 0 0)",
+            "PrintToConsole \"dATan2(1,0)=%.6f\" (dATan2 1 0)",
+            "PrintToConsole \"dATan2(0,1)=%.6f\" (dATan2 0 1)",
+            "PrintToConsole \"dATan2(-1,0)=%.6f\" (dATan2 -1 0)",
+            "PrintToConsole \"dATan2(0,-1)=%.6f\" (dATan2 0 -1)",
+            "PrintToConsole \"dATan2(1,1)=%.6f\" (dATan2 1 1)",
+            "PrintToConsole \"dATan2(-1,1)=%.6f\" (dATan2 -1 1)",
+            "PrintToConsole \"dATan2(-1,-1)=%.6f\" (dATan2 -1 -1)",
+            "PrintToConsole \"dATan2(1,-1)=%.6f\" (dATan2 1 -1)",
+            "float fDa30 = dATan2 1 1.7320508",
+            "float fAt45 = ATan2 1 1",
+            "PrintToConsole \"PROBE|w1_3495_compound_assign_and_datan2|barePow=%g,bareShl=%g,bareShr=%g,dATan2_30=%.6f,ATan2_1_1=%.6f\" iBarePowOk iBareShlOk iBareShrOk fDa30 fAt45"
+          ]
+        },
+        {
+          "id": "w1_3606_hit_3d_dir_and_base_damage",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-hit-info.md",
+          "spec_line": 122,
+          "functions_tested": [
+            "GetHit3DData",
+            "GetHitBaseWeaponDamage",
+            "GetHitProjectile",
+            "GetHitFatigueDamage",
+            "GetHitExtendedFlag",
+            "GetReticleTargetLimb"
+          ],
+          "claim": "GetHit3DData 1 returns unit 3D travel direction vector (South->North +Y and East->West -X; [0,0,0] on EXPL; Ar_Size -1 pre-hit/invalid dataType 9); GetHitBaseWeaponDamage includes crit damage (22/44/222 with SetCritDam 200) and EXPL damage (125); GetHitExtendedFlag takes 0-based bit index (1, 8 vs mask 256->0); GetReticleTargetLimb returns Head/Torso/Leg/-1.",
+          "expected": "preHit Ar_Size=-1; S->N +Y unit vector; E->W -X unit vector; baseDmg 22/44/222/125; fatigue=50 on beanbag; flg(1)=1 on crit, flg(8)=1 on EXPL, flg(256)=0; reticle limb 1/0/10/-1",
+          "helper_scripts": {
+            "nvseprobe_s_w1_3606_onhit.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTarget = GetSelfAlt",
+              "ref rAtk = rTarget.GetHitAttacker",
+              "ref rWeap = rTarget.GetHitWeapon",
+              "ref rProj = rTarget.GetHitProjectile",
+              "int projType = GetType rProj",
+              "float hDmg = rTarget.GetHitHealthDamage",
+              "float bDmg = rTarget.GetHitBaseWeaponDamage",
+              "float fDmg = rTarget.GetHitFatigueDamage",
+              "float lDmg = rTarget.GetHitLimbDamage",
+              "int loc = rTarget.GetHitLocation",
+              "int i1 = rTarget.GetHitExtendedFlag 1",
+              "int i8 = rTarget.GetHitExtendedFlag 8",
+              "int i256 = rTarget.GetHitExtendedFlag 256",
+              "array_var d0 = rTarget.GetHit3DData 0",
+              "array_var d1 = rTarget.GetHit3DData 1",
+              "array_var d2 = rTarget.GetHit3DData 2",
+              "int n0 = Ar_Size d0",
+              "int n1 = Ar_Size d1",
+              "int n2 = Ar_Size d2",
+              "float r0 = 0",
+              "float r1 = 0",
+              "float r2 = 0",
+              "if n1 >= 3",
+              "  let r0 := d1[0]",
+              "  let r1 := d1[1]",
+              "  let r2 := d1[2]",
+              "endif",
+              "PrintToConsole \"ONHIT tgt=%i atk=%i weap=%i proj=%i(type=%g) hDmg=%.3f baseDmg=%.3f fatDmg=%.3f limbDmg=%.3f loc=%g flg(1,8,256)=%g,%g,%g\" rTarget rAtk rWeap rProj projType hDmg bDmg fDmg lDmg loc i1 i8 i256",
+              "PrintToConsole \"  3D n0=%g n1=%g n2=%g dir=(%.3f,%.3f,%.3f)\" n0 n1 n2 r0 r1 r2"
+            ]
+          },
+          "wait_ticks_after": 8,
+          "script_lines": [
+            "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rDocBase = rDocRef.GetBaseObject",
+            "ref rTgt = Player.PlaceAtMe rDocBase 1 100 0",
+            "Player.AuxVarSetRef \"*w1_3606_tgt\" rTgt",
+            "rTgt.SetAV Health 10000",
+            "rTgt.SetRestrained 1",
+            "array_var preD0 = rTgt.GetHit3DData 0",
+            "array_var preD1 = rTgt.GetHit3DData 1",
+            "array_var preD9 = rTgt.GetHit3DData 9",
+            "Player.AuxVarSetFlt \"*w1_3606_pre0\" (Ar_Size preD0)",
+            "Player.AuxVarSetFlt \"*w1_3606_pre9\" (Ar_Size preD9)",
+            "PrintToConsole \"PREHIT_3D n0=%g n1=%g n9=%g proj=%i baseDmg=%.3f fatDmg=%.3f\" (Ar_Size preD0) (Ar_Size preD1) (Ar_Size preD9) (rTgt.GetHitProjectile) (rTgt.GetHitBaseWeaponDamage) (rTgt.GetHitFatigueDamage)",
+            "ref cbHit = CompileScript \"nvseprobe_s_w1_3606_onhit.gek\"",
+            "SetOnHitEventHandler cbHit 1 rTgt",
+            "float px = Player.GetPos X",
+            "float py = Player.GetPos Y",
+            "float pz = Player.GetPos Z",
+            "rTgt.SetPos X px",
+            "rTgt.SetPos Y (py + 90)",
+            "rTgt.SetPos Z pz",
+            "rTgt.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rAmmo10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent r10mm 1 1.0",
+            "Player.AddItem rAmmo10 200 1",
+            "Player.EquipItem r10mm 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "extra_steps": [
+            {
+              "suffix": "reticle_and_sn",
+              "wait_ticks": 6,
+              "script_lines": [
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "int iLimbTorso = GetReticleTargetLimb",
+                "Player.AuxVarSetFlt \"*w1_3606_lt\" iLimbTorso",
+                "PrintToConsole \"SHOT1_SN_NONCRIT cr=%i limb=%g\" (GetCrosshairRef) iLimbTorso",
+                "Player.FireWeapon r10mm"
+              ]
+            },
+            {
+              "suffix": "crit_base",
+              "wait_ticks": 6,
+              "script_lines": [
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.SetAV CritChance 100",
+                "PrintToConsole \"SHOT2A_CRIT_BASE cd=%g\" (GetWeaponCritDamage r10mm)",
+                "Player.FireWeapon r10mm"
+              ]
+            },
+            {
+              "suffix": "crit_200",
+              "wait_ticks": 6,
+              "script_lines": [
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "SetCritDam 200 r10mm",
+                "PrintToConsole \"SHOT2B_CRIT_200 cd=%g\" (GetWeaponCritDamage r10mm)",
+                "Player.FireWeapon r10mm"
+              ]
+            },
+            {
+              "suffix": "ew_setup",
+              "wait_ticks": 5,
+              "script_lines": [
+                "ref rTgt = Player.AuxVarGetRef \"*w1_3606_tgt\"",
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "SetCritDam 22 r10mm",
+                "Player.SetAV CritChance 0",
+                "float px = Player.GetPos X",
+                "float py = Player.GetPos Y",
+                "float pz = Player.GetPos Z",
+                "rTgt.SetPos X (px - 85)",
+                "rTgt.SetPos Y py",
+                "rTgt.SetPos Z pz",
+                "rTgt.SetAngle Z 90",
+                "Player.SetAngle Z 270",
+                "Player.SetAngle X 15"
+              ]
+            },
+            {
+              "suffix": "ew_fire_and_bean_setup",
+              "wait_ticks": 8,
+              "script_lines": [
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "PrintToConsole \"SHOT3_EW_NONCRIT cr=%i\" (GetCrosshairRef)",
+                "Player.FireWeapon r10mm",
+                "ref rShot = GetFormFromMod \"FalloutNV.esm\" \"CD53A\"",
+                "ref rBean = GetFormFromMod \"FalloutNV.esm\" \"13E446\"",
+                "Player.AddItemHealthPercent rShot 1 1.0",
+                "Player.AddItem rBean 20 1",
+                "Player.EquipItem rShot 0 1",
+                "Player.EquipItem rBean 0 1",
+                "Player.SetWeaponOut 1",
+                "Player.SetCurrentAmmoRounds 2"
+              ]
+            },
+            {
+              "suffix": "bean_and_expl",
+              "wait_ticks": 6,
+              "script_lines": [
+                "ref rTgt = Player.AuxVarGetRef \"*w1_3606_tgt\"",
+                "ref rShot = GetFormFromMod \"FalloutNV.esm\" \"CD53A\"",
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"179DA\"",
+                "PrintToConsole \"SHOT4_BEANBAG cr=%i\" (GetCrosshairRef)",
+                "Player.FireWeapon rShot",
+                "Player.SetAV Health 10000",
+                "PrintToConsole \"SHOT5_EXPL\"",
+                "rTgt.PlaceAtMe rExpl 1"
+              ]
+            },
+            {
+              "suffix": "summary",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rTgt = Player.AuxVarGetRef \"*w1_3606_tgt\"",
+                "Player.SetAngle X -80",
+                "int iLimbEmpty = GetReticleTargetLimb",
+                "int iPre0 = Player.AuxVarGetFlt \"*w1_3606_pre0\"",
+                "int iPre9 = Player.AuxVarGetFlt \"*w1_3606_pre9\"",
+                "int iLimbT = Player.AuxVarGetFlt \"*w1_3606_lt\"",
+                "float fLastBase = rTgt.GetHitBaseWeaponDamage",
+                "ref cbHit = CompileScript \"nvseprobe_s_w1_3606_onhit.gek\"",
+                "SetOnHitEventHandler cbHit 0 rTgt",
+                "rTgt.Disable",
+                "rTgt.MarkForDelete",
+                "PrintToConsole \"PROBE|w1_3606_hit_3d_dir_and_base_damage|pre0=%g,pre9=%g,limbT=%g,limbEmpty=%g,explBase=%.1f\" iPre0 iPre9 iLimbT iLimbEmpty fLastBase"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w1_3632_onfireweapon_and_forcejam",
+          "bucket": "A",
+          "extender": "ShowOffNVSE 184",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 46,
+          "functions_tested": [
+            "ForceWeaponJamAnim",
+            "SetEventHandlerAlt",
+            "GetAnimAction",
+            "IsAnimPlayingEx"
+          ],
+          "claim": "ShowOff:OnFireWeapon fires once per shot with self=firing actor and arg1=WEAP base form (including 1x for 7-pellet Caravan Shotgun); ForceWeaponJamAnim returns 0 for holstered/melee/unarmed and 1 for drawn 10mm (setting GetAnimAction=9 while IsAnimPlayingEx 4=0, and returning 1 on re-call while jamming; paired with so_34_force_weapon_jam_revolver for .357 Revolver=0).",
+          "expected": "holst=0, drawn10mm=1(act=9,relEx4=0,reCall=1), bat=0, fists=0, doc10mm=1; OnFireWeapon fires 1x per shot with self=actor, arg1=WEAP",
+          "helper_scripts": {
+            "nvseprobe_s_w1_3632_fire.gek": [
+              "begin Function { ref rWeap }",
+              "ref rSelf = GetSelfAlt",
+              "int wt = GetType rWeap",
+              "int act = rSelf.GetAnimAction",
+              "Player.AuxVarSetFlt \"*w1_3632_fc\" ((Player.AuxVarGetFlt \"*w1_3632_fc\") + 1)",
+              "PrintToConsole \"CB OnFireWeapon self=%i weap=%i weapType=%g AnimAction=%g\" rSelf rWeap wt act"
+            ]
+          },
+          "wait_ticks_after": 6,
+          "script_lines": [
+            "ref cbFire = CompileScript \"nvseprobe_s_w1_3632_fire.gek\"",
+            "int iReg = SetEventHandlerAlt \"ShowOff:OnFireWeapon\" cbFire",
+            "Player.AuxVarSetFlt \"*w1_3632_reg\" iReg",
+            "Player.AuxVarSetFlt \"*w1_3632_fc\" 0",
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rAmmo10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "ref rBat = GetFormFromMod \"FalloutNV.esm\" \"421C\"",
+            "ref rShot = GetFormFromMod \"FalloutNV.esm\" \"CD53A\"",
+            "ref rAmmo12 = GetFormFromMod \"FalloutNV.esm\" \"8ECF5\"",
+            "Player.AddItem r10mm 1 1",
+            "Player.AddItem rAmmo10 50 1",
+            "Player.AddItem rBat 1 1",
+            "Player.AddItem rShot 1 1",
+            "Player.AddItem rAmmo12 50 1",
+            "Player.EquipItem r10mm 0 1",
+            "Player.SetWeaponOut 0",
+            "int jHolst = Player.ForceWeaponJamAnim",
+            "Player.AuxVarSetFlt \"*w1_3632_jh\" jHolst",
+            "Player.SetWeaponOut 1"
+          ],
+          "extra_steps": [
+            {
+              "suffix": "drawn_10mm",
+              "wait_ticks": 6,
+              "script_lines": [
+                "int wout = Player.IsWeaponOut",
+                "int act0 = Player.GetAnimAction",
+                "int j10 = Player.ForceWeaponJamAnim",
+                "int act1 = Player.GetAnimAction",
+                "int rel1 = Player.IsAnimPlayingEx 4",
+                "int j10Again = Player.ForceWeaponJamAnim",
+                "Player.AuxVarSetFlt \"*w1_3632_j10\" j10",
+                "Player.AuxVarSetFlt \"*w1_3632_act1\" act1",
+                "Player.AuxVarSetFlt \"*w1_3632_rel1\" rel1",
+                "Player.AuxVarSetFlt \"*w1_3632_j10a\" j10Again",
+                "PrintToConsole \"JAM 10mm_drawn wout=%g actBefore=%g ret=%g actAfter=%g isReloadEx4=%g retWhileJam=%g\" wout act0 j10 act1 rel1 j10Again",
+                "ref rBat = GetFormFromMod \"FalloutNV.esm\" \"421C\"",
+                "Player.EquipItem rBat 0 1",
+                "Player.SetWeaponOut 1"
+              ]
+            },
+            {
+              "suffix": "melee_and_unarmed",
+              "wait_ticks": 6,
+              "script_lines": [
+                "int jBat = Player.ForceWeaponJamAnim",
+                "Player.AuxVarSetFlt \"*w1_3632_jbat\" jBat",
+                "ref rBat = GetFormFromMod \"FalloutNV.esm\" \"421C\"",
+                "Player.SetWeaponOut 0",
+                "Player.UnequipItem rBat 0 1"
+              ]
+            },
+            {
+              "suffix": "draw_fists",
+              "wait_ticks": 6,
+              "script_lines": [
+                "Player.SetWeaponOut 1"
+              ]
+            },
+            {
+              "suffix": "fists_and_fire",
+              "wait_ticks": 6,
+              "script_lines": [
+                "int jFist = Player.ForceWeaponJamAnim",
+                "Player.AuxVarSetFlt \"*w1_3632_jfist\" jFist",
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rShot = GetFormFromMod \"FalloutNV.esm\" \"CD53A\"",
+                "Player.EquipItem r10mm 0 1",
+                "Player.SetWeaponOut 1",
+                "Player.FireWeapon r10mm",
+                "Player.EquipItem rShot 0 1",
+                "Player.SetWeaponOut 1",
+                "Player.FireWeapon rShot"
+              ]
+            },
+            {
+              "suffix": "summary",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref cbFire = CompileScript \"nvseprobe_s_w1_3632_fire.gek\"",
+                "RemoveEventHandler \"ShowOff:OnFireWeapon\" cbFire",
+                "int iReg = Player.AuxVarGetFlt \"*w1_3632_reg\"",
+                "int jH = Player.AuxVarGetFlt \"*w1_3632_jh\"",
+                "int j10 = Player.AuxVarGetFlt \"*w1_3632_j10\"",
+                "int act1 = Player.AuxVarGetFlt \"*w1_3632_act1\"",
+                "int rel1 = Player.AuxVarGetFlt \"*w1_3632_rel1\"",
+                "int j10a = Player.AuxVarGetFlt \"*w1_3632_j10a\"",
+                "int jBat = Player.AuxVarGetFlt \"*w1_3632_jbat\"",
+                "int jFist = Player.AuxVarGetFlt \"*w1_3632_jfist\"",
+                "int fCnt = Player.AuxVarGetFlt \"*w1_3632_fc\"",
+                "PrintToConsole \"PROBE|w1_3632_onfireweapon_and_forcejam|reg=%g,holst=%g,j10=%g(act=%g,rel4=%g,again=%g),bat=%g,fists=%g,fireCnt=%g\" iReg jH j10 act1 rel1 j10a jBat jFist fCnt"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w1_3656_objectives_unholster_imod",
+          "bucket": "A",
+          "extender": "ShowOffNVSE 184 / xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 276,
+          "functions_tested": [
+            "SetEventHandlerAlt",
+            "SetObjectiveDisplayed",
+            "SetObjectiveCompleted",
+            "CompleteAllObjectives",
+            "ApplyImageSpaceModifier",
+            "RemoveImageSpaceModifier"
+          ],
+          "claim": "ShowOff:OnDisplayObjective & OnCompleteObjective dispatch PRE-update (getters read 0 inside callback), skip hidden objectives (30), and CompleteAllObjectives fires displayed objectives in QOBJ record order (50 then 5); ShowOff:OnWeaponUnholster fires at draw start (IsWeaponOut=0) with WEAP form or 0 when unarmed; OnApplyIMOD/OnRemoveIMOD dispatch PRE-update and stack re-applied IMADs (1 OnRemoveIMOD per stacked instance plus expiry).",
+          "expected": "disp/comp PRE-update (0 inside); hidden 30 skipped; CompleteAllObjectives fires 50 then 5; unholster IsWeaponOut=0 with 434F and 0 unarmed; stacked imod fires 2x OnRemoveIMOD on rimod; GetHit expiry fires OnRemoveIMOD",
+          "helper_scripts": {
+            "nvseprobe_s_w1_3656_dispobj.gek": [
+              "begin Function { ref rQuest, int iObj }",
+              "ref rSelf = GetSelfAlt",
+              "int disp = GetObjectiveDisplayed rQuest iObj",
+              "PrintToConsole \"CB OnDisplayObjective self=%i quest=%i obj=%g GetObjDisp=%g\" rSelf rQuest iObj disp"
+            ],
+            "nvseprobe_s_w1_3656_compobj.gek": [
+              "begin Function { ref rQuest, int iObj }",
+              "ref rSelf = GetSelfAlt",
+              "int comp = GetObjectiveCompleted rQuest iObj",
+              "int disp = GetObjectiveDisplayed rQuest iObj",
+              "PrintToConsole \"CB OnCompleteObjective self=%i quest=%i obj=%g GetObjComp=%g GetObjDisp=%g\" rSelf rQuest iObj comp disp"
+            ],
+            "nvseprobe_s_w1_3656_unholster.gek": [
+              "begin Function { ref rWeap }",
+              "ref rSelf = GetSelfAlt",
+              "int wout = rSelf.IsWeaponOut",
+              "int act = rSelf.GetAnimAction",
+              "int wt = GetType rWeap",
+              "PrintToConsole \"CB OnWeaponUnholster self=%i weap=%i weapType=%g IsWeaponOut=%g AnimAction=%g\" rSelf rWeap wt wout act"
+            ],
+            "nvseprobe_s_w1_3656_applyimod.gek": [
+              "begin Function { ref rImod }",
+              "ref rSelf = GetSelfAlt",
+              "int active = IsImageSpaceActive rImod",
+              "Player.AuxVarSetFlt \"*w1_3656_ap\" ((Player.AuxVarGetFlt \"*w1_3656_ap\") + 1)",
+              "PrintToConsole \"CB OnApplyIMOD self=%i imod=%i IsActive=%g\" rSelf rImod active"
+            ],
+            "nvseprobe_s_w1_3656_removeimod.gek": [
+              "begin Function { ref rImod }",
+              "ref rSelf = GetSelfAlt",
+              "int active = IsImageSpaceActive rImod",
+              "Player.AuxVarSetFlt \"*w1_3656_rm\" ((Player.AuxVarGetFlt \"*w1_3656_rm\") + 1)",
+              "PrintToConsole \"CB OnRemoveIMOD self=%i imod=%i IsActive=%g\" rSelf rImod active"
+            ]
+          },
+          "wait_ticks_after": 10,
+          "script_lines": [
+            "ref cbDisp = CompileScript \"nvseprobe_s_w1_3656_dispobj.gek\"",
+            "ref cbComp = CompileScript \"nvseprobe_s_w1_3656_compobj.gek\"",
+            "ref cbUnh = CompileScript \"nvseprobe_s_w1_3656_unholster.gek\"",
+            "ref cbApIm = CompileScript \"nvseprobe_s_w1_3656_applyimod.gek\"",
+            "ref cbRmIm = CompileScript \"nvseprobe_s_w1_3656_removeimod.gek\"",
+            "int r1 = SetEventHandlerAlt \"ShowOff:OnDisplayObjective\" cbDisp",
+            "int r2 = SetEventHandlerAlt \"ShowOff:OnCompleteObjective\" cbComp",
+            "int r3 = SetEventHandlerAlt \"ShowOff:OnWeaponUnholster\" cbUnh",
+            "int r4 = SetEventHandlerAlt \"OnApplyIMOD\" cbApIm",
+            "int r5 = SetEventHandlerAlt \"OnRemoveIMOD\" cbRmIm",
+            "Player.AuxVarSetFlt \"*w1_3656_ap\" 0",
+            "Player.AuxVarSetFlt \"*w1_3656_rm\" 0",
+            "PrintToConsole \"REG disp=%g comp=%g unh=%g apIm=%g rmIm=%g\" r1 r2 r3 r4 r5",
+            "ref rQ = GetFormFromMod \"FalloutNV.esm\" \"E282D\"",
+            "StartQuest rQ",
+            "SetObjectiveDisplayed rQ 20 1",
+            "SetObjectiveDisplayed rQ 20 1",
+            "SetObjectiveDisplayed rQ 20 0",
+            "SetObjectiveDisplayed rQ 20 1",
+            "SetObjectiveDisplayed rQ 999 1",
+            "SetObjectiveCompleted rQ 20 1",
+            "SetObjectiveCompleted rQ 20 1",
+            "SetObjectiveCompleted rQ 20 0",
+            "SetObjectiveCompleted rQ 30 1",
+            "SetObjectiveDisplayed rQ 50 1",
+            "SetObjectiveDisplayed rQ 5 1",
+            "CompleteAllObjectives rQ",
+            "CompleteQuest rQ",
+            "SetObjectiveDisplayed rQ 60 1",
+            "SetObjectiveCompleted rQ 60 1",
+            "ref rGetHit = GetFormFromMod \"FalloutNV.esm\" \"162\"",
+            "ref rWhite = GetFormFromMod \"FalloutNV.esm\" \"C9AFA\"",
+            "imod rGetHit",
+            "imod rWhite",
+            "imod rWhite",
+            "rimod rWhite",
+            "rimod rWhite",
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "Player.AddItem r10mm 1 1",
+            "Player.EquipItem r10mm 0 1",
+            "Player.SetWeaponOut 0",
+            "Player.SetWeaponOut 1"
+          ],
+          "extra_steps": [
+            {
+              "suffix": "unarmed_unholster",
+              "wait_ticks": 6,
+              "script_lines": [
+                "ref rGetHit = GetFormFromMod \"FalloutNV.esm\" \"162\"",
+                "int iActHit = IsImageSpaceActive rGetHit",
+                "Player.AuxVarSetFlt \"*w1_3656_hitact\" iActHit",
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.SetWeaponOut 0",
+                "Player.UnequipItem r10mm 0 1"
+              ]
+            },
+            {
+              "suffix": "draw_unarmed",
+              "wait_ticks": 4,
+              "script_lines": [
+                "Player.SetWeaponOut 1"
+              ]
+            },
+            {
+              "suffix": "summary",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref cbDisp = CompileScript \"nvseprobe_s_w1_3656_dispobj.gek\"",
+                "ref cbComp = CompileScript \"nvseprobe_s_w1_3656_compobj.gek\"",
+                "ref cbUnh = CompileScript \"nvseprobe_s_w1_3656_unholster.gek\"",
+                "ref cbApIm = CompileScript \"nvseprobe_s_w1_3656_applyimod.gek\"",
+                "ref cbRmIm = CompileScript \"nvseprobe_s_w1_3656_removeimod.gek\"",
+                "RemoveEventHandler \"ShowOff:OnDisplayObjective\" cbDisp",
+                "RemoveEventHandler \"ShowOff:OnCompleteObjective\" cbComp",
+                "RemoveEventHandler \"ShowOff:OnWeaponUnholster\" cbUnh",
+                "RemoveEventHandler \"OnApplyIMOD\" cbApIm",
+                "RemoveEventHandler \"OnRemoveIMOD\" cbRmIm",
+                "int iAp = Player.AuxVarGetFlt \"*w1_3656_ap\"",
+                "int iRm = Player.AuxVarGetFlt \"*w1_3656_rm\"",
+                "int iHitAct = Player.AuxVarGetFlt \"*w1_3656_hitact\"",
+                "PrintToConsole \"PROBE|w1_3656_objectives_unholster_imod|apIm=%g,rmIm=%g,getHitAfterWait=%g\" iAp iRm iHitAct"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w1_2704_setcritdam_alias",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 core",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 129,
+          "functions_tested": [
+            "SetCritDam",
+            "GetWeaponCritDamage"
+          ],
+          "claim": "SetCritDam compiles as alias of SetWeaponCritDamage with [ref.]SetCritDam <int value> [weapon baseForm] (55/77/200 and calling-ref 88 succeed; swapped form-value order fails compile) and raises live critical hit GetHitBaseWeaponDamage by exact +178 (44 -> 222).",
+          "expected": "valForm=22->55->77, formVal=COMPILE_FAIL, refCall=22->88, liveCritBase=44.0->222.0 (+178.0)",
+          "helper_scripts": {
+            "nvseprobe_s_w1_2704_val_form.gek": [
+              "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+              "int orig = GetWeaponCritDamage r10mm",
+              "SetCritDam 55 r10mm",
+              "int v55 = GetWeaponCritDamage r10mm",
+              "SetCritDam 77 r10mm",
+              "int v77 = GetWeaponCritDamage r10mm",
+              "SetCritDam orig r10mm",
+              "Player.AuxVarSetFlt \"*w1_2704_v55\" v55",
+              "Player.AuxVarSetFlt \"*w1_2704_v77\" v77",
+              "PrintToConsole \"SETCRITDAM_VAL_FORM orig=%g v55=%g v77=%g\" orig v55 v77"
+            ],
+            "nvseprobe_s_w1_2704_form_val.gek": [
+              "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+              "SetCritDam r10mm 77",
+              "PrintToConsole \"SETCRITDAM_FORM_VAL unexpected_ok\""
+            ],
+            "nvseprobe_s_w1_2704_refcall.gek": [
+              "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+              "Player.AddItem r10mm 1 1",
+              "Player.EquipItem r10mm 0 1",
+              "int orig = GetWeaponCritDamage r10mm",
+              "Player.SetCritDam 88",
+              "int after = GetWeaponCritDamage r10mm",
+              "Player.SetCritDam orig",
+              "Player.AuxVarSetFlt \"*w1_2704_v88\" after",
+              "PrintToConsole \"SETCRITDAM_REFCALL orig=%g after=%g\" orig after"
+            ],
+            "nvseprobe_s_w1_2704_onhit.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "float bDmg = rTgt.GetHitBaseWeaponDamage",
+              "float hDmg = rTgt.GetHitHealthDamage",
+              "int iStage = Player.AuxVarGetFlt \"*w1_2704_stg\"",
+              "if iStage == 1",
+              "  Player.AuxVarSetFlt \"*w1_2704_b1\" bDmg",
+              "elseif iStage == 2",
+              "  Player.AuxVarSetFlt \"*w1_2704_b2\" bDmg",
+              "endif",
+              "PrintToConsole \"CRIT_HIT stage=%g baseDmg=%.3f hDmg=%.3f\" iStage bDmg hDmg"
+            ]
+          },
+          "wait_ticks_after": 8,
+          "script_lines": [
+            "ref rFn",
+            "let rFn := CompileScript \"nvseprobe_s_w1_2704_val_form.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_2704_form_val.gek\"",
+            "Player.AuxVarSetFlt \"*w1_2704_swap\" (IsFormValid rFn)",
+            "if rFn",
+            "  Call rFn",
+            "endif",
+            "let rFn := CompileScript \"nvseprobe_s_w1_2704_refcall.gek\"",
+            "if rFn",
+            "  Call rFn",
+            "endif",
+            "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rDocBase = rDocRef.GetBaseObject",
+            "ref rTgt = Player.PlaceAtMe rDocBase 1 100 0",
+            "Player.AuxVarSetRef \"*w1_2704_tgt\" rTgt",
+            "rTgt.SetAV Health 10000",
+            "rTgt.SetRestrained 1",
+            "float px = Player.GetPos X",
+            "float py = Player.GetPos Y",
+            "float pz = Player.GetPos Z",
+            "rTgt.SetPos X px",
+            "rTgt.SetPos Y (py + 90)",
+            "rTgt.SetPos Z pz",
+            "rTgt.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref cbHit = CompileScript \"nvseprobe_s_w1_2704_onhit.gek\"",
+            "SetOnHitEventHandler cbHit 1 rTgt",
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rAmmo10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 100",
+            "Player.AddItemHealthPercent r10mm 1 1.0",
+            "Player.AddItem rAmmo10 50 1",
+            "Player.EquipItem r10mm 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "extra_steps": [
+            {
+              "suffix": "shot_base",
+              "wait_ticks": 6,
+              "script_lines": [
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*w1_2704_stg\" 1",
+                "Player.FireWeapon r10mm"
+              ]
+            },
+            {
+              "suffix": "shot_200",
+              "wait_ticks": 6,
+              "script_lines": [
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "SetCritDam 200 r10mm",
+                "Player.AuxVarSetFlt \"*w1_2704_stg\" 2",
+                "Player.FireWeapon r10mm"
+              ]
+            },
+            {
+              "suffix": "summary",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "SetCritDam 22 r10mm",
+                "Player.SetAV CritChance 0",
+                "ref rTgt = Player.AuxVarGetRef \"*w1_2704_tgt\"",
+                "ref cbHit = CompileScript \"nvseprobe_s_w1_2704_onhit.gek\"",
+                "SetOnHitEventHandler cbHit 0 rTgt",
+                "rTgt.Disable",
+                "rTgt.MarkForDelete",
+                "int v55 = Player.AuxVarGetFlt \"*w1_2704_v55\"",
+                "int v77 = Player.AuxVarGetFlt \"*w1_2704_v77\"",
+                "int v88 = Player.AuxVarGetFlt \"*w1_2704_v88\"",
+                "int iSwap = Player.AuxVarGetFlt \"*w1_2704_swap\"",
+                "float fB1 = Player.AuxVarGetFlt \"*w1_2704_b1\"",
+                "float fB2 = Player.AuxVarGetFlt \"*w1_2704_b2\"",
+                "PrintToConsole \"PROBE|w1_2704_setcritdam_alias|v55=%g,v77=%g,v88=%g,swapCompile=%g,critBase=%.1f->%.1f,delta=%.1f\" v55 v77 v88 iSwap fB1 fB2 (fB2 - fB1)"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

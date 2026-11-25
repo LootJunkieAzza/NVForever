@@ -602,6 +602,13 @@ impl BodyPart {
         self.flags.iter().any(|f| f == "Explodable")
     }
 
+    /// The part's Explodable "Absolute" flag (BPND flag bit 6, named `"To Hit Chance -
+    /// Absolute"` in xEdit / `schemas/fnv/combat.json` and "Absolute" under Explodable in
+    /// the GECK dialog) [documented: GECK wiki Body Part; xEdit wbDefinitionsFNV.pas BPTD].
+    pub fn explodable_absolute(&self) -> bool {
+        self.flags.iter().any(|f| f == "To Hit Chance - Absolute")
+    }
+
     /// The damage input for a hit on this part.
     pub fn hit_part(&self) -> crate::damage::HitPart {
         crate::damage::HitPart { damage_mult: if self.damage_mult > 0.0 { self.damage_mult } else { 1.0 }, head: self.limb() == Limb::Head }

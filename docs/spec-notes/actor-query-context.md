@@ -32,6 +32,14 @@ queries that assignment.
 clearing an authored assignment must not fall back to that same assignment in
 barter, buying or repair. A later successful setter replaces the clear. The
 clear is saved with the actor's reference changes.
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-24, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only
+`PrintToConsole` probe; zero writes to game install or Saves),
+`w4d_41_vanilla_player_and_lists` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, PR #3803 / #3802):
+`PROBE|w4d_41_vanilla_player_and_lists|xp(0->25)|modAttr(5->7)|lvli(n0=4,l0=5:0,l1=6:1,l65k=7:-1,l70k=8:4464)|pkg(doc=14,pl=0)|rmMerch=ok`;
+zero DLL, PDB, or third-party source consulted] Calling `RemoveMerchantContainer` on a placed
+actor (Doc Mitchell `0x00104C0F`) with no assigned merchant container completes cleanly as a
+safe no-op.
 [hypothesis] `RemoveMerchantContainer` returns 0, and a missing, empty or
 non-actor argument changes nothing; no cited source or capture establishes
 either.

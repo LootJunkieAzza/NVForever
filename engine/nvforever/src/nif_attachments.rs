@@ -21,6 +21,7 @@ pub(crate) const ANCESTOR_LIMIT: usize = 256;
 pub(crate) struct AttachedNode {
     pub source: ModelObject,
     pub material: Option<[f32; 9]>,
+    pub emitter_owner: Option<Entity>,
 }
 #[derive(Component)]
 pub(crate) struct Member(u64);
@@ -302,6 +303,7 @@ pub(crate) fn spawn_model(
         }
         entities
     };
+    let emitter_owner = model.particles.then(|| entities.first().copied()).flatten();
     for (object, &entity) in model.objects.iter().zip(&entities) {
         commands.entity(entity).insert((
             Name::new(format!("{}{suffix}", object.name.as_deref().unwrap_or(""))),
@@ -309,6 +311,7 @@ pub(crate) fn spawn_model(
             AttachedNode {
                 source: object.clone(),
                 material: object.material,
+                emitter_owner,
             },
             layer.clone(),
         ));
@@ -558,7 +561,27 @@ pub(crate) fn produce_game(
             continue;
         };
         state.next = id;
-        let entities = spawn_model(&mut commands, &model, parent, &path, &suffix, layer, id);
+        let entities = spawn_model(&mut commands, &model, parent, &path, &suffix, layer.clone(), id);
+        let is_overlay = fnv_game::nvse_jg_nif::is_camera_overlay_ref(fnv_sim::FormId(key.reference));
+        if is_overlay {
+            for (object, &entity) in model.objects.iter().zip(&entities) {
+                if object.shape.is_some() {
+                    commands.entity(entity).insert(bevy::light::NotShadowCaster);
+                }
+            }
+        }
+        if model.particles {
+            if let Some(&emitter_root) = entities.first() {
+                let emitter_layer = (layer != RenderLayers::default()).then(|| layer.clone());
+                let space_root = is_overlay.then_some(root);
+                commands.entity(emitter_root).insert(crate::particles::ModelEmitter::attached(
+                    path.clone(),
+                    key.reference,
+                    emitter_layer,
+                    space_root,
+                ));
+            }
+        }
         intent.produced = true;
         state.instances.insert(
             key.clone(),

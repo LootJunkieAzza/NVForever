@@ -34,9 +34,10 @@ accepts a reference when its base has the keyword, while
 [EditorIDToFormID](https://geckwiki.com/index.php/EditorIDToFormID) names a form by its
 editor ID. Existing loaded-data lookup, keyword recipient arrays, event filters,
 custom-event dispatch, ShowBarterMenu and OpenTeammateContainer queues provide the
-trade path. This proposal adds no provider/version advertisement. An Improved
-Console presence requirement is not established merely by those existing APIs or
-by the preactivation service; its remaining native feature dependency stays open.
+trade path. The `"Improved Console"` provider entry is registered separately by the
+interactive console implementation (`docs/design/console.md`: persistent console locals
+and transparent expression/statement result printing; `docs/spec-notes/ext-version.md` §5),
+not merely by this preactivation service.
 
 [hypothesis: validation plan] Authored synthetic source controls cover the original
 presence-query guard shape, ordinary Call zero versus explicit setter zero,

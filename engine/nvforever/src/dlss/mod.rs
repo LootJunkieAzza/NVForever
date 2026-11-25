@@ -29,7 +29,12 @@
 //!   plus what Streamline's `vkCreateDevice` always adds: Bevy can fall back from any adapter
 //!   it is asked for to wgpu's own pick [documented: vendor/bevy_render/src/renderer/mod.rs:
 //!   166-194, 304], so no GPU is left out. Any GPU short of it, or none at all, and `slShutdown`
-//!   runs and the stock path follows, before `set_vulkan_library`.
+//!   runs and the stock path follows, before `set_vulkan_library`. With an NVIDIA GPU beside
+//!   another maker's (a CPU's integrated graphics, #2921), a second snapshot is taken with the
+//!   loader limited to NVIDIA's driver (`VK_LOADER_DRIVERS_SELECT`, `win::narrowed_probe`);
+//!   when every GPU fails and that one passes, showing the same NVIDIA GPUs and nothing else,
+//!   the filter is kept for the run so the renderer sees only what was checked. A filter or
+//!   `WGPU_ADAPTER_NAME` the player set stands.
 //!   [`loader_state`] says what the loader ended in.
 //!   Clearing the two update flags does not stop Streamline starting NVIDIA's updater, and a
 //!   driver override can still pick downloaded plugins [documented: `src/pluginManager.cpp:
@@ -171,8 +176,6 @@ mod ffi;
 // The download, the signature checks and the folder rule live in `nvf-dlss-files`, shared with
 // the launcher (#2765); they keep their paths here.
 pub(crate) use nvf_dlss_files::download;
-#[cfg(any(windows, test))]
-mod fg_cap;
 #[cfg(windows)]
 mod frame_gen;
 #[cfg(windows)]
@@ -297,12 +300,7 @@ pub(crate) fn frame_generation_on() -> bool {
 /// pacing's own ([`frame_generation_running`]).
 static FG_ENDED: AtomicBool = AtomicBool::new(false);
 
-/// What frame pacing's cap is divided by while frame generation runs: the frames DLSS-G presents
-/// per real frame, 1 while it does not generate (menus, a pause in generation), from
-/// `frame_gen.rs` `state` (`fg_cap.rs`; #2731).
-static FG_DIVISOR: AtomicU32 = AtomicU32::new(1);
-
-/// The frame limit Reflex is to keep, in microseconds per real frame (0: none), from frame
+/// The frame limit Reflex is to keep, in microseconds per frame shown (0: none), from frame
 /// pacing's cap while frame generation runs (`frame_pace.rs` `wait_for_cap`).
 static REFLEX_LIMIT_US: AtomicU32 = AtomicU32::new(0);
 
@@ -310,18 +308,12 @@ static REFLEX_LIMIT_US: AtomicU32 = AtomicU32::new(0);
 /// ended by a failed status. While it does, latency reduction is on with it (`crate::frame_gen`
 /// `follow_switch`, `LatencyReduction::by_frame_generation`) and the frame cap is Reflex's
 /// (`frame_pace.rs`), also in menus, where DLSS-G's mode is off for a while but frame generation
-/// is not over (the cap then is not divided: [`frame_generation_divisor`]).
+/// is not over.
 pub(crate) fn frame_generation_running() -> bool {
     frame_generation_on() && !FG_ENDED.load(Ordering::Relaxed) && frame_generation_loaded()
 }
 
-/// What frame pacing's cap is divided by while frame generation runs: the frames DLSS-G presents
-/// per real frame, smoothed, or 1 while it does not generate (`fg_cap.rs`); 1 otherwise.
-pub(crate) fn frame_generation_divisor() -> u32 {
-    if frame_generation_running() { FG_DIVISOR.load(Ordering::Relaxed).max(1) } else { 1 }
-}
-
-/// The frame limit Reflex keeps (microseconds per real frame, 0: none), set by frame pacing
+/// The frame limit Reflex keeps (microseconds per frame shown, 0: none), set by frame pacing
 /// while frame generation runs; applied with Reflex's options at the next frame's input
 /// ([`reflex_options`]).
 pub(crate) fn set_reflex_frame_limit(frame_limit_us: u32) {
@@ -390,7 +382,7 @@ pub(crate) fn reflex_options(on: bool) -> Result<(), String> {
 /// A Reflex frame limit for the log.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn limit_text(frame_limit_us: u32) -> String {
-    if frame_limit_us == 0 { "none".to_string() } else { format!("{frame_limit_us} us a real frame") }
+    if frame_limit_us == 0 { "none".to_string() } else { format!("{frame_limit_us} us a frame shown") }
 }
 
 /// The `NVF_PACE_LOG` line from `slReflexGetState` while Streamline's Reflex runs (the main

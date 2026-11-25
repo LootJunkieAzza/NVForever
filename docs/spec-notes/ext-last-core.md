@@ -13,8 +13,8 @@ the HUD captures in hud.md §14 [observed]. Changes last for the session unless 
 | SetEyes `eyes` | the NPC base's eyes (ENAM), so every reference of it; 1 when set [documented: "Returns 1 for success", "affects their baseform"] | GetEyes |
 | SetHairLength `length [npc]` | the NPC base's LNAM [documented] | GetHairLength |
 | SetNPCWeight `weight [npc]` | the NPC base's NAM7 [documented] | GetNPCWeight |
-| SetActorBaseFlagsHigh `flags [npc]` | the ACBS flags' high 16 bits, the low ones kept, reaching `fnv-game` actor-flag consumers (§10) [documented] | GetActorBaseFlagsHigh |
-| SetOwningFactionRequiredRank `rank` | the rank a reference's owning faction needs (XRNK) [documented], carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetOwningFactionRequiredRank, `Game::ownership`, IsOwned, HasOwnership |
+| SetActorBaseFlagsHigh `flags [npc]` | the ACBS flags' high 16 bits, the low ones kept, reaching `fnv-game` actor-flag consumers (§10) [documented; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `b3_core_01_hair_weight_flags_high` (`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3678 / PR #3679), round-tripping `SetHairLength 0.75`, `SetNPCWeight 0.42`, and `SetActorBaseFlagsHigh (SetBit fh0 0)` on Doc Mitchell base `0x00104C0C`: `hair=0.29->0.75|wt=0.00->0.42|flH=0->1`; no DLL or source consulted] | GetActorBaseFlagsHigh |
+| SetOwningFactionRequiredRank `rank` | the rank a reference's owning faction needs (XRNK) [documented; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `core_26_owning_faction_req_rank` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3678 / PR #3679), calling `SetOwningFactionRequiredRank 3` and reading `GetOwningFactionRequiredRank` then restoring on door `0x00103E61`: `0,3`; no DLL or source consulted], carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetOwningFactionRequiredRank, `Game::ownership`, IsOwned, HasOwnership |
 | SetPackageTargetDistance `package value` (alias SetPackageTargetCount) | the package target's count or distance, for every reader, the AI too (`Game::package_def`) [documented]; authored package edits (`SetPackageFlag`, `SetPackageLocation*`, `SetPackageTarget*`) are carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetPackageTargetDistance |
 | SetRefCount `count` | a placed stack's count [documented]; an inventory reference's stack is left alone [hypothesis] | GetRefCount |
 | SetCurrentQuest `quest` | the active quest, "identical to ForceActiveQuest" [documented] | GetCurrentQuest |
@@ -51,6 +51,17 @@ the HUD captures in hud.md §14 [observed]. Changes last for the session unless 
   line of its own, up to 15; DebugPrintVar only with the calling mod's debug mode on
   [documented: PrintVar, "fMyVariable: 2.5" and "aMyVariable: [2, 4]"; DebugPrintVar]. A
   map shows `key: value` pairs in the brackets [hypothesis].
+- ToString `value`: converts a number, string, or form to text [documented: ToString],
+  and returns `"NULL"` for list arrays (`ar_List 1 2`) and stringmaps (`ar_Map "k"::5`)
+  while keeping `ToString 42` as `"42"` [observed: Fallout: New Vegas 1.4.0.525 +
+  xNVSE 6.4.9, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  read-only `PrintToConsole` probe (zero writes to game install or Saves),
+  `b3_core_05_tostring_array_map` (`tools/capture/nvse/catalogs/wave4b_extenders.json`,
+  #3679): `PROBE|b3_core_05_tostring_array_map|L=[NULL]|M=[NULL]|N=[42]`; zero DLL, PDB,
+  or third-party source consulted]. Returning `"NULL"` for other `XVal::Array(_)` variants
+  (such as numeric maps or unset array ID `0`) in `ToString` while leaving unary `$expr`,
+  `PrintVar`, `ArrayToString`, `Ar_Dump`, and `Sv_Join` on `Vm::text_of` stays
+  [hypothesis].
 - PrintF, PrintDebugF, Ar_DumpF, DecompileScript, DumpDocs and DumpCommandWikiDoc write
   files (the Fallout folder, DecompiledScripts, nvse.log) [documented]; NVForever writes
   none of them and they do nothing else [decision: NVForever writes nothing beside the
@@ -118,25 +129,53 @@ these paths (player and NPC melee, player and NPC projectiles) is inferred from
 the documented base-form change, not observed.
 
 [documented: `schemas/fnv/objects.json`, WEAP CRDT] The accepted data model holds
-critical damage in an unsigned 16-bit field. [design] Preserve the accepted setter's
-numeric conversion and source readback; combat consumes the numeric override in
-its existing unsigned 32-bit damage domain (fractional values truncate and values
-outside that domain saturate). [hypothesis] Native fractional, negative,
-out-of-range and nonnumeric conversion needs a game probe. These cases are not
-qualified for native parity. The accepted generic setter's explicit invalid
+critical damage in an unsigned 16-bit field. Negative integers and values above `65535`
+wrap modulo `65536` into that unsigned 16-bit field [observed: 2026-11-23 & 2026-11-24,
+`GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 with the
+10 official base masters, clean-room script probes `core_16_set_weapon_crit_damage_edge`
+(`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679: `22.0,77.0,65531.0` on
+`Weap10mmPistol` — initial `22.0`, after `SetWeaponCritDamage 77` a `TempCloneForm`
+clone read `77.0`, and `SetWeaponCritDamage -5` read back `65531.0`) and
+`w4c_b2_11_crit_dmg_bounds` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679:
+`c0=22,neg=65531,frac=12,over=4464,aliasOp=5259` — `-5 -> 65531` and `70000 -> 4464`); no
+DLL or source consulted]. [hypothesis] Fractional truncation (`12.7 -> 12`) remains a
+hypothesis because `w4c_b2_11_crit_dmg_bounds` stored the fractional readback in an `int`
+variable rather than a `float`. [design] `SetWeaponCritDamage` stores finite numeric
+inputs truncated toward zero and wrapped into `u16` (`0..=65535`, non-finite as `0`) so
+both script readback and combat consume the same unsigned 16-bit value. [hypothesis]
+Non-numeric conversion remains uncaptured. The accepted generic setter's explicit invalid
 weapon-argument fallback remains unchanged pending behavioral evidence.
 
-[hypothesis] The spelling `SetCritDam` is not established by the consulted public
-function documentation or accepted catalogue. Keep its registration open pending
-an original-game command-identity capture; identity alone will not establish wire
-encoding. This note does not import FOSE opcode numbers into New Vegas.
+[observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas
+1.4.0.525 + xNVSE 6.4.9 with the 10 official base masters, clean-room black-box
+script probes `b3_core_02_setcritdam_alias_check` (`GetWeaponCritDamage rW` ->
+`SetCritDam 55 rW` -> `22.0 -> 55.0` on `Weap10mmPistol` `0x0000434F`) and
+`w1_2704_setcritdam_alias` (`SetCritDam 77 r10mm` -> `22 -> 77`; swapped
+`SetCritDam r10mm 77` -> `COMPILE_FAIL`; `Player.SetCritDam 88` -> `22 -> 88`;
+and with `Player.SetAV CritChance 100`, live 10mm critical shots at baseline
+`critDmg=22` -> `GetHitBaseWeaponDamage = 44.000` vs `SetCritDam 200 r10mm` ->
+`222.000`, `+178`; reproducible via `#3678` / PR `#3679`, `tools/capture/nvse/`);
+no DLL or source consulted] `SetCritDam` is a live alias for `SetWeaponCritDamage`
+with identical argument order (`[ref.]SetCritDam <int> [weapon]`). `SetCritDam` is
+registered as an unnumbered alias of `SetWeaponCritDamage` in
+`crates/fnv-script/data/encodings.json` (`compiler.aliases`, `#2704`);
+wiki-generated `schemas/script/functions.json` is left untouched. [hypothesis]
+Native wire/opcode encoding remains uncaptured; this note does not import FOSE
+opcode numbers into New Vegas.
 
-[design] Overrides retain this module's existing session lifetime: save/load
-resets them, and a weapon clone without its own override reads its source
-weapon's. [hypothesis] Whether the original saves the change, and whether a
-temporary clone inherits it, need separate
-captures. Core source execution, engine hit calculation, native captures and real
-installed-mod acceptance are separate validation states.
+[hypothesis] `SetWeaponCritDamage` edits are session-only (not saved in `.fos` or `.nvse`
+cosaves), persist across same-process save loads, revert to the ESM value on a fresh
+process restart, and stay isolated on a `TempCloneForm` clone after clone creation so
+later edits to the source weapon do not leak into the clone (initial inheritance on
+`TempCloneForm` is observed in `core_16_set_weapon_crit_damage_edge` above, while
+subsequent source-edit isolation and same-run save/reload persistence await a committed
+reproducible observation or manual save/load write-up). [design] Loaded base-form
+`CRDT/critical_damage` overrides carry across same-run loads via `Game::take_session` /
+`Game::put_session` (excluded from `GameSnapshot` and excluding transient `TempCloneForm`
+clones), and `TempCloneForm` snapshots the source weapon's effective
+`CRDT/critical_damage` onto the clone (`Game::snapshot_weapon_crit_damage`) for
+bi-directional isolation. Core source execution, engine hit calculation, native captures
+and real installed-mod acceptance are separate validation states.
 
 ## 8. Player swimming and Hardcore achievement eligibility
 
@@ -154,8 +193,14 @@ always-Hardcore eligibility. [design] It sets the existing saved
 `PlayerState::hardcore_was_off` field, consumed by `IsAlwaysHardcore`; repeated calls
 are idempotent. The eligibility state survives a serialized snapshot and cannot be
 restored by calling `SetHardcore 1` (the documented "permanently").
-[hypothesis] It does not turn off Hardcore mode or toggle needs accumulation; the
-documentation describes only the eligibility flag. It returns 0.
+`DisableHardcoreTracking` returns 0 and clears `IsAlwaysHardcore` (`1 -> 0`) [observed:
+2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE
+6.4.9 with the 10 official base masters, clean-room script probe
+`core_17_disable_hardcore_tracking_ret` (`tools/capture/nvse/catalogs/wave4a_extenders.json`,
+#3678 / PR #3679), reading `IsAlwaysHardcore`, calling `DisableHardcoreTracking`, and
+re-reading `IsAlwaysHardcore`: `1,0,0`; no DLL or source consulted]. [hypothesis] It does
+not turn off Hardcore mode or toggle needs accumulation; the documentation describes only
+the eligibility flag.
 This is separate from `ToggleHardcoreTracking` and `GetHardcoreTracking`, whose
 existing needs-tracking switch is unchanged.
 
@@ -172,10 +217,30 @@ a combat-disabled actor never enters combat with other actors (though others may
 still attack it, and `UseWeapon` / `Use Weapon` packages are unaffected), and the
 state resets on every saved-game load (kept out of both `GameSnapshot` and
 `Game::Session`). `SetCombatDisabled` returns 0 [observed: gaps2] and
-`GetCombatDisabled` reads the flag [observed: gaps3]. [hypothesis] Enabling
-`SetCombatDisabled 1` on an actor already in combat immediately stops its active
-combat (`Game::stop_combat`) and suppresses ally/provocation alarms (`awareness.rs`,
-`combat_group.rs`, `provocation.rs`).
+`GetCombatDisabled` reads the flag [observed: gaps3]. Enabling `SetCombatDisabled 1` on an
+actor already in combat leaves `IsInCombat == 1` in the same frame (`t0`) and ends active
+combat on subsequent AI ticks (`IsInCombat == 0` by `t2` and `t5`) [observed: Fallout: New
+Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23 & 2026-11-24, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only
+`PrintToConsole` probes; zero writes to game install or Saves),
+`core_20_set_combat_disabled_stops_combat` (`tools/capture/nvse/catalogs/wave4a_extenders.json`,
+#3679: `StartCombat` -> `IsInCombat 1` -> `SetCombatDisabled 1` -> `GetCombatDisabled 1`,
+`IsInCombat 1`: `1,1,1`) and `w4h_05_set_combat_disabled_multitick`
+(`tools/capture/nvse/catalogs/wave4h_reconcile.json`, PR #3803 / #3802):
+`PROBE|w4h_05_set_combat_disabled_multitick|pre=1|t0(cd=1,inCmb=1)|t2(cd=1,inCmb=0)|t5(cd=1,inCmb=0)`;
+zero DLL, PDB, or third-party source consulted]. NVForever matches this by setting
+`combat_disabled` without calling `Game::stop_combat` immediately (preserving same-frame
+`IsInCombat == 1`) and clearing active combat to `State::Normal` on the next AI awareness
+tick in `Game::settle_awareness` (`awareness.rs`). Calling `SetCombatDisabled 1`
+on a non-combat actor suppresses new combat entry via `StartCombat` (`IsInCombat` remains
+`0` same-tick and on subsequent ticks) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
+6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base
+masters, `w4d_07_setcombatdisabled_new_combat`
+(`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+`c0=0,cd(0->1->1),sameTick=0,nextTick=0`; no DLL or source consulted].
+[hypothesis] Exact tick latency (`t1` vs `t2`) and whether `SetCombatDisabled 1` also
+suppresses ally/provocation alarms (`awareness.rs`, `combat_group.rs`, `provocation.rs`)
+remain uncaptured.
 
 ## 10. Live `SetActorBaseFlagsLow` / `SetActorBaseFlagsHigh` consumers (`actor_values.rs`)
 
@@ -261,7 +326,13 @@ through `Game::effective_repair_list_form` into `functions::repair_list` and
 [design] `TempCloneForm` on an `ARMO` snapshots the source armor's current live
 overrides onto the clone (`Game::snapshot_armor_overrides`) and registers the clone in
 `World::add_clone_item`, so cloned armor can be equipped, evaluated, and edited
-without leaking changes back to the original or inheriting later edits to the original.
+without leaking changes back to the original or inheriting later edits to the original
+[observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe
+`core_29_armo_tempclone_override_isolation` (`tools/capture/nvse/catalogs/wave4a_extenders.json`,
+#3678 / PR #3679), setting `SetArmorDT 25` on `0x00020423`, cloning via `TempCloneForm`,
+changing source DT to `5`, and reading clone DT before and after: `6.0,25.0,25.0`; no DLL
+or source consulted].
 [hypothesis] Whether every original-game consumer (including worn armor speed, Jury
 Rigging, and already-equipped Power Armor training checks) re-evaluates immediately
 without re-equipping or reloading the cell remains uncaptured; overrides retain the

@@ -25,11 +25,11 @@ the pages' and their meaning a [hypothesis]. Not probed yet: set `jgnif` of
 | Get3DDistanceBetweenNiNodes `ref1 ref2 node1 node2` | the distance between the two nodes in the world, the references' places and the nodes above included (`nif_blocks::node_world`, as GetNifBlockTranslationAlt's world place) [documented]; 0 without either [hypothesis] |
 | Get3DDistanceToNiNode `node x y z` | from the node to the point [documented] |
 | Get3DDistanceFromHitToNiNode `node` | from where the last hit on the calling reference struck: the engine tells each shot's and blow's point (`Game::note_hit_point`) [documented: in OnHit or the hit's event]; 0 before any [hypothesis] |
-| GetNiBound `[block] [pc]` | [x, y, z, radius] in the world, the root's without a block [documented], and for a block the reference does not have [hypothesis: §4 bound gave four values]: the sphere round the boxes of the shapes under the node, the node's own place with radius 0 when it has none [hypothesis: the engine's boxes for the file's bounds]; an empty array before the engine told the tree [hypothesis] |
+| GetNiBound `[block] [pc]` | [x, y, z, radius] in the world, the root's without a block [documented]: the sphere round the boxes of the shapes under the node, the node's own place with radius 0 when it has none [hypothesis: the engine's boxes for the file's bounds]. A missing block name returns the exact 4-element zero bound `[0.0, 0.0, 0.0, 0.0]` (not the root's bound) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `w4c_b3_11b_jgnif_nodes_bounds` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679: `dHead=636.6,dRef=665.1|bndRoot=4(r=72.1),bndMiss=4(r=0.0)|grp(0,-1,-1)|sq=0`) and `w4d_35_jg_camera_overlay_nif_bound` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679: `head(n=4,x=2284.2,r=12.04)|miss(n=4,0.0,0.0,0.0,r=0.00)|camRef(preIS=FF001314,preUI=FF001318)`), no DLL or source consulted; hypothesis: empty array before the engine told the tree] |
 | GetNiPSysModifierValue, SetNiPSysModifierValue `block id [value] [pc]` | the particle system of that name, or emitting from a node of that name, of a placed model: its values by the page's IDs 0-19 [documented: the table]; 0 order (not kept), 1 active, 16 the particles' base scale [hypothesis]; the setter changes the engine's live system while it lives, 1 when it found one [documented: "success:bool"] |
 | GetParticleEmitterSpawnRate, SetParticleEmitterSpawnRate `block [value] [pc]` | the system's birth rate per second; set, it replaces any keyed rate [hypothesis] |
-| Get/SetAlphaPropertyValue `block item [value] [pc]` | the shape's NiAlphaProperty from the model file: item 0 the flags, 1 the threshold [hypothesis: the page is a template; the fields' order, nif.xml]; set for the session's reads; the drawn shape keeps its own [not built: engine follow-up] |
-| Get/SetStencilPropertyValue `block item [value] [pc]` | NiStencilProperty: 0 the flags, 1 the reference, 2 the mask [hypothesis], the same way |
+| Get/SetAlphaPropertyValue `block item [value] [pc]` | the shape's NiAlphaProperty from the model file: item 0 the flags, 1 the threshold [hypothesis: the page is a template; the fields' order, nif.xml]; set for the session's reads and queued via `SceneEdit::AlphaProperty` so `nvforever::nif_mirror` updates the drawn shape's private `NifMaterial::base.alpha_mode` live (`nvf_assets::nif_spawn::alpha_mode`) [design] |
+| Get/SetStencilPropertyValue `block item [value] [pc]` | NiStencilProperty: 0 the flags, 1 the reference, 2 the mask [hypothesis]; set for the session's reads and queued via `SceneEdit::StencilProperty` so `nvforever::nif_mirror` updates the drawn shape's private `NifMaterial` `double_sided`/`cull_mode` from flags bits 10–11 via `nvf_assets::nif_spawn::stencil_cull` / `stencil_draw_mode_cull` (shared with load-time `NiStencilProperty` material creation so spawn and live updates produce identical face culling for draw modes `0..=3`) [documented: nif.xml `StencilDrawMode`; design: hardware stencil ref/mask test state is not exposed by Bevy's `StandardMaterial`, so items 1–2 remain mirrored only] |
 | SetSwitchNodeIndex `block index [pc]` | the node's child of that index shown alone, the others hidden through the NIF block flags [documented: "Sets the active index"]; an index past them hides all [hypothesis] |
 | IsNiSequenceActive `sequence [block] [pc]` | 1 when the reference plays a sequence of that name: its body's clip or one a script played (by file name), or its movement group [hypothesis: the page is a template] |
 | GetSequenceAnimGroup `slot` | the anim group code in that slot, 0 idle … 7 special idle [documented]: Idle (0) in slot 0 standing [observed: §4], the body's other movement groups in slot 1; -1 otherwise [observed: slot 4; hypothesis: the engine tells the movement group alone, and an actor it told nothing of stands] |
@@ -76,14 +76,54 @@ between `TEMP_REF_BASE` (`0xFE40_0000..0xFE7F_0000`, enforced in `Game::temp_ref
 `EditorIDToFormID`, `GetEditorID`, and `Host::form_sig` all let an explicit `SetEditorID`
 or a loaded plugin record at the same FormID win first, falling back to `REFR` for the
 built-in overlay references so `IsFormValid` and `IsReference` report `1` and
-NIF/particle script calls accept them without raising `NoReference` [hypothesis: exact
-native FormIDs and renderer-side overlay pass behavior are unobserved].
+NIF/particle script calls (including `ModelHasBlock`) accept them without raising
+`NoReference`. In original JohnnyGuitarNVSE 528, `EditorIDToFormID` resolves both
+`JG_CameraOverlayRef_PreIS` and `JG_CameraOverlayRef_PreUI` as live runtime `0xFF`
+references [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528,
+2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+`w4d_35_jg_camera_overlay_nif_bound`
+(`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+`camRef(preIS=FF001314,preUI=FF001318)`; no DLL or source consulted]; NVForever's fixed
+`0xFE7F_0001`/`0xFE7F_0002` window is `[design]` and renderer-side overlay pass behavior
+remains `[hypothesis]`.
+
+**Renderer-side 3D camera overlay consumer (`engine/nvforever/src/camera_overlay.rs`).**
+`camera_overlay::sync` runs in `PostUpdate` ahead of `nif_attachments::produce` and
+`nif_mirror::mirror` with an O(1) vanilla empty fast-path (`SceneMirror::is_watched`):
+when neither overlay reference is watched, zero overlay roots, cameras, render targets,
+or UI nodes are spawned [design]. Once watched, each stage spawns a `RefVisual` holder
+rotated by `world::game_to_bevy()` (so NIF `+Y` projects ahead along Bevy `-Z`, `+X`
+right, `+Z` up) with a `"Scene Root"` child so `AttachModel`, `InsertNode`,
+`SetNifBlockTranslation`/`Rotation`/`Scale`, `SetNifBlockFlag`, `RemoveNifBlock`,
+`SetMaterialPropertyValue`, `SetAlphaPropertyValue`, `SetStencilPropertyValue`, and
+attached `NiParticleSystem` overrides work through the existing attachment and mirror
+pipelines [design; hypothesis: overlay camera-local axes follow game-space NIF conventions]:
+- `JG_CameraOverlayRef_PreIS` spawns under the main `WorldCamera` on dedicated
+  `OVERLAY_PRE_IS_LAYER` (18), rendered by the main camera before `ImageSpaceGrade` and
+  excluded from sun shadows, water reflection, scope lens, and extra PiP cameras [design].
+- `JG_CameraOverlayRef_PreUI` spawns under a lazily created offscreen `Camera3d` (`order: -5`,
+  transparent clear, `near: 0.1`, `far: 10_000.0`, FOV/aspect synced from the main camera)
+  on dedicated `OVERLAY_PRE_UI_LAYER` (19), composited full-screen via `ImageNode` at
+  `GlobalZIndex(-2)` (after `ImageSpaceGrade`, strictly beneath HUD/UI tiles and loading
+  screens); the offscreen camera remains inactive until geometry or particles are attached
+  and resizes its target texture in-place on window resize [design].
+- Both stages hide their roots (and deactivate the `PreUI` offscreen camera and composite
+  node) while `Loading::active()` is true [documented: JohnnyGuitar NVSE 5.28 release
+  notes, "Don't render camera overlays during loading screen"], and tear down cleanly on
+  session reset [design].
+- Attached NIF models with `PreparedModel::particles` spawn a per-instance
+  `ModelEmitter::attached` (using the overlay holder as `space_root` and its render layer
+  for camera overlays), isolated from the host reference's placed particle systems via
+  `particles::instance_systems` so `Get/SetNiPSysModifierValue` and
+  `Get/SetParticleEmitterSpawnRate` read and mutate only that attached instance [design].
+No JohnnyGuitar NVSE or third-party mod DLL or C++ source code was consulted.
 
 ## 3. Engine follow-ups
 
-The alpha and stencil properties drawn as set; the first-person model's nodes (pc); the
-other sequence slots of GetSequenceAnimGroup; renderer-side 3D drawing of models attached
-to `JG_CameraOverlayRef_PreIS` and `JG_CameraOverlayRef_PreUI`.
+The first-person model's nodes (pc); the other sequence slots of GetSequenceAnimGroup;
+hardware stencil reference/mask test state for `SetStencilPropertyValue` items 1–2 (Bevy
+`StandardMaterial` exposes face culling only); original-game probe verification of exact
+camera-overlay near-plane / depth-clear behavior under JohnnyGuitar NVSE 5.28.
 
 ## 4. Probe answers (set jgnif, run 2026-11-09)
 
@@ -95,7 +135,7 @@ what NVForever does with each:
 | `between`: head to pelvis above 0, a node to itself | `1 0` | the engine's node places; the records-only lab candidate has no 3D and gives `0 0` |
 | `tonode`: the head 80-160 from the player's place, a missing block | `1 0` | as `between` |
 | `fromhit`: no hit yet | `0` | `0` |
-| `bound`: the root's size and radius above 0, a missing block's size | `4 1 4` | a missing block gives the root's bound [hypothesis from the 4]; in the candidate empty |
+| `bound`: the root's size and radius above 0, a missing block's size | `4 1 4` | a missing block gives a 4-element zero-radius bound `[0, 0, 0, 0]` (`w4c_b3_11b_jgnif_nodes_bounds`: `bndRoot=4(r=72.1),bndMiss=4(r=0.0)`); in the records-only candidate empty |
 | `missing`: a missing block's particle and property values | `0 0 0 0` | `0 0 0 0` |
 | `camera`: the camera within 200 of the player, the local place's height above 50 | `1 0` | the engine's camera; the candidate has none |
 | `screen`: WorldToScreen into variables | did not compile | not asked any more |

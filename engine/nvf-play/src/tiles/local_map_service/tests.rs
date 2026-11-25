@@ -621,3 +621,59 @@ fn global_shared_budget_backpressure_invalid_requests_and_idle_zero_work_no_op()
     assert_eq!(ui.trait_write_counts(), writes_settled, "settled frame performs zero UI writes");
     assert_eq!(svc.counters().idle_frames, idle_before + 1);
 }
+
+#[test]
+fn external_sink_write_racing_rebind_restores_unmodified_filename_without_clobbering_external_value() {
+    let (mut ui, _) = load_ui(&menu_xml(""));
+    let mut service = LocalMapService::with_budget(ServiceBudget { max_rays_per_frame: 32, max_rays_per_batch: 32, ..Default::default() });
+    let id = RecipientId::new("race_map").unwrap();
+    let cfg = panel_config("race_map");
+    service.register(cfg.clone()).unwrap();
+
+    let mut runtime = RuntimeImages::default();
+    let mut images = Assets::<Image>::default();
+    let epoch = SessionEpoch { load_epoch: 0, tree: ui.screen() };
+
+    // Bind initially on floor 0.
+    let mut floor_0 = SyntheticProvider::interior(1, [0.0, 0.0, 0.0], 1);
+    for _ in 0..32 {
+        service.tick(epoch, &mut ui, &mut floor_0, &mut runtime, &mut images);
+        if matches!(service.diagnostic(&id), RecipientDiagnostic::Bound { .. }) {
+            break;
+        }
+    }
+    let first_name = match service.diagnostic(&id) {
+        RecipientDiagnostic::Bound { image_name, .. } => image_name,
+        other => panic!("expected initial Bound, got {other:?}"),
+    };
+    assert_eq!(ui.get_string("OwnedHud/Panel/MapLeaf/filename").as_deref(), Some(first_name.as_str()));
+
+    // Start a floor-2 refresh that stays Pending under the 32-ray budget.
+    let mut floor_2 = SyntheticProvider::interior(1, [0.0, 0.0, 300.0], 1);
+    service.tick(epoch, &mut ui, &mut floor_2, &mut runtime, &mut images);
+    assert!(matches!(service.diagnostic(&id), RecipientDiagnostic::Pending { .. }));
+
+    // Finish sampling the pending job and simulate an external `_OriginX` write arriving right
+    // before `publish_completed` commits the rebind batch. `publish_completed` must preserve the
+    // external write AND restore the unmodified `filename` sink instead of leaving it dangling.
+    let mut st = service.states.remove(&id).unwrap();
+    let mut job = st.pending.take().unwrap();
+    while !job.outline.done() {
+        job.outline.advance(1024, |o, r| floor_2.sample_ray(o, r));
+    }
+    ui.set_float("OwnedHud/Panel/_OriginX", 7777.0);
+    ui.update();
+    service.publish_completed(&cfg, &mut st, job, &mut ui, &mut runtime, &mut images);
+
+    assert!(matches!(
+        st.diagnostic,
+        RecipientDiagnostic::CompletedUnbound { reason: BindFailure::SinkChanged, .. }
+    ));
+    assert_eq!(ui.get_float("OwnedHud/Panel/_OriginX"), Some(7777.0), "external write preserved");
+    assert_eq!(
+        ui.get_string("OwnedHud/Panel/MapLeaf/filename").as_deref(),
+        Some(r"Interface\Shared\solid.dds"),
+        "unmodified filename sink restored instead of dangling on removed runtime image"
+    );
+    assert!(runtime.get(&first_name).is_none());
+}

@@ -220,6 +220,12 @@ mod tests {
         assert_eq!(val["decoded_counts"]["actor_changes"], 0);
         assert_eq!(val["decoded_counts"]["ref_extras"], 0);
         assert_eq!(val["decoded_counts"]["cells"], 0);
+        assert_eq!(val["decoded_counts"]["created_actors"], 0);
+        assert_eq!(val["decoded_counts"]["pgre_changes"], 0);
+        assert_eq!(val["decoded_counts"]["actor_base_changes"], 0);
+        assert_eq!(val["decoded_counts"]["talking_activators"], 0);
+        assert_eq!(val["decoded_counts"]["misc_changes"], 0);
+        assert_eq!(val["decoded_counts"]["player_active_effects"], 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

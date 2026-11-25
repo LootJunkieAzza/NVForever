@@ -563,7 +563,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getgamedifficulty" => XVal::Num(g.difficulty.code() as f64),
         "setgamedifficulty" => {
             if let Some(d) = crate::difficulty::Difficulty::from_code(num(args, 0, -1.0) as i64) {
-                g.difficulty = d;
+                // Kept as the player's choice too (`crate::difficulty` module notes), so the
+                // engine does not put its own level back.
+                g.script_set_difficulty(d);
             }
             zero
         }

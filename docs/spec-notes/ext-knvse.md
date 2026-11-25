@@ -90,6 +90,89 @@ Follow-ups (engine side, slice 2 of knvse-anim.md):
   normalized phase or clock time when active and still running the transition with
   `destFrame` / default clock when inactive), global/per-sequence clocks
   (`SetGlobalAnimTime`, `SetAnimCurrentTime`), and clip metadata publication
-  (`Game::set_sequence_info` from `script_sequences.rs` and `anim_state.rs`).
-- **Remaining:** NPC layered sequences and runtime text-key triggers (`AddAnimTextKey` /
-  `SetAnimTextKeys`).
+  (`Game::set_sequence_info` from `script_sequences.rs` and `anim_state.rs`); for drawn
+  NPCs, layered `ActivateAnim` sequences on `BlendPlayer::script_layers` with sequence
+  priority, weight, ease-in/ease-out, sequence clocks, additive poses (`SetAnimAdditive`),
+  and `Game::set_sequence_info` clip metadata publication in `play_npc_sequences`.
+- **Remaining:** runtime text-key triggers (`AddAnimTextKey` / `SetAnimTextKeys`).
+
+## 5. Runtime `kNVSE.ini` (`[Anim Fixes] sLegacyAnimTimePaths`)
+
+**Clean-room provenance:** File path, section name, key name, shipped default, and
+inline comment come exclusively from **kNVSE Animation Plugin v37**
+(`https://www.nexusmods.com/newvegas/mods/71336`), specifically the public `;` comments
+and shipped defaults in `Data\NVSE\Plugins\kNVSE.ini`. No kNVSE DLL, PDB, disassembly,
+or source code was inspected or consulted.
+
+- **File read** [documented: kNVSE Animation Plugin v37 (`https://www.nexusmods.com/newvegas/mods/71336`), shipped `Data\NVSE\Plugins\kNVSE.ini`]:
+  `Data\NVSE\Plugins\kNVSE.ini`, read through `fnv_game::mod_files::read_data_file`
+  (case-insensitive loose read roots — NVForever's mods layer first, then game `Data` —
+  followed by the VFS/archive reader) [design: NVForever's own VFS lookup order, not
+  kNVSE's].
+- **Parsed key** (`crates/fnv-game/src/knvse_ini.rs`, `Game::knvse_ini`):
+  - `[Anim Fixes] sLegacyAnimTimePaths` [documented: kNVSE Animation Plugin v37
+    (`https://www.nexusmods.com/newvegas/mods/71336`), `Data\NVSE\Plugins\kNVSE.ini`
+    verbatim comment & default:
+    `"; use legacy anim time algorithm for these paths (these mods rely on bugged behavior from previous versions of kNVSE)"` /
+    `sLegacyAnimTimePaths = B42Inject,B42Interact,B42Loot`].
+  - **Absent-INI default:** empty (`[]`) [design: NVForever's own fallback when
+    `kNVSE.ini` is absent, leaving vanilla behavior unchanged].
+- **Parser, matching, and startup reload** [design: NVForever's own behavior beyond
+  what `kNVSE.ini` documents]:
+  - Parsed directly on raw `&[u8]` with no `&str` byte-index slicing (UTF-8 BOM safe,
+    `;` and `#` full-line/inline comment safe, ASCII case-insensitive section/key
+    matching, tolerant of non-UTF-8 bytes in comments or other keys).
+  - Entries are comma-split, trimmed, stripped of optional surrounding `"`, normalized to
+    lower-case backslashes without a leading `meshes\`, deduplicated preserving order,
+    and matched on whole path segments (`B42Inject` matches `B42Inject\stim.kf` and
+    `Characters\_1stPerson\B42Inject\stim.kf` without matching `NotB42Inject\stim.kf` or
+    `B42InjectExtra\stim.kf`).
+  - `Game::new` loads `KnvseIni::load()` and records `mod_files::roots_generation()`;
+    `nvf_play::script_input::mod_file_roots` calls `Game::reload_knvse_ini()` when VFS
+    roots open, and `Game::tick()` calls `Game::sync_knvse_ini()` so root updates reload
+    cleanly without overwriting manual overrides. Not serialized into save snapshots.
+- **Runtime clock behavior (`w4e_08_knvse_legacy_anim_time`):**
+  - `[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + kNVSE 37 + JIP LN 57.30,
+    2026-11-24, GSDocMitchellHouse (0x00103DF9), 10 official base masters, isolated
+    clean-room staging copy with staged Data\NVSE\Plugins\kNVSE.ini
+    (sLegacyAnimTimePaths = W4ELegacy,B42Inject) and read-only PrintToConsole probe
+    w4e_08_knvse_legacy_anim_time (tools/capture/nvse/catalogs/wave4e_mods.json, #3803):
+    `PROBE|w4e_08_knvse_legacy_anim_time|t0L=-3.40282e+38|t1(l=0.1080,n=0.1080)|dg=0.1650|leg(t=0.5205,off=-0.4560,last=0.2730)|nrm(t=0.5205,off=-0.4560,last=0.2730)`;
+    zero DLL, PDB, or third-party source consulted]`
+    1. Immediately after `PlayAnimationPath`, before the first animation tick,
+       `GetAnimCurrentTime` reads `-FLT_MAX` (`t0L=-3.40282e+38`,
+       `f64::from(-f32::MAX)`), not `0.0`.
+    2. After `SetAnimSequenceFrequency 2.5` (`dg=0.1650`), **both** listed
+       `W4ELegacy\test.kf` and unlisted `W4ENormal\test.kf` advance `GetAnimCurrentTime`
+       identically by the frequency-scaled delta (`t1 + dg * freq = 0.1080 + 0.4125 =
+       0.5205`), while `offset` remains fixed (`-0.4560`) and `GetAnimationAttributes["lastTime"]`
+       tracks unscaled `global + offset` (`0.2730 = t1 + dg`).
+  - `[hypothesis]` Immediately after `PlayAnimationPath`, before the first animation
+    tick, `GetAnimationAttributes["offset"]` and `GetAnimationAttributes["lastTime"]`
+    also return `-f32::MAX` (`-3.40282e+38`) (`w4e_08_knvse_legacy_anim_time` on `main`
+    reads only `t0L` pre-first-tick and reads `offset`/`lastTime` after ticking).
+  - `[hypothesis]` Any additional runtime conditions (beyond `SetAnimSequenceFrequency`
+    tested in `w4e_08_knvse_legacy_anim_time`) under which kNVSE v37's
+    `sLegacyAnimTimePaths` diverges from normal paths remain unestablished.
+  - `[design]` NVForever parses, syncs, and exposes `Game::knvse_ini` /
+    `KnvseIni::uses_legacy_anim_time(path)` cleanly, initializes `PlayAnimationPath`
+    sequence clocks to `-f32::MAX` until the first tick, and integrates frequency-scaled
+    deltas in `Game::script_sequence_time_for` while keeping `ScriptSequence::clock_offset`
+    fixed and `lastTime` unscaled on both listed and unlisted paths (with no invented
+    clamping or wrapping). Unmodded vanilla gameplay (without `PlayAnimationPath` /
+    `SetAnimSequenceFrequency`) is unchanged.
+- **Keys intentionally not wired (no dead struct fields):**
+  - `[General] iConsoleLogLevel` (shipped `1`, `"; 0 = no log, 1 = kNVSE.log, 2 = console log"`),
+    `iErrorLogLevel` (shipped `1`, `"; 0 = no log, 1 = kNVSE.log, 2 = error console log"`):
+    native kNVSE DLL logging [documented: kNVSE v37 `kNVSE.ini`].
+  - `[Blend Fixes]` (`bFixBlendSamePriority=1`, `bFixBlendAnimMultipliers=1`) and
+    remaining `[Anim Fixes]` keys (`bFixEndKeyTimeShorterThanStopTime=1`,
+    `bFixWrongAKeyInRespectEndKeyAnim=1`, `bFixWrongPrnKey=1`, `bFixWrongAnimName=1`,
+    `bFixMissingPrnKey=1`, `bFixReloadStartAllowReloadTweak=1`): original-engine
+    blending and malformed-KF export workarounds [documented: kNVSE v37 `kNVSE.ini`].
+  - `[Engine Fixes] bFixLoopingReloads` (shipped `1`): original-exe looping-reload bug;
+    already unconditionally satisfied by NVForever's round-by-round reload flow.
+  - `[Engine Fixes] bFixIdleStrafing` (shipped `1`, `"; allow player to strafe/turn sideways mid idle animation"`):
+    engine patch altering vanilla player idle locomotion and camera-hold behavior; out of
+    scope here under `docs/design/extender-compat.md` §2 / §8.4 unless approved as a
+    separate named NVForever option.

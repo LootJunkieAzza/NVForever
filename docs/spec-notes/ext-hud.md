@@ -22,12 +22,20 @@ Plain-language notes for `crates/fnv-game/src/nvse_hud.rs` and the control funct
   [observed: hud1]. NVForever takes the point from the engine's crosshair ray; a headless run
   has no ray and gives ar_Null.
 - `GetReticleTargetLimb [maxRange]` reads -1 with no actor in the crosshair [observed:
-  hud1]. On an actor hit by the crosshair's far ray, NVForever resolves the hit capsule's
-  BPTD body part to its `BodyLocation` code (0 torso, 1–2 head, 3–4 left arm, 5–6 right
-  arm, 7–9 left leg, 10–12 right leg, 13 brain, 14 held weapon) [documented:
-  GetReticleTargetLimb, GetHitLocation], honouring the optional `maxRange` cap (0 or
-  omitted uses the full reticle reach). Non-actors, misses, gore pieces, and actors
-  without posed body parts (single-capsule fallback) read -1 [design].
+  hud1; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas
+  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 10 official base masters, `#3678` / PR `#3679`
+  probe `w1_3606_hit_3d_dir_and_base_damage`: placing Player 150u South of restrained Doc
+  Mitchell (`0x00104C0F`, `SetAngle Z 180`) and sweeping `Player.SetAngle X` across `-7`,
+  `0`, `15`, and `-80` returned `1` (Head), `0` (Torso), `10` (Right Leg), and `-1` on
+  empty space, non-actor statics, and above-head misses; no DLL or source consulted]. On an actor hit by the
+  crosshair's far ray, NVForever resolves the hit capsule's BPTD body part to its
+  `BodyLocation` code (0 torso, 1–2 head, 3–4 left arm, 5–6 right arm, 7–9 left leg,
+  10–12 right leg, 13 brain, 14 held weapon) [documented: GetReticleTargetLimb,
+  GetHitLocation], honouring the optional `maxRange` cap (0 or omitted uses the full
+  reticle reach). Actors without posed body parts (single-capsule fallback,
+  `fnv_phys::actors::WHOLE`) read 0 (Torso, default body location) while respecting
+  `maxRange`, so scripts distinguish hitting an actor from a miss; non-actors, misses,
+  and detached gore pieces (`fnv_phys::gore::GORE_PART`) read -1 [design].
 
 ## 3. Corner messages
 

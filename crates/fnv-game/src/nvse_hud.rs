@@ -143,12 +143,13 @@ impl Game<'_> {
         self.hud.weapon_due = wait;
         for (a, (out, _, ask)) in due {
             let was = self.extra.get(&a).is_some_and(|e| e.weapon_out);
+            let already_fired = self.showoff.unholster_pending.remove(&a).is_some();
+            if !was && out && !already_fired {
+                self.showoff_on_weapon_unholster(a);
+            }
             self.extra.entry(a).or_default().weapon_out = out;
             if ask {
                 self.hud.weapon_asks.push((a, out));
-            }
-            if !was && out {
-                self.showoff_on_weapon_unholster(a);
             }
         }
     }
@@ -173,7 +174,19 @@ impl Game<'_> {
     }
 
     /// Start a scripted draw or holster: IsWeaponOut changes [`WEAPON_FRAMES`] later.
+    /// When starting an unholster immediately (`out && !ask_at_due`), dispatches
+    /// `ShowOff:OnWeaponUnholster` at draw start while `IsWeaponOut` still reads `0`
+    /// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin 184,
+    /// 2026-11-23, GSDocMitchellHouse (0x00103DF9), 10 official base masters, probe
+    /// `w1_3656_objectives_unholster_imod` (`Player.SetWeaponOut 0` /
+    /// `Player.SetWeaponOut 1` armed with `Weap10mmPistol` `0x0000434F` and unarmed) in
+    /// #3679].
     fn weapon_change(&mut self, a: FormId, out: bool, ask_at_due: bool) {
+        if out && !ask_at_due {
+            self.showoff_begin_unholster(a);
+        } else if !out {
+            self.showoff.unholster_pending.remove(&a);
+        }
         let due = self.frame + WEAPON_FRAMES;
         self.hud.weapon_due.insert(a, (out, due, ask_at_due));
     }
@@ -203,7 +216,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         },
         // Body part location (0..=14) of the actor under the crosshair within optional
         // maxRange, else -1 [documented: GetReticleTargetLimb; observed: hud1 reads -1
-        // with no actor].
+        // with no actor; observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9), Fallout:
+        // New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 (10 official base masters),
+        // #3678 / PR #3679 probe `w1_3606_hit_3d_dir_and_base_damage`: pitching Player
+        // Angle X across restrained Doc Mitchell reads 1 (Head), 0 (Torso), 10 (Right
+        // Leg), and -1 on empty space / non-actor statics / above-head miss].
         "getreticletargetlimb" => {
             let range = num(args, 0, 0.0);
             let limb = g
@@ -260,6 +277,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [observed: controls1]; an actor SetWeaponOut 1 holds drawn draws again.
         "holsterweapon" => {
             g.extra.entry(who).or_default().weapon_out = false;
+            g.showoff.unholster_pending.remove(&who);
             g.hud.weapon_due.remove(&who);
             g.hud.weapon_asks.push((who, false));
             if g.hud.forced_out.contains(&who) {

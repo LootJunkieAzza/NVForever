@@ -19,10 +19,10 @@ original what the [hypothesis] values below leave open.
 | GetObjectiveTargets, GetObjectiveHasTarget `quest index [ref]` | the list: the scripts' changes, else the record's QSTA targets in record order, for an objective shown and not done; otherwise no array [observed: VMS01's done objective 10 gave none; hypothesis: the rule] |
 | SetObjectiveText `quest index "text" vars…` | the formatted text [documented: the example's `%g`, `%n`]; the Pip-Boy, the corner messages and GetObjectiveText read it (`Game::objective_text`) |
 | GetActiveObjectives | the active quest's objectives shown and not done, by index [hypothesis: the page says only "active quest objectives"; indices, as objectives are no forms] |
-| GetQuestObjectives `quest [completed]` | the objectives shown and not done, or (completed) the done ones, by index [documented: the examples; hypothesis: indices] |
+| GetQuestObjectives `quest [completed]` | the objectives shown and not done, or (completed) the done ones, by index (or no array when empty) [documented: the examples; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_28_quest_objectives_indices (GetQuestObjectives/GetActiveObjectives/GetQuests): -1,empty,-1,-1; no DLL or source consulted] |
 | GetQuests `[completed]` | the quests in the Pip-Boy's list running and not done, or the done ones [documented; hypothesis: the list is the Pip-Boy's, a named quest with an objective shown or done] |
 | ClearActiveQuest | no active quest; its targets leave the map and compass [documented] |
-| SetStageAlt `quest stage` | SetStage, then GetStage is that stage even when a higher one was done: the stages above it are no longer done [documented: the summary; hypothesis: GetStageDone of the higher ones reads 0] |
+| SetStageAlt `quest stage` | SetStage, then GetStage is that stage even when a higher one was done, without clearing GetStageDone for higher completed stages [documented: the summary; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_29_setstagealt_clears_higher (SetStageAlt): 1,10,1; no DLL or source consulted] |
 
 The quest markers read the changed target lists (`Game::check_quest_targets`); a target a
 script added has no conditions, and one from the record keeps its record's [hypothesis].
@@ -39,7 +39,7 @@ script added has no conditions, and one from the record keeps its record's [hypo
 
 | Function | NVForever |
 |---|---|
-| AddScriptVariable `"name" [quest]` | a new variable of the reference's or the quest's script, read and set by name with GetVariable, GetRefVariable, SetVariable, SetRefVariable [documented]; 1 when added and 1 again for a name added before [observed]; 0 for a name the script declares [hypothesis]; saved with the game [documented] |
+| AddScriptVariable `"name" [quest]` | a new variable of the reference's or the quest's script, read and set by name with GetVariable, GetRefVariable, SetVariable, SetRefVariable [documented]; 1 when added and 1 again for a dynamic name added before, and 0 for a name already declared in the script [observed: `jip_30_addscriptvariable_existing` (`1,1`); Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `w4d_23_add_script_var_dup` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679): `new(1,1,v=42.0)|decl(has1=0,ret1=1,has2=0,ret2=1) \| hasDecl=1,addDecl=0|new1=1,new2=1`; no DLL or source consulted]; saved with the game [documented] |
 | RemoveScriptVariable, HasVariableAdded `"name" [quest]` | the added variable goes (its value too), whether it was added [documented] |
 | RemoveAllAddedVariables `[quest]` | every variable added to that script [documented] |
 | ClearJIPSavedData `scriptVars linkedRefs auxVars refMaps` | the added variables, SetLinkedReference's links, the calling mod's (1) or the public (2) permanent auxiliary variables and RefMaps [documented]. NVForever does not keep which mod added a variable or a link, so 1 clears them all [hypothesis] |
@@ -54,7 +54,7 @@ script added has no conditions, and one from the record keeps its record's [hypo
 | GetLinkedChildren | the references whose linked reference is this one (SetLinkedReference counted), in FormID order [documented] |
 | GetEnableChildren | the placed references whose enable parent (XESP) is this one, by FormID [documented] |
 | SetRefExtraData `[slot value]` | slots 0-17 a number or a form, 18-19 a string [documented]; owned by the calling script's mod (its FormID's file index); a script of no file keeps nothing [observed: the probe, from a script of no file, read nothing back; hypothesis: the reason]; a value of the wrong type is refused, no value clears the slot [hypothesis]; both left out clear this mod's data on the reference [documented]. Saved [documented] |
-| GetRefExtraData `slot [modIndex]`, RefHasExtraData `[modIndex]` | another mod's by its index [documented]; unset: 0, or "" for 18-19 [hypothesis] |
+| GetRefExtraData `slot [modIndex]`, RefHasExtraData `[modIndex]` | another mod's by its index [documented]; unset: 0 (slots 0-17) or "" (slots 18-19) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_31_refextradata_unset_defaults (GetRefExtraData/RefHasExtraData): 0,0.000,-1; no DLL or source consulted] |
 | AddRefMapMarker, RemoveRefMapMarker, RefHasMapMarker | not on an inventory item; gone after a load [documented] |
 
 ## 5. Text files
@@ -64,7 +64,7 @@ Under the game's folder for the original; NVForever's layer for NVForever
 
 | Function | NVForever |
 |---|---|
-| ReadStringFromFile `path [startLine] [count]` | the lines from startLine (1 the first), count of them, of at most the file's first 16384 characters [documented], joined by line breaks with none after the last [observed]; a missing file "" [hypothesis] |
+| ReadStringFromFile `path [startLine] [count]` | the lines from startLine (1 the first), count of them, of at most the file's first 16384 characters [documented], joined by line breaks with none after the last [observed]; a missing file "" [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_32_readstringfromfile_missing (ReadStringFromFile): 0; no DLL or source consulted] |
 | WriteStringToFile `path append "text" vars…` | the formatted text, appended or in place of the file; 1 when written [documented]; an append to a file with text starts on a new line, line breaks LF [observed] |
 | ModLogPrint `indent "text" vars…` | a line in `Mod Logs\<plugin>.log` [documented: the folder and the name]; a tab per indent level [hypothesis]; nothing from a script of no plugin [hypothesis] |
 | RunBatchScript `path` | the file's source runs at once on the calling reference, or the player; 1 when it was read and ran without an error [documented]. Form IDs in quotes as the page shows them compile only where NVForever's compiler takes them [hypothesis, probe] |

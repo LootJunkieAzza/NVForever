@@ -33,17 +33,47 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md (i
 `tweak-keep-chosen-ammo` — Keep Chosen Ammo, under Tweaks › Combat › Weapons and Armour,
 off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 
+Android-specific rows and HUD compatibility are documented in [the Android settings supplement](settings-reference-android.md); they are not part of the desktop launcher's built-in table.
+
 ## Gameplay › Game
 
 ### `difficulty`: Difficulty
 
-- On the page: How hard the fights are: from Very Easy (your hits do double damage, you take
-  half) to Very Hard (half and double); Normal as they are.
+- On the page: You deal / take / kill XP: Very Easy 200/50/100%, Easy 150/75/100%, Normal
+  100/100/100%, Hard 75/150/100%, Very Hard 50/200/100%. (In a game the numbers are the load
+  order's own: a plugin's `fDiffMult*` shows.)
 - In full: How hard the fights are: from Very Easy (the player's hits do double damage and
-  the player takes half) to Very Hard (half and double); Normal as they are. (console:
-  SetGameDifficulty 0-4)
+  the player takes half) to Very Hard (half and double); Normal as they are. Custom lets
+  the three sliders under the list, Player Damage, NPC Damage and Kill XP, set each part
+  yourself; scripts' GetGameDifficulty sees Custom as Normal (2). (console:
+  SetGameDifficulty 0-4; a script's SetGameDifficulty is kept as the chosen level)
 - Shown as a list since the menu overhaul; an older slider number in the INI still loads as
-  the nearest choice.
+  the nearest of the five levels.
+- Registered in `engine/nvf-play/src/difficulty.rs`
+
+### `difficulty-player-damage`: Player damage
+
+- On the page: Custom difficulty: how much damage your hits do, from 50% to 300%.
+- In full: The damage the player's hits do to anyone, 50% to 300% in steps of 5% (100% until
+  moved). Greyed unless Difficulty is Custom; kept as the slider's part
+  (0.20 = 100%).
+- Registered in `engine/nvf-play/src/difficulty.rs`
+
+### `difficulty-npc-damage`: NPC damage
+
+- On the page: Custom difficulty: how much damage you take from NPCs and creatures (and falls
+  and blasts), from 50% to 300%.
+- In full: The damage the player takes from every source (as the five levels scale it), 50%
+  to 300% in steps of 5% (100% until moved). NPCs' hits on each other and on companions
+  are not scaled, as at every level. Greyed unless Difficulty is Custom.
+- Registered in `engine/nvf-play/src/difficulty.rs`
+
+### `difficulty-kill-xp`: Kill XP
+
+- On the page: Custom difficulty: how much XP a kill earns, from 50% to 300%.
+- In full: The XP the player earns for a kill, 50% to 300% in steps of 5% (100% until
+  moved); other XP (quests, locks, terminals) is not scaled. Greyed unless
+  Difficulty is Custom.
 - Registered in `engine/nvf-play/src/difficulty.rs`
 
 ### `hardcore`: Hardcore mode
@@ -305,6 +335,16 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 - Command-line switches: `--size`
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `hdr-output`: HDR output
+
+- On the page: On: the game is drawn for an HDR screen (Windows HDR on). Takes effect at once.
+  Calibrate... sets the screen's peak and the brightness.
+- In full: A choice list: Off, On, Calibrate.... On draws the game in HDR on a screen with Windows
+  HDR on; with no HDR screen or no fp16 surface it stays SDR. It switches live, with no restart.
+  Calibrate... opens the calibration pictures for the screen's peak and the brightness.
+- More: docs/design/hdr-output.md
+- Registered in `engine/nvforever/src/hdr.rs`
+
 ### `borderless`: Full screen
 
 - On the page: On: the game fills its monitor without a frame, at the full screen resolution
@@ -323,7 +363,10 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 - In full: Vertical sync: each frame waits for the display's refresh (no tearing). Variable
   refresh: for a G-Sync or FreeSync screen, vertical sync with the frame rate held a few
   frames under the screen's refresh rate, so frames are shown as soon as they are drawn
-  without tearing. Off: frames are shown as soon as they are drawn (may tear).
+  without tearing; with DLSS frame generation, vertical sync is off and the limit is kept
+  (NVIDIA's frame generation does not take the game's vsync on Vulkan; for no tearing set
+  Vertical sync On for the game in the NVIDIA Control Panel).
+  Off: frames are shown as soon as they are drawn (may tear).
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `frame-cap`: Frame rate limit
@@ -332,7 +375,9 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
   keeps the computer cooler and quieter.
 - In full: At most this many frames a second (Off: as many as the computer draws, or the
   display's refresh with vertical sync; with variable refresh the lower of this and its own
-  limit). A lower limit keeps the computer cooler and quieter.
+  limit). It counts the frames shown: with frame generation the real frames are this divided
+  by the frames shown for each. With vertical sync a limit at or above the display's refresh
+  is left to vsync. A lower limit keeps the computer cooler and quieter.
 - Shown as a list since the menu overhaul; an older slider number in the INI still loads as
   the nearest choice.
 - Registered in `engine/nvforever/src/settings.rs`
@@ -446,9 +491,9 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
   upscaling (any mode; not with DLSS) and vertical sync or variable refresh, and real frames
   are held to just under half the refresh rate. DLSS: NVIDIA DLSS Frame Generation, one to
   three frames for each real frame (Generated frames, below); needs an upscaler (FSR 3.1 or
-  DLSS), Display sync Off, an NVIDIA RTX 40 series or newer graphics card, Windows'
-  hardware-accelerated GPU scheduling and NVIDIA's frame generation files in the dlss folder
-  beside nvforever.exe; frames are generated only while the game's window is in front.
+  DLSS), Display sync Off or Variable refresh, an NVIDIA RTX 40 series or newer graphics
+  card, Windows' hardware-accelerated GPU scheduling and NVIDIA's frame generation files in
+  the dlss folder beside nvforever.exe; frames are generated only while the game's window is in front.
   Latency reduction turns on with either. The HUD and menus are not generated; menus and
   loading screens show real frames only. Best from 60 real frames a second. Not in the
   original.
@@ -1070,6 +1115,29 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `volumetric-clouds`: Volumetric clouds (experimental)
+
+- On the page: The weather's clouds drawn with depth, lit by the sun: Off, or Performance,
+  Normal or High, each finer and dearer than the last. A prototype. Not in the original.
+- In full: The weather's own cloud layers, as Cloud shadows composes them, become a
+  layer of cloud with thickness above the world, worked out per pixel: lit by the weather's
+  sunlight (by night its night light, from the moon), bright toward the sun, darker
+  underneath, coloured by the weather's cloud colours, fading into the sky toward the
+  horizon. Thick cloud hides the sun and the moon. The clouds follow the weather's cover,
+  drift and transitions, and Cloud shadows on the ground, where that row is on, are theirs while they
+  are drawn. High draws them into a buffer of two
+  fifths of the render size, Normal a third, Performance a quarter; Normal and Performance
+  also look for cloud along each ray at twice the spacing. A prototype. The water's
+  reflection, the scope's lens and a mod's extra cameras keep the weather's flat clouds while
+  it is drawn. With Cloud shadows on, switching it rebuilds the world's material pipelines.
+  Off in every preset; not in the original. Outdoors only.
+- Shown as a list since 2026-11-23; an INI written while it was an on/off switch (`1`/`0`,
+  true/false, on/off, yes/no) still loads as Normal or Off.
+- Command-line switches: `--graphics-only` (`volumetric-clouds` is Normal;
+  `volumetric-clouds-performance`, `volumetric-clouds-high`)
+- More: docs/design/graphics-enhanced.md §3.23, docs/design/volumetric-medium.md
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `light-shafts`: Sun shafts
 
 - On the page: On: sunlight streams past what stands in front of the sun, stronger the
@@ -1131,6 +1199,25 @@ below cover them all.
   not in the original.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.19
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-light`: Volumetric light (experimental)
+
+- On the page: On: sunlight shows in the air as rays and a glow toward a low sun, shaded by
+  hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of
+  NVForever's.
+- While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
+  it draws). A prototype. Outdoors by day
+  only, in the main view only. Off in every preset; not in the original.
+- Command-line switches: `--graphics-only`
+- More: docs/design/volumetric-medium.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-light-strength`: Volumetric light strength
+
+- On the page: How strongly the light in the air brightens lit air and darkens shaded air:
+  100% is the look as tuned, 0% none.
+- 0 % to 200 % in steps of 10 %, 100 % by default; greyed while Volumetric light is off.
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `bloom`: Bloom
@@ -1371,6 +1458,21 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - Command-line switches: `--graphics-only` (`--graphics-only mesh-terrain-blend`)
 - More: docs/design/graphics-enhanced.md §3.14
 - Registered in `engine/nvforever/src/settings.rs`
+
+### `occlusion-culling`: Occlusion culling
+
+- On the page: On: hidden objects are skipped before drawing. Helps when the GPU limits
+  the frame rate (high resolutions, dense towns); costs some CPU. Takes effect at the next
+  start.
+- In full: [design] Bevy's two-phase GPU occlusion culling on the main camera: meshes
+  hidden behind nearer ones (by last frame's depth, then this frame's) are not drawn.
+  First-person shapes are never culled. [observed 2026-11-24, 4K DLSS Quality, maxed
+  settings, 9950X3D + RTX 5090] Novac's GPU time 4.96 → 4.31 ms, but its frame 6.96 → 7.18
+  ms, as the second culling phase costs render-thread time: it helps where the GPU holds
+  the frame rate and costs a little where the CPU does (docs/design/frame-rate-audit.md
+  §13). Off by default. Read once at the start, so a change applies at the next start. The
+  test aid `NVF_OCCLUSION_CULLING` (`1` on, `0` off) overrides the saved row for a run.
+- Registered in `engine/nvforever/src/gpu_occlusion.rs`
 
 ### `smooth-terrain`: Smooth terrain
 

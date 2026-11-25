@@ -1004,8 +1004,18 @@ impl LocalMapService {
                 });
             }
             None => {
-                // External write conflicted with a sink: remove our runtime image without
+                // External write conflicted with a sink: restore any unmodified owned
+                // sinks (such as `filename` pointing to the removed runtime image) without
                 // clobbering the external owner's UI trait values.
+                for sink in &sinks {
+                    let restore = [ConditionalTraitWrite {
+                        tile: sink.tile,
+                        name: &sink.name,
+                        expected: sink.last_serial,
+                        value: sink.original_value.clone(),
+                    }];
+                    let _ = ui.set_existing_batch_if_unchanged(&restore);
+                }
                 self.counters.sink_conflicts = self.counters.sink_conflicts.saturating_add(1);
                 runtime_images.remove(&image_name);
                 if !runtime_images.uses_image(&handle) {

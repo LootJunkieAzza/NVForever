@@ -306,7 +306,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `casino symbol stops`: the count as given; the page's "must equal 14" is the
-        // record's rule, not checked here [hypothesis].
+        // record's rule, not checked here (see docs/spec-notes/ext-lutana.md §2).
         "setcasinoreelstops" => {
             let (s, v) = (num(args, 1).map(|s| s as i64), num(args, 2).filter(|v| v.is_finite()).map(int_bits));
             if let (Some(s @ 1..=7), Some(v)) = (s, v) {
@@ -357,10 +357,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `recipe item count`: a new entry first, also for an item already listed, a count
-        // of 0 too [observed: lutana1 rcpe.addinput, rcpe.addinput.zero,
-        // rcpe.addinput.existing]; a negative count adds nothing [hypothesis].
+        // of 0 or a negative count too [observed: lutana1 rcpe.addinput, rcpe.addinput.zero,
+        // rcpe.addinput.existing; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+        // probe jip_02_recipe_add_neg_count: count -1 adds the entry (1 -> 2)].
         "addrecipeinputform" | "addrecipeoutputform" => {
-            let (item, count) = (form(args, 1), num(args, 2).filter(|v| v.is_finite() && *v >= 0.0).map(|v| v.trunc().min(U32.1) as u32));
+            let (item, count) = (form(args, 1), num(args, 2).filter(|v| v.is_finite()).map(|v| v.trunc().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32));
             if let (Some(item), Some(count)) = (item, count) {
                 if let Some(r) = form(args, 0).and_then(|r| recipe_mut(g, r)) {
                     let entries = if name == "addrecipeinputform" { &mut r.ingredients } else { &mut r.outputs };
@@ -390,11 +391,15 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `recipe item count`: the first entry's count, 0 too [observed: lutana1
-        // rcpe.setincount.0, rcpe.setoutcount.0]; an item not listed is not added
-        // [hypothesis]; a negative count is refused [hypothesis].
+        // `recipe item count`: the first entry's count, 0 or negative stored verbatim;
+        // an item not listed is not added [observed: lutana1 rcpe.setincount.0,
+        // rcpe.setoutcount.0; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN
+        // 57.30, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base
+        // masters, `jip_03_recipe_set_neg_count` (-5 stored verbatim: 1 -> -5) and
+        // `w4d_15_recipe_unlisted_item` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
+        // #3679): `in(n:1->1,c:0->0)|out(n:1->1,c:0->0)`; no DLL or source consulted].
         "setrecipeinputcount" | "setrecipeoutputcount" => {
-            let (item, count) = (form(args, 1), num(args, 2).filter(|v| v.is_finite() && *v >= 0.0).map(|v| v.trunc().min(U32.1) as u32));
+            let (item, count) = (form(args, 1), num(args, 2).filter(|v| v.is_finite()).map(|v| v.trunc().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32));
             if let (Some(item), Some(count)) = (item, count) {
                 if let Some(r) = form(args, 0).and_then(|r| recipe_mut(g, r)) {
                     let entries = if name == "setrecipeinputcount" { &mut r.ingredients } else { &mut r.outputs };
@@ -409,8 +414,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // subcategory) only when one is given [documented: GetFormRecipes]: the later
         // plugin's first, each plugin's in FormID order [observed: lutana1
         // rcpe.formrecipes.*]. GetFormRecipeOutputs their outputs, each once [documented:
-        // GetFormRecipeOutputs], in that order [hypothesis: lutana1 rcpe.recipeoutputs.*
-        // show another order, with no rule found].
+        // GetFormRecipeOutputs], in that order (see docs/spec-notes/ext-lutana.md §3).
         "getformrecipes" | "getformrecipeoutputs" => {
             let (Some(item), cat) = (form(args, 0), form(args, 1)) else { return Some(Ok(list(g, std::iter::empty()))) };
             let mut ids: Vec<FormId> = g.data.recipes.keys().copied().collect();
@@ -453,8 +457,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `[actorBase]`: the AI data's aggro radius [documented: LNGetAggroRadius], the
-        // calling reference's when no base is given; the NPC record's, as the services
-        // [hypothesis: the same AI data as lutana1 actor.setservice.tender2].
+        // calling reference's when no base is given; round-trips on the NPC record
+        // [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+        // 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+        // `w4c_b6_02_service_flag_aggro` (`tools/capture/nvse/catalogs/wave4c_extenders.json`,
+        // #3679): `sf(1->1)|aggro(0->555)`; no DLL or source consulted; hypothesis:
+        // template isolation matches lutana1 actor.setservice.tender2].
         "lngetaggroradius" => {
             let Some(rec) = form(args, 0).or(subject).and_then(|f| ai_record(g, f)) else { return Some(Ok(zero)) };
             XVal::Num(f64::from(aggro_of(g, rec)))
@@ -486,7 +494,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "istrait" => yes(form(args, 0).and_then(|p| g.perk_def(p)).is_some_and(|d| d.is_trait)),
         // `perk index`: an ability entry's spell, a quest stage entry's quest [documented:
         // "Ability for type 5, Quest for type 6"]; an entry point 0 (its leveled list is
-        // not kept decoded) [hypothesis], a negative index or past the entries 0.
+        // not kept decoded; see docs/spec-notes/ext-lutana.md §5), a negative index or past the entries 0.
         "getnthperkentryform" => {
             let e = form(args, 0).and_then(|p| num(args, 1).and_then(|i| crate::nvse_lu3::nth_entry_of(g, p, i)));
             reff(match e.map(|e| &e.effect) {
@@ -499,13 +507,26 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [documented: GetWorldspaceParentWorldspace] WRLD WNAM.
         "getworldspaceparentworldspace" | "getworldparentworld" => reff(form(args, 0).and_then(|w| record_ref(g, w, "WNAM"))),
         "getcellwaterform" => reff(cell_arg(g, args, 0).and_then(|c| cell_water(g, c))),
-        // `[cell]`: CELL XCLW, SetCellWaterHeight's first; an exterior cell without one its
-        // worldspace's default water height (DNAM) [hypothesis]; else 0.
+        // `[cell]`: CELL XCLW (SetCellWaterHeight's first). An unloaded exterior cell
+        // returns 0; a loaded exterior cell without XCLW returns `f32::MAX` (3.40282e+38,
+        // NOT the worldspace DNAM default water height); an interior cell returns its
+        // XCLW (e.g. -2147483648 when marked "no height") or 0 [observed: lutana1
+        // cell.waterheight.startcell, cell.waterheight.doccell; Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, Goodsprings (`0x000DAEBB`),
+        // 10 official base masters, `w4d_21_cell_water_height_ext`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+        // `in=-2.14748e+09|gs(000DAEBB)=3.40282e+38,cur=3.40282e+38|golfUnl=0`;
+        // no DLL or source consulted].
         "getcellwaterheight" => {
             let Some(c) = cell_arg(g, args, 0) else { return Some(Ok(zero)) };
-            let own = record_num(g, c, "XCLW", "");
-            let world = || g.world.placed.cell_world.get(&c).and_then(|&w| record_num(g, w, "DNAM", "default_water_height"));
-            XVal::Num(own.or_else(world).unwrap_or(0.0))
+            if g.world.placed.cell_world.contains_key(&c) {
+                let loaded = g.buffered_cells().contains(&c) || g.cell_of(FormId::PLAYER_REF) == Some(c);
+                if !loaded {
+                    return Some(Ok(zero));
+                }
+                return Some(Ok(XVal::Num(record_num(g, c, "XCLW", "").unwrap_or(f64::from(f32::MAX)))));
+            }
+            XVal::Num(record_num(g, c, "XCLW", "").unwrap_or(0.0))
         }
         // `height [cell]`: for the session, read by GetCellWaterHeight; the water drawn
         // keeps the record's height (ext-lutana.md, follow-ups).
@@ -525,7 +546,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             string_map(g, xy.map_or_else(Vec::new, |(x, y)| vec![("x", x), ("y", y)]))
         }
         // `water`: the water type's actor effect (WATR XNAM) [documented:
-        // GetWaterFormEffect]; with no water, the player's cell's [hypothesis].
+        // GetWaterFormEffect]; with no water, the player's cell's (see docs/spec-notes/ext-lutana.md §5).
         "getwaterformeffect" => {
             let w = form(args, 0).or_else(|| g.cell_of(FormId::PLAYER_REF).and_then(|c| cell_water(g, c)));
             // SetWaterFormEffect's change first (`crate::nvse_jip8`).
@@ -659,12 +680,21 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `ref.PlayerHasKey`: a door's or container's key carried, a terminal's password
-        // note among the player's notes or carried [documented: PlayerHasKey]; a load
-        // door with no lock of its own reads the other side's [hypothesis: as GetLockLevel].
+        // `ref.PlayerHasKey`: a door's or container's lock key carried, or a placed
+        // terminal reference's password note filed/carried [documented: PlayerHasKey;
+        // observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23/24,
+        // `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+        // `b3_lut_06_player_has_key_terminal_note` (`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3679):
+        // `PROBE|b3_lut_06_player_has_key_terminal_note|note=00133107,before=0,afterAddNote=0`
+        // (base `TERM` form returns `0`) and `w4d_25_lsct_rgb_nan_and_password_key`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679 / #3803):
+        // `PROBE|w4d_25_lsct_rgb_nan_and_password_key|lsct(0=255.0,180.0,53.0|nan=-nan(ind),123.5,45.0)|door(0->1)|termRef(0->1)`
+        // (placed `TERM` reference returns `1` once its password note is held); no DLL
+        // or source consulted]; a load door with no lock of its own reads the other side's
+        // [hypothesis: as GetLockLevel].
         "playerhaskey" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
-            if is_terminal(g, r) {
+            if (g.world.placed.get(r).is_some() || g.world.peek(r).is_some()) && is_terminal(g, r) {
                 return Some(Ok(yes(crate::terminal::has_password(g, base(g, r)))));
             }
             let key = g.world.lock_of(r).and_then(|l| l.key);
@@ -778,16 +808,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             })
         }
         // `[light]`: a light base's radius (LIGH DATA); else the calling reference's XRDS
-        // (SetRadius's first), else its light base's radius [hypothesis], else 0
-        // [documented: GetRadius, "a reference (any type) or Light BaseForm"].
+        // (SetRadius's first), else 0 — does NOT fall back to a placed Light ref's base
+        // LIGH radius [documented: GetRadius, "a reference (any type) or Light BaseForm";
+        // observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, probe
+        // jip_06_radius_ref_fallback_base: base LIGH 200.000, placed ref without XRDS
+        // 0.000].
         "getradius" => {
             if let Some(l) = form(args, 0) {
                 XVal::Num(record_num(g, l, "DATA", "radius").unwrap_or(0.0))
             } else if let Some(r) = subject {
-                let own = g.ref_radius(r);
-                let b = base(g, r);
-                let light = || (g.data.sig(b) == Some(*b"LIGH")).then(|| record_num(g, b, "DATA", "radius")).flatten();
-                XVal::Num(own.map(|x| crate::nvse::record_float(f64::from(x))).or_else(light).unwrap_or(0.0))
+                XVal::Num(g.ref_radius(r).map_or(0.0, |x| crate::nvse::record_float(f64::from(x))))
             } else {
                 zero
             }

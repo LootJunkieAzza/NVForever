@@ -40,6 +40,18 @@ actors, `resolve_changed_at`), `engine/nvforever/src/zones.rs` (the engine's cop
   leveled actors when it loads them]. A reference with a zone of its own enters that zone
   when its cell loads.
 - Saved: `fnv.sim.state/1` `zone_levels` (absent when empty).
+- **Optional tweak (`bNoLockEncounterZoneLevels`, off by default):** [documented: lStewieAl's
+  Tweaks 10.05 (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini`
+  `[Tweaks]`: `; don't freeze the level of encounter zones when they are first visited` /
+  `bNoLockEncounterZoneLevels = 0`; no DLL or source consulted]. When
+  `Tweaks::no_lock_encounter_zone_levels` (`tweak-no-lock-encounter-zone-levels`) is enabled,
+  entering or querying a zone recomputes its level from the player's current level
+  (`level_on_entry`, still respecting `min_level` and "Match PC Below Minimum Level" including
+  session `SetZoneMinLevel` / `SetZoneFlag` bit-2 overrides) instead of keeping the first-visit
+  level frozen (`World::enter_zone`, `World::level_at_with_zone_lock`, `Game::zone_level` /
+  `GetZoneLevel`); already-fixed references keep their fixed `ref_levels` until a cell reset,
+  and toggling the option off leaves unmodded vanilla locking unchanged [design: NVForever's own
+  runtime integration; the toggle itself is a setting and is not saved in `Snapshot`].
 
 ## 3. The level a placed reference reads leveled lists at
 
@@ -61,9 +73,19 @@ actors, `resolve_changed_at`), `engine/nvforever/src/zones.rs` (the engine's cop
   `SetRefEncounterZone`, `SetCellEncounterZone`, `SetWorldspaceEncounterZone`,
   `SetZoneMinLevel`, and `SetZoneFlag` bit 2 overrides stored in `WorldSession` — or the
   level that zone would take now, or the player's level), so a query before the load
-  agrees with it; `GetInZone` (`functions/refs.rs`) also reads `World::cell_zone_of`
-  [hypothesis: session-only overrides carried across same-run loads via
-  `WorldSession` / `Game::Session`, excluded from snapshots].
+  agrees with it; `GetInZone` (`functions/refs.rs`) also reads `World::cell_zone_of`.
+  `SetZoneMinLevel`, `SetZoneOwner`, and `SetZoneFlag` bit 2 are session-only (not saved
+  in `.fos` or `.nvse` cosaves), persist across same-process baseline and mutated save
+  loads, and revert to ESM defaults on fresh process restart [observed: Fallout: New Vegas
+  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + AnhNVSE 131, 2026-11-24, 10 official base
+  masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room save/reload probe
+  `w4f_08_zone_setters` (`SetZoneMinLevel 23`, `SetZoneOwner 0x00003130`, `SetZoneFlag 2
+  1` on `Vault11Zone` `0x000E9081`): baseline `min=6,owner=00000000,fl2=0`, mutated
+  `23,00003130,1`, same-process baseline/mutated reload `23,00003130,1`, fresh-process
+  with/without `.nvse` `6,00000000,0`; zero DLL/PDB/source consulted]; the same
+  session-only lifetime for `SetRefEncounterZone`, `SetCellEncounterZone`, and
+  `SetWorldspaceEncounterZone` remains unprobed [hypothesis: carried across same-run loads
+  via `WorldSession` / `Game::Session`, excluded from snapshots].
 - What reads it: the actor a placed leveled actor list (LVLN/LVLC) stands for, and every
   `TPLT` chain through a list (factions, packages, name, scripts, actor values, spells,
   `fnv_game::templates`; the drawn actor, `fnv_actor::resolve`; the same seed as before,

@@ -263,6 +263,51 @@ fn set_package_flag_uses_package_overrides_and_survives_same_run_session_only() 
     assert!(same_run.package_def(&made).is_none());
 }
 
+#[test]
+fn temp_ref_is_bounded_strictly_below_bullet_snap_sound_base() {
+    const {
+        assert!(COMPILED_BASE < TEMP_REF_BASE);
+        assert!(TEMP_REF_BASE < BULLET_SNAP_SOUND_BASE);
+        assert!(BULLET_SNAP_SOUND_BASE < CAMERA_OVERLAY_BASE);
+        assert!(CAMERA_OVERLAY_BASE < LAMBDA_BASE);
+        assert!(BULLET_SNAP_SOUND_BASE == 0xFE7E_0000);
+        assert!(CAMERA_OVERLAY_BASE == 0xFE7F_0000);
+    }
+
+    let (forms, refs, data) = fixture();
+    let mut g = Game::new(&data, World::new(&forms, &refs, Default::default()), Default::default());
+    let max = (BULLET_SNAP_SOUND_BASE - TEMP_REF_BASE) as usize;
+    // Pre-fill up to one slot below BULLET_SNAP_SOUND_BASE so the boundary is exercised directly.
+    g.temp_refs.resize(max - 1, (FormId(0), FormId(0)));
+    let container = FormId(0x14);
+    let item = FormId(0x0001_0001);
+    let last_valid = g.temp_ref(container, item);
+    assert_eq!(last_valid, FormId(BULLET_SNAP_SOUND_BASE - 1));
+    assert_eq!(g.temp_item(last_valid), Some((container, item)));
+    // Re-querying an already allocated pair at capacity reuses its existing slot.
+    assert_eq!(g.temp_ref(container, item), last_valid);
+    // BulletSnap's 0xFE7E_0000..0xFE7F_0000 window and CAMERA_OVERLAY_BASE are never read as temp_item.
+    for reserved in [
+        FormId(BULLET_SNAP_SOUND_BASE),
+        FormId(BULLET_SNAP_SOUND_BASE + 9),
+        FormId(CAMERA_OVERLAY_BASE - 1),
+        FormId(CAMERA_OVERLAY_BASE),
+        FormId(CAMERA_OVERLAY_BASE + 1),
+    ] {
+        assert_eq!(g.temp_item(reserved), None, "reserved id {reserved:?} must not map to temp_item");
+    }
+}
+
+#[test]
+#[should_panic(expected = "temporary inventory references exhausted")]
+fn temp_ref_refuses_allocation_into_bullet_snap_sound_range() {
+    let (forms, refs, data) = fixture();
+    let mut g = Game::new(&data, World::new(&forms, &refs, Default::default()), Default::default());
+    let max = (BULLET_SNAP_SOUND_BASE - TEMP_REF_BASE) as usize;
+    g.temp_refs.resize(max, (FormId(0), FormId(0)));
+    let _ = g.temp_ref(FormId(0x14), FormId(0x0001_0002));
+}
+
 fn fixture() -> (fnv_sim::FormStore, fnv_sim::RefTable, GameData) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
     let path = root.join("script/functions.json");

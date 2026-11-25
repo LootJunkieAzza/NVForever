@@ -11,11 +11,26 @@ creature forms. Both changes survive saving and loading. Sources:
 actor-list counts are one. Existing list selection rules still apply.
 Source: [LeveledCreature](https://geckwiki.com/index.php?title=LeveledCreature).
 
-[hypothesis] NVForever accepts integral levels 1 through 65535 and ignores
-invalid forms, the wrong actor family, missing arguments, nonfinite numbers
-and levels outside that range. A capture must establish the original's
-invalid-input behavior and duplicate-entry ordering. Appending preserves
-the order of all existing entries and permits duplicate additions.
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-24, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only
+`PrintToConsole` probe; zero writes to game install or Saves),
+`w4d_41_vanilla_player_and_lists` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, PR #3803 / #3802):
+`PROBE|w4d_41_vanilla_player_and_lists|xp(0->25)|modAttr(5->7)|lvli(n0=4,l0=5:0,l1=6:1,l65k=7:-1,l70k=8:4464)|pkg(doc=14,pl=0)|rmMerch=ok`;
+zero DLL, PDB, or third-party source consulted] For leveled item lists
+(`AddItemToLeveledList`), the original game accepts level `0` and levels above `65535` (such
+as `70000`), growing `GetNumLevItems` on `0x00000AA1` from `4` to `8`, and `GetNthLevItemLevel`
+readback confirms level `0` is stored verbatim as `0`, level `1` as `1`, level `65535` as
+`0xFFFF` (read back as `-1`), and level `70000` wraps modulo 65536 (`u16`) to `4464`.
+NVForever's `AddItemToLeveledList` converts finite levels via `(level as i64) as u16`;
+non-finite inputs map to `0` [design], and `count` below `1` remains clamped to `1`
+[hypothesis].
+
+[hypothesis] For actor lists (`AddNPCToLeveledList` / `AddCreatureToLeveledList`, not directly
+probed by `w4d_41`), NVForever currently accepts integral levels `1` through `65535` and ignores
+invalid forms, the wrong actor family, missing arguments, nonfinite numbers and levels outside
+that range. A direct LVLN/LVLC capture must establish the original's actor-list level/invalid-input
+behavior and duplicate-entry ordering. Appending preserves the order of all existing entries and
+permits duplicate additions.
 
 [hypothesis] Existing generated inventories keep their contents; subsequent
 actor template selection and newly generated inventories see additions.

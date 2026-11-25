@@ -514,3 +514,55 @@ fn nonfinite_and_f32_overflow_trait_overrides_leave_grade_and_hdr_finite() {
     close(g.blur, 0.0);
     close(a.world().resource::<ScreenModifiers>().hdr_ratio(HDR_EMISSIVE_MULT), 1.0);
 }
+
+#[test]
+fn stacked_imod_draws_single_instance_per_form_while_events_count_instances() {
+    let (mut a, main, _) = app();
+    source(
+        &mut a,
+        r#"SetEventHandler "OnRemoveIMOD" (Begin Function {ref rImad}
+SetModLocalData "rm.count" ((GetModLocalData "rm.count") + 1)
+End)"#,
+    );
+
+    // 1. Non-animatable IMAD applied once vs twice: contrast/tint stay single-drawn (not doubled),
+    //    ScreenModifiers::shown holds one entry, and RIMOD fires OnRemoveIMOD twice.
+    selected(&mut a, "AuthoredRadiationEffect");
+    a.update();
+    let single = grade(&a, main);
+    close(single.contrast, 1.625);
+    tint(single.tint, Vec4::new(0.1, 0.3, 0.8, 0.7));
+    assert_eq!(a.world().resource::<ScreenModifiers>().shown, vec![MAIN]);
+
+    selected(&mut a, "AuthoredRadiationEffect");
+    a.update();
+    let stacked = grade(&a, main);
+    close(stacked.contrast, single.contrast);
+    close(stacked.contrast_avg_lum, single.contrast_avg_lum);
+    tint(stacked.tint, single.tint);
+    assert_eq!(a.world().resource::<ScreenModifiers>().shown, vec![MAIN]);
+
+    source(&mut a, "RIMOD AuthoredRadiationEffect");
+    a.update();
+    assert_eq!(source(&mut a, r#"SetFunctionValue (GetModLocalData "rm.count")"#), XVal::Num(2.0));
+    assert!(a.world().resource::<ScreenModifiers>().shown.is_empty());
+
+    // 2. Animatable IMAD re-applied while active (as VCG00's Addiction01ISFX at stages 27 & 30):
+    //    screen_effect deduplicates per form so it draws once, while RIMOD fires OnRemoveIMOD twice.
+    selected(&mut a, "AuthoredAnimatedEffect");
+    a.update();
+    let anim_single = grade(&a, main);
+    tint(anim_single.tint, Vec4::new(0.2, 0.4, 0.6, 0.5));
+    assert_eq!(a.world().resource::<ScreenModifiers>().shown, vec![ANIMATED]);
+
+    selected(&mut a, "AuthoredAnimatedEffect");
+    a.update();
+    let anim_stacked = grade(&a, main);
+    tint(anim_stacked.tint, anim_single.tint);
+    assert_eq!(a.world().resource::<ScreenModifiers>().shown, vec![ANIMATED]);
+
+    source(&mut a, "RIMOD AuthoredAnimatedEffect");
+    a.update();
+    assert_eq!(source(&mut a, r#"SetFunctionValue (GetModLocalData "rm.count")"#), XVal::Num(4.0));
+    assert!(a.world().resource::<ScreenModifiers>().shown.is_empty());
+}

@@ -993,10 +993,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(if a == FormId::PLAYER_REF || g.package_actors().contains(&a) { 0.0 } else { 3.0 })
         }
         // `persistent:0/1`: sets or clears the persistent record flag (0x400) on the
-        // calling reference for the session [documented: GECK wiki SetPersistent;
-        // observed: gaps6, returns 0].
+        // calling reference (including `FormId::PLAYER_REF`) for the session
+        // [documented: GECK wiki SetPersistent; observed: gaps6 returns 0; Fallout: New
+        // Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), 10 official base masters, `w4d_06_player_setpersistent_0`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+        // `PROBE|w4d_06_player_setpersistent_0|p0=1,after0=0,after1=1`; no DLL or source
+        // consulted; hypothesis: session-only lifetime across save/load].
         "setpersistent" => {
-            if let Some(r) = subject.filter(|&r| r != FormId::PLAYER_REF) {
+            if let Some(r) = subject {
                 let on = num(args, 0, 0.0) != 0.0;
                 let cur = crate::nvse_other::record_flags_of(g, r)
                     | if g.persistent(r) { fnv_sim::refs::FLAG_PERSISTENT } else { 0 };
@@ -1109,14 +1114,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // enter combat (though others may still attack them, and UseWeapon / Use Weapon
         // packages still work); reset on every save load [documented: GECK wiki
         // SetCombatDisabled]. Returns 0 either way [observed: gaps2]; GetCombatDisabled
-        // reads it [observed: gaps3].
+        // reads it [observed: gaps3]. Enabling SetCombatDisabled 1 on an actor already
+        // in combat leaves IsInCombat == 1 in the same frame and ends active combat on
+        // subsequent AI ticks (`Game::settle_awareness` in `awareness.rs`) [observed:
+        // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+        // `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+        // clean-room staging copy (read-only `PrintToConsole` probe; zero writes to game
+        // install or Saves), `core_20_set_combat_disabled_stops_combat`
+        // (`wave4a_extenders.json`, #3679): `1,1,1` and
+        // `w4h_05_set_combat_disabled_multitick` (`wave4h_reconcile.json`, PR #3803 /
+        // #3802): `PROBE|w4h_05_set_combat_disabled_multitick|pre=1|t0(cd=1,inCmb=1)|t2(cd=1,inCmb=0)|t5(cd=1,inCmb=0)`;
+        // zero DLL, PDB, or third-party source consulted].
         "setcombatdisabled" => {
             if let Some(r) = subject {
                 if num(args, 0, 0.0) != 0.0 {
                     g.gaps.combat_disabled.insert(r);
-                    if r != FormId::PLAYER_REF {
-                        g.stop_combat(r);
-                    }
                 } else {
                     g.gaps.combat_disabled.remove(&r);
                 }
@@ -1431,9 +1443,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // The explosion's form traits, 0 light … 6 image-space modifier as GetExplosion-
-        // TraitForm reads them; no form clears it [observed: gaps7]. Only EXPL forms (and
-        // their TempCloneForm clones) are accepted; typed slots reject wrong-type forms
-        // while keeping null/omitted clears [hypothesis].
+        // TraitForm reads them [observed: gaps7]. Only EXPL forms (and their TempCloneForm
+        // clones) are accepted [design]. Omitting the 3rd argument clears any slot 0..=6
+        // to 0, whereas passing an explicit null ref (`0`) is a no-op across all slots
+        // [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+        // GSDocMitchellHouse (0x00103DF9), 10 official base masters,
+        // `w4h_02_explosion_slot4_reconcile` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
+        // #3803): `PROBE|w4h_02_explosion_slot4_reconcile|esmPop4=0/223|s4(0=00000000,set=0000003B,null=0000003B,lit0(0)=0000003B,omit(1)=00000000)|s0(0=00014BFF,null=00014BFF,omit=00000000)|s5(0=001758E2,null=001758E2,omit=00000000)|s6(0=00019CED,null=00019CED,omit=00000000)`;
+        // hypothesis: slots 1, 2, 3 follow the same null-no-op / omitted-clears rule].
+        // For non-null replacement forms, typed slots clear to 0 on a wrong-type form
+        // [observed: `jip_24_expl_trait_form_type_check`
+        // (`tools/capture/nvse/catalogs/wave4a_extenders.json`):
+        // `PROBE|jip_24_expl_trait_form_type_check|s0:00014BFF->00000000(eq0=1,eqSt=0)|s4:00000000->00015169(eqSt=1)`;
+        // hypothesis: slots 1, 2, 3, 5, 6 follow the same clear-on-mismatch rule], while
+        // slot 4 (INAM) accepts any non-null form without type checking [observed:
+        // `w4d_27_expl_inam_placeable` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+        // `PROBE|w4d_27_expl_inam_placeable|f0=00000000|stat=0000003B|misc=0000000F|alch=00015169|fac=0001B2A4|clr=0001B2A4`;
+        // no DLL or source consulted].
         "setexplosiontraitform" => {
             let Some(f) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"EXPL")) else {
                 return Some(Ok(zero));
@@ -1448,13 +1474,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 6 => ("MNAM/", Some(b"IMAD")),
                 _ => return Some(Ok(zero)),
             };
-            let target = form(args, 2);
-            if let (Some(e), Some(sig)) = (target, want) {
-                if g.data.sig(g.unclone(e)) != Some(*sig) {
-                    return Some(Ok(zero));
+            let next = if args.len() < 3 {
+                0
+            } else if let Some(e) = form(args, 2) {
+                if want.is_none_or(|sig| g.data.sig(g.unclone(e)) == Some(*sig)) {
+                    e.0
+                } else {
+                    0
                 }
-            }
-            g.field_overrides.insert((f, key.into()), XVal::Ref(target.map_or(0, |e| e.0)));
+            } else {
+                return Some(Ok(zero));
+            };
+            g.field_overrides.insert((f, key.into()), XVal::Ref(next));
             zero
         }
         // EXPL DATA flags; returns 0 [observed: gaps7, 0 both ways]. Only EXPL forms (and
@@ -1634,11 +1665,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // CELL DATA flags bit by bit [observed: gaps3, Doc's house (Interior, Public)
         // reads 1 0 0 0].
         // 0-7 DATA, 8-16 the lighting template inherit flags (LNAM bits 0-8)
-        // [documented: the page's table; hypothesis: LNAM's order]; SetCellFlag's change
-        // first (`crate::nvse_jip8`).
+        // [documented: GECK wiki GetCellFlag; hypothesis: LNAM's order]; SetCellFlag's change
+        // first (`crate::nvse_jip8`). Require a CELL form so non-CELL records with a DATA or
+        // LNAM subrecord (such as WRLD, #3757) return 0 rather than leaking their own flags
+        // [documented: GECK wiki GetCellFlag takes `cell:ref`; hypothesis: original JIP LN
+        // return on a WRLD with bit 0 set pending runtime probe].
         "getcellflag" => {
-            let c = form(args, 0).unwrap_or(FormId(0));
+            let Some(c) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"CELL")) else {
+                return Some(Ok(zero));
+            };
             let k = num(args, 1, -1.0);
+            if !(0.0..=16.0).contains(&k) || k.fract() != 0.0 {
+                return Some(Ok(zero));
+            }
             let (sub, k) = if k >= 8.0 { ("LNAM", k - 8.0) } else { ("DATA", k) };
             let flags = crate::nvse::record_value(g, c, sub, "").and_then(|v| v.num().ok()).unwrap_or(0.0);
             bit(flags, k)

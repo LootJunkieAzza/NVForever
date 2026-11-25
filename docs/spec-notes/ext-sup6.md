@@ -46,7 +46,7 @@ gives no scale].
 
 | Function | NVForever |
 |---|---|
-| DebugTextCreate `name x y text` | a text at x, y in the window's pixels [hypothesis: the page's 100 100 and 600 700]; a name already there is moved and changed, not doubled [hypothesis] |
+| DebugTextCreate `name x y text` | creates a debug text at `x, y` in the window's pixels [hypothesis: the page's 100 100 and 600 700] and returns `1`; if `name` already exists, moves and changes it in place (preserving zoom, not doubled) [documented: DebugTextCreate; hypothesis: `w4c_b4_03` does not read back x, y, or text] while returning `-1` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + SUP NVSE 855, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `w4c_b4_03_sup6_bobbypin_debugtext` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679): `mw(0,0)|bp(init=-1.00,set=-1.00,rd=-1.00)|dt(1,-1)`; no DLL or source consulted] |
 | DebugTextDestroy, DebugTextExists | gone; 0/1 [documented] |
 | DebugTextSetPos, DebugTextSetString, DebugTextSetZoom | its place, its text, its size [documented]; the zoom is the letters' height in pixels, 16 until set [hypothesis: the page's example sets 20] |
 
@@ -72,8 +72,8 @@ Get/SetHUDVisibilityOverride (`crate::nvse_hud`, `Game::hud.visibility`).
 
 | Function | NVForever |
 |---|---|
-| GetLockPickMenuValue `request` | 0 the pin's angle (0 left, 90 up, 180 right, as NVForever's menu, `fnv_game::lockpick::Picking::pin`), 1 the lock's level (0, 25, 50, 75, 100 by its class [hypothesis]), 2 the Lockpick skill; -1 with the menu shut [documented] |
-| SetBobbyPinHealth `[health]` | sets the pin's health, above 1 too, and returns it; without a value returns it; a new pin starts at 1 [documented; `fnv_game::lockpick::PIN_HEALTH` is 1]; -1 with the menu shut [hypothesis] |
+| GetLockPickMenuValue `request` | 0 the pin's angle (0 left, 90 up, 180 right, as NVForever's menu, `fnv_game::lockpick::Picking::pin` [design: original SUP NVSE 855 returned `0.89` in `w4h_11_sup_lockpick_menu_tiers` and `952.47` in `w4e_12_sup_lockpick_menu_value_tiers`, not a `0..180` angle centered at `90`]), 1 the lock's difficulty tier enum (`0` Very Easy/`0`, `1` Easy/`1..=25`, `2` Average/`26..=50`, `3` Hard/`51..=75`, `4` Very Hard/`76..=100`, via `lockpick::Level::of(level).index()`), 2 the Lockpick skill, other requests `0.0` while open; -1 with the menu shut [documented; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + SUP NVSE 855, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes to game install or Saves), `sup_20_lockpick_and_bobbypin_closed`, `w4e_12_sup_lockpick_menu_value_tiers` (`tools/capture/nvse/catalogs/wave4e_mods.json`, #3802 / PR #3803), and `w4h_11_sup_lockpick_menu_tiers` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`, #3802 / PR #3803): `PROBE\|w4h_11_sup_lockpick_menu_tiers\|shut(-1.0,-1.0,-1.0,-1.0,-1.0)\|open50(mm=1014,0.89,2.0,100.0,0.0,0.0)\|tiers(1=1.0,25=1.0,50=2.0,75=3.0,100=4.0)`; zero DLL, PDB, or third-party source consulted] |
+| SetBobbyPinHealth `[health]` | sets the pin's health, above 1 too, and returns it; without a value returns it; a new pin starts at 1 [documented; `fnv_game::lockpick::PIN_HEALTH` is 1]; -1 with the menu shut [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), `sup_20_lockpick_and_bobbypin_closed`] |
 | GetGrenadeTimeHeld | the seconds the attack was held with a throwable weapon in hand (Grenade Throw, Thrown, Land Mine, Mine Drop), kept after the throw and reset at the next press [documented: the page's note] |
 
 The engine writes the menu's state into `Game::sup.lockpick` before the scripts and takes

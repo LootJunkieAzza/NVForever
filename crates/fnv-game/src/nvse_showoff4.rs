@@ -47,7 +47,18 @@ fn list(g: &mut Game, items: Vec<XVal>) -> XVal {
 impl Game<'_> {
     /// Live actor weapon spread in spread units (`GetCalculatedActorSpread`)
     /// [documented: GECK wiki Gun Spread Formula (New Vegas), Perk Entry Points;
-    /// hypothesis: returns the actor-spread component after `SetNoGunWobble` and
+    /// observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 +
+    /// ShowOffNVSE 184, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official
+    /// base masters, isolated clean-room staging copy (read-only `PrintToConsole` probe;
+    /// zero writes to game install or Saves), `w4c_a06b_spread_settled` (`#3679`) and
+    /// settled 6-type `w4d_09_spread_all_anim_types`
+    /// (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3802 / PR #3803):
+    /// `PROBE|w4d_09_spread_all_anim_types|t3(0.1434,0.2359,0.1434,0.3284)|t4(0.1388,0.2313,0.1388,0.3238)|t5(0.1688,0.3538,0.3538,0.4463)|t6(0.1434,0.3284,0.3284,0.4209)|t8(0.1804,0.3654,0.3654,0.4579)|t10(0.4504,0.4459,0.4504,0.4459)|t3nw(0.1434,0.1434)`
+    /// (`t3nw(0.1434,0.1434)` confirms `SetNoGunWobble 1` leaves settled spread
+    /// unchanged; 1H guns anim 3/4: right +0.2, left 0, both +0.4; 2H weapons anim
+    /// 5/6/8: either single arm +0.4, both arms +0.6; thrown anim 10: 0 for
+    /// right/left/both); zero DLL, PDB, or third-party source consulted; hypothesis:
+    /// unprobed anim types 0..=2, 7, 9, 11..=13 and actor-spread component after
     /// `CALCULATE_GUN_SPREAD` perks, excluding weapon `min_spread` and ammo spread mods].
     pub fn calculated_actor_spread(&mut self, actor: FormId) -> f64 {
         let Some(w) = crate::functions::items::equipped_weapon(self, actor) else {
@@ -60,49 +71,54 @@ impl Game<'_> {
         };
         let setting = |g: &Game, name: &str, d: f64| g.world.setting_f32(name).map_or(d, f64::from);
 
-        let raw = if self.gun_wobble_off(actor) {
+        let aiming = actor == FormId::PLAYER_REF && (self.jip2.told.aiming || self.jip2.told.sights_up);
+        let m = self.motion(actor);
+        let unaimed = if aiming { 0.0 } else { setting(self, "fUnaimedSpreadPenalty", 0.2) };
+        let (aim_move_div, _) = self.entry_point_with(actor, crate::perks::MODIFY_AIMING_MOVE_SPEED, &[Some(base)], 1.0);
+        let moving = if !m.moving {
             0.0
+        } else if m.running {
+            setting(self, "fRunningSpreadPenalty", 0.2)
         } else {
-            let aiming = actor == FormId::PLAYER_REF && (self.jip2.told.aiming || self.jip2.told.sights_up);
-            let m = self.motion(actor);
-            let unaimed = if aiming { 0.0 } else { setting(self, "fUnaimedSpreadPenalty", 0.2) };
-            let (aim_move_div, _) = self.entry_point_with(actor, crate::perks::MODIFY_AIMING_MOVE_SPEED, &[Some(base)], 1.0);
-            let moving = if !m.moving {
-                0.0
-            } else if m.running {
-                setting(self, "fRunningSpreadPenalty", 0.2)
-            } else {
-                setting(self, "fWalkingSpreadPenalty", 0.1)
-            } / aim_move_div.max(1.0);
-            let standing = if m.sneaking { 0.0 } else { setting(self, "fStandingSpreadPenalty", 0.1) };
+            setting(self, "fWalkingSpreadPenalty", 0.1)
+        } / aim_move_div.max(1.0);
+        let standing = if m.sneaking { 0.0 } else { setting(self, "fStandingSpreadPenalty", 0.1) };
 
-            let left_arm = self.is_crippled(actor, crate::combat::LEFT_ARM);
-            let right_arm = self.is_crippled(actor, crate::combat::RIGHT_ARM);
-            // Mirrors `fnv_combat::spread::one_handed` over `schemas/fnv/objects.json`
-            // `WEAP.DNAM.animation_type` `(1 Hand)` enum entries (1, 3, 4, 10..=13);
-            // Gun Spread Formula (New Vegas) explicitly names type 4 [hypothesis: 1, 3, 10..=13].
-            let anim = field(self, "animation_type") as i64;
-            let one_handed = matches!(anim, 1 | 3 | 4 | 10..=13);
-            let arms = match (one_handed, left_arm && right_arm) {
+        let left_arm = self.is_crippled(actor, crate::combat::LEFT_ARM);
+        let right_arm = self.is_crippled(actor, crate::combat::RIGHT_ARM);
+        // Crippled-arm spread penalty by `WEAP.DNAM.animation_type`
+        // [observed: `w4d_09_spread_all_anim_types` in `wave4d_extenders.json` (#3802 / PR #3803)]:
+        // - 1H guns (anim 3, 4): right arm +0.2, left arm alone 0, both arms +0.4.
+        // - 2H ranged (anim 5, 6, 8 observed; 7, 9 grouped as [hypothesis]): either single
+        //   arm +0.4, both arms +0.6 (`fCrippledArms2HSpreadPenalty`).
+        // - Thrown/grenade/mine/melee/unarmed (anim 10 observed +0.0; 0..=2 and 11..=13
+        //   grouped as [hypothesis]): 0.0 for right, left, and both arms.
+        let anim = field(self, "animation_type") as i64;
+        let arms = match anim {
+            3 | 4 => match (left_arm, right_arm) {
                 (true, true) => setting(self, "fCrippledArms1HSpreadPenalty", 0.4),
-                (true, false) if right_arm => setting(self, "fCrippledArm1HSpreadPenalty", 0.2),
-                (false, true) => setting(self, "fCrippledArms2HSpreadPenalty", 0.6),
-                (false, false) if left_arm || right_arm => setting(self, "fCrippledArm2HSpreadPenalty", 0.4),
+                (_, true) => setting(self, "fCrippledArm1HSpreadPenalty", 0.2),
                 _ => 0.0,
-            };
-
-            let skill_code = field(self, "skill") as u16;
-            let skill = crate::functions::actor::actor_value(self, actor, skill_code).unwrap_or(0.0);
-            let strength = crate::functions::actor::actor_value(self, actor, crate::actor_values::STRENGTH).unwrap_or(0.0);
-            let (str_req_cut, _) = self.entry_point_with(actor, crate::perks::MODIFY_WEAPON_STRENGTH_REQ, &[Some(base)], 0.0);
-            let str_req = (field(self, "strength_req") - str_req_cut - strength.min(10.0)).max(0.0)
-                * setting(self, "fWeapStrengthReqPenalty", 0.025);
-            let skill_req = (field(self, "skill_req") - skill.min(100.0)).max(0.0)
-                * setting(self, "fWeapSkillReqPenalty", 0.01);
-            let skill_mult = 1.0 - setting(self, "fWobbleToSkillConversion", 0.5) * skill.clamp(0.0, 100.0) / 100.0;
-            (skill_mult * (unaimed + moving + standing + arms + str_req + skill_req))
-                .max(setting(self, "fMinGunSpreadValue", 0.01))
+            },
+            5..=9 => match (left_arm, right_arm) {
+                (true, true) => setting(self, "fCrippledArms2HSpreadPenalty", 0.6),
+                (true, false) | (false, true) => setting(self, "fCrippledArm2HSpreadPenalty", 0.4),
+                (false, false) => 0.0,
+            },
+            _ => 0.0,
         };
+
+        let skill_code = field(self, "skill") as u16;
+        let skill = crate::functions::actor::actor_value(self, actor, skill_code).unwrap_or(0.0);
+        let strength = crate::functions::actor::actor_value(self, actor, crate::actor_values::STRENGTH).unwrap_or(0.0);
+        let (str_req_cut, _) = self.entry_point_with(actor, crate::perks::MODIFY_WEAPON_STRENGTH_REQ, &[Some(base)], 0.0);
+        let str_req = (field(self, "strength_req") - str_req_cut - strength.min(10.0)).max(0.0)
+            * setting(self, "fWeapStrengthReqPenalty", 0.025);
+        let skill_req = (field(self, "skill_req") - skill.min(100.0)).max(0.0)
+            * setting(self, "fWeapSkillReqPenalty", 0.01);
+        let skill_mult = 1.0 - setting(self, "fWobbleToSkillConversion", 0.5) * skill.clamp(0.0, 100.0) / 100.0;
+        let raw = (skill_mult * (unaimed + moving + standing + arms + str_req + skill_req))
+            .max(setting(self, "fMinGunSpreadValue", 0.01));
 
         let (spread, _) = self.entry_point_with(actor, crate::perks::CALCULATE_GUN_SPREAD, &[Some(base)], raw);
         spread.max(0.0)

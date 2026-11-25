@@ -54,10 +54,10 @@ The actor records keep INAM, TPLT and SPLO for these (`ACTOR_SUBS`, data.rs).
 | Function | NVForever |
 |---|---|
 | Get/SetWeaponDetectionSoundLevel `weapon [level]` | VNAM, 0 loud, 1 normal, 2 silent [documented] |
-| SetWeaponItemMod `weapon slot [mod]` | WMI1-3; left out, none [documented: the examples]; a weapon mod (IMOD) only [hypothesis] |
-| SetWeaponItemModEffect, SetWeaponItemModValue `weapon slot value` | DNAM effect_mod1-3 and value_a_mod1-3; an effect 1-16, 0 (none) ignored [documented: the table, 0-14, and the JohnnyGuitar note; observed: 0 leaves the effect, 15 is stored; hypothesis: 16, the enum's last] |
+| SetWeaponItemMod `weapon slot [mod]` | WMI1-3; left out, null, or a non-IMOD form clears the slot to 0 [documented: the examples; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to game install or Saves), `jip_20_weapon_item_mod_non_imod` (`tools/capture/nvse/catalogs/wave4a_extenders.json`): `PROBE\|jip_20_weapon_item_mod_non_imod\|m0=0010C858,m1=00000000,eq0=1,eqSt=0,eqM0=0`; zero DLL, PDB, or third-party source consulted] |
+| SetWeaponItemModEffect, SetWeaponItemModValue `weapon slot value` | DNAM effect_mod1-3 and value_a_mod1-3; an effect 1-16, 0 (none) ignored [documented: the table, 0-14, and the JohnnyGuitar note; observed: 0 leaves the effect, 15 is stored; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_21_weapon_mod_effect_16 (GetWeaponItemModEffect/SetWeaponItemModEffect): 2,2,2; no DLL or source consulted] |
 | SetWeaponOnHitSetting `weapon 0-3` | DNAM on_hit [documented] |
-| SetWeaponSemiAutoFireDelay `weapon setMax delay` | DNAM's min or max delay, not below 0 [hypothesis] |
+| SetWeaponSemiAutoFireDelay `weapon setMax delay` | DNAM's min or max delay, raw finite floats including negative values stored unclamped [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_22_weapon_semiauto_delay_neg (GetWeaponSemiAutoFireDelay/SetWeaponSemiAutoFireDelay): 0.000,-0.500; no DLL or source consulted] |
 | SetWeaponModel `weapon mask path` | 0 MODL, 1-7 MWD1-7, as GetWeaponModel reads them [documented: the table] |
 | Get/SetWeaponModReloadAnim `weapon [anim]` | DNAM reload_animation_mod, 0-22 [the enum: xEdit WEAP] |
 | WeaponHasModType `weapon type` | the slot 1-3 whose effect is the type, else 0; a placed weapon by its base [documented]; the type IDs are DNAM's effect values [the enum: xEdit WEAP; observed: the 10mm pistol's 2, 3, 11 in slots 1-3] |
@@ -70,7 +70,7 @@ The actor records keep INAM, TPLT and SPLO for these (`ACTOR_SUBS`, data.rs).
 | Function | NVForever |
 |---|---|
 | Get/SetIdleLoopTimes `idle getMax` / `idle min max` | IDLE DATA loop_min, loop_max, each clamped to a u8, the max raised to the min [documented; observed: RepairWall02 2/5, and 300 2 reads 255 255] |
-| Get/SetBodyPartReplacementModel `bpd part [path]` | the part's NAM1; "" without one or without the part; a part the record lacks is not added [hypothesis] |
+| Get/SetBodyPartReplacementModel `bpd part [path]` | the part's NAM1; "" without one or without the part; a part the record lacks is not added [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_23_bodypart_repl_missing_part (GetBodyPartReplacementModel/SetBodyPartReplacementModel): 0,0; no DLL or source consulted] |
 | SetBodyPartName `bpd part name` | the part's BPTN, read by GetBodyPartName |
 
 A part is the group of subrecords from its BPTN (or its BPNN when it has no name) to the
@@ -80,7 +80,7 @@ next part, holding the BPND of that part type [documented: xEdit BPTD].
 
 | Function | NVForever |
 |---|---|
-| SetCellFlag `cell flag set` | 0-7 DATA's bits (4 too, which the table leaves out), 8-16 the lighting template inherit flags, LNAM bits 0-8 [documented: the table; observed: 4 is set; GetCellFlag 8-16 follow LNAM in this order on Doc Mitchell's house and the saloon]. GetCellFlag reads 8-16 the same way now (it read DATA, so 0) |
+| SetCellFlag `cell flag set` | 0-7 DATA's bits (4 too, which the table leaves out), 8-16 the lighting template inherit flags, LNAM bits 0-8 [documented: the table; observed: 4 is set; GetCellFlag 8-16 follow LNAM in this order on Doc Mitchell's house and the saloon]. GetCellFlag reads 8-16 the same way now (it read DATA, so 0) and requires a `CELL` form (and integer `flagID` in `0..=16`), returning `0` for non-`CELL` forms such as `WRLD` so worldspace `DATA` flags are not read as cell flags [documented: GECK wiki GetCellFlag (`cell:ref`, `flagID:int{0-16}`); hypothesis: exact original JIP LN return on a `WRLD` with bit 0 set is pending an original-game runtime probe, #3757] |
 | SetCellWaterForm `cell water` | XCWT, a water (WATR) [documented]; GetCellWaterForm reads it |
 | SetWaterFormEffect `water [effect]` | the actor effect, or none; GetWaterFormEffect and drinking (`Game::drink_from`) read it. In the original it has no result (`let x := SetWaterFormEffect …` does not compile) |
 | GetWaterTrait `water trait` | 0 opacity (ANAM), 1 the flags (FNAM), 2-50 DNAM in its order; colours 12-14 as R × 1000000 + G × 1000 + B; the table's "Unknown" 9 (unused bytes), and past 50, 0 [documented: the table; observed: NVCleanWater's 0-14 and 16-50] |

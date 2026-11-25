@@ -638,10 +638,13 @@ fn a_type_error_is_reported_and_the_script_goes_on() {
 
 #[test]
 fn tostring_and_tonumber() {
-    let h = run("string_var s\nfloat n\nbegin GameMode\nlet s := ToString 42\nlet n := (ToNumber \"12\") * 2\nend");
+    let h = run("string_var s\nfloat n\nstring_var sl\nstring_var sm\nbegin GameMode\nlet s := ToString 42\nlet n := (ToNumber \"12\") * 2\nlet sl := ToString (Ar_List 1, 2)\nlet sm := ToString (Ar_Map \"k\"::5)\nend");
     // ToNumber is NVSE-aware, so without the parentheses its argument would be "12" * 2.
     assert_eq!(h.text(1), "42");
     assert_eq!(h.0[&2], Value::Num(24.0));
+    // List arrays and stringmaps format as "NULL" [observed: b3_core_05_tostring_array_map].
+    assert_eq!(h.text(3), "NULL");
+    assert_eq!(h.text(4), "NULL");
 }
 
 // ---- arrays (task B3, the D2 functions) -------------------------------------------------
@@ -736,10 +739,89 @@ fn big_numbers_in_g_are_scientific() {
 }
 
 #[test]
+fn eval_truthiness_for_arrays_and_strings() {
+    // [observed: 2026-11-23 & 2026-11-24, GSDocMitchellHouse (0x00103DF9), Fallout: New
+    // Vegas 1.4.0.525, xNVSE 6.4.9 with the 10 official base masters, probes
+    // `core_05_eval_empty_array_and_string_truth` (1,0,1,1),
+    // `core_24_eval_string_var` / `#3679` `core_24_string_var_destruct_zero`
+    // (eval s: 1->0 across sv_Destruct, eval sEmp=1, eval (!sEmp)=0,
+    // eval (sEmp && 5)=1, eval a1=1, eval a2=1, eval ar_Null=0, eval (!a1)=0,
+    // eval (!aNull)=1), and `w4d_03_eval_empty_str_lit` (#3802 / PR #3803:
+    // `PROBE|w4d_03_eval_empty_str_lit|lit0(cmp=1,val=0)|lit1(cmp=1,val=1)|con0Inline(cmp=0,val=-9)|c0=1,c1=1|v0=1,v1=1|saLit0(1:0)|saLit1(1:1)|saV0(1:1)`,
+    // covering both `if eval` and standalone `eval` on bare `""`, `"abc"`, and allocated
+    // empty `string_var`)]:
+    // initialized empty arrays and allocated string_vars (even empty) evaluate truthy (1);
+    // ar_Null, uninitialized or sv_Destruct-ed string_vars, and bare `""` literals
+    // evaluate 0. Standalone `(eval ...)` coerces arrays (including array ID >= 2)
+    // and strings to 1/0 while preserving numeric passthrough (`eval 5 == 5`, #2275
+    // [design]).
+    let h = run(
+        "array_var aEmp\narray_var aTwo\narray_var aNul\nstring_var sUninit\nstring_var sEmp\nstring_var sNon\n\
+         int bAE\nint bAN\nint bSU\nint bSE\nint bSN\nint bBefore\nint bAfter\nint bNotEmp\nint bNotUninit\nint bAnd\n\
+         int bArrTwo\nint bArrNull\nint bNum\nint bEvalEmp\nint bNotArr\nint bNotArrNull\nint bIfEmpAnd\n\
+         string_var sConEmp\nint bLitEmpty\nint bLitNon\nint bEvalLitEmpty\nint bEvalLitNon\nint bConEmp\n\
+         begin GameMode\n\
+         let aEmp := ar_Construct \"array\"\n\
+         let aTwo := ar_Construct \"array\"\n\
+         let aNul := ar_Null\n\
+         let sEmp := \"\"\n\
+         let sNon := \"x\"\n\
+         let sConEmp := sv_Construct \"%z\" sEmp\n\
+         if eval aEmp\n  let bAE := 1\nendif\n\
+         if eval aNul\n  let bAN := 1\nendif\n\
+         if eval sUninit\n  let bSU := 1\nendif\n\
+         if eval sEmp\n  let bSE := 1\nendif\n\
+         if eval sNon\n  let bSN := 1\nendif\n\
+         if eval \"\"\n  let bLitEmpty := 1\nendif\n\
+         if eval \"abc\"\n  let bLitNon := 1\nendif\n\
+         let bEvalLitEmpty := eval \"\"\n\
+         let bEvalLitNon := eval \"abc\"\n\
+         if eval sConEmp\n  let bConEmp := 1\nendif\n\
+         let bBefore := eval sNon\n\
+         sv_Destruct sNon\n\
+         let bAfter := eval sNon\n\
+         let bNotEmp := !sEmp\n\
+         let bNotUninit := !sUninit\n\
+         let bAnd := (sEmp && 5) + (sUninit && 5)\n\
+         let bArrTwo := eval aTwo\n\
+         let bArrNull := eval aNul\n\
+         let bNum := eval 5\n\
+         let bEvalEmp := eval sEmp\n\
+         let bNotArr := eval (!aTwo)\n\
+         let bNotArrNull := eval (!aNul)\n\
+         if eval (sEmp && 5)\n  let bIfEmpAnd := 1\nendif\n\
+         end",
+    );
+    let get = |k: u16| h.0.get(&k).copied().unwrap_or(Value::ZERO);
+    assert_eq!(get(7), Value::Num(1.0), "initialized empty array is truthy");
+    assert_eq!(get(8), Value::Num(0.0), "ar_Null is falsy");
+    assert_eq!(get(9), Value::Num(0.0), "uninitialized string_var is falsy");
+    assert_eq!(get(10), Value::Num(1.0), "initialized empty string_var is truthy");
+    assert_eq!(get(11), Value::Num(1.0), "non-empty string_var is truthy");
+    assert_eq!(get(12), Value::Num(1.0), "eval sNon before sv_Destruct is 1");
+    assert_eq!(get(13), Value::Num(0.0), "eval sNon after sv_Destruct is 0");
+    assert_eq!(get(14), Value::Num(0.0), "!sEmp is 0");
+    assert_eq!(get(15), Value::Num(1.0), "!sUninit is 1");
+    assert_eq!(get(16), Value::Num(5.0), "sEmp && 5 == 5, sUninit && 5 == 0");
+    assert_eq!(get(17), Value::Num(1.0), "eval aTwo (array ID >= 2) coerces to 1, not raw array ID");
+    assert_eq!(get(18), Value::Num(0.0), "eval ar_Null coerces to 0");
+    assert_eq!(get(19), Value::Num(5.0), "eval 5 preserves numeric passthrough (#2275)");
+    assert_eq!(get(20), Value::Num(1.0), "eval sEmp (empty alive string_var) is 1");
+    assert_eq!(get(21), Value::Num(0.0), "eval (!aTwo) is 0");
+    assert_eq!(get(22), Value::Num(1.0), "eval (!aNul) is 1");
+    assert_eq!(get(23), Value::Num(1.0), "if eval (sEmp && 5) is truthy");
+    assert_eq!(get(25), Value::Num(0.0), "if eval \"\" bare empty string literal is falsy (w4d_03)");
+    assert_eq!(get(26), Value::Num(1.0), "if eval \"abc\" bare non-empty string literal is truthy (w4d_03)");
+    assert_eq!(get(27), Value::Num(0.0), "eval \"\" bare empty string literal coerces to 0 (w4d_03)");
+    assert_eq!(get(28), Value::Num(1.0), "eval \"abc\" bare non-empty string literal coerces to 1 (w4d_03)");
+    assert_eq!(get(29), Value::Num(1.0), "if eval sConEmp (sv_Construct empty string_var) is truthy (w4d_03)");
+}
+
+#[test]
 fn format_signs_and_huge_fields() {
-    // %g writes -0 as 0 [hypothesis], %f keeps its sign [observed: "%.4f" of -0 reads
-    // "-0.0000" in the original, #1919], + never doubles a minus, and a huge precision or
-    // width is cut (#1145 review, #1134) [hypothesis: the C library's forms].
+    // %g writes -0 as 0 (see crates/fnv-script/src/vm.rs, `printf_number`), %f keeps its sign
+    // [observed: "%.4f" of -0 reads "-0.0000" in the original, #1919], + never doubles a minus,
+    // and a huge precision or width is cut (#1145 review, #1134) [hypothesis: the C library's forms].
     let h = run("string_var s
 string_var t
 string_var u
@@ -1056,7 +1138,7 @@ end",
 }
 
 /// Tale of Two Wastelands' start-up checks pass for the plugins built into the engine:
-/// Stewie's Tweaks at TTW's minimum 941 and its own ttw_nvse (ext-version.md §5).
+/// Stewie's Tweaks at 960 (above TTW's minimum 941, #3183) and its own ttw_nvse (ext-version.md §5).
 #[test]
 fn ttws_plugin_checks_find_the_plugins_built_in() {
     let h = run(
@@ -1069,7 +1151,7 @@ let t := IsPluginInstalled \"ttw_nvse\"
 let u := IsPluginInstalled \"Not A Plugin\"
 end",
     );
-    assert_eq!(h.0[&1], Value::Num(941.0));
+    assert_eq!(h.0[&1], Value::Num(960.0));
     assert_eq!(h.0[&2], Value::Num(1.0));
     assert_eq!(h.0[&3], Value::Num(0.0));
 }
@@ -1141,6 +1223,143 @@ end",
     assert_eq!(h.0[&8], Value::Num(1.0));
     assert_eq!(h.text(9), "Pepeglare snig");
     assert_eq!(h.text(10), "005");
+}
+
+#[test]
+fn anh_wave4_degrees_scancode_and_guards() {
+    // [observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas
+    // 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 with the 10 official base masters, probes
+    // anh_01..anh_05, anh_09, anh_10]: GetAngleQuadrant and QFromAxisAngleAlt take
+    // degrees, ScancodeToChar returns uppercase letters and DirectInput key names, and
+    // Ar_Max/Ar_Min/Ar_RangeMath return safe 0 [design] on empty/string arrays.
+    let h = run(
+        "float q0
+float q45
+float q90
+float q135
+float q180
+float q225
+float q270
+float q315
+float qNeg45
+float qNegHalf
+float q0w
+float q0z
+float q90w
+float q90x
+float q90y
+float q90z
+float qSmallZ
+float eMax
+float eMin
+float eRng
+float sMax
+float lerpMid
+float lerpEx2
+float lerpExNeg
+string_var kEsc
+string_var kF1
+string_var kE
+string_var kA
+string_var kNone
+string_var kMouse
+string_var kSpace
+string_var kUp
+string_var k220
+string_var kZero
+string_var kNeg
+string_var k221
+string_var k255
+array_var aAxis
+array_var aQ
+array_var aEmpty
+array_var aStrs
+array_var aA
+array_var aB
+array_var aL
+begin GameMode
+let q0 := GetAngleQuadrant 0
+let q45 := GetAngleQuadrant 45
+let q90 := GetAngleQuadrant 90
+let q135 := GetAngleQuadrant 135
+let q180 := GetAngleQuadrant 180
+let q225 := GetAngleQuadrant 225
+let q270 := GetAngleQuadrant 270
+let q315 := GetAngleQuadrant 315
+let qNeg45 := GetAngleQuadrant -45
+let qNegHalf := GetAngleQuadrant -0.5
+let aAxis := ar_List 0, 0, 1
+let aQ := QFromAxisAngleAlt aAxis 0
+let q0w := aQ[0]
+let q0z := aQ[3]
+let aQ := QFromAxisAngleAlt aAxis 90
+let q90w := aQ[0]
+let q90x := aQ[1]
+let q90y := aQ[2]
+let q90z := aQ[3]
+let aQ := QFromAxisAngleAlt aAxis 1.570796
+let qSmallZ := aQ[3]
+let aEmpty := ar_Construct \"array\"
+let eMax := Ar_Max aEmpty
+let eMin := Ar_Min aEmpty
+let eRng := Ar_RangeMath aEmpty
+let aStrs := ar_List \"alpha\", \"beta\"
+let sMax := Ar_Max aStrs
+let aA := ar_List 0, 0, 0
+let aB := ar_List 10, 20, 30
+let aL := V3Lerp aA aB 0.5
+let lerpMid := aL[1]
+let aL := V3Lerp aA aB 2
+let lerpEx2 := aL[0]
+let aL := V3Lerp aA aB -1
+let lerpExNeg := aL[0]
+let kEsc := ScancodeToChar 1
+let kF1 := ScancodeToChar 59
+let kE := ScancodeToChar 18
+let kA := ScancodeToChar 30
+let kNone := ScancodeToChar 999
+let kMouse := ScancodeToChar 256
+let kSpace := ScancodeToChar 57
+let kUp := ScancodeToChar 200
+let k220 := ScancodeToChar 220
+let kZero := ScancodeToChar 0
+let kNeg := ScancodeToChar -1
+let k221 := ScancodeToChar 221
+let k255 := ScancodeToChar 255
+end",
+    );
+    assert_eq!(h.0[&1], Value::Num(1.0), "0 deg -> Q1");
+    assert_eq!(h.0[&2], Value::Num(1.0), "45 deg -> Q1");
+    assert_eq!(h.0[&3], Value::Num(2.0), "90 deg -> Q2");
+    assert_eq!(h.0[&4], Value::Num(2.0), "135 deg -> Q2");
+    assert_eq!(h.0[&5], Value::Num(3.0), "180 deg -> Q3");
+    assert_eq!(h.0[&6], Value::Num(3.0), "225 deg -> Q3");
+    assert_eq!(h.0[&7], Value::Num(4.0), "270 deg -> Q4");
+    assert_eq!(h.0[&8], Value::Num(4.0), "315 deg -> Q4");
+    assert_eq!(h.0[&9], Value::Num(4.0), "-45 deg -> Q4");
+    assert_eq!(h.0[&10], Value::Num(1.0), "-0.5 truncates to 0 -> Q1");
+    assert_eq!((h.0[&11], h.0[&12]), (Value::Num(1.0), Value::Num(0.0)), "0 deg -> [1,0,0,0]");
+    let half_sqrt2 = std::f64::consts::FRAC_1_SQRT_2;
+    assert!(matches!(h.0[&13], Value::Num(v) if (v - half_sqrt2).abs() < 1e-6), "90 deg w: {:?}", h.0[&13]);
+    assert!(matches!(h.0[&14], Value::Num(v) if v.abs() < 1e-6), "90 deg x: {:?}", h.0[&14]);
+    assert!(matches!(h.0[&15], Value::Num(v) if v.abs() < 1e-6), "90 deg y: {:?}", h.0[&15]);
+    assert!(matches!(h.0[&16], Value::Num(v) if (v - half_sqrt2).abs() < 1e-6), "90 deg z: {:?}", h.0[&16]);
+    assert!(matches!(h.0[&17], Value::Num(v) if (v - (std::f64::consts::FRAC_PI_2.to_radians() / 2.0).sin()).abs() < 1e-6), "1.570796 deg z: {:?}", h.0[&17]);
+    assert_eq!((h.0[&18], h.0[&19], h.0[&20], h.0[&21]), (Value::Num(0.0), Value::Num(0.0), Value::Num(0.0), Value::Num(0.0)));
+    assert_eq!((h.0[&22], h.0[&23], h.0[&24]), (Value::Num(10.0), Value::Num(20.0), Value::Num(-10.0)));
+    assert_eq!(h.text(25), "Escape");
+    assert_eq!(h.text(26), "F1");
+    assert_eq!(h.text(27), "E");
+    assert_eq!(h.text(28), "A");
+    assert_eq!(h.text(29), "\x1d");
+    assert_eq!(h.text(30), "Left Mouse Button");
+    assert_eq!(h.text(31), "Spacebar");
+    assert_eq!(h.text(32), "Up Arrow");
+    assert_eq!(h.text(33), "\x1d");
+    assert_eq!(h.text(34), "\x1d");
+    assert_eq!(h.text(35), "\x1d");
+    assert_eq!(h.text(36), "\x1d");
+    assert_eq!(h.text(37), "\x1d");
 }
 
 #[test]
@@ -2024,11 +2243,38 @@ fn set_on_play_group_event_handler_anim_group_arg_forms() {
     assert!(fourth_args[9].contains('('), "zero-arg function call must compile as call, got {}", fourth_args[9]);
 }
 
-/// Compound bitwise, power, modulo, and shift assignments work in `let`, bare Let-macro,
-/// inline declaration, quest-variable, array-element, and NVSEScript forms, including
-/// nested calls shifted before bitwise-OR (`iINITemp |= (Floor (Clamp ...)) << 1`).
+/// Interactive console sessions compile lines against persistent local variables:
+/// 1-based indices and `ref`-ness carry across lines, no spurious `variable_added`
+/// warning is emitted, and re-declaring a `ref` as another type clears its `ref`-ness.
 #[test]
-fn compound_bitwise_and_shift_assignments_let_and_macro() {
+fn compile_runtime_with_locals_preserves_slots_and_ref_vars() {
+    use std::collections::HashSet;
+    let t = table();
+    let (c1, refs1) = fnv_script::compile::compile_runtime_with_locals("ref r = player\nint n = 5", &t, &World, &[], &HashSet::new());
+    assert_eq!(c1.errors().count(), 0, "{:?}", c1.diags);
+    assert!(c1.diags.iter().all(|d| d.kind != "variable_added"), "{:?}", c1.diags);
+    assert!(refs1.contains("r"));
+    let r_idx = c1.variables.iter().find(|v| v.name == "r").unwrap().index;
+    let n_idx = c1.variables.iter().find(|v| v.name == "n").unwrap().index;
+
+    let (c2, refs2) = fnv_script::compile::compile_runtime_with_locals("eval (r.GetActorValue Health + n)", &t, &World, &c1.variables, &refs1);
+    assert_eq!(c2.errors().count(), 0, "{:?}", c2.diags);
+    assert_eq!(c2.variables.iter().find(|v| v.name == "r").unwrap().index, r_idx);
+    assert_eq!(c2.variables.iter().find(|v| v.name == "n").unwrap().index, n_idx);
+    assert!(refs2.contains("r"));
+
+    let (c3, refs3) = fnv_script::compile::compile_runtime_with_locals("float r = 1.5", &t, &World, &c2.variables, &refs2);
+    assert_eq!(c3.errors().count(), 0, "{:?}", c3.diags);
+    assert_eq!(c3.variables.iter().find(|v| v.name == "r").unwrap().index, r_idx);
+    assert!(!refs3.contains("r"), "re-declaring ref as float clears ref-ness");
+}
+
+/// Compound bitwise and modulo assignments work in `let`, bare Let-macro, inline
+/// declaration, quest-variable, array-element, and NVSEScript forms (including float
+/// truncation and nested calls shifted before bitwise-OR: `iINITemp |= (Floor (Clamp ...)) << 1`),
+/// while `^=` works in `let` only and `<<=`/`>>=` do not exist in xNVSE 6.4.9.
+#[test]
+fn compound_bitwise_assignments_let_and_macro_match_xnvse() {
     let h = run(
         "int a
 int b
@@ -2039,6 +2285,7 @@ int f
 int g
 int iINITemp
 float fIn
+float fTrunc
 array_var ar
 begin GameMode
 a = 1
@@ -2047,44 +2294,42 @@ let a |= 8
 b = 15
 b &= 6
 let b &= 7
-c = 2
-c ^= 3
-let c ^= 2
-d = 1
-d <<= 3
-let d <<= 1
-e = 32
-e >>= 2
-let e >>= 1
-f = 17
+c = 3
+let c ^= 4
+d = 3 << 2
+e = 20 >> 2
+f = 13
 f %= 5
+let f %= 2
 int h |= 5
 ar = ar_List 1, 2
 ar[0] |= 4
-ar[1] <<= 2
+ar[1] &= 3
 g = ar[0] + ar[1]
 fIn = 1.7
 iINITemp = 1
 iINITemp |= (Floor (GetMinOf (GetMaxOf fIn 0) 1)) << 1
+fTrunc = 5.9
+let fTrunc |= 2.8
 end",
     );
     assert_eq!(h.0[&1], Value::Num(13.0), "a: 1 | 4 | 8 = 13");
     assert_eq!(h.0[&2], Value::Num(6.0), "b: 15 & 6 & 7 = 6");
-    assert_eq!(h.0[&3], Value::Num(64.0), "c: (2 ^ 3) ^ 2 = 64 [documented: NVSE ^ is power]");
-    assert_eq!(h.0[&4], Value::Num(16.0), "d: (1 << 3) << 1 = 16");
-    assert_eq!(h.0[&5], Value::Num(4.0), "e: (32 >> 2) >> 1 = 4");
-    assert_eq!(h.0[&6], Value::Num(2.0), "f: 17 % 5 = 2");
-    assert_eq!(h.0[&7], Value::Num(13.0), "g: (1 | 4) + (2 << 2) = 13");
+    assert_eq!(h.0[&3], Value::Num(81.0), "c: 3 ^ 4 = 81 [documented: NVSE ^ is power; observed]");
+    assert_eq!(h.0[&4], Value::Num(12.0), "d: binary 3 << 2 = 12 [observed]");
+    assert_eq!(h.0[&5], Value::Num(5.0), "e: binary 20 >> 2 = 5 [observed]");
+    assert_eq!(h.0[&6], Value::Num(1.0), "f: (13 % 5) % 2 = 1 [observed]");
+    assert_eq!(h.0[&7], Value::Num(7.0), "g: (1 | 4) + (2 & 3) = 7");
     assert_eq!(h.0[&8], Value::Num(3.0), "iINITemp: 1 | (Floor (GetMinOf (GetMaxOf 1.7 0) 1) << 1) = 3");
-    assert_eq!(h.0[&11], Value::Num(5.0), "inline decl int h |= 5");
+    assert_eq!(h.0[&10], Value::Num(7.0), "fTrunc: 5.9 |= 2.8 -> trunc(5.9) | trunc(2.8) = 7 [observed]");
+    assert_eq!(h.0[&12], Value::Num(5.0), "inline decl int h |= 5");
 
     // Dotted quest variable and mod-runtime nested Clamp/Floor/GetINIFloat_Cached pattern.
     let src = "int iINITemp\nbegin GameMode\n\
         TestQuest.bDone |= 2\n\
         TestQuest.bDone &= 3\n\
-        TestQuest.bDone ^= 2\n\
-        TestQuest.bDone <<= 1\n\
-        TestQuest.bDone >>= 1\n\
+        TestQuest.bDone %= 5\n\
+        let TestQuest.bDone ^= 2\n\
         iINITemp |= (Floor (Clamp (GetINIFloat_Cached \"Main:bVisible\" \"Widget.ini\" 1) 0 1)) << 1\n\
         end\n";
     let c = fnv_script::compile::compile_mod_runtime(src, &table(), &World);
@@ -2093,24 +2338,52 @@ end",
     let b = body(&p);
     assert!(matches!(&b[0], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitOr, .. } }));
     assert!(matches!(&b[1], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitAnd, .. } }));
-    assert!(matches!(&b[2], Stmt::Let { expr: XExpr::Assign { op: XAssign::Pow, .. } }));
-    assert!(matches!(&b[3], Stmt::Let { expr: XExpr::Assign { op: XAssign::Shl, .. } }));
-    assert!(matches!(&b[4], Stmt::Let { expr: XExpr::Assign { op: XAssign::Shr, .. } }));
-    assert!(matches!(&b[5], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitOr, .. } }));
+    assert!(matches!(&b[2], Stmt::Let { expr: XExpr::Assign { op: XAssign::Mod, .. } }));
+    assert!(matches!(&b[3], Stmt::Let { expr: XExpr::Assign { op: XAssign::Pow, .. } }));
+    assert!(matches!(&b[4], Stmt::Let { expr: XExpr::Assign { op: XAssign::BitOr, .. } }));
 
-    // NVSEScript compound shift assignments translate and execute cleanly.
-    let nvse_src = "name ShiftAssign;\nint a;\nint b;\nGameMode {\n  a = 1;\n  a <<= 3;\n  a |= 2;\n  b = 40;\n  b >>= 2;\n  b &= 7;\n}\n";
+    // NVSEScript compound bitwise/modulo assignments translate and execute cleanly.
+    let nvse_src = "name BitwiseAssign;\nint a;\nint b;\nGameMode {\n  a = 1;\n  a |= 4;\n  b = 15;\n  b &= 6;\n  b %= 4;\n}\n";
     let h2 = run(nvse_src);
-    assert_eq!(h2.0[&1], Value::Num(10.0), "NVSEScript: (1 << 3) | 2 = 10");
-    assert_eq!(h2.0[&2], Value::Num(2.0), "NVSEScript: (40 >> 2) & 7 = 2");
+    assert_eq!(h2.0[&1], Value::Num(5.0), "NVSEScript: 1 | 4 = 5");
+    assert_eq!(h2.0[&2], Value::Num(2.0), "NVSEScript: (15 & 6) % 4 = 2");
+}
 
-    // Decompiler symbols for compound shift assignments.
-    assert_eq!(fnv_script::decompile::xassign_symbol(XAssign::Shl), "<<=");
-    assert_eq!(fnv_script::decompile::xassign_symbol(XAssign::Shr), ">>=");
+/// Negative compiler checks matching xNVSE 6.4.9: `<<=` and `>>=` do not exist even under
+/// `let` (`Too many operators`, rejected at compile time here [design]), and bare
+/// Let-macro / bare inline typed declarations reject `^=` (requires `let`).
+#[test]
+fn unsupported_shift_assign_and_bare_pow_macro_are_rejected() {
+    for (label, src) in [
+        ("let <<=", "int x\nbegin GameMode\nlet x <<= 2\nend\n"),
+        ("let >>=", "int x\nbegin GameMode\nlet x >>= 2\nend\n"),
+        ("bare <<=", "int x\nbegin GameMode\nx <<= 2\nend\n"),
+        ("bare >>=", "int x\nbegin GameMode\nx >>= 2\nend\n"),
+        ("bare ^=", "int x\nbegin GameMode\nx ^= 4\nend\n"),
+        ("nvsescript <<=", "name BadShl;\nint x;\nGameMode {\n  x <<= 2;\n}\n"),
+        ("nvsescript >>=", "name BadShr;\nint x;\nGameMode {\n  x >>= 2;\n}\n"),
+    ] {
+        let c = fnv_script::compile::compile_mod_runtime(src, &table(), &World);
+        assert!(
+            c.errors().count() > 0,
+            "{label} must fail to compile (matching xNVSE 6.4.9), but compiled with no errors"
+        );
+    }
+    // Bare inline typed declaration (`int x ^= 4`) follows `MACRO_OPS` strictly: no
+    // initialized `XAssign::Pow` statement is emitted without `let`.
+    let lines = fnv_script::compile::lex::lines("int x ^= 4\n", &mut Vec::new());
+    let stmt = fnv_script::compile::parse::statement(&lines[0]).expect("parses as plain decl");
+    assert!(
+        matches!(stmt.kw, fnv_script::compile::parse::Kw::Decl { init: None, .. }),
+        "bare inline `int x ^= 4` must not parse with an initializer, got {:?}",
+        stmt.kw
+    );
 }
 
 /// `dATan2(y, x)` returns exact degrees in [-180, 180] across all four quadrants and axis
-/// edges, with `(0, 0) -> 0.0`.
+/// edges, with `(0, 0) -> 0.0` [observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9),
+/// Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 (10 official base masters), #3678 / PR #3679
+/// probe `w1_3495_compound_assign_and_datan2`].
 #[test]
 fn datan2_covers_quadrants_and_axes() {
     let h = run(
@@ -2123,6 +2396,7 @@ float q2
 float q3
 float q4
 float z
+float d30
 begin GameMode
 let a0 := dATan2 0, 1
 let a1 := dATan2 1, 0
@@ -2133,20 +2407,22 @@ let q2 := dATan2 1, -1
 let q3 := dATan2 -1, -1
 let q4 := dATan2 -1, 1
 let z := dATan2 0, 0
+let d30 := dATan2 1, 1.7320508
 end",
     );
-    for (k, want) in [
-        (1, 0.0),
-        (2, 90.0),
-        (3, 180.0),
-        (4, -90.0),
-        (5, 45.0),
-        (6, 135.0),
-        (7, -135.0),
-        (8, -45.0),
-        (9, 0.0),
+    for (k, want, tol) in [
+        (1, 0.0, 1e-9),
+        (2, 90.0, 1e-9),
+        (3, 180.0, 1e-9),
+        (4, -90.0, 1e-9),
+        (5, 45.0, 1e-9),
+        (6, 135.0, 1e-9),
+        (7, -135.0, 1e-9),
+        (8, -45.0, 1e-9),
+        (9, 0.0, 1e-9),
+        (10, 30.0, 1e-5),
     ] {
-        assert!(matches!(h.0[&k], Value::Num(v) if (v - want).abs() < 1e-9), "var {k}: {:?} vs {want}", h.0[&k]);
+        assert!(matches!(h.0[&k], Value::Num(v) if (v - want).abs() < tol), "var {k}: {:?} vs {want}", h.0[&k]);
     }
 }
 

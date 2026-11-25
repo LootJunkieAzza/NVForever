@@ -416,6 +416,13 @@ no hand-typed console sessions. Interface, protocol and file formats:
 `docs/spec-notes/xnvse-capture.md`. The plugin reads no game memory (only xNVSE's plugin
 interface and the game's script language) and writes only to the capture directory.
 
+**Writing files from a probe** (owner, 2026-11-24, #3793). A probe or capture that writes
+files (a save, an INI, JSON, Excel) may run only in a separate **staging copy** of the game
+folder, one the tools never treat as the real install. The probe itself is committed (in a
+catalog or in the pull request that cites it), and the claim it backs says how the copy was
+made and what was written. The `.fos` harness of #3667 and the save/reload probes of #3775
+have an exception for saves into `Saves\fosprobe\`.
+
 **One-time setup (owner, by hand — tools never write into the game folder):**
 1. Install xNVSE 6.4.9 or later following its own instructions (github.com/xNVSE/NVSE,
    Steam version). The plugin declines to load on older xNVSE or other game versions.
@@ -738,6 +745,36 @@ reads `x`, `y` and `depth` through every parent with an active `locus`; the job 
 those three both from the top-level root and from the menu's root, and checks the
 page's own example (`RadiationMeter/radiation_text/depth`: -50, then 0) when the tree has
 that tile. `--no-inherited` leaves them out.
+
+## NVSE / extender black-box probe harness (`nvse/`)
+
+`tools/capture/nvse/` contains a strictly read-only clean-room black-box
+NVSE/extender console-only (`PrintToConsole`) probe script emitter, declarative
+JSON catalogs (Wave 1/2 parity probes and Waves 4A–4E, 4G, and 4H — excluding all
+file-writing and `con_Save` probes), read-only log verifier (with offline 3-tier
+persistence log classifier), clean-room `[observed: ...]` citation formatter
+with an automated privacy gate, and offline stdlib `unittest` suite. Like §10,
+neither the tool nor its emitted probe scripts write into `--game-dir`, `Data\`,
+`NVSE\`, `Fallout.ini`, or Saves, and the tool never launches the game; see
+[`tools/capture/nvse/README.md`](nvse/README.md) for manual staging steps and
+usage.
+
+## `.fos` save-pair capture & verification harness (`fos/`)
+
+`tools/capture/fos/` contains a clean-room black-box `.fos` save-pair
+staging/collection tool, stdlib-only binary parser/differ, 16 pure-vanilla
+declarative Round 1–3 campaign definitions, read-only verifier (61 pure-vanilla
++ 7 optional manual-GECK-plugin assertions, 68 total), and offline synthetic
+test suite. Like §10, the Python tools never write into the game folder or
+`Documents\My Games\FalloutNV` (refusing any `--out-dir` inside or overlapping
+`--game-dir`, `--saves-dir`, or a live FNV install / `Saves` folder) and the
+staged scripts write nothing into the game folder. **Maintainer §10 exception
+(2026-11-24):** during live capture after one-time manual setup,
+`fosprobe_loop.gek` is explicitly permitted to call `con_Save <step.name>`
+inside `FalloutNV.exe` to write `.fos` saves into the isolated
+`Saves\fosprobe\` subfolder (cleaned up by hand afterward). See
+[`tools/capture/fos/README.md`](fos/README.md) for manual setup steps, usage,
+and clean-room rules.
 
 ## Tests
 

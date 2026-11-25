@@ -157,16 +157,28 @@ pub struct HitInfo {
     pub sneak_attack: bool,
     /// Explosion hit (`GetHitExtendedFlag 8`; `GetHit3DData` reports all zeros).
     pub explosion: bool,
-    /// Weapon base damage after attacker skill and weapon condition
-    /// (`GetHitBaseWeaponDamage`, jip-hit-info.md §1).
+    /// Weapon base damage after attacker skill and weapon condition, plus critical hit
+    /// damage on critical hits, or distance-attenuated `EXPL` damage (before difficulty
+    /// scaling) on explosion hits (`GetHitBaseWeaponDamage`, jip-hit-info.md §1, §6)
+    /// [observed: 2026-11-23 & 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`) &
+    /// Goodsprings (`0x000DAEBB`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN
+    /// 57.30 (10 official base masters), #3678 / PR #3679 probes
+    /// `w1_3606_hit_3d_dir_and_base_damage` (10mm non-crit `22`, crit `44`,
+    /// `SetCritDam 200` crit `222`, `GrenadeFragExplosion` at d=0 `125`) and
+    /// `w4d_13_explosion_falloff_outdoor` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
+    /// #3679): `MineFragExplosion` base 100 at d=0 `bd=100.00, hd=150.00`, at d=160.7
+    /// `bd=82.03, hd=123.04`; no DLL or source consulted].
     pub base_weapon_damage: f64,
     /// Fatigue damage dealt by the hit (`GetHitFatigueDamage`, jip-hit-info.md §1).
     pub fatigue_damage: f64,
     /// World-space 3D impact point (`GetHit3DData 0` and elements 0..3 of `GetHit3DData 2`).
     pub hit_pos: Option<[f32; 3]>,
-    /// Impact orientation Euler angles X/Y/Z in degrees (`GetHit3DData 1` and elements 3..6
-    /// of `GetHit3DData 2`) [hypothesis: pitch/roll/yaw in degrees from incoming direction].
-    pub hit_angles: Option<[f32; 3]>,
+    /// Unit 3D incoming hit travel direction vector `[nx, ny, nz]` (`||v|| == 1.0`,
+    /// `GetHit3DData 1` and elements 3..6 of `GetHit3DData 2`) [observed: 2026-11-23,
+    /// GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+    /// JIP LN 57.30 (10 official base masters), #3678 / PR #3679 probe
+    /// `w1_3606_hit_3d_dir_and_base_damage`: South->North `+Y` and East->West `-X` 10mm shots].
+    pub hit_dir: Option<[f32; 3]>,
     /// The body part's limb damage, when the hit is on a part with a condition.
     pub limb: Option<LimbHit>,
 }
@@ -175,20 +187,20 @@ fn finite_vec3(v: [f32; 3]) -> Option<[f32; 3]> {
     v.iter().all(|c| c.is_finite()).then_some(v)
 }
 
-/// Convert a game-space hit direction (`+X` east, `+Y` north, `+Z` up) to Euler angles
-/// `[pitch_x, roll_y, heading_z]` in degrees for `GetHit3DData` [hypothesis: pitch about X
-/// and clockwise-from-north heading about Z, roll 0; unmeasured in the original]. Returns
-/// `None` for non-finite or zero-length vectors.
-pub fn hit_angles_from_dir(dir: [f32; 3]) -> Option<[f32; 3]> {
+/// Normalize a game-space incoming hit travel direction (`+X` east, `+Y` north, `+Z` up)
+/// to a unit 3D vector `[nx, ny, nz]` (`||v|| == 1.0`) for `GetHit3DData 1` and elements
+/// `3..6` of `GetHit3DData 2` [observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9),
+/// Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 (10 official base masters),
+/// #3678 / PR #3679 probe `w1_3606_hit_3d_dir_and_base_damage`: South->North `+Y` and
+/// East->West `-X` 10mm shots on restrained Doc Mitchell]. Returns `None` for non-finite
+/// or zero-length vectors.
+pub fn unit_hit_dir(dir: [f32; 3]) -> Option<[f32; 3]> {
     let dir = finite_vec3(dir)?;
-    let horiz = dir[0].hypot(dir[1]);
-    let len = horiz.hypot(dir[2]);
+    let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
     if !len.is_finite() || len <= 1e-6 {
         return None;
     }
-    let pitch_x = (-dir[2]).atan2(horiz).to_degrees();
-    let heading_z = if horiz > 1e-6 { dir[0].atan2(dir[1]).to_degrees() } else { 0.0 };
-    finite_vec3([pitch_x, 0.0, heading_z])
+    finite_vec3([dir[0] / len, dir[1] / len, dir[2] / len])
 }
 
 /// The limb-condition actor value code of a BPTD part's actor value name.
@@ -451,6 +463,9 @@ impl Game<'_> {
         e.died_day = day;
         e.killer = killer;
         e.killing_hit = fatal;
+        // A dead actor immediately stops detecting on the same tick
+        // [observed: w4g_05_isactordetected_and_setclass_invalid].
+        self.detection.forget_detector(r);
         // JIP's ragdoll handlers: any actor ragdolled on death [documented:
         // SetOnRagdollEventHandler].
         if !lying {
@@ -628,6 +643,7 @@ impl Game<'_> {
         // The difficulty scales the player's hits and the hits on the player, limb damage
         // too (`crate::difficulty`, docs/spec-notes/difficulty.md §3).
         let mult = self.damage_mult(info.attacker, target);
+        let base = damage;
         let damage = damage * mult;
         if let Some(l) = info.limb.as_mut() {
             l.damage *= mult;
@@ -637,6 +653,13 @@ impl Game<'_> {
             let health = actor::actor_value(self, target, HEALTH).unwrap_or(0.0);
             let corpse = self.is_dead(target);
             return HitResult { health, max_health, immune: true, corpse, overkill: if corpse { damage.max(0.0) } else { 0.0 }, ..HitResult::default() };
+        }
+        // Every hit the difficulty changes, so a run shows what each level does to real hits
+        // (weapons, blows, blasts, falls), not only to the test aid's. Debug, under its own
+        // target: a run asks for it with RUST_LOG=info,fnv_game::difficulty=debug.
+        if mult != 1.0 && base > 0.0 {
+            let by = info.attacker.map_or_else(|| "nobody".to_string(), |a| a.to_string());
+            tracing::debug!(target: "fnv_game::difficulty", "difficulty: a hit of {base:.1} on {target} by {by} is {damage:.1} (x{mult:.2})");
         }
         let before = actor::actor_value(self, target, HEALTH).unwrap_or(max_health);
         let essential = self.is_essential(target);
@@ -664,10 +687,10 @@ impl Game<'_> {
         let limb_damage = info.limb.map_or(0.0, |l| l.damage);
         let fatigue_damage = if info.fatigue_damage.is_finite() { info.fatigue_damage.max(0.0) } else { 0.0 };
         let base_weapon_damage = if info.base_weapon_damage.is_finite() { info.base_weapon_damage.max(0.0) } else { 0.0 };
-        let (hit_pos, hit_angles) = if info.explosion {
+        let (hit_pos, hit_dir) = if info.explosion {
             (Some([0.0; 3]), Some([0.0; 3]))
         } else {
-            (info.hit_pos.and_then(finite_vec3), info.hit_angles.and_then(finite_vec3))
+            (info.hit_pos.and_then(finite_vec3), info.hit_dir.and_then(unit_hit_dir))
         };
         let rec = crate::jip_events::JipHit {
             attacker: info.attacker,
@@ -680,7 +703,7 @@ impl Game<'_> {
             location: info.location,
             flags,
             hit_pos,
-            hit_angles,
+            hit_dir,
         };
         self.jip.hits.insert(target, rec);
         self.jip_event("hit", Some(target), Vec::new());
@@ -812,14 +835,37 @@ impl Game<'_> {
 
     /// Tell the scripts whether an actor has its weapon out (IsWeaponOut). The animating
     /// side tells it every frame for the actors it draws; for the others the rule decides
-    /// ([`Game::wants_weapon_out`]). Transitioning from holstered (`false`) to drawn
-    /// (`true`) dispatches `ShowOff:OnWeaponUnholster`.
+    /// ([`Game::wants_weapon_out`]). If transitioning from holstered (`false`) to drawn
+    /// (`true`) without an earlier draw-start dispatch (`showoff_begin_unholster`),
+    /// dispatches `ShowOff:OnWeaponUnholster` PRE-update so `IsWeaponOut` reads `0`
+    /// inside the callback [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+    /// ShowOffNVSE Plugin 184, 2026-11-23, GSDocMitchellHouse (0x00103DF9), 10 official
+    /// base masters, probe `w1_3656_objectives_unholster_imod` (`Player.SetWeaponOut 0` /
+    /// `Player.SetWeaponOut 1` with `Weap10mmPistol` `0x0000434F` and unarmed) in #3679].
     pub fn set_weapon_out(&mut self, actor: FormId, out: bool) {
         self.senses.weapon_told.insert(actor, self.time);
-        if self.extra.get(&actor).is_some_and(|e| e.weapon_out) != out {
-            self.extra.entry(actor).or_default().weapon_out = out;
-            if out {
+        let was = self.extra.get(&actor).is_some_and(|e| e.weapon_out);
+        if was != out {
+            let already_fired = self.showoff.unholster_pending.remove(&actor).is_some();
+            if out && !already_fired {
                 self.showoff_on_weapon_unholster(actor);
+            }
+            self.extra.entry(actor).or_default().weapon_out = out;
+        } else if !out {
+            // Do NOT clear active draw-start deduplication (`None`) while a draw is still
+            // in progress (`weapon_state` / `idles.rs` call `set_weapon_out(actor, false)`
+            // every frame until draw completes). Only clear a stale `Some(ended)` latch
+            // left by an `AnimAction::Equip` that ended on an earlier frame without
+            // completing and with no scripted draw pending.
+            let draw_due = self.hud.weapon_due.get(&actor).is_some_and(|(o, _, _)| *o);
+            if !draw_due
+                && self
+                    .showoff
+                    .unholster_pending
+                    .get(&actor)
+                    .is_some_and(|ended| ended.is_some_and(|f| f < self.frame))
+            {
+                self.showoff.unholster_pending.remove(&actor);
             }
         }
     }
@@ -1186,11 +1232,13 @@ impl Game<'_> {
 
     /// Run the OnFire blocks of the weapon `actor` fired (its object script)
     /// [documented: block name; observed: the detonator's script, `DetonatorOnFire`, is
-    /// an OnFire block], and fire JIP's `SetOnFireWeaponEventHandler` event
-    /// [documented: SetOnFireWeaponEventHandler]. Returns whether an OnFire block ran.
+    /// an OnFire block], fire JIP's `SetOnFireWeaponEventHandler` event
+    /// [documented: SetOnFireWeaponEventHandler], and fire ShowOff's
+    /// `ShowOff:OnFireWeapon` event (`nvse_showoff.rs`). Returns whether an OnFire block ran.
     pub fn weapon_fired(&mut self, actor: FormId, weapon: FormId) -> bool {
         let ran = self.item_event(actor, weapon, event::ON_FIRE, None);
         self.fire_weapon_jip_event(actor, weapon, false);
+        self.showoff_on_fire_weapon(actor, weapon, false);
         ran
     }
 

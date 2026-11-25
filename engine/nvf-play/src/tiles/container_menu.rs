@@ -169,6 +169,7 @@ impl Snapshot {
             take_all: !m.list(Side::Container).rows.is_empty(),
             take_all_hint,
             note,
+            ysi_icons: m.ysi_icons,
         }
     }
 }
@@ -324,6 +325,7 @@ mod tests {
             take_all: !right.is_empty(),
             take_all_hint: "[R]".into(),
             note: None,
+            ysi_icons: true,
         }
     }
 
@@ -783,5 +785,28 @@ mod tests {
         assert_eq!(ui.tile(img0).get("width").map(Value::num), Some(24.0));
         assert_eq!(ui.tile(img1).get("filename").map(Value::text).as_deref(), Some("icons\\blank.dds"));
         assert_eq!(st.clicked(&ui, img0), Some(ContainerTile::Row(Side::Player, 0)));
+
+        // Disabling bAddInventoryIcons (ysi_icons = false) unloads existing ySIImage tiles
+        // and never instantiates ySINoTag even while ContainerMenu/ySI remains present.
+        let mut s_off = s.clone();
+        s_off.ysi_icons = false;
+        s_off.lists[Side::Player as usize].rows[0].ysi = None;
+        frame(&mut ui, &s_off, &mut st);
+        assert!(ui.find_tile("ContainerMenu/ySI").is_some(), "ySI tile stays readable by scripts");
+        assert!(list::child(&ui, st.rows[Side::Player as usize][0].tile, fnv_game::ui_ysi::YSI_IMAGE_TILE).is_none());
+        assert!(list::child(&ui, st.rows[Side::Player as usize][1].tile, fnv_game::ui_ysi::YSI_IMAGE_TILE).is_none());
+
+        // Fresh menu with ySI.xml present and ysi_icons = false creates zero ySIImage tiles.
+        let (mut ui_off, mut st_off) = (menu(), ContainerTiles::default());
+        let root_off = ui_off.menu(CONTAINER_MENU).unwrap();
+        assert!(fnv_game::ui_ysi::publish_for_menu(&mut ui_off, &src, root_off, Some(1008)));
+        frame(&mut ui_off, &s_off, &mut st_off);
+        assert!(ui_off.find_tile("ContainerMenu/ySI").is_some());
+        for row in &st_off.rows[Side::Player as usize] {
+            assert!(
+                list::child(&ui_off, row.tile, fnv_game::ui_ysi::YSI_IMAGE_TILE).is_none(),
+                "bAddInventoryIcons=0 must not instantiate ySIImage/ySINoTag tiles"
+            );
+        }
     }
 }

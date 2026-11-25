@@ -437,12 +437,22 @@ pub fn get_starting_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     Ok(Value::Num(f64::from(starting_place(g, r).0[i])))
 }
 
-/// `GetStartingAngle axis`, in degrees [documented: GECK wiki GetStartingAngle].
+/// `GetStartingAngle axis`, in degrees [documented: GECK wiki GetStartingAngle;
+/// observed: `b3_jip4_02_session_time_and_start_angle` (`wave4b_extenders.json`, #3679):
+/// `PROBE|b3_jip4_02_session_time_and_start_angle|sess=5.31,docZ=22.92,dynZ=270.00`,
+/// dynamic `PlaceAtMe` refs return their creation heading in degrees rather than 0].
 pub fn get_starting_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
+    let rot = if r == FormId::PLAYER_REF {
+        [0.0; 3]
+    } else if let Some(p) = g.world.placed.get(r) {
+        p.rot
+    } else {
+        g.world.peek(r).and_then(|s| s.made_rot).unwrap_or([0.0; 3])
+    };
     // + 0.0: a stored -0 reads 0, as in the game [observed: jip4, DocMitchellRef Y].
-    Ok(Value::Num(f64::from(starting_place(g, r).1[i]).to_degrees() + 0.0))
+    Ok(Value::Num(f64::from(rot[i]).to_degrees() + 0.0))
 }
 
 pub fn get_linked_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

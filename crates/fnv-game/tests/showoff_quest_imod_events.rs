@@ -6,6 +6,7 @@
 use crate::common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::{
+    anim_state::{AnimAction, AnimState},
     game::{Game, GameConfig},
     nvse_hud::WEAPON_FRAMES,
     trace::EventKind,
@@ -73,7 +74,7 @@ fn fixture(with_fists: bool) -> Fixture {
     bytes.extend(top(b"WEAP", &weaps.concat()));
     bytes.extend(top(
         b"QUST",
-        &[quest_record(QUEST_A, "OwnedQuestA", &[10, 20, 30]), quest_record(QUEST_B, "OwnedQuestB", &[10, 20])].concat(),
+        &[quest_record(QUEST_A, "OwnedQuestA", &[50, 30, 5, 10]), quest_record(QUEST_B, "OwnedQuestB", &[10, 20])].concat(),
     ));
     bytes.extend(top(
         b"IMAD",
@@ -142,7 +143,7 @@ fn no_errors(g: &Game) {
 }
 
 #[test]
-fn objective_events_dispatch_on_display_and_complete_with_filters_and_controls() {
+fn objective_events_dispatch_pre_update_skip_hidden_and_follow_qobj_order() {
     let f = fixture(true);
     // Vanilla-unchanged control: no handlers registered.
     {
@@ -168,13 +169,15 @@ SetEventHandler "ShowOff:OnDisplayObjective" (Begin Function {ref rQuest, int iO
 SetModLocalData "disp.a10" ((GetModLocalData "disp.a10") + 1)
 End) "first"::OwnedQuestA "second"::10
 SetEventHandlerAlt "ShowOff:OnDisplayObjective" (Begin Function {ref rQuest, int iObj}
-SetModLocalData "disp.a20" ((GetModLocalData "disp.a20") + 1)
-End) 1::OwnedQuestA 2::20
+SetModLocalData "disp.a50" ((GetModLocalData "disp.a50") + 1)
+End) 1::OwnedQuestA 2::50
 SetEventHandler "ShowOff:OnCompleteObjective" (Begin Function {ref rQuest, int iObj}
-SetModLocalData "comp.calls" ((GetModLocalData "comp.calls") + 1)
+int iN
+let iN := (GetModLocalData "comp.calls") + 1
+SetModLocalData "comp.calls" iN
 SetModLocalData "comp.quest" rQuest
 SetModLocalData "comp.obj" iObj
-SetModLocalData "comp.sum" ((GetModLocalData "comp.sum") + iObj)
+SetModLocalData "comp.seq" ((GetModLocalData "comp.seq") * 100 + iObj)
 SetModLocalData "comp.getter" (GetObjectiveCompleted rQuest iObj)
 SetModLocalData "comp.ev" (GetCurrentEventName)
 End)
@@ -182,75 +185,96 @@ SetEventHandler "ShowOff:OnCompleteObjective" (Begin Function {ref rQuest, int i
 SetModLocalData "comp.a10" ((GetModLocalData "comp.a10") + 1)
 End) "first"::OwnedQuestA "second"::10
 SetEventHandlerAlt "ShowOff:OnCompleteObjective" (Begin Function {ref rQuest, int iObj}
-SetModLocalData "comp.a20" ((GetModLocalData "comp.a20") + 1)
-End) 1::OwnedQuestA 2::20"#,
+SetModLocalData "comp.a50" ((GetModLocalData "comp.a50") + 1)
+End) 1::OwnedQuestA 2::50"#,
     );
 
-    // Display objective 10: fires OnDisplayObjective once, updates getter first, matches first/second filter.
+    // Display objective 10: fires OnDisplayObjective PRE-update (GetObjectiveDisplayed == 0 inside callback),
+    // then updates getter to 1, matching first/second filters.
     query(&mut g, "SetObjectiveDisplayed OwnedQuestA 10 1");
     assert_eq!(num(&mut g, "disp.calls"), 1.0);
     assert_eq!(form(&mut g, "disp.quest"), FormId(QUEST_A));
     assert_eq!(num(&mut g, "disp.obj"), 10.0);
-    assert_eq!(num(&mut g, "disp.getter"), 1.0);
+    assert_eq!(num(&mut g, "disp.getter"), 0.0, "OnDisplayObjective must fire PRE-update");
+    assert_eq!(query(&mut g, "SetFunctionValue (GetObjectiveDisplayed OwnedQuestA 10)"), XVal::Num(1.0));
     assert_eq!(text(&mut g, "disp.ev"), "ShowOff:OnDisplayObjective");
     assert_eq!(num(&mut g, "disp.a10"), 1.0);
-    assert_eq!(num(&mut g, "disp.a20"), 0.0);
+    assert_eq!(num(&mut g, "disp.a50"), 0.0);
     assert_eq!(num(&mut g, "comp.calls"), 0.0);
 
     // Repeating display on an already-displayed objective must not fire again.
     query(&mut g, "SetObjectiveDisplayed OwnedQuestA 10 1");
     assert_eq!(num(&mut g, "disp.calls"), 1.0);
 
-    // Hiding an objective must not fire OnDisplayObjective.
-    query(&mut g, "SetObjectiveDisplayed OwnedQuestA 10 0");
-    assert_eq!(num(&mut g, "disp.calls"), 1.0);
-
-    // Completing objective 10 fires OnCompleteObjective once, updates getter first, matches filters.
+    // Completing displayed objective 10 fires OnCompleteObjective PRE-update (GetObjectiveCompleted == 0 inside callback).
     query(&mut g, "SetObjectiveCompleted OwnedQuestA 10 1");
     assert_eq!(num(&mut g, "comp.calls"), 1.0);
     assert_eq!(form(&mut g, "comp.quest"), FormId(QUEST_A));
     assert_eq!(num(&mut g, "comp.obj"), 10.0);
-    assert_eq!(num(&mut g, "comp.getter"), 1.0);
+    assert_eq!(num(&mut g, "comp.getter"), 0.0, "OnCompleteObjective must fire PRE-update");
+    assert_eq!(query(&mut g, "SetFunctionValue (GetObjectiveCompleted OwnedQuestA 10)"), XVal::Num(1.0));
     assert_eq!(text(&mut g, "comp.ev"), "ShowOff:OnCompleteObjective");
     assert_eq!(num(&mut g, "comp.a10"), 1.0);
-    assert_eq!(num(&mut g, "comp.a20"), 0.0);
+    assert_eq!(num(&mut g, "comp.a50"), 0.0);
 
     // Repeating completion or un-completing must not fire OnCompleteObjective.
     query(&mut g, "SetObjectiveCompleted OwnedQuestA 10 1\nSetObjectiveCompleted OwnedQuestA 10 0");
     assert_eq!(num(&mut g, "comp.calls"), 1.0);
 
-    // Re-displaying a hidden, completed objective clears completed and fires OnDisplayObjective only.
-    query(&mut g, "SetObjectiveCompleted OwnedQuestA 10 1");
-    assert_eq!(num(&mut g, "comp.calls"), 2.0);
+    // Hiding an objective must not fire OnDisplayObjective.
+    query(&mut g, "SetObjectiveDisplayed OwnedQuestA 10 0");
+    assert_eq!(num(&mut g, "disp.calls"), 1.0);
+
+    // Completing a HIDDEN (undisplayed) objective (30 or hidden 10) must NOT fire OnCompleteObjective,
+    // while still updating GetObjectiveCompleted to 1.
+    query(&mut g, "SetObjectiveCompleted OwnedQuestA 10 1\nSetObjectiveCompleted OwnedQuestA 30 1");
+    assert_eq!(num(&mut g, "comp.calls"), 1.0, "hidden objective completion must not fire OnCompleteObjective");
+    assert_eq!(query(&mut g, "SetFunctionValue (GetObjectiveCompleted OwnedQuestA 10)"), XVal::Num(1.0));
+    assert_eq!(query(&mut g, "SetFunctionValue (GetObjectiveCompleted OwnedQuestA 30)"), XVal::Num(1.0));
+
+    // Re-displaying hidden, completed objective 10 clears completed and fires OnDisplayObjective PRE-update only.
     query(&mut g, "SetObjectiveDisplayed OwnedQuestA 10 1");
     assert_eq!(num(&mut g, "disp.calls"), 2.0);
-    assert_eq!(num(&mut g, "comp.calls"), 2.0);
+    assert_eq!(num(&mut g, "disp.getter"), 0.0);
+    assert_eq!(num(&mut g, "comp.calls"), 1.0);
     assert_eq!(query(&mut g, "SetFunctionValue (GetObjectiveCompleted OwnedQuestA 10)"), XVal::Num(0.0));
 
     // Undefined objective index must not fire either event.
-    query(&mut g, "SetObjectiveDisplayed OwnedQuestA 99 1\nSetObjectiveCompleted OwnedQuestA 99 1");
+    query(&mut g, "SetObjectiveDisplayed OwnedQuestA 999 1\nSetObjectiveCompleted OwnedQuestA 999 1");
     assert_eq!(num(&mut g, "disp.calls"), 2.0);
-    assert_eq!(num(&mut g, "comp.calls"), 2.0);
+    assert_eq!(num(&mut g, "comp.calls"), 1.0);
 
-    // Completed quest refuses SetObjectiveDisplayed/SetObjectiveCompleted (#2958): neither event fires.
-    query(&mut g, "CompleteQuest OwnedQuestB\nSetObjectiveDisplayed OwnedQuestB 10 1\nSetObjectiveCompleted OwnedQuestB 10 1");
-    assert_eq!(num(&mut g, "disp.calls"), 2.0);
-    assert_eq!(num(&mut g, "comp.calls"), 2.0);
+    // Completed quest refuses SetObjectiveDisplayed/SetObjectiveCompleted (#2958) and CompleteAllObjectives does not fire.
+    query(&mut g, "SetObjectiveDisplayed OwnedQuestB 10 1\nCompleteQuest OwnedQuestB\nSetObjectiveDisplayed OwnedQuestB 20 1\nSetObjectiveCompleted OwnedQuestB 10 1\nCompleteAllObjectives OwnedQuestB");
+    assert_eq!(num(&mut g, "disp.calls"), 3.0, "only initial OwnedQuestB 10 display before CompleteQuest fired");
+    assert_eq!(num(&mut g, "comp.calls"), 1.0, "completed quest must not fire OnCompleteObjective");
 
-    // CompleteAllObjectives fires OnCompleteObjective only for newly completed objectives (10, 20, 30).
-    // Mark 10 completed first so CompleteAllObjectives completes only 20 and 30 in ascending order.
-    query(&mut g, "SetObjectiveCompleted OwnedQuestA 10 1");
-    assert_eq!(num(&mut g, "comp.calls"), 3.0);
-    query(&mut g, "SetModLocalData \"comp.sum\" 0\nCompleteAllObjectives OwnedQuestA");
-    assert_eq!(num(&mut g, "comp.calls"), 5.0);
-    assert_eq!(num(&mut g, "comp.sum"), 50.0, "objectives 20 and 30 completed once each");
-    assert_eq!(num(&mut g, "comp.obj"), 30.0, "deterministic ascending BTreeMap order");
-    assert_eq!(num(&mut g, "comp.a20"), 1.0);
+    // CompleteAllObjectives on OwnedQuestA (QOBJ record order: [50, 30, 5, 10]):
+    // Mark 10 completed, hide 30 (and reset completed=0), display 50 and 5.
+    // CompleteAllObjectives must fire ONLY for displayed incomplete objectives (50 and 5),
+    // skipping hidden 30 and already-completed 10, in QOBJ record order: 50 then 5 (5005, NOT 550!).
+    query(
+        &mut g,
+        "SetObjectiveCompleted OwnedQuestA 10 1\n\
+         SetObjectiveCompleted OwnedQuestA 30 0\n\
+         SetObjectiveDisplayed OwnedQuestA 50 1\n\
+         SetObjectiveDisplayed OwnedQuestA 5 1\n\
+         SetModLocalData \"comp.seq\" 0\n\
+         CompleteAllObjectives OwnedQuestA",
+    );
+    assert_eq!(num(&mut g, "comp.calls"), 4.0, "10 + 50 + 5 completed while displayed");
+    assert_eq!(num(&mut g, "comp.seq"), 5005.0, "CompleteAllObjectives fires in QOBJ record order: 50 then 5");
+    assert_eq!(num(&mut g, "comp.obj"), 5.0);
+    assert_eq!(num(&mut g, "comp.getter"), 0.0, "PRE-update inside CompleteAllObjectives callbacks");
+    assert_eq!(num(&mut g, "comp.a50"), 1.0);
+    assert_eq!(query(&mut g, "SetFunctionValue (GetObjectiveCompleted OwnedQuestA 50)"), XVal::Num(1.0));
+    assert_eq!(query(&mut g, "SetFunctionValue (GetObjectiveCompleted OwnedQuestA 30)"), XVal::Num(1.0));
+    assert_eq!(query(&mut g, "SetFunctionValue (GetObjectiveCompleted OwnedQuestA 5)"), XVal::Num(1.0));
     no_errors(&g);
 }
 
 #[test]
-fn imod_events_dispatch_on_apply_remove_and_expiry_with_filters_and_controls() {
+fn imod_events_dispatch_pre_update_and_stack_on_reapply() {
     let f = fixture(true);
     // Vanilla-unchanged control + built-in KNOWN registration check.
     {
@@ -280,6 +304,7 @@ End) 1::OwnedImadList
 SetEventHandler "OnRemoveIMOD" (Begin Function {ref rImad}
 SetModLocalData "imod.remove.calls" ((GetModLocalData "imod.remove.calls") + 1)
 SetModLocalData "imod.remove.last" rImad
+SetModLocalData "imod.remove.active_sum" ((GetModLocalData "imod.remove.active_sum") + (IsImageSpaceActive rImad))
 SetModLocalData "imod.remove.active" (IsImageSpaceActive rImad)
 SetModLocalData "imod.remove.ev" (GetCurrentEventName)
 End)
@@ -288,54 +313,97 @@ SetModLocalData "imod.remove.hold" ((GetModLocalData "imod.remove.hold") + 1)
 End) 1::OwnedHoldImad"#,
     );
 
-    // Apply non-animatable HoldImad: fires OnApplyIMOD with IsImageSpaceActive == 1; Fade/List filters do not match.
+    // First apply of non-animatable HoldImad: fires OnApplyIMOD PRE-update with IsImageSpaceActive == 0.
     query(&mut g, "ApplyImageSpaceModifier OwnedHoldImad");
     assert_eq!(num(&mut g, "imod.apply.calls"), 1.0);
     assert_eq!(form(&mut g, "imod.apply.last"), FormId(IMAD_HOLD));
-    assert_eq!(num(&mut g, "imod.apply.active"), 1.0);
+    assert_eq!(num(&mut g, "imod.apply.active"), 0.0, "first OnApplyIMOD must see IsImageSpaceActive == 0");
+    assert_eq!(query(&mut g, "SetFunctionValue (IsImageSpaceActive OwnedHoldImad)"), XVal::Num(1.0));
     assert_eq!(text(&mut g, "imod.apply.ev"), "OnApplyIMOD");
     assert_eq!(num(&mut g, "imod.apply.fade_first"), 0.0);
     assert_eq!(num(&mut g, "imod.apply.list"), 0.0);
 
-    // Re-applying an already active IMOD restarts it and fires OnApplyIMOD again.
+    // Re-applying an already active non-animatable IMOD fires OnApplyIMOD with IsImageSpaceActive == 1
+    // and pushes another ActiveImageModifier entry in application order (capped at MAX_IMOD_STACK).
     query(&mut g, "ApplyImageSpaceModifier OwnedHoldImad");
     assert_eq!(num(&mut g, "imod.apply.calls"), 2.0);
+    assert_eq!(num(&mut g, "imod.apply.active"), 1.0, "stacked re-apply sees IsImageSpaceActive == 1");
+    assert_eq!(g.image_modifiers.len(), 2, "non-animatable re-apply preserves stacked entries in application order");
 
-    // Snapshot restore with an active IMOD must not spuriously fire OnApplyIMOD.
+    // Snapshot restore with active IMOD must not spuriously fire OnApplyIMOD.
     let snap = g.snapshot();
     let restored = Game::restore(&f.data, World::new(&f.forms, &f.refs, Default::default()), GameConfig { strict: true, ..Default::default() }, &snap).unwrap();
     assert!(restored.image_modifier_active(FormId(IMAD_HOLD)));
+    assert_eq!(restored.image_modifiers.len(), 2);
     assert!(restored.events.is_empty());
 
-    // Remove HoldImad: fires OnRemoveIMOD once with IsImageSpaceActive == 0.
+    // Single RemoveImageSpaceModifier removes BOTH stacked instances and fires OnRemoveIMOD TWICE,
+    // with IsImageSpaceActive == 1 inside BOTH callbacks and 0 immediately afterwards.
     query(&mut g, "RemoveImageSpaceModifier OwnedHoldImad");
-    assert_eq!(num(&mut g, "imod.remove.calls"), 1.0);
+    assert_eq!(num(&mut g, "imod.remove.calls"), 2.0, "removing 2 stacked instances fires OnRemoveIMOD twice");
+    assert_eq!(num(&mut g, "imod.remove.active_sum"), 2.0, "both OnRemoveIMOD callbacks see IsImageSpaceActive == 1");
     assert_eq!(form(&mut g, "imod.remove.last"), FormId(IMAD_HOLD));
-    assert_eq!(num(&mut g, "imod.remove.active"), 0.0);
+    assert_eq!(num(&mut g, "imod.remove.active"), 1.0);
+    assert_eq!(query(&mut g, "SetFunctionValue (IsImageSpaceActive OwnedHoldImad)"), XVal::Num(0.0));
     assert_eq!(text(&mut g, "imod.remove.ev"), "OnRemoveIMOD");
-    assert_eq!(num(&mut g, "imod.remove.hold"), 1.0);
+    assert_eq!(num(&mut g, "imod.remove.hold"), 2.0);
+
+    // Repeated non-animatable re-applies stay bounded at MAX_IMOD_STACK entries per form.
+    for _ in 0..80 {
+        query(&mut g, "ApplyImageSpaceModifier OwnedHoldImad");
+    }
+    assert_eq!(
+        g.image_modifiers.len(),
+        Game::MAX_IMOD_STACK,
+        "80 non-animatable re-applies stay capped at MAX_IMOD_STACK"
+    );
+    let before_cap_rm = num(&mut g, "imod.remove.calls");
+    query(&mut g, "RemoveImageSpaceModifier OwnedHoldImad");
+    assert_eq!(
+        num(&mut g, "imod.remove.calls") - before_cap_rm,
+        Game::MAX_IMOD_STACK as f64,
+        "OnRemoveIMOD count is capped at MAX_IMOD_STACK"
+    );
+    assert_eq!(query(&mut g, "SetFunctionValue (IsImageSpaceActive OwnedHoldImad)"), XVal::Num(0.0));
 
     // Removing an inactive IMOD must not fire OnRemoveIMOD.
+    let before_inactive_rm = num(&mut g, "imod.remove.calls");
     query(&mut g, "RemoveImageSpaceModifier OwnedHoldImad\nRemoveImageSpaceModifier OwnedFadeImad");
-    assert_eq!(num(&mut g, "imod.remove.calls"), 1.0);
+    assert_eq!(num(&mut g, "imod.remove.calls"), before_inactive_rm);
 
-    // Apply animatable FadeImad (0.5s): matches "first"::OwnedFadeImad and 1::OwnedImadList.
+    // Apply animatable FadeImad (0.5s): PRE-update IsActive == 0, matches "first"::OwnedFadeImad and 1::OwnedImadList.
+    let before_fade_apply = num(&mut g, "imod.apply.calls");
     query(&mut g, "ApplyImageSpaceModifier OwnedFadeImad");
-    assert_eq!(num(&mut g, "imod.apply.calls"), 3.0);
+    assert_eq!(num(&mut g, "imod.apply.calls"), before_fade_apply + 1.0);
+    assert_eq!(num(&mut g, "imod.apply.active"), 0.0);
     assert_eq!(num(&mut g, "imod.apply.fade_first"), 1.0);
     assert_eq!(num(&mut g, "imod.apply.list"), 1.0);
-    assert_eq!(num(&mut g, "imod.remove.calls"), 1.0);
+    assert_eq!(num(&mut g, "imod.remove.calls"), before_inactive_rm);
 
     // Halfway through duration: still active, OnRemoveIMOD has not fired.
     g.frames(15);
-    assert_eq!(num(&mut g, "imod.remove.calls"), 1.0);
+    assert_eq!(num(&mut g, "imod.remove.calls"), before_inactive_rm);
 
-    // Past duration (0.5s = 30 frames at 60Hz): natural expiry removes FadeImad and dispatches OnRemoveIMOD.
+    // Past duration (0.5s = 30 frames at 60Hz): natural expiry dispatches OnRemoveIMOD PRE-removal (IsActive == 1).
     g.frames(16);
-    assert_eq!(num(&mut g, "imod.remove.calls"), 2.0);
+    assert_eq!(num(&mut g, "imod.remove.calls"), before_inactive_rm + 1.0);
     assert_eq!(form(&mut g, "imod.remove.last"), FormId(IMAD_FADE));
-    assert_eq!(num(&mut g, "imod.remove.active"), 0.0);
-    assert_eq!(num(&mut g, "imod.remove.hold"), 1.0, "1::OwnedHoldImad filter must ignore FadeImad");
+    assert_eq!(num(&mut g, "imod.remove.active"), 1.0, "natural expiry OnRemoveIMOD sees IsImageSpaceActive == 1");
+    assert_eq!(query(&mut g, "SetFunctionValue (IsImageSpaceActive OwnedFadeImad)"), XVal::Num(0.0));
+    assert_eq!(num(&mut g, "imod.remove.hold"), 2.0 + Game::MAX_IMOD_STACK as f64, "1::OwnedHoldImad filter must ignore FadeImad");
+
+    // Animatable re-apply stacks independent expiry timers (capped at MAX_IMOD_STACK).
+    let before_anim_stack_rm = num(&mut g, "imod.remove.calls");
+    query(&mut g, "ApplyImageSpaceModifier OwnedFadeImad");
+    g.frames(15);
+    query(&mut g, "ApplyImageSpaceModifier OwnedFadeImad");
+    assert_eq!(g.image_modifiers.iter().filter(|m| m.modifier == FormId(IMAD_FADE)).count(), 2);
+    g.frames(16);
+    assert_eq!(num(&mut g, "imod.remove.calls"), before_anim_stack_rm + 1.0, "first animatable instance expires independently");
+    assert_eq!(query(&mut g, "SetFunctionValue (IsImageSpaceActive OwnedFadeImad)"), XVal::Num(1.0));
+    g.frames(16);
+    assert_eq!(num(&mut g, "imod.remove.calls"), before_anim_stack_rm + 2.0, "second animatable instance expires afterwards");
+    assert_eq!(query(&mut g, "SetFunctionValue (IsImageSpaceActive OwnedFadeImad)"), XVal::Num(0.0));
     no_errors(&g);
 
     // Invalid non-IMAD form fails ApplyImageSpaceModifier and must not fire OnApplyIMOD.
@@ -343,11 +411,11 @@ End) 1::OwnedHoldImad"#,
     let _ = g.run_query("Begin Function {}\nApplyImageSpaceModifier OwnedPistol\nEnd", Default::default());
     assert_eq!(num(&mut g, "imod.apply.calls"), before);
     // Keep `restored` live through the end.
-    assert_eq!(restored.image_modifiers.len(), 1);
+    assert_eq!(restored.image_modifiers.len(), 2);
 }
 
 #[test]
-fn weapon_unholster_event_dispatches_on_player_npc_and_scripted_draw_with_filters() {
+fn weapon_unholster_event_dispatches_at_draw_start_pre_update_and_zero_unarmed() {
     let f = fixture(true);
     // Vanilla-unchanged control: no handlers registered.
     {
@@ -392,16 +460,32 @@ End) 0::OwnedGuardNpc 1::OwnedRifle"#,
     g.set_weapon_out(FormId::PLAYER_REF, false);
     assert_eq!(num(&mut g, "unh.calls"), 0.0);
 
-    // Player draws equipped pistol: fires once with actor=player, weapon=OwnedPistol, IsWeaponOut=1.
-    g.set_weapon_out(FormId::PLAYER_REF, true);
-    assert_eq!(num(&mut g, "unh.calls"), 1.0);
+    // 1. Engine animated draw start (AnimAction::Equip while holstered) fires immediately with IsWeaponOut == 0;
+    //    interleaved per-frame set_weapon_out(false) calls (as `weapon_state` and `idles.rs` emit every frame while
+    //    drawing), repeated Equip frames, and draw completion (`set_weapon_out(true)`) must NOT double-fire.
+    g.set_weapon_out(FormId::PLAYER_REF, false);
+    g.set_anim_state(FormId::PLAYER_REF, AnimState { action: Some(AnimAction::Equip), ..Default::default() });
+    assert_eq!(num(&mut g, "unh.calls"), 1.0, "fires at draw start on AnimAction::Equip");
     assert_eq!(form(&mut g, "unh.actor"), FormId::PLAYER_REF);
     assert_eq!(form(&mut g, "unh.weapon"), FormId(WEAP_PISTOL));
-    assert_eq!(num(&mut g, "unh.is_out"), 1.0);
+    assert_eq!(num(&mut g, "unh.is_out"), 0.0, "IsWeaponOut must read 0 inside callback (PRE-update)");
     assert_eq!(text(&mut g, "unh.ev"), "ShowOff:OnWeaponUnholster");
     assert_eq!(num(&mut g, "unh.pistol"), 1.0);
     assert_eq!(num(&mut g, "unh.player_only"), 1.0);
     assert_eq!(num(&mut g, "unh.guard_rifle"), 0.0);
+
+    for _ in 0..5 {
+        g.tick();
+        g.set_weapon_out(FormId::PLAYER_REF, false);
+        g.set_anim_state(FormId::PLAYER_REF, AnimState { action: Some(AnimAction::Equip), ..Default::default() });
+    }
+    assert_eq!(num(&mut g, "unh.calls"), 1.0, "interleaved set_weapon_out(false) during Equip must not clear pending latch");
+    // Also cover the NPC ordering where anim_state clears Equip -> None right before set_weapon_out(true) on the same frame.
+    g.tick();
+    g.set_anim_state(FormId::PLAYER_REF, AnimState::default());
+    g.set_weapon_out(FormId::PLAYER_REF, true);
+    assert_eq!(num(&mut g, "unh.calls"), 1.0, "draw completion must not double-fire after Equip draw-start");
+    assert_eq!(query(&mut g, "SetFunctionValue (player.IsWeaponOut)"), XVal::Num(1.0));
 
     // Repeated drawn frames must not spam the event.
     for _ in 0..5 {
@@ -410,35 +494,61 @@ End) 0::OwnedGuardNpc 1::OwnedRifle"#,
     assert_eq!(num(&mut g, "unh.calls"), 1.0);
 
     // Holstering must not fire OnWeaponUnholster.
+    g.set_anim_state(FormId::PLAYER_REF, AnimState::default());
     g.set_weapon_out(FormId::PLAYER_REF, false);
     assert_eq!(num(&mut g, "unh.calls"), 1.0);
 
-    // NPC with engine-reported held_weapon (not equipped in inventory): matches base filter 0::OwnedGuardNpc + 1::OwnedRifle.
+    // Genuine draw cancellation (Equip -> None without set_weapon_out(true) across frames) clears the latch
+    // so a subsequent draw fires cleanly once.
+    g.tick();
+    g.set_anim_state(FormId::PLAYER_REF, AnimState { action: Some(AnimAction::Equip), ..Default::default() });
+    assert_eq!(num(&mut g, "unh.calls"), 2.0, "cancelled draw still fired at draw start");
+    g.set_anim_state(FormId::PLAYER_REF, AnimState::default());
+    g.tick();
+    g.set_weapon_out(FormId::PLAYER_REF, false);
+    g.set_anim_state(FormId::PLAYER_REF, AnimState { action: Some(AnimAction::Equip), ..Default::default() });
+    assert_eq!(num(&mut g, "unh.calls"), 3.0, "next draw after cancelled draw fires once");
+    g.set_weapon_out(FormId::PLAYER_REF, true);
+    assert_eq!(num(&mut g, "unh.calls"), 3.0, "completion after retry draw must not double-fire");
+    g.set_anim_state(FormId::PLAYER_REF, AnimState::default());
+    g.set_weapon_out(FormId::PLAYER_REF, false);
+
+    // 2. Direct set_weapon_out(true) fallback (NPC without prior Equip action) also dispatches PRE-update (IsWeaponOut == 0)
+    //    with held_weapon, matching 0::OwnedGuardNpc + 1::OwnedRifle.
     g.set_held_weapon(npc, Some(FormId(WEAP_RIFLE)));
     g.set_weapon_out(npc, true);
-    assert_eq!(num(&mut g, "unh.calls"), 2.0);
+    assert_eq!(num(&mut g, "unh.calls"), 4.0);
     assert_eq!(form(&mut g, "unh.actor"), npc);
     assert_eq!(form(&mut g, "unh.weapon"), FormId(WEAP_RIFLE));
-    assert_eq!(num(&mut g, "unh.pistol"), 1.0);
-    assert_eq!(num(&mut g, "unh.player_only"), 1.0);
+    assert_eq!(num(&mut g, "unh.is_out"), 0.0, "direct set_weapon_out(true) must also dispatch PRE-update");
+    assert_eq!(num(&mut g, "unh.pistol"), 3.0);
+    assert_eq!(num(&mut g, "unh.player_only"), 3.0);
     assert_eq!(num(&mut g, "unh.guard_rifle"), 1.0);
 
-    // Unarmed creature with Fists (0x1F4) in game data: passes Fists and actor=crea.
+    // 3. Unarmed actor passes null form 0 (NOT Fists 0x1F4) even when Fists WEAP exists in game data!
     g.set_weapon_out(crea, true);
-    assert_eq!(num(&mut g, "unh.calls"), 3.0);
+    assert_eq!(num(&mut g, "unh.calls"), 5.0);
     assert_eq!(form(&mut g, "unh.actor"), crea);
-    assert_eq!(form(&mut g, "unh.weapon"), FormId(FISTS));
+    assert_eq!(form(&mut g, "unh.weapon"), FormId(0), "unarmed must pass 0, not Fists 0x1F4");
+    assert_eq!(num(&mut g, "unh.is_out"), 0.0);
 
-    // Scripted SetWeaponOut 1 fires via hud_tick after WEAPON_FRAMES, and subsequent engine set_weapon_out(true) does not double-fire.
+    // 4. Scripted SetWeaponOut 1 fires immediately at draw START (frame 0, IsWeaponOut == 0),
+    //    and interleaved per-frame set_weapon_out(false) during WEAPON_FRAMES, WEAPON_FRAMES expiry in hud_tick,
+    //    and subsequent set_weapon_out(true) must NOT double-fire.
     query(&mut g, "player.SetWeaponOut 1");
-    g.frames(WEAPON_FRAMES - 1);
-    assert_eq!(num(&mut g, "unh.calls"), 3.0, "must wait until WEAPON_FRAMES elapse");
-    g.frames(1);
-    assert_eq!(num(&mut g, "unh.calls"), 4.0);
+    assert_eq!(num(&mut g, "unh.calls"), 6.0, "SetWeaponOut 1 fires at draw start");
     assert_eq!(form(&mut g, "unh.actor"), FormId::PLAYER_REF);
     assert_eq!(form(&mut g, "unh.weapon"), FormId(WEAP_PISTOL));
+    assert_eq!(num(&mut g, "unh.is_out"), 0.0, "SetWeaponOut 1 callback sees IsWeaponOut == 0");
+    assert_eq!(query(&mut g, "SetFunctionValue (player.IsWeaponOut)"), XVal::Num(0.0));
+    for _ in 0..WEAPON_FRAMES {
+        g.set_weapon_out(FormId::PLAYER_REF, false);
+        g.tick();
+    }
+    assert_eq!(query(&mut g, "SetFunctionValue (player.IsWeaponOut)"), XVal::Num(1.0));
+    assert_eq!(num(&mut g, "unh.calls"), 6.0, "interleaved set_weapon_out(false) and hud_tick completion must not double-fire");
     g.set_weapon_out(FormId::PLAYER_REF, true);
-    assert_eq!(num(&mut g, "unh.calls"), 4.0, "already drawn: no duplicate fire");
+    assert_eq!(num(&mut g, "unh.calls"), 6.0, "already drawn: no duplicate fire");
 
     // Snapshot restore with weapon_out == true does not spuriously fire OnWeaponUnholster.
     let snap = g.snapshot();
@@ -467,10 +577,12 @@ fn weapon_unholster_unarmed_without_fists_record_passes_null_form() {
         r#"SetEventHandler "ShowOff:OnWeaponUnholster" (Begin Function {ref rWeapon}
 SetModLocalData "unh.calls" ((GetModLocalData "unh.calls") + 1)
 SetModLocalData "unh.weapon" rWeapon
+SetModLocalData "unh.is_out" (GetSelfAlt.IsWeaponOut)
 End)"#,
     );
     g.set_weapon_out(FormId::PLAYER_REF, true);
     assert_eq!(num(&mut g, "unh.calls"), 1.0);
     assert_eq!(form(&mut g, "unh.weapon"), FormId(0));
+    assert_eq!(num(&mut g, "unh.is_out"), 0.0);
     no_errors(&g);
 }

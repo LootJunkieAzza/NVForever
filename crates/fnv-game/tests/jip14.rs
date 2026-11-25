@@ -112,13 +112,21 @@ fn added_effects_in_the_list_and_applied() {
     let f = fixture();
     let mut g = game(&f);
     assert_eq!(n(&mut g, "GetNumEffects TestDrink"), 1.0);
-    // At the top by default, appended with the flag [documented]; the new count.
+    // At the top by default (placed at index 0, returns new count n1), appended with
+    // the flag (returns 0-based inserted index n0 = n1 - 1) [observed: Fallout: New
+    // Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, `jip_48_addneweffect_duplicate_return`
+    // and `w4d_16_add_new_effect_edges`: n0=4 -> prepend ret=5, n=5, e0=new, e1=orig;
+    // duplicate append ret=5, n=6, last=new; non-MGEF ret=-1, n=6].
     assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 30 7 0 0"), 2.0);
-    assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 30 9 0 0 1"), 3.0);
+    assert_eq!(n(&mut g, "GetNumEffects TestDrink"), 2.0);
+    assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 30 9 0 0 1"), 2.0);
+    assert_eq!(n(&mut g, "GetNumEffects TestDrink"), 3.0);
     assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 0"), f64::from(MGEF2));
     assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 1"), f64::from(MGEF1));
     assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 2"), f64::from(MGEF2));
     assert_eq!(n(&mut g, "AddNewEffect TestStatic TestEffectTwo 30 7"), -1.0, "not a magic item");
+    assert_eq!(n(&mut g, "AddNewEffect TestDrink TestStatic 30 7 0 0 1"), -1.0, "non-MGEF effect");
+    assert_eq!(n(&mut g, "GetNumEffects TestDrink"), 3.0, "rejected calls leave count unchanged");
     // Applied: the record's at its place, then the added ones.
     let applied = g.applied_effects(FormId(ALCH));
     assert_eq!(applied.iter().map(|e| (e.effect.0, e.magnitude)).collect::<Vec<_>>(), vec![(MGEF1, 5), (MGEF2, 7), (MGEF2, 9)]);
@@ -130,16 +138,18 @@ fn added_effects_in_the_list_and_applied() {
 fn nth_effect_functions_share_one_index() {
     let f = fixture();
     let mut g = game(&f);
-    // [front 7] [record 5] [back 9]
+    // [front 7] [record 5] [back 9]; prepend returns new count n1, append returns n1 - 1
+    // [observed: `jip_48_addneweffect_duplicate_return`, `w4d_16_add_new_effect_edges`].
     assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 30 7 0 0"), 2.0);
-    assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 40 9 0 0 1"), 3.0);
+    assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 40 9 0 0 1"), 2.0);
     // The record's entry goes: [front 7] [back 9].
     assert_eq!(n(&mut g, "RemoveNthEffect TestDrink 1"), 2.0);
     assert_eq!(n(&mut g, "GetNumEffects TestDrink"), 2.0);
-    // The count AddNewEffect gives is the list's, so the new entry is reachable by it.
-    let count = n(&mut g, "AddNewEffect TestDrink TestEffectOne 50 11 0 0 1");
-    assert_eq!(count, 3.0);
-    assert_eq!(n(&mut g, &format!("GetNthEffectBase TestDrink {}", count - 1.0)), f64::from(MGEF1));
+    // AddNewEffect returns the 0-based inserted index, so GetNthEffectBase reads it directly.
+    let idx = n(&mut g, "AddNewEffect TestDrink TestEffectOne 50 11 0 0 1");
+    assert_eq!(idx, 2.0);
+    assert_eq!(n(&mut g, "GetNumEffects TestDrink"), 3.0);
+    assert_eq!(n(&mut g, &format!("GetNthEffectBase TestDrink {idx}")), f64::from(MGEF1));
     // A loop over 0..GetNumEffects-1 reads matching bases and traits.
     let mut seen = Vec::new();
     for i in 0..n(&mut g, "GetNumEffects TestDrink") as u32 {
@@ -265,6 +275,10 @@ fn anim_sequence_frequency_semantics_and_sanitization() {
     assert_eq!(g.anim_frequency(acti, "Idle"), None);
 
     // Exact sequence name (case-insensitive) takes precedence over "*"; alias works too.
+    // Querying "*" literally returns -1.0 both before and after SetAnimSequenceFrequency "*"
+    // [observed: w4c_b1_22_sound3d_anim_freq].
+    assert_eq!(n(&mut g, "StatRef.GetAnimSequenceFrequency \"*\""), -1.0);
+    assert_eq!(n(&mut g, "StatRef.GetAnimSeqFreq \"*\""), -1.0);
     q(&mut g, "StatRef.SetAnimSeqFreq \"FoRwArD\" 2.25");
     assert_eq!(g.anim_frequency(stat, "forward"), Some(2.25));
     assert_eq!(g.anim_frequency(stat, "FORWARD"), Some(2.25));

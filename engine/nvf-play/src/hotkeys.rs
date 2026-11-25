@@ -115,10 +115,16 @@ pub fn normalize_icon_path(raw: &str) -> Option<String> {
     (!rel.is_empty()).then(|| rel.to_string())
 }
 
-/// The normalised `SetItemHotkeyIconPath` override for `item`, if the script runtime has
-/// a non-empty one [documented: SetItemHotkeyIconPath; design: `normalize_icon_path`].
+/// The normalised hotkey icon override for `item`: first any explicit
+/// `SetItemHotkeyIconPath` override, else the item's resolved ySI icon when `yUI.ini`
+/// enables `[General] bSortingIcons = 1` and `[Sorting and Icons] bReplaceHotkeyIcons = 1`
+/// [documented: SetItemHotkeyIconPath, yUI v1.4d `Data\NVSE\Plugins\yUI.ini`; design:
+/// `normalize_icon_path`, `docs/spec-notes/yui-ini.md`].
 pub fn icon_override(item: FormId, script: Option<&crate::script::ScriptState>) -> Option<String> {
-    script?.rt.as_ref()?.game.item_hotkey_icon_path(item).and_then(normalize_icon_path)
+    let game = &script?.rt.as_ref()?.game;
+    game.item_hotkey_icon_path(item)
+        .and_then(normalize_icon_path)
+        .or_else(|| game.ysi_hotkey_icon_path(item).and_then(|p| normalize_icon_path(&p)))
 }
 
 /// What using a slot did.
@@ -346,5 +352,48 @@ mod tests {
 
         script.rt.as_mut().unwrap().game.showoff.hotkey_icons.remove(&item);
         assert_eq!(icon_override(item, Some(&script)), None);
+    }
+
+    #[test]
+    fn icon_override_honors_yui_replace_hotkey_icons_and_set_item_hotkey_precedence() {
+        let mut script = crate::script::ScriptState::over_no_plugins();
+        let item = FormId(0x0000_434F);
+        {
+            let rt = script.rt.as_mut().unwrap();
+            rt.game.small.ysi_icon.insert(item, "Textures/Interface/Icons/ySI_Pistol.dds".into());
+            // Without yUI.ini (vanilla): ySI icon does not replace hotkey icons.
+            rt.game.set_yui_config(None);
+        }
+        assert_eq!(icon_override(item, Some(&script)), None);
+
+        // bSortingIcons = 0 disables bReplaceHotkeyIcons.
+        script.rt.as_mut().unwrap().game.set_yui_config(Some(fnv_game::yui_ini::YuiConfig {
+            sorting_icons: false,
+            replace_hotkey_icons: true,
+            ..Default::default()
+        }));
+        assert_eq!(icon_override(item, Some(&script)), None);
+
+        // bSortingIcons = 1 with bReplaceHotkeyIcons = 0 keeps vanilla hotkey icons.
+        script.rt.as_mut().unwrap().game.set_yui_config(Some(fnv_game::yui_ini::YuiConfig {
+            sorting_icons: true,
+            replace_hotkey_icons: false,
+            ..Default::default()
+        }));
+        assert_eq!(icon_override(item, Some(&script)), None);
+
+        // bSortingIcons = 1 and bReplaceHotkeyIcons = 1 surfaces normalized ySI icon.
+        script.rt.as_mut().unwrap().game.set_yui_config(Some(fnv_game::yui_ini::YuiConfig {
+            sorting_icons: true,
+            replace_hotkey_icons: true,
+            ..Default::default()
+        }));
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\ysi_pistol.dds"));
+
+        // Explicit SetItemHotkeyIconPath takes precedence over ySI icon; clearing falls back to ySI.
+        script.rt.as_mut().unwrap().game.showoff.hotkey_icons.insert(item, "interface\\icons\\explicit.dds".into());
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\explicit.dds"));
+        script.rt.as_mut().unwrap().game.showoff.hotkey_icons.remove(&item);
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\ysi_pistol.dds"));
     }
 }

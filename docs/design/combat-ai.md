@@ -1142,8 +1142,9 @@ would attack the player, or it is fighting the player) shows no prompt at all
 (`Action::Hostile`, `Targeted::prompted`; issue #2536) [observed: a player's report that
 the original shows none over radscorpions and hostile humans, where NVForever wrote the
 name each time the crosshair crossed one; not captured]. Until #2536 it showed its name.
-It stays the target, so E does nothing (`activate 0x… …: nothing to do (hostile)`), and
-the crosshair keeps its plain picture. A creature shows Talk only when it has a GREETING
+It stays the target, so E does nothing (`activate 0x… …: nothing to do (hostile)`) unless
+the player's perks offer a choice on it (Robotics Expert's, #3479: perk-activation.md §2),
+and the crosshair keeps its plain picture. A creature shows Talk only when it has a GREETING
 line it can say now (`Game::has_greeting`), else only its name; other NPCs show Talk
 [hypothesis: the game offers Talk on creatures with dialogue, Rex and ED-E, and not on
 animals; not captured]. A name-only target does nothing on E (`activate 0x… …: nothing

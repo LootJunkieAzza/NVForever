@@ -6,6 +6,10 @@ use std::collections::BTreeMap;
 /// Canonical vanilla path for `BookMenu` [documented: `menus\book_menu.xml`, audio.md].
 pub const CANONICAL_BOOK_MENU: &str = "menus\\book_menu.xml";
 const BOOK_MENU_KEY: &str = "bookmenu";
+/// Shared menu class used by multiple distinct generic menus (`menus\generic\quest_added.xml`,
+/// `menus\generic\skill_perk.xml`, and mod generic menus) [observed: vanilla `Fallout - Misc.bsa`
+/// menu files; not a single-file class in `MENU_CLASSES`].
+const GENERIC_MENU_KEY: &str = "genericmenu";
 
 #[derive(Default)]
 pub struct MenuIndex {
@@ -73,6 +77,17 @@ impl MenuIndex {
                         index.classes.insert(class_name, path.clone());
                     } else {
                         push_variant(&mut index.variants, BOOK_MENU_KEY, &path);
+                    }
+                } else if class_name == GENERIC_MENU_KEY {
+                    // Multiple distinct menus share `<class>&GenericMenu;</class>` (such as
+                    // `QuestAddedMenu` and `SkillPerkMenu`). Keep the first sorted path in
+                    // `classes` and record additional files in `variants` without a spurious
+                    // duplicate-class warning; duplicate `<menu name="...">` collisions still
+                    // warn below [design: menu-xml.md §12.3].
+                    if index.classes.contains_key(GENERIC_MENU_KEY) {
+                        push_variant(&mut index.variants, GENERIC_MENU_KEY, &path);
+                    } else {
+                        index.classes.insert(class_name, path.clone());
                     }
                 } else if let Some(old) = index.classes.insert(class_name.clone(), path.clone()) {
                     index.warnings.push(format!("{path}: duplicate menu class {class_name}; replaces {old}"));
@@ -217,5 +232,45 @@ mod tests {
         assert_eq!(no_can_idx.code_path(book), Some("menus\\bookbackground2.xml"));
         assert!(no_can_idx.variants("BookMenu").is_empty());
         assert_eq!(no_can_idx.warnings.len(), 2);
+    }
+
+    #[test]
+    fn shared_generic_menu_class_records_variants_without_duplicate_class_warning() {
+        // Single GenericMenu file: primary in `classes`, no variants, no warnings.
+        let single = MemSource::default()
+            .with("menus/generic/quest_added.xml", r#"<menu name="QuestAddedMenu"><class>&GenericMenu;</class></menu>"#);
+        let single_idx = MenuIndex::build(&single, single.files.keys().cloned());
+        assert_eq!(single_idx.path("QuestAddedMenu"), Some("menus\\generic\\quest_added.xml"));
+        assert_eq!(single_idx.class_path("GenericMenu"), Some("menus\\generic\\quest_added.xml"));
+        assert!(single_idx.variants("GenericMenu").is_empty());
+        assert!(single_idx.warnings.is_empty());
+
+        // Distinct menus sharing `<class>&GenericMenu;</class>` (`quest_added.xml`, `skill_perk.xml`,
+        // and a mod generic menu): each keeps its own `path(name)`, the first sorted path stays in
+        // `class_path("GenericMenu")`, additional files go to `variants("GenericMenu")`, and zero
+        // duplicate-class warnings are emitted.
+        let multi = single
+            .with("menus/generic/skill_perk.xml", r#"<menu name="SkillPerkMenu"><class>&GenericMenu;</class></menu>"#)
+            .with("menus/generic/z_custom_generic.xml", r#"<menu name="CustomGenericMenu"><class>&GenericMenu;</class></menu>"#);
+        let multi_idx = MenuIndex::build(&multi, multi.files.keys().cloned());
+        assert_eq!(multi_idx.path("QuestAddedMenu"), Some("menus\\generic\\quest_added.xml"));
+        assert_eq!(multi_idx.path("SkillPerkMenu"), Some("menus\\generic\\skill_perk.xml"));
+        assert_eq!(multi_idx.path("CustomGenericMenu"), Some("menus\\generic\\z_custom_generic.xml"));
+        assert_eq!(multi_idx.class_path("GenericMenu"), Some("menus\\generic\\quest_added.xml"));
+        assert_eq!(
+            multi_idx.variants("GENERICMENU"),
+            ["menus\\generic\\skill_perk.xml", "menus\\generic\\z_custom_generic.xml"]
+        );
+        assert!(multi_idx.warnings.is_empty(), "unexpected warnings: {:?}", multi_idx.warnings);
+
+        // Two files colliding on the SAME `<menu name="...">` still emit the duplicate-menu-name
+        // warning even when their `<class>` is `&GenericMenu;`.
+        let dup_name = MemSource::default()
+            .with("menus/generic/a_quest.xml", r#"<menu name="QuestAddedMenu"><class>&GenericMenu;</class></menu>"#)
+            .with("menus/generic/b_quest.xml", r#"<menu name="QuestAddedMenu"><class>&GenericMenu;</class></menu>"#);
+        let dup_idx = MenuIndex::build(&dup_name, dup_name.files.keys().cloned());
+        assert_eq!(dup_idx.path("QuestAddedMenu"), Some("menus\\generic\\b_quest.xml"));
+        assert_eq!(dup_idx.warnings.len(), 1, "{:?}", dup_idx.warnings);
+        assert!(dup_idx.warnings[0].contains("duplicate menu QuestAddedMenu"));
     }
 }

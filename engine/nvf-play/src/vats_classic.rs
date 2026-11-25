@@ -17,15 +17,15 @@
 use bevy::prelude::*;
 
 /// What V starts: the settings page's "V.A.T.S. style" (`vats-style` in NVForever.ini).
-/// Dead Eye is the default until the owner has ruled on docs/owner-review.md item 31a
-/// [design: the owner's review of #2102, 2026-11-11; the fork's owner plays Classic].
+/// Classic is the default [design: the owner's ruling of 2026-11-24 on owner-review item
+/// 31a; Dead Eye was the default until then].
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VatsStyle {
     /// The original's flow: the world stopped or slowed, a target and its parts chosen
     /// from a list (docs/design/vats-classic.md).
+    #[default]
     Classic,
     /// NVForever's own slow-time mark and fire (docs/design/vats-mode.md).
-    #[default]
     DeadEye,
 }
 
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn styles_go_by_name() {
-        assert_eq!(VatsStyle::default(), VatsStyle::DeadEye, "Dead Eye until owner-review 31a is answered");
+        assert_eq!(VatsStyle::default(), VatsStyle::Classic, "Classic, the owner's ruling of 2026-11-24");
         for s in VatsStyle::ALL {
             assert_eq!(VatsStyle::by_name(s.name()), Some(s));
         }

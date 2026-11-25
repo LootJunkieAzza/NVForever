@@ -52,6 +52,19 @@ Per part [documented: GECK wiki Body Part; xEdit layout in `schemas/fnv/combat.j
   The blood spout starts there.
 - Flag bit 6, "To Hit Chance - Absolute" in xEdit, is "Absolute" under Explodable in the GECK
   dialog [documented: GECK wiki Body Part]. No part of `DefaultBodyPartData` sets it [observed].
+  In FalloutNV.esm [observed: all 49 BPTD records decoded with `fnvtool esm decode`], 12 parts set
+  both Explodable and Absolute, all with `explodable_explosion_chance_percent = 100`:
+  - non-severable torso: `NVraven02` (`0x167346`, `NVCrRaven`/`VCrTier0Raven`, `LimbExplosion` +
+    `GoreBits01 × 3` + `BloodSpoutRedDataSet`), `EyebotBodypartdata` (`0x2F870`, Armor),
+    `TurretCeilingBodyPartData` (`0xA6452`, Hull), `NVTumbleweed` (`0x163CF3`, Branches);
+  - non-severable head: `NVCRHouseBodyPartData` (`0x13808B`), `NVBigHorner` (`0x108021`);
+  - severable + explodable head/brain: `AntBodyPartData` (`0x14C03`), `QueenAntBodyPartData`
+    (`0x2F86F`), `MirelurkBodyPartData` (`0x354E3`), `NVMantis` (`0x1040B0`),
+    `NVSecuritronBodyPartData` (`0x10699E`), `RexBodyPartData` (`0x17626D`).
+  The official add-ons likewise set Explodable + Absolute + 100 % on Dead Money's Ghost People
+  limbs (`NVDLC01GhostBodyPartData`) and Old World Blues' robo-scorpion brain/chassis and cyberdog
+  head (`NVDLC03BrainBotbodypartdata`, `NVDLC03CyberDogBodyPartData`) [observed: `DeadMoney.esm`,
+  `OldWorldBlues.esm`].
 - When a part is dismembered, every severable or explodable part sharing its actor value goes
   too (Head 1 and Brain share Perception Condition). A part not flagged Explodable never
   explodes, even when a part sharing its actor value does [documented: GECK wiki KillActor
@@ -351,8 +364,23 @@ one roll decides, with these odds [observed, §4.1, unless tagged]:
 
 1. **A severable part** (head, arm, leg): 75 % on a kill, 100 % with the attacker's Bloody
    Mess. Overkill and crippling do not change it.
-2. **The torso** (explodable only): never without Bloody Mess; with it 80 % if the hit crippled
-   the torso (its condition at or below 0 after the hit), 20 % if not.
+2. **The torso** (explodable only): never without Bloody Mess, except for a single-part BPTD
+   whose sole part is a non-severable Torso flagged `Explodable` + `To Hit Chance - Absolute`
+   (BPND bit 6, §2.2 — matching crows `NVraven02` in #3435, and also covering `NVTumbleweed`
+   `0x163CF3` which shares the same single-part `Torso` `Explodable` + `Absolute` structure
+   [hypothesis: #3435 does not show `NVTumbleweed`]), which uses its
+   `explodable_chance_percent` directly without Bloody Mess while still respecting the weapon's
+   On Hit gate below [hypothesis: narrowed to single-part `Torso` `Explodable` + `Absolute`
+   for #3435; the broader meaning of bit 6 on multi-part creatures such as Securitrons, ants,
+   mantises, mirelurks, Rex, eyebots, turrets, bighorners and DLC Ghost People, on single-part
+   non-torsos such as Mr. House, and on No Dismember/Explode weapons is left on the measured
+   §4.1 odds pending original-game observation]. With Bloody Mess, an ordinary torso explodes
+   80 % if the hit crippled it (its condition at or below 0 after the hit), 20 % if not; for a
+   single-part `Explodable` + `Absolute` torso covered by the exception above, Bloody Mess uses
+   `max(explodable_chance_percent, torso_odds)` (`max(explodable_chance_percent, 80 %)` when
+   crippled or on a corpse, `max(explodable_chance_percent, 20 %)` when intact, halved for
+   No Dismember/Explode weapons) [hypothesis / design: ensures Bloody Mess does not lower the
+   explosion chance below `explodable_chance_percent`; not yet measured in the original game].
 3. **No Dismember/Explode** weapons: nothing without Bloody Mess; with it half the odds above.
 4. **Which way**: Explode Only explodes; Dismember Only severs [hypothesis for the rate: the
    laser's kills were disintegrations]; Normal severs 30 % of the parts it takes and explodes

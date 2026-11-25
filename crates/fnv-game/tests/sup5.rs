@@ -65,7 +65,7 @@ fn folders() -> (PathBuf, PathBuf) {
         std::fs::create_dir_all(game.join("Data")).unwrap();
         std::fs::create_dir_all(&layer).unwrap();
         std::fs::write(game.join("nvac.log"), b"0123456789").unwrap();
-        std::fs::write(game.join("good.json"), br#"{"name":"Joe","level":7,"inv":[1,"two"],"pos":{"x":1.5}}"#).unwrap();
+        std::fs::write(game.join("good.json"), br#"{"name":"Joe","level":7,"inv":[1,"two"],"pos":{"x":1.5},"flag_t":true,"flag_f":false,"empty":null}"#).unwrap();
         std::fs::write(game.join("bad.json"), b"{ nope").unwrap();
         std::fs::write(game.join("notjson.txt"), b"{}").unwrap();
         set_roots(Roots { read: vec![game.join("Data")], write: Some(layer.clone()), ..Roots::default() });
@@ -129,15 +129,18 @@ fn excel_cells_sheets_and_arrays() {
     assert_eq!(n(&mut g, "ExcelGetWorkSheetCount \"xlBook\""), 3.0);
     assert_eq!(s(&mut g, "ExcelSetSheetName \"xlBook\" 1"), "Sheet2");
     assert_eq!(n(&mut g, "ExcelSetSheetName \"xlBook\" 7"), -1.0);
-    // Names cut to 31 [documented: ExcelSetSheetName]; a rename returns 1 [hypothesis:
-    // not text, observed: sup5 xl.rename].
+    // Names cut to 31 [documented: ExcelSetSheetName]; a rename returns 1
+    // (see docs/spec-notes/ext-sup5.md §1).
     assert_eq!(n(&mut g, "ExcelSetSheetName \"xlBook\" 1 \"A name far longer than thirty-one letters\""), 1.0);
     assert_eq!(s(&mut g, "ExcelSetSheetName \"xlBook\" 1"), "A name far longer than thirty-o");
-    // Erasing [documented: ExcelEraseCell, ExcelEraseSheet].
+    // Erasing [documented: ExcelEraseCell, ExcelEraseSheet]; rows past 65,535 stay
+    // rejected with -1 (see docs/spec-notes/ext-sup5.md §1).
     assert_eq!(n(&mut g, "ExcelEraseCell \"xlBook\" 0 4 1"), 1.0);
     assert_eq!(n(&mut g, "ExcelGetCellValueType \"xlBook\" 0 4 1"), 0.0);
     assert_eq!(n(&mut g, "ExcelEraseSheet \"xlBook\" 2"), 1.0);
+    assert_eq!(n(&mut g, "ExcelGetCellValueType \"xlBook\" 2 0 0"), 0.0);
     assert_eq!(n(&mut g, "ExcelGetRowCount \"xlBook\" 2"), 0.0);
+    assert_eq!(n(&mut g, "ExcelWriteFloat \"xlBook\" 0 70000 0 1"), -1.0);
     assert_eq!(n(&mut g, "ExcelGetWorkSheetCount \"xlBook\""), 3.0);
     // The file is a workbook in NVForever's layer, not in the game folder.
     let bytes = std::fs::read(layer.join("GameRoot").join("xlBook.xls")).unwrap();
@@ -173,17 +176,31 @@ fn json_files() {
     assert_eq!(n(&mut g, "JSONIsFileValid \"none.json\""), -4.0);
     assert_eq!(n(&mut g, "JSONIsFileValid \"../good.json\""), -5.0);
     assert_eq!(n(&mut g, "JSONIsFileValid \"notjson.txt\""), -6.0);
-    // A value in a list, a list as itself, an object as a map [hypothesis].
-    let one = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"name\" 0\nlet sOut := sv_Construct \"%g %z\" (ar_Size aList) (aList[0])");
-    assert_eq!(one, "1 Joe");
-    let inv = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"inv\" 1\nlet sOut := sv_Construct \"%g %g %z\" (ar_Size aList) (aList[0]) (aList[1])");
-    assert_eq!(inv, "2 1 two");
-    assert_eq!(n(&mut g, "(JSONGetValue \"good.json\" \"pos\" 0)[\"x\"]"), 1.5);
-    assert_eq!(n(&mut g, "(JSONGetValue \"good.json\" \"pos.x\" 0)[0]"), 1.5);
-    assert_eq!(n(&mut g, "ar_Size (JSONGetValue \"good.json\" \"nope\" 0)"), -1.0);
-    // A missing file: one empty text whatever the key [observed: sup5 json.name …].
-    let none = s(&mut g, "\"\"\nlet aList := JSONGetValue \"none.json\" \"name\" 0\nlet sOut := sv_Construct \"%g|%z\" (ar_Size aList) (aList[0])");
-    assert_eq!(none, "1|");
+    // Wave 4D w4d_37_sup_json_and_excel_edges (#3802) [observed]: JSONGetValue always
+    // returns a tagged List `[type_code]` or `[type_code, scalar_value]` (-2 missing,
+    // 0 null, 1 object, 2 array, 3 string, 4 bool, 5 number).
+    let one = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"name\" 0\nlet sOut := sv_Construct \"%g %g %z\" (ar_Size aList) (aList[0]) (aList[1])");
+    assert_eq!(one, "2 3 Joe");
+    let num_v = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"level\" 0\nlet sOut := sv_Construct \"%g %g %g\" (ar_Size aList) (aList[0]) (aList[1])");
+    assert_eq!(num_v, "2 5 7");
+    let bool_t = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"flag_t\" 0\nlet sOut := sv_Construct \"%g %g %g\" (ar_Size aList) (aList[0]) (aList[1])");
+    assert_eq!(bool_t, "2 4 1");
+    let bool_f = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"flag_f\" 0\nlet sOut := sv_Construct \"%g %g %g\" (ar_Size aList) (aList[0]) (aList[1])");
+    assert_eq!(bool_f, "2 4 0");
+    let null_v = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"empty\" 0\nlet sOut := sv_Construct \"%g %g\" (ar_Size aList) (aList[0])");
+    assert_eq!(null_v, "1 0");
+    let inv = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"inv\" 1\nlet sOut := sv_Construct \"%g %g\" (ar_Size aList) (aList[0])");
+    assert_eq!(inv, "1 2");
+    let obj = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"pos\" 0\nlet sOut := sv_Construct \"%g %g\" (ar_Size aList) (aList[0])");
+    assert_eq!(obj, "1 1");
+    let nested = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"pos.x\" 0\nlet sOut := sv_Construct \"%g %g %g\" (ar_Size aList) (aList[0]) (aList[1])");
+    assert_eq!(nested, "2 5 1.5");
+    let miss = s(&mut g, "\"\"\nlet aList := JSONGetValue \"good.json\" \"nope\" 0\nlet sOut := sv_Construct \"%g %g\" (ar_Size aList) (aList[0])");
+    assert_eq!(miss, "1 -2");
+    // A missing file: 1-element list with negative file error code (-4) [observed: sup5
+    // json.name & sup_32_json_get_value_missing_file saw size 1 non-string element 0].
+    let none = s(&mut g, "\"\"\nlet aList := JSONGetValue \"none.json\" \"name\" 0\nlet sOut := sv_Construct \"%g|%g\" (ar_Size aList) (aList[0])");
+    assert_eq!(none, "1|-4");
 }
 
 #[test]
@@ -200,17 +217,20 @@ fn json_cache_utf8_bom_data_paths_and_showoff_cache_gating() {
     assert_eq!(n(&mut g, r#"JSONIsFileValid "data/config/SUP_UTF8.JSON""#), 1.0);
     assert_eq!(n(&mut g, r#"JSONCacheFile "Data\Config\sup_utf8.json" 1"#), 0.0);
     assert_eq!(n(&mut g, r#"JSONIsFileCached "data/config/sup_utf8.json""#), 1.0);
-    assert_eq!(s(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "title" 1)[0]"#), "caf\u{e9}");
-    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "nested.items.1" 1)[0]"#), 20.0);
+    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "title" 1)[0]"#), 3.0);
+    assert_eq!(s(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "title" 1)[1]"#), "caf\u{e9}");
+    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "nested.items.1" 1)[0]"#), 5.0);
+    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "nested.items.1" 1)[1]"#), 20.0);
 
     // Unified SUP JSON cache: cached writes via nvse_json are visible to JSONGetValue(iCached=1),
     // while uncached JSONGetValue(iCached=0) still reads disk.
     assert_eq!(n(&mut g, r#"JSONSetValueFloat "Data\Config\sup_utf8.json" "hp" 99 1"#), 1.0);
-    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "hp" 1)[0]"#), 99.0);
-    assert_eq!(n(&mut g, r#"ar_Size (JSONGetValue "Data\Config\sup_utf8.json" "hp" 0)"#), -1.0);
+    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "hp" 1)[0]"#), 5.0);
+    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "hp" 1)[1]"#), 99.0);
+    assert_eq!(n(&mut g, r#"(JSONGetValue "Data\Config\sup_utf8.json" "hp" 0)[0]"#), -2.0);
     // JSONCacheFileFromString feeds JSONGetValue(iCached=1) through the same cache.
     assert_eq!(n(&mut g, r#"JSONCacheFileFromString (JSONToString "Data\Config\sup_utf8.json") "mem.json""#), 0.0);
-    assert_eq!(n(&mut g, r#"(JSONGetValue "mem.json" "hp" 1)[0]"#), 99.0);
+    assert_eq!(n(&mut g, r#"(JSONGetValue "mem.json" "hp" 1)[1]"#), 99.0);
     assert_eq!(n(&mut g, r#"JSONCloseFile "mem.json" 1"#), 0.0);
     assert_eq!(n(&mut g, r#"JSONCloseFile "Data\Config\sup_utf8.json" 1"#), 0.0);
     assert_eq!(n(&mut g, r#"JSONIsFileCached "Data\Config\sup_utf8.json""#), 0.0);
@@ -238,30 +258,46 @@ fn file_sizes_times_and_the_load_order() {
     let f = fixture();
     let mut g = game(&f);
     let (game_dir, layer) = folders();
-    // [documented: GetFileSize, in bytes from the game folder]; missing -1 [hypothesis].
+    // [documented: GetFileSize, in bytes from the game folder]; missing -1 (see docs/spec-notes/ext-sup5.md §3).
     assert_eq!(n(&mut g, "GetFileSize \"nvac.log\""), 10.0);
     assert_eq!(n(&mut g, "GetFileSize \"none.log\""), -1.0);
-    // "DD/MM/YY HH:MM" [documented: GetFileTimeSTR].
+    // "DD/MM/YYYY  HH:MM" / "MM/DD/YYYY  HH:MM" [observed: 2026-11-23,
+    // GSDocMitchellHouse (0x00103DF9), `sup_33_file_time_str_formats` and
+    // `sup_19_getfiletime_keys`, SUP NVSE 855].
     let t = s(&mut g, "GetFileTimeSTR \"nvac.log\" 2 0");
-    assert_eq!(t.len(), 14, "{t}");
-    assert_eq!((&t[2..3], &t[5..6], &t[8..9], &t[11..12]), ("/", "/", " ", ":"));
+    assert_eq!(t.len(), 17, "{t}");
+    assert_eq!((&t[2..3], &t[5..6], &t[10..12], &t[14..15]), ("/", "/", "  ", ":"));
     assert_eq!(s(&mut g, "GetFileTimeSTR \"none.log\" 2 0"), "");
-    assert_eq!(n(&mut g, "ar_Size (GetFileTime \"nvac.log\" 2)"), 6.0);
-    assert!(n(&mut g, "(GetFileTime \"nvac.log\" 2)[0]") >= 2026.0);
+    // 5-element StringMap with zero-padded String values on existing file, empty
+    // StringMap (size 0) on missing file [observed: 2026-11-23, GSDocMitchellHouse
+    // (0x00103DF9), `sup_19_getfiletime_keys`, SUP NVSE 855].
+    assert_eq!(n(&mut g, "ar_Size (GetFileTime \"nvac.log\" 2)"), 5.0);
+    assert_eq!(n(&mut g, "ar_Size (GetFileTime \"none.log\" 2)"), 0.0);
+    assert_eq!(s(&mut g, "typeof (GetFileTime \"nvac.log\" 2)"), "StringMap");
+    assert_eq!(s(&mut g, "typeof ((GetFileTime \"nvac.log\" 2)[\"Year\"])"), "String");
+    assert!(s(&mut g, "(GetFileTime \"nvac.log\" 2)[\"Year\"]").parse::<i32>().unwrap() >= 2026);
     // The values, in the computer's time zone: the file is given a written time of
-    // 2026-07-15 12:00:30 UTC. In mid-month the month reads 07 in every time zone, so
+    // 2026-07-15 12:00:30 UTC. In mid-month the month reads "07" in every time zone, so
     // the two orders tell apart whatever the zone.
     let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_784_116_830);
     std::fs::File::options().write(true).open(game_dir.join("nvac.log")).unwrap().set_modified(at).unwrap();
     let local = jiff::Timestamp::try_from(at).unwrap().to_zoned_datetime(jiff::tz::TimeZone::system());
-    let fields: Vec<f64> = (0..6).map(|i| n(&mut g, &format!("(GetFileTime \"nvac.log\" 2)[{i}]"))).collect();
-    let want = [local.year(), i16::from(local.month()), i16::from(local.day()), i16::from(local.hour()), i16::from(local.minute()), i16::from(local.second())];
-    assert_eq!(fields, want.map(f64::from).to_vec());
+    let keys = ["Day", "Hour", "Minute", "Month", "Year"];
+    let fields: Vec<String> = keys.iter().map(|k| s(&mut g, &format!("(GetFileTime \"nvac.log\" 2)[\"{k}\"]"))).collect();
+    let want = vec![
+        format!("{:02}", local.day()),
+        format!("{:02}", local.hour()),
+        format!("{:02}", local.minute()),
+        format!("{:02}", local.month()),
+        format!("{:04}", local.year()),
+    ];
+    assert_eq!(fields, want);
+    assert_eq!(s(&mut g, "(GetFileTime \"nvac.log\" 2)[\"Month\"]"), "07");
     let (dmy, mdy) = (s(&mut g, "GetFileTimeSTR \"nvac.log\" 2 0"), s(&mut g, "GetFileTimeSTR \"nvac.log\" 2 1"));
-    assert_eq!(dmy, local.strftime("%d/%m/%y %H:%M").to_string());
-    assert_eq!(mdy, local.strftime("%m/%d/%y %H:%M").to_string());
-    assert_eq!((&dmy[3..5], &mdy[0..2], &dmy[6..8]), ("07", "07", "26"), "{dmy} {mdy}");
-    // A request outside 0-2 gives nothing [hypothesis].
+    assert_eq!(dmy, local.strftime("%d/%m/%Y  %H:%M").to_string());
+    assert_eq!(mdy, local.strftime("%m/%d/%Y  %H:%M").to_string());
+    assert_eq!((&dmy[3..5], &mdy[0..2], &dmy[6..10]), ("07", "07", "2026"), "{dmy} {mdy}");
+    // A request outside 0-2 gives nothing [design].
     assert_eq!(n(&mut g, "ar_Size (GetFileTime \"nvac.log\" 3)"), 0.0);
     assert_eq!(s(&mut g, "GetFileTimeSTR \"nvac.log\" 3 0"), "");
     // The load order into NVForever's SUPNVSE.log [documented: DumpLoadOrder].
@@ -392,9 +428,10 @@ fn failed_zone_discovery_uses_utc_and_warns_once() {
         let t = Time::strptime("%H-%M-%S", &stamp).unwrap();
         let seconds = i64::from(t.hour()) * 3600 + i64::from(t.minute()) * 60 + i64::from(t.second());
         assert!(in_window(before, seconds, after, 86_400), "{stamp}: UTC stamp outside sampled interval {before}..={after}");
-        let fields: Vec<_> = (0..6).map(|i| n(&mut g, &format!("(GetFileTime \"failed-zone-time.log\" 2)[{i}]"))).collect();
-        assert_eq!(fields, [2024.0, 3.0, 10.0, 7.0, 0.0, 30.0]);
-        assert_eq!(s(&mut g, "GetFileTimeSTR \"failed-zone-time.log\" 2"), "10/03/24 07:00");
+        let keys = ["Day", "Hour", "Minute", "Month", "Year"];
+        let fields: Vec<_> = keys.iter().map(|k| s(&mut g, &format!("(GetFileTime \"failed-zone-time.log\" 2)[\"{k}\"]"))).collect();
+        assert_eq!(fields, ["10", "07", "00", "03", "2024"]);
+        assert_eq!(s(&mut g, "GetFileTimeSTR \"failed-zone-time.log\" 2"), "10/03/2024  07:00");
     }
     assert_eq!(COUNT.load(Ordering::Relaxed), 1, "one warning per process, not per call or Game");
 }
@@ -421,6 +458,6 @@ fn unrepresentable_file_mtime_returns_empty_script_results() {
 
     let ordinary: Timestamp = "2024-03-10T07:00:30Z".parse().unwrap();
     file.set_modified(SystemTime::try_from(ordinary).unwrap()).unwrap();
-    assert_eq!(size(&mut g), 6.0, "the same admitted file has representable metadata");
+    assert_eq!(size(&mut g), 5.0, "the same admitted file has representable metadata");
     assert!(!text(&mut g).is_empty());
 }

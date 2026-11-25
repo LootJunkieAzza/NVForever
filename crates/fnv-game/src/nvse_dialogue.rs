@@ -87,7 +87,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: TopicInfoAddChoice; observed: sup2 choices.add.*].
         "topicinfoaddchoice" => {
             if let (Some(i), Some(t)) = (line(g, form(args, 0)), topic(g, form(args, 1))) {
-                g.add_related(i, t, Related::Choices, num(args, 2).unwrap_or(-1.0));
+                g.add_related(i, t, Related::Choices, num(args, 2).unwrap_or(-1.0), true);
             }
             zero
         }
@@ -103,7 +103,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `info form type position`: into Link From (0) or Choices (1) a topic
         // [documented: DialogResponseAddRelatedTopic, the three types]; Follow Ups (2)
         // take nothing [observed: sup2 related.add.followinfo and …followtopic];
-        // positions as TopicInfoAddChoice [hypothesis].
+        // `position == len` on a non-empty list does not append while `-1` appends and
+        // `0` on an empty list inserts [observed: jg_38_dialog_response_related_add_pos].
         "dialogresponseaddrelatedtopic" => {
             let Some(i) = line(g, form(args, 0)) else { return Some(Ok(zero)) };
             let Some(kind) = num(args, 2).and_then(Related::from_code) else { return Some(Ok(zero)) };
@@ -112,7 +113,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 _ => topic(g, form(args, 1)),
             };
             if let Some(item) = item {
-                g.add_related(i, item, kind, num(args, 3).unwrap_or(-1.0));
+                g.add_related(i, item, kind, num(args, 3).unwrap_or(-1.0), false);
             }
             zero
         }

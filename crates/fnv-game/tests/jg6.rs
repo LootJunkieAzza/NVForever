@@ -164,6 +164,10 @@ fn actor_values_by_code() {
     let str0 = n(&mut g, "player.GetActorValue Strength");
     q(&mut g, "player.ModActorValueAlt 5 3");
     assert_eq!(n(&mut g, "player.GetActorValue Strength"), str0 + 3.0);
+    // Out-of-range AV code is safely rejected instead of crashing [design: Wave 4
+    // jg_17_mod_av_alt_out_of_range crashed JohnnyGuitarNVSE 528 with 0xC0000005].
+    q(&mut g, "player.ModActorValueAlt 999 5");
+    assert_eq!(n(&mut g, "player.GetActorValue Strength"), str0 + 3.0);
     // GetActorValueModifierAlt reads the effects' modifiers only: ModAV's change is in
     // none of its filters [observed 2026-11-08: jg6.av.mod].
     for filter in ["1", "2", "3", "4", ""] {
@@ -245,7 +249,7 @@ fn cells_and_templates() {
     assert_eq!(n(&mut g, "GetLightingTemplateCell TestTemplate"), f64::from(ROOM2));
     q(&mut g, "SetLightingTemplateCell TestTemplate TestThing");
     assert_eq!(n(&mut g, "GetLightingTemplateCell TestTemplate"), f64::from(ROOM2));
-    // No climate: phase 0 [hypothesis]; the frame step.
+    // No climate: phase 0 (see docs/spec-notes/ext-jg6.md); the frame step.
     assert_eq!(n(&mut g, "GetMoonPhase"), 0.0);
     assert!((n(&mut g, "GameGetSecondsPassed") - 1.0 / 60.0).abs() < 1e-9);
 }

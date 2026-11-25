@@ -148,20 +148,29 @@ fn restoring_traits_changes_next_launch_without_rewriting_existing_flight() {
 }
 
 #[test]
-fn temporary_projectile_aliases_use_own_launch_values_and_original_fallback() {
+fn temporary_projectile_aliases_snapshot_at_creation_and_isolate_post_clone_edits() {
     let mut a = app();
+    // Clones created before OwnedProjectile is edited snapshot the authored (1000.0, 10.0)
+    // traits and remain isolated from later edits on OwnedProjectile.
     let XVal::Ref(own) = query(&mut a, "ref r\nlet r := TempCloneForm OwnedProjectile 1\nSetFunctionValue r") else { panic!("actual temporary clone") };
     let XVal::Ref(sibling) = query(&mut a, "ref r\nlet r := TempCloneForm OwnedProjectile 1\nSetFunctionValue r") else { panic!("actual sibling clone") };
     assert_ne!(own, sibling);
     query(&mut a, &format!("SetProjectileTraitNumeric OwnedProjectile 2 800\nSetProjectileTraitNumeric OwnedProjectile 9 11\nSetProjectileTraitNumeric {own:#010X} 2 350\nSetProjectileTraitNumeric {own:#010X} 9 7\nSetAmmoProjectile OwnedAmmo {own:#010X}"));
     fire(&mut a, "OwnedGun", false);
     last(&a, FormId(own), 350.0, 7.0);
+    // sibling was cloned before OwnedProjectile was mutated to (800, 11), so it keeps (1000, 10).
     query(&mut a, &format!("SetAmmoProjectile OwnedAmmo {sibling:#010X}"));
     fire(&mut a, "OwnedGun", false);
-    last(&a, FormId(sibling), 800.0, 11.0);
+    last(&a, FormId(sibling), 1000.0, 10.0);
+    // A clone created AFTER OwnedProjectile was mutated inherits (800, 11) and stays isolated
+    // when OwnedProjectile is mutated again to (600, 9).
+    let XVal::Ref(after_edit) = query(&mut a, "ref r\nlet r := TempCloneForm OwnedProjectile 1\nSetFunctionValue r") else { panic!("actual post-edit clone") };
+    query(&mut a, &format!("SetProjectileTraitNumeric OwnedProjectile 2 600\nSetProjectileTraitNumeric OwnedProjectile 9 9\nSetAmmoProjectile OwnedAmmo {after_edit:#010X}"));
+    fire(&mut a, "OwnedGun", false);
+    last(&a, FormId(after_edit), 800.0, 11.0);
     query(&mut a, "SetAmmoProjectile OwnedAmmo OwnedProjectile");
     fire(&mut a, "OwnedGun", false);
-    last(&a, PROJ, 800.0, 11.0);
+    last(&a, PROJ, 600.0, 9.0);
     // This initial-launch control does not qualify cloned-shot reference lifetime,
     // its visual assets or save eligibility (separate producer admission boundary).
     typed_unchanged(&a);

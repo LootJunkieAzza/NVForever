@@ -50,9 +50,25 @@ The reader (`fnv_ui::xml`) never fails. Its rules [hypothesis for each; the orig
 own rules are not known]:
 
 - an end tag closes the innermost open element of the name it gives, with the ones
-  opened inside it; when none of that name is open it closes the innermost open element
-  whatever its name; with nothing open it is dropped. Both MCM spots need this pair of
-  rules to come out as MCM evidently works in the original (one needs each rule);
+  opened inside it, treating `<hotrect>`/`</rect>` and `<rect>`/`</hotrect>` as matching
+  rect-family containers so a typo'd `</rect>` closing an inner `<hotrect>` (as in vanilla
+  `quest_added.xml` [observed: `Fallout - Misc.bsa`]) closes that `<hotrect>` and keeps
+  sibling tiles (e.g. `Button2`) parented under the enclosing `<rect>` rather than popping
+  the enclosing `<rect>` and leaving `<menu>` prematurely closed [observed: Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + UI Organizer 230 / vanilla XML parser, 2026-11-24,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room
+  staging copy (synthetic prefab XML staged strictly inside the isolated copy and removed
+  after exit; read-only `PrintToConsole` probe; zero writes to game install or Saves),
+  `w4h_01_quest_added_button2_parent` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
+  #3802): `PROBE|w4h_01_quest_added_button2_parent|hotrect_rect(ld=1,b1=11,b2Main=22,b2B1=-999,b2Menu=-999)|rect_hotrect(ld=1,in=33,sibMain=44,sibIn=-999,sibMenu=-999)`;
+  zero DLL, PDB, or third-party source consulted]; when none of that name is open it
+  closes the innermost open element whatever its name [hypothesis: preserving traits and
+  operators with typo'd end tags such as Vanilla UI Plus `globals.xml`'s
+  `<_VUI+ScreenRatio>…</_VUI+ScreenHeight>`, `vats_menu.xml`'s `<add>…</suaddb>`, and Just
+  Assorted Mods `jlm.xml`'s `<_JLMAction1..3>…</_JLMInteract1..3>` [observed: public XML
+  files; no third-party DLL or source code consulted]]; with nothing open it is dropped.
+  Both MCM spots need this pair of rules to come out as MCM evidently works in the
+  original (one needs each rule);
 - [hypothesis] an attributeless non-empty start tag `<T>` that is neither a tile/template
   container, `include`, nor an operator closes an open trait of the same name `<T>` when
   that trait already holds non-blank content and only operators (if any) are open inside
@@ -66,7 +82,10 @@ own rules are not known]:
   inner tags inside the trait and still warn);
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
-- a start tag cut short by `<` ends there, open (its own end tag follows);
+- a start tag cut short by `<` ends there: open when the cutting tag is its own closing
+  tag (`<systemcolor</systemcolor>` in two vanilla files [observed]), and self-closed
+  (empty) when cut short by a different start tag or enclosing end tag so following
+  sibling traits/tiles are not swallowed [hypothesis];
 - an element opened inside 256 open ones is left out with everything in it, up to its own
   end tag [design: `xml::MAX_DEPTH`, NVForever's own guard against running out of stack on
   a broken or crafted file, #3156; no vanilla file comes near it];
@@ -141,15 +160,22 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
   hud_hardcore2 hc2-hc5; hud.md §14.8];
 - every other constant reads 0 as a number [hypothesis].
 
-Scripts can also write standalone entity tokens into a trait via `SetUIString` /
-`SetUIStringAlt` with or without a trailing semicolon (e.g. `"&false"`, `"&true"`,
-`"&center"`) [hypothesis: JIP UI scripts hide vanilla tiles by writing `"&false"` to
-`.../visible`, relying on the trait parser recognising `&name` constants the same as XML
-entities; observer check]. NVForever keeps the written `Value::Str` text verbatim for
-`GetUIString`, while evaluating standalone `&name` / `&name;` ASCII identifier strings
-(excluding `&-sName;` game-string placeholders and mixed prose) identically to
-`Value::Sym` for `truthy()`, `num()`, `eq`, `justify`, and suffix-`<copy>` lookup
-[design: `fnv_ui::value`].
+Scripts writing entity-shaped strings via `SetUIString` (e.g. `"&false"`, `"&true"`,
+`"&center"`) store the string verbatim without resolving it to a numeric entity constant:
+`GetUIFloat` reads `0` for all three (`&false`, `&true`, and `&center`, overwriting the
+prior numeric value) while `GetUIString` reads `"&false"` verbatim [observed: Fallout:
+New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, `w4d_43_nif_selector_and_ui_entities`
+(`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+`HUDMainMenu/ReticleCenter/visible` `ret=64` -> `SetUIString "&false"` => `f=0 [&false]`,
+`SetUIString "&true"` => `t=0`, `SetUIString "&center"` => `c=0`; no DLL or source
+consulted]. Accordingly, `Value::Str` parses only numeric text in `Value::num()` (so
+`GetUIFloat` / `GetUIFloatAlt` return `0.0` for `"&true"` as well as `"&false"` and
+`"&center"`), while static XML entities parsed as `Value::Sym` keep their numeric values
+(`&true;` -> `1`, menu classes -> their IDs). NVForever still matches standalone `&name` /
+`&name;` ASCII identifier strings (excluding `&-sName;` game-string placeholders and mixed
+prose) against `Value::Sym` for `truthy()`, `eq`, `justify`, and suffix-`<copy>` lookup
+while keeping the written `Value::Str` verbatim for `GetUIString` [design: `fnv_ui::value`].
 
 ### 2.4 Game setting strings
 
@@ -1444,13 +1470,23 @@ centre is written to `_MapOriginX`/`_MapOriginY`. The file's own tint (`systemco
 `brightness`) colours it. Engine design choices: the camera draws the world layer only
 (not the player's body or the water's own layer), without fog, clearing to black, with
 no MSAA; it draws to 20,000 units below its height over the player; when `_CameraOffset`
-does not read, it uses the file's 10,000.
+does not read, it uses the file's 10,000. At startup, `nvforever::minimap_render` reads
+`NVSE\Plugins\ModernMinimap.ini` case-insensitively through the VFS ([documented: Modern
+Minimap - ESPless v4.2.1 (by Stentorious & xConfused,
+`https://www.nexusmods.com/newvegas/mods/90574`), shipped
+`Data\NVSE\Plugins\ModernMinimap.ini`, comment `"; Controls the texture size of the
+minimap render"`, default `[General] textureSize=1024`; no DLL or plugin source
+consulted]) using a BOM-, comment-, and UTF-8-safe byte parser [design]; positive finite
+`[General] textureSize` values are clamped to `256..=2048` and snapped to the nearest
+power of two (`256`, `512`, `1024`, `2048`) [design], driving both the render-target
+`Image` extent and the size published to `RuntimeImages`. When the INI is absent, omits
+`textureSize`, or specifies a non-finite / `< 1` / invalid value, NVForever defaults to
+`1024` so unmodded vanilla behavior is unchanged [design].
 
-[hypothesis] The plugin's camera is orthographic with north up, and its picture is 1024
-texels square (`textureSize=1024`, taken to be the plugin INI's default). Neither has
-been observed in the original game. Open: the plugin's
-exact look (classic mode's shading, interiors under a ceiling 10,000 over the player)
-and the INI's other settings are not read; the picture is the lit scene from above.
+[hypothesis] The plugin's camera is orthographic with north up. This has not been observed
+in the original game. Open: the plugin's exact look (classic mode's shading, interiors
+under a ceiling 10,000 over the player) and any other INI settings future versions may add
+are not read; the picture is the lit scene from above.
 
 ## 12. BookMenu layout variants and JIP TextInput layout (`BookMenu`, `TextEditMenu`)
 
@@ -1516,3 +1552,18 @@ menu layouts.
   `user*` traits on `TEM_InputText` for scrollbar line math (`user0`/`user1`/`user2`),
   have not been observed in the original game; NVForever does not render `TextEditMenu`
   from its XML tiles yet (the hand-built `chargen::name` box continues to draw it).
+
+### 12.3 Shared `GenericMenu` class indexing (`fnv_ui::MenuIndex`)
+
+- [observed: vanilla `Fallout - Misc.bsa` `menus\generic\quest_added.xml` and
+  `menus\generic\skill_perk.xml`] Multiple distinct vanilla menus under `menus\generic\`
+  declare distinct `<menu name="...">` roots (`QuestAddedMenu`, `SkillPerkMenu`) while
+  sharing `<class>&GenericMenu;</class>`. `GenericMenu` is not one of the 40 single-file
+  `MENU_CLASSES` entries (`crates/fnv-ui/src/value.rs`).
+- [design: `crates/fnv-ui/src/index.rs`] When multiple files declare
+  `<class>&GenericMenu;</class>`, `MenuIndex::build` keeps the first sorted path in
+  `classes` (`class_path("GenericMenu")`), records additional paths in sorted order under
+  `variants("GenericMenu")`, and does not emit a spurious `duplicate menu class
+  genericmenu` warning. Each menu's `<menu name="...">` entry (`path(name)`) and all 40
+  `MENU_CLASSES` lookups (`code_path(code)`) are unchanged, and duplicate `<menu name="...">`
+  collisions still emit `duplicate menu ...` warnings as before.

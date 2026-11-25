@@ -39,8 +39,19 @@ pub struct RecipeDef {
     pub skill: Option<(u16, u32)>,
     pub category: Option<FormId>,
     pub subcategory: Option<FormId>,
-    pub ingredients: Vec<(FormId, u32)>,
-    pub outputs: Vec<(FormId, u32)>,
+    /// Ingredient entries `(item, count)`. Signed `i32` because JIP LN's
+    /// `AddRecipeInputForm` / `SetRecipeInputCount` store negative counts verbatim;
+    /// crafting consumers clamp via [`recipe_count`] [design].
+    pub ingredients: Vec<(FormId, i32)>,
+    /// Output entries `(item, count)`. Signed `i32` for the same reason; crafting
+    /// consumers clamp via [`recipe_count`] [design].
+    pub outputs: Vec<(FormId, i32)>,
+}
+
+/// Clamp a signed recipe entry count to a non-negative crafting quantity (`0` for
+/// script-set negative counts) [design].
+pub fn recipe_count(n: i32) -> u32 {
+    n.max(0) as u32
 }
 
 impl Default for RecipeDef {
@@ -92,7 +103,7 @@ impl RecipeDef {
                     }
                 }
                 b"RCQY" => {
-                    let n = u32_at(&s.data, 0).unwrap_or(1);
+                    let n = u32_at(&s.data, 0).unwrap_or(1) as i32;
                     let list = match last.take() {
                         Some(true) => &mut r.ingredients,
                         Some(false) => &mut r.outputs,
@@ -115,7 +126,7 @@ impl RecipeDef {
 
     /// The total quantity made of the first output (what the menu shows after the name).
     pub fn made(&self) -> u32 {
-        self.outputs.first().map_or(0, |o| o.1)
+        self.outputs.first().map_or(0, |o| recipe_count(o.1))
     }
 }
 
@@ -160,7 +171,7 @@ pub fn missing(r: &RecipeDef, times: u32, skill: impl Fn(u16) -> f64, have: impl
     }
     for &(item, n) in &r.ingredients {
         let h = have(item).max(0) as u32;
-        let need = n.saturating_mul(times.max(1));
+        let need = recipe_count(n).saturating_mul(times.max(1));
         if h < need {
             out.push(Missing::Ingredient(item, h, need));
         }
@@ -170,7 +181,7 @@ pub fn missing(r: &RecipeDef, times: u32, skill: impl Fn(u16) -> f64, have: impl
 
 /// How many times a recipe can be made with what the player has (the skill aside).
 pub fn times_possible(r: &RecipeDef, have: impl Fn(FormId) -> i64) -> u32 {
-    r.ingredients.iter().map(|&(item, n)| (have(item).max(0) as u32).checked_div(n).unwrap_or(u32::MAX)).min().unwrap_or(u32::MAX)
+    r.ingredients.iter().map(|&(item, n)| (have(item).max(0) as u32).checked_div(recipe_count(n)).unwrap_or(u32::MAX)).min().unwrap_or(u32::MAX)
 }
 
 /// The skills' names by actor value code [documented: GECK wiki Actor Value Codes; the
@@ -257,6 +268,17 @@ mod tests {
         assert_eq!(times_possible(&r, have(12, 3)), 2);
         assert_eq!(times_possible(&r, have(12, 0)), 0);
         assert_eq!(r.made(), 25);
+    }
+
+    #[test]
+    fn negative_counts_clamp_to_zero() {
+        assert_eq!(recipe_count(-5), 0);
+        assert_eq!(recipe_count(0), 0);
+        assert_eq!(recipe_count(7), 7);
+        let r = RecipeDef { ingredients: vec![(FormId(1), -5), (FormId(2), 2)], outputs: vec![(FormId(3), -5)], ..Default::default() };
+        assert_eq!(r.made(), 0);
+        assert!(missing(&r, 1, |_| 0.0, |i| if i == FormId(2) { 2 } else { 0 }).is_empty());
+        assert_eq!(times_possible(&r, |i| if i == FormId(2) { 7 } else { 0 }), 3);
     }
 
     #[test]

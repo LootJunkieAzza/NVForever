@@ -1417,9 +1417,11 @@ impl<'a> Game<'a> {
     /// A calculated chance greater than `fSpeechAutoSuccessThreshold` (default 0.9) always
     /// succeeds [documented: same] and is reported as `1.0` [hypothesis]. Each multiplier
     /// factor is floored at `0.0` before multiplication so two negative factors cannot yield
-    /// a positive chance [design]. When `SetDisposition`/`ModDisposition` overrode `actor`'s
-    /// disposition toward the player, that stored value replaces `Actor Disposition + Charisma
-    /// Value` so Charisma is not counted twice [design, matching `functions::actor::get_disposition`].
+    /// a positive chance [hypothesis: not yet probed in the running game]. When
+    /// `SetDisposition`/`ModDisposition` overrode `actor`'s disposition toward the player,
+    /// that stored value replaces `Actor Disposition + Charisma Value` so Charisma is not
+    /// counted twice [hypothesis: not yet probed in the running game; matches
+    /// `functions::actor::get_disposition`].
     pub fn speech_challenge_chance(&mut self, actor: FormId, difficulty: u32) -> f64 {
         let Some(&(diff_gmst, diff_default)) = (difficulty as usize).checked_sub(1).and_then(|i| SPEECH_CHALLENGE_DIFFICULTIES.get(i)) else {
             return 0.0;

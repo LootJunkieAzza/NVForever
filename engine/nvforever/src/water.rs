@@ -366,6 +366,10 @@ pub struct DistantWater {
     want_for: Option<WantKey>,
     /// `want_for` the planes were placed for.
     built_for: Option<WantKey>,
+    /// Cells of `want` skipped by the read budget ([`SURFACE_READS_PER_FRAME`]), in `want`'s
+    /// order: the only ones the frames after go through while neither the choice nor the
+    /// loaded cells change (#3879: the whole list again was 16,000 cells a frame in Novac).
+    unread: Vec<(i32, i32)>,
     /// The loaded cells the planes were placed for, sorted ([`loaded_changed`]), and a
     /// buffer for this frame's.
     loaded_seen: Vec<(i32, i32)>,
@@ -519,6 +523,33 @@ fn wet_vertices(heights: &[f32], surface: f32) -> Option<[usize; 4]> {
     b.map(|[c0, r0, c1, r1]| [c0.saturating_sub(1), r0.saturating_sub(1), (c1 + 1).min(SIDE - 1), (r1 + 1).min(SIDE - 1)])
 }
 
+/// What [`walk_with_reads`]' visit did with a cell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Walked {
+    /// Handled without a surface read.
+    Done,
+    /// Handled with one read of the budget.
+    Read,
+    /// It needs a read and none was left: kept for a later frame.
+    Later,
+}
+
+/// Visits `cells` in order, `visit(cell, may_read)` told whether a surface read is still
+/// within the frame's `reads`; returns the cells it put off ([`Walked::Later`]), in order,
+/// for the frames after to visit instead of the whole list (#3879).
+pub fn walk_with_reads(cells: &[(i32, i32)], reads: usize, mut visit: impl FnMut((i32, i32), bool) -> Walked) -> Vec<(i32, i32)> {
+    let mut used = 0;
+    let mut later = Vec::new();
+    for &c in cells {
+        match visit(c, used < reads) {
+            Walked::Done => {}
+            Walked::Read => used += 1,
+            Walked::Later => later.push(c),
+        }
+    }
+    later
+}
+
 /// The distant water's landscape reads in one frame ([`distant_water`]).
 const SURFACE_READS_PER_FRAME: usize = 12;
 
@@ -539,7 +570,10 @@ pub fn distant_water(
     let want_key = (world.world, lod.choice(), on);
     let dwm = &mut *dw;
     let loaded = loaded_changed(&mut dwm.loaded_seen, &mut dwm.loaded_now, streamer.loaded.keys().copied());
-    if dw.built_for == Some(want_key) && !loaded {
+    // A full pass when the choice or the loaded cells changed; otherwise only the cells
+    // the read budget left for later, if any (#3879).
+    let full = dw.built_for != Some(want_key) || loaded;
+    if !full && dw.unread.is_empty() {
         return;
     }
     dw.built_for = Some(want_key);
@@ -561,31 +595,29 @@ pub fn distant_water(
         }
     }
     // Loaded cells have their own water: their planes go, and come back when they unload.
-    let want = std::mem::take(&mut dw.want);
-    let mut reads = 0;
-    for &c in &want {
+    // The full pass goes through `want`; a later frame through what it left unread.
+    let cells = if full { std::mem::take(&mut dw.want) } else { std::mem::take(&mut dw.unread) };
+    let unread = walk_with_reads(&cells, reads_a_frame, |c, may_read| {
         if streamer.loaded.contains_key(&c) {
             if let Some(e) = dw.planes.remove(&c) {
                 commands.entity(e).despawn();
             }
-            continue;
+            return Walked::Done;
         }
         if dw.planes.contains_key(&c) {
-            continue;
+            return Walked::Done;
         }
         // [design] #2956 follow-up (#3070): a cell's surface not known yet reads and
         // inflates its landscape record; a new chunk choice can uncover many at once (5-11 ms
         // of one frame [observed 2026-11-19, `profile hitch`]). At most
         // `SURFACE_READS_PER_FRAME` are read a frame, the rest the frames after.
-        if !dw.surface_known(c) {
-            if reads >= reads_a_frame {
-                dw.built_for = None;
-                continue;
-            }
-            reads += 1;
+        let read = !dw.surface_known(c);
+        if read && !may_read {
+            return Walked::Later;
         }
-        let Some((height, wid)) = dw.surface(&world, c) else { continue };
-        let Some(mat) = water_material(&world, wid, true, false, Some(cell_water_center(c, height)), &mut models, &mut water) else { continue };
+        let walked = if read { Walked::Read } else { Walked::Done };
+        let Some((height, wid)) = dw.surface(&world, c) else { return walked };
+        let Some(mat) = water_material(&world, wid, true, false, Some(cell_water_center(c, height)), &mut models, &mut water) else { return walked };
         let mesh = water.plane(&mut models.meshes);
         let s = CELL_SIZE;
         let e = commands
@@ -599,8 +631,12 @@ pub fn distant_water(
             .id();
         commands.entity(root).add_child(e);
         dw.planes.insert(c, e);
+        walked
+    });
+    if full {
+        dw.want = cells;
     }
-    dw.want = want;
+    dw.unread = unread;
 }
 
 fn linear(c: [u8; 3]) -> Vec3 {
@@ -784,6 +820,44 @@ mod distant_tests {
         assert!(loaded_changed(&mut seen, &mut now, [(0, 0), (1, 0), (-1, 1)].into_iter()), "one swapped, same count");
         assert!(loaded_changed(&mut seen, &mut now, [(-49, 3), (-49, 7)].into_iter()));
         assert!(loaded_changed(&mut seen, &mut now, [(-47, 3), (-47, 7)].into_iter()), "two swapped for two");
+    }
+
+    /// #3879: with 12 reads a frame, 40 cells not read yet take four frames, and each frame
+    /// after the first visits only the cells put off, not the whole list again; cells
+    /// handled without a read (known, loaded, with a plane) never use the budget.
+    #[test]
+    fn a_frame_after_the_budget_visits_only_the_cells_put_off() {
+        let cells: Vec<(i32, i32)> = (0..50).map(|i| (i, 0)).collect();
+        // Every fifth cell's surface is known already; the rest need a read.
+        let mut known: std::collections::HashSet<(i32, i32)> = cells.iter().copied().filter(|c| c.0 % 5 == 0).collect();
+        let mut visits = Vec::new();
+        let mut walk = |list: &[(i32, i32)], known: &mut std::collections::HashSet<(i32, i32)>| {
+            let mut visited = 0;
+            let later = walk_with_reads(list, 12, |c, may_read| {
+                visited += 1;
+                if known.contains(&c) {
+                    return Walked::Done;
+                }
+                if !may_read {
+                    return Walked::Later;
+                }
+                known.insert(c);
+                Walked::Read
+            });
+            visits.push(visited);
+            later
+        };
+        let mut left = walk(&cells, &mut known);
+        assert_eq!(left.len(), 40 - 12, "the known 10 and 12 read; the rest put off");
+        assert_eq!(left, cells.iter().copied().filter(|c| c.0 % 5 != 0).skip(12).collect::<Vec<_>>(), "in the list's order");
+        let mut frames = 1;
+        while !left.is_empty() {
+            left = walk(&left.clone(), &mut known);
+            frames += 1;
+        }
+        assert_eq!(frames, 4, "40 reads at 12 a frame");
+        assert_eq!(visits, vec![50, 28, 16, 4], "each later frame visits only what was put off");
+        assert_eq!(known.len(), 50);
     }
 
     /// A chunk's cells are `x..x + l` by `y..y + l`: the range per column takes no

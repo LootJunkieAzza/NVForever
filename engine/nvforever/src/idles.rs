@@ -137,7 +137,7 @@ use fnv_game::nvse_knvse::SequenceInfo;
 use fnv_game::package::{flags, PackageType};
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
-use nvf_assets::anim_play::{BlendPlayer, BoundClip, Clip, Layer};
+use nvf_assets::anim_play::{BlendPlayer, BoundClip, Clip, Layer, ScriptLayer};
 use nvf_assets::model::ModelCtx;
 use nvf_play::control::PlayerControl;
 use nvf_play::player::Player;
@@ -637,27 +637,64 @@ pub struct NpcSequence {
     serial: u32,
 }
 
-/// kNVSE's PlayAnimationPath on the drawn NPCs (docs/design/knvse-anim.md §5): the
-/// sequence starts as a script's idle does on the actor's idle slot, bound to its
-/// skeleton; once if the clip says so (cycle type Clamp), else looping until DeactivateAnim
-/// takes it back or another idle replaces it. An actor not drawn waits; one that goes out
-/// of view starts it again when drawn. ActivateAnim's layered sequences are not played on
-/// NPCs yet.
-pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState>>, mut parts: ResMut<ActorParts>, mut models: ModelCtx, mut actors: Query<Drawn>, mut started: Local<Vec<NpcSequence>>) {
-    let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+/// What [`play_npc_sequences`] reads and writes of a drawn NPC.
+type NpcSeqActor = (Entity, &'static RefVisual, &'static ActorRig, Option<&'static mut ActorIdle>, Option<&'static mut BlendPlayer>);
+
+fn sequence_info(clip: &Clip) -> SequenceInfo {
+    SequenceInfo {
+        name: clip.name.clone(),
+        accum_root: clip.accum_root.clone().unwrap_or_default(),
+        frequency: f64::from(clip.frequency),
+        begin: f64::from(clip.start),
+        end: f64::from(clip.stop),
+        cycle: clip.cycle_type,
+        text_keys: clip.text_keys.iter().map(|(t, s)| (f64::from(*t), s.clone())).collect(),
+    }
+}
+
+/// kNVSE's `PlayAnimationPath` and `ActivateAnim` on the drawn NPCs
+/// (docs/design/knvse-anim.md §5):
+/// - `PlayAnimationPath` starts on the actor's idle slot, bound to its skeleton; once if
+///   the clip says so (cycle type Clamp), else looping until `DeactivateAnim` takes it
+///   back or another idle replaces it.
+/// - `ActivateAnim` (and the blend helpers `CrossFadeAnims`, `BlendToAnim`,
+///   `BlendToAnimFromPose`) layers onto `BlendPlayer::script_layers` with explicit
+///   sequence priority, weight (`SetAnimWeight`), ease-in/ease-out, clock/seek
+///   (`SetAnimCurrentTime`), and additive reference poses (`SetAnimAdditive`) [design].
+#[allow(clippy::too_many_arguments)]
+pub fn play_npc_sequences(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut parts: ResMut<ActorParts>,
+    mut models: ModelCtx,
+    mut actors: Query<NpcSeqActor>,
+    mut started: Local<Vec<NpcSequence>>,
+    mut layer_eases: Local<HashMap<(u32, u32), f32>>,
+) {
+    let Some(game) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) else { return };
+    let dt = if game.menu.is_some() { 0.0 } else { time.delta_secs().min(0.1) };
     let me = FormId::PLAYER_REF;
     let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
-    let wanted: Vec<(u32, &String)> = game
+    let wanted: Vec<(u32, String)> = game
         .anim_paths
         .played
         .iter()
         .filter(|(a, _)| **a != me)
-        .flat_map(|(a, ps)| ps.iter().map(move |p| (a.0, p)))
+        .flat_map(|(a, ps)| ps.iter().map(move |p| (a.0, p.clone())))
         // ActivateAnim's requests (they stay until taken back, `auto_finish` false) are
-        // layered sequences, not idles.
+        // layered sequences driven on `BlendPlayer::script_layers` below, not idles.
         .filter(|(a, p)| !game.anim_paths.sequences.get(&(FormId(*a), false, p.replace('/', "\\").to_ascii_lowercase())).is_some_and(|s| !s.auto_finish))
         .collect();
-    if wanted.is_empty() && started.is_empty() {
+    let mut layered: Vec<(FormId, fnv_game::nvse_anim::ScriptSequence)> = game
+        .anim_paths
+        .sequences
+        .iter()
+        .filter(|((a, _, _), s)| *a != me && !s.auto_finish)
+        .map(|((a, _, _), s)| (*a, s.clone()))
+        .collect();
+    layered.sort_by_key(|(_, s)| s.serial);
+    if wanted.is_empty() && started.is_empty() && layered.is_empty() && layer_eases.is_empty() {
         return;
     }
     let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
@@ -668,7 +705,7 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
         if kept {
             return true;
         }
-        if let Ok((_, _, _, Some(mut slot), ..)) = actors.get_mut(e) {
+        if let Ok((_, _, _, Some(mut slot), _)) = actors.get_mut(e) {
             if let Some(c) = slot.0.cur.as_mut().filter(|c| c.serial == s.serial && s.serial != 0) {
                 c.play.stop();
             }
@@ -677,22 +714,23 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
         false
     });
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-    for (actor, p) in wanted {
-        if started.iter().any(|s| s.actor == actor && same(&s.path, p)) {
+    for (actor, p) in &wanted {
+        if started.iter().any(|s| s.actor == *actor && same(&s.path, p)) {
             continue;
         }
-        let Some(&e) = drawn.get(&actor) else { continue };
+        let Some(&e) = drawn.get(actor) else { continue };
         let path = meshes_path(p);
         if !ctx.clip_ready(&path) {
             continue;
         }
-        let Ok((e, _, rig, slot, ..)) = actors.get_mut(e) else { continue };
+        let Ok((e, _, rig, slot, _)) = actors.get_mut(e) else { continue };
         let bound = ctx.clip(&path).map(|clip| (bind_clip(&rig.skel, clip.clone()), clip));
         let Some((bound, clip)) = bound.filter(|(b, _)| !b.tracks.is_empty()) else {
             warn!("anim sequence: {actor:08X}'s {p} does not load or drives no node of its skeleton");
-            started.push(NpcSequence { actor, path: p.clone(), serial: 0 });
+            started.push(NpcSequence { actor: *actor, path: p.clone(), serial: 0 });
             continue;
         };
+        game.set_sequence_info(p, sequence_info(&clip));
         let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
         let once = clip.cycle_type == 2;
         let play = IdlePlay::new(keys, once.then_some(1));
@@ -711,8 +749,84 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
             }
         };
         info!("anim sequence: {actor:08X} plays {p} ({})", if once { "once" } else { "looping" });
-        started.push(NpcSequence { actor, path: p.clone(), serial });
+        started.push(NpcSequence { actor: *actor, path: p.clone(), serial });
     }
+    // Clear previous frame's layered NPC script sequences before rebuilding active ones.
+    for (_, _, _, _, player) in &mut actors {
+        if let Some(mut p) = player {
+            if !p.script_layers.is_empty() {
+                p.script_layers.clear();
+            }
+        }
+    }
+    let active_keys: HashSet<(u32, u32)> = layered.iter().map(|(a, s)| (a.0, s.serial)).collect();
+    for (actor, request) in layered {
+        let Some(&e) = drawn.get(&actor.0) else { continue };
+        let path = meshes_path(&request.path);
+        if !ctx.clip_ready(&path) {
+            continue;
+        }
+        let Some(clip) = ctx.clip(&path) else {
+            warn!("anim sequence: {:08X}'s {:?} could not load; not rendered", actor.0, request.path);
+            let norm = request.path.replace('/', "\\").to_ascii_lowercase();
+            game.anim_paths.sequences.remove(&(actor, false, norm));
+            if let Some(paths) = game.anim_paths.played.get_mut(&actor) {
+                paths.retain(|p| !same(p, &request.path));
+            }
+            continue;
+        };
+        game.set_sequence_info(&request.path, sequence_info(&clip));
+        let norm_key = request.path.replace('/', "\\").to_ascii_lowercase();
+        let additive_spec = game
+            .knvse
+            .additive
+            .get(&(actor, norm_key))
+            .filter(|(first, _, _)| !*first)
+            .map(|(_, p, t)| (p.clone(), *t as f32));
+        let ref_clip = match &additive_spec {
+            Some((ref_pose, _)) if !ref_pose.is_empty() => {
+                let ref_path = meshes_path(ref_pose);
+                if !ctx.clip_ready(&ref_path) {
+                    continue;
+                }
+                ctx.clip(&ref_path)
+            }
+            _ => None,
+        };
+        let Ok((_, _, rig, _, Some(mut player))) = actors.get_mut(e) else { continue };
+        let bound = bind_clip(&rig.skel, clip.clone());
+        if bound.tracks.is_empty() {
+            continue;
+        }
+        let clock = game.script_sequence_time_for(actor, &request.path, false);
+        let phase = (clock * f64::from(clip.frequency)) as f32;
+        if !phase.is_finite() || !request.weight.is_finite() {
+            continue;
+        }
+        let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+        let fade_in = request.ease_in.unwrap_or(keys.blend_in);
+        let ease = layer_eases.entry((actor.0, request.serial)).or_insert_with(|| if fade_in <= 0.0 { 1.0 } else { 0.0 });
+        if request.stopped.is_some() {
+            let down = if request.ease_out <= 0.0 { 1.0 } else { dt / request.ease_out };
+            *ease = (*ease - down).max(0.0);
+        } else {
+            let up = if fade_in <= 0.0 { 1.0 } else { dt / fade_in };
+            *ease = (*ease + up).min(1.0);
+        }
+        let eff = (request.weight.clamp(0.0, 1.0) * *ease).clamp(0.0, 1.0);
+        if eff <= 0.0 {
+            continue;
+        }
+        let additive = additive_spec.map(|(_, ref_time)| (ref_clip.map(|rc| Arc::new(bind_clip(&rig.skel, rc))), ref_time));
+        player.script_layers.push(ScriptLayer {
+            clip: Arc::new(bound),
+            time: phase,
+            weight: eff,
+            priority: request.priority,
+            additive,
+        });
+    }
+    layer_eases.retain(|k, _| active_keys.contains(k));
 }
 
 /// The clip of an idle and its playback, as its record, active kNVSE overrides, and text
