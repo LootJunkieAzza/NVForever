@@ -375,10 +375,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // `weapon`: clears MOD3 on scoped weapons (including TempCloneForm); returns 1
         // for a scoped weapon even on repeated removal, and 0 for unscoped or non-WEAP
-        // forms [documented: RemoveScopeModelPath; observed: w6d3p2_24].
+        // forms [documented: RemoveScopeModelPath; observed: w6d3p2_24:
+        // snLen=29,rm=1/1,aft=0,rest=29|p10=[],rm=0,aft=0,rmE=0|bad=0|cl=29,1,0,29].
+        // Determining scoped-weapon eligibility via `has_scope_flag || has_authored_mod3`
+        // (DNAM flags1 HasScope bit 1<<2 or non-empty authored base MOD3) [hypothesis/design].
         "removescopemodelpath" => {
             let Some(w) = form(args, 0).filter(|&w| g.data.sig(g.unclone(w)) == Some(*b"WEAP")) else { return Some(Ok(zero)) };
             let orig = g.unclone(w);
+            // [hypothesis/design]: accept either DNAM HasScope flag or non-empty authored MOD3.
             let has_scope_flag = matches!(crate::nvse::record_value(g, w, "DNAM", "flags1"), Some(XVal::Num(x)) if (x as u64) & (1 << 2) != 0);
             let has_authored_mod3 = ["", "model"].iter().any(|p| matches!(g.data.record_field(orig, "MOD3", p), Some(serde_json::Value::String(s)) if !s.is_empty()));
             let scoped = has_scope_flag || has_authored_mod3;
