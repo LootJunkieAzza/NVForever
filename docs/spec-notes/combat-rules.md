@@ -2139,7 +2139,7 @@ three passes are scoped to `5a61bc59`, not transferred to its successor or basel
   - Critical hit adds `+22` (`33.00` on Hard `0.75x`), `BetterCriticals` scales crit damage by `1.5x` (`41.25`), and `crit_mult=0` suppresses crits (`16.50`, `f1=0`).
   - `AddAmmoEffect`/`RemoveAmmoEffect` maintain form lists, reject duplicate adds (`dup=0`), and equipped 10mm `GetCalculatedActorSpread` stays `0.0750` across std/HP/JHP ammo.
   - `MineFragExplosion` deals `75.00` on a placed restrained NPC, and torso hits record both health (`16.50`) and limb condition drop (`0.37`, `ec=99.6`).
-  - Note: calling `Player.GetCalculatedWeaponDamage` with an omitted weapon arg returned `0.00` under `JohnnyGuitarNVSE 528` (`w6d6_09`, `w6d6p2_09`); existing NVForever callers use equipped-weapon fallback pending maintainer sign-off.
+  - Note: calling `Player.GetCalculatedWeaponDamage` with an omitted weapon arg returned `0.00` under `JIP LN NVSE 57.30 (5730)` (`w6d6_09`, `w6d6p2_09`); existing NVForever callers use equipped-weapon fallback pending maintainer sign-off.
 
 ```text
 PROBE|w6d6_08_crit_chance_damage_and_sneak_order|cc(L5,L10)=5.0,5.0|crit=33.00(f1=1)|bc=41.25|bcHh=41.25|cm0=16.50(f1=0)

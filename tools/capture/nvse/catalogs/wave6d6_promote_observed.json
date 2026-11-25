@@ -28,7 +28,8 @@
       "extender": "JIP LN NVSE / ShowOffNVSE / JohnnyGuitarNVSE",
       "required_plugins": [
         "jip_nvse.dll",
-        "ShowOffNVSE.dll"
+        "ShowOffNVSE.dll",
+        "johnnyguitar.dll"
       ],
       "probes": [
         {
@@ -359,7 +360,8 @@
           "bucket": "combat_damage_armour",
           "extender": "JIP LN NVSE",
           "required_plugins": [
-            "jip_nvse.dll"
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
@@ -1477,7 +1479,8 @@
           "bucket": "weapon_mods",
           "extender": "JIP LN NVSE",
           "required_plugins": [
-            "jip_nvse.dll"
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
@@ -1754,7 +1757,8 @@
           "bucket": "weapon_scopes",
           "extender": "JIP LN NVSE",
           "required_plugins": [
-            "jip_nvse.dll"
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
@@ -1832,7 +1836,8 @@
           "bucket": "weapon_stats",
           "extender": "JIP LN NVSE",
           "required_plugins": [
-            "jip_nvse.dll"
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
