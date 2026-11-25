@@ -3785,8 +3785,11 @@ fn xbinary(op: XOp, a: XVal, b: XVal) -> Result<XVal, VmError> {
 }
 
 /// A binary operator [hypothesis unless tagged: comparisons give 1 or 0, `&&` and `||`
-/// test for non-zero, arithmetic is in double precision; division by zero gives 0 and
-/// `%` is the remainder of the operands truncated to integers (0 for a zero divisor)].
+/// test for non-zero, arithmetic is in double precision; vanilla `/` and `%` by zero
+/// return the dividend (`10 / 0 -> 10.0`, `10 % 0 -> 10.0`)
+/// [observed: w6d5_17_operators_div0_pow_mod_hex_bin_comments]; `%` truncates operands
+/// to integers and returns `x.trunc()` whenever `y.trunc() == 0` (fractional dividend
+/// or `0 < |y| < 1` divisor behavior is [hypothesis]/[design])].
 fn binary(op: Op, a: Value, b: Value) -> Value {
     let (x, y) = (a.num(), b.num());
     match op {

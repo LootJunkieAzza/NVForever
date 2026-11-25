@@ -136,7 +136,8 @@ fn arithmetic_and_precedence_follow_the_postfix_order() {
     assert_eq!(h.locals[&2], Value::Num(-7.0));
     run(&[set(float(3), vec![num(17.0), num(5.0), op(Op::Mod)])], &mut h).unwrap();
     assert_eq!(h.locals[&3], Value::Num(2.0));
-    // Vanilla division and modulo by zero return the dividend [observed: w6d5_17].
+    // Vanilla division and modulo by zero return the dividend
+    // [observed: w6d5_17_operators_div0_pow_mod_hex_bin_comments].
     run(&[set(float(4), vec![num(1.0), num(0.0), op(Op::Div)])], &mut h).unwrap();
     assert_eq!(h.locals[&4], Value::Num(1.0));
 }
