@@ -117,7 +117,7 @@ fn handle(home: &EngineHome, req: Request, get: &mut impl FnMut(&str) -> Result<
             let list = plugin_list(home)?;
             let ttw = list.entries.iter().find(|p| p.name.eq_ignore_ascii_case(start::TTW_PLUGIN)).map(|p| p.active);
             let entries: Vec<_> = list.entries.iter().map(|p| json!({"name": p.name, "active": p.active})).collect();
-            Ok(json!({"fields": start::Fields::read(&ini), "ttw": ttw, "ttwDefaults": start::ttw(), "entries": entries}))
+            Ok(json!({"fields": start::Fields::read(&ini), "ttw": ttw, "ttwDefaults": start::Fields::ttw(), "entries": entries}))
         }
         Request::Plugin { name, change } => {
             let game = ready().ok_or(IMPORT_FIRST)?;
