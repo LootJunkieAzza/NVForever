@@ -1632,7 +1632,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let ok = g.world.inventory_mut(c).is_ok_and(|inv| {
                 let Some((_, e, _)) = inv.groups().find(|(i, _, _)| *i == it) else { return false };
                 if name == "setweaponrefmodflags" {
-                    inv.set_mods_one(it, e, v.clamp(0.0, 255.0) as u8)
+                    // Valid mod bitmask is 0..=7; out-of-range values (< 0 or > 7) return 0
+                    // without mutating existing flags [observed: 2026-11-25, Fallout: New
+                    // Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+                    // `w6d4_01_weapon_ref_mod_flags_edges` & `w6d4p3_01b_weapon_ref_mod_flags_disambig`
+                    // (`wave6d4_weapon_ref_mod_flags.json`): `r0=1|0->8(r=0,v=0)|5->8(r=0,v=5)|0->255(r=0,v=0)|0->-1(r=0,v=0)|5->-1(r=0,v=5)`;
+                    // hypothesis: fractional inputs truncate toward zero before range check;
+                    // design: non-finite floats return 0 without mutating].
+                    if !v.is_finite() {
+                        return false;
+                    }
+                    let flags = v.trunc() as i64;
+                    if !(0..=7).contains(&flags) {
+                        return false;
+                    }
+                    inv.set_mods_one(it, e, flags as u8)
                 } else {
                     let cond = if num(args, 1, 0.0) != 0.0 { v } else if full > 0.0 { v / full } else { 1.0 };
                     inv.set_condition_one(it, e, cond as f32)

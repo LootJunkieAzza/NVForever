@@ -344,6 +344,15 @@ for each effect, and how it fits a long description.
   screen itself was not read [hypothesis that they agree]. NVForever: `Row::mods_value`
   (`FormStore::mods_value`, WEAP WMI1-3) added in `Row::worth`, which the barter prices,
   the item card and the totals read.
+- **JIP `SetWeaponRefModFlags` range validation**: only bitmasks `0..=7` succeed (returning
+  `1`); out-of-range values (`8`, `255`, `-1`) return `0` and leave the weapon's existing mod
+  flags unchanged [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30, probes
+  `w6d4_01_weapon_ref_mod_flags_edges` (`tools/capture/nvse/catalogs/wave6d4_weapon_ref_mod_flags.json`:
+  `PROBE|w6d4_01_weapon_ref_mod_flags_edges|inv(0,5,7,7,7,7)|eq=0|stim=0|placed(0,0)`)
+  and `w6d4p3_01b_weapon_ref_mod_flags_disambig`:
+  `PROBE|w6d4p3_01b_weapon_ref_mod_flags_disambig|r0=1|0->8(r=0,v=0)|5->8(r=0,v=5)|0->255(r=0,v=0)|0->-1(r=0,v=0)|5->-1(r=0,v=5)`].
+  Truncating fractional inputs toward zero before checking `0..=7` remains [hypothesis];
+  rejecting non-finite floats without mutating is [design].
 - Equip time (no master mod has it) and VATS bonus (unused in game). Increase Projectile
   Speed and both Regenerate Ammo effects are built (weapon-data-fields.md, 2026-10-21).
 - Scripts' view: GetWeaponHasMod-style functions are NVSE/JIP (not vanilla) and not

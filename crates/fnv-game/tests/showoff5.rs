@@ -283,6 +283,18 @@ fn calculated_item_value_includes_weapon_mods_and_live_barter_multipliers() {
         assert_eq!(on(&mut g, player_rifle, &format!("SetWeaponRefModFlags {flags}")), 1.0);
         assert_eq!(on(&mut g, player_rifle, "GetCalculatedItemValue"), expected, "mods={flags}");
     }
+    // Out-of-range mod flags (< 0 or > 7) return 0 and preserve existing mod flags
+    // [observed: w6d4_01_weapon_ref_mod_flags_edges & w6d4p3_01b_weapon_ref_mod_flags_disambig].
+    assert_eq!(on(&mut g, player_rifle, "SetWeaponRefModFlags 5"), 1.0);
+    for bad in [8, 255, -1] {
+        assert_eq!(on(&mut g, player_rifle, &format!("SetWeaponRefModFlags {bad}")), 0.0, "reject {bad}");
+        assert_eq!(on(&mut g, player_rifle, "GetWeaponRefModFlags"), 5.0, "preserve after {bad}");
+    }
+    assert_eq!(on(&mut g, player_rifle, "SetWeaponRefModFlags 0"), 1.0);
+    for bad in [8, 255, -1] {
+        assert_eq!(on(&mut g, player_rifle, &format!("SetWeaponRefModFlags {bad}")), 0.0, "reject {bad} from 0");
+        assert_eq!(on(&mut g, player_rifle, "GetWeaponRefModFlags"), 0.0, "preserve 0 after {bad}");
+    }
 
     // Condition scales only the weapon's own value; attached mods keep their full +300.
     // 50%: 75 * 0.0316 * 5^1.5 = 26.497 -> 26 / 326.
