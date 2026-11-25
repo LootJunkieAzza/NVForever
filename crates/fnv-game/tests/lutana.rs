@@ -609,3 +609,42 @@ fn cell_water_height_loaded_vs_unloaded_exterior_and_interior() {
     q(&mut g, "SetCellWaterHeight 1234.5 TestExtNoXclw");
     assert_eq!(n(&mut g, "GetCellWaterHeight TestExtNoXclw"), 1234.5);
 }
+
+/// Wave 6D-2 `w6d2_04_weapon_ammo_and_mod_traits` [observed]: `SetWeaponVATSEffect`
+/// validates `WEAP`/`SPEL` (non-`SPEL` and explicit `0` are no-ops; omitted arg 1 clears).
+#[test]
+fn set_weapon_vats_effect_validates_spel_and_omitted_clear() {
+    const WEAP_ID: u32 = 0x9B0;
+    const SPEL_A: u32 = 0x9B1;
+    const SPEL_B: u32 = 0x9B2;
+    const NOT_SPEL: u32 = 0x9B3;
+
+    let npc_player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]);
+    let weap = edid(b"WEAP", WEAP_ID, "TestVatsWeap", &[]);
+    let spels = [edid(b"SPEL", SPEL_A, "TestSpelA", &[]), edid(b"SPEL", SPEL_B, "TestSpelB", &[])].concat();
+    let misc = edid(b"MISC", NOT_SPEL, "TestNotSpel", &[]);
+    let bytes = [tes4(), top(b"NPC_", &npc_player), top(b"WEAP", &weap), top(b"SPEL", &spels), top(b"MISC", &misc)].concat();
+
+    let plugins = vec![Plugin::parse(&bytes, "VatsEff.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig { strict: true, ..GameConfig::default() });
+
+    q(&mut g, "SetWeaponVATSEffect TestVatsWeap TestSpelA");
+    assert_eq!(n(&mut g, "GetWeaponVATSEffect TestVatsWeap"), f64::from(SPEL_A));
+    q(&mut g, "SetWeaponVATSEffect TestVatsWeap TestNotSpel");
+    assert_eq!(n(&mut g, "GetWeaponVATSEffect TestVatsWeap"), f64::from(SPEL_A));
+    q(&mut g, "SetWeaponVATSEffect TestVatsWeap 0");
+    assert_eq!(n(&mut g, "GetWeaponVATSEffect TestVatsWeap"), f64::from(SPEL_A));
+    q(&mut g, "SetWeaponVATSEffect TestVatsWeap TestSpelB");
+    assert_eq!(n(&mut g, "GetWeaponVATSEffect TestVatsWeap"), f64::from(SPEL_B));
+    q(&mut g, "SetWeaponVATSEffect TestVatsWeap");
+    assert_eq!(n(&mut g, "GetWeaponVATSEffect TestVatsWeap"), 0.0);
+}

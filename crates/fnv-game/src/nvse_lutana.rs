@@ -754,8 +754,17 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         "setweaponvatseffect" => {
-            if let Some(w) = form(args, 0).filter(|&w| g.data.sig(w) == Some(*b"WEAP")) {
-                g.field_overrides.insert((w, "VATS/effect".into()), XVal::Ref(form(args, 1).map_or(0, |f| f.0)));
+            if let Some(w) = form(args, 0).filter(|&w| g.data.sig(g.unclone(w)) == Some(*b"WEAP")) {
+                match args.get(1) {
+                    None => {
+                        g.field_overrides.insert((w, "VATS/effect".into()), XVal::Ref(0));
+                    }
+                    Some(_) => {
+                        if let Some(sp) = form(args, 1).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"SPEL")) {
+                            g.field_overrides.insert((w, "VATS/effect".into()), XVal::Ref(sp.0));
+                        }
+                    }
+                }
             }
             zero
         }

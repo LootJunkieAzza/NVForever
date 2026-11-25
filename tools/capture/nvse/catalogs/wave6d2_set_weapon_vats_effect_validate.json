@@ -1,0 +1,93 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d2-set-weapon-vats-effect-validate",
+  "description": "Wave 6D-2 read-only clean-room JIP LN 57.30 probe for SetWeaponVATSEffect (WEAP/SPEL validation and non-SPEL no-op).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_nvse": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d2_set_weapon_vats_effect_validate",
+      "title": "SetWeaponVATSEffect WEAP/SPEL validation",
+      "extender": "jip_nvse",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d2_04_weapon_ammo_and_mod_traits",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 116,
+          "functions_tested": [
+            "GetWeaponAmmo",
+            "GetWeaponVATSEffect",
+            "SetWeaponVATSEffect",
+            "GetWeaponDetectionSoundLevel",
+            "SetWeaponDetectionSoundLevel",
+            "GetWeaponOnHitSetting",
+            "SetWeaponOnHitSetting",
+            "GetWeaponModReloadAnim",
+            "SetWeaponModReloadAnim",
+            "WeaponHasModType"
+          ],
+          "claim": "Verify GetWeaponAmmo, JIP/Lutana WEAP trait setters (VATSEffect, DetectionSoundLevel, OnHitSetting, ModReloadAnim) OOB bounds, wrong-type VATSEffect, and WeaponHasModType.",
+          "expected": "Check OOB clamping/refusal for detection sound level (-1, 9), on-hit (4), mod reload anim (25), non-SPEL VATSEffect, and WeaponHasModType.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rSledge = GetFormFromMod \"FalloutNV.esm\" \"4352\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rAm = GetWeaponAmmo r10",
+            "int sl0 = GetWeaponDetectionSoundLevel r10",
+            "SetWeaponDetectionSoundLevel r10 2",
+            "int sl2 = GetWeaponDetectionSoundLevel r10",
+            "SetWeaponDetectionSoundLevel r10 9",
+            "int sl9 = GetWeaponDetectionSoundLevel r10",
+            "SetWeaponDetectionSoundLevel r10 -1",
+            "int slNeg = GetWeaponDetectionSoundLevel r10",
+            "SetWeaponDetectionSoundLevel r10 sl0",
+            "int oh0 = GetWeaponOnHitSetting r10",
+            "SetWeaponOnHitSetting r10 4",
+            "int oh4 = GetWeaponOnHitSetting r10",
+            "SetWeaponOnHitSetting r10 oh0",
+            "int ra0 = GetWeaponModReloadAnim r10",
+            "SetWeaponModReloadAnim r10 25",
+            "int ra25 = GetWeaponModReloadAnim r10",
+            "SetWeaponModReloadAnim r10 ra0",
+            "ref ve0 = GetWeaponVATSEffect rSledge",
+            "SetWeaponVATSEffect rSledge rStim",
+            "ref veBad = GetWeaponVATSEffect rSledge",
+            "SetWeaponVATSEffect rSledge ve0",
+            "int hm2 = WeaponHasModType r10 2",
+            "int hm11 = WeaponHasModType r10 11",
+            "int hm0 = WeaponHasModType r10 0",
+            "PrintToConsole \"PROBE|w6d2_04_weapon_ammo_and_mod_traits|am=%z|sl=%g,%g,%g,%g|oh=%g,%g|ra=%g,%g|ve0z=%g,veBadZ=%g,veBadEq0=%g|hm=%g,%g,%g\" (GetFormIDString rAm) sl0 sl2 sl9 slNeg oh0 oh4 ra0 ra25 (ve0 == 0) (veBad == 0) (veBad == ve0) hm2 hm11 hm0"
+          ]
+        }
+      ]
+    }
+  ]
+}
