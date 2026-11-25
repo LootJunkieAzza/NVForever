@@ -7,12 +7,12 @@ pub(crate) const BEVY_ATTENUATION: &str = "return getRangeFalloff(distanceSquare
 /// against in-game captures; the LIGH falloff exponent, 1 for most lights, is not used].
 pub(crate) const GAME_ATTENUATION: &str = "return saturate(1.0 - distanceSquare * inverseRangeSquared);";
 
-/// Physical windowed inverse-square attenuation (`NVF_PHYSICAL_PBR=1`): Frostbite/Karis
+/// Physical windowed inverse-square attenuation (the Physical lighting row): Frostbite/Karis
 /// $1/d^2$ falloff with finite bulb core radius $(0.30 R)$ and $(1 - (d/R)^4)_+^2$ edge
 /// windowing, normalized so $d \approx 0.35 R$ matches room-scale luminaire calibration.
 pub(crate) const PHYSICAL_ATTENUATION: &str = "let u = distanceSquare * inverseRangeSquared;\n    let w = saturate(1.0 - u * u);\n    return (w * w) * (0.22 / (u + 0.09));";
 
-/// Desktop Filament perceptual roughness floor (`NVF_PHYSICAL_PBR=1`) replacing mobile `0.089`.
+/// Desktop Filament perceptual roughness floor (the Physical lighting row) replacing mobile `0.089`.
 const ROUGHNESS_FLOOR_EDIT: (&str, &str) = (
     "    let clampedPerceptualRoughness = clamp(perceptualRoughness, 0.089, 1.0);",
     "    let clampedPerceptualRoughness = clamp(perceptualRoughness, 0.045, 1.0);",
@@ -53,7 +53,7 @@ fn getDistanceAttenuation(",
 ];
 
 /// Exact IEC 61966-2-1 HDR-preserving sRGB decode for physical PBR clustered light
-/// uniforms (`NVF_PHYSICAL_PBR=1`); directional lights receive pure linear RGB directly.
+/// uniforms (the Physical lighting row); directional lights receive pure linear RGB directly.
 const PHYSICAL_SPECULAR_EDITS: [(&str, &str); 2] = [
     (
         "fn getDistanceAttenuation(",
@@ -381,7 +381,7 @@ fn nvf_apply_pbr_lighting(
     nvf_weights: vec2<f32>,
 ) -> vec4<f32> {";
 
-/// Replacements in `apply_pbr_lighting` for `NVF_PHYSICAL_PBR=1`: keeps Bevy's linear direct
+/// Replacements in `apply_pbr_lighting` for Physical lighting: keeps Bevy's linear direct
 /// diffuse and specular loops active, routes world indirect lighting through procedural sky
 /// `ENVIRONMENT_MAP` IBL (without double-counting flat `ambient::ambient_light`), and keeps a
 /// fallback linear ambient path when `ENVIRONMENT_MAP` is absent.

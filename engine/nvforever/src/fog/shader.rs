@@ -76,7 +76,7 @@ pub const GAME_FOG: &str = "    let fog_t = clamp((distance - fog_params.be.x) /
     return vec4<f32>(mix(input_color.rgb, fog_color.rgb, fog_share), input_color.a);";
 
 /// Physical linear Beer-Lambert fog indoors and wavelength-dependent Rayleigh (`lambda^-4`) +
-/// Mie (Henyey-Greenstein `g = 0.72`) desert atmospheric scattering outdoors (`NVF_PHYSICAL_PBR=1`).
+/// Mie (Henyey-Greenstein `g = 0.72`) desert atmospheric scattering outdoors (the Physical lighting row).
 /// Optical depth is linear in distance (no near-camera concave `fog_power < 1` wall) so clear
 /// desert foregrounds stay crisp while distant ridges pick up sky-blue Rayleigh aerial
 /// perspective and warm solar Mie forward scatter; thick/stormy weathers (small `far`) retain

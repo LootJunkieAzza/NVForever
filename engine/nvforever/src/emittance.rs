@@ -36,7 +36,7 @@ impl Plugin for EmittancePlugin {
 }
 
 /// Linear multiplier for unlit additive weather-driven ray meshes (such as `IndFXLightRays*`)
-/// under `NVF_PHYSICAL_PBR=1` so thin daytime sunbeams remain visible through AgX tonemapping.
+/// under Physical lighting so thin daytime sunbeams remain visible through AgX tonemapping.
 pub const RAY_MESH_PHYSICAL_BOOST: f32 = 1.85;
 
 /// A material copy driven by an emittance source, with the colours it started from.
