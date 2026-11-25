@@ -137,3 +137,8 @@ path = "tests/crosshair_prompt_events.rs"
 [[test]]
 name = "stewie_modular_inis"
 path = "tests/stewie_modular_inis.rs"
+
+# MD5File/SHA1File loose-file fixtures own and restore process-wide Data read roots.
+[[test]]
+name = "jg8_file_hashes"
+path = "tests/jg8_file_hashes.rs"

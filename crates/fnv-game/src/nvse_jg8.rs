@@ -259,9 +259,9 @@ fn safe(path: &str) -> bool {
     !path.is_empty() && !path.starts_with(['\\', '/']) && !path.contains(':') && !path.split(['\\', '/']).any(|s| s == "..")
 }
 
-/// A file "relative to the Fallout folder" [documented: MD5File, SHA1File,
-/// GetPixelFromBMP]: under `Data\` through NVForever's mod files (loose files and
-/// archives), else the game folder above Data, read only.
+/// A file "relative to the Fallout folder" [documented: GetPixelFromBMP]: under `Data\`
+/// through NVForever's mod files (loose files and archives), else the game folder above
+/// Data, read only.
 fn game_file(path: &str) -> Option<Vec<u8>> {
     if !safe(path) {
         return None;
@@ -522,7 +522,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             XVal::Num(1.0)
         }
         // ---- files [documented: MD5File, SHA1File; observed: upper-case hex (probe set
-        // jg8); hypothesis: "" for a file that cannot be read].
+        // jg8), "" for missing or archive-only files
+        // (w6d3p2_16_md5_sha1_bsa_and_sleepwait_state)].
         "md5file" => XVal::Str(text(args, 0).and_then(|p| loose_game_file(&p)).map(|b| hex(&md5(&b))).unwrap_or_default()),
         "sha1file" => XVal::Str(text(args, 0).and_then(|p| loose_game_file(&p)).map(|b| hex(&sha1(&b))).unwrap_or_default()),
         // `name`: an archive the game loaded, by its file name in Data, any case

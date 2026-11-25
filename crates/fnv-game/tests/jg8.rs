@@ -162,30 +162,6 @@ fn files_and_headers() {
     assert_eq!(bmp_pixel(&bmp, 1, 0), Some([0, 255, 0]));
     assert_eq!(bmp_pixel(&bmp, 1, 1), Some([0, 0, 255]));
     assert_eq!(bmp_pixel(&bmp, 2, 0), None);
-    // MD5File / SHA1File hash loose files on disk only, never falling back to BSA archives
-    // [observed: w6d3p2_16_md5_sha1_bsa_and_sleepwait_state].
-    let dir = std::env::temp_dir().join(format!("nvf-jg8-hash-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("loose.txt"), b"abc").unwrap();
-    let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(|p: &str| {
-        if p.eq_ignore_ascii_case("menus\\falloutdict.txt") {
-            Some(b"archive-only".to_vec())
-        } else {
-            None
-        }
-    });
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots {
-        read: vec![dir.clone()],
-        reader: Some(reader),
-        ..Default::default()
-    });
-    let f = fixture();
-    let mut g = game(&f);
-    assert_eq!(s(&mut g, r#"SetFunctionValue (MD5File "Data\loose.txt")"#), "900150983CD24FB0D6963F7D28E17F72");
-    assert_eq!(s(&mut g, r#"SetFunctionValue (SHA1File "Data\loose.txt")"#), "A9993E364706816ABA3E25717850C26C9CD0D89D");
-    assert_eq!(s(&mut g, r#"SetFunctionValue (MD5File "Data\menus\falloutdict.txt")"#), "");
-    assert_eq!(s(&mut g, r#"SetFunctionValue (SHA1File "Data\menus\falloutdict.txt")"#), "");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
