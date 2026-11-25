@@ -389,7 +389,7 @@ fn npc_default_choice_skips_broken_zero_condition_armor() {
     let f = fixture();
     let mut g = game(&f);
     let npc = NPC_REF;
-    // Clear existing ARMOR_B and add a 0%-condition copy: NPC must pick intact ARMOR_A (DT 10) over broken ARMOR_B (DT 12).
+    // Clear existing ARMOR_B and add a 0%-condition copy: NPC must pick intact ARMOR_A (DT 6) over broken ARMOR_B (DT 10).
     let cur_b = g.world.item_count(npc, FormId(ARMOR_B)).unwrap();
     if cur_b > 0 {
         g.world.remove_item(npc, FormId(ARMOR_B), cur_b).unwrap();

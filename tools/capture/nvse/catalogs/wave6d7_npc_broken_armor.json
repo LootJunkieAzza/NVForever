@@ -40,8 +40,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 390,
+          "spec_file": "docs/spec-notes/simulation.md",
+          "spec_line": 1183,
           "functions_tested": [
             "PlaceAtMe",
             "AddItem",
