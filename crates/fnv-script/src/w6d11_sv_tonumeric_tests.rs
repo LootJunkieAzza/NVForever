@@ -66,18 +66,24 @@ fn run_script(src: &str) -> TestHost {
 #[test]
 fn sv_tonumeric_parses_0x_hex_and_leading_dot_decimals() {
     let h = run_script(r#"float fHex
-float fNegHex
+float fSignedHex
 float fDot
+float fExp
+float fPrefix
 float fBad
 begin GameMode
 let fHex := Sv_ToNumeric "0x1F"
-let fNegHex := Sv_ToNumeric "-0x10"
+let fSignedHex := Sv_ToNumeric "-0x10"
 let fDot := Sv_ToNumeric ".5"
+let fExp := Sv_ToNumeric "-1.5e2"
+let fPrefix := Sv_ToNumeric "  +3.25xyz"
 let fBad := Sv_ToNumeric "abc"
 end
 "#);
     assert_eq!(h.vars[&1], Value::Num(31.0));
-    assert_eq!(h.vars[&2], Value::Num(-16.0));
+    assert_eq!(h.vars[&2], Value::Num(0.0), "unprobed signed -0x hex is not parsed");
     assert_eq!(h.vars[&3], Value::Num(0.5));
-    assert_eq!(h.vars[&4], Value::Num(0.0));
+    assert_eq!(h.vars[&4], Value::Num(-150.0));
+    assert_eq!(h.vars[&5], Value::Num(3.25));
+    assert_eq!(h.vars[&6], Value::Num(0.0));
 }

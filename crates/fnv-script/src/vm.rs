@@ -2844,15 +2844,9 @@ impl Vm<'_, '_> {
             "sv_tonumeric" => {
                 let s = text(val(self, 0)?).unwrap_or_default();
                 let t = s.trim_start();
-                let (sign, rest) = if let Some(r) = t.strip_prefix('-') {
-                    (-1.0, r)
-                } else if let Some(r) = t.strip_prefix('+') {
-                    (1.0, r)
-                } else {
-                    (1.0, t)
-                };
-                if let Some(h) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
-                    return Ok(Some(XVal::Num(sign * hex_prefix(h))));
+                // [observed: `w6d11_29_sv_tonumeric_and_sv_getchar_edges`, `num(...,5=31,...)`].
+                if let Some(h) = t.strip_prefix("0x") {
+                    return Ok(Some(XVal::Num(hex_prefix(h))));
                 }
                 let mut end = 0;
                 for (i, ch) in t.char_indices() {
