@@ -207,7 +207,11 @@ pub struct ScopeViewPlugin;
 
 impl Plugin for ScopeViewPlugin {
     fn build(&self, app: &mut App) {
-        bevy::asset::embedded_asset!(app, "scope_composite.wesl");
+        // Only register the embedded shader when AssetPlugin is present (minimal schedule tests
+        // add ScopeViewPlugin to a bare App::new() without EmbeddedAssetRegistry).
+        if app.world().contains_resource::<bevy::asset::io::embedded::EmbeddedAssetRegistry>() {
+            bevy::asset::embedded_asset!(app, "scope_composite.wesl");
+        }
         app.init_resource::<ScopeCompositeTargets>()
             .add_plugins(ExtractResourcePlugin::<ScopeCompositeTargets>::default())
             .add_systems(
@@ -1051,5 +1055,26 @@ mod tests {
         assert!(is_lens_veil("RedFilter:0", AlphaMode::Add));
         assert!(is_lens_veil("Additive:5", AlphaMode::Add));
         assert!(is_lens_veil("TintRing:0", AlphaMode::Add));
+    }
+
+    #[test]
+    fn scope_view_plugin_builds_with_and_without_embedded_asset_registry() {
+        use bevy::asset::io::embedded::EmbeddedAssetRegistry;
+
+        // Bare App::new() without AssetPlugin / EmbeddedAssetRegistry must not panic
+        // (minimal schedule-ordering tests add ScopeViewPlugin directly).
+        let mut bare = App::new();
+        bare.add_plugins(ScopeViewPlugin);
+        assert!(bare.world().contains_resource::<ScopeCompositeTargets>());
+
+        // With EmbeddedAssetRegistry present, the composite shader is embedded as expected.
+        let mut with_assets = App::new();
+        with_assets.init_resource::<EmbeddedAssetRegistry>();
+        with_assets.add_plugins(ScopeViewPlugin);
+        let removed = with_assets
+            .world()
+            .resource::<EmbeddedAssetRegistry>()
+            .remove_asset(std::path::Path::new("nvforever/scope_composite.wesl"));
+        assert!(removed.is_some(), "scope_composite.wesl should be registered in EmbeddedAssetRegistry");
     }
 }
