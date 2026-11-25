@@ -363,7 +363,10 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
 - In full: Vertical sync: each frame waits for the display's refresh (no tearing). Variable
   refresh: for a G-Sync or FreeSync screen, vertical sync with the frame rate held a few
   frames under the screen's refresh rate, so frames are shown as soon as they are drawn
-  without tearing. Off: frames are shown as soon as they are drawn (may tear).
+  without tearing; with DLSS frame generation, vertical sync is off and the limit is kept
+  (NVIDIA's frame generation does not take the game's vsync on Vulkan; for no tearing set
+  Vertical sync On for the game in the NVIDIA Control Panel).
+  Off: frames are shown as soon as they are drawn (may tear).
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `frame-cap`: Frame rate limit
@@ -372,7 +375,9 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   keeps the computer cooler and quieter.
 - In full: At most this many frames a second (Off: as many as the computer draws, or the
   display's refresh with vertical sync; with variable refresh the lower of this and its own
-  limit). A lower limit keeps the computer cooler and quieter.
+  limit). It counts the frames shown: with frame generation the real frames are this divided
+  by the frames shown for each. With vertical sync a limit at or above the display's refresh
+  is left to vsync. A lower limit keeps the computer cooler and quieter.
 - Shown as a list since the menu overhaul; an older slider number in the INI still loads as
   the nearest choice.
 - Registered in `engine/nvforever/src/settings.rs`
@@ -486,9 +491,9 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   upscaling (any mode; not with DLSS) and vertical sync or variable refresh, and real frames
   are held to just under half the refresh rate. DLSS: NVIDIA DLSS Frame Generation, one to
   three frames for each real frame (Generated frames, below); needs an upscaler (FSR 3.1 or
-  DLSS), Display sync Off, an NVIDIA RTX 40 series or newer graphics card, Windows'
-  hardware-accelerated GPU scheduling and NVIDIA's frame generation files in the dlss folder
-  beside nvforever.exe; frames are generated only while the game's window is in front.
+  DLSS), Display sync Off or Variable refresh, an NVIDIA RTX 40 series or newer graphics
+  card, Windows' hardware-accelerated GPU scheduling and NVIDIA's frame generation files in
+  the dlss folder beside nvforever.exe; frames are generated only while the game's window is in front.
   Latency reduction turns on with either. The HUD and menus are not generated; menus and
   loading screens show real frames only. Best from 60 real frames a second. Not in the
   original.
@@ -1110,6 +1115,29 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `volumetric-clouds`: Volumetric clouds (experimental)
+
+- On the page: The weather's clouds drawn with depth, lit by the sun: Off, or Performance,
+  Normal or High, each finer and dearer than the last. A prototype. Not in the original.
+- In full: The weather's own cloud layers, as Cloud shadows composes them, become a
+  layer of cloud with thickness above the world, worked out per pixel: lit by the weather's
+  sunlight (by night its night light, from the moon), bright toward the sun, darker
+  underneath, coloured by the weather's cloud colours, fading into the sky toward the
+  horizon. Thick cloud hides the sun and the moon. The clouds follow the weather's cover,
+  drift and transitions, and Cloud shadows on the ground, where that row is on, are theirs while they
+  are drawn. High draws them into a buffer of two
+  fifths of the render size, Normal a third, Performance a quarter; Normal and Performance
+  also look for cloud along each ray at twice the spacing. A prototype. The water's
+  reflection, the scope's lens and a mod's extra cameras keep the weather's flat clouds while
+  it is drawn. With Cloud shadows on, switching it rebuilds the world's material pipelines.
+  Off in every preset; not in the original. Outdoors only.
+- Shown as a list since 2026-11-23; an INI written while it was an on/off switch (`1`/`0`,
+  true/false, on/off, yes/no) still loads as Normal or Off.
+- Command-line switches: `--graphics-only` (`volumetric-clouds` is Normal;
+  `volumetric-clouds-performance`, `volumetric-clouds-high`)
+- More: docs/design/graphics-enhanced.md §3.23, docs/design/volumetric-medium.md
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `light-shafts`: Sun shafts
 
 - On the page: On: sunlight streams past what stands in front of the sun, stronger the
@@ -1171,6 +1199,25 @@ below cover them all.
   not in the original.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.19
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-light`: Volumetric light (experimental)
+
+- On the page: On: sunlight shows in the air as rays and a glow toward a low sun, shaded by
+  hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of
+  NVForever's.
+- While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
+  it draws). A prototype. Outdoors by day
+  only, in the main view only. Off in every preset; not in the original.
+- Command-line switches: `--graphics-only`
+- More: docs/design/volumetric-medium.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-light-strength`: Volumetric light strength
+
+- On the page: How strongly the light in the air brightens lit air and darkens shaded air:
+  100% is the look as tuned, 0% none.
+- 0 % to 200 % in steps of 10 %, 100 % by default; greyed while Volumetric light is off.
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `bloom`: Bloom
