@@ -148,3 +148,14 @@ the resistance step and the free fourth shot in `fnv_combat`; the projectile spe
 multiplier. Smoke `npc-weapon-player-only` (an NPC given a Van Graff rifle beside a
 weaker gun draws the weaker one) and `energy-resist-hit` (the hit line names Energy
 Resistance on a laser hit).
+
+### Wave 6D-6 `Ignores Normal Weapon Resistance` and weapon crit/damage clone isolation [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6p3_04_ignores_res_flag_clean`, `w6d6_33_weapon_crit_and_attack_damage_clone`]:
+  - Toggling `WEAP.DNAM.flags1` bit 0 (`Ignores Normal Weapon Resistance`, `0 -> 1`) bypasses both `DT=50` and `DR=50` (`16.500`), reverting to `3.300` when cleared.
+  - `SetAttackDamage`, `SetWeaponCritChance`, and `SetWeaponCritDamage` on a `TempCloneForm` weapon propagate to `GetCalculatedWeaponDamage` (`22 -> 50`) and `GetCalculatedWeaponDPS` (`90.75 -> 412.50`) while leaving stock unchanged (`22, 22`):
+
+```text
+PROBE|w6d6p3_04_ignores_res_flag_clean|f1(0->1)=0->1|ignDT50=16.500|ignDR50=16.500|offDT50=3.300
+PROBE|w6d6_33_weapon_crit_and_attack_damage_clone|orig(22,1.0,22,d=22.00,dps=90.75)|mut(50,2.0,100,d=50.00,dps=412.50)|stock(22,22)
+```

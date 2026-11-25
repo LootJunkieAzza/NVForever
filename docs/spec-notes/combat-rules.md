@@ -2132,3 +2132,19 @@ with `AsciiToChar 59`; exact title text, counts and references remain unchanged.
 The production getter and compiler/array/receiver policies are unchanged. These
 further corrected fixtures are unexecuted at correction authoring. The historical
 three passes are scoped to `5a61bc59`, not transferred to its successor or baseline.
+
+### Wave 6D-6 combat, critical, ammo-effect, explosion, and limb observations [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6_08_crit_chance_damage_and_sneak_order`, `w6d6_09_ammo_effects_order_and_spread`, `w6d6p2_09_ammo_effects_equipped`, `w6d6p2_11_explosion_perks_radius_and_defenses`, `w6d6_43_limb_damage_formula_and_small_frame`]:
+  - Critical hit adds `+22` (`33.00` on Hard `0.75x`), `BetterCriticals` scales crit damage by `1.5x` (`41.25`), and `crit_mult=0` suppresses crits (`16.50`, `f1=0`).
+  - `AddAmmoEffect`/`RemoveAmmoEffect` maintain form lists, reject duplicate adds (`dup=0`), and equipped 10mm `GetCalculatedActorSpread` stays `0.0750` across std/HP/JHP ammo.
+  - `MineFragExplosion` deals `75.00` on a placed restrained NPC, and torso hits record both health (`16.50`) and limb condition drop (`0.37`, `ec=99.6`).
+  - Note: calling `Player.GetCalculatedWeaponDamage` with an omitted weapon arg returned `0.00` under `JohnnyGuitarNVSE 528` (`w6d6_09`, `w6d6p2_09`); existing NVForever callers use equipped-weapon fallback pending maintainer sign-off.
+
+```text
+PROBE|w6d6_08_crit_chance_damage_and_sneak_order|cc(L5,L10)=5.0,5.0|crit=33.00(f1=1)|bc=41.25|bcHh=41.25|cm0=16.50(f1=0)
+PROBE|w6d6_09_ammo_effects_order_and_spread|n=0->2->1|add=1,1,dup=0,rm=1|e0=00160C4C,e1=00160C45|tr=0,1,1.65|dmg(std,hp,jhp)=0.00,0.00,0.00|spr=1.000
+PROBE|w6d6p2_09_ammo_effects_equipped|dmg(std,hp,jhp)=0.00,0.00,0.00|spr(std,hp,jhp)=0.0750,0.0750,0.0750
+PROBE|w6d6p2_11_explosion_perks_radius_and_defenses|n=6|b0=0.00|d0=0.00|tgh=75.00|htd=75.00|d100=75.00
+PROBE|w6d6_43_limb_damage_formula_and_small_frame|torso(loc=0,h=16.50,l=0.37,ec=99.6)|sf(h=16.50,l=0.37,ec=99.6)|head(loc=0,h=16.50,l=0.37,pc=100.0)
+```

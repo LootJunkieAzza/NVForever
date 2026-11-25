@@ -283,3 +283,11 @@ between portable source behavior and unmeasured native behavior are recorded in
 [player source commands](player-source-commands.md). Portable controls passed for c4
 in hosted composite `23388a32d`; revision-specific results are recorded in PR #2772.
 No additional original-game observation is claimed.
+
+### Wave 6D-6 armor DT condition scaling, helmet stacking, and Nerve [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6p2_10_armor_rating_condition_and_nerve`]: Combat Armor DT scales by condition (`20.00 -> 15.00` at 25%), helmet DT stacks (`+3 -> 23.00`), and Charisma (`1` vs `10`) does not alter `DamageThreshold` or `DamageResist` AVs directly:
+
+```text
+PROBE|w6d6p2_10_armor_rating_condition_and_nerve|cl(dt=20.0,ar=10)|100(ar=0.00,dr=0.00,dt=20.00)|+hlm(ar=0.00,dt=23.00)|25(ar=0.00,dr=0.00,dt=15.00)|nerve(c1=15.00/0.00,c10=15.00/0.00)
+```

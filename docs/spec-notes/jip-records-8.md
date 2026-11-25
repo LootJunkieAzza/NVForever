@@ -103,3 +103,11 @@ jip8]. NVForever gives the record's 0 [decision: no record value to give].
   on-hit setting, delays and sound level as loaded; the idle player its loop counts;
   dismemberment its limb models; the level calculation ACBS as loaded; drinking-water
   radiation (`radiation::water_rads`) the record's effect.
+
+### Wave 6D-6 `SetWeaponItemModEffect` effect 16 rejection [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6p3_26b_suppressor_effect16_silenced`]: `SetWeaponItemModEffect` rejects value `16`, leaving slot 1 at its prior effect (`2`), while silencer slot 3 returns `IsEquippedWeaponSilenced == 2`:
+
+```text
+PROBE|w6d6p3_26b_suppressor_effect16_silenced|eff=2,whas=0|m0(sil=0,has16=0)|m1_supp(sil=0,has16=0)|m4_sil(sil=2)
+```

@@ -244,3 +244,11 @@ Probe questions (set `lu3`, every change put back):
 8. `setvar`: SetVariableFloat's result and the value read back (hypothesis `0 7`).
 9. `events`: OnCellEnter and OnCellExit called as functions (hypothesis `0 0`, or they
    do not compile).
+
+### Wave 6D-6 `SetNthPerkEntryValue1` live propagation [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6p2_18_perk_entry_mutation_live`]: Mutating `BloodyMess` entry 1 via `SetNthPerkEntryValue1` propagates live into `GetPerkModifier` (`105.00 -> 200.00 -> 105.00`):
+
+```text
+PROBE|w6d6p2_18_perk_entry_mutation_live|e0(t=5,fn=-1,v=-1.00)|e1(t=1,fn=0,v=1.05)|pm(0=105.00,noT=100.00,v2=200.00,fn2=200.00,fn1=200.00,r=105.00)
+```

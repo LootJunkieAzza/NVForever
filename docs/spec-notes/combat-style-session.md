@@ -74,3 +74,11 @@ refusal. The previous draft's CSTY whole-save refusal is withdrawn in response
 to the maintainer's compatibility request.
 
 No compilation, regression or native result is claimed by this source note alone.
+
+### Wave 6D-6 `Get/SetCombatStyleTraitNumeric` (`0..63`), OOB bounds, and clone isolation [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6_36_combat_style_traits_0_to_63_and_clone`]: Traits across CSSD/CSTD/CSAD (`0..63`) read/write cleanly, out-of-bounds indices (`-1`, `64`) return `0.0`, and `TempCloneForm` combat styles stay isolated from stock (`st0=1000.00`):
+
+```text
+PROBE|w6d6_36_combat_style_traits_0_to_63_and_clone|def(0=2048.00,9=0.0,40=0.00)|ncr9=2.0|leg(9=0.0,43=-20.00,44=0.00,50=0.70,62=5.00,63=-10.00)|oob(-1=0.0,64=0.0)|cl(0.77,2.0,0.55)|st0=1000.00
+```

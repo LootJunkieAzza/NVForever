@@ -131,3 +131,11 @@ their own words.
 2. Whether the arrows cycle targets and what a click on a part's box does.
 3. The queue's rows: their words, and whether the divider shows from the first row.
 4. Where the original places each part's box against its part.
+
+### Wave 6D-6 outside-VATS queries and `ExcludedCombatActions` [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6p2_45_vats_queries_and_excluded`]: Outside VATS, `GetVATSMode` is `0` and `GetVATSTargetHeight` is `0.00`; `GetVATSLeftAreaFree`/`GetVATSRightAreaFree` return scene clearance distances on actors (`1429`/`72` player, `1447`/`54` NPC) and `0`/`0` on non-actor XMarker (NVForever keeps its `[design]` boolean clearance stub until physics clearance raycasting is wired); `Get/SetExcludedCombatActions` preserves bit 26 (`6.71089e+07`):
+
+```text
+PROBE|w6d6p2_45_vats_queries_and_excluded|vm=0|vh=0.00|pl(L=1429,R=72)|npc(L=1447,R=54)|xmk(L=0,R=0)|excl(0=0,5=5,b26=6.71089e+07)
+```
