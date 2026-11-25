@@ -120,8 +120,8 @@ Probes in `catalogs/` target:
     no-hit output coordinates, `maxRange <= 0` / omitted default reach, and
     `collisionFlag` filtering across exterior terrain, actor, and interior floor
     geometry (1 batch, 3 probes: `w6_point_raycast`).
-  - `wave6d3_johnnyguitar_observed.json` — Wave 6D-3 JohnnyGuitar batches 1–10
-    confirmed edge-case matches for `[observed]` spec-note promotion (1 batch,
+  - `wave6d3_johnnyguitar_observed.json` — Wave 6D-3 JohnnyGuitar/Lutana
+    edge-case probes for `[observed]` spec-note documentation (1 batch,
     18 probes: `w6d3_johnnyguitar_observed`).
 - `tests/test_nvse_harness.py` — offline stdlib `unittest` suite (no game
   install or captured logs required).

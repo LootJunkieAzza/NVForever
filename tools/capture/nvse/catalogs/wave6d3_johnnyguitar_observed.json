@@ -1,7 +1,7 @@
 {
   "schema": "nvf.nvse.probe.catalog/1",
   "catalog_id": "wave6d3-johnnyguitar-observed",
-  "description": "Read-only clean-room probes confirming JohnnyGuitar NVSE batches 1-10 edge cases that already match NVForever (pure [observed] promotions, zero Rust changes).",
+  "description": "Read-only clean-room probes documenting JohnnyGuitar NVSE and Lutana edge cases for [observed] spec-note citations (zero Rust changes).",
   "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
   "xnvse_version": "6.4.9",
   "official_masters": [
@@ -23,7 +23,7 @@
   "batches": [
     {
       "id": "w6d3_johnnyguitar_observed",
-      "title": "Wave 6D-3: JohnnyGuitar Batches 1-10 Confirmed Matches ([observed] Promotion)",
+      "title": "Wave 6D-3: JohnnyGuitar/Lutana Edge-Case Probes ([observed] Documentation)",
       "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
       "required_plugins": [
         "jip_nvse.dll",
@@ -103,9 +103,8 @@
         {
           "id": "w6d3p2_02_camera_rotate_axes_and_track_clear",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -141,9 +140,8 @@
         {
           "id": "w6d3_06_switch_node_index_get_set_edges",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -157,7 +155,7 @@
             "SetSwitchNodeIndex",
             "GetSwitchNodeIndex"
           ],
-          "claim": "Verify SetSwitchNodeIndex and GetSwitchNodeIndex return values on non-switch nodes ('Door:0' on dresser 0x103E37, 'Bip01 Head' on Doc Mitchell), missing node, negative/OOB indices (-1, 99), and 1P flag (SD-04).",
+          "claim": "Verify SetSwitchNodeIndex and GetSwitchNodeIndex return values on non-switch nodes ('Door:0' on dresser 0x103E37, including indices -1 and 99, and 'Bip01 Head' on Doc Mitchell), missing node, and 1P flag (SD-04).",
           "expected": "Confirm return values of SetSwitchNodeIndex (0 vs 1) and GetSwitchNodeIndex (-1 vs 0) on non-switch & missing blocks.",
           "script_lines": [
             "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
@@ -178,9 +176,8 @@
         {
           "id": "w6d3_08_ni_distances_and_hit_distance_edges",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -220,9 +217,8 @@
         {
           "id": "w6d3_09_ni_sequence_active_and_anim_group_slots",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -264,8 +260,9 @@
         {
           "id": "w6d3_10_camera_overlay_refs_props_and_nif",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
           "required_plugins": [
+            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -312,9 +309,8 @@
         {
           "id": "w6d3p2_11_jg_nif_bounds_and_1p_alpha",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -366,9 +362,8 @@
         {
           "id": "w6d3_19_jg8_remaining_event_regs_and_filters",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -514,9 +509,8 @@
         {
           "id": "w6d3p2_30b_equiptype_rcct_spel_bptd",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -600,7 +594,7 @@
           "requires_fixture": false,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-lutana.md",
-          "spec_line": 22,
+          "spec_line": 33,
           "functions_tested": [
             "GetWeaponItemModEffect",
             "GetChallengeFlags",
@@ -637,17 +631,15 @@
         {
           "id": "w6d3p2_32b_lev_items_and_base_object",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30",
-          "required_plugins": [
-            "jip_nvse.dll"
-          ],
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": false,
           "requires_fixture": false,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-lutana.md",
-          "spec_line": 22,
+          "spec_line": 33,
           "functions_tested": [
             "GetBaseObject",
             "GetNumLevItems",
@@ -680,17 +672,15 @@
         {
           "id": "w6d3p2_32c_get_base_form_only",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30",
-          "required_plugins": [
-            "jip_nvse.dll"
-          ],
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": false,
           "requires_fixture": false,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-lutana.md",
-          "spec_line": 22,
+          "spec_line": 33,
           "functions_tested": [
             "GetBaseForm"
           ],
@@ -712,9 +702,8 @@
         {
           "id": "w6d3_34_jg6_av_alt_unforce_karma_mod_alt",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -769,9 +758,8 @@
         {
           "id": "w6d3p2_36_jg6_prompt_override_primitive_lifestate",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
           "required_plugins": [
-            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -780,7 +768,7 @@
           "requires_fixture": false,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-jg6.md",
-          "spec_line": 39,
+          "spec_line": 40,
           "functions_tested": [
             "GetRefActivationPromptOverride",
             "SetRefActivationPromptOverride",
