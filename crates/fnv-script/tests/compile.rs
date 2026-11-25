@@ -819,9 +819,9 @@ fn eval_truthiness_for_arrays_and_strings() {
 
 #[test]
 fn format_signs_and_huge_fields() {
-    // %g writes -0 as 0 (see crates/fnv-script/src/vm.rs, `printf_number`), %f keeps its sign
-    // [observed: "%.4f" of -0 reads "-0.0000" in the original, #1919], + never doubles a minus,
-    // and a huge precision or width is cut (#1145 review, #1134) [hypothesis: the C library's forms].
+    // %g and %f both preserve -0's minus sign [observed: w6d5_01_printf_negzero_flags_width,
+    // "%.4f" of -0 reads "-0.0000" (#1919), "%g" of -0 reads "-0"], + never doubles a minus,
+    // and a huge precision or width is cut (#1145 review, #1134) [hypothesis: C library forms].
     let h = run("string_var s
 string_var t
 string_var u
@@ -830,7 +830,7 @@ let s := Sv_Construct \"%g|%+.2f|%+g|%05.1f\", -0, -0, -2.5, -1.5
 let t := Sv_Construct \"%.4000000000f|%4000000000g\", 1, 2
 let u := Sv_Construct \"%.4f|%.4f|%+.1f\", -0, 0, 0
 end");
-    assert_eq!(h.text(1), "0|-0.00|-2.5|-01.5");
+    assert_eq!(h.text(1), "-0|-0.00|-2.5|-01.5");
     assert_eq!(h.text(3), "-0.0000|0.0000|+0.0");
     assert!(h.text(2).len() < 1200, "{}", h.text(2).len());
 }
@@ -2562,4 +2562,14 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "assignment_to_a_value").is_empty(), "{:?}", c.diags);
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
+}
+
+#[test]
+fn printf_number_preserves_negative_zero_across_all_float_codes() {
+    let h = run(
+        "float nz\nstring_var s\nstring_var fl\nstring_var th\n         begin GameMode\n         let nz := -1.0 * 0.0\n         let s := sv_Construct \"f=%.2f|g=%g|G=%G|e=%.2e|E=%.2E\" nz nz nz nz nz\n         let fl := sv_Construct \"p=[%+5.1f]|s=[% 5.1f]|l=[%-5.1f]|z=[%05.1f]|pg=[%+g]|zg=[%06g]\" 3.5 3.5 3.5 3.5 42 42\n         let th := sv_Construct \"g0=[%.0g]|g1=[%.1g]|e4=[%g]|e5=[%g]\" 123.4 123.4 0.0001 0.0000999\n         end",
+    );
+    assert_eq!(h.text(2), "f=-0.00|g=-0|G=-0|e=-0.00e+00|E=-0.00E+00");
+    assert_eq!(h.text(3), "p=[ +3.5]|s=[  3.5]|l=[3.5  ]|z=[003.5]|pg=[+42]|zg=[000042]");
+    assert_eq!(h.text(4), "g0=[1e+02]|g1=[1e+02]|e4=[0.0001]|e5=[9.99e-05]");
 }

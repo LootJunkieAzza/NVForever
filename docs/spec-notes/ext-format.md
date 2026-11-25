@@ -144,3 +144,7 @@ official .esm files, 2026-11-06, issue #1720]: `&PCName;` in topic names (DIAL F
 note texts (2 each); the key codes of the table above (`&sUActn…;`, `&-sUActn…;`,
 `&sKB…;`, `&sMouse…;`, `&sDeviceMouse;`, `&sXB…;`) only in message texts (MESG DESC).
 No INFO prompt or response carries one.
+
+### Wave 6D-5 observation: `-0.0` sign, flags, and `%g` thresholds
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_01_printf_negzero_flags_width` (`tools/capture/nvse/catalogs/wave6d5_printf_negzero.json`); zero DLL, PDB, or third-party source consulted] `-0.0` retains its leading `-` across `%f`, `%g`, `%G`, `%.2e`, and `%.2E` (`-0.00`, `-0`, `-0`, `-0.00e+00`, `-0.00E+00`), and width/sign/padding flags and `%g` thresholds match C `printf`: `PROBE|w6d5_01_printf_negzero_flags_width|nz(f=-0.00|g=-0|G=-0|e=-0.00e+00|E=-0.00E+00)|flags(p=[ +3.5]|s=[  3.5]|l=[3.5  ]|z=[003.5]|pg=[+42]|zg=[000042])|thresh(g0=[1e+02]|g1=[1e+02]|e4=[0.0001]|e5=[9.99e-05])`.

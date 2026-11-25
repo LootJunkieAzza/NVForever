@@ -1351,7 +1351,7 @@ fn printf_number(spec: &str, code: char, x: f64) -> String {
     };
     let width: usize = w.parse::<usize>().unwrap_or(0).min(MAX_FORMAT_FIELD);
     let upper = code.is_ascii_uppercase();
-    let negative = x < 0.0 || (x == 0.0 && x.is_sign_negative() && code.eq_ignore_ascii_case(&'f'));
+    let negative = x < 0.0 || (x == 0.0 && x.is_sign_negative());
     let a = x.abs();
     // The C library's scientific form of a value at or above 0: the mantissa, then e (or
     // E), a sign and at least two digits.
