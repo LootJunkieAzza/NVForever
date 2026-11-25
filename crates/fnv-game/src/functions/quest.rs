@@ -154,15 +154,20 @@ pub fn complete_all_objectives(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
 /// to their start [documented: catalogue summary of ResetQuest; observed: o41, the
 /// variables read 0 after it]. A SetQuestDelay override is kept [observed: o41,
 /// VMQ03aTimer at SetQuestDelay 2 ran every 2.0 s after the reset, not at its DATA 0.5 s;
-/// observer check 41, issue #1109]. Called from another script the quest stops
-/// [observed: o41, GetQuestRunning 0 and no GameMode run until StartQuest, from a job
-/// script; layer5-captures.md §5.7, issue #1232]. A reset from the quest's own script or
-/// stage result leaves it running [hypothesis, not observed: the Emergency Radio resets
-/// itself in its MenuMode and goes on to the supply drop].
+/// observer check 41, issue #1109]. Called from another script, a non-start-enabled quest
+/// stops [observed: o41, VMQ03aTimer (`flags = 0`) had GetQuestRunning 0 and no GameMode
+/// run until StartQuest, from a job script; layer5-captures.md §5.7, issue #1232], whereas
+/// a Start Game Enabled quest keeps running [hypothesis, not observed: catalogue summary
+/// says ResetQuest returns quest state to defaults, and MCM Extender's `OnPauseMenuClose.gek`
+/// resets `MCM` (`flags = 0x19`, `START_GAME_ENABLED`) without a following `StartQuest`,
+/// issue #3916]. A reset from the quest's own script or stage result leaves it running
+/// [hypothesis, not observed: the Emergency Radio resets itself in its MenuMode and goes on
+/// to the supply drop].
 pub fn reset_quest(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     let (running, delay) = g.quests.get(&q).map_or((false, None), |s| (s.running, s.delay));
-    let running = running && ctx.quest == Some(q);
+    let start_enabled = g.data.quests.get(&q).is_some_and(crate::quest::QuestDef::start_enabled);
+    let running = start_enabled || (running && ctx.quest == Some(q));
     g.quests.insert(q, crate::quest::QuestState { running, delay, ..Default::default() });
     g.instances.remove(&InstKey::Quest { quest: q });
     none()

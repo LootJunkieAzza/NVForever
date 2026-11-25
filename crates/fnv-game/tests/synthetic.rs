@@ -154,6 +154,7 @@ const TRIGGER: u32 = 0x905;
 const MARKER: u32 = 0x906;
 const WEAPON: u32 = 0x907;
 const WEAPON_SCRIPT: u32 = 0x908;
+const QUEST_MANUAL: u32 = 0x909;
 const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
@@ -335,6 +336,13 @@ fn plugin_bytes() -> Vec<u8> {
     q.push(qsta(ACT_REF, 0));
     q.push(ctda(0, 0.0, GET_DISABLED_INDEX, 0, 0));
     let qust = record(b"QUST", 0, QUEST, &q);
+    // A second quest without Start Game Enabled (flags = 0), like VMQ03aTimer (o41).
+    let qust_manual = record(
+        b"QUST",
+        0,
+        QUEST_MANUAL,
+        &[sub(b"EDID", z("QManual")), sub(b"DATA", [vec![0u8, 0, 0, 0], 0.5f32.to_le_bytes().to_vec()].concat())],
+    );
     let acti = record(b"ACTI", 0, ACTIVATOR, &[sub(b"EDID", z("TestActivator")), sub(b"SCRI", ACT_SCRIPT.to_le_bytes().to_vec())]);
     let trig = record(b"ACTI", 0, TRIGGER, &[sub(b"EDID", z("TestTrigger")), sub(b"SCRI", TRIG_SCRIPT.to_le_bytes().to_vec())]);
     let trig_ref = record(
@@ -458,7 +466,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NPC_", &[npc, npc_auto].concat()),
         top(b"WEAP", &record(b"WEAP", 0, WEAPON, &[sub(b"EDID", z("TestWeapon")), sub(b"SCRI", WEAPON_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 15])])),
         top(b"PACK", &pack),
-        top(b"QUST", &qust),
+        top(b"QUST", &[qust, qust_manual].concat()),
         top(b"DIAL", &dial),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children, other_cell, other_children].concat()))),
     ]
@@ -811,23 +819,34 @@ fn reset_quest_keeps_the_set_quest_delay() {
     assert!(s.stages_done.is_empty());
 }
 
-/// ResetQuest from another script stops the quest (o41, issue #1232); from the quest's
-/// own script it keeps running (the Emergency Radio's self-reset, not observed).
+/// ResetQuest from another script stops a non-start-enabled quest (o41, VMQ03aTimer,
+/// issue #1232), keeps a Start Game Enabled quest running (hypothesis: MCM Extender's
+/// OnPauseMenuClose resets MCM without StartQuest, issue #3916), and from a quest's own
+/// script keeps it running (Emergency Radio's self-reset, not observed).
 #[test]
 fn reset_quest_stops_the_quest_unless_its_own_script() {
     const RESET_QUEST: u16 = 0x11DB;
     let f = fixture();
     let mut g = game(&f);
     g.new_game();
-    let reset = |g: &mut Game, from: Option<FormId>| {
+    let reset = |g: &mut Game, target: u32, from: Option<FormId>| {
         let ctx = Ctx { unit: "test".into(), opcode: RESET_QUEST, on: None, self_ref: None, action_ref: None, quest: from, inst: None, in_condition: false };
-        g.call_function(&ctx, &[ArgValue::Value(Value::Ref(QUEST))]);
+        g.call_function(&ctx, &[ArgValue::Value(Value::Ref(target))]);
     };
+    let manual = FormId(QUEST_MANUAL);
+    assert!(!f.data.quests[&manual].start_enabled());
+    g.quest(manual).running = true;
+    reset(&mut g, QUEST_MANUAL, Some(manual));
+    assert!(g.quest(manual).running, "a self-reset keeps a non-start-enabled quest running");
+    reset(&mut g, QUEST_MANUAL, None);
+    assert!(!g.quest(manual).running, "a reset from another script stops a non-start-enabled quest");
+
+    assert!(f.data.quests[&q()].start_enabled());
     g.quest(q()).running = true;
-    reset(&mut g, Some(q()));
-    assert!(g.quest(q()).running, "a self-reset keeps the quest running");
-    reset(&mut g, None);
-    assert!(!g.quest(q()).running, "a reset from another script stops it");
+    reset(&mut g, QUEST, Some(q()));
+    assert!(g.quest(q()).running, "a self-reset keeps a start-enabled quest running");
+    reset(&mut g, QUEST, None);
+    assert!(g.quest(q()).running, "a reset from another script keeps a start-enabled quest running");
 }
 
 #[test]
