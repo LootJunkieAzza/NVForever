@@ -95,9 +95,11 @@ are tried in, are NVForever's reading [hypothesis unless marked]:
      arrival, is in a worldspace [observed: the same reader, the base game and the four
      story DLCs].
    - An interior that behaves like an exterior (bit 7, "a 'fake exterior', with no
-     landscape but sky and weather" [documented: GECK wiki Cell Lighting]) counts as an
-     exterior here [hypothesis]; the only one is Dead Money's test cell
-     NVDLC01stealthTest [observed].
+     landscape but sky and weather" [documented: GECK wiki Cell Lighting]) does **not**
+     count as an exterior here: it neither enables interior fast travel alone (`b7=0`)
+     nor re-inverts bit 2 (`b27=1`) [observed:
+     `w6d10_38_enable_fast_travel_keep_and_pccanfasttravel` above]; the only one is Dead
+     Money's test cell NVDLC01stealthTest [observed].
    - A worldspace's flag forbids travel in all its cells, whatever the cell flag
      [hypothesis]. Both are read as SetCellFlag and SetWorldspaceFlag left them [design].
    - The rule is `fnv_game::fast_travel::place_forbids`, which the map and
