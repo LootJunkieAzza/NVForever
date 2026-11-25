@@ -1133,6 +1133,7 @@ below cover them all.
   Off in every preset; not in the original. Outdoors only.
 - Shown as a list since 2026-11-23; an INI written while it was an on/off switch (`1`/`0`,
   true/false, on/off, yes/no) still loads as Normal or Off.
+- Greyed, and not drawn, while Physical lighting is on (its saved value is kept).
 - Command-line switches: `--graphics-only` (`volumetric-clouds` is Normal;
   `volumetric-clouds-performance`, `volumetric-clouds-high`)
 - More: docs/design/graphics-enhanced.md §3.23, docs/design/volumetric-medium.md
@@ -1209,6 +1210,7 @@ below cover them all.
 - While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
   it draws). A prototype. Outdoors by day
   only, in the main view only. Off in every preset; not in the original.
+- Greyed, and not drawn, while Physical lighting is on (its saved value is kept).
 - Command-line switches: `--graphics-only`
 - More: docs/design/volumetric-medium.md
 - Registered in `engine/nvforever/src/settings.rs`
@@ -1220,6 +1222,7 @@ below cover them all.
 - 0 % to 200 % in steps of 10 %, 100 % by default; greyed while Volumetric light is off.
 - Registered in `engine/nvforever/src/settings.rs`
 
+- Greyed, and not drawn, while Physical lighting is on (its saved value is kept).
 ### `physical-pbr`: Physical lighting (experimental)
 
 - On the page: On: light, sky, fog and exposure follow physical rules instead of the
@@ -1229,7 +1232,9 @@ below cover them all.
   Schlick Fresnel, lamps fall off with the square of the distance, the sky lights everything
   as image-based light, and fog, exposure and bloom are tuned for linear light. Read at the
   start: the row changes the next start's lighting. Off by default and in every preset;
-  the original's display-value lighting stays the default look.
+  the original's display-value lighting stays the default look. It does not work with the
+  volumetric rows yet: while it is on, Volumetric clouds, Volumetric light and its strength
+  are greyed and do not run (their saved values are kept).
 - Command-line switches: `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.25
 ### `bloom`: Bloom

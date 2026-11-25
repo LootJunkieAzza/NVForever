@@ -2234,7 +2234,7 @@ impl CloudNoise {
 /// textures follow the row (made on its first activation, kept as bytes after it); the main thread
 /// only hands finished images to the assets.
 fn follow_noise(graphics: Option<Res<crate::graphics::Graphics>>, mut noise: ResMut<CloudNoise>, mut images: ResMut<Assets<Image>>) {
-    let on = graphics.is_some_and(|g| g.volumetric_clouds);
+    let on = graphics.is_some_and(|g| g.volumetric_clouds_run());
     if on != noise.on {
         noise.on = on;
         noise.activation = noise.activation.wrapping_add(1);
@@ -2314,7 +2314,7 @@ fn follow_noise(graphics: Option<Res<crate::graphics::Graphics>>, mut noise: Res
 /// release) or a job is in flight still (to be collected when it ends); otherwise it does nothing
 /// and takes no asset access.
 fn noise_in_use(graphics: Option<Res<crate::graphics::Graphics>>, noise: Res<CloudNoise>) -> bool {
-    graphics.is_some_and(|g| g.volumetric_clouds) || noise.on || noise.job.is_some()
+    graphics.is_some_and(|g| g.volumetric_clouds_run()) || noise.on || noise.job.is_some()
 }
 
 /// Whether [`follow_volume`] has anything to do: the row is on, or something of the volume
@@ -2323,7 +2323,7 @@ fn noise_in_use(graphics: Option<Res<crate::graphics::Graphics>>, noise: Res<Clo
 struct VolumeActive(bool);
 
 fn volume_in_use(graphics: Option<Res<crate::graphics::Graphics>>, active: Res<VolumeActive>, wanted: Res<CloudCoverWanted>) -> bool {
-    graphics.is_some_and(|g| g.volumetric_clouds) || active.0 || wanted.0
+    graphics.is_some_and(|g| g.volumetric_clouds_run()) || active.0 || wanted.0
 }
 
 /// What [`follow_volume`] keeps between frames.
@@ -2415,7 +2415,7 @@ fn follow_volume(
     #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
     tune: Option<Res<crate::volumetric_clouds_tune::CloudTune>>,
 ) {
-    let (on, level) = graphics.map_or((false, CloudLevel::default()), |g| (g.volumetric_clouds, g.volumetric_clouds_level));
+    let (on, level) = graphics.map_or((false, CloudLevel::default()), |g| (g.volumetric_clouds_run(), g.volumetric_clouds_level));
     if wanted.0 != on {
         wanted.0 = on;
     }

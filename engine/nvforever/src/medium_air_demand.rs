@@ -167,7 +167,7 @@ pub(crate) fn follow_demand(
     if !aid_changed && !graphics_changed {
         return;
     }
-    let row = graphics.is_some_and(|g| g.volumetric_light);
+    let row = graphics.is_some_and(|g| g.volumetric_light_run());
     if row_was.is_some_and(|was| was != row) || (row_was.is_none() && row) {
         info!("volumetric medium: light in the air {} (the Volumetric light row)", if row { "wanted" } else { "no longer wanted by the row" });
     }
