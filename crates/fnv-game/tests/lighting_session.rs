@@ -196,3 +196,19 @@ fn xcll_less_interior_receives_set_interior_lighting_traits_and_idempotent_write
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, EMPTY_CELL).unwrap().fog_clip_dist, 0.0);
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL).unwrap().fog_clip_dist, 20000.0);
 }
+
+#[test]
+fn set_lighting_template_rgb_channels_truncate_and_wrap_mod_256() {
+    let f = fixture();
+    let mut g = game(&f);
+    // [observed: w6d3p2_27_lighting_template_and_interior_lighting_wrap: 300->44, 25.5->25, -10->246]
+    set(
+        &mut g,
+        "SetLightingTemplateTraitNumeric OwnedLightB 1 300\n         SetLightingTemplateTraitNumeric OwnedLightB 2 25.5\n         SetLightingTemplateTraitNumeric OwnedLightB 3 -10",
+    );
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightingTemplateTraitNumeric OwnedLightB 1)"), XVal::Num(44.0));
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightingTemplateTraitNumeric OwnedLightB 2)"), XVal::Num(25.0));
+    assert_eq!(query(&mut g, "SetFunctionValue (GetLightingTemplateTraitNumeric OwnedLightB 3)"), XVal::Num(246.0));
+    set(&mut g, "SetCellLightingTemplate OwnedLightCell OwnedLightB\nSetCellFlag OwnedLightCell 8 1");
+    assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL).unwrap().ambient, [44, 25, 246]);
+}

@@ -302,9 +302,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `template trait [value]` [documented: Get/SetLightingTemplateTraitNumeric].
         "getlightingtemplatetraitnumeric" | "setlightingtemplatetraitnumeric" => {
-            let (Some(t), Some((sub, path))) = (of_sig(g, form(args, 0), b"LGTM"), lighting_trait(num(args, 1, 0.0))) else { return Some(Ok(zero)) };
+            let trait_id = num(args, 1, 0.0);
+            let (Some(t), Some((sub, path))) = (of_sig(g, form(args, 0), b"LGTM"), lighting_trait(trait_id)) else { return Some(Ok(zero)) };
             if name.starts_with("set") {
-                let value = num(args, 2, 0.0);
+                let raw = num(args, 2, 0.0);
+                // RGB colour channels (traits 1..=9) truncate and wrap mod 256 as u8, matching
+                // SetInteriorLightingTraitNumeric [observed: w6d3p2_27, 300->44.0, 25.5->25.0, -10->246.0].
+                let value = if (1..=9).contains(&(trait_id as i64)) {
+                    (raw.trunc() as i64).rem_euclid(256) as f64
+                } else {
+                    raw
+                };
                 let prev = g.field_overrides.insert((t, format!("{sub}/{path}")), XVal::Num(value));
                 let same = matches!(prev, Some(XVal::Num(p)) if p.to_bits() == value.to_bits());
                 if !same {
