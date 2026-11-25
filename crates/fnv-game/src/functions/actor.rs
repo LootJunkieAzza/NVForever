@@ -1283,7 +1283,11 @@ pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         return none();
     }
     if a.num_or(1, 0.0) != 0.0 {
-        level += g.player.level.unwrap_or(g.world.config().player_level as i32);
+        // With levelToPCFlag != 0, level is a thousandths multiplier of player level
+        // [observed 2026-11-25: w6d7p2_11b_setlevel_pct_and_faction_rank_diff,
+        // pc10(500=5,1000=10,2000=20,min15=15,max12=12)].
+        let pc = g.player.level.unwrap_or(g.world.config().player_level as i32) as f64;
+        level = (pc * (level as f64) / 1000.0).round() as i32;
         if let Ok(min) = a.int(2) {
             level = level.max(min);
         }

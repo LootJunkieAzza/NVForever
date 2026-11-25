@@ -2841,3 +2841,22 @@ fn aim_anim_groups_and_braced_call_args_execute_through_game() {
     );
     assert_eq!(res, Ok(fnv_script::vm::XVal::Num(121.0)));
 }
+
+#[test]
+fn set_level_pc_mult_scales_by_thousandths_and_clamps() {
+    const SET_LEVEL: u16 = 0x1133;
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, SET_LEVEL, Some(FormId::PLAYER_REF.0), &[n(10.0)]);
+    // 500 -> 5, 1000 -> 10, 2000 -> 20, min 15 -> 15, max 12 -> 12 [observed: w6d7p2_11b].
+    call(&mut g, SET_LEVEL, Some(ADULT_REF), &[n(500.0), n(1.0), n(0.0), n(0.0)]);
+    assert_eq!(call(&mut g, 0x1050, Some(ADULT_REF), &[]), 5.0);
+    call(&mut g, SET_LEVEL, Some(ADULT_REF), &[n(1000.0), n(1.0), n(0.0), n(0.0)]);
+    assert_eq!(call(&mut g, 0x1050, Some(ADULT_REF), &[]), 10.0);
+    call(&mut g, SET_LEVEL, Some(ADULT_REF), &[n(2000.0), n(1.0), n(0.0), n(0.0)]);
+    assert_eq!(call(&mut g, 0x1050, Some(ADULT_REF), &[]), 20.0);
+    call(&mut g, SET_LEVEL, Some(ADULT_REF), &[n(500.0), n(1.0), n(15.0), n(0.0)]);
+    assert_eq!(call(&mut g, 0x1050, Some(ADULT_REF), &[]), 15.0);
+    call(&mut g, SET_LEVEL, Some(ADULT_REF), &[n(2000.0), n(1.0), n(0.0), n(12.0)]);
+    assert_eq!(call(&mut g, 0x1050, Some(ADULT_REF), &[]), 12.0);
+}
