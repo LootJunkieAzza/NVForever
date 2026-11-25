@@ -37,13 +37,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let zero = XVal::Num(0.0);
     let v = match name {
-        // `eyes`: the NPC base's eyes (ENAM), for the reference's base (including
+        // `eyes`: the NPC base's eyes (ENAM), for the reference's base (including placed
         // `TempCloneForm` NPCs) and so every reference of it; returns 1 when `eyes` is an
-        // `EYES` form, or 0 without mutating on non-`EYES` / non-`NPC_` forms [documented:
+        // `EYES` form, or 0 without mutating on non-`EYES` forms (`Stimpak`) [documented:
         // SetEyes, "Returns 1 for success", "affects their baseform"; observed: 2026-11-25,
         // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
         // JIP LN 57.30, `w6d4p3_07_set_eyes_and_nth_package_placed` (`wave6d4_set_eyes.json`):
-        // `eyes(e0=00004253,ok=1,m1=1,bad=0,m2=1)`]. The look changes when the 3D is rebuilt.
+        // `eyes(e0=00004253,ok=1,m1=1,bad=0,m2=1)`]. Accepting cloned `EYES` via `g.unclone(e)`
+        // and rejecting non-`NPC_` subjects (returning 0 without mutating) remain [hypothesis].
+        // The look changes when the 3D is rebuilt.
         "seteyes" => match (form(args, 0), subject.map(|s| base(g, s))) {
             (Some(e), Some(npc))
                 if g.data.sig(g.unclone(npc)) == Some(*b"NPC_")
