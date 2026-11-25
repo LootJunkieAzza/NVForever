@@ -1,0 +1,119 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-facegen-refresh-return-one",
+  "description": "Read-only clean-room probes verifying FaceGenRefreshAppearance returns 1 on an actor and documenting cross-NPC FaceGen read/write behavior.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_facegen_refresh_return_one",
+      "title": "Wave 6D-3: FaceGenRefreshAppearance returns 1 on actor",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_41_jg10_facegen_cross_npc_and_aliasing",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 33,
+          "functions_tested": [
+            "FaceGenGetNthProperty",
+            "FaceGenSetNthProperty",
+            "FaceGenRefreshAppearance"
+          ],
+          "claim": "Resolve ext-jg10.md \u00a74 open FaceGen mystery (SD-12): sample indices 0..2 across types 0/1/2 on Player (0x7), Doc Mitchell (0x104C0C), and Sunny Smiles (0x104E84), then test whether FaceGenSetNthProperty type 0 idx 0 aliases type 2 idx 0.",
+          "expected": "Determine exact mapping of FaceGen property types 0/1/2 (whether 0 and 2 alias or are distinct arrays), compare across 3 NPCs, and check FaceGenRefreshAppearance return.",
+          "script_lines": [
+            "ref rPl = GetFormFromMod \"FalloutNV.esm\" \"7\"",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rDocR = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rSun = GetFormFromMod \"FalloutNV.esm\" \"104E84\"",
+            "float d00 = FaceGenGetNthProperty rDoc 0 0",
+            "float d01 = FaceGenGetNthProperty rDoc 0 1",
+            "float d10 = FaceGenGetNthProperty rDoc 1 0",
+            "float d20 = FaceGenGetNthProperty rDoc 2 0",
+            "float d21 = FaceGenGetNthProperty rDoc 2 1",
+            "float p00 = FaceGenGetNthProperty rPl 0 0",
+            "float p10 = FaceGenGetNthProperty rPl 1 0",
+            "float p20 = FaceGenGetNthProperty rPl 2 0",
+            "float s00 = FaceGenGetNthProperty rSun 0 0",
+            "float s20 = FaceGenGetNthProperty rSun 2 0",
+            "int setOk = FaceGenSetNthProperty rDoc 0 0 0.42",
+            "float d00A = FaceGenGetNthProperty rDoc 0 0",
+            "float d20A = FaceGenGetNthProperty rDoc 2 0",
+            "FaceGenSetNthProperty rDoc 0 0 d00",
+            "int refOk = rDocR.FaceGenRefreshAppearance",
+            "PrintToConsole \"PROBE|w6d3_41_jg10_facegen_cross_npc_and_aliasing|doc(0=%.4f/%.4f,1=%.4f,2=%.4f/%.4f)|pl(%.4f,%.4f,%.4f)|sun(%.4f,%.4f)|set=%g(0=%.4f,2=%.4f)|rf=%g\" d00 d01 d10 d20 d21 p00 p10 p20 s00 s20 setOk d00A d20A refOk"
+          ]
+        },
+        {
+          "id": "w6d3p2_41b_facegen_type1_type2_and_oob",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 33,
+          "functions_tested": [
+            "FaceGenGetNthProperty",
+            "FaceGenSetNthProperty"
+          ],
+          "claim": "Verify FaceGenSetNthProperty on type 1 (independent?) and type 2 (aliases type 0?) on Doc Mitchell, plus OOB type 3/-1 and non-NPC.",
+          "expected": "Confirm exact FaceGen type 0/1/2 aliasing and OOB/non-NPC behavior.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "float fD0 = FaceGenGetNthProperty rDoc 0 0",
+            "float fD1 = FaceGenGetNthProperty rDoc 1 0",
+            "float fD2 = FaceGenGetNthProperty rDoc 2 0",
+            "int iS1 = FaceGenSetNthProperty rDoc 1 0 0.77",
+            "float fA0 = FaceGenGetNthProperty rDoc 0 0",
+            "float fA1 = FaceGenGetNthProperty rDoc 1 0",
+            "float fA2 = FaceGenGetNthProperty rDoc 2 0",
+            "int iS2 = FaceGenSetNthProperty rDoc 2 0 -0.33",
+            "float fB0 = FaceGenGetNthProperty rDoc 0 0",
+            "float fB1 = FaceGenGetNthProperty rDoc 1 0",
+            "float fB2 = FaceGenGetNthProperty rDoc 2 0",
+            "FaceGenSetNthProperty rDoc 0 0 fD0",
+            "FaceGenSetNthProperty rDoc 1 0 fD1",
+            "float fNon = FaceGenGetNthProperty rSt 0 0",
+            "int iSNon = FaceGenSetNthProperty rSt 0 0 0.5",
+            "PrintToConsole \"PROBE|w6d3p2_41b_facegen_type1_type2_and_oob|s1=%g(%.2f,%.2f,%.2f)|s2=%g(%.2f,%.2f,%.2f)|non=%.1f,sNon=%g\" iS1 fA0 fA1 fA2 iS2 fB0 fB1 fB2 fNon iSNon"
+          ]
+        }
+      ]
+    }
+  ]
+}
