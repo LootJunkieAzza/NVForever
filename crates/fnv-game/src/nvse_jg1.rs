@@ -170,7 +170,7 @@ impl Game<'_> {
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let field = |g: &Game, f: FormId, sub: &str, path: &str| crate::nvse::record_value(g, f, sub, path);
-    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(f) == Some(*sig));
+    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*sig));
     let zero = XVal::Num(0.0);
     let v = match name {
         // `book`: 1 scroll, 2 can't be taken [documented: GetBookFlags]; SetBookFlags
@@ -256,10 +256,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             _ => String::new(),
         }),
         "setweaponworldmodelpath" => {
+            // Returns 1 on valid WEAP (including TempCloneForm) and 0 otherwise
+            // [observed: w6d3p2_23_weapon_world_model_path_and_clone, w6d3p5_25b].
             if let Some(w) = of_sig(g, form(args, 0), b"WEAP") {
                 g.field_overrides.insert((w, "MOD4/".into()), XVal::Str(text(args, 1)));
+                XVal::Num(1.0)
+            } else {
+                zero
             }
-            zero
         }
         // `music type`: the file (FNAM) under Data\Music, and dB (ANAM), -6 when the record
         // has none [documented: GetMusicTypePath, "Data/Music/Special/Success.mp3";

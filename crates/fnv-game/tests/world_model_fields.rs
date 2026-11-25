@@ -56,6 +56,15 @@ fn fixture() -> Fixture {
             &[sub(b"EDID", z("OwnMiscModel")), sub(b"MODL", z(MODEL))],
         ),
     ));
+    bytes.extend(top(
+        b"WEAP",
+        &record(
+            b"WEAP",
+            0,
+            0xD12,
+            &[sub(b"EDID", z("OwnWorldWeapon")), sub(b"MOD4", z("Weapons\\1HandMelee\\ShishkebabGO.NIF"))],
+        ),
+    ));
     let plugins = vec![Plugin::parse(&bytes, "OwnedModels.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
@@ -258,5 +267,26 @@ fn tempclone_snapshots_model_path_at_creation_for_stat_and_misc() {
     assert_eq!(
         q(&mut g, &format!("SetFunctionValue (GetModelPath {empty_cl:#010X})")),
         XVal::Str(String::new())
+    );
+}
+
+#[test]
+fn set_weapon_world_model_path_returns_one_and_isolates_temp_clone() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(
+        q(&mut g, "SetFunctionValue (GetWeaponWorldModelPath OwnWorldWeapon)"),
+        XVal::Str("Weapons\\1HandMelee\\ShishkebabGO.NIF".into()),
+    );
+    assert_eq!(
+        q(&mut g, r#"SetFunctionValue (SetWeaponWorldModelPath OwnMiscModel "weapons\bad.nif")"#),
+        XVal::Num(0.0),
+    );
+    assert_eq!(
+        q(
+            &mut g,
+            "ref rCl\n             let rCl := TempCloneForm OwnWorldWeapon\n             string_var sPre\n             let sPre := GetWeaponWorldModelPath rCl\n             int iRet\n             let iRet := SetWeaponWorldModelPath rCl \"weapons\\w6d3_clone2.nif\"\n             string_var sPost\n             let sPost := GetWeaponWorldModelPath rCl\n             string_var sOrig\n             let sOrig := GetWeaponWorldModelPath OwnWorldWeapon\n             SetFunctionValue (sv_Construct \"%g|%z|%z|%z\" iRet sPre sPost sOrig)"
+        ),
+        XVal::Str("1|Weapons\\1HandMelee\\ShishkebabGO.NIF|weapons\\w6d3_clone2.nif|Weapons\\1HandMelee\\ShishkebabGO.NIF".into()),
     );
 }

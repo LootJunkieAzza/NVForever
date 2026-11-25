@@ -1,0 +1,118 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-set-weapon-world-model-unclone-and-ret",
+  "description": "Read-only clean-room probes verifying SetWeaponWorldModelPath returns 1 on valid WEAP and supports TempCloneForm weapons with clone isolation.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_set_weapon_world_model_unclone_and_ret",
+      "title": "Wave 6D-3: SetWeaponWorldModelPath return 1 and TempCloneForm support",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_23_weapon_world_model_path_and_clone",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg1.md",
+          "spec_line": 22,
+          "functions_tested": [
+            "GetWeaponWorldModelPath",
+            "SetWeaponWorldModelPath",
+            "TempCloneForm"
+          ],
+          "claim": "Verify Get/SetWeaponWorldModelPath on WEAP with/without MOD4, empty clear, non-WEAP, and TempCloneForm WEAP.",
+          "expected": "Confirm SetWeaponWorldModelPath accepts TempCloneForm WEAP and clears MOD4 on empty string.",
+          "script_lines": [
+            "ref rSh = GetFormFromMod \"FalloutNV.esm\" \"434E\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "string_var sEmpty = \"\"",
+            "string_var sSh0 = GetWeaponWorldModelPath rSh",
+            "string_var s10 = GetWeaponWorldModelPath r10",
+            "string_var sBad = GetWeaponWorldModelPath rSt",
+            "int iRSet = SetWeaponWorldModelPath r10 \"weapons\\w6d3_world.nif\"",
+            "string_var s10Set = GetWeaponWorldModelPath r10",
+            "SetWeaponWorldModelPath r10 sEmpty",
+            "string_var s10Emp = GetWeaponWorldModelPath r10",
+            "SetWeaponWorldModelPath rSt \"weapons\\w6d3_bad.nif\"",
+            "string_var sBadA = GetWeaponWorldModelPath rSt",
+            "ref rCl = TempCloneForm rSh",
+            "string_var sClPre = GetWeaponWorldModelPath rCl",
+            "SetWeaponWorldModelPath rCl \"weapons\\w6d3_clone.nif\"",
+            "string_var sClPost = GetWeaponWorldModelPath rCl",
+            "string_var sShOrig = GetWeaponWorldModelPath rSh",
+            "int iOrigEq = 0",
+            "if sSh0 == sShOrig",
+            "  let iOrigEq := 1",
+            "endif",
+            "PrintToConsole \"PROBE|w6d3p2_23_weapon_world_model_path_and_clone|shLen=%g,p10Len=%g,bad=%g/%g|ret=%g,set=[%z],emp=[%z]|clPre=%g,clPost=[%z],origEq=%g\" (sv_Length sSh0) (sv_Length s10) (sv_Length sBad) (sv_Length sBadA) iRSet s10Set s10Emp (sv_Length sClPre) sClPost iOrigEq"
+          ]
+        },
+        {
+          "id": "w6d3p5_25b_biped_icon_and_weap_clone_exact",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg1.md",
+          "spec_line": 22,
+          "functions_tested": [
+            "GetBipedIconPath",
+            "GetMessageIconPath",
+            "GetWeaponWorldModelPath",
+            "SetWeaponWorldModelPath",
+            "TempCloneForm"
+          ],
+          "claim": "Print exact strings of GetBipedIconPath 0/2 vs GetMessageIconPath 0 on ArmorLeather (0x20423) and verify Shishkebab (0x434E) original MOD4 after SetWeaponWorldModelPath on TempCloneForm.",
+          "expected": "Verify exact strings for GetBipedIconPath 0 vs 2 vs MICO and clone isolation on SetWeaponWorldModelPath.",
+          "script_lines": [
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "string_var sB0 = GetBipedIconPath 0 rLth",
+            "string_var sB2 = GetBipedIconPath 2 rLth",
+            "string_var sM0 = GetMessageIconPath rLth 0",
+            "ref rSh = GetFormFromMod \"FalloutNV.esm\" \"434E\"",
+            "string_var sSh0 = GetWeaponWorldModelPath rSh",
+            "ref rCl = TempCloneForm rSh",
+            "SetWeaponWorldModelPath rCl \"weapons\\w6d3_clone2.nif\"",
+            "string_var sSh1 = GetWeaponWorldModelPath rSh",
+            "string_var sCl1 = GetWeaponWorldModelPath rCl",
+            "PrintToConsole \"PROBE|w6d3p5_25b_biped_icon_and_weap_clone_exact|b0=[%z]|b2=[%z]|m0=[%z]|sh0=[%z]|sh1=[%z]|cl1=[%z]\" sB0 sB2 sM0 sSh0 sSh1 sCl1"
+          ]
+        }
+      ]
+    }
+  ]
+}
