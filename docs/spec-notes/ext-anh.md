@@ -56,7 +56,7 @@ xNVSE's own forms (QFromAxisAngle …) are different functions with observed con
 
 Confirmed `Get/SetArmorArmorRatingAlt` (`0 -> 12`), `GetQuestCompletedAlt` (`0`), and
 `GetZoneMatchLevel` / `GetZoneMinLevel` / `GetZoneOwner` (`0,6,00000000`) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
-AnhNVSE 131 [observed: probe `w6d4p2_40_anh_game_safe`
+AnhNVSE 131 + JIP LN 57.30 [observed: probe `w6d4p2_40_anh_game_safe`
 (`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`):
 `PROBE|w6d4p2_40_anh_game_safe|ar(0->12)|qc=0|z(m=0,min=6,own=00000000)|a2s(l=[1.0000002.000000],sm=[1.000000])`].
 (`ArrayToString` retains NVForever's documented `[decision]` formatting in `ext-small.md` §1.)

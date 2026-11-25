@@ -394,7 +394,7 @@ All probes below ran in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, 
   (`0`), `GetCasinoDeckTexture` OOB `""` [observed: probe
   `w6d4_20_jg_accuracy_mult_water_tex_transform`:
   `PROBE|w6d4_20_jg_accuracy_mult_water_tex_transform|acc(g=1.00->1.00->1.00,s=1.00->1.00)|wt=0|tt=0|cas(0=[terminals\NV_PlayingCards\DeckB\cardB_Back.dds],1=[terminals\NV_PlayingCards\DeckB\cardB_Back.dds],9=[])`].
-- **ShowOff `_OLD` aliases & unlisted getters** (ShowOffNVSE 184): `Matrix_IsMatrix_OLD`,
+- **ShowOff `_OLD` aliases & unlisted getters** (ShowOffNVSE 184 + JIP LN 57.30): `Matrix_IsMatrix_OLD`,
   `Matrix_Transpose_OLD`, `IsTemporaryReference`, `Get/SetNoEquipShowOff`, `SayTo_*`, and
   `GetPipboyRadioVoiceEntryData` [observed: probe `w6d4_22_showoff_unlisted_old_and_flags`:
   `PROBE|w6d4_22_showoff_unlisted_old_and_flags|mat(is=1,1d=1,tr=3)|tmp(doc=0,pl=0)|noEq(0,0,0)|say(00000000,00000000)|radSz=0`].

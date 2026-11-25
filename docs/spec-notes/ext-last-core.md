@@ -108,7 +108,7 @@ it. The console's exact line is not documented: the name alone [hypothesis].
 
 ## 5a. Wave 6D-4 clean-room `[observed]` confirmations (`wave6d4_promote_observed.json`)
 
-All probes below ran in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted:
+All probes below ran in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted:
 
 - **Ammo queries, `BuildRef`, and `GetLocalRefIndex`**: `BuildRef` returns the loaded
   form for valid `(modIdx, localIdx)` and `00000000` for `255`/`-1`/missing IDs;

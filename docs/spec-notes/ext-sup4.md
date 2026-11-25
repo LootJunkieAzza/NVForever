@@ -110,7 +110,8 @@ sup4 `near` row is equal since.
 
 Confirmed fresh New Game `GetLoadedSaveSize` / `GetSavedSaveSize` (`-1`),
 `CallFunctionNextFrame` (`inFrames=2` fires: `ret=1,fired=1`), and exterior Goodsprings
-(`0x000DAEBB`) `GetNearCells` (`1,9,23`) and `GetNearMapMarkers` (`1,1`) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
+(`0x000DAEBB`, reached from `GSDocMitchellHouse` via `Player.MoveTo` `GSMapMarker`
+`0x000CDF51` and restored to `0x00103E6B`) `GetNearCells` (`1,9,23`) and `GetNearMapMarkers` (`1,1`) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
 SUP NVSE 855 + JIP LN 57.30 [observed: probes `w6d4_29_sup4_saves_pickpocket_and_onload`:
 `PROBE|w6d4_29_sup4_saves_pickpocket_and_onload|save(ls=-1/-1,ss=-1,snLen=-1)|cp(0,0,0)|mol=0|nf(ret=1,fired=1)`
 and `w6d4_36_sup4_near_cells_and_markers_exterior`:

@@ -43,7 +43,9 @@
           "id": "w6d4_05_ammo_queries_and_buildref_localidx",
           "bucket": "xnvse_core_items",
           "extender": "xNVSE",
-          "required_plugins": [],
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": true,
@@ -103,7 +105,9 @@
           "id": "w6d4p3_05_ammo_queries_settled",
           "bucket": "xnvse_core_items",
           "extender": "xNVSE",
-          "required_plugins": [],
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": true,
@@ -163,7 +167,9 @@
           "id": "w6d4_09_set_string_setting_and_alt_control",
           "bucket": "xnvse_core_rest",
           "extender": "xNVSE",
-          "required_plugins": [],
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": false,
           "mutates_state": true,
@@ -203,7 +209,9 @@
           "id": "w6d4_10_tostring_maps_null_and_print_tile",
           "bucket": "xnvse_core_rest",
           "extender": "xNVSE",
-          "required_plugins": [],
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": false,
@@ -217,7 +225,7 @@
             "GetUIFloatInherited"
           ],
           "claim": "SD-11: Verify ToString formatting on ar_Null, empty list, numeric map, stringmap, ref, float; PrintActiveTile return with no active menu; GetUIFloatInherited on non-locus trait (visible) and missing path.",
-          "expected": "Check exact ToString outputs for numeric maps and ar_Null (`ext-last-core.md` \u00a74) and non-locus GetUIFloatInherited behavior.",
+          "expected": "Check exact ToString outputs for numeric maps and ar_Null (`ext-last-core.md` §4) and non-locus GetUIFloatInherited behavior.",
           "script_lines": [
             "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
             "array_var aNull = ar_Null",
@@ -245,7 +253,9 @@
           "id": "w6d4_11_menu_hold_release_and_compare_scripts",
           "bucket": "xnvse_core_rest",
           "extender": "xNVSE",
-          "required_plugins": [],
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": false,
           "mutates_state": false,
@@ -338,7 +348,7 @@
             "HasActionRef"
           ],
           "claim": "Verify HasActionRef across unprobed reference types in GSDocMitchellHouse: Player, DocMitchellREF (NPC with AI package), DocMitchellChairREF (FURN), DocMitchellDresserRef (CONT), GSDocMitchellHouseIntDoorREF (DOOR), and TempRorschachTest01REF.",
-          "expected": "Tests ext-unlisted-rest.md \u00a79 hypothesis generalizing HasActionRef to AI package / scripted door / furniture.",
+          "expected": "Tests ext-unlisted-rest.md §9 hypothesis generalizing HasActionRef to AI package / scripted door / furniture.",
           "script_lines": [
             "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
             "ref rChair = GetFormFromMod \"FalloutNV.esm\" \"1055B8\"",
@@ -497,7 +507,8 @@
           "bucket": "unlisted_showoff_edges",
           "extender": "ShowOffNVSE Plugin",
           "required_plugins": [
-            "ShowOffNVSE.dll"
+            "ShowOffNVSE.dll",
+            "jip_nvse.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
@@ -839,11 +850,12 @@
           "bucket": "sup_batch7_edges",
           "extender": "SUP NVSE Plugin",
           "required_plugins": [
-            "supNVSE.dll"
+            "supNVSE.dll",
+            "jip_nvse.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
-          "mutates_state": false,
+          "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-sup7.md",
@@ -884,7 +896,8 @@
           "bucket": "sup_batch4_edges",
           "extender": "SUP NVSE Plugin",
           "required_plugins": [
-            "supNVSE.dll"
+            "supNVSE.dll",
+            "jip_nvse.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
@@ -927,7 +940,8 @@
           "bucket": "anh_game_edges",
           "extender": "AnhNVSE",
           "required_plugins": [
-            "AnhNVSE.dll"
+            "AnhNVSE.dll",
+            "jip_nvse.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
@@ -975,11 +989,12 @@
           "bucket": "knvse_anim_edges",
           "extender": "kNVSE",
           "required_plugins": [
-            "kNVSE.dll"
+            "kNVSE.dll",
+            "jip_nvse.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
-          "mutates_state": false,
+          "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-knvse.md",
@@ -1018,11 +1033,12 @@
           "bucket": "knvse_anim_edges",
           "extender": "kNVSE",
           "required_plugins": [
-            "kNVSE.dll"
+            "kNVSE.dll",
+            "jip_nvse.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
-          "mutates_state": false,
+          "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-knvse.md",
@@ -1066,7 +1082,7 @@
           ],
           "optional_extender": false,
           "requires_world": true,
-          "mutates_state": false,
+          "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-knvse.md",
