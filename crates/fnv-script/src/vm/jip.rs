@@ -39,6 +39,10 @@ impl JipStores {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d11_auxvar_eraseall_tests.rs"]
+mod w6d11_auxvar_eraseall_tests;
+
 /// Between a private name and its plugin in a store's key.
 const PRIVATE: char = '\u{1}';
 
@@ -585,6 +589,7 @@ impl Vm<'_, '_> {
                 self.host.show_text(&text, buttons);
                 Ok(Some(XVal::Num(0.0)))
             }
+            "auxiliaryvariableeraseall" => self.aux_erase_all(c).map(Some),
             _ => self.jip_store_function(n, c),
         }
     }
@@ -1181,6 +1186,38 @@ impl Vm<'_, '_> {
             entries.push((XKey::Str(k), XVal::Array(x.new_array(ArrayKind::List, inner))));
         }
         Ok(XVal::Array(x.new_array(ArrayKind::StringMap, entries)))
+    }
+
+    /// AuxiliaryVariableEraseAll class [base]: erase every auxiliary variable on the owner
+    /// matching class 0..=3 (0 permanent-private, 1 temporary-private, 2 permanent-public,
+    /// 3 temporary-public) [documented: AuxiliaryVariableEraseAll; observed:
+    /// `w6d11_36_auxvar_scopes_erase_eraseall_and_namelen`, `ea(st=2,remT=0,remP=1)`].
+    fn aux_erase_all(&mut self, c: &XCall) -> Result<XVal, VmError> {
+        let class = self.jindex(c, 0, 0)?;
+        let Some(o) = self.jowner_opt(c, 1)? else { return Ok(XVal::Num(0.0)) };
+        let plugin = self.host.calling_plugin();
+        let x = self.store()?;
+        let s = if class.rem_euclid(2) == 1 { &mut x.jip_temp } else { &mut x.jip };
+        let private_class = (class & 2) == 0;
+        if let Some(m) = s.aux.get_mut(&o) {
+            m.retain(|k, _| {
+                let (bare, owner) = match k.split_once(PRIVATE) {
+                    Some((b, p)) => (b, Some(p)),
+                    None => (k.as_str(), None),
+                };
+                let public = bare.trim_start_matches('*').starts_with('_');
+                let erase = match &plugin {
+                    None => owner.is_none(),
+                    Some(p) if private_class => !public && owner == Some(p.as_str()),
+                    Some(_) => public,
+                };
+                !erase
+            });
+            if m.is_empty() {
+                s.aux.remove(&o);
+            }
+        }
+        Ok(XVal::Num(0.0))
     }
 
     /// A form argument as a base form: a reference gives its base.
