@@ -305,9 +305,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             Some(XVal::Ref(r)) => r,
             _ => 0,
         }),
+        // Non-WATR forms (e.g. Stimpak) are ignored and leave the previous water type
+        // intact [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 +
+        // JIP LN NVSE 57.30 (5730), 2026-11-25,
+        // `w6d10_12_worldspace_water_type_noise_tex_and_cell_flags_lnam`:
+        // `wWat(wnv=00030009,str=0016663E,set=1,badEqDef=1,badZ=0)`].
         "setworldspacewatertype" => {
-            if let Some(w) = of_sig(g, form(args, 0), b"WRLD") {
-                g.field_overrides.insert((w, "NAM2/".into()), XVal::Ref(form(args, 1).map_or(0, |t| t.0)));
+            if let (Some(w), Some(water)) = (of_sig(g, form(args, 0), b"WRLD"), of_sig(g, form(args, 1), b"WATR")) {
+                g.field_overrides.insert((w, "NAM2/".into()), XVal::Ref(water.0));
             }
             zero
         }
@@ -321,3 +326,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
 fn landscape_texture_set(g: &Game, t: FormId) -> bool {
     g.data.sigs.iter().any(|(&l, s)| s == b"LTEX" && matches!(crate::nvse::record_value(g, l, "TNAM", ""), Some(XVal::Ref(r)) if r == t.0))
 }
+
+#[cfg(test)]
+#[path = "w6d10_worldspace_water_tests.rs"]
+mod w6d10_worldspace_water_tests;

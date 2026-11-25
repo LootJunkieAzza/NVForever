@@ -62,7 +62,7 @@ texture (LTEX TNAM) reads 1, whatever its DNAM; every other texture set reads DN
 | Function | NVForever |
 |---|---|
 | Get/SetWorldspaceNoiseTexture `world [path]` | XNAM, the water noise texture [observed: FreesideWorld, WastelandNV] |
-| Get/SetWorldspaceWaterType `world [water]` | NAM2 [observed] |
+| Get/SetWorldspaceWaterType `world [water]` | NAM2; passing a non-`WATR` form (e.g. `ALCH` Stimpak) is ignored and leaves the previous water type intact [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_12_worldspace_water_type_noise_tex_and_cell_flags_lnam` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_12_worldspace_water_type_noise_tex_and_cell_flags_lnam|wWat(wnv=00030009,str=0016663E,set=1,badEqDef=1,badZ=0)|nt(wn=45->Textures\Water\w6d10_test.dds,cn=0->Textures\Water\w6d10_cell.dds)|lnam(1,1,0->1)|wf(1,0)`; zero DLL, PDB, or third-party source consulted] |
 
 Not built: GetWorldspacePersistentCell (the world index does not keep a worldspace's
 persistent cell yet).
