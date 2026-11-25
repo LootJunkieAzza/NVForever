@@ -593,3 +593,6 @@ An aid item's EFFECTS card (pipboy.md §5) is what using it would do to the play
   owner's screenshot, its record's instant effect 30, which fits a Medicine potency near
   1.33].
 - Without the scripts' game the record's effects are listed as before (no conditions).
+
+### Expiring/dispelling temporary `+Health` buffs at low HP (`w6d7p2_17`)
+- **Living-actor `1.0` HP floor** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p2_17_buffout_low_hp_and_dispel_settled` in `tools/capture/nvse/catalogs/wave6d7_buffout_hp_floor.json`]: dispelling `Buffout` (`+60` temp HP) from a `100`-base-HP actor damaged down to `20.0` HP leaves the actor alive at `1.0` HP rather than `-40.0` (`PROBE|w6d7p2_17_buffout_low_hp_and_dispel_settled|bufLow(hp=160.0->20.0->1.0,dead=0)|wd(0->0)|da(tgh=1,per=6.0->6.0)|rmEnch(s=1,per=6.0)`).

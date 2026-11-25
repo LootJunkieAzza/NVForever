@@ -1137,3 +1137,40 @@ fn grab_triggers_theft_respects_min_value_and_stack_count() {
     assert!(g.grab_triggers_theft(FormId(VAL5), 2));
     assert!(g.grab_triggers_theft(FormId(VAL15), 1));
 }
+
+#[test]
+fn dispelling_temp_health_buff_at_low_hp_floors_living_actor_at_one_hp() {
+    const HP_BUFF_MGEF: u32 = 0x8F0;
+    const HP_BUFF_ALCH: u32 = 0x8F1;
+    let m = mgef(HP_BUFF_MGEF, "BuffHP", 2, 0, 16); // Flags: 2 Recover, Archetype: 0 Value Modifier, AV 16 = Health
+    let a = alch(HP_BUFF_ALCH, "HpBuff", 0, 0, 0.0, vec![effect(HP_BUFF_MGEF, 60, 240, 16)]);
+    let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let bytes = [
+        tes4(),
+        top(b"NPC_", &player),
+        top(b"MGEF", &m),
+        top(b"ALCH", &a),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "HpFloor.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p_fn = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p_fn).unwrap()).unwrap();
+    let table = FunctionTable::load(&p_fn).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let mut g = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig::default());
+    let base_hp = actor_value(&mut g, P, HEALTH).unwrap();
+    g.ingest(P, FormId(HP_BUFF_ALCH));
+    let buffed_hp = actor_value(&mut g, P, HEALTH).unwrap();
+    assert!((buffed_hp - (base_hp + 60.0)).abs() < 1e-6);
+    add_actor_value_damage(&mut g, P, HEALTH, buffed_hp - 20.0);
+    assert!((actor_value(&mut g, P, HEALTH).unwrap() - 20.0).abs() < 1e-6);
+    g.dispel(P, None, |e| e.source == FormId(HP_BUFF_ALCH));
+    assert!(!g.is_dead(P));
+    assert!((actor_value(&mut g, P, HEALTH).unwrap() - 1.0).abs() < 1e-6);
+}

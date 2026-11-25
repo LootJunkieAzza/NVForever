@@ -567,10 +567,20 @@ impl Game<'_> {
 
     fn release_modifier(&mut self, target: FormId, c: &mut ValueChange) {
         if c.applied != 0.0 {
+            let was_hp_buff = c.code == crate::actor_values::HEALTH && c.applied > 0.0 && !self.is_dead(target);
             if c.permanent_pool {
                 let _ = fa::add_modifier(self, target, c.code, -c.applied);
             } else {
                 fa::add_temporary(self, target, c.code, -c.applied);
+            }
+            // Removing a temporary +Health buff floors a living actor at 1.0 HP
+            // [observed 2026-11-25: w6d7p2_17_buffout_low_hp_and_dispel_settled,
+            // bufLow(hp=160.0->20.0->1.0,dead=0)].
+            if was_hp_buff {
+                let hp = fa::actor_value(self, target, crate::actor_values::HEALTH).unwrap_or(0.0);
+                if hp < 1.0 {
+                    fa::restore(self, target, crate::actor_values::HEALTH, 1.0 - hp);
+                }
             }
         }
         c.applied = 0.0;
