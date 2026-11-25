@@ -373,3 +373,21 @@ fn base_copy_facegen_from_gives_a_base_another_npcs_look() {
     assert_eq!(g.face_from_base.get(&FormId(JOE)), Some(&FormId(GHOUL_NPC)));
     assert!(is_race(&mut g, FormId(GHOUL_REF), GHOUL), "the source keeps its own look");
 }
+
+#[test]
+fn format_pronouns_resolve_male_female_neuter_and_null_forms() {
+    let f = fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap();
+    // Joe is male; flip player female via SexChange to cover both sexes plus neuter Knife and null 0.
+    call(&mut g, Some(P), SEX_CHANGE, &[]);
+    let out = run(
+        &mut g,
+        r#"ref rNull
+let rNull := 0
+string_var s
+let s := sv_Construct "m=[%ps/%po/%pp]|f=[%ps/%po/%pp]|n=[%ps/%po/%pp]|z=[%ps/%po/%pp]" Joe Joe Joe player player player Knife Knife Knife rNull rNull rNull
+SetFunctionValue s"#,
+    );
+    assert_eq!(out, fnv_script::vm::XVal::Str("m=[he/him/his]|f=[she/her/her]|n=[it/it/its]|z=[//]".into()));
+}

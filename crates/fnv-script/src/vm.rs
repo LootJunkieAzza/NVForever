@@ -213,6 +213,12 @@ pub trait Host {
     fn form_text(&mut self, _form: u32) -> Option<String> {
         None
     }
+    /// A form's pronoun for `%ps` (`'s'`), `%po` (`'o'`), or `%pp` (`'p'`):
+    /// male `he`/`him`/`his`, female `she`/`her`/`her`, neuter `it`/`it`/`its`, or `""`
+    /// for null/unknown forms [observed: `w6d5p4_format_pronouns`].
+    fn format_pronoun(&mut self, _form: u32, _kind: char) -> &'static str {
+        ""
+    }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
     /// A script asked whether a plugin is there (IsPluginInstalled, GetPluginVersion,
@@ -2604,9 +2610,10 @@ impl Vm<'_, '_> {
                     String::new()
                 }
                 'p' => {
+                    let kind = cs.get(i).copied().map(|ch| ch.to_ascii_lowercase()).unwrap_or('\0');
                     i += 1;
-                    next("form")?;
-                    String::new()
+                    let form = next("form")?.value()?.as_form().unwrap_or(0);
+                    self.host.format_pronoun(form, kind).to_string()
                 }
                 // `%{ … %}`: left out when the value is 0 [documented].
                 '{' => {

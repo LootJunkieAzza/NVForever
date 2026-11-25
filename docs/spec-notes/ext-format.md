@@ -144,3 +144,7 @@ official .esm files, 2026-11-06, issue #1720]: `&PCName;` in topic names (DIAL F
 note texts (2 each); the key codes of the table above (`&sUActn…;`, `&-sUActn…;`,
 `&sKB…;`, `&sMouse…;`, `&sDeviceMouse;`, `&sXB…;`) only in message texts (MESG DESC).
 No INFO prompt or response carries one.
+
+### Wave 6D-5 observation: `%ps` / `%po` / `%pp` pronouns
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_format_pronouns` (`tools/capture/nvse/catalogs/wave6d5_format_pronouns.json`); zero DLL, PDB, or third-party source consulted] `%ps`/`%po`/`%pp` format male NPCs as `he`/`him`/`his`, female NPCs as `she`/`her`/`her`, neuter non-NPC items (`Caps001`) as `it`/`it`/`its`, and null (`0`) as empty strings: `PROBE|w6d5p4_format_pronouns|m=[he/him/his]|f=[she/her/her]|n=[it/it/its]|z=[//]`.

@@ -7748,6 +7748,37 @@ impl Host for Exec<'_, '_> {
         named(f).or_else(|| crate::functions::base_of(g, f).and_then(named))
     }
 
+    fn format_pronoun(&mut self, form: u32, kind: char) -> &'static str {
+        if form == 0 {
+            return "";
+        }
+        let f = FormId(form);
+        let g = &*self.game;
+        let base = crate::functions::base_of(g, f).unwrap_or(f);
+        let orig = g.unclone(base);
+        let is_npc = f == FormId::PLAYER_REF || g.data.sig(orig) == Some(*b"NPC_");
+        if is_npc {
+            let female = g.actor_female(f);
+            match (kind, female) {
+                ('s', false) => "he",
+                ('o', false) => "him",
+                ('p', false) => "his",
+                ('s', true) => "she",
+                ('o', true) => "her",
+                ('p', true) => "her",
+                _ => "",
+            }
+        } else if g.data.sig(orig).is_some() || g.world.peek(f).is_some() {
+            match kind {
+                's' | 'o' => "it",
+                'p' => "its",
+                _ => "",
+            }
+        } else {
+            ""
+        }
+    }
+
     fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
         match (var.on, var.var) {
             (_, VarSlot::Global { global }) => {

@@ -1,0 +1,65 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_format_pronouns",
+  "description": "Wave 6D-5 read-only probe verifying %ps/%po/%pp pronouns for male NPC, female NPC, neuter item, and null form.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d5_format_pronouns",
+      "title": "Format %ps/%po/%pp pronoun specifiers",
+      "extender": "xNVSE / JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d5p4_format_pronouns",
+          "bucket": "vm_formatting",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-format.md",
+          "spec_line": 63,
+          "functions_tested": [
+            "sv_Construct",
+            "PrintToConsole"
+          ],
+          "claim": "Isolated probe for %ps/%po/%pp pronouns on male NPC, female NPC, neuter item, and null form.",
+          "expected": "Male he/him/his, female she/her/her, neuter it/it/its, null empty.",
+          "script_lines": [
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rFemBase = GetFormFromMod \"FalloutNV.esm\" \"104E84\"",
+            "ref rCaps = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rNull = 0",
+            "string_var svP = sv_Construct \"m=[%ps/%po/%pp]|f=[%ps/%po/%pp]|n=[%ps/%po/%pp]|z=[%ps/%po/%pp]\" rDocBase rDocBase rDocBase rFemBase rFemBase rFemBase rCaps rCaps rCaps rNull rNull rNull",
+            "PrintToConsole \"PROBE|w6d5p4_format_pronouns|%z\" svP"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}
