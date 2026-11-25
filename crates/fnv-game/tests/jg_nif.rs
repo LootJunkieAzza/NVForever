@@ -126,15 +126,33 @@ fn particles_properties_and_switches() {
     let edits = g.scene.take_edits();
     assert!(edits.contains(&SceneEdit::Particle { r: P, node: "ParticleEmitter".into(), id: 20, v: 1000.0 }));
     // The properties: read, set, kept over the next tree the engine tells, and queued for the engine.
+    // Glass has NiAlphaProperty flags=4845 (0x12ED: blend=1, src=6, dst=7, test=1, mode=4), threshold=128.
     g.scene.take_edits();
-    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1"), 128.0);
-    assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 1 64"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 0"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1"), 6.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 2"), 7.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 3"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 4"), 4.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 5"), 128.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 6"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 5 64"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 6 1"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.SetStencilPropertyValue \"Glass\" 1 3"), 1.0);
     let prop_edits = g.scene.take_edits();
-    assert!(prop_edits.contains(&SceneEdit::AlphaProperty { r: P, node: "Glass".into(), item: 1, v: 64.0 }));
+    assert!(prop_edits.contains(&SceneEdit::AlphaProperty { r: P, node: "Glass".into(), item: 5, v: 64.0 }));
     assert!(prop_edits.contains(&SceneEdit::StencilProperty { r: P, node: "Glass".into(), item: 1, v: 3.0 }));
     g.scene.set_tree(P, tree());
-    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1") * 10.0 + n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 1"), 643.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 5") * 10.0 + n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 1"), 643.0);
+    // Bitfield masking matches original JG 528 (w6d3_03 / w6d3p2_03b / w6d3p3_03c):
+    // set1(64) masks to 4 bits -> 0; set0(4845) masks to 1 bit -> 1; set3(0) -> 0; set5(77) -> 77.
+    assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 1 64"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 0 4845"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 0"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 3 0"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 3"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 5 77"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 5"), 77.0);
     // The switch shows its second child alone.
     q(&mut g, "PlayerREF.SetSwitchNodeIndex \"Switch\" 1");
     let flags: Vec<(String, usize, u32)> = g.scene.take_edits().into_iter().filter_map(|e| match e {

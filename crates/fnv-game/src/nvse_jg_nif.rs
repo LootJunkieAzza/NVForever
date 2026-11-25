@@ -215,18 +215,27 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             };
             XVal::Num(f64::from(u8::from(ok)))
         }
-        // ---- a shape's alpha and stencil properties: `block item [pc]`, item 0 the flags,
-        // 1 the threshold; 0 the flags, 1 the reference, 2 the mask [hypothesis: the pages
-        // are incomplete; the order of the properties' fields, nif.xml NiAlphaProperty,
-        // NiStencilProperty]. The setters keep the value for the session's reads and queue
+        // ---- a shape's alpha and stencil properties: `block item [pc]`.
+        // NiAlphaProperty uses 6 unpacked items 0..=5 (0 blendEnable, 1 srcBlend,
+        // 2 dstBlend, 3 testEnable, 4 testMode, 5 threshold; item >= 6 returns 0)
+        // [observed: `w6d3_03`, `w6d3p2_03b`, `w6d3p3_03c`, ext-jg-nif-camera.md §1].
+        // NiStencilProperty: 0 the flags, 1 the reference, 2 the mask [hypothesis].
+        // The setters keep the value for the session's reads and queue
         // `SceneEdit::AlphaProperty` / `SceneEdit::StencilProperty` for the engine to apply
         // live to the drawn shape's material (`nvforever::nif_mirror`). 0 without one.
         "getalphapropertyvalue" | "getstencilpropertyvalue" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let item = num(args, 1, -1.0);
             let info = crate::nif_blocks::node_and_children(g, r, &text(args, 0)).and_then(|(n, _)| n.info);
-            let vals: Option<Vec<f32>> = info.and_then(|i| if name == "getalphapropertyvalue" { i.alpha.map(|a| a.to_vec()) } else { i.stencil.map(|s| s.to_vec()) });
-            XVal::Num(vals.and_then(|v| usize::try_from(item as i64).ok().and_then(|k| v.get(k).copied())).map_or(0.0, f64::from))
+            let val = usize::try_from(item as i64).ok().and_then(|k| {
+                let info = info?;
+                if name == "getalphapropertyvalue" {
+                    info.alpha.and_then(|a| crate::nif_blocks::alpha_item_get(a, k))
+                } else {
+                    info.stencil.and_then(|s| s.get(k).copied())
+                }
+            });
+            XVal::Num(val.map_or(0.0, f64::from))
         }
         "setalphapropertyvalue" | "setstencilpropertyvalue" => {
             let Some(r) = on else { return Some(Ok(zero)) };

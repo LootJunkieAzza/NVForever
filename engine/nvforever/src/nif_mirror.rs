@@ -813,14 +813,14 @@ fn mirror_game(
                 });
             }
             // Live NiAlphaProperty override (JohnnyGuitar's SetAlphaPropertyValue):
-            // updates the drawn shape's private NifMaterial `alpha_mode`.
+            // updates the drawn shape's private NifMaterial `alpha_mode` across items 0..=5.
             SceneEdit::AlphaProperty { node, item, v, .. } => {
-                if item >= 2 { continue; }
+                if item >= 6 { continue; }
                 let attached = entity.and_then(|e| nodes.get(e).ok()).and_then(|n| n.5).cloned();
                 let vals = if let Some(attached) = attached {
                     let Some(initial) = attached.source.alpha else { continue };
                     let values = attachment_alpha.entry(entity.expect("attached entity")).or_insert(initial);
-                    values[item] = v;
+                    if !fnv_game::nif_blocks::alpha_item_set(values, item, v) { continue; }
                     *values
                 } else {
                     if view == ModelView::FirstPerson { continue; }
@@ -830,7 +830,7 @@ fn mirror_game(
                     let base = node.split(':').next().unwrap_or(&node);
                     let Some(start) = table.get(&node).or_else(|| table.get(base)).and_then(|p| p.0) else { continue };
                     let vals = alpha_props.entry((r.0, view, node.clone())).or_insert(start);
-                    vals[item] = v;
+                    if !fnv_game::nif_blocks::alpha_item_set(vals, item, v) { continue; }
                     *vals
                 };
                 let Some(e) = entity else { continue };

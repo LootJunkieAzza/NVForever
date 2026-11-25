@@ -559,14 +559,18 @@ fn pre_is_overlay_spawns_transforms_overrides_materials_and_removes() {
         1.0
     );
 
-    // Apply transform + material alpha + NiAlphaProperty (blend=4845) + NiStencilProperty (DRAW_BOTH=3<<10) in one frame.
+    // Apply transform + material alpha + NiAlphaProperty (4845 = 0x12ED: blend=1, src=6, dst=7, test=1, mode=4) + NiStencilProperty (DRAW_BOTH=3<<10) in one frame.
     eval(
         &mut app,
         "ref rCam\n\
          let rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\n\
          rCam.SetNifTrans \"OverlayNode\" 0 7.5 0 2\n\
          rCam.SetMatrPropVal \"OverlayShape\" 7 0.35\n\
-         rCam.SetAlphaPropertyValue \"OverlayShape\" 0 4845\n\
+         rCam.SetAlphaPropertyValue \"OverlayShape\" 0 1\n\
+         rCam.SetAlphaPropertyValue \"OverlayShape\" 1 6\n\
+         rCam.SetAlphaPropertyValue \"OverlayShape\" 2 7\n\
+         rCam.SetAlphaPropertyValue \"OverlayShape\" 3 1\n\
+         rCam.SetAlphaPropertyValue \"OverlayShape\" 4 4\n\
          rCam.SetStencilPropertyValue \"OverlayShape\" 0 3072",
     );
     app.update();
@@ -582,7 +586,7 @@ fn pre_is_overlay_spawns_transforms_overrides_materials_and_removes() {
     assert_eq!(node_tf.translation, Vec3::new(0.0, 7.5, 0.0));
 
     // Shape received ONE private NifMaterial copy; shared original asset stays untouched.
-    // Flags 4845 (0x12ED, blend+test) with the initial threshold 128 (>= BLEND_TEST_CUT) maps to Mask(128.5/255).
+    // blendEnable=1 + testEnable=1 with the initial threshold 128 (>= BLEND_TEST_CUT) maps to Mask(128.5/255).
     let new_mat = app.world().get::<MeshMaterial3d<NifMaterial>>(shape_e).unwrap().0.clone();
     assert_ne!(new_mat, orig_mat, "script edits must clone-on-write a private material");
     {
@@ -598,12 +602,12 @@ fn pre_is_overlay_spawns_transforms_overrides_materials_and_removes() {
         assert!(!shared.base.double_sided);
     }
 
-    // Lowering NiAlphaProperty threshold (item 1) to 0 switches the same private copy to AlphaMode::Blend.
+    // Lowering NiAlphaProperty threshold (item 5) to 0 switches the same private copy to AlphaMode::Blend.
     eval(
         &mut app,
         "ref rCam\n\
          let rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\n\
-         rCam.SetAlphaPropertyValue \"OverlayShape\" 1 0",
+         rCam.SetAlphaPropertyValue \"OverlayShape\" 5 0",
     );
     app.update();
     assert_eq!(
@@ -625,9 +629,16 @@ fn pre_is_overlay_spawns_transforms_overrides_materials_and_removes() {
     assert_eq!(
         num(
             &mut app,
-            "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (rCam.GetAlphaPropertyValue \"OverlayShape\" 0)"
+            "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (rCam.GetAlphaPropertyValue \"OverlayShape\" 0) * 10 + (rCam.GetAlphaPropertyValue \"OverlayShape\" 3)"
         ),
-        4845.0
+        11.0
+    );
+    assert_eq!(
+        num(
+            &mut app,
+            "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (rCam.GetAlphaPropertyValue \"OverlayShape\" 5)"
+        ),
+        0.0
     );
     assert_eq!(
         num(
