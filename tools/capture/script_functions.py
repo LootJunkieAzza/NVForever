@@ -266,7 +266,7 @@ PARAM_FIXES = {
     # index` compiled in the game and replaced the package at the index].
     "SetNthPackage": [{"name": "package", "type": "form", "kind": "form"},
                       {"name": "index", "type": "int", "kind": "int"}],
-    # [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ttw_nvse.dll 333,
+    # [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + ttw_nvse.dll 333,
     # `w6d4p2_23_ttw_fixed` (`wave6d4_ttw_weapon_skill.json`): 1-arg call fails to compile;
     # 0-arg `Player.TTW_GetEquippedWeaponSkill` returns the equipped weapon's skill AV (41)].
     "TTW_GetEquippedWeaponSkill": [],

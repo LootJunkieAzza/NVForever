@@ -669,13 +669,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.small.crc_cache.insert(k, v);
             XVal::Num(v)
         }
-        // 0-arg getter returning the calling actor's (else the player's) equipped
-        // weapon's skill actor value code (WEAP `DNAM/skill`, e.g. 41 for Guns)
-        // [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New
-        // Vegas 1.4.0.525 + xNVSE 6.4.9 + TTW NVSE 333, `w6d4p2_23_ttw_fixed`
+        // 0-arg getter returning the calling actor's equipped weapon's skill actor value
+        // code (WEAP `DNAM/skill`, e.g. 41 for Guns) [observed: 2026-11-25,
+        // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // JIP LN 57.30 + TTW NVSE 333, `w6d4p2_23_ttw_fixed`
         // (`wave6d4_ttw_weapon_skill.json`): `crc(eq=1,nz=1,miss=-1)|pl(sz=10,t0=[Array],sub=3,v0=[none])|skGun=41|rf=0`;
-        // 1-arg calls fail runtime compilation]. Returns 0 when unarmed or missing
-        // [design: avoids `ttw_nvse.dll 333` null-weapon `0xC0000005` crash].
+        // 1-arg calls fail runtime compilation]. Bare calls defaulting to the player
+        // (`subject.unwrap_or(FormId::PLAYER_REF)`) remain [hypothesis]; returning 0 when
+        // unarmed or missing is [design: avoids `ttw_nvse.dll 333` null-weapon `0xC0000005` crash].
         "ttw_getequippedweaponskill" => {
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let w = crate::functions::items::equipped_weapon(g, a);
