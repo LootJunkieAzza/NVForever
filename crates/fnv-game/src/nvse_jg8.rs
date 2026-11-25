@@ -539,8 +539,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }))
         }
         // `path rOut gOut bOut x y` (the VM passes path, x, y) [documented]; returns 0
-        // and leaves caller output variables untouched when the file or pixel is missing
-        // [observed: w6d3p3_13_get_pixel_from_bmp_missing_only].
+        // and leaves caller output variables untouched for missing files
+        // (`Data\W6D3_NoSuch.bmp`) [observed: w6d3p3_13_get_pixel_from_bmp_missing_only];
+        // preserving caller output variables for unreadable existing BMPs or out-of-range
+        // pixel coordinates is [hypothesis] / [design].
         "getpixelfrombmp" => {
             let px = text(args, 0).and_then(|p| game_file(&p)).and_then(|b| bmp_pixel(&b, num(args, 1, 0.0) as i64, num(args, 2, 0.0) as i64));
             return Some(Ok(match px {
