@@ -261,7 +261,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             yes(true)
         }
         // ref.PlaySound3DFromPath path [fadeTime] [isVoice] [shouldLoop] [documented];
-        // returns 1 even on bare calls without a calling reference [observed: w6d3_39: bare=1].
+        // returns 1 even on bare calls without a calling reference [observed: w6d3_39: bare=1];
+        // playing nothing on bare calls while still returning 1 is [hypothesis].
         "playsound3dfrompath" => {
             let Some(at) = subject else { return Some(Ok(yes(true))) };
             let Some(p) = text(args, 0).as_deref().and_then(data_path).filter(|p| crate::mod_files::exists(p)) else { return Some(Ok(yes(true))) };
@@ -271,15 +272,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             yes(true)
         }
         // StopSoundFromPath path [fadeTime]: "all instances" of the file [documented].
-        // 0, with the file just played [observed: the original, 2026-11-10; hypothesis:
-        // it returns nothing]; the 3D one alike [hypothesis].
+        // 0, with the file just played [observed: the original, 2026-11-10; w6d3_39: path=1/0;
+        // hypothesis: it returns nothing].
         "stopsoundfrompath" => {
             if let Some(p) = text(args, 0).as_deref().and_then(data_path) {
                 g.stop_paths(num(args, 1, 0.0), |s| s.path == p);
             }
             yes(false)
         }
-        // ref.StopSound3DFromPath path [fadeTime]: those from that source [documented].
+        // ref.StopSound3DFromPath path [fadeTime]: those from that source [documented];
+        // returns 0 on directory prefix `"Data\sound\fx\ui\"` [observed: w6d3_39: sPfx=0];
+        // returning 0 on other paths is [hypothesis].
         "stopsound3dfrompath" => {
             if let (Some(at), Some(p)) = (subject, text(args, 0).as_deref().and_then(data_path)) {
                 g.stop_paths(num(args, 1, 0.0), |s| s.path == p && s.at == Some(at));
@@ -287,7 +290,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             yes(false)
         }
         // ref.PlaySoundFade sound fadeTime: at the calling reference, the player without
-        // one [documented]; rejects non-SOUN forms returning 0 [observed: w6d3_39: fade=1/0].
+        // one [documented]; rejects non-SOUN forms returning 0 [observed: w6d3_39: fade=1/0];
+        // resolving TempCloneForm sound records via `g.unclone(s)` is [design].
         "playsoundfade" => {
             let Some(sound) = form(args, 0).filter(|&s| g.data.sig(g.unclone(s)) == Some(*b"SOUN")) else { return Some(Ok(yes(false))) };
             let at = subject.unwrap_or(FormId::PLAYER_REF);

@@ -125,8 +125,8 @@ fn sounds_from_files_and_holotapes() {
     assert_eq!(n(&mut g, r#"PlaySoundFile "Data\Sound\fx\nosuch.wav""#), 1.0);
     assert_eq!(n(&mut g, r#"PlaySoundFile "..\escape.wav""#), 1.0);
     assert_eq!(g.other.jg9.path_sounds.len(), before_paths);
-    // StopSoundFile returns 1 even when idle; PlaySound3DFromPath bare returns 1;
-    // PlaySoundFade rejects non-SOUN forms returning 0 [observed: w6d3_39].
+    // StopSoundFile returns 1 even when idle; bare PlaySound3DFromPath returns 1 (playing
+    // nothing [hypothesis]); PlaySoundFade rejects non-SOUN forms returning 0 [observed: w6d3_39].
     assert_eq!(n(&mut g, "StopSoundFile"), 1.0);
     assert_eq!(n(&mut g, "StopSoundFile"), 1.0);
     assert_eq!(n(&mut g, r#"PlaySound3DFromPath "Data\Sound\fx\test.wav""#), 1.0);
