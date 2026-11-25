@@ -473,3 +473,11 @@ for each effect, and how it fits a long description.
   `Game::weapon_model_changes` / `Game::weapon_model_stamp` (§8) [design]. Engine playback
   consumption over `WeaponFx` and inventory pickup/putdown audio is documented in
   `docs/spec-notes/weapon-sound-bridge.md`.
+
+### `SetEquippedWeaponModFlags` out-of-range bounds [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p2_29_set_mod_flags_edges` (`tools/capture/nvse/catalogs/wave6d6_set_mod_flags_bounds.json`)]: `SetEquippedWeaponModFlags` rejects values outside `0..=7` (`15`, `-1`), preserving the previous mask `5` instead of masking with `& 7`; `7` still applies even on a weapon without mods (`kn7=7`):
+
+```text
+PROBE|w6d6p2_29_set_mod_flags_edges|10mm(0,5,15,-1)=0,5,5,5|kn7=7
+```

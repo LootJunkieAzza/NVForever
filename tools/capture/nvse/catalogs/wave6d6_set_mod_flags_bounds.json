@@ -1,0 +1,99 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_set_mod_flags_bounds",
+  "description": "Wave 6D-6 read-only probe verifying SetEquippedWeaponModFlags ignores values outside 0..=7 and preserves existing flags.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_set_mod_flags_bounds",
+      "title": "SetEquippedWeaponModFlags 0..=7 bounds check",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p2_29_set_mod_flags_edges",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 40,
+          "functions_tested": [
+            "SetEquippedWeaponModFlags",
+            "GetEquippedWeaponModFlags"
+          ],
+          "claim": "SD-09: Verify SetEquippedWeaponModFlags with 0, 5, 15, -1 on equipped 10mm Pistol and 7 on 0-slot WeapKnife after equip settles.",
+          "expected": "Record exact GetEquippedWeaponModFlags readback.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.EquipItem r10 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_10",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+                "Player.SetEquippedWeaponModFlags 0",
+                "Player.AuxVarSetFlt \"*p229_m0\" (Player.GetEquippedWeaponModFlags)",
+                "Player.SetEquippedWeaponModFlags 5",
+                "Player.AuxVarSetFlt \"*p229_m5\" (Player.GetEquippedWeaponModFlags)",
+                "Player.SetEquippedWeaponModFlags 15",
+                "Player.AuxVarSetFlt \"*p229_m15\" (Player.GetEquippedWeaponModFlags)",
+                "Player.SetEquippedWeaponModFlags -1",
+                "Player.AuxVarSetFlt \"*p229_mneg\" (Player.GetEquippedWeaponModFlags)",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.AddItemHealthPercent rKn 1 1.0",
+                "Player.EquipItem rKn 0 1"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+                "Player.SetEquippedWeaponModFlags 7",
+                "int iKnM = Player.GetEquippedWeaponModFlags",
+                "Player.UnequipItem rKn 0 1",
+                "Player.RemoveItem rKn 1 1",
+                "int iM0 = Player.AuxVarGetFlt \"*p229_m0\"",
+                "int iM5 = Player.AuxVarGetFlt \"*p229_m5\"",
+                "int iM15 = Player.AuxVarGetFlt \"*p229_m15\"",
+                "int iMNeg = Player.AuxVarGetFlt \"*p229_mneg\"",
+                "PrintToConsole \"PROBE|w6d6p2_29_set_mod_flags_edges|10mm(0,5,15,-1)=%g,%g,%g,%g|kn7=%g\" iM0 iM5 iM15 iMNeg iKnM"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

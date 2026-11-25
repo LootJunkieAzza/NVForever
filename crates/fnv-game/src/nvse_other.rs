@@ -845,7 +845,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // equipped weapon (1, 2, 4 for mods 1–3).
         "setequippedweaponmodflags" => {
             let a = subject.unwrap_or(FormId(0));
-            let m = (num(args, 0, 0.0) as i64 as u32 & 7) as u8;
+            // Values outside 0..=7 are ignored, preserving existing mod flags
+            // [observed: w6d6p2_29_set_mod_flags_edges].
+            let raw = num(args, 0, -1.0);
+            if !raw.is_finite() || raw.fract() != 0.0 || !(0.0..=7.0).contains(&raw) {
+                return Some(Ok(zero));
+            }
+            let m = raw as u8;
             if let Some(w) = crate::functions::items::equipped_weapon(g, a) {
                 if let Ok(inv) = g.world.inventory_mut(a) {
                     let worn = inv.groups().find(|(i, e, _)| *i == w && e.equipped).map(|(_, e, _)| e);
