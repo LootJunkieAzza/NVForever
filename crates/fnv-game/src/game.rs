@@ -8226,6 +8226,11 @@ impl Host for Exec<'_, '_> {
                 action_ref: self.ctx.action_ref, quest: self.ctx.quest, inst: None, in_condition: false };
             return functions::refs::call_source(self.game, &source_ctx, on, name, args);
         }
+        if functions::objects::handles_source(name) {
+            let source_ctx = Ctx { unit: self.unit.shared_key().clone(), opcode: 0, on: None, self_ref: self.ctx.self_ref,
+                action_ref: self.ctx.action_ref, quest: self.ctx.quest, inst: None, in_condition: false };
+            return functions::objects::call_source(self.game, &source_ctx, on, name, args);
+        }
         let on = on.and_then(|v| v.as_form()).map(FormId);
         let ctx = self.ctx;
         // Who calls: DisablePlayerControlsAlt keeps its locks by plugin, GetNthExplicitRef

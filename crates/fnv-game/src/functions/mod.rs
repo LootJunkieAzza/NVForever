@@ -796,8 +796,6 @@ pub fn console_registry() -> &'static [(&'static str, Kind)] {
         ("ToggleLookIK", Impl(toggles::toggle_look_ik)),
         ("ToggleEmotions", Impl(toggles::toggle_emotions)),
         ("ToggleWireframe", Stub("rendering (wireframe: the renderer does not ask the GPU for its line mode)")),
-        // Scale adjustment (catalogue lists ModScale without a vanilla bytecode opcode).
-        ("ModScale", Impl(objects::mod_scale)),
     ]
 }
 
