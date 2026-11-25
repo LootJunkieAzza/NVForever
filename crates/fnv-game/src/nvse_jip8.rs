@@ -445,14 +445,20 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "addbaseeffectlisteffect" | "removebaseeffectlisteffect" => {
             let (Some(e), Some(a)) = (of_sig(g, form(args, 0), b"SPEL"), actor_at(g, 1)) else { return Some(Ok(zero)) };
             let mut list = g.actor_effects(a);
+            let mut xlist = g.generic_list(6, a).unwrap_or_default();
             if name == "addbaseeffectlisteffect" {
                 if !list.contains(&e) {
                     list.insert(0, e);
                 }
+                if !xlist.contains(&e) {
+                    xlist.insert(0, e);
+                }
             } else {
                 list.retain(|&x| x != e);
+                xlist.retain(|&x| x != e);
             }
             g.other.jip8.actor_effects.insert(a, list);
+            g.other.generic.insert((6, a), xlist);
             zero
         }
         // `creature bpd`: CREA PNAM [documented: SetBodyPartData; the field: xEdit CREA].
