@@ -329,6 +329,10 @@ impl Game<'_> {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d12_proj_expl_clear_tests.rs"]
+mod w6d12_proj_expl_clear_tests;
+
 fn is_actor_ref(g: &Game, r: FormId) -> bool {
     r == FormId::PLAYER_REF
         || crate::functions::base_of(g, r)
@@ -979,9 +983,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "getprojectileexplosion" => XVal::Ref(form(args, 0).and_then(|f| g.projectile_traits(f)).and_then(|t| t.explosion).map_or(0, |e| e.0)),
         "setprojectileexplosion" => {
-            if let (Some(f), Some(e)) = (form(args, 0), form(args, 1)) {
-                if g.data.sig(g.unclone(f)) == Some(*b"PROJ") && g.data.sig(g.unclone(e)) == Some(*b"EXPL") {
-                    g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(e.0));
+            if let Some(f) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"PROJ")) {
+                if args.len() < 2 {
+                    g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(0));
+                } else if let Some(e) = form(args, 1) {
+                    let next = if g.data.sig(g.unclone(e)) == Some(*b"EXPL") { e.0 } else { 0 };
+                    g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(next));
                 }
             }
             zero
