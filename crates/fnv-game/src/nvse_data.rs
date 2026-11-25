@@ -115,9 +115,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // original's name, type and fields] a new form standing for the original, for the
         // session.
         "tempcloneform" => {
-            // [documented: TempCloneForm] An omitted form uses the caller's base;
-            // explicit null retains its existing no-clone result.
-            let original = if args.is_empty() { subject.and_then(|r| crate::functions::base_of(g, r)) } else { form(args, 0) };
+            // [documented: TempCloneForm; observed: `w6d5p3_27_tempcloneform_caller_clean`]
+            // An explicit non-null form overrides the calling reference; an omitted or
+            // explicit null (`0`) form falls back to the calling reference's base.
+            let original = form(args, 0).or_else(|| subject.and_then(|r| crate::functions::base_of(g, r)));
             let Some(f) = original else { return Some(Ok(XVal::Ref(0))) };
             let local = args.get(1).is_some_and(XVal::truthy);
             let id = match g.next_clone_identity(local) {
