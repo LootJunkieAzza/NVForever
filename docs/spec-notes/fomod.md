@@ -59,6 +59,9 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
 - An installer's pictures are shown only up to 8 MiB a file and 2048 pixels each way (by the
   picture's header), and up to 256 MiB for all of them once decoded; a picture past that is not
   shown. They are let go when the installer closes [design; `image_fits`, `forget_images`].
+- The mod's folder is named from `moduleName` (else the archive's name): its last path part,
+  without control characters (a line break would split a line of the mod list) or the
+  characters Windows does not allow in names [design; `clean_name`].
 - A C# script installer (`fomod/script.cs`) is code "that gets compiled on the user's system and
   run in the context of the mod manager" [documented: S2, "FOMOD C#"]. The launcher never
   compiles or runs one. An archive with only a script is refused; with a `ModuleConfig.xml` too,

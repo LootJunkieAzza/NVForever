@@ -1393,7 +1393,9 @@ fn bounded(root: &Path, path: &Path) -> Result<(), String> {
 
 pub fn clean_name(name: &str) -> Result<String, String> {
     let last = name.split(['/', '\\']).rev().find(|s| !s.is_empty()).unwrap_or("");
-    let cleaned: String = last.chars().filter(|c| !matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*' | '\0')).collect();
+    // Control characters go too: a line break in a folder name would split its line in the
+    // mod list (`mod-order.txt`, a profile's `modlist.txt`).
+    let cleaned: String = last.chars().filter(|c| !c.is_control() && !matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*')).collect();
     let cleaned = cleaned.trim().to_string();
     if cleaned.is_empty() || cleaned.starts_with('.') || cleaned == ".." {
         return Err("That name cannot be used.".into());
@@ -3101,6 +3103,23 @@ mod tests {
         assert!(!temp.exists(), "the temporary folder is gone");
         assert_eq!(std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777, 0o444, "the link's target was not touched");
         assert_eq!(std::fs::read(&outside).unwrap(), b"keep");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn an_installer_name_with_a_line_break_becomes_one_folder_name() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-name-break-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let root = t.join("Broken");
+        std::fs::create_dir_all(root.join("fomod")).unwrap();
+        std::fs::write(root.join("a.esp"), b"TES4").unwrap();
+        let xml = r#"<config><moduleName>Line&#10;-Two&#9;</moduleName><requiredInstallFiles><file source="a.esp" destination="a.esp"/></requiredInstallFiles></config>"#;
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), xml).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Plan(plan) = stage(&root, facts).unwrap() else { panic!("an installer with no choice is a plan") };
+        // A line break would have made `-Two` a second, turned-off row of the mod list.
+        assert_eq!(plan.name, "Line-Two");
+        assert_eq!(clean_name("\n\t"), Err("That name cannot be used.".to_string()));
         let _ = std::fs::remove_dir_all(&t);
     }
 }
