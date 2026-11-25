@@ -56,9 +56,10 @@ without the launcher is the same as before.
 - **Mods**: NVForever's own `plugins.txt` (turn on/off with the box or a click on the name; drag a row anywhere but its box to move it, with a gold line where it lands; FalloutNV.esm stays first). A "New game start" card (`src/start.rs`, #2945) has the
   start quest and intro film as free text with hints (`[General] sCharGenQuest`, `sIntroMovie`
   of the INI, written by its Save start button over the file as it is on disk; an empty field
-  takes its line out, the game's default; "No intro film" writes `sIntroMovie=`). While the
-  load order has `TaleOfTwoWastelands.esm`, a button fills in TTW's values (`001FFFF8`, no
-  film), and the card warns while TTW is off in the list. Opening the page runs
+  takes its line out, the game's default; "No intro film" writes `sIntroMovie=`). A **TTW on/off**
+  switch fills in TTW's values (`001FFFF8`, no film) or the base game's (`00102037` (VCG00),
+  `FNVIntro.bik`; docs/spec-notes/new-game-start.md), and the card warns while the start quest is TTW's
+  and `TaleOfTwoWastelands.esm` is off or not in the load order (`start::ttw_missing`, #3229). Opening the page runs
   `fnv_install::plugins::sync`, as the game's start does, so new plugins get their lines.
 - **Game folder**: `[Game] Path` with the required-files check, the program to start
   (`[Launcher] Exe`, else `nvforever(.exe)` beside the launcher, else this checkout's
