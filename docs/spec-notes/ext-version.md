@@ -31,9 +31,12 @@ from a cited document or from compiling our own test scripts with xNVSE,
 - **A version check only works in a script that uses nothing else from the extender**:
   without the extender, a script using any extender feature fails before the check runs
   [documented: GetNVSEVersion, "Usage Warning"].
-- How xNVSE 6.4.9 splits into these three numbers (6 / 4 / 9?): open [hypothesis: the
-  three getters map to the three parts of the dotted version]. A probe printing the three
-  under the owner's xNVSE settles it.
+- xNVSE 6.4.9 splits into `6 / 4 / 9` across `GetNVSEVersion`, `GetNVSERevision`, and
+  `GetNVSEBeta` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-23,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole`
+  probe `core_01_nvse_version_parts` (`tools/capture/nvse/catalogs/wave4a_extenders.json`,
+  #3679, printing `GetNVSEVersion`, `GetNVSERevision`, `GetNVSEBeta`):
+  `PROBE|core_01_nvse_version_parts|6,4,9`; no DLL or source consulted].
 
 ## 2. Extender plugins
 
