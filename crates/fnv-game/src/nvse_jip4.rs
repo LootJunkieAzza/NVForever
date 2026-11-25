@@ -442,10 +442,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // Combat styles [documented: Get/SetCombatStyleFlag, the flag IDs are CSTD flags'
         // bits as the schema names them; Get/SetCombatStyleTraitNumeric].
-        "getcombatstyleflag" => yes((0..32).contains(&k) && combat_style_flags(g, f0) & (1u64 << k) != 0),
+        // CSTD flags are strictly 16-bit (bits 0..=15; bits >= 16 ignored/read 0)
+        // [observed: w6d6_37_combat_style_flags_and_bounds, w6d6p2_37b_csty_flag_bit16_cutoff].
+        "getcombatstyleflag" => yes((0..16).contains(&k) && combat_style_flags(g, f0) & (1u64 << k) != 0),
         "setcombatstyleflag" => {
             let on = num(args, 2, 0.0) != 0.0;
-            if (0..32).contains(&k) && g.edit_combat_style(f0, |style| write_combat_style_flag(style, k, on)) {
+            if (0..16).contains(&k) && g.edit_combat_style(f0, |style| write_combat_style_flag(style, k, on)) {
                 let now = combat_style_flags(g, f0);
                 let new = if on { now | (1u64 << k) } else { now & !(1u64 << k) };
                 set(g, f0, "CSTD", "flags", XVal::Num(new as f64));

@@ -177,7 +177,9 @@ fn every_raw_trait_and_flag_copies_and_every_consumed_typed_field_uses_its_own_i
         let expected = if index == 9 { 2.0 } else { index as f64 + 0.25 };
         assert_eq!(number(&mut g, &format!("GetCombatStyleTraitNumeric (GetModLocalData \"all\") {index}")), expected, "raw trait {index}");
     }
-    for bit in 0..32 { assert_eq!(number(&mut g, &format!("GetCombatStyleFlag (GetModLocalData \"all\") {bit}")), 1.0, "raw flag {bit}"); }
+    // CSTD flags are strictly 16-bit: bits 0..16 persist and copy, bits 16..32 read 0 [observed: w6d6_37, w6d6p2_37b].
+    for bit in 0..16 { assert_eq!(number(&mut g, &format!("GetCombatStyleFlag (GetModLocalData \"all\") {bit}")), 1.0, "raw flag {bit}"); }
+    for bit in 16..32 { assert_eq!(number(&mut g, &format!("GetCombatStyleFlag (GetModLocalData \"all\") {bit}")), 0.0, "upper bit {bit} ignored"); }
     let expected = CombatStyleDef {
         cover_search_radius: 0.25, take_cover_chance: 1.25, wait_timer: (2.25, 3.25), wait_to_fire_timer: (4.25, 5.25), fire_timer: (6.25, 7.25),
         range_mult: (8.25, 10.25), weapon_restrictions: 2, max_targeting_fov: 11.25, combat_radius: 12.25, semi_auto_delay_mult: (13.25, 14.25),
@@ -191,9 +193,9 @@ fn every_raw_trait_and_flag_copies_and_every_consumed_typed_field_uses_its_own_i
         ignore_threats: true, ignore_damaging_self: true, ignore_damaging_group: true, ignore_damaging_spectators: true, cannot_use_stealthboy: true,
     };
     assert_eq!(style(&g, ACTOR), expected);
-    query(&mut g, "SetCombatStyleTraitNumeric OwnedStyle 40 0\nSetCombatStyleFlag OwnedStyle 31 0");
+    query(&mut g, "SetCombatStyleTraitNumeric OwnedStyle 40 0\nSetCombatStyleFlag OwnedStyle 15 0");
     assert_eq!(number(&mut g, "GetCombatStyleTraitNumeric (GetModLocalData \"all\") 40"), 40.25, "the unconsumed raw trait is copied too");
-    assert_eq!(number(&mut g, "GetCombatStyleFlag (GetModLocalData \"all\") 31"), 1.0);
+    assert_eq!(number(&mut g, "GetCombatStyleFlag (GetModLocalData \"all\") 15"), 1.0);
     let mut clear_flags = String::from("OwnedActor.SetCombatStyle OwnedStyle\n");
     for bit in 0..32 { clear_flags.push_str(&format!("SetCombatStyleFlag OwnedStyle {bit} 0\n")); }
     query(&mut g, &clear_flags);

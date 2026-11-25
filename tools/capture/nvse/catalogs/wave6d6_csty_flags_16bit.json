@@ -1,0 +1,117 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_csty_flags_16bit",
+  "description": "Wave 6D-6 read-only probes verifying Get/SetCombatStyleFlag enforces a 16-bit (0..=15) cutoff.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_csty_flags_16bit",
+      "title": "Get/SetCombatStyleFlag 16-bit cutoff",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_37_combat_style_flags_and_bounds",
+          "bucket": "combat_style",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-style-session.md",
+          "spec_line": 44,
+          "functions_tested": [
+            "GetCombatStyleFlag",
+            "SetCombatStyleFlag",
+            "TempCloneForm"
+          ],
+          "claim": "SD-16: Verify GetCombatStyleFlag and SetCombatStyleFlag across bits 0..=8, high bits 9/15/31, OOB (-1, 32), non-CSTY form, and TempCloneForm CSTY isolation.",
+          "expected": "Record flag readback on stock vs cloned CSTY and whether high bits 9..31 roundtrip or are masked.",
+          "script_lines": [
+            "ref rNcr = GetFormFromMod \"FalloutNV.esm\" \"137AC1\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rCl = TempCloneForm rNcr",
+            "int iF0 = GetCombatStyleFlag rCl 0",
+            "int iF8 = GetCombatStyleFlag rCl 8",
+            "SetCombatStyleFlag rCl 0 1",
+            "SetCombatStyleFlag rCl 8 1",
+            "SetCombatStyleFlag rCl 9 1",
+            "SetCombatStyleFlag rCl 15 1",
+            "SetCombatStyleFlag rCl 31 1",
+            "int iA0 = GetCombatStyleFlag rCl 0",
+            "int iA8 = GetCombatStyleFlag rCl 8",
+            "int iA9 = GetCombatStyleFlag rCl 9",
+            "int iA15 = GetCombatStyleFlag rCl 15",
+            "int iA31 = GetCombatStyleFlag rCl 31",
+            "int iON = GetCombatStyleFlag rCl -1",
+            "int iO32 = GetCombatStyleFlag rCl 32",
+            "int iNon = GetCombatStyleFlag r10 0",
+            "int iSt8 = GetCombatStyleFlag rNcr 8",
+            "SetCombatStyleFlag rCl 8 0",
+            "int iClr8 = GetCombatStyleFlag rCl 8",
+            "PrintToConsole \"PROBE|w6d6_37_combat_style_flags_and_bounds|init(0=%g,8=%g)|set(0=%g,8=%g,9=%g,15=%g,31=%g)|oob(-1=%g,32=%g,non=%g)|st8=%g|clr8=%g\" iF0 iF8 iA0 iA8 iA9 iA15 iA31 iON iO32 iNon iSt8 iClr8"
+          ]
+        },
+        {
+          "id": "w6d6p2_37b_csty_flag_bit16_cutoff",
+          "bucket": "combat_style",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-style-session.md",
+          "spec_line": 44,
+          "functions_tested": [
+            "GetCombatStyleFlag",
+            "SetCombatStyleFlag",
+            "TempCloneForm"
+          ],
+          "claim": "SD-16: Verify exact bit cutoff (bits 14, 15, 16, 17, 31) on Get/SetCombatStyleFlag.",
+          "expected": "Confirm whether CSTD flags is 16-bit (0..=15) vs 32-bit.",
+          "script_lines": [
+            "ref rNcr = GetFormFromMod \"FalloutNV.esm\" \"137AC1\"",
+            "ref rCl = TempCloneForm rNcr",
+            "SetCombatStyleFlag rCl 14 1",
+            "SetCombatStyleFlag rCl 15 1",
+            "SetCombatStyleFlag rCl 16 1",
+            "SetCombatStyleFlag rCl 17 1",
+            "SetCombatStyleFlag rCl 31 1",
+            "int i14 = GetCombatStyleFlag rCl 14",
+            "int i15 = GetCombatStyleFlag rCl 15",
+            "int i16 = GetCombatStyleFlag rCl 16",
+            "int i17 = GetCombatStyleFlag rCl 17",
+            "int i31 = GetCombatStyleFlag rCl 31",
+            "PrintToConsole \"PROBE|w6d6p2_37b_csty_flag_bit16_cutoff|b(14,15,16,17,31)=%g,%g,%g,%g,%g\" i14 i15 i16 i17 i31"
+          ]
+        }
+      ]
+    }
+  ]
+}
