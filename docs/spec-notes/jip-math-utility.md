@@ -82,3 +82,7 @@ ClearJIPSavedData, SetOptionalPatch (GetOptionalPatch reads JIP's optional game 
 which are also set in `jip_nvse.ini` [documented: SetOptionalPatch; GetOptionalPatch]),
 SetGameDifficulty, ToggleImmortalMode, SetLocalGravityVector and the other setters in
 these families are documented here only when a later task needs them.
+
+## 6. xNVSE `fmod` signed-divisor and zero-divisor semantics
+
+- `fmod x n [offset]` uses floored modulo matching the sign of `n` (`fmod 10 -3 0 = -2.0`, `fmod -10 -3 0 = -1.0`, `fmod -10 3 0 = 2.0`, `fmod 370 360 -180 = 10.0`, `fmod -190 360 -180 = 170.0`) and returns `NaN` (`-nan(ind)`) without aborting when `n == 0` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + SUP NVSE Plugin 855, 10 official base masters, read-only `PrintToConsole` probe `w6d11_42_fmod_floor_ceil_and_sup_round_edges` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `fm(1.0,2.0,-2.0,-1.0,359.0,10.0,170.0,1.5)|fm0(st=2,v=-nan(ind))`; no DLL or source consulted].

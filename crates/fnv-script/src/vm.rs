@@ -3084,11 +3084,20 @@ impl Vm<'_, '_> {
                 let (a, b) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
                 XVal::Num(a.powf(b))
             }
-            // [documented: fmod] x modulo n, plus the offset.
+            // [documented: fmod; observed: `w6d11_42_fmod_floor_ceil_and_sup_round_edges`,
+            // `fm(1.0,2.0,-2.0,-1.0,359.0,10.0,170.0,1.5)|fm0(st=2,v=-nan(ind))`] floored
+            // modulo (result shares divisor sign) plus offset; divisor 0 returns NaN.
             "fmod" => {
                 let (x, m) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
                 let off = opt(self, 2)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
-                XVal::Num(if m == 0.0 { 0.0 } else { (x - off).rem_euclid(m) + off })
+                let r = if m == 0.0 {
+                    f64::NAN
+                } else {
+                    let rem = (x - off) % m;
+                    let floored = if (rem > 0.0 && m < 0.0) || (rem < 0.0 && m > 0.0) { rem + m } else { rem };
+                    floored + off
+                };
+                XVal::Num(r)
             }
             // [documented: Rand] a number from the minimum up to the maximum [observed: Rand 5,
             // 5 gives 5].
@@ -3731,6 +3740,10 @@ fn as_operand(v: &XVal, truthy: bool) -> f64 {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "w6d11_fmod_tests.rs"]
+mod w6d11_fmod_tests;
 
 /// A binary operator of the extended expressions [documented: NVSE Expressions: `+` adds
 /// numbers or joins strings; strings compare without regard to case for `<` `>` `<=`
