@@ -1261,15 +1261,17 @@ flag!(ignore_crime, get_ignore_crime, ignore_crime);
 flag!(set_ignore_friendly_hits, get_ignore_friendly_hits, ignore_friendly_hits);
 
 /// `actor.SetLevel level [levelToPC min max]`: the player's level, or an actor's
-/// (with the level-to-player flag the level is an offset from the player's, kept within
-/// min and max when given) [documented: catalogue summary and notes]. On the player
+/// (with the level-to-player flag `level` is a thousandths multiplier of the player's
+/// level, `round(pc_level * level / 1000)`, kept within min and max when given)
+/// [observed 2026-11-25: `w6d7p2_11b_setlevel_pct_and_faction_rank_diff`]. On the player
 /// only the number changes, not the stats [documented: catalogue notes, "alters the
 /// level number but no stats"]. On another actor only the level changes too: its
 /// inventory is not rolled again [observed: capture ac1, 2026-10-18: three Stimpaks
 /// given to Easy Pete were still carried after SetLevel 7, and his item count stayed 8
 /// after a second SetLevel 7; the catalogue's note that it "regenerates the inventory"
-/// did not show]. With the flag, the offset and bounds as the original: player level 1,
-/// `SetLevel 2 1 5 20` gives 5 [observed: ac1, Joe Cobb].
+/// did not show]. With the flag, thousandths scaling and bounds match the original:
+/// player level 1, `SetLevel 2 1 5 20` gives 5 (`round(1 * 2 / 1000) = 0 -> min 5`)
+/// [observed: ac1, Joe Cobb].
 pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let mut level = a.int(0)?;
