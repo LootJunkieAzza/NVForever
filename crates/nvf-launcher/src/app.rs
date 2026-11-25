@@ -3565,15 +3565,15 @@ impl App {
             *act = Some(ModAct::SetSelected(false));
             ui.close();
         }
-        if ui.button("Rename Mod…").clicked() {
+        if ui.button("Rename mod…").clicked() {
             *act = Some(ModAct::Rename(index));
             ui.close();
         }
-        if ui.button("Remove Mod…").clicked() {
+        if ui.button("Remove mod…").clicked() {
             *act = Some(ModAct::Recycle(index));
             ui.close();
         }
-        if ui.button("Create Backup").on_hover_text("A dated copy of the mod list and the load order. The mod files stay.").clicked() {
+        if ui.button("Create backup").on_hover_text("A dated copy of the mod list and the load order. The mod files stay.").clicked() {
             *act = Some(ModAct::Backup);
             ui.close();
         }

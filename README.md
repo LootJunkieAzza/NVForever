@@ -40,8 +40,8 @@ when it is set.
 - Drop a folder or an archive on the mod list. An installer that needs a choice
   opens its own window. New plugins from that folder appear in the list.
 - Drag a folder to move it. The bottom checked folder wins when two share a file.
-  **Show overwrites** marks a shared file green when this folder's copy is used,
-  and red when a lower folder's copy wins.
+  **Conflicts** marks a shared file green when this folder's copy is used, and red
+  when a lower folder's copy wins (**Hide conflicts** turns the marks off).
 - Drag plugins the same way. **Apply** writes the plugin list and the folder
   order the launcher uses. It does not link or copy files into the game folder.
   The base game and a mod installed in `Data` are still read from there. A file

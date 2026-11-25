@@ -5,7 +5,7 @@
 //! one file name per line [observed: the owner's PC], and orders them by the files'
 //! modified dates [hypothesis: modding tools' documentation, not checked]. NVForever never
 //! reads or writes that file, so turning a mod on for one game leaves the other as it was.
-//! The one exception is a start from an external instance, which puts its profile's list at
+//! The one exception is a start from Mod Organizer 2, which puts its profile's list at
 //! that path for the programs it starts ([`crate::mo2`]).
 //!
 //! The format here is our own choice:
@@ -21,9 +21,11 @@
 //! and their `<master>_lang.esp` files). A `*` in front means it is loaded. Any other
 //! plugin is a mod. On a start through the launcher it is read from the mod folders that
 //! are on, the highest in the list first (a file nested in a subfolder too), then from one
-//! left loose at the top of the mods folder, then from `Data` ([`layered_plugin_files`]). A new mod plugin gets a line at the next start, turned off. A new
-//! `.esm` goes after the last `.esm` line. Lines are never removed: a plugin no longer
-//! present is skipped with a warning.
+//! left loose at the top of the mods folder, then from `Data` ([`layered_plugin_files`]). A
+//! new mod plugin gets a line at the next start, turned off. A new `.esm` goes after the last
+//! `.esm` line, so masters stay before the `.esp` files [hypothesis: the extension stands for
+//! the header's master flag, true of the game's own files]. Lines are never removed: a plugin
+//! no longer present is skipped with a warning.
 //!
 //! The list of plugins ([`present_plugins`], [`sync`]) counts every plugin under NVForever's
 //! mods folder (`<home>\mods\`, [`EngineHome::mods`]), on or off, and those in `Data`. Which
