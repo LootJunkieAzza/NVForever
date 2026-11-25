@@ -108,6 +108,7 @@ option.
 | Skill Book Effects | `bShowBookEffects` | `pipboy::items::info_of` (the points with the perks applied) |
 | Map Remembers Its Place | `bMapRemembersPosition` | `pipboy::data::opened` |
 | Faster Hacking Exit | `bFasterHackingTransition` | `terminal::timers`: 0.5 s instead of 2 s |
+| Faster Sleep and Wait | `bFasterSleepWait` | `wait::pass_hours`: `FASTER_HOUR_SECONDS` (0.15 s) instead of `HOUR_SECONDS` (0.5 s); vanilla pace unchanged when off (`Tweaks::faster_sleep_wait`, also exposed via `StewVal`/`StewieGetValue`) |
 
 ## Fourth batch (2026-11-08)
 
@@ -919,6 +920,7 @@ may override NVForever tweak settings and load-order GMSTs at startup beneath
 | `bFasterControllerPOVRotate` | done | yes |  | Faster Controller Camera Circling (twice as fast, ours) |
 | `bFasterEnterLockpickMenu` | done | yes |  | already so: the lockpick menu opens at once |
 | `bFasterHackingTransition` | done | yes |  | Faster Hacking Exit (0.5 s instead of 2 s) |
+| `bFasterSleepWait` | done | yes |  | Faster Sleep and Wait: shortens the Sleep/Wait hour countdown (`wait::pass_hours`, `FASTER_HOUR_SECONDS` = 0.15 s vs default `HOUR_SECONDS` = 0.5 s; [documented: lStewieAl's Tweaks 10.05 (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini` `[Tweaks]`: `; increase the hour countdown speed while waiting or sleeping` / `bFasterSleepWait = 1`; no DLL or source consulted]; [design: NVForever's own 0.15 s pace and `StewVal` binding]) |
 | `bFasterSaveMenuClose` | done | yes |  | already so: saving leaves the pause menu open, no wait |
 | `bGodmodePreventsLegCrippleSound` | done | yes |  | Quiet Landings in God Mode (NVForever's pain sound on a fall is the hard-landing sound) |
 | `bHideCrosshairInKillcams` | done | yes |  | already so: no crosshair in a kill camera |

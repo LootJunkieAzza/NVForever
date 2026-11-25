@@ -110,7 +110,7 @@ next port, our own rule for when and how far]
 
 ## Hosted relay (`nvf-relay`)
 
-[design: #3795 section 9, option 2; issue #3880. Our own format, not any standard's]
+[design: #3795 section 9, option 2; issues #3880, #3908. Our own format, not any standard's]
 
 A relay a player runs for friends whose networks cannot reach each other directly. It runs on a
 VPS or a home server with one UDP port open (47961 by default), and never on the project's
@@ -118,29 +118,49 @@ servers. The game is pointed at it with `[Coop] Relay=host:port`.
 
 - Every datagram starts with a 23-byte header:
   - `NVRL`;
-  - version 1;
+  - version 2 (bumped from 1 in #3908 for the return-check cookie flow);
   - an op;
   - a 16-byte session id;
   - a side (0 host, 1 guest).
 - The body follows.
 - Ops:
-  - 1 Bind (client to relay): claim or keep this side for the sending address.
-  - 2 Bound (relay to client): the body is the refresh interval in seconds (u16, big-endian, 10).
+  - 1 Bind (client to relay): claim or keep this side for the sending address. An initial claim
+    or keepalive refresh from the active holder carries an empty body; a reply to a Challenge
+    carries the 16-byte cookie.
+  - 2 Bound (relay to client): the claim holds. The body is the refresh interval in seconds
+    (u16, big-endian, 10).
   - 3 Refused: one reason byte. 1 means the relay is full. 2 means another address holds the side.
-  - 4 Data: a payload of at most 1400 bytes. The relay forwards it to the other side's address,
-    with the side byte naming where it came from.
-- Data also claims and refreshes a side, so a client that only sends still holds it.
+  - 4 Data: a payload of at most 1400 bytes. Accepted only from the proven active holder of
+    that side; the relay refreshes the holder's timer and forwards it to the other side's active
+    proven address, with the side byte naming where it came from. `Data` from an unproven or
+    expired address is dropped silently and never claims a side (#3908).
+  - 5 Challenge (relay to client): return check for an unproven address (#3908). The body is a
+    16-byte cookie: HMAC-SHA256 (truncated to 16 bytes) over `"nvf-relay cookie v2\0"`, the
+    sender's address (family byte, IP bytes, big-endian port), session id and side, keyed with a
+    256-bit secret the relay rotates every 60 s (`nvf-relay` draws secrets from the OS random
+    source; the previous secret stays valid for one rotation window so in-flight cookies still
+    complete).
+- Return check (#3908):
+  - `Bind` from an already-proven active holder refreshes its timer and answers `Bound` with no
+    extra round trip.
+  - `Bind` from any unproven address (new claim, stale or forged cookie, or an address change
+    after silence) gets `Challenge` without touching session state; only after echoing the cookie
+    in `Bind` does the relay record the holder and answer `Bound` (or `Refused`). This adds at
+    most one round trip per path and prevents spoofed UDP packets from turning the relay into a
+    1:1 traffic reflector toward third-party addresses.
 - The session id is the first 16 bytes of SHA-256 over `"nvf-relay session v1\0"`, the host's
   Noise public key and the guest's. Both sides already have both keys, so no new message is
   needed.
-- A side not heard from for 30 s is let go. Only then may another address claim it, for
-  example a guest that changed networks.
+- A side not heard from for 30 s is let go. Only then may another address claim it (through the
+  same Challenge/cookie return check), for example a guest that changed networks.
 - Each side may send 256 KiB/s (a token bucket), and the relay holds 256 sessions. Both limits
   can be changed on the command line.
-- A refusal is one byte longer than the request it answers, so the relay does not amplify
-  spoofed traffic.
-- The relay sees only Noise ciphertext. Someone who knows both keys could claim a side first,
-  which blocks the relay for that pair but cannot read or forge its packets.
+- Spoofed `Data` draws no reply; a `Refused` is 1 byte longer and a `Challenge` 16 bytes longer
+  than an empty `Bind` (39 bytes total), and no session state is allocated until a cookie is
+  echoed.
+- The relay sees only Noise ciphertext. Someone who knows both keys and controls a reachable
+  address could still claim a side first, which blocks the relay for that pair but cannot read or
+  forge its packets and cannot reflect traffic to a spoofed third-party address.
 
 In the game:
 - The relay's address is a candidate of kind `relay` (`Kind::Relayed`), ranked below all
