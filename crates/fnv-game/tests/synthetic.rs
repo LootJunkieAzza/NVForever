@@ -5485,5 +5485,52 @@ set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestW
     assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }
 
+#[test]
+fn remove_me_ir_returns_one_with_or_without_target() {
+    use fnv_script::vm::XVal;
+    const GUN_ID: u32 = 0x950;
+    const NPC_ID: u32 = 0x951;
+    const NPC_REF: u32 = 0x952;
+    const CELL_ID: u32 = 0x953;
+    let npcs = [
+        record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]),
+        record(b"NPC_", 0, NPC_ID, &[sub(b"EDID", z("IrTargetNpc"))]),
+    ].concat();
+    let weap = record(b"WEAP", 0, GUN_ID, &[sub(b"EDID", z("IrGun")), sub(b"DATA", vec![0; 15])]);
+    let cell = record(b"CELL", 0, CELL_ID, &[sub(b"EDID", z("IrCell")), sub(b"DATA", vec![1])]);
+    let npc_ref = record(b"ACHR", 0, NPC_REF, &[sub(b"EDID", z("IrTargetRef")), sub(b"NAME", NPC_ID.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let children = group(CELL_ID.to_le_bytes(), 6, &group(CELL_ID.to_le_bytes(), 9, &npc_ref));
+    let raw = [
+        tes4(),
+        top(b"NPC_", &npcs),
+        top(b"WEAP", &weap),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+    ].concat();
+    let plugins = vec![Plugin::parse(&raw, "RemoveMeIr.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.player_entered(Some(FormId(CELL_ID)));
+    g.world.add_item(FormId::PLAYER_REF, FormId(GUN_ID), 2).unwrap();
+    let XVal::Str(out1) = g.run_query(
+        "ref rIr\nint rDel\nint cLeft\nBegin Function { }\nlet rIr := PlayerREF.GetFirstRefForItem IrGun\nlet rDel := rIr.RemoveMeIR\nlet cLeft := PlayerREF.GetItemCount IrGun\nSetFunctionValue (sv_Construct \"%g|%g\" rDel cLeft)\nEnd\n",
+        Default::default(),
+    ).unwrap() else { panic!("expected string") };
+    assert_eq!(out1, "1|0", "delete without target returns 1 and removes stack");
+    g.world.add_item(FormId::PLAYER_REF, FormId(GUN_ID), 3).unwrap();
+    let XVal::Str(out2) = g.run_query(
+        "ref rIr\nint rMov\nint cNpc\nBegin Function { }\nlet rIr := PlayerREF.GetFirstRefForItem IrGun\nlet rMov := rIr.RemoveMeIR IrTargetRef\nlet cNpc := IrTargetRef.GetItemCount IrGun\nSetFunctionValue (sv_Construct \"%g|%g\" rMov cNpc)\nEnd\n",
+        Default::default(),
+    ).unwrap() else { panic!("expected string") };
+    assert_eq!(out2, "1|3", "move to target returns 1 and transfers stack");
+}
+
 #[path = "common/jip_callback_clock.rs"]
 mod jip_callback_clock_tests;

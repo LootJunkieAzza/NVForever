@@ -1,0 +1,90 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_remove_me_ir",
+  "description": "Clean-room read-only Wave 6D-4 probe proving xNVSE RemoveMeIR returns 1 when deleting without a target container.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d4_remove_me_ir",
+      "title": "Wave 6D-4: xNVSE RemoveMeIR return value without target container",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d4p3_10b_uifloat_inherited_and_copyir",
+          "bucket": "xnvse_core_rest",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 109,
+          "functions_tested": [
+            "GetUIFloatInherited",
+            "CopyIR",
+            "CopyIRAlt",
+            "RemoveMeIR",
+            "EquipMe",
+            "UnequipMe",
+            "GetInvRefsForItem"
+          ],
+          "claim": "Verify GetUIFloatInherited on real HUDMainMenu tiles and CopyIR / CopyIRAlt / RemoveMeIR / EquipMe / UnequipMe (without crashing CreateTempRef health query).",
+          "expected": "Confirm CopyIR/CopyIRAlt copy 1 item and EquipMe/UnequipMe return values.",
+          "script_lines": [
+            "float x0 = GetUIFloatInherited \"HUDMainMenu/HUD_Main_Hud/HitPoints/x\" 0",
+            "float x1 = GetUIFloatInherited \"HUDMainMenu/HUD_Main_Hud/HitPoints/x\" 1",
+            "float v0 = GetUIFloatInherited \"HUDMainMenu/HUD_Main_Hud/HitPoints/visible\" 0",
+            "float v1 = GetUIFloatInherited \"HUDMainMenu/HUD_Main_Hud/HitPoints/visible\" 1",
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rDresser = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "int d0 = rDresser.GetItemCount rStim",
+            "Player.AddItem rStim 3 1",
+            "array_var aS = Player.GetInvRefsForItem rStim",
+            "ref rSInv = aS[0]",
+            "int c1 = rSInv.CopyIR rDresser",
+            "int d1 = rDresser.GetItemCount rStim",
+            "ref rC2 = rSInv.CopyIRAlt rDresser",
+            "int c2v = IsFormValid rC2",
+            "int d2 = rDresser.GetItemCount rStim",
+            "int rm = rSInv.RemoveMeIR rDresser",
+            "int d3 = rDresser.GetItemCount rStim",
+            "int pAfter = Player.GetItemCount rStim",
+            "Player.AddItem rGun 1 1",
+            "array_var aG = Player.GetInvRefsForItem rGun",
+            "ref rGInv = aG[0]",
+            "int eq1 = rGInv.EquipMe",
+            "int ueq1 = rGInv.UnequipMe",
+            "int rmDel = rGInv.RemoveMeIR",
+            "int gAfter = Player.GetItemCount rGun",
+            "rDresser.RemoveItem rStim (d3 - d0) 1",
+            "string_var s1 = sv_Construct \"ui(x=%.1f/%.1f,v=%.1f/%.1f)|copy(r=%g,d=%g->%g,altV=%g,d=%g)\" x0 x1 v0 v1 c1 d0 d1 c2v d2",
+            "string_var s2 = sv_Construct \"rm(r=%g,d=%g,p=%g)|eq(%g,%g,del=%g,g=%g)\" rm d3 pAfter eq1 ueq1 rmDel gAfter",
+            "PrintToConsole \"PROBE|w6d4p3_10b_uifloat_inherited_and_copyir|%z|%z\" s1 s2"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

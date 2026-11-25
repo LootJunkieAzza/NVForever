@@ -198,11 +198,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "removemeir" => {
             let Some((c, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(XVal::Num(0.0))) };
             let n = g.world.inventory_mut(c).map(|inv| inv.count(item)).unwrap_or(0);
-            // The whole stack; with a target it moves there and the call gives 1, without
-            // one 0 [observed: nvse-fourth].
+            // The whole stack; returns 1 on successful removal both when moving to a
+            // target container and when deleting without a target [observed: 2026-11-25,
+            // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+            // xNVSE 6.4.9, `w6d4p3_10b_uifloat_inherited_and_copyir`
+            // (`wave6d4_remove_me_ir.json`): `ui(x=-999.0/-999.0,v=-999.0/-999.0)|copy(r=1,d=0->1,altV=1,d=2)|rm(r=1,d=2,p=8)|eq(0,0,del=1,g=1)`].
             let gone = g.world.remove_item(c, item, n).unwrap_or(0);
             match (form(args, 0), gone > 0) {
                 (Some(to), true) => XVal::Num(f64::from(u8::from(g.world.add_item(to, item, gone).is_ok()))),
+                (None, true) => XVal::Num(1.0),
                 _ => XVal::Num(0.0),
             }
         }
