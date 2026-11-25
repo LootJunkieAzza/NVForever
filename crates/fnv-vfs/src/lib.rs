@@ -268,27 +268,36 @@ impl Vfs {
     fn order_from_owned(owned: &[(String, String)], base: &[String], archive_list: &[&str], plugins: &[&str]) -> Vec<String> {
         let find = |name: &str| base.iter().find(|n| n.eq_ignore_ascii_case(name)).cloned();
         let mut order: Vec<String> = Vec::new();
-        let push = |n: Option<String>, order: &mut Vec<String>| {
-            if let Some(n) = n {
-                if !order.iter().any(|o| o.eq_ignore_ascii_case(&n)) {
-                    order.push(n);
-                }
+        let mut seen: Vec<String> = Vec::new();
+        let mut push = |display: String, open_as: String| {
+            if !seen.iter().any(|o| o.eq_ignore_ascii_case(&display)) {
+                seen.push(display);
+                order.push(open_as);
             }
         };
         for a in archive_list {
-            push(find(a), &mut order);
+            if let Some(n) = find(a) {
+                push(n.clone(), n);
+            }
         }
-        push(find("Update.bsa"), &mut order);
+        if let Some(n) = find("Update.bsa") {
+            push(n.clone(), n);
+        }
         let stems: Vec<String> = plugins.iter().map(|p| p.rsplit_once('.').map_or(*p, |(s, _)| s).to_ascii_lowercase()).collect();
-        // A plugin owns `<stem>.bsa`, `<stem> - *.bsa` and the numbered pieces a packer
-        // splits a big archive into, `<stem>N.bsa` / `<stem>N - *.bsa` (#2521). Returns the
-        // piece's number (0 for an unnumbered archive) when `name` is `stem`'s.
+        // A plugin owns `<stem>.bsa`, space-suffixed archives `<stem> *.bsa` (including
+        // `<stem> - *.bsa` and modlist suites such as `NS A Content T 00.bsa`, #3756), and
+        // the numbered pieces a packer splits a big archive into, `<stem>N.bsa` /
+        // `<stem>N *.bsa` (#2521). Returns the piece's number (0 for an unnumbered archive)
+        // when `name` is `stem`'s.
         let claims = |stem: &str, name: &str| -> Option<u64> {
+            if stem.is_empty() {
+                return None;
+            }
             let l = name.to_ascii_lowercase();
             let rest = l.strip_prefix(stem)?;
             let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
             let (num, tail) = rest.split_at(digits);
-            (tail == ".bsa" || tail.starts_with(" - ")).then(|| num.parse().unwrap_or(0))
+            (tail == ".bsa" || (tail.starts_with(' ') && tail.ends_with(".bsa"))).then(|| num.parse().unwrap_or(0))
         };
         for stem in &stems {
             // An archive several plugins' stems match belongs to the longest of them:
@@ -301,8 +310,8 @@ impl Vfs {
             // Unnumbered archives by name, then the numbered pieces in number order.
             own.sort_by_key(|(k, (n, _))| (*k, n.to_ascii_lowercase()));
             let own = own.into_iter().map(|(_, e)| e);
-            for (_, open_as) in own {
-                push(Some(open_as.clone()), &mut order);
+            for (display, open_as) in own {
+                push(display.clone(), open_as.clone());
             }
         }
         order
@@ -933,6 +942,65 @@ mod tests {
         let order = Vfs::archive_order(&dir, &[], &["Merge.esp", "Merge3.esp"]);
         assert_eq!(order, ["Merge.bsa", "Merge1 - Textures.bsa", "Merge1.bsa", "Merge2.bsa", "Merge10.bsa", "Merge3.bsa"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Space-suffixed plugin archives such as `NS A Content T 00.bsa` follow their plugin
+    /// (#3756), while unrelated files sharing a short prefix without a space boundary stay
+    /// out, a longer plugin stem wins ownership, and explicit archive-list entries are not
+    /// duplicated in either flat or layered discovery.
+    #[test]
+    fn space_suffixed_archives_follow_their_plugin() {
+        let base = std::env::temp_dir().join(format!("nvf-vfs-space-suffix-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (data, mod_dir) = (base.join("Data"), base.join("mods").join("NS"));
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        let names = [
+            "NS.bsa",
+            "NS - Textures.bsa",
+            "NS A Content T 00.bsa",
+            "NS A Content T 01.bsa",
+            "NS A Content.bsa",
+            "NSExtra.bsa",
+            "NS_Other.bsa",
+            "NS-Other.bsa",
+            "NS.esp.bsa",
+            "Middle.bsa",
+        ];
+        for n in names {
+            std::fs::write(data.join(n), b"").unwrap();
+        }
+        let order = Vfs::archive_order(&data, &[], &["NS.esp", "Middle.esp"]);
+        assert_eq!(
+            order,
+            ["NS - Textures.bsa", "NS A Content T 00.bsa", "NS A Content T 01.bsa", "NS A Content.bsa", "NS.bsa", "Middle.bsa"]
+        );
+        // Longer plugin stem takes its own archives and space-suffixed children.
+        let order = Vfs::archive_order(&data, &[], &["NS.esp", "Middle.esp", "NS A Content.esp"]);
+        assert_eq!(
+            order,
+            ["NS - Textures.bsa", "NS.bsa", "Middle.bsa", "NS A Content T 00.bsa", "NS A Content T 01.bsa", "NS A Content.bsa"]
+        );
+        // Explicit archive-list entry keeps its list position and is not mounted twice.
+        let order = Vfs::archive_order(&data, &["NS A Content T 00.bsa"], &["NS.esp", "Middle.esp"]);
+        assert_eq!(
+            order,
+            ["NS A Content T 00.bsa", "NS - Textures.bsa", "NS A Content T 01.bsa", "NS A Content.bsa", "NS.bsa", "Middle.bsa"]
+        );
+        // Same non-duplication holds in layered MO2 discovery when the archive lives in a mod root.
+        for n in ["NS A Content T 00.bsa", "NS A Content T 01.bsa", "NSExtra.bsa"] {
+            std::fs::write(mod_dir.join(n), b"").unwrap();
+        }
+        let layered_empty_data = base.join("DataEmpty");
+        std::fs::create_dir_all(&layered_empty_data).unwrap();
+        let layered = Vfs::archive_files_layered(&layered_empty_data, std::slice::from_ref(&mod_dir), &["NS A Content T 00.bsa"], &["NS.esp"]);
+        let layered_names: Vec<&str> = layered.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(layered_names, ["NS A Content T 00.bsa", "NS A Content T 01.bsa"]);
+        assert_eq!(layered[0].1, mod_dir.join("NS A Content T 00.bsa"));
+        // Without NS.esp loaded, none of the NS* archives are auto-mounted.
+        let order = Vfs::archive_order(&data, &[], &["Middle.esp"]);
+        assert_eq!(order, ["Middle.bsa"]);
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     fn link_dir(target: &Path, link: &Path) -> bool {
