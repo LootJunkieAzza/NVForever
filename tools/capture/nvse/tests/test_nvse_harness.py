@@ -173,14 +173,15 @@ class TestCatalogValidation(unittest.TestCase):
                 "wave4g_f2_extenders.json",
                 "wave4h_reconcile.json",
                 "wave6_point_raycast.json",
+                "wave6d3_johnnyguitar_observed.json",
             ],
         )
         self.assertFalse((nvse_harness.DEFAULT_CATALOG_DIR / "persistence_matrix.json").exists())
         errors, counts = nvse_harness.validate_catalogs(paths)
         self.assertEqual(errors, [], f"Catalog validation errors: {errors[:5]}")
-        self.assertEqual(counts["catalogs"], 9)
-        self.assertEqual(counts["probe_batches"], 27)
-        self.assertEqual(counts["probes"], 541)
+        self.assertEqual(counts["catalogs"], 10)
+        self.assertEqual(counts["probe_batches"], 28)
+        self.assertEqual(counts["probes"], 559)
         self.assertEqual(counts["persistence_items"], 0)
 
         # Verify Wave 1 parity probe IDs and corrected Wave 4A/4D/4E/4G/4H targeted probes are present verbatim.
@@ -217,6 +218,24 @@ class TestCatalogValidation(unittest.TestCase):
             "w6_01_point_raycast_angles",
             "w6_02_point_raycast_miss_and_range",
             "w6_03_point_raycast_collision_flags",
+            "w6d3p2_01_camera_translate_override_and_clear",
+            "w6d3p2_02_camera_rotate_axes_and_track_clear",
+            "w6d3_06_switch_node_index_get_set_edges",
+            "w6d3_08_ni_distances_and_hit_distance_edges",
+            "w6d3_09_ni_sequence_active_and_anim_group_slots",
+            "w6d3_10_camera_overlay_refs_props_and_nif",
+            "w6d3p2_11_jg_nif_bounds_and_1p_alpha",
+            "w6d3_19_jg8_remaining_event_regs_and_filters",
+            "w6d3p2_21_custom_map_marker_and_icon_flst_edges",
+            "w6d3p2_30a_region_map_world_tex_expl_proj_sounds",
+            "w6d3p2_30b_equiptype_rcct_spel_bptd",
+            "w6d3p2_31b_get_time_played_units_and_oob",
+            "w6d3p2_32a_weap_mod_effect_chal_formflag",
+            "w6d3p2_32b_lev_items_and_base_object",
+            "w6d3p2_32c_get_base_form_only",
+            "w6d3_34_jg6_av_alt_unforce_karma_mod_alt",
+            "w6d3p2_36_jg6_prompt_override_primitive_lifestate",
+            "w6d3_37_jg6_callperref_ex_and_mobile_ex",
         ):
             self.assertIn(req_id, probes_by_id)
 

@@ -30,7 +30,7 @@ GetChanceNoneGlobal under these names or takes other arguments [hypothesis].
 | GetChallengeType `challenge` | DATA type, 0 KillInFormList … 13 Scripted [documented: the page's table] |
 | GetChallengeThreshold, …Interval, …Flags, …Value1-3 `challenge` | DATA threshold, interval, flags (1 Start Disabled, 2 Recurring, 4 Show Zero Progress), values [documented] |
 | GetChallengeForm1, …Form2 `challenge` | SNAM, XNAM [documented] |
-| SetChallenge… `challenge value` (the seven above but the type) | the field for the session [documented]; a negative number is kept and read back signed [observed: lutana1 chal.setthreshold.neg] |
+| SetChallenge… `challenge value` (the seven above but the type) | the field for the session [documented]; a negative number is kept and read back signed (including `SetChallengeFlags -1 -> -1`, alongside `GetWeaponItemModEffect` OOB/non-`WEAP` `0`, `GetFormFlag`, `GetBaseObject`, `GetBaseForm`, and `GetNumLevItems` / `GetNthLevItem*` OOB `0`) [observed: lutana1 chal.setthreshold.neg; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d3_johnnyguitar_observed.json`: `w6d3p2_32a_weap_mod_effect_chal_formflag` (`me=0,2,3,11,0,h1=2,bad=0\|cf=1,7,-1\|ff=0/0`), `w6d3p2_32b_lev_items_and_base_object` (`bf=00000007,1,1\|lv=4,i0z=0,c=1,l=1,oob=1/1,bad=0`), and `w6d3p2_32c_get_base_form_only` (`p=00000007\|d=1\|dr=1\|stZ=1`), no DLL or source consulted] |
 
 The challenge tracker (`crate::challenges`) still counts from the record; a changed
 threshold or form reaches the getters only (follow-up: read `nvse_lutana::challenge`
