@@ -3433,10 +3433,11 @@ impl Vm<'_, '_> {
                 let a = arg(self, 0)?.num()? as i64 as u32;
                 let b = arg(self, 1)?.num()? as i64;
                 let bit = if (0..32).contains(&b) { 1u32 << b } else { 0 };
+                let get_bit = if b >= 0 { 1u32 << ((b as u32) & 31) } else { 0 };
                 let sh = u32::try_from(b).unwrap_or(32);
                 let on = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_none_or(|v| v.truthy());
                 let r: u32 = match name.to_ascii_lowercase().as_str() {
-                    "getbit" => u32::from(a & bit != 0),
+                    "getbit" => u32::from(a & get_bit != 0),
                     "setbit" if on => a | bit,
                     "setbit" | "clearbit" => a & !bit,
                     "leftshift" => a.checked_shl(sh).unwrap_or(0),
@@ -3445,9 +3446,9 @@ impl Vm<'_, '_> {
                     "logicalor" => a | b as u32,
                     _ => a ^ b as u32,
                 };
-                Ok(XVal::Num(f64::from(r as i32)))
+                Ok(XVal::Num(f64::from(r)))
             }
-            "logicalnot" => Ok(XVal::Num(f64::from(!(arg(self, 0)?.num()? as i64 as u32) as i32))),
+            "logicalnot" => Ok(XVal::Num(f64::from(!(arg(self, 0)?.num()? as i64 as u32)))),
             // [documented: IntToBin] padded to the width; the prefix is "0b" [hypothesis:
             // the page names the option without showing it].
             "inttobin" => {

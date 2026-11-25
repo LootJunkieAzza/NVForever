@@ -2563,3 +2563,18 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn bitwise_functions_return_unsigned_u32_and_getbit_wraps_nonnegative_index() {
+    let h = run(
+        "float fRs\nfloat fLs\nfloat fNot\nfloat fSb31\nint g32\nint g33\nint g34\nint gNeg\n         begin GameMode\n         let fRs := RightShift -8 1\n         let fLs := LeftShift 1 31\n         let fNot := LogicalNot 0\n         let fSb31 := SetBit 0 31 1\n         let g32 := GetBit 5 32\n         let g33 := GetBit 5 33\n         let g34 := GetBit 5 34\n         let gNeg := GetBit 5 -1\n         end",
+    );
+    assert_eq!(h.0[&1], Value::Num(2_147_483_644.0));
+    assert_eq!(h.0[&2], Value::Num(2_147_483_648.0));
+    assert_eq!(h.0[&3], Value::Num(4_294_967_295.0));
+    assert_eq!(h.0[&4], Value::Num(2_147_483_648.0));
+    assert_eq!(h.0[&5], Value::Num(1.0));
+    assert_eq!(h.0[&6], Value::Num(0.0));
+    assert_eq!(h.0[&7], Value::Num(1.0));
+    assert_eq!(h.0[&8], Value::Num(0.0));
+}
