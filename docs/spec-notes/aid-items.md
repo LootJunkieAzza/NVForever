@@ -80,7 +80,7 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   while it lasts, and takes it back when it ends (Buffout's Strength +2 for 240 s).
   - Exception: an Ability (SPEL type 4) given to the **player** whose effect has **no
     conditions** puts it in the **permanent pool** [documented: ActorValue, "used for
-    example by the Life Giver perk"]. RemoveSpell takes it back [hypothesis].
+    example by the Life Giver perk"]. RemoveSpell takes it back [hypothesis]. `AddSpell` and `AddSpellNS` return `1` when newly added, `0` when already present or given a non-`SPEL` form (`MISC`, `ENCH`, `ALCH`) without aborting, and `RemoveSpell` returns `1` for a valid `SPEL` even on a repeated call [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_01_addspell_addspellns_removespell_returns_and_pools` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `add(1,0,is=1)|rem(1,1,is=1)|ns(1,0,is=1,r=1)|hp0(200,200,200)|hp1(200,200,200)|hp2(200,200,200)|bad(m=10,e=10,a=10)`; no DLL or source consulted] (NVForever returns `0` for `ENCH`/`ALCH` while retaining `magic_item`'s error on non-magic forms [design]).
   - A negative temporary modifier does not take S.P.E.C.I.A.L. or a skill below 0; the
     magnitude is cut when the effect starts and not updated afterwards [documented:
     ActorValue]. The code gives back exactly what it took.
