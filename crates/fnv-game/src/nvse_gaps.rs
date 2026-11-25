@@ -232,14 +232,14 @@ fn parse_weapon_sound_slot(args: &[XVal], k: usize) -> Option<u8> {
 }
 
 /// Parses `SetWeaponSound`'s optional `newSound` argument:
-/// - `Some(None)` when omitted or explicitly null (`0`) -> clear slot.
+/// - `Some(None)` when omitted -> clear slot.
 /// - `Some(Some(id))` when a non-zero form/integer ID is supplied -> validate as `SOUN`.
-/// - `None` when a malformed non-null argument (string, negative/fractional number, etc.) is
-///   supplied -> reject without mutating state.
+/// - `None` when explicit null (`0`) or a malformed argument is supplied -> no-op
+///   [observed: `w6d2_03_weapon_sound_slots_and_clone`].
 fn parse_weapon_sound_arg(args: &[XVal], k: usize) -> Option<Option<FormId>> {
     match args.get(k) {
-        None | Some(XVal::Ref(0)) => Some(None),
-        Some(XVal::Num(x)) if *x == 0.0 => Some(None),
+        None => Some(None),
+        Some(XVal::Ref(0)) => None,
         Some(XVal::Ref(r)) => Some(Some(FormId(*r))),
         Some(XVal::Num(x)) if x.is_finite() && *x >= 1.0 && *x <= u32::MAX as f64 && x.fract() == 0.0 => Some(Some(FormId(*x as u32))),
         _ => None,

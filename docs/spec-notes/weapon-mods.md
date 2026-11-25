@@ -452,20 +452,26 @@ for each effect, and how it fits a long description.
   Fail, `NAM6` Melee Block, `UNAM` Idle, `NAM9` Equip, `NAM8` Unequip, `WMS1` 0/1 Mod
   Shoot 3D / Shoot Dist, `WMS2` Mod Shoot 2D, `YNAM` Pickup, `ZNAM` Putdown)
   [documented: GECK wiki `GetWeaponSound`, `SetWeaponSound`; xEdit `wbDefinitionsFNV.pas`
-  `WEAP`; observed: `gaps4` for slots 0–3]. Omitting `newSound` or passing null (`0`)
-  clears the slot for the session [documented: GECK wiki `SetWeaponSound`]; invalid slots,
-  non-`WEAP` targets, and non-`SOUN` replacements are rejected without mutating state
-  [design].
+  `WEAP`; observed: `gaps4` for slots 0–3]. Omitting `newSound` clears the slot for the
+  session, whereas explicit null (`0`), non-`SOUN` replacements, and out-of-range slots
+  (`14`) are no-ops that leave the slot intact [observed: Fallout: New Vegas 1.4.0.525 +
+  xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official
+  base masters, isolated clean-room staging copy (read-only probe; zero writes to game
+  install or Saves), `w6d2_03_weapon_sound_slots_and_clone`
+  (`tools/capture/nvse/catalogs/wave6d2_weapon_sound_null_noop.json`):
+  `PROBE|w6d2_03_weapon_sound_slots_and_clone|s0z=0,pkEq=1/1,oob14=1|set=1,nullEqS=1,nullZ=0,badEqS=1,badZ=0,omitZ=1|sync=1/1|clOk=1,origOk=1`;
+  zero DLL, PDB, or third-party source consulted]; non-`WEAP` targets are also ignored
+  without mutating state [design].
 - **Pickup and putdown sharing**: for `WEAP` records, Lutana's `GetPickupSound` /
   `SetPickupSound` and `GetPutdownSound` / `SetPutdownSound` share live slots 12 (`YNAM`)
   and 13 (`ZNAM`) with `GetWeaponSound` / `SetWeaponSound`, while keeping `SetPickupSound`
   and `SetPutdownSound`'s observed rule that a null sound leaves the existing sound intact
-  [observed: `plugins2`].
+  [observed: `plugins2`; `w6d2_03_weapon_sound_slots_and_clone` `pkEq=1/1`, `sync=1/1`].
 - **`TempCloneForm` isolation**: cloning a `WEAP` carries over any active session
-  overrides (both replacements and clears) onto the clone while later edits on the
-  original or the clone stay isolated, and `TempCloneForm` `SOUN` aliases are accepted
-  as valid replacement sounds [hypothesis: external JIP LN / xNVSE `TempCloneForm`
-  behavior not yet directly probed on `WEAP` sound slots]. NVForever implements this
+  overrides onto the clone while later edits on the original or the clone stay isolated
+  [observed: `w6d2_03_weapon_sound_slots_and_clone` `clOk=1,origOk=1`], and `TempCloneForm`
+  `SOUN` aliases are accepted as valid replacement sounds [hypothesis: `TempCloneForm`
+  `SOUN` alias replacement not yet directly probed]. NVForever implements this
   snapshot internally via `Game::snapshot_weapon_sounds` [design].
 - **Consumer view**: `fnv_game::Game::weapon_sound`, `Game::weapon_sound_override`,
   `Game::set_weapon_sound`, `Game::weapon_sound_changes`, and `Game::weapon_sound_stamp`

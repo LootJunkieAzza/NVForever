@@ -167,15 +167,17 @@ fn all_fourteen_weapon_sound_slots_read_override_clear_and_report_changes() {
     let stamp1 = g.weapon_sound_stamp();
     assert_ne!(stamp1, stamp0);
 
-    // Clearing via omitted newSound and via explicit null (0) both yield None (not authored fallback).
+    // Omitted newSound clears the slot to None (not authored fallback), whereas explicit
+    // null (0) is a no-op leaving the slot unchanged [observed:
+    // `w6d2_03_weapon_sound_slots_and_clone`].
     q(&mut g, "SetWeaponSound OwnSoundWeapon 7");
     q(&mut g, "SetWeaponSound OwnSoundWeapon 8 0");
     assert_eq!(g.weapon_sound(w, 7), None);
-    assert_eq!(g.weapon_sound(w, 8), None);
+    assert_eq!(g.weapon_sound(w, 8), Some(FormId(SOUN_BASE + 8)));
     assert_eq!(g.weapon_sound_override(w, 7), Some(None));
-    assert_eq!(g.weapon_sound_override(w, 8), Some(None));
+    assert_eq!(g.weapon_sound_override(w, 8), None);
     assert_eq!(q(&mut g, "SetFunctionValue (GetWeaponSound OwnSoundWeapon 7)"), XVal::Ref(0));
-    assert_eq!(q(&mut g, "SetFunctionValue (GetWeaponSound OwnSoundWeapon 8)"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetWeaponSound OwnSoundWeapon 8)"), XVal::Ref(SOUN_BASE + 8));
 
     let stamp2 = g.weapon_sound_stamp();
     assert_ne!(stamp2, stamp1);
@@ -184,7 +186,6 @@ fn all_fourteen_weapon_sound_slots_read_override_clear_and_report_changes() {
     let mut expected = WeaponSoundChange::default();
     expected.slots[2] = Some(Some(alt_a));
     expected.slots[7] = Some(None);
-    expected.slots[8] = Some(None);
     expected.slots[10] = Some(Some(alt_b));
     expected.slots[12] = Some(Some(alt_a));
     expected.slots[13] = Some(Some(alt_b));
