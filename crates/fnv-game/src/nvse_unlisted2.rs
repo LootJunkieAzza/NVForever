@@ -34,6 +34,8 @@ pub struct Unlisted2State {
     pub new_game: bool,
     /// SetRaceVoice / SetRaceAgeRace for the session: (race, voice, second) -> form.
     pub race_sets: std::collections::BTreeMap<(FormId, bool, bool), FormId>,
+    /// SetCasinoDeckTexture for the session: (casino, index) -> texture path.
+    pub casino_deck_textures: std::collections::BTreeMap<(FormId, usize), String>,
 }
 
 /// The current command an `_OLD` one answers as [observed: rest1.old.* and new.* read
@@ -272,9 +274,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [observed: rest4.casinodeck.0 "terminals\NV_PlayingCards\DeckB\cardB_Back.dds"
         // for the Atomic Wrangler, whose ICO2 entries all name it].
         "getcasinodecktexture" => {
-            let at = args.get(1).and_then(|v| if let XVal::Num(n) = v { Some(*n as usize) } else { None }).unwrap_or(0);
+            let at = args.get(1).and_then(|v| if let XVal::Num(n) = v { usize::try_from(*n as i64).ok() } else { None }).unwrap_or(0);
             let tex = form_arg(args, 0).and_then(|c| {
-                g.data.record_fields.get(&c).and_then(|subs| subs.iter().filter(|(s, _)| s == b"ICO2").nth(at).and_then(|(_, v)| v.as_str().map(str::to_string)))
+                g.other
+                    .unlisted2
+                    .casino_deck_textures
+                    .get(&(c, at))
+                    .cloned()
+                    .or_else(|| {
+                        g.data
+                            .record_fields
+                            .get(&c)
+                            .and_then(|subs| subs.iter().filter(|(s, _)| s == b"ICO2").nth(at).and_then(|(_, v)| v.as_str().map(str::to_string)))
+                    })
+                    .or_else(|| (at == 0).then(|| g.data.casinos.get(&c).and_then(|d| d.back_texture.clone())).flatten())
             });
             XVal::Str(tex.unwrap_or_default())
         }
@@ -294,9 +307,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getactorcoverstate" | "getweapadditionalfloat" | "hudbarsetforcehide" => XVal::Num(-1.0),
         "getextraaccuracypenaltymult" | "setextraaccuracypenaltymult" | "removeextraaccuracypenaltymult" | "getcamerashotpath"
         | "setcamerashotpath" | "setmusictypepath" | "setmedialocationcontrolleroverride" | "clearmedialocationcontrolleroverride" => XVal::Num(1.0),
-        // Not probed: 1 as JohnnyGuitar's other setters answered, and GetCasinoDeckTexture
-        // keeps reading the casino's own deck [hypothesis, §8].
-        "setcasinodecktexture" => XVal::Num(1.0),
+        // `casino index path`: updates the casino deck texture returned by
+        // GetCasinoDeckTexture for the session and returns 1 [observed: 2026-11-25,
+        // FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
+        // w6d9_44_casino_traits_chip_decks_payout_reels_and_decktex: tex(l=46,st=2,r=1,chg=1)].
+        "setcasinodecktexture" => {
+            let Some(c) = form_arg(args, 0).filter(|c| g.data.sig(*c) == Some(*b"CSNO")) else {
+                return Some(Ok(XVal::Num(0.0)));
+            };
+            let Some(at) = num_arg(args, 1).and_then(|n| usize::try_from(n as i64).ok()) else {
+                return Some(Ok(XVal::Num(0.0)));
+            };
+            let path = match args.get(2) {
+                Some(XVal::Str(s)) => s.clone(),
+                _ => String::new(),
+            };
+            g.other.unlisted2.casino_deck_textures.insert((c, at), path);
+            XVal::Num(1.0)
+        }
         // `to from`: NPC base `to` takes `from`'s look for the session, every reference
         // of it [documented: CopyFaceGenFrom, the reference form; the name's "Base" and
         // ShowOff's `to from` order, hypothesis]: race, sex, face, skin tone, hair, eyes
@@ -413,3 +441,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_casino_deck_texture_tests.rs"]
+mod w6d9_casino_deck_texture_tests;
