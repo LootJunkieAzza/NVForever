@@ -722,7 +722,14 @@ impl<'t, 'h> Vm<'t, 'h> {
                 // observed, extender-core-tasks.md B4].
                 Stmt::While { cond, body } => loop {
                     self.step()?;
-                    let go = self.xeval_truthy(cond)?.1;
+                    let go = match self.xeval_truthy(cond) {
+                        Ok((_, truthy)) => truthy,
+                        Err(err @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                            self.skip(&err);
+                            false
+                        }
+                        Err(err) => return Err(err),
+                    };
                     if self.host.take_return() {
                         return Ok(Flow::Return);
                     }

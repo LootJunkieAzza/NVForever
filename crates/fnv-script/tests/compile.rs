@@ -2563,3 +2563,14 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn while_condition_error_exits_loop_and_continues_in_non_strict_mode() {
+    let t = table();
+    let src = "array_var aL\nint iIdx\nint iAfter\nbegin GameMode\n               let aL := ar_List 10, 20\n               while iIdx < 5 && aL[iIdx] > 0\n                 let iIdx += 1\n               loop\n               let iAfter := 1\n               end";
+    let (c, p) = build(src);
+    let mut h = host_for(&c);
+    Vm::new(&t, &mut h, RunOpts::default()).run(&p.blocks[0].body).expect("continues past while OOB");
+    assert_eq!(h.0[&2], Value::Num(2.0), "loop ran twice before OOB");
+    assert_eq!(h.0[&3], Value::Num(1.0), "script continued after while condition error");
+}
