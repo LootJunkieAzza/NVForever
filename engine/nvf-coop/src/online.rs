@@ -27,7 +27,7 @@ use std::time::Instant;
 
 use nvf_nat::candidate::{is_lan, Candidate, Kind};
 use nvf_nat::hosted::{self, SessionId};
-use nvf_nat::ice::{Action, Agent, Config, Role};
+use nvf_nat::ice::{Action, Agent, Config, PairId, Role, NO_PAIR};
 use nvf_nat::report::{self, Connect};
 use nvf_nat::relay::{self, Answer, GiveUp, Helper, Planner, Policy, Refusal};
 use nvf_nat::stun::{self, Gather, Mapping};
@@ -64,6 +64,22 @@ pub const NO_DIRECT_ENV: &str = "NVF_COOP_TEST_NO_DIRECT";
 
 fn no_direct() -> bool {
     std::env::var(NO_DIRECT_ENV).is_ok_and(|v| v.trim() == "1")
+}
+
+/// Test aid: the plain checks are off (`1`), on either side, so only the birthday punch can
+/// find a path: a check of a pair (not [`NO_PAIR`]) from the game's own socket to a
+/// candidate the service passed on is never sent. The punch's spread probes and spray, the
+/// checks to peer-reflexive addresses learnt, and everything from its extra sockets still go.
+pub const BIRTHDAY_ONLY_ENV: &str = "NVF_COOP_TEST_BIRTHDAY_ONLY";
+
+fn birthday_only() -> bool {
+    std::env::var(BIRTHDAY_ONLY_ENV).is_ok_and(|v| v.trim() == "1")
+}
+
+/// Whether [`BIRTHDAY_ONLY_ENV`] drops this probe: a plain check, from the game's own
+/// socket, to a candidate the service passed on.
+fn plain_check(pair: PairId, from_main: bool, to: SocketAddr, passed_on: &[Candidate]) -> bool {
+    pair != NO_PAIR && from_main && passed_on.iter().any(|c| c.addr == to)
 }
 
 /// What the game hears from [`Online`].
@@ -212,6 +228,8 @@ pub struct Online {
     /// to send from its sockets (their ports) ([`Online::take_sends_from`]).
     socket_asks: Vec<SocketAsk>,
     sends_from: Vec<(u16, SocketAddr, Vec<u8>)>,
+    /// [`BIRTHDAY_ONLY_ENV`].
+    birthday_only: bool,
 }
 
 /// The guest's own checks' owner of birthday sockets (a host's are its guests' numbers).
@@ -272,7 +290,11 @@ impl Online {
         let portmap = locals.iter().find(|a| a.is_ipv4()).and_then(|a| PortMap::start(*a, Instant::now()));
         // The checks' local sockets: one per family (every address is the same socket).
         let locals: Vec<SocketAddr> = [locals.iter().find(|a| a.is_ipv4()), locals.iter().find(|a| a.is_ipv6())].into_iter().flatten().copied().collect();
-        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new(), failed: false, host_password: String::new(), listing_sent: None, join_hash: None, socket_asks: Vec::new(), sends_from: Vec::new() }
+        let birthday_only = birthday_only();
+        if birthday_only {
+            log::info!("co-op: online: test aid: plain checks off ({BIRTHDAY_ONLY_ENV}); only the birthday punch can find a path");
+        }
+        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new(), failed: false, host_password: String::new(), listing_sent: None, join_hash: None, socket_asks: Vec::new(), sends_from: Vec::new(), birthday_only }
     }
 
     /// The host key the service gave a guest: the only key its Noise session may have.
@@ -698,8 +720,13 @@ impl Online {
         let main: Vec<SocketAddr> = self.locals.clone();
         let sends_from = &mut self.sends_from;
         let asks = &mut self.socket_asks;
-        let mut out = |from: SocketAddr, to: SocketAddr, bytes: Vec<u8>, send: &mut Vec<(SocketAddr, Vec<u8>)>| {
-            if from.is_ipv4() && !main.contains(&from) {
+        let birthday_only = self.birthday_only;
+        let mut out = |pair: PairId, from: SocketAddr, to: SocketAddr, passed_on: &[Candidate], bytes: Vec<u8>, send: &mut Vec<(SocketAddr, Vec<u8>)>| {
+            let from_main = !from.is_ipv4() || main.contains(&from);
+            if birthday_only && plain_check(pair, from_main, to, passed_on) {
+                return;
+            }
+            if !from_main {
                 sends_from.push((from.port(), to, bytes));
             } else {
                 send.push((to, bytes));
@@ -712,7 +739,7 @@ impl Online {
                     let mut failed = false;
                     for act in a.poll(now) {
                         match act {
-                            Action::SendProbe { from, to, check_id, .. } => out(from, to, probe(KIND_PROBE, peer, check_id), &mut send),
+                            Action::SendProbe { pair, from, to, check_id } => out(pair, from, to, &p.remotes, probe(KIND_PROBE, peer, check_id), &mut send),
                             Action::OpenSockets { count } => asks.push(SocketAsk::Open { owner: peer, count }),
                             // The host keeps the socket the guest's handshake comes in on
                             // (`Session` pins it); the rest close when the session is made.
@@ -730,13 +757,13 @@ impl Online {
                     }
                 }
             }
-            Side::Guest { me: Some(me), agent, client, connected, .. } => {
+            Side::Guest { me: Some(me), agent, client, connected, remotes, .. } => {
                 let mut done = false;
                 if let Some(a) = agent {
                     let mut chosen = None;
                     for act in a.poll(now) {
                         match act {
-                            Action::SendProbe { from, to, check_id, .. } => out(from, to, probe(KIND_PROBE, *me, check_id), &mut send),
+                            Action::SendProbe { pair, from, to, check_id } => out(pair, from, to, remotes, probe(KIND_PROBE, *me, check_id), &mut send),
                             Action::OpenSockets { count } => asks.push(SocketAsk::Open { owner: GUEST_SOCKETS, count }),
                             // After `Selected`: a kept socket is the way to the host chosen.
                             Action::CloseSockets { keep } => {
@@ -753,7 +780,7 @@ impl Online {
                                 // "lan" make a guest a helper [documented: docs/design/coop-signal-wire.md].
                                 let path = if hosted_path { "hosted-relay" } else if is_lan(remote.ip()) { "lan" } else { "direct" };
                                 let how = a.selected_candidate().map_or(report::Path::Open, report::Path::of);
-                                log::info!("{}", Connect { host: false, path: how, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
+                                log::info!("{}", Connect { host: false, path: how, nat: self.nat, peer_nat: report::Nat::from_candidates(remotes), elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
                                 if let Some(c) = client {
                                     c.connected(path);
                                 }
@@ -822,7 +849,8 @@ impl Online {
     /// relayed players (both sides).
     fn poll_relays(&mut self, now: Instant) -> Vec<(SocketAddr, Vec<u8>)> {
         let mut send = Vec::new();
-        let Side::Guest { me: Some(me), client, connected, .. } = &mut self.side else { return send };
+        let Side::Guest { me: Some(me), client, connected, remotes, .. } = &mut self.side else { return send };
+        let peer_nat = report::Nat::from_candidates(remotes);
         let me = *me;
         let no_stun = self.no_stun;
         let r = &mut self.relays;
@@ -883,7 +911,7 @@ impl Online {
                             }
                             *connected = true;
                             self.events.push(OnlineEvent::Note(format!("path to the host: through guest {helper} at {at} (relayed)")));
-                            log::info!("{}", Connect { host: false, path: report::Path::PeerRelay, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
+                            log::info!("{}", Connect { host: false, path: report::Path::PeerRelay, nat: self.nat, peer_nat, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
                             self.events.push(OnlineEvent::HostVia(at));
                         }
                     }
@@ -894,11 +922,11 @@ impl Online {
                         self.events.push(OnlineEvent::Note(format!("the relay through guest {helper} stopped working")));
                     }
                     relay::Action::GiveUp(_) if no_stun => {
-                        log::info!("{}", Connect { host: false, path: report::Path::None, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
+                        log::info!("{}", Connect { host: false, path: report::Path::None, nat: self.nat, peer_nat, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
                         self.events.push(OnlineEvent::Failed(UDP_BLOCKED.into()));
                     }
                     relay::Action::GiveUp(why) => {
-                        log::info!("{}", Connect { host: false, path: report::Path::None, nat: self.nat, peer_nat: report::Nat::Unknown, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
+                        log::info!("{}", Connect { host: false, path: report::Path::None, nat: self.nat, peer_nat, elapsed: self.go_at.map_or(std::time::Duration::ZERO, |t| now.saturating_duration_since(t)) });
                         let text = match why {
                             GiveUp::NoHelpers => "Couldn't reach the host from your network, and no other player can relay for you. Ask the host to turn on UPnP on their router or forward UDP port 47960, or join over Tailscale by address.",
                             GiveUp::AllRefused => "Couldn't reach the host from your network, and the other players can't relay for you (their setting is off, or they relay for others).",
@@ -1220,6 +1248,18 @@ fn route_addrs(v4_port: Option<u16>, v6_port: Option<u16>) -> Vec<SocketAddr> {
 
 #[cfg(test)]
 mod tests {
+    /// The birthday-only aid drops just the plain checks to candidates passed on.
+    #[test]
+    fn birthday_only_drops_plain_checks_only() {
+        let passed: SocketAddr = "203.0.113.7:47960".parse().unwrap();
+        let learnt: SocketAddr = "203.0.113.7:51000".parse().unwrap();
+        let cands = [Candidate::new(Kind::ServerReflexive, passed)];
+        assert!(super::plain_check(3, true, passed, &cands));
+        assert!(!super::plain_check(super::NO_PAIR, true, passed, &cands), "spread probes and spray go");
+        assert!(!super::plain_check(3, false, passed, &cands), "from an extra socket goes");
+        assert!(!super::plain_check(3, true, learnt, &cands), "to a peer-reflexive address learnt goes");
+    }
+
     use super::*;
     use std::time::Duration;
 
