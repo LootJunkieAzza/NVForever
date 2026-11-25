@@ -1,7 +1,8 @@
 //! Solid cores of blended shapes, for two uses. A shape whose texture is nearly all solid
-//! ([`SolidTexels::Whole`]) has its core at all times (#4290): a blended shape writes no depth and
+//! ([`SolidTexels::Whole`]) and that has no environment map has its core at all times (#4290): a blended shape writes no depth and
 //! its triangles are drawn in their stored order, so the water tank's hatch was drawn over the
-//! tank; the original's tank hides it [observed, 2026-11-25; that the original writes depth there
+//! tank; the original's tank hides it, as its Gomorrah lanterns hide their own far side
+//! [observed, 2026-11-25; that the original writes depth there
 //! is a hypothesis, the core an engineering choice]. Every other candidate has its core under the
 //! light in the air alone (#3032): an engineering choice of
 //! NVForever's own for the enhanced look [design], never a parity item and never used to
@@ -17,7 +18,7 @@
 //! tank by Goodsprings, `nv_watertank.nif`, flags 4333, reference 00106B5E:
 //! docs/design/volumetric-medium.md, "Solid cores of blended shapes").
 //!
-//! **What.** At all times for a nearly whole texture, else while [`AirDraws`] is true, a placed shape whose material can have one
+//! **What.** At all times for a nearly whole texture without an environment map, else while [`AirDraws`] is true, a placed shape whose material can have one
 //! (`nif_spawn::solid_core_rules` at the material's build, `nif_spawn::solid_core` of the
 //! material as it stands now, and a base texture with a solid texel,
 //! `texture::alpha_solidity`) gets a second draw, its solid core: a loose entity (nobody's
@@ -513,7 +514,14 @@ fn follow(
                 .filter(|_| !parents.iter_ancestors(e).any(|a| rigs.contains(a)))
         });
         match source {
-            None => st.leave(e, &mut commands),
+            None => {
+                // Looked at for another change in the frame its material became one that can have
+                // no core: the material's own event finds no source any more.
+                if let Some(id) = st.watched.get(&e).map(|w| w.source).filter(|&id| materials.get(id).is_some_and(|m| m.extension.solid_core.is_none())) {
+                    st.dropped.insert(id);
+                }
+                st.leave(e, &mut commands);
+            }
             Some(id) => {
                 if st.watch(e, id) {
                     changed_sources.insert(id);
@@ -1147,7 +1155,7 @@ pub(crate) mod tests {
             place(&mut app, &m);
             app.update();
             assert_eq!(count(&mut app), 1);
-            let mut put = |app: &mut App, material: NifMaterial| {
+            let put = |app: &mut App, material: NifMaterial| {
                 let mut all = app.world_mut().resource_mut::<Assets<NifMaterial>>();
                 if empty_between {
                     all.remove(m.id());
@@ -1165,6 +1173,54 @@ pub(crate) mod tests {
         }
     }
 
+    /// The same with the wearer changed otherwise in the frame its material became plain (its range):
+    /// it leaves before the material's event is read.
+    #[test]
+    fn a_wearer_changed_with_its_material_is_found_again() {
+        for empty_between in [false, true] {
+            let mut app = app(None);
+            app.world_mut().resource_mut::<SolidCores>().verdicts.insert(TEXTURE.into(), SolidTexels::Whole);
+            app.insert_resource(AirDraws(false)).insert_resource(AirOpen(false));
+            let m = add(&mut app, tank());
+            let e = place(&mut app, &m);
+            app.update();
+            assert_eq!(count(&mut app), 1);
+            let put = |app: &mut App, material: NifMaterial| {
+                let mut all = app.world_mut().resource_mut::<Assets<NifMaterial>>();
+                if empty_between {
+                    all.remove(m.id());
+                }
+                all.insert(m.id(), material).unwrap();
+            };
+            put(&mut app, nif_material(StandardMaterial::default()));
+            app.world_mut().entity_mut(e).insert(VisibilityRange::abrupt(0.0, 100.0));
+            app.update();
+            app.update();
+            assert_eq!(count(&mut app), 0);
+            put(&mut app, tank());
+            app.update();
+            app.update();
+            assert_eq!(count(&mut app), 1, "empty between: {empty_between}");
+        }
+    }
+
+    /// A reflecting shape of a nearly whole texture has its core under the light alone. (That its texture is
+    /// not read before is not seen here: there are no files.)
+    #[test]
+    fn a_reflecting_shape_has_its_core_under_the_light_alone() {
+        let mut app = app(None);
+        let mut glass = tank();
+        glass.extension.env_cube = Some(Handle::default());
+        let glass = add(&mut app, glass);
+        place(&mut app, &glass);
+        app.world_mut().resource_mut::<SolidCores>().verdicts.insert(TEXTURE.into(), SolidTexels::Whole);
+        for (on, n) in [(false, 0), (true, 1), (false, 0)] {
+            app.insert_resource(AirDraws(on)).insert_resource(AirOpen(on));
+            app.update();
+            assert_eq!(count(&mut app), n, "the light {on}");
+        }
+    }
+
     /// A texture's answer that comes after the light has gone: the light's core is not made, the
     /// nearly whole one's is.
     #[test]
@@ -1173,9 +1229,19 @@ pub(crate) mod tests {
             let mut app = app(None);
             let m = add(&mut app, tank());
             place(&mut app, &m);
-            let task = AsyncComputeTaskPool::get().spawn(async move { answer });
+            // Being read while the light is on (the answer held back), then the light goes.
+            let (send, receive) = std::sync::mpsc::channel::<()>();
+            let receive = std::sync::Mutex::new(receive);
+            let task = AsyncComputeTaskPool::get().spawn(async move {
+                let _ = receive.lock().unwrap().recv();
+                answer
+            });
             app.world_mut().resource_mut::<SolidCores>().asked.insert(TEXTURE.into(), task);
+            app.update();
+            assert_eq!(count(&mut app), 0, "not known yet");
             app.insert_resource(AirDraws(false)).insert_resource(AirOpen(false));
+            app.update();
+            send.send(()).unwrap();
             for _ in 0..200 {
                 app.update();
                 if app.world().resource::<SolidCores>().asked.is_empty() {

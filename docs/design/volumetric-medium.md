@@ -1175,8 +1175,9 @@ replacement of the tank's texture may so show the line along its rim again.
 above (`SolidTexels::Whole`; the tank's 96 %) and the shape has no environment map, the core is
 drawn whether or not the light is, indoors and at night too, and is not hidden when the gate closes. What it
 fixes is the shape's own order: without depth its triangles paint in their stored order. The rest of this section holds for it.
-A cut-out edge is the core's hard one behind the blend's soft one: the Gomorrah lanterns' lattice looks harder than before, and their
-far rim no longer shows through [observed: one placed alone, old build against new, by eye]
+A cut-out edge is the core's hard one behind the blend's soft one. Of 33 models placed alone and turned four ways, old build against new, the
+Gomorrah lanterns (`spherelight.nif`, `moroccanlanternorange.nif`) and the antique Mr Handy's saws changed most, and each towards the original captured beside them:
+the lattice's dots apart, no far rim through the front, the saws' hubs shown [observed, by eye, 2026-11-25; the light and the ground differ]
 [design; a texture whose alpha cannot be read here (BC7) is not of it].
 
 **The colour is close, not the same.** Where the texture's alpha is between 0.85 and 1 the

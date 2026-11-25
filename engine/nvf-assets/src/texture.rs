@@ -1062,8 +1062,8 @@ pub enum SolidTexels {
     /// most are solid: the rest are the edges of what is solid (a border, a filtered seam).
     Mostly,
     /// [`SolidTexels::Mostly`], and nine tenths of all its texels are solid: a surface to the eye
-    /// with little that is see-through (the Goodsprings water tank's: 96 %). Its shapes have their
-    /// core at all times, not for the light in the air alone (#4290) [engineering choice].
+    /// with little that is see-through (the Goodsprings water tank's: 96 %). Its shapes without
+    /// an environment map have their core at all times, not for the light in the air alone (#4290) [engineering choice].
     Whole,
 }
 

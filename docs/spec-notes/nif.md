@@ -432,7 +432,8 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   (`nv_watertank.nif`, `DieselTankNV:2`): flags 4333 (blend, no test), BSShaderFlags2 bit 0
   ZBuffer_Write set [documented: nif.xml for the names; observed: the values and the stored order, `fnvtool nif decode`], the hatch's side wall
   last in the stored order, so here it was drawn over the tank's end. In the original the tank hides it from the end, and
-  from three other sides the hatch shows where it should [observed, captured 2026-11-25, the pictures private].
+  from three other sides the hatch shows where it should; two lanterns of the Gomorrah (`spherelight.nif`, `moroccanlanternorange.nif`) hide
+  their own far side and the antique Mr Handy's saw blades do not cover their hubs [observed, captured 2026-11-25, the pictures private].
   That the original writes depth there is a [hypothesis]. The game's renderer draws a placed shape of that kind (blended, lit, ZBuffer_Write,
   nine tenths of its texture's texels solid, no environment map) a second time as its solid core, which
   holds the depth [engineering choice; docs/design/volumetric-medium.md, "Solid cores of blended shapes"]. Other blended
