@@ -40,8 +40,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 215,
+          "spec_file": "docs/spec-notes/factions.md",
+          "spec_line": 278,
           "functions_tested": [
             "AgeRace",
             "SexChange",
@@ -95,8 +95,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 215,
+          "spec_file": "docs/spec-notes/factions.md",
+          "spec_line": 278,
           "functions_tested": [
             "SetDisposition",
             "GetDisposition",
