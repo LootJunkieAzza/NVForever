@@ -210,6 +210,8 @@ fn ammunition_and_its_effects() {
     q(&mut g, "SetAmmoProjectile TestAmmo TestProjectile2");
     assert_eq!(g.num_field(FormId(AMMO), "DAT2", "projectile"), f64::from(PROJ2));
     assert_eq!(n(&mut g, "GetAmmoCasing TestAmmo"), f64::from(CASING));
+    q(&mut g, "SetAmmoCasing TestAmmo 0");
+    assert_eq!(n(&mut g, "GetAmmoCasing TestAmmo"), f64::from(CASING), "explicit null 0 is a no-op [observed: w6d2_11]");
     q(&mut g, "SetAmmoCasing TestAmmo");
     assert_eq!(n(&mut g, "GetAmmoCasing TestAmmo"), 0.0);
     // The effects list: 1 when it changed.

@@ -494,14 +494,15 @@ fn parse_trait_index(args: &[XVal], k: usize) -> Option<usize> {
     }
 }
 
-/// Parses an optional form argument (`SetProjectileLight`):
-/// - `Some(None)` when omitted or explicitly null (`0`) -> clear.
-/// - `Some(Some(id))` when a non-zero form/integer ID is supplied -> validate signature.
-/// - `None` when malformed (string, negative/fractional number, etc.) -> reject cleanly.
+/// Parses an optional form argument (`SetAmmoCasing`, `SetProjectileLight`):
+/// - `Some(None)` when omitted -> clear.
+/// - `Some(Some(id))` when a non-zero form/integer ID is supplied -> validate/apply.
+/// - `None` when explicit null (`0`) or malformed -> no-op
+///   [observed: `w6d2_11_ammo_proj_expl_clone_and_edges`].
 fn parse_optional_form_arg(args: &[XVal], k: usize) -> Option<Option<FormId>> {
     match args.get(k) {
-        None | Some(XVal::Ref(0)) => Some(None),
-        Some(XVal::Num(x)) if *x == 0.0 => Some(None),
+        None => Some(None),
+        Some(XVal::Ref(0)) => None,
         Some(XVal::Ref(r)) => Some(Some(FormId(*r))),
         Some(XVal::Num(x)) if x.is_finite() && *x >= 1.0 && *x <= f64::from(u32::MAX) && x.fract() == 0.0 => Some(Some(FormId(*x as u32))),
         _ => None,
@@ -1226,10 +1227,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `ammo [form]`: left out, none [documented: SetAmmoCasing].
+        // `ammo [form]`: left out clears; explicit null (0) is a no-op [documented:
+        // SetAmmoCasing; observed: `w6d2_11_ammo_proj_expl_clone_and_edges`].
         "setammocasing" => {
-            if let Some(a) = ammo(g, form(args, 0)) {
-                let target = form(args, 1);
+            if let (Some(a), Some(target)) = (ammo(g, form(args, 0)), parse_optional_form_arg(args, 1)) {
                 g.set_field(a, "DAT2", "consumed_ammo", XVal::Ref(target.map_or(0, |f| f.0)));
             }
             zero
@@ -1270,8 +1271,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `projectile [light]`: left out or null clears; a non-null form must be a LIGH
-        // (including TempCloneForm LIGH) [documented: SetProjectileLight].
+        // `projectile [light]`: left out clears; explicit null (0) and non-LIGH are no-ops
+        // (accepts TempCloneForm LIGH) [documented: SetProjectileLight; observed:
+        // `w6d2_11_ammo_proj_expl_clone_and_edges`].
         "setprojectilelight" => {
             if let (Some(p), Some(arg)) = (projectile(g, form(args, 0)), parse_optional_form_arg(args, 1)) {
                 match arg {

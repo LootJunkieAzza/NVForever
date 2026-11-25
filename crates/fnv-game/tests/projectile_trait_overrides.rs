@@ -268,15 +268,15 @@ fn projectile_setters_validate_targets_slots_and_replacement_forms_without_mutat
         call(&mut g, "setprojectilelight", &[XVal::Ref(p.0), bad]);
         assert_eq!(g.projectile_traits(p).unwrap().light, Some(FormId(LIGH_A)));
     }
-    // TempCloneForm LIGH is accepted; explicit 0 and omitted arg clear light.
+    // TempCloneForm LIGH is accepted; explicit 0 is a no-op and omitted arg clears light
+    // [observed: `w6d2_11_ammo_proj_expl_clone_and_edges`].
     let XVal::Ref(ligh_clone_raw) = call(&mut g, "tempcloneform", &[XVal::Ref(LIGH_B), XVal::Num(1.0)]) else {
         panic!("expected LIGH clone");
     };
     call(&mut g, "setprojectilelight", &[XVal::Ref(p.0), XVal::Ref(ligh_clone_raw)]);
     assert_eq!(g.projectile_traits(p).unwrap().light, Some(FormId(ligh_clone_raw)));
     call(&mut g, "setprojectilelight", &[XVal::Ref(p.0), XVal::Ref(0)]);
-    assert_eq!(g.projectile_traits(p).unwrap().light, None);
-    call(&mut g, "setprojectilelight", &[XVal::Ref(p.0), XVal::Ref(LIGH_B)]);
+    assert_eq!(g.projectile_traits(p).unwrap().light, Some(FormId(ligh_clone_raw)));
     call(&mut g, "setprojectilelight", &[XVal::Ref(p.0)]);
     assert_eq!(g.projectile_traits(p).unwrap().light, None);
 

@@ -16,7 +16,7 @@ setters of batch 5 were observed to, jip-records-5.md].
 | Function | NVForever |
 |---|---|
 | SetAmmoTraitNumeric `ammo trait value` | 0 speed (DATA), 1 projectiles per shot (DAT2), 2 ammo consumed percent (DAT2), 3 clip rounds (DATA) [documented: the page's table, which lists 0-3 though its argument says 0-2]; accepts `TempCloneForm` `AMMO` clones [design] |
-| SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; left out, none [documented]; accepts `TempCloneForm` `AMMO` clones, and `SetAmmoProjectile` validates `PROJ` (following clones) when a non-null form is supplied [hypothesis] |
+| SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; omitted arg clears to `0`, explicit null (`0`) is a no-op, accepts `TempCloneForm` `AMMO` clones (including clone-of-clone isolation), and `SetAmmoProjectile` rejects non-`PROJ` forms [documented; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to game install or Saves), `w6d2_11_ammo_proj_expl_clone_and_edges` (`tools/capture/nvse/catalogs/wave6d2_ammo_proj_ref_setters_null_noop.json`): `PROBE\|w6d2_11_ammo_proj_expl_clone_and_edges\|ap(badEq0=1,badZ=0)\|ac(badEqS=1,nullZ=0,omitZ=1)\|pl(set=1,badEqL=1,badZ=0,nullZ=0,omitZ=1)\|cl2=1`; zero DLL, PDB, or third-party source consulted] |
 | AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_16_ammo_effect_add_remove_ret (AddAmmoEffect/RemoveAmmoEffect): 1,0,1,0; no DLL or source consulted]; accepts `TempCloneForm` `AMMO` and `AMEF` clones [design]; `GetNumAmmoEffects`, `GetNthAmmoEffect`, `ApplyAmmoEffects`, `GetCalculatedWeaponDegradation`, and `Game::ammo_traits` / `Game::ammo_effect_defs` read the changed list |
 | SetAmmoEffectTraitNumeric `effect trait value` | AMEF DATA: 0 type, 1 operation, 2 value [documented]; accepts `TempCloneForm` `AMEF` clones [design] |
 
@@ -36,7 +36,7 @@ for wrong-type `SetAmmoProjectile` rejection and clone-of-clone isolation remain
 | Function | NVForever |
 |---|---|
 | SetProjectileTraitNumeric `projectile trait value` | DATA: 0 type, 1 gravity, 2 speed, 3 range, 4 tracer chance, 5 explosion proximity, 6 explosion timer, 7 muzzle flash duration, 8 fade duration, 9 impact force, 10-12 rotation x/y/z, 13 bouncy mult; 14 the detection sound level (VNAM) [documented: the page's table] |
-| SetProjectileLight `projectile [light]` | DATA's light; left out, none [documented] |
+| SetProjectileLight `projectile [light]` | DATA's light (`LIGH`); omitted arg clears to `0`, explicit null (`0`) and non-`LIGH` forms are no-ops [documented; observed: `w6d2_11_ammo_proj_expl_clone_and_edges`] |
 | SetProjectileMuzzleFlash `projectile path` | NAM1, the muzzle flash model |
 | SetExplosionTraitNumeric `explosion trait value` | DATA: 0 force, 1 damage, 2 radius, 3 IS radius, 4 radiation level, 5 dissipation time, 6 radiation radius, 7 sound level [documented]; accepts `TempCloneForm` `EXPL` clones and feeds `Game::explosion_traits`, `Game::add_explosion_radiation_zone`, `Game::explosive_from_explosion`, `Game::explosion_hit_damage`, and `Game::explosion_placed` radius overrides [design] |
 
