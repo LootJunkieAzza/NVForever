@@ -409,7 +409,8 @@ fn set_weapon_sound_drives_player_equip_unequip_idle_fire_dry_fire_and_block() {
     let played: Vec<FormId> = drain_play_sounds(&mut app).into_iter().map(|p| p.sound).collect();
     assert!(played.contains(&OVR_DRY), "dry fire emits overridden no_ammo sound: {played:?}");
 
-    // Player block sound uses overridden slot 5; clearing slot 5 to 0 suppresses it.
+    // Player block sound uses overridden slot 5; explicit 0 is a no-op while omitting the 3rd arg
+    // clears slot 5 and suppresses it [observed: w6d2_03_weapon_sound_slots_and_clone].
     {
         let c = app.world().resource::<Combat>();
         let sim = app.world().resource::<SimState>();
@@ -423,12 +424,24 @@ fn set_weapon_sound_drives_player_equip_unequip_idle_fire_dry_fire_and_block() {
         let c = app.world().resource::<Combat>();
         let sim = app.world().resource::<SimState>();
         let sfx = app.world().resource::<Sfx>();
+        assert_eq!(
+            block_sound(c, sim, Some(sfx), FormId::PLAYER_REF).map(|p| p.sound),
+            Some(OVR_BLOCK),
+            "explicit 0 is a no-op and keeps block sound override"
+        );
+    }
+    run_nvse(&mut app, "SetWeaponSound BridgePistol 5");
+    app.update();
+    {
+        let c = app.world().resource::<Combat>();
+        let sim = app.world().resource::<SimState>();
+        let sfx = app.world().resource::<Sfx>();
         assert!(block_sound(c, sim, Some(sfx), FormId::PLAYER_REF).is_none(), "cleared block slot suppresses block sound");
     }
 
-    // Clearing idle (slot 6) while weapon is drawn stops the active idle loop immediately.
+    // Clearing idle (slot 6, omitted 3rd arg) while weapon is drawn stops the active idle loop immediately.
     drain_loop_sounds(&mut app);
-    run_nvse(&mut app, "SetWeaponSound BridgePistol 6 0");
+    run_nvse(&mut app, "SetWeaponSound BridgePistol 6");
     app.update();
     let loops = drain_loop_sounds(&mut app);
     assert!(loops.iter().any(|l| l.sound == OVR_IDLE && !l.on), "clearing idle stops active loop");
@@ -581,7 +594,7 @@ fn set_weapon_sound_drives_npc_near_distant_silenced_melee_and_block_sounds() {
     let played: Vec<FormId> = drain_play_sounds(&mut app).into_iter().map(|p| p.sound).collect();
     assert!(played.contains(&OVR_3D), "NPC melee strike emits overridden shoot_3d: {played:?}");
 
-    run_nvse(&mut app, "SetWeaponSound BridgeClub 0 0\nSetWeaponSound BridgeClub 2 0");
+    run_nvse(&mut app, "SetWeaponSound BridgeClub 0\nSetWeaponSound BridgeClub 2");
     app.world_mut().resource_mut::<Messages<ActorStrike>>().write(ActorStrike {
         attacker: NPC_REF,
         target: FormId::PLAYER_REF,

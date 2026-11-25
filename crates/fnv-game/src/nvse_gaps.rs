@@ -18,7 +18,7 @@ pub const WEAPON_SOUND_SLOTS: usize = 14;
 /// ([`Game::weapon_sound_changes`]), indexed by JIP `soundID` `0..=13`.
 ///
 /// - `None`: script left this slot at its authored record value.
-/// - `Some(None)`: script cleared this slot (`SetWeaponSound weap id` / null).
+/// - `Some(None)`: script cleared this slot by omitting `newSound` (`SetWeaponSound weap id`; explicit `0` is a no-op).
 /// - `Some(Some(sound))`: script replaced this slot with `sound` (a `SOUN` or cloned `SOUN`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WeaponSoundChange {

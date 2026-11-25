@@ -341,7 +341,9 @@ mod weapon_sound_bridge_tests {
         assert_eq!(emitted.get(&SoundSource::key(IDLE_KIND, NPC_A.0)), Some(&SND_OVR_IDLE));
         assert_eq!(emitted.get(&SoundSource::key(IDLE_KIND, NPC_B.0)), Some(&SND_AUTH_IDLE));
 
-        // Clearing IdleWeapA slot 6 to 0 suppresses NPC_A's idle source while NPC_B stays active.
+        // Explicit 0 is a no-op leaving NPC_A's overridden idle active; omitting the 3rd arg
+        // clears slot 6 and suppresses NPC_A's idle source while NPC_B stays active
+        // [observed: w6d2_03_weapon_sound_slots_and_clone].
         app.world_mut()
             .resource_mut::<ScriptState>()
             .rt
@@ -349,6 +351,18 @@ mod weapon_sound_bridge_tests {
             .unwrap()
             .game
             .run_query("Begin Function {}\nSetWeaponSound IdleWeapA 6 0\nEnd", RunCtx::default())
+            .unwrap();
+        app.update();
+        let emitted: HashMap<u64, FormId> = app.world_mut().resource_mut::<Messages<SoundSource>>().drain().map(|s| (s.key, s.sound)).collect();
+        assert_eq!(emitted.get(&SoundSource::key(IDLE_KIND, NPC_A.0)), Some(&SND_OVR_IDLE));
+
+        app.world_mut()
+            .resource_mut::<ScriptState>()
+            .rt
+            .as_mut()
+            .unwrap()
+            .game
+            .run_query("Begin Function {}\nSetWeaponSound IdleWeapA 6\nEnd", RunCtx::default())
             .unwrap();
         app.update();
         let emitted: HashMap<u64, FormId> = app.world_mut().resource_mut::<Messages<SoundSource>>().drain().map(|s| (s.key, s.sound)).collect();
