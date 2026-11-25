@@ -30,6 +30,7 @@ use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
 use crate::ssao::{AoLevel, AO_CHOICES};
 use crate::upscaler::{DlssModel, UpscaleQuality, Upscaler, UpscalerChoice};
+use crate::volumetric_clouds::{CloudLevel, CLOUD_CHOICES};
 use crate::window_mode;
 use crate::world::Streamer;
 use crate::{Args, Overlay};
@@ -1199,7 +1200,14 @@ fn register_graphics(app: &mut App) {
         Setting { key: AO_KEY, group: GROUP_GRAPHICS, label: "Ambient occlusion", note: AO_NOTE, switches: "--graphics, --ambient-occlusion", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| AO_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: ao_chosen, pick: take_ao, save: ao_chosen, load: take_ao, ask_keep: false },
     );
-    let switches: [Switch; 24] = [
+    // Volumetric clouds: a list of Off and its levels [design, 2026-11-23: 7
+    // or fewer values]; the INI's older on/off still loads, on as Normal.
+    add_choice_list(
+        app,
+        Setting { key: CLOUDS_KEY, group: GROUP_GRAPHICS, label: "Volumetric clouds (experimental)", note: CLOUDS_NOTE, switches: "--graphics-only", get: |_| false, set: |_, _| {}, slider: None },
+        ChoiceList { names: |_| CLOUD_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: clouds_chosen, pick: take_clouds, save: clouds_chosen, load: take_clouds, ask_keep: false },
+    );
+    let switches: [Switch; 25] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1347,6 +1355,14 @@ fn register_graphics(app: &mut App) {
             |w, on| w.resource_mut::<Graphics>().desert_haze = on,
         ),
         (
+            VOLUMETRIC_LIGHT_KEY,
+            "Volumetric light (experimental)",
+            VOLUMETRIC_LIGHT_NOTE,
+            "--graphics-only",
+            |w| w.resource::<Graphics>().volumetric_light,
+            |w, on| w.resource_mut::<Graphics>().volumetric_light = on,
+        ),
+        (
             "aerial-perspective",
             "Aerial perspective (experimental)",
             "On: far land takes on the sky's colours with distance, bluer at noon, warmer at dusk, brighter toward the sun, inside the weather's fog. Not in the original.",
@@ -1413,6 +1429,59 @@ fn register_graphics(app: &mut App) {
     // (gpu_occlusion.rs).
     crate::gpu_occlusion::add_row(app, GROUP_GRAPHICS);
     nvf_play::settings::set_needs_in_game(app, "terrain-parallax", |w| parallax_status(nvf_assets::authored::enabled(), w.get_resource::<Graphics>().is_some_and(|g| g.authored_materials)));
+    // #3032 stage 3: the light in the air's strength, 0 to 200 % in steps of 10 (greyed while
+    // its switch is off: `settings_layout::NEEDS`); Sun shafts are greyed while the light is
+    // wanted at a strength above 0 (they yield to it where it draws, shafts.rs): the game's page
+    // alone, for the launcher's shared rules know no slider's value.
+    nvf_play::settings::set_needs_in_game(app, "light-shafts", |w| {
+        use crate::medium_air_demand::{AirStrengthSetting, AirWanted};
+        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+        let aid = w.get_resource::<crate::medium_air_demand::AirAid>().is_some_and(|a| a.0);
+        #[cfg(not(any(test, debug_assertions, feature = "dev-aids")))]
+        let aid = false;
+        shafts_status(w.get_resource::<AirWanted>().is_some_and(|a| a.0), aid, w.get_resource::<AirStrengthSetting>().copied().unwrap_or_default().0)
+    });
+    add_setting(app, Setting::slider(VOLUMETRIC_LIGHT_STRENGTH_KEY, GROUP_GRAPHICS, "Volumetric light strength", VOLUMETRIC_LIGHT_STRENGTH_NOTE, air_strength_slider()));
+}
+
+/// Why the Sun shafts row cannot apply: the light in the air is wanted (so drawn on this device)
+/// at a strength above 0 (the debug aid's always is); at 0 the shafts draw.
+fn shafts_status(wanted: bool, aid: bool, strength: f32) -> Option<&'static str> {
+    (wanted && (aid || strength > 0.0)).then_some("Replaced by Volumetric Light.")
+}
+
+/// The Volumetric light row's key (#3032 stage 3; graphics.rs `Graphics::volumetric_light`).
+pub(crate) const VOLUMETRIC_LIGHT_KEY: &str = "volumetric-light";
+/// Its strength's slider (medium_air_demand.rs `AirStrengthSetting`).
+pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_KEY: &str = "volumetric-light-strength";
+
+/// The Volumetric light row's note: what it does and what it looks best with (its rays are
+/// cut by the Cloud shadows image and the Terrain shadows map, medium_air_grid.rs) [design].
+pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight shows in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's.";
+
+/// The strength slider's note [design].
+pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_NOTE: &str = "How strongly the light in the air brightens lit air and darkens shaded air: 100% is the look as tuned, 0% none.";
+
+/// The strength's slider: the part strength / 2 (0..=1) in steps of 0.05 (10 %), shown as
+/// 0 to 200 %; read from and written to `AirStrengthSetting` (made when it is not there yet:
+/// the INI is read before every plugin's resource may exist) [design].
+fn air_strength_slider() -> Slider {
+    use crate::medium_air_demand::AirStrengthSetting;
+    Slider {
+        get: |w| w.get_resource::<AirStrengthSetting>().copied().unwrap_or_default().part(),
+        set: |w, v| {
+            let next = AirStrengthSetting::from_part(v);
+            match w.get_resource_mut::<AirStrengthSetting>() {
+                Some(mut s) => {
+                    s.set_if_neq(next);
+                }
+                None => w.insert_resource(next),
+            }
+        },
+        min: 0.0,
+        step: 0.05,
+        shown: Some(AirStrengthSetting::shown),
+    }
 }
 
 /// The Terrain parallax row's availability in the game, by the run's Authored materials
@@ -1500,6 +1569,38 @@ fn take_ao(world: &mut World, text: &str) -> bool {
     true
 }
 
+/// The Volumetric clouds row's key and note (volumetric_clouds.rs `CloudLevel`).
+const CLOUDS_KEY: &str = "volumetric-clouds";
+const CLOUDS_NOTE: &str = "The weather's clouds drawn with depth, lit by the sun: Off, or Performance, Normal or High, each finer and dearer than the last. A prototype. Not in the original.";
+
+/// The Volumetric clouds row's choice now: Off, or the level the clouds are drawn at.
+fn clouds_chosen(world: &World) -> String {
+    let g = world.resource::<Graphics>();
+    if g.volumetric_clouds { g.volumetric_clouds_level.name() } else { CLOUD_CHOICES[0] }.to_string()
+}
+
+/// The page's, the INI's and the test aids' Volumetric clouds: one of [`CLOUD_CHOICES`] (any
+/// case), or the row's older on/off as Normal and Off (it was never a slider, so no other
+/// number is read); false otherwise.
+fn take_clouds(world: &mut World, text: &str) -> bool {
+    let level = match text.trim() {
+        t if t.eq_ignore_ascii_case(CloudLevel::Performance.name()) => Some(CloudLevel::Performance),
+        t if t.eq_ignore_ascii_case(CloudLevel::Normal.name()) => Some(CloudLevel::Normal),
+        t if t.eq_ignore_ascii_case(CloudLevel::High.name()) => Some(CloudLevel::High),
+        t => match nvf_play::settings::parse_switch(t) {
+            Some(on) => on.then_some(CloudLevel::Normal),
+            None => return false,
+        },
+    };
+    let mut g = world.resource_mut::<Graphics>();
+    // Off keeps the level, as the Ambient occlusion row does.
+    let want = (level.is_some(), level.unwrap_or(g.volumetric_clouds_level));
+    if (g.volumetric_clouds, g.volumetric_clouds_level) != want {
+        (g.volumetric_clouds, g.volumetric_clouds_level) = want;
+    }
+    true
+}
+
 /// The Cloud shadows row's note (#2670; docs/design/sun-visibility.md): the label says the
 /// feature is experimental (as 3D scopes' says "(test)"), the note that its look is still
 /// being tuned (the relative rule, §7a, and the calibration, §8).
@@ -1517,7 +1618,7 @@ fn register_pipeline_waits(app: &mut App) {
         "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-effects", "water-mirror", "sun-shadows", "grade",
-        "terrain-height-blend", "terrain-anti-tiling", "terrain-parallax", "cloud-shadows", "terrain-shadows", "heat-haze", MESH_BLEND_KEY, "distant-lights",
+        "terrain-height-blend", "terrain-anti-tiling", "terrain-parallax", "cloud-shadows", "terrain-shadows", "heat-haze", CLOUDS_KEY, VOLUMETRIC_LIGHT_KEY, MESH_BLEND_KEY, "distant-lights",
         // ALC shadows' first point and spot light shadow views specialize their passes.
         "light-shadows",
     ] {
@@ -3043,6 +3144,49 @@ dlss-model=Preset K
         assert_eq!(app.world().resource::<Graphics>().distant_objects, DistantObjects::Eight, "unchanged");
     }
 
+    /// The Volumetric clouds row is a list of Off and its levels: the choice sets the switch and
+    /// the level, Off keeps the level, and the INI's older on/off loads as Normal and Off.
+    #[test]
+    fn volumetric_clouds_are_a_list_of_off_and_the_levels() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = rows_app();
+        let i = row(&app, CLOUDS_KEY);
+        let s = app.world().resource::<Settings>().list()[i];
+        assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, "Volumetric clouds (experimental)", CLOUDS_NOTE, "--graphics-only"));
+        assert!(CLOUDS_NOTE.chars().count() <= 200 && CLOUDS_NOTE.ends_with("Not in the original."));
+        let list = app.world().resource::<Settings>().choices(i).expect("a list");
+        assert_eq!((list.names)(app.world()), ["Off", "Performance", "Normal", "High"]);
+        assert_eq!((list.chosen)(app.world()), "Off", "off at the start");
+        let state = |app: &App| {
+            let g = app.world().resource::<Graphics>();
+            (g.volumetric_clouds, g.volumetric_clouds_level)
+        };
+        for (name, level) in [("Performance", CloudLevel::Performance), ("High", CloudLevel::High), ("Normal", CloudLevel::Normal)] {
+            assert!(nvf_play::settings::pick(app.world_mut(), i, name));
+            assert_eq!((state(&app), (list.save)(app.world()).as_str()), ((true, level), name));
+        }
+        // The INI: the names in any case, the switch's older values.
+        for (text, want) in [
+            ("high", (true, CloudLevel::High)),
+            ("0", (false, CloudLevel::High)),
+            ("1", (true, CloudLevel::Normal)),
+            (" PERFORMANCE ", (true, CloudLevel::Performance)),
+            ("off", (false, CloudLevel::Performance)),
+            ("true", (true, CloudLevel::Normal)),
+            ("false", (false, CloudLevel::Normal)),
+            ("on", (true, CloudLevel::Normal)),
+            ("no", (false, CloudLevel::Normal)),
+            ("yes", (true, CloudLevel::Normal)),
+        ] {
+            assert!(take_clouds(app.world_mut(), text), "{text}");
+            assert_eq!(state(&app), want, "{text}");
+        }
+        for text in ["ultra", "0.5", "2", ""] {
+            assert!(!take_clouds(app.world_mut(), text), "{text}");
+        }
+        assert_eq!(state(&app), (true, CloudLevel::Normal), "a value not taken changes nothing");
+    }
+
     /// #2377: the command-line switches moved out of the notes into `Setting::switches`; each
     /// row of the Graphics tab still names the switches its note named, in the note's order
     /// (`--shadow-distance` of Longer sun shadows too: it was not "a part of" there), and no
@@ -3082,9 +3226,12 @@ dlss-model=Preset K
             ("light-shafts", &["--graphics"]),
             ("heat-haze", &["--graphics-only"]),
             ("desert-haze", &["--graphics", "--graphics-only"]),
+            ("volumetric-clouds", &["--graphics-only"]),
             ("aerial-perspective", &["--graphics", "--graphics-only"]),
             ("night-sky-detail", &["--graphics", "--graphics-only"]),
             ("distant-lights", &["--graphics", "--graphics-only"]),
+            (VOLUMETRIC_LIGHT_KEY, &["--graphics-only"]),
+            (VOLUMETRIC_LIGHT_STRENGTH_KEY, &[]),
             ("water-reflections", &["--graphics"]),
             ("water-effects", &["--graphics", "--graphics-only"]),
             ("water-mirror", &["--graphics-only"]),
@@ -3100,6 +3247,71 @@ dlss-model=Preset K
         assert!(settings.list().iter().all(|s| !s.note.contains("--")), "no Graphics row's note names a switch");
         assert_eq!(nvf_play::settings::note_switches(FPS_COUNTER_SWITCHES), ["--fps"]);
         assert!(nvf_play::settings::note_switches(FPS_SPLIT_SWITCHES).is_empty());
+    }
+
+    /// #3032 stage 3: the Volumetric light switch is off in a vanilla start and switches
+    /// `Graphics::volumetric_light`; its strength slider runs 0 to 200 % in steps of 10 from
+    /// 100 % and is greyed while the switch is off (`settings_layout::NEEDS`); Sun shafts are
+    /// greyed while the light is wanted at a strength above 0.
+    #[test]
+    fn the_volumetric_light_rows_switch_scale_and_grey() {
+        use crate::medium_air_demand::AirStrengthSetting;
+        let mut app = rows_app();
+        let (on_row, strength_row, shafts) = (row(&app, VOLUMETRIC_LIGHT_KEY), row(&app, VOLUMETRIC_LIGHT_STRENGTH_KEY), row(&app, "light-shafts"));
+        let s = app.world().resource::<Settings>().list()[on_row];
+        assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, "Volumetric light (experimental)", VOLUMETRIC_LIGHT_NOTE, "--graphics-only"));
+        assert!(s.slider.is_none() && !(s.get)(app.world()), "a switch, off in a vanilla start");
+        let k = app.world().resource::<Settings>().list()[strength_row];
+        assert_eq!((k.group, k.label, k.note, k.switches), (GROUP_GRAPHICS, "Volumetric light strength", VOLUMETRIC_LIGHT_STRENGTH_NOTE, ""));
+        let slider = k.slider.expect("a slider");
+        // 0..=1 in twentieths: 21 values, 0 % to 200 % in steps of 10 %.
+        assert_eq!(nvf_play::settings::slider_values(&slider), 21);
+        assert_eq!((slider.text(0.0), slider.text(slider.step), slider.text(1.0)), ("0%".to_string(), "10%".to_string(), "200%".to_string()));
+        assert_eq!((slider.get)(app.world()), 0.5, "100 % by default (no resource yet: the default)");
+        assert_eq!(slider.text((slider.get)(app.world())), "100%");
+        // The greyed states: the slider while the switch is off, Sun shafts while it is on.
+        let status = |app: &App, i: usize| app.world().resource::<Settings>().disabled_status(app.world(), i);
+        assert_eq!(status(&app, strength_row), Some("Needs Volumetric Light."));
+        assert_eq!(status(&app, shafts), None);
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), on_row), Some(true));
+        assert!(app.world().resource::<Graphics>().volumetric_light);
+        assert_eq!(status(&app, strength_row), None);
+        // The demand follows in the next frame (medium_air_demand.rs; not on a device that cannot).
+        assert_eq!(status(&app, shafts), None, "not wanted yet");
+        app.insert_resource(crate::medium_air_demand::AirWanted(true));
+        assert_eq!(status(&app, shafts), Some("Replaced by Volumetric Light."));
+        // At 0 % the shafts draw, and the row says nothing.
+        assert_eq!(nvf_play::settings::set_slider(app.world_mut(), strength_row, 0.0), Some(0.0));
+        assert_eq!(status(&app, shafts), None, "0 %");
+        assert_eq!((shafts_status(true, true, 0.0), shafts_status(false, true, 1.0)), (Some("Replaced by Volumetric Light."), None), "the aid has a strength of its own");
+        // The slider sets the strength: 150 % is the part 0.75, strength 1.5.
+        assert_eq!(nvf_play::settings::set_slider(app.world_mut(), strength_row, 0.75), Some(0.75));
+        assert_eq!(*app.world().resource::<AirStrengthSetting>(), AirStrengthSetting(1.5));
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), on_row), Some(false));
+        app.insert_resource(crate::medium_air_demand::AirWanted(false));
+        assert_eq!(status(&app, shafts), None);
+        assert_eq!(nvf_play::settings::set_slider(app.world_mut(), strength_row, 0.25), None, "greyed: not moved");
+    }
+
+    /// #3032 stage 3: both rows are kept in the INI by their keys and read back at the start.
+    #[test]
+    fn the_volumetric_light_rows_are_kept_in_the_ini() {
+        use crate::medium_air_demand::AirStrengthSetting;
+        let dir = std::env::temp_dir().join(format!("nvf-volumetric-light-rows-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        let mut app = ini_app(&path, "[Settings]\nvolumetric-light=1\nvolumetric-light-strength=0.75\n", UpscalerChoice::Off, GivenSwitches::default());
+        assert!(app.world().resource::<Graphics>().volumetric_light, "the stored switch turns it on at the start");
+        assert_eq!(*app.world().resource::<AirStrengthSetting>(), AirStrengthSetting(1.5), "the stored 150 %");
+        let i = row(&app, VOLUMETRIC_LIGHT_STRENGTH_KEY);
+        nvf_play::settings::set_slider(app.world_mut(), i, 0.25);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, VOLUMETRIC_LIGHT_STRENGTH_KEY), Some("0.25".to_string()), "{ini}");
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, VOLUMETRIC_LIGHT_KEY), Some("1".to_string()), "{ini}");
+        let again = ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default());
+        assert_eq!(*again.world().resource::<AirStrengthSetting>(), AirStrengthSetting(0.5), "50 % at the next start");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #3322 review: in the game the Terrain parallax row follows the run's Authored
