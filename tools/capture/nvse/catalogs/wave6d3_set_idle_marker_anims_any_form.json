@@ -1,0 +1,78 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-set-idle-marker-anims-any-form",
+  "description": "Read-only clean-room probe verifying SetIdleMarkerAnimations keeps non-IDLE forms in the array without filtering.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_set_idle_marker_anims_any_form",
+      "title": "Wave 6D-3: SetIdleMarkerAnimations accepts any valid form",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_29b_region_weather_neg_and_idle_filter",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg4.md",
+          "spec_line": 17,
+          "functions_tested": [
+            "AddRegionWeather",
+            "GetNthRegionWeatherChance",
+            "GetRegionWeathers",
+            "SetIdleMarkerAnimations",
+            "GetIdleMarkerAnimations"
+          ],
+          "claim": "Verify AddRegionWeather exact stored chance for -10 (shifted to index 1) and SetIdleMarkerAnimations with 1-item and mixed [IDLE, ALCH] arrays.",
+          "expected": "Confirm whether AddRegionWeather stores negative chance raw and whether SetIdleMarkerAnimations filters non-IDLE entries.",
+          "script_lines": [
+            "ref rMeg = GetFormFromMod \"FalloutNV.esm\" \"18942\"",
+            "ref rWea1 = GetFormFromMod \"FalloutNV.esm\" \"15E\"",
+            "ref rWea2 = GetFormFromMod \"FalloutNV.esm\" \"154E5\"",
+            "AddRegionWeather rMeg rWea1 -10",
+            "AddRegionWeather rMeg rWea2 25",
+            "int iChNeg = GetNthRegionWeatherChance rMeg 1",
+            "ref rIdm = GetFormFromMod \"FalloutNV.esm\" \"A79\"",
+            "ref rIdl = GetFormFromMod \"FalloutNV.esm\" \"2FCE\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "array_var aI0 = GetIdleMarkerAnimations rIdm",
+            "array_var aOne = ar_List rIdl",
+            "SetIdleMarkerAnimations rIdm aOne",
+            "array_var aIOne = GetIdleMarkerAnimations rIdm",
+            "array_var aMix = ar_List rIdl rSt",
+            "SetIdleMarkerAnimations rIdm aMix",
+            "array_var aIMix = GetIdleMarkerAnimations rIdm",
+            "SetIdleMarkerAnimations rIdm aI0",
+            "PrintToConsole \"PROBE|w6d3p2_29b_region_weather_neg_and_idle_filter|chNeg=%g|idm(orig=%g,one=%g,mix=%g)\" iChNeg (ar_Size aI0) (ar_Size aIOne) (ar_Size aIMix)"
+          ]
+        }
+      ]
+    }
+  ]
+}
