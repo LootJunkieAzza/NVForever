@@ -1,6 +1,11 @@
-//! Solid cores of blended shapes under the light in the air (#3032): an engineering choice of
+//! Solid cores of blended shapes, for two uses. A shape whose texture is nearly all solid
+//! ([`SolidTexels::Whole`]) has its core at all times (#4290): a blended shape writes no depth and
+//! its triangles are drawn in their stored order, so the water tank's hatch was drawn over the
+//! tank; the original's tank hides it [observed, 2026-11-25; that the original writes depth there
+//! is a hypothesis, the core an engineering choice]. Every other candidate has its core under the
+//! light in the air alone (#3032): an engineering choice of
 //! NVForever's own for the enhanced look [design], never a parity item and never used to
-//! explain a difference from the original; nothing of it runs while the light in the air is
+//! explain a difference from the original; none of those is drawn while the light in the air is
 //! not drawn ([`AirDraws`]: the row or the aid asks for it and its gate is open; at night, indoors,
 //! under water and at a strength of 0 there are none; in the half second the gate takes to settle they
 //! are hidden, from the frame the composite stops).
@@ -12,7 +17,7 @@
 //! tank by Goodsprings, `nv_watertank.nif`, flags 4333, reference 00106B5E:
 //! docs/design/volumetric-medium.md, "Solid cores of blended shapes").
 //!
-//! **What.** While [`AirDraws`] is true, a placed shape whose material can have one
+//! **What.** At all times for a nearly whole texture, else while [`AirDraws`] is true, a placed shape whose material can have one
 //! (`nif_spawn::solid_core_rules` at the material's build, `nif_spawn::solid_core` of the
 //! material as it stands now, and a base texture with a solid texel,
 //! `texture::alpha_solidity`) gets a second draw, its solid core: a loose entity (nobody's
@@ -67,9 +72,10 @@
 //! the same alpha: its core is the plain material's, under the clone's draw, and it has none while
 //! the clone is another source's ([`drawn_source`]).
 //!
-//! **Cost.** Off: two run conditions. On: a pass over the placed meshes' change ticks, one lookup
+//! **Cost.** At all times: a pass over the placed meshes' change ticks, one lookup
 //! and comparison a core ([`place`]), the frame's material events and removals; the textures' alpha is read once per file on a
-//! background task, only for materials that pass the other rules.
+//! background task, only for materials that pass the other rules; a draw more in the
+//! prepass and the main pass for each core.
 
 use crate::door_fade::DoorFade;
 use crate::limbs::ActorRig;
@@ -124,6 +130,8 @@ impl Aid {
 pub struct SolidCore {
     pub shape: Entity,
     ranged: bool,
+    /// Drawn whether or not the light in the air is ([`SolidTexels::Whole`]).
+    always: bool,
 }
 
 /// A watched mesh: the material it draws with and its core.
@@ -167,6 +175,9 @@ struct Source {
     core: Option<Handle<NifMaterial>>,
     /// As it was last seen; `None` until it is in the store.
     outline: Option<Outline>,
+    /// Its core is drawn whether or not the light in the air is ([`SolidTexels::Whole`] and no
+    /// environment map).
+    always: bool,
 }
 
 /// The cores drawn and what they follow.
@@ -174,8 +185,11 @@ struct Source {
 pub struct SolidCores {
     aid: Aid,
     said_off: bool,
-    /// Cores are followed (the light was wanted at the last run).
+    /// Cores are followed (always, but for the aid).
     on: bool,
+    /// The light in the air was drawn at the last run: every candidate has its core, not only
+    /// those of nearly whole textures.
+    light: bool,
     watched: EntityHashMap<Watched>,
     sources: HashMap<AssetId<NifMaterial>, Source>,
     /// Materials whose outline changed while watched: no core as long as they are in the
@@ -300,9 +314,9 @@ fn report_reference(mut state: ResMut<SolidCores>, whose: Query<Whose>, cores: Q
     }
 }
 
-/// Cores are wanted, or some are still followed and have to go.
+/// Cores are followed (the aid's "off" aside), or some still are and have to go.
 fn needed(wanted: Option<Res<AirDraws>>, state: Res<SolidCores>) -> bool {
-    state.on || wanted.is_some_and(|w| w.0)
+    state.aid != Aid::Off || state.on || wanted.is_some_and(|w| w.0)
 }
 
 /// A mesh of a placed reference.
@@ -421,7 +435,7 @@ fn follow(
     let want = wanted.is_some_and(|w| w.0);
     look.clear();
     lost.drain(&mut look);
-    if !want || (crate::dev_aids::ON && st.aid == Aid::Off) {
+    if crate::dev_aids::ON && st.aid == Aid::Off {
         if want && !st.said_off {
             st.said_off = true;
             info!("solid cores: off (debug aid {AID})");
@@ -433,7 +447,7 @@ fn follow(
                 commands.entity(e).try_despawn();
             }
             if st.log.said.is_some() || n > 0 {
-                info!("solid cores: removed ({n} draws; the light in the air is not drawn)");
+                info!("solid cores: removed ({n} draws; debug aid {AID})");
             }
             // Known as such when the light comes back: no edit, so no event of one.
             for &id in &st.animated {
@@ -460,6 +474,12 @@ fn follow(
     // The materials and the meshes whose cores have to be settled.
     let mut changed_sources: HashSet<AssetId<NifMaterial>> = HashSet::default();
     let mut settle = EntityHashSet::default();
+    // The light came or went: which materials have a core is another question now.
+    if st.light != want {
+        st.light = want;
+        st.log = CountLog { since: time.elapsed_secs(), ..default() };
+        changed_sources.extend(st.sources.keys().copied());
+    }
     for &e in look.iter() {
         let source = shapes.get(e).ok().and_then(|(_, material, _, _, _, (clone, terrain), (skinned, morphs, cloaked))| {
             drawn_source(material, clone, terrain, &materials, blends.as_deref())
@@ -517,6 +537,7 @@ fn follow(
     // Each changed material's core.
     for id in changed_sources {
         let Some(source) = st.sources.get_mut(&id) else { continue };
+        let mut always = false;
         let (candidate, made) = match materials.get(id) {
             // Not in the store yet.
             None => (true, None),
@@ -542,11 +563,17 @@ fn follow(
                                 SolidTexels::None
                             }
                         })
+                        .filter(|&t| {
+                            // Glass and gleaming metal reflect: theirs is the light's alone.
+                            always = t == SolidTexels::Whole && m.extension.env_cube.is_none();
+                            want || always
+                        })
                         .and_then(SolidTexels::cut);
                     (true, solid.and_then(|cut| solid_core(m, cut)))
                 }
             },
         };
+        source.always = always;
         source.core = match (made, source.core.take()) {
             (Some(core), Some(handle)) => {
                 if let Err(e) = materials.insert(handle.id(), core) {
@@ -572,7 +599,7 @@ fn follow(
         let Ok((mesh, plain, (range, layers, no_receive), aabb, (at, before, inherited), (clone, terrain), _)) = shapes.get(e) else { continue };
         // Asked again: a source edited in place may be drawn by an older clone for now.
         let follows = drawn_source(plain, clone, terrain, &materials, blends.as_deref()) == Some(w.source);
-        let Some(material) = st.sources.get(&w.source).and_then(|s| s.core.clone()).filter(|_| follows) else {
+        let Some((material, always)) = st.sources.get(&w.source).and_then(|s| Some((s.core.clone()?, s.always))).filter(|_| follows) else {
             if let Some(core) = w.core.take() {
                 commands.entity(core).try_despawn();
                 st.count -= 1;
@@ -583,7 +610,7 @@ fn follow(
             if let Ok((made, core_mesh, core_material, (core_range, core_layers, core_no_receive))) = cores.get(core) {
                 // Made anew with another mesh, another material or the dither's first (or last)
                 // range.
-                if core_mesh == mesh && core_material.0 == material && made.ranged == range.is_some() {
+                if core_mesh == mesh && core_material.0 == material && made.ranged == range.is_some() && made.always == always {
                     let mut c = commands.entity(core);
                     if let Some(range) = range.filter(|&r| core_range != Some(r)) {
                         c.try_insert(range.clone());
@@ -611,7 +638,7 @@ fn follow(
             st.count -= 1;
         }
         let mut core = commands.spawn((
-            SolidCore { shape: e, ranged: range.is_some() },
+            SolidCore { shape: e, ranged: range.is_some(), always },
             mesh.clone(),
             MeshMaterial3d(material),
             // Where its shape is and as it shows: this frame's propagation is over.
@@ -646,11 +673,16 @@ fn follow(
     let (count, busy) = (st.count, !st.asked.is_empty());
     if st.log.say(count, time.elapsed_secs(), busy) {
         let made = st.sources.values().filter(|s| s.core.is_some()).count();
-        info!("solid cores: {count} (draws of {made} materials, for the light in the air)");
+        if want {
+            info!("solid cores: {count} (draws of {made} materials, for the light in the air)");
+        } else {
+            info!("solid shapes: {count} (draws of {made} materials whose texture is nearly all solid)");
+        }
     }
 }
 
-/// Each core where its shape is and shown as it is, bit for bit (module notes), but not in a frame
+/// Each core where its shape is and shown as it is, bit for bit (module notes), but, unless it is
+/// drawn at all times ([`SolidCore::always`]), not in a frame
 /// whose gate is closed ([`AirOpen`]: the light is not composed; the cores go once that has
 /// settled); one that is not the core kept for its shape goes.
 fn place(
@@ -665,7 +697,7 @@ fn place(
         match shapes.get(core.shape) {
             Ok((shape_at, shape_inherited)) if kept => {
                 at.set_if_neq(*shape_at);
-                inherited.set_if_neq(if open { *shape_inherited } else { InheritedVisibility::HIDDEN });
+                inherited.set_if_neq(if open || core.always { *shape_inherited } else { InheritedVisibility::HIDDEN });
             }
             _ => commands.entity(e).try_despawn(),
         }
@@ -847,7 +879,6 @@ pub(crate) mod tests {
         app.update();
         app.update();
         assert_eq!(count(&mut app), 0);
-        assert!(app.world().resource::<SolidCores>().watched.is_empty());
         assert_eq!(app.world().resource::<Assets<NifMaterial>>().len(), 1);
         // On in play: what was drawn before gets its core; off again: none, and back.
         for _ in 0..2 {
@@ -857,13 +888,58 @@ pub(crate) mod tests {
             app.insert_resource(AirDraws(false));
             app.update();
             assert_eq!(count(&mut app), 0);
-            assert!(app.world().resource::<SolidCores>().sources.is_empty());
         }
         // The aid keeps them off.
         app.world_mut().resource_mut::<SolidCores>().aid = Aid::Off;
         app.insert_resource(AirDraws(true));
         app.update();
         assert_eq!(count(&mut app), 0);
+    }
+
+    /// A nearly whole texture's shape (#4290): one core whatever the light does, the same entity
+    /// and shown in every frame; an ordinary candidate's is the light's. It goes with an edit or
+    /// another material in that frame, the light on or off.
+    #[test]
+    fn a_nearly_whole_texture_has_its_core_at_all_times() {
+        let mut app = app(None);
+        app.world_mut().resource_mut::<SolidCores>().verdicts.insert(TEXTURE.into(), SolidTexels::Whole);
+        app.world_mut().resource_mut::<SolidCores>().verdicts.insert("thin.dds".into(), SolidTexels::Mostly);
+        app.insert_resource(AirDraws(false)).insert_resource(AirOpen(false));
+        // A reflecting shape has none of its own: a drinking glass on a mostly solid atlas.
+        let mut glass = tank();
+        glass.extension.env_cube = Some(Handle::default());
+        let glass = add(&mut app, glass);
+        let glass = place(&mut app, &glass);
+        app.update();
+        assert_eq!(count(&mut app), 0, "an environment map");
+        app.world_mut().despawn(glass);
+        let m = add(&mut app, tank());
+        let mut thin = tank();
+        thin.extension.solid_core.as_mut().unwrap().texture = "thin.dds".into();
+        let thin = add(&mut app, thin);
+        let shape = place(&mut app, &m);
+        place(&mut app, &thin);
+        app.world_mut().entity_mut(shape).insert(InheritedVisibility::VISIBLE);
+        app.update();
+        let first = cores(&mut app);
+        assert_eq!(first.len(), 1, "the light off: the tank's alone");
+        for (on, n) in [(true, 2), (false, 1), (true, 2), (false, 1)] {
+            app.insert_resource(AirDraws(on)).insert_resource(AirOpen(on));
+            app.update();
+            let now = cores(&mut app);
+            assert_eq!(now.len(), n, "the light {on}");
+            assert!(now.contains(&first[0]), "the tank's core is the same one");
+            assert!(app.world().get::<InheritedVisibility>(first[0]).unwrap().get(), "and never hidden");
+        }
+        let mut faded = tank();
+        faded.base.base_color.set_alpha(0.5);
+        let faded = add(&mut app, faded);
+        set(&mut app, shape, &faded);
+        assert_eq!(count(&mut app), 0, "a fade's copy");
+        set(&mut app, shape, &m);
+        assert_eq!(count(&mut app), 1);
+        edit(&mut app, &m, |m| m.base.base_color.set_alpha(0.9));
+        assert_eq!(count(&mut app), 0, "gone in the edit's own frame");
     }
 
     #[test]
@@ -968,19 +1044,6 @@ pub(crate) mod tests {
             app.insert_resource(AirDraws(true));
             app.update();
             assert!(app.world().resource::<SolidCores>().animated.is_empty(), "{what}");
-        }
-        // With the light off nothing runs, whatever is known as animated.
-        {
-            use bevy::ecs::system::RunSystemOnce;
-            let mut app = app(Some(true));
-            let m = add(&mut app, tank());
-            place(&mut app, &m);
-            app.update();
-            edit(&mut app, &m, |m| m.base.base_color.set_alpha(0.9));
-            app.insert_resource(AirDraws(false));
-            app.update();
-            assert_eq!(app.world().resource::<SolidCores>().animated.len(), 1);
-            assert!(!app.world_mut().run_system_once(needed).unwrap());
         }
         // A material put in again under the id while the light is off is another one.
         {
@@ -1111,7 +1174,7 @@ pub(crate) mod tests {
         let m = add(&mut app, tank());
         place(&mut app, &m);
         app.update();
-        let stray = app.world_mut().spawn((SolidCore { shape: Entity::PLACEHOLDER, ranged: false }, GlobalTransform::IDENTITY, InheritedVisibility::VISIBLE)).id();
+        let stray = app.world_mut().spawn((SolidCore { shape: Entity::PLACEHOLDER, ranged: false, always: false }, GlobalTransform::IDENTITY, InheritedVisibility::VISIBLE)).id();
         app.update();
         assert!(app.world().get_entity(stray).is_err());
         assert_eq!(count(&mut app), 1);
