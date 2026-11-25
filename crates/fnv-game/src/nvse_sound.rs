@@ -115,9 +115,11 @@ impl SoundState {
     }
 }
 
-/// Number of documented `SOUN` `SNDD`/`SNDX` flag IDs (`0..=13`) [documented: GECK wiki
-/// GetSoundFlag, SetSoundFlag; xEdit wbDefinitionsFNV.pas SOUN].
-pub const SOUND_FLAG_COUNT: u8 = 14;
+/// Number of addressable `SOUN` `SNDD`/`SNDX` flag bits (`0..=31`); documented wiki IDs
+/// cover `0..=13` and original FNV + JIP LN 57.30 also accepts higher bits (`14`, `15`,
+/// `16`) of the 32-bit flag field [documented: GECK wiki GetSoundFlag, SetSoundFlag;
+/// xEdit wbDefinitionsFNV.pas SOUN; observed: `w6d2_08_sound_flag_oob_and_clone`].
+pub const SOUND_FLAG_COUNT: u8 = 32;
 
 impl Game<'_> {
     /// The session `SetSoundFlag` bitmask override directly stored for `sound` (including
@@ -145,14 +147,14 @@ impl Game<'_> {
         Some(raw as u32)
     }
 
-    /// Effective value of `SOUN` flag bit `flag_id` (`0..=13`) (`GetSoundFlag`).
+    /// Effective value of `SOUN` flag bit `flag_id` (`0..=31`) (`GetSoundFlag`).
     pub fn sound_flag(&self, sound: FormId, flag_id: u8) -> bool {
         flag_id < SOUND_FLAG_COUNT && self.sound_flags(sound).is_some_and(|bits| (bits & (1u32 << flag_id)) != 0)
     }
 
-    /// Override `SOUN` flag bit `flag_id` (`0..=13`) on `sound` for the session
+    /// Override `SOUN` flag bit `flag_id` (`0..=31`) on `sound` for the session
     /// (`SetSoundFlag`). Returns `true` when `sound` resolves to a `SOUN` and
-    /// `flag_id < 14`; returns `false` without mutating state otherwise.
+    /// `flag_id < 32`; returns `false` without mutating state otherwise.
     pub fn set_sound_flag(&mut self, sound: FormId, flag_id: u8, on: bool) -> bool {
         if flag_id >= SOUND_FLAG_COUNT {
             return false;

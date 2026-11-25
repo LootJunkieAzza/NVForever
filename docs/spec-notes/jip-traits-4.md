@@ -138,9 +138,17 @@ not decode yet.
   in older records), bits the schema names the same way. EMTMedicalBeep01: loop (4) 1,
   2D (6) 0. `SetSoundFlag` stores per-`SOUN` session bitmask overrides
   (`Game::sound_flags`, `Game::sound_flag`, `Game::set_sound_flag`,
-  `Game::sound_flags_override`, `Game::snapshot_sound_flags`) [design] with
-  `TempCloneForm` snapshotting and post-clone isolation [hypothesis: also session-only
-  lifetime and rejection of fractional/out-of-range flag IDs and non-`SOUN` forms].
+  `Game::sound_flags_override`, `Game::snapshot_sound_flags`) [design] across all 32
+  flag bits (`0..=31`; bits `14` and `15` store/read back `1`, `-1` and non-`SOUN` are
+  rejected, and `TempCloneForm` snapshots/isolates overrides [observed: Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only
+  probe; zero writes to game install or Saves), `w6d2_08_sound_flag_oob_and_clone`
+  (`tools/capture/nvse/catalogs/wave6d2_sound_flag_32bit.json`):
+  `PROBE|w6d2_08_sound_flag_oob_and_clone|init=1,0|oob=1,1,0|bad=0|cl=1,1`; zero DLL,
+  PDB, or third-party source consulted]; upper bits `16..=31` following the 32-bit `u32`
+  field is [design]; session-only lifetime and fractional-index rejection remain
+  [hypothesis]).
 
 ### 9.1 `TempCloneForm` SOUN aliases and engine sound overrides
 
