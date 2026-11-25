@@ -5485,5 +5485,19 @@ set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestW
     assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }
 
+#[test]
+fn get_equipped_current_health_returns_100000_on_oob_slots() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let q = |g: &mut fnv_game::Game, expr: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({expr})\nEnd\n"), Default::default()).unwrap();
+    assert_eq!(q(&mut g, "PlayerREF.GetEquippedCurrentHealth 0"), XVal::Num(0.0), "valid empty slot 0");
+    assert_eq!(q(&mut g, "PlayerREF.GetEquippedCurrentHealth 5"), XVal::Num(0.0), "valid empty weapon slot 5");
+    assert_eq!(q(&mut g, "PlayerREF.GetEquippedCurrentHealth -1"), XVal::Num(100_000.0), "negative slot");
+    assert_eq!(q(&mut g, "PlayerREF.GetEquippedCurrentHealth 20"), XVal::Num(100_000.0), "slot 20 oob");
+    assert_eq!(q(&mut g, "PlayerREF.GetEquippedCurrentHealth 99"), XVal::Num(100_000.0), "slot 99 oob");
+}
+
 #[path = "common/jip_callback_clock.rs"]
 mod jip_callback_clock_tests;

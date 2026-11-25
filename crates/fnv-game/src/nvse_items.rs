@@ -126,6 +126,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let set = name.starts_with("set");
             let a = subject.unwrap_or(FormId(0));
             let slot = int(args, usize::from(set), -1);
+            // Out-of-bounds equipment slots return 100000.0 on GetEquippedCurrentHealth,
+            // while valid empty slots return 0.0 [observed: 2026-11-25,
+            // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+            // xNVSE 6.4.9, `w6d4_03_current_and_equipped_health_edges` and
+            // `w6d4p2_03_equipped_health_full_and_oob` (`wave6d4_equipped_health_oob.json`):
+            // `init(s5=79.9,s2=149.9,s0=0.0,neg=100000.0,oob=100000.0)`; hypothesis: exact
+            // valid slot upper bound is 0..20 matching the 20 Fallout biped/equip slots].
+            if !set && !(0..20).contains(&slot) {
+                return Some(Ok(XVal::Num(100_000.0)));
+            }
             let item = equipped_in_slot(g, a, slot);
             let Some(item) = item else { return Some(Ok(XVal::Num(0.0))) };
             let full = g.full_health(item);

@@ -78,8 +78,8 @@ Probes in `catalogs/` target:
     write JSON and Markdown scoreboards.
   - `cite` — format copy-paste-ready clean-room `[observed: ...]` citations with
     the automated privacy gate.
-- `catalogs/` — 9 sanitized declarative console-only JSON catalogs (27 batches,
-  541 read-only probes total; all file-writing and `con_Save` probes excluded):
+- `catalogs/` — 10 sanitized declarative console-only JSON catalogs (28 batches,
+  543 read-only probes total; all file-writing and `con_Save` probes excluded):
   - `wave1_parity_probes.json` — Wave 1/2 parity probes covering xNVSE compound
     assignments & `dATan2`, JIP hit 3D direction/base damage/reticle limbs,
     ShowOff `OnFireWeapon` & `ForceWeaponJamAnim`, ShowOff objective/unholster
@@ -120,6 +120,8 @@ Probes in `catalogs/` target:
     no-hit output coordinates, `maxRange <= 0` / omitted default reach, and
     `collisionFlag` filtering across exterior terrain, actor, and interior floor
     geometry (1 batch, 3 probes: `w6_point_raycast`).
+  - `wave6d4_equipped_health_oob.json` — Wave 6D-4 xNVSE `GetEquippedCurrentHealth` `100000.0`
+    sentinel on out-of-bounds slots (1 batch, 2 probes: `w6d4_equipped_health_oob`).
 - `tests/test_nvse_harness.py` — offline stdlib `unittest` suite (no game
   install or captured logs required).
 

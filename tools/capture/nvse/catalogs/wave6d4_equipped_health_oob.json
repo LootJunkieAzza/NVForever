@@ -1,0 +1,145 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_equipped_health_oob",
+  "description": "Clean-room read-only Wave 6D-4 probes proving xNVSE GetEquippedCurrentHealth returns 100000.0 on out-of-bounds equipment slots.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d4_equipped_health_oob",
+      "title": "Wave 6D-4: xNVSE GetEquippedCurrentHealth out-of-bounds slot return",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d4_03_current_and_equipped_health_edges",
+          "bucket": "xnvse_core_items",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 109,
+          "functions_tested": [
+            "GetCurrentHealth",
+            "SetCurrentHealth",
+            "GetEquippedCurrentHealth",
+            "SetEquippedCurrentHealth",
+            "GetInvRefsForItem"
+          ],
+          "claim": "SD-10: Verify SetCurrentHealth clamping/returns (mid, >max, 0, negative) on weapon inv-ref vs non-WEAP/ARMO inv-ref (Stimpak) and GetEquippedCurrentHealth / SetEquippedCurrentHealth across slots 5, 2, -1, 99.",
+          "expected": "NVForever clamps health ratio to 0..1, returns 0 from SetCurrentHealth, and ignores non-WEAP/ARMO refs.",
+          "script_lines": [
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rArm = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "Player.AddItem rGun 1 1",
+            "Player.AddItem rArm 1 1",
+            "Player.AddItem rStim 1 1",
+            "array_var aGun = Player.GetInvRefsForItem rGun",
+            "array_var aStim = Player.GetInvRefsForItem rStim",
+            "ref rInv = aGun[0]",
+            "ref rSInv = aStim[0]",
+            "float h0 = rInv.GetCurrentHealth",
+            "int rs50 = rInv.SetCurrentHealth 50",
+            "float h50 = rInv.GetCurrentHealth",
+            "rInv.SetCurrentHealth 99999",
+            "float hHi = rInv.GetCurrentHealth",
+            "rInv.SetCurrentHealth -10",
+            "float hNeg = rInv.GetCurrentHealth",
+            "float hs0 = rSInv.GetCurrentHealth",
+            "int rsStim = rSInv.SetCurrentHealth 25",
+            "float hs1 = rSInv.GetCurrentHealth",
+            "Player.EquipItem rGun 0 1",
+            "Player.EquipItem rArm 0 1",
+            "int eqR = Player.SetEquippedCurrentHealth 40 5",
+            "float eq5 = Player.GetEquippedCurrentHealth 5",
+            "float eq2 = Player.GetEquippedCurrentHealth 2",
+            "float eqNeg = Player.GetEquippedCurrentHealth -1",
+            "float eqOob = Player.GetEquippedCurrentHealth 99",
+            "Player.UnequipItem rGun 0 1",
+            "Player.UnequipItem rArm 0 1",
+            "Player.RemoveItem rGun 1 1",
+            "Player.RemoveItem rArm 1 1",
+            "Player.RemoveItem rStim 1 1",
+            "PrintToConsole \"PROBE|w6d4_03_current_and_equipped_health_edges|gun(%.1f,r=%g,%.1f,hi=%.1f,neg=%.1f)|stim(%.1f,r=%g,%.1f)|eq(r=%g,s5=%.1f,s2=%.1f,neg=%.1f,oob=%.1f)\" h0 rs50 h50 hHi hNeg hs0 rsStim hs1 eqR eq5 eq2 eqNeg eqOob"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d4p2_03_equipped_health_full_and_oob",
+          "bucket": "xnvse_core_items",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 109,
+          "functions_tested": [
+            "GetEquippedCurrentHealth",
+            "SetEquippedCurrentHealth"
+          ],
+          "claim": "Verify GetEquippedCurrentHealth / SetEquippedCurrentHealth on fresh full-health equipped 10mm Pistol (slot 5) & Leather Armor (slot 2), empty slot 0, and OOB slots -1 / 99 after 2-tick equip settle.",
+          "expected": "Check exact health values, setter return code, and whether empty/OOB slots return 100000.0 or 0.0.",
+          "script_lines": [
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rArm = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "Player.AddItem rGun 1 1",
+            "Player.AddItem rArm 1 1",
+            "Player.EquipItem rGun 0 1",
+            "Player.EquipItem rArm 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rArm = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+                "float s5a = Player.GetEquippedCurrentHealth 5",
+                "float s2a = Player.GetEquippedCurrentHealth 2",
+                "float s0 = Player.GetEquippedCurrentHealth 0",
+                "float sNeg = Player.GetEquippedCurrentHealth -1",
+                "float sOob = Player.GetEquippedCurrentHealth 99",
+                "int rSet5 = Player.SetEquippedCurrentHealth 40 5",
+                "float s5b = Player.GetEquippedCurrentHealth 5",
+                "Player.SetEquippedCurrentHealth 99999 5",
+                "float s5hi = Player.GetEquippedCurrentHealth 5",
+                "Player.SetEquippedCurrentHealth -10 5",
+                "float s5neg = Player.GetEquippedCurrentHealth 5",
+                "Player.UnequipItem rGun 0 1",
+                "Player.UnequipItem rArm 0 1",
+                "Player.RemoveItem rGun 1 1",
+                "Player.RemoveItem rArm 1 1",
+                "PrintToConsole \"PROBE|w6d4p2_03_equipped_health_full_and_oob|init(s5=%.1f,s2=%.1f,s0=%.1f,neg=%.1f,oob=%.1f)|set(r=%g,b=%.1f,hi=%.1f,lo=%.1f)\" s5a s2a s0 sNeg sOob rSet5 s5b s5hi s5neg"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
