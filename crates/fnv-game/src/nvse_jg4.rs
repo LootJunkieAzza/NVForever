@@ -204,7 +204,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "addregionweather" => {
             let weather = of_sig(g, form(args, 1), b"WTHR");
             let global = of_sig(g, form(args, 3), b"GLOB");
-            let chance = num(args, 2, 0.0).clamp(0.0, 100.0) as i32;
+            // Stored unclamped (150 reads back 150) [observed: w6d3_29].
+            let chance = num(args, 2, 0.0).trunc() as i32;
             if let (Some(r), Some(weather)) = (of_sig(g, form(args, 0), b"REGN"), weather) {
                 if let Some(ws) = weathers_mut(g, r) {
                     if !ws.list.iter().any(|e| e.weather == weather) {

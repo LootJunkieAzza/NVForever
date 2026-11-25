@@ -1,0 +1,107 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-add-region-weather-chance-unclamped",
+  "description": "Read-only clean-room probe verifying AddRegionWeather stores chance unclamped (150 reads back 150).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_add_region_weather_chance_unclamped",
+      "title": "Wave 6D-3: AddRegionWeather stores chance unclamped",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_29_idle_markers_and_region_weathers_edges",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg4.md",
+          "spec_line": 21,
+          "functions_tested": [
+            "GetIdleMarkerAnimations",
+            "SetIdleMarkerAnimation",
+            "SetIdleMarkerAnimations",
+            "GetRegionWeathers",
+            "GetNthRegionWeatherType",
+            "GetNthRegionWeatherChance",
+            "AddRegionWeather",
+            "RemoveRegionWeather",
+            "ClearRegionWeathers",
+            "GetRegionWeatherOverride",
+            "SetRegionWeatherOverride",
+            "GetRegionWeatherPriority",
+            "SetRegionWeatherPriority"
+          ],
+          "claim": "Verify AddRegionWeather chance clamping (150 & -10 via 2 added weathers so index 1 is readable; SD-14), ClearRegionWeathers (keeps 1st entry), Get/SetRegionWeatherOverride & Priority bounds, and SetIdleMarkerAnimation(-1) / SetIdleMarkerAnimations(empty) (SD-13).",
+          "expected": "Confirm chance clamping to 0..100 on AddRegionWeather, ClearRegionWeathers leaving 1 entry, priority OOB 300/-1 unchanged, and SetIdleMarkerAnimations empty array behavior.",
+          "script_lines": [
+            "ref rReg = GetFormFromMod \"FalloutNV.esm\" \"123CE3\"",
+            "ref rMeg = GetFormFromMod \"FalloutNV.esm\" \"18942\"",
+            "ref rWea1 = GetFormFromMod \"FalloutNV.esm\" \"15E\"",
+            "ref rWea2 = GetFormFromMod \"FalloutNV.esm\" \"154E5\"",
+            "int ov0 = GetRegionWeatherOverride rReg",
+            "SetRegionWeatherOverride rReg 2",
+            "int ov2 = GetRegionWeatherOverride rReg",
+            "SetRegionWeatherOverride rReg ov0",
+            "int pr0 = GetRegionWeatherPriority rReg",
+            "SetRegionWeatherPriority rReg 50",
+            "int pr50 = GetRegionWeatherPriority rReg",
+            "SetRegionWeatherPriority rReg 300",
+            "int pr300 = GetRegionWeatherPriority rReg",
+            "SetRegionWeatherPriority rReg -1",
+            "int prNeg = GetRegionWeatherPriority rReg",
+            "SetRegionWeatherPriority rReg pr0",
+            "array_var aM0 = GetRegionWeathers rMeg",
+            "int nM0 = ar_Size aM0",
+            "AddRegionWeather rMeg rWea1 150",
+            "AddRegionWeather rMeg rWea2 -10",
+            "array_var aM2 = GetRegionWeathers rMeg",
+            "int ch0 = GetNthRegionWeatherChance rMeg 0",
+            "int ch1 = GetNthRegionWeatherChance rMeg 1",
+            "ref ty1 = GetNthRegionWeatherType rMeg 1",
+            "int ch2 = GetNthRegionWeatherChance rMeg 2",
+            "RemoveRegionWeather rMeg rWea2",
+            "array_var aMRem = GetRegionWeathers rMeg",
+            "ClearRegionWeathers rMeg",
+            "array_var aMClr = GetRegionWeathers rMeg",
+            "ref rIdm = GetFormFromMod \"FalloutNV.esm\" \"A79\"",
+            "ref rIdl = GetFormFromMod \"FalloutNV.esm\" \"2FCE\"",
+            "array_var aI0 = GetIdleMarkerAnimations rIdm",
+            "SetIdleMarkerAnimation rIdm -1 rIdl",
+            "array_var aINeg = GetIdleMarkerAnimations rIdm",
+            "array_var aEmp = ar_Construct \"array\"",
+            "SetIdleMarkerAnimations rIdm aEmp",
+            "array_var aIEmp = GetIdleMarkerAnimations rIdm",
+            "SetIdleMarkerAnimations rIdm aI0",
+            "PrintToConsole \"PROBE|w6d3_29_idle_markers_and_region_weathers_edges|ov=%g->%g|pr=%g,%g,%g,%g|rw=%g->%g->%g->%g,ch=%g/%g/%g,ty1Eq=%g|idm=%g,%g,%g\" ov0 ov2 pr0 pr50 pr300 prNeg nM0 (ar_Size aM2) (ar_Size aMRem) (ar_Size aMClr) ch0 ch1 ch2 (ty1 == rWea1) (ar_Size aI0) (ar_Size aINeg) (ar_Size aIEmp)"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -190,11 +190,12 @@ fn region_weather_lists() {
     // The weather block's header, not the map block's before it.
     assert_eq!(n(&mut g, "GetRegionWeatherOverride TestRegion"), 1.0);
     assert_eq!(n(&mut g, "GetRegionWeatherPriority TestRegion"), 40.0);
-    q(&mut g, "AddRegionWeather TestRegion TestWeather3 25 TestGlobal");
+    q(&mut g, "AddRegionWeather TestRegion TestWeather3 150 TestGlobal");
     q(&mut g, "AddRegionWeather TestRegion TestWeather3 99");
-    // Listed first, once [observed: jg4].
+    // Listed first, once [observed: jg4]; chance stored unclamped [observed: w6d3_29].
     assert_eq!(forms(&mut g, "GetRegionWeathers TestRegion"), vec![WTHR3, WTHR1, WTHR2]);
     assert_eq!(n(&mut g, "GetNthRegionWeatherChance TestRegion 1"), 70.0);
+    assert_eq!(fnv_game::nvse_jg4::region_weathers(&g, FormId(REGN)).unwrap().list[0].chance, 150);
     q(&mut g, "RemoveRegionWeather TestRegion TestWeather1");
     assert_eq!(forms(&mut g, "GetRegionWeathers TestRegion"), vec![WTHR3, WTHR2]);
     q(&mut g, "SetRegionWeatherOverride TestRegion 0");
