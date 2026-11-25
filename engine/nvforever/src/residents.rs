@@ -1304,6 +1304,14 @@ struct Core {
     /// their furniture, or found on it already), and actors left where they were because
     /// they were in the loaded area before the trip.
     arrivals: [usize; 3],
+    /// Persistent actors (without No Low Level Processing) indexed lazily once by each
+    /// non-home cell their packages' static locations target ([`Core::take_persistent_targeting`],
+    /// #3052), and the loaded cells already scanned against that index.
+    persistent_by_target_cell: Option<HashMap<FormId, Vec<FormId>>>,
+    persistent_loaded_seen: BTreeSet<FormId>,
+    /// Persistent actors handed over because a package targets a loaded cell (eligible for
+    /// arrival placement when their active package targets the newly loaded area, #3052).
+    far_targets: HashSet<u32>,
 }
 
 /// A trip of the player behind a loading screen ([`Core::arrive`]).
@@ -1418,6 +1426,49 @@ fn hour_text(h: f32) -> String {
 
 fn is_actor(refs: &RefTable, id: FormId) -> bool {
     refs.get(id).is_some_and(|r| matches!(&r.sig, b"ACHR" | b"ACRE"))
+}
+
+fn is_persistent_actor(refs: &RefTable, id: FormId) -> bool {
+    refs.get(id).is_some_and(|r| {
+        matches!(&r.sig, b"ACHR" | b"ACRE")
+            && (r.in_persistent_group || r.flags & fnv_sim::refs::FLAG_PERSISTENT != 0)
+    })
+}
+
+/// The static cell a package's location targets, if any (reference, cell, or linked ref;
+/// dynamic targets such as the player return `None`) [design, #3052].
+fn package_target_cell(game: &Game, actor: FormId, pkg: FormId) -> Option<FormId> {
+    use fnv_game::package::LocationKind;
+    let loc = game.package_def(&pkg)?.location?;
+    match loc.kind {
+        LocationKind::NearReference(Some(r)) => game.world.placed.get(r).and_then(|p| p.cell),
+        LocationKind::InCell(Some(c)) => Some(c),
+        LocationKind::NearLinked => game.linked_ref(actor).and_then(|r| game.world.placed.get(r)).and_then(|p| p.cell),
+        _ => None,
+    }
+}
+
+/// Build the once-per-run reverse index from target cell -> persistent actors (without No
+/// Low Level Processing) placed elsewhere whose package list targets that cell [design, #3052].
+fn build_persistent_target_index(game: &Game) -> HashMap<FormId, Vec<FormId>> {
+    let mut index: HashMap<FormId, Vec<FormId>> = HashMap::new();
+    for (&id, pr) in &game.world.placed.refs {
+        if !matches!(&pr.sig, b"ACHR" | b"ACRE")
+            || !(pr.in_persistent_group || pr.flags & fnv_sim::refs::FLAG_PERSISTENT != 0)
+            || game.no_low_level_processing(id)
+        {
+            continue;
+        }
+        let mut seen_cells = HashSet::new();
+        for pkg in game.package_list(id) {
+            if let Some(tc) = package_target_cell(game, id, pkg) {
+                if Some(tc) != pr.cell && seen_cells.insert(tc) {
+                    index.entry(tc).or_default().push(id);
+                }
+            }
+        }
+    }
+    index
 }
 
 impl Residents {
@@ -1549,6 +1600,9 @@ impl Residents {
             loaded_at: HashMap::new(),
             clock_hours: 0.0,
             arrivals: [0; 3],
+            persistent_by_target_cell: None,
+            persistent_loaded_seen: BTreeSet::new(),
+            far_targets: HashSet::new(),
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -1815,11 +1869,29 @@ impl Core {
                 CellKey::Interior(id) => (world.index.cells.get(&id), None),
             };
             let mut behind_doors = Vec::new();
+            let mut behind_worlds = Vec::new();
             for r in cell.into_iter().flat_map(|c| c.refs.iter()).chain(persistent.into_iter().flatten()) {
                 if is_actor(refs, FormId(*r)) {
                     self.add(refs, FormId(*r), None);
                 } else if let Some(tp) = refs.get(FormId(*r)).and_then(|d| d.teleport.as_ref()) {
-                    behind_doors.extend(refs.teleport_cell(tp).filter(|c| refs.world_of(*c).is_none() && key != CellKey::Interior(c.0)));
+                    if let Some(c) = refs.teleport_cell(tp) {
+                        match refs.world_of(c) {
+                            None if key != CellKey::Interior(c.0) => behind_doors.push(c),
+                            // A load door into another worldspace (exterior -> other worldspace,
+                            // or any cell -> child worldspace with a parent): hand over that
+                            // worldspace's persistent actors so e.g. TTW's Birch in Oasis can
+                            // walk out to the gate [design, #3052].
+                            Some(dest_world)
+                                if !behind_worlds.contains(&dest_world)
+                                    && ((matches!(key, CellKey::Exterior(_)) && dest_world.0 != world.world)
+                                        || ((matches!(key, CellKey::Interior(_)) || dest_world.0 != world.world)
+                                            && world.index.worldspaces.get(&dest_world.0).is_some_and(|ws| ws.parent.is_some()))) =>
+                            {
+                                behind_worlds.push(dest_world);
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
             // The original's Mid-Low level: the actors of the interiors reached by doors
@@ -1836,6 +1908,19 @@ impl Core {
                 if self.list.len() > had {
                     let names: Vec<&str> = self.list[had..].iter().map(|r| r.label.as_str()).collect();
                     info!("ai: {} behind a door from the loaded cells, in {}: {}", names.len(), c.edid.as_deref().unwrap_or("an interior"), names.join(", "));
+                }
+            }
+            for dest_world in behind_worlds {
+                let Some(pcell) = world.index.worldspaces.get(&dest_world.0).and_then(|ws| ws.persistent_cell) else { continue };
+                let Some(c) = world.index.cells.get(&pcell) else { continue };
+                let had = self.list.len();
+                for r in c.refs.iter().filter(|r| is_persistent_actor(refs, FormId(**r))) {
+                    self.add(refs, FormId(*r), None);
+                }
+                if self.list.len() > had {
+                    let names: Vec<&str> = self.list[had..].iter().map(|r| r.label.as_str()).collect();
+                    let wname = world.index.worldspaces.get(&dest_world.0).and_then(|ws| ws.edid.as_deref()).unwrap_or("a worldspace");
+                    info!("ai: {} persistent behind a door into {wname}: {}", names.len(), names.join(", "));
                 }
             }
         }
@@ -1918,6 +2003,39 @@ impl Core {
             let label = self.list.last().map_or_else(|| id.to_string(), |r| r.label.clone());
             let cell = s.cell.map_or_else(|| "no cell".to_string(), |c| game.data.name(c));
             info!("ai [{}] {label}: at ({:.0}, {:.0}, {:.0}) in {cell}, away from the cell it was placed in: a resident from there", self.clock_text, s.pos[0], s.pos[1], s.pos[2]);
+        }
+    }
+
+    /// With `all`: hand over persistent actors placed in unloaded cells (including
+    /// never-loaded interiors not adjacent by a load door, e.g. TTW's Shorty in
+    /// `BigTownCommonHouse1` targeting `GermPoliceHQ02`) when a cell targeted by one of
+    /// their packages loads [design, #3052]. Actors with `No Low Level Processing` are
+    /// excluded.
+    fn take_persistent_targeting(&mut self, game: &Game) {
+        if self.persistent_loaded_seen == game.loaded_cells {
+            return;
+        }
+        let index = self.persistent_by_target_cell.get_or_insert_with(|| build_persistent_target_index(game));
+        let mut found: Vec<(FormId, FormId)> = Vec::new();
+        for &cell in game.loaded_cells.difference(&self.persistent_loaded_seen) {
+            if let Some(actors) = index.get(&cell) {
+                for &actor in actors {
+                    if !self.known.contains(&actor.0) {
+                        found.push((actor, cell));
+                    }
+                }
+            }
+        }
+        self.persistent_loaded_seen = game.loaded_cells.clone();
+        let refs = game.world.placed;
+        for (id, target_cell) in found {
+            if self.known.contains(&id.0) {
+                continue;
+            }
+            self.add(refs, id, None);
+            self.far_targets.insert(id.0);
+            let label = self.list.last().map_or_else(|| id.to_string(), |r| r.label.clone());
+            debug!("ai [{}] {label}: persistent actor targeting loaded cell {}: handed to Low AI", self.clock_text, game.data.name(target_cell));
         }
     }
 
@@ -2099,10 +2217,21 @@ impl Core {
                 continue;
             }
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
-            if !near(fnv_nav::Place { space: a.walker.space, pos: a.walker.feet }) {
+            let from = fnv_nav::Place { space: a.walker.space, pos: a.walker.feet };
+            let arrival = if near(from) {
+                self.ai.arrive(game, &nav.graph, r.actor, &near)
+            } else if !r.been_loaded
+                && self.far_targets.contains(&r.actor.0)
+                && game.select_package(r.actor).and_then(|p| package_target_cell(game, r.actor, p)).is_some_and(|c| game.loaded_cells.contains(&c))
+            {
+                // A never-loaded persistent actor whose active package sends it into the
+                // newly loaded cell (e.g. Shorty from BigTownCommonHouse1 to GermPoliceHQ02)
+                // arrives at its package's place when the player enters [design, #3052].
+                let allow = |p: fnv_nav::Place| near(p) || p == from;
+                self.ai.arrive(game, &nav.graph, r.actor, &allow)
+            } else {
                 continue;
-            }
-            let arrival = self.ai.arrive(game, &nav.graph, r.actor, &near);
+            };
             r.present = game.present(r.actor);
             let Some(arr) = arrival else {
                 // Already at its place and on its furniture (the low process had it
@@ -3407,6 +3536,7 @@ pub fn drive(
             res.core.take_moved(game, all, None);
             if all {
                 res.core.take_placed_elsewhere(game);
+                res.core.take_persistent_targeting(game);
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
@@ -3441,6 +3571,7 @@ pub fn drive(
                 drop(span);
                 if all {
                     core.take_placed_elsewhere(&rt.game);
+                    core.take_persistent_targeting(&rt.game);
                     if let Some(p) = phys.as_deref_mut() {
                         core.spread_created(&mut rt.game, p);
                     }
@@ -4612,5 +4743,178 @@ mod tests {
         assert_eq!(state, (true, Some(stray)));
         assert_eq!(app.world().get::<Transform>(stray).unwrap().translation, Vec3::from_array(feet));
         assert_eq!(bodies(&mut app, world_root), (vec![stray], vec![stray]));
+    }
+
+    fn placed_ref(id: FormId, sig: [u8; 4], base: FormId, cell: FormId, persistent: bool, teleport: Option<fnv_sim::refs::Teleport>) -> fnv_sim::refs::PlacedRef {
+        fnv_sim::refs::PlacedRef {
+            id,
+            sig,
+            edid: None,
+            base,
+            cell: Some(cell),
+            stored_in: Some(cell),
+            plugin: 0,
+            flags: if persistent { fnv_sim::refs::FLAG_PERSISTENT } else { 0 },
+            in_persistent_group: persistent,
+            pos: [100.0, 100.0, 0.0],
+            rot: [0.0; 3],
+            scale: None,
+            count: None,
+            ammo: None,
+            health: None,
+            owner: None,
+            lock: None,
+            teleport,
+            enable_parent: None,
+            linked: None,
+            patrol_idle: None,
+            patrol_topic: None,
+            merchant_container: None,
+            marker_reputation: None,
+            open_by_default: false,
+            primitive: None,
+            activate_parents: Vec::new(),
+            parent_activate_only: false,
+            prompt: None,
+            radiation: None,
+            radius: None,
+            encounter_zone: None,
+            level_modifier: None,
+            map_marker: None,
+            radio: None,
+        }
+    }
+
+    /// #3052: a load door from a loaded exterior cell into another worldspace (such as
+    /// WastelandDoorToOasis into Oasis) hands over that worldspace's persistent actors to
+    /// the AI, while leaving non-persistent references in that cell untouched.
+    #[test]
+    fn take_cells_hands_over_persistent_actors_behind_a_door_into_another_worldspace() {
+        use super::{Clock, Residents};
+        use crate::outfits::tests::{empty_world_data, OTHER};
+        use crate::world::Streamer;
+        use bevy::prelude::{default, Entity};
+        use fnv_sim::refs::Teleport;
+        use fnv_world::{Cell, WorldIndex, Worldspace};
+
+        let (w_main, w_oasis) = (0x10u32, 0x20u32);
+        let (c_main_ext, c_oasis_ext, c_oasis_pers) = (0x100u32, 0x200u32, 0x201u32);
+        let (d_gate, d_oasis, birch, temp_actor) = (FormId(0x1000), FormId(0x2000), FormId(0x3000), FormId(0x3001));
+
+        let mut ix = WorldIndex::default();
+        ix.worldspaces.insert(
+            w_main,
+            Worldspace { form_id: w_main, edid: Some("Wasteland".into()), grid: [((0, 0), c_main_ext)].into(), ..default() },
+        );
+        ix.worldspaces.insert(
+            w_oasis,
+            Worldspace {
+                form_id: w_oasis,
+                edid: Some("Oasis".into()),
+                parent: Some(w_main),
+                persistent_cell: Some(c_oasis_pers),
+                grid: [((0, 0), c_oasis_ext)].into(),
+                ..default()
+            },
+        );
+        ix.cells.insert(c_main_ext, Cell { form_id: c_main_ext, world: Some(w_main), grid: Some((0, 0)), refs: vec![d_gate.0], ..default() });
+        ix.cells.insert(c_oasis_ext, Cell { form_id: c_oasis_ext, world: Some(w_oasis), grid: Some((0, 0)), refs: vec![d_oasis.0], ..default() });
+        ix.cells.insert(c_oasis_pers, Cell { form_id: c_oasis_pers, world: Some(w_oasis), refs: vec![birch.0, temp_actor.0], ..default() });
+
+        let mut world = empty_world_data();
+        world.index = Box::leak(Box::new(ix));
+        world.world = w_main;
+
+        let mut refs = fnv_sim::RefTable::default();
+        refs.cell_world.insert(FormId(c_main_ext), FormId(w_main));
+        refs.cell_world.insert(FormId(c_oasis_ext), FormId(w_oasis));
+        refs.cell_world.insert(FormId(c_oasis_pers), FormId(w_oasis));
+        refs.world_grid.entry(FormId(w_main)).or_default().insert((0, 0), FormId(c_main_ext));
+        refs.world_grid.entry(FormId(w_oasis)).or_default().insert((0, 0), FormId(c_oasis_ext));
+        refs.world_persistent.insert(FormId(w_oasis), FormId(c_oasis_pers));
+        refs.refs.insert(d_gate, placed_ref(d_gate, *b"REFR", FormId(0x50), FormId(c_main_ext), true, Some(Teleport { door: d_oasis, pos: [100.0, 100.0, 0.0], rot: [0.0; 3], no_alarm: false })));
+        refs.refs.insert(d_oasis, placed_ref(d_oasis, *b"REFR", FormId(0x50), FormId(c_oasis_ext), true, Some(Teleport { door: d_gate, pos: [100.0, 100.0, 0.0], rot: [0.0; 3], no_alarm: false })));
+        refs.refs.insert(birch, placed_ref(birch, *b"ACHR", OTHER, FormId(c_oasis_ext), true, None));
+        refs.refs.insert(temp_actor, placed_ref(temp_actor, *b"ACHR", OTHER, FormId(c_oasis_ext), false, None));
+
+        let mut streamer = Streamer {
+            radius: 2, loaded: default(), fades: default(), fade_secs: 0.0,
+            settled: true, arrival: None, per_frame: 1, spawning: default(), dying: default(),
+            ahead: default(), hide: default(), interior: None, light_scale: 1.0, managed: default(),
+            manage_actors: false, stats: default(), buffer: default(), centre: None,
+            waiting: default(), model_overrides: default(), travels: 0,
+        };
+        streamer.loaded.insert((0, 0), Entity::PLACEHOLDER);
+        let mut residents = Residents::build(&empty_world_data(), &[], Clock { hour: 12.0, days_passed: 1.0, rate: 0.0 }, 100.0, true).unwrap();
+        residents.core.take_cells(&world, &streamer, &refs);
+
+        assert!(residents.core.known.contains(&birch.0), "persistent actor in Oasis handed over");
+        assert!(!residents.core.known.contains(&temp_actor.0), "non-persistent actor not pulled from persistent cell");
+    }
+
+    /// #3052: a persistent actor placed in a never-loaded interior (such as TTW's Shorty in
+    /// BigTownCommonHouse1) whose Travel package targets a marker in a loaded cell
+    /// (GermPoliceHQ02) is handed to Low AI when that target cell loads; non-persistent
+    /// actors and actors with No Low Level Processing are skipped.
+    #[test]
+    fn take_persistent_targeting_hands_over_never_loaded_interior_actor_targeting_loaded_cell() {
+        use super::{Clock, Residents};
+        use crate::outfits::tests::{actor_forms, empty_world_data, OTHER};
+        use bevy::prelude::default;
+        use fnv_game::data::ActorDef;
+        use fnv_game::package::{Location, LocationKind, PackageDef, PackageType};
+
+        let (c_bigtown, c_germantown, c_other) = (FormId(0x500), FormId(0x501), FormId(0x502));
+        let (marker, shorty, non_pers, no_low, elsewhere) = (FormId(0x600), FormId(0x700), FormId(0x701), FormId(0x702), FormId(0x703));
+        let (base_no_low, base_elsewhere, pkg_to_germantown, pkg_to_other) = (FormId(0x801), FormId(0x802), FormId(0x900), FormId(0x901));
+
+        let mut refs = fnv_sim::RefTable::default();
+        refs.refs.insert(marker, placed_ref(marker, *b"REFR", FormId(0x50), c_germantown, true, None));
+        refs.refs.insert(shorty, placed_ref(shorty, *b"ACHR", OTHER, c_bigtown, true, None));
+        refs.refs.insert(non_pers, placed_ref(non_pers, *b"ACHR", OTHER, c_bigtown, false, None));
+        refs.refs.insert(no_low, placed_ref(no_low, *b"ACHR", base_no_low, c_bigtown, true, None));
+        refs.refs.insert(elsewhere, placed_ref(elsewhere, *b"ACHR", base_elsewhere, c_bigtown, true, None));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(refs));
+
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(actor_forms(vec![])));
+        let empty = empty_world_data();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let table = fnv_script::FunctionTable::load(&path).unwrap();
+        let mut data = fnv_game::GameData::build(empty.lo, empty.schema, table, &json, refs);
+        data.actors.insert(OTHER, ActorDef { sig: *b"NPC_", packages: vec![pkg_to_germantown], ..default() });
+        data.actors.insert(base_no_low, ActorDef { sig: *b"NPC_", packages: vec![pkg_to_germantown], no_low_level: true, ..default() });
+        data.actors.insert(base_elsewhere, ActorDef { sig: *b"NPC_", packages: vec![pkg_to_other], ..default() });
+        data.package_defs.insert(
+            pkg_to_germantown,
+            PackageDef { ty: PackageType::Travel, location: Some(Location { kind: LocationKind::NearReference(Some(marker)), radius: 64 }), ..default() },
+        );
+        data.package_defs.insert(
+            pkg_to_other,
+            PackageDef { ty: PackageType::Travel, location: Some(Location { kind: LocationKind::InCell(Some(c_other)), radius: 0 }), ..default() },
+        );
+        let data: &'static fnv_game::GameData = Box::leak(Box::new(data));
+        let mut g = fnv_game::game::Game::new(data, fnv_sim::World::new(forms, refs, Default::default()), Default::default());
+
+        let mut residents = Residents::build(&empty_world_data(), &[], Clock { hour: 12.0, days_passed: 1.0, rate: 0.0 }, 100.0, true).unwrap();
+        // Before GermPoliceHQ02 loads: nobody handed over yet.
+        g.loaded_cells.insert(FormId(0x599));
+        residents.core.take_persistent_targeting(&g);
+        assert!(!residents.core.known.contains(&shorty.0));
+
+        // GermPoliceHQ02 loads: Shorty is handed over, while non-persistent, No Low Level Processing,
+        // and actors targeting another unloaded cell stay out.
+        g.loaded_cells.insert(c_germantown);
+        residents.core.take_persistent_targeting(&g);
+        assert!(residents.core.known.contains(&shorty.0), "persistent Shorty handed over");
+        assert!(residents.core.far_targets.contains(&shorty.0));
+        assert!(!residents.core.known.contains(&non_pers.0), "non-persistent actor skipped");
+        assert!(!residents.core.known.contains(&no_low.0), "No Low Level Processing actor skipped");
+        assert!(!residents.core.known.contains(&elsewhere.0), "actor targeting unloaded c_other stays out");
+
+        // Once c_other loads, `elsewhere` joins too.
+        g.loaded_cells.insert(c_other);
+        residents.core.take_persistent_targeting(&g);
+        assert!(residents.core.known.contains(&elsewhere.0));
     }
 }

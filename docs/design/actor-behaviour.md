@@ -1014,8 +1014,24 @@ in `crates/fnv-ai/tests/carry.rs` ("process levels") and `cell_buffer.rs`.
   and the package is set aside (§5.2); Holmes's own package also needs the player in
   WastelandNV.
 
-Not done: actors of cells never loaded are not handed to the AI at all, as before (an
-actor a script moves with MoveTo is: `take_moved`, §5.2).
+- **Persistent actors behind worldspace doors and targeting loaded cells (#3052)**
+  [design, #3052]:
+  - Load doors from loaded cells into another worldspace (exterior -> another worldspace,
+    or any cell -> a child worldspace with a parent) hand over the destination worldspace's
+    persistent actors to the AI (`Core::take_cells`), and the destination worldspace counts
+    as buffered at Mid-Low in `CellBuffer::note_doors` (as interiors behind doors do), so
+    an actor like TTW's Birch in Oasis can walk out through the gate to greet the player.
+  - Persistent actors placed anywhere in the load order (including never-loaded interiors
+    not adjacent by a door, such as TTW's Shorty in `BigTownCommonHouse1` targeting
+    `GermPoliceHQ02`) without `No Low Level Processing` are indexed once by the cells their
+    packages' static locations target (`Core::take_persistent_targeting`) and handed over
+    at the Low level when a targeted cell loads. On a load-door or fast-travel `Trip`,
+    such a never-loaded actor whose active package targets a newly loaded cell is also
+    eligible for `Core::arrive` (and Low-level `Ai::low_update` / `Ai::pass_time` evaluate
+    the initial package when `current_package` is still `None`).
+  - Still not done: persistent actors in never-loaded cells whose packages do not target
+    any loaded cell (and are not behind a door from the loaded cells) are still left out
+    until their cell or a target cell loads (or a script moves them with `MoveTo`).
 
 ### 5.10 Escort, Find, Use Item At, Ambush, Flee Not Combat (2026-10-17)
 

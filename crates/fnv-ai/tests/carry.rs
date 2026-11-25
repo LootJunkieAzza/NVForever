@@ -7197,3 +7197,36 @@ fn set_package_flag_location_and_travel_to_ref_reach_ai_carry() {
     assert_eq!(loner_running, Some(true));
     assert!(dist(travel.feet(R_LONER), [350.0, 350.0, 0.0]) < 80.0, "TravelToRef moved R_LONER to MarkA: {:?}", travel.feet(R_LONER));
 }
+
+/// #3052: a Low-level actor handed over from an unloaded cell (not in `game.loaded_cells`,
+/// with `current_package == None`) chooses its valid Travel package on its first Low update
+/// (or `pass_time` wait hour) and walks through the load door into the loaded cell.
+#[test]
+fn low_process_actor_from_unloaded_cell_picks_initial_package_and_walks_in() {
+    let f = fixture();
+    // Case 1: Low-level update (`low_update`) picks the initial package when only CELL_B is loaded.
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.game.loaded_cells.clear();
+    s.game.loaded_cells.insert(FormId(CELL_B));
+    s.game.extra.entry(FormId(R_TRAVEL)).or_default().current_package = None;
+    s.ai.set_loaded(Some(fnv_ai::LoadedArea { space: B, cells: Default::default() }));
+    assert!(s.ai.set_level(&s.game, FormId(R_TRAVEL), fnv_ai::ProcessLevel::Low));
+    assert_eq!(s.game.extra.get(&FormId(R_TRAVEL)).and_then(|e| e.current_package), None);
+    // Advance past FAR_PROCESS_SECONDS so the Low update fires and walks R_TRAVEL into CELL_B.
+    s.run(f64::from(fnv_ai::FAR_PROCESS_SECONDS) + 20.0);
+    assert_eq!(s.game.current_package(FormId(R_TRAVEL)), Some(FormId(P_TRAVEL_B)));
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].walker.space, B);
+
+    // Case 2: Wait-menu `pass_time` also picks the initial package for an unloaded Low actor.
+    let mut w = sim(&f, &[R_TRAVEL]);
+    w.game.loaded_cells.clear();
+    w.game.loaded_cells.insert(FormId(CELL_B));
+    w.game.extra.entry(FormId(R_TRAVEL)).or_default().current_package = None;
+    w.ai.set_loaded(Some(fnv_ai::LoadedArea { space: B, cells: Default::default() }));
+    assert!(w.ai.set_level(&w.game, FormId(R_TRAVEL), fnv_ai::ProcessLevel::Low));
+    assert_eq!(w.game.extra.get(&FormId(R_TRAVEL)).and_then(|e| e.current_package), None);
+    let walked = w.ai.pass_time(&mut w.game, &w.nav, 60.0, 0.25);
+    assert_eq!(walked, 1);
+    assert_eq!(w.game.current_package(FormId(R_TRAVEL)), Some(FormId(P_TRAVEL_B)));
+    assert_eq!(w.ai.agents[&FormId(R_TRAVEL)].walker.space, B);
+}

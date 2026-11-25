@@ -49,8 +49,10 @@ pub struct CellBuffer {
     interior: HashMap<u32, u64>,
     frame: u64,
     /// Interiors behind the load doors of the exterior cells drawn so far (Mid-Low),
-    /// and the exterior cells whose doors were looked at.
+    /// other worldspaces behind those load doors ([design, #3052]), and the exterior
+    /// cells whose doors were looked at.
     behind_doors: HashSet<u32>,
+    behind_worlds: HashSet<u32>,
     doors_seen: HashSet<(u32, (i32, i32))>,
     /// Cells actors walked into this frame ([`CellBuffer::carry`]), taken in at the next
     /// [`CellBuffer::remember`].
@@ -106,23 +108,34 @@ impl CellBuffer {
             }
             let Some(cell) = grid.get(&c) else { continue };
             for r in refs.by_cell.get(cell).into_iter().flatten() {
-                let to = refs.get(*r).and_then(|p| p.teleport.as_ref()).and_then(|t| refs.teleport_cell(t));
-                if let Some(to) = to.filter(|&t| refs.world_of(t).is_none()) {
-                    self.behind_doors.insert(to.0);
+                let Some(to) = refs.get(*r).and_then(|p| p.teleport.as_ref()).and_then(|t| refs.teleport_cell(t)) else {
+                    continue;
+                };
+                match refs.world_of(to) {
+                    None => {
+                        self.behind_doors.insert(to.0);
+                    }
+                    // Another worldspace behind a load door of a loaded exterior cell
+                    // (e.g. Oasis behind WastelandDoorToOasis) counts as buffered at
+                    // Mid-Low, as interiors behind doors do [design, #3052].
+                    Some(dest_world) if dest_world.0 != world => {
+                        self.behind_worlds.insert(dest_world.0);
+                    }
+                    Some(_) => {}
                 }
             }
         }
     }
 
-    /// Whether the cell at `feet` in `space` is in the buffer (or an interior behind the
-    /// doors of the cells drawn so far, module notes).
+    /// Whether the cell at `feet` in `space` is in the buffer (or an interior / other
+    /// worldspace behind the doors of the cells drawn so far, module notes).
     pub fn holds(&self, space: Space, feet: [f32; 3]) -> bool {
         if self.carried.lock().is_ok_and(|c| c.contains(&key(space, feet))) {
             return true;
         }
         match space {
             Space::Interior(c) => self.interior.contains_key(&c) || self.behind_doors.contains(&c),
-            Space::World(w) => self.exterior.contains_key(&(w, fnv_world::cell_of(feet[0], feet[1]))),
+            Space::World(w) => self.exterior.contains_key(&(w, fnv_world::cell_of(feet[0], feet[1]))) || self.behind_worlds.contains(&w),
         }
     }
 
@@ -253,5 +266,69 @@ mod tests {
         assert!(b.holds(Space::World(7), feet((2, 2))), "the exterior stays buffered");
         assert!(!b.holds(Space::Interior(101), [0.0; 3]));
         assert!((102..=104).all(|i| b.holds(Space::Interior(i), [0.0; 3])));
+    }
+
+    /// #3052: a load door from a drawn exterior cell into another worldspace marks that
+    /// worldspace buffered (Mid-Low, as interiors behind doors are) without adding cells
+    /// to `cells()` (`GetBufferedCells`).
+    #[test]
+    fn a_worldspace_behind_a_load_door_counts_as_buffered() {
+        use fnv_sim::refs::{PlacedRef, Teleport};
+        let mut refs = RefTable::default();
+        let (w_main, w_oasis) = (FormId(0x10), FormId(0x20));
+        let (c_main, c_oasis) = (FormId(0x100), FormId(0x200));
+        let (d_main, d_oasis) = (FormId(0x1000), FormId(0x2000));
+        refs.cell_world.insert(c_main, w_main);
+        refs.cell_world.insert(c_oasis, w_oasis);
+        refs.world_grid.entry(w_main).or_default().insert((0, 0), c_main);
+        refs.world_grid.entry(w_oasis).or_default().insert((0, 0), c_oasis);
+        let door = |id, cell, to| PlacedRef {
+            id,
+            sig: *b"REFR",
+            edid: None,
+            base: FormId(0x50),
+            cell: Some(cell),
+            stored_in: Some(cell),
+            plugin: 0,
+            flags: 0,
+            in_persistent_group: true,
+            pos: [100.0, 100.0, 0.0],
+            rot: [0.0; 3],
+            scale: None,
+            count: None,
+            ammo: None,
+            health: None,
+            owner: None,
+            lock: None,
+            teleport: Some(Teleport { door: to, pos: [100.0, 100.0, 0.0], rot: [0.0; 3], no_alarm: false }),
+            enable_parent: None,
+            linked: None,
+            patrol_idle: None,
+            patrol_topic: None,
+            merchant_container: None,
+            marker_reputation: None,
+            open_by_default: false,
+            primitive: None,
+            activate_parents: Vec::new(),
+            parent_activate_only: false,
+            prompt: None,
+            radiation: None,
+            radius: None,
+            encounter_zone: None,
+            level_modifier: None,
+            map_marker: None,
+            radio: None,
+        };
+        refs.refs.insert(d_main, door(d_main, c_main, d_oasis));
+        refs.refs.insert(d_oasis, door(d_oasis, c_oasis, d_main));
+        refs.by_cell.entry(c_main).or_default().push(d_main);
+        refs.by_cell.entry(c_oasis).or_default().push(d_oasis);
+
+        let mut b = CellBuffer::default();
+        assert!(!b.holds(Space::World(w_oasis.0), [100.0, 100.0, 0.0]));
+        b.note_doors(&refs, w_main.0, std::iter::once((0, 0)));
+        assert!(b.holds(Space::World(w_oasis.0), [100.0, 100.0, 0.0]));
+        assert!(!b.holds(Space::World(w_main.0), [100.0, 100.0, 0.0]));
+        assert_eq!(b.len(), (0, 0), "GetBufferedCells stays unchanged");
     }
 }
