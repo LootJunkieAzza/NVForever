@@ -1,0 +1,106 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-book-faction-flags-bitwidth",
+  "description": "Read-only clean-room probe verifying SetBookFlags 8-bit wrap (-1 -> 255) and SetFactionFlags 32-bit unsigned storage (65792, -1 -> 0xFFFFFFFF).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_book_faction_flags_bitwidth",
+      "title": "Wave 6D-3: SetBookFlags 8-bit wrap & SetFactionFlags 32-bit bitwidth",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_31a_books_factions_races_containers",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg1.md",
+          "spec_line": 15,
+          "functions_tested": [
+            "GetBookFlags",
+            "SetBookFlags",
+            "GetBookSkill",
+            "SetBookSkill",
+            "GetFactionFlags",
+            "SetFactionFlags",
+            "GetCreatureCombatSkill",
+            "GetBaseScale",
+            "Sign",
+            "GetRaceHeadModelPath",
+            "GetRaceBodyModelPath",
+            "GetContainerSound",
+            "SetContainerSound",
+            "TempCloneForm"
+          ],
+          "claim": "Verify BookFlags/Skill & FactionFlags OOB, CreatureCombatSkill, BaseScale, Sign, Race paths, and SetContainerSound on TempCloneForm CONT.",
+          "expected": "Confirm BookFlags/FactionFlags masking, BookSkill bounds, and ContainerSound TempCloneForm behavior.",
+          "script_lines": [
+            "ref rBk = GetFormFromMod \"FalloutNV.esm\" \"160227\"",
+            "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"1267AB\"",
+            "ref rDog = GetFormFromMod \"FalloutNV.esm\" \"10588D\"",
+            "ref rRac = GetFormFromMod \"FalloutNV.esm\" \"19\"",
+            "ref rCnt = GetFormFromMod \"FalloutNV.esm\" \"2FCC3\"",
+            "ref rSnd = GetFormFromMod \"FalloutNV.esm\" \"174325\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "int iBf0 = GetBookFlags rBk",
+            "SetBookFlags rBk 257",
+            "int iBf257 = GetBookFlags rBk",
+            "SetBookFlags rBk -1",
+            "int iBfNeg = GetBookFlags rBk",
+            "SetBookFlags rBk iBf0",
+            "int iBs0 = GetBookSkill rBk",
+            "SetBookSkill rBk 31",
+            "int iBs31 = GetBookSkill rBk",
+            "SetBookSkill rBk 47",
+            "int iBs47 = GetBookSkill rBk",
+            "SetBookSkill rBk iBs0",
+            "int iFf0 = GetFactionFlags rFac",
+            "SetFactionFlags rFac 65792",
+            "int iFfHi = GetFactionFlags rFac",
+            "SetFactionFlags rFac -1",
+            "int iFfNeg = GetFactionFlags rFac",
+            "SetFactionFlags rFac iFf0",
+            "int iCcs = GetCreatureCombatSkill rDog",
+            "float fScDog = GetBaseScale rDog",
+            "float fScSt = GetBaseScale rSt",
+            "int iSg1 = Sign -2.5",
+            "int iSg2 = Sign 0",
+            "int iSg3 = Sign 0.25",
+            "string_var sRh = GetRaceHeadModelPath rRac 0 0",
+            "string_var sRb = GetRaceBodyModelPath rRac 0 0",
+            "ref rCCl = TempCloneForm rCnt",
+            "SetContainerSound rCCl 0 rSnd",
+            "ref rCsCl = GetContainerSound rCCl 0",
+            "PrintToConsole \"PROBE|w6d3p2_31a_books_factions_races_containers|bf=%g,%g,%g|bs=%g,%g,%g|ff=%g,%g,%g|dog=%g/%.2f,st=%.1f|sg=%g,%g,%g|rc=%g/%g|csCl=%g\" iBf0 iBf257 iBfNeg iBs0 iBs31 iBs47 iFf0 iFfHi iFfNeg iCcs fScDog fScSt iSg1 iSg2 iSg3 (sv_Length sRh) (sv_Length sRb) (rCsCl == rSnd)"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -47,6 +47,7 @@ fn plugin_bytes() -> Vec<u8> {
     let snam = |rank: u8| sub(b"SNAM", [le(FACT), vec![rank, 0, 0, 0]].concat());
     let npcs = [npc_player, edid(b"NPC_", NPC_A, "MemberA", &[snam(0)]), edid(b"NPC_", NPC_B, "MemberB", &[snam(1)]), edid(b"NPC_", NPC_C, "NotMember", &[])].concat();
     let fact = edid(b"FACT", FACT, "TestFaction", &[]);
+    let book = edid(b"BOOK", 0x934, "TestBook", &[sub(b"DATA", vec![0; 10])]);
     let idle = [edid(b"IDLE", IDLE1, "TestIdle1", &[]), edid(b"IDLE", IDLE2, "TestIdle2", &[]), edid(b"IDLE", IDLE3, "TestIdle3", &[])].concat();
     // Run in sequence (1), 2 animations, a 5 s timer.
     let idlm = edid(b"IDLM", IDLM, "TestMarker", &[sub(b"IDLF", vec![1]), sub(b"IDLC", vec![2, 0, 0, 0]), sub(b"IDLT", 5.0f32.to_le_bytes().to_vec()), sub(b"IDLA", u32s(&[IDLE1, IDLE2]))]);
@@ -66,6 +67,7 @@ fn plugin_bytes() -> Vec<u8> {
         tes4(),
         top(b"GLOB", &glob),
         top(b"FACT", &fact),
+        top(b"BOOK", &book),
         top(b"RACE", &race),
         top(b"NPC_", &npcs),
         top(b"IDLE", &idle),
@@ -228,4 +230,12 @@ fn race_flags_and_faction_members() {
     // jg_11_faction_members_neg_rank, JohnnyGuitarNVSE 528].
     assert!(forms(&mut g, "GetFactionMembers TestFaction -2").is_empty());
     assert!(forms(&mut g, "GetFactionMembers TestFaction -5").is_empty());
+    // SetBookFlags wraps negative values modulo 256 (-1 -> 255) and SetFactionFlags keeps
+    // full 32-bit unsigned flags (65792 and -1 -> u32::MAX) [observed: w6d3p2_31a].
+    q(&mut g, "SetBookFlags TestBook -1");
+    assert_eq!(n(&mut g, "GetBookFlags TestBook"), 255.0);
+    q(&mut g, "SetFactionFlags TestFaction 65792");
+    assert_eq!(n(&mut g, "GetFactionFlags TestFaction"), 65_792.0);
+    q(&mut g, "SetFactionFlags TestFaction -1");
+    assert_eq!(n(&mut g, "GetFactionFlags TestFaction"), f64::from(u32::MAX));
 }
