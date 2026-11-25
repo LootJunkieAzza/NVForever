@@ -14,6 +14,12 @@
 //!
 //! The sockets are non-blocking. [`Transport::recv`] drains everything waiting, on every
 //! socket.
+//!
+//! The birthday punch (docs/spec-notes/nat-traversal.md, "Birthday punch"): a game behind a
+//! NAT that maps a new port per destination opens many more IPv4 sockets for one peer's
+//! checks ([`Transport::open_extras`]), sends probes from each ([`Transport::send_from`]),
+//! and keeps the one whose path was chosen ([`Transport::close_extras`]): from then on
+//! everything to that peer goes from it, and what comes to it is taken as on any socket.
 
 use std::cell::RefCell;
 use std::io::{self, ErrorKind};
@@ -45,6 +51,21 @@ pub struct Transport {
     v6: Option<UdpSocket>,
     /// Sessions on relays players host ([`Transport::hosted_open`]).
     hosted: RefCell<Vec<Hosted>>,
+    /// The birthday punch's sockets.
+    birthday: RefCell<Birthday>,
+}
+
+/// The birthday punch's sockets: those open for each owner's checks (a guest's for its
+/// host, a host's for each guest number), and the kept ones, each the way to one peer.
+#[derive(Default)]
+struct Birthday {
+    open: Vec<(u32, Vec<UdpSocket>)>,
+    kept: Vec<(SocketAddr, UdpSocket)>,
+}
+
+/// A socket's port, 0 when it has none.
+fn port_of(s: &UdpSocket) -> u16 {
+    s.local_addr().map_or(0, |a| a.port())
 }
 
 /// A session on a relay a player hosts (`nvf-relay`, `nvf_nat::hosted`,
@@ -76,12 +97,12 @@ impl Transport {
     /// it is free there). IPv4 must bind, IPv6 is best effort.
     pub fn host(port: u16, scope: Scope) -> io::Result<Self> {
         match scope {
-            Scope::Loopback => Ok(Self { v4: Some(bind_v4(Ipv4Addr::LOCALHOST, port)?), v6: None, hosted: RefCell::default() }),
+            Scope::Loopback => Ok(Self { v4: Some(bind_v4(Ipv4Addr::LOCALHOST, port)?), v6: None, hosted: RefCell::default(), birthday: RefCell::default() }),
             Scope::All => {
                 let v4 = bind_v4(Ipv4Addr::UNSPECIFIED, port)?;
                 let port = v4.local_addr()?.port();
                 let v6 = bind_v6(Ipv6Addr::UNSPECIFIED, port).ok();
-                Ok(Self { v4: Some(v4), v6, hosted: RefCell::default() })
+                Ok(Self { v4: Some(v4), v6, hosted: RefCell::default(), birthday: RefCell::default() })
             }
         }
     }
@@ -113,7 +134,7 @@ impl Transport {
         } else {
             None
         };
-        Ok(Self { v4, v6, hosted: RefCell::default() })
+        Ok(Self { v4, v6, hosted: RefCell::default(), birthday: RefCell::default() })
     }
 
     /// A guest's sockets before it knows where its host is (an online code): IPv4 on every
@@ -121,7 +142,7 @@ impl Transport {
     pub fn guest_anywhere() -> io::Result<Self> {
         let v4 = bind_v4(Ipv4Addr::UNSPECIFIED, 0)?;
         let _ = v4.set_broadcast(true);
-        Ok(Self { v4: Some(v4), v6: bind_v6(Ipv6Addr::UNSPECIFIED, 0).ok(), hosted: RefCell::default() })
+        Ok(Self { v4: Some(v4), v6: bind_v6(Ipv6Addr::UNSPECIFIED, 0).ok(), hosted: RefCell::default(), birthday: RefCell::default() })
     }
 
     /// The address shown for this game: the IPv4 socket's, else the IPv6 one's.
@@ -183,6 +204,10 @@ impl Transport {
 
     fn send_raw(&self, bytes: &[u8], to: SocketAddr) {
         let to = canonical(to);
+        if let Some((_, s)) = self.birthday.borrow().kept.iter().find(|(peer, _)| *peer == to) {
+            let _ = s.send_to(bytes, to);
+            return;
+        }
         let sock = if to.is_ipv4() { &self.v4 } else { &self.v6 };
         if let Some(s) = sock {
             let _ = s.send_to(bytes, to);
@@ -192,16 +217,25 @@ impl Transport {
     /// Everything waiting, on every socket, each packet handed to `take` with
     /// the address it came from (an IPv4-mapped IPv6 address as its IPv4 one).
     pub fn recv(&self, mut take: impl FnMut(&[u8], SocketAddr)) {
+        self.recv_via(|b, from, _| take(b, from));
+    }
+
+    /// [`Transport::recv`], with the port of the birthday punch's socket each packet came in
+    /// on (None: the game's own sockets).
+    pub fn recv_via(&self, mut take: impl FnMut(&[u8], SocketAddr, Option<u16>)) {
         let mut buf = [0u8; RECV_MAX];
-        for sock in self.v4.iter().chain(self.v6.iter()) {
+        let birthday = self.birthday.borrow();
+        let extras = birthday.open.iter().flat_map(|(_, v)| v.iter()).chain(birthday.kept.iter().map(|(_, s)| s)).map(|s| (s, Some(port_of(s))));
+        let socks: Vec<(&UdpSocket, Option<u16>)> = self.v4.iter().chain(self.v6.iter()).map(|s| (s, None)).chain(extras).collect();
+        for (sock, via) in socks {
             loop {
                 match sock.recv_from(&mut buf) {
                     Ok((n, from)) => {
                         let from = canonical(from);
                         match self.unwrap_hosted(&buf[..n], from) {
-                            Some(Some((payload, standin))) => take(&payload, standin),
+                            Some(Some((payload, standin))) => take(&payload, standin, via),
                             Some(None) => {}
-                            None => take(&buf[..n], from),
+                            None => take(&buf[..n], from, via),
                         }
                     }
                     Err(e) if e.kind() == ErrorKind::WouldBlock => break,
@@ -217,6 +251,81 @@ impl Transport {
 }
 
 impl Transport {
+    /// The birthday punch: `count` more IPv4 sockets on free ports for `owner`'s checks (the
+    /// ones it has already, when asked again): their ports. Sockets that do not bind are left
+    /// out.
+    pub fn open_extras(&self, owner: u32, count: u16) -> Vec<u16> {
+        let mut b = self.birthday.borrow_mut();
+        if let Some((_, v)) = b.open.iter().find(|(o, _)| *o == owner) {
+            return v.iter().map(port_of).collect();
+        }
+        let socks: Vec<UdpSocket> = (0..count).filter_map(|_| bind_v4(Ipv4Addr::UNSPECIFIED, 0).ok()).collect();
+        let ports = socks.iter().map(port_of).collect();
+        b.open.push((owner, socks));
+        ports
+    }
+
+    /// Send `bytes` to `to` from the birthday punch's socket on port `from` (any owner's, or
+    /// a kept one); from the game's own socket when there is none on that port.
+    pub fn send_from(&self, bytes: &[u8], from: Option<u16>, to: SocketAddr) {
+        let to = canonical(to);
+        if let Some(port) = from.filter(|_| to.is_ipv4()) {
+            let b = self.birthday.borrow();
+            let sock = b.open.iter().flat_map(|(_, v)| v.iter()).chain(b.kept.iter().map(|(_, s)| s)).find(|s| port_of(s) == port);
+            if let Some(s) = sock {
+                let _ = s.send_to(bytes, to);
+                return;
+            }
+        }
+        self.send(bytes, to);
+    }
+
+    /// `owner`'s checks are over: its sockets close, but the one on port `keep`, which from
+    /// now on is the way to `peer` (sends to it go from that socket).
+    pub fn close_extras(&self, owner: u32, keep: Option<(u16, SocketAddr)>) {
+        let mut b = self.birthday.borrow_mut();
+        let Some(i) = b.open.iter().position(|(o, _)| *o == owner) else { return };
+        let (_, socks) = b.open.remove(i);
+        if let Some((port, peer)) = keep {
+            let peer = canonical(peer);
+            if let Some(s) = socks.into_iter().find(|s| port_of(s) == port) {
+                b.kept.retain(|(p, _)| *p != peer);
+                b.kept.push((peer, s));
+            }
+        }
+    }
+
+    /// A packet of the game from `peer` came in on the birthday punch's socket on `port`: that
+    /// socket is now the way to it (the host's side of the punch, which answers where the
+    /// guest's handshake came in), kept when its owner's others close.
+    pub fn pin(&self, peer: SocketAddr, port: u16) {
+        let peer = canonical(peer);
+        let mut b = self.birthday.borrow_mut();
+        if b.kept.iter().any(|(p, s)| *p == peer && port_of(s) == port) {
+            return;
+        }
+        for (_, socks) in &mut b.open {
+            if let Some(i) = socks.iter().position(|s| port_of(s) == port) {
+                let s = socks.remove(i);
+                b.kept.retain(|(p, _)| *p != peer);
+                b.kept.push((peer, s));
+                return;
+            }
+        }
+    }
+
+    /// `peer` is gone: the socket kept for it closes.
+    pub fn forget_peer(&self, peer: SocketAddr) {
+        let peer = canonical(peer);
+        self.birthday.borrow_mut().kept.retain(|(p, _)| *p != peer);
+    }
+
+    /// The birthday punch's sockets open now, and kept (for the log).
+    pub fn extras_open(&self) -> (usize, usize) {
+        let b = self.birthday.borrow();
+        (b.open.iter().map(|(_, v)| v.len()).sum(), b.kept.len())
+    }
+
     /// A session on the relay at `relay` for the pair `session`, as `side`: its stand-in
     /// address ([`hosted_standin`]). The same session again is the one already open.
     pub fn hosted_open(&self, relay: SocketAddr, session: SessionId, side: Side) -> SocketAddr {
@@ -311,6 +420,43 @@ mod tests {
 
     fn has_v6_loopback() -> bool {
         bind_v6(Ipv6Addr::LOCALHOST, 0).is_ok()
+    }
+
+    /// The birthday punch: extra sockets send and receive, the one kept is then the way to
+    /// its peer, and the rest close.
+    #[test]
+    fn extra_sockets_send_receive_and_one_is_kept() {
+        let host = Transport::host(0, Scope::Loopback).unwrap();
+        let to_host = SocketAddr::from((Ipv4Addr::LOCALHOST, host.local_addr().unwrap().port()));
+        let guest = Transport::guest(&[to_host]).unwrap();
+        let ports = guest.open_extras(7, 4);
+        assert_eq!(ports.len(), 4);
+        assert_eq!(guest.open_extras(7, 4), ports, "asked again: the same sockets");
+        guest.send_from(b"probe", Some(ports[2]), to_host);
+        let got = drain(&host, 1);
+        assert_eq!(got[0].0, b"probe");
+        assert_eq!(got[0].1.port(), ports[2], "sent from that socket");
+        // The answer comes in on it, and says so.
+        host.send(b"answer", got[0].1);
+        let mut via = None;
+        let until = Instant::now() + Duration::from_secs(2);
+        while via.is_none() && Instant::now() < until {
+            guest.recv_via(|b, _, v| {
+                if b == b"answer" {
+                    via = Some(v);
+                }
+            });
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(via, Some(Some(ports[2])));
+        guest.close_extras(7, Some((ports[2], to_host)));
+        assert_eq!(guest.extras_open(), (0, 1));
+        // Everything to the host now goes from the kept socket.
+        guest.send(b"game", to_host);
+        let got = drain(&host, 1);
+        assert_eq!(got[0].1.port(), ports[2]);
+        guest.forget_peer(to_host);
+        assert_eq!(guest.extras_open(), (0, 0));
     }
 
     #[test]

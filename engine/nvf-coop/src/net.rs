@@ -1391,10 +1391,23 @@ impl Session {
         let key = self.secure.get_mut().identity().public();
         let Some(o) = self.online.as_mut() else { return };
         let send = o.tick(now, &key);
-        let events = o.take_events();
         for (to, b) in send {
             self.net.send(&b, to);
         }
+        // The birthday punch's sockets (docs/spec-notes/nat-traversal.md).
+        for ask in o.take_socket_asks() {
+            match ask {
+                crate::online::SocketAsk::Open { owner, count } => {
+                    let ports = self.net.open_extras(owner, count);
+                    o.extras_opened(owner, &ports);
+                }
+                crate::online::SocketAsk::Close { owner, keep } => self.net.close_extras(owner, keep),
+            }
+        }
+        for (port, to, b) in o.take_sends_from() {
+            self.net.send_from(&b, Some(port), to);
+        }
+        let events = o.take_events();
         for e in events {
             match (&e, &mut self.role) {
                 (OnlineEvent::HostAt(at), Role::Guest { candidates, host, last_hello, .. }) if host.is_none() => {
@@ -2144,8 +2157,8 @@ impl Session {
 
     fn receive(&mut self, now: Instant) {
         let mut got = Vec::new();
-        self.net.recv(|bytes, from| got.push((bytes.to_vec(), from)));
-        for (bytes, from) in got {
+        self.net.recv_via(|bytes, from, via| got.push((bytes.to_vec(), from, via)));
+        for (bytes, from, via) in got {
             *self.heard.entry(from).or_default() += bytes.len() as u64 + crate::transport::overhead(from);
             // STUN answers and the checks' probes share the socket with the game's packets.
             if let Some(o) = &mut self.online {
@@ -2154,14 +2167,19 @@ impl Session {
                     continue;
                 }
                 if crate::online::is_probe(&bytes) {
-                    if let Some((to, b)) = o.on_probe(&bytes, from, now) {
-                        self.net.send(&b, to);
+                    // Answered from the socket it came in on.
+                    if let Some((to, b)) = o.on_probe(&bytes, from, via, now) {
+                        self.net.send_from(&b, via, to);
                     }
                     continue;
                 }
                 if o.on_router(from, &bytes, now) {
                     continue;
                 }
+            }
+            // The game's packet on a birthday punch socket: that socket is the way back to it.
+            if let Some(port) = via {
+                self.net.pin(from, port);
             }
             // A player this guest relays: up to the host as it came (sealed for the host),
             // once the host has welcomed this guest.
@@ -2355,6 +2373,7 @@ impl Session {
                     self.relay_bye(id);
                     self.events.push(Event::Left(id));
                     self.drop_relayed_via(from);
+                    self.net.forget_peer(from);
                 }
             }
             Msg::Hit { id: hit_id, hit } => {
@@ -2722,6 +2741,9 @@ impl Session {
         }
         for id in gone {
             let via = self.peers.iter().find(|p| p.id == id).and_then(|p| p.addr);
+            if let Some(a) = via {
+                self.net.forget_peer(a);
+            }
             self.peers.retain(|p| p.id != id);
             self.relay_bye(id);
             self.events.push(Event::Left(id));

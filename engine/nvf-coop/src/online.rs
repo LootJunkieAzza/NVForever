@@ -208,6 +208,23 @@ pub struct Online {
     listing_sent: Option<(bool, String, String, bool)>,
     /// The guest's password hash, for its `join`.
     join_hash: Option<String>,
+    /// The birthday punch's asks of the sockets ([`Online::take_socket_asks`]), and the probes
+    /// to send from its sockets (their ports) ([`Online::take_sends_from`]).
+    socket_asks: Vec<SocketAsk>,
+    sends_from: Vec<(u16, SocketAddr, Vec<u8>)>,
+}
+
+/// The guest's own checks' owner of birthday sockets (a host's are its guests' numbers).
+pub const GUEST_SOCKETS: PeerNo = PeerNo::MAX;
+
+/// What the birthday punch asks of the sockets (docs/spec-notes/nat-traversal.md, "Birthday
+/// punch"): `owner` is the checks' (a host's guest number, or [`GUEST_SOCKETS`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SocketAsk {
+    /// Open `count` more IPv4 sockets; [`Online::extras_opened`] takes their ports.
+    Open { owner: PeerNo, count: u16 },
+    /// Close them, but the one on this port, from now on the way to this address.
+    Close { owner: PeerNo, keep: Option<(u16, SocketAddr)> },
 }
 
 impl Online {
@@ -255,7 +272,7 @@ impl Online {
         let portmap = locals.iter().find(|a| a.is_ipv4()).and_then(|a| PortMap::start(*a, Instant::now()));
         // The checks' local sockets: one per family (every address is the same socket).
         let locals: Vec<SocketAddr> = [locals.iter().find(|a| a.is_ipv4()), locals.iter().find(|a| a.is_ipv6())].into_iter().flatten().copied().collect();
-        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new(), failed: false, host_password: String::new(), listing_sent: None, join_hash: None }
+        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new(), failed: false, host_password: String::new(), listing_sent: None, join_hash: None, socket_asks: Vec::new(), sends_from: Vec::new() }
     }
 
     /// The host key the service gave a guest: the only key its Noise session may have.
@@ -268,6 +285,31 @@ impl Online {
 
     pub fn take_events(&mut self) -> Vec<OnlineEvent> {
         std::mem::take(&mut self.events)
+    }
+
+    /// The birthday punch's asks of the sockets, oldest first.
+    pub fn take_socket_asks(&mut self) -> Vec<SocketAsk> {
+        std::mem::take(&mut self.socket_asks)
+    }
+
+    /// Probes to send from the birthday punch's sockets: (its port, to, bytes).
+    pub fn take_sends_from(&mut self) -> Vec<(u16, SocketAddr, Vec<u8>)> {
+        std::mem::take(&mut self.sends_from)
+    }
+
+    /// The sockets `owner`'s checks asked for are open on these ports.
+    pub fn extras_opened(&mut self, owner: PeerNo, ports: &[u16]) {
+        let Some(ip) = self.locals.iter().find(|a| a.is_ipv4()).map(SocketAddr::ip) else { return };
+        let addrs: Vec<SocketAddr> = ports.iter().map(|&p| SocketAddr::new(ip, p)).collect();
+        let agent = match &mut self.side {
+            Side::Host { peers, .. } => peers.get_mut(&owner).and_then(|p| p.agent.as_mut()),
+            Side::Guest { agent, .. } if owner == GUEST_SOCKETS => agent.as_deref_mut(),
+            Side::Guest { .. } => None,
+        };
+        if let Some(a) = agent {
+            a.add_extra_sockets(&addrs);
+            self.events.push(OnlineEvent::Note(format!("birthday punch: {} more sockets open for the checks", addrs.len())));
+        }
     }
 
     fn start_stun(&mut self, servers: &[SocketAddr], now: Instant) {
@@ -319,6 +361,16 @@ impl Online {
                 self.events.push(OnlineEvent::Note(format!("STUN: public address {:?}; mapping {mapping}", r.reflexive())));
                 self.no_stun = r.reflexive().is_empty();
                 self.nat = report::Nat::from_gather(&r);
+                // The checks running now learn this side's NAT (the birthday punch needs it).
+                match &mut self.side {
+                    Side::Host { peers, .. } => {
+                        for a in peers.values_mut().filter_map(|p| p.agent.as_mut()) {
+                            a.set_local_nat(self.nat);
+                        }
+                    }
+                    Side::Guest { agent: Some(a), .. } => a.set_local_nat(self.nat),
+                    Side::Guest { .. } => {}
+                }
                 if self.no_stun {
                     self.events.push(OnlineEvent::Note("no STUN server answered: this network may block UDP".into()));
                 }
@@ -445,6 +497,7 @@ impl Online {
 
     fn on_text(&mut self, t: &str, now: Instant) {
         let locals = self.locals.clone();
+        let nat = self.nat;
         match &mut self.side {
             Side::Host { client: Some(c), peers, asking, secret, code: kept, .. } => {
                 let Ok(evs) = c.on_text(t) else { return };
@@ -503,6 +556,7 @@ impl Online {
                         HostEvent::Go { peer } | HostEvent::Reconnect { peer } => {
                             if let Some(p) = peers.get_mut(&peer) {
                                 let mut a = Agent::new(Role::Host, &locals, Config::default());
+                                a.set_local_nat(nat);
                                 for c in &p.remotes {
                                     a.add_remote(*c);
                                 }
@@ -562,6 +616,7 @@ impl Online {
                         GuestEvent::Go => {
                             self.go_at = Some(now);
                             let mut a = Agent::new(Role::Guest, &locals, Config::default());
+                            a.set_local_nat(nat);
                             for c in remotes.iter() {
                                 a.add_remote(*c);
                             }
@@ -605,7 +660,8 @@ impl Online {
                             match answer {
                                 Answer::Accept => {
                                     c.relay_answer(from, true, "", &self.found);
-                                    let mut a = Agent::new(Role::Host, &locals, Config::default());
+                                    // No birthday punch for a relay's checks.
+                                    let mut a = Agent::new(Role::Host, &locals, Config { birthday_sockets: 0, ..Config::default() });
                                     for cand in candidates {
                                         a.add_remote(cand);
                                     }
@@ -637,6 +693,18 @@ impl Online {
 
     fn poll_agents(&mut self, now: Instant) -> Vec<(SocketAddr, Vec<u8>)> {
         let mut send = Vec::new();
+        // A probe from one of the birthday punch's sockets goes from it (its port); from the
+        // game's own socket otherwise.
+        let main: Vec<SocketAddr> = self.locals.clone();
+        let sends_from = &mut self.sends_from;
+        let asks = &mut self.socket_asks;
+        let mut out = |from: SocketAddr, to: SocketAddr, bytes: Vec<u8>, send: &mut Vec<(SocketAddr, Vec<u8>)>| {
+            if from.is_ipv4() && !main.contains(&from) {
+                sends_from.push((from.port(), to, bytes));
+            } else {
+                send.push((to, bytes));
+            }
+        };
         match &mut self.side {
             Side::Host { peers, .. } => {
                 for (&peer, p) in peers.iter_mut() {
@@ -644,7 +712,11 @@ impl Online {
                     let mut failed = false;
                     for act in a.poll(now) {
                         match act {
-                            Action::SendProbe { to, check_id, .. } => send.push((to, probe(KIND_PROBE, peer, check_id))),
+                            Action::SendProbe { from, to, check_id, .. } => out(from, to, probe(KIND_PROBE, peer, check_id), &mut send),
+                            Action::OpenSockets { count } => asks.push(SocketAsk::Open { owner: peer, count }),
+                            // The host keeps the socket the guest's handshake comes in on
+                            // (`Session` pins it); the rest close when the session is made.
+                            Action::CloseSockets { .. } => asks.push(SocketAsk::Close { owner: peer, keep: None }),
                             // The guest names the path, and its handshake comes over it; a host
                             // agent that finds none stops, and says so.
                             Action::Failed => failed = true,
@@ -661,10 +733,21 @@ impl Online {
             Side::Guest { me: Some(me), agent, client, connected, .. } => {
                 let mut done = false;
                 if let Some(a) = agent {
+                    let mut chosen = None;
                     for act in a.poll(now) {
                         match act {
-                            Action::SendProbe { to, check_id, .. } => send.push((to, probe(KIND_PROBE, *me, check_id))),
+                            Action::SendProbe { from, to, check_id, .. } => out(from, to, probe(KIND_PROBE, *me, check_id), &mut send),
+                            Action::OpenSockets { count } => asks.push(SocketAsk::Open { owner: GUEST_SOCKETS, count }),
+                            // After `Selected`: a kept socket is the way to the host chosen.
+                            Action::CloseSockets { keep } => {
+                                let keep = keep.zip(chosen).map(|(l, r): (SocketAddr, SocketAddr)| (l.port(), r));
+                                if let Some((port, _)) = keep {
+                                    self.events.push(OnlineEvent::Note(format!("birthday punch: the path goes from the extra socket on port {port}")));
+                                }
+                                asks.push(SocketAsk::Close { owner: GUEST_SOCKETS, keep });
+                            }
                             Action::Selected { remote, .. } => {
+                                chosen = Some(remote);
                                 let hosted_path = crate::transport::is_hosted_standin(remote);
                                 // The service passes any word of up to 16 characters on to the host; only "direct" and
                                 // "lan" make a guest a helper [documented: docs/design/coop-signal-wire.md].
@@ -764,7 +847,7 @@ impl Online {
                         done.push((helper, Some(now.saturating_duration_since(*since))));
                     }
                     Action::Failed => done.push((helper, None)),
-                    Action::Keepalive { .. } | Action::PathLost => {}
+                    Action::Keepalive { .. } | Action::PathLost | Action::OpenSockets { .. } | Action::CloseSockets { .. } => {}
                 }
             }
         }
@@ -786,7 +869,7 @@ impl Online {
                         self.events.push(OnlineEvent::Note(format!("asking guest {helper} to relay")));
                     }
                     relay::Action::TryReach { helper } => {
-                        let mut a = Agent::new(Role::Guest, &self.locals, Config::default());
+                        let mut a = Agent::new(Role::Guest, &self.locals, Config { birthday_sockets: 0, ..Config::default() });
                         for c in r.offered.get(&helper).into_iter().flatten() {
                             a.add_remote(*c);
                         }
@@ -925,8 +1008,10 @@ impl Online {
     pub fn session_made(&mut self, key: &[u8; 32]) {
         match &mut self.side {
             Side::Host { peers, .. } => {
-                for p in peers.values_mut().filter(|p| p.key == *key) {
-                    p.agent = None;
+                for (&peer, p) in peers.iter_mut().filter(|(_, p)| p.key == *key) {
+                    if p.agent.take().is_some_and(|a| !a.extra_sockets().is_empty()) {
+                        self.socket_asks.push(SocketAsk::Close { owner: peer, keep: None });
+                    }
                 }
             }
             Side::Guest { host_key: Some(k), .. } if k == key => {
@@ -948,8 +1033,9 @@ impl Online {
         }
     }
 
-    /// A probe or an answer from `from`: the answer to send back, if any.
-    pub fn on_probe(&mut self, bytes: &[u8], from: SocketAddr, now: Instant) -> Option<(SocketAddr, Vec<u8>)> {
+    /// A probe or an answer from `from`, that came in on the birthday punch's socket on port
+    /// `via` (None: the game's own): the answer to send back (from that same socket), if any.
+    pub fn on_probe(&mut self, bytes: &[u8], from: SocketAddr, via: Option<u16>, now: Instant) -> Option<(SocketAddr, Vec<u8>)> {
         let (kind, peer, check_id) = parse_probe(bytes)?;
         if matches!(kind, KIND_RELAY_PROBE | KIND_RELAY_ANSWER) {
             return self.on_relay_probe(kind, peer, check_id, from, now);
@@ -959,7 +1045,10 @@ impl Online {
         if no_direct() && !crate::transport::is_hosted_standin(from) {
             return None;
         }
-        let local = self.local_for(from);
+        let local = match via {
+            Some(port) => SocketAddr::new(self.local_for(from).ip(), port),
+            None => self.local_for(from),
+        };
         let agent = match &mut self.side {
             Side::Host { peers, .. } => peers.get_mut(&peer).and_then(|p| p.agent.as_mut()),
             Side::Guest { me: Some(me), agent, .. } if *me == peer => agent.as_deref_mut(),
@@ -1147,7 +1236,7 @@ mod tests {
     #[test]
     fn a_probe_for_no_check_is_not_answered() {
         let mut o = Online::new("http://127.0.0.1:1", None, Side::Host { client: None, peers: HashMap::new(), asking: HashMap::new(), secret: None, code: None }, vec!["192.168.1.2:47960".parse().unwrap()]);
-        assert_eq!(o.on_probe(&probe(KIND_PROBE, 3, 9), "203.0.113.9:5000".parse().unwrap(), Instant::now()), None);
+        assert_eq!(o.on_probe(&probe(KIND_PROBE, 3, 9), "203.0.113.9:5000".parse().unwrap(), None, Instant::now()), None);
     }
 
     fn guest_at(me: PeerNo, at: &str, connected: bool) -> Online {
@@ -1219,14 +1308,14 @@ mod tests {
             let (to_a, to_c) = (c.tick(now, &[3; 32]), a.tick(now, &[2; 32]));
             for (to, b) in to_a.into_iter().filter(|(to, _)| *to == a_at) {
                 let _ = to;
-                if let Some((back, ans)) = a.on_probe(&b, c_at, now) {
+                if let Some((back, ans)) = a.on_probe(&b, c_at, None, now) {
                     assert_eq!(back, c_at);
-                    c.on_probe(&ans, a_at, now);
+                    c.on_probe(&ans, a_at, None, now);
                 }
             }
             for (_, b) in to_c.into_iter().filter(|(to, _)| *to == c_at) {
-                if let Some((_, ans)) = c.on_probe(&b, a_at, now) {
-                    a.on_probe(&ans, c_at, now);
+                if let Some((_, ans)) = c.on_probe(&b, a_at, None, now) {
+                    a.on_probe(&ans, c_at, None, now);
                 }
             }
             a_ev.extend(a.take_events());
@@ -1267,9 +1356,9 @@ mod tests {
         let sent = o.tick(now, &[0; 32]);
         assert!(sent.iter().any(|(to, b)| to.to_string() == "192.168.1.3:50000" && parse_probe(b).is_some_and(|(k, p, _)| k == KIND_PROBE && p == 1)), "{sent:?}");
         let from: SocketAddr = "192.168.1.3:50000".parse().unwrap();
-        let answer = o.on_probe(&probe(KIND_PROBE, 1, 42), from, now);
+        let answer = o.on_probe(&probe(KIND_PROBE, 1, 42), from, None, now);
         assert_eq!(answer, Some((from, probe(KIND_ANSWER, 1, 42))));
         o.session_made(&unhex32(&key).unwrap());
-        assert_eq!(o.on_probe(&probe(KIND_PROBE, 1, 43), from, now), None, "checks over once the guest's session is made");
+        assert_eq!(o.on_probe(&probe(KIND_PROBE, 1, 43), from, None, now), None, "checks over once the guest's session is made");
     }
 }

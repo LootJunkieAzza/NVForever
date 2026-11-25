@@ -391,6 +391,8 @@ impl Plugin for CoopPlugin {
             join_password: String::new(),
             browse_job: None,
             report_job: None,
+            report_code: String::new(),
+            report_note: None,
             browse: Default::default(),
             favourites: browse::load_favourites(),
             place: String::new(),
@@ -657,8 +659,11 @@ pub(crate) struct Coop {
     host_options: nvf_play::lobby::HostOptions,
     join_password: String,
     browse_job: Option<browse::BrowseJob>,
-    /// A report of a public lobby, on its way to the service.
+    /// A report of a public lobby, on its way to the service: its code, and how the last one
+    /// went (said under the lobby's row).
     report_job: Option<browse::ReportJob>,
+    report_code: String,
+    report_note: Option<(String, String)>,
     browse: nvf_play::lobby::Browse,
     favourites: Vec<String>,
     place: String,
@@ -1209,7 +1214,10 @@ fn lobby(
                 None => coop.browse = nvf_play::lobby::Browse::Failed("The lobby browser needs the matchmaking service: Co-op connection is LAN only, or the service is turned off.".into()),
             },
             LobbyRequest::Report { code } => match browse::report(code) {
-                Some(job) => coop.report_job = Some(job),
+                Some(job) => {
+                    coop.report_job = Some(job);
+                    coop.report_code = code.clone();
+                }
                 None => say("The report needs the matchmaking service.".into()),
             },
             LobbyRequest::Favourite { host_fp, on } => {
@@ -1340,10 +1348,12 @@ fn lobby(
     // A report's answer.
     if let Some(r) = coop.report_job.as_ref().and_then(browse::report_done) {
         coop.report_job = None;
-        say(match r {
-            Ok(()) => "Lobby reported. Thank you.".into(),
+        let said = match r {
+            Ok(()) => "Lobby reported. Thank you.".to_string(),
             Err(why) => format!("The report did not go through: {why}"),
-        });
+        };
+        coop.report_note = Some((coop.report_code.clone(), said.clone()));
+        say(said);
     }
     // The host's listing follows its place and friendly fire (the service sends at most one
     // a few seconds to the list).
@@ -1393,7 +1403,7 @@ fn lobby(
     // The host's guests for Kick and Ban, each with its line of the player list (its path
     // and ping): the list's lines after the host's own, in the same order (`coop.peers`).
     let guests: Vec<(u8, String)> = if coop.is_host() { coop.peers.keys().copied().zip(players.iter().skip(1).cloned()).collect() } else { Vec::new() };
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone(), guests, public: coop.host_options.public, locked: !coop.host_options.password.is_empty(), browse: coop.browse.clone(), awaiting_host: coop.awaiting_host && coop.joining == Joining::Finding });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone(), guests, public: coop.host_options.public, locked: !coop.host_options.password.is_empty(), browse: coop.browse.clone(), awaiting_host: coop.awaiting_host && coop.joining == Joining::Finding, report_note: coop.report_note.clone() });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
         None => "NVForever".to_string(),

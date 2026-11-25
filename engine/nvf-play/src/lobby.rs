@@ -111,7 +111,8 @@ impl Sort {
 /// the lock fixed, Name and Location sharing the rest (a title runs to 40 characters, a place
 /// to 32).
 fn column_widths(inner: f32) -> [f32; 7] {
-    let fixed = [62.0, 104.0, 96.0, 110.0, 52.0];
+    // Players fits its heading with the sort's marker ("Players ^").
+    let fixed = [62.0, 150.0, 92.0, 100.0, 52.0];
     let rest = (inner - fixed.iter().sum::<f32>()).max(300.0);
     [fixed[0], rest * 0.56, rest * 0.44, fixed[1], fixed[2], fixed[3], fixed[4]]
 }
@@ -282,6 +283,8 @@ pub struct LobbyState {
     pub browse: Browse,
     /// A guest waits for the host to let it in (join approval).
     pub awaiting_host: bool,
+    /// How the last report went: the lobby's code, and what to say under its row.
+    pub report_note: Option<(String, String)>,
 }
 
 /// A save on the guest's list.
@@ -1274,7 +1277,7 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
                     }
                     bar.push(Item::Gap);
                     if screen.confirm_report {
-                        bar.push(Item::Text("Report this lobby to the service?".into(), 0.0, Shade::Bright));
+                        bar.push(Item::Text("Report this lobby?".into(), 0.0, Shade::Bright));
                         bar.push(Item::Button(Act::ReportYes, "Report".into(), Look::Warning));
                         bar.push(Item::Button(Act::ReportNo, "Cancel".into(), Look::Normal));
                     } else {
@@ -1288,9 +1291,13 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
                     }
                     v.push(Bar(bar));
                     used += BAR_H;
-                    // A join from this row that failed (a wrong password): said here.
+                    // A join from this row that failed (a wrong password), or how its report
+                    // went: said here.
                     if let Joining::Failed(why) = &state.joining {
                         v.push(Note(why.clone(), Shade::Bright));
+                        used += line_h(1);
+                    } else if let Some((_, said)) = state.report_note.as_ref().filter(|(c, _)| *c == l.code) {
+                        v.push(Note(said.clone(), Shade::Bright));
                         used += line_h(1);
                     }
                 }
@@ -1939,6 +1946,9 @@ mod tests {
         go(&mut screen, Act::Report);
         go(&mut screen, Act::ReportYes);
         assert_eq!(asks, [LobbyRequest::Report { code: "MID".into() }], "sent once");
+        // How it went is said under the row.
+        let told = LobbyState { report_note: Some(("MID".into(), "Lobby reported. Thank you.".into())), ..state.clone() };
+        assert!(pieces(&screen, &told).contains(&Piece::Note("Lobby reported. Thank you.".into(), Shade::Bright)));
         assert!(!bar_has(&pieces(&screen, &state), Act::Report));
         assert!(bar_has(&pieces(&screen, &state), Act::JoinRow));
     }
