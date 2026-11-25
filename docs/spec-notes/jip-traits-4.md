@@ -239,3 +239,7 @@ not decode yet.
 The detection state 3 (needs a fight), GetEditorPosition (does not compile at run time,
 §10), and GetIsPoisoned on a poisoned actor. The quest flag 5 rule and flag 7 are read
 from five quests only.
+
+## Wave 6D-8 Live Observation (2026-11-25)
+
+- **`GetPCDetectionState` & `GetActorLightAmount` indoor baseline** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8_43_force_detection_value_and_pc_detection_state`: `PROBE|w6d8_43_force_detection_value_and_pc_detection_state|pc0=0 pc1=0 lt=100.0 v0=-42 v1=-42 d1=0 v2=-42 d2=0 l2=0 v3=-42 v4=-42`]: in `GSDocMitchellHouse` with no hostile detector, `GetPCDetectionState` returned `0` (`pc0=0 pc1=0`) and `Player.GetActorLightAmount` returned `100.0` (`lt=100.0`).

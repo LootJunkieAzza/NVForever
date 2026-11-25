@@ -515,3 +515,7 @@ broader questions).
     factions have mixed reactions (also scripts.md §10).
 11. **Idle collections**: idle timer and pick order on one idle marker (Random against
     Run in Sequence), with the observer's idle readings.
+
+## Wave 6D-8 Live Observation (2026-11-25)
+
+- **`CreateDetectionEvent` single-tick baseline** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8_44_detection_event_and_weapon_sound_level`: `PROBE|w6d8_44_detection_event_and_weapon_sound_level|v0=-100 v1=-100 v2=-100 l2=0 s0=1 s2=2 s99=2 sNeg=2 sRest=1`]: invoking `CreateDetectionEvent` on a distant undetected actor left `GetDetectionValue == -100` and `GetDetectionLevel == 0` within the same tick (`v0=-100 v1=-100 v2=-100 l2=0`).

@@ -215,7 +215,3 @@ wiki pages cited in §3, not from JIP's source code, and nothing of JIP ships.
     runs went without the plugins. The owner's decision later the same day (§2) keeps the
     plugins installed for every run instead; the differences above are recorded as the
     plugins' known effects (§4).
-
-## Wave 6D-8 Live Observation (2026-11-25)
-
-- **`GetNumActorsInRangeFromRef` bitmask flags `0/1/2/4`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8p2_23_num_combat_and_range_active`: `PROBE|w6d8p2_23_num_combat_and_range_active|inC=1 r0=4 r1=3 r2=4 r4=1 c0=0 c1=0 c2=0 c4=0`]: inside `GSDocMitchellHouse` with 4 actors in range (including Doc Mitchell, the player, and 1 active combatant), flags `0` (all), `1` (exclude player), `2` (include dead), and `4` (in-combat only) returned `r0=4 r1=3 r2=4 r4=1`.

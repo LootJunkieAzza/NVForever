@@ -103,3 +103,7 @@ jip8]. NVForever gives the record's 0 [decision: no record value to give].
   on-hit setting, delays and sound level as loaded; the idle player its loop counts;
   dismemberment its limb models; the level calculation ACBS as loaded; drinking-water
   radiation (`radiation::water_rads`) the record's effect.
+
+## Wave 6D-8 Live Observation (2026-11-25)
+
+- **`GetWeaponDetectionSoundLevel` / `SetWeaponDetectionSoundLevel` range clamping** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8_44_detection_event_and_weapon_sound_level`: `PROBE|w6d8_44_detection_event_and_weapon_sound_level|v0=-100 v1=-100 v2=-100 l2=0 s0=1 s2=2 s99=2 sNeg=2 sRest=1`]: `SetWeaponDetectionSoundLevel` updates valid sound levels (`1 -> 2 -> 1`) and ignores out-of-range values (`99`, `-1`), retaining `2` (`s0=1 s2=2 s99=2 sNeg=2 sRest=1`).
