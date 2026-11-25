@@ -362,7 +362,8 @@ fn weathers_and_climates() {
     assert_eq!(n(&mut g, "ClimateAddWeatherType TestClimate TestWeather2 30 TestGlobal"), 1.0);
     assert_eq!(n(&mut g, "ClimateAddWeatherType TestClimate TestWeather 45"), 1.0);
     assert_eq!(n(&mut g, "GetClimateNumWeatherTypes TestClimate"), 2.0);
-    assert_eq!((n(&mut g, "GetClimateNthWeatherChance TestClimate 0"), n(&mut g, "GetClimateNthWeatherGlobal TestClimate 1")), (45.0, f64::from(GLOB)));
+    // ClimateAddWeatherType prepends new entries at index 0 [observed: w6d10_17].
+    assert_eq!((n(&mut g, "GetClimateNthWeatherGlobal TestClimate 0"), n(&mut g, "GetClimateNthWeatherChance TestClimate 1")), (f64::from(GLOB), 45.0));
     assert_eq!(n(&mut g, "ClimateRemoveWeatherType TestClimate TestWeather"), 1.0);
     assert_eq!(n(&mut g, "ClimateRemoveWeatherType TestClimate TestWeather"), 0.0);
     assert_eq!((n(&mut g, "GetClimateNumWeatherTypes TestClimate"), n(&mut g, "GetClimateNthWeatherType TestClimate 0")), (1.0, f64::from(WTHR2)));

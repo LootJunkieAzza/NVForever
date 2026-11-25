@@ -1438,9 +1438,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let Some(chance) = fit(num(args, 2, f64::NAN), (0.0, 100.0)) else { return Some(Ok(zero)) };
             let entry = ClimateWeather { weather: w, chance: chance as i64, global: of_sig(g, form(args, 3), b"GLOB") };
             let mut list = g.climate_weathers(c);
+            // New weather entries are prepended at index 0 [observed: Fallout: New Vegas
+            // 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+            // `w6d10_17_climate_nth_weather_global_and_textures`:
+            // `add(1,n=3,hdW=1,hdC=42,hdG=1,tlW=0,rem=1,n2=2)`].
             match list.iter_mut().find(|e| e.weather == w) {
                 Some(e) => *e = entry,
-                None => list.push(entry),
+                None => list.insert(0, entry),
             }
             g.other.jip7.climate_weathers.insert(c, list);
             yes(true)
@@ -1549,3 +1553,7 @@ fn impact_colour(g: &Game, i: FormId) -> f64 {
 #[cfg(test)]
 #[path = "nvse_jip7_launch_probe_tests.rs"]
 mod launch_probe_tests;
+
+#[cfg(test)]
+#[path = "w6d10_climate_add_tests.rs"]
+mod w6d10_climate_add_tests;

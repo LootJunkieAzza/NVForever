@@ -72,7 +72,7 @@ table; the bits: xEdit IPCT and the decal data].
 | Get/SetWeatherPrecipitationModel `weather [path]` | MODL |
 | Get/SetWeatherTexture `weather layer [path]` | the cloud layers 0-3: DNAM, CNAM, ANAM, BNAM [documented: layers 0-3; the fields: xEdit WTHR] |
 | SetWeatherTransitionTimeOverride `[seconds]` | kept (`Game::weather_transition_override`); none or 0 removes it [documented] |
-| ClimateAddWeatherType `climate weather chance [global]` | adds to WLST, or sets the chance and global of a weather already there [documented]; 1 [documented: `successful`] |
+| ClimateAddWeatherType `climate weather chance [global]` | prepends new entries at index `0` of WLST (or updates the chance and global of a weather already there) [documented; observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_17_climate_nth_weather_global_and_textures` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_17_climate_nth_weather_global_and_textures|n(2,emp=0)|w0(000FFC88,c=100,gZ=1)|oob(1,1)|add(1,n=3,hdW=1,hdC=42,hdG=1,tlW=0,rem=1,n2=2)|tex(sun=11->[Sky\w6d10_sun.dds],glr=19->[Sky\w6d10_glare.dds],sky=13->[Sky\w6d10_stars.nif])`; zero DLL, PDB, or third-party source consulted]; 1 [documented: `successful`] |
 | ClimateRemoveWeatherType `climate weather` | 1 when it was there, 0 otherwise [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_18_climate_remove_missing_weather (ClimateRemoveWeatherType): 0; no DLL or source consulted] |
 
 The sky still reads the climates' weathers and the weathers' textures as loaded, and its
