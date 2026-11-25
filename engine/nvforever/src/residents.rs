@@ -1877,15 +1877,18 @@ impl Core {
                     if let Some(c) = refs.teleport_cell(tp) {
                         match refs.world_of(c) {
                             None if key != CellKey::Interior(c.0) => behind_doors.push(c),
-                            // A load door into another worldspace (exterior -> other worldspace,
-                            // or any cell -> child worldspace with a parent): hand over that
-                            // worldspace's persistent actors so e.g. TTW's Birch in Oasis can
-                            // walk out to the gate [design, #3052].
+                            // A load door into a child worldspace (one with a parent, e.g.
+                            // Oasis behind WastelandDoorToOasis, Freeside, the Strip): hand
+                            // over that child worldspace's persistent actors so e.g. TTW's
+                            // Birch in Oasis can walk out to the gate [design, #3052]. Root
+                            // worldspaces (`parent.is_none()`, e.g. WastelandNV / Wasteland)
+                            // are excluded for both interior and exterior doors so standing
+                            // near an exit gate never dumps the whole wasteland's persistent
+                            // cell into AI at once.
                             Some(dest_world)
                                 if !behind_worlds.contains(&dest_world)
-                                    && ((matches!(key, CellKey::Exterior(_)) && dest_world.0 != world.world)
-                                        || ((matches!(key, CellKey::Interior(_)) || dest_world.0 != world.world)
-                                            && world.index.worldspaces.get(&dest_world.0).is_some_and(|ws| ws.parent.is_some()))) =>
+                                    && (matches!(key, CellKey::Interior(_)) || dest_world.0 != world.world)
+                                    && world.index.worldspaces.get(&dest_world.0).is_some_and(|ws| ws.parent.is_some()) =>
                             {
                                 behind_worlds.push(dest_world);
                             }
@@ -4850,6 +4853,85 @@ mod tests {
 
         assert!(residents.core.known.contains(&birch.0), "persistent actor in Oasis handed over");
         assert!(!residents.core.known.contains(&temp_actor.0), "non-persistent actor not pulled from persistent cell");
+    }
+
+    /// #3052: an exterior load door from a child worldspace (e.g. Oasis) back to a root
+    /// worldspace (`parent: None`, e.g. Wasteland / WastelandNV) must neither dump distant
+    /// root-worldspace persistent actors into AI nor mark the whole root worldspace buffered
+    /// in `CellBuffer`.
+    #[test]
+    fn take_cells_does_not_dump_root_worldspace_persistent_actors_from_child_exit_door() {
+        use super::{Clock, Residents};
+        use crate::outfits::tests::{empty_world_data, OTHER};
+        use crate::world::Streamer;
+        use bevy::prelude::{default, Entity};
+        use fnv_nav::Space;
+        use fnv_sim::refs::Teleport;
+        use fnv_world::{Cell, WorldIndex, Worldspace};
+
+        let (w_main, w_oasis) = (0x10u32, 0x20u32);
+        let (c_main_ext, c_main_pers, c_oasis_ext) = (0x100u32, 0x101u32, 0x200u32);
+        let (d_gate, d_oasis, distant_wastelander) = (FormId(0x1000), FormId(0x2000), FormId(0x3000));
+
+        let mut ix = WorldIndex::default();
+        ix.worldspaces.insert(
+            w_main,
+            Worldspace {
+                form_id: w_main,
+                edid: Some("Wasteland".into()),
+                parent: None,
+                persistent_cell: Some(c_main_pers),
+                grid: [((0, 0), c_main_ext)].into(),
+                ..default()
+            },
+        );
+        ix.worldspaces.insert(
+            w_oasis,
+            Worldspace {
+                form_id: w_oasis,
+                edid: Some("Oasis".into()),
+                parent: Some(w_main),
+                grid: [((0, 0), c_oasis_ext)].into(),
+                ..default()
+            },
+        );
+        ix.cells.insert(c_main_ext, Cell { form_id: c_main_ext, world: Some(w_main), grid: Some((0, 0)), refs: vec![d_gate.0], ..default() });
+        ix.cells.insert(c_main_pers, Cell { form_id: c_main_pers, world: Some(w_main), refs: vec![distant_wastelander.0], ..default() });
+        ix.cells.insert(c_oasis_ext, Cell { form_id: c_oasis_ext, world: Some(w_oasis), grid: Some((0, 0)), refs: vec![d_oasis.0], ..default() });
+
+        let mut world = empty_world_data();
+        world.index = Box::leak(Box::new(ix));
+        world.world = w_oasis;
+
+        let mut refs = fnv_sim::RefTable::default();
+        refs.world_parents.insert(FormId(w_oasis), FormId(w_main));
+        refs.cell_world.insert(FormId(c_main_ext), FormId(w_main));
+        refs.cell_world.insert(FormId(c_main_pers), FormId(w_main));
+        refs.cell_world.insert(FormId(c_oasis_ext), FormId(w_oasis));
+        refs.world_grid.entry(FormId(w_main)).or_default().insert((0, 0), FormId(c_main_ext));
+        refs.world_grid.entry(FormId(w_oasis)).or_default().insert((0, 0), FormId(c_oasis_ext));
+        refs.world_persistent.insert(FormId(w_main), FormId(c_main_pers));
+        refs.refs.insert(d_gate, placed_ref(d_gate, *b"REFR", FormId(0x50), FormId(c_main_ext), true, Some(Teleport { door: d_oasis, pos: [100.0, 100.0, 0.0], rot: [0.0; 3], no_alarm: false })));
+        refs.refs.insert(d_oasis, placed_ref(d_oasis, *b"REFR", FormId(0x50), FormId(c_oasis_ext), true, Some(Teleport { door: d_gate, pos: [100.0, 100.0, 0.0], rot: [0.0; 3], no_alarm: false })));
+        refs.refs.insert(distant_wastelander, placed_ref(distant_wastelander, *b"ACHR", OTHER, FormId(c_main_ext), true, None));
+        refs.by_cell.entry(FormId(c_oasis_ext)).or_default().push(d_oasis);
+
+        let mut streamer = Streamer {
+            radius: 2, loaded: default(), fades: default(), fade_secs: 0.0,
+            settled: true, arrival: None, per_frame: 1, spawning: default(), dying: default(),
+            ahead: default(), hide: default(), interior: None, light_scale: 1.0, managed: default(),
+            manage_actors: false, stats: default(), buffer: default(), centre: None,
+            waiting: default(), model_overrides: default(), travels: 0,
+        };
+        streamer.loaded.insert((0, 0), Entity::PLACEHOLDER);
+        streamer.buffer.note_doors(&refs, world.world, std::iter::once((0, 0)));
+
+        let mut residents = Residents::build(&empty_world_data(), &[], Clock { hour: 12.0, days_passed: 1.0, rate: 0.0 }, 100.0, true).unwrap();
+        residents.core.take_cells(&world, &streamer, &refs);
+
+        assert!(!residents.core.known.contains(&distant_wastelander.0), "exit door to root worldspace must not dump distant wasteland persistent actors");
+        assert!(!streamer.buffer.holds(Space::World(w_main), [100.0, 100.0, 0.0]), "exit door to root worldspace must not pin root worldspace buffered");
+        assert!(!streamer.buffer.holds(Space::World(w_main), [40960.0, 40960.0, 0.0]), "distant root worldspace cell must remain unbuffered");
     }
 
     /// #3052: a persistent actor placed in a never-loaded interior (such as TTW's Shorty in

@@ -49,8 +49,8 @@ pub struct CellBuffer {
     interior: HashMap<u32, u64>,
     frame: u64,
     /// Interiors behind the load doors of the exterior cells drawn so far (Mid-Low),
-    /// other worldspaces behind those load doors ([design, #3052]), and the exterior
-    /// cells whose doors were looked at.
+    /// child worldspaces (`world_parents`) behind those load doors ([design, #3052]),
+    /// and the exterior cells whose doors were looked at.
     behind_doors: HashSet<u32>,
     behind_worlds: HashSet<u32>,
     doors_seen: HashSet<(u32, (i32, i32))>,
@@ -98,8 +98,8 @@ impl CellBuffer {
         }
     }
 
-    /// Note the interiors the load doors of the drawn exterior cells of `world` lead to
-    /// (each cell looked at once).
+    /// Note the interiors and child worldspaces the load doors of the drawn exterior cells
+    /// of `world` lead to (each cell looked at once).
     pub fn note_doors(&mut self, refs: &RefTable, world: u32, exterior: impl Iterator<Item = (i32, i32)>) {
         let Some(grid) = refs.world_grid.get(&FormId(world)) else { return };
         for c in exterior {
@@ -115,10 +115,13 @@ impl CellBuffer {
                     None => {
                         self.behind_doors.insert(to.0);
                     }
-                    // Another worldspace behind a load door of a loaded exterior cell
-                    // (e.g. Oasis behind WastelandDoorToOasis) counts as buffered at
-                    // Mid-Low, as interiors behind doors do [design, #3052].
-                    Some(dest_world) if dest_world.0 != world => {
+                    // A child worldspace (`refs.world_parents` has a parent, e.g. Oasis
+                    // behind WastelandDoorToOasis) behind a load door of a loaded exterior
+                    // cell counts as buffered at Mid-Low, as interiors behind doors do
+                    // [design, #3052]. Root worldspaces (such as WastelandNV / Wasteland)
+                    // are excluded so an exit door from a child worldspace never pins the
+                    // whole wasteland buffered and defeats `EXTERIOR_CELLS`.
+                    Some(dest_world) if dest_world.0 != world && refs.world_parents.contains_key(&dest_world) => {
                         self.behind_worlds.insert(dest_world.0);
                     }
                     Some(_) => {}
@@ -127,7 +130,7 @@ impl CellBuffer {
         }
     }
 
-    /// Whether the cell at `feet` in `space` is in the buffer (or an interior / other
+    /// Whether the cell at `feet` in `space` is in the buffer (or an interior / child
     /// worldspace behind the doors of the cells drawn so far, module notes).
     pub fn holds(&self, space: Space, feet: [f32; 3]) -> bool {
         if self.carried.lock().is_ok_and(|c| c.contains(&key(space, feet))) {
@@ -268,9 +271,11 @@ mod tests {
         assert!((102..=104).all(|i| b.holds(Space::Interior(i), [0.0; 3])));
     }
 
-    /// #3052: a load door from a drawn exterior cell into another worldspace marks that
-    /// worldspace buffered (Mid-Low, as interiors behind doors are) without adding cells
-    /// to `cells()` (`GetBufferedCells`).
+    /// #3052: a load door from a drawn exterior cell into a child worldspace (one with a
+    /// parent worldspace) marks that child worldspace buffered (Mid-Low, as interiors behind
+    /// doors are) without adding cells to `cells()` (`GetBufferedCells`). An exit door from
+    /// that child worldspace back to a root worldspace (no parent) must NOT mark the root
+    /// worldspace buffered, preserving `EXTERIOR_CELLS` eviction.
     #[test]
     fn a_worldspace_behind_a_load_door_counts_as_buffered() {
         use fnv_sim::refs::{PlacedRef, Teleport};
@@ -278,6 +283,7 @@ mod tests {
         let (w_main, w_oasis) = (FormId(0x10), FormId(0x20));
         let (c_main, c_oasis) = (FormId(0x100), FormId(0x200));
         let (d_main, d_oasis) = (FormId(0x1000), FormId(0x2000));
+        refs.world_parents.insert(w_oasis, w_main);
         refs.cell_world.insert(c_main, w_main);
         refs.cell_world.insert(c_oasis, w_oasis);
         refs.world_grid.entry(w_main).or_default().insert((0, 0), c_main);
@@ -330,5 +336,16 @@ mod tests {
         assert!(b.holds(Space::World(w_oasis.0), [100.0, 100.0, 0.0]));
         assert!(!b.holds(Space::World(w_main.0), [100.0, 100.0, 0.0]));
         assert_eq!(b.len(), (0, 0), "GetBufferedCells stays unchanged");
+
+        // Looking at the exit door from child worldspace `w_oasis` back to root worldspace
+        // `w_main` must NOT pin `w_main` in `behind_worlds`.
+        b.note_doors(&refs, w_oasis.0, std::iter::once((0, 0)));
+        assert!(!b.holds(Space::World(w_main.0), [100.0, 100.0, 0.0]), "root worldspace gate cell not pinned by behind_worlds");
+        assert!(!b.holds(Space::World(w_main.0), feet((10, 10))), "distant root worldspace cell not buffered");
+        // Exterior LRU eviction (`EXTERIOR_CELLS = 36`) still applies to `w_main`.
+        for y in 0..=4 {
+            b.remember(w_main.0, None, grid(0, y));
+        }
+        assert!(!b.holds(Space::World(w_main.0), feet((0, -2))), "evicted root worldspace cell stays unbuffered");
     }
 }

@@ -1016,11 +1016,15 @@ in `crates/fnv-ai/tests/carry.rs` ("process levels") and `cell_buffer.rs`.
 
 - **Persistent actors behind worldspace doors and targeting loaded cells (#3052)**
   [design, #3052]:
-  - Load doors from loaded cells into another worldspace (exterior -> another worldspace,
-    or any cell -> a child worldspace with a parent) hand over the destination worldspace's
-    persistent actors to the AI (`Core::take_cells`), and the destination worldspace counts
-    as buffered at Mid-Low in `CellBuffer::note_doors` (as interiors behind doors do), so
-    an actor like TTW's Birch in Oasis can walk out through the gate to greet the player.
+  - Load doors from loaded cells into a child worldspace (one with a parent worldspace,
+    such as Oasis behind `WastelandDoorToOasis`, Freeside, or the Strip) hand over that
+    child worldspace's persistent actors to the AI (`Core::take_cells`), and the child
+    worldspace counts as buffered at Mid-Low in `CellBuffer::note_doors` (as interiors
+    behind doors do), so an actor like TTW's Birch in Oasis can walk out through the gate
+    to greet the player. Root worldspaces (`parent == None`, such as `WastelandNV` or
+    `Wasteland`) are excluded in both places so exit doors from child worldspaces never
+    dump the entire wasteland's persistent cell into AI or pin the whole wasteland
+    buffered against `EXTERIOR_CELLS`.
   - Persistent actors placed anywhere in the load order (including never-loaded interiors
     not adjacent by a door, such as TTW's Shorty in `BigTownCommonHouse1` targeting
     `GermPoliceHQ02`) without `No Low Level Processing` are indexed once by the cells their
