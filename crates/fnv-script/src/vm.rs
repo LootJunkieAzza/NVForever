@@ -1301,6 +1301,7 @@ fn parse_text_number(s: &str) -> Option<f64> {
         return parse_hex_prefix(h);
     }
     // The number the text starts with: "12abc" is 12 [observed: probe strings/04].
+    // Rejecting non-finite floats ("NaN"/"inf") is [design].
     let mut end = t.len();
     while end > 0 {
         if let Ok(v) = t[..end].parse::<f64>() {
@@ -3317,7 +3318,9 @@ impl Vm<'_, '_> {
                 }))
             }
             // With the hexadecimal flag the text is read as hex [documented: ToNumber;
-            // observed: "1F" gives 31].
+            // observed: "1F" gives 31; reportError=1 on decimal bad/empty observed in
+            // w6d5_06_tonumber_hash_report_error; hex=1 with reportError=1 and
+            // partial-prefix strings under reportError=1 are [hypothesis]].
             "tonumber" => {
                 let hex = c.args.get(1).map(|a| self.xeval(a)).transpose()?.is_some_and(|v| v.truthy());
                 let report_error = c.args.get(2).map(|a| self.xeval(a)).transpose()?.is_some_and(|v| v.truthy());
