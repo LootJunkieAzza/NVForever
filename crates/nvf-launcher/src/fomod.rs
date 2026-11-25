@@ -1465,6 +1465,8 @@ fn extract_tar(src: &Path, dest: &Path, gzip: bool, limit: u64) -> Result<(), Re
 /// entries are unpacked: a tar entry is exactly as long as its header says.
 fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl Fn(&dyn std::fmt::Display) -> String) -> Result<(), ReadFail> {
     let mut archive = tar::Archive::new(reader);
+    // No mode in the archive makes a file or folder writable by other users.
+    archive.set_mask(0o022);
     let mut read_one = false;
     let mut total: u64 = 0;
     let fail = |read_one: bool, e: String| if read_one { ReadFail::Refused(e) } else { ReadFail::Unreadable(e) };
@@ -1618,10 +1620,25 @@ fn unwrap_nested(dir: &Path, limit: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// A new folder for one install, in the system's temporary folder. It must not exist yet, and
+/// on Unix only this account can open it, so no other user can swap a folder in it for a link
+/// while an archive is unpacked there. (Windows gives each account its own temporary folder.)
 fn make_temp() -> Result<PathBuf, String> {
+    // The count keeps two installs started in the same clock tick apart.
+    static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("nvforever-import-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let dir = std::env::temp_dir().join(format!("nvforever-import-{}-{n}-{k}", std::process::id()));
+    #[cfg(unix)]
+    let builder = {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut b = std::fs::DirBuilder::new();
+        b.mode(0o700);
+        b
+    };
+    #[cfg(not(unix))]
+    let builder = std::fs::DirBuilder::new();
+    builder.create(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     Ok(dir)
 }
 
@@ -2581,6 +2598,54 @@ mod tests {
         gz.finish().unwrap();
         let e = stage_error(&bomb);
         assert!(e.ends_with(&too_big()), "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_archive_unpacks_into_a_private_folder_and_no_entry_is_left_open_to_others() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = std::env::temp_dir().join(format!("nvf-fomod-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        // A folder and a file whose modes in the archive let anyone write to them.
+        let mut tar_bytes = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut tar_bytes);
+            let mut dir = tar::Header::new_gnu();
+            dir.set_path("Mod/textures/").unwrap();
+            dir.set_size(0);
+            dir.set_mode(0o777);
+            dir.set_entry_type(tar::EntryType::Directory);
+            dir.set_cksum();
+            b.append(&dir, &[][..]).unwrap();
+            let mut file = tar::Header::new_gnu();
+            file.set_path("Mod/textures/a.dds").unwrap();
+            file.set_size(4);
+            file.set_mode(0o666);
+            file.set_entry_type(tar::EntryType::Regular);
+            file.set_cksum();
+            b.append(&file, &b"DDS "[..]).unwrap();
+            b.finish().unwrap();
+        }
+        let archive = t.join("Open.tar");
+        std::fs::write(&archive, &tar_bytes).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Tree { temp, .. } = stage(&archive, facts).unwrap() else { panic!("one folder of textures is not a choice") };
+        let root = temp.clone().unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&root), 0o700, "the install folder is this account's only");
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                let p = entry.path();
+                assert_eq!(mode(&p) & 0o002, 0, "{} is writable by anyone", p.display());
+                if p.is_dir() {
+                    stack.push(p);
+                }
+            }
+        }
+        discard(&temp);
         let _ = std::fs::remove_dir_all(&t);
     }
 }

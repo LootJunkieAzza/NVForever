@@ -36,6 +36,9 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
 - The launcher's own readers refuse an archive whose entries add up to more than 100 times the
   archive's size; an archive inside it counts against the same limit. The outside programs are
   not limited this way [design; `unpack_limit`].
+- An archive is unpacked into a new folder of the system's temporary folder, made for that one
+  install. On Linux and macOS only the player's account can open it, and no mode stored in a
+  tar makes a file or folder there writable by other users [design; `make_temp`, `unpack_tar`].
 - The installer sits in a `fomod` folder holding `ModuleConfig.xml` (the installer) and
   `info.xml`, which has "no defined schema" [documented: S1, "Specification"].
 - The launcher reads a `ModuleConfig.xml` of at most 16 MiB, and refuses one whose elements
