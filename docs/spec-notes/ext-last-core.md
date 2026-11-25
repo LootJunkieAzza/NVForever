@@ -111,7 +111,7 @@ it. The console's exact line is not documented: the name alone [hypothesis].
 `ref.GetHeadingAngleX target` returns the vertical pitch angle in degrees
 `-atan2(dz, hypot(dx, dy))` (negative when the target is above the calling reference,
 positive when below), independent of the calling reference's own X angle [observed:
-Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, probes `w6d4p3_02_heading_angle_x_placed_weap` (with JIP LN 57.30) and
+Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, probes `w6d4p3_02_heading_angle_x_placed_weap` and
 `w6d4p4_02b_heading_angle_x_exact_coords` (`tools/capture/nvse/catalogs/wave6d4_heading_angle_x.json`):
 `PROBE|w6d4p3_02_heading_angle_x_placed_weap|ang(0.0,270.0)|up(x=-44.66,z=3.56)|dn(x=-24.75)|e(x=-36.99,z=11.99)|p30(up=-44.66,doc=0.07)|pm30(up=-44.66)`
 and

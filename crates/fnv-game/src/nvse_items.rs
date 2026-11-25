@@ -283,9 +283,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Vertical pitch angle in degrees (`-atan2(dz, hypot(dx, dy))`, negative above,
         // positive below, independent of the calling reference's X angle) [observed:
         // 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
-        // xNVSE 6.4.9, `w6d4p3_02_heading_angle_x_placed_weap` (placed weapon ~100u above:
+        // xNVSE 6.4.9 + JIP LN 57.30, `w6d4p3_02_heading_angle_x_placed_weap` (placed weapon ~100u above:
         // `-44.66` at caller X=0, +30, -30) and `w6d4p4_02b_heading_angle_x_exact_coords`
-        // (`doc` dz=-0.1 -> +0.05 / rev -0.05, `dr` dz=+98.3 -> -6.59, `ch` dz=+38.0 -> -1.76,
+        // (`doc` dz=-0.7 -> +0.05 / rev -0.05, `dr` dz=+98.3 -> -6.59, `ch` dz=+38.0 -> -1.76,
         // `do` dz=-0.5 -> +0.23; `wave6d4_heading_angle_x.json`); design: zero-distance
         // self-target returns 0.0 rather than `-nan(ind)` and `+ 0.0` normalizes `-0.0`].
         "getheadinganglex" => {

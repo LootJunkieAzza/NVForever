@@ -107,8 +107,10 @@
         {
           "id": "w6d4p4_02b_heading_angle_x_exact_coords",
           "bucket": "xnvse_core_items",
-          "extender": "xNVSE",
-          "required_plugins": [],
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": false,
