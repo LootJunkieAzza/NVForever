@@ -50,6 +50,20 @@ next to StartCombat, and ResetAI is used to end it.
   specific reference; target 1 is an object type in 52 ("Weapons: None" 32, "None" 10,
   melee 7, …) [observed: `fnvtool ai survey`, packages.md §2]. The type's own page (Use
   Weapon Package) is not in the owner's export; the offline GECK wiki copy has it.
+- **Target 1 weapon-type codes (21, 22, 23)** (#3668): `package::object_type_name`
+  labels 21 "Weapons: Ranged", 22 "Weapons: Melee", and 23 "Weapons: None"
+  [documented: xEdit `wbObjectTypeEnum`]. The packages in Fallout3.esm and FalloutNV.esm
+  use them the other way round: code 21 on unarmed/boxing practice
+  (`CitInitiatePracticeMeleeA0x24`, `CitInitiatePracticeMeleeB0x24`,
+  `LittleBusterUnarmedPractice8x4` 0x000FE9EF), code 22 on melee sparring
+  (`FortLegionarySparringPackage` 0x00127170, `VRRCInitiation1PACKAGE`–`4`,
+  `VHDLegionLegateCampAttackTargetDummyPackage`), and code 23 on shooting practice and
+  scripted shots (`CitInitiatePracticeRifleBASE`, `HVBrotherhoodTargetPractice1`)
+  [hypothesis: from the package names in #3668; the offline wiki lists no numeric codes,
+  so `object_type_name` keeps xEdit's labels until confirmed in the original]. For a
+  missing weapon of the requested type, the wiki notes that a "Weapons: Melee" package
+  on an actor carrying only a ranged weapon equips it and does nothing
+  [documented: GECK wiki Use Weapon Package, Notes].
 - "Continue During Combat: Actor will continue to fire and stand at the designated
   position, even during Combat. Great for setting up immobile enemies." [documented: GECK
   wiki page "Use Weapon Package", section Flags, revision 35491 of 2024-08-04,

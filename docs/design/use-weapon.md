@@ -15,7 +15,7 @@ crouched, done). `Game::weapon_uses` keeps one per actor; it is not saved.
 | Source | Weapon | Stand | Shots | Pause |
 |---|---|---|---|---|
 | `UseWeapon` | its weapon parameter (equipped when carried) | its stand reference; none when it is the actor itself | one volley of `numberOfShots` | none |
-| Use Weapon package | target 1 when it is a WEAP, else none | the package's location 1 (`fnv_ai::goal`) | Number of Bursts volleys, or on and on (Repeat Fire); each volley a random size between Shots Per Volley min and max | Volley Fire: random between the min and max pause; Auto Fire: none [hypothesis] |
+| Use Weapon package | target 1 when it is a WEAP, or weapon type from object type 21 (unarmed), 22 (melee), 23 (ranged) [hypothesis: #3668], else none | the package's location 1 (`fnv_ai::goal`) | Number of Bursts volleys, or on and on (Repeat Fire); each volley a random size between Shots Per Volley min and max | Volley Fire: random between the min and max pause; Auto Fire: none [hypothesis] |
 
 The function's defaults are the page's: crouch to reload and hold fire on, always hit and
 no damage off.
@@ -51,8 +51,12 @@ For each actor whose use is in place and still to be carried out (`Game::active_
 not done; a package's not while the actor is in combat, unless the package has Continue
 During Combat, read from the use's own package as `Game::package_def` gives it):
 
-- **The gun**: the use's weapon if it is a gun, else the gun drawn on it; a melee or
-  unarmed weapon, or none, swings instead (§3.1).
+- **The gun**: the use's named weapon if it is a gun, else when a package sets
+  `WeaponUse::weapon_type` (object types 21 unarmed, 22 melee, 23 ranged [hypothesis:
+  #3668]) a drawn or carried weapon of that class (fists / creature attack for unarmed;
+  nothing when no weapon of class 22 or 23 is carried [documented: GECK wiki Use Weapon
+  Package, Notes]), else the gun drawn on it; a melee or unarmed weapon, or none, swings
+  instead (§3.1).
 - **Holds fire** while restrained, while the target is more than 256 units from the
   "target should be here" reference, and, with Hold Fire When Blocked, while anyone else
   stands in the line of fire (`combat_tactics::in_line_of_fire`); also until its weapon

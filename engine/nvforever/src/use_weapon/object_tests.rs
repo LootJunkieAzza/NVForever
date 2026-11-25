@@ -55,7 +55,9 @@ fn fixture_in_worlds(kind: &[u8; 4], bounds: Option<[i16; 6]>, parents: Option<[
     } else {
         top(b"CELL", &group([0; 4], 2, &group([0; 4], 3, &cell(CELL, &[shooter, target].concat()))))
     };
+    let weap = |id: u32, edid: &str| record(b"WEAP", 0, id, &[sub(b"EDID", z(edid))]);
     let raw = [tes4(), top(b"NPC_", &record(b"NPC_", 0, 0x807, &[sub(b"EDID", z("AuthoredShooter"))])),
+        top(b"WEAP", &[weap(0x840, "TestFragGrenade"), weap(0x841, "TestMachete"), weap(0x842, "TestCramOpener"), weap(0x843, "TestRifle")].concat()),
         top(kind, &record(kind, 0, BASE, &base)), top(b"SCPT", &record(b"SCPT", 0, SCRIPT, &code)), cells].concat();
     let plugins = Box::leak(Box::new(vec![fnv_esm::Plugin::parse(&raw, "Authored.esm".into()).unwrap()]));
     let script = ScriptState::over_plugins(plugins);
@@ -236,4 +238,169 @@ fn undrawn_actor_target_gets_no_shots_and_leaves_the_fight_to_the_ordinary_attac
     let use_ = script.rt.as_ref().unwrap().game.weapon_use(SHOOTER).unwrap();
     assert_eq!(use_.fired, 0);
     assert!(!acts_on(use_, target_place(&script.rt.as_ref().unwrap().game, SHOOTER, TARGET).is_some()));
+}
+
+/// [design, #3668] Real PACK records with target 1 object types 21, 22, 23, 0 and 12
+/// plus a WEAP ObjectId: `Game::package_weapon_use` maps 21 -> Unarmed, 22 -> Melee,
+/// 23 -> Ranged, other object types -> None, and a WEAP form -> explicit weapon.
+#[test]
+fn package_weapon_use_reads_target1_weapon_type() {
+    use fnv_game::use_weapon::WeaponType;
+    let pack = |id: u32, t1_kind: i32, t1_val: u32| {
+        let pkw3 = [&0x0000_0100u32.to_le_bytes()[..], &[1, 1], &1u16.to_le_bytes(), &1u16.to_le_bytes(), &3u16.to_le_bytes(), &0.5f32.to_le_bytes(), &0.5f32.to_le_bytes(), &[0; 4]].concat();
+        record(b"PACK", 0, id, &[
+            sub(b"EDID", z(&format!("UseWeap{id:X}"))),
+            sub(b"PKDT", [&0u32.to_le_bytes()[..], &[16, 0, 0, 0], &[0; 4]].concat()),
+            sub(b"PTDT", [t1_kind.to_le_bytes(), t1_val.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+            sub(b"PKW3", pkw3),
+            sub(b"PTD2", [0i32.to_le_bytes(), TARGET.0.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+        ])
+    };
+    let placed = |sig, id, base| record(sig, 0, id, &[sub(b"NAME", u32s(&[base])), sub(b"DATA", vec![0; 24])]);
+    let cell = [record(b"CELL", 0, CELL, &[]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[placed(b"ACHR", SHOOTER.0, 0x807), placed(b"ACHR", TARGET.0, 0x807)].concat()))].concat();
+    let raw = [
+        tes4(),
+        top(b"NPC_", &record(b"NPC_", 0, 0x807, &[sub(b"EDID", z("Initiate"))])),
+        top(b"WEAP", &record(b"WEAP", 0, GUN.0, &[sub(b"EDID", z("TestGun"))])),
+        top(b"PACK", &[
+            pack(0x830, 2, 21),
+            pack(0x831, 2, 22),
+            pack(0x832, 2, 23),
+            pack(0x833, 2, 0),
+            pack(0x834, 2, 12),
+            pack(0x835, 1, GUN.0),
+        ].concat()),
+        top(b"CELL", &group([0; 4], 2, &group([0; 4], 3, &cell))),
+    ].concat();
+    let plugins = Box::leak(Box::new(vec![fnv_esm::Plugin::parse(&raw, "PackTypes.esm".into()).unwrap()]));
+    let script = ScriptState::over_plugins(plugins);
+    let g = &script.rt.as_ref().unwrap().game;
+    let check = |pack_id| {
+        let u = g.package_weapon_use(SHOOTER, FormId(pack_id)).expect("valid Use Weapon package");
+        (u.weapon, u.weapon_type)
+    };
+    assert_eq!(check(0x830), (None, Some(WeaponType::Unarmed)));
+    assert_eq!(check(0x831), (None, Some(WeaponType::Melee)));
+    assert_eq!(check(0x832), (None, Some(WeaponType::Ranged)));
+    assert_eq!(check(0x833), (None, None));
+    assert_eq!(check(0x834), (None, None));
+    assert_eq!(check(0x835), (Some(GUN), None));
+}
+
+/// [design, #3668] End-to-end `shoot` checks for Use Weapon package target 1 weapon types:
+/// - Type 21 (Unarmed): an initiate holding a frag grenade swings its fists instead of
+///   throwing grenades; carrying an unarmed weapon uses that unarmed weapon.
+/// - Type 22 (Melee): picks a carried melee weapon over a held grenade/gun; with only a
+///   gun/grenade carried, does nothing.
+/// - Type 23 (Ranged): picks a carried gun over a held melee weapon/grenade; with only a
+///   melee weapon or grenade carried, does nothing.
+#[test]
+fn package_weapon_types_select_fists_melee_and_ranged_weapons() {
+    use fnv_game::use_weapon::WeaponType;
+    const GRENADE: FormId = FormId(0x840);
+    const MACHETE: FormId = FormId(0x841);
+    const CRAM_OPENER: FormId = FormId(0x842);
+    const RIFLE: FormId = FormId(0x843);
+
+    let setup = |carried: &[FormId], drawn: Option<FormId>, weapon_type: WeaponType| {
+        let mut world = fixture(b"ACTI", None);
+        // Place TARGET close enough (40 units ahead along +Y) for both melee blows and shots.
+        world.resource_mut::<SimState>().world.get(TARGET).unwrap().pos = [0.0, 40.0, 0.0];
+        world.resource_mut::<ScriptState>().rt.as_mut().unwrap().game.world.get(TARGET).unwrap().pos = [0.0, 40.0, 0.0];
+        {
+            let mut c = world.resource_mut::<Combat>();
+            c.forms.weapons.insert(GRENADE, WeaponStats {
+                anim_type: Some(crate::npc_grenades::GRENADE_ANIM.into()),
+                projectile: Some(FormId(0x850)),
+                base_damage: 100,
+                fire_rate: 1.0,
+                clip_size: 1,
+                ammo_use: 1,
+                attack_mult: 1.0,
+                anim_mult: 1.0,
+                ..Default::default()
+            });
+            c.forms.weapons.insert(MACHETE, WeaponStats {
+                anim_type: Some("Melee (1 Hand)".into()),
+                base_damage: 25,
+                reach: 1.0,
+                attack_mult: 1.0,
+                anim_mult: 1.0,
+                ..Default::default()
+            });
+            c.forms.weapons.insert(CRAM_OPENER, WeaponStats {
+                anim_type: Some("Hand to Hand".into()),
+                base_damage: 30,
+                reach: 0.8,
+                attack_mult: 1.0,
+                anim_mult: 1.0,
+                ..Default::default()
+            });
+            c.forms.weapons.insert(RIFLE, WeaponStats {
+                anim_type: Some("Rifle - Ballistic (2 Hand)".into()),
+                projectile: Some(FormId(0x851)),
+                base_damage: 40,
+                automatic: true,
+                fire_rate: 5.0,
+                clip_size: 10,
+                ammo_use: 1,
+                attack_mult: 1.0,
+                anim_mult: 1.0,
+                ..Default::default()
+            });
+        }
+        {
+            let mut sim = world.resource_mut::<SimState>();
+            for &item in carried {
+                sim.world.add_item(SHOOTER, item, 1).unwrap();
+            }
+        }
+        if let Some(weapon) = drawn {
+            world.spawn(HeldWeapon { reference: SHOOTER.0, weapon });
+        }
+        let mut use_ = WeaponUse::of_script(None, None, TARGET, 2, false, false, true, true, None);
+        use_.source = Source::Package(FormId(0x809));
+        use_.weapon_type = Some(weapon_type);
+        use_.in_place = true;
+        use_.volleys = None;
+        world.resource_mut::<ScriptState>().rt.as_mut().unwrap().game.give_weapon_use(SHOOTER, use_);
+        for _ in 0..10 {
+            world.run_system_once(shoot).unwrap();
+        }
+        let shots: Vec<ActorFire> = world.resource_mut::<Messages<ActorFire>>().drain().collect();
+        let attacks: Vec<PlayAttack> = world.resource_mut::<Messages<PlayAttack>>().drain().collect();
+        (shots, attacks)
+    };
+
+    // Type 21 (Unarmed) while holding a frag grenade (Citadel Initiate 05): swings fists, throws no grenade.
+    let (shots, attacks) = setup(&[GRENADE], Some(GRENADE), WeaponType::Unarmed);
+    assert!(shots.is_empty(), "type 21 must never throw a held grenade: {shots:?}");
+    assert!(!attacks.is_empty(), "type 21 should swing fists");
+    assert!(attacks.iter().all(|a| a.melee && a.weapon.is_none()), "fists only: {attacks:?}");
+
+    // Type 21 (Unarmed) carrying an unarmed weapon (Little Buster control): swings the unarmed weapon.
+    let (shots, attacks) = setup(&[GRENADE, CRAM_OPENER], Some(GRENADE), WeaponType::Unarmed);
+    assert!(shots.is_empty());
+    assert!(!attacks.is_empty());
+    assert!(attacks.iter().all(|a| a.melee && a.weapon == Some(CRAM_OPENER)), "unarmed weapon: {attacks:?}");
+
+    // Type 22 (Melee) carrying a melee weapon alongside a grenade and rifle: swings the melee weapon.
+    let (shots, attacks) = setup(&[GRENADE, RIFLE, MACHETE], Some(RIFLE), WeaponType::Melee);
+    assert!(shots.is_empty(), "type 22 must not shoot a held gun");
+    assert!(!attacks.is_empty());
+    assert!(attacks.iter().all(|a| a.melee && a.weapon == Some(MACHETE)), "melee weapon: {attacks:?}");
+
+    // Type 22 (Melee) carrying only a rifle/grenade: does nothing (GECK wiki Use Weapon Package, Notes).
+    let (shots, attacks) = setup(&[GRENADE, RIFLE], Some(RIFLE), WeaponType::Melee);
+    assert!(shots.is_empty() && attacks.is_empty(), "no melee weapon carried -> does nothing");
+
+    // Type 23 (Ranged) carrying a gun alongside a grenade and melee weapon: fires the gun.
+    let (shots, attacks) = setup(&[GRENADE, MACHETE, RIFLE], Some(MACHETE), WeaponType::Ranged);
+    assert!(!shots.is_empty(), "type 23 should fire the carried gun");
+    assert!(shots.iter().all(|s| s.weapon == RIFLE), "gun only: {shots:?}");
+    assert!(attacks.iter().all(|a| !a.melee && a.weapon == Some(RIFLE)), "gun attack anim: {attacks:?}");
+
+    // Type 23 (Ranged) carrying only a grenade or melee weapon: does nothing.
+    let (shots, attacks) = setup(&[GRENADE, MACHETE], Some(GRENADE), WeaponType::Ranged);
+    assert!(shots.is_empty() && attacks.is_empty(), "no gun carried -> does nothing");
 }
