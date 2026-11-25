@@ -658,14 +658,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "isplayeridleplaying" => yes(form(args, 0).is_some_and(|i| g.idle_playing(FormId::PLAYER_REF) == Some(i))),
         // ---- TTW ----
         // `plugin`: the CRC-32 of the plugin file [documented: TTW_CRC32, "Returns CRC32
-        // checksum of a plugin"]; 0 when it cannot be read [hypothesis].
+        // checksum of a plugin"]; -1 when the file is missing/unreadable [observed:
+        // 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + TTW NVSE 333, `w6d4p7_23b_ttw_crc32_isolated`
+        // (`wave6d4_ttw_crc32.json`): `eq=1,nz=1,miss=-1`].
         "ttw_crc32" => {
             let p = text(args, 0);
             let k = p.replace('/', "\\").to_ascii_lowercase();
             if let Some(&v) = g.small.crc_cache.get(&k) {
                 return Some(Ok(XVal::Num(v)));
             }
-            let v = crate::mod_files::read_data(&p).map_or(0.0, |b| f64::from(crc32(&b)));
+            let v = crate::mod_files::read_data(&p).map_or(-1.0, |b| f64::from(crc32(&b)));
             g.small.crc_cache.insert(k, v);
             XVal::Num(v)
         }

@@ -557,6 +557,7 @@ fn cacheui_anh_and_the_small_plugins() {
     assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"bJumpWhileAiming:Tweaks\")"), n(1.0));
     assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"sSoundName:Cookable Grenades\")"), s("WPNGrenadeBeep"));
     assert_eq!(q(&mut g, "SetFunctionValue (TTW_CRC32 \"Small.esm\")"), n(f64::from(0xCBF4_3926u32)));
+    assert_eq!(q(&mut g, "SetFunctionValue (TTW_CRC32 \"NonExistent_W6D4.esp\")"), n(-1.0));
     assert_eq!(q(&mut g, "array_var a\narray_var r\nlet a := TTW_GetPlugins\nlet r := a[0]\nSetFunctionValue r[0]"), s("Small.esm"));
     // The plugin's header version (1.34 here): TTW calls a plugin below 1.3 an
     // unconverted Fallout 3 mod.
