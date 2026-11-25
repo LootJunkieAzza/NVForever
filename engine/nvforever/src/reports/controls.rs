@@ -479,6 +479,7 @@ mod tests {
                 load: None,
                 here: Default::default(),
                 load_ended: 0.0,
+                pre_window_reported: false,
                 detectors: Default::default(),
             })
             .add_systems(Update, detect);

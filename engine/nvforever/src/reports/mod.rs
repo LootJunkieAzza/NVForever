@@ -462,6 +462,8 @@ struct Collector {
     here: anomaly::Here,
     /// When the last loading screen went down (real seconds).
     load_ended: f64,
+    /// Whether the start load already attached [`crate::start_times::PreWindowTimes`].
+    pre_window_reported: bool,
     detectors: anomaly::Detectors,
 }
 
@@ -524,6 +526,7 @@ impl Plugin for ReportsPlugin {
                 load: None,
                 here: Default::default(),
                 load_ended: 0.0,
+                pre_window_reported: false,
                 detectors: Default::default(),
             })
             .add_systems(Startup, (read_gpu, read_window))
@@ -700,10 +703,33 @@ fn collect(
 /// new run, which starts with it), `fast_travel` (FastTravelLanding), `door` (a load door's
 /// arrival) or `other` (a script or the console moving the player). A run's own cover before
 /// it hands a load over is never timed: the run ends under it.
+/// Payload and threshold check for `slow_load` (#2407, #3127): the start load
+/// (`new_game` / `save_load`) includes the pre-window startup durations (`before_window`)
+/// and counts them toward [`anomaly::SLOW_LOAD_MS`] so a slow pre-window wait with a short
+/// loading screen is still reported [design, #3127].
+fn slow_load_payload(
+    kind: &str,
+    load_ms: f32,
+    phases: Option<serde_json::Value>,
+    before_window: Option<&crate::start_times::PreWindowTimes>,
+) -> Option<serde_json::Value> {
+    let pre_ms = before_window.map_or(0.0, |p| p.total_ms() as f32);
+    if load_ms + pre_ms <= anomaly::SLOW_LOAD_MS {
+        return None;
+    }
+    let mut obj = serde_json::json!({ "load": kind, "ms": load_ms.round(), "phases": phases });
+    if let Some(pre) = before_window {
+        obj["before_window"] = pre.to_json();
+        obj["total_ms"] = serde_json::json!((load_ms + pre_ms).round());
+    }
+    Some(obj)
+}
+
 fn track_loads(
     real: Res<Time<Real>>,
     loading: Option<Res<nvf_play::loading::Loading>>,
     fast: Option<Res<nvf_play::save::FastTravelLanding>>,
+    pre_window: Option<Res<crate::start_times::PreWindowTimes>>,
     mut c: ResMut<Collector>,
 ) {
     let Some(loading) = loading else { return };
@@ -734,15 +760,20 @@ fn track_loads(
             c.load = None;
             c.load_ended = now;
             let ms = ((now - t) * 1000.0) as f32;
-            if ms > anomaly::SLOW_LOAD_MS {
+            let before_window = (!c.pre_window_reported && matches!(kind, "new_game" | "save_load")).then_some(pre_window.as_deref()).flatten();
+            if before_window.is_some() {
+                c.pre_window_reported = true;
+            }
+            // Where the time went (issue #2407, #3127): each wait's end, the longest frame,
+            // and for the start load the pre-window durations.
+            let phases = loading.last_phases.as_ref().map(|p| {
+                let until: serde_json::Map<String, serde_json::Value> = p.until.iter().map(|(n, t)| (n.to_string(), serde_json::json!((t * 1000.0).round()))).collect();
+                serde_json::json!({ "until_ms": until, "longest_frame_ms": (p.longest_frame * 1000.0).round(), "frames": p.frames, "read_files": p.reads.files, "read_mb": (p.reads.bytes as f64 / 1e5).round() / 10.0, "read_ms": (p.reads.read_ns as f64 / 1e6).round(), "queued_ms": (p.reads.queued_ns as f64 / 1e6).round() })
+            });
+            if let Some(payload) = slow_load_payload(kind, ms, phases, before_window) {
                 let c = &mut *c;
                 let t_s = c.started.elapsed().as_secs();
-                // Where the time went (issue #2407): each wait's end and the longest frame.
-                let phases = loading.last_phases.as_ref().map(|p| {
-                    let until: serde_json::Map<String, serde_json::Value> = p.until.iter().map(|(n, t)| (n.to_string(), serde_json::json!((t * 1000.0).round()))).collect();
-                    serde_json::json!({ "until_ms": until, "longest_frame_ms": (p.longest_frame * 1000.0).round(), "frames": p.frames, "read_files": p.reads.files, "read_mb": (p.reads.bytes as f64 / 1e5).round() / 10.0, "read_ms": (p.reads.read_ns as f64 / 1e6).round(), "queued_ms": (p.reads.queued_ns as f64 / 1e6).round() })
-                });
-                c.detectors.fire(&mut c.summary, &c.here, t_s, "slow_load", serde_json::json!({ "load": kind, "ms": ms.round(), "phases": phases }));
+                c.detectors.fire(&mut c.summary, &c.here, t_s, "slow_load", payload);
             }
             match c.summary.loads.iter_mut().find(|(k, _)| k == kind) {
                 Some((_, l)) => l.times_ms.push(ms),
@@ -1163,5 +1194,40 @@ Path=x
         assert_eq!(upload::end_of(&std::fs::read(&s2).unwrap()).as_deref(), Some("native"));
         assert!(p2.panic.is_none() && p2.log.is_none());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn slow_load_includes_pre_window_startup_times_and_threshold() {
+        let pre = crate::start_times::PreWindowTimes {
+            total: 48.0,
+            plugins: 9.0,
+            save: Some(0.5),
+            archives: 7.5,
+            index: 21.0,
+            lod: 0.2,
+            actors: Some(4.8),
+            residents: Some(3.0),
+            furniture: Some(1.0),
+            nav: Some(1.0),
+        };
+        // A 5 s loading screen after a 48 s pre-window wait exceeds SLOW_LOAD_MS (20 s).
+        let fired = slow_load_payload("save_load", 5_170.0, None, Some(&pre)).expect("fires slow_load");
+        assert_eq!(fired["load"], "save_load");
+        assert_eq!(fired["ms"], 5170.0);
+        assert_eq!(fired["total_ms"], 53170.0);
+        assert_eq!(fired["before_window"]["total_ms"], 48000.0);
+        assert_eq!(fired["before_window"]["index_ms"], 21000.0);
+        assert_eq!(fired["before_window"]["save_ms"], 500.0);
+
+        // A fast start stays below SLOW_LOAD_MS.
+        let fast = crate::start_times::PreWindowTimes { total: 2.0, ..Default::default() };
+        assert!(slow_load_payload("new_game", 5_000.0, None, Some(&fast)).is_none());
+
+        // Later in-game loads omit before_window and keep the existing payload shape.
+        let door = slow_load_payload("door", 25_000.0, None, None).expect("fires for slow door");
+        assert_eq!(door["load"], "door");
+        assert_eq!(door["ms"], 25000.0);
+        assert!(door.get("before_window").is_none());
+        assert!(door.get("total_ms").is_none());
     }
 }
