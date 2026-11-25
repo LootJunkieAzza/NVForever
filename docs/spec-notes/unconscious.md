@@ -97,8 +97,13 @@ on screen).
    Health stays where the damage left it, with no floor of 1, and an essential actor still
    gets up at half its maximum [design].
    The death has no killer: no XP, karma, murder or challenge, and OnDeath's killer is 0
-   [hypothesis]. A ghost, a child or an Invulnerable creature does not die of it, as of a
-   hit [hypothesis], nor a player in god mode, nor an actor whose record gives no Health
+   [hypothesis]. A child or an Invulnerable creature does not die of it, whereas a
+   `SetGhost 1` actor does die of scripted `DamageAV Health` [observed 2026-11-25,
+   Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30
+   (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated
+   clean-room staging, committed probe `w6d7_42_ghost_child_invulnerable_and_damageav_lethal`
+   in `tools/capture/nvse/catalogs/wave6d7_ghost_damageav_lethal.json`:
+   `dmg0(d=1,hp=0.0,dNeg=1)|ghost(g=1,d=1,hp=-400.0)|chdD=0|essD=0`], nor a player in god mode, nor an actor whose record gives no Health
    (no DATA, so its Health is only a stand-in of 1) [design]. While a hit is being applied
    the hit decides: DamageAV in an OnHit script (the gloves' `DamageAV Health 10`, §1) or
    in the ScriptEffectStart of an effect the hit brings leaves the death to the hit, which
