@@ -1230,6 +1230,10 @@ fn copy_array(store: &mut ExtStore, id: u32, deep: bool) -> u32 {
     deep_copy(store, id, &mut std::collections::HashMap::new())
 }
 
+#[cfg(test)]
+#[path = "w6d11_sv_find_count_tests.rs"]
+mod w6d11_sv_find_count_tests;
+
 fn deep_copy(store: &mut ExtStore, id: u32, copies: &mut std::collections::HashMap<u32, u32>) -> u32 {
     if let Some(&c) = copies.get(&id) {
         return c;
@@ -2681,11 +2685,18 @@ impl Vm<'_, '_> {
             "sv_count" => {
                 let (needle, k) = self.format_arg(c, 0)?;
                 let hay = text(val(self, k)?).unwrap_or_default();
-                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let start_raw = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                if start_raw < 0.0 {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
+                let start = start_raw as usize;
                 let len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let chars: Vec<char> = hay.chars().collect();
-                let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
+                let end = match len {
+                    Some(l) if l >= 0.0 => start.saturating_add(l as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 let region: String = chars.get(start..end).map(|s| s.iter().collect()).unwrap_or_default();
                 if needle.is_empty() {
                     return Ok(Some(XVal::Num(0.0)));
@@ -2714,11 +2725,18 @@ impl Vm<'_, '_> {
             "sv_find" => {
                 let (needle, k) = self.format_arg(c, 0)?;
                 let hay = text(val(self, k)?).unwrap_or_default();
-                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let start_raw = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                if start_raw < 0.0 {
+                    return Ok(Some(XVal::Num(-1.0)));
+                }
+                let start = start_raw as usize;
                 let len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let chars: Vec<char> = hay.chars().collect();
-                let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
+                let end = match len {
+                    Some(l) if l >= 0.0 => start.saturating_add(l as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 let region = chars.get(start..end).unwrap_or_default();
                 let needle: Vec<char> = needle.chars().collect();
                 let found = find_chars(region, &needle, 0, case);

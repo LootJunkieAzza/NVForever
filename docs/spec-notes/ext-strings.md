@@ -133,7 +133,14 @@ from 0 throughout [documented: Sv Length; Sv Find].
 - **Result**: int, how many times the text occurs; 0 when it does not.
 - **Edge cases**: ignores case unless the flag is set; a match inside a longer word
   counts. Overlapping matches: open.
-- **Evidence**: [documented: Sv Count].
+- **Evidence**: [documented: Sv Count]; for both `Sv_Find` and `Sv_Count`, a negative
+  `startPos` returns not-found (`-1` / `0`), while a negative `numChars` (`-1`) searches
+  to the end of the string [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, read-only
+  `PrintToConsole` probe `w6d11_25_sv_find_and_sv_count_bounds_neg_and_empty`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `find(0=0,cs=2,win=2,fmt=6,emp=0,nS=-1,nL=0,oob=-1)|cnt(0=3,cs=1,win=2,emp=0,nS=0,nL=3,ov=1)`;
+  no DLL or source consulted].
 
 ### Sv_Replace
 
