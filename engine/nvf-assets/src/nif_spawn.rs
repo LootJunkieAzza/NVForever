@@ -168,6 +168,10 @@ pub(crate) struct Props {
     /// The Fire Refraction shader flag is set too ([`fire_period`]): seconds for the
     /// normal map to scroll once, else 0.
     fire_period: f32,
+    /// BSShaderFlags2 bit 0 "ZBuffer_Write" [documented: nif.xml]: the shape asks to write
+    /// depth although it is blended. Read for the solid cores only ([`solid_core_rules`]);
+    /// depth writes otherwise follow the alpha mode, as before.
+    z_write: bool,
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
@@ -459,6 +463,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.decal = is_decal(flags);
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
         p.fire_period = fire_period(flags, s.int("refraction_fire_period"));
+        p.z_write = s.int("shader_flags_2").unwrap_or(0) & 1 != 0;
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
         p.parallax = false;
@@ -1111,6 +1116,98 @@ pub(crate) fn blend_is_opaque(props: &Props, cut: Option<f32>, alpha_mode: Alpha
     matches!(alpha_mode, AlphaMode::Blend) && source_over && nothing_thins_it && opaque_texture()
 }
 
+/// The alpha from which a blended shape's texels belong to its solid core ([`solid_core`])
+/// [engineering choice: at 0.85 and above the blend shows at most 15% of what lies behind, so
+/// the texel is a surface to everything that reads depth. At 0.98, the first choice, the
+/// border texels of `NV_WaterTank.dds` (226 to 244 of 255 [hypothesis: read from the texture on 2026-11-24;
+/// the steps were not kept]) were left out, and the light of what is behind drew a bright line along
+/// the tank's rim, judged by eye in a play test, 2026-11-24].
+pub const SOLID_CORE_CUT: f32 = 0.85;
+/// The cut where the texture has thin parts in that range too, or its alpha cannot be read
+/// (`texture::SolidTexels`): what is solid beyond doubt.
+pub const SOLID_CORE_CUT_THIN: f32 = 0.98;
+
+/// Whether a blended shape may have a solid core ([`solid_core`]) by what its file says, the
+/// cheap part of the question (the base texture's alpha is asked by nvforever `solid_cores.rs`,
+/// and only while cores are wanted): it blends SRC_ALPHA / INV_SRC_ALPHA, is lit, its shader
+/// writes depth ("ZBuffer_Write"), it has a base texture, and nothing but that texture sets
+/// its alpha: material alpha 1, no vertex alpha, no vertex-alpha cut, no alpha animation, no
+/// view-angle falloff, and it is no decal, hair, skin, refracting shape, window reflection or
+/// object LOD block [engineering choice of the enhanced look, docs/design/volumetric-medium.md
+/// "Solid cores"; the flags' names documented: nif.xml]. A shape with a test below
+/// [`BLEND_TEST_CUT`] (the corn rows, [`blended_cutout`]) is included: it is drawn blended
+/// where no temporal upscaler runs. The Goodsprings water tank
+/// (`architecture\goodsprings\nv_watertank.nif`, flags 4333: blend on, no test) is such a
+/// shape (painted with the light of what is behind it: that document says how it was seen).
+pub(crate) fn solid_core_rules(props: &Props, cut: Option<f32>, alpha_mode: AlphaMode) -> bool {
+    let Some((flags, _)) = props.alpha else { return false };
+    let source_over = (flags >> 1) & 0xF == 6 && (flags >> 5) & 0xF == 7;
+    matches!(alpha_mode, AlphaMode::Blend)
+        && flags & 1 != 0
+        && source_over
+        && props.z_write
+        && props.textures.first().is_some_and(|t| !t.is_empty())
+        && cut.is_none()
+        && !props.vertex_alpha
+        && props.material_alpha.unwrap_or(1.0) >= 1.0
+        && !props.animated_alpha
+        && !props.alpha_gated
+        && props.falloff.is_none()
+        && !props.unlit
+        && !props.decal
+        && props.refraction.is_none()
+        && !props.hair
+        && !props.skin
+        && !props.lod_building
+        && !props.env.is_some_and(|e| e.window)
+}
+
+/// The solid core of a blended material as it stands now: a copy drawn as a cut-out at
+/// [`SOLID_CORE_CUT`], so its solid texels are in the depth prepass, or `None` where it has
+/// none. The blended shape goes on being drawn over it: at the core's own depth the main
+/// pass's test (greater or equal) lets it through (as a hair model's layer over its core,
+/// [`hair_model_layer`]), so the soft edges stay the blend's. The colour is not exactly what
+/// it was: the part of the background the blend let through (up to 1 - `cut`) is
+/// now the core's colour, which may also take ambient occlusion the blend does not.
+///
+/// Everything that can change a material while the game runs is asked of the material
+/// itself, not of who changed it: a fade, a script's alpha, a stealth field, an effect
+/// shader's holes, a swapped texture or the FSR cut-outs' alpha test all leave a state this
+/// refuses. The core's cut is hard (`NifSurface::hard_edges`): a soft one would widen the
+/// solid part past the cut. The caller keeps the core from casting a shadow.
+pub fn solid_core(m: &NifMaterial, cut: f32) -> Option<NifMaterial> {
+    let (b, s) = (&m.base, &m.extension);
+    let source = s.solid_core.as_ref()?;
+    let plain = matches!(b.alpha_mode, AlphaMode::Blend)
+        && b.base_color.alpha() >= 1.0
+        && b.base_color_texture.as_ref().is_some_and(|t| t.id() == source.image)
+        && !b.unlit
+        && b.depth_bias == 0.0
+        && b.depth_map.is_none()
+        && b.specular_transmission == 0.0
+        && b.diffuse_transmission == 0.0
+        && s.alpha_cut <= 0.0
+        && s.falloff == Falloff::NONE.params
+        && s.holes == crate::nif_material::NO_HOLES
+        && s.holes_texture.is_none()
+        && s.facegen_offset.is_none()
+        && s.soft == Vec4::ZERO
+        && s.terrain_repeat == 0.0
+        && s.env_how.z == 0.0
+        && !(s.refract || s.decal || s.shade_light || s.depth_write || s.first_person || s.add_linear || s.pipboy_screen);
+    if !plain {
+        return None;
+    }
+    let mut core = m.clone();
+    core.base.alpha_mode = AlphaMode::Mask(cut);
+    core.extension.hard_edges = true;
+    // The core is no source of anything: no FSR switch, no core of its own, no texture swap.
+    core.extension.blended_cutout = None;
+    core.extension.solid_core = None;
+    core.extension.legacy = None;
+    Some(core)
+}
+
 /// How many materials [`blend_is_opaque`] turned opaque this run, and the first few
 /// textures they were for (the exit's summary line).
 static BLEND_DRAWN_OPAQUE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -1315,6 +1412,11 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     }
     material.extension.alpha_cut = cut.unwrap_or(0.0);
     material.extension.blended_cutout = cutout;
+    if solid_core_rules(props, cut, alpha_mode) {
+        material.extension.solid_core = diffuse
+            .zip(material.base.base_color_texture.as_ref())
+            .map(|(t, image)| crate::nif_material::SolidCoreSource { texture: t.clone(), image: image.id(), animated: false });
+    }
     if props.hair && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
         material.extension.alpha_cut = HAIR_DEPTH_CUT;
         material.extension.depth_write = true;
@@ -2125,6 +2227,96 @@ mod tests {
         ] {
             assert_eq!(shape_material_with(&props, &mut quad(), &mut MaskTextures, Tangents::Generate).0.extension.blended_cutout, None, "{props:?}");
         }
+    }
+
+    /// The water tank's shape (flags 4333, z-write, a base texture) may have a solid core;
+    /// what can thin it, or sets its alpha otherwise, keeps it from one.
+    #[test]
+    fn solid_core_rules_take_only_lit_depth_writing_blends_whose_texture_alone_sets_alpha() {
+        let tank = Props { alpha: Some((4333, 0)), z_write: true, textures: vec!["tank.dds".into()], ..Default::default() };
+        let rules = |p: &Props| solid_core_rules(p, None, shape_alpha_mode(p));
+        assert!(rules(&tank));
+        assert!(rules(&Props { material_alpha: Some(1.0), ..tank.clone() }));
+        // The corn rows: blend and test below the cut.
+        assert!(rules(&Props { alpha: Some((0x12ED, 0)), ..tank.clone() }));
+        assert!(!solid_core_rules(&tank, Some(0.5), AlphaMode::Blend), "a vertex-alpha cut");
+        assert!(!solid_core_rules(&tank, None, AlphaMode::Opaque), "drawn opaque");
+        assert!(!solid_core_rules(&tank, None, AlphaMode::Premultiplied), "a window's reflection");
+        for p in [
+            Props { z_write: false, ..tank.clone() },
+            Props { alpha: None, ..tank.clone() },
+            // Blend off, additive, alpha-tested at a cut of its own.
+            Props { alpha: Some((4332, 0)), ..tank.clone() },
+            Props { alpha: Some((4333 & !(0xF << 5), 0)), ..tank.clone() },
+            Props { alpha: Some((0x12ED, 128)), ..tank.clone() },
+            Props { textures: Vec::new(), ..tank.clone() },
+            Props { textures: vec![String::new()], ..tank.clone() },
+            Props { vertex_alpha: true, ..tank.clone() },
+            Props { material_alpha: Some(0.99), ..tank.clone() },
+            Props { animated_alpha: true, ..tank.clone() },
+            Props { alpha_gated: true, ..tank.clone() },
+            Props { falloff: Some(Falloff { params: Vec4::new(1.0, 0.0, 1.0, 0.0) }), ..tank.clone() },
+            Props { unlit: true, ..tank.clone() },
+            Props { decal: true, ..tank.clone() },
+            Props { refraction: Some(0.1), ..tank.clone() },
+            Props { hair: true, ..tank.clone() },
+            Props { skin: true, ..tank.clone() },
+            Props { lod_building: true, ..tank.clone() },
+            Props { env: Some(crate::env_map::EnvFlags { scale: 1.0, window: true, light_fade: false }), ..tank.clone() },
+        ] {
+            assert!(!rules(&p), "{p:?}");
+        }
+    }
+
+    /// The built material names its core's texture only for such a shape, and the core is a
+    /// hard cut-out copy of it; every run-time change of the blend takes the core away.
+    #[test]
+    fn a_solid_core_is_a_hard_cut_out_copy_and_goes_with_any_change_of_the_blend() {
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        tri.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]]);
+        let tank = Props { alpha: Some((4333, 0)), z_write: true, textures: vec!["tank.dds".into()], ..Default::default() };
+        let build = |p: &Props| shape_material_with(p, &mut tri.clone(), &mut AllTextures, Tangents::Generate).0;
+        let m = build(&tank);
+        let source = m.extension.solid_core.clone().expect("a candidate");
+        assert_eq!(source.texture, "tank.dds");
+        assert_eq!(Some(source.image), m.base.base_color_texture.as_ref().map(Handle::id));
+        assert!(build(&Props { z_write: false, ..tank.clone() }).extension.solid_core.is_none());
+        // Without its texture there is nothing to cut.
+        assert!(shape_material_with(&tank, &mut tri.clone(), &mut NoTextures, Tangents::Generate).0.extension.solid_core.is_none());
+
+        let core = solid_core(&m, SOLID_CORE_CUT).expect("a core");
+        assert_eq!(core.base.alpha_mode, AlphaMode::Mask(SOLID_CORE_CUT));
+        assert!(core.extension.hard_edges);
+        assert!(core.extension.solid_core.is_none() && core.extension.blended_cutout.is_none() && core.extension.legacy.is_none());
+        assert_eq!(core.base.base_color_texture, m.base.base_color_texture);
+        assert!(solid_core(&core, SOLID_CORE_CUT).is_none(), "no core of a core");
+        assert!(!crate::nif_material::see_through(&core));
+
+        type Change = fn(&mut NifMaterial);
+        let changes: [(&str, Change); 12] = [
+            ("a fade's or a script's alpha", |m| m.base.base_color.set_alpha(0.99)),
+            ("drawn opaque", |m| m.base.alpha_mode = AlphaMode::Opaque),
+            ("FSR's cut-out", |m| m.base.alpha_mode = AlphaMode::Mask(0.5)),
+            ("a stealth field", |m| refraction_material(m, 0.1, 0.0)),
+            ("an effect shader's holes", |m| m.extension.holes = Vec4::new(128.0, 0.0, 0.0, 0.0)),
+            ("a texture swap", |m| m.base.base_color_texture = Some(bevy::asset::uuid_handle!("6d0f3f0e-6f5b-4a1c-9a64-2f8f5c7d1e90"))),
+            ("no texture", |m| m.base.base_color_texture = None),
+            ("an alpha cut", |m| m.extension.alpha_cut = 0.5),
+            ("a height map", |m| m.base.depth_map = Some(Handle::default())),
+            ("a first-person copy", |m| m.extension.first_person = true),
+            ("depth written by the blend", |m| m.extension.depth_write = true),
+            ("a decal copy", |m| m.extension.decal = true),
+        ];
+        for (what, change) in changes {
+            let mut c = m.clone();
+            change(&mut c);
+            assert!(solid_core(&c, SOLID_CORE_CUT).is_none(), "{what}");
+        }
+        // Followed, not refused: a changed emissive colour is the core's too.
+        let mut lit = m.clone();
+        lit.base.emissive = LinearRgba::rgb(0.5, 0.2, 0.1);
+        assert_eq!(solid_core(&lit, SOLID_CORE_CUT).expect("still a core").base.emissive, lit.base.emissive);
     }
 
     /// #3230: a shape that asks to be blended and that nothing can thin is drawn opaque.

@@ -387,7 +387,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // ---- FaceGen ----
         // `base type n`: the base's nth value of the list (FACEGEN) [documented: the
-        // arguments; hypothesis: the types]; 0 out of range.
+        // arguments; hypothesis: the types; observed: Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters, w4d_31_jg_facegen_bounds
+        // (tools/capture/nvse/catalogs/wave4d_extenders.json):
+        // t0(0=-0.2281,49=0.0000)|t1(0=0.0000) on Doc Mitchell (0x00104C0C); no DLL or
+        // source consulted]. Returning 0.0 for out-of-range indices (>= 50 / >= 30 /
+        // < 0) or invalid types (>= 3) is [design: crash-safety guard avoiding
+        // out-of-bounds reads, which crash/hang JohnnyGuitarNVSE 528].
         "facegengetnthproperty" => {
             let (Some(b), Ok(k), Ok(i)) = (form(args, 0), usize::try_from(num(args, 1, -1.0) as i64), usize::try_from(num(args, 2, -1.0) as i64)) else { return Some(Ok(zero)) };
             if k >= FACEGEN.len() {
