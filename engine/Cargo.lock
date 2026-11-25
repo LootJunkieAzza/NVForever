@@ -4668,6 +4668,7 @@ dependencies = [
  "half",
  "naga",
  "nvf-rtgi",
+ "texpresso",
 ]
 
 [[package]]

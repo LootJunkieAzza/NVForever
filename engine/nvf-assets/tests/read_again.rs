@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::geometry::{geometry, Geometry, MeshSource};
 use nvf_assets::model::{AltTexture, ModelCtx};
+use nvf_assets::texture::levels::{self, Drawn};
 use nvf_assets::{GameData, ModelCache, NifMaterial, PreparedModel, TextureCache};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -266,6 +267,17 @@ fn room() -> (Vec<u8>, [&'static str; 7]) {
     (nif.bytes(), ["Blink:0", "Flag:0", "Opaque:0", "Faded:0", "Torn:0", "Strip:0", "Shine:0"])
 }
 
+/// A DXT1 texture of one block.
+fn wall() -> Vec<u8> {
+    let mut out = vec![0; 128 + 8];
+    out[..4].copy_from_slice(b"DDS ");
+    for (at, v) in [(4, 124u32), (8, 0x21007), (12, 4), (16, 4), (28, 1), (76, 32), (80, 4)] {
+        out[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    }
+    out[84..88].copy_from_slice(b"DXT1");
+    out
+}
+
 // ---------------------------------------------------------------------------- the loader
 
 struct Game {
@@ -280,6 +292,8 @@ impl Game {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("meshes")).unwrap();
         std::fs::write(dir.join("meshes/room.nif"), room().0).unwrap();
+        std::fs::create_dir_all(dir.join("textures")).unwrap();
+        std::fs::write(dir.join("textures/wall.dds"), wall()).unwrap();
         let schema = fnv_nif::Schema::load_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
         let mut world = World::new();
         world.insert_resource(GameData::new(Arc::new(fnv_vfs::Vfs::open(&dir, &[]).unwrap()), Arc::new(schema)));
@@ -498,7 +512,8 @@ fn stores(w: &World) -> String {
     let mut meshes: Vec<String> = w.resource::<Assets<Mesh>>().iter().map(|(id, m)| format!("{id:?} {:?} {:?} {:?}", m.asset_usage, m.final_aabb, drawn(m))).collect();
     meshes.sort();
     let images: Vec<String> = w.resource::<Assets<Image>>().iter().map(|(id, i)| format!("{id:?} {:?} {:?} {:?}", i.asset_usage, i.texture_descriptor, i.data)).collect();
-    format!("{meshes:?} {images:?} {:?} {:?} {}", ids::<NifMaterial>(w), ids::<SkinnedMeshInverseBindposes>(w), w.resource::<ModelCache>().len())
+    let held = (w.resource::<ModelCache>().len(), w.resource::<TextureCache>().len(), w.resource::<TextureCache>().generation(), &w.resource::<TextureCache>().failures);
+    format!("{meshes:?} {images:?} {:?} {:?} {held:?}", ids::<NifMaterial>(w), ids::<SkinnedMeshInverseBindposes>(w))
 }
 
 /// What this thread logs while `f` runs.
@@ -537,6 +552,8 @@ fn reading_again_changes_nothing() {
     let loaded = counters();
     assert!(fresh[0] != loaded[0] && fresh[1] != loaded[1], "{loaded:?}");
     assert!(log.contains("controllers of their own"), "{log}");
+    let wall = game.ctx(|c| c.textures.get("wall.dds", true, &c.data, &mut c.images, None)).expect("the texture loads");
+    let wall_drawn = Drawn::of(game.world.resource::<Assets<Image>>().get(&wall).unwrap());
     let (bytes, data) = (game.bytes(), game.world.resource::<GameData>().clone());
     let before = stores(&game.world);
     let all = meshes(&model);
@@ -544,6 +561,10 @@ fn reading_again_changes_nothing() {
     let log = logged(|| {
         geometry(&bytes, &data.schema, &wanted).unwrap();
         assert!(geometry(&bytes, &data.schema, &[(0, "Room")]).is_err());
+        let sources = game.world.resource::<TextureCache>().sources(&HashSet::from([wall.id()]));
+        let source = sources[&wall.id()].as_ref().unwrap();
+        assert_eq!(levels::read(&data, &source.path, &wall_drawn, true).unwrap().levels.len(), 1);
+        assert!(levels::read(&data, "textures\\none.dds", &wall_drawn, true).is_err());
         assert_eq!(game.sources(&all.iter().map(|(id, ..)| *id).collect()).len(), 8);
     });
     assert_eq!(log, "");

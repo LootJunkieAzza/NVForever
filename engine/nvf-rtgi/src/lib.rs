@@ -81,7 +81,7 @@ pub use light::{Cone, Directional, Lamp, LightState};
 pub use reach::{GatherConfig, GatherLimits, Reached, MOST_RAYS};
 pub use scene::{Cull, Instance, Level, Material, Mesh, SceneInput, Texture, Wrap};
 pub use solve::{Counts, Seeds, SolveConfig, SolvedVolume, Stats};
-pub use texture::Lookup;
+pub use texture::{levels_read, Lookup};
 pub use trace::{lift, Hit, PreparedScene, SceneLimits, SceneStats, MOST_THREADS};
 pub use vec3::V3;
 pub use volume::{Read, Reader, SLABS, THIN};

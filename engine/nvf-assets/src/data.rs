@@ -109,6 +109,15 @@ impl GameData {
         Ok(GameData::new(Arc::new(vfs), Arc::new(schema)))
     }
 
+    /// [`GameData::read`] of a file of at most this size, stored and decoded
+    /// (`Vfs::read_at_most`), for reading one a second time: an error is given back, not logged.
+    pub fn read_at_most(&self, path: &str, stored: usize, contents: usize) -> Option<std::io::Result<Vec<u8>>> {
+        match self.vfs.read_at_most(path, stored, contents)? {
+            Ok(bytes) => test_broken(path, bytes).map(Ok),
+            Err(e) => Some(Err(e)),
+        }
+    }
+
     pub fn read(&self, path: &str) -> Option<Vec<u8>> {
         let broken = broken_files().iter().find(|(_, part)| path.to_ascii_lowercase().contains(part.as_str()));
         if let Some((Broken::Missing, _)) = broken {
