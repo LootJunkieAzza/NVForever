@@ -230,7 +230,7 @@ impl Game<'_> {
 
     /// The record indices of a magic item's effects RemoveNthEffect left, in order.
     pub fn effect_indices(&self, item: FormId) -> Vec<usize> {
-        let n = self.data.effect_items.get(&item).map_or(0, Vec::len);
+        let n = self.data.effect_items.get(&self.unclone(item)).map_or(0, Vec::len);
         let gone = self.other.jip11.removed_effects.get(&item);
         (0..n).filter(|i| !gone.is_some_and(|g| g.contains(i))).collect()
     }

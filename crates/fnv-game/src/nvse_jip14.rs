@@ -216,6 +216,10 @@ fn list(g: &mut Game, items: Vec<XVal>) -> XVal {
 
 const MAGIC_ITEMS: [&[u8; 4]; 4] = [b"ALCH", b"ENCH", b"SPEL", b"INGR"];
 
+#[cfg(test)]
+#[path = "w6d12_cloned_nth_effects_tests.rs"]
+mod w6d12_cloned_nth_effects_tests;
+
 /// An entry of the scripts' list of a magic item's effects ([`Game::effect_slot`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectSlot {
@@ -231,7 +235,7 @@ impl<'a> Game<'a> {
     /// Nth-effect function indexes this list (`EffectSlot`, #2016).
     pub fn effect_list(&self, item: FormId) -> std::borrow::Cow<'a, [EffectItem]> {
         let data: &'a crate::data::GameData = self.data;
-        let own = data.effect_items.get(&item).map(Vec::as_slice).unwrap_or(&[]);
+        let own = data.effect_items.get(&self.unclone(item)).map(Vec::as_slice).unwrap_or(&[]);
         let added = self.other.jip14.added_effects.get(&item);
         if added.is_none() && !self.other.jip11.removed_effects.contains_key(&item) {
             return std::borrow::Cow::Borrowed(own);
@@ -248,7 +252,7 @@ impl<'a> Game<'a> {
     /// effects take hold in is not the list's].
     pub fn applied_effects(&self, item: FormId) -> std::borrow::Cow<'a, [EffectItem]> {
         let data: &'a crate::data::GameData = self.data;
-        let own = data.effect_items.get(&item).map(Vec::as_slice).unwrap_or(&[]);
+        let own = data.effect_items.get(&self.unclone(item)).map(Vec::as_slice).unwrap_or(&[]);
         match self.other.jip14.added_effects.get(&item) {
             None => std::borrow::Cow::Borrowed(own),
             Some((front, back)) => std::borrow::Cow::Owned(own.iter().chain(front.iter().rev()).chain(back).cloned().collect()),
@@ -406,8 +410,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // for the session (see docs/spec-notes/jip-last-14.md §1).
         "addneweffect" => {
             let (Some(item), Some(mgef), Some(dur), Some(mag)) = (form(args, 0), form(args, 1), num(args, 2), num(args, 3)) else { return Some(Ok(XVal::Num(-1.0))) };
-            let kind_ok = g.data.sig(item).is_some_and(|s| MAGIC_ITEMS.contains(&&s));
-            if !kind_ok || g.data.sig(mgef) != Some(*b"MGEF") {
+            let kind_ok = g.data.sig(g.unclone(item)).is_some_and(|s| MAGIC_ITEMS.contains(&&s));
+            if !kind_ok || g.data.sig(g.unclone(mgef)) != Some(*b"MGEF") {
                 return Some(Ok(XVal::Num(-1.0)));
             }
             // [decision: the range is not kept, as NVForever's effect entries have none]
