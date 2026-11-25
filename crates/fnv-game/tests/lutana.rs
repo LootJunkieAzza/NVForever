@@ -610,8 +610,10 @@ fn cell_water_height_loaded_vs_unloaded_exterior_and_interior() {
     assert_eq!(n(&mut g, "GetCellWaterHeight TestExtNoXclw"), 1234.5);
 }
 
-/// Wave 6D-2 `w6d2_04_weapon_ammo_and_mod_traits` [observed]: `SetWeaponVATSEffect`
-/// validates `WEAP`/`SPEL` (non-`SPEL` and explicit `0` are no-ops; omitted arg 1 clears).
+/// Wave 6D-2 `w6d2_04_weapon_ammo_and_mod_traits` [observed]: `SetWeaponVATSEffect` leaves
+/// the existing VATS effect unchanged on a non-`SPEL` replacement (`rStim`); explicit null
+/// `0` no-op, omitted arg 1 clear, and `WEAP`/`SPEL` `unclone()` handling are
+/// [hypothesis]/[design].
 #[test]
 fn set_weapon_vats_effect_validates_spel_and_omitted_clear() {
     const WEAP_ID: u32 = 0x9B0;

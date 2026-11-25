@@ -1,6 +1,6 @@
 {
   "schema": "nvf.nvse.probe.catalog/1",
-  "catalog_id": "wave6d2-set-weapon-vats-effect-validate",
+  "catalog_id": "wave6d2_set_weapon_vats_effect_validate",
   "description": "Wave 6D-2 read-only clean-room JIP LN 57.30 probe for SetWeaponVATSEffect (WEAP/SPEL validation and non-SPEL no-op).",
   "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
   "xnvse_version": "6.4.9",
@@ -17,13 +17,13 @@
     "TribalPack.esm"
   ],
   "extender_versions": {
-    "jip_nvse": "57.30"
+    "jip_ln_nvse": "57.30 (5730)"
   },
   "batches": [
     {
       "id": "w6d2_set_weapon_vats_effect_validate",
       "title": "SetWeaponVATSEffect WEAP/SPEL validation",
-      "extender": "jip_nvse",
+      "extender": "JIP LN NVSE 57.30",
       "required_plugins": [
         "jip_nvse.dll"
       ],

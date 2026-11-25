@@ -753,6 +753,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // Non-`SPEL` replacement (`rStim`) leaves the existing VATS effect unchanged [observed:
+        // `w6d2_04_weapon_ammo_and_mod_traits`]; explicit null `0` no-op, omitted arg 1 clear,
+        // non-`WEAP` rejection, and `WEAP`/`SPEL` `unclone()` handling are [hypothesis]/[design].
         "setweaponvatseffect" => {
             if let Some(w) = form(args, 0).filter(|&w| g.data.sig(g.unclone(w)) == Some(*b"WEAP")) {
                 match args.get(1) {
