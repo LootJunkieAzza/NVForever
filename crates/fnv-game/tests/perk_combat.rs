@@ -438,3 +438,45 @@ fn set_nth_perk_entry_value1_changes_the_entry_points_value() {
     assert!((speed(&mut g) - 1.5).abs() < 1e-6, "{}", speed(&mut g));
     assert_eq!(run(&mut g, "SetFunctionValue (GetNthPerkEntryValue1 TravelLight 0)"), fnv_script::vm::XVal::Num(1.5));
 }
+
+#[test]
+fn getperkmodifier_passes_target_actor_as_tab0_other() {
+    // Tab-0 GetDetected (45) == 0 against target NPC ref (as TheProfessional / Ninja).
+    let f = fixture();
+    let mut g = game(&f);
+    let p_prof = FormId(0x7B0);
+    g.lu3.perk_edits.insert(
+        p_prof,
+        fnv_game::data::PerkDef {
+            name: "ProfTest".into(),
+            playable: true,
+            min_level: 1,
+            ranks: 1,
+            entries: vec![fnv_game::data::PerkEntry {
+                effect: fnv_game::data::PerkEffect::EntryPoint(EntryPointDef {
+                    point: perks::CALCULATE_MY_CRITICAL_HIT_DAMAGE,
+                    function: perks::MULTIPLY_VALUE,
+                    value: Some(1.2),
+                    param_type: Some(1),
+                    conditions: Some(vec![(0, fnv_game::cond::Condition {
+                        cmp: fnv_game::cond::Cmp::Eq,
+                        or: false,
+                        run_on: fnv_game::cond::RunOn::Subject,
+                        function: 45,
+                        params: vec![],
+                        rhs: fnv_game::cond::Operand::Value(0.0),
+                    })]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    );
+    perks::gain_rank(&mut g, p_prof);
+    let script = format!(
+        "Begin Function {{ }}\nref rNpc\nlet rNpc := {NPC_REF:#x}\nSetFunctionValue (PlayerREF.GetPerkModifier 2 100 Revolver rNpc)\nEnd\n"
+    );
+    let res = g.run_query(&script, fnv_game::game::RunCtx::default()).unwrap();
+    assert!(matches!(res, fnv_script::vm::XVal::Num(v) if (v - 120.0).abs() < 1e-4), "got {res:?}");
+}

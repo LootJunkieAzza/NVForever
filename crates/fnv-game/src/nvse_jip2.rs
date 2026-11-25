@@ -407,7 +407,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             match u8::try_from(point as i64) {
                 Ok(pt) => {
                     let tabs = [form(args, 2), form(args, 3)];
-                    XVal::Num(g.entry_point_with(a, pt, &tabs, v).0)
+                    let is_actor = |f: FormId| {
+                        f == FormId::PLAYER_REF
+                            || crate::functions::base_of(g, f)
+                                .and_then(|b| g.data.sig(b))
+                                .is_some_and(|s| s == *b"NPC_" || s == *b"CREA")
+                    };
+                    let other = tabs[1].filter(|&f| is_actor(f)).or_else(|| tabs[0].filter(|&f| is_actor(f)));
+                    XVal::Num(g.entry_point_with_other(a, pt, &tabs, other, v).0)
                 }
                 Err(_) => XVal::Num(v),
             }
