@@ -1457,19 +1457,67 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, bad: &impl Fn(&dyn std::
     Ok(())
 }
 
+/// The entry names in a `7z l -slt -ba` listing: one `Path = <name>` line an entry.
+fn names_7z(listing: &str) -> Vec<String> {
+    listing.lines().filter_map(|l| l.strip_prefix("Path = ")).map(|n| n.trim_end_matches('\r').to_string()).collect()
+}
+
+/// The entry names in a listing of one name a line (`bsdtar -tf`, `unrar lb`).
+fn names_per_line(listing: &str) -> Vec<String> {
+    listing.lines().map(|l| l.trim_end_matches('\r')).filter(|l| !l.is_empty()).map(str::to_string).collect()
+}
+
+/// The entry names in an `lsar` listing: its first line names the archive and its format.
+fn names_lsar(listing: &str) -> Vec<String> {
+    names_per_line(listing).into_iter().skip(1).collect()
+}
+
+/// Unpack with an outside tool, for a format the built-in readers do not read. Each tool first
+/// lists the archive's entries, and every name goes through `rel_path` before anything is
+/// unpacked: a refused name, or a listing with no names, ends the install and no other tool gets
+/// the archive. A tool that is not installed, or cannot open the archive, gives way to the next.
 fn extract_external(src: &Path, dest: &Path) -> Result<(), String> {
     let src_s = src.display().to_string();
     let dest_s = dest.display().to_string();
-    let attempts: [(&str, Vec<String>); 5] = [
-        ("7z", vec!["x".into(), "-y".into(), format!("-o{dest_s}"), src_s.clone()]),
-        ("7zz", vec!["x".into(), "-y".into(), format!("-o{dest_s}"), src_s.clone()]),
-        ("bsdtar", vec!["-xf".into(), src_s.clone(), "-C".into(), dest_s.clone()]),
-        ("unar", vec!["-f".into(), "-o".into(), dest_s.clone(), src_s.clone()]),
-        ("unrar", vec!["x".into(), "-o+".into(), "-y".into(), src_s, format!("{dest_s}/")]),
+    /// An outside tool: the program that lists the archive, its arguments and how to read its
+    /// listing, then the program and arguments that unpack.
+    struct Tool {
+        lister: &'static str,
+        list_args: Vec<String>,
+        names: fn(&str) -> Vec<String>,
+        bin: &'static str,
+        args: Vec<String>,
+    }
+    let list_7z = vec!["l".to_string(), "-slt".into(), "-ba".into(), src_s.clone()];
+    let unpack_7z = vec!["x".to_string(), "-y".into(), format!("-o{dest_s}"), src_s.clone()];
+    let attempts = [
+        Tool { lister: "7z", list_args: list_7z.clone(), names: names_7z, bin: "7z", args: unpack_7z.clone() },
+        Tool { lister: "7zz", list_args: list_7z, names: names_7z, bin: "7zz", args: unpack_7z },
+        Tool { lister: "bsdtar", list_args: vec!["-tf".into(), src_s.clone()], names: names_per_line, bin: "bsdtar", args: vec!["-xf".into(), src_s.clone(), "-C".into(), dest_s.clone()] },
+        Tool { lister: "lsar", list_args: vec![src_s.clone()], names: names_lsar, bin: "unar", args: vec!["-f".into(), "-o".into(), dest_s.clone(), src_s.clone()] },
+        Tool { lister: "unrar", list_args: vec!["lb".into(), src_s.clone()], names: names_per_line, bin: "unrar", args: vec!["x".into(), "-o+".into(), "-y".into(), src_s.clone(), format!("{dest_s}/")] },
     ];
     let mut last = String::new();
     let mut missing = true;
-    for (bin, args) in &attempts {
+    for Tool { lister, list_args, names, bin, args } in &attempts {
+        let listing = match Command::new(lister).args(list_args).output() {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(format!("{lister}: {e}")),
+            Ok(out) if !out.status.success() => {
+                missing = false;
+                let err = String::from_utf8_lossy(&out.stderr);
+                last = format!("{lister}: {}", err.lines().next().unwrap_or("could not open the archive"));
+                continue;
+            }
+            Ok(out) => out,
+        };
+        let listed = names(&String::from_utf8_lossy(&listing.stdout));
+        if listed.is_empty() {
+            return Err(format!("{src_s}: {lister} listed no entries, so none could be checked"));
+        }
+        for name in &listed {
+            rel_path(name).map_err(|e| format!("{src_s}: entry {name}: {e}"))?;
+        }
         match Command::new(bin).args(args).output() {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => return Err(format!("{bin}: {e}")),
@@ -2020,6 +2068,44 @@ mod tests {
         zip_marked(&evil, &[("Mod/Plugin.esp", b"TES4"), ("../evil.esp", b"TES4")], 12);
         let e = stage_error(&evil);
         assert!(e.contains("would land outside the folder"), "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn outside_tools_listings_give_every_entry_name() {
+        let seven = "Path = Mod/Plugin.esp\r\nFolder = -\r\nSize = 4\r\n\r\nPath = ../evil.esp\r\nFolder = -\r\n";
+        assert_eq!(super::names_7z(seven), ["Mod/Plugin.esp", "../evil.esp"]);
+        assert_eq!(super::names_per_line("Mod/Plugin.esp\n../evil.esp\n\n"), ["Mod/Plugin.esp", "../evil.esp"]);
+        assert_eq!(super::names_lsar("Evil.7z: 7-Zip\nMod/Plugin.esp\n..\\evil.esp\n"), ["Mod/Plugin.esp", "..\\evil.esp"]);
+    }
+
+    #[test]
+    fn an_outside_tools_archive_with_a_refused_name_is_not_unpacked() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-outside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(t.join("inside")).unwrap();
+        // A tar under a .7z name: no built-in reader takes it, so it goes to an outside tool.
+        let archive = t.join("inside").join("Evil.7z");
+        {
+            let mut b = tar::Builder::new(std::fs::File::create(&archive).unwrap());
+            for (name, body) in [("Mod/Plugin.esp", &b"TES4"[..]), ("../evil.esp", &b"TES4"[..])] {
+                let mut h = tar::Header::new_gnu();
+                h.as_gnu_mut().unwrap().name[..name.len()].copy_from_slice(name.as_bytes());
+                h.set_size(body.len() as u64);
+                h.set_mode(0o644);
+                h.set_entry_type(tar::EntryType::Regular);
+                h.set_cksum();
+                b.append(&h, body).unwrap();
+            }
+            b.finish().unwrap();
+        }
+        let e = stage_error(&archive);
+        let installed = ["7z", "7zz", "bsdtar", "lsar", "unrar"].iter().any(|b| Command::new(b).arg("--help").output().is_ok());
+        if installed {
+            assert!(e.contains(&super::rel_path("../evil.esp").unwrap_err()), "{e}");
+        }
+        assert!(!t.join("evil.esp").exists() && !t.join("inside").join("evil.esp").exists());
+        assert_eq!(std::fs::read_dir(t.join("inside")).unwrap().count(), 1, "only the archive");
         let _ = std::fs::remove_dir_all(&t);
     }
 
