@@ -425,8 +425,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.field_overrides.insert((b, format!("{sub}/{i}")), XVal::Num(v));
             XVal::Num(1.0)
         }
-        // The reference's face drawn again; returns 1 on an actor [documented;
-        // observed: w6d3_41_jg10_facegen_cross_npc_and_aliasing: rf=1].
+        // The reference's face drawn again [documented]; returns 1 on an actor
+        // [observed: w6d3_41_jg10_facegen_cross_npc_and_aliasing: rf=1]; returning 0 on
+        // bare or non-actor calls is [hypothesis].
         "facegenrefreshappearance" => {
             if let Some(a) = subject.filter(|&a| is_actor(g, a)) {
                 g.appearance_changes.push(crate::appearance::AppearanceChange { actor: a, reset: false });

@@ -85,13 +85,13 @@
           "requires_fixture": false,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/ext-jg10.md",
-          "spec_line": 33,
+          "spec_line": 31,
           "functions_tested": [
             "FaceGenGetNthProperty",
             "FaceGenSetNthProperty"
           ],
-          "claim": "Verify FaceGenSetNthProperty on type 1 (independent?) and type 2 (aliases type 0?) on Doc Mitchell, plus OOB type 3/-1 and non-NPC.",
-          "expected": "Confirm exact FaceGen type 0/1/2 aliasing and OOB/non-NPC behavior.",
+          "claim": "Verify FaceGenSetNthProperty on type 1 and type 2 on Doc Mitchell and FaceGenGetNthProperty/FaceGenSetNthProperty on a non-NPC form.",
+          "expected": "Confirm FaceGen type 0/1/2 readback and non-NPC return behavior.",
           "script_lines": [
             "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
             "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",

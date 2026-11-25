@@ -233,7 +233,8 @@ fn faces_highlights_land_and_menus() {
     assert_eq!(n(&mut g, "FaceGenSetNthProperty TestFace 1 30 1"), 1.0, "OOB index on valid type returns 1");
     assert_eq!(n(&mut g, "FaceGenGetNthProperty TestFace 1 30"), 0.0);
     assert_eq!(n(&mut g, "FaceGenSetNthProperty TestFace 9 0 0.5"), 0.0, "invalid type returns 0");
-    // [observed: w6d3_41: FaceGenRefreshAppearance returns 1 on an actor].
+    // [observed: w6d3_41: FaceGenRefreshAppearance returns 1 on an actor;
+    // hypothesis: bare / non-actor calls return 0].
     assert_eq!(n(&mut g, "PlayerREF.FaceGenRefreshAppearance"), 1.0);
     assert_eq!(g.take_appearance_changes().len(), 1);
     assert_eq!(n(&mut g, "FaceGenRefreshAppearance"), 0.0);
