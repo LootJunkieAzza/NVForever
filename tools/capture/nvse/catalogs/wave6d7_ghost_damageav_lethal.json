@@ -40,8 +40,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actor-flags.md",
-          "spec_line": 70,
+          "spec_file": "docs/spec-notes/unconscious.md",
+          "spec_line": 100,
           "functions_tested": [
             "SetGhost",
             "GetIsGhost",

@@ -617,10 +617,11 @@ impl Game<'_> {
     /// the hit decides, so that a kill finished by an OnHit script or by a Script effect the
     /// hit brings is still the attacker's (the boxing gloves' `DamageAV Health 10`,
     /// unconscious.md §1).
-    /// Whether scripted `DamageActorValue Health` cannot kill `r`: Child races and
-    /// Invulnerable creatures are spared, whereas `SetGhost 1` actors still die
-    /// [observed 2026-11-25: w6d7_42_ghost_child_invulnerable_and_damageav_lethal,
-    /// ghost(g=1,d=1,hp=-400.0)|chdD=0|essD=0].
+    /// Whether scripted `DamageActorValue Health` cannot kill `r`: Child races are spared,
+    /// whereas `SetGhost 1` actors still die [observed 2026-11-25:
+    /// w6d7_42_ghost_child_invulnerable_and_damageav_lethal,
+    /// dmg0(d=1,hp=0.0,dNeg=1)|ghost(g=1,d=1,hp=-400.0)|chdD=0|essD=0]; Invulnerable
+    /// creatures remain spared [hypothesis].
     fn is_damageav_immune(&self, r: FormId) -> bool {
         let invulnerable = self
             .base_data_source(r)
