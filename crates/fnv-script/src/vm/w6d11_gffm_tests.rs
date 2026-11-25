@@ -39,7 +39,7 @@ impl Host for TestHost {
 }
 
 #[test]
-fn getformfrommod_accepts_0x_hex_prefix_and_padded_forms() {
+fn getformfrommod_accepts_0x_hex_prefix_without_widening_stringtoref() {
     let mut host = TestHost { ext: ExtStore::default(), vars: HashMap::new() };
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
     let table = FunctionTable::load(&p).expect("functions.json loads");
@@ -47,11 +47,15 @@ fn getformfrommod_accepts_0x_hex_prefix_and_padded_forms() {
 ref rB
 ref rC
 ref rD
+ref rS2rBare
+ref rS2rOx
 begin GameMode
 let rA := GetFormFromMod "FalloutNV.esm" "F"
 let rB := GetFormFromMod "FalloutNV.esm" "0xF"
-let rC := GetFormFromMod "FalloutNV.esm" "0X00000f"
+let rC := GetFormFromMod "FalloutNV.esm" "00000f"
 let rD := GetFormFromMod "FalloutNV.esm" "0000000F"
+let rS2rBare := StringToRef "FalloutNV.esm:F"
+let rS2rOx := StringToRef "FalloutNV.esm:0xF"
 end
 "#;
     let compiled = compile(src, &table, &NoForms, None);
@@ -64,4 +68,6 @@ end
     assert_eq!(host.vars[&2], Value::Ref(0xF));
     assert_eq!(host.vars[&3], Value::Ref(0xF));
     assert_eq!(host.vars[&4], Value::Ref(0xF));
+    assert_eq!(host.vars[&5], Value::Ref(0xF));
+    assert_eq!(host.vars[&6], Value::Ref(0), "StringToRef must keep bare-hex-only Vm::plugin_form");
 }

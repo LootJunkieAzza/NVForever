@@ -276,10 +276,14 @@ impl Vm<'_, '_> {
                 let ok = i >= 0.0 && self.host.mod_name(i as u32).is_some();
                 num(if ok { i.trunc() } else { -1.0 })
             }
-            // [documented: GetFormFromMod; observed: "14" and "000014" give the player].
+            // [documented: GetFormFromMod; observed: "14" and "000014" give the player;
+            // observed: `w6d11_08_form_resolution_gffm_buildref_sourcemod`,
+            // `gffm(pad=1,d8=1,ox=1,lo=1,dm=1,mid=1,mmod=1)`].
             "getformfrommod" | "gffm" => {
                 let (p, h) = (text(val(self, 0)?).unwrap_or_default(), text(val(self, 1)?).unwrap_or_default());
-                Ok(Some(XVal::Ref(self.plugin_form(&p, &h).unwrap_or(0))))
+                let h = h.trim();
+                let h = h.strip_prefix("0x").unwrap_or(h);
+                Ok(Some(XVal::Ref(self.plugin_form(&p, h).unwrap_or(0))))
             }
             // [documented: StringToRef; observed: "00000014" gives the player] RefToString's
             // "Plugin:hex", or a whole FormID in hex.
@@ -1196,9 +1200,7 @@ impl Vm<'_, '_> {
     /// The form `hex` (without the mod index) of plugin `name`.
     fn plugin_form(&mut self, name: &str, hex: &str) -> Option<u32> {
         let i = self.host.mod_index(name.trim())?;
-        let trimmed = hex.trim();
-        let digits = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")).unwrap_or(trimmed);
-        let low = u32::from_str_radix(digits, 16).ok()? & 0x00FF_FFFF;
+        let low = u32::from_str_radix(hex.trim(), 16).ok()? & 0x00FF_FFFF;
         let f = (i << 24) | low;
         self.host.form_sig(f).map(|_| f)
     }
