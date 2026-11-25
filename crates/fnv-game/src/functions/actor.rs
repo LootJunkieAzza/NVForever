@@ -875,8 +875,8 @@ fn teammates_unprotected(g: &Game) -> bool {
     if g.tweaks.hardcore_tweaks { !g.tweaks.hardcore_essential_companions } else { g.hardcore() }
 }
 
-/// Essential by flag, what IsEssential reads ("Returns 1 if the calling actor is flagged
-/// as essential" [documented: GECK wiki IsEssential]): the reference's own flag
+/// Essential by flag, what `IsActorRefEssential` reads ("Returns 1 if the calling actor is
+/// flagged as essential" [documented: GECK wiki IsEssential]): the reference's own flag
 /// (SetActorRefEssential) or its base's (ACBS, changed by SetEssential). The reference
 /// flag cannot clear the base's [documented: catalogue notes of SetActorRefEssential].
 /// A teammate in Hardcore reads 0 (the SetPlayerTeammate note, [`essential`]).
@@ -912,6 +912,12 @@ pub fn is_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
     // [observed 2026-11-25: w6d7_41_essential_teammate_hardcore_and_ref_flag,
     // tm(flag=1,nhEss=1,nhDead=0,hcEss=0,hcDead=1)].
     yes(essential(g, r))
+}
+
+pub fn is_actor_ref_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    // Kept strictly on flag-only semantics so unprobed IsActorRefEssential stays unchanged.
+    yes(essential_flagged(g, r))
 }
 
 /// `actor.SetActorFullName message`: the base's name becomes the message's title, for

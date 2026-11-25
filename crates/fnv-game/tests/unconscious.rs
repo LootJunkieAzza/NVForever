@@ -218,11 +218,13 @@ fn an_essential_teammate_dies_in_hardcore_and_stays_teammate_free() {
 /// Outside Hardcore the player's teammate is spared death though no flag marks it
 /// essential (no hired companion's ACBS has the bit, #2623): it is knocked out by a hit,
 /// DamageActorValue or KillActor, and IsEssential reads 1 outside Hardcore and 0 in Hardcore
-/// or once JIP's ToggleTeammateKillable made it killable, it dies (unconscious.md §2.2a).
+/// (while IsActorRefEssential remains flag-only); in Hardcore, or once JIP's
+/// ToggleTeammateKillable made it killable, it dies (unconscious.md §2.2a).
 #[test]
 fn a_teammate_without_the_flag_is_knocked_out_outside_hardcore_and_dies_in_it() {
     const SET_PLAYER_TEAMMATE: u16 = 0x11C5;
     const IS_ESSENTIAL: u16 = 0x1162;
+    const IS_ACTOR_REF_ESSENTIAL: u16 = 0x1272;
     let f = fixture();
     // Not a teammate: the unflagged boxer dies as before.
     let mut g = game(&f);
@@ -232,6 +234,7 @@ fn a_teammate_without_the_flag_is_knocked_out_outside_hardcore_and_dies_in_it() 
     ask(&mut g, BOXER_REF, SET_PLAYER_TEAMMATE, &[num(1.0)]);
     assert!(g.is_teammate(BOXER_REF));
     assert_eq!(ask(&mut g, BOXER_REF, IS_ESSENTIAL, &[]), 1.0, "non-Hardcore teammate reads IsEssential == 1");
+    assert_eq!(ask(&mut g, BOXER_REF, IS_ACTOR_REF_ESSENTIAL, &[]), 0.0, "IsActorRefEssential stays flag-only");
     assert!(!g.hit(BOXER_REF, 10_000.0, by_player()).died);
     assert!(!g.is_dead(BOXER_REF));
     assert_eq!(g.knockout(BOXER_REF).map(|k| k.cause), Some(Cause::Essential));
