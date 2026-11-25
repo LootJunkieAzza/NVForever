@@ -4391,10 +4391,11 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
 
 **In progress** (the split of #3828, part 6, on part 5): the row and the run's switch are in; the shading below is being carried over from #3828's branch. Until then this section describes #3828's branch. Tuning variables it names (`NVF_*`) are read only in a build with the developer aids (dev_aids.rs).
 
-[design, #1503] An addition of NVForever's own, as §3.23: not a fact about the original,
+[design, #1503] An addition of NVForever's own, as §3.25: not a fact about the original,
 never a parity item. All of it is behind **Subsurface scattering**
-(`subsurface-scattering`, Graphics > Lighting and Effects; `NVF_SSS=1` / `0`; read once at
-the start); the screen-space skin pass and the hair also need Physical PBR. Which shapes
+(`subsurface-scattering`, Graphics > Lighting and Effects, after Physical lighting; read
+once at the start; greyed without Physical lighting and off in a run without it; in a build
+with the developer aids `NVF_SSS=1` / `0` overrides the row). Which shapes
 count is read from the data: skin from the skin shader and FaceGen heads, eyes from the
 eye shapes (`nif_spawn::is_eye_shape`), hair from the Hair shader flag (BSShaderFlags bit
 18: hair, beards, brows) [documented: nif.xml BSShaderFlags; nif.md §6 "Hair"]. No Skyrim
