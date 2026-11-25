@@ -36,8 +36,12 @@
 //!   interior and exterior brightness. **The Tweaks rows win** where both set the same
 //!   thing ([`with_ini`]): a Flashlight row the player has moved off its default keeps its
 //!   value over the INI's, because the player set it in game; rows at their defaults
-//!   take the INI's [design: owner decision 2026-11-24 on #3280]. The INI has no type or
-//!   shadows, so those are always the rows'.
+//!   take the INI's [design: #3280 review, maintainer decision 2026-11-24]. The INI has no
+//!   type, so that is the rows' alone, and shadows follow the Shadows row.
+//! - Its shadow depth bias is [`SPOT_DEPTH_BIAS`] / [`POINT_DEPTH_BIAS`] (Bevy's default
+//!   times 70, game units) for every flashlight, at default rows too: before the rows the
+//!   spot used Bevy's 0.02, a visible change for every player that removes the shadow
+//!   stripes (#3279) [design].
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -188,7 +192,6 @@ struct Beam {
 }
 
 impl FlashlightLook {
-    /// The light as it is drawn.
     /// The light for these rows, `pipboy` the Pip-Boy's colour now.
     fn beam(&self, pipboy: [u8; 3]) -> Beam {
         let outer_deg = self.outer_deg.clamp(1.0, 89.0);
@@ -211,7 +214,7 @@ const DOWN: f32 = 6.0;
 /// Shadow near plane, game units.
 const NEAR: f32 = 8.0;
 /// Game units to a metre, as the Pip-Boy's figures and the Range row count them.
-const UNITS_PER_METRE: f32 = 70.0;
+pub const UNITS_PER_METRE: f32 = 70.0;
 /// The shadows' depth bias, game units: Bevy's defaults put back on the metre they were
 /// chosen for. Bevy moves a surface this far towards the light, as a distance in the
 /// world, before it tests the shadow map; its defaults (0.08 for a point light, 0.02 for
@@ -348,9 +351,16 @@ pub(crate) fn configured_placement(
     t
 }
 
+/// Whether a slider's value is its default: a slider hands back a value on its step, to the
+/// thousandth (the default softness 1 - 14/30 comes back as 16/30, 3e-8 away), so a row
+/// moved and put back counts as never moved [design].
+fn at_default(v: f32, default: f32) -> bool {
+    (v - default).abs() <= default.abs().max(1.0) * 1e-4
+}
+
 /// The light for the rows `look` with an active `BetterFlashlightNVSE.ini` (module notes):
-/// the Tweaks rows win where both set the same thing [design: owner decision 2026-11-24 on
-/// #3280: the player set them in game]. A row still at its default ([`FlashlightLook`]'s
+/// the Tweaks rows win where both set the same thing [design: #3280 review, maintainer
+/// decision 2026-11-24: the player set them in game]. A row still at its default ([`FlashlightLook`]'s
 /// `Default`) gives way to the INI's value: the colour (unless the Pip-Boy colour row is
 /// on), the reach, the cone (Beam width and Softness together) and the brightness (the
 /// INI's interior or exterior Dimmer × Intensity on the built-in brightness). The INI's
@@ -361,15 +371,15 @@ fn with_ini(look: &FlashlightLook, pipboy: [u8; 3], config: &BetterFlashlightCon
     if !look.pipboy_colour && look.rgb == default.rgb {
         beam.colour = config.color;
     }
-    if look.range == default.range {
+    if at_default(look.range, default.range) {
         beam.range = config.distance;
     }
-    if look.outer_deg == default.outer_deg && look.softness == default.softness {
+    if at_default(look.outer_deg, default.outer_deg) && at_default(look.softness, default.softness) {
         let (inner, outer) = config.cone_angles_rad();
         beam.inner_deg = inner.to_degrees();
         beam.outer_deg = outer.to_degrees();
     }
-    if look.brightness == default.brightness {
+    if at_default(look.brightness, default.brightness) {
         let profile = config.profile(interior);
         beam.brightness = BRIGHTNESS * profile.dimmer * profile.intensity;
     }
@@ -453,6 +463,11 @@ fn sync(mut commands: Commands, mut flashlight: ResMut<Flashlight>, mut runtime:
             // The same type and shadows: its values change in place (the INI's flicker and
             // warm-up change the brightness every frame).
             if made_with.0 != beam {
+                // Logged but for the INI's flicker and warm-up, which change only the
+                // brightness, every frame.
+                if active.is_none() || (Beam { brightness: beam.brightness, ..made_with.0 }) != beam {
+                    log_beam(&beam);
+                }
                 made_with.0 = beam;
                 match (made(&beam, color, intensity), spot, point) {
                     (Made::Spot(l), Some(mut s), _) => *s = l,
@@ -468,6 +483,16 @@ fn sync(mut commands: Commands, mut flashlight: ResMut<Flashlight>, mut runtime:
     if current {
         return;
     }
+    log_beam(&beam);
+    let mut e = commands.spawn((Name::new("Flashlight"), PlayerFlashlight, MadeWith(beam), place));
+    match made(&beam, color, intensity) {
+        Made::Spot(l) => e.insert(l),
+        Made::Point(l) => e.insert(l),
+    };
+}
+
+/// The smoke scenario `flashlight-settings` reads this line.
+fn log_beam(beam: &Beam) {
     info!(
         "flashlight light: {}, shadows {}, colour {:?}, range {:.0}, brightness {:.2}, cone {:.1}/{:.1} degrees",
         beam.kind.name(),
@@ -478,11 +503,6 @@ fn sync(mut commands: Commands, mut flashlight: ResMut<Flashlight>, mut runtime:
         beam.inner_deg,
         beam.outer_deg
     );
-    let mut e = commands.spawn((Name::new("Flashlight"), PlayerFlashlight, MadeWith(beam), place));
-    match made(&beam, color, intensity) {
-        Made::Spot(l) => e.insert(l),
-        Made::Point(l) => e.insert(l),
-    };
 }
 
 /// Bevy's light for a [`Beam`].
@@ -729,12 +749,18 @@ mod tests {
         assert_eq!(crate::lights::flashlight_specular_scale(true, false), 1.0);
     }
 
-    /// The light with no INI and the rows at their defaults.
+    /// The light with no INI and the rows at their defaults, built from the constants and
+    /// not through `made`, which it checks.
     fn vanilla_spotlight() -> SpotLight {
-        let beam = FlashlightLook::default().beam(AMBER);
-        match made(&beam, crate::lights::display_color(beam.colour), crate::lights::lumens(beam.brightness, crate::sky::light_unit())) {
-            Made::Spot(l) => l,
-            Made::Point(_) => unreachable!(),
+        SpotLight {
+            color: crate::lights::display_color(COLOUR_RGB.map(|c| f32::from(c) / 255.0)),
+            intensity: crate::lights::lumens(BRIGHTNESS, crate::sky::light_unit()),
+            range: RANGE,
+            outer_angle: OUTER_DEG.to_radians(),
+            inner_angle: INNER_DEG.to_radians(),
+            shadow_maps_enabled: true,
+            shadow_map_near_z: NEAR,
+            ..default()
         }
     }
 
@@ -790,9 +816,10 @@ mod tests {
         assert_eq!(spot.intensity, want_s.intensity);
         assert_eq!(spot.range, want_s.range);
         assert_eq!(spot.outer_angle, want_s.outer_angle);
-        assert_eq!(spot.inner_angle, want_s.inner_angle);
+        assert!((spot.inner_angle - want_s.inner_angle).abs() < 1e-5, "{} vs {}", spot.inner_angle, want_s.inner_angle);
         assert_eq!(spot.shadow_maps_enabled, want_s.shadow_maps_enabled);
         assert_eq!(spot.shadow_map_near_z, want_s.shadow_map_near_z);
+        assert_eq!(spot.shadow_depth_bias, SPOT_DEPTH_BIAS, "a visible change from Bevy's 0.02 (module notes)");
     }
 
     #[test]
@@ -1031,7 +1058,7 @@ mod tests {
         assert!(!app.world().resource::<FlashlightRuntime>().depleted_lockout);
     }
 
-    /// Owner decision 2026-11-24 on #3280: with an active `BetterFlashlightNVSE.ini`, a
+    /// #3280 review, maintainer decision 2026-11-24: with an active `BetterFlashlightNVSE.ini`, a
     /// Tweaks Flashlight row the player has set wins over the INI's value for the same
     /// thing; rows at their defaults take the INI's, and the INI's battery and warm-up
     /// still apply.
@@ -1065,6 +1092,19 @@ mod tests {
         let mut q = app.world_mut().query_filtered::<&PointLight, With<PlayerFlashlight>>();
         let point = *q.iter(app.world()).next().expect("point flashlight");
         assert!(!point.shadow_maps_enabled && !point.affects_lightmapped_mesh_diffuse && point.range == 1500.0);
+    }
+
+    /// A slider moved and put back hands its default back on its step (the softness 14/30
+    /// as 16/30, the range to the thousandth): that is the default, so the INI's value
+    /// applies again; a row really moved still wins.
+    #[test]
+    fn a_row_put_back_to_its_default_gives_way_to_the_ini_again() {
+        let ini = BetterFlashlightConfig::parse(b"[Main]\nRenderEffects = 1\n[Flashlight]\nEnabled = 1\nAngle = 20\nSpotSize = 1.0\nDistance = 1500\nWarmupTime = 0\nFlicker = 0\n");
+        let put_back = FlashlightLook { softness: 16.0 / 30.0, range: 0.350 * 8000.0, outer_deg: 12.0 / 32.0 * 80.0, ..FlashlightLook::default() };
+        let b = with_ini(&put_back, AMBER, &ini, false, 0.0);
+        assert_eq!((b.range, b.outer_deg), (1500.0, 20.0), "put back: the INI's range and cone");
+        let moved = FlashlightLook { softness: 20.0 / 30.0, ..FlashlightLook::default() };
+        assert!((with_ini(&moved, AMBER, &ini, false, 0.0).outer_deg - 30.0).abs() < 1e-3, "moved: the rows' cone");
     }
 
     /// With the INI's flicker the light changes every frame; it is changed in place, not

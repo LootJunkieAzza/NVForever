@@ -16,7 +16,7 @@
 //! slider's part still loading.
 
 use crate::draw_distance::{self, DrawClass, DrawDistances};
-use crate::flashlight::{FlashlightLook, LightKind};
+use crate::flashlight::{FlashlightLook, LightKind, UNITS_PER_METRE};
 use crate::fly::FlyCam;
 use crate::frame_pace::{self, DisplaySync, FramePace};
 use crate::graphics::{self, Graphics};
@@ -469,8 +469,6 @@ const FLASHLIGHT_CUSTOM: &str = "Custom";
 const FLASHLIGHT_PIPBOY: &str = "Pip-Boy";
 /// The Flashlight range slider's reach at its top, game units (about 115 m).
 const FLASHLIGHT_RANGE_MAX: f32 = 8000.0;
-/// Game units to a metre, for the range's words (the built-in 2800 is about 40 m).
-const UNITS_PER_METRE: f32 = 70.0;
 /// The Flashlight brightness slider's brightness at its top: four times the default.
 const FLASHLIGHT_BRIGHTNESS_MAX: f32 = 4.0 * crate::flashlight::BRIGHTNESS;
 /// The Beam width slider's half-angle at its top, degrees (a cone 160 degrees across).

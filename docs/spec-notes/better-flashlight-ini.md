@@ -26,8 +26,8 @@ the native player spotlight described in `world.md` §8.)
   (`";disable to turn the mod off entirely"`)], NVForever leaves its vanilla Pip-Boy
   `SpotLight` (the Tweaks Flashlight rows' light, `FlashlightLook`; at their defaults
   `COLOUR_RGB`, `BRIGHTNESS`, `RANGE`, `OUTER_DEG`, `INNER_DEG`, head/eye `placement`) and toggle behavior completely unchanged [design: NVForever's own gate].
-- **Precedence vs. NVForever Tweaks Flashlight settings (`#3280`)** [design: owner
-  decision 2026-11-24 on #3280]: when an active `Data\Config\BetterFlashlightNVSE.ini`
+- **Precedence vs. NVForever Tweaks Flashlight settings (`#3280`)** [design: #3280 review,
+  maintainer decision 2026-11-24]: when an active `Data\Config\BetterFlashlightNVSE.ini`
   (`[Main] RenderEffects = 1` and `[Flashlight] Enabled = 1`) and NVForever's Tweaks >
   Quality of Life > Flashlight rows both set the same thing, **the Tweaks rows win**,
   because the player set them in game. A row the player has moved off its default keeps
@@ -68,10 +68,13 @@ Every stored field has a live consumer in `engine/nvforever/src/flashlight.rs`:
   uses half-angle or full-angle is a visual/shader boundary not stated in the INI
   comment]), `inner_angle` preserving NVForever's vanilla `14 / 30` softness ratio
   [design: NVForever's own inner-cone mapping], and `range` (`Distance`, game units).
-  `configured_spotlight` preserves `shadow_maps_enabled = true` and
-  `shadow_map_near_z = NEAR` so native wall shadow occlusion and `#3121` first-person
-  anti-washout scaling (`lights/display_shader.rs`) continue to apply [design: NVForever's
-  own renderer policy].
+  `flashlight.rs` `with_ini` and `made` keep `shadow_map_near_z = NEAR`, and shadows follow
+  the Tweaks Shadows row (on by default), so native wall shadow occlusion and `#3121`
+  first-person anti-washout scaling (`lights/display_shader.rs`) apply to the INI's light as
+  to the rows' [design: NVForever's own renderer policy]. The light's shadow depth bias is
+  Bevy's default times 70 (1.4 for a spot, 5.6 for a point light, game units) for every
+  flashlight, INI or not: it removes shadow stripes, and is a visible change from Bevy's
+  0.02 [design, #3279].
 - `[Flashlight] ColorR` (shipped `2`), `ColorG` (shipped `1.85`), `ColorB` (shipped `1.65`,
   `";color (values above 1.0 are HDR). lower the warm bias (R,G) or raise B for a cooler beam"`):
   [documented: Better Flashlight NVSE v1.1.5 `Data\Config\BetterFlashlightNVSE.ini`].

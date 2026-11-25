@@ -522,7 +522,6 @@ mod shared_table_tests {
         ("flashlight-beam-softness", "Flashlight"),
     ];
 
-
     /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).
     const TWEAK_PREFIX: &str = "tweak-";
 
