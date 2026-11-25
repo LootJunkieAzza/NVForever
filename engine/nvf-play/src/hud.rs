@@ -273,11 +273,14 @@ pub struct HudView {
     pub armor: Option<f32>,
     /// A kill camera has the view, which hides the HUD (`crate::kill_cam`).
     pub kill_cam: bool,
+    /// Why the HUD is not shown, in words for the log (`crate::xp_meter`'s level-up wait,
+    /// #3882); `None` while it is shown.
+    pub hidden: Option<&'static str>,
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false }
+        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false, hidden: None }
     }
 }
 
@@ -563,7 +566,22 @@ fn gather(
         let why = if camera { "the kill camera has the view" } else { "the VATS attacks play" };
         info!("hud: {}", if killcam { format!("hidden: {why}") } else { "back after the kill camera".to_string() });
     }
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam, kill_cam: killcam, ..view.clone() };
+    let hidden = if *state.get() != PlayState::Playing {
+        Some("the game is not in play (a menu, a conversation or a loading screen)")
+    } else if held {
+        Some("a script holds the player's movement (DisablePlayerControls)")
+    } else if creating {
+        Some("the character creator is up")
+    } else if posed {
+        Some("an idle holds the camera")
+    } else if wheel_open {
+        Some("the weapon wheel is open")
+    } else if killcam {
+        Some("a kill camera or VATS playback has the view")
+    } else {
+        None
+    };
+    let mut now = HudView { shown: hidden.is_none(), kill_cam: killcam, hidden, ..view.clone() };
     // [design, #2659] Only the classic enemy piece survives playback, including its
     // attack camera. All other HUD visibility rules keep using `shown`.
     now.enemy_shown = *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open

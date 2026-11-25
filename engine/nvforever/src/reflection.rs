@@ -161,8 +161,9 @@ fn setup_reflection(mut commands: Commands, mut images: ResMut<Assets<Image>>, w
         Projection::Perspective(PerspectiveProjection::default()),
         crate::sky::initial_fog(),
         // The world without the water; the player's first-person arms and seen body as
-        // before they had layers of their own.
-        RenderLayers::from_layers(&[0, crate::sky::ARMS_LAYER, crate::sky::BODY_LAYER]),
+        // before they had layers of their own; the weather's flat clouds while the volumetric
+        // clouds take their place in the main view (empty otherwise).
+        RenderLayers::from_layers(&[0, crate::sky::ARMS_LAYER, crate::sky::BODY_LAYER, crate::volumetric_clouds::FLAT_CLOUD_LAYER]),
     ));
     commands.insert_resource(Reflection { image });
 }

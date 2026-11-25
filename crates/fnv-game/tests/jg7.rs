@@ -205,4 +205,8 @@ fn colours_into_variables() {
     let hsv = s(&mut g, "float h\nfloat sat\nfloat v\nRGBtoHSV 0 0 255 h sat v\nSetFunctionValue (sv_Construct \"%g %g %g\" h sat v)");
     assert_eq!(hsv, "240 1 1");
     assert_eq!(fnv_game::nvse_jg7::rgb_to_hsv(255.0, 255.0, 255.0), [0.0, 0.0, 1.0]);
+    // Observed whole-channel rounding and unclamped RGBtoHSV [observed: w6_t1_07_jg_hsv_rgb].
+    assert_eq!(fnv_game::nvse_jg7::hsv_to_rgb(30.0, 0.5, 0.5), [128.0, 96.0, 64.0]);
+    let oob = fnv_game::nvse_jg7::rgb_to_hsv(300.0, -10.0, 128.0);
+    assert!((oob[0] - 333.290).abs() < 1e-3 && (oob[1] - 1.0333).abs() < 1e-3 && (oob[2] - 1.1765).abs() < 1e-3, "{oob:?}");
 }
