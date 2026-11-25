@@ -374,4 +374,11 @@ fn jip_get_actor_value_modifier_filter_codes_0_1_2_3() {
     assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 1"), 0.0);
     assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 2"), 2.0);
     assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 3"), 2.0);
+    // With a non-zero temporary/effect modifier alongside the permanent ModAV modifier:
+    g.extra.entry(FormId::PLAYER_REF).or_default().av_temporary.insert(fnv_game::actor_values::STRENGTH, 3.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 0"), 0.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 1"), 3.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 2"), 2.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength 3"), 5.0);
+    assert_eq!(n(&mut g, "player.GetActorValueModifier Strength"), 5.0);
 }

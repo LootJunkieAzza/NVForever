@@ -800,8 +800,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             })
         }
         // `av [type]`: the modifiers, not the damage [observed: gaps5, Health reads 0 on
-        // every filter before and after DamageAV 30]; 0 the permanent one, 1 the
-        // temporary one, none both [hypothesis: the filters' meanings].
+        // every filter before and after DamageAV 30]; JIP filter codes [observed 2026-11-25:
+        // w6d7_02 & w6d7p3_02]: 0 = 0.0, 1 = temporary/effect modifier, 2 = permanent
+        // ModAV modifier, 3 or omitted = perm + temp.
         "getactorvaluemodifier" => {
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let code = match args.first() {
