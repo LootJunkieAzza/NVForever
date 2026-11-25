@@ -17,6 +17,7 @@ use serde_json::Value as Json;
 const STAT: u32 = 0x800;
 const TACT: u32 = 0x801;
 const FOOD: u32 = 0x802;
+const WEAP: u32 = 0x803;
 const ROOM: u32 = 0x900;
 const MARKER: u32 = 0x910;
 const RADIO: u32 = 0x911;
@@ -38,6 +39,7 @@ fn fixture() -> Fixture {
     // [documented: schemas/fnv ALCH ENIT].
     let enit = [5i32.to_le_bytes().to_vec(), vec![2, 0, 0, 0], 0u32.to_le_bytes().to_vec(), 0f32.to_le_bytes().to_vec(), 0u32.to_le_bytes().to_vec()].concat();
     let alch = record(b"ALCH", 0, FOOD, &[sub(b"EDID", z("TestFood")), sub(b"ENIT", enit)]);
+    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("TestPistol"))]);
     let room = record(b"CELL", 0, ROOM, &[sub(b"EDID", z("TestRoom")), sub(b"DATA", vec![1])]);
     let marker = record(
         b"REFR",
@@ -109,6 +111,7 @@ fn fixture() -> Fixture {
         top(b"STAT", &stat),
         top(b"TACT", &tact),
         top(b"ALCH", &alch),
+        top(b"WEAP", &weap),
         top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))])),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[room, children].concat()))),
     ]
@@ -303,4 +306,28 @@ fn hotkeys_ini_writers_and_forms() {
         q(&mut g, "array_var a\nlet a := GetFormMods TestFood\nSetFunctionValue a[0]"),
         XVal::Str("Lutana2Test.esm".into())
     );
+}
+
+/// `SetWeapon1stPersonModel` accepts `STAT` models (and `TempCloneForm` `WEAP` isolation),
+/// ignores non-`STAT` forms and explicit null `0`, and clears on omitted arg
+/// [observed: `w6d2_01_weapon_1st_person_model_edges`].
+#[test]
+fn set_weapon_1st_person_model_validates_stat_null_omit_and_clone() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetWeapon1stPersonModel TestPistol 0 TestStatic");
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), f64::from(STAT));
+    // Explicit null 0 and non-STAT (ALCH) are no-ops.
+    q(&mut g, "SetWeapon1stPersonModel TestPistol 0 0");
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), f64::from(STAT));
+    q(&mut g, "SetWeapon1stPersonModel TestPistol 0 TestFood");
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), f64::from(STAT));
+    // TempCloneForm isolation.
+    let XVal::Ref(cl) = q(&mut g, "SetFunctionValue (TempCloneForm TestPistol 0)") else { panic!("clone") };
+    q(&mut g, &format!("SetWeapon1stPersonModel (StringToRef \"{cl:08X}\") 0"));
+    assert_eq!(n(&mut g, &format!("GetWeapon1stPersonModel (StringToRef \"{cl:08X}\") 0")), 0.0);
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), f64::from(STAT));
+    // Omitted 3rd arg clears.
+    q(&mut g, "SetWeapon1stPersonModel TestPistol 0");
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), 0.0);
 }

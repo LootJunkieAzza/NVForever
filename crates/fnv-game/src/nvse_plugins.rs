@@ -431,7 +431,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // gr_10mmP.txt]. A model argument that is no form (an empty reference, a missing
         // master's form) changes nothing, as before [hypothesis: the original's no-op].
         "setweapon1stpersonmodel" => {
-            let Some(w) = form(args, 0) else { return Some(Ok(zero)) };
+            let Some(w) = form(args, 0).filter(|&w| g.data.sig(g.unclone(w)) == Some(*b"WEAP")) else { return Some(Ok(zero)) };
             let sub = match num(args, 1, -1.0) as i64 {
                 0 => "WNAM/".to_string(),
                 k @ 1..=7 => format!("WNM{k}/"),
@@ -439,7 +439,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             };
             let model = match args.get(2) {
                 None => 0,
-                Some(_) => match form(args, 2) {
+                Some(_) => match form(args, 2).filter(|&m| g.data.sig(g.unclone(m)) == Some(*b"STAT")) {
                     Some(m) => m.0,
                     None => return Some(Ok(zero)),
                 },

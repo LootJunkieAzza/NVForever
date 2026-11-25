@@ -423,13 +423,20 @@ for each effect, and how it fits a long description.
 - **The setters**: SetWeaponModel `weapon mask path` sets `MODL` (0) or `MWD1`–`MWD7`
   (1–7) [documented: SetWeaponModel's table]; SetModelPath sets `MODL` [documented];
   SetWeapon1stPersonModel `weapon trait [model]` sets `WNAM` (0) or `WNM1`–`WNM7` (1–7)
-  [documented: SetWeapon1stPersonModel]. With no model it clears that form, so first
-  person draws the third-person model the weapon has for the combination (§2)
+  [documented: SetWeapon1stPersonModel]. With no model it clears that form (`omit=1`), so
+  first person draws the third-person model the weapon has for the combination (§2)
   [hypothesis: WAP Year One's script files set every `MODL`/`MWD` model of a weapon with
   SetWeaponModel and then call SetWeapon1stPersonModel with no model for each of 0–7,
-  which only means something as a clear; observed: its `gr_10mmP.txt`]. A model argument
-  that is no form (an empty reference, a missing master's form) changes nothing
-  [hypothesis: the original's no-op for a form it cannot resolve].
+  which only means something as a clear; observed: its `gr_10mmP.txt`]. Explicit null
+  (`0`, `null=1`) and non-`STAT` replacement forms (`bad=1`) change nothing, out-of-range
+  traits return `0` (`oob=1/1`), and `TempCloneForm` `WEAP` edits stay isolated from the
+  original (`cl=1,orig=1`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN
+  57.30 + JohnnyGuitarNVSE 528, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10
+  official base masters, isolated clean-room staging copy (read-only probe; zero writes to
+  game install or Saves), `w6d2_01_weapon_1st_person_model_edges`
+  (`tools/capture/nvse/catalogs/wave6d2_set_weapon_1st_person_stat_check.json`):
+  `PROBE|w6d2_01_weapon_1st_person_model_edges|m0z=0,m1z=0,oob=1/1|set=1,null=1,bad=1,omit=1|cl=1,orig=1`;
+  zero DLL, PDB, or third-party source consulted].
 - **Drawn**: the changes hold for the session (`fnv_game::Game::weapon_model_changes`);
   the renderer copies them into its record view (`engine/nvforever/src/weapon_models.rs`),
   so the player's weapon in both views and an NPC's weapon taken up afterwards are drawn
