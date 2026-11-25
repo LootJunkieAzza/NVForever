@@ -511,3 +511,5 @@ captured figures); smoke `perk-better-healing`.
 ```text
 PROBE|w6d6p2_15_ep56_ep58_and_other_actor|ep56(10,kn,gr,sw)=13.0,18.0,38.0,18.0|ep58(sg,kn,10)=10.0,15.0,0.0|prf=120.0|nnj(1,2)=11.50,125.0
 ```
+
+- When both optional form arguments (`tabs[0]` and `tabs[1]`) resolve to actor references (including leveled `LVLN`/`LVLC` and `TempCloneForm` actors), `GetPerkModifier` prefers `tabs[1]` over `tabs[0]` as `other` [design].

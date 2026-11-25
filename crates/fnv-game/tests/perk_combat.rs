@@ -441,42 +441,67 @@ fn set_nth_perk_entry_value1_changes_the_entry_points_value() {
 
 #[test]
 fn getperkmodifier_passes_target_actor_as_tab0_other() {
-    // Tab-0 GetDetected (45) == 0 against target NPC ref (as TheProfessional / Ninja).
+    // Tab-0 GetDetected(PlayerREF) run on Target (as TheProfessional / Ninja).
     let f = fixture();
     let mut g = game(&f);
-    let p_prof = FormId(0x7B0);
-    g.lu3.perk_edits.insert(
-        p_prof,
-        fnv_game::data::PerkDef {
-            name: "ProfTest".into(),
-            playable: true,
-            min_level: 1,
-            ranks: 1,
-            entries: vec![fnv_game::data::PerkEntry {
-                effect: fnv_game::data::PerkEffect::EntryPoint(EntryPointDef {
-                    point: perks::CALCULATE_MY_CRITICAL_HIT_DAMAGE,
-                    function: perks::MULTIPLY_VALUE,
-                    value: Some(1.2),
-                    param_type: Some(1),
-                    conditions: Some(vec![(0, fnv_game::cond::Condition {
-                        cmp: fnv_game::cond::Cmp::Eq,
-                        or: false,
-                        run_on: fnv_game::cond::RunOn::Subject,
-                        function: 45,
-                        params: vec![],
-                        rhs: fnv_game::cond::Operand::Value(0.0),
-                    })]),
-                    ..Default::default()
-                }),
+    // NPC_REF has detected the player; OTHER_REF has not.
+    g.detection.record(
+        FormId(NPC_REF),
+        FormId::PLAYER_REF,
+        fnv_game::detection::Detection { band: fnv_game::detection::Band::Detected, ..Default::default() },
+        0.0,
+    );
+    let mk_det_perk = |name: &str, rhs: f64| fnv_game::data::PerkDef {
+        name: name.into(),
+        playable: true,
+        min_level: 1,
+        ranks: 1,
+        entries: vec![fnv_game::data::PerkEntry {
+            effect: fnv_game::data::PerkEffect::EntryPoint(EntryPointDef {
+                point: perks::CALCULATE_MY_CRITICAL_HIT_DAMAGE,
+                function: perks::MULTIPLY_VALUE,
+                value: Some(1.2),
+                param_type: Some(1),
+                conditions: Some(vec![(0, fnv_game::cond::Condition {
+                    cmp: fnv_game::cond::Cmp::Eq,
+                    or: false,
+                    run_on: fnv_game::cond::RunOn::Target,
+                    function: 45,
+                    params: vec![fnv_script::vm::ArgValue::Value(fnv_script::vm::Value::Ref(FormId::PLAYER_REF.0))],
+                    rhs: fnv_game::cond::Operand::Value(rhs),
+                })]),
                 ..Default::default()
-            }],
+            }),
             ..Default::default()
-        },
-    );
+        }],
+        ..Default::default()
+    };
+
+    // Case 1: GetDetected(PlayerREF) == 0 (undetected target gets 1.2x; detected target stays 100.0).
+    let p_prof = FormId(0x7B0);
+    g.lu3.perk_edits.insert(p_prof, mk_det_perk("ProfTest", 0.0));
     perks::gain_rank(&mut g, p_prof);
-    let script = format!(
-        "Begin Function {{ }}\nref rNpc\nlet rNpc := {NPC_REF:#x}\nSetFunctionValue (PlayerREF.GetPerkModifier 2 100 Revolver rNpc)\nEnd\n"
-    );
-    let res = g.run_query(&script, fnv_game::game::RunCtx::default()).unwrap();
-    assert!(matches!(res, fnv_script::vm::XVal::Num(v) if (v - 120.0).abs() < 1e-4), "got {res:?}");
+    let query_target = |g: &mut Game, target_ref: Option<u32>| {
+        let call = match target_ref {
+            Some(r) => format!("ref rNpc\nlet rNpc := {r:#x}\nSetFunctionValue (PlayerREF.GetPerkModifier 2 100 Revolver rNpc)"),
+            None => "SetFunctionValue (PlayerREF.GetPerkModifier 2 100 Revolver)".into(),
+        };
+        let script = format!("Begin Function {{ }}\n{call}\nEnd\n");
+        match g.run_query(&script, fnv_game::game::RunCtx::default()).unwrap() {
+            fnv_script::vm::XVal::Num(v) => v,
+            other => panic!("expected Num, got {other:?}"),
+        }
+    };
+    assert!((query_target(&mut g, Some(OTHER_REF)) - 120.0).abs() < 1e-4, "undetected target should trigger perk");
+    assert!((query_target(&mut g, Some(NPC_REF)) - 100.0).abs() < 1e-4, "detected target must fail GetDetected == 0");
+
+    // Case 2: GetDetected(PlayerREF) == 1 (requires matching detected target ref; fails for
+    // undetected target and when target ref is omitted so other == None).
+    g.player.perks.clear();
+    let p_seen = FormId(0x7B1);
+    g.lu3.perk_edits.insert(p_seen, mk_det_perk("SeenTest", 1.0));
+    perks::gain_rank(&mut g, p_seen);
+    assert!((query_target(&mut g, Some(NPC_REF)) - 120.0).abs() < 1e-4, "detected target should pass GetDetected == 1");
+    assert!((query_target(&mut g, Some(OTHER_REF)) - 100.0).abs() < 1e-4, "undetected target must fail GetDetected == 1");
+    assert!((query_target(&mut g, None) - 100.0).abs() < 1e-4, "missing target ref must not match RunOn::Target");
 }

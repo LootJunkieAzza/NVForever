@@ -409,10 +409,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     let tabs = [form(args, 2), form(args, 3)];
                     let is_actor = |f: FormId| {
                         f == FormId::PLAYER_REF
-                            || crate::functions::base_of(g, f)
-                                .and_then(|b| g.data.sig(b))
-                                .is_some_and(|s| s == *b"NPC_" || s == *b"CREA")
+                            || crate::functions::base_of(g, f).is_some_and(|b| {
+                                let raw = g.unclone(b);
+                                g.template_source(raw, f, |_| false).is_some()
+                                    || g.data.sig(raw).is_some_and(|s| s == *b"NPC_" || s == *b"CREA")
+                            })
                     };
+                    // Prefer tabs[1] over tabs[0] when both are actor refs [design].
                     let other = tabs[1].filter(|&f| is_actor(f)).or_else(|| tabs[0].filter(|&f| is_actor(f)));
                     XVal::Num(g.entry_point_with_other(a, pt, &tabs, other, v).0)
                 }
