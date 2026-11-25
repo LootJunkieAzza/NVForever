@@ -275,6 +275,21 @@ fn game_file(path: &str) -> Option<Vec<u8>> {
     std::fs::read(p).ok()
 }
 
+/// A loose file on disk relative to the Fallout folder (never reading inside BSA
+/// archives), matching MD5File and SHA1File [observed: w6d3p2_16].
+fn loose_game_file(path: &str) -> Option<Vec<u8>> {
+    if !safe(path) {
+        return None;
+    }
+    let lower = path.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("data\\").or_else(|| lower.strip_prefix("data/")) {
+        return crate::mod_files::read_loose_data_file(&path[path.len() - rest.len()..]);
+    }
+    let dir = crate::mod_files::data_dir()?;
+    let p = dir.parent()?.join(path.replace('\\', "/"));
+    std::fs::read(p).ok()
+}
+
 /// MD5 of `data` [documented: RFC 1321].
 pub fn md5(data: &[u8]) -> [u8; 16] {
     const S: [u32; 64] = [
@@ -508,8 +523,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // ---- files [documented: MD5File, SHA1File; observed: upper-case hex (probe set
         // jg8); hypothesis: "" for a file that cannot be read].
-        "md5file" => XVal::Str(text(args, 0).and_then(|p| game_file(&p)).map(|b| hex(&md5(&b))).unwrap_or_default()),
-        "sha1file" => XVal::Str(text(args, 0).and_then(|p| game_file(&p)).map(|b| hex(&sha1(&b))).unwrap_or_default()),
+        "md5file" => XVal::Str(text(args, 0).and_then(|p| loose_game_file(&p)).map(|b| hex(&md5(&b))).unwrap_or_default()),
+        "sha1file" => XVal::Str(text(args, 0).and_then(|p| loose_game_file(&p)).map(|b| hex(&sha1(&b))).unwrap_or_default()),
         // `name`: an archive the game loaded, by its file name in Data, any case
         // [documented: IsBSALoaded; the host lists them, `mod_files::Roots::archives`;
         // observed: a name with `Data\` before it reads 0 (probe set jg8)].

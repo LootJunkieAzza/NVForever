@@ -121,10 +121,16 @@ pub(crate) fn udf_data_path(path: &str) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("\\").to_ascii_lowercase())
 }
 
+/// A loose Data file's bytes from the read roots on disk (NVForever's layer before the
+/// game's Data), never falling back to BSA archives.
+pub fn read_loose_data_file(path: &str) -> Option<Vec<u8>> {
+    roots().read.iter().filter_map(|root| on_disk_any_case(root, path)).find_map(|p| std::fs::read(p).ok())
+}
+
 /// A Data file's bytes: the first read root's loose copy (NVForever's layer before the
 /// game's Data), else through the host (archives included).
 pub fn read_data_file(path: &str) -> Option<Vec<u8>> {
-    roots().read.iter().filter_map(|root| on_disk_any_case(root, path)).find_map(|p| std::fs::read(p).ok()).or_else(|| read_data(path))
+    read_loose_data_file(path).or_else(|| read_data(path))
 }
 
 /// [`on_disk`], each part of the path matched to what is on disk in any case, as Windows
