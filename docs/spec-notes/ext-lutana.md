@@ -244,3 +244,6 @@ Probe questions (set `lu3`, every change put back):
 8. `setvar`: SetVariableFloat's result and the value read back (hypothesis `0 7`).
 9. `events`: OnCellEnter and OnCellExit called as functions (hypothesis `0 0`, or they
    do not compile).
+
+### `LeveledListAddForm` level gating on `LVLI` vs `LVLN` (`w6d7_36`)
+- **Actor leveled lists accept levels above player level** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_36_leveled_list_add_form_above_pc_level_and_order` in `tools/capture/nvse/catalogs/wave6d7_leveled_add_form_lvln.json`]: at player level `1`, `LeveledListAddForm` rejects level `50` on `LVLI` (`4->4, got50=0`) while accepting `0` and `1` (`4->5->6`), and accepts level `50` on `LVLN` (`7->8`) (`PROBE|w6d7_36_leveled_list_add_form_above_pc_level_and_order|lvli(n=4->4->5->6,got50=0)|lvln(n=7->8)`).

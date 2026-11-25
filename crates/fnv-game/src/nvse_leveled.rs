@@ -226,7 +226,9 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         "leveledlistaddform" => {
             let Some(item) = form(args, 1) else { return Some(Ok(zero)) };
             let level = num(args, 2, 1.0).clamp(0.0, f64::from(u16::MAX)) as u16;
-            if f64::from(level) > g.player_level() {
+            // Above-player-level rejection applies to LVLI, not LVLN/LVLC
+            // [observed 2026-11-25: w6d7_36_leveled_list_add_form_above_pc_level_and_order].
+            if g.data.sig(f) == Some(*b"LVLI") && f64::from(level) > g.player_level() {
                 return Some(Ok(zero));
             }
             let count = num(args, 3, 1.0).clamp(0.0, f64::from(u16::MAX)) as u16;
@@ -417,6 +419,10 @@ mod actor_addition_tests {
         let world = World::restore(&f.forms, &f.refs, &saved.sim).unwrap();
         let back = Game::restore(&f.data, world, g.cfg, &saved).unwrap();
         assert_eq!(back.lev_list(FormId(0x821)).unwrap().entries.len(), 2);
+        // LeveledListAddForm accepts above-player-level entries on LVLN [observed: w6d7_36].
+        let before = g.lev_list(FormId(0x821)).unwrap().entries.len();
+        call(&mut g, "leveledlistaddform", &[XVal::Ref(0x821), XVal::Ref(0x802), XVal::Num(50.0), XVal::Num(1.0), XVal::Num(1.0)]).unwrap().unwrap();
+        assert_eq!(g.lev_list(FormId(0x821)).unwrap().entries.len(), before + 1);
         assert_eq!(selected(&back, 0x821, 1), Some(FormId(0x801)));
         assert_eq!(selected(&back, 0x821, 5), Some(FormId(0x802)));
     }
