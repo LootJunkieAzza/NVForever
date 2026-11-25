@@ -34,7 +34,7 @@
 //! by category. One already in another slot swaps with it; a slot can be emptied.
 
 use crate::interface::{amber, bc_supported, u};
-use crate::start_menu::{color, highlight, text, wrapped, Faces, Shade, ITEM, LINE};
+use crate::start_menu::{color, text, wrapped, Faces, Shade, ITEM};
 use crate::ui_pointer::{Button, PointerState};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
@@ -59,7 +59,17 @@ const BROWSE_ROWS: usize = 8;
 const MAX_TEXT: usize = 40;
 /// The Browse table's columns: heading and width (interface units), adding up to the
 /// panel's inner width.
-const COLUMNS: [(&str, f32); 7] = [("", 40.0), ("Name", 250.0), ("Location", 170.0), ("Players", 90.0), ("Ping", 90.0), ("Region", 80.0), ("", 52.0)];
+const COLUMNS: [(&str, f32); 7] = [("Fav", 50.0), ("Name", 222.0), ("Location", 160.0), ("Players", 112.0), ("Ping", 100.0), ("Region", 80.0), ("", 48.0)];
+/// A Browse cell drawn as a shape, not text: the favourite marker and the lock.
+const FAV_MARK: &str = "\u{1}fav";
+const LOCK_MARK: &str = "\u{1}lock";
+/// The panel's and the boxes' colours, as the bug report form has them (nvforever
+/// `reports/form.rs`, the owner's model for these screens, 2026-11-25): a dim panel border,
+/// faint box borders, bright and filled when chosen.
+const BRIGHT: f32 = 255.0;
+const DIM: f32 = 170.0;
+const FAINT: f32 = 90.0;
+const FILL: f32 = 40.0;
 /// Players a lobby takes: the host and `nvf_coop::net::MAX_GUESTS` guests (nvforever's
 /// co-op tests check the two agree).
 pub const LOBBY_PLAYERS: usize = 6;
@@ -222,8 +232,6 @@ pub struct LobbyScreen {
     closed: Option<u32>,
     /// The Emotes menu is up: `Some(slot)` while choosing the emote for that slot.
     emotes: Option<Option<usize>>,
-    /// The host's Remove a Player list is up.
-    removing: bool,
     /// The text fields other than the code (`typed`).
     join_password: String,
     title: String,
@@ -254,10 +262,8 @@ impl LobbyScreen {
         self.selected = 0;
         self.saves = None;
         self.emotes = None;
-        self.removing = false;
         self.browsing = false;
         self.open_row = None;
-        self.hide_empty = true;
         self.opened = self.frame;
     }
 
@@ -308,18 +314,16 @@ enum Act {
     Admit(u32),
     /// Turn it away.
     TurnAway(u32),
-    /// Open the host's Remove a Player list.
-    Remove,
     /// Remove this guest (its id); it may join again.
     Kick(u8),
     /// Remove it and keep it out while the lobby lasts.
     Ban(u8),
     /// A text field, chosen to type in.
     Field(FieldId),
-    /// The host's Private / Public.
-    Visibility,
-    /// The Join screen's other tab (Code, Browse).
-    Tab,
+    /// The host's Private (false) or Public (true).
+    SetPublic(bool),
+    /// The Join screen's tab: Code (false) or Browse (true).
+    ShowTab(bool),
     Refresh,
     HideEmpty,
     HideFull,
@@ -367,47 +371,45 @@ impl Plugin for LobbyPlugin {
     }
 }
 
-/// The buttons and rows that can be chosen, in order.
+/// The buttons, fields and rows that can be chosen, in the order the screen shows them (left
+/// to right, top to bottom): the arrow keys walk them in this order.
 fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
     match (screen.mode, screen.emotes) {
         (Some(Mode::Host), Some(None)) => return (0..crate::emotes::SLOTS).map(Act::Slot).chain([Act::Back]).collect(),
         (Some(Mode::Host), Some(Some(_))) => return screen.installed.iter().map(|&e| Act::Equip(e)).chain([Act::Empty, Act::Back]).collect(),
         _ => {}
     }
-    if screen.mode == Some(Mode::Host) && screen.removing && !state.guest {
-        return state.guests.iter().flat_map(|(id, _)| [Act::Kick(*id), Act::Ban(*id)]).chain([Act::Back]).collect();
-    }
     match screen.mode {
         None => Vec::new(),
-        Some(Mode::Host) if state.guest => vec![Act::Leave, Act::Emotes, Act::Back],
+        Some(Mode::Host) if state.guest => vec![Act::Emotes, Act::Back, Act::Leave],
         Some(Mode::Host) => match state.hosting {
-            Hosting::Off => [Act::Visibility]
+            Hosting::Off => [Act::SetPublic(false), Act::SetPublic(true)]
                 .into_iter()
                 .chain(screen.public.then_some(Act::Field(FieldId::Title)))
-                .chain([Act::Field(FieldId::HostPassword), Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back])
+                .chain([Act::Field(FieldId::HostPassword), Act::FriendlyFire, Act::Emotes, Act::Back, Act::Create])
                 .collect(),
             Hosting::Opening => vec![Act::Back],
             Hosting::Open { .. } => state
                 .asking
                 .iter()
                 .flat_map(|(p, _)| [Act::Admit(*p), Act::TurnAway(*p)])
-                .chain((!state.guests.is_empty()).then_some(Act::Remove))
-                .chain([Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back])
+                .chain(state.guests.iter().flat_map(|(id, _)| [Act::Kick(*id), Act::Ban(*id)]))
+                .chain([Act::FriendlyFire, Act::Emotes, Act::Back, Act::Close])
                 .collect(),
         },
         Some(Mode::Join) => match (&state.joining, &screen.saves) {
             (Joining::Found, Some(saves)) => saves.iter().enumerate().filter(|(_, s)| s.ok).map(|(i, _)| Act::Save(i)).chain([Act::Back]).collect(),
             (Joining::Finding | Joining::Found, _) => vec![Act::Back],
             (Joining::Idle | Joining::Failed(_), _) if screen.browsing => browse_acts(screen, state),
-            (Joining::Idle | Joining::Failed(_), _) => vec![Act::Tab, Act::Field(FieldId::Code), Act::Field(FieldId::JoinPassword), Act::Join, Act::Back],
+            (Joining::Idle | Joining::Failed(_), _) => vec![Act::ShowTab(false), Act::ShowTab(true), Act::Field(FieldId::Code), Act::Field(FieldId::JoinPassword), Act::Back, Act::Join],
         },
     }
 }
 
-/// The Browse tab's choices: the tab, the filters, search, then each row shown (and the
-/// opened one's own choices under it).
+/// The Browse tab's choices: the tabs, the toolbar, then each row shown (the opened one's
+/// own choices under it), then Back.
 fn browse_acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
-    let mut v = vec![Act::Tab, Act::Refresh, Act::HideEmpty, Act::HideFull, Act::AllVersions, Act::Field(FieldId::Search)];
+    let mut v = vec![Act::ShowTab(false), Act::ShowTab(true), Act::Refresh, Act::HideEmpty, Act::HideFull, Act::AllVersions, Act::Field(FieldId::Search)];
     let rows = shown(screen, state);
     for (i, l) in rows.iter().enumerate() {
         v.push(Act::Lobby(i));
@@ -583,15 +585,12 @@ fn input(
                     Some(Act::Create)
                 }
                 "close" => Some(Act::Close),
-                "public" => {
-                    screen.public = true;
-                    None
-                }
+                "public" => Some(Act::SetPublic(true)),
                 "browse" => {
                     if screen.mode.is_none() {
                         screen.open(Mode::Join);
                     }
-                    (!screen.browsing).then_some(Act::Tab)
+                    Some(Act::ShowTab(true))
                 }
                 "refresh" => Some(Act::Refresh),
                 "join-row" => Some(Act::JoinRow),
@@ -735,18 +734,8 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
                 screen.selected = n;
             }
         }
-        Act::Remove => {
-            screen.removing = true;
-            screen.selected = 0;
-        }
         Act::Kick(id) | Act::Ban(id) => {
             asks.write(LobbyRequest::Kick { id, ban: matches!(act, Act::Ban(_)) });
-            screen.removing = false;
-            screen.selected = 0;
-        }
-        Act::Back if screen.removing => {
-            screen.removing = false;
-            screen.selected = 0;
         }
         Act::Back if screen.emotes.is_some() => {
             let back_to = screen.emotes.flatten();
@@ -759,12 +748,13 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
             screen.host_password.clear();
         }
         Act::Field(_) => {}
-        Act::Visibility => screen.public = !screen.public,
-        Act::Tab => {
-            screen.browsing = !screen.browsing;
-            screen.selected = 0;
-            screen.open_row = None;
-            if screen.browsing {
+        Act::SetPublic(on) => screen.public = on,
+        Act::ShowTab(browse) => {
+            if screen.browsing != browse {
+                screen.browsing = browse;
+                screen.open_row = None;
+            }
+            if browse {
                 asks.write(LobbyRequest::Browse(screen.browse_query()));
             }
         }
@@ -853,25 +843,60 @@ fn past_opening(path: &std::path::Path, h: &fnv_save::SaveHeader, intro: Option<
 enum Piece {
     Title(String),
     Line(String, Shade),
+    /// The lobby code, large, in its own box.
     Big(String),
-    /// A text field: its choice, what it shows (a password as stars).
-    Field(Act, String),
     Button(Act, String),
     Row(Act, String, Shade),
     /// The Browse table's heading, and a row of it: one text per column ([`COLUMNS`]).
     Head(Vec<String>),
     Cols(Act, Vec<String>, Shade),
+    /// Items side by side on one line ([`Item`]); a [`Item::Gap`] sends the rest to the right.
+    Bar(Vec<Item>),
+    /// Empty height (the Browse table's rows not filled, so the footer stays put).
+    Space(f32),
+}
+
+/// One item of a [`Piece::Bar`].
+#[derive(Debug, Clone, PartialEq)]
+enum Item {
+    /// A boxed button.
+    Button(Act, String, Look),
+    /// A field this wide (0: the room left on the line).
+    Field(Act, String, f32),
+    /// Plain words (a label), this wide (0: as wide as the words).
+    Text(String, f32),
+    /// The rest of the line's items go to its right end.
+    Gap,
+}
+
+/// How a boxed button looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Look {
+    Normal,
+    /// A toggle that is on, the tab shown, the segment chosen: filled.
+    On,
+    /// The screen's main action (Create Lobby, Join): filled and bright.
+    Primary,
+    /// Ends something (Close Lobby, Leave Lobby): its words bright, its box brighter.
+    Warning,
 }
 
 /// A field's text as shown: a password as stars.
-fn field(screen: &LobbyScreen, f: FieldId) -> Piece {
+fn field_text(screen: &LobbyScreen, f: FieldId) -> String {
     let t = screen.text(f);
-    let shown = match f {
+    match f {
         FieldId::JoinPassword | FieldId::HostPassword | FieldId::RowPassword => "*".repeat(t.chars().count()),
         _ => t.to_string(),
-    };
-    Piece::Field(Act::Field(f), shown)
+    }
 }
+
+/// A labelled field on a line: the label, then the field to the line's end.
+fn labelled(screen: &LobbyScreen, label: &str, f: FieldId) -> Piece {
+    Piece::Bar(vec![Item::Text(label.into(), LABEL), Item::Field(Act::Field(f), field_text(screen, f), 0.0)])
+}
+
+/// A labelled field's label width.
+const LABEL: f32 = 230.0;
 
 fn on_off(on: bool) -> &'static str {
     if on {
@@ -886,21 +911,19 @@ fn friendly_fire_label(on: bool) -> String {
     format!("Friendly Fire: {}", on_off(on))
 }
 
+fn look(on: bool) -> Look {
+    if on {
+        Look::On
+    } else {
+        Look::Normal
+    }
+}
+
 fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
     use Piece::*;
     let mut v = Vec::new();
     if let (Some(Mode::Host), Some(slot)) = (screen.mode, screen.emotes) {
         emote_pieces(&mut v, screen, slot);
-        v.push(Button(Act::Back, "Back".into()));
-        return v;
-    }
-    if screen.mode == Some(Mode::Host) && screen.removing && !state.guest {
-        v.push(Title("Remove a Player".into()));
-        v.push(Line("Kick: they leave and may join again. Ban: they cannot come back while this lobby is open.".into(), Shade::Dim));
-        for (id, name) in &state.guests {
-            v.push(Row(Act::Kick(*id), format!("Kick {name}"), Shade::Bright));
-            v.push(Row(Act::Ban(*id), format!("Ban {name}"), Shade::Bright));
-        }
         v.push(Button(Act::Back, "Back".into()));
         return v;
     }
@@ -912,26 +935,30 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
             v.push(Line(host.map_or_else(|| "You are in another player's lobby.".to_string(), |h| format!("You are in {h}'s lobby.")), Shade::Bright));
             players(&mut v, state);
             v.push(Line(format!("Friendly fire: {} (the host's choice)", on_off(state.friendly_fire)), Shade::Dim));
-            v.push(Button(Act::Leave, "Leave Lobby".into()));
-            v.push(Button(Act::Emotes, "Emotes".into()));
+            v.push(Bar(vec![Item::Button(Act::Emotes, "Emotes".into(), Look::Normal), Item::Gap, Item::Button(Act::Back, "Back".into(), Look::Normal), Item::Button(Act::Leave, "Leave Lobby".into(), Look::Warning)]));
         }
         Some(Mode::Host) => {
             v.push(Title("Co-op Lobby".into()));
             match &state.hosting {
                 Hosting::Off => {
                     v.push(Line("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.".into(), Shade::Bright));
-                    v.push(Button(Act::Visibility, format!("Visibility: {}", if screen.public { "Public" } else { "Private" })));
+                    v.push(Bar(vec![
+                        Item::Text("Visibility:".into(), LABEL),
+                        Item::Button(Act::SetPublic(false), "Private".into(), look(!screen.public)),
+                        Item::Button(Act::SetPublic(true), "Public".into(), look(screen.public)),
+                    ]));
                     if screen.public {
-                        v.push(Line("Listed in the server browser as (empty: your name's game):".into(), Shade::Dim));
-                        v.push(field(screen, FieldId::Title));
+                        v.push(labelled(screen, "Title:", FieldId::Title));
                     }
-                    v.push(Line("Password (empty: none):".into(), Shade::Dim));
-                    v.push(field(screen, FieldId::HostPassword));
-                    v.push(Button(Act::Create, "Create Lobby".into()));
-                    v.push(Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire)));
-                    v.push(Button(Act::Emotes, "Emotes".into()));
+                    v.push(labelled(screen, "Password:", FieldId::HostPassword));
+                    v.push(Line(if screen.public { "Listed in the server browser; empty title: your name's game. Empty password: none." } else { "Not listed: friends join with the code. Empty password: none." }.into(), Shade::Dim));
+                    v.push(Bar(vec![Item::Text("Options:".into(), LABEL), Item::Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire), look(state.friendly_fire))]));
+                    v.push(Bar(vec![Item::Button(Act::Emotes, "Emotes".into(), Look::Normal), Item::Button(Act::Back, "Back".into(), Look::Normal), Item::Gap, Item::Button(Act::Create, "Create Lobby".into(), Look::Primary)]));
                 }
-                Hosting::Opening => v.push(Line("Asking your router to let friends in...".into(), Shade::Bright)),
+                Hosting::Opening => {
+                    v.push(Line("Asking your router to let friends in...".into(), Shade::Bright));
+                    v.push(Bar(vec![Item::Gap, Item::Button(Act::Back, "Back".into(), Look::Normal)]));
+                }
                 Hosting::Open { code, note } => {
                     v.push(Line("Lobby code:".into(), Shade::Dim));
                     v.push(Big(code.clone()));
@@ -946,41 +973,55 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                         (false, false) => {}
                     }
                     for (peer, name) in &state.asking {
-                        v.push(Line(format!("{name} wants to join."), Shade::Bright));
-                        v.push(Button(Act::Admit(*peer), format!("Let {name} In")));
-                        v.push(Button(Act::TurnAway(*peer), "Turn Away".into()));
+                        v.push(Bar(vec![
+                            Item::Text(format!("{name} wants to join."), 0.0),
+                            Item::Gap,
+                            Item::Button(Act::Admit(*peer), "Let In".into(), Look::Primary),
+                            Item::Button(Act::TurnAway(*peer), "Turn Away".into(), Look::Normal),
+                        ]));
                     }
-                    players(&mut v, state);
-                    if !state.guests.is_empty() {
-                        v.push(Button(Act::Remove, "Remove a Player".into()));
+                    v.push(Line(format!("Players ({} of {LOBBY_PLAYERS}):", state.players.len()), Shade::Dim));
+                    if let Some(me) = state.players.first() {
+                        v.push(Line(format!("  {me}"), Shade::Bright));
                     }
-                    v.push(Button(Act::Close, "Close Lobby".into()));
-                    v.push(Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire)));
-                    v.push(Button(Act::Emotes, "Emotes".into()));
+                    for (id, line) in &state.guests {
+                        v.push(Bar(vec![
+                            Item::Text(format!("  {line}"), 0.0),
+                            Item::Gap,
+                            Item::Button(Act::Kick(*id), "Kick".into(), Look::Normal),
+                            Item::Button(Act::Ban(*id), "Ban".into(), Look::Warning),
+                        ]));
+                    }
+                    v.push(Bar(vec![
+                        Item::Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire), look(state.friendly_fire)),
+                        Item::Button(Act::Emotes, "Emotes".into(), Look::Normal),
+                        Item::Gap,
+                        Item::Button(Act::Back, "Back".into(), Look::Normal),
+                        Item::Button(Act::Close, "Close Lobby".into(), Look::Warning),
+                    ]));
                 }
             }
         }
         Some(Mode::Join) => {
             v.push(Title("Join Lobby".into()));
             match (&state.joining, &screen.saves) {
-                (Joining::Idle | Joining::Failed(_), _) if screen.browsing => {
-                    browse_pieces(&mut v, screen, state);
-                    if let Joining::Failed(why) = &state.joining {
-                        v.push(Line(why.clone(), Shade::Bright));
-                    }
-                }
                 (Joining::Idle | Joining::Failed(_), _) => {
-                    v.push(Button(Act::Tab, "Browse Public Lobbies".into()));
-                    v.push(Line("Type the host's lobby code:".into(), Shade::Bright));
-                    v.push(field(screen, FieldId::Code));
-                    v.push(Line("Password, if the lobby has one:".into(), Shade::Dim));
-                    v.push(field(screen, FieldId::JoinPassword));
-                    if let Joining::Failed(why) = &state.joining {
-                        v.push(Line(why.clone(), Shade::Bright));
+                    v.push(Bar(vec![Item::Button(Act::ShowTab(false), "Join by Code".into(), look(!screen.browsing)), Item::Button(Act::ShowTab(true), "Browse Public Lobbies".into(), look(screen.browsing))]));
+                    if screen.browsing {
+                        browse_pieces(&mut v, screen, state);
+                    } else {
+                        v.push(labelled(screen, "Lobby code:", FieldId::Code));
+                        v.push(labelled(screen, "Password (if any):", FieldId::JoinPassword));
+                        if let Joining::Failed(why) = &state.joining {
+                            v.push(Line(why.clone(), Shade::Bright));
+                        }
+                        v.push(Bar(vec![Item::Button(Act::Back, "Back".into(), Look::Normal), Item::Gap, Item::Button(Act::Join, "Join".into(), Look::Primary)]));
                     }
-                    v.push(Button(Act::Join, "Join".into()));
                 }
-                (Joining::Finding, _) | (Joining::Found, None) => v.push(Line("Looking for the host...".into(), Shade::Bright)),
+                (Joining::Finding, _) | (Joining::Found, None) => {
+                    v.push(Line("Looking for the host...".into(), Shade::Bright));
+                    v.push(Bar(vec![Item::Button(Act::Back, "Back".into(), Look::Normal)]));
+                }
                 (Joining::Found, Some(saves)) => {
                     v.push(Line("Found the host. Choose the save you play with:".into(), Shade::Bright));
                     if !saves.iter().any(|s| s.ok) {
@@ -996,73 +1037,133 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     for (i, s) in saves.iter().enumerate().skip(first).take(SAVE_ROWS) {
                         v.push(Row(Act::Save(i), s.line.clone(), if s.ok { Shade::Bright } else { Shade::Dim }));
                     }
+                    v.push(Bar(vec![Item::Button(Act::Back, "Back".into(), Look::Normal)]));
                 }
             }
         }
     }
-    if screen.mode.is_some() {
-        v.push(Button(Act::Back, "Back".into()));
-    }
     v
 }
 
-/// The Browse tab: the filters, then the table of public lobbies, a window of
-/// [`BROWSE_ROWS`] round the one chosen, the opened one's choices under it.
+/// The Browse tab: a toolbar, the table of public lobbies in a fixed area of
+/// [`BROWSE_ROWS`] rows (a window round the one chosen; the opened one's details and choices
+/// under it), then the footer.
 fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
     use Piece::*;
-    let tick = |on: bool| if on { "[x]" } else { "[ ]" };
-    v.push(Button(Act::Tab, "Join by Code".into()));
-    v.push(Button(Act::Refresh, "Refresh".into()));
-    v.push(Row(Act::HideEmpty, format!("{} Hide empty lobbies", tick(screen.hide_empty)), Shade::Bright));
-    v.push(Row(Act::HideFull, format!("{} Hide full lobbies", tick(screen.hide_full)), Shade::Bright));
-    v.push(Row(Act::AllVersions, format!("{} Show lobbies of other versions and load orders", tick(screen.all_versions)), Shade::Bright));
-    v.push(Line("Search:".into(), Shade::Dim));
-    v.push(field(screen, FieldId::Search));
+    v.push(Bar(vec![
+        Item::Button(Act::Refresh, "Refresh".into(), Look::Normal),
+        Item::Button(Act::HideEmpty, "Hide Empty".into(), look(screen.hide_empty)),
+        Item::Button(Act::HideFull, "Hide Full".into(), look(screen.hide_full)),
+        Item::Button(Act::AllVersions, "Other Versions".into(), look(screen.all_versions)),
+        Item::Field(Act::Field(FieldId::Search), field_text(screen, FieldId::Search), 0.0),
+    ]));
     let rows = shown(screen, state);
-    match &state.browse {
-        Browse::Idle | Browse::Loading => v.push(Line("Asking for the public lobbies...".into(), Shade::Bright)),
-        Browse::Failed(why) => v.push(Line(why.clone(), Shade::Bright)),
+    // The table's area: the heading and BROWSE_ROWS rows, filled or not, so the footer
+    // stays put (the opened row's details come out of it).
+    let area = ITEM + BROWSE_ROWS as f32 * ROW_H;
+    let mut used = 0.0;
+    let all = match &state.browse {
+        Browse::Idle | Browse::Loading => {
+            v.push(Line("Asking for the public lobbies...".into(), Shade::Bright));
+            used += line_h(1);
+            0
+        }
+        Browse::Failed(why) => {
+            v.push(Line(why.clone(), Shade::Bright));
+            used += line_h(2);
+            0
+        }
         Browse::Ready(all) if rows.is_empty() => {
             let why = if all.is_empty() { "No public lobbies right now. Host one, or join a friend's by code." } else { "No public lobby matches the filters." };
             v.push(Line(why.into(), Shade::Bright));
+            used += line_h(1);
+            all.len()
         }
         Browse::Ready(all) => {
             v.push(Head(COLUMNS.iter().map(|(h, _)| h.to_string()).collect()));
+            used += ITEM;
             let list = acts(screen, state);
             let chosen_row = match list.get(screen.selected) {
                 Some(Act::Lobby(i)) => *i,
                 _ => rows.iter().position(|l| Some(&l.code) == screen.open_row.as_ref()).unwrap_or(0),
             };
-            let first = chosen_row.saturating_sub(BROWSE_ROWS - 1).min(rows.len().saturating_sub(BROWSE_ROWS));
-            for (i, l) in rows.iter().enumerate().skip(first).take(BROWSE_ROWS) {
+            // An opened row takes the room of three rows below it.
+            let room = if screen.open_row.is_some() { BROWSE_ROWS - 3 } else { BROWSE_ROWS };
+            let first = chosen_row.saturating_sub(room - 1).min(rows.len().saturating_sub(room));
+            for (i, l) in rows.iter().enumerate().skip(first).take(room) {
                 let ping = l.ping_ms.map_or_else(|| "?".to_string(), |p| format!("~{p} ms"));
                 let cells = vec![
-                    if l.favourite { "<3".into() } else { String::new() },
+                    if l.favourite { FAV_MARK.into() } else { String::new() },
                     l.title.clone(),
                     l.place.clone(),
                     format!("{}/{}", l.players, l.max_players),
                     ping,
                     l.region.clone(),
-                    if l.locked { "Lock".into() } else { String::new() },
+                    if l.locked { LOCK_MARK.into() } else { String::new() },
                 ];
                 v.push(Cols(Act::Lobby(i), cells, if l.cannot.is_none() { Shade::Bright } else { Shade::Dim }));
+                used += ROW_H;
                 if screen.open_row.as_deref() == Some(l.code.as_str()) {
                     let ff = if l.friendly_fire { "on" } else { "off" };
-                    v.push(Line(format!("Host: {}. Friendly fire {ff}. Ping is estimated from distance.", l.host_name), Shade::Dim));
+                    v.push(Line(format!("    Host: {}. Friendly fire {ff}. Ping is estimated from distance.", l.host_name), Shade::Dim));
+                    used += line_h(1);
+                    let mut bar = Vec::new();
                     match &l.cannot {
-                        Some(why) => v.push(Line(why.clone(), Shade::Bright)),
-                        None => {
-                            if l.locked {
-                                v.push(Line("Password:".into(), Shade::Dim));
-                                v.push(field(screen, FieldId::RowPassword));
-                            }
-                            v.push(Button(Act::JoinRow, "Join".into()));
+                        Some(why) => bar.push(Item::Text(why.clone(), 0.0)),
+                        None if l.locked => {
+                            bar.push(Item::Text("    Password:".into(), 150.0));
+                            bar.push(Item::Field(Act::Field(FieldId::RowPassword), field_text(screen, FieldId::RowPassword), 220.0));
                         }
+                        None => {}
                     }
-                    v.push(Button(Act::Favourite, if l.favourite { "Remove from Favourites".into() } else { "Add to Favourites".into() }));
+                    bar.push(Item::Gap);
+                    if l.cannot.is_none() {
+                        bar.push(Item::Button(Act::JoinRow, "Join".into(), Look::Primary));
+                    }
+                    bar.push(Item::Button(Act::Favourite, if l.favourite { "Unfavourite".into() } else { "Favourite".into() }, Look::Normal));
+                    v.push(Bar(bar));
+                    used += BAR_H;
+                    // A join from this row that failed (a wrong password): said here.
+                    if let Joining::Failed(why) = &state.joining {
+                        v.push(Line(format!("    {why}"), Shade::Bright));
+                        used += line_h(1);
+                    }
                 }
             }
-            v.push(Line(format!("{} of {} public lobbies shown", rows.len(), all.len()), Shade::Dim));
+            all.len()
+        }
+    };
+    if used < area {
+        v.push(Space(area - used));
+    }
+    let tail = if all > 0 { format!("{} of {all} shown", rows.len()) } else { String::new() };
+    v.push(Bar(vec![Item::Button(Act::Back, "Back".into(), Look::Normal), Item::Gap, Item::Text(tail, 0.0)]));
+}
+
+/// The heights of a Browse row, a bar and a line of small print (`n` lines).
+const ROW_H: f32 = ITEM - 2.0;
+const BAR_H: f32 = ITEM + 8.0;
+fn line_h(n: usize) -> f32 {
+    n as f32 * STEP + 6.0
+}
+
+/// A Browse cell's shape.
+#[derive(Clone, Copy)]
+enum Mark {
+    Favourite,
+    Lock,
+}
+
+/// The favourite marker (a filled diamond) or the lock (a body under a shackle), drawn as
+/// boxes: the menu fonts may have no such glyphs.
+fn marker(m: &mut ChildSpawnerCommands, mark: Mark, c: Color) {
+    match mark {
+        Mark::Favourite => {
+            m.spawn((Node { position_type: PositionType::Absolute, left: u(10.0), top: u(10.0), width: u(14.0), height: u(14.0), ..default() }, BackgroundColor(c), UiTransform::from_rotation(Rot2::degrees(45.0))));
+        }
+        Mark::Lock => {
+            m.spawn((Node { position_type: PositionType::Absolute, left: u(13.0), top: u(5.0), width: u(12.0), height: u(10.0), border: UiRect::all(Val::Px(2.0)), ..default() }, BorderColor::all(c)));
+            m.spawn((Node { position_type: PositionType::Absolute, left: u(9.0), top: u(14.0), width: u(20.0), height: u(14.0), ..default() }, BackgroundColor(c)));
         }
     }
 }
@@ -1118,10 +1219,6 @@ fn players(v: &mut Vec<Piece>, state: &LobbyState) {
     }
 }
 
-/// The panel's backing: dark, fading out at its edges, no border [design: the owner's
-/// pick for our own UI, 2026-11-06, mockup 1B; `crate::interface::soft_backing_image`].
-const BACKING: f32 = 0.92;
-const FEATHER: f32 = 30.0;
 
 #[allow(clippy::too_many_arguments)]
 fn draw(
@@ -1161,9 +1258,12 @@ fn draw(
     let height = |p: &Piece| match p {
         Piece::Title(_) => ITEM + 8.0,
         Piece::Line(t, _) => f.small.font.lines(t, Some(inner)).len().max(1) as f32 * STEP + 6.0,
-        Piece::Big(_) => ITEM + 16.0,
-        Piece::Field(..) | Piece::Button(..) => ITEM + 6.0,
-        Piece::Row(..) | Piece::Head(_) | Piece::Cols(..) => ITEM,
+        Piece::Big(_) => ITEM + 24.0,
+        Piece::Button(..) => ITEM + 6.0,
+        Piece::Row(..) | Piece::Head(_) => ITEM,
+        Piece::Cols(..) => ROW_H,
+        Piece::Bar(_) => BAR_H,
+        Piece::Space(h) => *h,
     };
     let total: f32 = now.iter().map(height).sum::<f32>() + 2.0 * PAD;
     commands.spawn((LobbyRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(120))).with_children(|root| {
@@ -1178,9 +1278,8 @@ fn draw(
             height: u(total),
             ..default()
         };
-        let backing = images.add(crate::interface::soft_backing_image(WIDTH, total, FEATHER, BACKING));
-        root.spawn(panel).with_children(|p| {
-            p.spawn((crate::interface::soft_backing_node(0.0, 0.0, WIDTH, total, FEATHER), ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(backing) }));
+        let panel = Node { border: UiRect::all(Val::Px(2.0)), ..panel };
+        root.spawn((panel, crate::pause::form_panel(), BorderColor::all(amber(DIM)))).with_children(|p| {
             let mut y = PAD;
             for piece in &now {
                 let h = height(piece);
@@ -1194,45 +1293,119 @@ fn draw(
                     }
                     Piece::Big(t) => {
                         let w = f.entry.font.width(t);
-                        p.spawn(at(inner, ITEM + 8.0)).with_children(|n| text(n, &f.entry, t, ((inner - w) / 2.0).max(0.0), ITEM * 0.8, color(Shade::Bright)));
+                        let bw = (w + 80.0).min(inner);
+                        let node = Node { position_type: PositionType::Absolute, left: u(PAD + (inner - bw) / 2.0), top: u(y), width: u(bw), height: u(ITEM + 16.0), border: UiRect::all(Val::Px(1.0)), ..default() };
+                        p.spawn((node, BorderColor::all(amber(DIM)))).with_children(|n| text(n, &f.entry, t, 40.0, ITEM * 0.85, color(Shade::Bright)));
                     }
-                    Piece::Field(act, t) => {
-                        let on = Some(*act) == chosen;
-                        let node = Node { border: UiRect::all(u(LINE)), ..at(inner, ITEM) };
-                        let shown = if on { format!("{t}_") } else { t.clone() };
-                        let mut e = if on { p.spawn(highlight(node)) } else { p.spawn(node) };
-                        e.insert((BorderColor::all(amber(200.0)), Button, *act)).with_children(|n| text(n, &f.entry, &shown, 12.0, ITEM * 0.72, color(Shade::Bright)));
+                    Piece::Space(_) => {}
+                    Piece::Bar(items) => {
+                        // The widths: buttons as wide as their words, a field 0 wide takes the
+                        // room left; after a Gap the items sit at the line's right end.
+                        let gap = 10.0;
+                        let width = |it: &Item| match it {
+                            Item::Button(_, t, _) => f.small.font.width(t) + 30.0,
+                            Item::Field(_, _, w) => *w,
+                            Item::Text(t, w) => if *w > 0.0 { *w } else { f.small.font.width(t) + 8.0 },
+                            Item::Gap => 0.0,
+                        };
+                        let fixed: f32 = items.iter().map(width).sum::<f32>() + gap * items.len().saturating_sub(1) as f32;
+                        let free = (inner - fixed).max(0.0);
+                        let fills = items.iter().filter(|i| matches!(i, Item::Field(_, _, w) if *w == 0.0)).count();
+                        let fill = if fills > 0 { free / fills as f32 } else { 0.0 };
+                        let gap_at = items.iter().position(|i| *i == Item::Gap);
+                        let right: f32 = gap_at.map_or(0.0, |g| items[g + 1..].iter().map(|i| width(i) + gap).sum::<f32>());
+                        let mut x = 0.0;
+                        for (k, it) in items.iter().enumerate() {
+                            if Some(k) == gap_at {
+                                x = (inner - right + gap).max(x);
+                                continue;
+                            }
+                            let w = match it {
+                                Item::Field(_, _, w) if *w == 0.0 => fill,
+                                _ => width(it),
+                            };
+                            let at = |w: f32| Node { position_type: PositionType::Absolute, left: u(PAD + x), top: u(y + 2.0), width: u(w), height: u(ITEM - 4.0), ..default() };
+                            match it {
+                                Item::Text(t, _) => {
+                                    p.spawn(at(w)).with_children(|n| text(n, &f.small, t, 0.0, ITEM * 0.62, color(Shade::Dim)));
+                                }
+                                Item::Field(act, t, _) => {
+                                    let on = Some(*act) == chosen;
+                                    let shown = if on { format!("{t}_") } else { t.clone() };
+                                    let node = Node { border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..at(w) };
+                                    p.spawn((node, BorderColor::all(amber(if on { BRIGHT } else { FAINT })), Button, *act)).with_children(|n| text(n, &f.small, &shown, 10.0, ITEM * 0.62, color(Shade::Bright)));
+                                }
+                                Item::Button(act, t, look) => {
+                                    let on = Some(*act) == chosen;
+                                    let (border, fill, words) = match look {
+                                        Look::Normal => (if on { BRIGHT } else { FAINT }, on.then_some(FILL), Shade::Bright),
+                                        Look::On => (if on { BRIGHT } else { DIM }, Some(if on { FILL * 2.0 } else { FILL * 1.5 }), Shade::Bright),
+                                        Look::Primary => (BRIGHT, Some(if on { FILL * 2.5 } else { FILL * 1.5 }), Shade::Bright),
+                                        Look::Warning => (if on { BRIGHT } else { DIM }, on.then_some(FILL), Shade::Bright),
+                                    };
+                                    let node = Node { border: UiRect::all(Val::Px(if *look == Look::Warning { 2.0 } else { 1.0 })), ..at(w) };
+                                    let mut e = p.spawn((node, BorderColor::all(amber(border)), Button, *act));
+                                    if let Some(a) = fill {
+                                        e.insert(BackgroundColor(amber(a)));
+                                    }
+                                    e.with_children(|n| text(n, &f.small, t, 15.0, ITEM * 0.62, color(words)));
+                                }
+                                Item::Gap => {}
+                            }
+                            x += w + gap;
+                        }
                     }
                     Piece::Head(cells) | Piece::Cols(_, cells, _) => {
                         let (shade, act) = match piece {
                             Piece::Cols(a, _, s) => (*s, Some(*a)),
                             _ => (Shade::Dim, None),
                         };
-                        let node = at(inner, ITEM);
-                        let mut e = if act.is_some() && act == chosen { p.spawn(highlight(node)) } else { p.spawn(node) };
+                        let on = act.is_some() && act == chosen;
+                        let node = Node { border: UiRect::all(Val::Px(if act.is_some() { 1.0 } else { 0.0 })), ..at(inner, ITEM - 4.0) };
+                        let mut e = p.spawn((node, BorderColor::all(amber(if on { BRIGHT } else { FAINT }))));
+                        if on {
+                            e.insert(BackgroundColor(amber(FILL)));
+                        }
                         if let Some(a) = act {
                             e.insert((Button, a));
                         }
                         e.with_children(|n| {
                             let mut x = 8.0;
                             for ((_, w), c) in COLUMNS.iter().zip(cells) {
-                                let fit: String = c.chars().take((w / 11.0) as usize).collect();
-                                n.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(0.0), width: u(*w), height: u(ITEM), ..default() }).with_children(|m| text(m, &f.small, &fit, 0.0, ITEM * 0.66, color(shade)));
+                                let cell = Node { position_type: PositionType::Absolute, left: u(x), top: u(0.0), width: u(*w - 8.0), height: u(ITEM - 6.0), overflow: Overflow::clip(), ..default() };
+                                match c.as_str() {
+                                    FAV_MARK => {
+                                        n.spawn(cell).with_children(|m| marker(m, Mark::Favourite, color(shade)));
+                                    }
+                                    LOCK_MARK => {
+                                        n.spawn(cell).with_children(|m| marker(m, Mark::Lock, color(shade)));
+                                    }
+                                    _ => {
+                                        n.spawn(cell).with_children(|m| text(m, &f.small, c, 0.0, ITEM * 0.62, color(shade)));
+                                    }
+                                }
                                 x += w;
                             }
                         });
                     }
                     Piece::Button(act, t) | Piece::Row(act, t, _) => {
                         let shade = if let Piece::Row(_, _, s) = piece { *s } else { Shade::Bright };
-                        let (face, w) = if matches!(piece, Piece::Row(..)) { (&f.small, inner) } else { (&f.entry, 320.0) };
-                        let node = at(w, ITEM);
-                        let base = if matches!(piece, Piece::Row(..)) { ITEM * 0.66 } else { ITEM * 0.72 };
-                        let mut e = if Some(*act) == chosen { p.spawn(highlight(node)) } else { p.spawn(node) };
+                        let row = matches!(piece, Piece::Row(..));
+                        // A button is a box as wide as its words; a row spans the panel.
+                        let face = if row { &f.small } else { &f.entry };
+                        let w = if row { inner } else { (f.entry.font.width(t) + 28.0).clamp(120.0, inner) };
+                        let node = Node { border: UiRect::all(Val::Px(1.0)), ..at(w, ITEM - 4.0) };
+                        let base = if row { ITEM * 0.62 } else { ITEM * 0.68 };
+                        let on = Some(*act) == chosen;
+                        let mut e = p.spawn((node, BorderColor::all(amber(if on { BRIGHT } else { FAINT }))));
+                        if on {
+                            e.insert(BackgroundColor(amber(FILL)));
+                        }
                         // Rows that cannot join take no pointer.
                         if shade == Shade::Bright {
                             e.insert((Button, *act));
                         }
-                        e.with_children(|n| text(n, face, t, 12.0, base, color(shade)));
+                        e.with_children(|n| text(n, face, t, 14.0, base, color(shade)));
                     }
                 }
                 y += h;
@@ -1255,16 +1428,16 @@ mod tests {
     fn a_guest_sees_the_players_and_can_leave_not_create() {
         let screen = opened(Mode::Host);
         let state = LobbyState { players: vec!["Cass (you)".into(), "Veronica (host)".into()], guest: true, ..default() };
-        assert_eq!(acts(&screen, &state), vec![Act::Leave, Act::Emotes, Act::Back]);
+        assert_eq!(acts(&screen, &state), vec![Act::Emotes, Act::Back, Act::Leave]);
         let p = pieces(&screen, &state);
         assert!(p.contains(&Piece::Line("You are in Veronica's lobby.".into(), Shade::Bright)));
         assert!(p.contains(&Piece::Line("  Cass (you)".into(), Shade::Bright)) && p.contains(&Piece::Line("  Veronica (host)".into(), Shade::Bright)));
-        assert!(p.contains(&Piece::Button(Act::Leave, "Leave Lobby".into())));
-        assert!(!p.iter().any(|x| matches!(x, Piece::Button(Act::Create | Act::Close, _))), "nothing of the host's");
+        assert!(bar_has(&p, Act::Leave));
+        assert!(!bar_has(&p, Act::Create) && !bar_has(&p, Act::Close), "nothing of the host's");
         // Left: the normal choice again.
         assert!(p.contains(&Piece::Line("Friendly fire: Off (the host's choice)".into(), Shade::Dim)));
         let alone = LobbyState::default();
-        assert_eq!(acts(&screen, &alone), vec![Act::Visibility, Act::Field(FieldId::HostPassword), Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back]);
+        assert_eq!(acts(&screen, &alone), vec![Act::SetPublic(false), Act::SetPublic(true), Act::Field(FieldId::HostPassword), Act::FriendlyFire, Act::Emotes, Act::Back, Act::Create]);
     }
 
     #[test]
@@ -1272,11 +1445,11 @@ mod tests {
         let screen = opened(Mode::Host);
         let state = LobbyState { hosting: Hosting::Open { code: "ABCD-EFGH".into(), note: None }, players: vec!["Veronica (host, you)".into(), "Cass".into()], ..default() };
         let p = pieces(&screen, &state);
-        assert!(p.contains(&Piece::Line("  Cass".into(), Shade::Bright)));
-        assert_eq!(acts(&screen, &state), vec![Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]);
-        assert!(p.contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: Off".into())));
+        assert!(p.contains(&Piece::Line("  Veronica (host, you)".into(), Shade::Bright)));
+        assert_eq!(acts(&screen, &state), vec![Act::FriendlyFire, Act::Emotes, Act::Back, Act::Close]);
+        assert!(bar_item(&p, Act::FriendlyFire).is_some_and(|i| matches!(i, Item::Button(_, t, Look::Normal) if t == "Friendly Fire: Off")));
         let on = LobbyState { friendly_fire: true, ..state };
-        assert!(pieces(&screen, &on).contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: On".into())));
+        assert!(bar_item(&pieces(&screen, &on), Act::FriendlyFire).is_some_and(|i| matches!(i, Item::Button(_, t, Look::On) if t == "Friendly Fire: On")));
     }
 
     /// Join approval: a player asking to join is named, with a button to let it in and one
@@ -1286,26 +1459,19 @@ mod tests {
         let screen = opened(Mode::Host);
         let state = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, players: vec!["Veronica (host, you)".into()], asking: vec![(4, "Cass".into())], ..default() };
         let p = pieces(&screen, &state);
-        assert!(p.contains(&Piece::Line("Cass wants to join.".into(), Shade::Bright)));
-        assert!(p.contains(&Piece::Button(Act::Admit(4), "Let Cass In".into())));
-        assert!(p.contains(&Piece::Button(Act::TurnAway(4), "Turn Away".into())));
-        assert_eq!(acts(&screen, &state), vec![Act::Admit(4), Act::TurnAway(4), Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]);
+        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("Cass wants to join.".into(), 0.0)) && i.contains(&Item::Button(Act::Admit(4), "Let In".into(), Look::Primary)))));
+        assert!(bar_has(&p, Act::TurnAway(4)));
+        assert_eq!(acts(&screen, &state), vec![Act::Admit(4), Act::TurnAway(4), Act::FriendlyFire, Act::Emotes, Act::Back, Act::Close]);
     }
 
-    /// Kick and Ban: Remove a Player shows with guests in the lobby, and lists each with
-    /// Kick and Ban; choosing one asks the network side and closes the list.
+    /// Kick and Ban sit on each guest's line, its path and ping in the words.
     #[test]
-    fn the_host_removes_a_player() {
-        let mut screen = opened(Mode::Host);
-        let alone = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, players: vec!["Veronica (host, you)".into()], ..default() };
-        assert!(!acts(&screen, &alone).contains(&Act::Remove), "nobody to remove");
-        let state = LobbyState { players: vec!["Veronica (host, you)".into(), "Cass".into()], guests: vec![(1, "Cass".into())], ..alone };
-        assert_eq!(acts(&screen, &state), vec![Act::Remove, Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]);
-        screen.removing = true;
+    fn the_host_kicks_or_bans_from_the_player_list() {
+        let screen = opened(Mode::Host);
+        let state = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, players: vec!["Veronica (host, you)".into(), "Cass (LAN, 12 ms)".into()], guests: vec![(1, "Cass (LAN, 12 ms)".into())], ..default() };
+        assert_eq!(acts(&screen, &state), vec![Act::Kick(1), Act::Ban(1), Act::FriendlyFire, Act::Emotes, Act::Back, Act::Close]);
         let p = pieces(&screen, &state);
-        assert!(p.contains(&Piece::Row(Act::Kick(1), "Kick Cass".into(), Shade::Bright)));
-        assert!(p.contains(&Piece::Row(Act::Ban(1), "Ban Cass".into(), Shade::Bright)));
-        assert_eq!(acts(&screen, &state), vec![Act::Kick(1), Act::Ban(1), Act::Back]);
+        assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text("  Cass (LAN, 12 ms)".into(), 0.0)) && i.contains(&Item::Button(Act::Ban(1), "Ban".into(), Look::Warning)))), "{p:?}");
     }
 
     #[test]
@@ -1313,24 +1479,80 @@ mod tests {
         // The lobby takes the host and `nvf_coop::net::MAX_GUESTS` (5) guests.
         let screen = opened(Mode::Host);
         let names = ["Veronica (host, you)", "Cass", "Boone", "Arcade", "Lily", "Raul"];
-        let state = LobbyState { hosting: Hosting::Open { code: "ABCD-EFGH".into(), note: None }, players: names.iter().map(|n| n.to_string()).collect(), ..default() };
+        let state = LobbyState { hosting: Hosting::Open { code: "ABCD-EFGH".into(), note: None }, players: names.iter().map(|n| n.to_string()).collect(), guests: names[1..].iter().enumerate().map(|(i, n)| (i as u8 + 1, n.to_string())).collect(), ..default() };
         let p = pieces(&screen, &state);
-        for n in names {
-            assert!(p.contains(&Piece::Line(format!("  {n}"), Shade::Bright)), "{n} listed");
+        assert!(p.contains(&Piece::Line(format!("  {}", names[0]), Shade::Bright)));
+        for n in &names[1..] {
+            assert!(p.iter().any(|x| matches!(x, Piece::Bar(i) if i.contains(&Item::Text(format!("  {n}"), 0.0)))), "{n} listed");
         }
         assert!(p.contains(&Piece::Line("Players (6 of 6):".into(), Shade::Dim)));
         // The panel's height as `draw` measures it, a long line taken as three lines of
         // small print (the font is not loaded here): it stays inside the 960-unit screen
         // (at 540 px too, since interface units scale with the view's height).
-        let height = |p: &Piece| match p {
-            Piece::Title(_) => ITEM + 8.0,
-            Piece::Line(t, _) => (if t.len() > 50 { 3.0 } else { 1.0 }) * STEP + 6.0,
-            Piece::Big(_) => ITEM + 16.0,
-            Piece::Field(..) | Piece::Button(..) => ITEM + 6.0,
-            Piece::Row(..) | Piece::Head(_) | Piece::Cols(..) => ITEM,
-        };
-        let total: f32 = p.iter().map(height).sum::<f32>() + 2.0 * PAD;
-        assert!(TOP + total <= 960.0, "the six-player lobby reaches {}", TOP + total);
+        assert!(TOP + panel_height(&p) <= 960.0, "the six-player lobby reaches {}", TOP + panel_height(&p));
+    }
+
+    /// The panel's height as `draw` measures it, a long line taken as three lines of small
+    /// print (the font is not loaded here).
+    fn panel_height(p: &[Piece]) -> f32 {
+        p.iter()
+            .map(|p| match p {
+                Piece::Title(_) => ITEM + 8.0,
+                Piece::Line(t, _) => (if t.len() > 50 { 3.0 } else { 1.0 }) * STEP + 6.0,
+                Piece::Big(_) => ITEM + 24.0,
+                Piece::Button(..) => ITEM + 6.0,
+                Piece::Row(..) | Piece::Head(_) => ITEM,
+                Piece::Cols(..) => ROW_H,
+                Piece::Bar(_) => BAR_H,
+                Piece::Space(h) => *h,
+            })
+            .sum::<f32>()
+            + 2.0 * PAD
+    }
+
+    fn bar_item(p: &[Piece], act: Act) -> Option<&Item> {
+        p.iter().find_map(|x| match x {
+            Piece::Bar(items) => items.iter().find(|i| matches!(i, Item::Button(a, ..) | Item::Field(a, ..) if *a == act)),
+            _ => None,
+        })
+    }
+
+    fn bar_has(p: &[Piece], act: Act) -> bool {
+        bar_item(p, act).is_some()
+    }
+
+    /// The choices the screen draws, in order (the table's rows left out).
+    fn drawn_acts(p: &[Piece]) -> Vec<Act> {
+        p.iter()
+            .flat_map(|x| match x {
+                Piece::Bar(items) => items.iter().filter_map(|i| match i {
+                    Item::Button(a, ..) | Item::Field(a, ..) => Some(*a),
+                    _ => None,
+                }).collect(),
+                Piece::Button(a, _) | Piece::Row(a, ..) => vec![*a],
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// Every screen fits the 960-unit height, tabs and toolbars on one line each.
+    #[test]
+    fn every_screen_fits_and_draws_what_the_keys_walk() {
+        let mut screen = opened(Mode::Join);
+        let state = LobbyState { joining: Joining::Failed("No answer from the host: check the code, and that their lobby is open.".into()), ..default() };
+        let p = pieces(&screen, &state);
+        assert_eq!(drawn_acts(&p), acts(&screen, &state));
+        assert!(TOP + panel_height(&p) <= 960.0);
+        assert!(bar_item(&p, Act::Join).is_some_and(|i| matches!(i, Item::Button(_, _, Look::Primary))));
+        screen.browsing = true;
+        let many = LobbyState { browse: Browse::Ready((0..20).map(|i| lobby(&format!("L{i:02}"), 3, 10 + i)).collect()), ..default() };
+        let p = pieces(&screen, &many);
+        assert!(TOP + panel_height(&p) <= 960.0, "a long list keeps the footer on screen");
+        assert_eq!(p.iter().filter(|x| matches!(x, Piece::Cols(..))).count(), BROWSE_ROWS);
+        let host = opened(Mode::Host);
+        let p = pieces(&host, &LobbyState::default());
+        assert_eq!(drawn_acts(&p), acts(&host, &LobbyState::default()));
+        assert!(TOP + panel_height(&p) <= 960.0);
     }
 
     fn lobby(code: &str, players: u8, ping: u32) -> PublicLobby {
@@ -1344,10 +1566,11 @@ mod tests {
         let mut screen = opened(Mode::Host);
         let state = LobbyState::default();
         let p = pieces(&screen, &state);
-        assert!(p.contains(&Piece::Button(Act::Visibility, "Visibility: Private".into())));
+        assert!(bar_item(&p, Act::SetPublic(false)).is_some_and(|i| matches!(i, Item::Button(_, _, Look::On))), "Private chosen");
         assert!(!acts(&screen, &state).contains(&Act::Field(FieldId::Title)), "no title while private");
         screen.public = true;
-        assert_eq!(acts(&screen, &state)[..3], [Act::Visibility, Act::Field(FieldId::Title), Act::Field(FieldId::HostPassword)]);
+        assert_eq!(acts(&screen, &state)[..4], [Act::SetPublic(false), Act::SetPublic(true), Act::Field(FieldId::Title), Act::Field(FieldId::HostPassword)]);
+        assert!(bar_item(&pieces(&screen, &state), Act::Create).is_some_and(|i| matches!(i, Item::Button(_, _, Look::Primary))));
         for c in "Strip run".chars() {
             screen.type_char(FieldId::Title, c);
         }
@@ -1355,8 +1578,8 @@ mod tests {
             screen.type_char(FieldId::HostPassword, c);
         }
         let p = pieces(&screen, &state);
-        assert!(p.contains(&Piece::Field(Act::Field(FieldId::HostPassword), "*******".into())), "{p:?}");
-        assert!(p.contains(&Piece::Field(Act::Field(FieldId::Title), "Strip run".into())));
+        assert!(bar_item(&p, Act::Field(FieldId::HostPassword)) == Some(&Item::Field(Act::Field(FieldId::HostPassword), "*******".into(), 0.0)), "{p:?}");
+        assert!(bar_item(&p, Act::Field(FieldId::Title)) == Some(&Item::Field(Act::Field(FieldId::Title), "Strip run".into(), 0.0)));
         // The code field takes only a code's characters, upper case.
         for c in "k7q-m2x!".chars() {
             screen.type_char(FieldId::Code, c);
@@ -1380,7 +1603,9 @@ mod tests {
         other.cannot = Some("The host runs another version of NVForever.".into());
         let state = LobbyState { browse: Browse::Ready(vec![lobby("EMP", 1, 5), lobby("NEAR", 4, 30), far, locked, other, lobby("FULL", 6, 40)]), ..default() };
         let codes = |s: &LobbyScreen| shown(s, &state).iter().map(|l| l.code.clone()).collect::<Vec<_>>();
-        assert_eq!(codes(&screen), ["FAR", "LCK", "NEAR", "FULL"], "favourite first, then by ping; empty and other versions hidden");
+        assert_eq!(codes(&screen), ["FAR", "EMP", "LCK", "NEAR", "FULL"], "favourite first, then by ping; other versions hidden; a host alone is shown by default");
+        screen.hide_empty = true;
+        assert_eq!(codes(&screen), ["FAR", "LCK", "NEAR", "FULL"]);
         screen.hide_full = true;
         assert_eq!(codes(&screen), ["FAR", "LCK", "NEAR"]);
         screen.all_versions = true;
@@ -1395,8 +1620,17 @@ mod tests {
         let at = a.iter().position(|x| *x == Act::Lobby(1)).unwrap();
         assert_eq!(a[at + 1..at + 4], [Act::Field(FieldId::RowPassword), Act::JoinRow, Act::Favourite]);
         let p = pieces(&screen, &state);
-        assert!(p.iter().any(|x| matches!(x, Piece::Cols(Act::Lobby(1), c, Shade::Bright) if c[6] == "Lock" && c[1] == "LCK's game")), "{p:?}");
-        assert!(p.contains(&Piece::Button(Act::JoinRow, "Join".into())));
+        assert!(TOP + panel_height(&p) <= 960.0, "an opened row stays on screen: {}", TOP + panel_height(&p));
+        // A failed join from the row is said under it.
+        let failed = LobbyState { joining: Joining::Failed("Wrong password for this lobby.".into()), ..state.clone() };
+        let fp = pieces(&screen, &failed);
+        let row = fp.iter().position(|x| matches!(x, Piece::Cols(Act::Lobby(1), ..))).unwrap();
+        assert!(fp[row..row + 4].contains(&Piece::Line("    Wrong password for this lobby.".into(), Shade::Bright)), "{fp:?}");
+        assert!(p.iter().any(|x| matches!(x, Piece::Cols(Act::Lobby(1), c, Shade::Bright) if c[6] == LOCK_MARK && c[1] == "LCK's game")), "{p:?}");
+        assert!(p.iter().any(|x| matches!(x, Piece::Cols(Act::Lobby(0), c, _) if c[0] == FAV_MARK)), "the favourite's marker");
+        assert!(bar_has(&p, Act::JoinRow));
+        // Every choice the keys walk is drawn, and the other way round.
+        assert_eq!(drawn_acts(&p), acts(&screen, &state).into_iter().filter(|a| !matches!(a, Act::Lobby(_))).collect::<Vec<_>>());
         // Nothing public: says so.
         let none = LobbyState { browse: Browse::Ready(Vec::new()), ..default() };
         assert!(pieces(&screen, &none).contains(&Piece::Line("No public lobbies right now. Host one, or join a friend's by code.".into(), Shade::Bright)));

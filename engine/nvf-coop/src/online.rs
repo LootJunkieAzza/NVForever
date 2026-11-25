@@ -194,6 +194,8 @@ pub struct Online {
     relays: Relays,
     /// Keys the host banned ([`Online::ban`]).
     banned: Vec<[u8; 32]>,
+    /// A failure was told already: the socket's close after it says nothing more.
+    failed: bool,
     /// The host's lobby password (sent hashed once the code is known), and the listing last
     /// sent (to send only a change).
     host_password: String,
@@ -247,7 +249,7 @@ impl Online {
         let portmap = locals.iter().find(|a| a.is_ipv4()).and_then(|a| PortMap::start(*a, Instant::now()));
         // The checks' local sockets: one per family (every address is the same socket).
         let locals: Vec<SocketAddr> = [locals.iter().find(|a| a.is_ipv4()), locals.iter().find(|a| a.is_ipv6())].into_iter().flatten().copied().collect();
-        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new(), host_password: String::new(), listing_sent: None, join_hash: None }
+        Self { service: service.into(), io, side, locals, gather: None, gathered: false, found, events: Vec::new(), reopen_at: None, portmap, no_stun: false, nat: report::Nat::Unknown, my_key: None, go_at: None, relays: Relays::default(), banned: Vec::new(), failed: false, host_password: String::new(), listing_sent: None, join_hash: None }
     }
 
     /// The host key the service gave a guest: the only key its Noise session may have.
@@ -399,7 +401,14 @@ impl Online {
                     Side::Host { secret: None, .. } => {}
                 }
             }
-            FromIo::Text(t) => self.on_text(&t, now),
+            FromIo::Text(t) => {
+                self.on_text(&t, now);
+                // A refusal the service then closes the socket on (a wrong password, a lobby
+                // that is full): its reason is the one the player sees, not the close.
+                if self.events.iter().any(|e| matches!(e, OnlineEvent::Failed(_))) {
+                    self.failed = true;
+                }
+            }
             FromIo::Failed(why) => {
                 if matches!(self.side, Side::Host { code: Some(_), .. }) {
                     // The lobby is still there for 120 s: try again soon.
@@ -409,6 +418,7 @@ impl Online {
                     self.fail(why);
                 }
             }
+            FromIo::Closed if self.failed => self.io = None,
             FromIo::Closed => {
                 self.io = None;
                 match &self.side {
@@ -423,6 +433,7 @@ impl Online {
 
     fn fail(&mut self, why: String) {
         self.events.push(OnlineEvent::Failed(why));
+        self.failed = true;
         self.io = None;
     }
 
@@ -1132,6 +1143,17 @@ mod tests {
         let client = GuestClient::new("G", &"cd".repeat(32), &[]);
         let side = Side::Guest { name: "G".into(), client: Some(client), me: Some(me), host_key: Some([7; 32]), remotes: Vec::new(), agent: None, load_order_hash: String::new(), connected };
         Online::new("http://127.0.0.1:1", None, side, vec![at.parse().unwrap()])
+    }
+
+    /// A wrong password: the decline is what the player sees, not the socket's close after it.
+    #[test]
+    fn a_decline_is_not_overwritten_by_the_close() {
+        let mut o = guest_at(3, "10.0.0.3:50003", false);
+        o.take_io(FromIo::Text(r#"{"type":"declined","reason":"bad_password"}"#.into()), Instant::now(), &[3; 32]);
+        o.take_io(FromIo::Closed, Instant::now(), &[3; 32]);
+        let ev = o.take_events();
+        assert_eq!(ev.iter().filter(|e| matches!(e, OnlineEvent::Failed(_))).count(), 1, "{ev:?}");
+        assert!(ev.contains(&OnlineEvent::Failed("Wrong password for this lobby.".into())));
     }
 
     /// No STUN server answers and the join fails: the player is told UDP looks blocked.

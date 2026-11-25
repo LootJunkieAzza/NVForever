@@ -1325,8 +1325,6 @@ fn lobby(
         _ => Hosting::Off,
     };
     let mut players = Vec::new();
-    // The host's guests, for Kick and Ban.
-    let guests: Vec<(u8, String)> = if coop.is_host() { coop.peers.iter().map(|(&id, p)| (id, label(id, &p.name))).collect() } else { Vec::new() };
     if coop.link.is_some() {
         // This player by its character's name, as the others call it (item 19).
         let me = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| coop.name.clone());
@@ -1359,6 +1357,9 @@ fn lobby(
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
+    // The host's guests for Kick and Ban, each with its line of the player list (its path
+    // and ping): the list's lines after the host's own, in the same order (`coop.peers`).
+    let guests: Vec<(u8, String)> = if coop.is_host() { coop.peers.keys().copied().zip(players.iter().skip(1).cloned()).collect() } else { Vec::new() };
     state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone(), guests, public: coop.host_options.public, locked: !coop.host_options.password.is_empty(), browse: coop.browse.clone() });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
@@ -2508,6 +2509,10 @@ fn online_event(coop: &mut Coop, e: nvf_coop::online::OnlineEvent, corner: &mut 
         }
         OnlineEvent::Failed(why) => {
             warn!("co-op: {why}");
+            // Also on screen: a join from the command line has no Join screen up.
+            if let Some(c) = corner.as_mut() {
+                c.push(why.clone().into());
+            }
             coop.link = None;
             coop.left_lobby = true;
             coop.joining = Joining::Failed(why);
