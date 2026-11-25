@@ -354,6 +354,15 @@ fn nif_block_materials_and_places() {
     assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Panel:1\" fX fY fZ 1"), "1 0.00 -0.00 90.00");
     g.scene.set_tree(r, vec![node("Scene Root", None, [0.0; 3], [30.0, 0.0, 90.0], None)]);
     assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ"), "1 30.00 -0.00 90.00");
-    let intrinsic = place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 2");
-    assert_ne!(intrinsic, "1 30.00 -0.00 90.00", "the same turn about the turning axes: other angles");
+    // Modes 2 & 3 decompose the transpose (drawn matrix) via ZYX Euler extraction
+    // [observed: w6_t1_04_nif_trans_rot_alt]:
+    // r0=(-1.9, 0.4, 23.5) -> r2=(1.9, 0.4, -23.5),
+    // r1=(89.0, 83.1, 80.7) -> r3=(-89.2, -81.7, 82.3).
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 2"), "1 0.00 -30.00 -90.00");
+    g.scene.set_tree(r, vec![node("Scene Root", None, [0.0; 3], [-1.9, 0.4, 23.5], None)]);
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 2"), "1 1.90 0.39 -23.50");
+    g.scene.set_tree(r, vec![node("Scene Root", None, [0.0; 3], [89.0, 83.1, 80.7], None)]);
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 3"), "1 -89.17 -81.69 82.28");
+    // Missing node returns 0 and leaves variables unchanged, and short aliases work.
+    assert_eq!(place(&mut g, "GetNifRotAlt \"Scene Root\" fX fY fZ 0\nlet fR := DoorRef.GetNifBlockRotationAlt \"Missing\" fX fY fZ 0"), "0 89.00 83.10 80.70");
 }

@@ -392,8 +392,17 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             _ => XVal::Ref(0),
         },
         "setbipedmodellist" => {
-            if let Some(f) = form(args, 0) {
-                g.field_overrides.insert((f, "BIPL/".into()), XVal::Ref(form(args, 1).map_or(0, |l| l.0)));
+            if let Some(f) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"ARMO")) {
+                match args.get(1) {
+                    None => {
+                        g.field_overrides.insert((f, "BIPL/".into()), XVal::Ref(0));
+                    }
+                    Some(_) => {
+                        if let Some(l) = form(args, 1).filter(|&l| g.data.sig(g.unclone(l)) == Some(*b"FLST")) {
+                            g.field_overrides.insert((f, "BIPL/".into()), XVal::Ref(l.0));
+                        }
+                    }
+                }
             }
             zero
         }

@@ -649,13 +649,6 @@ pub(crate) fn extrinsic_angles(m: &Mat) -> [f32; 3] {
     [m[2][1].atan2(m[2][2]), y, m[1][0].atan2(m[0][0])].map(f32::to_degrees)
 }
 
-/// The angles of the same rotation taken about the turning axes, X then Y then Z
-/// (Rx·Ry·Rz), in degrees.
-fn intrinsic_angles(m: &Mat) -> [f32; 3] {
-    let y = m[0][2].clamp(-1.0, 1.0).asin();
-    [(-m[1][2]).atan2(m[2][2]), y, (-m[0][1]).atan2(m[0][0])].map(f32::to_degrees)
-}
-
 /// A node's translation and drawn rotation ([`drawn`]): as its parent holds it, or
 /// (`world`) in the world, through the nodes above it and the reference's own position
 /// and angles. `None` without the tree or the node.
@@ -989,14 +982,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             outputs(g, 1.0, &pos.map(f64::from))
         }
         // `block [which] [pcModel]`: 0 extrinsic to the parent (as GetNifBlockRotation),
-        // 1 extrinsic in the world, 2 intrinsic to the parent, 3 intrinsic in the world
-        // [documented: the page's table].
+        // 1 extrinsic in the world, 2/3 decompose the transpose (`m`, the drawn rotation
+        // matrix) with the same ZYX Euler extraction [documented: the page's table;
+        // observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+        // 2026-11-24, `w6_t1_04_nif_trans_rot_alt`
+        // (`tools/capture/nvse/catalogs/wave6_t1_nif_rot_alt.json`, `jip-ui-9.md` §3):
+        // `r0=(-1.9,0.4,23.5) -> r2=(1.9,0.4,-23.5)` and
+        // `r1=(89.0,83.1,80.7) -> r3=(-89.2,-81.7,82.3)`].
         "getnifblockrotationalt" => {
             let which = num(args, 1, 0.0) as i64;
             let Some((_, m)) = node_place_for(g, r, &text(args, 0), which == 1 || which == 3, view) else { return Some(Ok(outputs(g, 0.0, &[]))) };
-            // The angles of the drawn rotation's transpose, as a node's own ([`SceneNode::rotation`]).
-            let m = transpose(&m);
-            let a = if which >= 2 { intrinsic_angles(&m) } else { extrinsic_angles(&m) };
+            let a = if which >= 2 { extrinsic_angles(&m) } else { extrinsic_angles(&transpose(&m)) };
             outputs(g, 1.0, &a.map(f64::from))
         }
         // `form block`: the form's model has a node of that exact name [observed:

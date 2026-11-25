@@ -329,6 +329,24 @@ the bullet and note the ruling in the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Chinese and other multi-byte game text, and a bundled font (#1443 step 4).** [design,
+  #1443] NVForever's own words have a Simplified Chinese file (`lang/zh.toml`) and the
+  menus draw it with a CJK font only when the system has one or `[Interface] CjkFontPath`
+  names one; nothing is bundled. Game text in Chinese needs plugins in a multi-byte
+  encoding (`[Text] CodePage=936` reads GBK/GB18030; which encoding community
+  translations use is not known) and the game's 256-glyph `.fnt` fonts cannot draw it.
+  Nothing more is built until you choose: (a) leave it as now (a font the player
+  supplies), (b) bundle an open-licence CJK font (about 10-20 MB per weight; licence and
+  size to pick), or (c) also draw every game-font text through it when the code page is
+  936. ([fonts §2](spec-notes/fonts.md), lang/README.md "Simplified Chinese and fonts")
+- **Switching the game's language means another game folder (#1443 step 2).** [design,
+  #1443] A language is a different set of data files, and Steam keeps one install of the
+  game, so a second language is a copy of the folder. The launcher's Game folder page
+  already restarts into another folder; no in-game Language-of-the-game row is built (the
+  settings page's Language row switches NVForever's own words live). Keep it in the
+  launcher, or add an in-game row that lists game folders and restarts into one?
+  (lang/README.md, `crates/nvf-launcher` Game folder page)
+
 - **Saving while a mod's temporary clone is placed (#3147).** [design, #3147] While a
   reference whose base was made by `TempCloneForm` is alive, every save is refused
   whole (`Game::checked_snapshot`; a failed save now says so in a corner message). A mod

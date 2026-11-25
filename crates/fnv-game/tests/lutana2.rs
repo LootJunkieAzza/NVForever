@@ -17,6 +17,8 @@ use serde_json::Value as Json;
 const STAT: u32 = 0x800;
 const TACT: u32 = 0x801;
 const FOOD: u32 = 0x802;
+const ARMO: u32 = 0x803;
+const FLST: u32 = 0x804;
 const ROOM: u32 = 0x900;
 const MARKER: u32 = 0x910;
 const RADIO: u32 = 0x911;
@@ -38,6 +40,8 @@ fn fixture() -> Fixture {
     // [documented: schemas/fnv ALCH ENIT].
     let enit = [5i32.to_le_bytes().to_vec(), vec![2, 0, 0, 0], 0u32.to_le_bytes().to_vec(), 0f32.to_le_bytes().to_vec(), 0u32.to_le_bytes().to_vec()].concat();
     let alch = record(b"ALCH", 0, FOOD, &[sub(b"EDID", z("TestFood")), sub(b"ENIT", enit)]);
+    let armo = record(b"ARMO", 0, ARMO, &[sub(b"EDID", z("TestArmor"))]);
+    let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("TestFormList"))]);
     let room = record(b"CELL", 0, ROOM, &[sub(b"EDID", z("TestRoom")), sub(b"DATA", vec![1])]);
     let marker = record(
         b"REFR",
@@ -109,6 +113,8 @@ fn fixture() -> Fixture {
         top(b"STAT", &stat),
         top(b"TACT", &tact),
         top(b"ALCH", &alch),
+        top(b"ARMO", &armo),
+        top(b"FLST", &flst),
         top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))])),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[room, children].concat()))),
     ]
@@ -303,4 +309,23 @@ fn hotkeys_ini_writers_and_forms() {
         q(&mut g, "array_var a\nlet a := GetFormMods TestFood\nSetFunctionValue a[0]"),
         XVal::Str("Lutana2Test.esm".into())
     );
+}
+
+/// `SetBipedModelList` validates `ARMO` + `FLST`, treats non-`FLST` and explicit `0` as
+/// no-ops, and clears only on omitted 2nd arg [observed: `w6d2p5_04_biped_model_list_omit`].
+#[test]
+fn set_biped_model_list_validates_flst_null_and_omit() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetBipedModelList TestArmor TestFormList");
+    assert_eq!(n(&mut g, "GetBipedModelList TestArmor"), f64::from(FLST));
+    q(&mut g, "SetBipedModelList TestArmor TestFood");
+    assert_eq!(n(&mut g, "GetBipedModelList TestArmor"), f64::from(FLST));
+    q(&mut g, "SetBipedModelList TestArmor 0");
+    assert_eq!(n(&mut g, "GetBipedModelList TestArmor"), f64::from(FLST));
+    q(&mut g, "SetBipedModelList TestArmor");
+    assert_eq!(n(&mut g, "GetBipedModelList TestArmor"), 0.0);
+    // Non-ARMO target is ignored.
+    q(&mut g, "SetBipedModelList TestFood TestFormList");
+    assert_eq!(n(&mut g, "GetBipedModelList TestFood"), 0.0);
 }
