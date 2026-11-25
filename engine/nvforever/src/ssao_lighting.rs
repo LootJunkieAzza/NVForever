@@ -83,11 +83,19 @@ pub const DISTANCE_TOLERANCE: f32 = 0.05;
 pub struct AmbientOcclusionLightingUniform {
     /// Exponent, debug view (1 on), fade end (game units), distance tolerance.
     pub params: Vec4,
-    /// Strength, the lamps' weight (0..1), the multi-bounce fit (1 on); w unused.
+    /// Strength, the lamps' weight (0..1), the multi-bounce fit (1 on), and 1 when Physical
+    /// PBR's sky visibility (.b) and sun contact shadow (.a) are packed in `nvf_ao_texture`.
     pub extra: Vec4,
 }
 
 impl AmbientOcclusionLightingUniform {
+    /// Physical PBR's channels (sky visibility in .b, the sun's contact shadow in .a) are in
+    /// the occlusion texture (ssao.rs `physical_occlusion_vectors`).
+    pub fn with_physical(mut self, physical: bool) -> Self {
+        self.extra.w = if physical { 1.0 } else { 0.0 };
+        self
+    }
+
     /// The uniform for an occlusion raised to `exponent`, faded out at `fade_end` (game
     /// units), made with `strength`, on lamps without a shadow by `lamps` (held to 0..1), the
     /// ambient's factor with or without the multi-bounce fit ([`MULTIBOUNCE`]), with or
