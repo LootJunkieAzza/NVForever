@@ -61,7 +61,7 @@ const METER_HIGH: f32 = 6.0;
 /// 5 %; counting the brightest tenth, where its neon and lamps lie, it is not lifted;
 /// the original's meter may be a plain average, which bright lights hold up (module note)].
 pub const METER_FILTER: std::ops::RangeInclusive<f32> = 0.10..=1.0;
-/// Bi-directional camera auto-exposure parameters for `NVF_PHYSICAL_PBR=1`.
+/// Bi-directional camera auto-exposure parameters for Physical lighting.
 pub const PHYSICAL_LOW_REF: f32 = -6.0;
 pub const PHYSICAL_HIGH_REF: f32 = -1.2;
 pub const PHYSICAL_LIFT_SLOPE: f32 = 0.68;

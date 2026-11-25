@@ -147,7 +147,7 @@ fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shade
         return;
     }
     if physical_agx() {
-        info!("lights: NVF_PHYSICAL_PBR=1, the main view uses AgX");
+        info!("lights: physical PBR, the main view uses AgX");
         return;
     }
     let bevy::shader::Source::Wesl(source) = &shader.source else {
@@ -237,7 +237,7 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     // The reflection gate last (lights/reflection_gate.rs): the view's environment map light
     // reaches only fragments that opt in. Made whether or not reflections are on in this run;
     // without the opt-in def its text compiles to what Bevy's did without a cube. Under
-    // physical PBR (`NVF_PHYSICAL_PBR=1`), PhysicalIblPlugin provides full-scene IBL directly.
+    // physical PBR (the Physical lighting row), PhysicalIblPlugin provides full-scene IBL directly.
     let (patched, gated) = if !gating {
         (patched, false)
     } else {
