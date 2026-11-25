@@ -1,8 +1,13 @@
 # Co-op lobby browser: public sessions on coop.nv-forever.com
 
 Status: design, 2026-11-24, at the owner's request; its four decisions taken 2026-11-25 (§10). Builds on docs/design/coop-networking.md
-(#3795) and the matchmaking service's wire, docs/design/coop-signal-wire.md. Nothing here is
-built yet.
+(#3795) and the matchmaking service's wire, docs/design/coop-signal-wire.md. Built 2026-11-25:
+the service's wire 2 (the Worker, live) and the game's side (branch `claude/coop-net-p1`: the
+host's Visibility, Title and Password; the Join screen's Code and Browse tabs; favourites in
+`coop-favourites.txt`), checked offline through `nvf-signal-server` with screenshots at 1280x720,
+1920x1080 and 1024x768. The lobby screens were redone in the bug report form's style at the
+owner's word (bordered panel and boxes, 80% of the screen's width). Not yet run: a browse and
+join between two machines on the live service.
 
 ## 0. In one page
 
