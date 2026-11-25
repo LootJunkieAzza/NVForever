@@ -3516,6 +3516,20 @@ fn get_explosion_hit_damage_returns_minus_one_outside_handler() {
     // SetExplosionHitDamage outside a handler is a no-op and does not change the -1.0 sentinel.
     q(&mut g, "SetExplosionHitDamage 42");
     assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+    // Inside a ShowOff:OnExplosionHit handler, GetExplosionHitDamage reads the live pre-armor
+    // damage (100.0) and SetExplosionHitDamage 30 returns 30.0; after exit it reverts to -1.0.
+    q(
+        &mut g,
+        "set TestGlobal to 0
+         SetEventHandler \"ShowOff:OnExplosionHit\" (Begin Function {ref target, ref source}
+           let TestGlobal := GetExplosionHitDamage
+           SetExplosionHitDamage 30
+         End)",
+    );
+    let out = g.explosion_hit(FormId::PLAYER_REF, 100.0);
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 100.0);
+    assert_eq!(out, 30.0);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
 }
 
 #[test]

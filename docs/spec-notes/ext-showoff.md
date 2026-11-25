@@ -32,16 +32,19 @@ ran.
 - The event fires when an explosion's blast reaches an actor, before the damage lands. A
   MineFragExplosion (FalloutNV.esm 07078B) placed at the player gave a two-argument handler
   the player first and none second [observed].
-- `GetExplosionHitDamage` reads pre-armor damage inside the handler (`100.0` even with
-  `DT = 50`, where the player loses `75.0` Health, and `SetExplosionHitDamage 30` yields
-  `9.0` Health loss after armor DT); outside a `ShowOff:OnExplosionHit` handler,
-  `GetExplosionHitDamage` returns **`-1.0`** and `SetExplosionHitDamage` is ignored
+- `GetExplosionHitDamage` read 100 inside the handler; after `SetExplosionHitDamage 5` the
+  player lost 5 Health [observed]. Both are unusable outside the event [documented].
+  Inside a `ShowOff:OnExplosionHit` handler, `GetExplosionHitDamage` reads pre-armor damage
+  (`100.0` even with `DT = 50`, where the player loses `75.0` Health, and
+  `SetExplosionHitDamage 30` yields `9.0` Health loss after armor DT), with `rad=192.0`
+  and `srcP=0`, while outside the handler `GetExplosionHitDamage` returns **`-1.0`**
   [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184,
   `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
   `tools/capture/nvse/catalogs/wave6d1_get_explosion_hit_damage_outside.json` probe
   `w6d1_18_on_explosion_hit_armor_dt`:
   `PROBE|w6d1_18_on_explosion_hit_armor_dt|dt50(dmg=100.0,loss=75.0)|set30(dmg=100.0,loss=9.0)|rad=192.0,srcP=0,out=-1.0`;
-  no binary, DLL, PDB, or third-party source consulted].
+  no binary, DLL, PDB, or third-party source consulted]. Outside the handler, NVForever
+  ignores `SetExplosionHitDamage` [documented: unusable outside the event; design: no-op].
 - NVForever asks for the damage in the engine's blast loop, before armour is taken off, and
   deals what the handlers leave, matching the observed pre-armor DT behavior.
 
