@@ -635,8 +635,9 @@ over the frames instead of by alpha to coverage.
 
 Screen-space light scattering, at a quarter of the size, on the tonemapped picture after the
 temporal anti-aliasing and before bloom: the sky around the sun (where the depth prepass has only
-the sky dome, beyond 157,500 units) within 0.3 of the picture's height of the sun, its brighter
-part (linear luminance 0.04 to 0.4), is blurred along the lines towards the sun (24 taps over
+the sky dome, beyond 157,500 units; with multisampling, in every sample of the pixel, so a
+silhouette's edge such as the gun's against the sun is not taken as sky) within 0.3 of the
+picture's height of the sun, its brighter part (linear luminance 0.04 to 0.4), is blurred along the lines towards the sun (24 taps over
 1/24 of the length, then 24 taps over 85 % of the way to the sun, each weighted 0.97 of the one
 before: about 576 taps in all) and added to the picture, kept below white without a hard clip.
 
