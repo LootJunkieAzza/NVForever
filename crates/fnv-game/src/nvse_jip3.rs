@@ -72,7 +72,9 @@ fn facing(x: f32, z: f32) -> [f32; 3] {
     [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()]
 }
 
-/// The default reach of a cast with no range given [hypothesis].
+/// The default reach of a cast with no `maxRange` given (`GetPointRayCastPos`: `50_000.0`
+/// [observed: 2026-11-24, `w6_02_point_raycast_miss_and_range`]; `GetRayCastPos` /
+/// `GetRayCastRef` remain [hypothesis]).
 const RAY_REACH: f32 = 50_000.0;
 
 impl Game<'_> {
@@ -324,19 +326,36 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let heading = dx.atan2(dy).to_degrees().rem_euclid(360.0);
             outputs(g, zero, &[pitch, heading])
         }
-        // `x y z pitch heading → x y z [flags] [range]`: where a cast from the point the way
-        // of the angles (degrees) first meets the scene; 0 for no hit [documented:
-        // GetPointRayCastPos; hypothesis: the second angle is the heading, the collision
-        // flags not told apart].
+        // `x y z rotX rotZ → x y z [flags] [range]`: casts from `(x, y, z)` along
+        // right-handed Euler `Rz(rotZ) · Rx(rotX) · +Y` (`[-sin(rotZ)·cos(rotX),
+        // cos(rotZ)·cos(rotX), sin(rotX)]`, i.e. `facing(-rotX, -rotZ)` — pitch positive
+        // up, yaw counter-clockwise from +Y). Returns `1` on both geometry hits and
+        // open-sky misses, writing the hit point on hit or `origin + dir * reach` on
+        // miss; omits `maxRange` → `50_000.0`, while explicit `0` writes `origin` and
+        // explicit `-1` casts `-1` unit along `-dir`; `collisionFlag` `0`/`1`/`6`/`-1`
+        // hit terrain and actors, while `8`/`19` hit terrain and interior statics while
+        // skipping actors [documented: GECK wiki GetPointRayCastPos; observed: 2026-11-24,
+        // FNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, committed probes
+        // `w6_01_point_raycast_angles`, `w6_02_point_raycast_miss_and_range`, and
+        // `w6_03_point_raycast_collision_flags` in
+        // `tools/capture/nvse/catalogs/wave6_point_raycast.json`; see
+        // `docs/spec-notes/jip-point-raycast.md`]. Routing `8 | 19` through
+        // `CastKind::CameraClearance` (also excluding dynamic clutter) and unprobed
+        // flags through `CastKind::World`, plus returning `1` headless without a physics
+        // caster, remain [design] / [hypothesis].
         "getpointraycastpos" => {
             let o = [num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32, num(args, 2, 0.0) as f32];
-            let dir = facing((num(args, 3, 0.0) as f32).to_radians(), (num(args, 4, 0.0) as f32).to_radians());
-            let reach = Some(num(args, 6, 0.0) as f32).filter(|r| *r > 0.0).unwrap_or(RAY_REACH);
+            let dir = facing(-(num(args, 3, 0.0) as f32).to_radians(), -(num(args, 4, 0.0) as f32).to_radians());
+            let flag = num(args, 5, 0.0) as i64;
+            let kind = match flag {
+                8 | 19 => crate::ray::CastKind::CameraClearance,
+                _ => crate::ray::CastKind::World,
+            };
+            let reach = num(args, 6, f64::from(RAY_REACH)) as f32;
             let to = [o[0] + dir[0] * reach, o[1] + dir[1] * reach, o[2] + dir[2] * reach];
-            match crate::ray::cast_hit(o, to, crate::ray::CastKind::World) {
-                Some(h) => outputs(g, XVal::Num(1.0), &[f64::from(h.point[0]), f64::from(h.point[1]), f64::from(h.point[2])]),
-                None => outputs(g, zero, &[0.0, 0.0, 0.0]),
-            }
+            let hit = (reach != 0.0).then(|| crate::ray::cast_hit(o, to, kind)).flatten();
+            let pt = hit.map_or(to, |h| h.point);
+            outputs(g, XVal::Num(1.0), &[f64::from(pt[0]), f64::from(pt[1]), f64::from(pt[2])])
         }
         // `xGlobal yGlobal zGlobal [offset] [flags] [node] [range]` and `[flags] [node]`:
         // a cast from the reference along its facing (an actor from its eyes) [documented:

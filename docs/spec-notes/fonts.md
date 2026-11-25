@@ -348,3 +348,72 @@ texture, texture middles decoded from each font's `.dds`)]
 5 `Fixedsys_Comp_uniform_width`, 6 `Glow_Monofonto_VL_dialogs`,
 7 `Baked-in_Monofonto_Large`, 8 `Glow_Futura_Caps_Large`, 9 `NVFont_Test`.
 NVForever uses these defaults; it does not read the player's own INI for them yet.
+
+### 4.1 Extended font slots (`xfonts`) and out-of-range XML font IDs
+
+- **Extender format and public documentation** [documented: **JIP LN NVSE Plugin**
+  by jazzisparis (`https://www.nexusmods.com/newvegas/mods/58277`, introduced in version
+  `50.80`, current `57.30`), official Nexus Mods article *"Installing extra UI fonts
+  using JIP LN NVSE"* (under Nexus mod `#58277`) and GECK Wiki `SetFontFile`
+  (`https://geckwiki.com/index.php?title=SetFontFile`, already cited in
+  `docs/spec-notes/jip-ui-9.md`); no third-party DLL or source code was consulted]:
+  - Verbatim excerpts from JIP LN NVSE's *"Installing extra UI fonts using JIP LN
+    NVSE"* article:
+    - *"A new feature was added in update 50.80, expanding the total number of font-types
+      that can be used in the game's UI, adding 22 extra font-type slots to the existing
+      8 (as defined in Fallout.ini)."*
+    - *"Method 1 (recommended): Adding a plain text file (`MyModName.txt`) to
+      `\data\NVSE\plugins\xfonts`. The fonts are to be listed in the file and formatted
+      as follows: `<Font Number>=<Path to FNT file>`"*
+    - *"The font number may range from 10 to 31. The file path should be relative to the
+      data folder. Multiple fonts may be listed in a single file. When building the XML
+      file, these font numbers can be used in the `<font></font>` property."*
+  - Later JIP LN versions document `SetFontFile` extra slots up to `89` (`10..=89`,
+    `docs/spec-notes/jip-ui-9.md`). Neither the `50.80` article (`10..=31`) nor
+    `SetFontFile` (`10..=89`) documents slots `90..=255`; accepting `10..=255` below is
+    strictly NVForever's own `[design]` choice, not a documented plugin rule.
+- **Observed mod assets** [observed: **MAPMO - Main and Pause Menus Overhaul** by Nehred
+  (`https://www.nexusmods.com/newvegas/mods/74365`, Nexus version `6.4` / preset
+  `MAPMOVER=611`) public `Data\NVSE\Plugins\xfonts\MAPMO.txt`,
+  `textures\fonts\mapmo_hud_caps_font{,2}.{fnt,Tex}`, and
+  `menus\prefabs\mapmo\{globals,caps_counter}.xml`; **lStewieAl's Tweaks and Engine
+  Fixes** (`https://www.nexusmods.com/newvegas/mods/66347`, version `9.70`) public
+  `menus\stew_menu.xml`; **Just Assorted Mods**
+  (`https://www.nexusmods.com/newvegas/mods/66666`) and **Vanilla UI Plus** (ModDB
+  `vanilla-ui-plus`, also referenced in `docs/spec-notes/mcm.md`) public HUD XML files;
+  no third-party DLL or source code was consulted]:
+  - `Data\NVSE\Plugins\xfonts\MAPMO.txt` (verbatim contents):
+    `21=textures\fonts\mapmo_hud_caps_font.fnt` and
+    `22=textures\fonts\mapmo_hud_caps_font2.fnt`. Both `.fnt` files are standard
+    14 632-byte `.fnt` files (`line_h = 76.7`, `ntex = 1`) paired with RGBA8 `.Tex`
+    atlases without sibling `.dds` files (§2.2).
+  - Mod XML files also author `<font>0</font>` (for example MAPMO's initial
+    `<font><copy src="globals()" trait="_MAPMOHUDCapsFont"/></font>` before scripts
+    assign slot `21` or `22`, and JAM/VUI+ text tiles) and extended IDs such as
+    `<font>42</font>` (`menus\stew_menu.xml`) even when no `xfonts` file registers
+    that slot.
+- **Discovery and slot table** [design — NVForever's own choices beyond what the cited
+  JIP LN docs specify]: `interface::load_xfonts` scans `nvse\plugins\xfonts\*.txt`
+  through the VFS in case-insensitive sorted path order so loose `Data`, MO2 layered
+  profiles, and archives behave identically. `interface::parse_xfonts` ignores blank lines
+  and `;`, `#`, `//` comments, accepts extended `u8` slots `10..=255` (NVForever's own
+  `[design]` bound covering all publicly documented `10..=31` / `10..=89` slots without
+  overriding vanilla INI slots `1..=9` or the unloaded vanilla font `9` rule), and
+  normalizes paths to lowercase backslashes (trimming quotes and any leading `\` or
+  `data\`). Discovery is active automatically whenever a mod ships
+  `NVSE\Plugins\xfonts\*.txt` (not behind an opt-in switch); when no `xfonts\*.txt`
+  files are present, the map is empty and unmodded vanilla font loading is unchanged.
+- **XML font ID resolution and fallback** [design; hypothesis: exact original-game
+  fallback when an extended font ID is unregistered or `0` is not directly captured]:
+  `tiles::draw::resolve_font_number` keeps vanilla `1..=9` as written (preserving
+  unloaded font `9` as the stand-in), selects `10..=255` when registered in the loaded
+  `xfonts` map, and maps `0`, negative/non-finite values, and unregistered extended IDs
+  (such as `<font>42</font>` when no `xfonts` entry registers `42`) to font `1` without
+  panicking or routing to unloaded font `9`. Both tile rendering/measurement (`FontKit`,
+  `pieces_with_fonts`, `whole_pieces`) and `GetStringUIDimensions`
+  (`MenuFiles::install_measure` -> `string_measure_with_fonts`) share this resolver.
+- **Baseline and line pitch for extended slots** [design]: `tiles::draw::text_base_for`
+  retains `text_base(1..=9)` unchanged for vanilla fonts and computes an ascent-based
+  baseline (`max(max_ascent_0x20_0x7e, font.size * 0.75)`, matching `interface::line_base`)
+  for slots `>= 10` so taller extended fonts (such as MAPMO's 76.7-unit fonts) do not
+  clip above their tile top. `line_pitch` uses `font.size` for slots `>= 10`.

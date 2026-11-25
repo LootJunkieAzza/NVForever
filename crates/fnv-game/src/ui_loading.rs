@@ -166,7 +166,7 @@ pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeRepor
                 if let Some(input) = game.text_input().filter(|_| code == menus::NAME).cloned() {
                     crate::ui_text_input::sync_to_tree(&mut game.ui_tree, root, &input);
                 }
-                if crate::ui_ysi::is_present(files) {
+                if game.ysi_xml_enabled() && crate::ui_ysi::is_present(files) {
                     crate::ui_ysi::publish_for_menu(&mut game.ui_tree, files, root, Some(code));
                 }
                 if crate::ui_search_bar::menu_search_enabled(game) {
@@ -295,7 +295,7 @@ pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: im
     ui.warnings.extend(index.warnings.iter().cloned());
     let mut report = LoadReport::default();
     let menu_search = crate::ui_search_bar::menu_search_enabled(game);
-    let ysi_present = crate::ui_ysi::is_present(files.as_ref());
+    let ysi_present = game.ysi_xml_enabled() && crate::ui_ysi::is_present(files.as_ref());
     for name in ALWAYS_LOADED {
         let Some(path) = index.path(name) else {
             ui.warnings.push(format!("{name}: menu not found"));

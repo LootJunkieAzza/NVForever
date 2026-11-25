@@ -169,17 +169,22 @@ class TestCatalogValidation(unittest.TestCase):
                 "wave4b_extenders.json",
                 "wave4c_extenders.json",
                 "wave4d_extenders.json",
+                "wave4e_mods.json",
+                "wave4g_f2_extenders.json",
+                "wave4h_reconcile.json",
+                "wave6_point_raycast.json",
+                "wave6_t1_jg_colors.json",
             ],
         )
         self.assertFalse((nvse_harness.DEFAULT_CATALOG_DIR / "persistence_matrix.json").exists())
         errors, counts = nvse_harness.validate_catalogs(paths)
         self.assertEqual(errors, [], f"Catalog validation errors: {errors[:5]}")
-        self.assertEqual(counts["catalogs"], 5)
-        self.assertEqual(counts["probe_batches"], 21)
-        self.assertEqual(counts["probes"], 497)
+        self.assertEqual(counts["catalogs"], 10)
+        self.assertEqual(counts["probe_batches"], 28)
+        self.assertEqual(counts["probes"], 543)
         self.assertEqual(counts["persistence_items"], 0)
 
-        # Verify Wave 1 parity probe IDs and corrected Wave 4A + T35 targeted probes are present verbatim.
+        # Verify Wave 1 parity probe IDs and corrected Wave 4A/4D/4E/4G/4H targeted probes are present verbatim.
         probes_by_id: dict[str, dict] = {}
         for p in paths:
             data = nvse_harness.load_catalog(p)
@@ -203,6 +208,16 @@ class TestCatalogValidation(unittest.TestCase):
             "w4d_04_generic_form_neg_idx",
             "w4d_09_spread_all_anim_types",
             "w4d_43_nif_selector_and_ui_entities",
+            "w4e_01_ysi_string_alias",
+            "w4e_c10_uio_230_conditions_and_3line",
+            "w4e_c14_script_runner_gx_exit",
+            "w4g_01_getisformtype_case",
+            "w4g_13_isidleplaying_and_idle_replace",
+            "w4h_01_quest_added_button2_parent",
+            "w4h_11_sup_lockpick_menu_tiers",
+            "w6_01_point_raycast_angles",
+            "w6_02_point_raycast_miss_and_range",
+            "w6_03_point_raycast_collision_flags",
         ):
             self.assertIn(req_id, probes_by_id)
 
@@ -366,6 +381,9 @@ class TestCatalogValidation(unittest.TestCase):
         self.assertIn("wave4b_extenders", out)
         self.assertIn("wave4c_extenders", out)
         self.assertIn("wave4d_extenders", out)
+        self.assertIn("wave4e_mods", out)
+        self.assertIn("wave4g_f2_extenders", out)
+        self.assertIn("wave4h_reconcile", out)
         self.assertNotIn("persistence_matrix", out)
 
 

@@ -129,7 +129,7 @@ pub fn parse(src: &str) -> Doc {
             let line = p.line;
             p.advance(1);
             let name = p.take_while(name_char);
-            let (attrs, empty) = p.attributes(line);
+            let (attrs, empty) = p.attributes(line, &name);
             let el = Element { name, attrs, children: Vec::new(), line };
             let missing_slash_at = if too_deep == 0
                 && !empty
@@ -255,18 +255,41 @@ fn take_trailing_non_operators(el: &mut Element) -> Vec<Node> {
     el.children.split_off(cut).into_iter().filter(|n| matches!(n, Node::Element(_))).collect()
 }
 
+/// Whether an open `<hotrect>` and closing `</rect>` (or `<rect>` and `</hotrect>`) form
+/// a mismatched rect-family container pair [observed: Fallout: New Vegas 1.4.0.525 +
+/// xNVSE 6.4.9 + UI Organizer 230 / vanilla XML parser, 2026-11-24, `GSDocMitchellHouse`
+/// (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only
+/// `PrintToConsole` probe; zero writes to game install or Saves),
+/// `w4h_01_quest_added_button2_parent` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
+/// #3802):
+/// `PROBE|w4h_01_quest_added_button2_parent|hotrect_rect(ld=1,b1=11,b2Main=22,b2B1=-999,b2Menu=-999)|rect_hotrect(ld=1,in=33,sibMain=44,sibIn=-999,sibMenu=-999)`;
+/// zero DLL, PDB, or third-party source consulted — closing `<hotrect>` with `</rect>`
+/// (as in vanilla `quest_added.xml`) closes the inner `<hotrect>` and keeps `Button2`
+/// parented under `MainRect`, and `<rect>` closed with `</hotrect>` behaves symmetrically;
+/// menu-xml.md §1.1].
+fn is_rect_pair(open: &str, close: &str) -> bool {
+    (open.eq_ignore_ascii_case("hotrect") && close.eq_ignore_ascii_case("rect"))
+        || (open.eq_ignore_ascii_case("rect") && close.eq_ignore_ascii_case("hotrect"))
+}
+
 /// An end tag closes the innermost open element of the name it gives (and those opened
-/// inside it); when none of that name is open, it closes the innermost open element
-/// whatever its name; with nothing open it is dropped [hypothesis, from what works in
-/// the original: MCM runs with both `<_KeyInut>` … `</_KeyInput>` and a `<_target>` whose
-/// `<onlyif>` is never closed (ModListRect.xml); the first needs the second rule, the
-/// second the first. Observer check: menu-xml.md §8].
+/// inside it), treating `<hotrect>`/`</rect>` and `<rect>`/`</hotrect>` as matching
+/// rect-family containers [observed: `w4h_01_quest_added_button2_parent`, #3802,
+/// menu-xml.md §1.1] so a typo'd `</rect>` on an inner `<hotrect>` does not pop out
+/// to an enclosing `<rect>`; when none of that name is open, it closes the innermost open
+/// element whatever its name; with nothing open it is dropped [hypothesis for non-rect
+/// mismatches, from what works in the original: MCM runs with both `<_KeyInut>` …
+/// `</_KeyInput>` and a `<_target>` whose `<onlyif>` is never closed (ModListRect.xml).
+/// Observer check: menu-xml.md §8].
 fn close(stack: &mut Vec<Element>, name: &str, line: u32, warnings: &mut Vec<String>) {
     if stack.len() == 1 {
         warnings.push(format!("line {line}: </{name}> closes nothing open; dropped"));
         return;
     }
-    let at = (1..stack.len()).rev().find(|&k| stack[k].name.eq_ignore_ascii_case(name)).unwrap_or(stack.len() - 1);
+    let at = (1..stack.len())
+        .rev()
+        .find(|&k| stack[k].name.eq_ignore_ascii_case(name) || is_rect_pair(&stack[k].name, name))
+        .unwrap_or(stack.len() - 1);
     let closing_enclosing_container = at < stack.len() - 1 && is_container(&stack[at].name);
     while stack.len() > at {
         let mut el = stack.pop().unwrap();
@@ -405,8 +428,21 @@ impl Parser<'_> {
         self.warnings.push(format!("line {line}: {what}"));
     }
 
+    fn peek_name_at(&self, offset: usize) -> String {
+        let mut k = offset;
+        let mut out = String::new();
+        while let Some(c) = self.peek_at(k) {
+            if !name_char(c) {
+                break;
+            }
+            out.push(c);
+            k += 1;
+        }
+        out
+    }
+
     /// The attributes up to the tag's `>`; true when it ends `/>`.
-    fn attributes(&mut self, line: u32) -> (Vec<(String, String)>, bool) {
+    fn attributes(&mut self, line: u32, tag: &str) -> (Vec<(String, String)>, bool) {
         let mut attrs = Vec::new();
         loop {
             self.skip_space();
@@ -423,12 +459,15 @@ impl Parser<'_> {
                     self.advance(2);
                     return (attrs, true);
                 }
-                // A start tag cut short by the next tag (`<systemcolor</systemcolor>` in
-                // two vanilla files [observed]): ends there, open, so that the end tag
-                // after it closes it.
+                // A start tag cut short by the next tag:
+                // - When immediately followed by its own end tag (`<systemcolor</systemcolor>`
+                //   in two vanilla files [observed]), end open so the end tag closes it.
+                // - When followed by a different start tag or an enclosing end tag, end empty
+                //   (self-closed) so following sibling traits/tiles are not swallowed [hypothesis].
                 Some('<') => {
                     self.warn(line, "tag cut short by the next one");
-                    return (attrs, false);
+                    let own_close = self.peek_str("</") && self.peek_name_at(2).eq_ignore_ascii_case(tag);
+                    return (attrs, !own_close);
                 }
                 Some(c) if name_char(c) => {
                     let name = self.take_while(name_char);
@@ -636,5 +675,80 @@ mod tests {
         let nested_op = r#"<rect name="Calc"><x><add> 1 <add> 2 </add></add></x></rect>"#;
         let d3 = parse(nested_op);
         assert!(d3.warnings.is_empty(), "{:?}", d3.warnings);
+    }
+
+    #[test]
+    fn rect_and_hotrect_mismatched_end_tags_keep_enclosing_containers_intact() {
+        // Synthetic control mirroring `quest_added.xml`: two `<hotrect>` buttons inside an
+        // enclosing `<rect>` closed by `</rect>` must close each `<hotrect>`, not pop the
+        // enclosing `<rect>` and leave `<menu>` closed prematurely.
+        let src = r#"<menu name="GenericDialog">
+            <rect name="MainRect">
+                <hotrect name="Button1"><x>10</x></rect>
+                <hotrect name="Button2"><alpha>100<x>20</x></rect>
+            </rect>
+        </menu>"#;
+        let d = parse(src);
+        let menu = el(&d.nodes[0]);
+        assert!(menu.is("menu"));
+        let top_children: Vec<_> = menu.elements().map(|e| e.attr("name").unwrap_or("")).collect();
+        assert_eq!(top_children, ["MainRect"]);
+        let main = menu.elements().next().unwrap();
+        let buttons: Vec<_> = main.elements().map(|e| (e.name.as_str(), e.attr("name").unwrap_or(""))).collect();
+        assert_eq!(buttons, [("hotrect", "Button1"), ("hotrect", "Button2")]);
+        // Unclosed `<alpha>` inside Button2 hoisted sibling `<x>` onto Button2 when `</rect>` closed `<hotrect>`.
+        let btn2 = main.elements().nth(1).unwrap();
+        let btn2_traits: Vec<_> = btn2.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(btn2_traits, ["alpha", "x"]);
+        assert_eq!(d.warnings.len(), 3, "{:?}", d.warnings);
+        assert!(d.warnings.iter().all(|w| !w.contains("<menu>") && !w.contains("closes nothing open")), "{:?}", d.warnings);
+
+        // Symmetric case: `<rect>` inside `<hotrect>` closed by `</hotrect>` keeps outer `<hotrect>` open.
+        let sym = r#"<hotrect name="List"><rect name="Row1"><x>1</x></hotrect><rect name="Row2"><x>2</x></rect></hotrect>"#;
+        let d2 = parse(sym);
+        let list = el(&d2.nodes[0]);
+        let rows: Vec<_> = list.elements().map(|e| e.attr("name").unwrap_or("")).collect();
+        assert_eq!(rows, ["Row1", "Row2"]);
+        assert_eq!(d2.warnings.len(), 1, "{:?}", d2.warnings);
+    }
+
+    #[test]
+    fn truncated_start_tag_before_sibling_or_parent_end_does_not_swallow_siblings() {
+        // Cut short before own end tag (`<systemcolor</systemcolor>`): stays open for its own end tag.
+        let own = parse("<image><systemcolor</systemcolor><locus>1</locus></image>");
+        let img = el(&own.nodes[0]);
+        assert_eq!(img.elements().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["systemcolor", "locus"]);
+        assert_eq!(own.warnings.len(), 1, "{:?}", own.warnings);
+
+        // Cut short before a different start tag: self-closes so `<locus>` stays a sibling.
+        let sib = parse("<image><systemcolor\n<locus>1</locus></image>");
+        let img2 = el(&sib.nodes[0]);
+        assert_eq!(img2.elements().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["systemcolor", "locus"]);
+        assert_eq!(sib.warnings.len(), 1, "{:?}", sib.warnings);
+
+        // Cut short right before the parent's closing tag: self-closes without clobbering `</image>`.
+        let end = parse("<image><systemcolor</image>");
+        let img3 = el(&end.nodes[0]);
+        assert_eq!(img3.elements().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["systemcolor"]);
+        assert_eq!(end.warnings.len(), 1, "{:?}", end.warnings);
+    }
+
+    #[test]
+    fn mismatched_single_trait_and_operator_end_tags_preserve_structure() {
+        // Synthetic controls mirroring VUI+/JAM/VATS mismatched closing tags.
+        let src = r#"<rect name="Panel">
+            <_Ratio><copy>16</copy><div>9</div></_Height>
+            <_Action1> 1 </_Interact1>
+            <_Action2> 7 </_Interact2>
+            <width><copy>0</copy><add><copy>256</copy><onlyif>1</onlyif></suaddb><add>12</add></width>
+            <brightness><copy>200</copy></alpha>
+        </rect>"#;
+        let d = parse(src);
+        let r = el(&d.nodes[0]);
+        let names: Vec<_> = r.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["_Ratio", "_Action1", "_Action2", "width", "brightness"]);
+        let width_ops: Vec<_> = r.elements().nth(3).unwrap().elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(width_ops, ["copy", "add", "add"]);
+        assert_eq!(d.warnings.len(), 5, "{:?}", d.warnings);
     }
 }

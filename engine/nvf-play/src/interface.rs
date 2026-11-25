@@ -11,7 +11,7 @@ use bevy::image::{CompressedImageFormatSupport, CompressedImageFormats, ImageSam
 use bevy::prelude::*;
 use fnv_font::{Font, Glyph, Line};
 use nvf_assets::GameData;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 mod tga;
@@ -63,6 +63,25 @@ pub const AMBER_RGB: [u8; 3] = [255, 182, 66];
 static HUD_RGB: AtomicU32 = AtomicU32::new(pack(AMBER_RGB));
 static PIPBOY_RGB: AtomicU32 = AtomicU32::new(pack(AMBER_RGB));
 
+#[cfg(test)]
+std::thread_local! {
+    static TEST_COLOURS: std::cell::Cell<Option<([u8; 3], [u8; 3])>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Isolate authored palette changes from other test apps.
+/// Systems that consume the override must run on this thread.
+#[cfg(test)]
+pub(crate) fn colours_at(hud: [u8; 3], pipboy: [u8; 3]) -> impl Drop {
+    struct Restore(Option<([u8; 3], [u8; 3])>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_COLOURS.set(self.0);
+        }
+    }
+    Restore(TEST_COLOURS.replace(Some((hud, pipboy))))
+}
+
 const fn pack([r, g, b]: [u8; 3]) -> u32 {
     (r as u32) << 16 | (g as u32) << 8 | b as u32
 }
@@ -73,19 +92,37 @@ fn unpack(v: u32) -> [u8; 3] {
 
 /// The HUD's and the menus' colour.
 pub fn hud_rgb() -> [u8; 3] {
+    #[cfg(test)]
+    if let Some((hud, _)) = TEST_COLOURS.get() {
+        return hud;
+    }
     unpack(HUD_RGB.load(Ordering::Relaxed))
 }
 
 pub fn set_hud_rgb(rgb: [u8; 3]) {
+    #[cfg(test)]
+    if let Some((_, pipboy)) = TEST_COLOURS.get() {
+        TEST_COLOURS.set(Some((rgb, pipboy)));
+        return;
+    }
     HUD_RGB.store(pack(rgb), Ordering::Relaxed);
 }
 
 /// The Pip-Boy screens' colour.
 pub fn pipboy_rgb() -> [u8; 3] {
+    #[cfg(test)]
+    if let Some((_, pipboy)) = TEST_COLOURS.get() {
+        return pipboy;
+    }
     unpack(PIPBOY_RGB.load(Ordering::Relaxed))
 }
 
 pub fn set_pipboy_rgb(rgb: [u8; 3]) {
+    #[cfg(test)]
+    if let Some((hud, _)) = TEST_COLOURS.get() {
+        TEST_COLOURS.set(Some((hud, rgb)));
+        return;
+    }
     PIPBOY_RGB.store(pack(rgb), Ordering::Relaxed);
 }
 
@@ -106,8 +143,9 @@ pub fn pipboy_amber(brightness: f32) -> Color {
     tint(pipboy_rgb(), brightness)
 }
 
-/// The UI scale the settings page shows and `NVForever.ini` keeps (`ui-scale`), as a
-/// factor (1 the original's size). It takes effect at the next start ([`ui_scale`]).
+/// The HUD scale the settings page shows and `NVForever.ini` keeps (`hud-scale-v2`),
+/// as a factor (1 the original's size). Legacy `ui-scale` is migrated separately.
+/// It takes effect at the next start ([`ui_scale`]).
 /// Stored as the bits of an `f32`.
 static UI_SCALE_SETTING: AtomicU32 = AtomicU32::new(0x3f80_0000);
 /// The UI scale this run draws with, fixed once the INI is read ([`fix_ui_scale`]).
@@ -169,6 +207,55 @@ fn take_ui_scale(text: &str) -> bool {
 pub fn ui_scale_part(s: f32) -> f32 {
     let (lo, hi) = UI_SCALE_RANGE;
     (((fit_ui_scale(s) - lo) / (hi - lo)) * 1000.0).round() / 1000.0
+}
+
+/// Expanded HUD slider has its own key so earlier 50..150% saved parts keep their size.
+pub const HUD_SCALE_KEY: &str = "hud-scale-v2";
+#[cfg(any(target_os = "android", test))]
+const HUD_SCALE_CHOICES: usize = 46;
+
+fn fit_hud_scale(scale: f32) -> f32 {
+    if !scale.is_finite() { return 1.0; }
+    (scale.clamp(0.25, 2.5) * 100.0).round() / 100.0
+}
+fn hud_scale_part(scale: f32) -> f32 {
+    (((fit_hud_scale(scale) - 0.25) / 2.25) * 1000.0).round() / 1000.0
+}
+#[cfg(any(target_os = "android", test))]
+fn hud_scale_of_part(part: f32) -> f32 {
+    if !part.is_finite() { return 1.0; }
+    fit_hud_scale(0.25 + part.clamp(0.0, 1.0) * 2.25)
+}
+
+pub fn register_hud_scale(app: &mut App, group: &'static str) {
+    #[cfg(target_os = "android")]
+    register_android_hud_scale(app, group);
+    #[cfg(not(target_os = "android"))]
+    {
+        let (legacy, choices) = ui_scale_row(group);
+        crate::settings::add_choice_list(app, legacy, choices);
+        crate::settings::set_older_split(app, "ui-scale", crate::menu_scale::legacy_menu);
+    }
+}
+
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn register_android_hud_scale(app: &mut App, group: &'static str) {
+    use crate::settings::{self, Setting, Slider};
+    let (legacy, choices) = ui_scale_row(group);
+    settings::add_choice_list(app, legacy, choices);
+    // The wider HUD control represents the retained legacy key on the page.
+    settings::set_shown_when(app, "ui-scale", HUD_SCALE_KEY, |_| false);
+    settings::add_setting(app, Setting::slider(HUD_SCALE_KEY, group, "HUD scale",
+        "Size of the in-game HUD, from 25% to 250%. Menus have separate sizes. Takes effect at the next start.",
+        Slider::choice(HUD_SCALE_CHOICES, |_| hud_scale_part(ui_scale_setting()),
+            |_, part| UI_SCALE_SETTING.store(hud_scale_of_part(part).to_bits(), Ordering::Relaxed),
+            |part| format!("{:.0}%", hud_scale_of_part(part) * 100.0))));
+    settings::set_older_key(app, HUD_SCALE_KEY, "ui-scale");
+    settings::set_older_split(app, "ui-scale", crate::menu_scale::legacy_menu);
+}
+
+pub(crate) fn legacy_hud_scale(value: f32) -> String {
+    format!("{:.3}", hud_scale_part(ui_scale_of_part(value)))
 }
 
 /// The UI scale a slider's part stands for ([`ui_scale_part`]'s inverse).
@@ -440,6 +527,37 @@ pub fn to_menu_frame(point: Vec2, view: Vec2, anchor: Vec2) -> Vec2 {
     anchor * view * (1.0 - s) + point * s
 }
 
+/// [design: docs/design/android.md] Effective draw scale and safe-area padding for a
+/// centred fixed-dimension menu box (`content_w × content_h` interface units) when
+/// `menu_scale > 1.0` (Android up to 200%) or platform safe-area insets are non-zero.
+/// At `menu_scale <= 1.0` with zero safe insets (all desktop runs), returns `None` so
+/// callers retain their exact desktop layout untouched.
+pub fn fit_centered_box(
+    menu_scale: f32,
+    view_px: Vec2,
+    safe: crate::touch_safe_area::SafeInsets,
+    content_w: f32,
+    content_h: f32,
+) -> Option<(f32, UiRect)> {
+    let scale = if menu_scale.is_finite() && menu_scale > 0.0 { menu_scale } else { 1.0 };
+    let view_w = if view_px.x.is_finite() && view_px.x > 1.0 { view_px.x } else { 1280.0 };
+    let view_h = if view_px.y.is_finite() && view_px.y > 1.0 { view_px.y } else { 720.0 };
+    let clean = |v: f32, cap: f32| if v.is_finite() { v.clamp(0.0, cap) } else { 0.0 };
+    let (l, r) = (clean(safe.left, view_w * 0.45), clean(safe.right, view_w * 0.45));
+    let (t, b) = (clean(safe.top, view_h * 0.45), clean(safe.bottom, view_h * 0.45));
+    let has_safe = l > 0.5 || t > 0.5 || r > 0.5 || b > 0.5;
+    if scale <= 1.0 && !has_safe {
+        return None;
+    }
+    let px_per_u1 = view_h / 960.0;
+    let safe_w_u1 = (view_w - l - r).max(1.0) / px_per_u1;
+    let safe_h_u1 = (view_h - t - b).max(1.0) / px_per_u1;
+    let max_scale = (safe_w_u1 / content_w.max(1.0)).min(safe_h_u1 / content_h.max(1.0));
+    let draw_scale = scale.min(max_scale).max(0.1);
+    let pad = UiRect { left: Val::Px(l), right: Val::Px(r), top: Val::Px(t), bottom: Val::Px(b) };
+    Some((draw_scale, pad))
+}
+
 pub fn at(left: f32, top: f32, width: f32, height: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: u(left), top: u(top), width: u(width), height: u(height), ..default() }
 }
@@ -640,7 +758,7 @@ pub fn font_file(path: &str) -> String {
     font_file_in(path, INSTALL_FONTS.get())
 }
 
-fn font_file_in(path: &str, install: Option<&[Option<String>; 9]>) -> String {
+pub(crate) fn font_file_in(path: &str, install: Option<&[Option<String>; 9]>) -> String {
     let own = install.and_then(|fonts| {
         let n = FONT_FILES.iter().position(|f| f.eq_ignore_ascii_case(path))?;
         fonts[n].clone()
@@ -653,7 +771,7 @@ fn font_file_in(path: &str, install: Option<&[Option<String>; 9]>) -> String {
 /// `LOADED_FONTS = 8`; `GetFontFile 9` returning `""`]). Keep it unloaded in the shared
 /// [`face`] loader so every caller (`tiles::draw::FontKit`, `credits::start`,
 /// `loading_look::fit_tip`, `wait`, etc.) keeps the vanilla stand-in consistently [design].
-fn is_unloaded_font(path: &str) -> bool {
+pub(crate) fn is_unloaded_font(path: &str) -> bool {
     path.len() == FONT_FILES[8].len()
         && path.bytes().zip(FONT_FILES[8].bytes()).all(|(a, b)| {
             let a = if a == b'/' { b'\\' } else { a.to_ascii_lowercase() };
@@ -700,6 +818,91 @@ pub const FONT_FILES: [&str; 9] = [
     "textures\\fonts\\glow_futura_caps_large.fnt",
     "textures\\fonts\\nvfont_test.fnt",
 ];
+
+/// VFS folder where mods ship extended font slot definitions (`*.txt`) for JIP LN NVSE
+/// [documented: JIP LN NVSE Plugin (`https://www.nexusmods.com/newvegas/mods/58277`,
+/// 50.80+, current 57.30) Nexus article "Installing extra UI fonts using JIP LN NVSE";
+/// observed: MAPMO v6.4 (`https://www.nexusmods.com/newvegas/mods/74365`) public
+/// `Data\NVSE\Plugins\xfonts\MAPMO.txt` asset; no third-party DLL or source code consulted].
+pub const XFONTS_DIR: &str = "nvse\\plugins\\xfonts\\";
+
+/// Parse `<slot>=<path>` entries from an `xfonts` text file into `out`.
+///
+/// Only extended slots `10..=255` are accepted so vanilla INI slots `1..=9` (and the
+/// unloaded vanilla font `9` rule) are never overwritten by mod `xfonts` files
+/// [documented: JIP LN NVSE 50.80+ `xfonts` format (`10..=31` in the 50.80 article,
+/// `10..=89` on GECK Wiki `SetFontFile`); observed: MAPMO v6.4 `MAPMO.txt` maps slots
+/// `21` and `22` to `textures\fonts\mapmo_hud_caps_font.fnt` and
+/// `textures\fonts\mapmo_hud_caps_font2.fnt`; design: comment/quote/slash/`data\`
+/// normalization and `10..=255` upper slot guard].
+pub fn parse_xfonts(text: &str, out: &mut BTreeMap<u8, String>) {
+    for raw in text.lines() {
+        let line = raw.trim_start_matches('\u{feff}').trim();
+        if line.is_empty()
+            || line.starts_with(';')
+            || line.starts_with('#')
+            || line.starts_with("//")
+        {
+            continue;
+        }
+        let Some((lhs, rhs)) = line.split_once('=') else {
+            continue;
+        };
+        let Ok(slot) = lhs.trim().parse::<u8>() else {
+            continue;
+        };
+        if slot < 10 {
+            continue;
+        }
+        let mut path = rhs
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .replace('/', "\\")
+            .to_ascii_lowercase();
+        while let Some(rest) = path.strip_prefix('\\') {
+            path = rest.to_string();
+        }
+        if let Some(rest) = path.strip_prefix("data\\") {
+            path = rest.to_string();
+        }
+        if !path.is_empty() {
+            out.insert(slot, path);
+        }
+    }
+}
+
+/// Discover and parse all `NVSE\Plugins\xfonts\*.txt` files visible through `vfs`.
+///
+/// Files are processed in case-insensitive sorted path order so overrides are
+/// deterministic [design]. Returns an empty map when no `xfonts` definitions exist,
+/// leaving unmodded vanilla font loading completely unchanged.
+pub fn load_xfonts(vfs: &fnv_vfs::Vfs) -> BTreeMap<u8, String> {
+    let mut paths = vfs.paths(|p| {
+        let lower = p.to_ascii_lowercase();
+        lower.starts_with(XFONTS_DIR) && lower.ends_with(".txt")
+    });
+    paths.sort_by_key(|a| a.to_ascii_lowercase());
+    let mut out = BTreeMap::new();
+    for path in paths {
+        if let Some(Ok(bytes)) = vfs.read(&path) {
+            parse_xfonts(&String::from_utf8_lossy(&bytes), &mut out);
+        }
+    }
+    out
+}
+
+/// Resolve a font slot number (`1..=9` vanilla or `10..=255` extended `xfonts`) to its
+/// normalized VFS `.fnt` path [design]. Slot `0` and unregistered extended slots return
+/// `None`.
+pub fn slot_font_path(slot: u8, extra: &BTreeMap<u8, String>) -> Option<String> {
+    if (1..=9).contains(&slot) {
+        Some(font_file(FONT_FILES[usize::from(slot) - 1]))
+    } else if slot >= 10 {
+        extra.get(&slot).cloned()
+    } else {
+        None
+    }
+}
 
 /// Where a font's letters stand from a line's top: the tallest glyph's rise [design].
 pub fn line_base(face: &Face) -> f32 {
@@ -1443,4 +1646,60 @@ pub(crate) mod tests {
         let face = measured_font(true);
         assert_eq!(x_height(&face), line_base(&face));
     }
+
+    #[test]
+    fn fit_centered_box_preserves_desktop_and_clamps_high_scale_within_safe_area() {
+        use crate::touch_safe_area::SafeInsets;
+        let desktop = Vec2::new(1600.0, 900.0);
+        assert_eq!(fit_centered_box(1.0, desktop, SafeInsets::default(), 1088.0, 840.0), None);
+        assert_eq!(fit_centered_box(0.8, desktop, SafeInsets::default(), 1088.0, 840.0), None);
+
+        let safe = SafeInsets { left: 48.0, top: 12.0, right: 48.0, bottom: 24.0 };
+        for view in [Vec2::new(1280.0, 720.0), Vec2::new(2400.0, 1080.0), Vec2::new(960.0, 540.0), Vec2::new(800.0, 600.0)] {
+            for scale in [1.25f32, 1.5, 2.0] {
+                let (draw_scale, pad) = fit_centered_box(scale, view, safe, 1088.0, 840.0).expect("clamped");
+                assert!(draw_scale <= scale && draw_scale > 0.1);
+                let px_per_u = (view.y / 960.0) * draw_scale;
+                assert!(1088.0 * px_per_u <= view.x - safe.left - safe.right + 0.5, "{view:?} @ {scale}");
+                assert!(840.0 * px_per_u <= view.y - safe.top - safe.bottom + 0.5, "{view:?} @ {scale}");
+                assert_eq!(pad.left, Val::Px(safe.left));
+                assert_eq!(pad.bottom, Val::Px(safe.bottom));
+            }
+        }
+    }
+
+    #[test]
+    fn xfonts_parse_and_slot_paths_preserve_vanilla_slots_and_normalize_paths() {
+        let mut extra = BTreeMap::new();
+        parse_xfonts(
+            "\u{feff}   ; comment after BOM and leading spaces\n# hash\n// slash\n\
+             0=textures\\fonts\\bad0.fnt\n\
+             1=textures\\fonts\\override_vanilla.fnt\n\
+             9=textures\\fonts\\override_nine.fnt\n\
+             \u{feff}  21=textures\\fonts\\mapmo_hud_caps_font.fnt\n\
+             22 = \"Data/Textures/Fonts/MAPMO_HUD_Caps_Font2.fnt\"\n\
+             42=   \n\
+             256=textures\\fonts\\too_high.fnt\n\
+             not_a_line\n",
+            &mut extra,
+        );
+        assert_eq!(extra.len(), 2);
+        assert_eq!(extra.get(&21).map(String::as_str), Some("textures\\fonts\\mapmo_hud_caps_font.fnt"));
+        assert_eq!(extra.get(&22).map(String::as_str), Some("textures\\fonts\\mapmo_hud_caps_font2.fnt"));
+        assert!(!extra.contains_key(&0) && !extra.contains_key(&1) && !extra.contains_key(&9) && !extra.contains_key(&42));
+        // Later definitions for the same extended slot replace earlier ones cleanly.
+        parse_xfonts("22=\\textures/fonts/override_22.fnt\n", &mut extra);
+        assert_eq!(extra.get(&22).map(String::as_str), Some("textures\\fonts\\override_22.fnt"));
+        // Slot path resolution preserves vanilla 1..=9 and returns None for 0 / unregistered.
+        assert_eq!(slot_font_path(0, &extra), None);
+        assert_eq!(slot_font_path(1, &extra).as_deref(), Some(FONT_FILES[0]));
+        assert_eq!(slot_font_path(9, &extra).as_deref(), Some(FONT_FILES[8]));
+        assert_eq!(slot_font_path(21, &extra).as_deref(), Some("textures\\fonts\\mapmo_hud_caps_font.fnt"));
+        assert_eq!(slot_font_path(22, &extra).as_deref(), Some("textures\\fonts\\override_22.fnt"));
+        assert_eq!(slot_font_path(42, &extra), None);
+    }
 }
+
+#[cfg(test)]
+#[path = "interface/hud_scale_extended_tests.rs"]
+mod hud_scale_extended_tests;

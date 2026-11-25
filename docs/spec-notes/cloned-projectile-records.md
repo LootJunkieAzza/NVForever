@@ -25,7 +25,18 @@ test baseline failed; changing only the setter guards left two passes and one
 inherited-getter failure. The combined isolated change passed those tests and lint.
 That aggregate source is historical evidence, not current 0b16 execution proof.
 
-[hypothesis: unmeasured native policy] Reusing the current helper retains its live
-inheritance policy. Native copy-versus-inheritance after editing an original,
-save/reload, scene placement, rendering, projectile physics and complete consumers
-remain unqualified. A successful state getter is not graphical acceptance.
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+GSDocMitchellHouse (`0x00103DF9`), 10 official base masters, isolated staging copy,
+read-only, committed probe `w4g_02_tempcloneform_world_proj_csty` in
+`tools/capture/nvse/catalogs/wave4g_f2_extenders.json` (companion catalog PR #3803);
+no DLL or source consulted] `TempCloneForm` performs a copy-at-creation snapshot on
+`PROJ` records rather than live inheritance through `unclone()`: pre-clone mutations on
+the source `PROJ` carry onto the clone, subsequent mutations on the source `PROJ` do
+not bleed into already-created clones, and a clone-of-clone remains isolated from later
+parent-clone mutations. Verbatim printed probe output:
+`proj(0002CD5F:t1=3.00,t2=27520.0,t4=0.0|cl1=1234.5/0.75|afterSrc=5678.5:cl2=1234.5/0.75|cl2sub=1234.5)`.
+NVForever snapshots all active `PROJ` overrides (`Game::snapshot_projectile_traits`) at
+`TempCloneForm` creation time and reads untouched fields directly from the authored
+record rather than falling back to the original's post-clone `field_overrides`.
+Save/reload, scene placement, rendering, projectile physics and complete consumers
+remain separate acceptance.

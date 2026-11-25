@@ -101,11 +101,9 @@ pub fn menu_search_enabled(game: &Game<'_>) -> bool {
     if game.tweaks.menu_search {
         return true;
     }
-    game.mod_files
-        .read_text("NVSE\\Plugins\\nvse_stewie_tweaks.ini")
-        .and_then(|t| crate::mod_files::ini_get(&t, "tweaks", "bMenuSearch"))
-        .and_then(|v| v.trim().parse::<f64>().ok())
-        .is_some_and(|v| v != 0.0)
+    crate::stewie_inis::query_value(&game.mod_files, "bMenuSearch", "Tweaks")
+        .and_then(|v| crate::stewie_inis::parse_ini_bool(&v))
+        .unwrap_or(false)
 }
 
 /// Default numeric traits materialized on a search-bar tile only when absent [design].

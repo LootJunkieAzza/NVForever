@@ -65,9 +65,15 @@ pub struct Jip9State {
     pub colour_sets: Vec<(u8, [u8; 3])>,
     /// The actor whose health bar the HUD shows, as the engine last told it.
     pub enemy_target: Option<FormId>,
-    /// ToggleImmortalMode's value as set, any number [observed: jip9 immortal.5 reads 5
-    /// back]; 1 health not below 1, 2 no health or limb damage, others off.
-    pub immortal: i64,
+    /// ToggleImmortalMode's value as set, stored as a `u8` byte (`-1` wraps to `255`)
+    /// [observed: jip9 immortal.5 reads 5 back; Fallout: New Vegas 1.4.0.525 + xNVSE
+    /// 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10
+    /// official base masters, `w4d_18_immortal_mode_oob`
+    /// (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+    /// `m0=0|neg(prev=0,cur=255)|m3(prev=255,cur=3,hp=200.0->190.0)|m99(prev=3,cur=99)|rest(prev=99,cur=0)`;
+    /// no DLL or source consulted]; 1 health not below 1, 2 no health or limb damage,
+    /// others off.
+    pub immortal: u8,
     /// SetInteractionDisabledType's form type codes.
     pub disabled_types: BTreeSet<i32>,
 }
@@ -181,10 +187,11 @@ impl Game<'_> {
     /// The player's immortal mode (ToggleImmortalMode): 0 off, 1 Health not below 1,
     /// 2 no Health or limb damage.
     pub fn immortal_mode(&self) -> u8 {
-        // Another value is kept and read back [observed: jip9 immortal.5]; it holds
-        // nothing [hypothesis: the page names 0-2 only].
+        // Another byte value is kept and read back and holds nothing [observed: jip9
+        // immortal.5; w4d_18_immortal_mode_oob: mode 3 lets DamageAV Health 10 drop
+        // HP 200.0->190.0].
         match self.other.jip9.immortal {
-            m @ (1 | 2) => m as u8,
+            m @ (1 | 2) => m,
             _ => 0,
         }
     }
@@ -349,12 +356,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(f64::from(g.other.jip9.volumes[t]))
         }
         // `type [level]`: a level past 100 changes nothing [observed: jip9 volume.set,
-        // 30 then 150 reads 30], nor one below 0 [hypothesis: likewise]; left out, the
-        // default [observed: music back to 60].
+        // 30 then 150 reads 30]; a negative level or omitted level resets to the default
+        // [observed: jip9 volume.set, music back to 60; Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23/24, GSDocMitchellHouse (0x00103DF9),
+        // 10 official base masters, `b3_jip9_02_game_volume_neg_and_default`
+        // (`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3679):
+        // `PROBE|b3_jip9_02_game_volume_neg_and_default|defs=100,50,60,100,60,50|30=29,neg=100,over=100`
+        // and `w4c_a04_set_game_volume_gt100` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679):
+        // `PROBE|w4c_a04_set_game_volume_gt100|ch0(init=100,30=29,150=29,neg=100,101=29,rest=100)|ch4(init=60,30=29,150=29,neg=60,0=0,rest=60)`;
+        // no DLL or source consulted].
         "setgamevolume" => {
             if let Some(t) = num(args, 0).map(|t| t as i64).and_then(|t| usize::try_from(t).ok()).filter(|&t| t < 6) {
                 let v = match num(args, 1) {
                     None => Some(DEFAULT_VOLUMES[t]),
+                    Some(v) if v < 0.0 => Some(DEFAULT_VOLUMES[t]),
                     Some(v) => (0.0..=100.0).contains(&v).then_some(v as f32),
                 };
                 if let Some(v) = v {
@@ -379,10 +394,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(1.0)
         }
         // `interface r g b`: 1 HUD, 2 HUD alt, 3 terminal, 4 Pip-Boy, 5 main menu
-        // [documented]; each part rounded into 0-255 [hypothesis].
+        // [documented]; integer channels wrap modulo 256 (u8 conversion) [observed: Fallout:
+        // New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528,
+        // 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+        // `w4c_b1_15b_syscolor_cursor` (`wave4c_extenders.json`, #3679):
+        // `SetSystemColor 1 300 -10 128` read back `2946688` (`0x2CF680` = R:44, G:246,
+        // B:128)] and fractional channel inputs truncate toward zero before wrapping
+        // [observed: same environment, isolated clean-room staging copy (read-only
+        // `PrintToConsole` probe; zero writes to game install or Saves),
+        // `w4h_10_set_system_color_fractional` (`wave4h_reconcile.json`, #3803):
+        // `PROBE|w4h_10_set_system_color_fractional|c0=C7FFA5|f1(12.7,12.3,12.5)=C0C0C|f2(13.5,0.4,254.6)=D00FE|rest=C7FFA5`;
+        // zero DLL, PDB, or third-party source consulted].
         "setsystemcolor" => {
             let Some(id) = num(args, 0).map(|t| t as i64).filter(|t| (1..=5).contains(t)) else { return Some(Ok(zero)) };
-            let part = |k: usize| num(args, k).unwrap_or(0.0).round().clamp(0.0, 255.0) as u8;
+            let part = |k: usize| (num(args, k).unwrap_or(0.0).trunc() as i64) as u8;
             let rgb = [part(1), part(2), part(3)];
             g.other.jip9.colours.insert(id as u8, rgb);
             g.other.jip9.colour_sets.push((id as u8, rgb));
@@ -390,14 +415,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- the HUD's enemy health bar: its actor, else none [documented].
         "getenemyhealthtarget" => XVal::Ref(g.other.jip9.enemy_target.map_or(0, |f| f.0)),
-        // ---- the player's immortal mode: `[mode]` 0-2 [documented]; any value is kept
-        // and read back [observed: jip9 immortal.5]; the mode before it.
+        // ---- the player's immortal mode: `[mode]` 0-2 [documented]; stored as a u8
+        // byte (`-1` wraps to `255`, `3`/`99` read back verbatim) and returns the mode
+        // before it [observed: jip9 immortal.5; w4d_18_immortal_mode_oob].
         "toggleimmortalmode" => {
             let was = g.other.jip9.immortal;
             if let Some(m) = num(args, 0) {
-                g.other.jip9.immortal = m as i64;
+                g.other.jip9.immortal = m as i64 as u8;
             }
-            XVal::Num(was as f64)
+            XVal::Num(f64::from(was))
         }
         // ---- interaction by form type: `disable type` / `type` [documented]
         "setinteractiondisabledtype" => {

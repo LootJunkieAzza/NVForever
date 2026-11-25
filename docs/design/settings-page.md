@@ -6,6 +6,11 @@ setting (`engine/nvf-play/src/settings.rs`) and the controls of
 from a table that only says where each row is drawn. This note is the page's model; the
 code's module notes say the same at their own level.
 
+On a normal Android launcher start, borderless and one MSAA sample are platform
+defaults, not command-line overrides of settings rows. The defaults carry across
+in-app restarts. Explicit row switches still prevent exporting `settings-menu.json`,
+as does a reduced registry when a full export from the same build already exists.
+
 ## 0. Adding or changing a row: the rules (the menu overhaul, 2026-11-15)
 
 The owner reorganised the page on 2026-11-15, tab by tab (the menu overhaul). Every row
@@ -160,15 +165,17 @@ world.md §3 "Smoothing"]. 4 x 4 near draws 4 × 4 near the camera and 2 × 2 fu
 surface [design, #2676]; the INI's older on/off reads as 4 x 4 and Off.
 
 The table names every row the registry can hold [documented: `settings_layout.rs::SECTIONS`],
-162 with #1966's `quality`, the overhaul's `menu-font` (#1966's `enhanced` is gone),
+167 with #1966's `quality`, the overhaul's `menu-font` (#1966's `enhanced` is gone),
 #2014's nine `fps-counter-*` rows, #2242's `fps-counter-upscaling`, #2317's
-`frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling`, #3322's `terrain-parallax`, #2688's `sound-cover`, #2670's `cloud-shadows`, #2671's `terrain-shadows`, `light-shadows` (ALC shadows, once Lamp shadows, Graphics › Shadows after `terrain-shadows`; light_shadows.rs), #2910's `gore-shake`, #2149's `smooth-terrain` and `terrain-wireframe`, the Advanced Movement rows, #2843's `shadow-resolution` (under Graphics › Shadows after `shadow-filter`), #2661's `mesh-terrain-blend` (Graphics › Detail and Distance, after the terrain rows), the six `quick-loot` rows (#2933, NVF Features › Quick Loot), the heat haze prototype's `heat-haze` (Graphics › Lighting and Effects, after `light-shafts`), #2675's `desert-haze` (after `heat-haze`), #3000's `sprint` (NVF Features › Gameplay), #2993's `aerial-perspective` (after `desert-haze`), #2995's `night-sky-detail` (after `aerial-perspective`), #3016's `tree-distance`, #2981's
+`frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling`, #3322's `terrain-parallax`, #2688's `sound-cover`, #2670's `cloud-shadows`, #2671's `terrain-shadows`, `light-shadows` (ALC shadows, once Lamp shadows, Graphics › Shadows after `terrain-shadows`; light_shadows.rs), #2910's `gore-shake`, #2149's `smooth-terrain` and `terrain-wireframe`, the Advanced Movement rows, #2843's `shadow-resolution` (under Graphics › Shadows after `shadow-filter`), #2661's `mesh-terrain-blend` (Graphics › Detail and Distance, after the terrain rows), the six `quick-loot` rows (#2933, NVF Features › Quick Loot), the heat haze prototype's `heat-haze` (Graphics › Lighting and Effects, after `light-shafts`), #2675's `desert-haze` (after `heat-haze`), #3000's `sprint` (NVF Features › Gameplay), #2993's `aerial-perspective` (after `desert-haze`), #2995's `night-sky-detail` (after `aerial-perspective`), #3032's `volumetric-clouds`, `volumetric-light` and `volumetric-light-strength` (Graphics › Lighting and Effects), #3016's `tree-distance`, #2981's
 `authored-materials` and `authored-reflections` (Graphics › Detail and Distance, the second
 right after the first), #2701's `full-detail` and #3014's `distant-objects` (Graphics › Detail
 and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distance, the last
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3280's ten `flashlight-*`
-rows (Tweaks › Quality of Life › Flashlight) (`KNOWN` in
+rows (Tweaks › Quality of Life › Flashlight), #3348's `hdr-output` (Display › Screen,
+after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start) (`KNOWN` in
 `settings_layout.rs`); a test keeps
 it so (`settings_layout.rs`, `the_table_names_each_key_once_in_one_of_the_tabs`). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
@@ -196,6 +203,50 @@ the Tweaks tab filled (88fbce1c4) and still catches a row another tab's table fo
 throughout today. The later change gives Tweaks rows a placement `Tweaks › <group> ›
 <heading>` in `SECTIONS` and draws the groups in place of the rail; neither the
 registrations nor `resolve_layout`'s interface change for it.
+
+### Android mobile organization
+
+[design] Android uses the same dynamic settings page, adding **Mobile** after Controls.
+Desktop keeps its eight tabs and existing placements. This changes presentation only:
+the settings retain their registration order, keys, callbacks, saved values and defaults.
+Missing optional rows and empty headings stay omitted. Search, Changed,
+keyboard/controller navigation and row identity use the existing page implementation.
+
+| Mobile heading | Existing controls |
+| --- | --- |
+| Touch layout and guide | Safe practice, icon family, adaptive Aim/Block presentation |
+| Movement and gestures | Analog movement, fire drag look, run lock, optional VATS gesture |
+| Gyroscope | Enable, sensitivity, ADS, hold/toggle, ADS-only, recenter |
+| Inventory and quick access | Hotbar enable/count/size/tray, bottom swipe enable/target/distance |
+| Dialogue | Touch dialogue, choice/subtitle text size, tap-selection policy |
+| Lockpicking | Touch scheme and scale |
+| Interface size | Existing menu/UI scale and canonical health/AP/compass sizes |
+
+Preset, FPS, resolution and opt-in thermal response stay in **Display > Mobile
+performance**. The preset changes the frame limit and render resolution, not Graphics.
+
+The four Android-specific controller rows are in **Controls > Controller**. The four
+shared controller rows keep their **Controls > Input** and **Controls > Aim Assist**
+placements. Hardware bindings and Input Device remain in Controls; changing devices
+keeps the existing hidden-row projection and remapping behavior.
+The existing transactional layout editor opens from **Pause > Settings > Mobile >
+Touch layout and guide** on Android: Style / profiles
+for appearance, Save to keep changes, Cancel to restore them. The practice note points
+to this route; there is no second editor or new persistence schema.
+
+The shared crate's `MOBILE_SECTIONS` takes precedence over `SECTIONS` only on
+Android. The same profile determines the exported menu's layout stamp and the
+launcher's acceptance of that export. The launcher shows the in-game titles,
+choices and dependencies for its editable subset; game-only actions (such as
+the layout editor) stay in Pause. Before a normal Android start exports the
+catalogue, the launcher uses its smaller built-in settings copy.
+
+Dependencies on stored rows live in `NEEDS` and `NEEDS_CHOICE`. For example,
+turning off Touch dialogue, Gyroscope or Touch hotbar leaves its dependent
+settings visible with their saved value and reason. Renderer or hardware
+availability still comes from the live engine. See the
+[Android settings reference](../settings-reference-android.md) for placements
+and compatibility rows.
 
 ## 3. What the page lists (`settings_view.rs`)
 

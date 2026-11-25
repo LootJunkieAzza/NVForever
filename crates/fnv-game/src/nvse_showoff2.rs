@@ -137,7 +137,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 if let Some(s) = g.data.record_field(orig, sub, "").and_then(serde_json::Value::as_str) {
                     XVal::Str(s.to_string())
                 } else if sub == "FULL" {
-                    XVal::Str(g.name_overrides.get(&a).or_else(|| g.data.full_names.get(&orig)).cloned().unwrap_or_else(|| "<no name>".into()))
+                    XVal::Str(g.name_overrides.get(&a).or_else(|| g.forms.saved_names.get(&a)).or_else(|| g.data.full_names.get(&orig)).cloned().unwrap_or_else(|| "<no name>".into()))
                 } else {
                     XVal::Str("<no name>".into())
                 }

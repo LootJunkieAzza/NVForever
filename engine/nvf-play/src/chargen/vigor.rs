@@ -54,6 +54,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlayerCamera, PlaySet};
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::RenderLayers;
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -388,6 +389,7 @@ fn read_clips(data: &GameData) -> HashMap<String, Clip> {
 fn input(
     keys: crate::pad::ActionButtons<KeyCode>,
     mouse: crate::pad::ActionButtons<MouseButton>,
+    mut wheel: MessageReader<MouseWheel>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     shapes: Query<(&Aabb, &GlobalTransform, &InheritedVisibility)>,
@@ -398,9 +400,11 @@ fn input(
     mut sim: ResMut<SimState>,
     mut stats: ResMut<VigorStats>,
     mut sounds: MessageWriter<UiSound>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let keys = keys.snapshot();
     let mouse = mouse.snapshot();
+    let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();
     use KeyCode::*;
     let clips = menu.clips.clone().unwrap_or_default();
     let Some(o) = menu.open.as_mut() else { return };
@@ -446,11 +450,16 @@ fn input(
         }
         best.map(|(_, a)| a)
     };
+    let hovered = windows.single().ok().and_then(|w| w.cursor_position()).and_then(|at| pick(at, o));
     if mouse.just_pressed(MouseButton::Left) {
-        if let Some(a) = windows.single().ok().and_then(|w| w.cursor_position()).and_then(|at| pick(at, o)) {
+        if let Some(a) = hovered {
             acts.push((a, "click"));
             stats.clicks += 1;
         }
+    }
+    let wheel_sets = tweaks.as_ref().is_some_and(|t| t.levelup_wheel);
+    for a in vigor_wheel_actions(wheel, wheel_sets, o.vigor.page, hovered) {
+        acts.push((a, "wheel"));
     }
     // The test aid's steps due now.
     // Its seconds count from the menu's first frame of input, so that a slow start
@@ -663,6 +672,22 @@ fn draw(
     }
 }
 
+/// Mouse wheel actions on the Vigor Tester (LoveTesterMenu): when `levelup_wheel` is
+/// enabled on a stat page or the review page, wheel up raises and wheel down lowers the
+/// hovered stat/number (or the current/selected stat) [design; Stewie's Tweaks 9.65/9.70
+/// public changelogs].
+fn vigor_wheel_actions(wheel: f32, levelup_wheel: bool, page: Page, hovered: Option<Action>) -> Vec<Action> {
+    if !levelup_wheel || wheel.abs() < 1.0 || page == Page::Attract {
+        return Vec::new();
+    }
+    let target = match hovered {
+        Some(Action::Raise(Some(i)) | Action::Lower(Some(i)) | Action::Select(i)) => Some(i),
+        _ => None,
+    };
+    let action = if wheel > 0.0 { Action::Raise(target) } else { Action::Lower(target) };
+    vec![action; wheel.abs().round() as usize]
+}
+
 fn report(mut exit: MessageReader<AppExit>, stats: Res<VigorStats>) {
     if exit.read().next().is_none() || stats.opened == 0 {
         return;
@@ -683,6 +708,22 @@ mod tests {
     use nvf_assets::{NifRoot, TextureCache};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn vigor_wheel_adjusts_stat_and_hovered_review_numbers() {
+        // Off by default: no wheel actions.
+        assert!(vigor_wheel_actions(1.0, false, Page::Stat(0), None).is_empty());
+        assert!(vigor_wheel_actions(1.0, false, Page::Review, Some(Action::Select(2))).is_empty());
+        // Attract page ignores wheel even when enabled.
+        assert!(vigor_wheel_actions(1.0, true, Page::Attract, None).is_empty());
+        // Stat page adjusts current attribute.
+        assert_eq!(vigor_wheel_actions(1.0, true, Page::Stat(1), None), vec![Action::Raise(None)]);
+        assert_eq!(vigor_wheel_actions(-2.0, true, Page::Stat(1), None), vec![Action::Lower(None), Action::Lower(None)]);
+        // Review page adjusts hovered PointVal number or +/- button target, or selected row.
+        assert_eq!(vigor_wheel_actions(1.0, true, Page::Review, Some(Action::Select(4))), vec![Action::Raise(Some(4))]);
+        assert_eq!(vigor_wheel_actions(-1.0, true, Page::Review, Some(Action::Raise(Some(6)))), vec![Action::Lower(Some(6))]);
+        assert_eq!(vigor_wheel_actions(1.0, true, Page::Review, None), vec![Action::Raise(None)]);
+    }
 
     struct TempDir(PathBuf);
 

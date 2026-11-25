@@ -17,7 +17,24 @@ pub struct SimState {
 impl SimState {
     /// Build the simulation's tables from the plugins (they live for the whole run).
     pub fn new(lo: &LoadOrder, schema: &Schema, index: &WorldIndex) -> SimState {
-        let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(lo, schema)));
+        let mut forms = FormStore::build(lo, schema);
+        let (files, applied) = fnv_game::stewie_inis::apply_modular_game_settings_to_forms(&mut forms);
+        if files > 0 {
+            info!("stewie: applied {applied} GMST override(s) from {files} modular GameSettings INI file(s)");
+        }
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
+        crate::pipboy::labels::set(&forms.settings);
+        let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
+        SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
+    }
+
+    /// Build the simulation's tables applying Stewie modular `GameSettings\*.ini`
+    /// overrides from explicit `roots` (without touching process-global `mod_files`
+    /// roots).
+    pub fn new_with_mod_roots(lo: &LoadOrder, schema: &Schema, index: &WorldIndex, roots: &[std::path::PathBuf]) -> SimState {
+        let mut forms = FormStore::build(lo, schema);
+        let _ = fnv_game::stewie_inis::apply_modular_game_settings_to_forms_from_roots(&mut forms, roots);
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
         crate::pipboy::labels::set(&forms.settings);
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
         SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
@@ -29,7 +46,7 @@ impl SimState {
     /// `game.leveled_at` there would miss every fixed level.
     pub fn leveled_at(&self, game: &fnv_game::Game<'_>, r: FormId) -> fnv_sim::zones::LevelAt {
         let player = game.player.level.map_or(self.world.config().player_level, |l| l.clamp(1, i32::from(u16::MAX)) as u16);
-        self.world.level_at(r, player)
+        self.world.level_at_with_zone_lock(r, player, !game.tweaks.no_lock_encounter_zone_levels)
     }
 
     /// The seed and level `r`'s leveled picks are made with, as the game makes them in a
@@ -318,6 +335,74 @@ mod tests {
         }
         // A created item or container is not.
         assert!(!actor_ref(None, Some(*b"MISC")) && !actor_ref(None, Some(*b"CONT")) && !actor_ref(None, None));
+    }
+
+    #[test]
+    fn new_with_mod_roots_applies_modular_game_settings_without_touching_vanilla_when_absent() {
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = sig.to_vec();
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body: Vec<u8> = subs.iter().flatten().copied().collect();
+            let mut out = sig.to_vec();
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = b"GRUP".to_vec();
+            out.extend_from_slice(&((body.len() + 24) as u32).to_le_bytes());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(body);
+            out
+        }
+
+        let tes4 = rec(b"TES4", 0, &[sub(b"HEDR", &[0u8; 12])]);
+        let gmsts = [
+            rec(b"GMST", 0x201, &[sub(b"EDID", b"fSimModularFloat\0"), sub(b"DATA", &4.5f32.to_le_bytes())]),
+            rec(b"GMST", 0x202, &[sub(b"EDID", b"iSimModularInt\0"), sub(b"DATA", &3i32.to_le_bytes())]),
+            rec(b"GMST", 0x203, &[sub(b"EDID", b"sSimModularLabel\0"), sub(b"DATA", b"Vanilla\0")]),
+        ]
+        .concat();
+        let bytes = [tes4, top(b"GMST", &gmsts)].concat();
+        let plugins = [fnv_esm::Plugin::parse(&bytes, "SimModularGmst.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let schema = Schema::load_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/fnv")).unwrap();
+        let index = WorldIndex::default();
+
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("nvf-sim-gmst-{}-{stamp}", std::process::id()));
+        let empty = root.join("EmptyData");
+        let modded = root.join("ModData");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::create_dir_all(modded.join("NVSE/Plugins/Tweaks/GameSettings")).unwrap();
+        std::fs::write(
+            modded.join("NVSE/Plugins/Tweaks/GameSettings/10_override.ini"),
+            "[GameSettings]\nfSimModularFloat = 18.25\niSimModularInt = 11\nsSimModularLabel = \"Modded\"\n",
+        )
+        .unwrap();
+
+        let vanilla = SimState::new_with_mod_roots(&lo, &schema, &index, &[empty]);
+        assert_eq!(vanilla.world.setting_f32("fSimModularFloat"), Some(4.5));
+        assert_eq!(vanilla.world.setting_f32("iSimModularInt"), Some(3.0));
+        assert_eq!(vanilla.world.setting_value("sSimModularLabel"), Some(&fnv_sim::settings::Setting::Str("Vanilla".into())));
+
+        let overridden = SimState::new_with_mod_roots(&lo, &schema, &index, &[modded]);
+        assert_eq!(overridden.world.setting_f32("fSimModularFloat"), Some(18.25));
+        assert_eq!(overridden.world.setting_f32("iSimModularInt"), Some(11.0));
+        assert_eq!(overridden.world.setting_value("sSimModularLabel"), Some(&fnv_sim::settings::Setting::Str("Modded".into())));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

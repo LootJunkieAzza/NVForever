@@ -36,7 +36,8 @@
 //!   drift (issue #1396).
 //! - **Sounds**: the `Sound: <editor ID>` text keys the playing group passes are played
 //!   where the object is (anim_sounds.rs, [`ObjectSound`]), keys at the group's very
-//!   start included (a tripwire's sound key is 0.00001 s into its Forward).
+//!   start included (a tripwire's sound key is 0.00001 s into its Forward). A 2D one is as
+//!   loud from anywhere (`nvf_play::sfx::no_radii`, #3444). Log: `sfx: sound key …`.
 //! - **Shown and hidden nodes**: the visibility tracks (`NiVisController`) of the clip
 //!   playing show and hide the rig's nodes, as on every playing clip
 //!   (`nvf_assets::anim_play::Playing::show`); its alpha tracks fade its shapes

@@ -151,6 +151,11 @@ pub enum VmError {
     /// extender error does [observed: nvse-inv foreach.read.after, "script call failed"].
     #[error("{0} called on no reference")]
     NoReference(String),
+    /// A host command whose invalid argument aborts the calling script at runtime in
+    /// both strict and default modes (for example `SetClass` given a non-CLAS or null
+    /// class argument) [observed: w4g_05_isactordetected_and_setclass_invalid].
+    #[error("{0}")]
+    RuntimeAbort(String),
 }
 
 /// What the VM needs from the game. Every method may fail with a message; a failure
@@ -173,6 +178,12 @@ pub trait Host {
     /// `on` is already evaluated; implementations must not evaluate the call again.
     /// Other hosts keep the default no-op and the original error contract.
     fn no_reference_call(&mut self, _name: &str, _on: Option<Value>, _call: &XCall) {}
+    /// Whether an extender/source call with an explicit null receiver (`0`) still
+    /// dispatches to [`Host::ext_call`] instead of aborting with
+    /// [`VmError::NoReference`]. Defaults to `false`.
+    fn allows_null_receiver(&self, _name: &str) -> bool {
+        false
+    }
 
     /// The statement whose run caused the skips reported since the last call: the
     /// innermost that holds them (for the mod log, which names the line).
@@ -543,14 +554,20 @@ impl<'t, 'h> Vm<'t, 'h> {
                 // A failing extended condition counts as false and the script goes on
                 // [observed: probe loops/03, reading past a shrunk list in `if eval` does not
                 // stop the original's script]; strict runs stop.
-                Token::X { e } => match self.xeval(e).and_then(|v| v.value()) {
-                    Ok(v) => v,
-                    Err(err @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
-                        self.skip(&err);
-                        Value::ZERO
+                Token::X { e } => {
+                    let evaluated = self.xeval_truthy(e).and_then(|(v, truthy)| match v {
+                        XVal::Str(_) => Ok(Value::bool(truthy)),
+                        other => other.value(),
+                    });
+                    match evaluated {
+                        Ok(v) => v,
+                        Err(err @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                            self.skip(&err);
+                            Value::ZERO
+                        }
+                        Err(err) => return Err(err),
                     }
-                    Err(err) => return Err(err),
-                },
+                }
                 Token::Op { op } => {
                     let b = stack.pop().ok_or_else(|| VmError::Expression(format!("{} without operands", op.symbol())))?;
                     if *op == Op::Neg {
@@ -705,7 +722,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                 // observed, extender-core-tasks.md B4].
                 Stmt::While { cond, body } => loop {
                     self.step()?;
-                    let go = self.xeval(cond)?.truthy();
+                    let go = self.xeval_truthy(cond)?.1;
                     if self.host.take_return() {
                         return Ok(Flow::Return);
                     }
@@ -1554,6 +1571,38 @@ impl Vm<'_, '_> {
         }
     }
 
+    /// Evaluate an extended expression together with its truthiness.
+    ///
+    /// [observed: 2026-11-23 & 2026-11-24, GSDocMitchellHouse (0x00103DF9), Fallout: New
+    /// Vegas 1.4.0.525, xNVSE 6.4.9 with the 10 official base masters, clean-room script
+    /// probes `core_05_eval_empty_array_and_string_truth` (`1,0,1,1`),
+    /// `core_24_eval_string_var` / `#3679` `core_24_string_var_destruct_zero`
+    /// (`eval s`: `1 -> 0` across `sv_Destruct`, `eval sEmp == 1`, `eval (!sEmp) == 0`,
+    /// `eval (sEmp && 5) == 1`, `eval a1 == 1`, `eval a2 == 1`, `eval ar_Null == 0`,
+    /// `eval (!a1) == 0`, `eval (!aNull) == 1`), and `w4d_03_eval_empty_str_lit`
+    /// (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3802 / PR #3803, isolated
+    /// clean-room staging copy, read-only `PrintToConsole` probe; zero writes to game
+    /// install or Saves:
+    /// `PROBE|w4d_03_eval_empty_str_lit|lit0(cmp=1,val=0)|lit1(cmp=1,val=1)|con0Inline(cmp=0,val=-9)|c0=1,c1=1|v0=1,v1=1|saLit0(1:0)|saLit1(1:1)|saV0(1:1)`);
+    /// zero DLL, PDB, or third-party source consulted]: an initialised empty array and any
+    /// allocated `string_var` (even empty `""` or `sv_Construct "%z" s0`, because its string
+    /// ID is non-zero) evaluate truthy (`1`) under both `if eval` and standalone `eval`;
+    /// `ar_Null`, an uninitialised or `sv_Destruct`-ed `string_var`, and a bare empty string
+    /// literal `""` evaluate `0`, while a non-empty string literal `"abc"` evaluates `1`.
+    fn xeval_truthy(&mut self, e: &XExpr) -> Result<(XVal, bool), VmError> {
+        if let XExpr::Var { var, .. } = e {
+            if self.host.var_kind(var) == VarKind::String {
+                let id = self.host.get_var(var).map_err(VmError::Host)?.num() as u32;
+                let text = self.store()?.text(id).map(str::to_string);
+                let valid = id != 0 && text.is_some();
+                return Ok((XVal::Str(text.unwrap_or_default()), valid));
+            }
+        }
+        let v = self.xeval(e)?;
+        let truthy = v.truthy();
+        Ok((v, truthy))
+    }
+
     /// Evaluate an extended expression (docs/spec-notes/ext-syntax.md, ext-values.md).
     /// Arrays and the extender's own functions are tasks B3 and D, and stop the statement
     /// with `NotBuilt`.
@@ -1576,11 +1625,14 @@ impl Vm<'_, '_> {
             }
             XExpr::Lambda { .. } => self.host.make_lambda(e).map_err(VmError::Host)?,
             XExpr::Call { call } => self.xcall(call)?,
+            XExpr::Unary { op: XUnary::Not, e } => {
+                XVal::Num(if self.xeval_truthy(e)?.1 { 0.0 } else { 1.0 })
+            }
             XExpr::Unary { op, e } => {
                 let v = self.xeval(e)?;
                 match op {
                     XUnary::Neg => XVal::Num(-v.num()?),
-                    XUnary::Not => XVal::Num(if v.truthy() { 0.0 } else { 1.0 }),
+                    XUnary::Not => unreachable!(),
                     XUnary::Stringize => XVal::Str(self.text_of(&v)?),
                     XUnary::Numericize => match v {
                         XVal::Str(s) => XVal::Num(text_number(&s)),
@@ -1608,16 +1660,17 @@ impl Vm<'_, '_> {
             // and evaluate the right one only when it decides [documented: NVSE
             // Expressions; Eval (short-circuit)].
             XExpr::Binary { op: XOp::Or, l, r } => {
-                let a = self.xeval(l)?;
-                let d = if a.truthy() { a } else { self.xeval(r)? };
-                XVal::Num(as_operand(&d))
+                let (a, at) = self.xeval_truthy(l)?;
+                let (d, dt) = if at { (a, at) } else { self.xeval_truthy(r)? };
+                XVal::Num(as_operand(&d, dt))
             }
             XExpr::Binary { op: XOp::And, l, r } => {
-                let a = self.xeval(l)?;
-                if !a.truthy() {
+                let (_, at) = self.xeval_truthy(l)?;
+                if !at {
                     XVal::Num(0.0)
                 } else {
-                    XVal::Num(as_operand(&self.xeval(r)?))
+                    let (b, bt) = self.xeval_truthy(r)?;
+                    XVal::Num(as_operand(&b, bt))
                 }
             }
             XExpr::Binary { op: XOp::Subscript, l, r } => {
@@ -3193,17 +3246,66 @@ impl Vm<'_, '_> {
             }
         };
         match name.to_ascii_lowercase().as_str() {
-            // `(eval Expression)` inside an expression: the expression's value [documented:
-            // Eval, an NVSE-aware command taking an expression; observed: the owner's Blue
-            // Moon list's Script Runner files write `AuxVarSetFlt "*x" (eval
-            // GetINIFloat_Cached "s:k" "f.ini" 1) 5`, and their statements were skipped as
-            // not built, #2275].
-            "eval" => arg(self, 0),
+            // `(eval Expression)` inside an expression: coerces string and array results
+            // to `1.0`/`0.0` via `xeval_truthy` [observed: 2026-11-23 & 2026-11-24,
+            // GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9
+            // with the 10 official base masters, probes `core_24_eval_string_var` /
+            // `#3679` `core_24_string_var_destruct_zero` (`eval s`: `1 -> 0` across
+            // `sv_Destruct`, `eval sEmp == 1`, `eval a1 == 1`, `eval a2 == 1`,
+            // `eval ar_Null == 0`), `core_05_eval_empty_array_and_string_truth`, and
+            // `w4d_03_eval_empty_str_lit` (#3802 / PR #3803: `saLit0(1:0)|saLit1(1:1)|saV0(1:1)`,
+            // bare `""` -> `0`, `"abc"` -> `1`, allocated empty `string_var` -> `1`);
+            // hypothesis for non-var string-returning calls].
+            // Numeric and ref values pass through unchanged [design: preserves `#2275`,
+            // where Blue Moon's Script Runner files write
+            // `AuxVarSetFlt "*x" (eval GetINIFloat_Cached "s:k" "f.ini" 1) 5`; note
+            // `core_24_eval_string_var` observed standalone `eval 5 == 1`, `eval -3 == 1`,
+            // `eval 0 == 0` in xNVSE 6.4.9].
+            "eval" => {
+                let Some(a) = c.args.first() else {
+                    return Err(VmError::Expression(format!("{name} without its argument")));
+                };
+                let (v, truthy) = self.xeval_truthy(a)?;
+                Ok(match v {
+                    XVal::Str(_) | XVal::Array(_) => XVal::Num(if truthy { 1.0 } else { 0.0 }),
+                    other => other,
+                })
+            }
+            // [observed: w4g_05_isactordetected_and_setclass_invalid] Calling
+            // IsActorDetected on an explicit null/non-form receiver logs a null-reference
+            // diagnostic, returns 0 without falling back to implicit self, and continues
+            // the script instead of aborting.
+            "isactordetected" => {
+                let on = match &c.on {
+                    Some(e) => Some(self.xeval(e)?.value()?),
+                    None => None,
+                };
+                if on.is_some_and(|v| v.as_form().is_none()) {
+                    self.host.no_reference_call(&lname, on, c);
+                    return Ok(XVal::Num(0.0));
+                }
+                let mut args = Vec::with_capacity(c.args.len());
+                for a in &c.args {
+                    args.push(self.xeval(a)?);
+                }
+                match self.host.ext_call(&lname, on, &args) {
+                    Some(r) => r.map_err(VmError::Host),
+                    None => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+                }
+            }
             // [documented: ToString; ToNumber] (the hex and reportError arguments of
-            // ToNumber: D1).
+            // ToNumber: D1). List arrays and stringmaps format as "NULL" [observed:
+            // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-23, `GSDocMitchellHouse`,
+            // `b3_core_05_tostring_array_map` (`wave4b_extenders.json`, #3679):
+            // `PROBE|b3_core_05_tostring_array_map|L=[NULL]|M=[NULL]|N=[42]`]. Applying
+            // "NULL" to all `XVal::Array(_)` variants in `ToString` while leaving `$`,
+            // `PrintVar`, `ArrayToString`, and `Ar_Dump` on `text_of` stays [hypothesis].
             "tostring" => {
                 let v = arg(self, 0)?;
-                Ok(XVal::Str(self.text_of(&v)?))
+                Ok(XVal::Str(match v {
+                    XVal::Array(_) => "NULL".to_string(),
+                    _ => self.text_of(&v)?,
+                }))
             }
             // With the hexadecimal flag the text is read as hex [documented: ToNumber;
             // observed: "1F" gives 31].
@@ -3420,6 +3522,32 @@ impl Vm<'_, '_> {
                 };
                 Ok(XVal::Num(0.0))
             }
+            // [observed: w4g_05_isactordetected_and_setclass_invalid] SetClass on a
+            // null/empty receiver continues safely without mutating anything or falling
+            // back to implicit self; a non-CLAS or null class argument aborts the script
+            // at runtime in both strict and default modes.
+            "setclass" => {
+                let on = match &c.on {
+                    Some(e) => Some(self.xeval(e)?.value()?),
+                    None => None,
+                };
+                let mut args = Vec::with_capacity(c.args.len());
+                for a in &c.args {
+                    args.push(match a {
+                        XExpr::Axis { c } => XVal::Str(c.to_string()),
+                        other => self.xeval(other)?,
+                    });
+                }
+                if on.is_some_and(|v| v.as_form().is_none()) {
+                    self.host.no_reference_call(&lname, on, c);
+                    return Ok(XVal::Num(0.0));
+                }
+                match self.host.ext_call(&lname, on, &args) {
+                    Some(Ok(v)) => Ok(v),
+                    Some(Err(e)) => Err(VmError::RuntimeAbort(e)),
+                    None => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
+                }
+            }
             _ => self.host_function(&lname, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
         }
     }
@@ -3489,9 +3617,18 @@ impl Vm<'_, '_> {
             None => None,
         };
         // Called on no reference, the function fails and stops the script [observed:
-        // nvse-inv foreach.read.after, "script call failed"].
-        if on.is_some_and(|v| v.as_form().is_none()) {
+        // nvse-inv foreach.read.after, "script call failed"], unless the host admits an
+        // explicit null receiver (`0`) for that global command (for example player-source
+        // commands [observed: w4g_06_player_cmds_explicit_receiver]).
+        // Exception: JIP LN ProjectUITile logs the null-ref diagnostic, returns 0.0,
+        // and continues script execution without enqueueing a projection [observed:
+        // w4g_10_project_ui_tile_errors, tools/capture/nvse/catalogs/wave4g_f2_extenders.json].
+        let explicit_null = matches!(on, Some(Value::Ref(0))) || matches!(on, Some(Value::Num(x)) if x == 0.0);
+        if on.is_some_and(|v| v.as_form().is_none()) && !(explicit_null && self.host.allows_null_receiver(lname)) {
             self.host.no_reference_call(lname, on, c);
+            if lname == "projectuitile" {
+                return Ok(Some(XVal::Num(0.0)));
+            }
             return Err(VmError::NoReference(lname.to_string()));
         }
         let mut args = Vec::with_capacity(c.args.len());
@@ -3582,11 +3719,11 @@ fn assign_op(op: XAssign) -> XOp {
 
 /// A deciding operand of `&&`/`||` as their value: a number as itself, anything else as
 /// 1 or 0 [documented: NVSE Expressions].
-fn as_operand(v: &XVal) -> f64 {
+fn as_operand(v: &XVal, truthy: bool) -> f64 {
     match v {
         XVal::Num(x) => *x,
-        other => {
-            if other.truthy() {
+        _ => {
+            if truthy {
                 1.0
             } else {
                 0.0

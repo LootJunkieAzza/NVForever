@@ -104,6 +104,8 @@ applies to RefMaps too [hypothesis].
   reference, such as a UDF an event called): a getter gives what an unset variable
   gives (0, an empty string, no form, size 0, an empty array) and the statement goes
   on; a setter gives 0 and keeps nothing [documented: AuxiliaryVariableGetFloat, "will
-  (presumably) return 0 if the variable is not defined"; hypothesis: the same with no
-  owner, as JIP's functions fail to 0]. Before, NVForever stopped the statement, so a
+  (presumably) return 0 if the variable is not defined"; observed: Fallout: New Vegas
+  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room
+  script probe jip_51_auxvar_no_owner_fallback (AuxVarGetFlt): 0.000; no DLL or source
+  consulted]. Before, NVForever stopped the statement, so a
   `let` kept its old value: Blue Moon's FOV scripts (`*_EFOV_VFO` with no weapon).

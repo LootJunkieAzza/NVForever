@@ -17,8 +17,13 @@ extended-call guard stops an explicit empty call before argument evaluation.
 [engine design choice] Apply that same guard to `Call` and direct function
 admission. Omitted calls inherit the caller; nonempty UDF receivers retain their
 existing forwarding policy without a new actor/base-form restriction.
-[hypothesis] That the original `Call` with an explicit empty receiver fails rather than
-running on the caller; not observed in the original game.
+[observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), fresh game, Fallout: New
+Vegas 1.4.0.525 + xNVSE 6.4.9 with the 10 official base masters, clean-room black-box
+script probe `core_08_call_explicit_null_receiver` (reproducible via `#3678` / PR `#3679`,
+`tools/capture/nvse/catalogs/wave4a_extenders.json`: `ref rNull = 0; int r1 = rNull.Call rFn`);
+no DLL or source consulted] `rNull.Call rFn` with an explicit empty receiver (`ref rNull = 0`)
+logs a runtime error, skips execution, and returns `0` rather than running on
+the caller (`PROBE|core_08_call_explicit_null_receiver|0,0`).
 
 [engine design choice] Newly allocated lambda and text-compiled-function handles skip loaded
 forms, live travel-package overrides and owned callables, and stay within their

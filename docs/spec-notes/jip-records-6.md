@@ -18,7 +18,7 @@ data reads 0, none or "".
 
 | Function | NVForever |
 |---|---|
-| Get/SetDestructionDataHealth `object [health]` | DEST's `health` (`i32`); `SetDestructionDataHealth` returns 0 [observed: gaps8, 75 reads back], ignores NaN/infinity and forms without destruction data [hypothesis: as `SetDestructionDataTargetable`], and updates `Game::destruction` (`Jip6State::destruction`) |
+| Get/SetDestructionDataHealth `object [health]` | DEST's `health` (`i32`); `SetDestructionDataHealth` returns 0 [observed: gaps8, 75 reads back], ignores forms without destruction data [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_13_dest_health_no_dest_form (GetDestructionDataHealth/SetDestructionDataHealth): 0,0,0; no DLL or source consulted], ignores NaN/infinity [hypothesis], and updates `Game::destruction` (`Jip6State::destruction`) |
 | GetDestructionDataNumStages `object` | count of DSTD stages on `Game::destruction` (reference resolves to its base) [documented: GetDestructionDataNumStages; observed: gaps3] |
 | Get/SetDestructionDataTargetable `object [0/1]` | DEST's flag VATS Targetable |
 | GetNthDestructionStageDebris / Explosion `object index` | DSTD's debris and explosion |
@@ -29,7 +29,7 @@ data reads 0, none or "".
 | AddDestructionStage `object index healthPercent damageStage` | a new stage at the index: the stage's index; an index past the end adds nothing and gives -1; a form without destruction data gets it (not VATS targetable) with the one stage [observed: jip6 dest.add.*, jip6b dest.add.*; the page's "new stage count" is not what the game returns] |
 | RemoveDestructionStage `object index` | the removed stage's index, -1 when nothing was removed [observed: jip6 dest.remove.*] |
 
-After an add or a remove, each stage's DSTD index is its place in the list [hypothesis].
+After an add or a remove, each stage's DSTD index is its place in the list [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_14_dest_stage_add_reindex (AddDestructionStage/RemoveDestructionStage/GetDestructionDataNumStages/GetNthDestructionStageTrait): 4,0,77,0; no DLL or source consulted].
 NaN and infinity are not set, and AddDestructionStage with a NaN or infinite index adds
 nothing and gives -1 [hypothesis]. A health percentage takes any whole number: it wraps as an
 unsigned 32-bit value and is kept modulo 101 (150 reads 49, 1000 reads 91, -1 reads 67)

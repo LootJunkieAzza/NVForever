@@ -46,15 +46,64 @@ fn restored<'a>(f: &'a Fixture, g: &Game<'_>) -> Game<'a> {
 fn canonical_critical_damage_preserves_readback_and_reaches_the_combat_view() {
     let f = fixture();
     let mut g = game(&f);
+    let baseline_snap = g.snapshot();
     assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(11.0));
     assert_eq!(g.weapon_critical_damage_override(WEAPON), None);
-    for value in [0.0, 37.0, 65535.0, 12.75, -1.0, 65536.0] {
+    // Unmodified TempCloneForm snapshots authored critical damage (11) and stays isolated
+    // from later source mutations.
+    let XVal::Ref(unmod_clone_id) = query(&mut g, "SetFunctionValue (TempCloneForm OwnedCriticalWeapon 0)") else {
+        panic!("expected unmodified clone ref");
+    };
+    let unmod_clone = FormId(unmod_clone_id);
+    for (value, expected) in [(0.0, 0.0), (37.0, 37.0), (65535.0, 65535.0), (12.75, 12.0), (-5.0, 65531.0), (-1.0, 65535.0), (65536.0, 0.0)] {
         query(&mut g, &format!("SetWeaponCritDamage {value} OwnedCriticalWeapon"));
-        assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(value), "accepted canonical source conversion stays unchanged");
-        assert_eq!(g.weapon_critical_damage_override(WEAPON), Some(value as u32));
+        assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(expected), "SetWeaponCritDamage {value} wraps into u16");
+        assert_eq!(g.weapon_critical_damage_override(WEAPON), Some(expected as u32));
         assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedOtherWeapon"), XVal::Num(7.0));
         assert_eq!(g.weapon_critical_damage_override(OTHER), None);
     }
+    assert_eq!(g.weapon_critical_damage_override(unmod_clone), Some(11));
+    assert_eq!(
+        g.run_query("Begin Function {}\nSetFunctionValue (GetWeaponCritDamage)\nEnd", RunCtx { self_ref: Some(unmod_clone), ..Default::default() }).unwrap(),
+        XVal::Num(11.0),
+    );
+    // TempCloneForm snapshots live modified critical damage at clone time and stays
+    // bi-directionally isolated from later source/clone edits (including clone chains)
+    // (see docs/spec-notes/ext-last-core.md §7).
+    query(&mut g, "SetWeaponCritDamage 77 OwnedCriticalWeapon");
+    let XVal::Ref(clone_id) = query(&mut g, "SetFunctionValue (TempCloneForm OwnedCriticalWeapon 0)") else {
+        panic!("expected clone ref");
+    };
+    let clone = FormId(clone_id);
+    assert_eq!(
+        g.run_query("Begin Function {}\nSetFunctionValue (GetWeaponCritDamage)\nEnd", RunCtx { self_ref: Some(clone), ..Default::default() }).unwrap(),
+        XVal::Num(77.0),
+    );
+    assert_eq!(g.weapon_critical_damage_override(clone), Some(77));
+    query(&mut g, "SetWeaponCritDamage 88 OwnedCriticalWeapon");
+    assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(88.0));
+    assert_eq!(g.weapon_critical_damage_override(WEAPON), Some(88));
+    assert_eq!(
+        g.run_query("Begin Function {}\nSetFunctionValue (GetWeaponCritDamage)\nEnd", RunCtx { self_ref: Some(clone), ..Default::default() }).unwrap(),
+        XVal::Num(77.0),
+    );
+    assert_eq!(g.weapon_critical_damage_override(clone), Some(77));
+    g.run_query("Begin Function {}\nSetWeaponCritDamage 99\nEnd", RunCtx { self_ref: Some(clone), ..Default::default() }).unwrap();
+    assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(88.0));
+    assert_eq!(
+        g.run_query("Begin Function {}\nSetFunctionValue (GetWeaponCritDamage)\nEnd", RunCtx { self_ref: Some(clone), ..Default::default() }).unwrap(),
+        XVal::Num(99.0),
+    );
+    assert_eq!(g.weapon_critical_damage_override(clone), Some(99));
+    // Clone-of-clone chain snapshots its immediate source clone's value (99) and stays
+    // isolated from later edits to that source clone, exercised inside a single UDF.
+    assert_eq!(
+        query(
+            &mut g,
+            "ref rCl1\nref rCl2\nSetWeaponCritDamage 77 OwnedCriticalWeapon\nlet rCl1 := TempCloneForm OwnedCriticalWeapon 0\nSetWeaponCritDamage 88 OwnedCriticalWeapon\nSetWeaponCritDamage 99 rCl1\nlet rCl2 := TempCloneForm rCl1 0\nSetWeaponCritDamage 44 rCl1\nSetFunctionValue ((GetWeaponCritDamage OwnedCriticalWeapon) * 10000 + (GetWeaponCritDamage rCl1) * 100 + (GetWeaponCritDamage rCl2))",
+        ),
+        XVal::Num(884499.0),
+    );
     // Characterize the accepted generic setter's explicit empty argument fallback.
     // This remains unqualified for native parity and is deliberately not tightened.
     let own = "ref empty\nBegin Function {}\nSetWeaponCritDamage 19 empty\nEnd";
@@ -64,10 +113,24 @@ fn canonical_critical_damage_preserves_readback_and_reaches_the_combat_view() {
     assert!(g.run_query(invalid_receiver, RunCtx { self_ref: Some(WEAPON), ..Default::default() }).is_err());
     assert_eq!(source(&mut g, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(19.0));
     query(&mut g, "SetWeaponCritDamage 37 OwnedCriticalWeapon");
-    let mut loaded = restored(&f, &g);
-    assert_eq!(source(&mut loaded, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(11.0));
-    assert_eq!(loaded.weapon_critical_damage_override(WEAPON), None);
+    // Fresh-process restore (no put_session): reverts to ESM default (not saved).
+    let mut fresh = restored(&f, &g);
+    assert_eq!(source(&mut fresh, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(11.0));
+    assert_eq!(fresh.weapon_critical_damage_override(WEAPON), None);
     assert_eq!(game(&f).weapon_critical_damage_override(WEAPON), None);
+    // Same-run baseline and mutated reloads via take_session/put_session carry loaded
+    // base-form overrides and exclude transient TempCloneForm clones.
+    let session = g.take_session();
+    let mut same_run_base = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &baseline_snap.sim).unwrap(), g.cfg, &baseline_snap).unwrap();
+    same_run_base.put_session(session);
+    assert_eq!(source(&mut same_run_base, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(37.0));
+    assert_eq!(same_run_base.weapon_critical_damage_override(WEAPON), Some(37));
+    assert_eq!(same_run_base.weapon_critical_damage_override(clone), None);
+    let session2 = same_run_base.take_session();
+    let mut same_run_mut = restored(&f, &g);
+    same_run_mut.put_session(session2);
+    assert_eq!(source(&mut same_run_mut, "GetWeaponCritDamage OwnedCriticalWeapon"), XVal::Num(37.0));
+    assert_eq!(same_run_mut.weapon_critical_damage_override(WEAPON), Some(37));
 }
 
 #[test]

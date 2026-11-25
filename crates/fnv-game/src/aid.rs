@@ -551,7 +551,7 @@ impl Game<'_> {
 
     /// Put a modifier in its pool; a negative one on S.P.E.C.I.A.L. or a skill is cut so
     /// the value stays at 0 or more [documented: GECK wiki ActorValue].
-    fn hold_modifier(&mut self, target: FormId, c: &mut ValueChange) {
+    pub(crate) fn hold_modifier(&mut self, target: FormId, c: &mut ValueChange) {
         let mut amount = c.amount;
         if amount < 0.0 && floored(c.code) {
             let now = fa::actor_value(self, target, c.code).unwrap_or(0.0).max(0.0);

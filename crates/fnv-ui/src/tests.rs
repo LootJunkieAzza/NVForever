@@ -187,6 +187,70 @@ fn mended_mod_hud_traits_evaluate_end_to_end() {
 }
 
 #[test]
+fn mended_vui_jam_and_generic_xml_patterns_evaluate_end_to_end() {
+    // Synthetic end-to-end controls mirroring VUI+/JAM mismatched closing tags, VATS operator
+    // typo end tags, truncated start tag before sibling, and `quest_added.xml`-style `<hotrect>`
+    // buttons closed by `</rect>` inside an enclosing `<rect>`.
+    let src = MemSource::default()
+        .with(
+            "menus\\globals.xml",
+            r#"<rect name="Strings">
+                <_VUI+ScreenWidth> 1920 </_VUI+ScreenWidth>
+                <_VUI+ScreenHeight> 1080 </_VUI+ScreenHeight>
+                <_VUI+ScreenRatio>
+                    <copy src="me" trait="_VUI+ScreenWidth"/>
+                    <div src="me" trait="_VUI+ScreenHeight"/>
+                </_VUI+ScreenHeight>
+            </rect>"#,
+        )
+        .with(
+            "menus/mod_eval.xml",
+            r#"<menu name="ModEval">
+                <rect name="MainRect">
+                    <_RatioCopy> <copy src="globals()" trait="_VUI+ScreenRatio"/> </_RatioCopy>
+                    <_Action1> 1 </_Interact1>
+                    <_Action2> 7 </_Interact2>
+                    <_Action3> 5 </_Interact3>
+                    <width>
+                        <copy> 0 </copy>
+                        <add> <copy> 256 </copy> <onlyif> 1 </onlyif> </suaddb>
+                        <add> 12 </add>
+                    </width>
+                    <image name="Icon">
+                        <systemcolor
+                        <locus> &true; </locus>
+                        <brightness> <copy> 200 </copy> </alpha>
+                    </image>
+                    <hotrect name="Btn1"><x> 10 </x></rect>
+                    <hotrect name="Btn2"><x> 20 </x></rect>
+                </rect>
+            </menu>"#,
+        );
+    let mut ui = Ui::new();
+    assert!(ui.load_globals(&src));
+    ui.load_menu(&src, "menus/mod_eval.xml").unwrap();
+    ui.update();
+    let ratio = ui.tile(ui.globals()).get("_VUI+ScreenRatio").unwrap().num();
+    assert!((ratio - (1920.0 / 1080.0)).abs() < 1e-6, "ratio={ratio}");
+    let copied = ui.get_float("ModEval/MainRect/_RatioCopy").unwrap();
+    assert!((copied - (1920.0 / 1080.0)).abs() < 1e-6, "copied={copied}");
+    assert_eq!(ui.get_float("ModEval/MainRect/_Action1"), Some(1.0));
+    assert_eq!(ui.get_float("ModEval/MainRect/_Action2"), Some(7.0));
+    assert_eq!(ui.get_float("ModEval/MainRect/_Action3"), Some(5.0));
+    assert_eq!(ui.get_float("ModEval/MainRect/width"), Some(268.0));
+    assert_eq!(ui.get_float("ModEval/MainRect/Icon/locus"), Some(1.0));
+    assert_eq!(ui.get_float("ModEval/MainRect/Icon/brightness"), Some(200.0));
+    assert_eq!(ui.get_float("ModEval/MainRect/Btn1/x"), Some(10.0));
+    assert_eq!(ui.get_float("ModEval/MainRect/Btn2/x"), Some(20.0));
+    assert!(ui.find_tile("ModEval/Btn2").is_none(), "Btn2 must stay parented under MainRect");
+    assert!(
+        !ui.warnings.iter().any(|w| w.contains("is no operator") || w.contains("closes nothing open")),
+        "unexpected warnings: {:?}",
+        ui.warnings
+    );
+}
+
+#[test]
 fn include_with_parent_segment_resolves_sibling_under_menus() {
     let src = MemSource::default()
         .with("menus/test.xml", r#"<menu name="TestMenu"><include src="..\ext\piece.xml"/></menu>"#)

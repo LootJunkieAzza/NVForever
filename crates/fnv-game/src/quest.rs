@@ -145,13 +145,24 @@ pub struct QuestState {
     /// done (a save can report a stage the stages-done list does not explain).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub stage_override: Option<i32>,
+    /// Current stage explicitly set by `SetStageAlt` below a higher completed stage so
+    /// `GetStage` reads this stage while `GetStageDone` keeps higher stages done
+    /// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, probe
+    /// jip_29_setstagealt_clears_higher: SetStage 20 then SetStageAlt 10 -> GetStage=10,
+    /// GetStageDone 20 == 1].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub current_stage: Option<i32>,
 }
 
 impl QuestState {
-    /// `GetStage`: the highest stage done, 0 when none [observed: a lower stage set after
-    /// a higher one leaves GetStage at the higher (VMS16 50 then 10, Generic 70 then 60,
-    /// `L5.quest.stage_order`, `repeated_stage`); documented: GECK wiki GetStage].
+    /// `GetStage`: the `SetStageAlt` current stage when lowered below a higher completed
+    /// stage, else the highest stage done, 0 when none [observed: a lower stage set via
+    /// vanilla `SetStage` leaves GetStage at the higher (VMS16 50 then 10, Generic 70 then
+    /// 60, `L5.quest.stage_order`, `repeated_stage`); documented: GECK wiki GetStage].
     pub fn stage(&self) -> i32 {
+        if let Some(cur) = self.current_stage {
+            return cur;
+        }
         let done = self.stages_done.iter().next_back().copied();
         match (done, self.stage_override) {
             (Some(d), Some(o)) => d.max(o),

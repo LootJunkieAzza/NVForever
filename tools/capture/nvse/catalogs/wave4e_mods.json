@@ -1,0 +1,971 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave4e_mods",
+  "description": "Wave 4E strictly read-only console-only clean-room probe catalog covering yUI 140/ySI, kNVSE 37, UI Organizer 230, MCM XML bitwise math, BaseObjectSwapper, SUP LockPickMenu, JIP Script Runner gx_, and vanilla combat/AI runtime observations.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184",
+    "JohnnyGuitarNVSE": "528",
+    "kNVSE": "37",
+    "SUP NVSE Plugin": "855",
+    "AnhNVSE": "131",
+    "yUI": "140 (1.4d)",
+    "UI Organizer Plugin": "230",
+    "hNVSE": "120",
+    "lStewieAl's Tweaks": "1005"
+  },
+  "batches": [
+    {
+      "id": "w4e_01_yui_ysi_and_knvse",
+      "title": "Wave 4E Batch 1 - yUI 140 / ySI & kNVSE 37 Read-Only Probes",
+      "extender": "yUI 140 (v1.4d) + kNVSE 37 + JIP LN 57.30",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "yUI.dll",
+        "kNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4e_01_ysi_string_alias",
+          "bucket": "A",
+          "extender": "yUI 140 (v1.4d)",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "yUI.dll"
+          ],
+          "optional_extender": true,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-small.md",
+          "spec_line": 62,
+          "functions_tested": [
+            "ySIGetTrait",
+            "ySISetTrait"
+          ],
+          "claim": "ySIGetTrait/ySISetTrait 'string' is an exact alias for 'tag' in yUI 140 (v1.4d), returning only the raw sorting tag and sharing per-form mutation state with 'tag'.",
+          "expected": "PR #3725 originally formatted '{tag} {name}' for 'string'; yUI 140 returns raw tag and aliases 'string' directly to 'tag'.",
+          "script_lines": [
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref r9mm = GetFormFromMod \"FalloutNV.esm\" \"E3778\"",
+            "ref rKey = GetFormFromMod \"FalloutNV.esm\" \"90B7E\"",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "string_var t10 = ySIGetTrait \"tag\" r10mm",
+            "string_var s10 = ySIGetTrait \"string\" r10mm",
+            "string_var tKey = ySIGetTrait \"tag\" rKey",
+            "string_var sKey = ySIGetTrait \"string\" rKey",
+            "string_var tDoc = ySIGetTrait \"tag\" rDoc",
+            "string_var sDoc = ySIGetTrait \"string\" rDoc",
+            "int iR1 = ySISetTrait \"string\" \"(zstr)\" r10mm",
+            "string_var t10a = ySIGetTrait \"tag\" r10mm",
+            "string_var s10a = ySIGetTrait \"string\" r10mm",
+            "string_var t9a = ySIGetTrait \"tag\" r9mm",
+            "ySISetTrait \"tag\" \"(w4et)\" r10mm",
+            "string_var t10b = ySIGetTrait \"tag\" r10mm",
+            "string_var s10b = ySIGetTrait \"string\" r10mm",
+            "string_var pA = sv_Construct \"10mm:tag=[%z]|str=[%z]; key:tag=[%z]|str=[%z]; doc:tag=[%z]|str=[%z]\" t10 s10 tKey sKey tDoc sDoc",
+            "string_var pB = sv_Construct \"setStr(ret=%g,10T=[%z],10S=[%z],9T=[%z]); setTag(10T=[%z],10S=[%z])\" iR1 t10a s10a t9a t10b s10b",
+            "PrintToConsole \"PROBE|w4e_01_ysi_string_alias|%z; %z\" pA pB"
+          ]
+        },
+        {
+          "id": "w4e_02_ysi_metadata_traits",
+          "bucket": "A",
+          "extender": "yUI 140 (v1.4d)",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "yUI.dll"
+          ],
+          "optional_extender": true,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ysi-filename.md",
+          "spec_line": 206,
+          "functions_tested": [
+            "ySIGetTrait",
+            "ySISetTrait"
+          ],
+          "claim": "ySIGetTrait returns empty string '' for template, systemcolor, category, name, tab, count, and bogus trait names; ySISetTrait returns 0 for template and systemcolor.",
+          "expected": "yUI 140 implements only tag/string and icon/filename; all 6 metadata trait queries return '' and setters return 0.",
+          "script_lines": [
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rKey = GetFormFromMod \"FalloutNV.esm\" \"90B7E\"",
+            "string_var sTp = ySIGetTrait \"template\" r10mm",
+            "string_var sSc = ySIGetTrait \"systemcolor\" r10mm",
+            "string_var sCat = ySIGetTrait \"category\" r10mm",
+            "string_var sNm = ySIGetTrait \"name\" r10mm",
+            "string_var sTab = ySIGetTrait \"tab\" r10mm",
+            "string_var sCnt = ySIGetTrait \"count\" r10mm",
+            "string_var sBog = ySIGetTrait \"bogus\" r10mm",
+            "string_var kCat = ySIGetTrait \"category\" rKey",
+            "int rTp = ySISetTrait \"template\" \"CustomTpl\" r10mm",
+            "int rSc = ySISetTrait \"systemcolor\" \"3\" r10mm",
+            "string_var sTp2 = ySIGetTrait \"template\" r10mm",
+            "string_var sSc2 = ySIGetTrait \"systemcolor\" r10mm",
+            "string_var pA = sv_Construct \"10mm(tpl=[%z],sc=[%z],cat=[%z],nm=[%z],tab=[%z],cnt=[%z],bog=[%z])\" sTp sSc sCat sNm sTab sCnt sBog",
+            "string_var pB = sv_Construct \"keyCat=[%z]|set(tpl=%g:[%z],sc=%g:[%z])\" kCat rTp sTp2 rSc sSc2",
+            "PrintToConsole \"PROBE|w4e_02_ysi_metadata_traits|%z|%z\" pA pB"
+          ]
+        },
+        {
+          "id": "w4e_03_ysi_unmatched_icon_fallback",
+          "bucket": "A",
+          "extender": "yUI 140 (v1.4d)",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "yUI.dll"
+          ],
+          "optional_extender": true,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-small.md",
+          "spec_line": 62,
+          "functions_tested": [
+            "ySIGetTrait"
+          ],
+          "claim": "With ySI.json loaded, querying ySIGetTrait 'icon'/'filename' on an unmatched base form or explicit-arg placed world ref returns 'interface\\icons\\Misc_Unknown.dds'.",
+          "expected": "Unmatched forms fall back to 'interface\\icons\\Misc_Unknown.dds' when ySI JSON packs are loaded.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rRef = Player.PlaceAtMe r10mm 1",
+            "string_var docT = ySIGetTrait \"tag\" rDoc",
+            "string_var docI = ySIGetTrait \"icon\" rDoc",
+            "string_var refT = ySIGetTrait \"tag\" rRef",
+            "string_var refF = ySIGetTrait \"filename\" rRef",
+            "rRef.Disable 0",
+            "rRef.MarkForDelete",
+            "PrintToConsole \"PROBE|w4e_03_ysi_unmatched_icon_fallback|doc(tag=[%z],icon=[%z])|worldRefArg(tag=[%z],file=[%z])\" docT docI refT refF"
+          ]
+        },
+        {
+          "id": "w4e_04_ysi_worldref_arg_vs_dot",
+          "bucket": "A",
+          "extender": "yUI 140 (v1.4d)",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "yUI.dll"
+          ],
+          "optional_extender": true,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ysi-filename.md",
+          "spec_line": 194,
+          "functions_tested": [
+            "ySIGetTrait"
+          ],
+          "claim": "Calling rRef.ySIGetTrait as a dot-receiver unwraps a placed world ref to its base form, whereas passing rRef as explicit 2nd argument does not unwrap it.",
+          "expected": "Dot-receiver returns '(fba1)' / 'interface\\icons\\WeapA_Pistol.dds'; explicit 2nd-arg returns '' / 'interface\\icons\\Misc_Unknown.dds'.",
+          "script_lines": [
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rRef = Player.PlaceAtMe r10mm 1",
+            "string_var argT = ySIGetTrait \"tag\" rRef",
+            "string_var dotT = rRef.ySIGetTrait \"tag\"",
+            "string_var argF = ySIGetTrait \"filename\" rRef",
+            "string_var dotF = rRef.ySIGetTrait \"filename\"",
+            "rRef.Disable 0",
+            "rRef.MarkForDelete",
+            "PrintToConsole \"PROBE|w4e_04_ysi_worldref_arg_vs_dot|argTag=[%z]|dotTag=[%z]|argFile=[%z]|dotFile=[%z]\" argT dotT argF dotF"
+          ]
+        },
+        {
+          "id": "w4e_05_ysi_ini_precedence_and_gating",
+          "bucket": "B",
+          "extender": "yUI 140 (v1.4d)",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "yUI.dll"
+          ],
+          "optional_extender": true,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ysi-ui-injection.md",
+          "spec_line": 1,
+          "functions_tested": [
+            "ySIGetTrait",
+            "ShowBarterMenu",
+            "GetUIFloat"
+          ],
+          "claim": "Check yUI.ini vs Menus\\ySI\\ySI.ini bSortingIcons gating of BarterMenu/ySI/_ySI UI injection and independence of ySIGetTrait JSON queries.",
+          "expected": "ySIGetTrait remains active even when bSortingIcons=0; BarterMenu/ySI/_ySI=1 whenever either yUI.ini or ySI.ini sets bSortingIcons=1.",
+          "script_lines": [
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "Player.AddItem rStim 1 1",
+            "string_var svT = ySIGetTrait \"tag\" r10mm",
+            "string_var svF = ySIGetTrait \"filename\" r10mm",
+            "Player.AuxVarSetStr \"*w4e05_t\" svT",
+            "Player.AuxVarSetStr \"*w4e05_f\" svF",
+            "Player.AuxVarSetFlt \"*np_keepmenu\" 1"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": [
+            {
+              "suffix": "open",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+                "rDoc.ShowBarterMenu"
+              ]
+            },
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "int mm = GetActiveMenuMode",
+                "float fYsi = GetUIFloat \"BarterMenu/ySI/_ySI\"",
+                "float fPip = GetUIFloat \"BarterMenu/ySI/_ySIPipBoy\"",
+                "Player.AuxVarSetFlt \"*np_keepmenu\" 0",
+                "CloseActiveMenu",
+                "string_var svT = Player.AuxVarGetStr \"*w4e05_t\"",
+                "string_var svF = Player.AuxVarGetStr \"*w4e05_f\"",
+                "PrintToConsole \"PROBE|w4e_05_ysi_ini_precedence_and_gating|trait=[%z/%z]|barter(mm=%g,ysi=%g,pip=%g)\" svT svF mm fYsi fPip"
+              ]
+            }
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/Menus/ySI/ySI.ini",
+              "content": "[General]\nbSortingIcons = 1\n"
+            }
+          ]
+        },
+        {
+          "id": "w4e_c01_ysi_armordt_sibling_formlist2",
+          "bucket": "A",
+          "extender": "yUI 140 (v1.4d)",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "yUI.dll"
+          ],
+          "optional_extender": true,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ysi-filename.md",
+          "spec_line": 33,
+          "functions_tested": [
+            "ySIGetTrait",
+            "ySISetTrait"
+          ],
+          "claim": "armorDT acts as a >= N threshold; formlist:2 resolves Brass Knuckles to '(fna1)'; 'icon' and 'filename' share a tag-scoped store propagating to sibling 9mm Pistol.",
+          "expected": "armorDT(6->zdt05, 12->zdt10, 15->zdt14, 22->zdt20), formlist:2->(fna1), and ySISetTrait 'icon' propagates across sibling forms sharing tag '(fba1)'.",
+          "script_lines": [
+            "ref r10mm = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref r9mm = GetFormFromMod \"FalloutNV.esm\" \"E3778\"",
+            "ref rBras = GetFormFromMod \"FalloutNV.esm\" \"4324\"",
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rMet = GetFormFromMod \"FalloutNV.esm\" \"3307F\"",
+            "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+            "ref rPwr = GetFormFromMod \"FalloutNV.esm\" \"14E13\"",
+            "string_var sLth = ySIGetTrait \"tag\" rLth",
+            "string_var sMet = ySIGetTrait \"tag\" rMet",
+            "string_var sCmb = ySIGetTrait \"tag\" rCmb",
+            "string_var sPwr = ySIGetTrait \"tag\" rPwr",
+            "string_var sBrs = ySIGetTrait \"tag\" rBras",
+            "ySISetTrait \"icon\" \"interface\\icons\\sib_test.dds\" r10mm",
+            "string_var s10I = ySIGetTrait \"icon\" r10mm",
+            "string_var s9I = ySIGetTrait \"icon\" r9mm",
+            "string_var s9F = ySIGetTrait \"filename\" r9mm",
+            "string_var pA = sv_Construct \"armorDT(lth6=[%z],met12=[%z],cmb15=[%z],pwr22=[%z])|fl2=[%z]\" sLth sMet sCmb sPwr sBrs",
+            "string_var pB = sv_Construct \"sibIcon(10I=[%z],9I=[%z],9F=[%z])\" s10I s9I s9F",
+            "PrintToConsole \"PROBE|w4e_c01_ysi_armordt_sibling_formlist2|%z|%z\" pA pB"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/Menus/ySI/w4e_armordt.json",
+              "content": "{\"tags\": [\n  { \"priority\": 500, \"tag\": \"(zdt05)\", \"formType\": 24, \"armorDT\": 5 },\n  { \"priority\": 510, \"tag\": \"(zdt10)\", \"formType\": 24, \"armorDT\": 10 },\n  { \"priority\": 520, \"tag\": \"(zdt14)\", \"formType\": 24, \"armorDT\": 14 },\n  { \"priority\": 530, \"tag\": \"(zdt20)\", \"formType\": 24, \"armorDT\": 20 }\n]}\n"
+            }
+          ]
+        },
+        {
+          "id": "w4e_08_knvse_legacy_anim_time",
+          "bucket": "B",
+          "extender": "kNVSE 37",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "kNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-knvse.md",
+          "spec_line": 136,
+          "functions_tested": [
+            "PlayAnimationPath",
+            "GetAnimCurrentTime",
+            "GetGlobalAnimTime",
+            "GetAnimationAttributes",
+            "SetAnimSequenceFrequency",
+            "DeactivateAnim"
+          ],
+          "claim": "Compare kNVSE 37 GetAnimCurrentTime and GetAnimationAttributes under sLegacyAnimTimePaths=W4ELegacy,B42Inject for listed vs unlisted animation paths at frequency 1.0 and 2.5.",
+          "expected": "Immediately after PlayAnimationPath, time/offset/lastTime read -3.40282e+38; after SetAnimSequenceFrequency 2.5 both listed and unlisted paths advance identically by dg*2.5 while offset stays fixed.",
+          "script_lines": [
+            "int bPL = Player.PlayAnimationPath \"W4ELegacy\\test.kf\" 1",
+            "int bPN = Player.PlayAnimationPath \"W4ENormal\\test.kf\" 1",
+            "float fG0 = Player.GetGlobalAnimTime 1",
+            "float fT0L = Player.GetAnimCurrentTime \"W4ELegacy\\test.kf\"",
+            "Player.AuxVarSetFlt \"*e3_bpl\" bPL",
+            "Player.AuxVarSetFlt \"*e3_bpn\" bPN",
+            "Player.AuxVarSetFlt \"*e3_t0l\" fT0L"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "t1",
+              "wait_ticks": 3,
+              "script_lines": [
+                "float fG1 = Player.GetGlobalAnimTime 1",
+                "float fTL1 = Player.GetAnimCurrentTime \"W4ELegacy\\test.kf\"",
+                "float fTN1 = Player.GetAnimCurrentTime \"W4ENormal\\test.kf\"",
+                "Player.AuxVarSetFlt \"*e3_g1\" fG1",
+                "Player.AuxVarSetFlt \"*e3_tl1\" fTL1",
+                "Player.AuxVarSetFlt \"*e3_tn1\" fTN1",
+                "Player.SetAnimSequenceFrequency \"W4ELegacy\\test.kf\" 2.5",
+                "Player.SetAnimSequenceFrequency \"W4ENormal\\test.kf\" 2.5"
+              ]
+            },
+            {
+              "suffix": "t2",
+              "wait_ticks": 0,
+              "script_lines": [
+                "float fG1 = Player.AuxVarGetFlt \"*e3_g1\"",
+                "float fTL1 = Player.AuxVarGetFlt \"*e3_tl1\"",
+                "float fTN1 = Player.AuxVarGetFlt \"*e3_tn1\"",
+                "float fT0L = Player.AuxVarGetFlt \"*e3_t0l\"",
+                "float fG2 = Player.GetGlobalAnimTime 1",
+                "float fDg = fG2 - fG1",
+                "float fTL2 = Player.GetAnimCurrentTime \"W4ELegacy\\test.kf\"",
+                "float fTN2 = Player.GetAnimCurrentTime \"W4ENormal\\test.kf\"",
+                "array_var aL2 = Player.GetAnimationAttributes \"W4ELegacy\\test.kf\"",
+                "array_var aN2 = Player.GetAnimationAttributes \"W4ENormal\\test.kf\"",
+                "float fOL = -99",
+                "float fLL = -99",
+                "float fON = -99",
+                "float fLN = -99",
+                "if (ar_Size aL2) > 0",
+                "  let fOL := aL2[\"offset\"]",
+                "  let fLL := aL2[\"lastTime\"]",
+                "endif",
+                "if (ar_Size aN2) > 0",
+                "  let fON := aN2[\"offset\"]",
+                "  let fLN := aN2[\"lastTime\"]",
+                "endif",
+                "Player.DeactivateAnim \"W4ELegacy\\test.kf\"",
+                "Player.DeactivateAnim \"W4ENormal\\test.kf\"",
+                "string_var sA = sv_Construct \"t0L=%.5g|t1(l=%.4f,n=%.4f)|dg=%.4f\" fT0L fTL1 fTN1 fDg",
+                "string_var sB = sv_Construct \"leg(t=%.4f,off=%.4f,last=%.4f)|nrm(t=%.4f,off=%.4f,last=%.4f)\" fTL2 fOL fLL fTN2 fON fLN",
+                "PrintToConsole \"PROBE|w4e_08_knvse_legacy_anim_time|%z|%z\" sA sB"
+              ]
+            }
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/NVSE/Plugins/kNVSE.ini",
+              "content": "[General]\niConsoleLogLevel = 1\niErrorLogLevel = 1\n[Anim Fixes]\nsLegacyAnimTimePaths = W4ELegacy,B42Inject\n"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "w4e_02_uio_xml_mcm_bos",
+      "title": "Wave 4E Batch 2 - UIO 230, MCM XML Bitwise, BaseObjectSwapper & SUP LockPick",
+      "extender": "UI Organizer 230 + SUP NVSE 855 + BaseObjectSwapper + JIP LN 57.30",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ui_organizer.dll",
+        "supNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4e_09_uio_ln_and_pow_nonfinite",
+          "bucket": "A",
+          "extender": "UI Organizer 230",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ui_organizer.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/uio-four-operators.md",
+          "spec_line": 7,
+          "functions_tested": [
+            "GetUIFloat"
+          ],
+          "claim": "UIO 230 <sin>/<cos>/<ln>/<pow> XML operator results including non-finite <pow> (-2^0.5 -> -nan(ind), 10^400 -> inf).",
+          "expected": "sin(30)=0.5, cos(60)=0.5, pow(2,3)=8, pow(-2,0.5)=-nan(ind), pow(10,400)=inf; see w4h_03 for nonzero-start <ln> proof.",
+          "script_lines": [
+            "float vS30 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_sin30\"",
+            "float vC60 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_cos60\"",
+            "float vLnE = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_ln_e\"",
+            "float vLnN = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_ln_neg\"",
+            "float vLnZ = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_ln_zero\"",
+            "float vP23 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_pow_2_3\"",
+            "float vPnh = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_pow_neg_half\"",
+            "float vPov = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_pow_ovf\"",
+            "PrintToConsole \"PROBE|w4e_09_uio_ln_and_pow_nonfinite|sin30=%.4f|cos60=%.4f|lnE=%.4f|lnNeg=%g|ln0=%g|pow23=%g|powNegHalf=%g|powOvf=%g\" vS30 vC60 vLnE vLnN vLnZ vP23 vPnh vPov"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/uio/public/W4ETest.txt",
+              "content": "W4E\\w4e_uio_ok.xml::HUDMainMenu\n!vui+ && !darn\nW4E\\w4e_uio_3line.xml::HUDMainMenu\n!darnui\ntrue\nW4E\\w4e_uio_false.xml::HUDMainMenu\nfalse\nW4E\\w4e_uio_vuip.xml::HUDMainMenu\nvui+\nW4E\\w4e_uio_darn.xml::HUDMainMenu\ndarn\nW4E\\w4e_uio_darnui.xml::HUDMainMenu\ndarnui\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_ok.xml",
+              "content": "<rect name=\"W4E_UIO_OK\">\n  <_loaded> 1 </_loaded>\n  <_neg_pos> <copy> 0 </copy> <neg> 5 </neg> </_neg_pos>\n  <_neg_neg> <copy> 0 </copy> <NEG> -3 </NEG> </_neg_neg>\n  <_neg_acc> <copy> 10 </copy> <neg> 5 </neg> </_neg_acc>\n  <_bt_5_0> <copy> 5 </copy> <bt> 0 </bt> </_bt_5_0>\n  <_bt_5_1> <copy> 5 </copy> <bt> 1 </bt> </_bt_5_1>\n  <_bt_5_2> <copy> 5 </copy> <BT> 2 </BT> </_bt_5_2>\n  <_bt_5_neg> <copy> 5 </copy> <bt> -1 </bt> </_bt_5_neg>\n  <_sin30> <copy> 0 </copy> <sin> 30 </sin> </_sin30>\n  <_cos60> <copy> 0 </copy> <cos> 60 </cos> </_cos60>\n  <_ln_e> <copy> 0 </copy> <ln> 2.7182818 </ln> </_ln_e>\n  <_ln_neg> <copy> 0 </copy> <ln> -1 </ln> </_ln_neg>\n  <_ln_zero> <copy> 0 </copy> <ln> 0 </ln> </_ln_zero>\n  <_pow_2_3> <copy> 2 </copy> <pow> 3 </pow> </_pow_2_3>\n  <_pow_neg_half> <copy> -2 </copy> <pow> 0.5 </pow> </_pow_neg_half>\n  <_pow_ovf> <copy> 10 </copy> <pow> 400 </pow> </_pow_ovf>\n  <_rgb_r> <copy> 16744512 </copy> <shr> 16 </shr> </_rgb_r>\n  <_rgb_g> <copy> 16744512 </copy> <shr> 8 </shr> <land> 255 </land> </_rgb_g>\n  <_rgb_b> <copy> 16744512 </copy> <land> 255 </land> </_rgb_b>\n  <_land_neg> <copy> -1 </copy> <land> 255 </land> </_land_neg>\n  <_land_frac> <copy> 3.7 </copy> <land> 255 </land> </_land_frac>\n  <_shl_neg> <copy> -5 </copy> <shl> 2 </shl> </_shl_neg>\n  <_shl_frac> <copy> 3.7 </copy> <shl> 1 </shl> </_shl_frac>\n  <_shl_32> <copy> 1 </copy> <shl> 32 </shl> </_shl_32>\n  <_shr_neg> <copy> -8 </copy> <shr> 1 </shr> </_shr_neg>\n</rect>\n"
+            }
+          ]
+        },
+        {
+          "id": "w4e_10_mcm_rgb_negative_frac_shift",
+          "bucket": "A",
+          "extender": "UI Organizer 230",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ui_organizer.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/mcm-rgb-integer-consumers.md",
+          "spec_line": 27,
+          "functions_tested": [
+            "GetUIFloat"
+          ],
+          "claim": "Original FNV XML <land>, <shl>, <shr> round fractional float operands to i32, use signed 32-bit two's-complement arithmetic, and return 0 for shift count >= 32.",
+          "expected": "rgb=(255,128,64), land(-1&255=255, 3.7&255=4), shl(-5<<2=-20, 3.7<<1=8, 1<<32=0), shr(-8>>1=-4).",
+          "script_lines": [
+            "float fR = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_rgb_r\"",
+            "float fG = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_rgb_g\"",
+            "float fB = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_rgb_b\"",
+            "float fLN = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_land_neg\"",
+            "float fLF = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_land_frac\"",
+            "float fSN = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_shl_neg\"",
+            "float fSF = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_shl_frac\"",
+            "float fS32 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_shl_32\"",
+            "float fRN = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_shr_neg\"",
+            "PrintToConsole \"PROBE|w4e_10_mcm_rgb_negative_frac_shift|rgb=%g,%g,%g|land(neg=%g,frac=%g)|shl(neg=%g,frac=%g,s32=%g)|shr(neg=%g)\" fR fG fB fLN fLF fSN fSF fS32 fRN"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/uio/public/W4ETest.txt",
+              "content": "W4E\\w4e_uio_ok.xml::HUDMainMenu\n!vui+ && !darn\nW4E\\w4e_uio_3line.xml::HUDMainMenu\n!darnui\ntrue\nW4E\\w4e_uio_false.xml::HUDMainMenu\nfalse\nW4E\\w4e_uio_vuip.xml::HUDMainMenu\nvui+\nW4E\\w4e_uio_darn.xml::HUDMainMenu\ndarn\nW4E\\w4e_uio_darnui.xml::HUDMainMenu\ndarnui\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_ok.xml",
+              "content": "<rect name=\"W4E_UIO_OK\">\n  <_loaded> 1 </_loaded>\n  <_neg_pos> <copy> 0 </copy> <neg> 5 </neg> </_neg_pos>\n  <_neg_neg> <copy> 0 </copy> <NEG> -3 </NEG> </_neg_neg>\n  <_neg_acc> <copy> 10 </copy> <neg> 5 </neg> </_neg_acc>\n  <_bt_5_0> <copy> 5 </copy> <bt> 0 </bt> </_bt_5_0>\n  <_bt_5_1> <copy> 5 </copy> <bt> 1 </bt> </_bt_5_1>\n  <_bt_5_2> <copy> 5 </copy> <BT> 2 </BT> </_bt_5_2>\n  <_bt_5_neg> <copy> 5 </copy> <bt> -1 </bt> </_bt_5_neg>\n  <_sin30> <copy> 0 </copy> <sin> 30 </sin> </_sin30>\n  <_cos60> <copy> 0 </copy> <cos> 60 </cos> </_cos60>\n  <_ln_e> <copy> 0 </copy> <ln> 2.7182818 </ln> </_ln_e>\n  <_ln_neg> <copy> 0 </copy> <ln> -1 </ln> </_ln_neg>\n  <_ln_zero> <copy> 0 </copy> <ln> 0 </ln> </_ln_zero>\n  <_pow_2_3> <copy> 2 </copy> <pow> 3 </pow> </_pow_2_3>\n  <_pow_neg_half> <copy> -2 </copy> <pow> 0.5 </pow> </_pow_neg_half>\n  <_pow_ovf> <copy> 10 </copy> <pow> 400 </pow> </_pow_ovf>\n  <_rgb_r> <copy> 16744512 </copy> <shr> 16 </shr> </_rgb_r>\n  <_rgb_g> <copy> 16744512 </copy> <shr> 8 </shr> <land> 255 </land> </_rgb_g>\n  <_rgb_b> <copy> 16744512 </copy> <land> 255 </land> </_rgb_b>\n  <_land_neg> <copy> -1 </copy> <land> 255 </land> </_land_neg>\n  <_land_frac> <copy> 3.7 </copy> <land> 255 </land> </_land_frac>\n  <_shl_neg> <copy> -5 </copy> <shl> 2 </shl> </_shl_neg>\n  <_shl_frac> <copy> 3.7 </copy> <shl> 1 </shl> </_shl_frac>\n  <_shl_32> <copy> 1 </copy> <shl> 32 </shl> </_shl_32>\n  <_shr_neg> <copy> -8 </copy> <shr> 1 </shr> </_shr_neg>\n</rect>\n"
+            }
+          ]
+        },
+        {
+          "id": "w4e_c10_uio_230_conditions_and_3line",
+          "bucket": "A",
+          "extender": "UI Organizer 230",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ui_organizer.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/menu-xml.md",
+          "spec_line": 945,
+          "functions_tested": [
+            "GetUIFloat"
+          ],
+          "claim": "UI Organizer 230 evaluates built-in conditions (!vui+ && !darn, false, vui+, darn, darnui) and 3-line public list format (!darnui + true).",
+          "expected": "ok=1, 3line=1, false=-999, vui+=-999, darn=-999, darnui=-999 on unmodded vanilla install.",
+          "script_lines": [
+            "float fOk = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_loaded\"",
+            "float f3L = GetUIFloat \"HUDMainMenu/W4E_UIO_3LINE/_loaded\"",
+            "float fFl = GetUIFloat \"HUDMainMenu/W4E_UIO_FALSE/_loaded\"",
+            "float fVp = GetUIFloat \"HUDMainMenu/W4E_UIO_VUIP/_loaded\"",
+            "float fDn = GetUIFloat \"HUDMainMenu/W4E_UIO_DARN/_loaded\"",
+            "float fDu = GetUIFloat \"HUDMainMenu/W4E_UIO_DARNUI/_loaded\"",
+            "PrintToConsole \"PROBE|w4e_c10_uio_230_conditions_and_3line|ok=%g|3line=%g|false=%g|vuip=%g|darn=%g|darnui=%g\" fOk f3L fFl fVp fDn fDu"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/uio/public/W4ETest.txt",
+              "content": "W4E\\w4e_uio_ok.xml::HUDMainMenu\n!vui+ && !darn\nW4E\\w4e_uio_3line.xml::HUDMainMenu\n!darnui\ntrue\nW4E\\w4e_uio_false.xml::HUDMainMenu\nfalse\nW4E\\w4e_uio_vuip.xml::HUDMainMenu\nvui+\nW4E\\w4e_uio_darn.xml::HUDMainMenu\ndarn\nW4E\\w4e_uio_darnui.xml::HUDMainMenu\ndarnui\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_ok.xml",
+              "content": "<rect name=\"W4E_UIO_OK\">\n  <_loaded> 1 </_loaded>\n  <_neg_pos> <copy> 0 </copy> <neg> 5 </neg> </_neg_pos>\n  <_neg_neg> <copy> 0 </copy> <NEG> -3 </NEG> </_neg_neg>\n  <_neg_acc> <copy> 10 </copy> <neg> 5 </neg> </_neg_acc>\n  <_bt_5_0> <copy> 5 </copy> <bt> 0 </bt> </_bt_5_0>\n  <_bt_5_1> <copy> 5 </copy> <bt> 1 </bt> </_bt_5_1>\n  <_bt_5_2> <copy> 5 </copy> <BT> 2 </BT> </_bt_5_2>\n  <_bt_5_neg> <copy> 5 </copy> <bt> -1 </bt> </_bt_5_neg>\n  <_sin30> <copy> 0 </copy> <sin> 30 </sin> </_sin30>\n  <_cos60> <copy> 0 </copy> <cos> 60 </cos> </_cos60>\n  <_ln_e> <copy> 0 </copy> <ln> 2.7182818 </ln> </_ln_e>\n  <_ln_neg> <copy> 0 </copy> <ln> -1 </ln> </_ln_neg>\n  <_ln_zero> <copy> 0 </copy> <ln> 0 </ln> </_ln_zero>\n  <_pow_2_3> <copy> 2 </copy> <pow> 3 </pow> </_pow_2_3>\n  <_pow_neg_half> <copy> -2 </copy> <pow> 0.5 </pow> </_pow_neg_half>\n  <_pow_ovf> <copy> 10 </copy> <pow> 400 </pow> </_pow_ovf>\n  <_rgb_r> <copy> 16744512 </copy> <shr> 16 </shr> </_rgb_r>\n  <_rgb_g> <copy> 16744512 </copy> <shr> 8 </shr> <land> 255 </land> </_rgb_g>\n  <_rgb_b> <copy> 16744512 </copy> <land> 255 </land> </_rgb_b>\n  <_land_neg> <copy> -1 </copy> <land> 255 </land> </_land_neg>\n  <_land_frac> <copy> 3.7 </copy> <land> 255 </land> </_land_frac>\n  <_shl_neg> <copy> -5 </copy> <shl> 2 </shl> </_shl_neg>\n  <_shl_frac> <copy> 3.7 </copy> <shl> 1 </shl> </_shl_frac>\n  <_shl_32> <copy> 1 </copy> <shl> 32 </shl> </_shl_32>\n  <_shr_neg> <copy> -8 </copy> <shr> 1 </shr> </_shr_neg>\n</rect>\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_3line.xml",
+              "content": "<rect name=\"W4E_UIO_3LINE\"><_loaded> 1 </_loaded></rect>\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_false.xml",
+              "content": "<rect name=\"W4E_UIO_FALSE\"><_loaded> 1 </_loaded></rect>\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_vuip.xml",
+              "content": "<rect name=\"W4E_UIO_VUIP\"><_loaded> 1 </_loaded></rect>\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_darn.xml",
+              "content": "<rect name=\"W4E_UIO_DARN\"><_loaded> 1 </_loaded></rect>\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_darnui.xml",
+              "content": "<rect name=\"W4E_UIO_DARNUI\"><_loaded> 1 </_loaded></rect>\n"
+            }
+          ]
+        },
+        {
+          "id": "w4e_c11_uio_neg_bt_sincos_pow",
+          "bucket": "A",
+          "extender": "UI Organizer 230",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ui_organizer.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/uio-four-operators.md",
+          "spec_line": 7,
+          "functions_tested": [
+            "GetUIFloat"
+          ],
+          "claim": "Case-insensitive <neg>/<NEG> replaces accumulator with -arg; <bt>/<BT> tests bit index (neg returns 0); <sin>/<cos>/<pow> evaluate in degrees and exponent.",
+          "expected": "neg(-5, 3, -5), bt(0=1, 1=0, 2=1, neg=0), sin30=0.5000, cos60=0.5000, pow23=8.",
+          "script_lines": [
+            "float fNp = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_neg_pos\"",
+            "float fNn = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_neg_neg\"",
+            "float fNa = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_neg_acc\"",
+            "float fB0 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_bt_5_0\"",
+            "float fB1 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_bt_5_1\"",
+            "float fB2 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_bt_5_2\"",
+            "float fBn = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_bt_5_neg\"",
+            "float vS30 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_sin30\"",
+            "float vC60 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_cos60\"",
+            "float vP23 = GetUIFloat \"HUDMainMenu/W4E_UIO_OK/_pow_2_3\"",
+            "PrintToConsole \"PROBE|w4e_c11_uio_neg_bt_sincos_pow|neg(%g,%g,%g)|bt(0=%g,1=%g,2=%g,neg=%g)|sin30=%.4f|cos60=%.4f|pow23=%g\" fNp fNn fNa fB0 fB1 fB2 fBn vS30 vC60 vP23"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/uio/public/W4ETest.txt",
+              "content": "W4E\\w4e_uio_ok.xml::HUDMainMenu\n!vui+ && !darn\nW4E\\w4e_uio_3line.xml::HUDMainMenu\n!darnui\ntrue\nW4E\\w4e_uio_false.xml::HUDMainMenu\nfalse\nW4E\\w4e_uio_vuip.xml::HUDMainMenu\nvui+\nW4E\\w4e_uio_darn.xml::HUDMainMenu\ndarn\nW4E\\w4e_uio_darnui.xml::HUDMainMenu\ndarnui\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4E/w4e_uio_ok.xml",
+              "content": "<rect name=\"W4E_UIO_OK\">\n  <_loaded> 1 </_loaded>\n  <_neg_pos> <copy> 0 </copy> <neg> 5 </neg> </_neg_pos>\n  <_neg_neg> <copy> 0 </copy> <NEG> -3 </NEG> </_neg_neg>\n  <_neg_acc> <copy> 10 </copy> <neg> 5 </neg> </_neg_acc>\n  <_bt_5_0> <copy> 5 </copy> <bt> 0 </bt> </_bt_5_0>\n  <_bt_5_1> <copy> 5 </copy> <bt> 1 </bt> </_bt_5_1>\n  <_bt_5_2> <copy> 5 </copy> <BT> 2 </BT> </_bt_5_2>\n  <_bt_5_neg> <copy> 5 </copy> <bt> -1 </bt> </_bt_5_neg>\n  <_sin30> <copy> 0 </copy> <sin> 30 </sin> </_sin30>\n  <_cos60> <copy> 0 </copy> <cos> 60 </cos> </_cos60>\n  <_ln_e> <copy> 0 </copy> <ln> 2.7182818 </ln> </_ln_e>\n  <_ln_neg> <copy> 0 </copy> <ln> -1 </ln> </_ln_neg>\n  <_ln_zero> <copy> 0 </copy> <ln> 0 </ln> </_ln_zero>\n  <_pow_2_3> <copy> 2 </copy> <pow> 3 </pow> </_pow_2_3>\n  <_pow_neg_half> <copy> -2 </copy> <pow> 0.5 </pow> </_pow_neg_half>\n  <_pow_ovf> <copy> 10 </copy> <pow> 400 </pow> </_pow_ovf>\n  <_rgb_r> <copy> 16744512 </copy> <shr> 16 </shr> </_rgb_r>\n  <_rgb_g> <copy> 16744512 </copy> <shr> 8 </shr> <land> 255 </land> </_rgb_g>\n  <_rgb_b> <copy> 16744512 </copy> <land> 255 </land> </_rgb_b>\n  <_land_neg> <copy> -1 </copy> <land> 255 </land> </_land_neg>\n  <_land_frac> <copy> 3.7 </copy> <land> 255 </land> </_land_frac>\n  <_shl_neg> <copy> -5 </copy> <shl> 2 </shl> </_shl_neg>\n  <_shl_frac> <copy> 3.7 </copy> <shl> 1 </shl> </_shl_frac>\n  <_shl_32> <copy> 1 </copy> <shl> 32 </shl> </_shl_32>\n  <_shr_neg> <copy> -8 </copy> <shr> 1 </shr> </_shr_neg>\n</rect>\n"
+            }
+          ]
+        },
+        {
+          "id": "w4e_c09_bos_precedence_and_last_wins",
+          "bucket": "A",
+          "extender": "BaseObjectSwapper",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "BaseObjectSwapper.dll"
+          ],
+          "optional_extender": true,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/base-object-swapper.md",
+          "spec_line": 88,
+          "functions_tested": [
+            "GetBaseObject"
+          ],
+          "claim": "BaseObjectSwapper gives [References] precedence over [Forms] and resolves duplicate [Forms] rules last-rule-wins on placed container 0x001062C6.",
+          "expected": "GetBaseObject on 0x001062C6 returns 0x0017B7A1 under both Ref-vs-Form and Multi-Form SWAP INIs.",
+          "script_lines": [
+            "ref rCont = GetFormFromMod \"FalloutNV.esm\" \"1062C6\"",
+            "ref rBase = rCont.GetBaseObject",
+            "PrintToConsole \"PROBE|w4e_c09_bos_precedence_and_last_wins|orig=000CCF91|swapForm=00179B2C|swapRef=0017B7A1|got=%i\" rBase"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/BaseObjectSwapper/W4ETest_SWAP.ini",
+              "content": "[Forms]\n0x000CCF91~FalloutNV.esm|0x00179B2C~FalloutNV.esm\n[References]\n0x001062C6~FalloutNV.esm|0x0017B7A1~FalloutNV.esm\n"
+            },
+            {
+              "rel_path": "Data/BaseObjectSwapper/W4ETest_Multi_SWAP.ini",
+              "content": "[Forms]\n0x000CCF91~FalloutNV.esm|0x00179B2C~FalloutNV.esm\n0x000CCF91~FalloutNV.esm|0x0017B7A1~FalloutNV.esm\n"
+            }
+          ]
+        },
+        {
+          "id": "w4e_12_sup_lockpick_menu_value_tiers",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup6.md",
+          "spec_line": 75,
+          "functions_tested": [
+            "GetLockPickMenuValue",
+            "Lock",
+            "Unlock",
+            "Activate"
+          ],
+          "claim": "GetLockPickMenuValue 1 returns lock tier enum (1=Easy for Lock 1/25, 2=Average for 50, 3=Hard for 75, 4=Very Hard for 100), not raw 0/25/50/75/100 thresholds.",
+          "expected": "Open LockPickMenu (1014): lock1=1.0, lock25=1.0, lock50=2.0 (v2=100.0, v3=0.0), lock75=3.0, lock100=4.0.",
+          "script_lines": [
+            "ref rPin = GetFormFromMod \"FalloutNV.esm\" \"A\"",
+            "Player.AddItem rPin 10 1",
+            "Player.SetAV Lockpick 100",
+            "Player.AuxVarSetFlt \"*np_keepmenu\" 1",
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+            "rDoor.Lock 50",
+            "rDoor.Activate Player 0"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "l50",
+              "wait_ticks": 2,
+              "script_lines": [
+                "int mm50 = GetActiveMenuMode",
+                "Player.AuxVarSetFlt \"*w4e12_mm\" mm50",
+                "Player.AuxVarSetFlt \"*w4e12_v0\" (GetLockPickMenuValue 0)",
+                "Player.AuxVarSetFlt \"*w4e12_v50\" (GetLockPickMenuValue 1)",
+                "Player.AuxVarSetFlt \"*w4e12_v2\" (GetLockPickMenuValue 2)",
+                "Player.AuxVarSetFlt \"*w4e12_v3\" (GetLockPickMenuValue 3)",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "rDoor.Lock 1",
+                "rDoor.Activate Player 0"
+              ]
+            },
+            {
+              "suffix": "l1",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*w4e12_v1\" (GetLockPickMenuValue 1)",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "rDoor.Lock 25",
+                "rDoor.Activate Player 0"
+              ]
+            },
+            {
+              "suffix": "l25",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*w4e12_v25\" (GetLockPickMenuValue 1)",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "rDoor.Lock 75",
+                "rDoor.Activate Player 0"
+              ]
+            },
+            {
+              "suffix": "l75",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*w4e12_v75\" (GetLockPickMenuValue 1)",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "rDoor.Lock 100",
+                "rDoor.Activate Player 0"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "float v100 = GetLockPickMenuValue 1",
+                "Player.AuxVarSetFlt \"*np_keepmenu\" 0",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "int mm50 = Player.AuxVarGetFlt \"*w4e12_mm\"",
+                "float v0 = Player.AuxVarGetFlt \"*w4e12_v0\"",
+                "float v50 = Player.AuxVarGetFlt \"*w4e12_v50\"",
+                "float v2 = Player.AuxVarGetFlt \"*w4e12_v2\"",
+                "float v3 = Player.AuxVarGetFlt \"*w4e12_v3\"",
+                "float v1 = Player.AuxVarGetFlt \"*w4e12_v1\"",
+                "float v25 = Player.AuxVarGetFlt \"*w4e12_v25\"",
+                "float v75 = Player.AuxVarGetFlt \"*w4e12_v75\"",
+                "PrintToConsole \"PROBE|w4e_12_sup_lockpick_menu_value_tiers|lock50(mm=%g,v0=%.2f,v1=%.2f,v2=%.2f,v3=%.2f)|tiers(1=%.2f,25=%.2f,50=%.2f,75=%.2f,100=%.2f)\" mm50 v0 v50 v2 v3 v1 v25 v50 v75 v100"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "w4e_03_vanilla_runtime_and_script_runner",
+      "title": "Wave 4E Batch 3 - Vanilla Combat, HELIOS One Awareness, Script Runner gx_ & Misc Runtime",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4e_c07_crows_tumbleweed_bptd_explode",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/dismemberment.md",
+          "spec_line": 371,
+          "functions_tested": [
+            "KillActor",
+            "IsLimbGone",
+            "DamageAV",
+            "PlaceAtMe"
+          ],
+          "claim": "NVCrRaven (0x00140DB0) and NVCRTumbleweed (0x0016938D) explode torso (IsLimbGone 0 == 1) on KillActor Player 0 0 and explosion death without Bloody Mess, while non-hit DamageAV Health 500 leaves IsLimbGone 0 == 0.",
+          "expected": "NVCrRaven noBM: dmg(d=1,lg0=0), kill0(d=1,lg0=1); NVCRTumbleweed noBM: kill0(d=1,lg0=1), expl(d=1,lg0=1).",
+          "script_lines": [
+            "ref rMk = GetFormFromMod \"FalloutNV.esm\" \"CDF51\"",
+            "ref rBM = GetFormFromMod \"FalloutNV.esm\" \"94EBA\"",
+            "Player.MoveTo rMk",
+            "Player.RemovePerk rBM"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "spawn",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rRavB = GetFormFromMod \"FalloutNV.esm\" \"140DB0\"",
+                "ref rTumB = GetFormFromMod \"FalloutNV.esm\" \"16938D\"",
+                "ref rR1 = Player.PlaceAtMe rRavB 1",
+                "ref rR2 = Player.PlaceAtMe rRavB 1",
+                "ref rT2 = Player.PlaceAtMe rTumB 1",
+                "ref rT3 = Player.PlaceAtMe rTumB 1",
+                "rR1.SetRestrained 1",
+                "rR2.SetRestrained 1",
+                "rT2.SetRestrained 1",
+                "rT3.SetRestrained 1",
+                "float fx = Player.GetPos X",
+                "float fy = Player.GetPos Y",
+                "float fz = Player.GetPos Z",
+                "rR1.SetPos X (fx + 100)",
+                "rR1.SetPos Y fy",
+                "rR1.SetPos Z fz",
+                "rR2.SetPos X (fx + 200)",
+                "rR2.SetPos Y fy",
+                "rR2.SetPos Z fz",
+                "rT2.SetPos X (fx + 200)",
+                "rT2.SetPos Y (fy + 100)",
+                "rT2.SetPos Z fz",
+                "rT3.SetPos X (fx + 600)",
+                "rT3.SetPos Y (fy + 100)",
+                "rT3.SetPos Z fz",
+                "Player.AuxVarSetRef \"*w4ec07_r1\" rR1",
+                "Player.AuxVarSetRef \"*w4ec07_r2\" rR2",
+                "Player.AuxVarSetRef \"*w4ec07_t2\" rT2",
+                "Player.AuxVarSetRef \"*w4ec07_t3\" rT3"
+              ]
+            },
+            {
+              "suffix": "kill",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rR1 = Player.AuxVarGetRef \"*w4ec07_r1\"",
+                "ref rR2 = Player.AuxVarGetRef \"*w4ec07_r2\"",
+                "ref rT2 = Player.AuxVarGetRef \"*w4ec07_t2\"",
+                "ref rT3 = Player.AuxVarGetRef \"*w4ec07_t3\"",
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"7078B\"",
+                "rR1.DamageAV Health 500",
+                "rR2.KillActor Player 0 0",
+                "rT2.KillActor Player 0 0",
+                "rT3.PlaceAtMe rExpl 1"
+              ]
+            },
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rR1 = Player.AuxVarGetRef \"*w4ec07_r1\"",
+                "ref rR2 = Player.AuxVarGetRef \"*w4ec07_r2\"",
+                "ref rT2 = Player.AuxVarGetRef \"*w4ec07_t2\"",
+                "ref rT3 = Player.AuxVarGetRef \"*w4ec07_t3\"",
+                "PrintToConsole \"PROBE|w4e_c07_crows_tumbleweed_bptd_explode|ravNoBM:dmg(d=%g,lg0=%g)|kill0(d=%g,lg0=%g)|tumNoBM:kill0(d=%g,lg0=%g)|expl(d=%g,lg0=%g)\" (rR1.GetDead) (rR1.IsLimbGone 0) (rR2.GetDead) (rR2.IsLimbGone 0) (rT2.GetDead) (rT2.IsLimbGone 0) (rT3.GetDead) (rT3.IsLimbGone 0)"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4e_c08_helios_dogs_peaceful_at_rest",
+          "bucket": "B",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 181,
+          "functions_tested": [
+            "MoveTo",
+            "IsInCombat",
+            "GetCombatTarget",
+            "GetRefs"
+          ],
+          "claim": "At HELIOS One exterior (0x000CDEFD) with neutral NCR reputation, all 3 CrDogNCRAggressive guard dogs (0xA695F, 0xA695E, 0xA6944) and loaded NCR troopers remain peaceful (IsInCombat=0).",
+          "expected": "d1/d2/d3 IsInCombat=0, target=00000000, loaded NPCs inCombat=0.",
+          "script_lines": [
+            "ref rHelMk = GetFormFromMod \"FalloutNV.esm\" \"CDEFD\"",
+            "Player.MoveTo rHelMk"
+          ],
+          "wait_ticks_after": 6,
+          "extra_steps": [
+            {
+              "suffix": "scan",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rDog1 = GetFormFromMod \"FalloutNV.esm\" \"A695F\"",
+                "ref rDog2 = GetFormFromMod \"FalloutNV.esm\" \"A695E\"",
+                "ref rDog3 = GetFormFromMod \"FalloutNV.esm\" \"A6944\"",
+                "int c1 = rDog1.IsInCombat",
+                "int c2 = rDog2.IsInCombat",
+                "int c3 = rDog3.IsInCombat",
+                "ref t1 = rDog1.GetCombatTarget",
+                "ref t2 = rDog2.GetCombatTarget",
+                "ref t3 = rDog3.GetCombatTarget",
+                "array_var aNpcs = GetRefs 42 1 0",
+                "int nNpcs = ar_Size aNpcs",
+                "int nNpcCmb = 0",
+                "int idx = 0",
+                "while idx < nNpcs",
+                "  ref rN = aNpcs[idx]",
+                "  if rN != Player && (rN.IsInCombat)",
+                "    let nNpcCmb += 1",
+                "  endif",
+                "  let idx += 1",
+                "loop",
+                "PrintToConsole \"PROBE|w4e_c08_helios_dogs_peaceful_at_rest|d1(%g,%i)|d2(%g,%i)|d3(%g,%i)|npcs(%g,cmb=%g)\" c1 t1 c2 t2 c3 t3 nNpcs nNpcCmb"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4e_c14_script_runner_gx_exit",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/ext-script-runner.md",
+          "spec_line": 41,
+          "functions_tested": [
+            "PrintToConsole"
+          ],
+          "claim": "JIP LN 57.30 Script Runner executes Data\\NVSE\\Plugins\\Scripts\\gx_*.txt once on game exit (con_QuitGame) before teardown.",
+          "expected": "Staged gx_w4e_exit.txt logs PROBE|w4e_c14_script_runner_gx_exit|GX_FIRED_ON_QUIT after PROBE_DONE on con_QuitGame.",
+          "script_lines": [
+            "PrintToConsole \"PROBE|w4e_c14_script_runner_gx_exit|armed=1\""
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/NVSE/Plugins/Scripts/gx_w4e_exit.txt",
+              "content": "PrintToConsole \"PROBE|w4e_c14_script_runner_gx_exit|GX_FIRED_ON_QUIT\"\n"
+            }
+          ]
+        },
+        {
+          "id": "w4e_c15_door_default_open_air_killcam_speech",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/misc-stats.md",
+          "spec_line": 73,
+          "functions_tested": [
+            "GetDefaultOpen",
+            "SetDefaultOpen",
+            "IsInAir",
+            "IsInKillCam",
+            "GetPCMiscStat"
+          ],
+          "claim": "SetDefaultOpen/GetDefaultOpen round-trips 0->1->0 on unscripted door 0x001062AC; grounded IsInAir=0; idle IsInKillCam=0; baseline Speech Successes/Failures=0.",
+          "expected": "door=0->1->0, air0=0, kc0=0, spS=0, spF=0.",
+          "script_lines": [
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+            "int iDo0 = rDoor.GetDefaultOpen",
+            "rDoor.SetDefaultOpen 1",
+            "int iDo1 = rDoor.GetDefaultOpen",
+            "rDoor.SetDefaultOpen 0",
+            "int iDo2 = rDoor.GetDefaultOpen",
+            "int iAir0 = Player.IsInAir",
+            "int iKc0 = IsInKillCam",
+            "int iSpS = GetPCMiscStat \"Speech Successes\"",
+            "int iSpF = GetPCMiscStat \"Speech Failures\"",
+            "PrintToConsole \"PROBE|w4e_c15_door_default_open_air_killcam_speech|door=%g->%g->%g|air0=%g|kc0=%g|spS=%g,spF=%g\" iDo0 iDo1 iDo2 iAir0 iKc0 iSpS iSpF"
+          ]
+        }
+      ]
+    }
+  ]
+}

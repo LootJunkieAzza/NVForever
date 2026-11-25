@@ -613,6 +613,10 @@ pub struct FormChanges {
     /// SetActorFullName: base → the message whose title is the new name.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub names: BTreeMap<FormId, FormId>,
+    /// Savebaked base-form string name overrides (`.fos` `NPC_` bit 5 / `TACT` bit 2),
+    /// separate from session-only `SetName`/`SetFullNameAlt`/`LNSetName` (`Game::name_overrides`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub saved_names: BTreeMap<FormId, String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub quest_items: BTreeMap<FormId, bool>,
     /// SetCellOwnership (None: the owner was cleared).
@@ -629,6 +633,10 @@ pub struct FormChanges {
     /// FACT XNAM's (`functions::fo3`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub faction_modifiers: BTreeMap<FormId, BTreeMap<FormId, i64>>,
+    /// Runtime FACT flag overrides (16-bit DATA flags: Hidden, Evil, Special Combat, Track
+    /// Crime, Allow Sell), overriding `GameData::faction_flags` (`Game::faction_flags`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub faction_flags: BTreeMap<FormId, u16>,
     /// ResetInterior: interior cells reset at their next load (`crate::respawn`).
     #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty", default)]
     pub expired_cells: std::collections::BTreeSet<FormId>,
@@ -1095,6 +1103,8 @@ pub mod menus {
     /// The Pip-Boy's ITEMS page, the inventory [documented: GECK wiki GetSelectedItemRef,
     /// "Inventory Menu (1002)"; GetMenuItemListRefs, "1002 Pip-Boy Inventory Menu"].
     pub const INVENTORY: u16 = 1002;
+    /// The container menu [documented: GECK wiki GetMenuTargetRef, "1008 Container Menu"].
+    pub const CONTAINER: u16 = 1008;
     /// The Pip-Boy's STATS page [documented: GECK wiki GetSelectedItemRef, "Pipboy STATS
     /// Menu (1003) - Perk"].
     pub const STATS: u16 = 1003;
@@ -1278,12 +1288,12 @@ pub enum LineLook {
     Both,
     /// Nobody turns: a conversation between actors started with `headTrack` 0
     /// [documented: GECK wiki StartConversation: "Enter 0 to disable" head tracking
-    /// during the conversation], and a SayTo line with `noTargetLookFlag` 1
-    /// [hypothesis, observer check 218, #2796] (`functions::misc::say_to`). Until #2796
-    /// that flag only kept the listener still (a variant `Speaker`); a game saved while
-    /// such a line was said reads it as this one.
-    #[serde(alias = "Speaker")]
+    /// during the conversation].
     Nobody,
+    /// The speaker turns to the listener, the listener is not made to look at the
+    /// speaker: a SayTo line with `noTargetLookFlag` 1 (`functions::misc::say_to`)
+    /// [observed: observer check 218, base game 2026-11-25, #3989].
+    Speaker,
 }
 
 impl LineLook {
@@ -1453,6 +1463,9 @@ pub struct Game<'a> {
     pub showoff: crate::nvse_showoff::ShowOffState,
     /// Mods' INI and other files (`crate::mod_files`).
     pub mod_files: crate::mod_files::ModFiles,
+    /// Runtime settings loaded from `Data\NVSE\Plugins\kNVSE.ini` (`crate::knvse_ini`,
+    /// not saved in snapshots).
+    pub knvse_ini: crate::knvse_ini::KnvseIni,
     pub(crate) ysi_filename: crate::ysi_filename::State,
     /// SUP batch 6's state: the mouse, the cursor, the debug texts, the lockpick menu …
     /// (`crate::nvse_sup6`; the engine fills and takes it).
@@ -1759,6 +1772,10 @@ pub struct Game<'a> {
     /// References Rotate turned or SetScale resized in the latest [`Game::tick`], for the
     /// engine to draw at their new angle and size. Not saved.
     pub turned: BTreeSet<FormId>,
+    /// The NPCs the save had seated, each with its furniture reference, for the engine to
+    /// put back on at once (`Game::stand_everyone_up`, #3991). Filled by a load, taken once
+    /// by the engine; not saved.
+    pub saved_seats: BTreeMap<FormId, FormId>,
     /// Actors whose OnStartCombat block was fired and whose OnCombatEnd was not yet
     /// (`Game::combat_blocks`). Saved with the combat states, so that a load runs no block
     /// for a fight already going [documented: GECK wiki event handler table, OnStartCombat
@@ -1991,12 +2008,6 @@ pub struct Game<'a> {
     /// menus and loading screens, conversations included [hypothesis: as the lines of a
     /// conversation do; image-modifiers.md §3].
     pub image_modifiers: Vec<ActiveImageModifier>,
-    /// Extra stacked instance count per non-animatable IMAD form beyond the single entry
-    /// kept in [`Game::image_modifiers`] (capped at `MAX_IMOD_STACK - 1`), so repeated
-    /// non-animatable re-applies never grow `image_modifiers` without bound while
-    /// `remove_image_modifier` still fires `OnRemoveIMOD` once per stacked instance
-    /// [design]. Not saved.
-    image_modifier_extra_stacks: BTreeMap<FormId, u32>,
     /// ScriptEffectElapsedSeconds inside a ScriptEffectUpdate block (0 elsewhere).
     pub effect_elapsed: f64,
     pub(crate) depth: u32,
@@ -2518,6 +2529,8 @@ pub struct Session {
     zone_changes: std::collections::HashMap<FormId, crate::nvse_anh::ZoneChange>,
     /// Session `SetObjectEffect` (`EITM/`) overrides on loaded base forms (0 = cleared).
     object_effect_overrides: std::collections::HashMap<FormId, FormId>,
+    /// Session `SetWeaponCritDamage` (`CRDT/critical_damage`) overrides on loaded base forms.
+    weapon_crit_damage_overrides: std::collections::HashMap<FormId, fnv_script::vm::XVal>,
 }
 
 /// An event handler: the event (lower case), the function or lambda, the filters by
@@ -2616,6 +2629,12 @@ impl<'a> Game<'a> {
         world.set_inventory_sources(sources);
         // JIP LN's write for JIP Companions Command & Control's MCM page (`crate::jip_ccc`).
         crate::jip_ccc::write_globals(&data.load_order, &mut world);
+        // Stewie Tweaks modular override folders (`Data\NVSE\Plugins\Tweaks\INIs\*.ini`
+        // and `Data\NVSE\Plugins\Tweaks\GameSettings\*.ini`): no-op when absent or empty.
+        let mut tweaks = crate::tweaks::Tweaks::default();
+        let (_, modular_tweaks) = crate::stewie_inis::load_modular_inis_from_data();
+        crate::stewie_inis::apply_modular_tweaks_to_game(&modular_tweaks, &mut tweaks);
+        crate::stewie_inis::apply_modular_game_settings_to_world(&mut world);
         Game {
             data,
             ext: Default::default(),
@@ -2678,6 +2697,7 @@ impl<'a> Game<'a> {
             hud: Default::default(),
             showoff: Default::default(),
             mod_files: Default::default(),
+            knvse_ini: crate::knvse_ini::KnvseIni::load(),
             ysi_filename: Default::default(),
             sup: Default::default(),
             lu3: Default::default(),
@@ -2714,7 +2734,7 @@ impl<'a> Game<'a> {
             difficulty: Default::default(),
             difficulty_custom: Default::default(),
             difficulty_request: None,
-            tweaks: Default::default(),
+            tweaks,
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
             due_children: Vec::new(),
@@ -2761,7 +2781,7 @@ impl<'a> Game<'a> {
             locks: Default::default(),
             senses: Default::default(),
             vats: Default::default(),
-            weather: Default::default(),
+            weather: crate::weather::WeatherState::cold_start(data),
             ui: Default::default(),
             console_requests: Vec::new(),
             mfg: Default::default(),
@@ -2781,6 +2801,7 @@ impl<'a> Game<'a> {
             teleported: BTreeSet::new(),
             rotations: BTreeMap::new(),
             turned: BTreeSet::new(),
+            saved_seats: BTreeMap::new(),
             cell_resets: Vec::new(),
             level_news: Vec::new(),
             resurrections: Vec::new(),
@@ -2850,7 +2871,6 @@ impl<'a> Game<'a> {
             syncing_effects: false,
             condition_check_due: 0.0,
             image_modifiers: Vec::new(),
-            image_modifier_extra_stacks: BTreeMap::new(),
             effect_elapsed: 0.0,
             depth: 0,
             runs_open: 0,
@@ -2945,6 +2965,23 @@ impl<'a> Game<'a> {
     pub fn note_notice_text(&self, note: FormId) -> String {
         let name = self.data.notes.get(&note).and_then(|n| n.name.clone()).filter(|n| !n.trim().is_empty());
         format!("Note: {}", self.expand_codes(&name.unwrap_or_else(|| self.data.name(note))))
+    }
+
+    /// Re-read and apply Stewie Tweaks modular override folders
+    /// (`Data\NVSE\Plugins\Tweaks\INIs\*.ini` and
+    /// `Data\NVSE\Plugins\Tweaks\GameSettings\*.ini`) from both disk read roots and this
+    /// session's `mod_files` writes. Returns `(tweak_fields_applied, gmsts_applied)`.
+    /// Bound application settings (`bind_stewie_stat_settings`) are left intact.
+    pub fn apply_stewie_modular_inis(&mut self) -> (usize, usize) {
+        let tweaks_applied = if self.small.stewie_stat_settings_loaded {
+            0
+        } else {
+            let (_, overrides) = crate::stewie_inis::load_modular_inis(&self.mod_files);
+            crate::stewie_inis::apply_modular_tweaks_to_game(&overrides, &mut self.tweaks)
+        };
+        let (_, gmsts) = crate::stewie_inis::load_modular_game_settings(&self.mod_files);
+        let gmsts_applied = crate::stewie_inis::apply_game_settings_to_world(&mut self.world, &gmsts);
+        (tweaks_applied, gmsts_applied)
     }
 
     /// The new-game state: every quest flagged "Start game enabled" is running, with no
@@ -3070,7 +3107,15 @@ impl<'a> Game<'a> {
         if !self.quest(q).completed {
             self.start_quest(q);
         }
-        self.quest(q).stages_done.insert(stage);
+        let qst = self.quest(q);
+        qst.stages_done.insert(stage);
+        if let Some(cur) = qst.current_stage {
+            if stage >= qst.stages_done.iter().next_back().copied().unwrap_or(stage) {
+                qst.current_stage = None;
+            } else if stage > cur {
+                qst.current_stage = Some(stage);
+            }
+        }
         let player = Some(FormId::PLAYER_REF);
         let label = format!("QUST {q} stage {stage}");
         let mut ran = Vec::new();
@@ -3729,7 +3774,8 @@ impl<'a> Game<'a> {
         let opts = self.opts();
         self.udf.push(UdfFrame { value: None, caller: None });
         self.open_run();
-        let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx, seconds: None };
+        let seconds = Some(self.stateless_udf_seconds());
+        let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx, seconds };
         let result = Vm::new(&data.table, &mut ex, opts).run(&block.body).map_err(|e| e.to_string());
         if let Locals::Temp(m) = &ex.locals {
             for (&index, v) in m {
@@ -3877,6 +3923,41 @@ impl<'a> Game<'a> {
         self.data.script(FormId(id)).or_else(|| self.compiled_slots.get(&id).and_then(|&i| self.compiled_files.get(i).copied()))
     }
 
+    /// Human-readable identifier for a script callable (FormID-backed UDF, compiled-file
+    /// UDF, or lambda) used to enrich runtime error units such as delayed calls [design].
+    /// Returns `None` when `f` does not resolve to a known script unit so unresolved
+    /// handles keep their existing error unit and deduplication key.
+    pub(crate) fn callable_label(&self, f: &fnv_script::vm::XVal) -> Option<String> {
+        let id = match f {
+            fnv_script::vm::XVal::Ref(id) => *id,
+            fnv_script::vm::XVal::Num(x) => *x as u32,
+            _ => return None,
+        };
+        if let Some(&index) = self.lambda_slots.get(&id) {
+            let key = crate::jip_provenance::Text::new(&self.lambdas[index].key).single_line();
+            return Some(format!("{key} lambda"));
+        }
+        if let Some(unit) = self.data.script(FormId(id)) {
+            let key = crate::jip_provenance::Text::new(unit.shared_key()).single_line();
+            return Some(match self.data.edid_of.get(&FormId(id)) {
+                Some(edid) if !edid.is_empty() => format!("{key} {}", crate::jip_provenance::Text::new(edid).single_line()),
+                _ => key,
+            });
+        }
+        if self.compiled_slots.contains_key(&id) {
+            let file = match self.compiled_origins.get(id) {
+                Some(crate::jip_provenance::CompiledOrigin::File(file)) => Some(file.single_line()),
+                Some(crate::jip_provenance::CompiledOrigin::Dynamic) => None,
+                None => self.compiled_paths.iter().find_map(|(path, &cid)| (cid == id).then(|| crate::jip_provenance::Text::new(path).single_line())),
+            };
+            return Some(match file {
+                Some(path) => format!("CompileScript {path} 0x{id:08X}"),
+                None => format!("CompileScript 0x{id:08X}"),
+            });
+        }
+        None
+    }
+
     pub(crate) fn free_callable_handle(&self, start: u32, end: u32) -> Option<u32> {
         let mut id = start;
         while id < end {
@@ -3903,9 +3984,23 @@ impl<'a> Game<'a> {
         self.run_function_with_seconds(f, on, args, caller, (ctx, None))
     }
 
+    /// Single-frame delta exposed to stateless UDFs (`GetSecondsPassed` when `ctx.inst` is
+    /// `None`): zero while paused in menus, loading, or `FreezeTime`, otherwise the current
+    /// frame step `cfg.frame_seconds` [observed: w4g_03_jip_callback_getsecondspassed].
+    pub(crate) fn stateless_udf_seconds(&self) -> f64 {
+        if self.in_menu() || self.loading || self.gaps.jip3.time_frozen {
+            0.0
+        } else {
+            self.cfg.frame_seconds
+        }
+    }
+
     /// An elapsed value belongs to this UDF invocation and its nested calls only.
-    /// JIP callbacks supply it; ordinary calls and result scripts do not.
+    /// Callers may supply an explicit delta; stateless UDFs without one receive the
+    /// single-frame delta (`stateless_udf_seconds`), while persistent instances keep their
+    /// own clocks and result scripts continue to read zero.
     pub(crate) fn run_function_with_seconds(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, (ctx, seconds): (RunCtx, Option<f64>)) -> Result<fnv_script::vm::XVal, String> {
+        let seconds = seconds.or_else(|| Some(self.stateless_udf_seconds()));
         self.nested(move |g| g.run_function_here(f, on, args, caller, (ctx, seconds)))
     }
 
@@ -4204,7 +4299,17 @@ impl<'a> Game<'a> {
                 None
             })
             .collect();
-        Session { handlers, main_loop, main_loop_registrars, jip_seq, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits), owner_ranks: std::mem::take(&mut self.other.owner_ranks), destruction: std::mem::take(&mut self.other.jip6.destruction), perk_edits: std::mem::take(&mut self.lu3.perk_edits), ref_radius: std::mem::take(&mut self.other.lutana.ref_radius), radiation: std::mem::take(&mut self.showoff.radiation), terminal_password_notes: std::mem::take(&mut self.terminals.password_notes), package_overrides, zone_changes: std::mem::take(&mut self.other.zone_changes), object_effect_overrides }
+        let weapon_crit_damage_overrides = self
+            .field_overrides
+            .iter()
+            .filter_map(|((form, key), val)| {
+                if key == "CRDT/critical_damage" && self.data.sigs.contains_key(form) {
+                    return Some((*form, val.clone()));
+                }
+                None
+            })
+            .collect();
+        Session { handlers, main_loop, main_loop_registrars, jip_seq, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits), owner_ranks: std::mem::take(&mut self.other.owner_ranks), destruction: std::mem::take(&mut self.other.jip6.destruction), perk_edits: std::mem::take(&mut self.lu3.perk_edits), ref_radius: std::mem::take(&mut self.other.lutana.ref_radius), radiation: std::mem::take(&mut self.showoff.radiation), terminal_password_notes: std::mem::take(&mut self.terminals.password_notes), package_overrides, zone_changes: std::mem::take(&mut self.other.zone_changes), object_effect_overrides, weapon_crit_damage_overrides }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -4212,9 +4317,6 @@ impl<'a> Game<'a> {
         self.handlers = s.handlers;
         self.jip.main_loop = s.main_loop;
         self.jip.restore_main_loop_registrars(s.main_loop_registrars, s.jip_seq);
-        for callback in &mut self.jip.main_loop {
-            callback.last_clock = functions::clock_now(self.time);
-        }
         self.restarted_seen = s.restarted_seen;
         self.handler_seq = s.handler_seq;
         self.pp_put_session(s.pp);
@@ -4237,6 +4339,9 @@ impl<'a> Game<'a> {
         self.other.zone_changes = s.zone_changes;
         for (form, ench) in s.object_effect_overrides {
             self.field_overrides.insert((form, "EITM/".into()), fnv_script::vm::XVal::Ref(ench.0));
+        }
+        for (form, val) in s.weapon_crit_damage_overrides {
+            self.field_overrides.insert((form, "CRDT/critical_damage".into()), val);
         }
     }
 
@@ -4603,6 +4708,7 @@ impl<'a> Game<'a> {
     /// ran, each after the previous one was closed, layer5-captures.md §10.1–10.2].
     pub fn tick(&mut self) {
         self.frame += 1;
+        self.sync_knvse_ini();
         self.temp_refs.clear();
         self.sync_player_level();
         // JIP's SetGameMainLoopCallback functions due this frame (task J6), then xNVSE's
@@ -4648,6 +4754,8 @@ impl<'a> Game<'a> {
         self.world.set_power_armor_training(self.player.power_armor || self.tweaks.power_armor_needs_no_training);
         // The player's Equip Broken Items tweak [design: docs/design/tweaks.md].
         self.world.set_player_equips_broken(self.tweaks.equip_broken_items);
+        // The player's No Encounter Zone Level Lock tweak [design: docs/design/tweaks.md].
+        self.world.set_no_lock_encounter_zone_levels(self.tweaks.no_lock_encounter_zone_levels);
         // Cannibal's and Mister Sandman's acts that are over (`crate::activate_choices`).
         if !self.perk_acts.is_empty() {
             self.finish_perk_acts();
@@ -5485,8 +5593,8 @@ impl<'a> Game<'a> {
     ///   "forced to look at the speaker" unless `noTargetLookFlag`]: its head only for a
     ///   SayTo line [design], head and body in a conversation between actors, where it
     ///   speaks next [design, as `fnv_ai` has turned both since it started them];
-    /// - nobody, when the line's [`LineLook`] says so (StartConversation's `headTrack` 0,
-    ///   SayTo's `noTargetLookFlag` 1).
+    /// - nobody, when the line's [`LineLook`] says so (StartConversation's `headTrack` 0);
+    ///   the speaker alone for SayTo's `noTargetLookFlag` 1.
     ///
     /// A line said to nobody (Say) turns nobody. Whether the engine can turn a body (one
     /// on furniture or on its way cannot) is the engine's. A line said through a talking
@@ -5502,6 +5610,9 @@ impl<'a> Game<'a> {
                 continue;
             }
             out.push(Facing { who: speaker, to, body: true, speaking: true, info: s.info });
+            if s.look == LineLook::Speaker {
+                continue;
+            }
             out.push(Facing { who: to, to: speaker, body: s.conversation.is_some(), speaking: false, info: s.info });
         }
         out
@@ -5644,11 +5755,14 @@ impl<'a> Game<'a> {
     /// to it, no conversation: [`Speech::greeting`]). The engine keeps it where it
     /// stands, turned to the player, until the line is over; its package goes on after
     /// [owner statement 2026-10-27, the Goodsprings settler's water line: "make her stop
-    /// and look at the player"; docs/design/dialogue-play.md §1]. Not once it is in a
-    /// combat state (Alert, Combat, Lost): the line then ends as if said to the end
-    /// (`Game::update_speech_of`) and it fights.
+    /// and look at the player"; docs/design/dialogue-play.md §1]. Not once it is fighting
+    /// (`State::Combat`, #883): the line then ends as if said to the end
+    /// (`Game::update_speech_of`) and it fights. An actor that is merely searching
+    /// (`State::Alert` or `State::Lost`, #3663) still pauses to finish its greeting
+    /// [hypothesis: a searching NPC can be talked to].
     pub fn greets_player(&self, actor: FormId) -> bool {
-        !self.awareness.state(actor).in_combat() && self.speech.iter().any(|s| s.speaker == actor && s.greeting && s.target == Some(FormId::PLAYER_REF))
+        self.awareness.state(actor) != crate::awareness::State::Combat
+            && self.speech.iter().any(|s| s.speaker == actor && s.greeting && s.target == Some(FormId::PLAYER_REF))
     }
 
     /// One frame of dialogue (game time only, like script time [hypothesis: a line does
@@ -5678,12 +5792,15 @@ impl<'a> Game<'a> {
             // be (`crate::talking_activators`); the actor's death still cuts the line.
             let place = s.place();
             let here = self.world.peek(place).is_none_or(|w| !w.deleted()) && self.world.is_enabled(place).unwrap_or(false);
-            // A Goodbye greeting at the player whose speaker is drawn into a fight ends at
-            // once as if said to the end (`Game::cut_line`, `Game::greets_player`) [owner
-            // statement 2026-10-27: "skip to the end of the line as if she finished
-            // speaking", "all the code runs"]; so does a farewell ([`Speech::farewell`])
-            // [hypothesis, as in `Game::cut_line`].
-            let fights = s.goodbye_at_player() && self.awareness.state(s.speaker).in_combat();
+            // A Goodbye greeting at the player whose speaker is drawn into a fight
+            // (`State::Combat`, #883) ends at once as if said to the end (`Game::cut_line`,
+            // `Game::greets_player`) [owner statement 2026-10-27: "skip to the end of the
+            // line as if she finished speaking", "all the code runs"]; so does a farewell
+            // ([`Speech::farewell`]) [hypothesis, as in `Game::cut_line`]. Searching states
+            // (`State::Alert` / `State::Lost`, #3663) do not end the line prematurely so a
+            // Goodbye greeting started while searching is heard rather than discarded in
+            // the same frame [hypothesis: a searching NPC can be talked to].
+            let fights = s.goodbye_at_player() && self.awareness.state(s.speaker) == crate::awareness::State::Combat;
             if !here || (self.extra.get(&s.speaker).is_some_and(|e| e.dead) && Some(s.topic) != death) {
                 cut.push(s.speaker);
             } else if s.remaining <= 1e-9 || fights {
@@ -6052,6 +6169,13 @@ impl<'a> Game<'a> {
             if was_interior && placed.world_of(c).is_some() && !self.player.fast_travel.keep {
                 self.player.fast_travel.travel_disabled = false;
             }
+            if let Some(w) = placed.world_of(c) {
+                self.other.jg6.last_exterior_world = Some(w);
+            } else if self.other.jg6.last_exterior_world.is_none() {
+                if let Some(w) = self.loaded_cells.iter().find_map(|&l| placed.world_of(l)) {
+                    self.other.jg6.last_exterior_world = Some(w);
+                }
+            }
             let cells = self.cells_around(c);
             self.set_loaded(cells);
         }
@@ -6294,7 +6418,7 @@ impl<'a> Game<'a> {
             Outcome::PickedUp { item, count, .. } => {
                 item_added_event = Some(self.events.len());
                 self.emit(EventKind::ItemAdded { to: actor, item, count, silent: false });
-                self.item_event(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)));
+                self.item_event_with(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)), Some(target));
             }
             Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
                 self.arrived_through(target, cell);
@@ -6363,6 +6487,17 @@ impl<'a> Game<'a> {
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the
     /// item's script runs in an instance per holder and item [hypothesis].
     pub fn item_event(&mut self, holder: FormId, item: FormId, ev: u16, subject: Option<Value>) -> bool {
+        self.item_event_with(holder, item, ev, subject, None)
+    }
+
+    fn item_event_with(
+        &mut self,
+        holder: FormId,
+        item: FormId,
+        ev: u16,
+        subject: Option<Value>,
+        world_ref: Option<FormId>,
+    ) -> bool {
         // The extender's OnEquip and OnUnequip (and OnActorUnequip with it): the holder and
         // the item [observed: nvse-events, (player, pistol) for all three]. Not OnAdd:
         // AddItem of a base form did not fire it [observed]; OnDrop is sent by Drop with
@@ -6371,7 +6506,7 @@ impl<'a> Game<'a> {
             self.ext_event(ev, holder, Some(Value::Ref(item.0)));
         }
         if ev == event::ON_ADD {
-            self.showoff_on_add(holder, item);
+            self.showoff_on_add(holder, item, world_ref);
         }
         if ev == event::ON_UNEQUIP {
             use fnv_script::vm::XVal;
@@ -6458,10 +6593,18 @@ impl<'a> Game<'a> {
     /// script (0 begin, 1 end, 2 change) and the actor's OnPackageStart / OnPackageDone /
     /// OnPackageChange blocks.
     pub fn package_event(&mut self, actor: FormId, package: FormId, which: usize) {
-        let data = self.data;
         if which != 1 {
             self.extra.entry(actor).or_default().current_package = Some(package);
         }
+        self.run_package_event(actor, package, which);
+    }
+
+    /// Run a package's event hooks (result script, topic, idle, and actor script block)
+    /// without mutating `current_package`. Used by [`Game::set_package`] so an outgoing
+    /// package's Change script (`which == 2`) sees the already-updated `current_package`
+    /// and cannot re-enter itself via `EvaluatePackage`.
+    pub(crate) fn run_package_event(&mut self, actor: FormId, package: FormId, which: usize) {
+        let data = self.data;
         if let Some(Some(u)) = data.packages.get(&package).map(|p| p[which]) {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
             self.run_result(u, RunCtx { self_ref: Some(actor), ..Default::default() });
@@ -6812,40 +6955,33 @@ impl<'a> Game<'a> {
     /// IMAD in a loop cannot grow memory or `OnRemoveIMOD` loops without bound [design].
     pub const MAX_IMOD_STACK: usize = 64;
 
-    /// ApplyImageSpaceModifier: the modifier starts playing, stacking another instance for
-    /// `OnRemoveIMOD` counting if already active (`image-modifiers.md §3`). Non-animatable
-    /// re-applies keep a single [`ActiveImageModifier`] entry and track extra stacked
-    /// instances in `image_modifier_extra_stacks` (capped at `MAX_IMOD_STACK - 1`), while
-    /// animatable re-applies keep up to `MAX_IMOD_STACK` independent timers and the
-    /// renderer draws one instance per form [design]. Dispatches xNVSE `OnApplyIMOD`
-    /// PRE-update with `(modifier)` and `on = None` when handled so `IsImageSpaceActive`
-    /// reads `0` on first apply and `1` when stacking onto an already-active modifier
-    /// [documented: GECK wiki NVSE Event Handling; observed: Fallout: New Vegas 1.4.0.525,
-    /// xNVSE 6.4.9, 2026-11-23, GSDocMitchellHouse (0x00103DF9), 10 official base
-    /// masters, probes `w1_3656_objectives_unholster_imod` (`imod GetHit`, `imod` twice +
-    /// `rimod` twice on `WhiteNonAnimated` `0x000C9AFA`) and
-    /// `b3_core_ex_06_on_apply_imod_event` (`ApplyImageSpaceModifier`/`RemoveImageSpaceModifier`
-    /// on `0x00144C41`) in #3679].
+    /// ApplyImageSpaceModifier: the modifier starts playing, stacking another instance in
+    /// exact application order (`image-modifiers.md §3`, `jip-world-12.md §2`). Both
+    /// animatable and non-animatable re-applies push an [`ActiveImageModifier`] entry
+    /// capped at `MAX_IMOD_STACK` per form (evicting the oldest matching entry once at
+    /// capacity so repeated script re-applies stay bounded), while the renderer draws at
+    /// most one instance per form [design]. Dispatches xNVSE `OnApplyIMOD` PRE-update with
+    /// `(modifier)` and `on = None` when handled so `IsImageSpaceActive` reads `0` on first
+    /// apply and `1` when stacking onto an already-active modifier [documented: GECK wiki
+    /// NVSE Event Handling; observed: Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9,
+    /// 2026-11-23, GSDocMitchellHouse (0x00103DF9), 10 official base masters, probes
+    /// `w1_3656_objectives_unholster_imod` (`imod GetHit`, `imod` twice + `rimod` twice on
+    /// `WhiteNonAnimated` `0x000C9AFA`) and `b3_core_ex_06_on_apply_imod_event`
+    /// (`ApplyImageSpaceModifier`/`RemoveImageSpaceModifier` on `0x00144C41`) in #3679;
+    /// application-order non-animatable duplicates observed: 2026-11-24, JIP LN 57.30,
+    /// probe `w4d_24_active_imods_order` in `tools/capture/nvse/catalogs/wave4d_extenders.json`
+    /// (`n=3,0=00054E13,1=001736A8,2=00054E13`)].
     pub fn apply_image_modifier(&mut self, modifier: FormId) {
         if self.handled("onapplyimod") {
             self.dispatch_event("OnApplyIMOD", vec![fnv_script::vm::XVal::Ref(modifier.0)], None);
         }
-        let animatable = self.data.image_modifiers.get(&modifier).is_some_and(|d| d.animatable);
-        if animatable {
-            let active = self.image_modifiers.iter().filter(|m| m.modifier == modifier).count();
-            if active >= Self::MAX_IMOD_STACK {
-                if let Some(pos) = self.image_modifiers.iter().position(|m| m.modifier == modifier) {
-                    self.image_modifiers.remove(pos);
-                }
+        let active = self.image_modifiers.iter().filter(|m| m.modifier == modifier).count();
+        if active >= Self::MAX_IMOD_STACK {
+            if let Some(pos) = self.image_modifiers.iter().position(|m| m.modifier == modifier) {
+                self.image_modifiers.remove(pos);
             }
-            self.image_modifiers.push(ActiveImageModifier { modifier, elapsed: 0.0 });
-        } else if let Some(existing) = self.image_modifiers.iter_mut().find(|m| m.modifier == modifier) {
-            existing.elapsed = 0.0;
-            let extra = self.image_modifier_extra_stacks.entry(modifier).or_insert(0);
-            *extra = (*extra).saturating_add(1).min((Self::MAX_IMOD_STACK - 1) as u32);
-        } else {
-            self.image_modifiers.push(ActiveImageModifier { modifier, elapsed: 0.0 });
         }
+        self.image_modifiers.push(ActiveImageModifier { modifier, elapsed: 0.0 });
         self.emit(EventKind::ImageModifierApplied { modifier });
     }
 
@@ -6859,26 +6995,21 @@ impl<'a> Game<'a> {
     /// `WhiteNonAnimated` `0x000C9AFA` -> 2 `OnRemoveIMOD` callbacks with `IsActive=1`,
     /// then 0 on inactive `rimod`) in #3679].
     pub fn remove_image_modifier(&mut self, modifier: FormId) -> bool {
-        let vec_count = self.image_modifiers.iter().filter(|m| m.modifier == modifier).count();
-        if vec_count == 0 {
-            self.image_modifier_extra_stacks.remove(&modifier);
+        let total = self.image_modifiers.iter().filter(|m| m.modifier == modifier).count();
+        if total == 0 {
             return false;
         }
-        let extra = self.image_modifier_extra_stacks.remove(&modifier).unwrap_or(0) as usize;
-        let total = vec_count.saturating_add(extra);
         let mut removed = false;
-        for i in 0..total {
+        for _ in 0..total {
             if !self.image_modifiers.iter().any(|m| m.modifier == modifier) {
                 break;
             }
             if self.handled("onremoveimod") {
                 self.dispatch_event("OnRemoveIMOD", vec![fnv_script::vm::XVal::Ref(modifier.0)], None);
             }
-            if i >= extra {
-                if let Some(pos) = self.image_modifiers.iter().position(|m| m.modifier == modifier) {
-                    self.image_modifiers.remove(pos);
-                    removed = true;
-                }
+            if let Some(pos) = self.image_modifiers.iter().position(|m| m.modifier == modifier) {
+                self.image_modifiers.remove(pos);
+                removed = true;
             }
         }
         if removed {
@@ -7367,6 +7498,7 @@ impl<'a> Game<'a> {
         g.radio.npc_radios = s.npc_radios.clone();
         g.weather.shown = s.weather_shown;
         g.weather.raining = s.raining;
+        g.weather.clear_measurement();
         g.provocations.grudges = s.grudges.iter().copied().collect();
         g.provocations.forgiven = s.forgiven.clone();
         g.nav_switches = s.nav_switches.clone();
@@ -7612,7 +7744,7 @@ impl Host for Exec<'_, '_> {
             }
         }
         let g = &*self.game;
-        let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
+        let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.forms.saved_names.get(&x)).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
         named(f).or_else(|| crate::functions::base_of(g, f).and_then(named))
     }
 
@@ -8070,10 +8202,11 @@ impl Host for Exec<'_, '_> {
         Some(self.game.add_var_place(p))
     }
 
+    fn allows_null_receiver(&self, name: &str) -> bool {
+        functions::player_source::handles(name)
+    }
+
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
-        if crate::ysi_filename::handles(name, args) {
-            return Some(crate::ysi_filename::call(self.game, on, args));
-        }
         if functions::player_source::handles(name) {
             let source_ctx = Ctx { unit: self.unit.shared_key().clone(), opcode: 0, on: None, self_ref: self.ctx.self_ref,
                 action_ref: self.ctx.action_ref, quest: self.ctx.quest, inst: None, in_condition: false };

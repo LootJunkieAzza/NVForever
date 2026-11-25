@@ -304,29 +304,42 @@ fn projectile_setters_validate_targets_slots_and_replacement_forms_without_mutat
 }
 
 #[test]
-fn temp_cloned_projectiles_snapshot_isolate_chain_and_preserve_unmodified_fallback() {
+fn temp_cloned_projectiles_snapshot_at_creation_and_isolate_post_clone_edits() {
     let f = fixture();
     let mut g = game(&f);
     let orig = FormId(PROJ_MAIN);
 
-    // Clone created BEFORE any edits on orig keeps the existing clone-to-original fallback
-    // for untouched fields (matching projectile_launch_tests), while its own edits stay isolated.
+    // Clone created BEFORE any edits on orig snapshots the authored state and stays
+    // 100% isolated from subsequent edits to orig [observed: w4g_02_tempcloneform_world_proj_csty].
     let XVal::Ref(c_sibling_raw) = call(&mut g, "tempcloneform", &[XVal::Ref(orig.0), XVal::Num(1.0)]) else {
         panic!("expected sibling clone");
     };
     let c_sibling = FormId(c_sibling_raw);
 
-    // Edit orig: speed, explosion, light, sound 1, muzzle flash.
+    // Edit orig: speed, gravity, explosion, light, sound 1, muzzle flash, and DATA/flags bit 2.
     call(&mut g, "setprojectiletraitnumeric", &[XVal::Ref(orig.0), XVal::Num(2.0), XVal::Num(800.0)]);
+    call(&mut g, "setprojectiletraitnumeric", &[XVal::Ref(orig.0), XVal::Num(1.0), XVal::Num(0.75)]);
     call(&mut g, "setprojectileexplosion", &[XVal::Ref(orig.0), XVal::Ref(EXPL_B)]);
     call(&mut g, "setprojectilelight", &[XVal::Ref(orig.0), XVal::Ref(LIGH_B)]);
     call(&mut g, "setprojectilesound", &[XVal::Ref(orig.0), XVal::Num(1.0), XVal::Ref(SOUN_ALT)]);
     call(&mut g, "setprojectilemuzzleflash", &[XVal::Ref(orig.0), XVal::Str("effects\\orig_edit.nif".into())]);
+    call(&mut g, "setprojectileflag", &[XVal::Ref(orig.0), XVal::Num(2.0), XVal::Num(1.0)]);
 
-    // Unmodified sibling falls back to orig's edits.
-    assert_eq!(g.projectile_launch_traits(c_sibling).unwrap().speed, Some(800.0));
-    assert_eq!(g.projectile_traits(c_sibling).unwrap().explosion, Some(FormId(EXPL_B)));
-    assert_eq!(g.projectile_sound(c_sibling, 1), Some(FormId(SOUN_ALT)));
+    // Pre-edit clone c_sibling MUST NOT see orig's post-clone mutations through any reader path.
+    assert_eq!(g.projectile_launch_traits(c_sibling).unwrap().speed, None);
+    assert_eq!(g.projectile_flags_override(c_sibling), None);
+    assert_eq!(g.projectile_flags(c_sibling), Some(0x008B));
+    assert_eq!(g.projectile_traits(c_sibling).unwrap().speed, 2500.0);
+    assert_eq!(g.projectile_traits(c_sibling).unwrap().gravity, 0.25);
+    assert_eq!(g.projectile_traits(c_sibling).unwrap().explosion, Some(FormId(EXPL_A)));
+    assert_eq!(g.projectile_traits(c_sibling).unwrap().light, Some(FormId(LIGH_A)));
+    assert_eq!(g.projectile_sound(c_sibling, 1), Some(FormId(SOUN_1)));
+    assert_eq!(g.projectile_traits(c_sibling).unwrap().muzzle_flash_model.as_deref(), Some("effects\\owned_flash.nif"));
+    assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileTraitNumeric {c_sibling_raw:#010X} 2)")), XVal::Num(2500.0));
+    assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileTraitNumeric {c_sibling_raw:#010X} 1)")), XVal::Num(0.25));
+    assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileLight {c_sibling_raw:#010X})")), XVal::Ref(LIGH_A));
+    assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileMuzzleFlash {c_sibling_raw:#010X})")), XVal::Str("effects\\owned_flash.nif".into()));
+    assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileFlag {c_sibling_raw:#010X} 2)")), XVal::Num(0.0));
 
     // Clone c1 created AFTER orig's edits snapshots all active overrides onto c1.
     let XVal::Ref(c1_raw) = call(&mut g, "tempcloneform", &[XVal::Ref(orig.0), XVal::Num(1.0)]) else {
@@ -334,19 +347,28 @@ fn temp_cloned_projectiles_snapshot_isolate_chain_and_preserve_unmodified_fallba
     };
     let c1 = FormId(c1_raw);
     assert_eq!(g.projectile_traits(c1).unwrap().speed, 800.0);
+    assert_eq!(g.projectile_traits(c1).unwrap().gravity, 0.75);
     assert_eq!(g.projectile_traits(c1).unwrap().explosion, Some(FormId(EXPL_B)));
     assert_eq!(g.projectile_traits(c1).unwrap().light, Some(FormId(LIGH_B)));
     assert_eq!(g.projectile_sound(c1, 1), Some(FormId(SOUN_ALT)));
     assert_eq!(g.projectile_traits(c1).unwrap().muzzle_flash_model.as_deref(), Some("effects\\orig_edit.nif"));
+    assert_eq!(g.projectile_flags(c1), Some(0x008B | (1 << 2)));
 
-    // Subsequent edits on orig do NOT overwrite c1's snapshotted traits.
+    // Subsequent edits on orig (both previously edited and previously untouched fields like range/flag 5)
+    // do NOT bleed into c1.
     call(&mut g, "setprojectiletraitnumeric", &[XVal::Ref(orig.0), XVal::Num(2.0), XVal::Num(1234.0)]);
+    call(&mut g, "setprojectiletraitnumeric", &[XVal::Ref(orig.0), XVal::Num(3.0), XVal::Num(9999.0)]);
     call(&mut g, "setprojectileexplosion", &[XVal::Ref(orig.0), XVal::Ref(EXPL_A)]);
     call(&mut g, "setprojectilesound", &[XVal::Ref(orig.0), XVal::Num(1.0), XVal::Ref(SOUN_1)]);
+    call(&mut g, "setprojectileflag", &[XVal::Ref(orig.0), XVal::Num(5.0), XVal::Num(1.0)]);
     assert_eq!(g.projectile_traits(orig).unwrap().speed, 1234.0);
+    assert_eq!(g.projectile_traits(orig).unwrap().range, 9999.0);
     assert_eq!(g.projectile_traits(c1).unwrap().speed, 800.0);
+    assert_eq!(g.projectile_traits(c1).unwrap().range, 6000.0);
     assert_eq!(g.projectile_traits(c1).unwrap().explosion, Some(FormId(EXPL_B)));
     assert_eq!(g.projectile_sound(c1, 1), Some(FormId(SOUN_ALT)));
+    assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileTraitNumeric {c1_raw:#010X} 3)")), XVal::Num(6000.0));
+    assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileFlag {c1_raw:#010X} 5)")), XVal::Num(0.0));
 
     // Edit c1 (including SetProjectileSound on a cloned PROJ!), then clone c1 -> c2 (clone-of-clone).
     call(&mut g, "setprojectiletraitnumeric", &[XVal::Ref(c1.0), XVal::Num(3.0), XVal::Num(4200.0)]);
@@ -364,12 +386,15 @@ fn temp_cloned_projectiles_snapshot_isolate_chain_and_preserve_unmodified_fallba
     assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileTraitNumeric {c2_raw:#010X} 3)")), XVal::Num(4200.0));
     assert_eq!(q(&mut g, &format!("SetFunctionValue (GetProjectileExplosion {c2_raw:#010X})")), XVal::Ref(EXPL_B));
 
-    // Mutating c1 or c2 leaves the others and orig independent.
+    // Mutating c1 (both previously edited range and untouched tracer_chance) or c2 leaves
+    // the others and orig independent.
     call(&mut g, "setprojectiletraitnumeric", &[XVal::Ref(c1.0), XVal::Num(3.0), XVal::Num(7777.0)]);
+    call(&mut g, "setprojectiletraitnumeric", &[XVal::Ref(c1.0), XVal::Num(4.0), XVal::Num(0.95)]);
     call(&mut g, "setprojectiletraitnumeric", &[XVal::Ref(c2.0), XVal::Num(2.0), XVal::Num(333.0)]);
-    assert_eq!(g.projectile_traits(orig).unwrap().range, 6000.0);
+    assert_eq!(g.projectile_traits(orig).unwrap().range, 9999.0);
     assert_eq!(g.projectile_traits(c1).unwrap().range, 7777.0);
     assert_eq!(g.projectile_traits(c2).unwrap().range, 4200.0);
+    assert_eq!(g.projectile_traits(c2).unwrap().tracer_chance, 0.2);
     assert_eq!(g.projectile_traits(c1).unwrap().speed, 800.0);
     assert_eq!(g.projectile_traits(c2).unwrap().speed, 333.0);
     assert_eq!(g.projectile_sound(orig, 3), Some(FormId(SOUN_3)));

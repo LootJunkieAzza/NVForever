@@ -1320,6 +1320,59 @@ fn ysi_apply_sorts_by_tag_keeps_folders_and_preserves_selection() {
     assert_eq!(m.selected_row(Side::Player).map(|r| r.item), Some(target_item), "selection tracks moved row");
 }
 
+#[test]
+fn ysi_apply_options_honors_sort_inventory_and_add_inventory_icons_independently() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let base_order: Vec<FormId> = MenuModel::open_inventory(&mut w).unwrap().list(Side::Player).rows.iter().map(|r| r.item).collect();
+    assert!(base_order.len() >= 3);
+    let target_item = base_order[2];
+    let second_item = base_order[1];
+    let resolve = |id: FormId| {
+        if id == target_item {
+            Some(fnv_game::ui_ysi::YsiItemDisplay {
+                tag: Some("(a01)".into()),
+                icon: Some("icons\\target.dds".into()),
+                template: fnv_game::ui_ysi::YSI_DEFAULT_TEMPLATE.into(),
+            })
+        } else if id == second_item {
+            Some(fnv_game::ui_ysi::YsiItemDisplay {
+                tag: Some("(b02)".into()),
+                icon: Some("icons\\second.dds".into()),
+                template: fnv_game::ui_ysi::YSI_DEFAULT_TEMPLATE.into(),
+            })
+        } else {
+            None
+        }
+    };
+
+    // 1. bSortInventory = 1, bAddInventoryIcons = 0: sorted by ySI tag, no row icon metadata retained.
+    let mut m_sort_only = MenuModel::open_inventory(&mut w).unwrap();
+    m_sort_only.apply_ysi_options(true, false, resolve);
+    assert!(!m_sort_only.ysi_icons, "bAddInventoryIcons=0 must propagate ysi_icons=false to tile menus");
+    let rows_sort = &m_sort_only.list(Side::Player).rows;
+    assert_eq!(rows_sort[0].item, target_item);
+    assert_eq!(rows_sort[1].item, second_item);
+    assert!(rows_sort.iter().all(|r| r.ysi.is_none()), "bAddInventoryIcons=0 must strip row icons");
+
+    // 2. bSortInventory = 0, bAddInventoryIcons = 1: vanilla alphabetical order kept, row icons attached.
+    let mut m_icons_only = MenuModel::open_inventory(&mut w).unwrap();
+    m_icons_only.apply_ysi_options(false, true, resolve);
+    assert!(m_icons_only.ysi_icons);
+    let rows_icons = &m_icons_only.list(Side::Player).rows;
+    let icon_order: Vec<FormId> = rows_icons.iter().map(|r| r.item).collect();
+    assert_eq!(icon_order, base_order, "bSortInventory=0 must preserve vanilla alphabetical order");
+    assert_eq!(rows_icons[2].ysi.as_ref().and_then(|y| y.icon.as_deref()), Some("icons\\target.dds"));
+
+    // 3. Both off: vanilla order and no row icons.
+    let mut m_off = MenuModel::open_inventory(&mut w).unwrap();
+    m_off.apply_ysi_options(false, false, resolve);
+    let rows_off = &m_off.list(Side::Player).rows;
+    let off_order: Vec<FormId> = rows_off.iter().map(|r| r.item).collect();
+    assert_eq!(off_order, base_order);
+    assert!(rows_off.iter().all(|r| r.ysi.is_none()));
+}
+
 /// The Quantity Menu Respects Companion Carry Cap tweak: what fits, at least one.
 #[test]
 fn a_companion_takes_no_more_than_it_can_carry() {
@@ -1371,6 +1424,75 @@ fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
     app.world_mut().get_mut::<bevy::ui::RelativeCursorPosition>(meter).unwrap().normalized = Some(Vec2::splat(0.4));
     app.update();
     assert!(app.world().resource::<Messages<MenuInput>>().is_empty(), "pointer travel after release cannot change the quantity");
+}
+
+#[test]
+fn touch_drag_assigns_actual_inventory_row_without_consuming_and_stale_rows_are_refused() {
+    use crate::pipboy::touch_items::TouchItems;
+    use bevy::input::touch::{TouchInput,TouchPhase};
+    use bevy::prelude::{Res,ResMut,Entity,Vec2};
+    fn apply(active:Res<crate::menu::ActiveMenu>,mut touch:ResMut<TouchItems>,mut keys:ResMut<crate::hotkeys::Hotkeys>,mut sim:ResMut<crate::sim::SimState>){touch.assign_pending(&active,&mut keys,&mut sim.world);}
+    let f=fixture();let mut w=World::new(&f.forms,&f.refs,SimConfig::default());
+    let m=MenuModel::open_inventory(&mut w).unwrap();let index=m.list(Side::Player).rows.iter().position(|r|r.item==FormId(AID)).unwrap();
+    let initial=count(&mut w,0x14,AID);
+    for stale in [false,true]{
+        let mut touch=TouchItems::default();
+        let mut event=TouchInput{phase:TouchPhase::Started,position:Vec2::new(100.,100.),window:Entity::PLACEHOLDER,force:None,id:8};
+        assert!(touch.event(&event,0));touch.project(Some);touch.take_projected();touch.capture_row(&m,index);
+        event.phase=TouchPhase::Moved;event.position=Vec2::new(500.,500.);assert!(touch.event(&event,100));
+        event.phase=TouchPhase::Ended;assert!(touch.event(&event,150));touch.release_over(Some(2));
+        assert!(touch.suppress_click(),"drag release must not trigger the row's equip/use click");
+        let mut model=m.clone();if stale{model.lists[Side::Player as usize].rows.rotate_left(1);}
+        let mut sim=crate::sim::test_world::sim(vec![crate::sim::test_world::item_base(AID)],vec![]);
+        sim.world.add_item(FormId::PLAYER_REF,FormId(AID),initial).unwrap();
+        assert_eq!(sim.world.item_count(FormId::PLAYER_REF,FormId(AID)).unwrap(),initial);
+        let mut app=App::new();app.insert_resource(crate::menu::ActiveMenu(Some(model))).insert_resource(touch).init_resource::<crate::hotkeys::Hotkeys>().insert_resource(sim).add_systems(Update,apply);app.update();
+        let slot=app.world().resource::<crate::hotkeys::Hotkeys>().0[2];
+        if stale{assert_eq!(slot,None);}else{assert_eq!(slot,Some(crate::hotkeys::Slot{item:AID,mods:0}));}
+        assert_eq!(count(&mut w,0x14,AID),initial,"assignment never consumes inventory");
+        assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(AID)).unwrap(),initial,"actual assignment world is not consumed");
+    }
+}
+
+#[test]
+fn cancelled_touch_assignment_cannot_cross_a_menu_session_or_replace_ammo_swap(){
+    use crate::pipboy::touch_items::TouchItems;
+    use bevy::input::touch::{TouchInput,TouchPhase};
+    use bevy::prelude::{Entity,Vec2};
+    let f=fixture();let mut w=World::new(&f.forms,&f.refs,SimConfig::default());let m=MenuModel::open_inventory(&mut w).unwrap();
+    let index=m.list(Side::Player).rows.iter().position(|r|r.item==FormId(AID)).unwrap();
+    for cancelled in [false,true]{
+        let mut touch=TouchItems::default();let mut event=TouchInput{phase:TouchPhase::Started,position:Vec2::ONE,window:Entity::PLACEHOLDER,force:None,id:5};
+        touch.event(&event,0);touch.project(Some);touch.take_projected();touch.capture_row(&m,index);
+        event.phase=TouchPhase::Ended;touch.event(&event,500);touch.release_over(Some(if cancelled{2}else{crate::hotkeys::AMMO_SWAP}));
+        if cancelled{touch.cancel();}
+        let mut keys=crate::hotkeys::Hotkeys::default();assert!(!touch.assign_pending(&crate::menu::ActiveMenu(Some(m.clone())),&mut keys,&mut w));assert!(keys.0.iter().all(Option::is_none));
+    }
+}
+
+#[test]
+fn vertical_touch_browsing_cannot_assign_a_captured_row_even_when_released_over_a_hotkey(){
+    use crate::pipboy::touch_items::TouchItems;
+    use bevy::{prelude::{Res,ResMut,Entity,Vec2},input::touch::{TouchInput,TouchPhase}};
+    fn assign(active:Res<crate::menu::ActiveMenu>,mut touch:ResMut<TouchItems>,mut keys:ResMut<crate::hotkeys::Hotkeys>,mut sim:ResMut<crate::sim::SimState>){touch.assign_pending(&active,&mut keys,&mut sim.world);}
+    let f=fixture();let mut world=World::new(&f.forms,&f.refs,SimConfig::default());
+    let model=MenuModel::open_inventory(&mut world).unwrap();let index=model.list(Side::Player).rows.iter().position(|r|r.item==FormId(AID)).unwrap();
+    let before=count(&mut world,0x14,AID);
+    for deliberate in [false,true] {
+        let mut touch=TouchItems::default();let mut t=TouchInput{window:Entity::PLACEHOLDER,id:44,position:Vec2::new(100.,100.),phase:TouchPhase::Started,force:None};
+        touch.event(&t,0);touch.project(Some);touch.take_projected();touch.capture_row(&model,index);
+        if deliberate {touch.update_hold(500);}
+        t.phase=TouchPhase::Moved;t.position.y+=100.;touch.event(&t,if deliberate{550}else{50});
+        t.phase=TouchPhase::Ended;touch.event(&t,700);touch.release_over(Some(2));
+        let mut sim=crate::sim::test_world::sim(vec![crate::sim::test_world::item_base(AID)],vec![]);
+        sim.world.add_item(FormId::PLAYER_REF,FormId(AID),before).unwrap();
+        assert_eq!(sim.world.item_count(FormId::PLAYER_REF,FormId(AID)).unwrap(),before);
+        let mut app=App::new();app.insert_resource(touch).insert_resource(crate::menu::ActiveMenu(Some(model.clone())))
+            .init_resource::<crate::hotkeys::Hotkeys>().insert_resource(sim).add_systems(Update,assign);app.update();
+        assert_eq!(app.world().resource::<crate::hotkeys::Hotkeys>().0[2],deliberate.then_some(crate::hotkeys::Slot{item:AID,mods:0}));
+        assert_eq!(count(&mut world,0x14,AID),before);
+        assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF,FormId(AID)).unwrap(),before,"actual assignment world is not consumed");
+    }
 }
 
 /// #2751: two openings of one victim's pocket do not roll the same; with the test aid's

@@ -342,6 +342,7 @@ pub fn keys(
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
     modding: Res<super::item_mod::PipItemMod>,
+    mut touch: crate::maintenance_touch::Requests,
     combat: Option<Res<crate::combat::Combat>>,
     mut taken: ResMut<super::KeysTaken>,
 ) {
@@ -349,8 +350,9 @@ pub fn keys(
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;
-    // [design, #2553] Only physical steps take keys; pointer/aid messages keep their path.
-    let mut steps: Vec<_> = aid.read().copied().map(|s| (s, false)).collect();
+    // Only physical steps take keys; aid and touch requests retain their original paths.
+    let mut steps: Vec<(RepairInput, Option<crate::maintenance_touch::Request>, bool)> = aid.read().copied().map(|s| (s, None, false)).collect();
+    let mobile = touch.take(crate::maintenance_touch::Kind::Repair);
     let items = pip.open() && pip.page == Page::Items && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     if !items {
         if repair.0.take().is_some() {
@@ -364,14 +366,41 @@ pub fn keys(
     }
     for (k, s) in [(&[KeyR, KeyR][..], RepairInput::Open), (&[ArrowUp, KeyW], RepairInput::Up), (&[ArrowDown, KeyS], RepairInput::Down), (&[Enter, NumpadEnter, Space], RepairInput::Use), (&[KeyE, Escape], RepairInput::Cancel)] {
         if keys.any_just_pressed(k.iter().copied()) {
-            steps.push((s, true));
+            steps.push((s, None, true));
         }
     }
     let mut script = script.map(|s| s.into_inner());
+    for request in mobile {
+        use crate::maintenance_touch::Action;
+        let step = match request.action { Action::Select(i) => RepairInput::Hover(i), Action::Confirm => RepairInput::Use, Action::Cancel => RepairInput::Cancel, Action::Scroll(_) => RepairInput::Hover(usize::MAX) };
+        steps.push((step, Some(request), false));
+    }
     let alt = keys.any_pressed([AltLeft, AltRight]);
-    for (step, physical) in steps {
+    for (step, request, physical) in steps {
         if physical && (repair.is_open() || step == RepairInput::Open) {
             taken.take();
+        }
+        if let Some(request) = &request {
+            if !crate::maintenance_touch::menu_allows(crate::maintenance_touch::Kind::Repair, script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game)) { continue; }
+            if !request.repair(repair.0.as_ref()) { continue; }
+            // Re-evaluate the actual selected unit and available donors at consumption.
+            // A stale painted offer must never consume a donor for a missing target.
+            let live = current(&active, &mut sim, script.as_deref());
+            if repair.0.as_ref().is_none_or(|s| Some(&s.offer) != live.as_ref()) {
+                if let Some(s) = repair.0.as_mut() {
+                    if let Some(offer) = live { s.offer = offer; s.selected = 0; s.first = 0; } else { repair.0 = None; }
+                }
+                continue;
+            }
+            let skill = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(0.0, |rt| crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR)) as f32);
+            let settings = MergeSettings::from_settings(|n| sim.forms.setting_f32(n));
+            if let Some(s) = repair.0.as_mut() {
+                if s.skill != skill || s.settings != settings { s.skill = skill; s.settings = settings; continue; }
+            }
+            if let crate::maintenance_touch::Action::Scroll(by) = request.action {
+                if let Some(s) = repair.0.as_mut() { s.first = crate::maintenance_touch::scroll(s.first, by, s.offer.parts.len() + 1); }
+                continue;
+            }
         }
         if let RepairInput::Click(i) = step {
             info!("pipboy repair: clicked row {i}");
@@ -888,5 +917,46 @@ mod tests {
         assert_eq!(resolve(Some(0), RepairInput::Click(0)), RepairInput::Hover(0));
         assert_eq!(resolve(None, RepairInput::Click(1)), RepairInput::Hover(1));
         assert_eq!(resolve(Some(1), RepairInput::Down), RepairInput::Down);
+    }
+
+    #[test]
+    fn repair_preview_with_weapon_repair_kits_refuses_use_without_consuming_kit() {
+        let mut app = key_app(false, 1.0, 1);
+        // Replace the open session with a full-condition preview holding a weapon repair kit.
+        let (gun, kit) = (FormId(1), FormId(2));
+        let mut forms = store(&[(1, ItemKind::Weapon), (2, ItemKind::Misc)]);
+        forms.bases.insert(FormId::PLAYER_BASE, BaseForm {
+            id: FormId::PLAYER_BASE, sig: *b"NPC_", edid: None, name: None, script: None,
+            prompt: None, voice_filter: false,
+            data: BaseData::Actor(fnv_sim::forms::ActorBase { entries: Vec::new(), attributes: Some([5; 7]) }),
+        });
+        let forms = Box::leak(Box::new(forms));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut world = fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default());
+        world.add_item(FormId::PLAYER_REF, gun, 1).unwrap();
+        world.add_item(FormId::PLAYER_REF, kit, 2).unwrap();
+        let groups: Vec<_> = world.inventory_mut(FormId::PLAYER_REF).unwrap().groups().collect();
+        let base = offer(&groups, forms, &[], gun, Pick::at(Some(1.0)), false).unwrap();
+        let with_kit = with_kits(base, &groups, forms, &|id| id == kit);
+        assert_eq!(with_kit.parts.len(), 1);
+        assert!(with_kit.parts[0].kit);
+        assert!(!with_kit.usable(), "full-condition weapon is not normally repairable");
+        app.insert_resource(SimState { forms, refs, world });
+        app.insert_resource(PipRepair(Some(Session {
+            offer: with_kit,
+            skill: 50.0,
+            settings: MergeSettings::default(),
+            first: 0,
+            selected: 1,
+            preview: true,
+        })));
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+        app.update();
+        assert!(app.world().resource::<PipRepair>().is_open(), "preview stays open on refused Use");
+        assert_eq!(
+            app.world_mut().resource_mut::<SimState>().world.item_count(FormId::PLAYER_REF, kit).unwrap(),
+            2,
+            "preview must not consume Weapon Repair Kits"
+        );
     }
 }

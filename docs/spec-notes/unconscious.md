@@ -201,6 +201,8 @@ on screen).
   restores only Fatigue and Health [design: `knock`, `tick_knockouts`]. In one capture of the original an essential left combat
   and had its crippled leg restored in the sample it was knocked out [observed:
   npc-behaviour-compare.md §16.5].
+- An actor unconscious by SetUnconscious detects no one (`Game::detect`;
+  perk-activation.md §2) [hypothesis].
 - Crime witnesses, aggression (`aggro.rs`) and the AI's movement (`fnv-ai` carry.rs)
   treat a knocked-out actor as they treat SetUnconscious's.
 - Dialogue: `Game::start_dialogue` refuses a knocked-out or SetUnconscious actor; the

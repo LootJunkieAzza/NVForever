@@ -43,7 +43,7 @@ pub fn keys() -> Vec<BlitPipelineKey> {
     FORMATS
         .iter()
         .flat_map(|&target_format| {
-            [None, Some(BlendState::ALPHA_BLENDING)].map(|blend_state| BlitPipelineKey { target_format, blend_state, samples: 1, source_space: None })
+            [None, Some(BlendState::ALPHA_BLENDING)].map(|blend_state| BlitPipelineKey { hdr: false, hdr_gamma22: false, target_format, blend_state, samples: 1, source_space: None })
         })
         .collect()
 }
@@ -86,7 +86,7 @@ mod tests {
     fn every_format_written_and_blended() {
         let k = keys();
         assert_eq!(k.len(), FORMATS.len() * 2);
-        let reflection = BlitPipelineKey { target_format: TextureFormat::Rgba16Float, blend_state: None, samples: 1, source_space: None };
+        let reflection = BlitPipelineKey { hdr: false, hdr_gamma22: false, target_format: TextureFormat::Rgba16Float, blend_state: None, samples: 1, source_space: None };
         assert!(k.contains(&reflection), "the water reflection camera's key");
     }
 }

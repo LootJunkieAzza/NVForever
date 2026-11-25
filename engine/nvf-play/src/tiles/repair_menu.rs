@@ -178,6 +178,9 @@ pub struct Shown {
     /// The item's own row is hovered.
     pub choose: bool,
     pub cancel_hint: String,
+    /// Whether `apply_row_icon` should instantiate `ySIImage` row tiles (`yUI.ini`
+    /// `[Sorting and Icons] bAddInventoryIcons`, gated by `bSortingIcons`).
+    pub ysi_icons: bool,
 }
 
 impl Shown {
@@ -217,6 +220,7 @@ impl Shown {
             figures,
             choose: on_item,
             cancel_hint: w.cancel_hint.clone(),
+            ysi_icons: false,
         }
     }
 }
@@ -366,7 +370,11 @@ fn write(ui: &mut Ui, s: &Shown, w: &mut Written) {
                 ui.set_trait(t, "filename", Value::Str(MARK_PICTURE.into()));
             }
         }
-        fnv_game::ui_ysi::apply_row_icon(ui, &fnv_ui::MemSource::default(), row.tile, shown.ysi.as_ref());
+        if s.ysi_icons {
+            fnv_game::ui_ysi::apply_row_icon(ui, &fnv_ui::MemSource::default(), row.tile, shown.ysi.as_ref());
+        } else if let Some(existing) = list::child(ui, row.tile, fnv_game::ui_ysi::YSI_IMAGE_TILE) {
+            ui.unload_tile(existing);
+        }
     }
     set(ui, LIST, "_num_filtered", Value::Num(0.0));
     set(ui, LIST, "_enabled", on(true));
@@ -621,7 +629,9 @@ fn pass(p: &mut RepairPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     p.tiles.follow_model(session.selected);
     let stat_at = |c: f32| crate::pipboy::repair::stat(combat, &session.offer, c);
     let mut shown = Shown::of(session, p.tiles.on_rows, p.tiles.pointer_pick, p.tiles.navigated, &stat_at, &Words::read(game));
-    if game.ysi_active() {
+    let add_icons = game.ysi_add_inventory_icons();
+    shown.ysi_icons = add_icons;
+    if add_icons {
         for r in &mut shown.rows {
             r.ysi = game.ysi_item_display(r.key.0);
         }

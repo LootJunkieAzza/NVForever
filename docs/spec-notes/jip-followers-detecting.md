@@ -27,7 +27,18 @@
   in `Band::Detected` inside `Game::detection.pairs`, sorted deterministically
   by `FormId`. Both handlers return `ar_Null` (`0`) when empty or when the
   calling reference is omitted.
-- [hypothesis] Original-game ordering of returned arrays, whether unloaded or
-  low-process followers are included, whether `Escort` packages count as
-  followers, and whether non-actor or stale detection pairs are filtered the
-  same way in JIP LN NVSE remain unverified against an original-game capture.
+- [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10
+  official base masters, clean-room script probe jip_37_followers_and_detecting_empty
+  (GetFollowers/GetDetectingActors): -1,-1; no DLL or source consulted] Both return
+  `ar_Null` (`ar_Size == -1`) when empty.
+- [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  `w4d_17_followers_detecting_order` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
+  #3679): `doc=00104C0F,a1=FF00132A,a2=FF00132B|det(1:[FF00132A])|fol(-1:[])`; no DLL or
+  source consulted] `GetDetectingActors` returns detecting actors in line-of-sight when
+  non-empty, and bare `SetPlayerTeammate 1` without a Follow AI package leaves
+  `GetFollowers` as `ar_Null` (`-1`).
+- [hypothesis] Multi-element array ordering, whether unloaded or low-process followers are
+  included, whether `Escort` packages count as followers, and whether non-actor or stale
+  detection pairs are filtered the same way in JIP LN NVSE remain unverified against an
+  original-game capture.

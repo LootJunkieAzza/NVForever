@@ -28,6 +28,7 @@ const EXT_OWN: u32 = 0xA32;
 
 const ROOM: u32 = 0xA40;
 
+const CLMT_DEFAULT: u32 = 0x15F;
 const CLMT_A: u32 = 0xA50;
 const CLMT_B: u32 = 0xA51;
 const CLMT_C: u32 = 0xA52;
@@ -85,11 +86,13 @@ fn plugin_bytes() -> Vec<u8> {
         edid(b"WTHR", WTHR_GATED, "TestWeatherGated", &[]),
     ]
     .concat();
+    // CLMT_DEFAULT: 0x0000015F DefaultClimate, moon phase length 3 days (0x83).
     // CLMT_A: sunrise 06:00 (36), sunset 18:00 (108), moon phase length 4 days (0x84).
     // CLMT_B: sunrise 12:00 (72), sunset 16:00 (96), moon phase length 2 days (0x82);
     //         at GameHour=10, CLMT_A is daytime (0) while CLMT_B is nighttime (1).
     // CLMT_C: sunrise 06:00 (36), sunset 18:00 (108), moon phase length 8 days (0x88).
     let clmts = [
+        edid(b"CLMT", CLMT_DEFAULT, "DefaultClimate", &[sub(b"TNAM", vec![30, 54, 96, 120, 0, 0x83])]),
         edid(b"CLMT", CLMT_A, "ClimateAlpha", &[sub(b"TNAM", vec![36, 42, 102, 108, 10, 0x84]), sub(b"WLST", wlst(&[(WTHR_CLEAR, 80, 0)]))]),
         edid(
             b"CLMT",
@@ -245,14 +248,17 @@ fn set_worldspace_climate_reaches_current_climate_weathers_night_moon_and_respec
     assert_eq!(g.script_climate(), Some(FormId(CLMT_B)));
     assert_eq!(num(&mut g, "GetCurrentClimate"), f64::from(CLMT_B));
 
-    // Indoors: no current exterior climate, empty weather list, moon phase 0.
+    // Indoors: no current exterior climate and empty weather list, while GetMoonPhase
+    // retains the active moon phase from MainWorld's ClimateBeta (4.0 / 2 % 8 = 2)
+    // [observed: w4c_b3_03_jg6_actor_world_misc, GetMoonPhase returns the active moon
+    // phase indoors rather than 0].
     enter(&mut g, ROOM);
     assert_eq!(g.script_climate(), None);
     assert_eq!(g.current_climate(), None);
     assert_eq!(num(&mut g, "GetCurrentClimate"), 0.0);
     assert!(g.current_climate_weathers().is_empty());
     assert_eq!(g.current_climate_default_weather(), None);
-    assert_eq!(num(&mut g, "GetMoonPhase"), 0.0);
+    assert_eq!(num(&mut g, "GetMoonPhase"), 2.0);
 }
 
 #[test]
@@ -345,4 +351,40 @@ fn child_worldspace_pnam_inheritance_and_invalid_input_controls() {
     q(&mut g, "SetWorldspaceImagespace DummyStatic ImageSpaceAlpha");
     assert_eq!(g.worldspace_image_space(FormId(WRLD_MAIN)), Some(FormId(IMGS_B)));
     assert_eq!(g.worldspace_image_space(FormId(STAT_DUMMY)), None);
+}
+
+#[test]
+fn get_moon_phase_indoors_uses_active_or_default_climate() {
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, ..GameConfig::default() });
+    // Start directly indoors without ever visiting an exterior worldspace:
+    // `w4c_b3_03_jg6_actor_world_misc` observed `moon=1` indoors, while the
+    // `GameDaysPassed = 5.0` / `DefaultClimate` (0x0000015F, phase length 3 ->
+    // floor(5.0 / 3.0) % 8 = 1) derivation (see docs/spec-notes/ext-jg6.md).
+    g.world.set_global(FormId(GLOB_DAYS), 5.0).unwrap();
+    enter(&mut g, ROOM);
+    assert_eq!(g.current_climate(), None);
+    assert_eq!(num(&mut g, "GetMoonPhase"), 1.0);
+
+    // Advancing GameDaysPassed indoors advances the moon phase.
+    g.world.set_global(FormId(GLOB_DAYS), 6.0).unwrap();
+    assert_eq!(num(&mut g, "GetMoonPhase"), 2.0);
+    g.world.set_global(FormId(GLOB_DAYS), 12.0).unwrap();
+    assert_eq!(num(&mut g, "GetMoonPhase"), 4.0);
+
+    // ForceClimate indoors overrides the phase length (ClimateBeta = 2 -> floor(12/2)%8 = 6);
+    // clearing ForceClimate falls back to DefaultClimate (phase length 3 -> 4).
+    q(&mut g, "ForceClimate ClimateBeta");
+    assert_eq!(num(&mut g, "GetMoonPhase"), 6.0);
+    q(&mut g, "ForceClimate");
+    assert_eq!(num(&mut g, "GetMoonPhase"), 4.0);
+
+    // Visiting MainWorld (ClimateAlpha, phase length 4 -> floor(12/4)%8 = 3) and returning
+    // indoors retains MainWorld's climate for GetMoonPhase.
+    enter(&mut g, EXT_MAIN);
+    assert_eq!(num(&mut g, "GetMoonPhase"), 3.0);
+    enter(&mut g, ROOM);
+    assert_eq!(g.current_climate(), None);
+    assert_eq!(num(&mut g, "GetMoonPhase"), 3.0);
 }

@@ -33,6 +33,27 @@ const REFERENCE: &str = include_str!("../../../docs/settings-reference.md");
 /// `[Controls]`, not `[Settings]`): the launcher stops there.
 const OWN_ROWS: &str = "the tab's own rows";
 
+/// Whether `rule` holds for its row's INI value `value` (its choice's name `name`), the row
+/// of kind `kind` (`None`: built in, by the value).
+pub(crate) fn rule_holds(rule: &menu::Rule, kind: Option<&menu::Kind>, value: &str, name: &str) -> bool {
+    if !rule.choices.is_empty() {
+        return rule.choices.iter().any(|c| c.eq_ignore_ascii_case(name));
+    }
+    match kind {
+        Some(menu::Kind::List { choices }) => choices.first().is_none_or(|c| c.name != name),
+        Some(menu::Kind::Slider { .. }) => value.parse::<f32>().is_ok_and(|v| v >= 0.5),
+        // A switch, or a row with no kind (built in): off as `0`, a list's Off, or no value.
+        _ => !(value.is_empty() || value == "0" || value.eq_ignore_ascii_case("off")),
+    }
+}
+
+pub(crate) fn with_edits(mut text: String, changes: &std::collections::BTreeMap<String, String>) -> String {
+    for (key, value) in changes {
+        text = fnv_install::ini_set(&text, "Settings", key, value);
+    }
+    text
+}
+
 /// One row of the settings page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
@@ -70,22 +91,35 @@ impl Catalog {
     /// The game's menu beside `ini` when it is this launcher's version and table, else the
     /// built-in one.
     pub fn load(ini: Option<&Path>) -> Catalog {
+        Self::load_tabs(ini, &LAUNCHER_TABS, nvf_settings_layout::layout_stamp)
+    }
+
+    #[cfg(any(feature = "mobile", test))]
+    pub(crate) fn load_mobile(ini: Option<&Path>, tabs: &[&str]) -> Catalog {
+        Self::load_tabs(ini, tabs, nvf_settings_layout::mobile_layout_stamp)
+    }
+
+    fn load_tabs(ini: Option<&Path>, tabs: &[&str], stamp: fn() -> String) -> Catalog {
         ini.and_then(|p| std::fs::read_to_string(p.with_file_name(menu::MENU_FILE)).ok())
             .and_then(|t| Menu::parse(&t))
-            .and_then(|m| Catalog::from_menu(&m, env!("CARGO_PKG_VERSION")))
+            .and_then(|m| Catalog::from_menu_tabs(&m, env!("CARGO_PKG_VERSION"), tabs, stamp))
             .unwrap_or_else(Catalog::built_in)
     }
 
     /// The game's menu `m`, when it is version `version`'s and of this launcher's table
     /// (`nvf_settings_layout::layout_stamp`).
     pub fn from_menu(m: &Menu, version: &str) -> Option<Catalog> {
+        Self::from_menu_tabs(m, version, &LAUNCHER_TABS, nvf_settings_layout::layout_stamp)
+    }
+
+    fn from_menu_tabs(m: &Menu, version: &str, tabs: &[&str], stamp: fn() -> String) -> Option<Catalog> {
         // Not this version's, another build's table (or a file from before the stamp), or
         // with no row (a broken write): the built-in copy.
-        if m.version != version || m.layout != nvf_settings_layout::layout_stamp() || m.rows().next().is_none() {
+        if m.version != version || m.layout != stamp() || m.rows().next().is_none() {
             return None;
         }
         let mut rows = Vec::new();
-        let tabs: Vec<&menu::Tab> = m.tabs.iter().filter(|t| LAUNCHER_TABS.contains(&t.name.as_str())).collect();
+        let tabs: Vec<&menu::Tab> = m.tabs.iter().filter(|t| tabs.contains(&t.name.as_str())).collect();
         for t in &tabs {
             for c in &t.categories {
                 let heading = match (&c.group, &c.heading) {
@@ -230,14 +264,16 @@ pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
         ("smooth-terrain", &["off", "2x2", "4x4", "4x4-near"][..]),
         // ssao.rs `AO_CHOICES` (2026-11-19); the engine also reads its older 1/0.
         ("ambient-occlusion", &["Off", "Performance", "Quality"][..]),
+        // volumetric_clouds.rs `CLOUD_CHOICES` (2026-11-23); the engine also reads its older 1/0.
+        ("volumetric-clouds", &["Off", "Performance", "Normal", "High"][..]),
     ])
 }
 
 /// A list row's value as one of its choices ([`list_choices`]): the older values a list took
 /// over from map to the choice they stand for (the Smooth terrain row's on/off of #2149:
 /// `1`, true, on, yes are `4x4`; `0`, false, off, no are `off`; the Ambient occlusion row's
-/// switch of before 2026-11-19: `Quality` and `Off`, as the engine reads them); anything else
-/// as it is (trimmed).
+/// switch of before 2026-11-19: `Quality` and `Off`, the Volumetric clouds row's of before
+/// 2026-11-23: `Normal` and `Off`, as the engine reads them); anything else as it is (trimmed).
 pub fn list_value(key: &str, value: &str) -> String {
     let v = value.trim();
     // The Difficulty slider's part of before the menu overhaul: the nearest of the five
@@ -252,12 +288,14 @@ pub fn list_value(key: &str, value: &str) -> String {
     let (on, off) = match key {
         "smooth-terrain" => ("4x4", "off"),
         "ambient-occlusion" => ("Quality", "Off"),
+        "volumetric-clouds" => ("Normal", "Off"),
         _ => return v.to_string(),
     };
     match v.to_ascii_lowercase().as_str() {
         "1" | "true" | "on" | "yes" => on.to_string(),
         "0" | "false" | "off" | "no" => off.to_string(),
-        _ => v.to_string(),
+        // A choice written by hand in another case, which the engine takes too.
+        _ => list_choices()[key].iter().find(|c| c.eq_ignore_ascii_case(v)).unwrap_or(&v).to_string(),
     }
 }
 
@@ -419,10 +457,14 @@ mod tests {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/ssao.rs")).unwrap();
         let listed = list_choices()["ambient-occlusion"].iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
         assert!(src.contains(&format!("pub const AO_CHOICES: [&str; 3] = [{listed}];")), "ambient-occlusion: the engine's AO_CHOICES are no longer {listed}");
+        // The Volumetric clouds row's (volumetric_clouds.rs `CLOUD_CHOICES`).
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/volumetric_clouds.rs")).unwrap();
+        let listed = list_choices()["volumetric-clouds"].iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
+        assert!(src.contains(&format!("pub const CLOUD_CHOICES: [&str; 4] = [{listed}];")), "volumetric-clouds: the engine's CLOUD_CHOICES are no longer {listed}");
     }
 
     /// The Smooth terrain row's older on/off reads as its choices (4x4 and off), the Ambient
-    /// occlusion row's as Quality and Off, so a launcher with an old INI offers the list, not
+    /// occlusion row's as Quality and Off, the Volumetric clouds row's as Normal and Off, so a launcher with an old INI offers the list, not
     /// a switch; other values stay as they are.
     #[test]
     fn older_values_map_to_list_choices() {
@@ -437,6 +479,12 @@ mod tests {
             assert_eq!(got, want, "{v}");
             assert!(choices["ambient-occlusion"].contains(&got.as_str()));
         }
+        for (v, want) in [("1", "Normal"), ("0", "Off"), ("on", "Normal"), ("false", "Off"), ("Performance", "Performance"), (" High ", "High"), ("high", "High")] {
+            let got = list_value("volumetric-clouds", v);
+            assert_eq!(got, want, "{v}");
+            assert!(choices["volumetric-clouds"].contains(&got.as_str()));
+        }
+        assert_eq!(list_value("volumetric-clouds", "ultra"), "ultra");
         assert_eq!(list_value("kill-camera", " 1 "), "1");
         for (v, want) in [("0.50", "Normal"), ("0", "Very Easy"), ("1.0", "Very Hard"), ("0.75", "Hard"), ("Custom", "Custom")] {
             assert_eq!(list_value("difficulty", v), want, "{v}");

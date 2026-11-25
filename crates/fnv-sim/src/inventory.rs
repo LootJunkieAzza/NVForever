@@ -45,6 +45,12 @@ pub struct Extra {
     /// [design, #1640]. Absent from saves when false, so older saves read as before.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub live: bool,
+    /// Saved loaded-magazine round count for an unequipped weapon item (restored once on
+    /// equip by `nvf-play` combat `equip_sync_step` when no active `load_magazine` takes
+    /// precedence, then cleared so vanilla unequip/re-equip behavior is unchanged) [design].
+    /// Absent from saves when `None`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub magazine: Option<u32>,
 }
 
 fn is_zero(m: &u8) -> bool {
@@ -559,6 +565,11 @@ impl Inventory {
         self.items.get(&item).and_then(|s| s.groups.iter().find(|g| g.0.equipped)).map_or(0, |g| g.0.mods)
     }
 
+    /// The saved loaded-magazine round count on the equipped unit of `item`, if any.
+    pub fn equipped_magazine(&self, item: FormId) -> Option<u32> {
+        self.items.get(&item).and_then(|s| s.groups.iter().find(|g| g.0.equipped)).and_then(|g| g.0.magazine)
+    }
+
     /// Unequip every equipped unit of `item`. Returns false when none was equipped.
     pub fn clear_equipped(&mut self, item: FormId) -> bool {
         let Some(s) = self.items.get_mut(&item) else { return false };
@@ -755,6 +766,18 @@ mod tests {
         let back: Inventory = serde_json::from_str(&json).unwrap();
         assert_eq!(back, inv);
         assert!(!serde_json::to_string(&Extra::default()).unwrap().contains("mods"));
+        assert!(!serde_json::to_string(&Extra::default()).unwrap().contains("magazine"));
+
+        // Per-item saved magazine round count round-trips and is read via equipped_magazine.
+        let mut minv = Inventory::new();
+        minv.add_extra(id, 1, Extra { magazine: Some(7), ..Extra::default() });
+        assert_eq!(minv.equipped_magazine(id), None);
+        assert!(minv.set_equipped(id));
+        assert_eq!(minv.equipped_magazine(id), Some(7));
+        let mjson = serde_json::to_string(&minv).unwrap();
+        assert!(mjson.contains("\"magazine\":7"), "{mjson}");
+        let mback: Inventory = serde_json::from_str(&mjson).unwrap();
+        assert_eq!(mback, minv);
     }
 
     #[test]

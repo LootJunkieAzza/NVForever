@@ -164,11 +164,19 @@ fn record_setters_read_back() {
     assert_eq!(n(&mut g, "GetAnimObjectIdle TestAnimObject"), f64::from(IDLE_A));
     q(&mut g, "SetAnimObjectIdle TestAnimObject TestRock\nSetAnimObjectIdle TestAnimObject TestIdleB");
     assert_eq!(n(&mut g, "GetAnimObjectIdle TestAnimObject"), f64::from(IDLE_B));
-    // The loading screen type's text colour [documented: the page's 255 180 53].
+    // The loading screen type's text colour [documented: the page's 255 180 53];
+    // raw unclamped f32 floats (including NaN) stored verbatim
+    // [observed: jip_09_lsct_text_rgb_clamp, w4d_25_lsct_rgb_nan_and_password_key].
     assert_eq!(n(&mut g, "let aR := GetLoadScreenTypeTextRGB TestLoadType\nSetFunctionValue aR[\"r\"] * 1000000 + aR[\"g\"] * 1000 + aR[\"b\"]"), 255_180_053.0);
     q(&mut g, "SetLoadScreenTypeTextRGB TestLoadType 59.3 181 300");
-    assert_eq!(n(&mut g, "let aR := GetLoadScreenTypeTextRGB TestLoadType\nSetFunctionValue aR[\"b\"]"), 255.0);
+    assert_eq!(n(&mut g, "let aR := GetLoadScreenTypeTextRGB TestLoadType\nSetFunctionValue aR[\"b\"]"), 300.0);
     assert!((n(&mut g, "let aR := GetLoadScreenTypeTextRGB TestLoadType\nSetFunctionValue aR[\"r\"]") - 59.3).abs() < 1e-4);
+    q(&mut g, "SetLoadScreenTypeTextRGB TestLoadType -10 100 50");
+    assert_eq!(n(&mut g, "let aR := GetLoadScreenTypeTextRGB TestLoadType\nSetFunctionValue aR[\"r\"]"), -10.0);
+    g.run_query("float fNan\nBegin Function { }\nlet fNan := Log -1.0\nSetLoadScreenTypeTextRGB TestLoadType fNan 123.5 45\nEnd\n", RunCtx::default()).unwrap();
+    assert!(n(&mut g, "let aR := GetLoadScreenTypeTextRGB TestLoadType\nSetFunctionValue aR[\"r\"]").is_nan(), "NaN must be stored verbatim");
+    assert_eq!(n(&mut g, "let aR := GetLoadScreenTypeTextRGB TestLoadType\nSetFunctionValue aR[\"g\"]"), 123.5);
+    assert_eq!(n(&mut g, "let aR := GetLoadScreenTypeTextRGB TestLoadType\nSetFunctionValue aR[\"b\"]"), 45.0);
     q(&mut g, "SetLoadScreenTexture TestLoadScreen \"interface\\loading\\b.dds\"");
     // Race, template and template flag on the base.
     q(&mut g, "SetRace TestNpcA TestRaceB");
@@ -200,17 +208,22 @@ fn perk_ranks_and_entries() {
     let mut g = game(&f);
     q(&mut g, "PlayerREF.SetPerkRank TestPerk 2");
     assert_eq!(n(&mut g, "PlayerREF.GetPerkRank TestPerk"), 2.0);
-    // Cut to the perk's 3 ranks; 0 takes it away.
+    // Cut to the perk's 3 ranks; 0 and negative leave the rank unchanged
+    // [observed: lu3 perkrank, b3_lut_13_set_perk_rank_clamp].
     q(&mut g, "PlayerREF.SetPerkRank TestPerk 9");
     assert_eq!(n(&mut g, "PlayerREF.GetPerkRank TestPerk"), 3.0);
     q(&mut g, "PlayerREF.SetPerkRank TestPerk 1");
     assert_eq!(n(&mut g, "PlayerREF.GetPerkRank TestPerk"), 1.0);
-    q(&mut g, "PlayerREF.SetPerkRank TestPerk 0");
-    // 0 changes nothing [observed: lu3 perkrank].
+    q(&mut g, "PlayerREF.SetPerkRank TestPerk 0 0");
     assert_eq!(n(&mut g, "PlayerREF.GetPerkRank TestPerk"), 1.0);
-    // An NPC holds it at that rank.
+    q(&mut g, "PlayerREF.SetPerkRank TestPerk -1 0");
+    assert_eq!(n(&mut g, "PlayerREF.GetPerkRank TestPerk"), 1.0);
+    // An NPC holds it at that rank; 0 leaves it unchanged.
     q(&mut g, "TestNpcRef.SetPerkRank TestPerk 2");
     assert_eq!(n(&mut g, "TestNpcRef.HasPerk TestPerk"), 1.0);
+    q(&mut g, "TestNpcRef.SetPerkRank TestPerk 0");
+    assert_eq!(n(&mut g, "TestNpcRef.HasPerk TestPerk"), 1.0);
+    assert_eq!(g.extra.get(&FormId(NPC_REF)).and_then(|e| e.perks.get(&FormId(PERK))), Some(&2));
     // The entries, changed for the session. Both are rank 0, priority 0: the ability
     // before the entry point, as Built to Last's [observed: L5.ext rerun, #2040].
     assert_eq!(n(&mut g, "GetNthPerkEntryForm TestPerk 0"), f64::from(SPELL_A));

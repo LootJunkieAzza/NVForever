@@ -245,7 +245,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             outputs(g, 0.0, &[x, y])
         }
         // `xOut yOut request`: this frame's movement (0) or the last (1), only in a menu
-        // [documented: GetMouseMovement]; 0 0 out of menus [hypothesis]. The VM leaves
+        // [documented: GetMouseMovement]; 0 0 out of menus (see docs/spec-notes/ext-sup6.md §1). The VM leaves
         // the two output variables out of `args`: the request is the first left.
         "getmousemovement" => {
             let m = g.sup.mouse;
@@ -298,7 +298,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `trait [start [end [duration [mode]]]]`: no more than the trait stops the
         // change where it is [documented: "SetCursorTraitGradual 0 Will stop"]; a start
-        // alone sets it [hypothesis: as SetUIFloatGradual]. Modes over 3 read 0.
+        // alone sets it (see docs/spec-notes/ext-sup6.md §2). Modes over 3 read 0.
         "setcursortraitgradual" => {
             let k = num(args, 0, -1.0);
             if (0.0..CURSOR_TRAITS as f64).contains(&k) {
@@ -321,13 +321,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- the debug texts ----
-        // `name x y text`: made, or moved and changed when it is there [documented:
-        // DebugTextCreate; hypothesis: an existing name is changed, not doubled].
+        // `name x y text`: creates a new debug text and returns 1; if `name` already
+        // exists, updates its position and text in place (preserving zoom) [documented:
+        // DebugTextCreate; hypothesis: an existing name is moved and changed, not doubled]
+        // while returning -1 [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // SUP NVSE 855, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official
+        // base masters, `w4c_b4_03_sup6_bobbypin_debugtext`: `dt(1,-1)`].
         "debugtextcreate" => {
             let Some(n) = text(args, 0) else { return Some(Ok(zero)) };
+            let existed = g.sup.debug_texts.contains_key(&n);
             let zoom = g.sup.debug_texts.get(&n).map_or(DEBUG_TEXT_ZOOM, |d| d.zoom);
             g.sup.debug_texts.insert(n, DebugText { x: num(args, 1, 0.0) as f32, y: num(args, 2, 0.0) as f32, text: text(args, 3).unwrap_or_default(), zoom });
-            zero
+            XVal::Num(if existed { -1.0 } else { 1.0 })
         }
         "debugtextdestroy" => {
             if let Some(n) = text(args, 0) {
@@ -407,13 +412,29 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [decision: no channel to the machine's state (the 2026-11-08 brief); follow-up].
         "getpctrait" => zero,
         // ---- the lockpick menu ----
-        // `request`: 0 the pin's angle, 1 the lock's level, 2 the Lockpick skill; -1 with
-        // the menu shut [documented: GetLockPickMenuValue].
+        // `request`: 0 the pin's angle (NVForever's 0..180 degrees [design]; original SUP
+        // NVSE 855 returned 0.89 in `w4h_11_sup_lockpick_menu_tiers` and 952.47 in
+        // `w4e_12_sup_lockpick_menu_value_tiers`), 1 the lock tier enum (0 Very Easy/0,
+        // 1 Easy/1..=25, 2 Average/26..=50, 3 Hard/51..=75, 4 Very Hard/76..=100), 2 the
+        // Lockpick skill, other requests 0.0 while open; -1 with the menu shut
+        // [documented: GetLockPickMenuValue; observed: Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + SUP NVSE 855, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters, isolated clean-room staging copy (read-only
+        // `PrintToConsole` probe; zero writes to game install or Saves),
+        // `sup_20_lockpick_and_bobbypin_closed`, `w4e_12_sup_lockpick_menu_value_tiers`
+        // (`tools/capture/nvse/catalogs/wave4e_mods.json`, #3802), and
+        // `w4h_11_sup_lockpick_menu_tiers` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
+        // #3802): `PROBE|w4h_11_sup_lockpick_menu_tiers|shut(-1.0,-1.0,-1.0,-1.0,-1.0)|open50(mm=1014,0.89,2.0,100.0,0.0,0.0)|tiers(1=1.0,25=1.0,50=2.0,75=3.0,100=4.0)`;
+        // zero DLL, PDB, or third-party source consulted].
         "getlockpickmenuvalue" => XVal::Num(match (g.sup.lockpick, num(args, 0, -1.0) as i32) {
             (Some(l), 0) => f64::from(l.angle),
-            (Some(l), 1) => f64::from(l.level),
+            (Some(l), 1) => {
+                let raw = if l.level.is_finite() { l.level.clamp(0.0, 255.0) as u8 } else { 0 };
+                crate::lockpick::Level::of(raw).index() as f64
+            }
             (Some(l), 2) => f64::from(l.skill),
-            _ => -1.0,
+            (Some(_), _) => 0.0,
+            (None, _) => -1.0,
         }),
         // `[health]`: sets the pin's health, above 1 too; without it returns the health
         // [documented: SetBobbyPinHealth]. With the menu shut: -1 and nothing set

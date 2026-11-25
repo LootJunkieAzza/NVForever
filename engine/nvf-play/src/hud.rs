@@ -273,11 +273,14 @@ pub struct HudView {
     pub armor: Option<f32>,
     /// A kill camera has the view, which hides the HUD (`crate::kill_cam`).
     pub kill_cam: bool,
+    /// Why the HUD is not shown, in words for the log (`crate::xp_meter`'s level-up wait,
+    /// #3882); `None` while it is shown.
+    pub hidden: Option<&'static str>,
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false }
+        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false, hidden: None }
     }
 }
 
@@ -563,7 +566,22 @@ fn gather(
         let why = if camera { "the kill camera has the view" } else { "the VATS attacks play" };
         info!("hud: {}", if killcam { format!("hidden: {why}") } else { "back after the kill camera".to_string() });
     }
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam, kill_cam: killcam, ..view.clone() };
+    let hidden = if *state.get() != PlayState::Playing {
+        Some("the game is not in play (a menu, a conversation or a loading screen)")
+    } else if held {
+        Some("a script holds the player's movement (DisablePlayerControls)")
+    } else if creating {
+        Some("the character creator is up")
+    } else if posed {
+        Some("an idle holds the camera")
+    } else if wheel_open {
+        Some("the weapon wheel is open")
+    } else if killcam {
+        Some("a kill camera or VATS playback has the view")
+    } else {
+        None
+    };
+    let mut now = HudView { shown: hidden.is_none(), kill_cam: killcam, hidden, ..view.clone() };
     // [design, #2659] Only the classic enemy piece survives playback, including its
     // attack camera. All other HUD visibility rules keep using `shown`.
     now.enemy_shown = *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open
@@ -716,7 +734,7 @@ fn picture_node(picture: &Picture, color: Color) -> ImageNode {
 #[derive(Component)]
 pub(crate) struct HudRoot;
 
-/// The health and compass piece, bottom left.
+/// The health and compass pieces, bottom left (separately scaled, hidden together).
 #[derive(Component)]
 struct HpPiece;
 
@@ -1023,13 +1041,19 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
     commands.spawn((HudRoot, screen.clone(), Visibility::Hidden, Pickable::IGNORE)).with_children(|root| {
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
-        root.spawn((HpPiece, piece, DrawnByTiles)).with_children(|p| {
-            let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
-            marks.overflow = Overflow::clip_x();
-            p.spawn((CompassTicks, marks.clone()));
+        root.spawn((screen.clone(), Pickable::IGNORE, crate::hud_readability::HudSize(crate::hud_readability::Part::Health))).with_children(|wrapper| {
+          wrapper.spawn((HpPiece, piece.clone(), DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.left_bracket, 0.0, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
+          });
+        });
+        // The compass is a sibling so changing health size cannot resize its marks.
+        root.spawn((screen.clone(), Pickable::IGNORE, crate::hud_readability::HudSize(crate::hud_readability::Part::Compass))).with_children(|wrapper| {
+          wrapper.spawn((HpPiece, piece, DrawnByTiles)).with_children(|p| {
+            let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
+            marks.overflow = Overflow::clip_x();
+            p.spawn((CompassTicks, marks.clone()));
             info!("compass: heading at x {x} of {w}, the strip's N at {n}, fading from {f}", x = COMPASS_HEADING, w = COMPASS.x, n = STRIP_HEADING, f = STRIP_FADE.0);
             let mut window_node = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
             window_node.overflow = Overflow::clip();
@@ -1066,10 +1090,12 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
             });
             p.spawn((CompassMarks, marks));
             p.spawn((PlaceNameText, at(0.0, 0.0, HP_PANEL.x, 0.0)));
+          });
         });
         // Action points, condition and ammo, bottom right.
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
-        root.spawn((ApPiece, piece, DrawnByTiles)).with_children(|p| {
+        root.spawn((screen.clone(), Pickable::IGNORE, crate::hud_readability::HudSize(crate::hud_readability::Part::ActionPoints))).with_children(|wrapper| {
+          wrapper.spawn((ApPiece, piece, DrawnByTiles)).with_children(|p| {
             spawn_bracket(p, &art.right_bracket, RIGHT_BRACKET_X, &[RIGHT_UPRIGHT, DIVIDER], color);
             spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, amber(METER_BRIGHTNESS));
             label(p, AP, places.ap_label, UPPER_BASE);
@@ -1100,6 +1126,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
                 row.spawn((ArmorBar, at(places.cnd_x, places.cnd_y, CND_FILL_WIDTH, CND_BAR.y), BackgroundColor(amber(CONDITION_BRIGHTNESS))));
             });
             p.spawn((AmmoText, at(0.0, 0.0, AP_PANEL.x, AP_PANEL.y)));
+          });
         });
         // The sneak word, top middle.
         let piece = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-SNEAK.x / 2.0)), top: u(0.0), width: u(SNEAK.x), height: u(SNEAK.y + SNEAK_BASE), ..default() };

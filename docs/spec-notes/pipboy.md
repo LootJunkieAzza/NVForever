@@ -1177,7 +1177,7 @@ page's:
 | E inside a Misc folder | The file's Cancel: `Back`. Outside one E does nothing, as on the hand-built page |
 | A right click on a row, no key held | `Hover` then `Drop`, with Shift `DropStack` [owner 2026-11-02, #1393] |
 | A tab | `PipBoyInput::Tab(i)`; the pointer onto it, `TabHovered(i)` |
-| Cancel | `Back` inside a folder, else `Close` |
+| Cancel | `Back` inside a folder; ignored outside one (the button is hidden and does not close the Pip-Boy, #3915) [design] |
 | Equip, Drop (a script's click: not shown) | `One`, `Drop` |
 | Repair, Mod | `RepairInput::Open`, `ModInput::Open` |
 | The bar's arrows, page areas, marker | The list's view, no command of the model's |

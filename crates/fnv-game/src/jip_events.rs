@@ -215,8 +215,6 @@ pub struct MainLoop {
     pub flags: u32,
     pub due: u64,
     pub(crate) seq: u64,
-    /// Quantized game clock at registration or the last actual invocation.
-    pub(crate) last_clock: f64,
 }
 
 impl MainLoop {
@@ -381,7 +379,6 @@ impl Game<'_> {
             flags,
             due: self.frame + delay,
             seq,
-            last_clock: crate::functions::clock_now(self.time),
         });
         if let Some(registrar) = registrar {
             self.jip.registrars.insert(seq, registrar);
@@ -887,12 +884,12 @@ impl Game<'_> {
             .filter(|m| m.due <= frame && m.flags & want != 0)
             .map(|m| (m.clone(), self.jip.registrars.get(&m.seq).cloned()))
             .collect();
+        // Main-loop callbacks observe the single-frame delta, not accumulated time across
+        // skipped callDelay frames [observed: w4g_03_jip_callback_getsecondspassed].
+        let seconds = self.stateless_udf_seconds();
         for (m, registrar) in due {
-            let now = crate::functions::clock_now(self.time);
-            let seconds = (now - m.last_clock).max(0.0);
             for x in self.jip.main_loop.iter_mut().filter(|x| x.func == m.func && x.on == m.on) {
                 x.due = frame + x.delay;
-                x.last_clock = now;
             }
             let on = m.on.unwrap_or(FormId::PLAYER_REF);
             let ctx = RunCtx { self_ref: Some(on), ..RunCtx::default() };

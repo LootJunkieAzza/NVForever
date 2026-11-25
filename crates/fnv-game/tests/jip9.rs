@@ -216,19 +216,34 @@ fn radio_volumes_fonts_colours_and_the_health_bar() {
     let all: Vec<f64> = (0..6).map(|t| n(&mut g, &format!("GetGameVolume {t}"))).collect();
     assert_eq!(all, [100.0, 50.0, 60.0, 100.0, 60.0, 50.0]);
     assert_eq!(n(&mut g, "GetGameVolume 6"), 0.0);
-    q(&mut g, "SetGameVolume 4 30\nSetGameVolume 1 150");
-    // Past 100 nothing changes [observed: jip9 volume.set].
+    q(&mut g, "SetGameVolume 4 30\nSetGameVolume 1 150\nSetGameVolume 4 101");
+    // Past 100 nothing changes [observed: jip9 volume.set, w4c_a04_set_game_volume_gt100].
     assert_eq!((n(&mut g, "GetGameVolume 4"), n(&mut g, "GetGameVolume 1")), (30.0, 50.0));
+    // Negative level resets channel to its default [observed: b3_jip9_02_game_volume_neg_and_default,
+    // w4c_a04_set_game_volume_gt100]; omitted level also resets to default [observed: jip9 volume.set].
+    q(&mut g, "SetGameVolume 0 30\nSetGameVolume 0 -10");
+    assert_eq!(n(&mut g, "GetGameVolume 0"), 100.0, "negative level resets master to default");
     q(&mut g, "SetGameVolume 4");
     assert_eq!(n(&mut g, "GetGameVolume 4"), 60.0, "back to the default");
-    assert_eq!(g.other.jip9.volume_sets, [(4, 30.0), (4, 60.0)]);
+    assert_eq!(g.other.jip9.volume_sets, [(4, 30.0), (0, 30.0), (0, 100.0), (4, 60.0)]);
     // Fonts: only types 1-8 and 10-89, and a file that is there.
     assert_eq!(n(&mut g, "SetFontFile 9 \"textures\\fonts\\x.fnt\""), 0.0);
     assert_eq!(n(&mut g, "SetFontFile 2 \"textures\\fonts\\no such file.fnt\""), 0.0);
-    // Colours, each part into 0-255.
+    // Integer channels wrap modulo 256 (u8 conversion) [observed: w4c_b1_15b_syscolor_cursor]
+    // and fractional channel inputs truncate toward zero [observed: w4h_10_set_system_color_fractional,
+    // PR #3803 / #3802].
     q(&mut g, "SetSystemColor 1 300 -5 12.4\nSetSystemColor 6 1 1 1");
-    assert_eq!(g.other.jip9.colours.get(&1), Some(&[255, 0, 12]));
+    assert_eq!(g.other.jip9.colours.get(&1), Some(&[44, 251, 12]));
     assert_eq!(g.other.jip9.colour_sets.len(), 1);
+    q(&mut g, "SetSystemColor 1 300 -10 128");
+    assert_eq!(g.other.jip9.colours.get(&1), Some(&[44, 246, 128]));
+    assert_eq!(n(&mut g, "GetSystemColor 1"), 2_946_688.0);
+    q(&mut g, "SetSystemColor 1 12.7 12.3 12.5");
+    assert_eq!(g.other.jip9.colours.get(&1), Some(&[12, 12, 12]));
+    assert_eq!(n(&mut g, "GetSystemColor 1"), f64::from(0x0C0C0C_u32));
+    q(&mut g, "SetSystemColor 1 13.5 0.4 254.6");
+    assert_eq!(g.other.jip9.colours.get(&1), Some(&[13, 0, 254]));
+    assert_eq!(n(&mut g, "GetSystemColor 1"), f64::from(0x0D00FE_u32));
     // The health bar's actor, as the engine tells it.
     assert_eq!(n(&mut g, "GetEnemyHealthTarget"), 0.0);
     g.other.jip9.enemy_target = Some(FormId(MARK));
@@ -241,19 +256,35 @@ fn immortal_mode_keeps_the_player_alive() {
     let mut g = game(&f);
     q(&mut g, "player.SetActorValue Health 100");
     let health = |g: &mut Game| n(g, "player.GetActorValue Health");
-    // The mode before the call; 5 is kept and read back, and holds nothing [observed:
-    // jip9 immortal.5 0 0 5 0; hypothesis: no effect].
+    // The mode before the call; stored as a u8 byte (-1 wraps to 255, 3/5/99 read back
+    // verbatim) and values outside 1..=2 hold nothing [observed: jip9 immortal.5;
+    // w4d_18_immortal_mode_oob: m0=0|neg(prev=0,cur=255)|m3(prev=255,cur=3,hp=200->190)|m99(prev=3,cur=99)].
     assert_eq!(n(&mut g, "ToggleImmortalMode"), 0.0);
-    assert_eq!(n(&mut g, "ToggleImmortalMode 5"), 0.0);
+    assert_eq!(n(&mut g, "ToggleImmortalMode -1"), 0.0);
+    assert_eq!((n(&mut g, "ToggleImmortalMode"), f64::from(g.immortal_mode())), (255.0, 0.0));
+    assert_eq!(n(&mut g, "ToggleImmortalMode 3"), 255.0);
+    assert_eq!((n(&mut g, "ToggleImmortalMode"), f64::from(g.immortal_mode())), (3.0, 0.0));
+    q(&mut g, "player.DamageAV Health 10");
+    assert_eq!(health(&mut g), 90.0, "mode 3 holds nothing");
+    q(&mut g, "player.RestoreAV Health 10");
+    assert_eq!(n(&mut g, "ToggleImmortalMode 99"), 3.0);
+    assert_eq!(n(&mut g, "ToggleImmortalMode 5"), 99.0);
     assert_eq!((n(&mut g, "ToggleImmortalMode"), f64::from(g.immortal_mode())), (5.0, 0.0));
     assert_eq!(n(&mut g, "ToggleImmortalMode 2"), 5.0);
     let r = g.hit(FormId::PLAYER_REF, 30.0, HitInfo { location: -1, ..HitInfo::default() });
     assert_eq!((r.dealt, health(&mut g)), (0.0, 100.0), "no damage in mode 2");
+    // Wave 4 jip_45_immortal_mode_damageav_bypass [observed]: ToggleImmortalMode 2 also
+    // blocks scripted DamageAV Health on the player.
+    q(&mut g, "player.DamageAV Health 10");
+    assert_eq!(health(&mut g), 100.0, "DamageAV Health blocked in mode 2");
     q(&mut g, "ToggleImmortalMode 1");
     let r = g.hit(FormId::PLAYER_REF, 500.0, HitInfo { location: -1, ..HitInfo::default() });
     assert_eq!((r.dealt, health(&mut g)), (99.0, 1.0), "never below 1 HP in mode 1");
     assert!(!g.is_dead(FormId::PLAYER_REF));
     q(&mut g, "ToggleImmortalMode 0");
+    q(&mut g, "player.RestoreAV Health 99");
+    q(&mut g, "player.DamageAV Health 10");
+    assert_eq!(health(&mut g), 90.0, "DamageAV Health resumes in mode 0");
     let r = g.hit(FormId::PLAYER_REF, 5.0, HitInfo { location: -1, ..HitInfo::default() });
     assert!(r.dealt > 0.0);
 }

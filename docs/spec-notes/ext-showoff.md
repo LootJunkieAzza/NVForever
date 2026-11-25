@@ -12,10 +12,18 @@ ran.
 - The event fires when an item reaches a container. With a stimpak AddItem'd to the player,
   a two-argument handler got the item's base form (type 47) first and the player second; a
   handler taking no arguments ran as well [observed].
+- Inside the handler, the calling reference (`GetSelfAlt` / `ThisAlt`) is the physical
+  world item reference when the item was picked up directly from the game world, and `0`
+  (null) when added via `AddItem` or an inventory transfer [documented: GECK wiki
+  [ShowOff:OnAdd](https://geckwiki.com/index.php?title=ShowOff:OnAdd), "May be null if a
+  world item wasn't picked up directly from the environment"; no ShowOff DLL or source
+  consulted].
 - Inside the handler, `GetAddedItemRefShowOff` gives a reference whose base is the stimpak
   [observed: IsReference 1, base type 47]; the page says a world item reference or an
-  inventory reference [documented]. NVForever gives an inventory reference to the item in
-  the container. Outside a handler it gives none.
+  inventory reference [documented: ShowOff:OnAdd, "Contains either a world item ref or an
+  InventoryRef"]. NVForever gives the picked-up world reference on direct world pickup
+  (`Game::run_default_activation` `Outcome::PickedUp`) and an inventory reference to the
+  item in the container otherwise. Outside a handler it gives none.
 - NVForever fires it wherever its script OnAdd block would run for an item reaching a
   container (AddItem and its variants, RemoveAllItems into a container, picking up).
 
@@ -45,12 +53,50 @@ ran.
 
 ## 4. ForceWeaponJamAnim
 
-- It returned 0 with the 10mm pistol away and 1 with it drawn [observed]. IsAnimPlayingEx 4
-  (reload) never read 1 over the 60 frames after [observed], so the jam is not a reload as
-  that function counts them.
-- A weapon without a jam animation gives 0 [documented: the .357 revolver cannot jam].
-  NVForever does not read which weapons have one yet, so any drawn weapon gives 1
-  [hypothesis], and the engine does not play the animation [not built].
+- It returned 0 with the 10mm pistol away and 1 with it drawn [observed: showoff1].
+  `IsAnimPlayingEx 4` (reload) never read 1 over the 60 frames after [observed: showoff1],
+  so the jam is not a reload as that function counts them.
+- A weapon without a jam animation gives 0 [documented: GECK wiki
+  [ForceWeaponJamAnim](https://geckwiki.com/index.php?title=ForceWeaponJamAnim), the .357
+  Magnum Revolver cannot jam], and calling it interrupts the actor's current hand action
+  (such as canceling an active reload and replacing it with the jam animation)
+  [documented: ForceWeaponJamAnim].
+- Live probes `[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin
+  184, 2026-11-23/24, GSDocMitchellHouse (0x00103DF9), 10 official base masters, clean-room
+  script probes w1_3632_onfireweapon_and_forcejam, so_34_force_weapon_jam_revolver, and
+  w4d_08_forcejam_melee_god_nonactor (tools/capture/nvse/catalogs/wave4d_extenders.json,
+  #3679); no DLL or source consulted]` confirmed:
+  - Drawn 10mm pistol (`Weap10mmPistol` `0x0000434F`, `jam_time = 1.4`) returns **`1`**
+    both normally and under `ToggleGodMode` (`w4d_08_forcejam_melee_god_nonactor`:
+    `tgm10mm(ret=1,act=9)`); immediately afterward, `GetAnimAction` reads **`9`** (not
+    `13`), `IsAnimPlayingEx 4` remains **`0`**, and calling `ForceWeaponJamAnim` again
+    while already jamming returns **`1`** (`w1_3632_onfireweapon_and_forcejam`:
+    `Player.ForceWeaponJamAnim` with holstered/drawn 10mm, Baseball Bat `0x0000421C`, and
+    unarmed fists; `ForceJamAnim` is the wiki-documented alias [documented: GECK wiki
+    ForceWeaponJamAnim]).
+  - Drawn `.357 Magnum Revolver` (`WeapNV357Revolver` `0x0008F216`, `jam_time = 0.0`,
+    `so_34_force_weapon_jam_revolver`: `AddItem` + `EquipItem` + draw `.357` vs `10mm`),
+    holstered 10mm pistol, drawn Baseball Bat (melee, `w4d_08_forcejam_melee_god_nonactor`:
+    `melee(ret=0,act=0)`), drawn Fists (unarmed), and non-actor static references (door
+    `0x103E61`, `w4d_08_forcejam_melee_god_nonactor`: `door=0`) return **`0`**.
+- NVForever checks that the actor is alive, has its weapon drawn, and has an equipped gun
+  (`DNAM/animation_type` in `3..=9`) with finite `DNAM/jam_time > 0` (`GetWeaponAnimJamTime`;
+  honoring session overrides and `TempCloneForm` clones) [observed: FalloutNV.esm WEAP
+  DNAM `Weap10mmPistol` `jam_time = 1.4` vs `WeapNV357Revolver` `jam_time = 0.0`;
+  hypothesis: using `animation_type` `3..=9` + `DNAM/jam_time > 0` as the rules-side
+  availability gate without probing BSA `.kf` presence].
+- On success, `ForceWeaponJamAnim` / `ForceJamAnim` queues the actor (deduplicated per
+  frame, capped at 64 entries for headless runs [design]) for `nvf_play::combat::fire`
+  (`Game::take_force_jam_requests`). For the player, `nvf_play::combat::fire` interrupts
+  any active reload or attack phase via `Cycle::jam` and increments `WeaponAnim::jams`
+  (which `nvforever::player_body` plays on the reload layer, interrupting any active reload
+  clip) while reporting `AnimAction::Jam` (code `9` for `GetAnimAction`, while
+  `IsAnimPlayingEx 4` remains `0` and `SetOnReloadWeaponEventHandler` does not fire;
+  generalizing `Phase::Jammed -> AnimAction::Jam` (`9` instead of `13`) to natural vanilla
+  weapon-condition jams is [hypothesis]).
+  Repeated calls while `Cycle::jammed` is already true return `1` without restarting the
+  active jam timer [design]. NPC jam animation playback remains [not built] (`nvf-play`
+  models `Cycle` for the player only). No ShowOff DLL or source code was consulted.
 
 ## 5. The 2026-10-30 batch (#1010, `nvse_showoff2.rs`)
 
@@ -171,9 +217,9 @@ ShowOff function left. GetHitLocationLingering on the unhurt player crashed the 
 |---|---|
 | GetLevelUpMenuCurrentPage (GetLevelUpMenuPage) | -1 closed, 0 skills, 1 perks: the page the engine's menu reports each frame (`nvse_showoff5::LevelUpAsk`, `nvf_play::levelup::script_asks`) [documented] |
 | SetLevelUpMenuCurrentPage (SetLevelUpMenuPage) `page` | 1 as Continue (which closes the menu when no perk is due), 0 as Back, 2 closes it, each whatever points are left; 0 when closed or already there [documented]. Closing keeps what was allotted [hypothesis] |
-| GetLevelUpMenuPoints `[checkPerks] [checkAssigned]` | the skill points or perks to allot, or allotted; -1 closed [documented]. The page and points read at once after ShowSkillMenu, in the same script: ShowSkillMenu 3 then page 0, points 3, allotted 0, perks 0 [observed 2026-11-08: levelup.skillmenu]; ShowPerkMenu's alike [hypothesis]. SetLevelUpMenuCurrentPage 2 returned 1 and the menu read closed (-1) the next step [observed: levelup.after]; NVForever's engine closes it (`nvf_play::levelup`), the headless query tool has no level-up menu to close, so the lab row stays 0 there |
+| GetLevelUpMenuPoints `[checkPerks] [checkAssigned]` | the skill points or perks to allot, or allotted; -1 closed [documented]. The page and points read at once after ShowSkillMenu, in the same script: ShowSkillMenu 3 then page 0, points 3, allotted 0, perks 0 [observed 2026-11-08: levelup.skillmenu]. After `ShowPerkMenu 2`, `GetLevelUpMenuPoints 1 0` and `1 1` both read `0` immediately same-frame, then `SetLevelUpMenuCurrentPage 2` returns `1` and `GetLevelUpMenuPoints 1 0` reads `-1` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184 with the 10 official base masters, clean-room script probe `so_26_levelup_perk_menu_points`: `1,0,0,1,-1`; no DLL or source consulted]. SetLevelUpMenuCurrentPage 2 returned 1 and the menu read closed (-1) the next step [observed: levelup.after]; NVForever's engine closes it (`nvf_play::levelup`), the headless query tool has no level-up menu to close, so the lab row stays 0 there |
 | SetLevelUpMenuCanExitEarly `1/0` | Continue and Done work with points left; 0 does not undo it [documented] |
-| ShowPerkMenu `[numPerks] [title]` | the menu on its perks page alone, Back hidden, no level gained; by default the level's perk (1 at a perk level, else 0, browsing); 0 with no perk to take [documented]; 0 while another menu is open [hypothesis] |
+| ShowPerkMenu `[numPerks] [title]` | the menu on its perks page alone, Back hidden, no level gained; by default the level's perk (1 at a perk level, else 0, browsing); 0 with no perk to take [documented]. Returns `1` for `ShowPerkMenu 0` and `ShowPerkMenu 2`, and when `SkillMenu` / `LevelUpMenu` (`menus::LEVEL_UP`, 1027) is already open [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `so_36_show_perk_menu_while_open` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679: `ShowSkillMenu 3`, `ShowPerkMenu 1`, `SetLevelUpMenuCurrentPage 2` -> `1,1,1`) and `w4d_38_showoff_perk_stagger_fade` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679: `perk(1,1)` for `ShowPerkMenu 0`, `ShowPerkMenu 2`); no DLL or source consulted]; returns `0` without replacing `Game::menu` while any other menu (Container, Pip-Boy, Barter, etc.) is open so the active menu does not lose its `MenuClosed` / JIP `menuclose` event [hypothesis: non-`LevelUpMenu` menus unprobed; design: preserve open-menu close lifecycle] |
 | ShowSkillMenu (ShowSkillsMenu) `[numSkills] [showDespiteNoPoints] [title]` | the skills page as the last page, the level's points by default; 0 with no points and showDespiteNoPoints 0 [documented] |
 | ShowPauseMenu `[mode]` | the engine opens the pause menu on each call: 1 its load page, 3 its settings; 2 (save) and 4 (help) its main page, NVForever's pause menu having neither [documented: the modes; hypothesis: the fallback] |
 | Get/SetExplosionRefRadius, Get/SetExplosionRefSource | the blast's live reference, placed by the engine for its frame (`Game::explosion_placed`) [documented]; GetExplosionRefRadius -1 on a reference that is no explosion [observed 2026-11-08: explosion.none, the player]. The engine works out who the blast reaches in the frame it places it, so a change reaches later reads only [not built: no script runs in between] |
@@ -183,7 +229,7 @@ ShowOff function left. GetHitLocationLingering on the unhurt player crashed the 
 | GetPCHasScriptedFastTravelOverride, GetPCCanFastTravel | EnableFastTravel 0's bar [hypothesis: that is the override]; the Pip-Boy's checks but the marker's: the bar, an interior or the world's flag (fast-travel.md §2; lifted by the player's Fast Travel From Anywhere, the map's other travel tweaks not built here), in the air, in combat, hostiles within fHostileActor…Distance, over-encumbered without Long Haul [documented: "the same check"; hypothesis: combat as the player's combat state] |
 | IsActorInvisibleToPlayer, HighlightAdditionalReferenceAlt `[check] [flash]` | Invisibility or Chameleon above 0 and no Improved Detection [documented]; the highlight list is kept, the engine's VATS highlight does not draw it yet [not built: follow-up] |
 | GetNumCombatActorsFromActor `[maxDistance] [flags]` | the caller's combat targets (2) and allies (1), 0 meaning 3; 4 no invisible ones, 8 only detected ones [documented]; an ally fights one of the caller's targets and would not attack the caller [hypothesis] |
-| ForceHitStaggerReaction (ForceHitReaction), ForceRecoilAnim | stagger: 1 when the actor has a hit location (and, when asked, no Ignore Crippled Limbs) [documented; observed: 0 on the unhurt player]; recoil: 1 for a living actor [observed 2026-11-08: recoil.player 1; the save's weapon not recorded; hypothesis: whatever it holds]; the engine does not play the animations [not built, as ForceWeaponJamAnim §4] |
+| ForceHitStaggerReaction (ForceHitReaction), ForceRecoilAnim | stagger: 1 when the actor has a hit location (and, when asked, no Ignore Crippled Limbs) [documented; observed: 0 on unhurt Player and Doc Mitchell in `w4d_38_showoff_perk_stagger_fade` (`stag(0,0)`)]; recoil: 1 for a living actor unarmed or with a melee weapon equipped (`Baseball Bat`, `DNAM/animation_type == 2`), and 0 with a ranged gun equipped (`10mm Pistol`, `DNAM/animation_type == 3`) [documented: ForceRecoilAnim, "typically only works for melee/unarmed weapons"; observed 2026-11-08: recoil.player 1; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `so_33_force_recoil_unarmed_vs_gun` (unarmed `1`, holstered 10mm Pistol `0`, ForceHitReaction `0` -> `1,0,0`) and `w4d_38_showoff_perk_stagger_fade` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679): `stag(0,0)|rec(1,1,0)` (stagger on Player/Doc Mitchell; recoil unarmed, Baseball Bat, 10mm Pistol); no DLL or source consulted]; remaining unprobed weapon animation types classified by `DNAM/animation_type <= 2` (`1` returning `1`, `4..=10` returning `0`) [hypothesis]; the engine does not play the animations [not built, as ForceWeaponJamAnim §4] |
 | KillAllHostiles `[killer]` | KillActor on each loaded actor hostile to the player [documented; hypothesis: "within range" is the loaded area] |
 | GetCalculatedItemValue `[barter]` | the value at the item's condition (fItemConditionValue…, as the barter menu) plus attached weapon mods' IMOD values, which condition does not lower (`FormStore::mods_value`) [observed: o26_value, weapon-mods.md §6]; honours `SetItemValue` overrides; with the flag while bartering, multiplies by the active trade's `SetBarterPriceMult` override or live `BarterView` buy/sell multiplier [hypothesis], falling back to the Barter skill GMST formula headless; -1 for no item [documented]; Calculate Buy Price perks outside a live `BarterView` not counted [hypothesis]. An item with a health is at full condition when it has none of its own and the formula holds there too, rounded to the nearest whole number: a fresh 10mm pistol (Value 750) 749 [observed 2026-11-08: itemvalue.pistol "749 749"; 750 · 0.0316 · 10^1.5 = 749.46] and a Varmint Rifle (Value 75) 75 at full condition / 49 at 75 % [observed: o26_value, weapon-mods.md §6; 74.946 → 75, 48.679 → 49] |
 | GetCalculatedAPCost (GetCalculatedWeaponAttackAPCost) `attack [weapon]` | 0 the weapon's override or its animation type's fActionPointsAttack… setting [documented]: the 10mm pistol 17, its override [observed 2026-11-08: ap.pistol]; Fists 22, fActionPointsAttackUnarmed, their override AP 18 not used [observed: ap.fists; hypothesis: Fists only, other unarmed weapons keep theirs]. 1 and 2 give 0 for the pistol and for Fists [observed: "17 0 0", "22 0 0"; the page's uppercut and cross settings not read], a melee weapon's 1 its VATS attack's AP [documented, not observed]; perks not counted [hypothesis] |
@@ -193,7 +239,7 @@ ShowOff function left. GetHitLocationLingering on the unhurt player crashed the 
 | PlayerHasNightVisionActive | through a scope with "Scope has NightVision" at night, 20:00 to 6:00 [documented; hypothesis: the hours] |
 | PlayerIsDrinkingPlacedWater | within a second of a drink from placed water [documented; hypothesis: the length] |
 | GetIsActivationPromptShown, IsPlayerLookingAround | a reference under the crosshair within reach and no menu; the player's rotation changed since the last frame and looking not disabled [documented; hypothesis: what counts] |
-| GetSpellUsageNumEx `ingestible` | the usage monitor's count times its magnitude while it lasts; 0 after, as GetSpellUsageNum [documented; hypothesis: NVForever's monitor forgets the count] |
+| GetSpellUsageNumEx `ingestible` | the usage monitor's count times its magnitude while it lasts; 0 after, as GetSpellUsageNum [documented; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184 with the 10 official base masters, clean-room script probe `so_35_spell_usage_num_ex` (Jet `0x15164`, usage monitor magnitude 30): `0` before use, `30` after 1 use (`0,30`); no DLL or source consulted; hypothesis: NVForever's monitor forgets the count after expiry] |
 | PlaceAtReticleAlt `form [count] [min] [max] [health]` | placed where the crosshair points, at least min and at most max along it, at the health given [documented; hypothesis: how the distances bound the point] |
 | RefillPlayerAmmo `count`, RemoveAllItemsShowOff `[flags] [type] [target] [exceptions]` | ITR's RefillAmmo on the player [documented: deprecated for it]; RemoveAllTypedItems with flags 1 keep owners, 2 no messages, 4 the player's quest items, 8 non-playable biped items too (`functions::items::remove_all`) [documented] |
 
@@ -234,10 +280,10 @@ their titles have a space where the name has an underscore).
 | SetEnableParent (SetParentRef) `[newParent]` | the reference's enable parent for the session, none removing it; GetParentRef and the enable state follow (`World::set_enable_parent`) [documented]; not saved [hypothesis] |
 | HasINISetting_Cached (HasINISettingC), ReloadIniCache, SaveCachedIniFile (SaveCachedIni) `[iniPath]` | the cache of `Data\Config` INI files (`mod_files.rs`): whether a key is cached; read again (0 for a missing file); written back into the file in NVForever's layer, keys in place, new ones added to their section in lower case [documented; hypothesis: the format kept] |
 | The INI path of every `[iniPath]` function | under `Data\Config`; `..` parts are worked out, so `..\MCM\Translations\X.ini` is `Data\MCM\Translations\X.ini` [observed: MCM Extender's gr_MCMExtender.txt reads its menus' translations so, and its INIs sit there]; a path that would leave Data is not read (charter; the rule in full: local-ini-sibling-paths.md) |
-| ReadFromJSON `path [pointer] [mode] [useCache]`, WriteToJSON `value path [pointer] [mode] [useCache] [saveFile] [compact]` | files under the game's folder through NVForever's layer (`GameRoot`, never the game folder), decoded as UTF-8 with any UTF-8 BOM stripped and `Data\...` paths also resolving through NVForever's layer/VFS [design]; objects are string maps, arrays lists, forms "@Plugin.esm:FormID" [documented]; every parser mode reads standard JSON, a pointer into a missing part makes the objects on the way [hypothesis]. `useCache` gates reading/writing `ModFiles::showoff_json` (uncached saved writes drop any stale cached entry) and escaping paths are refused even when `saveFile` is 0 [design]. ReadFromJSON on a missing file gives no value, the call fails [observed 2026-11-08: readjson.missing, TestExpr 0]; a file that is not JSON likewise, a pointer to nothing 0 [hypothesis]; WriteToJSON's failures 0 [hypothesis] |
+| ReadFromJSON `path [pointer] [mode] [useCache]`, WriteToJSON `value path [pointer] [mode] [useCache] [saveFile] [compact]` | files under the game's folder through NVForever's layer (`GameRoot`, never the game folder), decoded as UTF-8 with any UTF-8 BOM stripped and `Data\...` paths also resolving through NVForever's layer/VFS [design]; objects are string maps, arrays lists, forms "@Plugin.esm:FormID" [documented]; all three parser modes (`0` JSON, `1` JAXN, `2` TaoConfig) read standard JSON, while JAXN comments/trailing commas succeed only in mode `1` and TaoConfig `key = value` succeeds only in mode `2` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `w4d_38_showoff_perk_stagger_fade` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679): `json(42,42,42,0/1,0/1)` (standard JSON across modes 0/1/2, JAXN in modes 0/1, TaoConfig in modes 0/2); no DLL or source consulted] (JAXN and TaoConfig syntax extensions are [not built]). Writing a single-level pointer (e.g., `"/k"`) on a missing file or `null` root creates a root `{}` object (and empty root pointer `""` creates/replaces the file), whereas a pointer with missing intermediate segments (e.g., `"/a/b/c"`) fails (returns `0`) without auto-creating missing intermediate objects [hypothesis]; malformed non-JSON files starting from null [hypothesis]. `useCache` gates reading/writing `ModFiles::showoff_json` (uncached saved writes drop any stale cached entry) and escaping paths are refused even when `saveFile` is 0 [design]. ReadFromJSON on a missing file gives no value, the call fails [observed 2026-11-08: readjson.missing, TestExpr 0]; a file that is not JSON likewise, a pointer to nothing 0 [hypothesis]; WriteToJSON's failures 0 [hypothesis] |
 | CreateFolder (CreateDirectory) `path`, DumpFormList (FListDump) `list [file] [append]` | the folder made in NVForever's layer; the list's forms to the console or appended to a file there [documented], the lines in NVForever's own words |
 | GetActorFadeState | 0 for a loaded actor not fading [observed: Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, 10 official base masters, `b3_so_01_lvlup_closed_and_status_flags`: `Player.GetActorFadeState` and `rDoc.GetActorFadeState` both returned `0.0` in Doc Mitchell's house, no DLL or source consulted]; −1 for an unloaded actor [observed 2026-11-08: `showoff4.fadestate.doc`, Doc Mitchell in his unloaded house while the player stood at the airport test ground]; NVForever reports `0` for the player or a present actor in a loaded cell and `−1` otherwise [hypothesis: unloaded/non-actor is the reason for `−1`, and other fade states are unknown because NVForever does not fade actors through this state] |
-| GetCalculatedActorSpread | live actor weapon spread from the Gun Spread Formula, stance, crippled arms, `SetNoGunWobble`, and spread perks (`Game::calculated_actor_spread`) [documented: Gun Spread Formula; hypothesis: `docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md`] |
+| GetCalculatedActorSpread | live actor weapon spread from the Gun Spread Formula, stance, crippled arms, and spread perks (`Game::calculated_actor_spread`) — `SetNoGunWobble 1` does **not** zero `GetCalculatedActorSpread`; 1H guns (anim `3`, `4`) add `+0.2` right / `0` left / `+0.4` both; 2H ranged weapons (anim `5`, `6`, `8`) add `+0.4` single arm / `+0.6` both arms; thrown (anim `10`) adds `0` [documented: Gun Spread Formula; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + ShowOffNVSE 184, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes to game install or Saves), `w4c_a06b_spread_settled` (`wave4c_extenders.json`, #3679) and settled 6-type `w4d_09_spread_all_anim_types` (`wave4d_extenders.json`, #3802 / PR #3803): `PROBE\|w4d_09_spread_all_anim_types\|t3(0.1434,0.2359,0.1434,0.3284)\|t4(0.1388,0.2313,0.1388,0.3238)\|t5(0.1688,0.3538,0.3538,0.4463)\|t6(0.1434,0.3284,0.3284,0.4209)\|t8(0.1804,0.3654,0.3654,0.4579)\|t10(0.4504,0.4459,0.4504,0.4459)\|t3nw(0.1434,0.1434)`; zero DLL, PDB, or third-party source consulted; hypothesis: unprobed anim types and remaining scope/GMST details in `docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md`] |
 | IsFormLoading | 0 [decision: the page is marked Incomplete with no summary, arguments or result; nothing to build from] |
 
 Follow-ups: the three Incomplete pages need their text.
@@ -333,3 +379,32 @@ RemoveAllItemsShowOff.
   argument vectors or resolving weapon forms, leaving unmodded vanilla gameplay
   unchanged with zero allocations. No ShowOff NVSE DLL, PDB, or C++ source code was
   consulted.
+
+## 11. `ShowOff:OnFireWeapon`
+
+- **`ShowOff:OnFireWeapon`** [documented: GECK wiki Category:Event Handlers (ShowOff NVSE),
+  [SetEventHandlerAlt](https://geckwiki.com/index.php?title=SetEventHandlerAlt); observed:
+  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin 184, 2026-11-23,
+  GSDocMitchellHouse (`0x00103DF9`), 10 official base masters, clean-room script probe
+  `w1_3632_onfireweapon_and_forcejam` in #3679 (`SetEventHandlerAlt
+  "ShowOff:OnFireWeapon"` with `begin Function { ref rWeap }`, `Player.FireWeapon` with
+  `Weap10mmPistol` `0x0000434F` and 7-pellet Caravan Shotgun `0x000CD53A`); no DLL or
+  source consulted]: dispatched when an actor fires a ranged weapon, with the firing actor
+  reference as the calling reference (`0::` filter, `GetSelf`/`GetSelfAlt`, observed for
+  `Player 0x14`; NPC-actor dispatch [documented: GECK wiki; hypothesis: unprobed in
+  committed #3679 catalog]) and the `WEAP` base form as the single argument (`1::` /
+  `"first"::` filter, `Begin Function { ref rWeapon }`, observed `0x434F` 10mm pistol and
+  `0xCD53A` Caravan Shotgun).
+- Dispatched from `Game::weapon_fired` (player shots) and `Game::projectile_fired`
+  (NPC shots and scripted `FireWeapon` shots), deduplicated per `(frame, actor, weapon)`
+  so `weapon_fired` followed by `projectile_fired` or a multi-pellet shotgun burst fires
+  once per shot [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin
+  184, 2026-11-23, GSDocMitchellHouse (`0x00103DF9`), 10 official base masters, probe
+  `w1_3632_onfireweapon_and_forcejam` in #3679: `Player.FireWeapon` on the 7-pellet
+  Caravan Shotgun `0x000CD53A` fires `ShowOff:OnFireWeapon` once, not 7 times].
+- Excludes non-actors (e.g., trap activators) and melee weapons (`DNAM/animation_type`
+  `0..=2`), and is not suppressed by player god mode (`ToggleGodMode`), unlike JIP's
+  `SetOnFireWeaponEventHandler` whose god-mode omission is a JIP-documented quirk
+  [hypothesis: non-actor, melee, and god-mode edge cases unprobed in original ShowOff].
+- Free when no `ShowOff:OnFireWeapon` handler is registered (unmodded vanilla weapon
+  firing is unchanged). No ShowOff DLL or source code was consulted.

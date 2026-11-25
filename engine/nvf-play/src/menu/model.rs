@@ -350,14 +350,16 @@ impl SortBy {
     }
 }
 
-/// The order rows are listed in: put-up rows first, then (when any row carries a ySI
-/// sorting tag) by ySI tag byte order with untagged rows after tagged ones [hypothesis:
-/// `docs/spec-notes/ysi-filename.md`], then by name in byte order, then the best condition
-/// first. When no row carries a ySI tag the order is unchanged from vanilla.
-fn sort_rows(rows: &mut [Row]) {
-    let has_ysi = rows
-        .iter()
-        .any(|r| r.ysi.as_ref().and_then(|y| y.tag.as_deref()).is_some_and(|t| !t.is_empty()));
+/// The order rows are listed in: put-up rows first, then (when `by_ysi_tag` is true and
+/// any row carries a ySI sorting tag) by ySI tag byte order with untagged rows after
+/// tagged ones [hypothesis: `docs/spec-notes/ysi-filename.md`], then by name in byte
+/// order, then the best condition first. When `by_ysi_tag` is false or no row carries a
+/// ySI tag the order is unchanged from vanilla.
+fn sort_rows_by(rows: &mut [Row], by_ysi_tag: bool) {
+    let has_ysi = by_ysi_tag
+        && rows
+            .iter()
+            .any(|r| r.ysi.as_ref().and_then(|y| y.tag.as_deref()).is_some_and(|t| !t.is_empty()));
     if has_ysi {
         let key = |r: &Row| {
             let tag = r
@@ -380,6 +382,10 @@ fn sort_rows(rows: &mut [Row]) {
         let key = |r: &Row| (!r.bartered, r.name.as_bytes().to_vec(), r.item, std::cmp::Reverse(r.at.map(f32::to_bits)), r.mods);
         rows.sort_by_cached_key(key);
     }
+}
+
+fn sort_rows(rows: &mut [Row]) {
+    sort_rows_by(rows, true);
 }
 
 /// The rows of `holder`'s inventory, sorted by name.
@@ -619,6 +625,11 @@ pub enum Command {
     /// The next commands hold only if the row is still there ([`MenuModel::row_is`]);
     /// `crate::menu::apply_input` drops them otherwise.
     Expect(RowGuard),
+    /// Internal one-shot touch envelope. Only menu::apply_input may resolve it
+    /// against its exact live barter guard; the plain model treats it as a no-op.
+    CommitBarter(u64),
+    /// One-shot normal-presentation touch, resolved only by menu::apply_input.
+    CommitNormalBarter(u64),
     Up,
     Down,
     PageUp,
@@ -853,6 +864,10 @@ pub struct MenuModel {
     /// The two columns change category together (the Matching Categories tweak, set
     /// by `crate::tweaks`).
     pub sync_categories: bool,
+    /// When `sync_categories` is on, keep an emptied non-All category selected instead of
+    /// switching both columns back to All (`bPreventSwitchWhenEmptyingCategory`, set by
+    /// `crate::tweaks`).
+    pub prevent_switch_when_emptying_category: bool,
     /// The player cannot offer items in a barter (the No Selling tweak, set by
     /// `crate::tweaks`).
     pub no_selling: bool,
@@ -897,6 +912,10 @@ pub struct MenuModel {
     /// The ammo the player's carried weapons can fire, listed first in the inventory
     /// under the player's Sort Equipable Ammo tweak (empty: no such order) [design: docs/design/tweaks.md].
     pub usable_ammo: Vec<FormId>,
+    /// Whether tile adapters should instantiate `ySIImage` row icons (`yUI.ini`
+    /// `[Sorting and Icons] bAddInventoryIcons`, gated by `bSortingIcons`) [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub ysi_icons: bool,
     /// The ammo the player's weapon loads now (`crate::combat::Combat::player_ammo`, set by
     /// `crate::tweaks` each frame): its row in the player's inventory carries the
     /// equipped mark; in a container's player column too under the player's Containers
@@ -1118,6 +1137,12 @@ impl MenuModel {
         self.refresh(world)
     }
 
+    /// Test-only empty inventory model for unit tests without a synthetic player plugin.
+    #[cfg(test)]
+    pub(crate) fn empty_inventory() -> MenuModel {
+        MenuModel::empty(Mode::Inventory, "Inventory".into())
+    }
+
     fn empty(mode: Mode, title: String) -> MenuModel {
         MenuModel {
             mode,
@@ -1131,6 +1156,7 @@ impl MenuModel {
             lists: [Listing::default(), Listing::default()],
             category: [Category::All; 2],
             sync_categories: false,
+            prevent_switch_when_emptying_category: true,
             no_selling: false,
             vendor_lists_both: false,
             hide_misc_quest: false,
@@ -1149,6 +1175,7 @@ impl MenuModel {
             hide_hotkeyed_repair: false,
             hotkeyed: Vec::new(),
             usable_ammo: Vec::new(),
+            ysi_icons: true,
             current_ammo: None,
             ammo_mark_in_containers: false,
             ammo_told: String::new(),
@@ -1296,7 +1323,21 @@ impl MenuModel {
     /// Cards`, `Back`) pinned at the top and preserving bartered-first, usable-ammo-first,
     /// `SortBy` (`Value`/`Weight`), and each column's selected row [design:
     /// `docs/spec-notes/ysi-filename.md`].
-    pub fn apply_ysi(&mut self, mut resolve: impl FnMut(FormId) -> Option<fnv_game::ui_ysi::YsiItemDisplay>) {
+    pub fn apply_ysi(&mut self, resolve: impl FnMut(FormId) -> Option<fnv_game::ui_ysi::YsiItemDisplay>) {
+        self.apply_ysi_options(true, true, resolve);
+    }
+
+    /// Honor `yUI.ini` `[Sorting and Icons]` `bSortInventory` (`sort_by_tag`) and
+    /// `bAddInventoryIcons` (`add_icons`) independently while preserving folder prefix
+    /// rows, bartered-first, usable-ammo-first, `SortBy`, and column selection [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub fn apply_ysi_options(
+        &mut self,
+        sort_by_tag: bool,
+        add_icons: bool,
+        mut resolve: impl FnMut(FormId) -> Option<fnv_game::ui_ysi::YsiItemDisplay>,
+    ) {
+        self.ysi_icons = add_icons;
         let columns = self.columns();
         for &side in columns {
             let i = side as usize;
@@ -1304,15 +1345,26 @@ impl MenuModel {
             let rows = &mut self.lists[i].rows;
             let folder_prefix = rows.iter().take_while(|r| r.folder.is_some()).count();
             let items = &mut rows[folder_prefix..];
+            if !sort_by_tag && !add_icons {
+                for r in items.iter_mut() {
+                    r.ysi = None;
+                }
+                continue;
+            }
             for r in items.iter_mut() {
                 r.ysi = resolve(r.item);
             }
-            sort_rows(items);
+            sort_rows_by(items, sort_by_tag);
             if self.mode == Mode::Inventory && !self.usable_ammo.is_empty() {
                 items.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
             }
             if self.mode == Mode::Inventory {
                 self.sort.apply(items);
+            }
+            if !add_icons {
+                for r in items.iter_mut() {
+                    r.ysi = None;
+                }
             }
             let at = keep.and_then(|k| self.lists[i].rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k));
             self.selected[i] = at.unwrap_or(self.selected[i]).min(self.lists[i].rows.len().saturating_sub(1));
@@ -1616,7 +1668,7 @@ impl MenuModel {
                     }
                 }
             }
-            Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
+            Command::CommitBarter(_) | Command::CommitNormalBarter(_) | Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
             _ => {
                 // The player's Take All Confirmation tweak: the first Take All asks, the next
                 // does it; anything else takes the question back [design: docs/design/tweaks.md].
@@ -1631,6 +1683,7 @@ impl MenuModel {
                     self.status = None;
                     return out;
                 }
+                let had_rows = [Side::Container, Side::Player].map(|s| !self.lists[s as usize].rows.is_empty());
                 let r = self.act(world, cmd, &mut out);
                 self.amount = None;
                 self.status = Some(match r {
@@ -1640,6 +1693,29 @@ impl MenuModel {
                 if out.changed {
                     if let Err(e) = self.refresh(world) {
                         self.status = Some(format!("Cannot list the inventories: {e}"));
+                    } else if self.sync_categories
+                        && !self.prevent_switch_when_emptying_category
+                        && matches!(self.mode, Mode::Container(_) | Mode::Barter(_))
+                    {
+                        // When synchronized categories allow switching on empty
+                        // (`bPreventSwitchWhenEmptyingCategory = 0`), emptying a non-All
+                        // category returns both columns to All [design; Stewie's Tweaks
+                        // public INI `nvse_stewie_tweaks.ini`].
+                        let emptied = self.columns().iter().any(|&side| {
+                            let i = side as usize;
+                            self.category[i] != Category::All
+                                && had_rows[i]
+                                && self.lists[i].rows.is_empty()
+                                && self.search_hidden(side) == 0
+                        });
+                        if emptied {
+                            self.category = [Category::All; 2];
+                            self.selected = [0; 2];
+                            self.scroll = [0; 2];
+                            if let Err(e) = self.refresh(world) {
+                                self.status = Some(format!("Cannot list the inventories: {e}"));
+                            }
+                        }
                     }
                 }
             }

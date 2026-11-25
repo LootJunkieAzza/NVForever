@@ -415,8 +415,7 @@ pub struct RefreshStats {
     pub hitvol_skipped: u64,
     /// Colliders in the world, summed over the refreshes (divide by `refreshes`).
     pub colliders: u64,
-    /// Bodies added since the last step, summed over the refreshes (re-flagged after
-    /// the detection).
+    /// New bodies presented to registration refreshes (historical field name).
     pub repair_new: u64,
     /// Bodies added asleep, summed over the refreshes (put back to sleep).
     pub repair_sleep: u64,
@@ -466,7 +465,7 @@ pub struct PhysWorld {
     dirty_by: u8,
     /// Diagnostics only ([`PhysWorld::refresh_stats`]).
     refresh_stats: RefreshStats,
-    /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
+    /// Bodies inserted since the last step or no-time registration refresh.
     pub(crate) new_bodies: Vec<RigidBodyHandle>,
     /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
     /// setting their position ([`PhysWorld::body_placed`]) since the last step (see
@@ -1116,10 +1115,6 @@ impl PhysWorld {
                 *a += t.time_ms();
             }
         }
-        // Bodies and colliders rapier took out for NaN or infinite state (`crate::quarantine`).
-        if !self.w.quarantine().is_empty() {
-            self.handle_quarantine();
-        }
         // Diagnostics: marks the step's own detection took, with no refresh between.
         if self.dirty {
             self.refresh_stats.step_absorbed += 1;
@@ -1128,6 +1123,11 @@ impl PhysWorld {
         self.dirty = false;
         self.new_bodies.clear();
         self.struck.clear();
+        // The positive step consumed the old changes. Keep any marks/new bodies
+        // produced by quarantine remedies for the next query registration.
+        if !self.w.quarantine().is_empty() {
+            self.handle_quarantine();
+        }
         self.steps += 1;
         self.stepped_secs += f64::from(self.params.dt);
     }
@@ -1185,7 +1185,7 @@ impl PhysWorld {
                 // Zero-dt physics step: registers bodies/changes with islands and updates
                 // broad- and narrow-phase contacts without advancing time or forces.
                 let _span = tracing::info_span!("phys::refresh_detect").entered();
-                self.detect();
+                self.register_query_changes();
             }
             let _repair = tracing::info_span!("phys::refresh_repair").entered();
             // A body added asleep wakes when its first contacts are found: rapier wakes
@@ -1238,11 +1238,33 @@ impl PhysWorld {
             // Any remaining island inconsistency (`crate::islands`).
             let repaired = self.repair_islands();
             self.refresh_stats.repair_islands += repaired as u64;
-            self.dirty = false;
             if !self.w.quarantine().is_empty() {
                 self.handle_quarantine();
             }
         }
+    }
+
+    /// Register current changes and immediately retain each pipeline's quarantine
+    /// report. The selected backend's remedies need at most one republish: they
+    /// restore sanitized finite bodies or rebuild an at-rest ragdoll. Any malformed
+    /// rebuilt geometry stays disabled on the second pass (see the topic note).
+    fn register_query_changes(&mut self) {
+        for _ in 0..2 {
+            self.detect();
+            // Only these changes were consumed by this pass. A remedy below may
+            // add bodies/marks; do not clear those before their own registration.
+            self.new_bodies.clear();
+            self.dirty = false;
+            self.dirty_by = 0;
+            if !self.w.quarantine().is_empty() {
+                self.handle_quarantine();
+            }
+            if !self.dirty { return; }
+        }
+        // No recursive or unbounded registration. This would violate the closed
+        // remedy invariant above: retain the pending marks for the next query,
+        // and do not advertise its partially published state as clean.
+        tracing::warn!("physics: quarantine remedies still dirty after two query registration passes; changes remain pending");
     }
 
     /// Scene queries on the current state (updates the broad phase first if needed).
@@ -1770,6 +1792,10 @@ fn probe(shape: &Shape, at: &Iso, k: f32) -> Result<(Pose, SharedShape), Convert
         _ => Err(ConvertError::NotSingleShape),
     }
 }
+
+#[cfg(test)]
+#[path = "world_query_refresh_tests.rs"]
+mod query_refresh_tests;
 
 #[cfg(test)]
 #[path = "world_query_motion_tests.rs"]

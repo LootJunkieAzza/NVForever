@@ -478,11 +478,10 @@ on `0x00144C41`) in #3679; no DLL or source consulted] Both `OnApplyIMOD` and
   snapshot assigns `Game::image_modifiers` directly without firing `OnApplyIMOD` [design].
 - [design] To keep unmodded visuals unchanged (e.g. `VCG00` re-applying
   `Addiction01ISFX` at stages 27 and 30) and prevent unbounded list growth from repeated
-  non-animatable re-applies, `nvforever::imagespace::screen_effect` draws at most one
-  active instance per `IMAD` form (the most recently applied entry), non-animatable
-  re-applies keep one `ActiveImageModifier` entry plus a counted stack in
-  `Game::image_modifier_extra_stacks`, and stacked instances per form are capped at
-  `Game::MAX_IMOD_STACK = 64`.
+  re-applies, `nvforever::imagespace::screen_effect` draws at most one active instance per
+  `IMAD` form (the most recently applied entry), while `Game::image_modifiers` keeps each
+  stacked instance (animatable and non-animatable) in application order capped at
+  `Game::MAX_IMOD_STACK = 64` per form (evicting the oldest matching entry at capacity).
 
 [design] Both dispatch sites check `Game::handled("onapplyimod")` /
 `Game::handled("onremoveimod")` before allocating an argument vector, leaving unmodded

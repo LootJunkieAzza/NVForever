@@ -95,8 +95,7 @@ pub struct SmallState {
     /// weapon, trait 1-19).
     pub oc_settings: HashMap<u8, f64>,
     pub oc_state: HashMap<(FormId, FormId, u8), f64>,
-    /// yUI's ySI traits: a form's sorting tag, and an icon by tag (or by form when it
-    /// has no tag).
+    /// yUI's ySI traits: a form's sorting tag and icon by tag (or by form when untagged).
     pub ysi_tag: HashMap<FormId, String>,
     pub ysi_icon_by_tag: HashMap<String, String>,
     pub ysi_icon: HashMap<FormId, String>,
@@ -223,10 +222,39 @@ impl Game<'_> {
         self.small.real_seconds
     }
 
+    /// Cached `Data\NVSE\Plugins\yUI.ini` (with `Data\menus\ySI\ySI.ini` overlay) settings,
+    /// or `None` when neither INI file is installed (`docs/spec-notes/yui-ini.md`).
+    pub fn yui_config(&self) -> Option<crate::yui_ini::YuiConfig> {
+        crate::ysi_filename::yui_config(self)
+    }
+
+    /// Override the session's cached `yUI.ini` configuration (primarily for isolated tests).
+    pub fn set_yui_config(&mut self, cfg: Option<crate::yui_ini::YuiConfig>) {
+        crate::ysi_filename::set_yui_config(self, cfg);
+    }
+
+    /// Whether `menus/ySI/ySI.xml` menu injection is permitted by `yUI.ini`
+    /// (`[General] bSortingIcons`; defaults to allowed when `yUI.ini` is absent so
+    /// standalone `ySI.xml` tests and installs keep working) [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_xml_enabled(&self) -> bool {
+        self.yui_config().is_none_or(|c| c.sorting_icons)
+    }
+
+    /// Whether `[General] bMatchingCursor` is enabled in `yUI.ini` (`false` when absent)
+    /// [documented: yUI v1.4d `Data\NVSE\Plugins\yUI.ini`].
+    pub fn yui_matching_cursor(&self) -> bool {
+        self.yui_config().is_some_and(|c| c.matching_cursor)
+    }
+
     /// Whether ySI configuration, session `ySISetTrait` overrides, or injected `ySI` UI
     /// tiles are active in this session. Returns `false` with zero menu overhead in vanilla
-    /// sessions without ySI [design: `docs/spec-notes/ysi-filename.md`].
+    /// sessions without ySI, or when `yUI.ini` explicitly disables `[General] bSortingIcons`
+    /// [design: `docs/spec-notes/ysi-filename.md`, `docs/spec-notes/yui-ini.md`].
     pub fn ysi_active(&mut self) -> bool {
+        if self.yui_config().is_some_and(|c| !c.sorting_icons) {
+            return false;
+        }
         !self.small.ysi_tag.is_empty()
             || !self.small.ysi_icon.is_empty()
             || !self.small.ysi_icon_by_tag.is_empty()
@@ -235,11 +263,47 @@ impl Game<'_> {
             || crate::ysi_filename::has_loaded_book(self)
     }
 
+    /// Whether inventory/container/barter list sorting by ySI tags is active
+    /// (`[Sorting and Icons] bSortInventory`, gated by `bSortingIcons`) [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_sort_inventory(&mut self) -> bool {
+        self.ysi_active() && self.yui_config().is_none_or(|c| c.effective_sort_inventory())
+    }
+
+    /// Whether ySI row icons in inventory, container, barter, repair, and item-mod menus
+    /// are active (`[Sorting and Icons] bAddInventoryIcons`, gated by `bSortingIcons`)
+    /// [design: `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_add_inventory_icons(&mut self) -> bool {
+        self.ysi_active() && self.yui_config().is_none_or(|c| c.effective_add_inventory_icons())
+    }
+
+    /// Whether replacing hotkey icons with ySI icons is active (`[Sorting and Icons]
+    /// bReplaceHotkeyIcons`, gated by `bSortingIcons`; off when `yUI.ini` is absent so
+    /// vanilla hotkey icons remain unchanged) [design: `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_replace_hotkey_icons(&self) -> bool {
+        self.yui_config().is_some_and(|c| c.effective_replace_hotkey_icons())
+    }
+
+    /// Resolves an item's ySI icon filename for hotkey icon replacement when
+    /// `[General] bSortingIcons = 1` and `[Sorting and Icons] bReplaceHotkeyIcons = 1`
+    /// (`None` when disabled, when `yUI.ini` is absent, or when the item has no ySI icon)
+    /// [design: `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_hotkey_icon_path(&self, item: FormId) -> Option<String> {
+        if !self.ysi_replace_hotkey_icons() {
+            return None;
+        }
+        self.ysi_item_display_readonly(item).and_then(|d| d.icon)
+    }
+
     /// Resolves an item's effective ySI sorting tag, icon texture filename, and XML template
     /// name using the same precedence as `ySIGetTrait`: session `ySISetTrait` overrides take
     /// precedence over `menus/ySI/*.json` rules (`ysi_filename`), and a tag's icon applies to
     /// every form sharing that tag [design: `docs/spec-notes/ysi-filename.md`].
     pub fn ysi_item_display(&mut self, item: FormId) -> Option<crate::ui_ysi::YsiItemDisplay> {
+        self.ysi_item_display_readonly(item)
+    }
+
+    fn ysi_item_display_readonly(&self, item: FormId) -> Option<crate::ui_ysi::YsiItemDisplay> {
         let orig = self.unclone(item);
         let base = if self.world.forms.item(orig).is_some() {
             orig
@@ -653,6 +717,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- Stewie's Tweaks ----
         // Recognized loaded settings follow their actual engine consumers;
         // unbound games and other keys retain their existing layered-file query.
+        // Takes `Key:Section` and does NOT trim surrounding whitespace [observed: Fallout:
+        // New Vegas 1.4.0.525 + xNVSE 6.4.9 + lStewieAl's Tweaks 1005, 2026-11-24,
+        // `GSDocMitchellHouse`, `w4h_08_stewie_get_value_whitespace` (`wave4h_reconcile.json`,
+        // #3803): `PROBE|w4h_08_stewie_get_value_whitespace|sk(0=0,L=0,R=0,M=0)|ks(0=1,L=0,R=0,M=0)|bare(0=0,L=0,R=0)`];
+        // ASCII case-insensitive matching stays [hypothesis].
         "stewiegetvalue" | "stewval" => {
             let ks = text(args, 0);
             let Some((key, section)) = ks.split_once(':') else { return Some(Ok(zero)) };
@@ -662,8 +731,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if let Some(value) = g.loaded_stewie_inventory_value(key, section) {
                 return Some(Ok(XVal::Num(value)));
             }
-            let ini = g.mod_files.read_text("NVSE\\Plugins\\nvse_stewie_tweaks.ini");
-            match ini.and_then(|t| crate::mod_files::ini_get(&t, &section.trim().to_ascii_lowercase(), key.trim())) {
+            match crate::stewie_inis::query_value(&g.mod_files, key, section) {
                 Some(v) => v.parse::<f64>().map(XVal::Num).unwrap_or(XVal::Str(v.trim_matches('"').to_string())),
                 None => zero,
             }
@@ -692,25 +760,47 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- yUI ----
-        // `"tag"|"icon" [form]` and `trait value [form]`: ySI's sorting tag and icon of the
-        // form, else of the calling reference's base [documented: ySIGetTrait,
-        // ySISetTrait]. Session overrides from ySISetTrait take precedence over the
-        // bounded JSON rule snapshot in `crate::ysi_filename`; an icon set on a tagged
-        // form (whether overridden or JSON-assigned) applies to every form sharing that
-        // tag [documented: "Changing the icon texture of a Form will also change also icon
-        // texture of all Forms with the same sorting tag"]. Unset/unmatched traits read "".
+        // `"tag"|"string"|"icon"|"filename" [form]` and `trait value [form]`: ySI's
+        // sorting tag and icon of the form, else of the calling reference's base
+        // [documented: GECK wiki ySIGetTrait, ySISetTrait; observed: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + yUI v1.4d (140), 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy,
+        // `w4e_01_ysi_string_alias`, `w4e_02_ysi_metadata_traits`,
+        // `w4e_03_ysi_unmatched_icon_fallback`, `w4e_04_ysi_worldref_arg_vs_dot`,
+        // `w4e_c01_ysi_armordt_sibling_formlist2` (`tools/capture/nvse/catalogs/wave4e_mods.json`,
+        // #3803) and `w4c_b4_15b_ysi_no_json_fallback` (`wave4c_extenders.json`, #3679);
+        // zero DLL, PDB, or third-party source consulted]:
+        // - Dot-receiver unwraps a placed world reference to its base form, whereas an
+        //   explicit form argument is NOT unwrapped (`w4e_04_ysi_worldref_arg_vs_dot`).
+        // - `"string"` is an exact alias for `"tag"` on both get and set (`w4e_01_ysi_string_alias`).
+        // - `"icon"` and `"filename"` share the exact same non-aborting path and tag-scoped
+        //   store (`w4e_c01_ysi_armordt_sibling_formlist2`): when `menus/ySI/*.json` packs
+        //   are loaded, an unmatched/untagged/non-item form falls back to
+        //   `"interface\\icons\\Misc_Unknown.dds"` (`w4e_03_ysi_unmatched_icon_fallback`),
+        //   while returning `""` when no ySI JSON packs exist (`w4c_b4_15b_ysi_no_json_fallback`).
+        // - Metadata trait names (`"template"`, `"systemcolor"`, `"category"`, `"name"`,
+        //   `"tab"`, `"count"`) return `""` on `ySIGetTrait` and `0` (rejected no-op) on
+        //   `ySISetTrait` (`w4e_02_ysi_metadata_traits`).
         "ysigettrait" | "ysisettrait" => {
+            const UNMATCHED_ICON: &str = "interface\\icons\\Misc_Unknown.dds";
             let set = name == "ysisettrait";
             let trait_name = text(args, 0).to_ascii_lowercase();
             let at = if set { 2 } else { 1 };
-            let f = form(args, at).or(subject).map(|f| {
-                let orig = g.unclone(f);
-                if g.world.forms.item(orig).is_some() {
-                    orig
-                } else {
-                    g.unclone(crate::functions::base_of(g, f).unwrap_or(f))
-                }
-            });
+            // [observed: w4e_04] Explicit form arguments do NOT unwrap placed world
+            // references, and an explicit empty/null form argument does not fall back to
+            // implicit `self`; omitted form arguments use `subject` and unwrap to base.
+            let f = if args.get(at).is_some() {
+                form(args, at).map(|explicit| g.unclone(explicit))
+            } else {
+                subject.map(|s| {
+                    let orig = g.unclone(s);
+                    if g.world.forms.item(orig).is_some() {
+                        orig
+                    } else {
+                        g.unclone(crate::functions::base_of(g, s).unwrap_or(s))
+                    }
+                })
+            };
             let Some(f) = f else { return Some(Ok(if set { zero } else { XVal::Str(String::new()) })) };
             let effective_tag = |g: &mut Game<'_>, base: FormId| -> Option<String> {
                 if let Some(override_tag) = g.small.ysi_tag.get(&base) {
@@ -722,34 +812,66 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if set {
                 let v = text(args, 1);
                 match trait_name.as_str() {
-                    "tag" => {
+                    // [hypothesis] "string" is an exact alias for "tag" and returns 1.
+                    "tag" | "string" => {
                         g.small.ysi_tag.insert(f, v);
+                        yes(true)
                     }
-                    "icon" => match effective_tag(g, f) {
-                        Some(t) => {
-                            g.small.ysi_icon_by_tag.insert(t, v);
+                    // [documented: GECK wiki YSISetTrait ("icon"); hypothesis: "icon" and
+                    // "filename" share the tag-scoped store; (trait, value, form) order returns 1]
+                    "icon" | "filename" => {
+                        match effective_tag(g, f) {
+                            Some(t) => {
+                                g.small.ysi_icon_by_tag.insert(t, v);
+                            }
+                            None => {
+                                g.small.ysi_icon.insert(f, v);
+                            }
                         }
-                        None => {
-                            g.small.ysi_icon.insert(f, v);
-                        }
-                    },
-                    _ => {}
+                        yes(true)
+                    }
+                    // [hypothesis] Metadata trait names and unknown traits are rejected
+                    // no-ops returning 0 on yUI v1.4d (plugin version 140).
+                    "template" | "systemcolor" | "category" | "name" | "tab" | "count" => zero,
+                    _ => zero,
                 }
-                zero
             } else {
                 XVal::Str(match trait_name.as_str() {
-                    "tag" => effective_tag(g, f).unwrap_or_default(),
-                    "icon" => match effective_tag(g, f) {
-                        Some(t) => g
-                            .small
-                            .ysi_icon_by_tag
-                            .get(&t)
-                            .cloned()
-                            .or_else(|| crate::ysi_filename::json_icon_filename(g, &t))
-                            .or_else(|| g.small.ysi_icon.get(&f).cloned())
-                            .unwrap_or_default(),
-                        None => g.small.ysi_icon.get(&f).cloned().unwrap_or_default(),
-                    },
+                    // [observed: w4e_01_ysi_string_alias] "string" returns the raw tag.
+                    "tag" | "string" => effective_tag(g, f).unwrap_or_default(),
+                    // [observed: w4e_03, w4e_04, w4e_c01, w4c_b4_15b] "icon" and "filename"
+                    // share the same non-aborting path, tag-scoped override store, and
+                    // loaded-JSON Misc_Unknown.dds / absent-JSON "" fallback.
+                    "icon" | "filename" => {
+                        let fallback = |g: &mut Game<'_>| {
+                            if crate::ysi_filename::has_loaded_book(g) {
+                                UNMATCHED_ICON.to_string()
+                            } else {
+                                String::new()
+                            }
+                        };
+                        match effective_tag(g, f) {
+                            Some(t) => g
+                                .small
+                                .ysi_icon_by_tag
+                                .get(&t)
+                                .cloned()
+                                .or_else(|| crate::ysi_filename::json_icon_filename(g, &t))
+                                .or_else(|| g.small.ysi_icon.get(&f).cloned())
+                                .unwrap_or_else(|| fallback(g)),
+                            None => g
+                                .small
+                                .ysi_icon
+                                .get(&f)
+                                .cloned()
+                                .unwrap_or_else(|| fallback(g)),
+                        }
+                    }
+                    // [hypothesis] All 6 icon-rule metadata trait names return "" on yUI
+                    // v1.4d (plugin version 140).
+                    "template" | "systemcolor" | "category" | "name" | "tab" | "count" => {
+                        String::new()
+                    }
                     _ => String::new(),
                 })
             }

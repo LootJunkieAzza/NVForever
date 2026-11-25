@@ -132,3 +132,8 @@ path = "tests/crosshair_water.rs"
 [[test]]
 name = "crosshair_prompt_events"
 path = "tests/crosshair_prompt_events.rs"
+
+# Stewie modular INI fixtures own and restore process-wide Data read roots.
+[[test]]
+name = "stewie_modular_inis"
+path = "tests/stewie_modular_inis.rs"

@@ -1,7 +1,10 @@
 # Tweaks
 
 The settings page's **Tweaks** tab: optional changes to how the game plays or what it
-shows, each off (or at "no change") unless the player sets it. The owner asked for
+shows, each off (or at "no change") in unmodded vanilla unless the player sets it (or,
+by maintainer decision 2026-11-24 / #3535, a mod-shipped modular override under
+`Data\NVSE\Plugins\Tweaks\INIs\*.ini` sets it at startup beneath `NVForever.ini`; see
+[stewie-modular-inis.md](../spec-notes/stewie-modular-inis.md)). The owner asked for
 the features of Stewie's Tweaks, a script-extender plugin for the original, as engine
 settings (2026-11-08, #1891).
 
@@ -44,6 +47,13 @@ settings (2026-11-08, #1891).
 - Each tweak is a row of the Tweaks tab, kept in `NVForever.ini` `[Settings]` under a
   `tweak-…` key (`crate::settings`). A switch is `switch!`; a multiplier is a slider
   from x0 to x2 in tenths, x1 in the middle.
+- **Mod-shipped modular INI overrides (maintainer decision 2026-11-24, #3535):**
+  `TweaksPlugin` applies recognized overrides from `Data\NVSE\Plugins\Tweaks\INIs\*.ini`
+  to `TweakSettings` in `PostStartup` before `crate::settings::apply_stored` reads
+  `NVForever.ini`, so explicit player choices saved in `NVForever.ini` always win while
+  unmentioned tweaks take the modular INI values. The base `nvse_stewie_tweaks.ini`
+  still does not set NVForever-owned options, and vanilla defaults are unchanged when
+  no modular INI files are installed ([stewie-modular-inis.md](../spec-notes/stewie-modular-inis.md)).
 - A tweak's options (the plugin's sub-settings) are added as rows of their own only
   when they change what the tweak does in a way a player would choose; the first batch
   keeps each tweak to one row and says in the catalogue which options are not built.
@@ -98,6 +108,7 @@ option.
 | Skill Book Effects | `bShowBookEffects` | `pipboy::items::info_of` (the points with the perks applied) |
 | Map Remembers Its Place | `bMapRemembersPosition` | `pipboy::data::opened` |
 | Faster Hacking Exit | `bFasterHackingTransition` | `terminal::timers`: 0.5 s instead of 2 s |
+| Faster Sleep and Wait | `bFasterSleepWait` | `wait::pass_hours`: `FASTER_HOUR_SECONDS` (0.15 s) instead of `HOUR_SECONDS` (0.5 s); vanilla pace unchanged when off (`Tweaks::faster_sleep_wait`, also exposed via `StewVal`/`StewieGetValue`) |
 
 ## Fourth batch (2026-11-08)
 
@@ -529,7 +540,7 @@ unless the player binds them, so nothing changes until then.
 | Scope Delay (ms) | `bScopeVisibilityDelay` | `aim_zoom::zoom` counts the time at full zoom (`AimZoom::full_for`) and puts the scope up only after the slider's milliseconds; a reload already took the sights down |
 | No Pointer Over Message Boxes | `bHideCursorInMessageMenu` | `player::grab_cursor` hides the pointer (without capturing it) while `MessagePanel` has a box |
 | No Pointer in Conversations | `bHideCursorInDialog` | the same while `DialogueMenu` shows choices |
-| Level Up: Wheel Sets Skills | `bLevelUpScrollWheelSupport` | `levelup::input` turns the wheel into Raise / Lower of the chosen row on the skills page; the perks page still scrolls |
+| Level Up: Wheel Sets Skills | `bLevelUpScrollWheelSupport` | `levelup::input`, `chargen::input`, and `chargen::vigor` turn the wheel into Raise / Lower of the hovered or chosen stat on level-up skills, S.P.E.C.I.A.L. reallocation menus, and the Vigor Tester; the perks page still scrolls |
 | Compare Armor | `bCompareArmorStats` | `pipboy::items::info_of` adds the difference from the DT of the worn pieces sharing a biped slot, for armour not worn |
 | (already so) | `bSilentSneakPowerAttacks` | the player makes no sound of effort on any attack, so nothing to silence |
 | Detailed Stats | `bMoreDetailedStatsMenu` | `pipboy::stats::read` leaves the values uncapped and writes the mark as the signed difference from the permanent value (`Row::mark` is a `String` now) |
@@ -660,7 +671,7 @@ unless the player binds them, so nothing changes until then.
 | Hold and Release Throws | `bHoldAndReleaseThrowables` | `combat::fire`: the cycle's `WindUp` is not let reach 0 while the trigger is held (`WeaponAnim::throw_held`); nvforever `player_body` keeps the wound-up clip at its `Hit` key (`wound_hit`). The switch: `Tweaks::hold_release_throws` |
 | Enemies Can Disarm You | `bNPCsCanDisarmPlayer` | `hit_actor` pushes the player's crippled arm to `HitFeedback::disarms` (not their own hits); `combat::disarm` drops `Combat::weapon` with `drop_equipped` and says so on the HUD. The switch: `Tweaks::npcs_disarm_player` |
 | NPCs Drop Live Grenades | `bNPCsDropLiveGrenades` | `combat::death_drops`: a held grenade (`is_grenade`) is fired as an `ActorFire` straight down from 60 units up, its holder noted in `Combat::dropped_live`, so `actor_attacks` slows the projectile to `LIVE_DROP_SPEED`. The switch: `Tweaks::npcs_drop_live_grenades` |
-| Keep Chosen Ammo | `tweak-keep-chosen-ammo` | `combat::Combat::chosen_ammo` remembers the player's last chosen ammo type per weapon base form across Ammo Swap, weapon-wheel ammo swaps, holstered swaps, Full Reload Swaps Ammo, and Reload Swaps Spent Ammo, used on `equip_sync` (and weapon-wheel preview) when still in the weapon's ammo list and carried, falling back to `ammo_for` while retaining the remembered choice when temporarily out of stock; persisted in `EngineSnapshot::chosen_ammo` beside `magazine_ammo` (#1574) and remapped on load-order changes [documented: Remember Selected Ammo mod description ("Not let the game forget your selected ammo type after switching, unequipping or dropping the gun"), #3305; design: per weapon base form, player only, off by default, saved with the game] |
+| Keep Chosen Ammo | `bRememberWeaponAmmos` (`tweak-keep-chosen-ammo`) | `combat::Combat::chosen_ammo` remembers the player's last chosen ammo type per weapon base form across Ammo Swap, weapon-wheel ammo swaps, holstered swaps, Full Reload Swaps Ammo, and Reload Swaps Spent Ammo, used on `equip_sync` (and weapon-wheel preview) when still in the weapon's ammo list and carried, falling back to `ammo_for` while retaining the remembered choice when temporarily out of stock; persisted in `EngineSnapshot::chosen_ammo` beside `magazine_ammo` (#1574) and remapped on load-order changes. Wired to `[Tweaks] bRememberWeaponAmmos` in `tweaks::apply_modular_overrides_to_settings` for modular `Data\NVSE\Plugins\Tweaks\INIs\*.ini` overrides beneath `NVForever.ini` (and queryable via `StewieGetValue`/`StewVal` across both `nvse_stewie_tweaks.ini` and `Tweaks\INIs\*.ini`; base `nvse_stewie_tweaks.ini` remains fallback-only per #3535) [documented: lStewieAl's Tweaks 10.05 (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini` `[Tweaks]`: `; remember ammo type and count for all player weapons` / `bRememberWeaponAmmos = 0` (no DLL or source consulted); Remember Selected Ammo mod description ("Not let the game forget your selected ammo type after switching, unequipping or dropping the gun"), #3305, #3877; design: remembers the chosen ammo type per weapon base form while magazine ammo counts are already tracked per weapon via `magazine_ammo`; player only, off by default, saved with the game] |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -673,18 +684,22 @@ tweak asks ("already so").
 
 ## Next
 
-The "to do" rows, the ones Viva New Vegas turns on first. Not yet: reading a player's
-own `nvse_stewie_tweaks.ini` as the starting values (it would need the INI read from the
-game's Data folder, read-only).
+The "to do" rows, the ones Viva New Vegas turns on first. Not yet: importing a player's
+base `nvse_stewie_tweaks.ini` as starting values for NVForever-owned options (the base
+file remains fallback-only for `StewieGetValue` / unbound queries). By maintainer
+decision (2026-11-24, #3535), mod-shipped modular override folders
+(`Data\NVSE\Plugins\Tweaks\INIs\*.ini` and `Data\NVSE\Plugins\Tweaks\GameSettings\*.ini`)
+may override NVForever tweak settings and load-order GMSTs at startup beneath
+`NVForever.ini` ([stewie-modular-inis.md](../spec-notes/stewie-modular-inis.md)).
 
 ## Catalogue
 
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 594 |
+| done | 595 |
 | to do | 0 |
-| unsure, skipped | 24 |
+| unsure, skipped | 23 |
 | n/a | 17 |
 | skipped: fix | 10 |
 
@@ -705,7 +720,7 @@ game's Data folder, read-only).
 | `bAutoUnlockTerminals` | done |  | 2 | Skip Easy Hacks (switch + margin slider; the XP option not built) |
 | `bAutoWeaponJamWhileFiring` | done |  |  | already so: every shot rolls the jam, mid-burst too |
 | `bBarterAffectsRepairCosts` | done |  | 3 | Barter Lowers Repair Costs (our rule: a percent off at Barter 100, in proportion below; no perk modifiers) |
-| `bBarterCheckActorBuySellFlags` | done |  | 2 | Merchants Keep to Their Lists (the ammo and perk options not built) |
+| `bBarterCheckActorBuySellFlags` | done |  | 2 | Merchants Keep to Their Lists (Stimpaks follow Stimpaks, ignoring Chems; the ammo and perk options not built) |
 | `bBillyGoatMode` | done |  | 3 | Steepest Walkable Slope (30-80 degrees; one angle for walking, jumping and auto-walk) |
 | `bCapSkillsBySPECIAL` | done |  | 5 | Skills Capped by S.P.E.C.I.A.L. (defaults ours: 50 + 5 per attribute point, cap 100) |
 | `bCharacterRadiation` | done |  | 1 | Character Radiation (with Sickness Too, its bAllowRadiationStages): every loaded living actor takes the rads of the markers and explosion zones where it stands, cut by its Rad Resistance; with the option the masters' radiation stages' effects follow its Rads. NVForever gives no actor but the player radiation otherwise, creatures included, so the switch covers creatures too |
@@ -742,7 +757,7 @@ game's Data folder, read-only).
 | `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
 | `bHostilesPrioritizePlayer` | done |  | 3 | Hostiles Prioritize Player with Chance at the Start, Chance Mid-Fight and Detection Needed; one roll for each companion a fighter would pick |
 | `bImprovedHacking` | done |  | 10 | eight Hacking switches/options (symbols do nothing, no repeat guesses, dud when attempts full, duds spare tried words, mark guesses as duds, keep matching characters, compact guess log, replenish bonus attempts); overscroll and print-speed options not built |
-| `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
+| `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50, plus Only in Danger (`bCombatOnly` checking player in danger per 9.70) and Jump Without Enough AP (`bJumpWithoutEnoughAP`)) |
 | `bJumpSwimsUpwards` | done |  | 2 | Jump Swims Upwards (at the walking stroke speed; the sub-options not offered) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
 | `bKeepFallHeightOnLoad` | done |  |  | Keep Fall Height on Load (the save keeps the player's fall top) |
@@ -767,6 +782,7 @@ game's Data folder, read-only).
 | `bNoFastTravelIfLegsCrippled` | done |  | 1 | No Travel on a Crippled Leg (NVForever's own refusal text) |
 | `bNoFreeBarterItems` | done |  | 1 | Price for Worthless Things (slider, 0-10 caps) |
 | `bNoGrabOwnedItems` | done |  |  | No Grabbing Owned Items |
+| `bNoLockEncounterZoneLevels` | done |  |  | No Encounter Zone Level Lock: encounter zones recompute their level from the player's current level instead of freezing on first visit (`fnv_sim::zones`, `fnv_game::zones`, `GetZoneLevel`; [documented: lStewieAl's Tweaks 10.05 (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini` `[Tweaks]`: `; don't freeze the level of encounter zones when they are first visited` / `bNoLockEncounterZoneLevels = 0`; no DLL or source consulted]; [design: respects zone `min_level` and `Match PC Below Minimum Level` including session overrides, while already-fixed references keep their fixed levels until cell reset]) |
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
 | `bNoPlayerStaggerAnims` | done |  |  | No Player Stagger |
 | `bNoSkillTags` | done |  | 6 | No Skill Tags (the outline, percent and XP options not built) |
@@ -806,7 +822,7 @@ game's Data folder, read-only).
 | `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
 | `bScaleWeaponVolume` | done |  | 2 | Your Weapon Volume and Others' Weapon Volume (shot sounds scaled, in percent) |
-| `bScopeHoldBreath` | done |  | 7 | Hold Breath Through a Scope (Shift; the weapon requirement and key options not built) |
+| `bScopeHoldBreath` | done |  | 7 | Hold Breath Through a Scope (Shift, plus optional Activate key (`bActivateHoldsBreath`); the weapon requirement and custom keycode options not built) |
 | `bSellStolenItems` | done |  |  | already so: barter never checks stolen items |
 | `bSemiAutoQueue` | done |  | 2 | Semi-Auto Shot Queue (slider, up to 0.5 s before the weapon is ready) |
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
@@ -836,7 +852,6 @@ game's Data folder, read-only).
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
-| `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | unsure, skipped |  |  | how fThrowingStrengthPenalty shortens a throw is not documented (the GECK wiki export names the setting but has no page for it), and NVForever applies it to no throw yet |
 | `bUseArmorRepairKitsInRepairMenu` | unsure, skipped |  |  | the masters have no armour repair kit, and nothing in the data marks a mod's item as one or says how much it repairs |
@@ -905,6 +920,7 @@ game's Data folder, read-only).
 | `bFasterControllerPOVRotate` | done | yes |  | Faster Controller Camera Circling (twice as fast, ours) |
 | `bFasterEnterLockpickMenu` | done | yes |  | already so: the lockpick menu opens at once |
 | `bFasterHackingTransition` | done | yes |  | Faster Hacking Exit (0.5 s instead of 2 s) |
+| `bFasterSleepWait` | done | yes |  | Faster Sleep and Wait: shortens the Sleep/Wait hour countdown (`wait::pass_hours`, `FASTER_HOUR_SECONDS` = 0.15 s vs default `HOUR_SECONDS` = 0.5 s; [documented: lStewieAl's Tweaks 10.05 (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini` `[Tweaks]`: `; increase the hour countdown speed while waiting or sleeping` / `bFasterSleepWait = 1`; no DLL or source consulted]; [design: NVForever's own 0.15 s pace and `StewVal` binding]) |
 | `bFasterSaveMenuClose` | done | yes |  | already so: saving leaves the pause menu open, no wait |
 | `bGodmodePreventsLegCrippleSound` | done | yes |  | Quiet Landings in God Mode (NVForever's pain sound on a fall is the hard-landing sound) |
 | `bHideCrosshairInKillcams` | done | yes |  | already so: no crosshair in a kill camera |
@@ -1091,7 +1107,7 @@ game's Data folder, read-only).
 | `bHideCursorInDialog` | done | yes | 1 | No Pointer in Conversations |
 | `bImprovedRaceMenu` | done | yes | 3 | already so: the creator camera pans and zooms close |
 | `bInstantContinueButton` | done | yes |  | already so: Continue loads at once |
-| `bLevelUpScrollWheelSupport` | done | yes |  | Level Up: Wheel Sets Skills |
+| `bLevelUpScrollWheelSupport` | done | yes |  | Level Up: Wheel Sets Skills (also supports S.P.E.C.I.A.L. reallocation menus and Vigor Tester review/stat screens, including hovered +/- buttons and review numbers) |
 | `bLivingAnatomyShowDR` | done | yes | 1 | Living Anatomy Shows DR (the decimal and zero-hiding options not built) |
 | `bMapRemembersPosition` | done | yes | 1 | Map Remembers Its Place (in the session; the save-persistent option not built) |
 | `bNumberedComputerHotkeys` | done | yes | 1 | Number Keys on Terminals (1-9, 0 the tenth; the number prefix option not built) |
@@ -1102,7 +1118,7 @@ game's Data folder, read-only).
 | `bShowWeaponAmmoUseInMenus` | done | yes |  | Rounds per Shot |
 | `bSkipSkillMenuIfNoPointsToAssign` | done | yes |  | Perks First When No Points |
 | `bSortEquipableAmmo` | done | yes |  | Usable Ammo First |
-| `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (also keeps the emptied category after transferring its last item, matching `bPreventSwitchWhenEmptyingCategory`) |
+| `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories, with Keep Emptied Category (`bPreventSwitchWhenEmptyingCategory`, default on under the disabled parent; off returns both synchronized columns to All when emptied) |
 | `bTakeAllInCompanionContainers` | done | yes |  | already so: Take All shows for companions |
 | `b12HourPipboyClock` | done |  |  | 12-Hour Pip-Boy Clock |
 | `b24HourSleepWaitClock` | done |  |  | already so: the wait clock is 24-hour |

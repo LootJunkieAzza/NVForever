@@ -127,6 +127,12 @@ pub enum SceneEdit {
     Light { r: FormId, target: String, name: String, light: FormId, offset: [f32; 3] },
     /// One NiMaterialProperty value of a shape (`id` 0-8, as in [`SceneNode::material`]).
     Material { r: FormId, node: String, id: usize, v: f32 },
+    /// One NiAlphaProperty value of a shape (`item`: 0 flags, 1 threshold;
+    /// JohnnyGuitar's SetAlphaPropertyValue, `crate::nvse_jg_nif`).
+    AlphaProperty { r: FormId, node: String, item: usize, v: f32 },
+    /// One NiStencilProperty value of a shape (`item`: 0 flags, 1 reference, 2 mask;
+    /// JohnnyGuitar's SetStencilPropertyValue, `crate::nvse_jg_nif`).
+    StencilProperty { r: FormId, node: String, item: usize, v: f32 },
     /// A particle system's value by GetNiPSysModifierValue's IDs, 20 the spawn rate
     /// (`crate::nvse_jg_nif`).
     Particle { r: FormId, node: String, id: usize, v: f32 },
@@ -147,7 +153,8 @@ impl SceneEdit {
             Self::Translation { r, .. } | Self::Rotation { r, .. } | Self::Scale { r, .. }
             | Self::Flags { r, .. } | Self::ChildFlags { r, .. } | Self::Rename { r, .. }
             | Self::Remove { r, .. } | Self::Insert { r, .. } | Self::Attach { r, .. } | Self::Light { r, .. }
-            | Self::Material { r, .. } | Self::Particle { r, .. } => *r,
+            | Self::Material { r, .. } | Self::AlphaProperty { r, .. } | Self::StencilProperty { r, .. }
+            | Self::Particle { r, .. } => *r,
         }
     }
 }
@@ -190,9 +197,12 @@ enum RuntimeNodeState {
 }
 
 impl SceneMirror {
-    /// Publish separate player models while preserving the previous third-person
-    /// default. Legacy `set_tree` hosts can continue using their one reference tree.
+    /// Publish separate player models while keeping legacy `set_tree` hosts on their
+    /// single reference tree.
     pub fn use_separate_player_models(&mut self) { self.player_view = ModelView::ThirdPerson; }
+
+    /// Whether the host publishes separate first-person and third-person player rigs.
+    pub fn uses_separate_player_models(&self) -> bool { self.player_view != ModelView::Reference }
 
     pub fn resolve_view(&self, r: FormId, view: ModelView) -> ModelView {
         if r != FormId::PLAYER_REF { ModelView::Reference }
@@ -218,6 +228,11 @@ impl SceneMirror {
     /// The references whose trees the engine should tell.
     pub fn watched(&self) -> impl Iterator<Item = FormId> + '_ {
         self.watched.iter().copied()
+    }
+
+    /// Whether `r` is currently watched by scripts (O(1) fast-path check).
+    pub fn is_watched(&self, r: FormId) -> bool {
+        self.watched.contains(&r)
     }
 
     /// The engine tells a watched reference's tree (parents before children).
@@ -263,7 +278,8 @@ impl SceneMirror {
         self.identified.insert((r, view), Some(model));
     }
 
-    /// A shape's alpha (`alpha`) or stencil property value for the session's reads,
+    /// A shape's alpha (`alpha`) or stencil property value for the session's reads and
+    /// for the engine to draw ([`SceneEdit::AlphaProperty`] / [`SceneEdit::StencilProperty`]),
     /// kept over the trees the engine tells next; false without the node or that
     /// property on it.
     pub fn set_prop(&mut self, r: FormId, node: &str, alpha: bool, item: usize, v: f32) -> bool {
@@ -275,7 +291,13 @@ impl SceneMirror {
         }
         let name = t[i].name.clone();
         self.prop_sets.retain(|(pr, pv, n, a, k, _)| !(*pr == r && *pv == view && n.eq_ignore_ascii_case(&name) && *a == alpha && *k == item));
-        self.prop_sets.push((r, view, name, alpha, item, v));
+        self.prop_sets.push((r, view, name.clone(), alpha, item, v));
+        let edit = if alpha {
+            SceneEdit::AlphaProperty { r, node: name, item, v }
+        } else {
+            SceneEdit::StencilProperty { r, node: name, item, v }
+        };
+        self.queue_for(ModelView::Reference, edit);
         true
     }
 
@@ -342,7 +364,8 @@ impl SceneMirror {
             SceneEdit::Translation { node, .. } | SceneEdit::Rotation { node, .. }
             | SceneEdit::Scale { node, .. } | SceneEdit::Flags { node, .. }
             | SceneEdit::ChildFlags { node, .. } | SceneEdit::Remove { node, .. }
-            | SceneEdit::Material { node, .. } | SceneEdit::Particle { node, .. } => node,
+            | SceneEdit::Material { node, .. } | SceneEdit::AlphaProperty { node, .. }
+            | SceneEdit::StencilProperty { node, .. } | SceneEdit::Particle { node, .. } => node,
             SceneEdit::ForModel { .. } => return SceneTarget::Missing,
         };
         let missing_node = model.map_or(SceneTarget::Missing, SceneTarget::Model);
@@ -730,6 +753,22 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     let view = match num(args, selector, 0.0) {
         1.0 => ModelView::ThirdPerson,
         2.0 => ModelView::FirstPerson,
+        // Omitted/0 `pcModel` on the player follows the active 1st/3rd-person camera
+        // when separate player models are published [observed: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy
+        // (read-only `PrintToConsole` probe; zero writes to game install or Saves),
+        // `w4d_43_nif_selector_and_ui_entities`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, PR #3803 / #3802):
+        // `PROBE|w4d_43_nif_selector_and_ui_entities|p1(1p=1,cb=-1/12/-1/-1)|p3(1p=0,cb=12/12/-1/-1)|ui(ret=64,f=0[&false],t=0,c=0)|idle(1,0,1)`;
+        // zero DLL, PDB, or third-party source consulted — in 1st person (`1p=1`),
+        // omitted `pcModel` returned `-1` (matching `pcModel=2` `-1` rather than
+        // `pcModel=1` `12`), and in 3rd person (`1p=0`), omitted `pcModel` returned
+        // `12` (matching `pcModel=1` `12`)]. Legacy single-tree hosts and non-`pcModel`
+        // functions stay on `ModelView::Reference`.
+        _ if selector != usize::MAX && r == FormId::PLAYER_REF && g.scene.uses_separate_player_models() => {
+            if g.senses.first_person { ModelView::FirstPerson } else { ModelView::ThirdPerson }
+        }
         _ => ModelView::Reference,
     };
     let v = match name {
@@ -968,7 +1007,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             // MODL. Its exact-name answer, even for an empty tree, is authoritative
             // (nif-player-model-selection.md, ModelHasBlock). Keep file fallback for
             // base forms and references awaiting their first publication.
-            let reference = f == FormId::PLAYER_REF || g.world.placed.get(f).is_some() || g.world.peek(f).is_some();
+            let reference = f == FormId::PLAYER_REF
+                || crate::nvse_jg_nif::is_camera_overlay_ref(f)
+                || g.world.placed.get(f).is_some()
+                || g.world.peek(f).is_some();
             let published = if reference { g.scene.tree(f).map(|nodes| !want.is_empty() && nodes.iter().any(|node| node.name == want)) } else { None };
             let found = published.unwrap_or_else(|| model_of(g, f).and_then(|m| crate::mod_files::read_data(&format!("meshes\\{m}"))).is_some_and(|bytes| crate::mod_files::nif_has_name(&bytes, &want)));
             XVal::Num(f64::from(u8::from(found)))

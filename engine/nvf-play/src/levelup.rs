@@ -39,6 +39,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use crate::ui_pointer::PointerState;
 use fnv_game::game::menus;
 use fnv_game::levelup as rules;
@@ -314,15 +315,13 @@ fn input(
         for right in crate::pad::sideways(&typed, &keys) {
             ops.push((if right { Op::Raise(None) } else { Op::Lower(None) }, "key"));
         }
-        // The player's tweak: on the skills page the wheel raises and lowers the chosen
-        // skill (the one under the pointer) instead of scrolling [design: docs/design/tweaks.md].
-        let wheel_sets = tweaks.as_ref().is_some_and(|t| t.levelup_wheel) && st.open.as_ref().is_some_and(|m| m.page == model::Page::Skills);
-        if wheel.abs() >= 1.0 && wheel_sets {
-            for _ in 0..wheel.abs().round() as i32 {
-                ops.push((if wheel > 0.0 { Op::Raise(None) } else { Op::Lower(None) }, "wheel"));
-            }
-        } else if wheel.abs() >= 1.0 {
-            ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));
+        // The player's tweak: on the skills page the wheel raises and lowers the hovered
+        // (or chosen) skill instead of scrolling [design: docs/design/tweaks.md].
+        let wheel_sets = tweaks.as_ref().is_some_and(|t| t.levelup_wheel);
+        let on_skills = st.open.as_ref().is_some_and(|m| m.page == model::Page::Skills);
+        let hovered_part = st.open.as_ref().and_then(|m| m.hover);
+        for op in levelup_wheel_ops(wheel, wheel_sets, on_skills, hovered_part) {
+            ops.push((op, "wheel"));
         }
         for (i, r) in &rows {
             match i {
@@ -369,6 +368,25 @@ fn input(
         if st.answered {
             break;
         }
+    }
+}
+
+/// Mouse wheel operations on the level-up menu: when `levelup_wheel` is enabled on the
+/// Skills page, wheel up raises and wheel down lowers the hovered arrow's row (or the
+/// selected row); otherwise scrolls as usual [design; Stewie's Tweaks 9.65 public changelog].
+fn levelup_wheel_ops(wheel: f32, levelup_wheel: bool, on_skills: bool, hover: Option<Part>) -> Vec<Op> {
+    if wheel.abs() < 1.0 {
+        return Vec::new();
+    }
+    if levelup_wheel && on_skills {
+        let target = match hover {
+            Some(Part::Plus(r) | Part::Minus(r)) => Some(r),
+            _ => None,
+        };
+        let op = if wheel > 0.0 { Op::Raise(target) } else { Op::Lower(target) };
+        vec![op; wheel.abs().round() as usize]
+    } else {
+        vec![Op::Scroll(-wheel.round() as i32)]
     }
 }
 
@@ -544,11 +562,20 @@ fn draw_menu(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     glyphs: Res<crate::pad::PadGlyphs>,
+    (windows, safe): (Query<&Window, With<PrimaryWindow>>, Option<Res<crate::touch_safe_area::SafeInsets>>),
+    mut last_frame: Local<Option<(Vec2, crate::touch_safe_area::SafeInsets, f32)>>,
 ) {
+    let view_px = windows.single().map_or(Vec2::new(1280.0, 720.0), |w| Vec2::new(w.width(), w.height()));
+    let safe_insets = safe.as_deref().copied().unwrap_or_default();
+    let frame_key = (view_px, safe_insets, crate::interface::unit_scale());
+    if st.open.is_some() && *last_frame != Some(frame_key) {
+        st.dirty = true;
+    }
     if !st.dirty {
         return;
     }
     st.dirty = false;
+    *last_frame = Some(frame_key);
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -561,7 +588,8 @@ fn draw_menu(
     let st = st.into_inner();
     let kit = st.kit.get_or_insert_with(|| chargen::draw::Kit::load(data.as_deref(), &mut images, bc));
     let mut c = chargen::draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
-    let root = Node {
+    let fit = crate::interface::fit_centered_box(frame_key.2, view_px, safe_insets, 1088.0, 840.0);
+    let mut root = Node {
         position_type: PositionType::Absolute,
         width: Val::Percent(100.0),
         height: Val::Percent(100.0),
@@ -569,6 +597,10 @@ fn draw_menu(
         align_items: AlignItems::Center,
         ..default()
     };
+    if let Some((_, pad)) = fit {
+        root.padding = pad;
+    }
+    let _units = fit.map(|(s, _)| crate::interface::units_at(s));
     commands.spawn((root, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing(), LevelUpRoot)).with_children(|r| draw::spawn(r, &view, &mut c));
 }
 
@@ -592,5 +624,17 @@ mod tests {
     fn only_the_level_up_menu_is_drawn_here() {
         assert!(draws(menus::LEVEL_UP));
         assert!(!draws(menus::TAG_SKILLS) && !chargen::has_own_menu(menus::LEVEL_UP));
+    }
+
+    #[test]
+    fn levelup_wheel_adjusts_hovered_arrow_row_on_skills_page() {
+        // Off by default: scrolls even on the Skills page.
+        assert_eq!(levelup_wheel_ops(1.0, false, true, Some(Part::Plus(3))), vec![Op::Scroll(-1)]);
+        // Enabled on Skills: wheel up raises, wheel down lowers, targeting hovered +/- row.
+        assert_eq!(levelup_wheel_ops(2.0, true, true, Some(Part::Plus(3))), vec![Op::Raise(Some(3)), Op::Raise(Some(3))]);
+        assert_eq!(levelup_wheel_ops(-1.0, true, true, Some(Part::Minus(4))), vec![Op::Lower(Some(4))]);
+        assert_eq!(levelup_wheel_ops(1.0, true, true, None), vec![Op::Raise(None)]);
+        // Perks page always scrolls.
+        assert_eq!(levelup_wheel_ops(-1.0, true, false, None), vec![Op::Scroll(1)]);
     }
 }

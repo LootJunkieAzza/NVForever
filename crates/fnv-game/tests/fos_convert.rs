@@ -6,8 +6,9 @@ use fnv_game::game::{Game, GameConfig, GameSnapshot, InstKey};
 use fnv_game::GameData;
 use fnv_save::fos::{
     Fos, FORM_DEAD, FORM_DELETED, FORM_DISABLED, FORM_TALKED_TO_PC, PLAYER_BASE, PLAYER_CLASS,
-    PLAYER_REF, TYPE_ACHR, TYPE_ACRE, TYPE_CELL, TYPE_CHAL, TYPE_CLAS, TYPE_ECZN, TYPE_FACT,
-    TYPE_FLST, TYPE_INFO, TYPE_LVLI, TYPE_NOTE, TYPE_NPC, TYPE_QUST, TYPE_REFR, TYPE_REPU,
+    PLAYER_REF, TYPE_ACHR, TYPE_ACRE, TYPE_CELL, TYPE_CHAL, TYPE_CLAS, TYPE_CREA, TYPE_ECZN,
+    TYPE_FACT, TYPE_FLST, TYPE_INFO, TYPE_LVLI, TYPE_MISC, TYPE_NOTE, TYPE_NPC, TYPE_PGRE,
+    TYPE_PMIS, TYPE_QUST, TYPE_REFR, TYPE_REPU, TYPE_TACT,
 };
 use fnv_save::{PluginEntry, SaveBody, SaveHeader, SaveKind, BODY_FORMAT, ENGINE_FORMAT};
 use fnv_script::vm::Value;
@@ -62,6 +63,24 @@ const COMPANION_BASE: u32 = 0x0000_08CD;
 const COMPANION_REF: u32 = 0x0000_08CE;
 const DEAD_NPC_REF: u32 = 0x0000_08CF;
 const RADIO_REF: u32 = 0x0000_08D0;
+const TERM_BASE: u32 = 0x0000_08D1;
+const TERM_REF: u32 = 0x0000_08D2;
+const TERM_LOCK_REF: u32 = 0x0000_08D3;
+const DEST_BASE: u32 = 0x0000_08D4;
+const DEST_REF: u32 = 0x0000_08D5;
+const TACT_BASE: u32 = 0x0000_08D6;
+const TACT_REF: u32 = 0x0000_08D7;
+const PROJ_BASE: u32 = 0x0000_08D8;
+const PGRE_REF: u32 = 0x0000_08D9;
+const PACK_ID: u32 = 0x0000_08DA;
+const CREA_BASE: u32 = 0x0000_08DB;
+const ASH_BASE: u32 = 0x0000_08DC;
+const MGEF_BUFF_ID: u32 = 0x0000_08DD;
+const ALCH_BUFF_ID: u32 = 0x0000_08DE;
+const WEAP2_ID: u32 = 0x0000_08DF;
+const AMMO2_ID: u32 = 0x0000_08E0;
+const MESG_RENAME_ID: u32 = 0x0000_08E1;
+const DEST_MID_REF: u32 = 0x0000_08E2;
 
 struct Fixture {
     data: GameData,
@@ -168,10 +187,62 @@ fn fixture() -> Fixture {
         &[
             sub(b"EDID", z("OwnTestRifle")),
             sub(b"NAM0", AMMO_ID.to_le_bytes().to_vec()),
+            sub(b"DATA", weap_data.clone()),
+        ],
+    );
+    let weap2 = record(
+        b"WEAP",
+        0,
+        WEAP2_ID,
+        &[
+            sub(b"EDID", z("OwnTestPistol")),
+            sub(b"NAM0", AMMO2_ID.to_le_bytes().to_vec()),
             sub(b"DATA", weap_data),
         ],
     );
     let ammo = record(b"AMMO", 0, AMMO_ID, &[sub(b"EDID", z("OwnTestAmmo"))]);
+    let ammo2 = record(b"AMMO", 0, AMMO2_ID, &[sub(b"EDID", z("OwnTestAmmo2"))]);
+    // MGEF with RECOVER (0x02) flag, Value Modifier archetype (0), actor value 5 (Strength).
+    let mgef_data = [
+        0x02u32.to_le_bytes().as_slice(),
+        &0.0f32.to_le_bytes(),
+        &0u32.to_le_bytes(),
+        &[0xFF; 8],
+        &[0; 4],
+        &[0; 4],
+        &1.0f32.to_le_bytes(),
+        &[0; 24],
+        &[0; 8],
+        &0u32.to_le_bytes(),
+        &5i32.to_le_bytes(),
+    ]
+    .concat();
+    let mgef_buff = record(
+        b"MGEF",
+        0,
+        MGEF_BUFF_ID,
+        &[sub(b"EDID", z("OwnStrBuffFx")), sub(b"DATA", mgef_data)],
+    );
+    let alch_efit = [
+        2u32.to_le_bytes().as_slice(),
+        &0u32.to_le_bytes(),
+        &60u32.to_le_bytes(),
+        &0u32.to_le_bytes(),
+        &5i32.to_le_bytes(),
+    ]
+    .concat();
+    let alch_buff = record(
+        b"ALCH",
+        0,
+        ALCH_BUFF_ID,
+        &[
+            sub(b"EDID", z("OwnStrChem")),
+            sub(b"DATA", 0.5f32.to_le_bytes().to_vec()),
+            sub(b"ENIT", vec![0; 20]),
+            sub(b"EFID", MGEF_BUFF_ID.to_le_bytes().to_vec()),
+            sub(b"EFIT", alch_efit),
+        ],
+    );
     let npc_player = record(
         b"NPC_",
         0,
@@ -232,6 +303,12 @@ fn fixture() -> Fixture {
         ],
     );
     let note = record(b"NOTE", 0, NOTE_ID, &[sub(b"EDID", z("OwnNote"))]);
+    let mesg_rename = record(
+        b"MESG",
+        0,
+        MESG_RENAME_ID,
+        &[sub(b"EDID", z("OwnRenameMsg")), sub(b"FULL", z("Message Name")), sub(b"DESC", z("Body"))],
+    );
     let dial = record(b"DIAL", 0, DIAL_ID, &[sub(b"EDID", z("OwnTopic"))]);
     let info = record(
         b"INFO",
@@ -251,6 +328,27 @@ fn fixture() -> Fixture {
         ],
     );
     let marker_base = record(b"STAT", 0, MAP_MARKER_BASE, &[sub(b"EDID", z("MapMarker"))]);
+    let ash_base = record(b"STAT", 0, ASH_BASE, &[sub(b"EDID", z("OwnAshPile"))]);
+    let term_base = record(b"TERM", 0, TERM_BASE, &[sub(b"EDID", z("OwnTerminal"))]);
+    let dest_base = record(
+        b"ACTI",
+        0,
+        DEST_BASE,
+        &[
+            sub(b"EDID", z("OwnDestructible")),
+            sub(b"DEST", [100i32.to_le_bytes().to_vec(), vec![2, 1, 0, 0]].concat()),
+            // Stage 0 (50% HP remaining, intermediate non-destroy)
+            sub(b"DSTD", [vec![50u8, 0, 1, 0], vec![0; 16]].concat()),
+            sub(b"DSTF", vec![]),
+            // Stage 1 (0% HP remaining, DESTROY flag = 4)
+            sub(b"DSTD", [vec![0u8, 1, 2, 4], vec![0; 16]].concat()),
+            sub(b"DSTF", vec![]),
+        ],
+    );
+    let tact_base = record(b"TACT", 0, TACT_BASE, &[sub(b"EDID", z("OwnTalkingActivator"))]);
+    let proj_base = record(b"PROJ", 0, PROJ_BASE, &[sub(b"EDID", z("OwnMineProj"))]);
+    let pack_rec = record(b"PACK", 0, PACK_ID, &[sub(b"EDID", z("OwnFollowPackage"))]);
+    let crea_base = record(b"CREA", 0, CREA_BASE, &[sub(b"EDID", z("OwnCreatureBase"))]);
 
     let prop_ref = record(
         b"REFR",
@@ -338,6 +436,66 @@ fn fixture() -> Fixture {
             sub(b"DATA", vec![0; 24]),
         ],
     );
+    let term_ref = record(
+        b"REFR",
+        0,
+        TERM_REF,
+        &[
+            sub(b"EDID", z("OwnTermRef")),
+            sub(b"NAME", TERM_BASE.to_le_bytes().to_vec()),
+            sub(b"DATA", vec![0; 24]),
+        ],
+    );
+    let term_lock_ref = record(
+        b"REFR",
+        0,
+        TERM_LOCK_REF,
+        &[
+            sub(b"EDID", z("OwnTermLockRef")),
+            sub(b"NAME", TERM_BASE.to_le_bytes().to_vec()),
+            sub(b"DATA", vec![0; 24]),
+        ],
+    );
+    let dest_ref = record(
+        b"REFR",
+        0,
+        DEST_REF,
+        &[
+            sub(b"EDID", z("OwnDestRef")),
+            sub(b"NAME", DEST_BASE.to_le_bytes().to_vec()),
+            sub(b"DATA", vec![0; 24]),
+        ],
+    );
+    let dest_mid_ref = record(
+        b"REFR",
+        0,
+        DEST_MID_REF,
+        &[
+            sub(b"EDID", z("OwnDestMidRef")),
+            sub(b"NAME", DEST_BASE.to_le_bytes().to_vec()),
+            sub(b"DATA", vec![0; 24]),
+        ],
+    );
+    let tact_ref = record(
+        b"REFR",
+        0,
+        TACT_REF,
+        &[
+            sub(b"EDID", z("OwnTactRef")),
+            sub(b"NAME", TACT_BASE.to_le_bytes().to_vec()),
+            sub(b"DATA", vec![0; 24]),
+        ],
+    );
+    let pgre_ref = record(
+        b"PGRE",
+        0,
+        PGRE_REF,
+        &[
+            sub(b"EDID", z("OwnMineRef")),
+            sub(b"NAME", PROJ_BASE.to_le_bytes().to_vec()),
+            sub(b"DATA", vec![0; 24]),
+        ],
+    );
     let companion_ref = record(
         b"ACHR",
         0,
@@ -397,6 +555,12 @@ fn fixture() -> Fixture {
                 locked_cont_ref,
                 door_ref,
                 radio_ref,
+                term_ref,
+                term_lock_ref,
+                dest_ref,
+                dest_mid_ref,
+                tact_ref,
+                pgre_ref,
                 marker_vis_ref,
                 marker_found_ref,
                 npc_ref,
@@ -414,12 +578,20 @@ fn fixture() -> Fixture {
         top(b"QUST", &quest),
         top(b"MISC", &item),
         top(b"ARMO", &armor),
-        top(b"WEAP", &weap),
-        top(b"AMMO", &ammo),
+        top(b"WEAP", &[weap, weap2].concat()),
+        top(b"AMMO", &[ammo, ammo2].concat()),
+        top(b"MGEF", &mgef_buff),
+        top(b"ALCH", &alch_buff),
         top(b"KEYM", &keym),
         top(b"CONT", &cont_base),
         top(b"DOOR", &door_base),
-        top(b"STAT", &marker_base),
+        top(b"STAT", &[marker_base, ash_base].concat()),
+        top(b"TERM", &term_base),
+        top(b"ACTI", &dest_base),
+        top(b"TACT", &tact_base),
+        top(b"PROJ", &proj_base),
+        top(b"PACK", &pack_rec),
+        top(b"CREA", &crea_base),
         top(b"RACE", &race),
         top(b"HAIR", &hair),
         top(b"EYES", &eyes),
@@ -434,6 +606,7 @@ fn fixture() -> Fixture {
         top(b"REPU", &repu),
         top(b"CHAL", &chal),
         top(b"NOTE", &note),
+        top(b"MESG", &mesg_rename),
         top(b"DIAL", &dial_grp),
         top(b"WTHR", &wthr),
         top(
@@ -1063,7 +1236,7 @@ fn midgame_player_extras_weapon_magazine_and_dead_counts_convert_and_restore() {
 
     // 1 inventory item (WEAP_ID = r(3)), count = 4, 2 extra lists covering all 9 observed item extra types:
     //   list 1 (worn modded weapon): 0x16, 0x25 (150/200 = 0.75), 0x8D (mods = 3), 0x6E (AMMO_ID = r(4), 9 rounds),
-    //                                0x4A (hotkey = 1), 0x0D (script r(7) with 1 num + 1 ref var)
+    //                                0x4A (hotkey = 0 -> Key 1), 0x0D (script r(7) with 1 num + 1 ref var)
     //   list 2 (unworn owned sub-stack of 2): 0x24 (count = 2), 0x21 (owner NPC_BASE = r(5)),
     //                                         0x1C (orig ref PROP_REF = r(6)), 0x25 (100/200 = 0.5)
     //   + 1 remaining plain unit (total 1 + 2 + 1 = 4)
@@ -1074,7 +1247,7 @@ fn midgame_player_extras_weapon_magazine_and_dead_counts_convert_and_restore() {
     pl_rec.u8(0x25).bar().f32(150.0).bar();
     pl_rec.u8(0x8D).bar().u8(0x03).bar();
     pl_rec.u8(0x6E).bar().r(4).bar().u32(9).bar();
-    pl_rec.u8(0x4A).bar().u8(1).bar();
+    pl_rec.u8(0x4A).bar().u8(0).bar();
     pl_rec
         .u8(0x0D)
         .bar()
@@ -1135,14 +1308,17 @@ fn midgame_player_extras_weapon_magazine_and_dead_counts_convert_and_restore() {
     assert_eq!(converted.report.converted.get("player_items"), Some(&1));
     assert_eq!(converted.report.converted.get("player_equipped"), Some(&1));
     assert_eq!(converted.report.converted.get("player_weapon_magazine"), Some(&1));
+    assert_eq!(converted.report.converted.get("player_chosen_ammo"), Some(&1));
+    assert_eq!(converted.report.converted.get("player_hotkeys"), Some(&1));
     assert_eq!(converted.report.hypothesis_fields.get("player_weapon_magazine (extra 0x6E) [hypothesis]"), Some(&1));
+    assert_eq!(converted.report.hypothesis_fields.get("player_chosen_ammo (extra 0x6E) [hypothesis]"), Some(&1));
     assert!(!converted.report.hypothesis_fields.contains_key("player_item_owners (extra 0x21) [hypothesis]"));
     assert!(!converted.report.hypothesis_fields.contains_key("dead_counts (global type 2 prefix) [hypothesis]"));
     assert!(!converted.report.hypothesis_fields.contains_key("player_item_weapon_mods (extra 0x8D) [hypothesis]"));
     assert!(!converted.report.hypothesis_fields.contains_key("player_item_stack_counts (extra 0x24) [hypothesis]"));
     assert!(!converted.report.hypothesis_fields.contains_key("player_item_conditions (extra 0x25) [hypothesis]"));
     assert!(!converted.report.hypothesis_fields.contains_key("player_equipped (extra 0x16) [hypothesis]"));
-    assert_eq!(converted.report.skipped.get("player_hotkey: not persisted in NVFSAVE v1"), Some(&1));
+    assert!(!converted.report.hypothesis_fields.contains_key("player_hotkeys (extra 0x4A) [hypothesis]"));
     assert_eq!(converted.report.skipped.get("global_table: type 2 trailing bytes unmapped"), Some(&1));
 
     // Write .nvfsave and verify round-trip through fnv_save::read_body + World::restore + Game::restore.
@@ -1154,6 +1330,11 @@ fn midgame_player_extras_weapon_magazine_and_dead_counts_convert_and_restore() {
     let (_h, _shot, body): (SaveHeader, Vec<u8>, SaveBody<GameSnapshot>) = fnv_save::read_body(&out).unwrap();
     assert_eq!(body.engine.magazine, Some((WEAP_ID, 9)));
     assert_eq!(body.engine.magazine_ammo, Some(AMMO_ID));
+    assert_eq!(body.engine.chosen_ammo.get(&WEAP_ID), Some(&AMMO_ID));
+    assert_eq!(
+        body.engine.extra.get("hotkeys").and_then(|v| v.as_array()).and_then(|a| a.first()),
+        Some(&serde_json::json!({ "item": WEAP_ID, "mods": 3 }))
+    );
     body.game.check().unwrap();
 
     let restored_world = World::restore(&f.forms, &f.refs, &body.game.sim).unwrap();
@@ -1194,7 +1375,7 @@ fn container_stashes_map_markers_and_created_refs_convert_and_restore() {
         PROP_REF,         // 9
         NPC_REF,          // 10
         0xFF00_0099,      // 11: created REFR
-        0xFF00_009A,      // 12: created ACRE (still unsupported)
+        0xFF00_009A,      // 12: created PMIS (still unsupported)
     ];
 
     let mut h = Build { b: Vec::new() };
@@ -1272,8 +1453,8 @@ fn container_stashes_map_markers_and_created_refs_convert_and_restore() {
     assert_eq!(cr.b.len(), 32);
     push_record(&mut b, 11, 1 << 1, TYPE_REFR, &cr.b);
 
-    // 7. Created 0xFF00_009A ACRE (r(12), bit 1): still reported unsupported.
-    push_record(&mut b, 12, 1 << 1, TYPE_ACRE, &[0u8; 8]);
+    // 7. Created 0xFF00_009A PMIS (r(12), bit 1): still reported unsupported.
+    push_record(&mut b, 12, 1 << 1, TYPE_PMIS, &[0u8; 8]);
 
     let g2 = b.len();
     b.extend(1000u32.to_le_bytes());
@@ -1312,9 +1493,9 @@ fn container_stashes_map_markers_and_created_refs_convert_and_restore() {
     assert_eq!(converted.report.converted.get("map_markers"), Some(&2));
     assert_eq!(converted.report.converted.get("created_refs"), Some(&1));
     assert!(converted.report.hypothesis_fields.is_empty());
-    // Converted created REFR is NOT double-counted as unsupported; created ACRE and non-marker bit-31 REFR are.
+    // Converted created REFR is NOT double-counted as unsupported; created PMIS and non-marker bit-31 REFR are.
     assert!(!converted.report.skipped.contains_key("changed_form: created REFR (0xFF) unsupported"));
-    assert_eq!(converted.report.skipped.get("changed_form: created ACRE (0xFF) unsupported"), Some(&1));
+    assert_eq!(converted.report.skipped.get("changed_form: created PMIS (0xFF) unsupported"), Some(&1));
     assert_eq!(converted.report.skipped.get("changed_form: REFR (kind 0) unmapped"), Some(&1));
 
     // Write .nvfsave and verify round-trip through read_body + World::restore + Game::restore.
@@ -2367,7 +2548,6 @@ fn v2_observed_decoder_fixes_round_trip_cleanly() {
         cosave_present: false,
     };
     let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
-    // Every field in this save is [observed], so hypothesis_fields and unmapped skips are empty!
     assert!(
         converted.report.hypothesis_fields.is_empty(),
         "unexpected hypothesis_fields: {:?}",
@@ -2389,33 +2569,26 @@ fn v2_observed_decoder_fixes_round_trip_cleanly() {
     let restored_world = World::restore(&f.forms, &f.refs, &body.game.sim).unwrap();
     let mut restored = Game::restore(&f.data, restored_world, GameConfig::default(), &body.game).unwrap();
 
-    // BUG #8: SexChange bit 24
     assert_eq!(restored.player.female, Some(true));
-    // BUG #1: bit-4-absent player kept inventory, factions, perks
     assert_eq!(restored.world.peek(FormId::PLAYER_REF).unwrap().scale, None);
     assert_eq!(restored.world.item_count(FormId::PLAYER_REF, FormId(ITEM_ID)).unwrap(), 4);
     let pe = restored.extra.get(&FormId::PLAYER_REF).unwrap();
     assert_eq!(pe.factions.get(&FormId(FACT_A)), Some(&2));
     assert_eq!(restored.player.perks.get(&FormId(PERK_ID)), Some(&1));
-    // BUG #2: bit 22 non-skill Luck=9 AND skill Melee=20
     assert_eq!(pe.actor_values.get(&11), Some(&9.0));
     assert_eq!(restored.player.skill_points.get(&38), Some(&20.0));
-    // BUG #7: AV2 rads & hardcore needs in actor_values (NOT av_permanent)
     assert_eq!(pe.actor_values.get(&54), Some(&125.0));
     assert_eq!(pe.actor_values.get(&73), Some(&150.0));
     assert_eq!(pe.actor_values.get(&74), Some(&175.0));
     assert_eq!(pe.actor_values.get(&75), Some(&200.0));
     assert!(!pe.av_permanent.contains_key(&54));
     assert!(!pe.av_permanent.contains_key(&73));
-    // BUG #3: Global[10] active Pip-Boy radio
     assert!(restored.radio.pipboy.on);
     assert_eq!(restored.radio.pipboy.station, Some(FormId(RADIO_REF)));
-    // BUG #4: bit-6 owned container (owner + scale + inventory)
     let cst = restored.world.peek(FormId(CONT_REF)).unwrap();
     assert_eq!(cst.scale, Some(1.5));
     assert_eq!(cst.extra.owner, Some(FormId(FACT_A)));
     assert_eq!(restored.world.item_count(FormId(CONT_REF), FormId(ITEM_ID)).unwrap(), 5);
-    // BUG #5: CELL bit 3 owner AFTER bit-31 fog
     assert!(restored.forms.visited_cells.contains(&FormId(ROOM_ID)));
     assert_eq!(restored.forms.cell_owners.get(&FormId(ROOM_ID)), Some(&FormId(FACT_A)));
     // BUG #9: Player tail notes list decoded with zero TYPE_NOTE records (and zero hypothesis_fields!)
@@ -2430,4 +2603,1586 @@ fn v2_observed_decoder_fixes_round_trip_cleanly() {
     assert_eq!(body.engine.magazine_ammo, None);
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn push_high_process_block(
+    out: &mut Build,
+    pkg_ref_idx: u32,
+    av_damage: &[(u8, f32)],
+    av_permanent: &[(u8, f32)],
+) {
+    // Universal 18-token process prefix: tok[17] is current_package.
+    out.u8(0xFF).bar().u8(0).bar().u8(1).bar().u8(1).bar().u8(1).bar();
+    out.u8(0).bar().u8(0).bar().u8(1).bar();
+    out.u32(0).bar().u32(0).bar();
+    out.u8(0).bar().u8(0).bar();
+    out.r(0).bar().r(0).bar();
+    out.f32(0.0).bar().f32(0.0).bar();
+    out.u32(0).bar();
+    out.r(pkg_ref_idx).bar();
+    // High-process sparse AV suffix (process_level == 0).
+    out.u8(0).bar();
+    for _ in 0..3 {
+        out.f32(0.0).bar();
+    }
+    out.r(0).bar().u8(0).bar().f32(0.0).bar().r(0).bar();
+    for _ in 0..3 {
+        out.f32(0.0).bar();
+    }
+    out.u8(0).bar().u16(0).bar().f32(0.0).bar().f32(0.0).bar();
+    for _ in 0..5 {
+        out.r(0).bar();
+    }
+    out.u8(0).bar();
+    out.vs(av_damage.len() as u32).bar();
+    for &(code, val) in av_damage {
+        out.u8(code).bar().f32(val).bar();
+    }
+    out.u32(0).bar();
+    out.vs(av_permanent.len() as u32).bar();
+    for &(code, val) in av_permanent {
+        out.u8(code).bar().f32(val).bar();
+    }
+}
+
+#[test]
+fn v3_havok_terminals_destructibles_limbs_ash_packages_avs_created_actors_pgre_tact_misc_and_bases_round_trip() {
+    let f = fixture();
+    let fids = [
+        ROOM_ID,        // 1
+        PLAYER_REF,     // 2
+        COMPANION_REF,  // 3
+        NPC_SCRIPT_ID,  // 4
+        PACK_ID,        // 5
+        DEAD_NPC_REF,   // 6
+        0xFF00_0100,    // 7: created REFR ash pile
+        ASH_BASE,       // 8
+        TERM_REF,       // 9
+        TERM_LOCK_REF,  // 10
+        DEST_REF,       // 11
+        DOOR_REF,       // 12
+        PROP_REF,       // 13
+        0xFF00_0101,    // 14: created ACHR
+        NPC_BASE,       // 15
+        0xFF00_0102,    // 16: created ACRE
+        CREA_BASE,      // 17
+        PGRE_REF,       // 18
+        ECZN_ID,        // 19
+        FACT_A,         // 20
+        FACT_B,         // 21
+        TACT_BASE,      // 22
+        ITEM_ID,        // 23
+        SPEL_ID,        // 24
+        COMPANION_BASE, // 25
+    ];
+
+    let mut h = Build { b: Vec::new() };
+    h.u32(0x30).bar();
+    h.b.extend([0u8; 64]);
+    h.bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(55)
+        .bar()
+        .s_field("CourierV3", true)
+        .s_field("Drifter", true)
+        .u32(20)
+        .bar()
+        .s_field("OwnTestRoom", true)
+        .s_field("020.00.00", false);
+
+    let mut b = b"FO3SAVEGAME".to_vec();
+    b.extend((h.b.len() as u32).to_le_bytes());
+    b.extend(&h.b);
+    let mut pl = Build { b: Vec::new() };
+    pl.u8(1).bar().s_field("FalloutNV.esm", true);
+    b.push(27);
+    b.extend((pl.b.len() as u32).to_le_bytes());
+    b.extend(&pl.b);
+    let table_at = b.len();
+    b.extend([0u8; 32 + 78]);
+    let g1 = b.len();
+    let cf = b.len();
+
+    // 1. Companion ACHR (r(3)): bits 0|1|2|3|23|31 (place + bit-3 cell change + bit-2 Havok + form_flags +
+    //    0x0D script with init_flag=1 + 0x2E flags=0x10 with two spell lists + High-Process package & AVs +
+    //    BUG #6 bit-23 ModAV Strength +4.0).
+    let mut comp = Build { b: Vec::new() };
+    comp.r(1).f32(10.0).f32(20.0).f32(30.0).f32(0.0).f32(0.0).f32(1.0);
+    comp.r(1).i16(0).i16(0).bar();
+    comp.vs(2).bar().u8(0xAA).u8(0xBB);
+    comp.u8(0).bar(); // process_level = 0 (High)
+    comp.u32(FORM_TALKED_TO_PC).bar();
+    comp.vs(2).bar();
+    comp.u8(0x0D)
+        .bar()
+        .r(4)
+        .bar()
+        .vs(1)
+        .bar()
+        .u32(1)
+        .bar()
+        .f64(1.0)
+        .bar()
+        .vs(0)
+        .bar()
+        .u8(1)
+        .bar();
+    comp.u8(0x2E)
+        .bar()
+        .r(25)
+        .bar()
+        .r(0)
+        .bar()
+        .u32(0x10)
+        .bar()
+        .vs(1)
+        .bar()
+        .r(24)
+        .bar()
+        .vs(0)
+        .bar();
+    push_high_process_block(&mut comp, 5, &[(16, -25.0), (54, 140.0)], &[(18, 33.0), (41, 10.0)]);
+    comp.r(0).bar().r(0).bar().r(0).bar();
+    comp.vs(1).bar().u8(5).bar().f32(4.0).bar();
+    comp.b.extend_from_slice(b"\xFF\xFF\x7C\xFF\xFF\x7C\x00\x7C\x01\x01\x00\x00\x7C");
+    push_record(
+        &mut b,
+        3,
+        (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 23) | (1 << 31),
+        TYPE_ACHR,
+        &comp.b,
+    );
+
+    // 2. Dead NPC ACHR (r(6)): bit 0 FORM_DEAD + bit 2 Havok + bit 31 (0x5F dismembered limb 1 exploded + 0x89 ash pile r(7)).
+    let mut dead = Build { b: Vec::new() };
+    dead.r(1).f32(5.0).f32(6.0).f32(7.0).f32(0.0).f32(0.0).f32(0.0).bar();
+    dead.vs(3).bar().u8(1).u8(2).u8(3);
+    dead.u8(2).bar().u32(FORM_DEAD).bar();
+    dead.vs(2).bar();
+    dead.u8(0x5F)
+        .bar()
+        .u16(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u8(0)
+        .bar()
+        .r(0)
+        .bar()
+        .vs(1)
+        .bar()
+        .u8(1)
+        .bar()
+        .u8(1)
+        .bar()
+        .u8(0)
+        .bar()
+        .u8(0)
+        .bar()
+        .vs(0)
+        .bar();
+    dead.u8(0x89).bar().r(7).bar();
+    push_record(&mut b, 6, (1 << 0) | (1 << 2) | (1 << 31), TYPE_ACHR, &dead.b);
+
+    // 3. Created 0xFF REFR ash pile (r(7)): 32-byte creation header placing ASH_BASE (r(8)) in ROOM_ID.
+    let mut ash = Build { b: Vec::new() };
+    ash.r(1).f32(5.0).f32(6.0).f32(7.0).f32(0.0).f32(0.0).f32(0.0).u8(1).r(8).bar();
+    push_record(&mut b, 7, 1 << 1, TYPE_REFR, &ash.b);
+
+    // 4. Terminal REFR (r(9)): extra 0x50 hacked (flags=0x80, lock_level=0xFF).
+    let mut t1 = Build { b: Vec::new() };
+    t1.vs(1).bar().u8(0x50).bar().u8(0x80).bar().u8(0xFF).bar();
+    push_record(&mut b, 9, 1 << 31, TYPE_REFR, &t1.b);
+
+    // 5. Terminal REFR (r(10)): extra 0x50 locked-out + script lock level 2 (flags=0x01, lock_level=2).
+    let mut t2 = Build { b: Vec::new() };
+    t2.vs(1).bar().u8(0x50).bar().u8(0x01).bar().u8(2).bar();
+    push_record(&mut b, 10, 1 << 31, TYPE_REFR, &t2.b);
+
+    // 6. Destructible REFR (r(11)): BUG #10 1-stage destroyed with 0-based stage 0, 0x56 = 0.0f,
+    //    and FORM_DESTROYED (0x0080_0000).
+    let mut dest = Build { b: Vec::new() };
+    dest.u32(0x0184_0009).bar();
+    dest.vs(2).bar().u8(0x56).bar().f32(0.0).bar().u8(0x5B).bar().r(0).bar().u32(0).bar();
+    push_record(&mut b, 11, (1 << 0) | (1 << 31), TYPE_REFR, &dest.b);
+
+    // 7. Door REFR (r(12)): bit 28 "Close" via vsval(11)=0x2C (formerly missed when hardcoded 0x28).
+    let mut door = Build { b: Vec::new() };
+    door.vs(11).bar().s_field("Close", true);
+    push_record(&mut b, 12, 1 << 28, TYPE_REFR, &door.b);
+
+    // 8. Prop REFR (r(13)): bit 4 scale (1.25) + bit 28 non-door animation group "Forward".
+    let mut prop = Build { b: Vec::new() };
+    prop.f32(1.25).bar();
+    prop.vs(13).bar().s_field("Forward", true);
+    push_record(&mut b, 13, (1 << 4) | (1 << 28), TYPE_REFR, &prop.b);
+
+    // 9. Created 0xFF ACHR (r(14)): 32-byte header placing NPC_BASE (r(15)) + High-Process package & AVs
+    //    + bit-23 ModAV Fatigue +15.0 (bit-20 AV1 active modifier is kept out of av_permanent per BUG #16).
+    let mut c_achr = Build { b: Vec::new() };
+    c_achr.r(1).f32(40.0).f32(50.0).f32(60.0).f32(0.0).f32(0.0).f32(0.25).u8(1).r(15).bar();
+    c_achr.u8(0).bar().u32(FORM_TALKED_TO_PC).bar().f32(1.1).bar();
+    push_high_process_block(&mut c_achr, 5, &[(16, -12.0)], &[(37, 25.0)]);
+    c_achr.r(0).bar().r(0).bar().r(0).bar();
+    c_achr.vs(1).bar().u8(18).bar().f32(15.0).bar();
+    c_achr.b.extend_from_slice(b"\xFF\xFF\x7C\xFF\xFF\x7C\x00\x7C\x01\x01\x00\x00\x7C");
+    push_record(&mut b, 14, (1 << 0) | (1 << 1) | (1 << 4) | (1 << 23), TYPE_ACHR, &c_achr.b);
+
+    // 10. Created 0xFF ACRE (r(16)): 32-byte header placing CREA_BASE (r(17)) + dead flag.
+    let mut c_acre = Build { b: Vec::new() };
+    c_acre.r(1).f32(70.0).f32(80.0).f32(90.0).f32(0.0).f32(0.0).f32(0.5).u8(1).r(17).bar();
+    c_acre.u8(2).bar().u32(FORM_DEAD).bar();
+    push_record(&mut b, 16, (1 << 0) | (1 << 1), TYPE_ACRE, &c_acre.b);
+
+    // 11. Placed PGRE (r(18)): bits 0|1|2 (moved + Havok + disabled).
+    let mut pg = Build { b: Vec::new() };
+    pg.r(1).f32(1.0).f32(2.0).f32(3.0).f32(0.0).f32(0.0).f32(0.0).bar();
+    pg.vs(2).bar().u8(9).u8(8);
+    pg.u8(0xFF).bar().u32(FORM_DISABLED).bar();
+    push_record(&mut b, 18, (1 << 0) | (1 << 1) | (1 << 2), TYPE_PGRE, &pg.b);
+
+    // 12. ECZN (r(19)): bits 1|31 (never_resets=true, locked level=22).
+    let mut ez = Build { b: Vec::new() };
+    ez.u8(0x01).bar().u32(1).u32(1).u32(1).u32(22).bar();
+    push_record(&mut b, 19, (1 << 1) | (1 << 31), TYPE_ECZN, &ez.b);
+
+    // 13. FACT_A (r(20)): bits 1|2|31 (relation to FACT_B with modifier=-25, reaction=1).
+    let mut fc = Build { b: Vec::new() };
+    fc.vs(1).bar().r(21).bar().i32(-25).bar().u32(1).bar();
+    fc.u32(0x04).bar().u32(50).bar().u32(0).bar();
+    push_record(&mut b, 20, (1 << 1) | (1 << 2) | (1 << 31), TYPE_FACT, &fc.b);
+
+    // 14. CELL ROOM_ID (r(1)): bit 30 detach + bit 1 (0x20 public cell).
+    let mut cl = Build { b: Vec::new() };
+    cl.u32(48).bar().u8(0x20).bar();
+    push_record(&mut b, 1, (1 << 1) | (1 << 30), TYPE_CELL, &cl.b);
+
+    // 15. Non-player NPC_ (r(15)) & CREA (r(17)): bits 1|5 (essential=true, bit-5 name override).
+    let mut nb = Build { b: Vec::new() };
+    let mut acbs = [0u8; 24];
+    acbs[0] = 0x02; // essential
+    nb.b.extend(acbs);
+    nb.bar().s_field("RenamedNpc", true);
+    push_record(&mut b, 15, (1 << 1) | (1 << 5), TYPE_NPC, &nb.b);
+    let mut cb = Build { b: Vec::new() };
+    cb.b.extend(acbs);
+    cb.bar();
+    push_record(&mut b, 17, 1 << 1, TYPE_CREA, &cb.b);
+
+    // 16. TACT (r(22)): bits 2|23 (bit-2 name override + talking_actor=COMPANION_REF).
+    let mut ta = Build { b: Vec::new() };
+    ta.s_field("RenamedIntercom", true).r(3).bar();
+    push_record(&mut b, 22, (1 << 2) | (1 << 23), TYPE_TACT, &ta.b);
+
+    // 17. MISC (r(23)): bits 0|1 (quest_item=true via 0x400 + value=77).
+    let mut mc = Build { b: Vec::new() };
+    mc.u32(0x0400).bar().u32(77).bar();
+    push_record(&mut b, 23, (1 << 0) | (1 << 1), TYPE_MISC, &mc.b);
+
+    let g2 = b.len();
+    b.extend(1000u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    let fid = b.len();
+    b.extend((fids.len() as u32).to_le_bytes());
+    for fid_val in fids {
+        b.extend(fid_val.to_le_bytes());
+    }
+    b.extend(0u32.to_le_bytes());
+    let tail = b.len();
+    b.extend([5, 0, 0, 0, 0, 0, 0, 0, BAR]);
+    let table = [fid, tail, g1, cf, g2, 0, 1, 18].map(|v| v as u32);
+    for (i, v) in table.iter().enumerate() {
+        b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    let fos = Fos::parse(&b).unwrap();
+    let inspect = inspect_fos(&fos, false);
+    assert!(inspect.parse_errors.is_empty(), "parse_errors: {:?}", inspect.parse_errors);
+    assert_eq!(inspect.decoded_counts.get("created_actors"), Some(&2));
+    assert_eq!(inspect.decoded_counts.get("pgre_changes"), Some(&1));
+    assert_eq!(inspect.decoded_counts.get("actor_base_changes"), Some(&2));
+    assert_eq!(inspect.decoded_counts.get("talking_activators"), Some(&1));
+    assert_eq!(inspect.decoded_counts.get("misc_changes"), Some(&1));
+
+    let opts = ConvertOptions {
+        kind: SaveKind::Manual,
+        plugins: vec![PluginEntry { name: "FalloutNV.esm".into(), size: 1234 }],
+        include_thumbnail: false,
+        cosave_present: false,
+    };
+    let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
+    assert_eq!(converted.report.converted.get("terminals"), Some(&2));
+    assert_eq!(converted.report.converted.get("destructibles"), Some(&1));
+    assert_eq!(converted.report.converted.get("doors_open_state"), Some(&1));
+    assert_eq!(converted.report.converted.get("object_anim_groups"), Some(&1));
+    assert_eq!(converted.report.converted.get("actor_limbs_gone"), Some(&1));
+    assert_eq!(converted.report.converted.get("actor_ash_piles"), Some(&1));
+    assert_eq!(converted.report.converted.get("actor_packages"), Some(&2));
+    assert_eq!(converted.report.converted.get("created_actors"), Some(&2));
+    assert_eq!(converted.report.converted.get("pgre_flags"), Some(&1));
+    assert_eq!(converted.report.converted.get("pgre_places"), Some(&1));
+    assert_eq!(converted.report.converted.get("encounter_zone_respawns"), Some(&1));
+    assert_eq!(converted.report.converted.get("faction_modifiers"), Some(&1));
+    assert_eq!(converted.report.converted.get("cell_public_flags"), Some(&1));
+    assert_eq!(converted.report.converted.get("actor_base_essential"), Some(&2));
+    assert_eq!(converted.report.converted.get("talking_activator_actors"), Some(&1));
+    assert_eq!(converted.report.converted.get("misc_quest_items"), Some(&1));
+    assert_eq!(converted.report.converted.get("misc_values"), Some(&1));
+    assert!(!converted.report.hypothesis_fields.contains_key("destructibles (REFR extra 0x5B) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("pgre_flags (PGRE bit 0) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("pgre_places (PGRE bits 1-3) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("talking_activator_actors (TACT bit 23) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("encounter_zones (ECZN bit 31) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("misc_values (MISC bit 1) [hypothesis]"));
+    assert_eq!(converted.report.converted.get("actor_base_names"), Some(&1));
+    assert_eq!(converted.report.converted.get("tact_names"), Some(&1));
+    assert!(!converted.report.hypothesis_fields.contains_key("actor_base_names (NPC_/CREA bit 5) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("tact_names (TACT bit 2) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("reference_places (bit-3 cell-change suffix) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("actor_script_vars (actor extra 0x0D) [hypothesis]"));
+    assert_eq!(
+        converted.report.hypothesis_fields.get("terminals (extra 0x50 bit-7 hacked) [hypothesis]"),
+        Some(&1)
+    );
+    assert!(!converted.report.hypothesis_fields.contains_key("actor_avs (multi-process / tok[18] / bit-20-only) [hypothesis]"));
+
+    let dir = std::env::temp_dir().join(format!("nvf-fos-convert-v3-{}", std::process::id()));
+    let out = dir.join("v3_full.nvfsave");
+    let body_bytes = serde_json::to_vec(&converted.body).unwrap();
+    fnv_save::write(&out, &converted.header, &converted.shot, &body_bytes, false).unwrap();
+
+    let (_h, _shot, body): (SaveHeader, Vec<u8>, SaveBody<GameSnapshot>) = fnv_save::read_body(&out).unwrap();
+    body.game.check().unwrap();
+    let restored_world = World::restore(&f.forms, &f.refs, &body.game.sim).unwrap();
+    let restored = Game::restore(&f.data, restored_world, GameConfig::default(), &body.game).unwrap();
+
+    // Companion with Havok + bit-3 cell change + 0x0D init_flag=1 + 0x2E flags=0x10 + package + AVs + BUG #6/#16
+    let comp_st = restored.world.peek(FormId(COMPANION_REF)).unwrap();
+    assert_eq!(comp_st.pos, [10.0, 20.0, 30.0]);
+    let comp_ex = restored.extra.get(&FormId(COMPANION_REF)).unwrap();
+    assert!(comp_ex.talked_to_pc);
+    assert_eq!(comp_ex.current_package, Some(FormId(PACK_ID)));
+    assert_eq!(comp_ex.av_damage.get(&16), Some(&25.0));
+    assert_eq!(comp_ex.actor_values.get(&54), Some(&140.0));
+    assert_eq!(comp_ex.av_permanent.get(&5), Some(&4.0));
+    // BUG #16: bit-20 AV1 active modifiers (18, 41) must NOT be double-counted into av_permanent!
+    assert!(!comp_ex.av_permanent.contains_key(&18));
+    assert!(!comp_ex.av_permanent.contains_key(&41));
+    let comp_inst = restored.instances.get(&InstKey::Ref { reference: FormId(COMPANION_REF) }).unwrap();
+    assert_eq!(comp_inst.vars.get(&1), Some(&Value::Num(1.0)));
+
+    // Dead NPC: dismembered limb + ash pile linked to created REFR
+    let dead_ex = restored.extra.get(&FormId(DEAD_NPC_REF)).unwrap();
+    assert!(dead_ex.dead);
+    assert_eq!(dead_ex.limbs_gone.get(&1), Some(&true));
+    let ash_id = dead_ex.ash_pile.expect("ash pile linked");
+    assert_eq!(restored.extra.get(&ash_id).unwrap().ash_pile_source, Some(FormId(DEAD_NPC_REF)));
+
+    // Terminals, destructible, closed door, non-door animation group & ref scale
+    assert_eq!(
+        restored.terminals.access.get(&FormId(TERM_REF)),
+        Some(&fnv_game::terminal::Access::Hacked)
+    );
+    assert_eq!(
+        restored.terminals.access.get(&FormId(TERM_LOCK_REF)),
+        Some(&fnv_game::terminal::Access::LockedOut)
+    );
+    assert_eq!(
+        restored.terminals.script_locks.get(&FormId(TERM_LOCK_REF)),
+        Some(&fnv_game::terminal::ScriptLock { locked: true, level: 2 })
+    );
+    assert!(restored.extra.get(&FormId(DEST_REF)).unwrap().destroyed);
+    assert!(!restored.world.peek(FormId(DOOR_REF)).unwrap().open);
+    assert_eq!(restored.world.peek(FormId(PROP_REF)).unwrap().scale, Some(1.25));
+    assert_eq!(restored.anims.asked(FormId(PROP_REF)).map(|(_, n)| n), Some("Forward"));
+
+    // Created ACHR + ACRE placed cleanly (dynamic FormIds follow created ash pile)
+    let created_achr = FormId(FormId::FIRST_DYNAMIC.0 + 1);
+    let created_acre = FormId(FormId::FIRST_DYNAMIC.0 + 2);
+    assert_eq!(restored.world.peek(created_achr).unwrap().base, FormId(NPC_BASE));
+    assert_eq!(restored.world.peek(created_achr).unwrap().scale, Some(1.1));
+    assert_eq!(restored.extra.get(&created_achr).unwrap().current_package, Some(FormId(PACK_ID)));
+    assert_eq!(restored.extra.get(&created_achr).unwrap().av_damage.get(&16), Some(&12.0));
+    assert_eq!(restored.extra.get(&created_achr).unwrap().av_permanent.get(&18), Some(&15.0));
+    assert_eq!(restored.world.peek(created_acre).unwrap().base, FormId(CREA_BASE));
+    assert!(restored.extra.get(&created_acre).unwrap().dead);
+
+    // PGRE, ECZN, FACT modifier, CELL public flag, NPC/CREA essential, TACT actor, MISC flags/value
+    let pgre_st = restored.world.peek(FormId(PGRE_REF)).unwrap();
+    assert!(!pgre_st.enabled());
+    assert_eq!(pgre_st.pos, [1.0, 2.0, 3.0]);
+    assert_eq!(restored.world.zone_level(FormId(ECZN_ID)), Some(22));
+    assert_eq!(restored.world.snapshot().zone_respawns.get(&FormId(ECZN_ID)), Some(&false));
+    assert_eq!(
+        restored.forms.faction_modifiers.get(&FormId(FACT_A)).and_then(|m| m.get(&FormId(FACT_B))),
+        Some(&-25)
+    );
+    assert_eq!(restored.forms.public_cells.get(&FormId(ROOM_ID)), Some(&true));
+    assert_eq!(restored.forms.essential.get(&FormId(NPC_BASE)), Some(&true));
+    assert_eq!(restored.forms.essential.get(&FormId(CREA_BASE)), Some(&true));
+    let tact_ex = restored.extra.get(&FormId(TACT_REF)).unwrap();
+    assert!(tact_ex.talking_actor_set);
+    assert_eq!(tact_ex.talking_actor, Some(FormId(COMPANION_REF)));
+    assert_eq!(restored.forms.quest_items.get(&FormId(ITEM_ID)), Some(&true));
+    assert_eq!(restored.forms.item_values.get(&FormId(ITEM_ID)), Some(&77));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn v3_non_finite_floats_in_actor_avs_and_created_actors_are_sanitized() {
+    let f = fixture();
+    let fids = [
+        ROOM_ID,       // 1
+        COMPANION_REF, // 2
+        PACK_ID,       // 3
+        0xFF00_0201,   // 4: created ACHR with NaN scale & Inf AVs
+        NPC_BASE,      // 5
+    ];
+
+    let mut h = Build { b: Vec::new() };
+    h.u32(0x30).bar();
+    h.b.extend([0u8; 64]);
+    h.bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(56)
+        .bar()
+        .s_field("CleanV3", true)
+        .s_field("Drifter", true)
+        .u32(5)
+        .bar()
+        .s_field("OwnTestRoom", true)
+        .s_field("001.00.00", false);
+
+    let mut b = b"FO3SAVEGAME".to_vec();
+    b.extend((h.b.len() as u32).to_le_bytes());
+    b.extend(&h.b);
+    let mut pl = Build { b: Vec::new() };
+    pl.u8(1).bar().s_field("FalloutNV.esm", true);
+    b.push(27);
+    b.extend((pl.b.len() as u32).to_le_bytes());
+    b.extend(&pl.b);
+    let table_at = b.len();
+    b.extend([0u8; 32 + 78]);
+    let g1 = b.len();
+    let cf = b.len();
+
+    // 1. Companion ACHR (r(2)): High-Process with NaN av_damage, Inf bit-20 AV1, and Inf bit-23 ModAV.
+    let mut comp = Build { b: Vec::new() };
+    comp.u8(0).bar().vs(0).bar();
+    push_high_process_block(&mut comp, 3, &[(16, f32::NAN)], &[(18, f32::INFINITY)]);
+    comp.r(0).bar().r(0).bar().r(0).bar();
+    comp.vs(1).bar().u8(5).bar().f32(f32::INFINITY).bar();
+    comp.b.extend_from_slice(b"\xFF\xFF\x7C\xFF\xFF\x7C\x00\x7C\x01\x01\x00\x00\x7C");
+    push_record(&mut b, 2, (1 << 18) | (1 << 23), TYPE_ACHR, &comp.b);
+
+    // 2. Created ACHR (r(4)): NaN scale + -Inf av_damage.
+    let mut c_achr = Build { b: Vec::new() };
+    c_achr.r(1).f32(1.0).f32(2.0).f32(3.0).f32(0.0).f32(0.0).f32(0.0).u8(1).r(5).bar();
+    c_achr.u8(0).bar().f32(f32::NAN).bar();
+    push_high_process_block(&mut c_achr, 3, &[(54, f32::NEG_INFINITY)], &[]);
+    push_record(&mut b, 4, (1 << 1) | (1 << 4), TYPE_ACHR, &c_achr.b);
+
+    let g2 = b.len();
+    b.extend(1000u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    let fid = b.len();
+    b.extend((fids.len() as u32).to_le_bytes());
+    for fid_val in fids {
+        b.extend(fid_val.to_le_bytes());
+    }
+    b.extend(0u32.to_le_bytes());
+    let tail = b.len();
+    b.extend([5, 0, 0, 0, 0, 0, 0, 0, BAR]);
+    let table = [fid, tail, g1, cf, g2, 0, 1, 2].map(|v| v as u32);
+    for (i, v) in table.iter().enumerate() {
+        b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    let fos = Fos::parse(&b).unwrap();
+    let opts = ConvertOptions {
+        kind: SaveKind::Manual,
+        plugins: vec![PluginEntry { name: "FalloutNV.esm".into(), size: 1234 }],
+        include_thumbnail: false,
+        cosave_present: false,
+    };
+    let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
+    assert_eq!(converted.report.skipped.get("actor_av_damage: non-finite value"), Some(&2));
+    assert_eq!(converted.report.skipped.get("actor_scale: non-finite value"), Some(&1));
+
+    let dir = std::env::temp_dir().join(format!("nvf-fos-convert-v3-nan-{}", std::process::id()));
+    let out = dir.join("v3_sanitized.nvfsave");
+    let body_bytes = serde_json::to_vec(&converted.body).unwrap();
+    fnv_save::write(&out, &converted.header, &converted.shot, &body_bytes, false).unwrap();
+
+    let (_h, _shot, body): (SaveHeader, Vec<u8>, SaveBody<GameSnapshot>) = fnv_save::read_body(&out).unwrap();
+    body.game.check().unwrap();
+    let restored_world = World::restore(&f.forms, &f.refs, &body.game.sim).unwrap();
+    let restored = Game::restore(&f.data, restored_world, GameConfig::default(), &body.game).unwrap();
+    assert!(restored.extra.get(&FormId(COMPANION_REF)).unwrap().av_damage.is_empty());
+    assert!(restored.extra.get(&FormId(COMPANION_REF)).unwrap().av_permanent.is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn push_multi_process_block(
+    out: &mut Build,
+    pkg_ref_idx: u32,
+    av_damage: Option<&[(u8, f32)]>,
+    av_permanent: Option<&[(u8, f32)]>,
+) {
+    for _ in 0..8 {
+        out.u8(0).bar();
+    }
+    out.f32(0.0).bar().f32(0.0).bar().u8(0).bar().u8(0).bar();
+    out.r(0).bar().r(0).bar().u32(0).bar().f32(0.0).bar().u32(0).bar();
+    out.r(pkg_ref_idx).bar();
+    out.u8(0).bar(); // tok[18] == 0
+    if pkg_ref_idx != 0 {
+        out.f32(0.0).bar().f32(0.0).bar().f32(0.0).bar().r(0).bar().u8(0).bar();
+    }
+    out.f32(0.0).bar().r(0).bar().f32(0.0).bar().f32(0.0).bar().f32(0.0).bar();
+    out.u8(0).bar().u16(0).bar().f32(0.0).bar().f32(0.0).bar();
+    for _ in 0..5 {
+        out.r(0).bar();
+    }
+    out.u8(0).bar();
+    if let Some(dmg) = av_damage {
+        out.vs(dmg.len() as u32).bar();
+        for &(code, val) in dmg {
+            out.u8(code).bar().f32(val).bar();
+        }
+    }
+    if let Some(perm) = av_permanent {
+        out.u32(0).bar();
+        out.vs(perm.len() as u32).bar();
+        for &(code, val) in perm {
+            out.u8(code).bar().f32(val).bar();
+        }
+    }
+}
+
+#[test]
+fn v4_hotkeys_chosen_ammo_active_effects_mid_low_avs_created_ref_vars_and_faction_flags_round_trip() {
+    let f = fixture();
+    let fids = [
+        ROOM_ID,        // 1
+        PLAYER_REF,     // 2
+        WEAP_ID,        // 3
+        AMMO_ID,        // 4
+        WEAP2_ID,       // 5
+        AMMO2_ID,       // 6
+        ALCH_BUFF_ID,   // 7
+        ITEM_WORN_ID,   // 8
+        COMPANION_REF,  // 9
+        NPC_REF,        // 10
+        PACK_ID,        // 11
+        0xFF00_0301,    // 12: created REFR
+        ASH_BASE,       // 13
+        0xFF00_0302,    // 14: created ACHR
+        NPC_BASE,       // 15
+        QUEST_ID,       // 16
+        DOOR_REF,       // 17
+        DOOR_SCRIPT_ID, // 18
+        FACT_A,         // 19
+    ];
+
+    let mut h = Build { b: Vec::new() };
+    h.u32(0x30).bar();
+    h.b.extend([0u8; 64]);
+    h.bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(60)
+        .bar()
+        .s_field("CourierV4", true)
+        .s_field("Drifter", true)
+        .u32(25)
+        .bar()
+        .s_field("OwnTestRoom", true)
+        .s_field("012.30.00", false);
+
+    let mut b = b"FO3SAVEGAME".to_vec();
+    b.extend((h.b.len() as u32).to_le_bytes());
+    b.extend(&h.b);
+    let mut pl = Build { b: Vec::new() };
+    pl.u8(1).bar().s_field("FalloutNV.esm", true);
+    b.push(27);
+    b.extend((pl.b.len() as u32).to_le_bytes());
+    b.extend(&pl.b);
+    let table_at = b.len();
+    b.extend([0u8; 32 + 78]);
+    let g1 = b.len();
+    let cf = b.len();
+
+    // 1. Player ACHR: 3 items (worn WEAP_ID hotkey 0 + AMMO_ID 6 rounds, unworn WEAP2_ID hotkey 2 + AMMO2_ID 4 rounds,
+    //    ALCH_BUFF_ID hotkey 7) + tail with 1 timed buff active effect + 1 permanent worn enchantment.
+    let mut pr = Build { b: Vec::new() };
+    pr.r(1).f32(1.0).f32(2.0).f32(3.0).f32(0.0).f32(0.0).f32(0.0).bar();
+    for _ in 0..232 {
+        pr.f32(0.0).bar();
+    }
+    pr.u8(0).bar().f32(1.0).bar().vs(0).bar();
+    // Inventory: 3 items
+    pr.vs(3).bar();
+    // WEAP_ID: worn, mods=3, hotkey=0, ammo=AMMO_ID (6 rounds)
+    pr.r(3).bar().i32(1).bar().vs(1).bar().vs(4).bar();
+    pr.u8(0x16).bar();
+    pr.u8(0x8D).bar().u8(3).bar();
+    pr.u8(0x4A).bar().u8(0).bar();
+    pr.u8(0x6E).bar().r(4).bar().u32(6).bar();
+    // WEAP2_ID: unworn, hotkey=2, ammo=AMMO2_ID (4 rounds)
+    pr.r(5).bar().i32(1).bar().vs(1).bar().vs(2).bar();
+    pr.u8(0x4A).bar().u8(2).bar();
+    pr.u8(0x6E).bar().r(6).bar().u32(4).bar();
+    // ALCH_BUFF_ID: count=2, hotkey=7
+    pr.r(7).bar().i32(2).bar().vs(1).bar().vs(1).bar();
+    pr.u8(0x4A).bar().u8(7).bar();
+    // Tail: active effects list (2 effects) + 3 * u32(0) | + 0 teammate perks + 54-byte end trailer
+    pr.u32(0xDEAD_DEAD).bar().vs(0).bar();
+    pr.vs(2).bar();
+    // Timed non-worn Strength buff: ALCH_BUFF_ID idx 0, elapsed=12.0, mag=3.0, dur=60.0
+    let mut e0 = Build { b: Vec::new() };
+    e0.f32(12.0).bar();
+    for _ in 0..5 {
+        e0.u8(0).bar();
+    }
+    e0.f32(3.0).bar().f32(60.0).bar().u32(0x200).bar();
+    e0.r(2).bar().r(2).bar().r(0).bar().r(0).bar().u8(0).bar();
+    pr.r(7).bar().u8(0).bar().vs(1).bar().vs(e0.b.len() as u32).bar();
+    pr.b.extend(&e0.b);
+    // Permanent worn enchantment: duration=0.0, worn_item=ITEM_WORN_ID (must NOT be duplicated into g.effects)
+    let mut e1 = Build { b: Vec::new() };
+    e1.f32(0.0).bar();
+    for _ in 0..5 {
+        e1.u8(0).bar();
+    }
+    e1.f32(2.0).bar().f32(0.0).bar().u32(0).bar();
+    e1.r(2).bar().r(2).bar().r(0).bar().r(8).bar();
+    pr.r(7).bar().u8(0).bar().vs(0).bar().vs(e1.b.len() as u32).bar();
+    pr.b.extend(&e1.b);
+    for _ in 0..3 {
+        pr.u32(0).bar();
+    }
+    pr.vs(0).bar(); // 0 teammate perks
+    pr.u8(0).bar().u8(1).bar().u8(1).bar();
+    for _ in 0..8 {
+        pr.u32(0).bar();
+    }
+    for _ in 0..4 {
+        pr.u8(0).bar();
+    }
+    push_record(&mut b, 2, (1 << 1) | (1 << 4) | (1 << 5), TYPE_ACHR, &pr.b);
+
+    // 2. Mid-Process COMPANION_REF (pl=1, bit 18 + bit 21): av_damage Health=-30, Rads=55
+    let mut comp = Build { b: Vec::new() };
+    comp.u8(1).bar().vs(0).bar();
+    push_multi_process_block(&mut comp, 11, Some(&[(16, -30.0), (54, 55.0)]), None);
+    push_record(&mut b, 9, (1 << 18) | (1 << 21), TYPE_ACHR, &comp.b);
+
+    // 3. Low-Process NPC_REF (pl=3, bit 18 + bits 20+21+23, no package): av_damage Health=-15,
+    //    bit-20 AV1 Medicine=+25 (must NOT double-count), bit-23 ModAV Fatigue=+22.
+    let mut npc = Build { b: Vec::new() };
+    npc.u8(3).bar().vs(0).bar();
+    push_multi_process_block(&mut npc, 0, Some(&[(16, -15.0)]), Some(&[(37, 25.0)]));
+    npc.r(0).bar().r(0).bar().r(0).bar();
+    npc.vs(1).bar().u8(18).bar().f32(22.0).bar();
+    npc.b.extend_from_slice(b"\xFF\xFF\x7C\xFF\xFF\x7C\x00\x7C\x01\x01\x00\x00\x7C");
+    push_record(&mut b, 10, (1 << 18) | (1 << 20) | (1 << 21) | (1 << 23), TYPE_ACHR, &npc.b);
+
+    // 4. Created 0xFF00_0301 REFR (ASH_BASE) + Created 0xFF00_0302 ACHR (NPC_BASE)
+    let mut c_ref = Build { b: Vec::new() };
+    c_ref.r(1).f32(5.0).f32(6.0).f32(7.0).f32(0.0).f32(0.0).f32(0.0).u8(1).r(13).bar();
+    push_record(&mut b, 12, 1 << 1, TYPE_REFR, &c_ref.b);
+
+    let mut c_achr = Build { b: Vec::new() };
+    c_achr.r(1).f32(8.0).f32(9.0).f32(10.0).f32(0.0).f32(0.0).f32(0.0).u8(1).r(15).bar();
+    push_record(&mut b, 14, 1 << 1, TYPE_ACHR, &c_achr.b);
+
+    // 5. Quest QUEST_ID with ref var 2 (rTarget) pointing to created 0xFF00_0301 (r(12))
+    let mut q = Build { b: Vec::new() };
+    q.vs(1).bar().u32(0x8000_0002).bar().r(12).bar().vs(0).bar().vs(0).bar();
+    push_record(&mut b, 16, 1 << 30, TYPE_QUST, &q.b);
+
+    // 6. Door REFR with 0x0D ref var 2 (rLinker) pointing to created 0xFF00_0302 (r(14))
+    let mut dr = Build { b: Vec::new() };
+    dr.vs(1).bar();
+    dr.u8(0x0D).bar().r(18).bar().vs(1).bar().u32(0x8000_0002).bar().r(14).bar().vs(0).bar().u8(0).bar();
+    push_record(&mut b, 17, 1 << 31, TYPE_REFR, &dr.b);
+
+    // 7. FACT_A with bit 1 faction flags = 0x0302 (TRACK_CRIME | EVIL | ALLOW_SELL)
+    let mut fac = Build { b: Vec::new() };
+    fac.u32(0x0302).bar();
+    push_record(&mut b, 19, 1 << 1, TYPE_FACT, &fac.b);
+
+    let g2 = b.len();
+    b.extend(1000u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    let fid = b.len();
+    b.extend((fids.len() as u32).to_le_bytes());
+    for fid_val in fids {
+        b.extend(fid_val.to_le_bytes());
+    }
+    b.extend(0u32.to_le_bytes());
+    let tail = b.len();
+    b.extend([5, 0, 0, 0, 0, 0, 0, 0, BAR]);
+    let table = [fid, tail, g1, cf, g2, 0, 1, 8].map(|v| v as u32);
+    for (i, v) in table.iter().enumerate() {
+        b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    let fos = Fos::parse(&b).unwrap();
+    let inspect = inspect_fos(&fos, false);
+    assert!(inspect.parse_errors.is_empty());
+    assert_eq!(inspect.decoded_counts.get("player_active_effects"), Some(&2));
+
+    let opts = ConvertOptions {
+        kind: SaveKind::Manual,
+        plugins: vec![PluginEntry { name: "FalloutNV.esm".into(), size: 1234 }],
+        include_thumbnail: false,
+        cosave_present: false,
+    };
+    let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
+    assert_eq!(converted.report.converted.get("player_hotkeys"), Some(&3));
+    assert_eq!(converted.report.converted.get("player_chosen_ammo"), Some(&2));
+    assert_eq!(converted.report.converted.get("player_weapon_magazine"), Some(&1));
+    assert_eq!(converted.report.converted.get("player_unequipped_magazines"), Some(&1));
+    assert_eq!(converted.report.converted.get("player_active_effects"), Some(&1));
+    assert_eq!(converted.report.converted.get("created_ref_script_vars"), Some(&2));
+    assert_eq!(converted.report.converted.get("faction_flags"), Some(&1));
+    assert!(!converted.report.hypothesis_fields.contains_key("player_hotkeys (extra 0x4A) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("player_active_effects (ACHR tail) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("faction_flags (FACT bit 1) [hypothesis]"));
+    assert_eq!(converted.report.hypothesis_fields.get("player_chosen_ammo (extra 0x6E) [hypothesis]"), Some(&2));
+    assert!(!converted.report.hypothesis_fields.contains_key("actor_avs (multi-process / tok[18] / bit-20-only) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("created_ref_script_vars (0xFF remapped) [hypothesis]"));
+
+    let dir = std::env::temp_dir().join(format!("nvf-fos-convert-v4-{}", std::process::id()));
+    let out = dir.join("v4_full.nvfsave");
+    let body_bytes = serde_json::to_vec(&converted.body).unwrap();
+    fnv_save::write(&out, &converted.header, &converted.shot, &body_bytes, false).unwrap();
+
+    let (_h, _shot, body): (SaveHeader, Vec<u8>, SaveBody<GameSnapshot>) = fnv_save::read_body(&out).unwrap();
+    body.game.check().unwrap();
+    assert_eq!(body.engine.magazine, Some((WEAP_ID, 6)));
+    assert_eq!(body.engine.magazine_ammo, Some(AMMO_ID));
+    assert_eq!(body.engine.chosen_ammo.get(&WEAP_ID), Some(&AMMO_ID));
+    assert_eq!(body.engine.chosen_ammo.get(&WEAP2_ID), Some(&AMMO2_ID));
+    let hk = body.engine.extra.get("hotkeys").and_then(|v| v.as_array()).expect("hotkeys array");
+    assert_eq!(hk.len(), 8);
+    assert_eq!(hk[0], serde_json::json!({ "item": WEAP_ID, "mods": 3 }));
+    assert!(hk[1].is_null());
+    assert_eq!(hk[2], serde_json::json!({ "item": WEAP2_ID, "mods": 0 }));
+    assert_eq!(hk[7], serde_json::json!({ "item": ALCH_BUFF_ID, "mods": 0 }));
+
+    let restored_world = World::restore(&f.forms, &f.refs, &body.game.sim).unwrap();
+    let restored = Game::restore(&f.data, restored_world, GameConfig::default(), &body.game).unwrap();
+
+    // Active timed effect restored with Modifier applied to temporary pool (no worn duplicate)
+    assert_eq!(restored.effects.len(), 1);
+    let ef = &restored.effects[0];
+    assert_eq!(ef.source, FormId(ALCH_BUFF_ID));
+    assert_eq!(ef.effect, FormId(MGEF_BUFF_ID));
+    assert_eq!(ef.magnitude, 3);
+    assert_eq!(ef.duration, 60.0);
+    assert_eq!(ef.elapsed, 12.0);
+    assert_eq!(ef.change.map(|c| c.applied), Some(3.0));
+    assert_eq!(restored.extra.get(&FormId::PLAYER_REF).unwrap().av_temporary.get(&5), Some(&3.0));
+
+    // Mid-Process and Low-Process actor AVs restored
+    let comp_ex = restored.extra.get(&FormId(COMPANION_REF)).unwrap();
+    assert_eq!(comp_ex.current_package, Some(FormId(PACK_ID)));
+    assert_eq!(comp_ex.av_damage.get(&16), Some(&30.0));
+    assert_eq!(comp_ex.actor_values.get(&54), Some(&55.0));
+    let npc_ex = restored.extra.get(&FormId(NPC_REF)).unwrap();
+    assert_eq!(npc_ex.av_damage.get(&16), Some(&15.0));
+    assert_eq!(npc_ex.av_permanent.get(&18), Some(&22.0));
+
+    // Created 0xFF script ref variables remapped to dynamic FormIds
+    let dyn_ref = FormId::FIRST_DYNAMIC;
+    let dyn_achr = FormId(FormId::FIRST_DYNAMIC.0 + 1);
+    let q_inst = restored.instances.get(&InstKey::Quest { quest: FormId(QUEST_ID) }).unwrap();
+    assert_eq!(q_inst.vars.get(&2), Some(&Value::Ref(dyn_ref.0)));
+    let dr_inst = restored.instances.get(&InstKey::Ref { reference: FormId(DOOR_REF) }).unwrap();
+    assert_eq!(dr_inst.vars.get(&2), Some(&Value::Ref(dyn_achr.0)));
+
+    // FACT bit-1 flags restored and read by live Game::faction_flags consumer
+    assert_eq!(restored.forms.faction_flags.get(&FormId(FACT_A)), Some(&0x0302));
+    assert_eq!(restored.faction_flags(FormId(FACT_A)), 0x0302);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn v4_non_finite_active_effect_floats_and_invalid_hotkey_slots_are_sanitized() {
+    let f = fixture();
+    let fids = [
+        ROOM_ID,      // 1
+        PLAYER_REF,   // 2
+        WEAP_ID,      // 3
+        ITEM_ID,      // 4 (MISC: cannot be hotkeyed)
+        ALCH_BUFF_ID, // 5
+    ];
+
+    let mut h = Build { b: Vec::new() };
+    h.u32(0x30).bar();
+    h.b.extend([0u8; 64]);
+    h.bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(61)
+        .bar()
+        .s_field("CleanV4", true)
+        .s_field("Drifter", true)
+        .u32(5)
+        .bar()
+        .s_field("OwnTestRoom", true)
+        .s_field("001.00.00", false);
+
+    let mut b = b"FO3SAVEGAME".to_vec();
+    b.extend((h.b.len() as u32).to_le_bytes());
+    b.extend(&h.b);
+    let mut pl = Build { b: Vec::new() };
+    pl.u8(1).bar().s_field("FalloutNV.esm", true);
+    b.push(27);
+    b.extend((pl.b.len() as u32).to_le_bytes());
+    b.extend(&pl.b);
+    let table_at = b.len();
+    b.extend([0u8; 32 + 78]);
+    let g1 = b.len();
+    let cf = b.len();
+
+    let mut pr = Build { b: Vec::new() };
+    pr.r(1).f32(0.0).f32(0.0).f32(0.0).f32(0.0).f32(0.0).f32(0.0).bar();
+    for _ in 0..232 {
+        pr.f32(0.0).bar();
+    }
+    pr.u8(0).bar().f32(1.0).bar().vs(0).bar();
+    // Inventory: WEAP_ID with invalid hotkey slots 1 (Ammo Swap) and 8 (out of range); MISC ITEM_ID with slot 3
+    pr.vs(2).bar();
+    pr.r(3).bar().i32(2).bar().vs(2).bar();
+    pr.vs(1).bar().u8(0x4A).bar().u8(1).bar();
+    pr.vs(1).bar().u8(0x4A).bar().u8(8).bar();
+    pr.r(4).bar().i32(1).bar().vs(1).bar().vs(1).bar().u8(0x4A).bar().u8(3).bar();
+    // Active effects: 2 entries with NaN / Inf floats
+    pr.u32(0xDEAD_DEAD).bar().vs(0).bar();
+    pr.vs(2).bar();
+    let mut e_nan = Build { b: Vec::new() };
+    e_nan.f32(0.0).bar();
+    for _ in 0..5 {
+        e_nan.u8(0).bar();
+    }
+    e_nan.f32(5.0).bar().f32(f32::NAN).bar().u32(0).bar();
+    e_nan.r(2).bar().r(2).bar().r(0).bar().r(0).bar();
+    pr.r(5).bar().u8(0).bar().vs(0).bar().vs(e_nan.b.len() as u32).bar();
+    pr.b.extend(&e_nan.b);
+    let mut e_inf = Build { b: Vec::new() };
+    e_inf.f32(f32::INFINITY).bar();
+    for _ in 0..5 {
+        e_inf.u8(0).bar();
+    }
+    e_inf.f32(5.0).bar().f32(60.0).bar().u32(0).bar();
+    e_inf.r(2).bar().r(2).bar().r(0).bar().r(0).bar();
+    pr.r(5).bar().u8(0).bar().vs(0).bar().vs(e_inf.b.len() as u32).bar();
+    pr.b.extend(&e_inf.b);
+    for _ in 0..3 {
+        pr.u32(0).bar();
+    }
+    pr.vs(0).bar();
+    pr.u8(0).bar().u8(1).bar().u8(1).bar();
+    for _ in 0..8 {
+        pr.u32(0).bar();
+    }
+    for _ in 0..4 {
+        pr.u8(0).bar();
+    }
+    push_record(&mut b, 2, (1 << 1) | (1 << 4) | (1 << 5), TYPE_ACHR, &pr.b);
+
+    let g2 = b.len();
+    b.extend(1000u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    let fid = b.len();
+    b.extend((fids.len() as u32).to_le_bytes());
+    for fid_val in fids {
+        b.extend(fid_val.to_le_bytes());
+    }
+    b.extend(0u32.to_le_bytes());
+    let tail = b.len();
+    b.extend([5, 0, 0, 0, 0, 0, 0, 0, BAR]);
+    let table = [fid, tail, g1, cf, g2, 0, 1, 1].map(|v| v as u32);
+    for (i, v) in table.iter().enumerate() {
+        b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    let fos = Fos::parse(&b).unwrap();
+    let opts = ConvertOptions {
+        kind: SaveKind::Manual,
+        plugins: vec![PluginEntry { name: "FalloutNV.esm".into(), size: 1234 }],
+        include_thumbnail: false,
+        cosave_present: false,
+    };
+    let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
+    assert_eq!(converted.report.skipped.get("player_hotkey: reserved or out-of-range hotkey slot"), Some(&2));
+    assert_eq!(converted.report.skipped.get("player_hotkey: item kind cannot be hotkeyed"), Some(&1));
+    assert_eq!(converted.report.skipped.get("player_active_effect: non-finite value"), Some(&2));
+
+    let dir = std::env::temp_dir().join(format!("nvf-fos-convert-v4-nan-{}", std::process::id()));
+    let out = dir.join("v4_sanitized.nvfsave");
+    let body_bytes = serde_json::to_vec(&converted.body).unwrap();
+    fnv_save::write(&out, &converted.header, &converted.shot, &body_bytes, false).unwrap();
+
+    let (_h, _shot, body): (SaveHeader, Vec<u8>, SaveBody<GameSnapshot>) = fnv_save::read_body(&out).unwrap();
+    body.game.check().unwrap();
+    assert!(!body.engine.extra.contains_key("hotkeys"));
+    assert!(body.game.effects.is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn v5_unequipped_magazines_saved_base_names_tok18_subblocks_and_bit20_only_round_trip() {
+    let f = fixture();
+    let fids = [
+        ROOM_ID,        // 1
+        PLAYER_REF,     // 2
+        WEAP2_ID,       // 3
+        AMMO2_ID,       // 4
+        NPC_BASE,       // 5
+        TACT_BASE,      // 6
+        COMPANION_REF,  // 7
+        NPC_REF,        // 8
+        DEAD_NPC_REF,   // 9
+        PACK_ID,        // 10
+    ];
+
+    let mut h = Build { b: Vec::new() };
+    h.u32(0x30).bar();
+    h.b.extend([0u8; 64]);
+    h.bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(65)
+        .bar()
+        .s_field("CourierV5", true)
+        .s_field("Drifter", true)
+        .u32(30)
+        .bar()
+        .s_field("OwnTestRoom", true)
+        .s_field("015.00.00", false);
+
+    let mut b = b"FO3SAVEGAME".to_vec();
+    b.extend((h.b.len() as u32).to_le_bytes());
+    b.extend(&h.b);
+    let mut pl = Build { b: Vec::new() };
+    pl.u8(1).bar().s_field("FalloutNV.esm", true);
+    b.push(27);
+    b.extend((pl.b.len() as u32).to_le_bytes());
+    b.extend(&pl.b);
+    let table_at = b.len();
+    b.extend([0u8; 32 + 78]);
+    let g1 = b.len();
+    let cf = b.len();
+
+    // 1. Player ACHR with unequipped WEAP2_ID carrying 0x6E (AMMO2_ID, 5 rounds) -> Extra::magazine = Some(5)
+    let mut pr = Build { b: Vec::new() };
+    pr.r(1).f32(1.0).f32(2.0).f32(3.0).f32(0.0).f32(0.0).f32(0.0).bar();
+    for _ in 0..232 {
+        pr.f32(0.0).bar();
+    }
+    pr.u8(0).bar().f32(1.0).bar().vs(0).bar();
+    pr.vs(1).bar();
+    pr.r(3).bar().i32(1).bar().vs(1).bar().vs(1).bar();
+    pr.u8(0x6E).bar().r(4).bar().u32(5).bar();
+    push_record(&mut b, 2, (1 << 1) | (1 << 4) | (1 << 5), TYPE_ACHR, &pr.b);
+
+    // 2. Non-player NPC_BASE with bit 5 base name override ("Renamed Scout")
+    let mut npc_base = Build { b: Vec::new() };
+    npc_base.s_field("Renamed Scout", true);
+    push_record(&mut b, 5, 1 << 5, TYPE_NPC, &npc_base.b);
+
+    // 3. TACT_BASE with bit 2 base name override ("Bunker Intercom")
+    let mut tact_base = Build { b: Vec::new() };
+    tact_base.s_field("Bunker Intercom", true);
+    push_record(&mut b, 6, 1 << 2, TYPE_TACT, &tact_base.b);
+
+    let push_actor_hdr = |out: &mut Build, proc_lvl: u8, pkg_idx: u32, tok18: u8| {
+        out.u8(proc_lvl).bar().vs(0).bar();
+        for _ in 0..8 {
+            out.u8(0).bar();
+        }
+        out.f32(0.0).bar().f32(0.0).bar().u8(0).bar().u8(0).bar();
+        out.r(0).bar().r(0).bar().u32(0).bar().f32(0.0).bar().u32(0).bar();
+        out.r(pkg_idx).bar();
+        out.u8(tok18).bar();
+    };
+    let push_actor_mid = |out: &mut Build, has_pkg: bool| {
+        if has_pkg {
+            out.f32(0.0).bar().f32(0.0).bar().f32(0.0).bar().r(0).bar().u8(0).bar();
+        }
+        out.f32(0.0).bar().r(0).bar().f32(0.0).bar().f32(0.0).bar().f32(0.0).bar();
+        out.u8(0).bar().u16(0).bar().f32(0.0).bar().f32(0.0).bar();
+        for _ in 0..5 {
+            out.r(0).bar();
+        }
+        out.u8(0).bar();
+    };
+
+    // 4. COMPANION_REF (pl=3, tok18=0x0C with 1 entry, bit 21): Health damage = -45.0
+    let mut comp = Build { b: Vec::new() };
+    push_actor_hdr(&mut comp, 3, 10, 0x0C);
+    for _ in 0..8 {
+        comp.u32(0).bar();
+    }
+    for _ in 0..4 {
+        comp.u8(0).bar();
+    }
+    comp.u32(0).bar().u8(0x7F).bar().u32(0).bar();
+    for _ in 0..4 {
+        comp.u32(0).bar();
+    }
+    comp.b.extend([0x80u8; 6]);
+    comp.bar();
+    for _ in 0..3 {
+        comp.r(0).bar();
+    }
+    comp.vs(1).bar().u32(3).bar().u32(1).bar().u32(0).bar().r(0).bar();
+    push_actor_mid(&mut comp, true);
+    comp.vs(1).bar().u8(16).bar().f32(-45.0).bar();
+    push_record(&mut b, 7, (1 << 18) | (1 << 21), TYPE_ACHR, &comp.b);
+
+    // 5. NPC_REF (pl=1, tok18=0x0D with 1 ref, bit 20 AV1 + bit 23 ModAV):
+    //    bit 20 Medicine +25 must NOT double-count; bit 23 ModAV Fatigue +28 IS restored!
+    let mut npc = Build { b: Vec::new() };
+    push_actor_hdr(&mut npc, 1, 10, 0x0D);
+    for _ in 0..3 {
+        npc.u32(0).bar();
+    }
+    npc.u8(1).bar().u8(0).bar().u32(0).bar().r(0).bar();
+    npc.vs(1).bar().r(1).bar();
+    push_actor_mid(&mut npc, true);
+    npc.u32(0).bar().vs(1).bar().u8(37).bar().f32(25.0).bar();
+    npc.r(0).bar().r(0).bar().r(0).bar();
+    npc.vs(1).bar().u8(18).bar().f32(28.0).bar();
+    npc.b.extend_from_slice(b"\xFF\xFF\x7C\xFF\xFF\x7C\x00\x7C\x01\x01\x00\x00\x7C");
+    push_record(&mut b, 8, (1 << 18) | (1 << 20) | (1 << 23), TYPE_ACHR, &npc.b);
+
+    // 6. DEAD_NPC_REF (pl=3, tok18=0x80 with no package, bit 21): Health damage = -99.0
+    let mut dead = Build { b: Vec::new() };
+    push_actor_hdr(&mut dead, 3, 0, 0x80);
+    push_actor_mid(&mut dead, false);
+    dead.vs(1).bar().u8(16).bar().f32(-99.0).bar();
+    push_record(&mut b, 9, (1 << 18) | (1 << 21), TYPE_ACHR, &dead.b);
+
+    let g2 = b.len();
+    b.extend(1000u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    let fid = b.len();
+    b.extend((fids.len() as u32).to_le_bytes());
+    for fid_val in fids {
+        b.extend(fid_val.to_le_bytes());
+    }
+    b.extend(0u32.to_le_bytes());
+    let tail = b.len();
+    b.extend([5, 0, 0, 0, 0, 0, 0, 0, BAR]);
+    let table = [fid, tail, g1, cf, g2, 0, 1, 6].map(|v| v as u32);
+    for (i, v) in table.iter().enumerate() {
+        b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    let fos = Fos::parse(&b).unwrap();
+    let opts = ConvertOptions {
+        kind: SaveKind::Manual,
+        plugins: vec![PluginEntry { name: "FalloutNV.esm".into(), size: 1234 }],
+        include_thumbnail: false,
+        cosave_present: false,
+    };
+    let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
+    assert_eq!(converted.report.converted.get("player_unequipped_magazines"), Some(&1));
+    assert_eq!(converted.report.converted.get("actor_base_names"), Some(&1));
+    assert_eq!(converted.report.converted.get("tact_names"), Some(&1));
+    assert!(!converted.report.hypothesis_fields.contains_key("actor_base_names (NPC_/CREA bit 5) [hypothesis]"));
+    assert!(!converted.report.hypothesis_fields.contains_key("tact_names (TACT bit 2) [hypothesis]"));
+    assert_eq!(converted.report.converted.get("actor_av_damage"), Some(&2));
+    assert_eq!(converted.report.converted.get("actor_av_permanent"), Some(&1));
+    assert!(!converted.report.hypothesis_fields.contains_key("actor_avs (multi-process / tok[18] / bit-20-only) [hypothesis]"));
+
+    let dir = std::env::temp_dir().join(format!("nvf-fos-convert-v5-{}", std::process::id()));
+    let out = dir.join("v5_full.nvfsave");
+    let body_bytes = serde_json::to_vec(&converted.body).unwrap();
+    fnv_save::write(&out, &converted.header, &converted.shot, &body_bytes, false).unwrap();
+
+    let (_h, _shot, body): (SaveHeader, Vec<u8>, SaveBody<GameSnapshot>) = fnv_save::read_body(&out).unwrap();
+    body.game.check().unwrap();
+    let restored_world = World::restore(&f.forms, &f.refs, &body.game.sim).unwrap();
+    let mut restored = Game::restore(&f.data, restored_world, GameConfig::default(), &body.game).unwrap();
+
+    // Unequipped weapon magazine round count persisted on Extra::magazine and survives equip!
+    let inv = restored.world.peek(FormId::PLAYER_REF).unwrap().inventory.as_ref().unwrap();
+    let weap2_extra = inv
+        .groups()
+        .find(|(id, _, _)| *id == FormId(WEAP2_ID))
+        .map(|(_, e, _)| e)
+        .expect("WEAP2_ID in player inventory");
+    assert_eq!(weap2_extra.magazine, Some(5));
+    restored.world.equip(FormId::PLAYER_REF, FormId(WEAP2_ID)).unwrap();
+    assert_eq!(
+        restored.world.peek(FormId::PLAYER_REF).unwrap().inventory.as_ref().unwrap().equipped_magazine(FormId(WEAP2_ID)),
+        Some(5)
+    );
+
+    // Savebaked base-form names restored into FormChanges::saved_names and live Game::script_name
+    assert_eq!(restored.script_name(FormId(NPC_BASE)), Some("Renamed Scout"));
+    assert_eq!(restored.script_name(FormId(TACT_BASE)), Some("Bunker Intercom"));
+
+    // Multi-process tok18 0x0C, 0x0D (bit-20 AV1 excluded + bit-23 ModAV kept), and 0x80 (no package) actor AVs restored
+    assert_eq!(restored.extra.get(&FormId(COMPANION_REF)).unwrap().av_damage.get(&16), Some(&45.0));
+    let npc_ex = restored.extra.get(&FormId(NPC_REF)).unwrap();
+    assert_eq!(npc_ex.av_permanent.get(&18), Some(&28.0));
+    assert!(!npc_ex.av_permanent.contains_key(&37));
+    assert_eq!(restored.extra.get(&FormId(DEAD_NPC_REF)).unwrap().av_damage.get(&16), Some(&99.0));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn v5_saved_names_cross_writer_priority_with_set_actor_full_name_set_cell_full_name_and_set_full_name_alt() {
+    use fnv_game::functions::Ctx;
+    use fnv_game::game::RunCtx;
+    use fnv_script::vm::{ArgValue, XVal};
+
+    let f = fixture();
+    let fids = [ROOM_ID, PLAYER_REF, NPC_BASE];
+
+    let mut h = Build { b: Vec::new() };
+    h.u32(0x30).bar();
+    h.b.extend([0u8; 64]);
+    h.bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(66)
+        .bar()
+        .s_field("CourierV5", true)
+        .s_field("Drifter", true)
+        .u32(10)
+        .bar()
+        .s_field("OwnTestRoom", true)
+        .s_field("002.00.00", false);
+
+    let mut b = b"FO3SAVEGAME".to_vec();
+    b.extend((h.b.len() as u32).to_le_bytes());
+    b.extend(&h.b);
+    let mut pl = Build { b: Vec::new() };
+    pl.u8(1).bar().s_field("FalloutNV.esm", true);
+    b.push(27);
+    b.extend((pl.b.len() as u32).to_le_bytes());
+    b.extend(&pl.b);
+    let table_at = b.len();
+    b.extend([0u8; 32 + 78]);
+    let g1 = b.len();
+    let cf = b.len();
+
+    // NPC_BASE renamed via .fos bit 5 ("Fos Scout")
+    let mut npc_base = Build { b: Vec::new() };
+    npc_base.s_field("Fos Scout", true);
+    push_record(&mut b, 3, 1 << 5, TYPE_NPC, &npc_base.b);
+
+    let g2 = b.len();
+    b.extend(1000u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    let fid = b.len();
+    b.extend((fids.len() as u32).to_le_bytes());
+    for fid_val in fids {
+        b.extend(fid_val.to_le_bytes());
+    }
+    b.extend(0u32.to_le_bytes());
+    let tail = b.len();
+    b.extend([5, 0, 0, 0, 0, 0, 0, 0, BAR]);
+    let table = [fid, tail, g1, cf, g2, 0, 1, 1].map(|v| v as u32);
+    for (i, v) in table.iter().enumerate() {
+        b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    let fos = Fos::parse(&b).unwrap();
+    let opts = ConvertOptions {
+        kind: SaveKind::Manual,
+        plugins: vec![PluginEntry { name: "FalloutNV.esm".into(), size: 1234 }],
+        include_thumbnail: false,
+        cosave_present: false,
+    };
+    let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &converted.body.game.sim).unwrap();
+    let mut g = Game::restore(&f.data, world, GameConfig::default(), &converted.body.game).unwrap();
+
+    let run_s = |g: &mut Game, body: &str| -> String {
+        match g.run_query(&format!("Begin Function {{ }}\nstring_var sOut\nlet sOut := {body}\nSetFunctionValue sOut\nEnd\n"), RunCtx::default()).unwrap() {
+            XVal::Str(s) => s,
+            other => panic!("{body}: {other:?}"),
+        }
+    };
+    let run_q = |g: &mut Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), RunCtx::default()).unwrap();
+    };
+
+    // 1. Converted .fos bit-5 rename populates FormChanges::saved_names and is visible to both script_name and GetName.
+    assert_eq!(g.script_name(FormId(NPC_BASE)), Some("Fos Scout"));
+    assert_eq!(run_s(&mut g, "GetName OwnNpcBase"), "Fos Scout");
+
+    // 2. Session-only SetName / SetFullNameAlt override GetName (`name_overrides > saved_names`)
+    // without mutating `FormChanges::saved_names` (SetFullNameAlt save persistence is left to its own issue).
+    run_q(&mut g, "SetName \"Session Scout\" OwnNpcBase");
+    assert_eq!(run_s(&mut g, "GetName OwnNpcBase"), "Session Scout");
+    assert_eq!(g.script_name(FormId(NPC_BASE)), Some("Fos Scout"));
+    run_q(&mut g, "SetFullNameAlt \"Alt Scout\" OwnNpcBase");
+    assert_eq!(run_s(&mut g, "GetName OwnNpcBase"), "Alt Scout");
+    assert_eq!(g.script_name(FormId(NPC_BASE)), Some("Fos Scout"));
+
+    // 3. Snapshot/restore keeps converted `saved_names` while dropping session-only `name_overrides`.
+    let snap0 = g.checked_snapshot().unwrap();
+    let w0 = World::restore(&f.forms, &f.refs, &snap0.sim).unwrap();
+    let mut g0 = Game::restore(&f.data, w0, GameConfig::default(), &snap0).unwrap();
+    assert_eq!(g0.script_name(FormId(NPC_BASE)), Some("Fos Scout"));
+    assert_eq!(run_s(&mut g0, "GetName OwnNpcBase"), "Fos Scout");
+
+    // 4. SetActorFullName (0x111C) must clear saved_names so it is NOT shadowed!
+    let ctx_actor = Ctx { unit: "test".into(), opcode: 0x111C, on: Some(FormId(NPC_REF)), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g0.call_function(&ctx_actor, &[ArgValue::Value(Value::Ref(MESG_RENAME_ID))]);
+    assert!(!g0.forms.saved_names.contains_key(&FormId(NPC_BASE)));
+    assert_eq!(g0.script_name(FormId(NPC_BASE)), Some("Message Name"));
+
+    // 5. SetCellFullName (0x111B) must clear saved_names on an interior cell so it is NOT shadowed!
+    g0.forms.saved_names.insert(FormId(ROOM_ID), "Saved Room".into());
+    assert_eq!(g0.script_name(FormId(ROOM_ID)), Some("Saved Room"));
+    let ctx_cell = Ctx { unit: "test".into(), opcode: 0x111B, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g0.call_function(&ctx_cell, &[ArgValue::Value(Value::Ref(ROOM_ID)), ArgValue::Value(Value::Ref(MESG_RENAME_ID))]);
+    assert!(!g0.forms.saved_names.contains_key(&FormId(ROOM_ID)));
+    assert_eq!(g0.script_name(FormId(ROOM_ID)), Some("Message Name"));
+
+    // 6. Verify final `names` survive snapshot/restore round-trip cleanly.
+    let snap = g0.checked_snapshot().unwrap();
+    let w2 = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let g2 = Game::restore(&f.data, w2, GameConfig::default(), &snap).unwrap();
+    assert_eq!(g2.script_name(FormId(NPC_BASE)), Some("Message Name"));
+    assert_eq!(g2.script_name(FormId(ROOM_ID)), Some("Message Name"));
+}
+
+#[test]
+fn v5_destructible_intermediate_stage_0x56_hp_and_hypothesis_field_tracking() {
+    let f = fixture();
+    let fids = [
+        ROOM_ID,      // 1
+        DEST_MID_REF, // 2 (intermediate non-destroy stage: 0x56=40.0 + 0x5B=stage 0, NO FORM_DESTROYED)
+        DEST_REF,     // 3 (destroyed stage: 0x56=0.0 + 0x5B=stage 1 with DESTROY flag, NO FORM_DESTROYED)
+        TERM_REF,     // 4 (0x50 0xFE script-unlock; see docs/spec-notes/save-files.md)
+        PGRE_REF,     // 5 (bit-3 cell-change placement; see docs/spec-notes/save-files.md)
+    ];
+
+    let mut h = Build { b: Vec::new() };
+    h.u32(0x30).bar();
+    h.b.extend([0u8; 64]);
+    h.bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(67)
+        .bar()
+        .s_field("CourierDest", true)
+        .s_field("Drifter", true)
+        .u32(10)
+        .bar()
+        .s_field("OwnTestRoom", true)
+        .s_field("003.00.00", false);
+
+    let mut b = b"FO3SAVEGAME".to_vec();
+    b.extend((h.b.len() as u32).to_le_bytes());
+    b.extend(&h.b);
+    let mut pl = Build { b: Vec::new() };
+    pl.u8(1).bar().s_field("FalloutNV.esm", true);
+    b.push(27);
+    b.extend((pl.b.len() as u32).to_le_bytes());
+    b.extend(&pl.b);
+    let table_at = b.len();
+    b.extend([0u8; 32 + 78]);
+    let g1 = b.len();
+    let cf = b.len();
+
+    // 1. DEST_MID_REF (r(2)): intermediate non-destroy stage 0 with 0x56 remaining HP = 40.0 (max 100 -> damage 60.0).
+    let mut d_mid = Build { b: Vec::new() };
+    d_mid.vs(2).bar().u8(0x56).bar().f32(40.0).bar().u8(0x5B).bar().r(0).bar().u32(0).bar();
+    push_record(&mut b, 2, 1 << 31, TYPE_REFR, &d_mid.b);
+
+    // 2. DEST_REF (r(3)): stage 1 (DESTROY flag) with 0x56 = 0.0 (even without FORM_DESTROYED bit 23).
+    let mut d_end = Build { b: Vec::new() };
+    d_end.vs(2).bar().u8(0x56).bar().f32(0.0).bar().u8(0x5B).bar().r(0).bar().u32(1).bar();
+    push_record(&mut b, 3, 1 << 31, TYPE_REFR, &d_end.b);
+
+    // 3. TERM_REF (r(4)): extra 0x50 with 0xFE script-unlock (flags=0x00, lock_level=0xFE).
+    let mut term = Build { b: Vec::new() };
+    term.vs(1).bar().u8(0x50).bar().u8(0x00).bar().u8(0xFE).bar();
+    push_record(&mut b, 4, 1 << 31, TYPE_REFR, &term.b);
+
+    // 4. PGRE_REF (r(5)): bit-3 cell-change placement prefix.
+    let mut pg = Build { b: Vec::new() };
+    pg.r(1).f32(9.0).f32(8.0).f32(7.0).f32(0.0).f32(0.0).f32(0.0);
+    pg.r(1).i16(0).i16(0).bar();
+    push_record(&mut b, 5, (1 << 1) | (1 << 3), TYPE_PGRE, &pg.b);
+
+    let g2 = b.len();
+    b.extend(1000u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    let fid = b.len();
+    b.extend((fids.len() as u32).to_le_bytes());
+    for fid_val in fids {
+        b.extend(fid_val.to_le_bytes());
+    }
+    b.extend(0u32.to_le_bytes());
+    let tail = b.len();
+    b.extend([5, 0, 0, 0, 0, 0, 0, 0, BAR]);
+    let table = [fid, tail, g1, cf, g2, 0, 1, 4].map(|v| v as u32);
+    for (i, v) in table.iter().enumerate() {
+        b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    let fos = Fos::parse(&b).unwrap();
+    let opts = ConvertOptions {
+        kind: SaveKind::Manual,
+        plugins: vec![PluginEntry { name: "FalloutNV.esm".into(), size: 1234 }],
+        include_thumbnail: false,
+        cosave_present: false,
+    };
+    let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
+    assert_eq!(converted.report.converted.get("destructibles"), Some(&2));
+    assert_eq!(converted.report.converted.get("terminals"), Some(&1));
+    assert_eq!(converted.report.converted.get("pgre_places"), Some(&1));
+    // Both terminal 0x50 0xFE script-unlock and PGRE bit-3 cell-change suffix are now [observed]!
+    assert!(
+        converted.report.hypothesis_fields.is_empty(),
+        "unexpected hypothesis_fields: {:?}",
+        converted.report.hypothesis_fields
+    );
+
+    let world = World::restore(&f.forms, &f.refs, &converted.body.game.sim).unwrap();
+    let restored = Game::restore(&f.data, world, GameConfig::default(), &converted.body.game).unwrap();
+
+    // Intermediate stage: damage = 60.0 (stage 0 reached), destroyed MUST remain false!
+    let mid_ex = restored.extra.get(&FormId(DEST_MID_REF)).unwrap();
+    assert_eq!(mid_ex.damage, Some(60.0));
+    assert!(!mid_ex.destroyed, "intermediate non-destroy stage must not mark destroyed");
+
+    // Destroyed stage: damage = 100.0 and destroyed = true!
+    let end_ex = restored.extra.get(&FormId(DEST_REF)).unwrap();
+    assert_eq!(end_ex.damage, Some(100.0));
+    assert!(end_ex.destroyed, "DESTROY stage must mark destroyed");
+
+    // Terminal 0xFE script-unlock applied cleanly.
+    assert_eq!(
+        restored.terminals.script_locks.get(&FormId(TERM_REF)),
+        Some(&fnv_game::terminal::ScriptLock { locked: false, level: -1 })
+    );
+}
+
+#[test]
+fn regression_bugs_14_to_18_round_trip_cleanly() {
+    let f = fixture();
+    let fids = [
+        ROOM_ID,       // 1
+        PLAYER_REF,    // 2
+        RADIO_REF,     // 3: Pip-Boy station
+        PROP_REF,      // 4: World radio speaker REFR
+        DOOR_REF,      // 5: World radio broadcast station
+        COMPANION_REF, // 6: NPC with bit-20 AV1 + bit-21 damage + bit-22 SetAV + bit-23 ModAV + tok[18]=0x10
+        NPC_REF,       // 7: Untouched NPC with bit-20 AV1 ONLY (must NOT write av_permanent!)
+        NPC_BASE,      // 8: Non-player NPC_ with bit-24 SexChange (01 7c)
+        PACK_ID,       // 9: AI package
+    ];
+
+    let mut h = Build { b: Vec::new() };
+    h.u32(0x30).bar();
+    h.b.extend([0u8; 64]);
+    h.bar()
+        .u32(0)
+        .bar()
+        .u32(0)
+        .bar()
+        .u32(70)
+        .bar()
+        .s_field("CourierBugs14_18", true)
+        .s_field("Drifter", true)
+        .u32(10)
+        .bar()
+        .s_field("OwnTestRoom", true)
+        .s_field("005.00.00", false);
+
+    let mut b = b"FO3SAVEGAME".to_vec();
+    b.extend((h.b.len() as u32).to_le_bytes());
+    b.extend(&h.b);
+    let mut pl = Build { b: Vec::new() };
+    pl.u8(1).bar().s_field("FalloutNV.esm", true);
+    b.push(27);
+    b.extend((pl.b.len() as u32).to_le_bytes());
+    b.extend(&pl.b);
+    let table_at = b.len();
+    b.extend([0u8; 32 + 78]);
+
+    // BUG #14: Global[10] with List 1 world radio speaker (4 u8 trailing bytes) + List 2 world station (with
+    // voice conversation block) AND Pip-Boy station (n_listeners == 0).
+    let g1 = b.len();
+    let mut t10 = Build { b: Vec::new() };
+    t10.u32(0).bar().u8(0).bar().s_field("", true);
+    t10.vs(1).bar().r(4).bar().u8(1).bar().u8(0).bar().u8(6).bar().u8(0).bar();
+    t10.vs(2).bar();
+    // Station 0: World radio (n_listeners = 1, has_conv = 1)
+    t10.r(5).bar().u32(2794).bar().u32(168_746).bar().u8(0x64).bar().u8(0x64).bar().u32(59).bar();
+    t10.vs(1).bar().r(4).bar().u8(1).bar();
+    t10.vs(1).bar().vs(1).bar();
+    t10.s_field("  ", true).s_field("Data\\Sound\\Voice\\FalloutNV.esm\\track.ogg", true);
+    t10.u32(0).bar().u32(50).bar().u8(1).bar();
+    t10.r(0).bar().r(0).bar().r(4).bar().s_field("", true);
+    t10.r(4).bar().r(4).bar().r(4).bar().r(5).bar().s_field("", true);
+    // Station 1: Pip-Boy radio (n_listeners = 0, has_conv = 0)
+    t10.r(3).bar().u32(18_852).bar().u32(1).bar().u8(0x64).bar().u8(0x64).bar().u32(51).bar();
+    t10.vs(0).bar().u8(0).bar();
+    t10.r(0).bar().r(0).bar().vs(0).bar();
+    b.extend(10u32.to_le_bytes());
+    b.extend((t10.b.len() as u32).to_le_bytes());
+    b.extend(&t10.b);
+
+    let cf = b.len();
+
+    let push_tok18_proc = |out: &mut Build, pl_lvl: u8, pkg_idx: u32, tok18: u8| {
+        out.u8(pl_lvl).bar().vs(0).bar();
+        for _ in 0..8 {
+            out.u8(0).bar();
+        }
+        out.f32(0.0).bar().f32(0.0).bar().u8(0).bar().u8(0).bar();
+        out.r(0).bar().r(0).bar().u32(0).bar().f32(0.0).bar().u32(0).bar();
+        out.r(pkg_idx).bar().u8(tok18).bar();
+        out.f32(0.0).bar().f32(0.0).bar().f32(0.0).bar().r(0).bar().u8(0).bar();
+        out.f32(0.0).bar().r(0).bar().f32(0.0).bar().f32(0.0).bar().f32(0.0).bar();
+        out.u8(0).bar().u16(0).bar().f32(0.0).bar().f32(0.0).bar();
+        for _ in 0..5 {
+            out.r(0).bar();
+        }
+        out.u8(0).bar();
+    };
+
+    // 1. COMPANION_REF (r(6)): Low-Process tok[18] = 0x10 (BUG #18) + bit-21 damage + bit-20 AV1 (BUG #16)
+    //    + bit-23 ModAV + bit-22 SetAV simultaneously (BUG #15).
+    let mut comp = Build { b: Vec::new() };
+    push_tok18_proc(&mut comp, 3, 9, 0x10);
+    comp.vs(1).bar().u8(16).bar().f32(-15.0).bar(); // bit 21 av_damage
+    comp.u32(0).bar().vs(1).bar().u8(37).bar().f32(25.0).bar(); // bit 20 AV1 (must NOT land in av_permanent!)
+    comp.r(0).bar().r(0).bar().r(0).bar();
+    // bit 23 ModAV: Charisma (8) +3.0, Luck (11) +5.0
+    comp.vs(2).bar().u8(8).bar().f32(3.0).bar().u8(11).bar().f32(5.0).bar();
+    // bit 22 SetAV: Medicine (37) = 80.0, Barter (32) = 75.0
+    comp.vs(2).bar().u8(37).bar().f32(80.0).bar().u8(32).bar().f32(75.0).bar();
+    comp.b.extend_from_slice(b"\xFF\xFF\x7C\xFF\xFF\x7C\x00\x7C\x01\x01\x00\x00\x7C");
+    push_record(
+        &mut b,
+        6,
+        (1 << 18) | (1 << 20) | (1 << 21) | (1 << 22) | (1 << 23),
+        TYPE_ACHR,
+        &comp.b,
+    );
+
+    // 2. Untouched NPC_REF (r(7)): bit-20 AV1 ONLY (TrainingMedicine +25) -> MUST NOT write av_permanent!
+    let mut doc = Build { b: Vec::new() };
+    push_tok18_proc(&mut doc, 0, 9, 0xFF);
+    doc.u32(0).bar().vs(1).bar().u8(37).bar().f32(25.0).bar();
+    push_record(&mut b, 7, (1 << 18) | (1 << 20), TYPE_ACHR, &doc.b);
+
+    // 3. BUG #17: Non-player NPC_BASE (r(8)): bit 24 SexChange (`01 7c`) -> female = true on NPC_REF!
+    push_record(&mut b, 8, 1 << 24, TYPE_NPC, &[0x01, BAR]);
+
+    // 4. Minimal PLAYER_REF (r(2)) so player_inventory is present and skipped is strictly empty.
+    let mut pr = Build { b: Vec::new() };
+    pr.r(1).f32(1.0).f32(2.0).f32(3.0).f32(0.0).f32(0.0).f32(0.0).bar();
+    for _ in 0..232 {
+        pr.f32(0.0).bar();
+    }
+    pr.u8(0).bar().vs(0).bar().vs(0).bar();
+    push_record(&mut b, 2, (1 << 1) | (1 << 5) | (1 << 31), TYPE_ACHR, &pr.b);
+
+    let g2 = b.len();
+    b.extend(1000u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    let fid = b.len();
+    b.extend((fids.len() as u32).to_le_bytes());
+    for fid_val in fids {
+        b.extend(fid_val.to_le_bytes());
+    }
+    b.extend(0u32.to_le_bytes());
+    let tail = b.len();
+    b.extend([5, 0, 0, 0, 0, 0, 0, 0, BAR]);
+    let table = [fid, tail, g1, cf, g2, 1, 1, 4].map(|v| v as u32);
+    for (i, v) in table.iter().enumerate() {
+        b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    let fos = Fos::parse(&b).unwrap();
+    let inspect = inspect_fos(&fos, false);
+    assert!(inspect.parse_errors.is_empty(), "parse_errors: {:?}", inspect.parse_errors);
+    assert_eq!(inspect.decoded_counts.get("radio_on"), Some(&1));
+    assert_eq!(inspect.decoded_counts.get("actor_base_changes"), Some(&1));
+
+    let opts = ConvertOptions {
+        kind: SaveKind::Manual,
+        plugins: vec![PluginEntry { name: "FalloutNV.esm".into(), size: 1234 }],
+        include_thumbnail: false,
+        cosave_present: false,
+    };
+    let converted = convert_fos(&fos, &f.data, &f.forms, &f.refs, &opts).unwrap();
+    assert!(
+        converted.report.hypothesis_fields.is_empty(),
+        "unexpected hypothesis_fields: {:?}",
+        converted.report.hypothesis_fields
+    );
+    assert!(
+        converted.report.skipped.is_empty(),
+        "unexpected skipped: {:?}",
+        converted.report.skipped
+    );
+    assert_eq!(converted.report.converted.get("actor_av_base_overrides"), Some(&2));
+    assert_eq!(converted.report.converted.get("actor_av_permanent"), Some(&2));
+    assert_eq!(converted.report.converted.get("actor_base_sex"), Some(&1));
+
+    let world = World::restore(&f.forms, &f.refs, &converted.body.game.sim).unwrap();
+    let restored = Game::restore(&f.data, world, GameConfig::default(), &converted.body.game).unwrap();
+
+    // BUG #14: Pip-Boy radio selected cleanly despite world radio with conversation block preceding it.
+    assert!(restored.radio.pipboy.on);
+    assert_eq!(restored.radio.pipboy.station, Some(FormId(RADIO_REF)));
+
+    // BUG #15, #16, #18: Companion has tok[18]=0x10 damage, separated SetAV & ModAV, and NO bit-20 double-count!
+    let comp_ex = restored.extra.get(&FormId(COMPANION_REF)).unwrap();
+    assert_eq!(comp_ex.av_damage.get(&16), Some(&15.0));
+    assert_eq!(comp_ex.actor_values.get(&37), Some(&80.0));
+    assert_eq!(comp_ex.actor_values.get(&32), Some(&75.0));
+    assert_eq!(comp_ex.av_permanent.get(&8), Some(&3.0));
+    assert_eq!(comp_ex.av_permanent.get(&11), Some(&5.0));
+    assert!(!comp_ex.av_permanent.contains_key(&37));
+    assert!(!comp_ex.av_permanent.contains_key(&32));
+
+    // BUG #16 & #17: Untouched NPC_REF has NO av_permanent from bit-20 AV1 AND IS female from NPC_BASE bit-24 SexChange!
+    let npc_ex = restored.extra.get(&FormId(NPC_REF)).unwrap();
+    assert!(npc_ex.av_permanent.is_empty());
+    assert_eq!(npc_ex.female, Some(true));
+    assert!(restored.actor_female(FormId(NPC_REF)));
 }

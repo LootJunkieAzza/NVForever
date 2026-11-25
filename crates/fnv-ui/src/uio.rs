@@ -9,11 +9,24 @@ use std::collections::HashSet;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Condition {
     True,
-    /// [design] Literal false condition, avoiding an unknown-condition warning.
+    /// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + UI Organizer 230,
+    /// 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+    /// clean-room staging copy (synthetic `Data\uio\public\W4ETest.txt` and prefab XMLs
+    /// staged strictly inside the isolated copy and removed after exit; read-only
+    /// `PrintToConsole` probe; zero writes to game install or Saves),
+    /// `w4e_c10_uio_230_conditions_and_3line` (`tools/capture/nvse/catalogs/wave4e_mods.json`,
+    /// PR #3803 / #3802):
+    /// `PROBE|w4e_c10_uio_230_conditions_and_3line|ok=1|3line=1|false=-999|vuip=-999|darn=-999|darnui=-999`;
+    /// zero DLL, PDB, or third-party source consulted] Literal `false` condition (skips
+    /// injection without warning).
     False,
-    /// [hypothesis] Built-in UIO condition for Vanilla UI Plus (`vui+`; UIO DLL/source not consulted).
+    /// [observed: `w4e_c10_uio_230_conditions_and_3line` (`wave4e_mods.json`, PR #3803 / #3802),
+    /// same isolated staging run] Built-in UIO condition for Vanilla UI Plus (`vui+`; evaluates
+    /// false on vanilla install, `!vui+ && !darn` injects).
     VuiPlus,
-    /// [hypothesis] Built-in UIO condition for DarNified UI (`darn` / `darnui`; UIO DLL/source not consulted).
+    /// [observed: `w4e_c10_uio_230_conditions_and_3line` (`wave4e_mods.json`, PR #3803 / #3802),
+    /// same isolated staging run] Built-in UIO condition for DarNified UI (`darn` / `darnui`;
+    /// both evaluate false on vanilla install, `!vui+ && !darn` and `!darnui` inject).
     DarnUi,
     Plugin(String),
     File(String),
@@ -92,20 +105,22 @@ impl Condition {
     }
 }
 
-/// [hypothesis] Detects Vanilla UI Plus from its active plugin or core VUI+ prefabs
-/// observed in public UIO lists (`@Prefabs\VUI+\settings.xml`, `#VUI+\hudcenteredtext.xml`).
-/// UIO's DLL and source code were not consulted.
+/// [hypothesis] Positive-presence detection for Vanilla UI Plus from its active plugin or
+/// core VUI+ prefabs observed in public UIO lists (`@Prefabs\VUI+\settings.xml`,
+/// `#VUI+\hudcenteredtext.xml`); vanilla-absent false evaluation is `[observed]` via
+/// `w4e_c10_uio_230_conditions_and_3line`. UIO's DLL and source code were not consulted.
 fn has_vui_plus(src: &dyn Source, plugin: &dyn Fn(&str) -> bool) -> bool {
     plugin("vanilla ui plus.esp")
         || src.read(&prefab_path("vui+\\settings.xml")).is_some()
         || src.read(&prefab_path("vui+\\hudcenteredtext.xml")).is_some()
 }
 
-/// [hypothesis] Detects DarNified UI from its active plugin (`DarNifiedUINV.esp`),
-/// main settings prefab (`DUINVSettings.xml`), or core `darn\text_box.xml` prefab
-/// observed in public UIO lists (`@Prefabs\darn\text_box.xml`). Standalone font packs
-/// such as `menus\prefabs\DarN_Fonts\*` do not match. UIO's DLL and source code were
-/// not consulted.
+/// [hypothesis] Positive-presence detection for DarNified UI from its active plugin
+/// (`DarNifiedUINV.esp`), main settings prefab (`DUINVSettings.xml`), or core
+/// `darn\text_box.xml` prefab observed in public UIO lists (`@Prefabs\darn\text_box.xml`);
+/// vanilla-absent false evaluation is `[observed]` via `w4e_c10_uio_230_conditions_and_3line`.
+/// Standalone font packs such as `menus\prefabs\DarN_Fonts\*` do not match. UIO's DLL and
+/// source code were not consulted.
 fn has_darn_ui(src: &dyn Source, plugin: &dyn Fn(&str) -> bool) -> bool {
     plugin("darnifieduinv.esp")
         || src.read(&prefab_path("duinvsettings.xml")).is_some()
@@ -198,10 +213,14 @@ impl Lists {
                 }
                 i += 1;
                 let condition = Condition::parse(condition)?;
-                // [hypothesis] Some public UIO lists (AimCollisionIndicator.txt, Colorful
-                // Icons Support - ySI.txt, ySIAssortedFixes.txt) follow a condition line
-                // with a trailing `true` line. Consume at most one trailing `true` line
-                // while retaining line 2's condition; UIO DLL/source were not consulted.
+                // [observed: `w4e_c10_uio_230_conditions_and_3line` (`wave4e_mods.json`,
+                // PR #3803 / #3802):
+                // `PROBE|w4e_c10_uio_230_conditions_and_3line|ok=1|3line=1|false=-999|vuip=-999|darn=-999|darnui=-999`
+                // — UIO 230 injected a 3-line `!darnui` + trailing `true` public list entry cleanly;
+                // also seen in AimCollisionIndicator.txt, Colorful Icons Support - ySI.txt,
+                // ySIAssortedFixes.txt; zero DLL, PDB, or third-party source consulted] Consume at
+                // most one trailing `true` line while retaining line 2's condition (`[design]` for
+                // malformed 3rd-line recovery).
                 if lines.get(i).is_some_and(|&(_, extra)| extra.eq_ignore_ascii_case("true")) {
                     i += 1;
                 }

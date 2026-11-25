@@ -463,6 +463,27 @@ fn cannibal_devours_a_corpse() {
     assert!(!g.is_dead(sleeper));
 }
 
+/// A target E does nothing to without the list (a hostile actor, a creature with nothing
+/// to say, #3479): the perks' choices only, the last button closing the list.
+#[test]
+fn choices_without_a_default_action_close_on_the_last_button() {
+    let f = fixture();
+    let mut g = game(&f);
+    let victim = FormId(VICTIM_REF);
+    assert!(!g.open_activate_menu_only(victim), "no perk, no list");
+    g.player.perks.insert(FormId(SHUTDOWN), 1);
+    assert!(!g.open_activate_menu_only(victim), "not sneaking, no list");
+    g.set_motion(P, fnv_game::functions::senses::Motion { sneaking: true, ..Default::default() });
+    assert!(g.open_activate_menu_only(victim));
+    assert_eq!(g.menu, Some(menus::MESSAGE));
+    assert_eq!(g.pick_activate_choice(1), Some(Picked::Closed(victim)));
+    assert_eq!((g.menu, g.activate_menu.is_some()), (None, false));
+    assert!(g.open_activate_menu_only(victim));
+    assert!(matches!(g.pick_activate_choice(0), Some(Picked::Choice(ref c)) if c.label == "Deactivate"));
+    assert!(g.open_activate_menu(victim));
+    assert_eq!(g.pick_activate_choice(1), Some(Picked::Default(victim)), "with a default action as before");
+}
+
 /// Murder on a sleeper: the player in the act at once, the victim killed by the player
 /// when it ends (capture ac5c); an awake victim is refused and lives (the original
 /// crashed, ac5).

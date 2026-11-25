@@ -462,9 +462,14 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         return none();
     }
     let amount = a.num(1)?;
-    // God mode: a trap's script does not hurt the player ([`god_keeps_whole`]); no damage,
-    // so no health-damage or crippled-limb handlers either.
-    if amount > 0.0 && god_keeps_whole(g, r, code) {
+    // God mode (`god_keeps_whole`) and JIP `ToggleImmortalMode 2` (for Health) keep
+    // scripted `DamageActorValue` from hurting the player [observed: Fallout: New Vegas
+    // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, probe jip_45_immortal_mode_damageav_bypass:
+    // ToggleImmortalMode 2 kept Health at 200.0 across Player.DamageAV Health 10].
+    if amount > 0.0
+        && (god_keeps_whole(g, r, code)
+            || (r == FormId::PLAYER_REF && g.immortal_mode() == 2 && code == crate::actor_values::HEALTH))
+    {
         return none();
     }
     let limb_before = if crate::actor_values::LIMB_CONDITIONS.contains(&code) { Some(actor_value(g, r, code)?) } else { None };
@@ -807,13 +812,18 @@ flag!(set_unconscious_flag, get_unconscious, unconscious);
 /// `SetUnconscious flag`. On a dead actor it brings it back first, with no get-up
 /// animation [documented: GECK wiki SetUnconscious notes, "Using this on dead actors will
 /// cause them to be resurrected, but will not cause them to play a "get up" animation"];
-/// that it then lies unconscious under a flag of 1 is [hypothesis].
+/// that it then lies unconscious under a flag of 1 is [hypothesis]. Unconscious, it
+/// detects no one from this call on (`Game::forget_detected_by`).
 pub fn set_unconscious(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if g.is_dead(r) {
         g.resurrect(r, false);
     }
-    set_unconscious_flag(g, ctx, a)
+    let done = set_unconscious_flag(g, ctx, a)?;
+    if g.extra.get(&r).is_some_and(|e| e.unconscious) {
+        g.forget_detected_by(r);
+    }
+    Ok(done)
 }
 flag!(set_player_teammate, get_player_teammate, teammate);
 
@@ -910,17 +920,23 @@ pub fn set_actor_full_name(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
     let r = ctx.subject()?;
     let m = a.form(0)?;
     let b = base_of(g, r).unwrap_or(r);
+    g.forms.saved_names.remove(&b);
     g.forms.names.insert(b, m);
     none()
 }
 
 impl<'a> Game<'a> {
-    /// The name SetActorFullName gave a base form: the title (FULL), not the text, of the
-    /// message it named [documented: GECK wiki SetActorFullName summary]. `None` when no
-    /// script renamed the base, or the message has no title.
-    pub fn script_name(&self, base: FormId) -> Option<&'a str> {
+    /// The name `SetActorFullName` or a converted `.fos` save gave a base form
+    /// (`FormChanges::saved_names`, else the title (FULL) of the message in
+    /// `FormChanges::names`) [documented: GECK wiki SetActorFullName summary].
+    /// `None` when no saved rename exists.
+    pub fn script_name(&self, base: FormId) -> Option<&str> {
         let data: &'a crate::data::GameData = self.data;
-        self.forms.names.get(&base).and_then(|m| data.messages.get(m)).and_then(|d| d.title.as_deref())
+        self.forms
+            .saved_names
+            .get(&base)
+            .map(String::as_str)
+            .or_else(|| self.forms.names.get(&base).and_then(|m| data.messages.get(m)).and_then(|d| d.title.as_deref()))
     }
 }
 
@@ -1421,6 +1437,14 @@ pub fn same_sex(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let Some(other) = a.opt_form(0) else { return yes(false) };
     yes(is_female(g, r) == is_female(g, other))
+}
+
+/// `actor.SameSexAsPC`: 1 when the calling actor is the same sex as the player
+/// [documented: GECK wiki SameSexAsPC, "Returns 1 if the calling actor is the same sex as
+/// the player"]; as [`same_sex`] with the player as the other actor (#3787).
+pub fn same_sex_as_pc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(is_female(g, r) == is_female(g, FormId::PLAYER_REF))
 }
 
 /// The disposition HasFriendDisposition counts as a friend's. The GECK wiki names a

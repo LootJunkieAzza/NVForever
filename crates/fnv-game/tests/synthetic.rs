@@ -2727,7 +2727,7 @@ fn player_limb_losses_fit_the_10mm_capture_at_200_maximum_health() {
     let f = fixture();
     let p = FormId::PLAYER_REF;
     // [observed: o17_air limbs_10mm, check 3] The losses below; maximum Health 200
-    // remains [hypothesis], since that run did not record its base Health.
+    // remains open (see docs/spec-notes/combat-rules.md), since that run did not record its base Health.
     for (condition, share, health_damage, limb_damage, loss) in [
         (LEFT_ARM, 25.0, 16.06, 16.06, 16.06),
         (RIGHT_ARM, 25.0, 16.06, 16.06, 16.06),
@@ -2780,7 +2780,7 @@ fn limb_hits_lower_conditions_and_cripple() {
 /// torso's and the legs' condition points lost) the torso loses 1/30 of the Health
 /// damage and the legs 0.24 together, the head, arms and brain nothing [observed];
 /// nothing on a dead actor. The points come straight off the condition, whatever the
-/// actor's maximum Health [hypothesis: measured only at 5000 Health, on an NPC].
+/// actor's maximum Health (see docs/spec-notes/combat-rules.md; measured at 5000 Health, on an NPC).
 #[test]
 fn blasts_take_the_measured_limb_shares() {
     use fnv_game::combat::{blast_limb_shares, HEAD, LEFT_ARM, LEFT_MOBILITY, RIGHT_ARM, RIGHT_MOBILITY, TORSO};
@@ -2802,7 +2802,7 @@ fn blasts_take_the_measured_limb_shares() {
             assert_eq!(lost(c), 0.0, "{c} for {health}");
             assert!(!g.is_crippled(npc, c));
         }
-        // The left leg takes two thirds of the legs' share [hypothesis].
+        // The left leg takes two thirds of the legs' share (see docs/spec-notes/combat-rules.md).
         assert!((lost(LEFT_MOBILITY) - 2.0 * lost(RIGHT_MOBILITY)).abs() < 1e-9);
     }
     // A blast big enough cripples the left leg first; never an arm or the head.
@@ -3861,7 +3861,7 @@ fn activator_reads_button(g: &mut Game) -> Value {
 
 /// #2925: the Broken Mr. Handy in Black Mountain waits for button 0 after a box with no
 /// buttons. The player's OK on such a box gives the script that showed it 0, once, then
-/// −1 [hypothesis: inferred from SCPT 0x000E9483]; before, the box had no `message_box`
+/// −1 (inferred from SCPT 0x000E9483; see docs/spec-notes/scripts.md); before, the box had no `message_box`
 /// and GetButtonPressed read −1 for good.
 #[test]
 fn ok_on_a_message_box_without_buttons_gives_its_script_button_0_once() {
@@ -4470,7 +4470,10 @@ fn generic_form_lists_and_animation_lists_change_for_the_session() {
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
     let glob = XVal::Ref(0x0000_0901);
     let player = XVal::Ref(FormId::PLAYER_REF.0);
-    q(&mut g, "GenericAddForm 7, PlayerREF, TestAdd, -2\nGenericAddForm 7, PlayerREF, PlayerREF, 0");
+    // On an empty list, -2 appends and returns 0 [observed: w4d_04_generic_form_neg_idx,
+    // #3802 / PR #3803]; a subsequent index 0 inserts at front and shifts it to index 1.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 7, PlayerREF, TestAdd, -2)"), XVal::Num(0.0), "empty list -2 appends returning 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 7, PlayerREF, PlayerREF, 0)"), XVal::Num(0.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 0)"), player, "index 0 put first");
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 1)"), glob);
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 2)"), XVal::Ref(0), "outside the list");
@@ -4478,6 +4481,19 @@ fn generic_form_lists_and_animation_lists_change_for_the_session() {
     assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 7, PlayerREF, 1)"), glob);
     assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetBaseSpellListLevSpells PlayerREF))"), XVal::Num(1.0), "the getter sees it");
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 99, PlayerREF, 0)"), XVal::Ref(0), "no such list");
+    // Valid target past-end index 999 returns -1 without appending [observed: 2026-11-23,
+    // GSDocMitchellHouse (0x00103DF9), `core_13_generic_add_form_split`].
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 7, PlayerREF, TestAdd, 999)"), XVal::Num(-1.0), "valid target past-end index returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetBaseSpellListLevSpells PlayerREF))"), XVal::Num(1.0), "past-end index does not append");
+    // Mismatched target record types and unknown list codes return -1 for Add and 0 for
+    // Get/Delete/Replace [observed: `core_13_generic_add_form_split`].
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 1, PlayerREF, TestAdd, 0)"), XVal::Num(-1.0), "mismatched target at index 0 returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 1, PlayerREF, TestAdd, -2)"), XVal::Num(-1.0), "mismatched target at index -2 returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 1, PlayerREF, TestAdd, 999)"), XVal::Num(-1.0), "mismatched target at index 999 returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 1, PlayerREF, 0)"), XVal::Ref(0), "mismatched Get returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 1, PlayerREF, 0)"), XVal::Ref(0), "mismatched Delete returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 1, PlayerREF, TestAdd, 0)"), XVal::Ref(0), "mismatched Replace returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 99, PlayerREF, TestAdd, 0)"), XVal::Num(-1.0), "unknown list code returns -1");
 
     q(&mut g, "AddAnimation \"a.kf\" PlayerREF\nAddAnimation \"B.kf\" PlayerREF\nAddAnimation \"A.KF\" PlayerREF");
     let nth = |g: &mut fnv_game::Game, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.GetNthAnimation {i})\nEnd\n"), ctx()).unwrap();
@@ -4486,6 +4502,133 @@ fn generic_form_lists_and_animation_lists_change_for_the_session() {
     assert_eq!(nth(&mut g, 1), XVal::Str(String::new()));
     q(&mut g, "PlayerREF.DelAnimations");
     assert_eq!(nth(&mut g, 0), XVal::Str(String::new()));
+}
+
+#[test]
+fn generic_form_lists_validate_target_type_and_past_end_index() {
+    // [observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas
+    // 1.4.0.525, xNVSE 6.4.9 with the 10 official base masters, clean-room script probe
+    // `core_13_generic_add_form_split`]:
+    // (a) Valid targets (RACE 0/1, NPC_ 5, FLST 13) accept index 0 (returns 0) and -2
+    //     (appends, returns n0 - 1), and reject past-end index 999 with -1 without mutating.
+    // (b) Mismatched target record types (NPC_+1, RACE+5, FLST+1) reject GenericAddForm
+    //     with -1 even at valid index 0/-2, and return 00000000 for Get/Delete/Replace.
+    use fnv_script::vm::XVal;
+    let race = record(b"RACE", 0, 0x0000_0810, &[sub(b"EDID", z("TestRace")), sub(b"HNAM", 0x0000_0811u32.to_le_bytes().to_vec()), sub(b"ENAM", 0x0000_0812u32.to_le_bytes().to_vec())]);
+    let hair = record(b"HAIR", 0, 0x0000_0811, &[sub(b"EDID", z("TestHair"))]);
+    let eyes = record(b"EYES", 0, 0x0000_0812, &[sub(b"EDID", z("TestEye"))]);
+    let pkg = record(b"PACK", 0, 0x0000_0813, &[sub(b"EDID", z("TestPkg"))]);
+    let npc = record(b"NPC_", 0, 0x0000_0814, &[sub(b"EDID", z("TestNpc")), sub(b"PKID", 0x0000_0813u32.to_le_bytes().to_vec())]);
+    let flst = record(b"FLST", 0, 0x0000_0815, &[sub(b"EDID", z("TestFlst")), sub(b"LNAM", 0x0000_0813u32.to_le_bytes().to_vec())]);
+    let flst_empty = record(b"FLST", 0, 0x0000_0816, &[sub(b"EDID", z("TestEmptyFlst"))]);
+    let flst_multi = record(
+        b"FLST",
+        0,
+        0x0000_0817,
+        &[
+            sub(b"EDID", z("TestMultiFlst")),
+            sub(b"LNAM", 0x0000_0811u32.to_le_bytes().to_vec()),
+            sub(b"LNAM", 0x0000_0812u32.to_le_bytes().to_vec()),
+            sub(b"LNAM", 0x0000_0813u32.to_le_bytes().to_vec()),
+        ],
+    );
+    let bytes = [
+        tes4(),
+        top(b"HAIR", &hair),
+        top(b"EYES", &eyes),
+        top(b"RACE", &race),
+        top(b"PACK", &pkg),
+        top(b"NPC_", &npc),
+        top(b"FLST", &[flst, flst_empty, flst_multi].concat()),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "GenericLists.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+
+    // (a) Valid targets: RACE code 0 (Hair), RACE code 1 (Eyes), NPC_ code 5 (Packages), FLST code 13 (FormList).
+    for (code, target, item) in [(0, "TestRace", "TestHair"), (1, "TestRace", "TestEye"), (5, "TestNpc", "TestPkg"), (13, "TestFlst", "TestPkg")] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 999)")), XVal::Num(-1.0), "code {code} on {target} rejects 999");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericGetForm {code}, {target}, 1)")), XVal::Ref(0), "code {code} on {target} did not append on 999");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 0)")), XVal::Num(0.0), "code {code} on {target} inserts at 0");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, -2)")), XVal::Num(1.0), "code {code} on {target} appends with -2 returning n0 - 1");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 999)")), XVal::Num(-1.0), "code {code} on {target} still rejects 999 at len 3");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericGetForm {code}, {target}, 3)")), XVal::Ref(0), "code {code} on {target} len stayed 3");
+    }
+
+    // (b) Mismatched target record types: NPC_ + code 1, RACE + code 5, FLST + code 1.
+    for (code, target, item) in [(1, "TestNpc", "TestEye"), (5, "TestRace", "TestPkg"), (1, "TestFlst", "TestEye")] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 0)")), XVal::Num(-1.0), "mismatched {target} + code {code} Add(0)");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, -2)")), XVal::Num(-1.0), "mismatched {target} + code {code} Add(-2)");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 999)")), XVal::Num(-1.0), "mismatched {target} + code {code} Add(999)");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericGetForm {code}, {target}, 0)")), XVal::Ref(0), "mismatched {target} + code {code} Get");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericDeleteForm {code}, {target}, 0)")), XVal::Ref(0), "mismatched {target} + code {code} Delete");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericReplaceForm {code}, {target}, {item}, 0)")), XVal::Ref(0), "mismatched {target} + code {code} Replace");
+    }
+
+    // (c) Negative indices on empty and non-empty FLST [observed: w4d_04_generic_form_neg_idx,
+    // #3802 / PR #3803: `emp(n0=0,d=0/0/0/0:0,r=0:0/0:1/0/0:1,a=-1/0:1/-1/-1/-1:1)`]:
+    // Empty FLST (n0=0): Delete(-1/-2/-3/oob) all return 0 leaving n=0;
+    // Replace(-1/-3/oob) return 0 leaving n=0, while Replace(-2) returns 0 AND appends (n: 0->1);
+    // Add(-1/-3/-10/oob) return -1 leaving n=0, while Add(-2) returns 0 AND appends (n: 0->1).
+    for idx in [-1, -2, -3, 99] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, {idx})")), XVal::Ref(0), "empty FLST Delete({idx})");
+        assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0), "empty FLST count stayed 0 after Delete({idx})");
+    }
+    for idx in [-1, -3, 99] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericReplaceForm 13, TestEmptyFlst, TestPkg, {idx})")), XVal::Ref(0), "empty FLST Replace({idx})");
+        assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0), "empty FLST count stayed 0 after Replace({idx})");
+    }
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestEmptyFlst, TestPkg, -2)"), XVal::Ref(0), "empty FLST Replace(-2) returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "empty FLST Replace(-2) appends (n: 0->1)");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
+    for idx in [-1, -3, -10, 5] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, {idx})")), XVal::Num(-1.0), "empty FLST Add({idx})");
+        assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0), "empty FLST count stayed 0 after Add({idx})");
+    }
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, -2)"), XVal::Num(0.0), "empty FLST Add(-2) returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "empty FLST Add(-2) appends (n: 0->1)");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+
+    // Non-empty FLST (TestMultiFlst = [TestHair 0x811, TestEye 0x812, TestPkg 0x813], n0=3):
+    // Add: ONLY -2 appends (ret = n0 - 1 = 2, n = 4); -1/-3/-10/n+5 return -1.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -1)"), XVal::Num(-1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -2)"), XVal::Num(2.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(4.0));
+    for idx in [-3, -10, 9] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, {idx})")), XVal::Num(-1.0), "non-empty FLST Add({idx})");
+        assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(4.0));
+    }
+    // Replace: ONLY -2 replaces last entry (TestRace 0x810 -> TestNpc 0x814, returning 0x810);
+    // -1/-3/999 return 0 without mutating.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, -1)"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, -2)"), XVal::Ref(0x0000_0810));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestMultiFlst, 3)"), XVal::Ref(0x0000_0814));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, -3)"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, 999)"), XVal::Ref(0));
+    // Delete: -1, -2, -3 each remove an entry on a non-empty list (returning non-zero and
+    // decrementing count 4->3->2->1; [observed: w4d_04_generic_form_neg_idx]); removing
+    // index 0 (head of the list: 0x811, 0x812, 0x813; see docs/spec-notes/ext-console-generic.md §3 and crates/fnv-game/src/nvse_lists.rs). OOB 999 returns 0.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, -1)"), XVal::Ref(0x0000_0811));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, -2)"), XVal::Ref(0x0000_0812));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(2.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, -3)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestMultiFlst, 0)"), XVal::Ref(0x0000_0814));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, 999)"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(1.0));
 }
 
 #[test]

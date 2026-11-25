@@ -67,7 +67,7 @@ pub fn match_race(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// ClearFactionPlayerEnemyFlag on each.
 pub fn clear_actors_factions_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = a.form(0)?;
-    let tracks = |g: &Game, f: FormId| g.data.faction_flags.get(&f).is_some_and(|x| x & crate::crime::faction_flags::TRACK_CRIME != 0);
+    let tracks = |g: &Game, f: FormId| g.faction_flags(f) & crate::crime::faction_flags::TRACK_CRIME != 0;
     for f in actor::factions_of(g, r) {
         if tracks(g, f) {
             g.clear_enemy_of(f);
@@ -214,6 +214,7 @@ pub fn set_cell_full_name(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     if !g.data.messages.contains_key(&m) {
         return Err(format!("{} is not a message", g.data.name(m)));
     }
+    g.forms.saved_names.remove(&cell);
     g.forms.names.insert(cell, m);
     none()
 }

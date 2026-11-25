@@ -50,9 +50,25 @@ The reader (`fnv_ui::xml`) never fails. Its rules [hypothesis for each; the orig
 own rules are not known]:
 
 - an end tag closes the innermost open element of the name it gives, with the ones
-  opened inside it; when none of that name is open it closes the innermost open element
-  whatever its name; with nothing open it is dropped. Both MCM spots need this pair of
-  rules to come out as MCM evidently works in the original (one needs each rule);
+  opened inside it, treating `<hotrect>`/`</rect>` and `<rect>`/`</hotrect>` as matching
+  rect-family containers so a typo'd `</rect>` closing an inner `<hotrect>` (as in vanilla
+  `quest_added.xml` [observed: `Fallout - Misc.bsa`]) closes that `<hotrect>` and keeps
+  sibling tiles (e.g. `Button2`) parented under the enclosing `<rect>` rather than popping
+  the enclosing `<rect>` and leaving `<menu>` prematurely closed [observed: Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + UI Organizer 230 / vanilla XML parser, 2026-11-24,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room
+  staging copy (synthetic prefab XML staged strictly inside the isolated copy and removed
+  after exit; read-only `PrintToConsole` probe; zero writes to game install or Saves),
+  `w4h_01_quest_added_button2_parent` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
+  #3802): `PROBE|w4h_01_quest_added_button2_parent|hotrect_rect(ld=1,b1=11,b2Main=22,b2B1=-999,b2Menu=-999)|rect_hotrect(ld=1,in=33,sibMain=44,sibIn=-999,sibMenu=-999)`;
+  zero DLL, PDB, or third-party source consulted]; when none of that name is open it
+  closes the innermost open element whatever its name [hypothesis: preserving traits and
+  operators with typo'd end tags such as Vanilla UI Plus `globals.xml`'s
+  `<_VUI+ScreenRatio>…</_VUI+ScreenHeight>`, `vats_menu.xml`'s `<add>…</suaddb>`, and Just
+  Assorted Mods `jlm.xml`'s `<_JLMAction1..3>…</_JLMInteract1..3>` [observed: public XML
+  files; no third-party DLL or source code consulted]]; with nothing open it is dropped.
+  Both MCM spots need this pair of rules to come out as MCM evidently works in the
+  original (one needs each rule);
 - [hypothesis] an attributeless non-empty start tag `<T>` that is neither a tile/template
   container, `include`, nor an operator closes an open trait of the same name `<T>` when
   that trait already holds non-blank content and only operators (if any) are open inside
@@ -66,7 +82,10 @@ own rules are not known]:
   inner tags inside the trait and still warn);
 - what is still open at the end of a file is closed there (each included file is read
   on its own, so this stays inside the include);
-- a start tag cut short by `<` ends there, open (its own end tag follows);
+- a start tag cut short by `<` ends there: open when the cutting tag is its own closing
+  tag (`<systemcolor</systemcolor>` in two vanilla files [observed]), and self-closed
+  (empty) when cut short by a different start tag or enclosing end tag so following
+  sibling traits/tiles are not swallowed [hypothesis];
 - an element opened inside 256 open ones is left out with everything in it, up to its own
   end tag [design: `xml::MAX_DEPTH`, NVForever's own guard against running out of stack on
   a broken or crafted file, #3156; no vanilla file comes near it];
@@ -1533,3 +1552,18 @@ menu layouts.
   `user*` traits on `TEM_InputText` for scrollbar line math (`user0`/`user1`/`user2`),
   have not been observed in the original game; NVForever does not render `TextEditMenu`
   from its XML tiles yet (the hand-built `chargen::name` box continues to draw it).
+
+### 12.3 Shared `GenericMenu` class indexing (`fnv_ui::MenuIndex`)
+
+- [observed: vanilla `Fallout - Misc.bsa` `menus\generic\quest_added.xml` and
+  `menus\generic\skill_perk.xml`] Multiple distinct vanilla menus under `menus\generic\`
+  declare distinct `<menu name="...">` roots (`QuestAddedMenu`, `SkillPerkMenu`) while
+  sharing `<class>&GenericMenu;</class>`. `GenericMenu` is not one of the 40 single-file
+  `MENU_CLASSES` entries (`crates/fnv-ui/src/value.rs`).
+- [design: `crates/fnv-ui/src/index.rs`] When multiple files declare
+  `<class>&GenericMenu;</class>`, `MenuIndex::build` keeps the first sorted path in
+  `classes` (`class_path("GenericMenu")`), records additional paths in sorted order under
+  `variants("GenericMenu")`, and does not emit a spurious `duplicate menu class
+  genericmenu` warning. Each menu's `<menu name="...">` entry (`path(name)`) and all 40
+  `MENU_CLASSES` lookups (`code_path(code)`) are unchanged, and duplicate `<menu name="...">`
+  collisions still emit `duplicate menu ...` warnings as before.

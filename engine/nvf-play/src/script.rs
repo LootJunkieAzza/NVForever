@@ -312,6 +312,9 @@ pub struct Runtime {
     wake_talk: Option<(FormId, f64)>,
     /// The quest the opening starts (`crate::game_start`).
     start: GameStart,
+    /// The corner message of a New Game whose `sCharGenQuest` named no quest of the load
+    /// order (#3229), taken by `crate::game_start::notice`.
+    pub opening_notice: Option<String>,
     /// Where the player was last frame, and frames left whose time does not count (a
     /// door's loading screen).
     location: Option<Location>,
@@ -722,6 +725,7 @@ impl Runtime {
             new_game_files: false,
             wake_talk: None,
             start: GameStart::default(),
+            opening_notice: None,
             location: None,
             frozen_frames: 0,
             came_through: false,
@@ -817,7 +821,20 @@ impl Runtime {
                 let at = if state.stages_done.contains(&0) { " at stage 0" } else { "" };
                 info!("new game: {name} started{at} (now at stage {})", state.stage());
             }
-            Err(e) => warn!("new game: {}={}: {e}; no opening quest started", crate::game_start::CHARGEN_KEY, self.start.chargen_quest),
+            Err(e) => {
+                warn!("new game: {}={}: {e}", crate::game_start::CHARGEN_KEY, self.start.chargen_quest);
+                // #3229: never a silent empty start; the New Vegas opening instead, with a
+                // notice naming the setting.
+                let fallback = GameStart { chargen_quest: crate::game_start::DEFAULT_CHARGEN_QUEST.into(), ..self.start.clone() };
+                match fallback.quest(g) {
+                    Ok(q) if g.start_chargen_quest(q) => {
+                        info!("new game: falling back to {}: the New Vegas opening starts", crate::game_start::DEFAULT_CHARGEN_QUEST);
+                        self.opening_notice = Some(crate::game_start::fallback_notice(&self.start.chargen_quest));
+                    }
+                    Ok(_) => warn!("new game: {} did not start; no opening quest started", crate::game_start::DEFAULT_CHARGEN_QUEST),
+                    Err(e) => warn!("new game: {}: {e}; no opening quest started", crate::game_start::DEFAULT_CHARGEN_QUEST),
+                }
+            }
         }
     }
 
@@ -967,10 +984,79 @@ impl Runtime {
                 self.activate_again = Some(*t);
                 self.choices_passed = Some(*t);
             }
+            Some(fnv_game::activate_choices::Picked::Closed(t)) => info!("activate: the player closed the perks' choices on {}", g.data.name(*t)),
             None => return false,
         }
         self.snapshot_inventory();
         true
+    }
+
+    /// E on an actor it otherwise does nothing to (hostile, or a creature with nothing to
+    /// say: `crate::activate`): the perks' choices on it open, if any are offered now
+    /// (Robotics Expert's, #3479). Never the default action. Whether the list opened.
+    fn choices_only(&mut self, target: FormId) -> bool {
+        if self.game.activation_refused(target) || self.game.parent_activate_only(target) || !self.game.open_activate_menu_only(target) {
+            return false;
+        }
+        let labels: Vec<&str> = self.game.activate_menu.iter().flat_map(|m| m.choices.iter().map(|c| c.label.as_str())).collect();
+        info!("activate: {} offers the perks' choices {labels:?} and no default action", self.game.data.name(target));
+        true
+    }
+
+    /// A living creature shown by name only (`Action::Name`, #3669): if its script has an
+    /// OnActivate block, run that block through [`Game::activate`] (`ActMode::Hand`). The
+    /// default activation behind it stays "nothing": any `Outcome::Talk` on `target`
+    /// emitted by the block's own plain `Activate` is skipped so it neither opens a
+    /// conversation nor posts a "has nothing to say" message. Returns `None` when
+    /// `target`'s script has no OnActivate block.
+    fn script_only(&mut self, target: FormId) -> Option<Result<ByHand, String>> {
+        let has_block = self.game.ref_script(target).and_then(|s| self.game.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
+        if !has_block {
+            return None;
+        }
+        if self.game.activation_refused(target) {
+            return Some(Ok(ByHand::Refused));
+        }
+        if self.game.parent_activate_only(target) {
+            info!("activate: {} is set off by its activate parents only", self.game.data.name(target));
+            return Some(Ok(ByHand::Refused));
+        }
+        self.observe_inventory();
+        let player = FormId::PLAYER_REF;
+        let from = self.game.events.len();
+        info!("script: activating {target} runs its OnActivate block instead of the default action");
+        let r = self.game.activate(player, target, ActMode::Hand).map(|done| {
+            if matches!(done["result"].as_str(), Some("prevented" | "destroyed")) { ByHand::Refused } else { ByHand::Script }
+        });
+        // A name-only creature has no Talk default action (#3669): suppress any
+        // Outcome::Talk on `target` emitted by the block's own `Activate` (e.g.
+        // CRBrahminScript calling plain `Activate` when standing or weapon-out).
+        let self_talks: Vec<usize> = self
+            .game
+            .events
+            .iter()
+            .enumerate()
+            .skip(from)
+            .filter_map(|(i, e)| match &e.kind {
+                EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
+                    Outcome::Talk { actor } if actor == target => Some(i),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        self.skip.extend(self_talks);
+        let r = match r {
+            Ok(done) => Ok(self.talk_after_except(from, Some(target)).unwrap_or(done)),
+            r => r,
+        };
+        self.snapshot_inventory();
+        Some(r)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_event_skipped(&self, index: usize) -> bool {
+        self.skip.contains(&index)
     }
 
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
@@ -1060,6 +1146,10 @@ impl Runtime {
     /// shown like a SayTo line and the player stays free. Returns [`ByHand::Talk`] when a
     /// conversation started, else [`ByHand::Greeted`] when a greeting was said.
     fn talk_after(&mut self, from: usize) -> Option<ByHand> {
+        self.talk_after_except(from, None)
+    }
+
+    fn talk_after_except(&mut self, from: usize, skip_actor: Option<FormId>) -> Option<ByHand> {
         let player = FormId::PLAYER_REF;
         let wanted: Vec<(usize, FormId)> = self
             .game
@@ -1069,7 +1159,7 @@ impl Runtime {
             .skip(from)
             .filter_map(|(i, e)| match &e.kind {
                 EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
-                    Outcome::Talk { actor } => Some((i, actor)),
+                    Outcome::Talk { actor } if skip_actor != Some(actor) => Some((i, actor)),
                     _ => None,
                 },
                 _ => None,
@@ -1465,6 +1555,20 @@ pub fn talk_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target
     }
 }
 
+/// The perks' choices alone on `target` (`Runtime::choices_only`): whether their list
+/// opened.
+pub fn choices_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> bool {
+    script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.choices_only(FormId(target))))
+}
+
+/// A living creature shown by name only whose script has an OnActivate block
+/// (`Runtime::script_only`, #3669): runs its OnActivate block while keeping the default
+/// activation behind it "nothing". `None` when scripts are off or `target` has no
+/// OnActivate block.
+pub fn script_activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Option<Result<ByHand, String>> {
+    script.and_then(|s| s.rt.as_mut()).and_then(|rt| with_world(rt, sim, |rt| rt.script_only(FormId(target))))
+}
+
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
     match script.and_then(|s| s.rt.as_mut()) {
@@ -1605,6 +1709,10 @@ impl std::io::Write for TraceFile {
 
     fn flush(&mut self) -> std::io::Result<()> {
         self.0.flush()
+    }
+
+    fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        self.0.write_vectored(bufs)
     }
 }
 
@@ -1818,6 +1926,33 @@ mod trace_ownership_tests {
         assert!(next_bytes.contains("next-run") && !next_bytes.contains("parent-before-child"));
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn finished_trace_releases_ownership_while_a_duplicated_handle_remains_open() {
+        let root = std::env::temp_dir().join(format!("nvf-duplicated-trace-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let path = root.join("script-trace.jsonl");
+        let mut parent = TraceLog::create(&path).unwrap();
+        parent.write(&serde_json::json!({"kind":"finished-owner"}));
+        let duplicate = parent.out.get_ref().try_clone().unwrap();
+        let overlap = TraceLog::create(&path).unwrap();
+        assert_ne!(overlap.path, path, "an active writer retains its lock despite duplication");
+        drop(overlap);
+        drop(parent);
+        let mut next = TraceLog::create(&path).unwrap();
+        assert_eq!(next.path, path, "a finished writer must not leave its lock with a duplicated handle");
+        next.write(&serde_json::json!({"kind":"next-owner"}));
+        drop(duplicate);
+        let overlap = TraceLog::create(&path).unwrap();
+        assert_ne!(overlap.path, path, "closing an old duplicate must not release the new writer's lock");
+        drop((overlap, next));
+        let bytes = std::fs::read_to_string(&path).unwrap();
+        let rows: Vec<serde_json::Value> = bytes.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["format"], "nvforever.play.script_log/1");
+        assert_eq!(rows[1]["kind"], "next-owner");
+        assert!(!bytes.contains("finished-owner") && !bytes.contains('\0'));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 // ---- plugin and systems --------------------------------------------------------------
@@ -1954,15 +2089,20 @@ fn time_multiplier(
         player_scale.0 = exempt;
     }
     // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
-    let vats_scale = kill_cam.and_then(|k| k.time_scale()).unwrap_or_else(|| vats.map_or(1.0, |v| v.time_scale()));
-    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
+    let kill_scale = kill_cam.and_then(|k| k.time_scale());
+    let vats_scale = kill_scale.unwrap_or_else(|| vats.as_deref().map_or(1.0, |v| v.time_scale()));
+    // Sounds follow VATS's own sound scale: while targets are chosen, no slower than firing
+    // (`VatsMode::sound_scale`, #3784).
+    let vats_sound = kill_scale.unwrap_or_else(|| vats.as_deref().map_or(1.0, |v| v.sound_scale()));
+    let others = scale.map_or(1.0, |s| s.0.max(0.0)) * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
+    let engine = others * vats_scale;
     let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);
     }
     if let Some(mut sound) = sound {
         let script_sound = if rt.game.ui.time_keeps_sound { 1.0 } else { asked };
-        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(engine) * script_sound));
+        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(others * vats_sound) * script_sound));
     }
 }
 
@@ -2219,7 +2359,7 @@ pub(crate) fn run_scripts(
                             rt.frozen_frames = 2;
                             // The drawn world follows the restored simulation.
                             for id in changed_refs {
-                                changed.write(RefChanged { form_id: id.0, restored: true });
+                                changed.write(RefChanged::restored(id.0));
                             }
                         }
                         Err(e) => {
@@ -2609,6 +2749,21 @@ pub(crate) fn run_scripts(
         info!("script: EnableLoadingMenu with no move of the player: no loading screen (a screen without travel is not built)");
     }
     let mut sent = BTreeSet::new();
+    // References a script had an actor other than the player pick up this frame (Ringo
+    // taking his own ammo at the start of Ghost Town Gunfight, #3918): not the player's
+    // deed. A pick-up by the player in the same frame wins.
+    let mut takers: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+    for e in &events {
+        if let EventKind::Activated { reference, by, outcome: Some(v) } = &e.kind {
+            if v["result"] == "picked_up" {
+                let other = (*by != FormId::PLAYER_REF).then_some(by.0);
+                let t = takers.entry(reference.0).or_insert(other);
+                if other.is_none() {
+                    *t = None;
+                }
+            }
+        }
+    }
     let feet = phys.player.as_ref().map(|c| c.feet);
     for e in effects {
         // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
@@ -2616,7 +2771,7 @@ pub(crate) fn run_scripts(
         match e {
             ScriptEffect::RefChanged(id) => {
                 if sent.insert(id) {
-                    changed.write(RefChanged::new(id));
+                    changed.write(RefChanged { taker: takers.get(&id).copied().flatten(), ..RefChanged::new(id) });
                 }
             }
             ScriptEffect::Fade { form_id, fade_in } => {
@@ -2931,7 +3086,7 @@ pub fn asks_nothing(buttons: usize) -> bool {
     buttons <= 1
 }
 
-#[cfg(any(test, feature = "test-support", feature = "report-test-support"))]
+#[cfg(any(test, feature = "test-support", feature = "report-test-support", feature = "test-fixtures"))]
 impl ScriptState {
     /// A runtime over an empty load order, for tests of what works the open menu: nothing
     /// has run, no menu is open.
@@ -2966,6 +3121,7 @@ impl ScriptState {
             new_game_files: false,
             wake_talk: None,
             start: GameStart::default(),
+            opening_notice: None,
             location: None,
             frozen_frames: 0,
             came_through: false,
@@ -2988,6 +3144,16 @@ impl ScriptState {
     #[cfg(test)]
     pub(crate) fn answered(&self) -> bool {
         self.rt.as_ref().is_some_and(|rt| rt.closing.is_some())
+    }
+}
+
+// Shared only with the wrapper's dev-dependency: private Runtime fields and the
+// actual authored constructor stay owned by this module.
+#[cfg(feature = "test-fixtures")]
+#[doc(hidden)]
+pub mod fixtures {
+    pub fn over_plugins(plugins: &[fnv_esm::Plugin]) -> super::ScriptState {
+        super::ScriptState::over_plugins(plugins)
     }
 }
 

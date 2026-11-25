@@ -1967,23 +1967,43 @@ fn finite_extra(value: f64) -> Value {
     Value::Num(if value.is_finite() { value } else { 0.0 })
 }
 
-/// Exact nonnegative integer mapping (mcm-rgb-integer-consumers.md); native edge
-/// behaviour is not inferred.
-/// Unsupported inputs keep the accumulator, as ignored tags previously did.
+/// Signed 32-bit integer bitwise/shift operators (`mcm-rgb-integer-consumers.md`).
+/// [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + UI Organizer 230, 2026-11-24,
+/// `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room
+/// staging copy (synthetic prefab XML staged strictly inside the isolated copy and removed
+/// after exit; read-only `PrintToConsole` probe; zero writes to game install or Saves),
+/// `w4e_10_mcm_rgb_negative_frac_shift` (`tools/capture/nvse/catalogs/wave4e_mods.json`,
+/// PR #3803 / #3802):
+/// `PROBE|w4e_10_mcm_rgb_negative_frac_shift|rgb=255,128,64|land(neg=255,frac=4)|shl(neg=-20,frac=8,s32=0)|shr(neg=-4)`;
+/// zero DLL, PDB, or third-party source consulted]
+/// Finite operands are rounded to nearest `i32` (`.5` half-away-from-zero tie-breaking
+/// `[design]`). Non-numeric, nonfinite, out-of-`i32`-range operands and negative shift counts
+/// leave `acc` unchanged `[design]`. Shift counts `>= 32` yield `0` (`shl` `[observed]`;
+/// `shr` `[design]`).
 fn integer_extra(kind: OpKind, acc: Value, arg: Value) -> Value {
-    const EXACT_LIMIT: u64 = 1_u64 << 53;
-    let integer = |value: &Value| match value {
-        Value::Num(n) if n.is_finite() && (0.0..=EXACT_LIMIT as f64).contains(n) && n.fract() == 0.0 => Some(*n as u64),
+    let to_i32 = |value: &Value| match value {
+        Value::Num(n) if n.is_finite() => {
+            let rounded = n.round();
+            if (i32::MIN as f64..=i32::MAX as f64).contains(&rounded) {
+                Some(rounded as i32)
+            } else {
+                None
+            }
+        }
         _ => None,
     };
-    let (Some(x), Some(y)) = (integer(&acc), integer(&arg)) else { return acc };
+    let (Some(x), Some(y)) = (to_i32(&acc), to_i32(&arg)) else { return acc };
     let result = match kind {
         OpKind::BitAnd => Some(x & y),
-        OpKind::ShiftLeft if y <= 53 && x <= (EXACT_LIMIT >> y as u32) => Some(x << y as u32),
-        OpKind::ShiftRight if y <= 53 => Some(x >> y as u32),
+        OpKind::ShiftLeft if y < 0 => None,
+        OpKind::ShiftLeft if y >= 32 => Some(0),
+        OpKind::ShiftLeft => Some(x.wrapping_shl(y as u32)),
+        OpKind::ShiftRight if y < 0 => None,
+        OpKind::ShiftRight if y >= 32 => Some(0),
+        OpKind::ShiftRight => Some(x >> (y as u32)),
         _ => None,
     };
-    result.map(|value| Value::Num(value as f64)).unwrap_or(acc)
+    result.map(|value| Value::Num(f64::from(value))).unwrap_or(acc)
 }
 
 fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {

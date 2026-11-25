@@ -55,9 +55,7 @@ texture (LTEX TNAM) reads 1, whatever its DNAM; every other texture set reads DN
   NVNCRMPhelmet (DNAM 0, the same maps as LandscapeDirtNV). The map paths make no
   difference.
 - **Flags 1-3** read the decal data's bits in every row.
-- [hypothesis] The game marks a landscape texture's texture set as having no specular map
-  when it loads the LTEX, since terrain is drawn without one. Whether
-  SetTextureSetFlag 0 can clear that was not probed.
+- [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_12_txst_set_flag_0_ltex (GetTextureSetFlag/SetTextureSetFlag): 0,1; no DLL or source consulted] `SetTextureSetFlag 0` on a landscape texture's TXST can clear bit 0 (No Specular Map) and restore it. The underlying load-time reason why LTEX sets bit 0 remains [hypothesis].
 
 ## 4. Worldspaces (WRLD)
 

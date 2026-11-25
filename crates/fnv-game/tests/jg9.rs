@@ -117,6 +117,14 @@ fn sounds_from_files_and_holotapes() {
     assert!(g.other.jg9.fades_out.iter().all(|f| f.1 == 1.5));
     assert_eq!(n(&mut g, r#"PlaySoundFile "Data\Sound\fx\test.wav" 0 1"#), 1.0);
     assert!(g.other.jg9.path_sounds[3].file);
+    // Nonexistent WAV path still returns 1 without adding a path sound
+    // [observed: b3_jg9_01_sound_runspeed_compass_pipboy]; escaping Data\ also plays
+    // nothing and returns 1 [design].
+    let before_paths = g.other.jg9.path_sounds.len();
+    assert_eq!(n(&mut g, r#"PlaySoundFile "sound\fx\nvseprobe_no_such.wav""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlaySoundFile "Data\Sound\fx\nosuch.wav""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlaySoundFile "..\escape.wav""#), 1.0);
+    assert_eq!(g.other.jg9.path_sounds.len(), before_paths);
     // PlaySoundFade: a SOUN at the player, faded in.
     assert_eq!(n(&mut g, "player.PlaySoundFade TestSound 2"), 1.0);
     assert_eq!(g.sound_requests.last().map(|r| (r.sound, r.at)), Some((FormId(SOUN), Some(FormId::PLAYER_REF))));
@@ -196,7 +204,7 @@ fn markers_moves_and_told_values() {
     assert_eq!(q(&mut g, "int r\nint gr\nint b\nGetCurrentSkyColor 4 r gr b\nSetFunctionValue (r * 1000000 + gr * 1000 + b)"), XVal::Num(255_227_170.0));
     g.other.jg9.sky_colors = None;
     assert_eq!(n(&mut g, "GetCurrentSkyColor 4 0 0 0"), 0.0, "no sky indoors");
-    // FOV: the INI's defaults without a SetCameraFOV [hypothesis there: 75 and 55].
+    // FOV: the INI's defaults without a SetCameraFOV (75 and 55; see docs/spec-notes/ext-jg9.md).
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 75.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 55.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 55.0, "first person until the engine tells");

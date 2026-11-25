@@ -77,7 +77,7 @@
 
 use crate::player::Player;
 use crate::script::ScriptState;
-use crate::sfx::{pan_gains, Pan, Panned, PcmSound, PlaySound};
+use crate::sfx::{pan_gains, ActorSound, Pan, Panned, PcmSound, PlaySound};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
@@ -521,7 +521,7 @@ fn play(
     paused: Res<crate::pause::Paused>,
     // Not a line fading out after it was stopped (audio_out).
     sinks: Query<&AudioSink, (With<VoiceSound>, Without<Retiring>)>,
-    mut effects: MessageWriter<PlaySound>,
+    (mut effects, mut by_actors): (MessageWriter<PlaySound>, MessageWriter<ActorSound>),
     (sfx, sfx_settings): (Option<Res<crate::sfx::Sfx>>, Option<Res<crate::sfx::SfxSettings>>),
     mut cut_sounds: Option<ResMut<Assets<Panned<PcmSound>>>>,
     mut cover: Option<ResMut<crate::sound_cover::SoundCover>>,
@@ -640,7 +640,16 @@ fn play(
                 _ => None,
             };
             if settings.play && out_of_hearing.is_none() {
-                effects.write(PlaySound { sound, at });
+                // Where it is said it goes by its distances, as another actor's sounds do
+                // (audio.md §15.6): 105 lines name a 2D song.
+                match at {
+                    Some(at) => {
+                        by_actors.write(ActorSound { sound, at });
+                    }
+                    None => {
+                        effects.write(PlaySound { sound, at: None });
+                    }
+                }
             }
             st.started += 1;
             st.unheard += u64::from(out_of_hearing.is_some());

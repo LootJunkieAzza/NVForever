@@ -6,8 +6,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub(crate) fn synthetic_fnt(texture_name: &str) -> Vec<u8> {
+    synthetic_fnt_sized(texture_name, 31.0, 10.0, 18.0)
+}
+
+pub(crate) fn synthetic_fnt_sized(
+    texture_name: &str,
+    size: f32,
+    glyph_width: f32,
+    glyph_ascent: f32,
+) -> Vec<u8> {
     let mut bytes = vec![0u8; fnv_font::FILE_SIZE];
-    bytes[0..4].copy_from_slice(&31.0f32.to_le_bytes());
+    bytes[0..4].copy_from_slice(&size.to_le_bytes());
     bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
     bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
     let name = texture_name.as_bytes();
@@ -24,10 +33,10 @@ pub(crate) fn synthetic_fnt(texture_name: &str) -> Vec<u8> {
         (6, 0.5),
         (7, 0.5),
         (8, 0.5),
-        (9, 10.0),
-        (10, 20.0),
+        (9, glyph_width),
+        (10, glyph_ascent + 2.0),
         (12, 1.0),
-        (13, 18.0),
+        (13, glyph_ascent),
     ] {
         bytes[at + 4 * k..at + 4 * k + 4].copy_from_slice(&v.to_le_bytes());
     }
@@ -56,11 +65,17 @@ fn synthetic_rgba_dds(width: u32, height: u32, rgba: [u8; 4]) -> Vec<u8> {
 
 pub(crate) struct OwnedFontFiles {
     root: PathBuf,
-    files: Vec<PathBuf>,
 }
 
 impl OwnedFontFiles {
     pub(crate) fn new(entries: &[(&str, Vec<u8>)]) -> Self {
+        Self::with_extra_files(entries, &[])
+    }
+
+    pub(crate) fn with_extra_files(
+        entries: &[(&str, Vec<u8>)],
+        extra_files: &[(&str, Vec<u8>)],
+    ) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "nvf-owned-font-tex-{}-{}-{}",
@@ -73,14 +88,24 @@ impl OwnedFontFiles {
         ));
         let fonts_dir = root.join("textures").join("fonts");
         std::fs::create_dir_all(&fonts_dir).unwrap();
-        let mut files = Vec::new();
         for (name, bytes) in entries {
             assert!(!name.contains(['/', '\\']) && !name.is_empty());
             let path = fonts_dir.join(name);
             std::fs::write(&path, bytes).unwrap();
-            files.push(path);
         }
-        Self { root, files }
+        for (rel, bytes) in extra_files {
+            assert!(!rel.is_empty() && !rel.starts_with(['/', '\\']));
+            let mut path = root.clone();
+            for part in rel.split(['/', '\\']) {
+                assert!(!part.is_empty() && part != "." && part != "..");
+                path.push(part);
+            }
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&path, bytes).unwrap();
+        }
+        Self { root }
     }
 
     pub(crate) fn data(&self) -> GameData {
@@ -94,12 +119,7 @@ impl OwnedFontFiles {
 
 impl Drop for OwnedFontFiles {
     fn drop(&mut self) {
-        for path in &self.files {
-            let _ = std::fs::remove_file(path);
-        }
-        let _ = std::fs::remove_dir(self.root.join("textures").join("fonts"));
-        let _ = std::fs::remove_dir(self.root.join("textures"));
-        let _ = std::fs::remove_dir(&self.root);
+        let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 
@@ -311,4 +331,58 @@ fn face_loads_tex_only_fonts_for_slots_1_to_8_and_skips_slot_9() {
         }
     }
     assert_eq!(images.len(), 8);
+}
+
+#[test]
+fn xfonts_vfs_loads_mapmo_slots_21_and_22_tex_only_while_keeping_vanilla_unchanged() {
+    let vanilla = OwnedFontFiles::new(&[]);
+    assert!(load_xfonts(&vanilla.data().vfs).is_empty(), "vanilla without xfonts yields empty map");
+
+    let mapmo_txt = b"; MAPMO extended fonts\n\
+        1=textures\\fonts\\ignored_vanilla.fnt\n\
+        9=textures\\fonts\\ignored_nine.fnt\n\
+        21=textures\\fonts\\mapmo_hud_caps_font.fnt\n\
+        22=textures\\fonts\\mapmo_hud_caps_font2.fnt\n";
+    let files = OwnedFontFiles::with_extra_files(
+        &[
+            ("glow_monofonto_large.fnt", synthetic_fnt("Glow_Monofonto_Large")),
+            ("Glow_Monofonto_Large.Tex", synthetic_tex(4, 2, [255, 255, 255, 255])),
+            ("nvfont_test.fnt", synthetic_fnt("NVFont_Test_0_Lod_A")),
+            ("nvfont_test_0_lod_a.tex", synthetic_tex(4, 4, [255, 255, 255, 255])),
+            ("mapmo_hud_caps_font.fnt", synthetic_fnt_sized("mapmo_hud_caps_font", 76.7, 24.0, 58.0)),
+            ("mapmo_hud_caps_font.Tex", synthetic_tex(8, 4, [20, 120, 220, 255])),
+            ("mapmo_hud_caps_font2.fnt", synthetic_fnt_sized("mapmo_hud_caps_font2", 76.7, 28.0, 60.0)),
+            ("mapmo_hud_caps_font2.Tex", synthetic_tex(8, 4, [40, 140, 240, 255])),
+        ],
+        &[("NVSE/Plugins/xfonts/MAPMO.txt", mapmo_txt.to_vec())],
+    );
+    let data = files.data();
+    let extra = load_xfonts(&data.vfs);
+    assert_eq!(extra.len(), 2);
+    assert_eq!(extra.get(&21).map(String::as_str), Some("textures\\fonts\\mapmo_hud_caps_font.fnt"));
+    assert_eq!(extra.get(&22).map(String::as_str), Some("textures\\fonts\\mapmo_hud_caps_font2.fnt"));
+
+    let mut images = Assets::<Image>::default();
+    let stand_in = plain_font(31.0, 15.0);
+
+    let f21_path = slot_font_path(21, &extra).expect("slot 21 path");
+    let f21 = face(&f21_path, stand_in.clone(), Some(&data), &mut images, true);
+    let (_, s21) = f21.image.expect("slot 21 .Tex should load without .dds");
+    assert_eq!(s21, Vec2::new(8.0, 4.0));
+    assert!((f21.font.size - 76.7).abs() < 1e-4);
+
+    let f22_path = slot_font_path(22, &extra).expect("slot 22 path");
+    let f22 = face(&f22_path, stand_in.clone(), Some(&data), &mut images, true);
+    let (_, s22) = f22.image.expect("slot 22 .Tex should load without .dds");
+    assert_eq!(s22, Vec2::new(8.0, 4.0));
+
+    // Vanilla slot 1 keeps its vanilla path; slot 9 stays unloaded; unregistered 42 has no path.
+    let f1_path = slot_font_path(1, &extra).expect("slot 1 path");
+    assert_eq!(f1_path, FONT_FILES[0]);
+    assert!(face(&f1_path, stand_in.clone(), Some(&data), &mut images, true).image.is_some());
+
+    let f9_path = slot_font_path(9, &extra).expect("slot 9 path");
+    assert_eq!(f9_path, FONT_FILES[8]);
+    assert!(face(&f9_path, stand_in, Some(&data), &mut images, true).image.is_none());
+    assert_eq!(slot_font_path(42, &extra), None);
 }

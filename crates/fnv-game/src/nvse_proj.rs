@@ -76,6 +76,7 @@ impl Game<'_> {
         // through `Game::weapon_fired`; same-frame deduplication prevents double-firing
         // after `weapon_fired` or across a shotgun's pellets.
         self.fire_weapon_jip_event(source, weapon, true);
+        self.showoff_on_fire_weapon(source, weapon, true);
         Some(r)
     }
 

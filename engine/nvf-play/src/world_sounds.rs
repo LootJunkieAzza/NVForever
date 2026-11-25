@@ -52,7 +52,7 @@ use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
 use crate::phys::PhysState;
 use crate::player::Player;
-use crate::sfx::{PlaySound, Sfx, SoundSource};
+use crate::sfx::{ActorSound, PlaySound, Sfx, SoundSource};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayWorld, RefChanged};
 use bevy::prelude::*;
@@ -675,7 +675,7 @@ fn objects(
     sfx: Option<Res<Sfx>>,
     panel: Option<Res<crate::message_menu::MessagePanel>>,
     mut ui: MessageReader<crate::ui_sounds::UiSound>,
-    mut out: MessageWriter<PlaySound>,
+    (mut out, mut by_actors): (MessageWriter<PlaySound>, MessageWriter<ActorSound>),
     mut script_sounds: ResMut<crate::sfx::ScriptSounds>,
 ) {
     let ws = &mut *ws;
@@ -694,7 +694,7 @@ fn objects(
     // Read every frame, so a take flagged while the container menu is open is not left to
     // sound a later frame after it closes.
     let took = crate::quick_loot::took_this_frame() | menu_open;
-    for &RefChanged { form_id: id, restored } in changed.read() {
+    for &RefChanged { form_id: id, restored, .. } in changed.read() {
         let Some(s) = sim.world.peek(FormId(id)) else { continue };
         if !ws.forms.items.contains_key(&s.base) {
             continue;
@@ -845,7 +845,7 @@ fn objects(
         let Some(&sound) = sim.base_of(door).and_then(|b| ws.forms.door_open.get(&b)) else { continue };
         ws.stats.actor_doors += 1;
         info!("world sounds: an actor passed load door {door:08X}, sound {}", sound_name(sfx, Some(sound)));
-        out.write(PlaySound { sound, at: Some(at) });
+        by_actors.write(ActorSound { sound, at });
     }
     for &Activated { reference } in activated.read() {
         // A load door: its open sound as the player goes through [hypothesis].
@@ -1550,6 +1550,7 @@ mod tests {
             .add_message::<ImpactPicked>()
             .add_message::<crate::ui_sounds::UiSound>()
             .add_message::<PlaySound>()
+            .add_message::<ActorSound>()
             .add_systems(Update, objects);
         (app, a, b)
     }
@@ -1567,7 +1568,7 @@ mod tests {
     #[test]
     fn what_the_load_restores_is_silent_and_a_real_change_beside_it_is_heard() {
         let (mut app, dropped_before, dropped_now) = objects_app();
-        let restored = |form_id| RefChanged { form_id, restored: true };
+        let restored = RefChanged::restored;
         // Picked up before the save, and picked up now, in the same frame.
         assert_eq!(hear(&mut app, &[restored(0x301), RefChanged::new(0x302)]), vec![UP]);
         // Dropped before the save, and dropped now.
@@ -2228,6 +2229,7 @@ mod tests {
             .add_message::<ImpactPicked>()
             .add_message::<crate::ui_sounds::UiSound>()
             .add_message::<PlaySound>()
+            .add_message::<ActorSound>()
             .add_systems(Update, (script_weapon_sounds, objects).chain());
 
         // Before override: world pickup & drop play static authored YNAM / ZNAM.

@@ -31,22 +31,27 @@ conflicting scale-switch/profile combination.
 re-reading the file, so answering from the live engine setting matches it. Not
 observed in the original game.
 
-[design] The original INI does not supply defaults for any NVForever-owned option.
-As in [Tweaks](../design/tweaks.md), NVForever settings keep their ordinary defaults
-unless changed through NVForever. The critical options default to respecting fire
-rate and using a ×1 damage scale. The existing NVForever settings reader remains
-the only source of stored application preferences, including explicit off and
-default-valued choices.
+[design] The base `Data\NVSE\Plugins\nvse_stewie_tweaks.ini` does not supply defaults
+for any NVForever-owned option. By maintainer decision (2026-11-24, #3535), mod-shipped
+modular override files under `Data\NVSE\Plugins\Tweaks\INIs\*.ini`
+([stewie-modular-inis.md](stewie-modular-inis.md)) may override NVForever-owned tweak
+settings at startup (including `bCritChanceIgnoresFireRate` and `[Critical Hits]
+fCriticalDamageMult`) before `NVForever.ini` is applied (`apply_stored`). Explicit
+player preferences saved in `NVForever.ini` always win, including explicit off and
+default-valued choices; when no modular `Tweaks\INIs\*.ini` files are installed,
+as in [Tweaks](../design/tweaks.md), NVForever settings keep their ordinary defaults
+(respecting fire rate and using a ×1 damage scale) unless changed through NVForever.
 
 ## Startup, restoration and lifetime
 
-Runtime initialization binds the application settings before new-game initialization
-and Restart files. After restoring a saved game, the current application settings
-are rebound before Restart and Load observers, rather than persisted in the save.
-Ordinary frame synchronization continues through the existing Tweaks consumer.
-Changes to the original INI can affect the existing fallback but never alter
-NVForever settings. There is no new watcher, per-frame disk read, save field or
-installation write.
+Runtime initialization applies any mod-shipped `Tweaks\INIs\*.ini` overrides before
+`NVForever.ini` (`apply_stored`) and binds the resulting application settings before
+new-game initialization and Restart files. After restoring a saved game, the current
+application settings are rebound before Restart and Load observers, rather than persisted
+in the save. Ordinary frame synchronization continues through the existing Tweaks
+consumer. Changes to the base `nvse_stewie_tweaks.ini` can affect the existing fallback
+but never alter NVForever settings. There is no new watcher, per-frame disk read, save
+field or installation write.
 
 The existing two critical-rule assignments are shared with the actual damage
 consumer; formulas, ordinary condition penalties and unrelated tuning do not
