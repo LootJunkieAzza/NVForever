@@ -121,8 +121,8 @@ Probes in `catalogs/` target:
     `collisionFlag` filtering across exterior terrain, actor, and interior floor
     geometry (1 batch, 3 probes: `w6_point_raycast`).
   - `wave6d3_efsh_color_24bit_wrap.json` — JohnnyGuitar `SetEffectShaderTraitNumeric`
-    24-bit colour wrap (`16777216 -> 0`, `-5 -> 16777211`) and traits `53..=60`
-    (1 batch, 1 probe: `w6d3_efsh_color_24bit_wrap`).
+    trait `4` 24-bit colour wrap (`16777216 -> 0`, `-5 -> 16777211`) and getter traits
+    `53..=57, 60` (1 batch, 1 probe: `w6d3_efsh_color_24bit_wrap`).
 - `tests/test_nvse_harness.py` — offline stdlib `unittest` suite (no game
   install or captured logs required).
 

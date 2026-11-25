@@ -225,7 +225,8 @@ fn effect_shader_traits_and_textures() {
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 46"), 9.0);
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 4 255"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 255.0);
-    // Colour traits wrap modulo 24 bits (16777216 -> 0, -5 -> 16777211) [observed: w6d3p3_28].
+    // Trait 4 wraps modulo 24 bits (16777216 -> 0, -5 -> 16777211) [observed: w6d3p3_28];
+    // sibling colour traits 14, 47, 48, 49 [hypothesis].
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 4 16777216"), 1.0);
     assert_eq!(n(&mut g, "GetEffectShaderTraitNumeric TestShader 4"), 0.0);
     assert_eq!(n(&mut g, "SetEffectShaderTraitNumeric TestShader 4 -5"), 1.0);

@@ -1,7 +1,7 @@
 {
   "schema": "nvf.nvse.probe.catalog/1",
   "catalog_id": "wave6d3-efsh-color-24bit-wrap",
-  "description": "Read-only clean-room probe verifying SetEffectShaderTraitNumeric colour traits wrap modulo 24 bits and observing traits 53..=60.",
+  "description": "Read-only clean-room probe verifying SetEffectShaderTraitNumeric trait 4 wraps modulo 24 bits and observing getter traits 53..=57, 60.",
   "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
   "xnvse_version": "6.4.9",
   "official_masters": [
@@ -17,22 +17,25 @@
     "TribalPack.esm"
   ],
   "extender_versions": {
+    "jip_nvse.dll": "57.30",
     "johnnyguitar.dll": "528"
   },
   "batches": [
     {
       "id": "w6d3_efsh_color_24bit_wrap",
-      "title": "Wave 6D-3: SetEffectShaderTraitNumeric 24-bit colour wrap & traits 53..=60",
-      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "title": "Wave 6D-3: SetEffectShaderTraitNumeric trait 4 24-bit colour wrap & getter traits 53..=57, 60",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
       "required_plugins": [
+        "jip_nvse.dll",
         "johnnyguitar.dll"
       ],
       "probes": [
         {
           "id": "w6d3p3_28_efsh_53_to_60_and_color_clamp",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
           "required_plugins": [
+            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,
@@ -50,8 +53,8 @@
             "GetMediaSetTraitString",
             "SetMediaSetTraitString"
           ],
-          "claim": "Verify EFSH traits 53..60, trait 4 color clamp/wrap >0xFFFFFF & negative, and EFSH/MediaSet string setters.",
-          "expected": "Confirm traits 53..60 values and 24-bit color clamping/wrapping.",
+          "claim": "Verify EFSH getter traits 53..57 and 60, trait 4 color clamp/wrap >0xFFFFFF & negative, and EFSH/MediaSet string setters.",
+          "expected": "Confirm getter traits 53..57 and 60 values and trait 4 24-bit color clamping/wrapping.",
           "script_lines": [
             "ref rSh = GetFormFromMod \"FalloutNV.esm\" \"446D3\"",
             "ref rMs = GetFormFromMod \"FalloutNV.esm\" \"176E3F\"",
