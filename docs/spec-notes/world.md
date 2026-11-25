@@ -1759,8 +1759,9 @@ Code: `engine/nvforever/src/underwater.rs` (`fog_bytes`, `DEEP_AT`).
     these overrides in place (zero per-frame allocations) across both current and
     fading-out weathers, reaching `DistanceFog`, `GlobalAmbientLight`, `DirectionalLight`,
     `ClearColor`, `SkyDome`, `CloudLayer`, `GetCurrentSkyColor`, and `ImageSpaceGrade`.
-    An explicit `SetWeatherImageSpaceMod weather time 0` clears that time slot's adapter
-    rather than falling back to the authored ESM record [design].
+    Omitting the 3rd argument (`SetWeatherImageSpaceMod weather time`) clears that time
+    slot's adapter rather than falling back to the authored ESM record [design]; explicit
+    null `0` is a no-op [observed: `w6d2p2_17_weather_traits_rgb_imad_textures`].
 - **Game settings (`SetNumericGameSetting`, `SetStringSetting`)**:
   - Vanilla numeric (`f*`, `i*`) and string (`s*`) GMST edits write directly to
     `fnv_sim::World::setting_changes` and are visible live to `World::setting_f32`,

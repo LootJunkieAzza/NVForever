@@ -953,8 +953,15 @@ fn live_weather_rgb_colors_adapters_and_transition_override_reach_sky_and_grade(
         "weather adapter sunlight dimmer must double sun_scale"
     );
 
-    // Explicit clear (SetWeatherImageSpaceMod OwnedWeatherA 1 0) removes the adapter immediately.
+    // Explicit null 0 (SetWeatherImageSpaceMod OwnedWeatherA 1 0) is a no-op leaving the adapter active
+    // [observed: w6d2p2_17_weather_traits_rgb_imad_textures].
     source(&mut a, "SetWeatherImageSpaceMod OwnedWeatherA 1 0");
+    a.update();
+    assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().contrast, 1.5));
+    assert!(approx(a.world().resource::<SkyState>().sun_scale(), initial_sun_scale * 2.0));
+
+    // Omitting the 3rd arg (SetWeatherImageSpaceMod OwnedWeatherA 1) clears the adapter immediately.
+    source(&mut a, "SetWeatherImageSpaceMod OwnedWeatherA 1");
     a.update();
     assert!(approx(a.world().get::<ImageSpaceGrade>(cam).unwrap().contrast, 1.0));
     assert!(approx(a.world().resource::<SkyState>().sun_scale(), initial_sun_scale));
