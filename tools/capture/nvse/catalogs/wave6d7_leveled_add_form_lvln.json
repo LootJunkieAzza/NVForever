@@ -40,8 +40,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actor-list-additions.md",
-          "spec_line": 45,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 248,
           "functions_tested": [
             "LeveledListAddForm",
             "LeveledListRemoveForm",

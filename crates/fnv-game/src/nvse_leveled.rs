@@ -218,7 +218,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             zero
         }
         // `list form level count health`: any kind of form; the newest entry first, at
-        // index 0; an entry above the player's level is not added [observed:
+        // index 0; on LVLI an entry above the player's level is not added [observed:
         // lu-leveled2, the player at level 1: adds at level 1 went in, newest first,
         // levels 2 and 7 did not; hypothesis: the rule is "above the player's level", only
         // level 1 seen]; health 0–1, 0 or 1 meaning whole [documented: "pass in 0.0 as
@@ -226,8 +226,9 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         "leveledlistaddform" => {
             let Some(item) = form(args, 1) else { return Some(Ok(zero)) };
             let level = num(args, 2, 1.0).clamp(0.0, f64::from(u16::MAX)) as u16;
-            // Above-player-level rejection applies to LVLI, not LVLN/LVLC
-            // [observed 2026-11-25: w6d7_36_leveled_list_add_form_above_pc_level_and_order].
+            // Above-player-level rejection applies to LVLI, not LVLN [observed 2026-11-25:
+            // w6d7_36_leveled_list_add_form_above_pc_level_and_order]; extending the same
+            // acceptance to LVLC (`sig != LVLI`) is [hypothesis] by symmetry with LVLN.
             if g.data.sig(f) == Some(*b"LVLI") && f64::from(level) > g.player_level() {
                 return Some(Ok(zero));
             }
