@@ -1270,9 +1270,11 @@ fn deep_equal_in(store: &ExtStore, a: &XVal, b: &XVal, seen: &mut std::collectio
             (None, None) => true,
             (Some(_), Some(_)) if !seen.insert((*x, *y)) => true,
             (Some(p), Some(q)) => {
-                p.kind == q.kind
-                    && p.entries.len() == q.entries.len()
-                    && p.entries.iter().zip(&q.entries).all(|(e, f)| e.0 == f.0 && deep_equal_in(store, &e.1, &f.1, seen))
+                p.entries.len() == q.entries.len()
+                    && p.entries
+                        .iter()
+                        .zip(&q.entries)
+                        .all(|(e, f)| e.0.cmp(&f.0) == std::cmp::Ordering::Equal && deep_equal_in(store, &e.1, &f.1, seen))
             }
             _ => false,
         },
@@ -1710,7 +1712,18 @@ impl Vm<'_, '_> {
                 // Arrays compare by their top-level elements [documented: NVSE Expressions].
                 if let (XOp::Eq | XOp::Ne, XVal::Array(x), XVal::Array(y)) = (op, &a, &b) {
                     let store = self.store()?;
-                    let same = x == y || store.array(*x).map(|a| &a.entries) == store.array(*y).map(|b| &b.entries);
+                    let same = x == y
+                        || match (store.array(*x), store.array(*y)) {
+                            (None, None) => true,
+                            (Some(p), Some(q)) => {
+                                p.entries.len() == q.entries.len()
+                                    && p.entries
+                                        .iter()
+                                        .zip(&q.entries)
+                                        .all(|(e, f)| e.0.cmp(&f.0) == std::cmp::Ordering::Equal && e.1 == f.1)
+                            }
+                            _ => false,
+                        };
                     return Ok(XVal::Num(if same == (*op == XOp::Eq) { 1.0 } else { 0.0 }));
                 }
                 xbinary(*op, a, b)?

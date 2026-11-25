@@ -1,0 +1,75 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_array_eq_case",
+  "description": "Wave 6D-5 read-only probe verifying array == and Ar_DeepEquals across List/Map and case-variant StringMap keys.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d5_array_eq_case",
+      "title": "Array equality and Ar_DeepEquals key case and kind",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d5_13_array_eq_kind_and_stringmap_case",
+          "bucket": "vm_arrays",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 591,
+          "functions_tested": [
+            "ar_List",
+            "ar_Map",
+            "Ar_DeepEquals",
+            "Ar_First",
+            "Ar_Last",
+            "Ar_Size",
+            "PrintToConsole"
+          ],
+          "claim": "SD-07 & SD-13: Verify array == and Ar_DeepEquals across List vs numeric Map with identical keys/values, StringMap keys differing only in case ('A'::1 vs 'a'::1), and StringMap key case-folding/sorting order on duplicate case-variant insertion.",
+          "expected": "CONFIRMED STATIC DOUBLE BUG (vm.rs:1711-1715): array == ignores ArrayKind (List [1,2] == Map {0:1,1:2} is 1) AND compares XKey::Str case-sensitively ('A'::1 == 'a'::1 is 0) despite case-insensitive XKey::cmp.",
+          "script_lines": [
+            "array_var aL = ar_List 1, 2",
+            "array_var aM = ar_Map 0::1, 1::2",
+            "array_var aS1 = ar_Map \"A\"::1",
+            "array_var aS2 = ar_Map \"a\"::1",
+            "int eqLM = (aL == aM)",
+            "int deqLM = Ar_DeepEquals aL aM",
+            "int eqCase = (aS1 == aS2)",
+            "int deqCase = Ar_DeepEquals aS1 aS2",
+            "array_var aFold = ar_Map \"b\"::1, \"A\"::2, \"a\"::3",
+            "int fSz = Ar_Size aFold",
+            "string_var fFirst = Ar_First aFold",
+            "string_var fLast = Ar_Last aFold",
+            "int vUp = aFold[\"A\"]",
+            "int vLo = aFold[\"a\"]",
+            "PrintToConsole \"PROBE|w6d5_13_array_eq_kind_and_stringmap_case|lm(eq=%g,deq=%g)|case(eq=%g,deq=%g)|fold(sz=%g,first=[%z],last=[%z],A=%g,a=%g)\" eqLM deqLM eqCase deqCase fSz fFirst fLast vUp vLo"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

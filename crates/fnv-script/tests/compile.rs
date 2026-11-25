@@ -2563,3 +2563,15 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn array_equality_and_deepequals_match_list_map_and_case_insensitive_keys() {
+    let h = run(
+        "array_var aL\narray_var aM\narray_var aS1\narray_var aS2\n         int eqLM\nint deqLM\nint eqCase\nint deqCase\nint neDiff\n         begin GameMode\n         let aL := ar_List 1, 2\n         let aM := ar_Map 0::1, 1::2\n         let aS1 := ar_Map \"A\"::1\n         let aS2 := ar_Map \"a\"::1\n         let eqLM := (aL == aM)\n         let deqLM := Ar_DeepEquals aL aM\n         let eqCase := (aS1 == aS2)\n         let deqCase := Ar_DeepEquals aS1 aS2\n         let neDiff := (aL != aS1)\n         end",
+    );
+    assert_eq!(h.0[&5], Value::Num(1.0));
+    assert_eq!(h.0[&6], Value::Num(1.0));
+    assert_eq!(h.0[&7], Value::Num(1.0));
+    assert_eq!(h.0[&8], Value::Num(1.0));
+    assert_eq!(h.0[&9], Value::Num(1.0));
+}

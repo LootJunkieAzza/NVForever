@@ -832,3 +832,7 @@ parity; parsing this caller does not establish B42 Optics compatibility.
   scripts, recompiled in the editor).
 - What the compiler does with a line it can't read in the middle of a block: ours writes
   nothing for that line and goes on.
+
+### Wave 6D-5 observation: array `==` and `Ar_DeepEquals` key case & List/Map equivalence
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_13_array_eq_kind_and_stringmap_case` (`tools/capture/nvse/catalogs/wave6d5_array_eq_case.json`); zero DLL, PDB, or third-party source consulted] Both `==` and `Ar_DeepEquals` return `1` for `ar_List 1, 2` vs `ar_Map 0::1, 1::2` and for `ar_Map "A"::1` vs `ar_Map "a"::1`, and StringMap folds case-variant duplicate keys keeping the first-inserted casing (`first=[A], last=[b], A=3, a=3`): `PROBE|w6d5_13_array_eq_kind_and_stringmap_case|lm(eq=1,deq=1)|case(eq=1,deq=1)|fold(sz=2,first=[A],last=[b],A=3,a=3)`.
