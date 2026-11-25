@@ -285,17 +285,19 @@ impl<'a> Game<'a> {
                 self.package_doors(actor, p, flags::LOCK_DOORS_AT_START, flags::UNLOCK_DOORS_AT_START);
                 self.package_doors(actor, p, flags::LOCK_DOORS_AT_LOCATION, flags::UNLOCK_DOORS_AT_LOCATION);
             }
+            // Keep `current_package` at `package` while the outgoing package's Change
+            // script and OnPackageChange run: if either calls EvaluatePackage,
+            // `set_package` sees the new package instead of `old` and does not re-enter
+            // `old`'s Change script recursively.
             if let Some(o) = old {
-                self.package_event(actor, o, 2);
+                self.run_package_event(actor, o, 2);
             }
+            // Only run the new package's Begin script if the Change script did not
+            // already switch the actor to another package.
             if let Some(p) = package {
-                self.package_event(actor, p, 0);
-            }
-            // The events' scripts may have chosen again; if not, the choice stands
-            // (`package_event` makes its package current, the old one included).
-            let e = self.extra.entry(actor).or_default();
-            if e.current_package == old {
-                e.current_package = package;
+                if self.extra.get(&actor).and_then(|e| e.current_package) == package {
+                    self.run_package_event(actor, p, 0);
+                }
             }
         }
     }
@@ -342,7 +344,7 @@ impl<'a> Game<'a> {
     pub fn evaluate_package(&mut self, actor: FormId) -> Option<FormId> {
         let p = self.select_package(actor);
         self.set_package(actor, p);
-        p
+        self.extra.get(&actor).and_then(|e| e.current_package)
     }
 
     /// The actor's current package: the one last chosen, or chosen now when it never
@@ -381,7 +383,7 @@ impl<'a> Game<'a> {
         let Some(e) = self.extra.get_mut(&actor) else { return };
         e.package_goal_met = true;
         if self.runs_packages() {
-            self.package_event(actor, p, 1);
+            self.run_package_event(actor, p, 1);
         }
     }
 

@@ -59,9 +59,8 @@ enum Trait {
 /// w4d_30_jg_efsh_47_to_52 (tools/capture/nvse/catalogs/wave4d_extenders.json):
 /// get(47=1.43523e+07,48=8.84712e+06,49=9.07549e+06,50=1,51=1,52=1)|set(49:1->1.12233e+06,51:1->0.5,52:1->0.25);
 /// no DLL or source consulted]. Traits 53-60 map to colour key 1-3 times, initial speed
-/// along normal range, initial rotation/range, and rotation speed/range [hypothesis:
-/// continuing sequential EFSH DATA fields in schemas/fnv/effects.json beyond w4d_30's
-/// printed 47..=52 range]. Traits `< 0` and `> 60` return 0 [design: safe out-of-range
+/// along normal range, initial rotation/range, and rotation speed/range (see
+/// docs/spec-notes/ext-jg3.md). Traits `< 0` and `> 60` return 0 [design: safe out-of-range
 /// guard; -1 also observed returning 0 on getter in jg3 and jg_03].
 fn efsh_trait(id: i64) -> Option<Trait> {
     match id {
@@ -194,7 +193,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 (Trait::Field(path, _), false) => XVal::Num(number(field(g, s, "DATA", path))),
                 // A colour set as one number reads back as given [observed: jg3
                 // efsh.set.nuke.4, 255 read 255]; kept to the three channels' 24 bits
-                // [hypothesis].
+                // (see docs/spec-notes/ext-jg3.md).
                 (Trait::Colour(path), true) => {
                     g.field_overrides.insert((s, format!("DATA/{path}")), XVal::Num(v.trunc().clamp(0.0, f64::from(0xFF_FFFF))));
                     XVal::Num(1.0)
