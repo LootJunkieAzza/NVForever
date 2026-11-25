@@ -34,8 +34,7 @@
           "bucket": "A",
           "extender": "JIP LN 57.30",
           "required_plugins": [
-            "jip_nvse.dll",
-            "ShowOffNVSE.dll"
+            "jip_nvse.dll"
           ],
           "optional_extender": false,
           "requires_world": true,
