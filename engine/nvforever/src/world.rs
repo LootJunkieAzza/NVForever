@@ -1017,6 +1017,9 @@ fn cell_models(lo: &LoadOrder, schema: &EsmSchema, index: &WorldIndex, refs: &[u
         if is_drawn_marker(base.form_id, &path) || hide.iter().any(|h| path.contains(h.as_str())) {
             continue;
         }
+        if &base.sig == b"FLOR" || &base.sig == b"TREE" {
+            nvf_assets::nif_spawn::register_foliage_model(&path);
+        }
         if seen.insert((path.clone(), base.world_alt_textures.clone())) {
             out.push((path, base.world_alt_textures));
         }
@@ -2008,6 +2011,9 @@ pub fn spawn_model(
         stats.refs_skipped_type += 1;
         *stats.skipped_types.entry("marker".into()).or_default() += 1;
         return false;
+    }
+    if &base.sig == b"FLOR" || &base.sig == b"TREE" {
+        nvf_assets::nif_spawn::register_foliage_model(&path);
     }
     // With the base's alternate textures on the shapes they name (texture-swaps.md §4).
     let Some(model) = models.model_swapped(&path, false, &base.world_alt_textures) else {

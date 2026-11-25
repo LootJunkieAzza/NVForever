@@ -432,6 +432,55 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
     }
 }
 
+fn push_shader_def_once(defs: &mut Vec<ShaderDefVal>, def: &ShaderDefVal) {
+    if !defs.contains(def) {
+        defs.push(def.clone());
+    }
+}
+
+fn orthographic_shadow_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey, def: &'static str) {
+    let is_ortho = (mesh_key & MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS) == MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC;
+    if !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE"))
+        || !is_ortho
+        || !mesh_key.contains(MeshPipelineKey::MAY_DISCARD)
+    {
+        return;
+    }
+    depth_prepass_fragment(descriptor, FADE_PREPASS_SHADER);
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        push_shader_def_once(&mut fragment.shader_defs, &ShaderDefVal::from(def));
+    }
+}
+
+/// Use the core-thickened grass shadow prepass in orthographic directional shadow maps.
+pub fn grass_shadow_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    orthographic_shadow_prepass(descriptor, mesh_key, "GRASS_SHADOW_PREPASS");
+}
+
+/// Use the foliage-thickened shadow prepass in orthographic directional shadow maps.
+pub fn foliage_shadow_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    if !foliage_shadows() {
+        return;
+    }
+    orthographic_shadow_prepass(descriptor, mesh_key, "FOLIAGE_SHADOW_PREPASS");
+}
+
+/// Grass shadows (the settings row, `nvforever` graphics.rs): foliage shapes and leaf cards
+/// draw their thickened shadow prepass ([`foliage_shadow_prepass`],
+/// `FOLIAGE_SHADOW_PREPASS`). Fixed before the first pipeline: a change of the row reaches
+/// foliage at the next start (the grass itself follows the row at once, grass.rs `cull`).
+static FOLIAGE_SHADOWS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Sets [`FOLIAGE_SHADOWS`] for the run (before the first pipeline is specialised).
+pub fn set_foliage_shadows(on: bool) {
+    FOLIAGE_SHADOWS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether foliage takes the thickened shadow prepass this run ([`set_foliage_shadows`]).
+pub fn foliage_shadows() -> bool {
+    FOLIAGE_SHADOWS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The extension part: the falloff parameters, the alpha cut, the decal switch and the
 /// fragment shader.
 ///
@@ -597,6 +646,9 @@ pub struct NifSurface {
     /// The environment mask (texture-set slot 5); `None` when the set has none.
     #[texture(56)]
     pub env_mask: Option<Handle<Image>>,
+    /// The shape is placed NIF foliage (`nif_spawn::is_foliage_shape`). CPU only; with the
+    /// Grass shadows row ([`foliage_shadows`]) its sun shadow takes the thickened prepass.
+    pub foliage: bool,
 }
 
 /// What a blended shape's solid core ([`NifSurface::solid_core`]) is made from: its base
@@ -726,6 +778,7 @@ impl Default for NifSurface {
             env_how: Vec4::ZERO,
             env_cube: None,
             env_mask: None,
+            foliage: false,
         }
     }
 }
@@ -749,6 +802,8 @@ pub struct NifSurfaceKey {
     /// the surface the depth prepass holds and take the ambient occlusion
     /// ([`ambient_occlusion_opt_in`]).
     pub terrain_layer: bool,
+    /// Foliage surface (`NifSurface::foliage`).
+    pub foliage: bool,
     /// The shape fades where it meets the surface behind it ([`NifSurface::soft`] x above 0):
     /// `specialize` adds `NVF_SOFT_FADE` to its main pass, the only pipelines that read the
     /// prepass depth for it (#2868: every other opaque and cut-out pixel paid for the read).
@@ -779,6 +834,7 @@ impl NifSurfaceKey {
             pipboy_screen: surface.pipboy_screen,
             anti_tiling: surface.anti_tiling && crate::terrain_sampling::repeat_valid(surface.terrain_repeat),
             terrain_layer: crate::terrain_sampling::repeat_valid(surface.terrain_repeat),
+            foliage: surface.foliage,
             soft: surface.soft.x > 0.0,
             hdr,
         }
@@ -884,6 +940,18 @@ impl MaterialExtension for NifSurface {
         if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty() && reflect_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
                 fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).chain(reflect_def).map(|d| ShaderDefVal::from(*d)));
+            }
+        }
+        // Foliage under the Grass shadows row: the thickened cut-out in the sun's shadow
+        // maps (orthographic, discarding prepass pipelines only).
+        if key.bind_group_data.foliage
+            && foliage_shadows()
+            && descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE"))
+            && (key.mesh_key & MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS) == MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC
+            && key.mesh_key.contains(MeshPipelineKey::MAY_DISCARD)
+        {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                push_shader_def_once(&mut fragment.shader_defs, &ShaderDefVal::from("FOLIAGE_SHADOW_PREPASS"));
             }
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
@@ -1537,6 +1605,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn grass_and_foliage_shadow_prepasses_only_run_on_orthographic_discard_pipelines() {
+        let has = |d: &RenderPipelineDescriptor, def: &'static str| d.fragment.as_ref().is_some_and(|f| f.shader_defs.contains(&def.into()));
+        let ortho_discard = MeshPipelineKey::DEPTH_PREPASS | MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC | MeshPipelineKey::MAY_DISCARD;
+        let persp_discard = MeshPipelineKey::DEPTH_PREPASS | MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE | MeshPipelineKey::MAY_DISCARD;
+
+        let mut grass_shadow = prepass_pipeline(1);
+        grass_shadow_prepass(&mut grass_shadow, ortho_discard);
+        assert_eq!(grass_shadow.fragment.as_ref().unwrap().shader, FADE_PREPASS_SHADER);
+        assert!(has(&grass_shadow, "GRASS_SHADOW_PREPASS"));
+
+        let mut off = prepass_pipeline(1);
+        set_foliage_shadows(false);
+        foliage_shadow_prepass(&mut off, ortho_discard);
+        assert!(!has(&off, "FOLIAGE_SHADOW_PREPASS"), "the row off: foliage keeps its own prepass");
+        set_foliage_shadows(true);
+        let mut foliage_shadow = prepass_pipeline(1);
+        foliage_shadow_prepass(&mut foliage_shadow, ortho_discard);
+        assert_eq!(foliage_shadow.fragment.as_ref().unwrap().shader, FADE_PREPASS_SHADER);
+        assert!(has(&foliage_shadow, "FOLIAGE_SHADOW_PREPASS"));
+
+        let mut persp = prepass_pipeline(1);
+        grass_shadow_prepass(&mut persp, persp_discard);
+        foliage_shadow_prepass(&mut persp, persp_discard);
+        assert!(persp.fragment.is_none());
+        set_foliage_shadows(false);
+    }
+
     /// coverage.wesl `sample_mask`, in Rust.
     fn sample_mask(share: f32, frag: (u32, u32), count: u32) -> u32 {
         let order: u32 = match count {
@@ -1681,7 +1777,7 @@ mod tests {
         // Only the switches in `NifSurfaceKey` select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, foliage: false, soft: false, hdr: false });
         assert_eq!(surface.alpha_cut, 0.0);
         assert_eq!(surface.emissive_rule, Vec4::ZERO);
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, Vec4::ZERO);
@@ -1691,19 +1787,19 @@ mod tests {
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, surface.emissive_rule);
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, foliage: false, soft: false, hdr: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, foliage: false, soft: false, hdr: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, foliage: false, soft: false, hdr: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, foliage: false, soft: false, hdr: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, foliage: false, soft: false, hdr: false });
         // A FaceGen offset selects the tinting shader.
         surface.facegen_offset = Some(Handle::default());
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, foliage: false, soft: false, hdr: false });
     }
 
     #[test]

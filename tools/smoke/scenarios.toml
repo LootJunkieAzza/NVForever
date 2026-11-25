@@ -36820,3 +36820,19 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error in the clustering passes" },
 ]
+[[scenario]]
+name = "grass-shadows"
+source = "[design, #3827 part 3a] docs/design/graphics-enhanced.md §3.24, engine/nvforever/src/grass.rs `cull`, nvf_assets nif_material.rs `foliage_shadow_prepass`: with --graphics-only grass-shadows and sun shadows at Goodsprings at noon, the graphics line names the grass shadows and the grass and foliage shadow prepasses compile, without a pipeline or rendering error. Whether the grass's shadows look right is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/grass.rs", "engine/nvforever/src/grass.wesl", "engine/nvf-assets/src/fade_prepass.wesl", "engine/nvf-assets/src/nif_prepass.wesl"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows", "--graphics-only", "grass-shadows"]
+run_seconds = 20
+expect = [
+  { re = 'graphics: .*grass shadows', label = "the graphics line names the grass shadows" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (a grass or foliage shadow prepass that does not compile)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+note = "Written 2026-11-25 without a run (the split of #3828; smoke runs to follow)."

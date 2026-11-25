@@ -174,7 +174,8 @@ and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distanc
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
-(Detail and Distance, after `mesh-terrain-blend`; read at the next start) (`KNOWN` in
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start), `grass-shadows`
+(Graphics › Shadows, after `terrain-shadows`) (`KNOWN` in
 `settings_layout.rs`); a test keeps
 it so (`settings_layout.rs`, `the_table_names_each_key_once_in_one_of_the_tabs`). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category

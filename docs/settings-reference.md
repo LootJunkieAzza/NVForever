@@ -1067,6 +1067,19 @@ below cover them all.
   shadows off too.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
+
+### `grass-shadows`: Grass shadows
+
+- On the page: On: nearby grass casts sun shadows and plants cast fuller ones. Plants follow
+  at the next start. Costs some frame rate. Not in the original.
+- In full: Grass within 1,500 units of you (about 21 m, and never past the middle of the
+  grass's fade) casts the sun's shadow, drawn with a cut-out that keeps the tuft's core
+  solid and thins towards the tips. Placed plants (FLOR and TREE models, and NIF shapes
+  under the game's plant folders) and SpeedTree leaf cards cast a fuller shadow from the
+  start of the next run. Greyed while Sun shadows are off. Off by default and in every
+  preset.
+- Command-line switches: `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.24
 ### `light-shadows`: ALC shadows
 
 - On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the

@@ -1899,6 +1899,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // never mix the two; the page's row changes the next start's.
     let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::authored::set_enabled(authored);
+    // Grass shadows for placed plants and leaf cards (their thickened shadow prepass), by
+    // the same rule; the grass itself follows the row while the game runs (grass.rs).
+    let foliage_shadows = settings::grass_shadows_after_ini(graphics.grass_shadows, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::nif_material::set_foliage_shadows(foliage_shadows);
     app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
     // Reflections on authored materials (#2981): the run's state by the same rule, fixed
     // before the first NIF pipeline (the opt-in def and the metallic factor); the world

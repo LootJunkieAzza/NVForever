@@ -12,13 +12,35 @@ import bevy_pbr::{
     render::pbr_prepass_functions::prepass_sample_color_and_alpha_discard,
 };
 @if(VISIBILITY_RANGE_DITHER) import bevy_pbr::render::pbr_functions::visibility_range_dither;
-@if(COVERAGE_MASK) import bevy_pbr::render::pbr_prepass_functions::nvf_prepass_sample_color;
+@if(COVERAGE_MASK || GRASS_SHADOW_PREPASS || FOLIAGE_SHADOW_PREPASS) import bevy_pbr::render::pbr_prepass_functions::nvf_prepass_sample_color;
 @if(COVERAGE_MASK) import nvf_assets::coverage::{edge_share, sample_mask};
 
-@if(!COVERAGE_MASK) @fragment
+@if(!COVERAGE_MASK && !GRASS_SHADOW_PREPASS && !FOLIAGE_SHADOW_PREPASS) @fragment
 fn fragment(in: VertexOutput) {
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     prepass_sample_color_and_alpha_discard(in);
+}
+
+@if(!COVERAGE_MASK && GRASS_SHADOW_PREPASS) @fragment
+fn fragment(in: VertexOutput) {
+    @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
+    let sampled = nvf_prepass_sample_color(in);
+    @if(VERTEX_UVS_B) let tip = saturate(in.uv_b.x);
+    @if(!VERTEX_UVS_B) let tip = 0.5;
+    let cutoff = mix(0.16, max(sampled.alpha_cutoff * 0.85, 0.30), tip * tip);
+    if sampled.color.a < cutoff {
+        discard;
+    }
+}
+
+@if(!COVERAGE_MASK && FOLIAGE_SHADOW_PREPASS) @fragment
+fn fragment(in: VertexOutput) {
+    @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
+    let sampled = nvf_prepass_sample_color(in);
+    let cutoff = max(sampled.alpha_cutoff * 0.42, 0.16);
+    if sampled.color.a < cutoff {
+        discard;
+    }
 }
 
 @if(COVERAGE_MASK) @fragment

@@ -111,6 +111,8 @@ impl MaterialExtension for GrassSway {
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Grass fades in and out with its cell (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        // Its sun shadow (cast only under the Grass shadows row, `cull`), thickened at the core.
+        nvf_assets::grass_shadow_prepass(descriptor, key.mesh_key);
         if !GRASS_READS_AMBIENT_OCCLUSION {
             nvf_assets::ambient_occlusion_opt_out(descriptor);
         }
@@ -151,6 +153,10 @@ pub struct GrassConfig {
     pub light: (f32, f32),
     pub generate: GrassSettings,
 }
+
+/// Grass within this distance of the camera casts the sun's shadow under the Grass
+/// shadows row (game units, about 21 m; the near cascade's reach) [engineering choice].
+const GRASS_SHADOW_DISTANCE: f32 = 1500.0;
 
 /// One shape of a grass model, kept on the CPU: every plant gets a transformed copy.
 struct GrassShape {
@@ -301,24 +307,48 @@ fn grow_owed(
     }
 }
 
+/// Whether a grass mesh `dist` from the camera casts the sun's shadow: shown, the Grass
+/// shadows row and sun shadows on, and within `shadow_reach`.
+fn casts_grass_shadow(dist: f32, visible: bool, grass_shadows: bool, sun_shadows: bool, shadow_reach: f32) -> bool {
+    visible && grass_shadows && sun_shadows && dist <= shadow_reach
+}
+
 /// Hide the grass meshes that lie wholly beyond the grass distance (the shader has
 /// lowered all their plants into the ground), or all of them while grass is switched
-/// off, and count the plants.
+/// off, let the near ones cast the sun's shadow under the Grass shadows row, and count
+/// the plants.
+#[allow(clippy::too_many_arguments)]
 fn cull(
+    mut commands: Commands,
     config: Res<GrassConfig>,
+    graphics: Option<Res<crate::graphics::Graphics>>,
+    sky: Option<Res<crate::sky::SkyState>>,
     mut cache: ResMut<GrassCache>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
-    mut chunks: Query<(&GrassChunk, &mut Visibility)>,
+    mut chunks: Query<(Entity, &GrassChunk, &mut Visibility, Has<NotShadowCaster>)>,
 ) {
     let Ok(cam) = camera.single() else { return };
     let eye = bevy_to_game(cam.translation());
     let reach = config.fade_start + config.fade_range;
+    let grass_shadows = graphics.as_ref().is_some_and(|g| g.grass_shadows);
+    let sun_shadows = sky.as_ref().is_some_and(|s| s.shadows);
+    let shadow_reach = GRASS_SHADOW_DISTANCE.min(config.fade_start + config.fade_range * 0.5);
     let (mut plants, mut near) = (0, 0);
-    for (c, mut v) in &mut chunks {
-        let show = config.enabled && eye.distance(c.centre) - c.radius <= reach;
+    for (entity, c, mut v, no_shadow) in &mut chunks {
+        let dist = eye.distance(c.centre) - c.radius;
+        let show = config.enabled && dist <= reach;
         plants += c.plants as usize;
         near += if show { c.plants as usize } else { 0 };
         v.set_if_neq(if show { Visibility::Inherited } else { Visibility::Hidden });
+        match (casts_grass_shadow(dist, show, grass_shadows, sun_shadows, shadow_reach), no_shadow) {
+            (true, true) => {
+                commands.entity(entity).remove::<NotShadowCaster>();
+            }
+            (false, false) => {
+                commands.entity(entity).insert(NotShadowCaster);
+            }
+            _ => {}
+        }
     }
     if (cache.plants, cache.plants_in_range) != (plants, near) {
         (cache.plants, cache.plants_in_range) = (plants, near);
@@ -803,5 +833,14 @@ mod tests {
         // Every vertex has the ground's normal.
         let Some(bevy::mesh::VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else { panic!("no normals") };
         assert!(normals.iter().all(|n| *n == [0.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn grass_casts_the_sun_shadow_only_near_with_the_row_and_sun_shadows_on() {
+        assert!(casts_grass_shadow(600.0, true, true, true, 1500.0));
+        assert!(!casts_grass_shadow(1600.0, true, true, true, 1500.0));
+        assert!(!casts_grass_shadow(600.0, true, false, true, 1500.0));
+        assert!(!casts_grass_shadow(600.0, true, true, false, 1500.0));
+        assert!(!casts_grass_shadow(600.0, false, true, true, 1500.0));
     }
 }

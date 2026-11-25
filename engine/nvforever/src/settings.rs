@@ -1207,7 +1207,7 @@ fn register_graphics(app: &mut App) {
         Setting { key: CLOUDS_KEY, group: GROUP_GRAPHICS, label: "Volumetric clouds (experimental)", note: CLOUDS_NOTE, switches: "--graphics-only", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| CLOUD_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: clouds_chosen, pick: take_clouds, save: clouds_chosen, load: take_clouds, ask_keep: false },
     );
-    let switches: [Switch; 25] = [
+    let switches: [Switch; 26] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1231,6 +1231,14 @@ fn register_graphics(app: &mut App) {
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().terrain_shadows,
             |w, on| w.resource_mut::<Graphics>().terrain_shadows = on,
+        ),
+        (
+            "grass-shadows",
+            "Grass shadows",
+            GRASS_SHADOWS_NOTE,
+            "--graphics-only",
+            |w| w.resource::<Graphics>().grass_shadows,
+            |w, on| w.resource_mut::<Graphics>().grass_shadows = on,
         ),
         (
             "bloom",
@@ -1524,6 +1532,16 @@ pub(crate) fn authored_after_ini(command_line: bool, given: Option<&nvf_play::se
     nvf_play::settings::switch_after_ini(command_line, stored, given, AUTHORED_MATERIALS_SWITCHES)
 }
 
+/// The run's Grass shadows state for placed plants and leaf cards (their thickened shadow
+/// prepass, nvf_assets `foliage_shadow_prepass`), decided before the first pipeline by
+/// [`authored_after_ini`]'s rule: the command line's, then the INI's stored row. The grass
+/// itself follows the row at once (grass.rs `cull`).
+pub(crate) fn grass_shadows_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    let Some(given) = given else { return command_line };
+    let stored = stored_at_start("grass-shadows").and_then(|v| nvf_play::settings::parse_switch(&v));
+    nvf_play::settings::switch_after_ini(command_line, stored, given, "--graphics-only")
+}
+
 /// The Reflections on authored materials row's note (#2981 reflections): it needs a pack and
 /// Authored materials, and takes effect at the next start (main.rs).
 pub(crate) const AUTHORED_REFLECTIONS_NOTE: &str = "On: pack materials reflect the sky outdoors and an approximation of the room and nearby lights indoors. Needs a material pack and Authored materials on. Takes effect at the next start.";
@@ -1608,6 +1626,7 @@ const CLOUD_SHADOWS_NOTE: &str = "On: the weather's clouds cast soft shadows tha
 
 /// The Terrain shadows row's note (#2671; docs/design/terrain-shadows.md): experimental
 /// like Cloud shadows, its softness and bias still being tuned.
+const GRASS_SHADOWS_NOTE: &str = "On: nearby grass casts sun shadows and plants cast fuller ones. Plants follow at the next start. Costs some frame rate. Not in the original.";
 const TERRAIN_SHADOWS_NOTE: &str = "On: at a low sun, hills and mountains shade the land beyond the reach of the sun's shadows. Still being tuned. Not in the original.";
 
 fn register_pipeline_waits(app: &mut App) {
@@ -3212,6 +3231,7 @@ dlss-model=Preset K
             ("fine-shadows", &["--shadow-distance", "--graphics"]),
             ("cloud-shadows", &["--graphics", "--graphics-only"]),
             ("terrain-shadows", &["--graphics", "--graphics-only"]),
+            ("grass-shadows", &["--graphics-only"]),
             ("bloom", &["--graphics"]),
             ("glow", &["--graphics-only"]),
             ("eye-adaptation", &["--graphics-only"]),

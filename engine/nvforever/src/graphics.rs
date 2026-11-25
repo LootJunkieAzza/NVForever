@@ -231,6 +231,9 @@ pub struct Graphics {
     /// The landscape shades the sun beyond the cascades (terrain_shadows.rs; off in both
     /// presets) [design, #2671].
     pub terrain_shadows: bool,
+    /// Nearby grass casts the sun's shadow, and placed plants and leaf cards a fuller one
+    /// (grass.rs, nvf_assets `foliage_shadow_prepass`; off in both presets) [design].
+    pub grass_shadows: bool,
     /// Heat haze at distance (heat_haze.rs; a prototype, off in both presets) [design].
     pub heat_haze: bool,
     /// A dust haze in the weather's fog (haze.rs; off in every preset) [design, #2675].
@@ -284,7 +287,7 @@ pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
 /// shadow-filter, full-detail, distant-object and cloud-level choices that are not vanilla's, in the
 /// order of [`Graphics::describe`].
-pub const KEYS: [&str; 32] = [
+pub const KEYS: [&str; 33] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -304,6 +307,7 @@ pub const KEYS: [&str; 32] = [
     "terrain-parallax",
     "cloud-shadows",
     "terrain-shadows",
+    "grass-shadows",
     "heat-haze",
     "desert-haze",
     "full-detail-7x7",
@@ -373,6 +377,7 @@ impl Graphics {
             // The same for terrain shadows, whose softness and bias are still to tune
             // [design, #2671; the issue's "in enhanced" names a row the overhaul removed].
             terrain_shadows: false,
+            grass_shadows: false,
             // Off in both looks: a prototype of our own [design].
             heat_haze: false,
             // Off in every preset: an addition of our own [design, #2675].
@@ -423,6 +428,7 @@ impl Graphics {
             "terrain-parallax" => &mut self.terrain_parallax,
             "cloud-shadows" => &mut self.cloud_shadows,
             "terrain-shadows" => &mut self.terrain_shadows,
+            "grass-shadows" => &mut self.grass_shadows,
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
             "volumetric-clouds" => &mut self.volumetric_clouds,
@@ -503,6 +509,7 @@ impl Graphics {
             (self.terrain_parallax, "terrain parallax"),
             (self.cloud_shadows, "cloud shadows"),
             (self.terrain_shadows, "terrain shadows"),
+            (self.grass_shadows, "grass shadows"),
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
             (!self.authored_materials, "no authored materials"),

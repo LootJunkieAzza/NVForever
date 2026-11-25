@@ -1867,6 +1867,7 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         // Object LOD (the landscape's LOD chunks and blocks, nvforever lod.rs) takes no
         // authored set (#2981): its atlases are not the textures a pack's sets name.
         props.no_authored = is_lod_model(path);
+        props.foliage_model = crate::nif_spawn::is_foliage_model_path(path);
         props.animated_emissive = emissive_shapes.contains(&shape_name);
         props.animated_alpha = alpha_shapes.contains(&shape_name);
         if props.is_helper(shaded) {

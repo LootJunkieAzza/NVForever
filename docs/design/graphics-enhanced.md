@@ -4258,6 +4258,31 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
   composition samples every layer once and runs the transmission product twice, up to about 10 MiB of
   working memory at eight layers on the compute pool; folding both into one pass is not done.
 
+### 3.24 Grass shadows (`grass-shadows`; off in every preset)
+
+Grass draws no shadow on its own (grass.rs gives every mesh `NotShadowCaster`), and placed
+plants and SpeedTree leaf cards cut their shadow at the same alpha as their picture, which
+leaves a thin, broken shadow under a shrub. With this row (Graphics › Shadows, greyed while
+Sun shadows are off):
+
+- **Grass.** A grass mesh casts the sun's shadow while it is shown and within 1,500 units
+  of the camera (`GRASS_SHADOW_DISTANCE`, about the near cascade's reach) and never past
+  the middle of the grass's fade (`cull`) [engineering choice]. Its shadow prepass
+  (fade_prepass.wesl `GRASS_SHADOW_PREPASS`) keeps the tuft's core solid and thins it
+  towards the tips: the cut runs from 0.16 at the foot to the larger of 0.30 and 85 % of the
+  material's cut at the tip, by the square of the height share [engineering choice]. In
+  the sun's (orthographic) pass the plants are not sunk by the camera's grass distance
+  (grass.wesl `deform`).
+- **Placed plants and leaf cards.** NIF shapes of FLOR and TREE models, and cut-out shapes
+  under the game's plant folders or with a plant texture (nif_spawn.rs `is_foliage_shape`),
+  and SpeedTree leaf cards cut their sun shadow at 42 % of their own alpha cut, at least
+  0.16 (`FOLIAGE_SHADOW_PREPASS`) [engineering choice], so a crown casts a fuller shadow.
+  This part is fixed before the first pipeline: the row changes it at the next start
+  (settings.rs `grass_shadows_after_ini`); the grass follows the row at once.
+
+The original draws no grass shadows [hypothesis: none seen in its own pictures]. Cost: not
+measured yet.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on
