@@ -10,6 +10,10 @@ use fnv_sim::inventory::Extra;
 use fnv_sim::world::EquipLock;
 use fnv_sim::FormId;
 
+#[cfg(test)]
+#[path = "w6d9_container_inv_count_tests.rs"]
+mod w6d9_container_inv_count_tests;
+
 /// The items an item parameter stands for: the form itself, or every member of a form
 /// list [documented: GECK wiki AddItem and RemoveItem notes, a form list applies the
 /// count to each item in it].
@@ -485,11 +489,14 @@ pub fn reset_inventory(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
     none()
 }
 
-/// The number of items the container holds [documented: catalogue summary].
+/// The number of distinct item entries the container holds (matching GetNumItems, not
+/// the sum of item quantities) [documented: catalogue summary; observed: 2026-11-25,
+/// FNV 1.4.0.525 + JIP LN 57.30, w6d9_32_container_invcount_numitems_invobj_and_allitems:
+/// 0(cic=0,num=0)|1(cic=3,num=3) after adding 10 caps + 2 stimpaks + 5 pistols].
 pub fn get_container_inventory_count(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let s = g.world.get(r).map_err(|e| e.to_string())?;
-    Ok(Value::Num(s.inventory.as_ref().map(|i| i.iter().map(|(_, n)| n as f64).sum()).unwrap_or(0.0)))
+    Ok(Value::Num(s.inventory.as_ref().map(|i| i.iter().filter(|(_, n)| *n > 0).count() as f64).unwrap_or(0.0)))
 }
 
 /// `item.SetItemValue value`: the base item's value for every reference [documented:
