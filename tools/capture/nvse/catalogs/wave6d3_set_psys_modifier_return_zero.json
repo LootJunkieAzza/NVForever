@@ -1,0 +1,97 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-set-psys-modifier-return-zero",
+  "description": "Read-only clean-room probe verifying SetNiPSysModifierValue returns 0 on success while mutating, whereas SetParticleEmitterSpawnRate returns 1.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_nvse.dll": "57.30",
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_set_psys_modifier_return_zero",
+      "title": "Wave 6D-3: SetNiPSysModifierValue returns 0 on success",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_05_psys_modifier_and_emitter_spawn_rate",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
+          "spec_line": 29,
+          "functions_tested": [
+            "GetNiPSysModifierValue",
+            "SetNiPSysModifierValue",
+            "GetParticleEmitterSpawnRate",
+            "SetParticleEmitterSpawnRate"
+          ],
+          "claim": "Verify Get/SetNiPSysModifierValue (IDs 0,1,2,3,12,13,14,16,19,20,-1) and Get/SetParticleEmitterSpawnRate on placed ForceFieldRightGlow02 (0xAAE4D, 'PCloud01' + 'NiPSysCylinderEmitter:0'; active in RadiationVisuals).",
+          "expected": "Confirm whether JG addresses particle system by NiParticleSystem block ('PCloud01') vs emitter modifier block ('NiPSysCylinderEmitter:0'), exact return values, and OOB ID 20/-1.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"AAE4D\"",
+            "ref rFf = Player.PlaceAtMe rBase 1 0 0",
+            "Player.AuxVarSetRef \"*w6d3_05_ff\" rFf"
+          ],
+          "wait_ticks_after": 4,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rFf = Player.AuxVarGetRef \"*w6d3_05_ff\"",
+                "float p1 = rFf.GetNiPSysModifierValue \"PCloud01\" 1",
+                "float p14 = rFf.GetNiPSysModifierValue \"PCloud01\" 14",
+                "float p16 = rFf.GetNiPSysModifierValue \"PCloud01\" 16",
+                "float p20 = rFf.GetNiPSysModifierValue \"PCloud01\" 20",
+                "float e1 = rFf.GetNiPSysModifierValue \"NiPSysCylinderEmitter:0\" 1",
+                "float e14 = rFf.GetNiPSysModifierValue \"NiPSysCylinderEmitter:0\" 14",
+                "float e16 = rFf.GetNiPSysModifierValue \"NiPSysCylinderEmitter:0\" 16",
+                "float srP = rFf.GetParticleEmitterSpawnRate \"PCloud01\"",
+                "float srE = rFf.GetParticleEmitterSpawnRate \"NiPSysCylinderEmitter:0\"",
+                "int setP = rFf.SetNiPSysModifierValue \"PCloud01\" 14 7.5",
+                "float p14A = rFf.GetNiPSysModifierValue \"PCloud01\" 14",
+                "int setE = rFf.SetNiPSysModifierValue \"NiPSysCylinderEmitter:0\" 14 7.5",
+                "float e14A = rFf.GetNiPSysModifierValue \"NiPSysCylinderEmitter:0\" 14",
+                "int setSrP = rFf.SetParticleEmitterSpawnRate \"PCloud01\" 42.0",
+                "float srPA = rFf.GetParticleEmitterSpawnRate \"PCloud01\"",
+                "int setSrE = rFf.SetParticleEmitterSpawnRate \"NiPSysCylinderEmitter:0\" 42.0",
+                "float srEA = rFf.GetParticleEmitterSpawnRate \"NiPSysCylinderEmitter:0\"",
+                "int setMiss = rFf.SetNiPSysModifierValue \"W6D3_NoPSys\" 1 1",
+                "int srMiss = rFf.SetParticleEmitterSpawnRate \"W6D3_NoPSys\" 10",
+                "rFf.Disable 0",
+                "rFf.MarkForDelete",
+                "PrintToConsole \"PROBE|w6d3_05_psys_modifier_and_emitter_spawn_rate|p(%.1f,%.1f,%.1f,o20=%.1f)|e(%.1f,%.1f,%.1f)|sr(p=%.1f,e=%.1f)|set(p=%g:%.1f,e=%g:%.1f)|srSet(p=%g:%.1f,e=%g:%.1f)|miss=%g/%g\" p1 p14 p16 p20 e1 e14 e16 srP srE setP p14A setE e14A setSrP srPA setSrE srEA setMiss srMiss"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

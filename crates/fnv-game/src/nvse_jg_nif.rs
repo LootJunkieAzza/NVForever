@@ -213,7 +213,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 Some(k) if v.is_finite() => g.scene.set_particle(r, &text(args, 0), k, v as f32),
                 _ => false,
             };
-            XVal::Num(f64::from(u8::from(ok)))
+            // SetNiPSysModifierValue returns 0 even on success while mutating;
+            // SetParticleEmitterSpawnRate returns 1 on success and 0 on missing
+            // [observed: `w6d3_05_psys_modifier_and_emitter_spawn_rate`].
+            if name == "setnipsysmodifiervalue" {
+                zero
+            } else {
+                XVal::Num(f64::from(u8::from(ok)))
+            }
         }
         // ---- a shape's alpha and stencil properties: `block item [pc]`, item 0 the flags,
         // 1 the threshold; 0 the flags, 1 the reference, 2 the mask [hypothesis: the pages
