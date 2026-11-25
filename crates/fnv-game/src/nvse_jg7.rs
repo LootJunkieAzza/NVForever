@@ -290,14 +290,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.other.jg7.menu_arrow_keys_off = name == "disablemenuarrowkeys";
             zero
         }
-        // `seconds`: counts down in game seconds from when it was set; 0 when run out or
-        // never set [documented: Get/SetYieldTimer; hypothesis: game time].
+        // `seconds`: positive values count down to 0 over time while negative values read
+        // back raw without clamping to 0 [documented: Get/SetYieldTimer; observed:
+        // 2026-11-25, FNV 1.4.0.525 + JohnnyGuitarNVSE 528,
+        // w6d8_22_yield_timer_countdown_and_negative_bounds:
+        // y0=0.000 y1=10.000 y2=9.314 dec=1 y3=0.000 y4=-5.000].
         "setyieldtimer" => {
             let now = g.time;
             g.other.jg7.yield_timer = Some((num(args, 0, 0.0), now));
             zero
         }
-        "getyieldtimer" => XVal::Num(g.other.jg7.yield_timer.map_or(0.0, |(v, at)| (v - (g.time - at)).max(0.0))),
+        "getyieldtimer" => XVal::Num(g.other.jg7.yield_timer.map_or(0.0, |(v, at)| {
+            if v < 0.0 { v } else { (v - (g.time - at)).max(0.0) }
+        })),
         // 0 is the default [documented: Get/SetViewmodelClipDistance]; stores raw finite
         // values including negatives without clamping to 0 [observed: Fallout: New Vegas
         // 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse`
@@ -552,3 +557,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d8_yield_timer_tests.rs"]
+mod w6d8_yield_timer_tests;
