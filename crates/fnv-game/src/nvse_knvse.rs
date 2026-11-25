@@ -222,8 +222,8 @@ impl Game<'_> {
 
     /// GetGlobalAnimTime: what SetGlobalAnimTime gave plus the game seconds since, else
     /// the game seconds since the game first knew the actor's animations, that first
-    /// frame counted [hypothesis: the clock starts with the actor's 3D; observed:
-    /// knvse-anim, Ceil of it reads 1 a few frames after placing an actor].
+    /// frame counted [observed: knvse-anim, Ceil of it reads 1 a few frames after
+    /// placing an actor] (clock start: see docs/spec-notes/ext-knvse.md §1).
     fn anim_clock(&mut self, a: FormId, first: bool) -> f64 {
         let now = self.script_sequence_now(a, first);
         // Admit the default origins even when this view has an explicit value:
