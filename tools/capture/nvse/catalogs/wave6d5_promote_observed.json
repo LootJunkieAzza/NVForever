@@ -1176,10 +1176,8 @@
         {
           "id": "w6d5p3_37b_rec_return_val",
           "bucket": "vm_udf_lambda",
-          "extender": "xNVSE / JIP LN NVSE",
-          "required_plugins": [
-            "jip_nvse.dll"
-          ],
+          "extender": "xNVSE",
+          "required_plugins": [],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": false,
