@@ -369,10 +369,12 @@ Rules (`crates/fnv-game/src/perks.rs`) [hypothesis unless said]:
 - The owner tab's conditions are evaluated with the owner as subject; an entry with
   conditions on another tab is not applied (no aid entry point of the masters has any).
 - Modify Positive Chem Duration lengthens the beneficial effects (neither Hostile nor
-  Detrimental) with a duration of an item whose equip type is Chems, not the usage
-  monitor [hypothesis: Chemist's "any chems you take last twice as long"; the wiki says
-  "any ingestible"]. The Stealth Boy's equip type is Chems [observed], so Chemist doubles
-  it here.
+  Detrimental) with a duration of an item whose equip type is Chems (`ETYP 10`) or
+  Stimpak (`ETYP 11`), not Food/Alcohol or the usage monitor [observed 2026-11-25:
+  `w6d7p2_14_chemist_durations_fixed` below; supersedes the earlier hypothesis that only
+  `ETYP 10` applied from Chemist's "any chems you take last twice as long", while the
+  wiki says "any ingestible"]. The Stealth Boy's equip type is Chems [observed], so
+  Chemist doubles it here.
 - Modify Radiation Consumed multiplies the rads an ingestible's effects give, any
   ingestible [documented: "Modifies the radiation from ingestibles"].
 - The other entry points are read where their systems are (combat, VATS, locks, weight,

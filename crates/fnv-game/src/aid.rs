@@ -209,7 +209,8 @@ pub struct Mods {
     /// Multiplies the beneficial Value Modifier magnitudes (Medicine and Food potency).
     pub potency: f64,
     /// Multiplies the durations of the beneficial effects that have one, the usage
-    /// monitor's excepted (perks' "Modify Positive Chem Duration", chems only).
+    /// monitor's excepted (perks' "Modify Positive Chem Duration", Chems ETYP 10 and
+    /// Stimpak ETYP 11).
     pub duration: f64,
     /// Multiplies the rads an effect gives (perks' "Modify Radiation Consumed").
     pub rads: f64,
