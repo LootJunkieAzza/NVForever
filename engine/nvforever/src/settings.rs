@@ -1457,7 +1457,7 @@ pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_KEY: &str = "volumetric-light-strengt
 
 /// The Volumetric light row's note: what it does and what it looks best with (its rays are
 /// cut by the Cloud shadows image and the Terrain shadows map, medium_air_grid.rs) [design].
-pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight shows in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's.";
+pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight and moonlight show in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's.";
 
 /// The strength slider's note [design].
 pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_NOTE: &str = "How strongly the light in the air brightens lit air and darkens shaded air: 100% is the look as tuned, 0% none.";

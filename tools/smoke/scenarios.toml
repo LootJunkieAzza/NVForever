@@ -4037,6 +4037,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "ai-goal-off-navmesh-named"
+kind = "tool"
+source = "#2756: a package place with no navmesh near it is logged with its cell or worldspace. Jean-Baptiste's VFSJeanBaptisteStandInPlacePackage goes to VFSJeanBaptisteMarkerREF, placed at (0, 0, 0) in FreesideSilverRush (the data's own, 3,000 units from that cell's navmesh); without the cell the line read as a goal looked for in Freeside, where he was"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-nav/src/path.rs"]
+commands = [
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "2", "--actor", "VFSJeanBaptisteCuttingREF", "--force", "VFSJeanBaptisteCuttingREF=VFSJeanBaptisteStandInPlacePackage"],
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "2", "--actor", "VHDPreBattleNCRTrooper3REF"],
+]
+expect = [
+  { json = "actors.?actor=VFSJeanBaptisteCuttingREF.events.?kind=unreachable.why", schema = "fnv.ai.run/1", equals = "no navmesh triangle near the goal (0, 0, 0) in FreesideSilverRush", label = "Jean-Baptiste's goal is named in the marker's interior" },
+  { json = "actors.?actor=VHDPreBattleNCRTrooper3REF.events.?kind=unreachable.why", schema = "fnv.ai.run/1", equals = "no navmesh triangle near the goal (66071, 18461, 4825) in WastelandNV", label = "trooper 3's barricade marker, off the navmesh, is named in WastelandNV" },
+]
+
+[[scenario]]
 name = "ai-no-door-out-of-sight-game"
 source = "docs/spec-notes/packages.md §11 (#2405): in the game, with the player outside the NCR safehouse's cave door (0x001593B6, WastelandNV), Gomez in the interior behind it is out of the loaded area; his Leave package (vSafehouse variable 10, GomezGoToSleep, = 1) sends him from the side room's navmesh island to GomezDoor, which no door joins: he is put there instead of logging 'cannot reach' every game hour (players' reports, build 0.7.0)"
 areas = ["ai"]
@@ -7704,7 +7719,7 @@ expect = [
   "pipboy sound: UIPipBoyMode",
   { text = "pipboy sound: UIPipBoyScroll", label = "pipboy: the STATS lists click as ITEMS' (General's other list at 18 s, #1340)" },
   "pipboy sound: UIPipBoyStatic",
-  { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, sKarmicTitleNeutral1)" },
+  { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, FalloutNV.esm sKarmicTitleNeutral01)" },
   { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', label = "pipboy data: the local map's outline made outdoors" },
   "pipboy data: map dragged by (-100, 0)",
 ]
@@ -13441,7 +13456,7 @@ order = [[
 
 [[scenario]]
 name = "reputation-box"
-source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('You have discovered'); fame with Goodsprings opens its 'Liked' box, infamy with the Powder Gangers their boxes up to 'Vilified'; the Pip-Boy's General page lists both"
+source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('You have discovered'); fame with Goodsprings opens its box at fame level 2, infamy with the Powder Gangers their boxes up to infamy level 3; the Pip-Boy's General page lists both"
 areas = ["hud", "pipboy"]
 paths = ["engine/nvf-play/src/reputation.rs", "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/functions/reputation.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close;17:player.addreputation 001558E6 0 5;17.2:player.addreputation 001558E6 0 5;17.4:player.addreputation 001558E6 0 5;17.6:close", NVF_PLAY_TEST_PIPBOY = "32:open,33:page=stats,34:tab=4,36:close", NVF_PLAY_TEST_SHOTS = "6,14,19,35" }
@@ -13450,8 +13465,8 @@ run_seconds = 38
 expect = [
   { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found" },
   { re = 'compass: \d+ actors \(\d+ hostile\), [1-9]\d* map markers \([1-9]\d* found\)', label = "the found town's marker on the compass" },
-  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
-  { re = 'reputation: Powder Gangers \S.* -> Vilified', label = "the Powder Gangers' last box Vilified" },
+  "reputation: Goodsprings Neutral -> Trusted (fame 12, infamy 0)",
+  { re = 'reputation: Powder Gangers \S.* -> Reviled', label = "the Powder Gangers' last box at infamy level 3 (Reviled)" },
   { re = 'pipboy stats: .* 2 reputations', label = "both reputations in the Pip-Boy's list" },
   { re = 'pipboy stats: LVL 1, .*, XP 10/', label = "the discovery's 10 XP" },
 ]
@@ -13462,17 +13477,17 @@ source = "owner request 2026-10-30 (#1050): the reputation box and the level-up 
 note = "beside Violet's camp (as music-battle), god mode: Goodsprings fame is added at 12 s while the fight is on, the five fighters are killed at 15 s; the box waits for the fight to end and then 2 s more"
 areas = ["hud"]
 paths = ["engine/nvf-play/src/after_combat.rs", "engine/nvf-play/src/reputation.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F5741,15:kill:0x0013F85F" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F573C,15:kill:0x000F573D,15:kill:0x000F573F,15:kill:0x000F5741,15:kill:0x0013F85F" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-46800,65000,4600", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 26
 order = [[
   "after combat: in a fight, boxes wait",
   "after combat: the fight is over",
   { re = 'after combat: settled, boxes may come up \(2\.0 s' },
-  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
+  "reputation: Goodsprings Neutral -> Trusted (fame 12, infamy 0)",
 ]]
 expect = [
-  { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Liked"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
+  { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Trusted"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
 ]
 forbid = [{ re = 'the player died', label = "the player dies" }]
 
@@ -36591,20 +36606,28 @@ forbid = [
 
 [[scenario]]
 name = "volumetric-light-night"
-source = "[design, #3032 stage 3] docs/design/volumetric-medium.md (The near grid and the light in the air), engine/nvforever/src/medium_air.rs (gate, day_by_aim) and medium_air_light.rs (day from SkyState::sun_elevation_at(sun_light_hour())): the volumetric-light run at 01:00, where the Sun entity's light is the weather's night light from the opposite direction: the light is wanted, the gate closes with the night reason by the clock that aims the light, and the composite never draws, without a 'not drawn' reason or a shader, pipeline or rendering error"
+source = "[design, #3032 stage 3] docs/design/volumetric-medium.md (The near grid and the light in the air), engine/nvforever/src/medium_air.rs (gate, air_source) and medium_air_light.rs (the source from SkyState::sun_elevation_at(sun_light_hour()) and the climate's moon): the volumetric-light run at 01:00, where the Sun entity's light is the weather's night light from the moon's direction: the light is wanted, the gate opens by the moon, the pipelines compile, the terrain map and the cloud shadow are in use, and the grid pass and the composite draw, without a 'not drawn' reason or a shader, pipeline or rendering error. A climate without a moon (the gate closed) is a unit test's. The look is checked in pictures by hand"
 areas = ["renderer", "graphics", "weather"]
 paths = ["engine/nvforever/src/medium_air*", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/terrain_shadows.rs", "engine/nvforever/src/sun_visibility.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "crates/nvf-settings-layout/src/lib.rs", "engine/nvforever/src/shafts.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "1", "--weather", "NVWastelandClear", "--msaa", "4", "--sun-shadows", "--graphics-only", "terrain-shadows,cloud-shadows,volumetric-light"]
-run_seconds = 20
+run_seconds = 30
+note = "Made the moonlight's check on 2026-11-25 (before it the gate closed at night); run on 2026-11-25 (passed)."
 expect = [
   { text = "volumetric medium: light in the air wanted (the Volumetric light row)", label = "the row asks for the light" },
-  { text = "volumetric medium: light in the air off: night (the direct light is the night light)", label = "the gate closes at night with its reason (held 0.5 s before it is logged)" },
+  { re = 'volumetric medium: light in the air on: grid \d+x\d+x\d+ to \d+ units, lit by the moon, .*, moonlit share (0\.(0[1-9]|[1-9]\d)|1\.00), strength ', label = "the gate opens by the moon, with a share of its light" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_grid_pipeline', label = "the grid pass compiles" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_filter_pipeline', label = "the filter pass compiles" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_compose_pipeline', label = "the composite compiles" },
+  { text = "volumetric medium: light in the air: terrain map in use (", label = "the terrain map is produced for the moon's direction and valid for it" },
+  { text = "volumetric medium: light in the air: cloud shadow in use (", label = "the Cloud shadows image is published at night and read as K" },
+  { text = "volumetric medium: light in the air: grid pass drawn", label = "the grid pass drew by the moon" },
+  { text = "volumetric medium: light in the air: composite drawn (view none, multisampled depth yes)", label = "the moonlight was composed" },
 ]
 forbid = [
-  { text = "volumetric medium: light in the air: composite drawn", label = "the light composed at night (the gate must keep the composite off)" },
-  { text = "volumetric medium: light in the air: grid pass drawn", label = "the grid (and so the filter, which runs only after it) dispatched at night: medium_air_grid.rs grid_dispatched keeps both off while the gate is closed (the filter pass logs no line of its own)" },
-  { text = "volumetric medium: light in the air not drawn", label = "a reason the grid could not be drawn at night" },
+  { text = "volumetric medium: light in the air off: night", label = "the gate closed at night in a climate with a moon" },
+  { text = " units, lit by the sun, ", label = "the sun named as the source at 01:00" },
+  { text = "volumetric medium: light in the air not drawn", label = "a reason the light could not be drawn at night" },
   { text = "pipeline failed", label = "the grid or filter pipeline failed at night" },
   { re = 'pipeline \d+ failed after \d+ ms: medium_air_', label = "a pipeline of the light failed at night" },
   { re = '(?i)validation error|wgpu error', label = "a wgpu validation error with the light at night" },

@@ -1203,12 +1203,12 @@ below cover them all.
 
 ### `volumetric-light`: Volumetric light (experimental)
 
-- On the page: On: sunlight shows in the air as rays and a glow toward a low sun, shaded by
-  hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of
-  NVForever's.
+- On the page: On: sunlight and moonlight show in the air as rays and a glow toward a low
+  sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An
+  addition of NVForever's.
 - While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
-  it draws). A prototype. Outdoors by day
-  only, in the main view only. Off in every preset; not in the original.
+  it draws). A prototype. Outdoors only, by the sun by day and by
+  the moon at night (nothing at night in a climate without one), in the main view only. Off in every preset; not in the original.
 - Command-line switches: `--graphics-only`
 - More: docs/design/volumetric-medium.md
 - Registered in `engine/nvforever/src/settings.rs`

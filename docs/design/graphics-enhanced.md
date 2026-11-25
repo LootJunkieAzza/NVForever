@@ -3851,6 +3851,22 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
     the Sunlight colour. Test `the_lean_light_takes_the_weathers_colours`.
   - *The light's direction*: by day the sun's disc, by night the moon's, with the moon's share of the
     sun's strength as on the landscape; it grows from nothing at the horizon to full at 4 degrees.
+  - *By moonlight* [design]: in many weathers the night Sunlight is far brighter than the cloud layers, which
+    the flat sky draws nearly black, so clouds lit at its luminance glowed against the sky
+    [observed: NVForever runs, 2026-11-25, Goodsprings at -71680,2048, 1920x1080, NVWastelandClear at 22:00, heading 80, pitch 22:
+    the sky's 99th percentile 122 of 255 with the volumetric clouds, 22 with the flat layers]. Below the horizon the direct
+    light and the light from below are each dimmed toward the visible layers' PNAM luminance by
+    `min(1, L(cloud) / L(light))^q`, q `NIGHTPULL` (0.45; 0.5 would be the geometric mean of the two) times the night's
+    share (0 at the horizon, 1 from 4 degrees under it, smooth). It only ever dims, keeps every hue, follows the weather's values alone (no weather named,
+    no level fixed), and leaves the direct light of a weather whose night Sunlight is no brighter than its clouds as it was (the light from below has its own gain). With no
+    visible cloud colour nothing is dimmed, and the dimming grows in over eight times that least luminance.
+    The sky level, the moon's share and MoonlightNVSE.ini's factor are outside of it. The bound is taken of
+    the undimmed light. It is part of Volumetric clouds, with Volumetric light on or off; without a moon the light from below
+    dims alone. `MOONFORWARD` and `MOONBACK` can give the phase's forward lobe and back-scatter floor weights of their own by
+    the same share: 1.6 and 0.1 as tuned, so the cloud facing the moon stays bright while its body darkens, and `MOONCAP` (9) is the phase's cap by
+    the same share in place of the day's 4, so the cloud right at the moon can be the brightest thing in the sky (all three [design]: the contributor's pick from stills, 2026-11-25).
+    The bound on the cloud light takes the larger of the two caps. By day and at the horizon none of it is computed (test
+    `the_day_is_untouched_by_the_night_pull`, bit for bit).
   - *The bound*: the most a step emits per channel, computed in f64, sets one factor `min(1, 30,000 / B)` for
     every colour, so a mod's huge sky level stays inside the HDR target (`light_bound`).
   - *What is not modelled*: a third octave, after-sunset light from below, moon bounce; the column
@@ -4108,7 +4124,8 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
     the sunlit share from the sun and ambient lights as sky.rs sets them, weakened under a closed deck by
     what the clouds let through of a light from above (Cloud shadows on), the clouds' mean shadow
     as the reference the rays are measured against; a fog the light cannot read, a fog not blended
-    in display values, night, interiors and under water are shown the plain way. The look's
+    in display values, night in a climate without a moon, interiors and under water are shown the plain way. By
+    night the light is the moon's, the weather's night sunlight from the opposite side. The look's
     constants (ray contrast, lift, shade limit, phase floor, sky weights) are artistic choices made
     from pictures, all live in a tune file (`NVF_PLAY_DEBUG_MEDIUM_LIGHT_TUNE`, a
     developer aid too); the ends of the fog blend, the deck's share and the bright hold are constants.
@@ -4208,6 +4225,9 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
   | `UPPER`, `LOWER`, `GROUND`, `OCCLUDE` | 1, 1, 1, 1 | 0..4; the light from above, below, the reflectance, the ambient's fall |
   | `SUN`, `LEVEL`, `POWDER` | 1.3, 1.12, 1 | 0..4; the direct light, one level on the whole, the powder |
   | `SUNCOLOUR` (alias `SUNCOLOR`) | 0 | 0..1; the Sunlight's share in the direct hue |
+  | `NIGHTPULL` | 0.45 | 0..2; the night's pull toward the cloud layers' luminance (0 none, 1 that luminance) |
+  | `MOONFORWARD`, `MOONBACK` | 1.6, 0.1 | 0..4; `FORWARD` and `BACKSCATTER` by moonlight |
+  | `MOONCAP` | 9 | 0..16; the phase's cap by moonlight (the day's is 4) |
   | `STEPS`, `TYPE`, `VIEW` | 28, none, none | 4..128; a type's name; a view's name |
   | `HEIGHT`, `HORIZON` (start-only) | 24,000, 400,000 | the domain |
   | `PUFF`, `AIR` (start-only) | 1, 0.82 | the fair lobes' weight, the haze |

@@ -2714,7 +2714,7 @@ pub fn initial_fog() -> DistanceFog {
 /// about it as the sun moves, instead of also rolling as they did with the world's up:
 /// less crawl along the shadows' edges while the sun light follows the clock every frame
 /// (`SkyState::sun_light_hour`). [engineering choice]
-fn aim_sun(light: &mut Mut<DirectionalLight>, t: &mut Mut<Transform>, sun_dir: Vec3, axis: Vec3, full: f32, moon_mult: f32) {
+pub(crate) fn aim_sun(light: &mut Mut<DirectionalLight>, t: &mut Mut<Transform>, sun_dir: Vec3, axis: Vec3, full: f32, moon_mult: f32) {
     // Below the horizon the light comes from the opposite side (moonlight colour is the
     // weather's night "sunlight") [hypothesis].
     let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };

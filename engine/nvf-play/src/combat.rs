@@ -110,6 +110,7 @@
 //!   unless [`HitMarks`] says so: a cross at each impact and a line from the muzzle
 //!   along each hitscan shot.
 
+use fnv_util::words::tr;
 use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Phase, Timing};
 use fnv_combat::condition::{self, Wear, Zone};
@@ -1739,10 +1740,10 @@ impl Combat {
     /// reloading or jammed, a round loaded; a melee or unarmed weapon (the Fists too); a
     /// grenade or thrown weapon (not a mine), one carried.
     pub fn vats_weapon(&self, sim: &SimState, gravity: f32) -> Result<VatsWeapon, &'static str> {
-        const NO_GUN: &str = "VATS mode needs a weapon to aim.";
+        let no_gun = tr("VATS mode needs a weapon to aim.");
         use fnv_combat::vats::{shot_ap_cost, throw_reach, AttackStyle};
-        let id = self.weapon.ok_or(NO_GUN)?;
-        let w = &self.player_stats(id).ok_or(NO_GUN)?;
+        let id = self.weapon.ok_or(no_gun)?;
+        let w = &self.player_stats(id).ok_or(no_gun)?;
         let cost = shot_ap_cost(w, &self.rules.ap_attack);
         let edid = w.edid.clone().unwrap_or_else(|| id.to_string());
         if self.melee {
@@ -1762,13 +1763,13 @@ impl Combat {
         }
         // A gun needs to be equipped: the Fists are melee.
         if self.equipped.flatten() != Some(id) || self.player_weapon_is_mine() {
-            return Err(NO_GUN);
+            return Err(no_gun);
         }
-        let proj = self.forms.chain(id, self.ammo).and_then(|ch| ch.projectile).ok_or(NO_GUN)?;
+        let proj = self.forms.chain(id, self.ammo).and_then(|ch| ch.projectile).ok_or(no_gun)?;
         if self.self_ammo {
             let carried = player_count(sim, Some(id));
             if carried == 0 {
-                return Err("Out of ammo.");
+                return Err(tr("Out of ammo."));
             }
             let p = self.forms.projectiles.get(&proj);
             let range = p.map_or(0.0, |p| if p.range > 0.0 { p.range } else { crate::vats_mode::REACH });
@@ -1776,11 +1777,11 @@ impl Combat {
             return Ok(VatsWeapon { id, edid, cost, style: AttackStyle::Thrown, rounds_per_shot: 1, rounds: carried, reach: range.min(lob), melee_reach: 0.0, classic_reach: None });
         }
         if AttackKind::of(w) != AttackKind::Gun {
-            return Err(NO_GUN);
+            return Err(no_gun);
         }
-        let cy = self.cycle.as_ref().ok_or(NO_GUN)?;
+        let cy = self.cycle.as_ref().ok_or(no_gun)?;
         if cy.reloading() || cy.jammed() {
-            return Err("Not while reloading.");
+            return Err(tr("Not while reloading."));
         }
         let style = AttackStyle::of(w, false, false);
         // God mode keeps the magazine full (the shots take nothing).
@@ -1794,7 +1795,7 @@ impl Combat {
             cy.magazine
         };
         if !free && rounds < cy.ammo_use {
-            return Err("Out of ammo.");
+            return Err(tr("Out of ammo."));
         }
         let range = self.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
         Ok(VatsWeapon {
@@ -4838,7 +4839,7 @@ fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, i
         stats.player_died = true;
         info!("combat: the player died, killed by {by}");
         if let Some(h) = hud {
-            h.show("You are dead.".to_string());
+            h.show(tr("You are dead.").to_string());
         }
     }
     Some(r)
