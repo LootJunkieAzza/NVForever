@@ -671,3 +671,26 @@ fn toggle_item_unique_and_is_item_unique_filter_repair_sources_and_ignore_alch()
     assert_eq!(num(&mut g, "IsItemUnique TestPistol"), 0.0);
     assert_eq!(num(&mut g, "IsItemUnique TestArmor"), 0.0);
 }
+
+#[test]
+fn cripple_limb_covers_indices_0_through_6_including_brain_condition() {
+    let f = fixture();
+    let mut g = game(&f);
+    let avs = [
+        "PerceptionCondition",
+        "EnduranceCondition",
+        "LeftAttackCondition",
+        "RightAttackCondition",
+        "LeftMobilityCondition",
+        "RightMobilityCondition",
+        "BrainCondition",
+    ];
+    // Out-of-range -1 and 7 leave all 7 limb conditions intact.
+    q(&mut g, "player.CrippleLimb -1\nplayer.CrippleLimb 7");
+    for av in avs {
+        assert!(num(&mut g, &format!("player.GetActorValue {av}")) > 0.0, "{av} untouched by OOB");
+    }
+    // Index 6 cripples BrainCondition (AV 31) [observed: w6d6p2_40_cripple_limb_all_indices].
+    q(&mut g, "player.CrippleLimb 6");
+    assert_eq!(num(&mut g, "player.GetActorValue BrainCondition"), 0.0);
+}

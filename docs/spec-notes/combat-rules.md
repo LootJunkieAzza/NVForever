@@ -2132,3 +2132,11 @@ with `AsciiToChar 59`; exact title text, counts and references remain unchanged.
 The production getter and compiler/array/receiver policies are unchanged. These
 further corrected fixtures are unexecuted at correction authoring. The historical
 three passes are scoped to `5a61bc59`, not transferred to its successor or baseline.
+
+### `CrippleLimb` valid limb index range `0..=6` [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p2_40_cripple_limb_all_indices` (`tools/capture/nvse/catalogs/wave6d6_cripple_limb_brain.json`)]: `CrippleLimb` maps indices `0..=6` to AVs `25..=31` (`PerceptionCondition` through `BrainCondition`, bitmask `1..64`), while `-1` and `7` are no-ops (`0`):
+
+```text
+PROBE|w6d6p2_40_cripple_limb_all_indices|masks(-1..7)=0,1,2,4,8,16,32,64,0
+```

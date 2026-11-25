@@ -1,0 +1,109 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_cripple_limb_brain",
+  "description": "Wave 6D-6 read-only probe verifying CrippleLimb indices -1..=7 map 0..=6 to AVs 25..=31 including BrainCondition (6).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_cripple_limb_brain",
+      "title": "CrippleLimb index 6 (BrainCondition) coverage",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p2_40_cripple_limb_all_indices",
+          "bucket": "combat_limbs",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 666,
+          "functions_tested": [
+            "CrippleLimb",
+            "GetAV",
+            "RestoreAV"
+          ],
+          "claim": "SD-17: Probe CrippleLimb across indices -1..7 on a placed NPC reading all 7 limb condition AVs (25..31).",
+          "expected": "Confirm exact index->AV mapping including whether 6 maps to BrainCondition.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 110 0",
+            "rNpc.SetRestrained 1",
+            "array_var aHit = Ar_Construct \"array\"",
+            "int iIdx = -1",
+            "while iIdx <= 7",
+            "  rNpc.RestoreAV PerceptionCondition 100",
+            "  rNpc.RestoreAV EnduranceCondition 100",
+            "  rNpc.RestoreAV LeftAttackCondition 100",
+            "  rNpc.RestoreAV RightAttackCondition 100",
+            "  rNpc.RestoreAV LeftMobilityCondition 100",
+            "  rNpc.RestoreAV RightMobilityCondition 100",
+            "  rNpc.RestoreAV BrainCondition 100",
+            "  rNpc.CrippleLimb iIdx",
+            "  int iMask = 0",
+            "  if (rNpc.GetAV PerceptionCondition) <= 0",
+            "    let iMask := iMask + 1",
+            "  endif",
+            "  if (rNpc.GetAV EnduranceCondition) <= 0",
+            "    let iMask := iMask + 2",
+            "  endif",
+            "  if (rNpc.GetAV LeftAttackCondition) <= 0",
+            "    let iMask := iMask + 4",
+            "  endif",
+            "  if (rNpc.GetAV RightAttackCondition) <= 0",
+            "    let iMask := iMask + 8",
+            "  endif",
+            "  if (rNpc.GetAV LeftMobilityCondition) <= 0",
+            "    let iMask := iMask + 16",
+            "  endif",
+            "  if (rNpc.GetAV RightMobilityCondition) <= 0",
+            "    let iMask := iMask + 32",
+            "  endif",
+            "  if (rNpc.GetAV BrainCondition) <= 0",
+            "    let iMask := iMask + 64",
+            "  endif",
+            "  Ar_Append aHit iMask",
+            "  let iIdx := iIdx + 1",
+            "loop",
+            "int iM0 = aHit[0]",
+            "int iM1 = aHit[1]",
+            "int iM2 = aHit[2]",
+            "int iM3 = aHit[3]",
+            "int iM4 = aHit[4]",
+            "int iM5 = aHit[5]",
+            "int iM6 = aHit[6]",
+            "int iM7 = aHit[7]",
+            "int iM8 = aHit[8]",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "PrintToConsole \"PROBE|w6d6p2_40_cripple_limb_all_indices|masks(-1..7)=%g,%g,%g,%g,%g,%g,%g,%g,%g\" iM0 iM1 iM2 iM3 iM4 iM5 iM6 iM7 iM8"
+          ]
+        }
+      ]
+    }
+  ]
+}

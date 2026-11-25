@@ -1020,10 +1020,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // order of the condition values].
         "cripplelimb" => {
             let a = subject.unwrap_or(FormId(0));
-            // Perception, Endurance, Left/Right Attack, Left/Right Mobility Condition
-            // (25–30).
+            // Perception, Endurance, Left/Right Attack, Left/Right Mobility, Brain Condition
+            // (25–31) [observed: w6d6p2_40_cripple_limb_all_indices].
             let code = match num(args, 0, -1.0) as i64 {
-                k @ 0..=5 => 25 + k as u16,
+                k @ 0..=6 => 25 + k as u16,
                 _ => return Some(Ok(zero)),
             };
             let now = crate::functions::actor::actor_value(g, a, code).unwrap_or(0.0);
