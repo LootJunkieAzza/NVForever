@@ -1412,6 +1412,8 @@ fn register_graphics(app: &mut App) {
     // Read once at the start like Authored materials; the row keeps the next start's choice
     // (gpu_occlusion.rs).
     crate::gpu_occlusion::add_row(app, GROUP_GRAPHICS);
+    // World decal limit (#3776; decals.rs).
+    crate::decals::add_row(app, GROUP_GRAPHICS);
     nvf_play::settings::set_needs_in_game(app, "terrain-parallax", |w| parallax_status(nvf_assets::authored::enabled(), w.get_resource::<Graphics>().is_some_and(|g| g.authored_materials)));
 }
 

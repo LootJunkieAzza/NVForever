@@ -87,19 +87,52 @@ The game's `Fallout_default.ini` [observed, 2026-10-20]: `[Display] fDecalLifeti
 `[Display] iMaxDecalsPerFrame=10` (2 in `low.ini`, 5 in `medium.ini`, 10 in `high.ini` and
 `VeryHigh.ini`), `[Display] bDecalsOnSkinnedGeometry=1`, `[Decals] uMaxDecalCount=100`,
 `bProfileDecals=0`, `bDecalOcclusionQuery=1`; the quality INIs also set `fDecalLOD1=500`,
-`fDecalLOD2=1000`. Their meanings are read from the names [hypothesis].
+`fDecalLOD2=1000`.
+
+- **What the running original does** [observed 2026-11-24: base game + xNVSE 6.4.9 + JIP LN,
+  Goodsprings General Store, 1920 × 1080; `GetNumericINISetting` read `fDecalLifetime:Display`
+  10, `uMaxDecals:Decals` 100, `uMaxSkinDecals:Decals` 24, `uMaxSkinDecalPerActor:Decals` 3,
+  and `uMaxDecalCount:Decals` -1]:
+  - `uMaxDecalCount:Decals` from `Fallout_default.ini` reads `-1` in the running game, so it
+    looks like no setting of the engine [hypothesis: that is what `-1` means]; the live limit
+    is `uMaxDecals:Decals` (`100` in `FalloutPrefs.ini`; the GECK wiki gives `50` as default).
+  - **Blood on the world**: 12 BB gun hits on Chet (`fCombatEnvironmentBloodChance` set to 1)
+    left splatters on the floor and shelves behind him; frames 2 s and 40 s after the last
+    hit looked the same.
+  - **Bullet holes**: five 9 mm shots in the floor were all still there after 60 s with no
+    other shot, and after 110 s with about 130 trigger pulls elsewhere in the room.
+  - **Over the limit**: counting ammo before and after, the first five shots' holes were still
+    there at 104 rounds and gone at 121 rounds (77 to 89 s old by then, well past
+    `fDecalLifetime`; not every round is sure to leave a decal, so the threshold is bracketed).
+  - Lowering `uMaxDecals` mid-game via `SetNumericINISetting` to 2 (verified by readback)
+    removed nothing.
+- **Documented** [documented: GECK wiki "INI Settings", revision 41216]: `fDecalLifetime` is
+  the time until spawned decals start to fade; object (world) decals do not fade unless their
+  count exceeds `uMaxDecals`; skinned (body) decals always count down whether the maximum is
+  reached or not; `uMaxSkinDecals` (24) and `uMaxSkinDecalPerActor` (3) limit skinned decals
+  on bodies.
 
 **Decals are not kept** [design: the owner, 2026-10-20, "make sure the scorch marks and
 bullet holes arent persistent i dont want to jam up the engine remembering all these"]:
 a decal is only a drawn entity. It is never written to a save, nor remembered by a cell
 or an actor; it hangs from the drawn cell it lies in (or the actor's bone), so it goes
-when that cell unloads (or the actor is removed). What else limits them, all
-[design] constants in `decals.rs`:
+when that cell unloads (or the actor is removed). Since #3776 (matching the original's rule
+while keeping the count bounded and non-persistent), `decals.rs` enforces:
 
-- `MAX_DECALS` = 64 alive at once, a fixed global cap below the game's
-  `uMaxDecalCount=100` (the owner asked for a small one); a new one removes the oldest;
-- `DECAL_LIFETIME` = 10 s, as `fDecalLifetime`; then it fades out over 1 s
-  (`DECAL_FADE`; the game's way of removing one is not known);
+- **World decals**: stay until more than `DecalConfig::world_limit` non-fading world decals
+  are alive (default `MAX_DECALS` = 100, matching `uMaxDecals` = 100 observed in
+  `FalloutPrefs.ini`; configurable via the Graphics › Detail and Distance `decal-limit` list:
+  `100`, `200`, `300`, `500` [design, #3776]). Only once the count exceeds the limit do the
+  oldest non-fading world decals start counting down `DECAL_LIFETIME` = 10 s (`fDecalLifetime`)
+  and fade out over the last 1 s (`DECAL_FADE` [design]). Lowering the setting mid-game does
+  not immediately remove existing decals.
+- **Hard ceiling** [design, #3776]: `hard_ceiling(limit) = limit + max(limit / 4, 32)`
+  (`132` at the default `100`, `625` at `500`) caps total live world decals (non-fading plus
+  currently fading) so rapid bursts stay bounded; excess oldest world decals are despawned at
+  the ceiling.
+- **Actor (skinned) decals**: always count down `DECAL_LIFETIME` = 10 s from placement and
+  fade over the last 1 s (`DECAL_FADE`); capped at `MAX_PER_ACTOR` = 3 per actor
+  (`uMaxSkinDecalPerActor`) and `MAX_SKIN_DECALS` = 24 globally (`uMaxSkinDecals`).
 - `MAX_DECALS_PER_FRAME` = 10 new decals a frame, as `iMaxDecalsPerFrame` (the high
   setting); more in one frame are not placed;
 - no new decal within the IPCT's placement radius of a live decal of the same texture
@@ -108,9 +141,9 @@ when that cell unloads (or the actor is removed). What else limits them, all
 - none outside the drawn cells (nothing would hold it);
 - `fDecalLOD1/2` (perhaps distances at which decals thin out) are not used.
 
-The log's `decals summary` line gives how many were placed, the most alive at once and
-how many went at the cap, by fading and with their cell or actor (smoke
-`impact-decals-cap`).
+The log's `decals summary` line gives how many were placed, the most alive at once (with
+limit and ceiling), how many remain alive, and how many went at the ceiling, by fading and
+with their cell or actor (smokes `impact-decals-cap` and `impact-decals-blood`).
 
 ## 4. Blood on actors (playtest list 7 item 27, 2026-10-23)
 

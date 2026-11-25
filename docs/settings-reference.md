@@ -1458,6 +1458,19 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - More: docs/spec-notes/world.md §3 "Smoothing"
 - Registered in `engine/nvforever/src/settings.rs` (state in `engine/nvf-play/src/smooth_terrain.rs`)
 
+### `decal-limit`: World decal limit
+
+- On the page: Maximum bullet holes, scorch marks and blood splatters kept on the world
+  before the oldest fade out over 10 seconds. Higher limits keep more marks at some GPU cost.
+- In full: [design, #3776] A list: `100` (default, matching `uMaxDecals` = 100 observed in
+  the original's `FalloutPrefs.ini`), `200`, `300`, `500`. World decals stay until more than
+  this limit are alive (or their cell unloads), at which point the oldest count down
+  `fDecalLifetime` (10 s) and fade out; a hard ceiling (`limit + max(limit / 4, 32)`) keeps
+  bursts bounded. Decals on actors' bodies always count down from placement. Lowering the
+  limit mid-game does not delete existing decals immediately.
+- More: docs/spec-notes/impact-decals.md §3
+- Registered in `engine/nvforever/src/decals.rs`
+
 ### `object-distance`: Object distance
 
 - On the page: How far from you objects of the loaded cells (buildings, rocks, furniture,

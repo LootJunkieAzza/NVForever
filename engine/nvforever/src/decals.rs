@@ -34,12 +34,18 @@
 //! - **Not kept** (the owner, 2026-10-20: "make sure the scorch marks and bullet holes
 //!   arent persistent i dont want to jam up the engine remembering all these"): decals
 //!   are only drawn entities, never saved nor remembered by a cell; they go with their
-//!   cell when it unloads (or their actor), and at most [`MAX_DECALS`] are alive at once,
-//!   the oldest going first.
-//! - **How many and how long** (impact-decals.md §3): at most [`MAX_DECALS_PER_FRAME`]
-//!   new ones a frame; each stays [`DECAL_LIFETIME`] seconds, fading out over the last
-//!   [`DECAL_FADE`]; none within the IPCT's placement radius of a live decal of the same
-//!   texture set [hypothesis: "Placement Radius: Affects the distance between decals"].
+//!   cell when it unloads (or their actor), bounded by the world limit and hard ceiling.
+//! - **How many and how long** (impact-decals.md §3, #3776): at most [`MAX_DECALS_PER_FRAME`]
+//!   new ones a frame; a decal on the world stays until more than [`DecalConfig::world_limit`]
+//!   non-fading world decals are alive (default [`MAX_DECALS`] = 100, matching `uMaxDecals`
+//!   observed in the original's `FalloutPrefs.ini`), at which point the oldest start counting
+//!   down [`DECAL_LIFETIME`] (10 s, `fDecalLifetime`) and fade out over the last
+//!   [`DECAL_FADE`] (1 s), with a hard ceiling ([`hard_ceiling`]) bounding bursts; decals on
+//!   bodies always count down from placement (capped globally at [`MAX_SKIN_DECALS`] = 24
+//!   and per actor at [`MAX_PER_ACTOR`] = 3, matching `uMaxSkinDecals` and
+//!   `uMaxSkinDecalPerActor` [documented: GECK wiki "INI Settings", revision 41216]); none
+//!   within the IPCT's placement radius of a live decal of the same texture set [hypothesis:
+//!   "Placement Radius: Affects the distance between decals"].
 //! - Not built: the angle threshold, parallax, alpha testing (every decal is blended),
 //!   the height range, decals on water.
 
@@ -64,16 +70,97 @@ use crate::world::{CellEntity, Streamer, WorldRoot};
 /// prepass (main.rs `setup`).
 pub const DECAL_LAYER: usize = 12;
 
-/// How many decals are alive at most, how many are placed a frame at most, how long one
-/// stays and how long it takes to fade out, seconds [design: the owner asked for a small
-/// fixed cap and a limited life, 2026-10-20; the game's `Fallout_default.ini` has
-/// `[Decals] uMaxDecalCount=100`, `[Display] iMaxDecalsPerFrame=10` and
-/// `fDecalLifetime=10.0000` (observed; their meanings read from the names): the cap is
-/// kept below the game's, the frame cap and the life are its].
-pub const MAX_DECALS: usize = 64;
+/// Default world decal limit (`uMaxDecals` = 100 in `FalloutPrefs.ini` [observed 2026-11-24:
+/// base game + xNVSE 6.4.9 + JIP LN, Goodsprings General Store]; GECK wiki "INI Settings"
+/// revision 41216 gives 50 as the engine default), per-frame placement cap
+/// (`iMaxDecalsPerFrame` = 10), countdown once a decal begins fading (`fDecalLifetime` = 10 s),
+/// and fade-out duration ([design] 1 s).
+pub const MAX_DECALS: usize = 100;
+/// Choices offered by the Graphics › Detail and Distance `decal-limit` row ([design, #3776]:
+/// <= 7 choices so it stays a dropdown list under settings-page.md §0 rule 5).
+pub const DECAL_LIMIT_CHOICES: [usize; 4] = [100, 200, 300, 500];
+/// Minimum burst headroom above [`DecalConfig::world_limit`] for decals currently counting
+/// down their 10 s fade-out ([design, #3776]).
+pub const DECAL_HARD_EXTRA: usize = 32;
+/// Global limit on skinned decals on actors (`uMaxSkinDecals` = 24 [documented: GECK wiki
+/// "INI Settings", revision 41216; observed 2026-11-24]).
+pub const MAX_SKIN_DECALS: usize = 24;
 pub const MAX_DECALS_PER_FRAME: usize = 10;
 pub const DECAL_LIFETIME: f32 = 10.0;
 pub const DECAL_FADE: f32 = 1.0;
+
+/// Settings key, label and note for the World decal limit row (Graphics › Detail and
+/// Distance; note <= 200 chars, settings-page.md §0 rule 7) [design, #3776].
+pub const KEY: &str = "decal-limit";
+pub const LABEL: &str = "World decal limit";
+pub const NOTE: &str = "Maximum bullet holes, scorch marks and blood splatters kept on the world before the oldest fade out over 10 seconds. Higher limits keep more marks at some GPU cost.";
+
+/// Hard ceiling on total live world decals (non-fading plus currently fading) for a given
+/// `limit`, keeping rapid bursts bounded while giving displaced oldest decals room to fade
+/// [design, #3776].
+pub fn hard_ceiling(limit: usize) -> usize {
+    limit.saturating_add((limit / 4).max(DECAL_HARD_EXTRA))
+}
+
+/// Configured world decal limit (`decal-limit` setting, default [`MAX_DECALS`]).
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecalConfig {
+    pub world_limit: usize,
+}
+
+impl Default for DecalConfig {
+    fn default() -> Self {
+        Self { world_limit: MAX_DECALS }
+    }
+}
+
+fn decal_limit_names() -> Vec<String> {
+    DECAL_LIMIT_CHOICES.iter().map(usize::to_string).collect()
+}
+
+fn decal_limit_chosen(w: &World) -> String {
+    let cur = w.get_resource::<DecalConfig>().map_or(MAX_DECALS, |c| c.world_limit);
+    let idx = DECAL_LIMIT_CHOICES.iter().enumerate().min_by_key(|(_, &v)| v.abs_diff(cur)).map_or(0, |(i, _)| i);
+    DECAL_LIMIT_CHOICES[idx].to_string()
+}
+
+fn take_decal_limit(w: &mut World, text: &str) -> bool {
+    let names = decal_limit_names();
+    let Some(i) = nvf_play::settings::choice_of(text, &names, |v| {
+        (v.clamp(0.0, 1.0) * (DECAL_LIMIT_CHOICES.len() - 1) as f32).round() as usize
+    }) else {
+        return false;
+    };
+    w.get_resource_or_insert_with(DecalConfig::default).world_limit = DECAL_LIMIT_CHOICES[i];
+    true
+}
+
+/// Registers the `decal-limit` row (Graphics › Detail and Distance; `nvf-settings-layout`
+/// places it) [design, #3776].
+pub fn add_row(app: &mut App, group: &'static str) {
+    app.init_resource::<DecalConfig>();
+    nvf_play::settings::add_choice_list(
+        app,
+        nvf_play::settings::Setting {
+            key: KEY,
+            group,
+            label: LABEL,
+            note: NOTE,
+            switches: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        nvf_play::settings::ChoiceList {
+            names: |_| decal_limit_names(),
+            chosen: decal_limit_chosen,
+            pick: take_decal_limit,
+            save: decal_limit_chosen,
+            load: take_decal_limit,
+            ask_keep: false,
+        },
+    );
+}
 
 /// The thinnest depth a decal shows within, units [design: a decal whose depth is 1
 /// (`BloodSpoutRobotData`) would show nowhere on a bumpy surface].
@@ -94,6 +181,10 @@ const MISSES_LOGGED: u32 = 8;
 #[derive(Component)]
 struct Decal {
     age: f32,
+    /// True once this decal is counting down [`DECAL_LIFETIME`] to fade out: true from spawn
+    /// for actor (skinned) decals, false for world decals until displaced above
+    /// [`DecalConfig::world_limit`] (#3776).
+    fading: bool,
     material: Handle<ForwardDecalMaterial<StandardMaterial>>,
 }
 
@@ -102,8 +193,10 @@ struct Live {
     entity: Entity,
     texture_set: FormId,
     point: Vec3,
-    /// The actor it lies on.
+    /// The actor it lies on (`None` for world decals).
     actor: Option<u32>,
+    /// Mirrors [`Decal::fading`].
+    fading: bool,
 }
 
 #[derive(Resource)]
@@ -171,7 +264,8 @@ pub struct DecalsPlugin;
 
 impl Plugin for DecalsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Decals>()
+        app.init_resource::<DecalConfig>()
+            .init_resource::<Decals>()
             .add_systems(Update, (place, fade).chain().after(crate::shot_fx::ShotFxSet).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
@@ -200,6 +294,7 @@ fn place(
     mut commands: Commands,
     mut landed: MessageReader<ImpactFx>,
     sfx: Option<Res<Sfx>>,
+    cfg: Option<Res<DecalConfig>>,
     mut models: ModelCtx,
     mut materials: ResMut<Assets<ForwardDecalMaterial<StandardMaterial>>>,
     mut st: ResMut<Decals>,
@@ -212,6 +307,8 @@ fn place(
         landed.clear();
         return;
     };
+    let world_limit = cfg.as_deref().map_or(MAX_DECALS, |c| c.world_limit);
+    let ceiling = hard_ceiling(world_limit);
     let st = &mut *st;
     let mut this_frame = 0;
     for hit in landed.read() {
@@ -383,8 +480,9 @@ fn place(
                 (e, Transform::from_matrix(Mat4::from(g.affine().inverse() * world)))
             }
         };
+        let is_actor = bone.is_some();
         let entity = commands
-            .spawn((ForwardDecal, MeshMaterial3d(material.clone()), place, Visibility::default(), RenderLayers::layer(DECAL_LAYER), Decal { age: 0.0, material }, ChildOf(parent)))
+            .spawn((ForwardDecal, MeshMaterial3d(material.clone()), place, Visibility::default(), RenderLayers::layer(DECAL_LAYER), Decal { age: 0.0, fading: is_actor, material }, ChildOf(parent)))
             .id();
         if hit.splatter && st.splatters_placed == 0 {
             info!(
@@ -414,26 +512,53 @@ fn place(
         }
         this_frame += 1;
         st.placed += 1;
-        if bone.is_some() {
+        if is_actor {
             st.on_actors += 1;
         }
         if let Some(a) = hit.actor {
             st.last_on.insert(a, st.clock);
         }
-        st.live.push_back(Live { entity, texture_set: set_id, point, actor: hit.actor.filter(|_| bone.is_some()) });
-        while st.live.len() > MAX_DECALS {
-            if let Some(old) = st.live.pop_front() {
+        st.live.push_back(Live { entity, texture_set: set_id, point, actor: hit.actor.filter(|_| is_actor), fading: is_actor });
+        if is_actor {
+            let mut total_actor = st.live.iter().filter(|l| l.actor.is_some()).count();
+            while total_actor > MAX_SKIN_DECALS {
+                let Some(pos) = st.live.iter().position(|l| l.actor.is_some()) else { break };
+                let old = st.live.remove(pos).unwrap();
                 commands.entity(old.entity).try_despawn();
                 st.over_cap += 1;
+                total_actor -= 1;
+            }
+        } else {
+            // World decals stay until more than `world_limit` non-fading world decals are
+            // alive; only then do the oldest start their 10 s countdown (#3776).
+            let mut non_fading = st.live.iter().filter(|l| l.actor.is_none() && !l.fading).count();
+            while non_fading > world_limit {
+                let Some(old) = st.live.iter_mut().find(|l| l.actor.is_none() && !l.fading) else { break };
+                old.fading = true;
+                commands.entity(old.entity).queue(|mut e: EntityWorldMut| {
+                    if let Some(mut d) = e.get_mut::<Decal>() {
+                        d.fading = true;
+                    }
+                });
+                non_fading -= 1;
+            }
+            // Hard ceiling keeps rapid bursts bounded while displaced decals count down.
+            let mut total_world = st.live.iter().filter(|l| l.actor.is_none()).count();
+            while total_world > ceiling {
+                let Some(pos) = st.live.iter().position(|l| l.actor.is_none()) else { break };
+                let old = st.live.remove(pos).unwrap();
+                commands.entity(old.entity).try_despawn();
+                st.over_cap += 1;
+                total_world -= 1;
             }
         }
         st.peak = st.peak.max(st.live.len());
     }
 }
 
-/// Age the decals: fade them out over their last [`DECAL_FADE`] seconds, then remove
-/// them (their material goes with its last handle). A decal whose cell unloaded or whose
-/// actor went is forgotten.
+/// Age the fading decals: fade them out over their last [`DECAL_FADE`] seconds, then remove
+/// them (their material goes with its last handle). World decals under the limit do not age;
+/// a decal whose cell unloaded or whose actor went is forgotten.
 fn fade(
     mut commands: Commands,
     time: Res<Time>,
@@ -447,6 +572,9 @@ fn fade(
     st.last_on.retain(|_, t| clock - *t < ACTOR_GAP);
     let mut gone = Vec::new();
     for (e, mut d) in &mut decals {
+        if !d.fading {
+            continue;
+        }
         d.age += dt;
         let left = DECAL_LIFETIME - d.age;
         if left <= 0.0 {
@@ -466,11 +594,13 @@ fn fade(
     st.live.retain(|l| !gone.contains(&l.entity));
 }
 
-fn report(mut exit: MessageReader<AppExit>, st: Res<Decals>) {
+fn report(mut exit: MessageReader<AppExit>, st: Res<Decals>, cfg: Option<Res<DecalConfig>>) {
     let exit_seen = exit.read().last().is_some();
+    let limit = cfg.as_deref().map_or(MAX_DECALS, |c| c.world_limit);
+    let ceiling = hard_ceiling(limit);
     if exit_seen && st.placed + st.near_another + st.no_body + st.no_cell > 0 {
         info!(
-            "decals summary: {} placed ({} on actors), at most {} alive (cap {MAX_DECALS}), {} still alive; {} within the placement radius of another, {} over the {MAX_DECALS_PER_FRAME} a frame, {} on actors without a skeleton drawn, {} outside the drawn cells; {} removed at the cap, {} faded out after {DECAL_LIFETIME} s, {} gone with their cell or actor",
+            "decals summary: {} placed ({} on actors), at most {} alive (limit {limit}, ceiling {ceiling}), {} still alive; {} within the placement radius of another, {} over the {MAX_DECALS_PER_FRAME} a frame, {} on actors without a skeleton drawn, {} outside the drawn cells; {} removed at the ceiling, {} faded out after {DECAL_LIFETIME} s, {} gone with their cell or actor",
             st.placed, st.on_actors, st.peak, st.live.len(), st.near_another, st.over_frame_cap, st.no_body, st.no_cell, st.over_cap, st.faded, st.unloaded
         );
     }
@@ -731,4 +861,235 @@ mod tests {
         }
     }
 
+    fn decal_world(limit: usize) -> (bc5_fixture::Inputs, World) {
+        let (inputs, mut world) = bc5_fixture::inputs();
+        world.insert_resource(owned_sfx());
+        world.insert_resource(DecalConfig { world_limit: limit });
+        world.init_resource::<Decals>();
+        world.init_resource::<Time>();
+        world.init_resource::<Messages<ImpactFx>>();
+        world.init_resource::<Assets<ForwardDecalMaterial<StandardMaterial>>>();
+        world.spawn((WorldRoot, GlobalTransform::IDENTITY));
+        {
+            use fnv_combat::fx::{DecalData, Impact, TextureSet};
+            let set = FormId(0x201);
+            let impact = FormId(0x202);
+            let data = DecalData { color: [200, 10, 10], min_width: 4.0, max_width: 4.0, shininess: 20.0, depth: 9.0, ..default() };
+            let mut sfx = world.resource_mut::<Sfx>();
+            sfx.forms.texture_sets.insert(set, TextureSet { diffuse: Some("old.dds".into()), normal: None, no_specular: true, decal: Some(data), ..default() });
+            sfx.forms.impacts.insert(impact, Impact { texture_set: Some(set), placement_radius: 0.0, ..default() });
+        }
+        (inputs, world)
+    }
+
+    fn spawn_test_actor(world: &mut World, actor_id: u32) {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::mesh::{Indices, PrimitiveTopology};
+        use nvf_assets::actor::PreparedSkeleton;
+        use std::sync::Arc;
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[-5.0f32, -5.0, 0.0], [5.0, -5.0, 0.0], [5.0, 5.0, 0.0], [-5.0, 5.0, 0.0]]);
+        mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+        let cpu = Arc::new(mesh.clone());
+        let handle = world.resource_mut::<Assets<Mesh>>().add(mesh);
+        world.spawn((
+            RefVisual(actor_id),
+            LimbShape { cap: false, partitions: Arc::new(Vec::new()), cpu, bones: Vec::new(), binds: None },
+            Mesh3d(handle),
+            GlobalTransform::IDENTITY,
+            InheritedVisibility::VISIBLE,
+        ));
+        let bone = world.spawn(GlobalTransform::IDENTITY).id();
+        let skel = Arc::new(PreparedSkeleton {
+            names: vec![Some("Bip01 Spine".into())],
+            parents: vec![None],
+            locals: vec![Transform::IDENTITY],
+            bind_world: vec![Affine3A::IDENTITY],
+            by_name: HashMap::from([("bip01 spine".into(), 0)]),
+            bbx_half_width: None,
+        });
+        world.spawn(ActorRig { reference: actor_id, base: 1, body: 1, skeleton: String::new(), skel, nodes: vec![bone], base_scale: 1.0 });
+    }
+
+    fn place_hits(world: &mut World, hits: Vec<ImpactFx>) {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut msgs = world.resource_mut::<Messages<ImpactFx>>();
+        msgs.clear();
+        for h in hits {
+            msgs.write(h);
+        }
+        world.run_system_once(place).unwrap();
+        world.flush();
+    }
+
+    fn tick_fade(world: &mut World, secs: f32) {
+        use bevy::ecs::system::RunSystemOnce;
+        world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(secs));
+        world.run_system_once(fade).unwrap();
+        world.flush();
+    }
+
+    fn hit_world(x: f32) -> ImpactFx {
+        ImpactFx { impact: FormId(0x202), shooter: FormId(0), point: [x, 0.0, 0.0], normal: [0.0, 0.0, 1.0], dir: [0.0, 0.0, -1.0], actor: None, no_spray: false, no_decal: false, splatter: false }
+    }
+
+    fn hit_actor(actor: u32) -> ImpactFx {
+        ImpactFx { impact: FormId(0x202), shooter: FormId(0), point: [0.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], dir: [0.0, 0.0, -1.0], actor: Some(actor), no_spray: false, no_decal: false, splatter: false }
+    }
+
+    /// #3776: A world decal under the limit stays indefinitely (well past `DECAL_LIFETIME`),
+    /// whereas a body (skinned) decal always counts down `DECAL_LIFETIME` and fades out.
+    #[test]
+    fn world_decal_stays_past_lifetime_under_limit_while_body_decal_fades_out() {
+        let (_inputs, mut world) = decal_world(MAX_DECALS);
+        spawn_test_actor(&mut world, 0x100);
+        place_hits(&mut world, vec![hit_world(10.0), hit_actor(0x100)]);
+        assert_eq!(world.resource::<Decals>().live.len(), 2);
+        let world_ent = world.resource::<Decals>().live[0].entity;
+        let body_ent = world.resource::<Decals>().live[1].entity;
+        assert!(!world.get::<Decal>(world_ent).unwrap().fading);
+        assert!(world.get::<Decal>(body_ent).unwrap().fading);
+
+        // At 9.5 s: body decal is halfway through its 1 s fade; world decal is untouched.
+        tick_fade(&mut world, 9.5);
+        assert!(world.get_entity(world_ent).is_ok());
+        assert!(world.get_entity(body_ent).is_ok());
+        let body_mat = world.get::<Decal>(body_ent).unwrap().material.clone();
+        let world_mat = world.get::<Decal>(world_ent).unwrap().material.clone();
+        assert!((world.resource::<Assets<ForwardDecalMaterial<StandardMaterial>>>().get(&body_mat).unwrap().base.base_color.alpha() - 0.5).abs() < 1e-3);
+        assert!((world.resource::<Assets<ForwardDecalMaterial<StandardMaterial>>>().get(&world_mat).unwrap().base.base_color.alpha() - 1.0).abs() < 1e-3);
+
+        // After 1.0 s more (10.5 s total): body decal is gone; world decal stays.
+        tick_fade(&mut world, 1.0);
+        assert!(world.get_entity(body_ent).is_err());
+        assert!(world.get_entity(world_ent).is_ok());
+        assert_eq!(world.resource::<Decals>().faded, 1);
+
+        // Even 45 s later (55.5 s total): world decal under the limit is still alive at full alpha.
+        tick_fade(&mut world, 45.0);
+        assert!(world.get_entity(world_ent).is_ok());
+        assert!((world.resource::<Assets<ForwardDecalMaterial<StandardMaterial>>>().get(&world_mat).unwrap().base.base_color.alpha() - 1.0).abs() < 1e-3);
+        assert_eq!(world.resource::<Decals>().live.len(), 1);
+    }
+
+    /// #3776: Once more than `world_limit` world decals are placed, only the oldest excess
+    /// decals start their `DECAL_LIFETIME` countdown and fade out; the newest `world_limit`
+    /// decals stay alive well past `DECAL_LIFETIME`.
+    #[test]
+    fn world_decals_over_limit_start_fading_oldest_only() {
+        let (_inputs, mut world) = decal_world(3);
+        place_hits(&mut world, vec![hit_world(1.0), hit_world(2.0), hit_world(3.0)]);
+        let e1 = world.resource::<Decals>().live[0].entity;
+        let e2 = world.resource::<Decals>().live[1].entity;
+        let e3 = world.resource::<Decals>().live[2].entity;
+        tick_fade(&mut world, 20.0);
+        assert_eq!(world.resource::<Decals>().live.len(), 3, "at the limit, none fade");
+
+        // 4th and 5th world decals push e1 and e2 into fading; e3..e5 stay permanent.
+        place_hits(&mut world, vec![hit_world(4.0), hit_world(5.0)]);
+        let e4 = world.resource::<Decals>().live[3].entity;
+        let e5 = world.resource::<Decals>().live[4].entity;
+        assert!(world.get::<Decal>(e1).unwrap().fading);
+        assert!(world.get::<Decal>(e2).unwrap().fading);
+        assert!(!world.get::<Decal>(e3).unwrap().fading);
+        assert!(!world.get::<Decal>(e4).unwrap().fading);
+        assert!(!world.get::<Decal>(e5).unwrap().fading);
+
+        // 9.5 s after displacement: e1 and e2 are fading (not yet despawned).
+        tick_fade(&mut world, 9.5);
+        assert_eq!(world.resource::<Decals>().live.len(), 5);
+        // 1.0 s later (10.5 s): e1 and e2 are gone; e3, e4, e5 remain even after 30 s more.
+        tick_fade(&mut world, 1.0);
+        tick_fade(&mut world, 30.0);
+        assert!(world.get_entity(e1).is_err());
+        assert!(world.get_entity(e2).is_err());
+        assert!(world.get_entity(e3).is_ok());
+        assert!(world.get_entity(e4).is_ok());
+        assert!(world.get_entity(e5).is_ok());
+        assert_eq!(world.resource::<Decals>().live.len(), 3);
+        assert_eq!(world.resource::<Decals>().faded, 2);
+        assert_eq!(world.resource::<Decals>().over_cap, 0);
+    }
+
+    /// #3776: A rapid burst past `hard_ceiling(limit)` despawns the oldest world decals at
+    /// the ceiling so total live decals stay strictly bounded.
+    #[test]
+    fn world_decal_burst_is_bounded_by_hard_ceiling() {
+        let limit = 4;
+        let ceiling = hard_ceiling(limit);
+        assert_eq!(ceiling, 4 + DECAL_HARD_EXTRA);
+        let (_inputs, mut world) = decal_world(limit);
+        // Place 50 decals in batches of MAX_DECALS_PER_FRAME without advancing 10 s.
+        for batch in 0..5 {
+            let hits = (0..MAX_DECALS_PER_FRAME).map(|k| hit_world((batch * 10 + k) as f32 * 20.0)).collect();
+            place_hits(&mut world, hits);
+        }
+        let st = world.resource::<Decals>();
+        assert_eq!(st.placed, 50);
+        assert_eq!(st.live.len(), ceiling, "live count stays at the hard ceiling");
+        assert_eq!(st.peak, ceiling);
+        assert_eq!(st.over_cap, (50 - ceiling) as u32);
+
+        // Once 10.5 s pass with no new decals, the fading burst decals finish fading out,
+        // leaving exactly `limit` newest world decals alive.
+        tick_fade(&mut world, DECAL_LIFETIME + 0.5);
+        assert_eq!(world.resource::<Decals>().live.len(), limit);
+        assert_eq!(world.resource::<Decals>().faded, (ceiling - limit) as u32);
+    }
+
+    /// #3776: Actor (skinned) decals enforce `MAX_SKIN_DECALS` (24) globally in addition to
+    /// `MAX_PER_ACTOR` (3) per actor, and always count down and fade out.
+    #[test]
+    fn skin_decals_enforce_global_limit_and_always_fade() {
+        let (_inputs, mut world) = decal_world(MAX_DECALS);
+        for actor in 1..=30u32 {
+            spawn_test_actor(&mut world, actor);
+        }
+        for batch in 0..3u32 {
+            let hits = (1..=10u32).map(|k| hit_actor(batch * 10 + k)).collect();
+            place_hits(&mut world, hits);
+        }
+        let st = world.resource::<Decals>();
+        assert_eq!(st.on_actors, 30);
+        assert_eq!(st.live.len(), MAX_SKIN_DECALS);
+        assert_eq!(st.over_cap, (30 - MAX_SKIN_DECALS) as u32);
+        tick_fade(&mut world, DECAL_LIFETIME + 0.5);
+        assert_eq!(world.resource::<Decals>().live.len(), 0);
+        assert_eq!(world.resource::<Decals>().faded, MAX_SKIN_DECALS as u32);
+    }
+
+    /// #3776: The `decal-limit` setting row registers as a 4-choice list under Graphics,
+    /// satisfies the note budget, raises the world decal limit live, and lowering it removes
+    /// nothing immediately.
+    #[test]
+    fn decal_limit_setting_row_raises_limit_and_lowering_removes_nothing() {
+        let mut app = App::new();
+        add_row(&mut app, "Graphics");
+        let settings = app.world().resource::<nvf_play::settings::Settings>();
+        let i = settings.index(KEY).expect("decal-limit registered");
+        let s = settings.list()[i];
+        assert_eq!((s.group, s.label), ("Graphics", LABEL));
+        assert_eq!(nvf_play::settings::note_over_budget(s.note), None);
+        assert!(s.note.len() <= 200);
+        assert_eq!(decal_limit_chosen(app.world()), "100");
+        assert_eq!(app.world().resource::<DecalConfig>().world_limit, 100);
+        assert_eq!(hard_ceiling(100), 132);
+        assert_eq!(hard_ceiling(500), 625);
+
+        assert!(nvf_play::settings::pick(app.world_mut(), i, "500"));
+        assert_eq!(app.world().resource::<DecalConfig>().world_limit, 500);
+        assert_eq!(decal_limit_chosen(app.world()), "500");
+
+        // Lowering mid-game via the setting does not immediately remove live decals.
+        let (_inputs, mut world) = decal_world(200);
+        for batch in 0..12 {
+            let hits = (0..10).map(|k| hit_world((batch * 10 + k) as f32 * 20.0)).collect();
+            place_hits(&mut world, hits);
+        }
+        assert_eq!(world.resource::<Decals>().live.len(), 120);
+        assert!(take_decal_limit(&mut world, "100"));
+        assert_eq!(world.resource::<DecalConfig>().world_limit, 100);
+        tick_fade(&mut world, 20.0);
+        assert_eq!(world.resource::<Decals>().live.len(), 120, "lowering mid-game removes nothing immediately");
+    }
 }

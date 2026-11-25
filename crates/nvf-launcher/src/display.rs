@@ -138,6 +138,7 @@ pub fn named_choices(key: &str) -> Option<Vec<Choice>> {
         "dlss-model" => &["Default", "K", "L", "M", "J"],
         "fsr-library" => &["Built-in", "Game folder"],
         "frame-generation-frames" => &["2x", "3x", "4x"],
+        "decal-limit" => &["100", "200", "300", "500"],
         _ => return None,
     };
     Some(names.iter().map(|n| choice(*n, *n)).collect())

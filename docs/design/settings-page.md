@@ -165,7 +165,7 @@ world.md §3 "Smoothing"]. 4 x 4 near draws 4 × 4 near the camera and 2 × 2 fu
 surface [design, #2676]; the INI's older on/off reads as 4 x 4 and Off.
 
 The table names every row the registry can hold [documented: `settings_layout.rs::SECTIONS`],
-154 with #1966's `quality`, the overhaul's `menu-font` (#1966's `enhanced` is gone),
+155 with #1966's `quality`, the overhaul's `menu-font` (#1966's `enhanced` is gone),
 #2014's nine `fps-counter-*` rows, #2242's `fps-counter-upscaling`, #2317's
 `frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling`, #3322's `terrain-parallax`, #2688's `sound-cover`, #2670's `cloud-shadows`, #2671's `terrain-shadows`, `light-shadows` (ALC shadows, once Lamp shadows, Graphics › Shadows after `terrain-shadows`; light_shadows.rs), #2910's `gore-shake`, #2149's `smooth-terrain` and `terrain-wireframe`, the Advanced Movement rows, #2843's `shadow-resolution` (under Graphics › Shadows after `shadow-filter`), #2661's `mesh-terrain-blend` (Graphics › Detail and Distance, after the terrain rows), the six `quick-loot` rows (#2933, NVF Features › Quick Loot), the heat haze prototype's `heat-haze` (Graphics › Lighting and Effects, after `light-shafts`), #2675's `desert-haze` (after `heat-haze`), #3000's `sprint` (NVF Features › Gameplay), #2993's `aerial-perspective` (after `desert-haze`), #2995's `night-sky-detail` (after `aerial-perspective`), #3016's `tree-distance`, #2981's
 `authored-materials` and `authored-reflections` (Graphics › Detail and Distance, the second
@@ -174,7 +174,8 @@ and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distanc
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
-(Detail and Distance, after `mesh-terrain-blend`; read at the next start) (`KNOWN` in
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start), and #3776's
+`decal-limit` (Graphics › Detail and Distance, after `smooth-terrain`) (`KNOWN` in
 `settings_layout.rs`); a test keeps
 it so (`settings_layout.rs`, `the_table_names_each_key_once_in_one_of_the_tabs`). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
