@@ -449,14 +449,14 @@ pub fn mod_weapon_health_perc(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
 pub fn set_weapon_health_perc(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     // Caps at (base_health - 1) / base_health (e.g. 79/80 = 98.75%, 199/200 = 99.50%,
-    // 599/600 = 99.83%, 999/1000 = 99.90%; falls back to 0.9983 when base health is
-    // unknown) [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
-    // w6d9_41_weapon_health_perc_set_mod_and_unarmed_cap: s100=98.75;
+    // 599/600 = 99.83%, 999/1000 = 99.90%) [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN
+    // 57.30, w6d9_41_weapon_health_perc_set_mod_and_unarmed_cap: s100=98.75;
     // w6d9p2_41_weapon_health_cap_formula: cap(80=98.75,200=99.50,600=99.83,1000=99.90)|mod(-40=10.00,-60=100.00)].
+    // [design]: falls back to 0.9983 when base health is missing or <= 1.
     let cap = equipped_weapon(g, actor)
         .and_then(|w| match crate::nvse::record_value(g, w, "DATA", "health") {
-            Some(fnv_script::vm::XVal::Num(h)) if h > 1.0 => Some(((h - 1.0) / h) as f32),
-            _ => g.world.forms.item(w).and_then(|i| i.health).filter(|&h| h > 1).map(|h| (h as f32 - 1.0) / h as f32),
+            Some(fnv_script::vm::XVal::Num(h)) => (h > 1.0).then_some(((h - 1.0) / h) as f32),
+            _ => g.world.forms.item(g.unclone(w)).and_then(|i| i.health).filter(|&h| h > 1).map(|h| (h as f32 - 1.0) / h as f32),
         })
         .unwrap_or(0.9983);
     let v = (a.num(0)? as f32 / 100.0).min(cap);

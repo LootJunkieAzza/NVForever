@@ -50,4 +50,22 @@ End
         };
         assert!((got - expected).abs() < 0.02, "hp={hp}: got {got}, expected {expected}");
     }
+
+    // SetObjectHealth <= 1 must take the 0.9983 [design] fallback instead of falling
+    // through to the stale ESM DATA/health (80 -> 98.75%).
+    for hp in [1, 0] {
+        let got = match g.run_query(
+            &format!("Begin Function {{ }}
+SetObjectHealth {hp} W6D9Gun
+Player.SetWeaponHealthPerc 100
+SetFunctionValue (Player.GetWeaponHealthPerc)
+End
+"),
+            RunCtx::default(),
+        ).unwrap() {
+            XVal::Num(x) => x,
+            other => panic!("expected Num, got {other:?}"),
+        };
+        assert!((got - 99.83).abs() < 0.02, "hp={hp}: expected 0.9983 fallback (99.83%), got {got}");
+    }
 }
