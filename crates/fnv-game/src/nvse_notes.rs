@@ -121,26 +121,25 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
             let t = text(args, 1);
             yes(note.is_some_and(|n| g.edit_note(n, |d| d.texture = Some(t).filter(|t| !t.is_empty()))))
         }
-        // [documented: AddNoteQuest, RemoveNoteQuest] a quest already there is not added
-        // twice [hypothesis].
+        // [documented: AddNoteQuest, RemoveNoteQuest] validates that the 2nd argument is
+        // a QUST; AddNoteQuest appends without deduplication, and RemoveNoteQuest removes
+        // all matching entries and returns 1 for any valid (NOTE, QUST) pair even when
+        // absent [observed: 2026-11-25, FNV 1.4.0.525 + JG 528,
+        // w6d9_19_note_quest_list_add_remove_dedup: n0=0|add1(r=1,n=1)|add2(r=1,n=2)|abad=0|rm1(r=1,n=0)|rm2=1|rbad=0;
+        // w6d9p3_19_note_quest_nonquest_check: n0=0|addStim(r=0,n=0)|rmStim(r=0,n=0)].
         "addnotequest" => {
-            let q = form(args, 1);
+            let q = form(args, 1).filter(|q| g.data.quests.contains_key(q));
             yes(match (note, q) {
-                (Some(n), Some(q)) => g.edit_note(n, |d| {
-                    if !d.quests.contains(&q) {
-                        d.quests.push(q);
-                    }
-                }),
+                (Some(n), Some(q)) => g.edit_note(n, |d| d.quests.push(q)),
                 _ => false,
             })
         }
         "removenotequest" => {
-            let q = form(args, 1);
-            let had = def.is_some_and(|d| q.is_some_and(|q| d.quests.contains(&q)));
-            if let (true, Some(n), Some(q)) = (had, note, q) {
-                g.edit_note(n, |d| d.quests.retain(|x| *x != q));
-            }
-            yes(had)
+            let q = form(args, 1).filter(|q| g.data.quests.contains_key(q));
+            yes(match (note, q) {
+                (Some(n), Some(q)) => g.edit_note(n, |d| d.quests.retain(|x| *x != q)),
+                _ => false,
+            })
         }
         // [documented: SetNoteRead] `serialize` 1 keeps the change in the save; without
         // it the change lasts for the session. Returns nothing ("void").
@@ -164,3 +163,7 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_note_quests_tests.rs"]
+mod w6d9_note_quests_tests;
