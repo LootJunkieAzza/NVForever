@@ -116,6 +116,17 @@ impl HostClient {
     }
 
     /// Closes the lobby.
+    /// Wire 2: the browser listing changed (visibility, title, the host's place). The service
+    /// passes it on at most every 5 s, so send it whenever it changes.
+    pub fn listing(&mut self, public: bool, title: &str, place: &str, friendly_fire: bool) {
+        self.out.push(text(&ToService::Listing { public, title: title.to_owned(), place: place.to_owned(), friendly_fire }));
+    }
+
+    /// Wire 2: the lobby's password as [`crate::wire::password_hash`]; empty removes it.
+    pub fn password(&mut self, hash: &str) {
+        self.out.push(text(&ToService::Password { hash: hash.to_owned() }));
+    }
+
     pub fn bye(&mut self) {
         self.out.push(text(&ToService::Bye));
     }
@@ -159,7 +170,20 @@ pub struct GuestClient {
 impl GuestClient {
     /// Queues the join with the candidates found so far (often just the LAN ones).
     pub fn new(name: &str, key: &KeyHex, candidates: &[Candidate]) -> Self {
-        let join = ToService::Join { wire: WIRE_VERSION, name: name.to_owned(), key: key.clone(), candidates: to_wire(candidates) };
+        Self::joining(name, key, candidates, None)
+    }
+
+    /// [`GuestClient::new`] for a locked lobby: `password_hash` is
+    /// [`crate::wire::password_hash`] of what the player typed. A wrong one comes back as
+    /// [`GuestEvent::Declined`] with reason `bad_password`.
+    pub fn joining(name: &str, key: &KeyHex, candidates: &[Candidate], password_hash: Option<&str>) -> Self {
+        let join = ToService::Join {
+            wire: WIRE_VERSION,
+            name: name.to_owned(),
+            key: key.clone(),
+            candidates: to_wire(candidates),
+            password: password_hash.map(str::to_owned),
+        };
         GuestClient { accepted: false, held: Vec::new(), sent: candidates.to_vec(), out: vec![text(&join)] }
     }
 
