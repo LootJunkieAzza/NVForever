@@ -96,9 +96,11 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   "Increase …"/"Restore …" without the flag, "Reduce …"/"Damage …" with it].
 - **Values that grow** — Rad Level (rads), Dehydration, Hunger, Sleep Deprivation — go the
   other way: a "Damage" effect raises them and a "Restore" effect lowers them, never below
-  0 [hypothesis: RadAway's effect is "Restore Rads", Nuka-Cola's "Damage Rads"; the GECK
-  wiki's GetRadiationLevel reads the player's rads with GetAV]. The change goes to the
-  value's base, where SetActorValue would put it [hypothesis].
+  0 [observed 2026-11-25: `w6d7_22_growing_avs_pool_and_aid_mutations` below; earlier
+  hypothesis from RadAway's "Restore Rads", Nuka-Cola's "Damage Rads", and the GECK
+  wiki's GetRadiationLevel reading GetAV]. The change goes to the damage pool (`av_damage`),
+  leaving `GetBaseActorValue` and `GetPermanentActorValue` unchanged [observed 2026-11-25:
+  `w6d7_22` below; supersedes the earlier hypothesis that the change went to the base value].
 - **God mode** (`tgm`, ToggleGodMode): an effect that damages the player (a negative
   change to the damage pool, or a need or rads raised) does nothing [hypothesis fitting
   the original: Beer's and Nuka-Cola's Dehydration +20 / +10, held on `IsHardcore == 1`

@@ -406,7 +406,7 @@ impl Game<'_> {
             if rate <= 0.0 {
                 continue;
             }
-            let _ = fa::shift_base(self, a, RAD_LEVEL, rate * dt);
+            let _ = fa::shift_growing(self, a, RAD_LEVEL, rate * dt);
             if self.tweaks.character_radiation_stages {
                 self.actor_radiation_stage(a);
             }
