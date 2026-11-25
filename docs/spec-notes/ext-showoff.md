@@ -408,3 +408,6 @@ RemoveAllItemsShowOff.
   [hypothesis: non-actor, melee, and god-mode edge cases unprobed in original ShowOff].
 - Free when no `ShowOff:OnFireWeapon` handler is registered (unmodded vanilla weapon
   firing is unchanged). No ShowOff DLL or source code was consulted.
+
+### Wave 6D-7 Live Observation (2026-11-25)
+- **`GetEquippedObject` 0..19 parity with `GetOccupiedEquipSlots` and OOB observation** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7p2_30_get_equipped_object_settled`]: slots `0..=19` match `GetOccupiedEquipSlots` bit-for-bit (`mask=20078|slotBits=20078|cnt=9|m(s1=1,s2=1,s5=1,s11=1)|oob(neg=00025B83,20=00025B83)`). Note: original FNV returned `00025B83` (Pip-Boy) for OOB slots `-1` and `20`, while NVForever keeps safe `0` for out-of-range slots.

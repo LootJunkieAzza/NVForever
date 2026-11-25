@@ -43,7 +43,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/actor-values.md",
-          "spec_line": 270,
+          "spec_line": 288,
           "functions_tested": [
             "SetAV",
             "GetBaseAV",
@@ -106,7 +106,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/actor-values.md",
-          "spec_line": 235,
+          "spec_line": 289,
           "functions_tested": [
             "AddSpell",
             "RemoveSpell",
@@ -190,7 +190,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/actor-values.md",
-          "spec_line": 115,
+          "spec_line": 290,
           "functions_tested": [
             "GetCalculatedMaxCarryWeight",
             "GetAV",
@@ -265,8 +265,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 225,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 291,
           "functions_tested": [
             "GetHealthPercentage",
             "GetFatiguePercentage",
@@ -317,8 +317,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 440,
+          "spec_file": "docs/spec-notes/skill-books.md",
+          "spec_line": 109,
           "functions_tested": [
             "EquipItem",
             "GetBaseAV",
@@ -390,7 +390,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/aid-items.md",
-          "spec_line": 155,
+          "spec_line": 598,
           "functions_tested": [
             "EquipItem",
             "SetAV",
@@ -468,7 +468,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/aid-items.md",
-          "spec_line": 265,
+          "spec_line": 599,
           "functions_tested": [
             "EquipItem",
             "GetAV",
@@ -537,7 +537,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/aid-items.md",
-          "spec_line": 215,
+          "spec_line": 600,
           "functions_tested": [
             "GetSpellUsageNum",
             "EquipItem",
@@ -595,7 +595,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/magic-archetypes.md",
-          "spec_line": 70,
+          "spec_line": 127,
           "functions_tested": [
             "CastImmediateOnSelf",
             "EquipItem",
@@ -660,7 +660,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/magic-archetypes.md",
-          "spec_line": 70,
+          "spec_line": 127,
           "functions_tested": [
             "CastImmediateOnSelf",
             "EquipItem",
@@ -742,7 +742,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/crippled-limbs.md",
-          "spec_line": 55,
+          "spec_line": 301,
           "functions_tested": [
             "DamageAV",
             "RestoreAV",
@@ -821,8 +821,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/magic-archetypes.md",
-          "spec_line": 115,
+          "spec_file": "docs/spec-notes/aid-items.md",
+          "spec_line": 601,
           "functions_tested": [
             "AddSpell",
             "Disable",
@@ -922,7 +922,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/aid-items.md",
-          "spec_line": 340,
+          "spec_line": 602,
           "functions_tested": [
             "SetHardcore",
             "IsHardcore",
@@ -1019,7 +1019,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/aid-items.md",
-          "spec_line": 355,
+          "spec_line": 603,
           "functions_tested": [
             "SetAV",
             "GetAV",
@@ -1144,7 +1144,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/aid-items.md",
-          "spec_line": 365,
+          "spec_line": 604,
           "functions_tested": [
             "ToggleHardcoreTracking",
             "GetHardcoreTracking",
@@ -1224,7 +1224,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/radiation.md",
-          "spec_line": 55,
+          "spec_line": 279,
           "functions_tested": [
             "GetRadiationLevel",
             "GetRadiationLevelAlt",
@@ -1326,7 +1326,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/radiation.md",
-          "spec_line": 61,
+          "spec_line": 280,
           "functions_tested": [
             "GetRadiationLevel",
             "SetAV",
@@ -1412,7 +1412,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 310,
+          "spec_line": 3307,
           "functions_tested": [
             "EquipItem",
             "UnequipItem",
@@ -1539,8 +1539,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 345,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 413,
           "functions_tested": [
             "GetEquippedObject",
             "GetOccupiedEquipSlots",
@@ -1619,8 +1619,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 410,
+          "spec_file": "docs/spec-notes/simulation.md",
+          "spec_line": 1184,
           "functions_tested": [
             "RemoveAllTypedItems",
             "SetQuestItem",
@@ -1687,7 +1687,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/actors.md",
-          "spec_line": 150,
+          "spec_line": 3308,
           "functions_tested": [
             "GetActorTemplate",
             "GetActorTemplateFlag",
@@ -1749,7 +1749,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/resurrect.md",
-          "spec_line": 45,
+          "spec_line": 135,
           "functions_tested": [
             "Kill",
             "Resurrect",
@@ -1846,8 +1846,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/resurrect.md",
-          "spec_line": 70,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 292,
           "functions_tested": [
             "Resurrect",
             "ResetHealth",
@@ -1911,7 +1911,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/unconscious.md",
-          "spec_line": 35,
+          "spec_line": 445,
           "functions_tested": [
             "GetLifeState",
             "SetUnconscious",
@@ -1996,7 +1996,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/death-items.md",
-          "spec_line": 35,
+          "spec_line": 90,
           "functions_tested": [
             "GetDeathItem",
             "SetDeathItem",
@@ -2089,7 +2089,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/actor-query-context.md",
-          "spec_line": 25,
+          "spec_line": 65,
           "functions_tested": [
             "GetPlayerGrabbedRef",
             "GetPackageTarget",
@@ -2138,7 +2138,7 @@
           "requires_fixture": null,
           "requires_isolated_staging": false,
           "spec_file": "docs/spec-notes/actor-query-context.md",
-          "spec_line": 25,
+          "spec_line": 65,
           "functions_tested": [
             "GetMerchantContainer",
             "SetMerchantContainer",
