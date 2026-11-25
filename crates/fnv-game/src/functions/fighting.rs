@@ -207,21 +207,24 @@ pub fn get_killing_blow_limb(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
     Ok(Value::Num(g.extra.get(&r).and_then(|e| e.killing_hit).map_or(-1, |h| h.location) as f64))
 }
 
-/// `actor.GetArmorRating`: the total damage resistance of the armour the actor has
-/// equipped [documented: catalogue summary]: the sum of the equipped ARMO's DNAM DR
-/// (stored × 100, [documented: xEdit wbDiv(100)]), rounded down [hypothesis: an
-/// integer, as the page's return type]. New Vegas armour protects by its DT, and most
+/// `actor.GetArmorRating`: the total damage resistance of the actor's equipped armour
+/// (each equipped ARMO's DNAM DR, stored × 100 [documented: xEdit wbDiv(100)], scaled by
+/// [`Game::armor_condition_mult`]) plus the `DamageResist` actor value, matching
+/// `GetAV DamageResist` (`10 -> 25 -> 8` across full condition, `ModAV DamageResist 15`,
+/// and 25 % condition) [observed: w6d6p3_10b_armor_rating_dr1000; hypothesis: `.round()`
+/// at other intermediate condition points]. New Vegas armour protects by its DT, and most
 /// armour has DR 0 [observed: `fnvtool esm decode`]; the one shipped use scales the
-/// target's rating by 0.15 (FalloutNV.esm `SCPT 0x0011D9EF`) [observed]. Equipped is the
-/// world's equipped flags; the condition of the armour is not counted [hypothesis].
+/// target's rating by 0.15 (FalloutNV.esm `SCPT 0x0011D9EF`) [observed]. Read-only:
+/// inspects already-materialized inventory without mutating `World`.
 pub fn get_armor_rating(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     // Scale worn armor DR by condition and include DamageResist AV modifiers
     // [observed: w6d6p3_10b_armor_rating_dr1000].
     let worn: Vec<(FormId, f32)> = g
         .world
-        .inventory_mut(r)
+        .get(r)
         .ok()
+        .and_then(|s| s.inventory.as_ref())
         .map(|inv| inv.equipped().into_iter().map(|i| (i, inv.condition_in_use(i).unwrap_or(1.0))).collect())
         .unwrap_or_default();
     let armor_dr: f64 = worn
