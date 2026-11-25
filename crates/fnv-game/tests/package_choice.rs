@@ -849,3 +849,264 @@ fn the_runners_package_done_marks_the_current_packages_goal_met() {
     assert_eq!(by("another package done"), 0.0);
     assert_eq!(by("arrived"), 17.0);
 }
+
+fn scda_unit(kind: u16, scda: &[u8], refs: &[u32]) -> Vec<Subrecord> {
+    let mut schr = vec![0u8; 4];
+    schr.extend((refs.len() as u32).to_le_bytes());
+    schr.extend((scda.len() as u32).to_le_bytes());
+    schr.extend(0u32.to_le_bytes());
+    schr.extend(kind.to_le_bytes());
+    schr.extend(1u16.to_le_bytes());
+    let mut out = vec![sub(b"SCHR", schr)];
+    if !scda.is_empty() {
+        out.push(sub(b"SCDA", scda.to_vec()));
+    }
+    for r in refs {
+        out.push(sub(b"SCRO", r.to_le_bytes().to_vec()));
+    }
+    out
+}
+
+fn bc_st(op: u16, body: &[u8]) -> Vec<u8> {
+    [op.to_le_bytes().to_vec(), (body.len() as u16).to_le_bytes().to_vec(), body.to_vec()].concat()
+}
+
+fn bc_set_global(ref_idx: u16, expr_ascii: &[u8]) -> Vec<u8> {
+    let mut target = vec![b'G'];
+    target.extend(ref_idx.to_le_bytes());
+    let mut body = target;
+    body.extend((expr_ascii.len() as u16).to_le_bytes());
+    body.extend(expr_ascii);
+    bc_st(0x15, &body)
+}
+
+fn bc_inc_global(ref_idx: u16) -> Vec<u8> {
+    // Compiled FNV expressions are space-prefixed postfix (RPN): ` G<idx> 1 +`.
+    let mut expr = vec![b' ', b'G'];
+    expr.extend(ref_idx.to_le_bytes());
+    expr.extend(b" 1 +");
+    bc_set_global(ref_idx, &expr)
+}
+
+fn bc_evp() -> Vec<u8> {
+    // EvaluatePackage (0x105E), 0 arguments.
+    bc_st(0x105E, &0u16.to_le_bytes())
+}
+
+fn pack_with_scripts(
+    p: &Pack,
+    begin: Option<(&[u8], &[u32])>,
+    change: Option<(&[u8], &[u32])>,
+) -> Vec<u8> {
+    let mut subs = vec![
+        sub(b"EDID", z(p.edid)),
+        sub(b"PKDT", [&p.flags.to_le_bytes()[..], &[p.ty, 0], &[0; 6]].concat()),
+        sub(b"PLDT", [p.location.0.to_le_bytes(), p.location.1.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+        sub(b"PSDT", [&[0xFF, p.dow as u8, 0, p.hour as u8][..], &p.duration.to_le_bytes()].concat()),
+    ];
+    if let Some(g) = p.global {
+        let mut d = vec![0u8, 0, 0, 0];
+        d.extend(1.0f32.to_le_bytes());
+        d.extend(GET_GLOBAL_VALUE.to_le_bytes());
+        d.extend([0, 0]);
+        d.extend(g.to_le_bytes());
+        d.extend([0u8; 12]);
+        subs.push(sub(b"CTDA", d));
+    }
+    if let Some((scda, refs)) = begin {
+        subs.push(sub(b"POBA", vec![]));
+        subs.extend(scda_unit(0, scda, refs));
+    }
+    if let Some((scda, refs)) = change {
+        subs.push(sub(b"POCA", vec![]));
+        subs.extend(scda_unit(0, scda, refs));
+    }
+    record(b"PACK", p.id, &subs)
+}
+
+fn reentrancy_fixture(bytes: &[u8]) -> Fixture {
+    let plugins = vec![Plugin::parse(bytes, "Reentrancy.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, FunctionTable::load(&p).unwrap(), &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+fn run_reentrancy_plugin(
+    packs: Vec<Vec<u8>>,
+    npc_script: Option<(u32, Vec<u8>)>,
+    npc_packages: &[u32],
+    globals: &[(u32, &str, f32)],
+) -> (Fixture, u32) {
+    const NPC_ID: u32 = 0x940;
+    const REF_ID: u32 = 0x950;
+    const CELL_ID: u32 = 0x960;
+    let mut scpt_records = Vec::new();
+    let mut npc_subs = vec![sub(b"EDID", z("ReentrancyNpc"))];
+    if let Some((sid, scda)) = npc_script {
+        scpt_records.extend(record(b"SCPT", sid, &{
+            let mut s = vec![sub(b"EDID", z("ReentrancyNpcScript"))];
+            let g_refs: Vec<u32> = globals.iter().map(|(id, _, _)| *id).collect();
+            s.extend(scda_unit(0, &scda, &g_refs));
+            s
+        }));
+        npc_subs.push(sub(b"SCRI", sid.to_le_bytes().to_vec()));
+    }
+    npc_subs.extend(npc_packages.iter().map(|p| sub(b"PKID", p.to_le_bytes().to_vec())));
+    let mut bytes = tes4();
+    bytes.extend(top(b"GLOB", &globals.iter().flat_map(|(id, ed, v)| glob(*id, ed, *v)).collect::<Vec<_>>()));
+    if !scpt_records.is_empty() {
+        bytes.extend(top(b"SCPT", &scpt_records));
+    }
+    bytes.extend(top(b"PACK", &packs.concat()));
+    bytes.extend(top(b"NPC_", &record(b"NPC_", NPC_ID, &npc_subs)));
+    let cell = record(b"CELL", CELL_ID, &[sub(b"EDID", z("TestCell"))]);
+    let achr = placed(b"ACHR", REF_ID, "ReentrancyRef", NPC_ID, None);
+    let cell_body = [cell, group(CELL_ID.to_le_bytes(), 6, &group(CELL_ID.to_le_bytes(), 9, &achr))].concat();
+    bytes.extend(top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell_body))));
+    (reentrancy_fixture(&bytes), REF_ID)
+}
+
+/// Regression: when a package's Change result script calls EvaluatePackage (`evp`),
+/// `set_package` must keep `current_package` at the newly chosen package so the inner
+/// `set_package` does not re-enter the outgoing package's Change script recursively
+/// until `MAX_DEPTH` (`nesting deeper than 256`).
+#[test]
+fn package_change_script_calling_evaluate_package_does_not_recurse() {
+    const G_FIRST: u32 = 0x901;
+    const G_CHANGE: u32 = 0x902;
+    const G_BEGIN: u32 = 0x903;
+    const P_FIRST: u32 = 0x910;
+    const P_SECOND: u32 = 0x911;
+
+    let change_scda = [bc_inc_global(1), bc_evp()].concat();
+    let begin_scda = bc_inc_global(1);
+    let p_first = Pack { id: P_FIRST, edid: "FirstPack", flags: 0, ty: 0, location: (0, 0), hour: -1, duration: 0, dow: -1, global: Some(G_FIRST) };
+    let p_second = Pack { id: P_SECOND, edid: "SecondPack", flags: 0, ty: 0, location: (0, 0), hour: -1, duration: 0, dow: -1, global: None };
+
+    let (f, ref_id) = run_reentrancy_plugin(
+        vec![
+            pack_with_scripts(&p_first, None, Some((&change_scda, &[G_CHANGE]))),
+            pack_with_scripts(&p_second, Some((&begin_scda, &[G_BEGIN])), None),
+        ],
+        None,
+        &[P_FIRST, P_SECOND],
+        &[(G_FIRST, "GFirst", 1.0), (G_CHANGE, "GChange", 0.0), (G_BEGIN, "GBegin", 0.0)],
+    );
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, package_interval: Some(10.0), ..Default::default() });
+    let actor = FormId(ref_id);
+
+    assert_eq!(g.evaluate_package(actor), Some(FormId(P_FIRST)));
+    set(&mut g, G_FIRST, 0.0);
+    assert_eq!(g.evaluate_package(actor), Some(FormId(P_SECOND)));
+
+    let errors: Vec<_> = g.events.iter().filter(|e| matches!(e.kind, EventKind::ScriptError { .. })).collect();
+    assert!(errors.is_empty(), "unexpected script errors: {errors:?}");
+    assert_eq!(g.world.global(FormId(G_CHANGE)), Ok(1.0), "outgoing Change script runs once");
+    assert_eq!(g.world.global(FormId(G_BEGIN)), Ok(1.0), "incoming Begin script runs once");
+    assert_eq!(g.extra[&actor].current_package, Some(FormId(P_SECOND)));
+}
+
+/// Regression: an actor script's `OnPackageChange` block calling `EvaluatePackage`
+/// must also not re-enter the outgoing package's change event.
+#[test]
+fn on_package_change_block_calling_evaluate_package_does_not_recurse() {
+    const G_FIRST: u32 = 0x901;
+    const G_CHANGE: u32 = 0x902;
+    const P_FIRST: u32 = 0x910;
+    const P_SECOND: u32 = 0x911;
+    const NPC_SCRIPT: u32 = 0x920;
+
+    let body = [bc_inc_global(2), bc_evp()].concat();
+    let end = bc_st(0x11, &[]);
+    let mut block_hdr = fnv_game::game::event::ON_PACKAGE_CHANGE.to_le_bytes().to_vec();
+    block_hdr.extend(((body.len() + end.len()) as u32).to_le_bytes());
+    let mut scda = bc_st(0x1D, &[]);
+    scda.extend(bc_st(0x10, &block_hdr));
+    scda.extend(body);
+    scda.extend(end);
+
+    let p_first = Pack { id: P_FIRST, edid: "FirstPack", flags: 0, ty: 0, location: (0, 0), hour: -1, duration: 0, dow: -1, global: Some(G_FIRST) };
+    let p_second = Pack { id: P_SECOND, edid: "SecondPack", flags: 0, ty: 0, location: (0, 0), hour: -1, duration: 0, dow: -1, global: None };
+
+    let (f, ref_id) = run_reentrancy_plugin(
+        vec![pack(&p_first), pack(&p_second)],
+        Some((NPC_SCRIPT, scda)),
+        &[P_FIRST, P_SECOND],
+        &[(G_FIRST, "GFirst", 1.0), (G_CHANGE, "GChange", 0.0)],
+    );
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, package_interval: Some(10.0), ..Default::default() });
+    let actor = FormId(ref_id);
+
+    assert_eq!(g.evaluate_package(actor), Some(FormId(P_FIRST)));
+    set(&mut g, G_FIRST, 0.0);
+    assert_eq!(g.evaluate_package(actor), Some(FormId(P_SECOND)));
+
+    let errors: Vec<_> = g.events.iter().filter(|e| matches!(e.kind, EventKind::ScriptError { .. })).collect();
+    assert!(errors.is_empty(), "unexpected script errors: {errors:?}");
+    assert_eq!(g.world.global(FormId(G_CHANGE)), Ok(1.0), "OnPackageChange runs once");
+    assert_eq!(g.extra[&actor].current_package, Some(FormId(P_SECOND)));
+}
+
+/// When an outgoing package's Change script flips conditions and calls `EvaluatePackage`
+/// to select a third package `P_THIRD`, the superseded `P_SECOND`'s Begin script must not
+/// run afterwards and `current_package` stays at `P_THIRD`.
+#[test]
+fn package_change_script_switching_to_third_package_skips_superseded_begin() {
+    const G_FIRST: u32 = 0x901;
+    const G_THIRD: u32 = 0x902;
+    const G_CHANGE: u32 = 0x903;
+    const G_SECOND_BEGIN: u32 = 0x904;
+    const G_THIRD_BEGIN: u32 = 0x905;
+    const P_THIRD: u32 = 0x910;
+    const P_FIRST: u32 = 0x911;
+    const P_SECOND: u32 = 0x912;
+
+    // P_FIRST Change script: G_THIRD = 1; G_CHANGE = G_CHANGE + 1; EvaluatePackage
+    let change_scda = [bc_set_global(1, b" 1"), bc_inc_global(2), bc_evp()].concat();
+    let second_begin = bc_inc_global(1);
+    let third_begin = bc_inc_global(1);
+
+    let p_third = Pack { id: P_THIRD, edid: "ThirdPack", flags: 0, ty: 0, location: (0, 0), hour: -1, duration: 0, dow: -1, global: Some(G_THIRD) };
+    let p_first = Pack { id: P_FIRST, edid: "FirstPack", flags: 0, ty: 0, location: (0, 0), hour: -1, duration: 0, dow: -1, global: Some(G_FIRST) };
+    let p_second = Pack { id: P_SECOND, edid: "SecondPack", flags: 0, ty: 0, location: (0, 0), hour: -1, duration: 0, dow: -1, global: None };
+
+    let (f, ref_id) = run_reentrancy_plugin(
+        vec![
+            pack_with_scripts(&p_third, Some((&third_begin, &[G_THIRD_BEGIN])), None),
+            pack_with_scripts(&p_first, None, Some((&change_scda, &[G_THIRD, G_CHANGE]))),
+            pack_with_scripts(&p_second, Some((&second_begin, &[G_SECOND_BEGIN])), None),
+        ],
+        None,
+        &[P_THIRD, P_FIRST, P_SECOND],
+        &[
+            (G_FIRST, "GFirst", 1.0),
+            (G_THIRD, "GThird", 0.0),
+            (G_CHANGE, "GChange", 0.0),
+            (G_SECOND_BEGIN, "GSecondBegin", 0.0),
+            (G_THIRD_BEGIN, "GThirdBegin", 0.0),
+        ],
+    );
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, package_interval: Some(10.0), ..Default::default() });
+    let actor = FormId(ref_id);
+
+    assert_eq!(g.evaluate_package(actor), Some(FormId(P_FIRST)));
+    set(&mut g, G_FIRST, 0.0);
+    // Outer evaluate_package chose P_SECOND, whose transition ran P_FIRST's Change script,
+    // which flipped G_THIRD and evaluated into P_THIRD.
+    assert_eq!(g.evaluate_package(actor), Some(FormId(P_THIRD)));
+
+    let errors: Vec<_> = g.events.iter().filter(|e| matches!(e.kind, EventKind::ScriptError { .. })).collect();
+    assert!(errors.is_empty(), "unexpected script errors: {errors:?}");
+    assert_eq!(g.world.global(FormId(G_CHANGE)), Ok(1.0), "P_FIRST Change runs once");
+    assert_eq!(g.world.global(FormId(G_THIRD_BEGIN)), Ok(1.0), "P_THIRD Begin runs once");
+    assert_eq!(g.world.global(FormId(G_SECOND_BEGIN)), Ok(0.0), "superseded P_SECOND Begin does not run");
+    assert_eq!(g.extra[&actor].current_package, Some(FormId(P_THIRD)));
+}
