@@ -1756,11 +1756,12 @@ impl Vm<'_, '_> {
 
     /// A value as text (`$`, ToString): a number's text, a form's name or, without one, its
     /// FormID in hex [documented: ToString].
-    /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`. An
-    /// array already being written further out is written `array #n`, as Ar_Dump writes a
-    /// nested one, so an array holding itself ends (#1089).
     /// Format an array for unary `$` (`[1, 2]`, `[1.000000: 10]`, `["k": 5]`, or
     /// `array ID 0 (invalid)`) [observed: `w6d5p4_dollar_array_format`].
+    /// Unprobed edges: `format!("{s:?}")` quoting/escaping on string keys/values, recursive
+    /// nested-array expansion, and `array ID {id} (invalid)` for non-zero invalid IDs are
+    /// `[hypothesis]`; cycle detection (`path.contains(inner)` -> `"array #{inner}"`) is
+    /// `[design]`.
     fn stringize_array(&mut self, id: u32) -> Result<String, VmError> {
         self.stringize_array_in(id, &mut Vec::new())
     }
@@ -1788,6 +1789,9 @@ impl Vm<'_, '_> {
         Ok(format!("[{}]", parts.join(", ")))
     }
 
+    /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`. An
+    /// array already being written further out is written `array #n`, as Ar_Dump writes a
+    /// nested one, so an array holding itself ends (#1089).
     fn brief_array(&mut self, id: u32) -> Result<String, VmError> {
         self.brief_array_in(id, &mut Vec::new())
     }
