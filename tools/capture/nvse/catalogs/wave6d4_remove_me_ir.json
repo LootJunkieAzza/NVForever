@@ -17,20 +17,25 @@
     "TribalPack.esm"
   ],
   "extender_versions": {
-    "xNVSE": "6.4.9"
+    "xNVSE": "6.4.9",
+    "JIP LN": "57.30"
   },
   "batches": [
     {
       "id": "w6d4_remove_me_ir",
       "title": "Wave 6D-4: xNVSE RemoveMeIR return value without target container",
       "extender": "xNVSE",
-      "required_plugins": [],
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
       "probes": [
         {
           "id": "w6d4p3_10b_uifloat_inherited_and_copyir",
           "bucket": "xnvse_core_rest",
-          "extender": "xNVSE",
-          "required_plugins": [],
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
           "optional_extender": false,
           "requires_world": true,
           "mutates_state": true,

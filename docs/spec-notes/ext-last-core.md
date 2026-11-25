@@ -110,7 +110,7 @@ it. The console's exact line is not documented: the name alone [hypothesis].
 
 `invRef.RemoveMeIR [targetContainer]` removes the inventory stack and returns `1` both
 when transferring to `targetContainer` and when deleting without a target container
-(superseding the earlier `nvse-fourth` no-target `0` assumption) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
+(superseding the earlier `nvse-fourth` no-target `0` assumption) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
 probe `w6d4p3_10b_uifloat_inherited_and_copyir` (`tools/capture/nvse/catalogs/wave6d4_remove_me_ir.json`):
 `PROBE|w6d4p3_10b_uifloat_inherited_and_copyir|ui(x=-999.0/-999.0,v=-999.0/-999.0)|copy(r=1,d=0->1,altV=1,d=2)|rm(r=1,d=2,p=8)|eq(0,0,del=1,g=1)`].
 Returning `0` when the inventory reference has no remaining items (`gone == 0`) or the
