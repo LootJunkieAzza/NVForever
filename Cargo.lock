@@ -2542,6 +2542,7 @@ dependencies = [
  "nvf-nat",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

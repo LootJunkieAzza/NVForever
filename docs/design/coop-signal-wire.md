@@ -118,6 +118,69 @@ guest to guest and the host takes no part in it.
 - After an accept, C and the helper run connectivity checks against each other's candidates.
   The forwarding is the game's: it is end-to-end encrypted, C to host.
 
+## Lobby browser (wire 2)
+
+[design: NVForever `docs/design/coop-lobby-browser.md`; the owner's decisions of 2026-11-25]
+
+The service takes wire versions 1 and 2. A wire-1 game works as before, and its lobbies stay
+private. Wire 2 adds the following.
+
+**Create** takes an optional `listing`:
+`{"public": true, "title": "…", "place": "…", "friendly_fire": false, "plugins": 14, "locked": true}`.
+- `title` is cut to 40 characters and `place` to 32. A text in all capitals is lowered.
+- A text the word filter blocks becomes empty. An empty title shows as "<host name>'s game".
+- `locked` says a password will be set. Until the host's first `password`, every join is
+  declined `bad_password`.
+
+**Look-up** (`GET /v1/lobbies/{code}`) gains `locked`.
+
+**Socket messages:**
+
+| Message | From | Fields | Meaning |
+|---|---|---|---|
+| `listing` | host | `public`, `title`, `place`, `friendly_fire` | The listing changed. `public: false` takes the lobby off the browser at once. The game may send it whenever the place changes; the service updates the browser at most every 5 s. |
+| `password` | host | `hash` | The password as hex SHA-256 over `lobby-password v1`, a zero byte, the compact code, a zero byte and the password's UTF-8. An empty `hash` removes it. Any lobby, private or public, may have one. |
+| `join` | guest | `password` (optional) | The same hash of what the player typed. A wrong one gets `declined` `bad_password`. |
+
+**Password lockout:** after 3 wrong passwords from one IP within a minute, that IP's socket
+upgrades to that lobby get a 429 with `Retry-After: 60`.
+
+**`GET /v1/browse`**: public lobbies.
+- Query:
+  - `protocol`;
+  - `load_order` (a load-order hash);
+  - `q` (search in title, host name and place, at most 32 characters, case-insensitive);
+  - `empty=0` (hide lobbies with only the host);
+  - `full=0`;
+  - `cursor`.
+- The answer:
+  `{"lobbies": [row…], "cursor": "100" | null, "total": n}`, newest first, 100 rows a page.
+- A row:
+  `{code, title, host_name, host_fp, place, players, max_players, locked, friendly_fire, plugins, region, km, age, protocol, build, load_order_hash}`.
+  - `host_fp` is the first 16 hex digits of the host's key, for favourites.
+  - `region` is "continent/country" as Cloudflare places the host's socket.
+  - `km` is the distance between where Cloudflare places the host's socket and the browsing
+    request, rounded to 250 km. It is `null` when Cloudflare gives no location.
+  - Rows carry no addresses.
+- A lobby is listed while it is public, its host socket is open and fewer than 5 IPs have
+  reported it.
+- At most 2 public lobbies per IP. A third stays private, and its host gets an `error`
+  `too_many_public`.
+- One browse every 2 s per IP (`browse_rate_limited`, `Retry-After: 2`).
+
+**`POST /v1/lobbies/{code}/report`**: body `{}` or `{"reason": "…"}`, answered `{"ok": true}`.
+- Each IP counts once.
+- At 5 reports, the lobby leaves the browser. It can still be joined by its code.
+- Reports are kept only while the lobby lives.
+
+**The Directory:** one Durable Object holds every public lobby's row in memory.
+- A lobby renews its row every 30 s, and a row not renewed for 90 s is gone.
+- Nothing is stored. A restarted Directory fills again within 30 s.
+- IPs reach the Durable Objects only hashed, with a fixed label.
+
+The stand-in (`crates/nvf-signal`) and `nvf-signal-server` serve the same calls. They have no
+word filter, no rate limits, `km: null` and an empty `region`.
+
 ## Lifetimes
 
 - A lobby lives while its host socket is open.
@@ -131,7 +194,8 @@ guest to guest and the host takes no part in it.
 
 - Only memory: the code, the secret, the keys, the sockets and the candidates in flight.
 - No database rows, no stored objects, invocation logs off.
-- The client's IP is used only for the rate limit.
+- The client's IP is used only for the rate limits; the Durable Objects see it only hashed (the
+  password lockout, reports, 2 public lobbies per IP).
 
 ## Self-hosting
 
