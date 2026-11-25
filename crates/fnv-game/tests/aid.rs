@@ -1137,3 +1137,26 @@ fn grab_triggers_theft_respects_min_value_and_stack_count() {
     assert!(g.grab_triggers_theft(FormId(VAL5), 2));
     assert!(g.grab_triggers_theft(FormId(VAL15), 1));
 }
+
+#[test]
+fn set_hardcore_stage_threshold_applies_live_to_need_stages() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.set_hardcore(true);
+    let run_q = |g: &mut Game, src: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{src}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap();
+    };
+    run_q(&mut g, "Player.SetAV Dehydration 60");
+    g.frames(1);
+    assert!(!g.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.spells.contains(&FormId(THIRST1))));
+    run_q(&mut g, "SetHardcoreStageThreshold Water1 50");
+    assert!(
+        g.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.spells.contains(&FormId(THIRST1))),
+        "lowering Water1 threshold to 50 activates Dehydration200 at Dehydration 60"
+    );
+    run_q(&mut g, "SetHardcoreStageThreshold Water1 200");
+    assert!(
+        !g.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.spells.contains(&FormId(THIRST1))),
+        "restoring Water1 threshold to 200 clears Dehydration200 at Dehydration 60"
+    );
+}

@@ -418,7 +418,7 @@ impl Game<'_> {
     fn actor_radiation_stage(&mut self, actor: FormId) {
         let Some(stages) = self.data.need_stages.get(&RAD_LEVEL) else { return };
         let rads = fa::actor_value(self, actor, RAD_LEVEL).unwrap_or(0.0);
-        let want = stages.iter().rev().find(|s| rads >= s.threshold as f64).map(|s| s.spell);
+        let want = stages.iter().rev().find(|s| rads >= self.stage_threshold(s.stage, s.threshold) as f64).map(|s| s.spell);
         let all: Vec<FormId> = stages.iter().map(|s| s.spell).collect();
         let has: Vec<FormId> = self.extra.get(&actor).map(|e| e.spells.iter().copied().filter(|s| all.contains(s)).collect()).unwrap_or_default();
         if has.len() == usize::from(want.is_some()) && want.is_none_or(|w| has.contains(&w)) {

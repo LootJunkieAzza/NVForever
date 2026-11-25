@@ -593,3 +593,6 @@ An aid item's EFFECTS card (pipboy.md §5) is what using it would do to the play
   owner's screenshot, its record's instant effect 30, which fits a Medicine potency near
   1.33].
 - Without the scripts' game the record's effects are listed as before (no conditions).
+
+### Live `SetHardcoreStageThreshold` evaluation (`w6d7_25`)
+- **Live threshold override** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_25_hardcore_stage_threshold_and_tracking_live` in `tools/capture/nvse/catalogs/wave6d7_hardcore_stage_threshold.json`]: lowering `Water1` (`0x0013B2C2`) from `200` to `50` with `SetHardcoreStageThreshold` caused `Dehydration200` (`0x0013B2B5`) to activate at `Dehydration = 60` (`PROBE|w6d7_25_hardcore_stage_threshold_and_tracking_live|thr(200->50,spAt60=1)|trk(0->1,spAt250=1)`). Both `Game::update_need_stages` and `Game::actor_radiation_stage` read `Game::stage_threshold`, and `SetHardcoreStageThreshold` refreshes `update_need_stages` immediately.

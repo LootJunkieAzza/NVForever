@@ -330,6 +330,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "sethardcorestagethreshold" => {
             if let Some(f) = form(args, 0) {
                 g.jip2.stage_thresholds.insert(f, num(args, 1, 0.0).max(0.0) as u32);
+                g.update_need_stages();
             }
             zero
         }
