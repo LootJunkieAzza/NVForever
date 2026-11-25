@@ -441,11 +441,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // record's, a "Use AI Data" template's until SetServiceFlag changes the NPC's
         // [observed: lutana1 actor.service.tender2.4, actor.setservice.tender2]
         // ([`ai_record`]).
+        // Returns 1 when any bit in the mask is set (0 for mask 0), matching GetZoneFlag
+        // [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+        // w6d9_38_vendor_service_flags_and_masks: pete(w=0->1->0,m3=0:1:1)].
         "getserviceflag" => {
             let Some(rec) = form(args, 0).and_then(|f| ai_record(g, f)) else { return Some(Ok(zero)) };
             let flags = services_of(g, rec);
             let bit = num(args, 1).map_or(0, |b| b as i64 as u32);
-            yes(bit != 0 && flags & bit == bit)
+            yes(flags & bit != 0)
         }
         // `npc flag on`: changes the NPC record's flags, which the vendor's services read
         // unless "Autocalc Service" takes the class's (`Game::services`).
@@ -886,3 +889,7 @@ fn set_playable(g: &mut Game, f: FormId, on: bool) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+#[path = "w6d9_service_flag_mask_tests.rs"]
+mod w6d9_service_flag_mask_tests;

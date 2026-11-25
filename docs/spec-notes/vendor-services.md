@@ -130,3 +130,7 @@ looked at, `[hypothesis]` is a reading that nothing has confirmed yet. Implement
   a 650-unit walk to the bar ahead [hypothesis: still on her way, which §3 counts as not
   offering; the log has no arrival line to tell], and 0 after the evening package; the
   first call was moved to 28 s, not run again (one run allowed).
+
+## Wave 6D-9 `GetServiceFlag` multi-bit mask parity
+
+- **`GetServiceFlag` multi-bit mask** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`, `w6d9_38_vendor_service_flags_and_masks`: `PROBE|w6d9_38_vendor_service_flags_and_masks|docR=0|chet(w=1,r=0,z=0)|trudy(f=1,r=0)|pete(w=0->1->0,m3=0:1:1)`; no DLL, PDB, or third-party source consulted]: `GetServiceFlag` returns `1` when *any* bit of the mask is set (`(flags & mask) != 0`), and `0` when the mask is `0`.
