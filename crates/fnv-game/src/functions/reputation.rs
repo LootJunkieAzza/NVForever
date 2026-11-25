@@ -188,14 +188,20 @@ pub fn remove_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, St
     none()
 }
 
-/// `AddReputationExact rep axis amount` [documented: GECK wiki AddReputationExact],
-/// limited as AddReputation (a gain) or RemoveReputation (a loss) [hypothesis: not
-/// captured].
+/// `AddReputationExact rep axis amount` [documented: GECK wiki AddReputationExact]:
+/// positive additions clamp upward to the reputation's scale (as `AddReputation`), while
+/// negative amounts are added directly without clamping at 0 (`2.0 + (-10.0) = -8.0`)
+/// [observed: 2026-11-25, FNV 1.4.0.525, `w6d8_32_reputation_add_remove_exact_clamps_and_pct`:
+/// `step2=2.0 negAdd=-8.0 over=30.0 pctOver=1.0 under=0.0`].
 pub fn add_reputation_exact(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
     let axis = write_axis(g, a, 1)?;
     let p = a.num(2)?;
-    change(g, r, axis, p);
+    if p >= 0.0 {
+        change(g, r, axis, p);
+    } else {
+        store(g, r, axis, values(g, r)[axis] + p);
+    }
     none()
 }
 
@@ -321,3 +327,7 @@ pub fn crime_infamy(g: &mut Game, kind: crate::crime::Kind, victim: FormId, seen
     }
     out
 }
+
+#[cfg(test)]
+#[path = "../w6d8_addreputation_neg_tests.rs"]
+mod w6d8_addreputation_neg_tests;

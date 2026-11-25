@@ -17,6 +17,8 @@ are in scripts.md §7.6 and layer5-captures.md §9.3 a. This note is what play a
 
 ## 2. What the records and the page say
 
+- **`AddReputationExact` negative delta & `RemoveReputationExact` clamps** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_32_reputation_add_remove_exact_clamps_and_pct`: `PROBE|w6d8_32_reputation_add_remove_exact_clamps_and_pct|step2=2.0 negAdd=-8.0 over=30.0 pctOver=1.0 under=0.0 pctF=2.0 pctI=1.0 th=5,0,0`; no DLL, PDB, or third-party source consulted]: on `RepNVPrimm` (scale `30.0`), `AddReputationExact` with `+200.0` clamps to the scale (`30.0`) and `RemoveReputationExact 500.0` clamps to `0.0`, while `AddReputationExact` with `-10.0` from `2.0` is unclamped below zero (`-8.0`).
+
 - [documented: xEdit wbDefinitionsFNV.pas FACT "Reputation"; observed:
   GoodspringsFaction 00104C6E has WMI1 RepNVGoodsprings 00104C22] A faction names the
   reputation its members count towards.
