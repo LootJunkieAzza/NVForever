@@ -404,7 +404,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // The effect shaders scripts play on the reference [documented:
         // GetPlayingEffectShaders], in the order they started.
         "getplayingeffectshaders" => {
-            let Some(r) = subject else { return Some(Ok(zero)) };
+            // Bare call without subject returns an empty array (ar_Size == 0) [observed: w6d3p2_35].
+            let Some(r) = subject else { return Some(Ok(list(g, Vec::new()))) };
             let out = g.script_looks.shaders.iter().filter(|p| p.on == r).map(|p| XVal::Ref(p.shader.0)).collect();
             list(g, out)
         }

@@ -273,7 +273,8 @@ fn radios_prompts_primitives_shaders() {
     assert_eq!(n(&mut g, "TestBoxRef.RemovePrimitive"), 1.0);
     assert_eq!(n(&mut g, "TestBoxRef.RemovePrimitive"), 0.0);
     assert_eq!(n(&mut g, "TestBoxRef.GetPrimitiveType"), 0.0);
-    // [documented: GetPlayingEffectShaders].
+    // [documented: GetPlayingEffectShaders; observed: w6d3p2_35 bare returns empty array].
+    assert_eq!(n(&mut g, "ar_Size (GetPlayingEffectShaders)"), 0.0);
     assert_eq!(forms(&mut g, "TestPlainRef.GetPlayingEffectShaders"), Vec::<u32>::new());
     q(&mut g, "TestPlainRef.PlayMagicShaderVisuals TestShader");
     assert_eq!(forms(&mut g, "TestPlainRef.GetPlayingEffectShaders"), vec![EFSH]);
