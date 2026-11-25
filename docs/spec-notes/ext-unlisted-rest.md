@@ -359,8 +359,13 @@ commands that touch the menus, the sky or the minimap ran one per launch].
 | Answer | Commands |
 |---|---|
 | 1 | GetQuestTargetsChanged, ToggleHitEffects |
-| 0 | GetScriptBlockDisabled, SetScriptBlockDisabled, IsAttackQueued, GetRecipeMenuNumSubcategories, ToggleDepthClear, ToggleNoMovementCombat, ToggleNoZPosReset, ToggleNodeCollision, SuppressQuestMessages, UnlockRecipeMenuQuantity, SetItemFilter, InitItemFilter, SetTextureTransformKey, ClearModelAltTextures, InitRockItLauncher, EnableImprovedRecipeMenu, SetWindSpeedMult, SwapObjectLOD, ScrollMouseWheel, InitMiniMap, UpdateMiniMap, ReloadCharController, ReloadCloudTextures, ResetClouds, ShowLevelUpMenuEx |
+| 0 | GetScriptBlockDisabled, SetScriptBlockDisabled, IsAttackQueued, GetRecipeMenuNumSubcategories, SetWaterTrait, ToggleDepthClear, ToggleNoMovementCombat, ToggleNoZPosReset, ToggleNodeCollision, SuppressQuestMessages, UnlockRecipeMenuQuantity, SetItemFilter, InitItemFilter, SetTextureTransformKey, ClearModelAltTextures, InitRockItLauncher, EnableImprovedRecipeMenu, SetWindSpeedMult, SwapObjectLOD, ScrollMouseWheel, InitMiniMap, UpdateMiniMap, ReloadCharController, ReloadCloudTextures, ResetClouds, ShowLevelUpMenuEx |
 | no array | GetObjectiveTeleportLinks (quest VMS01, objective 10) |
+
+Note on **SetWaterTrait**: the historical `rest5` probe observation above (`0` return)
+remains unchanged; the live handler now lives in `nvse_jip8.rs` (see
+`docs/spec-notes/jip-records-8.md`) and still returns `0` while persisting `WATR`
+trait overrides read back by `GetWaterTrait`.
 
 **Answers NVForever does not match**, with what the original gave:
 - **GetCollisionNodes**: an array of 18 for Doc; NVForever gives an empty one.
