@@ -1263,11 +1263,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // All its effects hostile and detrimental (MGEF flags 1 and 4) [documented:
         // GetIsPoison; observed: gaps7, Silver Sting 1, the stimpak 0].
-        "getispoison" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            let effects = g.data.effect_items.get(&g.unclone(f)).map(Vec::as_slice).unwrap_or_default();
-            yes(!effects.is_empty() && effects.iter().all(|e| g.magic_effect_def(e.effect).is_some_and(|m| m.flags & 0x5 == 0x5)))
-        }
+        "getispoison" => yes(form(args, 0).is_some_and(|f| g.is_poison(f))),
         "isarmoraddon" => yes(form(args, 0).is_some_and(|f| g.data.sig(f) == Some(*b"ARMA"))),
         // A form type an inventory holds [documented: GetIsItem].
         "getisitem" => {
