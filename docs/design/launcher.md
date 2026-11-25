@@ -77,6 +77,17 @@ without the launcher is the same as before.
   default library: `~/.local/share/Steam` or `~/.steam/steam` on Linux, `C:\Program Files
   (x86)\Steam` on Windows, and GOG's `C:\GOG Games\Fallout New Vegas`); it is stored only
   by Save.
+  The same page holds the launcher's other NVForever.ini keys, which are not rows of the
+  game's menu (#3483; the Settings page stays the game's own menu, maintainer decision
+  2026-11-24): an **NVForever.ini** card with `[Launcher] News`, `CloseOnPlay` and `Exe`
+  (empty: the program beside the launcher), the game-written `[Controls] Input Device` shown but not changed, and the file's place. The
+  card's Save writes the keys that changed over the file as it is on disk and leaves every
+  other line; only a changed program is checked, so one that went missing does not stop the
+  other keys being saved. Each Save on the page (the folder's, the card's) keeps the other's
+  unsaved change. The file is in `Documents\My Games\NVForever` on Windows,
+  `~/Library/Application Support/NVForever` on macOS and `~/.local/share/nvforever` (or
+  `$XDG_DATA_HOME/nvforever`) on Linux; `NVFOREVER_HOME` overrides all three
+  (`fnv_install::EngineHome::default_root`).
 - **Website / GitHub**: open nv-forever.com and the repository in the browser.
 
 ## Top and bottom bars
