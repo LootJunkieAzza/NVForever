@@ -74,7 +74,7 @@ fn patch_fog(mut state: ResMut<FogShader>, mut shaders: ResMut<Assets<Shader>>, 
         sky.refresh();
     }
     if physical {
-        info!("fog: linear Beer-Lambert fog installed (NVF_PHYSICAL_PBR=1)");
+        info!("fog: linear Beer-Lambert fog installed (physical PBR)");
     } else {
         info!("fog: the game's fog curve installed");
     }

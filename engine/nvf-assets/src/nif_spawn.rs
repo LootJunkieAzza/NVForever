@@ -814,13 +814,23 @@ pub fn display_to_linear(v: f32) -> f32 {
 /// and made Doc Mitchell's bed, the Goodsprings gas station's vending machine and door
 /// shine like wet paint (owner's playtest, 2026-10-11). Such a shape gets
 /// [`UNMASKED_SPECULAR`] instead [hypothesis, nif.md §6 "Specular"].
+///
+/// Under Physical lighting (graphics-enhanced.md §3.25) a normal-mapped shape without the
+/// flag takes a faint reflectance of 0.32 (F0 about 0.016) in place of none, with its
+/// roughness held at 0.86 or more (`shape_material_inner`) [design].
 pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (f32, bool) {
+    specular_with(props, has_normal_map, unmasked, crate::authored::physical_pbr())
+}
+
+/// [`specular`] for a run with or without Physical lighting.
+fn specular_with(props: &Props, has_normal_map: bool, unmasked: bool, physical: bool) -> (f32, bool) {
     if props.hair {
         return (0.0, false);
     }
     match (has_normal_map, props.specular) {
         (true, true) if unmasked => (UNMASKED_SPECULAR, false),
         (true, true) => (2.0, true),
+        (true, false) if physical => (0.32, false),
         (true, false) => (0.0, false),
         (false, _) => (0.3, false),
     }
@@ -3406,6 +3416,10 @@ mod tests {
         assert_eq!(specular(&flagged, false, false), (0.3, false));
         let hair = Props { specular: true, hair: true, ..Default::default() };
         assert_eq!((specular(&hair, true, false), specular(&hair, false, false)), ((0.0, false), (0.0, false)));
+        // Physical lighting: a faint reflectance without the flag; the flag and hair as before.
+        assert_eq!(specular_with(&Props::default(), true, false, true), (0.32, false));
+        assert_eq!(specular_with(&flagged, true, false, true), (2.0, true));
+        assert_eq!(specular_with(&hair, true, false, true), (0.0, false));
         // Phong exponent → roughness: 0 is fully rough, higher is smoother.
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);
