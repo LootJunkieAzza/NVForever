@@ -148,8 +148,15 @@ type-check filters on them [documented: User-Defined Event].
 ["priority"::n]`: removes matching handlers; returns 1 when at least one was removed.
 With no filters, every handler of that function for that event goes; with one, those
 matching it. The default priority is 0, meaning any priority [documented:
-RemoveEventHandler]. It also takes SetEventHandlerAlt's numeric indexes [documented:
-SetEventHandlerAlt].
+RemoveEventHandler]; a non-zero `"priority"::n` removes only registrations at that
+priority while leaving other priorities intact, and `"priority"::0` removes all
+priorities [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN
+57.30, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+`tools/capture/nvse/catalogs/wave6d1_remove_event_handler_priority.json` probe
+`w6d1_02_remove_event_handler_priority`:
+`PROBE|w6d1_02_remove_event_handler_priority|r5=1,0|keys=1,0,1|n=2|r0=1,sz0=0|rf=1,n100=0,n200=1|end=1,0`;
+no binary, DLL, PDB, or third-party source consulted]. It also takes
+SetEventHandlerAlt's numeric indexes [documented: SetEventHandlerAlt].
 
 **DispatchEvent** `DispatchEvent "Name" [infoMap] [senderName]`: sends a user-defined
 event to every handler registered for that name. A handler receives one string map: by
