@@ -1106,9 +1106,12 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
                 None => XVal::Num(-1.0),
             }
         }
-        // Negative index (or omitted) removes and returns the last form when non-empty
-        // [observed: `w6d11_03_listremove_and_listremoventh_edges`,
-        // `nth(n1=1,c2=2,m1=1,c3=1,m2=1,c4=2)|big=1,clr=0,emp=1,bad=0`].
+        // Negative indices (-1, -2) remove an entry and return a non-zero form on
+        // non-empty lists (and 0 on empty/OOB) [observed:
+        // `w6d11_03_listremove_and_listremoventh_edges`,
+        // `nth(n1=1,c2=2,m1=1,c3=1,m2=1,c4=2)|big=1,clr=0,emp=1,bad=0`]. Removing the
+        // last element (for both omitted and negative indices) is [hypothesis]
+        // (`w6d11_03` checks non-zero return and decremented counts, not position).
         "listremoventhform" => {
             let l = as_form(args.first()).unwrap_or(FormId(0));
             let list = g.edited_list(l);
