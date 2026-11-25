@@ -87,6 +87,10 @@ fn prune(s: &mut JipStores, owner: u32, name: &str) {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d11_gffm_tests.rs"]
+mod w6d11_gffm_tests;
+
 /// The version NVForever reports for JIP LN: the one these tasks follow [observed:
 /// GetPluginVersion "JIP NVSE Plugin" and GetLNVersion give 57.3 on the owner's install].
 pub const JIP_VERSION: f64 = 57.3;
@@ -1192,7 +1196,9 @@ impl Vm<'_, '_> {
     /// The form `hex` (without the mod index) of plugin `name`.
     fn plugin_form(&mut self, name: &str, hex: &str) -> Option<u32> {
         let i = self.host.mod_index(name.trim())?;
-        let low = u32::from_str_radix(hex.trim(), 16).ok()? & 0x00FF_FFFF;
+        let trimmed = hex.trim();
+        let digits = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")).unwrap_or(trimmed);
+        let low = u32::from_str_radix(digits, 16).ok()? & 0x00FF_FFFF;
         let f = (i << 24) | low;
         self.host.form_sig(f).map(|_| f)
     }

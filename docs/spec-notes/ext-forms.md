@@ -99,7 +99,7 @@ that index, without the extension unless `keepExt` is 1; index 0 is FalloutNV
 form with that ID in that plugin, the ID given **without the mod index** (the first two
 hex digits); leading zeros may be dropped. Unlike BuildRef or StringToRef it does not
 resolve unloaded non-persistent references [documented: GetFormFromMod]. Its result for
-a plugin that is not loaded: open (the page's example checks IsModLoaded first).
+a plugin that is not loaded: returns `0`, and `"0x"`-prefixed, 8-digit, zero-padded, and lowercase hex strings all resolve (`"00000F"`, `"0000000F"`, `"0xF"`, `"104c0c"`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_08_form_resolution_gffm_buildref_sourcemod` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `gffm(pad=1,d8=1,ox=1,lo=1,dm=1,mid=1,mmod=1)`; no DLL or source consulted].
 
 The mod index is the top two hex digits of a loaded form's ID [documented:
 GetFormFromMod, "without the mod index, i.e. the first two numbers"]. NVForever's load
