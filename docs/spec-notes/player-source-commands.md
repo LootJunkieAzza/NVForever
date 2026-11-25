@@ -164,3 +164,7 @@ implementation evidence, not an original-game observation or native bytecode gol
 Other game-log warnings remain; zero errors here describes the query result.
 Optimized release and performance qualification, native parameter encoding, profile
 and whole-mod acceptance remain unmeasured.
+
+### Wave 6D-5 observation: `SetPCExpelled` rank preservation & explicit receivers
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_24_player_source_setpcexpelled_edges` (`tools/capture/nvse/catalogs/wave6d5_setpcexpelled.json`); zero DLL, PDB, or third-party source consulted] Setting player faction rank to `2` then calling `SetPCExpelled rFac 1` sets `GetPCExpelled` to `1` without dropping player faction rank (`-1 -> 2 -> 2 -> 2`) or `GetInFaction` (`1 -> 1`); explicit NPC, door, and null receivers all execute against the player and continue (`doc=1:1, door=1:0, null=1:1`), while passing a non-`FACT` form (`Stimpak`) fails (`badF=0`): `PROBE|w6d5_24_player_source_setpcexpelled_edges|mem(rk=-1->2->2->2,in=1->1,ex=0->1->0)|rcvr(doc=1:1,door=1:0,null=1:1)|badF=0`.

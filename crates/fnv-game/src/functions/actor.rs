@@ -1224,19 +1224,16 @@ pub fn get_pc_expelled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
     yes(g.player.expelled_from.contains(&faction_arg(g, a, 0)?))
 }
 
-/// `SetPCExpelled faction flag`: expels the player from `faction` and sets the expelled
-/// flag when `flag != 0`, or clears the flag when `flag == 0` without re-adding membership
-/// [documented: GECK wiki SetPCExpelled; hypothesis: interior faction-owned cell eviction
-/// is not performed in core rules].
+/// `SetPCExpelled faction flag`: sets the player's expelled flag for `faction` when
+/// `flag != 0` or clears it when `flag == 0`, preserving existing player faction rank and
+/// membership [documented: GECK wiki SetPCExpelled; observed: `w6d5_24_player_source_setpcexpelled_edges`,
+/// rank stays `2` and `GetInFaction` stays `1` across expel/unexpel; hypothesis: interior
+/// faction-owned cell eviction is not performed in core rules].
 pub(crate) fn set_pc_expelled(g: &mut Game, a: &Args) -> Result<(), String> {
     let f = faction_arg(g, a, 0)?;
     let expel = a.int(1)? != 0;
     if expel {
         g.player.expelled_from.insert(f);
-        if faction_rank(g, FormId::PLAYER_REF, f) >= 0 {
-            g.extra.entry(FormId::PLAYER_REF).or_default().factions.insert(f, -1);
-            forget_factions(g, FormId::PLAYER_REF);
-        }
     } else {
         g.player.expelled_from.remove(&f);
     }
