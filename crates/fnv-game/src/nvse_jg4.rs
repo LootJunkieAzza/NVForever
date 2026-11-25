@@ -154,8 +154,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `marker array`: the idles become the array's, in its order; the count follows
-        // [documented: SetIdleMarkerAnimations and the note on the count]; accepts any
-        // valid form without filtering to IDLE only [observed: w6d3p2_29b].
+        // [documented: SetIdleMarkerAnimations and the note on the count]; accepts mixed
+        // [IDLE, ALCH] without dropping the non-IDLE entry [observed: w6d3p2_29b:
+        // idm(orig=3,one=1,mix=2)]; generalizing to all valid form entries and filtering
+        // out non-form array elements via `filter_map(form)` [hypothesis/design].
         "setidlemarkeranimations" => {
             let id = match args.get(1) {
                 Some(XVal::Array(id)) => Some(*id),
@@ -164,6 +166,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             };
             let rows: Option<Vec<XVal>> = id.and_then(|id| g.ext.array(id)).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect());
             if let (Some(m), Some(rows)) = (form(args, 0), rows) {
+                // Keep all valid form entries and drop non-form elements [hypothesis/design;
+                // mixed [IDLE, ALCH] observed in w6d3p2_29b].
                 let idles: Vec<FormId> = rows.iter().filter_map(|v| form(std::slice::from_ref(v), 0)).collect();
                 if let Some(c) = marker_mut(g, m) {
                     c.idles = idles;

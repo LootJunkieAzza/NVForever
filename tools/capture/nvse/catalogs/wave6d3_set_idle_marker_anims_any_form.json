@@ -17,22 +17,25 @@
     "TribalPack.esm"
   ],
   "extender_versions": {
+    "jip_nvse.dll": "57.30",
     "johnnyguitar.dll": "528"
   },
   "batches": [
     {
       "id": "w6d3_set_idle_marker_anims_any_form",
       "title": "Wave 6D-3: SetIdleMarkerAnimations accepts any valid form",
-      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
       "required_plugins": [
+        "jip_nvse.dll",
         "johnnyguitar.dll"
       ],
       "probes": [
         {
           "id": "w6d3p2_29b_region_weather_neg_and_idle_filter",
           "bucket": "A",
-          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
           "required_plugins": [
+            "jip_nvse.dll",
             "johnnyguitar.dll"
           ],
           "optional_extender": false,

@@ -165,7 +165,8 @@ SetIdleMarkerTraitNumeric TestMarker 2 f");
     // Any form is listed, an idle or not [observed: jg4].
     q(&mut g, "SetIdleMarkerAnimation TestMarker 0 TestRace");
     assert_eq!(forms(&mut g, "GetIdleMarkerAnimations TestMarker"), vec![RACE, IDLE3]);
-    // Accepts non-IDLE forms alongside IDLE forms without filtering [observed: w6d3p2_29b].
+    // Accepts non-IDLE forms alongside IDLE forms (probed [IDLE, ALCH] in w6d3p2_29b;
+    // generalizing to all valid form entries and dropping non-form elements [hypothesis/design]).
     q(&mut g, "array_var a\nlet a := ar_List TestIdle1 TestRace\nSetIdleMarkerAnimations TestMarker a");
     assert_eq!(forms(&mut g, "GetIdleMarkerAnimations TestMarker"), vec![IDLE1, RACE]);
     q(&mut g, "array_var a\nlet a := ar_List TestIdle2 TestIdle3 TestIdle1\nSetIdleMarkerAnimations TestMarker a");
