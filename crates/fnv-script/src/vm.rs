@@ -213,6 +213,12 @@ pub trait Host {
     fn form_text(&mut self, _form: u32) -> Option<String> {
         None
     }
+    /// A form's name component for `%c`: ammo full (0 / default), short (1), or
+    /// abbreviation (2), or a faction's male rank title at `index` [observed:
+    /// `w6d5p4_format_c_component`].
+    fn format_name_component(&mut self, _form: u32, _index: i32) -> Option<String> {
+        None
+    }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
     /// A script asked whether a plugin is there (IsPluginInstalled, GetPluginVersion,
@@ -2599,9 +2605,9 @@ impl Vm<'_, '_> {
                 // key options print their key with `%k`, #2299].
                 'k' => crate::keys::key_name(next("key")?.num()? as i64).to_string(),
                 'c' => {
-                    next("form")?;
-                    next("index")?;
-                    String::new()
+                    let form = next("form")?.value()?.as_form().unwrap_or(0);
+                    let idx = next("index")?.num()?.trunc() as i32;
+                    self.host.format_name_component(form, idx).unwrap_or_default()
                 }
                 'p' => {
                     i += 1;

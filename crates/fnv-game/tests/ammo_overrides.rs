@@ -366,3 +366,23 @@ fn set_ammo_projectile_explicit_null_is_noop_and_omitted_arg_clears() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetAmmoProjectile OwnedAmmoA)"), XVal::Ref(0));
     assert_eq!(g.ammo_traits(FormId(AMMO_A)).unwrap().projectile, None);
 }
+
+#[test]
+fn format_c_formats_ammo_name_components_and_non_ammo_empty() {
+    let f = fixture();
+    let mut g = game(&f);
+    let out = q(
+        &mut g,
+        r#"string_var s
+let s := sv_Construct "0=[%c]|1=[%c]|2=[%c]|3=[%c]|n=[%c]|bad=[%c]" OwnedAmmoA 0 OwnedAmmoA 1 OwnedAmmoA 2 OwnedAmmoA 3 OwnedAmmoA -1 OwnedProjA 0
+SetFunctionValue s"#,
+    );
+    let traits = g.ammo_traits(FormId(AMMO_A)).unwrap();
+    let full = traits.full_name.unwrap_or_default();
+    let short = traits.short_name.unwrap_or_default();
+    let abbrev = traits.abbrev.unwrap_or_default();
+    assert_eq!(
+        out,
+        XVal::Str(format!("0=[{full}]|1=[{short}]|2=[{abbrev}]|3=[{full}]|n=[{full}]|bad=[]"))
+    );
+}

@@ -144,3 +144,7 @@ official .esm files, 2026-11-06, issue #1720]: `&PCName;` in topic names (DIAL F
 note texts (2 each); the key codes of the table above (`&sUActn…;`, `&-sUActn…;`,
 `&sKB…;`, `&sMouse…;`, `&sDeviceMouse;`, `&sXB…;`) only in message texts (MESG DESC).
 No INFO prompt or response carries one.
+
+### Wave 6D-5 observation: `%c` ammo name components & faction rank titles
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_format_c_component` (`tools/capture/nvse/catalogs/wave6d5_format_c_component.json`); zero DLL, PDB, or third-party source consulted] For `AMMO` (`0x00004241`), `%c` returns full name for `0`, `3`, and `-1` (`"10mm Round"`), short name for `1` (`"10mm"`), and abbreviation for `2` (`""`); for `FACT` (`0x00003130`), rank `0` returns `"Arefu Citizen"` and out-of-range rank `9` returns `""`; non-ammo/non-faction forms (`Stimpak`) return `""`: `PROBE|w6d5p4_format_c_component|a0=[10mm Round]|a1=[10mm]|a2=[]|a3=[10mm Round]|an=[10mm Round]|f0=[Arefu Citizen]|f9=[]|bad=[]`.

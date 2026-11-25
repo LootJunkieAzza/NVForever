@@ -7748,6 +7748,35 @@ impl Host for Exec<'_, '_> {
         named(f).or_else(|| crate::functions::base_of(g, f).and_then(named))
     }
 
+    fn format_name_component(&mut self, form: u32, index: i32) -> Option<String> {
+        if form == 0 {
+            return None;
+        }
+        let f = FormId(form);
+        let g = &*self.game;
+        let base = crate::functions::base_of(g, f).unwrap_or(f);
+        let orig = g.unclone(base);
+        match g.data.sig(orig) {
+            Some(s) if &s == b"AMMO" => {
+                let traits = g.ammo_traits(base)?;
+                Some(match index {
+                    1 => traits.short_name.unwrap_or_default(),
+                    2 => traits.abbrev.unwrap_or_default(),
+                    _ => traits.full_name.unwrap_or_default(),
+                })
+            }
+            Some(s) if &s == b"FACT" => {
+                let i = usize::try_from(index).ok()?;
+                if let Some(t) = g.other.ranks.get(&(orig, i, false)) {
+                    return Some(t.clone());
+                }
+                let ranks = g.data.faction_ranks(orig);
+                Some(ranks.get(i).map(|r| r.0.clone()).unwrap_or_default())
+            }
+            _ => None,
+        }
+    }
+
     fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
         match (var.on, var.var) {
             (_, VarSlot::Global { global }) => {
