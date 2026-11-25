@@ -61,16 +61,32 @@ End
 ", RunCtx::default()).unwrap();
     assert_eq!(num_q(&mut g, "GetQuestDelay W6D9Tmr"), 0.0);
     assert_eq!(g.quests.get(&FormId(Q_TMR)).and_then(|s| s.delay), Some(0.0));
+    // Delay <= 0 falls back to DEFAULT_QUEST_DELAY (5.0 s) in GetDelayElapsed / SetDelayElapsed.
+    assert_eq!(num_q(&mut g, "GetDelayElapsed W6D9Tmr"), 5.0);
+    g.run_query("Begin Function { }
+SetDelayElapsed W6D9Tmr 1.0
+End
+", RunCtx::default()).unwrap();
+    assert_eq!(g.quests.get(&FormId(Q_TMR)).map(|s| s.since_run), Some(4.0));
+    assert_eq!(num_q(&mut g, "GetDelayElapsed W6D9Tmr"), 1.0);
 
     g.run_query("Begin Function { }
 SetQuestDelay W6D9Tmr -1.0
 End
 ", RunCtx::default()).unwrap();
     assert_eq!(num_q(&mut g, "GetQuestDelay W6D9Tmr"), -1.0);
+    assert_eq!(num_q(&mut g, "GetDelayElapsed W6D9Tmr"), 1.0);
+    g.run_query("Begin Function { }
+SetDelayElapsed W6D9Tmr 2.0
+End
+", RunCtx::default()).unwrap();
+    assert_eq!(g.quests.get(&FormId(Q_TMR)).map(|s| s.since_run), Some(3.0));
+    assert_eq!(num_q(&mut g, "GetDelayElapsed W6D9Tmr"), 2.0);
 
     g.run_query("Begin Function { }
 SetQuestDelay W6D9Zero 0
 End
 ", RunCtx::default()).unwrap();
     assert_eq!(num_q(&mut g, "GetQuestDelay W6D9Zero"), 0.0);
+    assert_eq!(num_q(&mut g, "GetDelayElapsed W6D9Zero"), 5.0);
 }

@@ -118,9 +118,10 @@ pub fn set_quest_delay(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
     let q = quest(g, a, 0)?;
     let d = a.num(1)?;
     // Store the raw finite delay so GetQuestDelay reads back 0.0 and negative values
-    // verbatim while the quest tick loop still falls back to DEFAULT_QUEST_DELAY (5 s)
+    // verbatim while quest timing consumers still fall back to DEFAULT_QUEST_DELAY (5 s)
     // when delay <= 0 [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
     // w6d9_08_quest_delay_zero_neg_and_restore: tmr(0.50,2.5=2.50,0=0.00,-1=-1.00)|q0(0.00,0=0.00)|nonQ=0.00,badSt=1].
+    // [design]: ignore non-finite (NaN/inf) delay arguments instead of poisoning QuestState::delay.
     if d.is_finite() {
         g.quest(q).delay = Some(d);
     }

@@ -288,7 +288,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "setdelayelapsed" => {
             let Some(q) = form(args, 0) else { return Some(Ok(zero)) };
             let secs = num(args, 1, 0.0).max(0.0);
-            let delay = g.quests.get(&q).and_then(|s| s.delay).or_else(|| g.data.quests.get(&q).map(|d| d.script_delay())).unwrap_or(0.0);
+            let delay = crate::quest::effective_delay(g.quests.get(&q).and_then(|s| s.delay), g.data.quests.get(&q));
             let s = g.quest(q);
             s.since_run = (delay - secs).max(0.0);
             XVal::Num(secs)
