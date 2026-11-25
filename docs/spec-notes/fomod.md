@@ -46,6 +46,10 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
   `info.xml`, which has "no defined schema" [documented: S1, "Specification"].
 - The launcher reads a `ModuleConfig.xml` of at most 16 MiB, and refuses one whose elements
   nest more than 64 deep [design; `read_xml`, `parse_xml`].
+- An installer may copy at most four times the size of its unpacked files in all (never less
+  than 16 MiB), so a file listed for many places cannot fill the disk; past that the install
+  stops. Folders are copied from a list, not by a call per level, so a deep one cannot use up
+  the stack [design; `copy_items`, `copy_children`].
 - A C# script installer (`fomod/script.cs`) is code "that gets compiled on the user's system and
   run in the context of the mod manager" [documented: S2, "FOMOD C#"]. The launcher never
   compiles or runs one. An archive with only a script is refused; with a `ModuleConfig.xml` too,

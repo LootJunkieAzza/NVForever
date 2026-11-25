@@ -986,9 +986,35 @@ fn sort_by<T>(items: &mut [T], order: &str, name: impl Fn(&T) -> &str) {
     }
 }
 
+/// How many times the size of the unpacked files an installer may copy in all. A file may be
+/// listed for more than one place, but not so often that the copies fill the disk.
+const COPY_MAX_RATIO: u64 = 4;
+
+/// The least an installer may copy, so one with many small files listed often still installs.
+const COPY_MIN_BYTES: u64 = 16 * 1024 * 1024;
+
+/// The size of the files under `root`, without following links.
+fn tree_size(root: &Path) -> u64 {
+    let mut total: u64 = 0;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for entry in rd.flatten() {
+            let Ok(meta) = entry.path().symlink_metadata() else { continue };
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else if meta.is_file() {
+                total = total.saturating_add(meta.len());
+            }
+        }
+    }
+    total
+}
+
 fn copy_items(root: &Path, dest: &Path, items: &[Item]) -> Result<(), String> {
     let mut items = items.to_vec();
     items.sort_by_key(|item| (item.priority, item.order));
+    let mut left = tree_size(root).saturating_mul(COPY_MAX_RATIO).max(COPY_MIN_BYTES);
     for item in items {
         let rel = rel_path(&item.source)?;
         let src = root.join(&rel);
@@ -1004,7 +1030,7 @@ fn copy_items(root: &Path, dest: &Path, items: &[Item]) -> Result<(), String> {
                 std::fs::create_dir_all(&into).map_err(|e| format!("{}: {e}", into.display()))?;
                 into
             };
-            copy_children(&src, &into)?;
+            copy_children(&src, &into, &mut left)?;
         } else {
             let named = src.file_name().unwrap_or_default();
             let rel = if item.destination.trim().is_empty() || item.destination.ends_with('/') || item.destination.ends_with('\\') {
@@ -1013,34 +1039,51 @@ fn copy_items(root: &Path, dest: &Path, items: &[Item]) -> Result<(), String> {
                 rel_path(&item.destination)?
             };
             let to = place_in(dest, &rel)?;
-            std::fs::copy(&src, &to).map_err(|e| format!("{}: {e}", src.display()))?;
+            copy_counted(&src, &to, &mut left)?;
         }
     }
     Ok(())
 }
 
-fn copy_tree(src: &Path, dest: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-    copy_children(src, dest)
+/// Copy one file, taking its size from `left`; a copy that would go past it is refused.
+fn copy_counted(src: &Path, to: &Path, left: &mut u64) -> Result<(), String> {
+    let size = std::fs::metadata(src).map_err(|e| format!("{}: {e}", src.display()))?.len();
+    if size > *left {
+        return Err(format!("The installer copies more than {COPY_MAX_RATIO} times the size of its files, so it was stopped."));
+    }
+    let copied = std::fs::copy(src, to).map_err(|e| format!("{}: {e}", src.display()))?;
+    *left = left.saturating_sub(copied.max(size));
+    Ok(())
 }
 
-fn copy_children(src: &Path, dest: &Path) -> Result<(), String> {
+fn copy_tree(src: &Path, dest: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-    for entry in std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?.flatten() {
-        let path = entry.path();
-        if path.is_symlink() {
-            return Err(format!("{} is a link", path.display()));
-        }
-        let name = entry.file_name();
-        let lower = name.to_string_lossy().to_ascii_lowercase();
-        if matches!(lower.as_str(), "fomod" | "__macosx" | "meta") {
-            continue;
-        }
-        let to = dest.join(&name);
-        if path.is_dir() {
-            copy_children(&path, &to)?;
-        } else if path.is_file() {
-            std::fs::copy(&path, &to).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut left = u64::MAX;
+    copy_children(src, dest, &mut left)
+}
+
+/// Copy what is inside `src` into `dest`, folder by folder from a list rather than by calling
+/// itself, so a deeply nested archive cannot use up the stack.
+fn copy_children(src: &Path, dest: &Path, left: &mut u64) -> Result<(), String> {
+    let mut stack = vec![(src.to_path_buf(), dest.to_path_buf())];
+    while let Some((from, into)) = stack.pop() {
+        std::fs::create_dir_all(&into).map_err(|e| format!("{}: {e}", into.display()))?;
+        for entry in std::fs::read_dir(&from).map_err(|e| format!("{}: {e}", from.display()))?.flatten() {
+            let path = entry.path();
+            if path.is_symlink() {
+                return Err(format!("{} is a link", path.display()));
+            }
+            let name = entry.file_name();
+            let lower = name.to_string_lossy().to_ascii_lowercase();
+            if matches!(lower.as_str(), "fomod" | "__macosx" | "meta") {
+                continue;
+            }
+            let to = into.join(&name);
+            if path.is_dir() {
+                stack.push((path, to));
+            } else if path.is_file() {
+                copy_counted(&path, &to, left)?;
+            }
         }
     }
     Ok(())
@@ -2712,6 +2755,57 @@ mod tests {
         std::fs::write(&tar_path, &tar_bytes).unwrap();
         let e = stage_error(&tar_path);
         assert!(e.ends_with("entry Mod/textures is not a file or folder"), "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_deep_tree_is_copied_without_using_up_the_stack() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-deep-tree-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let levels = 1000;
+        let mut deep = t.join("src");
+        for _ in 0..levels {
+            deep.push("a");
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("x.dds"), b"DDS ").unwrap();
+        let (src, dest) = (t.join("src"), t.join("dest"));
+        // A small stack: a copy that called itself once a folder would run out of it.
+        let copied = std::thread::Builder::new().stack_size(256 * 1024).spawn(move || copy_tree(&src, &dest)).unwrap().join().unwrap();
+        assert!(copied.is_ok(), "{copied:?}");
+        let mut got = t.join("dest");
+        for _ in 0..levels {
+            got.push("a");
+        }
+        assert!(got.join("x.dds").is_file());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn an_installer_that_copies_one_file_over_and_over_is_stopped() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-copies-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let root = t.join("Copies");
+        std::fs::create_dir_all(root.join("fomod")).unwrap();
+        // 1 MiB: twenty copies pass both four times the files' size and the 16 MiB floor.
+        std::fs::write(root.join("big.bsa"), noise(1024 * 1024)).unwrap();
+        let installer = |copies: usize| {
+            let files: String = (0..copies).map(|i| format!(r#"<file source="big.bsa" destination="copy{i}.bsa"/>"#)).collect();
+            format!("<config><moduleName>Copies</moduleName><requiredInstallFiles>{files}</requiredInstallFiles></config>")
+        };
+        let facts = || FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        // Twenty copies of one file are past four times the files' size and the floor.
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), installer(20)).unwrap();
+        let Staged::Plan(plan) = stage(&root, facts()).unwrap() else { panic!("an installer with no choice is a plan") };
+        let mods = t.join("mods");
+        let e = place_plan(&mods, &plan).unwrap_err();
+        assert!(e.contains("copies more than 4 times the size of its files"), "{e}");
+        assert!(!mods.join("Copies").exists(), "a stopped install leaves no folder");
+        // Three copies fit.
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), installer(3)).unwrap();
+        let Staged::Plan(plan) = stage(&root, facts()).unwrap() else { panic!("an installer with no choice is a plan") };
+        place_plan(&mods, &plan).unwrap();
+        assert!(mods.join("Copies").join("copy2.bsa").is_file());
         let _ = std::fs::remove_dir_all(&t);
     }
 }
