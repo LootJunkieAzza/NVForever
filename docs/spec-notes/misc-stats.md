@@ -117,6 +117,18 @@ The General list shows the 43 names in code order with their counters
   build it at that scale too). Below 0.001 the reference has no collision and is drawn at
   0.001 (`SetScale 0`) [design]. An actor's collision is its walker's capsule, unchanged.
 - Does the original's SetScale also scale an actor's speed or reach? Not known; not done.
+- **`ModScale delta`** (registered in `functions::console_registry` because the catalogue
+  lists it without a vanilla bytecode opcode): adds `delta` to the calling reference's
+  current scale and clamps the result to `[0.5, 2.0]`, updating `RefState::scale`,
+  `Game::turned`, and emitting `EventKind::Scaled`; `SetScale` accepts unclamped positive
+  scales (`0.05`, `15.0`) and applies on a subsequent frame while `ModScale` reads back
+  immediately [documented: GECK wiki ModScale; observed: Fallout: New Vegas 1.4.0.525
+  (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters, read-only console probe
+  `w6d10_06_scale_get_set_modscale_xscl_and_clamps`
+  (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+  `PROBE|w6d10_06_scale_get_set_modscale_xscl_and_clamps|xscl(2.00,0.50,1.00)|same15=1.00|d0=1.00|mod(st=2,1.50,1.25,0.50,2.00)|post(1.5=1.50,0.05=0.05,hi=15.00)`;
+  zero DLL, PDB, or third-party source consulted].
 
 ## 6. Checks
 
