@@ -10,12 +10,15 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
 - **[S1] "The fomod Documentation"** (fomod-docs), "written for the `5.x` major releases":
   https://fomod-docs.readthedocs.io/en/latest/ , with its pages "Specification"
   (`specs.html`), "A fomod Tutorial" (`tutorial.html`) and the schema reference "XML Schema
-  Documentation" for `ModuleConfig.xml`, schema version 5.1 (`_static/ModuleConfig.html`; the
-  schema is `ModuleConfig.xsd` in GandaG/fomod-schema, tag `5.1`). Read 2026-11-23.
+  Documentation" for `ModuleConfig.xml` (`_static/ModuleConfig.html`), which gives the schema
+  "Version 5.1". The schema file is `ModuleConfig.xsd` in dh-nunes/fomod-schema (formerly
+  GandaG/fomod-schema), as of commit `dd86bbe2ada6` (2017-12-03); that repository has no tag
+  `5.1` (its tags run to `5.0`). Read 2026-11-23, checked again 2026-11-24.
 - **[S2] The Nexus Mods App's developer note "About FOMOD"**: `docs/developers/misc/AboutFomod.md`
   in Nexus-Mods/NexusMods.App, as of commit `60cb48066236` (2024-06-18). Its old web address,
   `https://nexus-mods.github.io/NexusMods.App/misc/AboutFomod/`, answered 404 on 2026-11-23.
-  This is the "Nexus Mods app note" the code's comments name.
+  The comment at the top of `fomod.rs` names it in the same words: the Nexus Mods App's
+  developer note "About FOMOD".
 
 ## Packaging
 
@@ -79,13 +82,15 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
   install step is skipped" [documented: S1, schema reference, `visible`]. For conditional
   installs, "All matching patterns will have their files installed" [documented: S1, schema
   reference, `conditionalFileInstalls`]. A `flagDependency` "Specifies that a condition flag
-  must have a specific value" [documented: S1, schema reference].
+  must have a specific value" [documented: S1, schema reference]. A `fommDependency`
+  "Specifies a minimum required version of FOMM" [documented: S1, schema reference].
 - The launcher [design]: flag names and values match without regard to case. A condition list
   with `operator="Or"` holds when any part holds, otherwise when all do. A `fileDependency` is
   judged from the load order and the files found: a plugin is `Active` when it is on,
   `Inactive` when it is present but off, `Missing` when it is not there; another file is
   present when its path is found [`file_state`]. A `gameDependency` is not checked and always
-  holds.
+  holds. A `fommDependency` is left out of its condition list, as if it were not there
+  [`is_dep_name`].
 
 ## Priority
 

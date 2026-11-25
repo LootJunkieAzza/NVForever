@@ -3755,7 +3755,7 @@ impl App {
             *act = Some(ProfileAct::Open);
             ui.close();
         }
-        if ui.add_enabled(owned, egui::Button::new("Duplicate")).on_hover_text("Copies the three list files. A dropped folder is left as it was.").clicked() {
+        if ui.add_enabled(owned, egui::Button::new("Duplicate")).on_hover_text("Copies the four list files. A dropped folder is left as it was.").clicked() {
             *act = Some(ProfileAct::Duplicate);
             ui.close();
         }
@@ -4942,7 +4942,7 @@ impl App {
         }
     }
 
-    /// Copies the three list files. Any other file stays where it was.
+    /// Copies the four list files (the three lists and the locks). Any other file stays where it was.
     fn copy_profile_lists(from: &Path, to: &Path) -> Result<(), String> {
         if to.exists() {
             return Err("That profile is already there.".into());

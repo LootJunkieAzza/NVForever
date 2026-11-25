@@ -26,10 +26,10 @@ A plugin, archive, or loose file that is already in `Data` is still read. The
 mods folder does not hide the base game or a mod that was installed there by
 hand [documented: `plugin_path_layered`, `Vfs::open_launcher_mods`].
 
-## The two home lists
+## The home lists
 
-[documented: `Launcher::save_mods` and `Launcher::remember_lists`] The launcher
-keeps two text files in the home:
+[documented: `App::save_mods` and `App::remember_lists`] The launcher
+keeps three text files in the home:
 
 - `plugins.txt`: which plugins are on, and their load order. A `*` turns a
   line on. The format is NVForever's own
@@ -51,8 +51,8 @@ The `;` comment, a `*` line or a bare name marks that form. The next write
 turns it into MO2's form [documented: `mod_order::read_mod_order` and its
 tests].
 
-Both files are written when the list changes, with no profile open and without
-pressing **Save**. Closing the launcher and opening it again restores that
+All three are written when the list changes, with no profile open and without
+pressing **Save** [documented: `App::save_mods`, `App::write_mod_order`]. Closing the launcher and opening it again restores that
 list. A profile is not required for this.
 
 When the page opens, a plugin found only in mod folders that are off is
@@ -61,8 +61,8 @@ start through the launcher keeps its tick: one that a folder that is on has,
 one loose at the top of the mods folder, or one in `Data` [design]
 [documented: `App::drop_inactive_mod_plugins`, `only_in_off_folders`].
 
-Writing either file does not make a backup. A dated copy is made only when
-**Save backup** is pressed [documented: `Launcher::save_dated_backup`].
+Writing them does not make a backup. A dated copy is made only when
+**Save backup** is pressed [documented: `App::save_dated_backup`].
 Lowering the number of backups kept asks before the oldest copies are deleted.
 The mods themselves are not deleted.
 

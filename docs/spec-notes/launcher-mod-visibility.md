@@ -7,10 +7,10 @@ copied. The game `Data` folder is not written.
 
 ## What Apply does
 
-[documented: `Launcher::apply_mods` and `Launcher::save_mods` in
-`crates/nvf-launcher/src/app.rs`] **Apply** writes two text files in the
-launcher home: `plugins.txt` (which plugins are on) and `mod-order.txt` (which
-mod folders are on, and their order). It does not copy, hard-link, or symlink
+[documented: `App::apply_mods` and `App::save_mods` in
+`crates/nvf-launcher/src/app.rs`] **Apply** writes three text files in the
+launcher home: `plugins.txt` (which plugins are on), `mod-order.txt` (which
+mod folders are on, and their order) and `mod-locks.txt` (the locked folders). It does not copy, hard-link, or symlink
 mod files anywhere. A profile **Save** or **Load** writes or reads
 `profiles/<name>/` only.
 
