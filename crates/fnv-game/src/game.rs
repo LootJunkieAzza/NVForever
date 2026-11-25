@@ -4850,7 +4850,11 @@ impl<'a> Game<'a> {
                 let script = def.script.filter(|s| data.scripts.contains_key(s))?;
                 let counter = if in_menu { &mut s.since_menu_run } else { &mut s.since_run };
                 *counter += dt;
-                let delay = s.delay.unwrap_or_else(|| def.script_delay());
+                let delay = match s.delay {
+                    Some(d) if d > 0.0 => d,
+                    Some(_) => crate::quest::DEFAULT_QUEST_DELAY,
+                    None => def.script_delay(),
+                };
                 (*counter + 1e-9 >= delay).then_some((*q, script))
             })
             .collect();
