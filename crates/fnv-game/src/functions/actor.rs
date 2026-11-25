@@ -908,7 +908,10 @@ pub fn set_actor_ref_essential(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Valu
 
 pub fn is_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(essential_flagged(g, r))
+    // Outside Hardcore, teammates report IsEssential = 1; in Hardcore, 0
+    // [observed 2026-11-25: w6d7_41_essential_teammate_hardcore_and_ref_flag,
+    // tm(flag=1,nhEss=1,nhDead=0,hcEss=0,hcDead=1)].
+    yes(essential(g, r))
 }
 
 /// `actor.SetActorFullName message`: the base's name becomes the message's title, for
