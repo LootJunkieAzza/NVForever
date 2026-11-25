@@ -220,7 +220,14 @@ from 0 throughout [documented: Sv Length; Sv Find].
 - **Result**: float. Digits, a leading sign and an `e` exponent are read; reading stops
   at the first character that is none of those.
 - **Edge cases**: no number at the start at all: open (0 is likely but not stated).
-- **Evidence**: [documented: Sv ToNumeric].
+- **Evidence**: [documented: Sv ToNumeric]; parses `0x` hexadecimal (`"0x1F"` -> `31`)
+  and leading-dot decimals (`".5"` -> `0.5`) just like `ToNumber` [observed: 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10
+  official base masters, read-only `PrintToConsole` probe
+  `w6d11_29_sv_tonumeric_and_sv_getchar_edges`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `num(1=42,2=3.25,3=-150,4=0.50,5=31,6=0,7=0,8=0)|tn(4=0.50,5=31)`; no DLL or source
+  consulted].
 
 ### ToString (`$`)
 

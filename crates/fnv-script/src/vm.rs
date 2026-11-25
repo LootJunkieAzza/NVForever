@@ -1311,6 +1311,10 @@ pub fn text_number(s: &str) -> f64 {
     0.0
 }
 
+#[cfg(test)]
+#[path = "w6d11_sv_tonumeric_tests.rs"]
+mod w6d11_sv_tonumeric_tests;
+
 /// The hex digits a text starts with, as a number.
 fn hex_prefix(h: &str) -> f64 {
     let n = h.chars().take_while(|c| c.is_ascii_hexdigit()).count();
@@ -2840,6 +2844,16 @@ impl Vm<'_, '_> {
             "sv_tonumeric" => {
                 let s = text(val(self, 0)?).unwrap_or_default();
                 let t = s.trim_start();
+                let (sign, rest) = if let Some(r) = t.strip_prefix('-') {
+                    (-1.0, r)
+                } else if let Some(r) = t.strip_prefix('+') {
+                    (1.0, r)
+                } else {
+                    (1.0, t)
+                };
+                if let Some(h) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+                    return Ok(Some(XVal::Num(sign * hex_prefix(h))));
+                }
                 let mut end = 0;
                 for (i, ch) in t.char_indices() {
                     let ok = ch.is_ascii_digit() || ch == '.' || ((ch == '-' || ch == '+') && (i == 0 || t[..i].ends_with(['e', 'E']))) || ((ch == 'e' || ch == 'E') && i > 0);
