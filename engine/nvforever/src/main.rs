@@ -2808,6 +2808,11 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         // (this camera alone marches them, #2991).
         bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, sky::BODY_LAYER, decals::DECAL_LAYER, camera_overlay::OVERLAY_PRE_IS_LAYER, volumetric_clouds::VOLUME_LAYER]),
     )).id();
+    // Physical lighting tonemaps with AgX (lights.rs `physical_agx`; imagespace.wesl adds
+    // its Punchy look), graphics-enhanced.md §3.25.
+    if crate::lights::physical_agx() {
+        commands.entity(cam).insert(bevy::core_pipeline::tonemapping::Tonemapping::AgX);
+    }
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
     }

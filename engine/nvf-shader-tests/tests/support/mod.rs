@@ -36,7 +36,7 @@ pub struct Compiler {
     /// `pbr_functions` also takes the reflection gate (nvforever lights/reflection_gate.rs)
     /// after the ambient occlusion's hook, as lights.rs makes it in the game.
     reflection_gate: bool,
-    /// `pbr_lighting` and `pbr_functions` take the physical PBR patches (`NVF_PHYSICAL_PBR=1`).
+    /// `pbr_lighting` and `pbr_functions` take the physical PBR patches (the Physical lighting row).
     physical_pbr: bool,
 }
 

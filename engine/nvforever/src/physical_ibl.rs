@@ -1,6 +1,6 @@
-//! Procedural HDR sky/horizon/ground/interior cubemap IBL (`NVF_PHYSICAL_PBR=1`).
+//! Procedural HDR sky/horizon/ground/interior cubemap IBL (the Physical lighting row).
 //!
-//! When `NVF_PHYSICAL_PBR=1` is active, Bevy's flat `ambient::ambient_light` is bypassed in
+//! With Physical lighting on, Bevy's flat `ambient::ambient_light` is bypassed in
 //! world views in favour of [`EnvironmentMapLight`] cubemaps (`Rgba16Float`, `LayerMajor`)
 //! synthesized from [`SkyState`](crate::sky::SkyState):
 //! - Outdoors: normalized sky-dome zenith/lower/horizon irradiance + sunlit Mojave ground
