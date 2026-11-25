@@ -692,6 +692,7 @@ fn slideshow(
 fn show_entries(
     menu: Res<MainMenu>,
     page: Res<Page>,
+    lobby: Option<Res<crate::lobby::LobbyScreen>>,
     mut entries: Query<(Entity, &EntryNode, &mut Visibility), Without<EntryBox>>,
     children: Query<&Children>,
     mut boxes: Query<&mut Visibility, (With<EntryBox>, Without<EntryNode>, Without<Logo>)>,
@@ -706,8 +707,11 @@ fn show_entries(
     for mut v in &mut logo {
         v.set_if_neq(if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden });
     }
+    // A lobby screen over the menu (Join Lobby) hides the menu's column: it takes no input
+    // then, and the wide lobby panel would leave it half covered [owner, 2026-11-25].
+    let lobby_up = lobby.is_some_and(|l| l.is_open());
     for (id, e, mut vis) in &mut entries {
-        let shown = if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden };
+        let shown = if *page == Page::Main && !lobby_up { Visibility::Inherited } else { Visibility::Hidden };
         vis.set_if_neq(shown);
         let entry = Entry::ALL[e.0];
         let c = color(if entry.enabled(menu.saves) { Shade::Bright } else { Shade::Dim });
