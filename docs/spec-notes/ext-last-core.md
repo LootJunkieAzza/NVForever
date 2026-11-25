@@ -110,14 +110,14 @@ it. The console's exact line is not documented: the name alone [hypothesis].
 
 `actor.GetEquippedCurrentHealth slot` returns `100000.0` for out-of-bounds equipment
 slots (`-1`, `99`), `0.0` for a valid empty slot (`0`), and the equipped item's current
-health points for occupied slots (`2`, `5`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, probes
+health points for occupied slots (`2`, `5`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, probes
 `w6d4_03_current_and_equipped_health_edges` and `w6d4p2_03_equipped_health_full_and_oob`
 (`tools/capture/nvse/catalogs/wave6d4_equipped_health_oob.json`):
 `PROBE|w6d4_03_current_and_equipped_health_edges|gun(79.9,r=0,50.0,hi=80.0,neg=0.0)|stim(0.0,r=0,0.0)|eq(r=0,s5=0.0,s2=0.0,neg=100000.0,oob=100000.0)`
 and
 `PROBE|w6d4p2_03_equipped_health_full_and_oob|init(s5=79.9,s2=149.9,s0=0.0,neg=100000.0,oob=100000.0)|set(r=0,b=40.0,hi=80.0,lo=0.0)`].
-The exact valid slot upper bound (`0..20`, matching Fallout's 20 equipment slots) remains
-[hypothesis].
+The exact valid slot upper bound (`0..20`, matching Fallout's 20 equipment slots) and
+short-circuiting out-of-bounds slots before subject validation remain [hypothesis].
 
 ## 6. Not a function
 
