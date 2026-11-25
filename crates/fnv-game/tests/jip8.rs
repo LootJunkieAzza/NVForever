@@ -42,10 +42,11 @@ const WEAP_CALC: u32 = 0xA19;
 const CONT: u32 = 0xA1A;
 const NPC_REF: u32 = 0xA1B;
 const BOX_REF: u32 = 0xA1C;
-const CLMT: u32 = 0xA1D;
-const CLMT2: u32 = 0xA1E;
-const SOUN: u32 = 0xA1F;
-const SOUN2: u32 = 0xA20;
+const WRLD: u32 = 0xA1D;
+const CLMT: u32 = 0xA1E;
+const CLMT2: u32 = 0xA1F;
+const SOUN: u32 = 0xA20;
+const SOUN2: u32 = 0xA21;
 
 fn f32b(v: f32) -> Vec<u8> {
     v.to_le_bytes().to_vec()
@@ -173,6 +174,8 @@ fn plugin_bytes() -> Vec<u8> {
         edid(b"WATR", WATR2, "TestWater2", &[sub(b"DATA", vec![0, 0])]),
     ]
     .concat();
+    // Worldspace with DATA flags bit 0 (Small World) and bit 1 (Can't Fast Travel) set (#3757).
+    let wrld = edid(b"WRLD", WRLD, "TestWorld", &[sub(b"DATA", vec![0x03])]);
     [
         tes4(),
         top(b"NPC_", &npcs),
@@ -193,6 +196,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"CLMT", &clmt),
         top(b"SOUN", &soun),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, cell_children].concat()))),
+        top(b"WRLD", &wrld),
         top(b"WATR", &watr),
     ]
     .concat()
@@ -452,13 +456,26 @@ fn cells_and_water() {
     let f = fixture();
     let mut g = game(&f);
     // DATA 0-7, LNAM 8-16, read by GetCellFlag [documented: the tables].
-    assert_eq!((n(&mut g, "GetCellFlag TestCell 1"), n(&mut g, "GetCellFlag TestCell 8"), n(&mut g, "GetCellFlag TestCell 9")), (1.0, 1.0, 0.0));
+    assert_eq!((n(&mut g, "GetCellFlag TestCell 0"), n(&mut g, "GetCellFlag TestCell 1"), n(&mut g, "GetCellFlag TestCell 8"), n(&mut g, "GetCellFlag TestCell 9")), (1.0, 1.0, 1.0, 0.0));
+    assert_eq!((n(&mut g, "GetCellFlag TestCell -1"), n(&mut g, "GetCellFlag TestCell 17")), (0.0, 0.0));
     q(&mut g, "SetCellFlag TestCell 1 0");
     q(&mut g, "SetCellFlag TestCell 5 1");
     q(&mut g, "SetCellFlag TestCell 16 1");
     q(&mut g, "SetCellFlag TestCell 4 1");
     assert_eq!(n(&mut g, "GetCellFlag TestCell 4"), 1.0);
     assert_eq!((n(&mut g, "GetCellFlag TestCell 1"), n(&mut g, "GetCellFlag TestCell 5"), n(&mut g, "GetCellFlag TestCell 16")), (0.0, 1.0, 1.0));
+    // Non-CELL records (WRLD with DATA bits 0-1 set, FLST with LNAM, null form) must not leak
+    // their own DATA/LNAM bits through GetCellFlag, while GetWorldspaceFlag still reads WRLD (#3757).
+    assert_eq!((n(&mut g, "GetWorldspaceFlag TestWorld 0"), n(&mut g, "GetWorldspaceFlag TestWorld 1")), (1.0, 1.0));
+    assert_eq!((n(&mut g, "GetCellFlag TestWorld 0"), n(&mut g, "GetCellFlag TestWorld 1")), (0.0, 0.0));
+    q(&mut g, "SetWorldspaceFlag TestWorld 5 1");
+    assert_eq!(n(&mut g, "GetWorldspaceFlag TestWorld 5"), 1.0);
+    assert_eq!(n(&mut g, "GetCellFlag TestWorld 5"), 0.0);
+    // SetCellFlag also ignores a WRLD and must not mutate its flags.
+    q(&mut g, "SetCellFlag TestWorld 0 0");
+    assert_eq!(n(&mut g, "GetWorldspaceFlag TestWorld 0"), 1.0);
+    assert_eq!(n(&mut g, "GetCellFlag TestFactionList 8"), 0.0);
+    assert_eq!(n(&mut g, "GetCellFlag 0 0"), 0.0);
     // Water form and effect, read by GetCellWaterForm and GetWaterFormEffect.
     // Wrong-type forms and explicit null 0 are no-ops; omitted arg clears [observed: w6d2_14, w6d2p2_50].
     assert_eq!(n(&mut g, "GetCellWaterForm TestCell"), f64::from(WATR));
