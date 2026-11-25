@@ -802,7 +802,7 @@ fn stewie_inventory_queries_keep_unbound_fallback_and_follow_current_choices_aft
     g.tweaks.single_item_figures = true;
     let before = g.tweaks.clone();
     // Surrounding whitespace is NOT trimmed [observed: w4h_08_stewie_get_value_whitespace];
-    // ASCII case-insensitive matching stays [hypothesis].
+    // ASCII case-insensitive matching stays (see docs/spec-notes/ext-small.md).
     assert_eq!(q(&mut g, "SetFunctionValue (StewVal \"bHARDCOREtweaks:tWEAKs\")"), n(1.0));
     assert_eq!(q(&mut g, "SetFunctionValue (StewieGetValue \"bAMMOweight:hardcore tweaks\")"), n(1.0));
     assert_eq!(q(&mut g, "SetFunctionValue (StewVal \"bindividialitemstats:tweaks\")"), n(1.0));
@@ -1436,8 +1436,8 @@ fn knvse_play_animation_path_pre_tick_neg_flt_max_and_frequency_scaled_delta() {
 
     // Immediately after PlayAnimationPath before the first tick, GetAnimCurrentTime reads
     // -FLT_MAX (t0L=-3.40282e+38) [observed: w4e_08_knvse_legacy_anim_time], while
-    // pre-first-tick offset and lastTime returning -f32::MAX is [hypothesis]
-    // (nvse_knvse.rs, docs/spec-notes/ext-knvse.md §5).
+    // pre-first-tick offset and lastTime returning -f32::MAX follows
+    // nvse_knvse.rs and docs/spec-notes/ext-knvse.md §5.
     let neg_flt_max = f64::from(-f32::MAX);
     for path in [legacy, normal] {
         let XVal::Num(t0) = q(&mut g, &format!("SetFunctionValue (PlayerREF.GetAnimCurrentTime \"{path}\")")) else {
