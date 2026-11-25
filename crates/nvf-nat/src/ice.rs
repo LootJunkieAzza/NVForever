@@ -237,6 +237,18 @@ impl Agent {
         }
     }
 
+    /// What the birthday punch did, for the caller's log once the checks end: `None` when it
+    /// never ran on this side.
+    pub fn punch_summary(&self) -> Option<String> {
+        match self.punch()? {
+            Punch::Spray(ip) if self.sprayed > 0 => Some(format!("birthday punch: sprayed {} ports of {ip}", self.sprayed)),
+            Punch::Spread(to) if self.extras_asked => {
+                Some(format!("birthday punch: {} extra sockets probed {to}", self.extras_probed))
+            }
+            _ => None,
+        }
+    }
+
     /// The extra sockets still open, as far as the agent knows.
     pub fn extra_sockets(&self) -> &[SocketAddr] {
         &self.extras
@@ -763,6 +775,7 @@ mod tests {
         }
         assert_eq!(first, Some(1300), "1 s, then the 300 ms for the other side's sockets");
         assert!((495..=505).contains(&sprayed.len()), "2 s at 250 a second: {}", sprayed.len());
+        assert_eq!(a.punch_summary(), Some(format!("birthday punch: sprayed {} ports of 198.51.100.7", sprayed.len())));
         let distinct: std::collections::HashSet<_> = sprayed.iter().collect();
         assert_eq!(distinct.len(), sprayed.len(), "no port twice");
         assert!(sprayed.iter().all(|&p| p >= 1024));
@@ -815,6 +828,7 @@ mod tests {
         assert!(acts.contains(&Action::CloseSockets { keep: Some(hit) }), "{acts:?}");
         assert_eq!(a.selected(), Some((hit, easy)));
         assert_eq!(a.extra_sockets(), &[hit]);
+        assert_eq!(a.punch_summary().as_deref(), Some("birthday punch: 256 extra sockets probed 203.0.113.3:47960"));
     }
 
     /// No NAT kind given, both sides easy, or the punch turned off: nothing new happens.
@@ -839,6 +853,7 @@ mod tests {
                     assert!(!new, "{nat:?} {srflx:?} {sockets}: {act:?}");
                 }
             }
+            assert_eq!(a.punch_summary(), None, "{nat:?} {srflx:?} {sockets}");
         }
     }
 

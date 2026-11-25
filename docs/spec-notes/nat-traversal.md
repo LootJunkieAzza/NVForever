@@ -167,6 +167,18 @@ How it works:
   - Both NATs hard: each sprayed probe then opens a new mapping on the sprayer's own NAT. The
     peer relay and `nvf-relay` stay the answer there.
   - IPv6, which needs none of this.
+- **Live** [observed: 2026-11-25, #4263]:
+  - The setup:
+    - A home host on port 47971, with no UPnP mapping (`NVF_COOP_PORTMAP=0`).
+    - A laptop on a phone's mobile data: hard, on 31.94.30.4.
+    - The test aid `NVF_COOP_TEST_BIRTHDAY_ONLY` on both sides, so the plain checks could
+      not find the path.
+  - 4 joins out of 4 connected through the punch, in 3.9, 2.1, 4.4 and 1.6 s. Each kept one
+    extra socket, with 0 drops and 7–10 ms average lag.
+  - Earlier joins with the host's port open by UPnP went direct in under 0.5 s, before the
+    punch starts; without UPnP, plain checks failed.
+- `Agent::punch_summary` gives the caller one line for its log saying what the punch did on
+  that side.
 - In `natsim` [design]: `NatKind::SymmetricRandom` maps each destination to a random port.
   Port-restricted against it connects, both ways round, the same model as the test above.
 
