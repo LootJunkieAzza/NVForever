@@ -42,9 +42,12 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
 - A tar's long name or extended header is held whole in memory while it is read, so a tar is
   read no further than twice that limit plus 1 MiB; a longer one is refused [design;
   `unpack_tar`].
-- An archive is unpacked into a new folder of the system's temporary folder, made for that one
-  install. On Linux and macOS only the player's account can open it, and no mode stored in a
-  tar makes a file or folder there writable by other users [design; `make_temp`, `unpack_tar`].
+- An archive, or a file dropped without a path, is unpacked or written into a new folder of the
+  system's temporary folder, made for that one install. On Linux and macOS only the player's
+  account can open it. The modes stored in a tar are not used, so nothing there is writable by
+  other users or read-only to its removal; if an outside program kept read-only modes, the
+  folder is made writable and removed, never following a link [design; `make_temp`,
+  `unpack_tar`, `remove_temp`].
 - The installer sits in a `fomod` folder holding `ModuleConfig.xml` (the installer) and
   `info.xml`, which has "no defined schema" [documented: S1, "Specification"].
 - The launcher reads a `ModuleConfig.xml` of at most 16 MiB, and refuses one whose elements

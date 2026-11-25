@@ -152,7 +152,7 @@ pub fn stage(src: &Path, facts: FactsInput) -> Result<Staged, String> {
         if is_game_file(file_name) {
             let temp = make_temp()?;
             if let Err(e) = std::fs::copy(src, temp.join(file_name)) {
-                let _ = std::fs::remove_dir_all(&temp);
+                remove_temp(&temp);
                 return Err(format!("{}: {e}", src.display()));
             }
             let stem = src.file_stem().and_then(|n| n.to_str()).unwrap_or("mod");
@@ -163,11 +163,11 @@ pub fn stage(src: &Path, facts: FactsInput) -> Result<Staged, String> {
     let temp = make_temp()?;
     let limit = unpack_limit(src);
     if let Err(e) = extract_archive(src, &temp, limit) {
-        let _ = std::fs::remove_dir_all(&temp);
+        remove_temp(&temp);
         return Err(e);
     }
     if let Err(e) = unwrap_nested(&temp, limit) {
-        let _ = std::fs::remove_dir_all(&temp);
+        remove_temp(&temp);
         return Err(e);
     }
     let stem = archive_stem(src);
@@ -354,7 +354,7 @@ pub fn plan_loose_files(plan: &Plan) -> Vec<String> {
 
 pub fn discard(temp: &Option<PathBuf>) {
     if let Some(t) = temp {
-        let _ = std::fs::remove_dir_all(t);
+        remove_temp(t);
     }
 }
 
@@ -1609,8 +1609,6 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl F
     let hit = std::rc::Rc::new(std::cell::Cell::new(false));
     let capped = Capped { inner: reader, left: limit.saturating_mul(2).saturating_add(1 << 20), hit: hit.clone() };
     let mut archive = tar::Archive::new(capped);
-    // No mode in the archive makes a file or folder writable by other users.
-    archive.set_mask(0o022);
     let mut read_one = false;
     let mut total: u64 = 0;
     // Past the cap the archive is refused, whatever the tar reader made of the cut-off stream.
@@ -1637,7 +1635,15 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl F
             return Err(ReadFail::Refused(bad(&too_big())));
         }
         let to = place_in(dest, &rel).map_err(|e| ReadFail::Refused(bad(&e)))?;
-        entry.unpack(&to).map_err(|e| fail(true, format!("{}: {e}", to.display())))?;
+        // The archive's modes are not used: its folders and files get this account's defaults,
+        // so none is left writable by other users, or read-only so that it cannot be removed.
+        let wrote = |e: std::io::Error| fail(true, format!("{}: {e}", to.display()));
+        if kind.is_dir() {
+            std::fs::create_dir_all(&to).map_err(wrote)?;
+        } else {
+            let mut out = std::fs::File::create(&to).map_err(wrote)?;
+            std::io::copy(&mut entry, &mut out).map_err(wrote)?;
+        }
     }
     Ok(())
 }
@@ -1768,7 +1774,7 @@ fn unwrap_nested(dir: &Path, limit: u64) -> Result<(), String> {
             let to = dir.join(entry.file_name());
             std::fs::rename(entry.path(), &to).map_err(|e| format!("{}: {e}", to.display()))?;
         }
-        let _ = std::fs::remove_dir_all(&sub);
+        remove_temp(&sub);
     }
     Ok(())
 }
@@ -1776,7 +1782,7 @@ fn unwrap_nested(dir: &Path, limit: u64) -> Result<(), String> {
 /// A new folder for one install, in the system's temporary folder. It must not exist yet, and
 /// on Unix only this account can open it, so no other user can swap a folder in it for a link
 /// while an archive is unpacked there. (Windows gives each account its own temporary folder.)
-fn make_temp() -> Result<PathBuf, String> {
+pub(crate) fn make_temp() -> Result<PathBuf, String> {
     // The count keeps two installs started in the same clock tick apart.
     static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1793,6 +1799,54 @@ fn make_temp() -> Result<PathBuf, String> {
     let builder = std::fs::DirBuilder::new();
     builder.create(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     Ok(dir)
+}
+
+/// Remove an install's temporary folder. An outside tool may have kept an archive's read-only
+/// modes, which stop the removal: then every folder and file in it (never a link, which could
+/// point outside it) is made writable by this account and the removal is tried again. If that
+/// fails too, a line says what was left.
+fn remove_temp(dir: &Path) {
+    if std::fs::remove_dir_all(dir).is_ok() || !dir.exists() {
+        return;
+    }
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(folder) = stack.pop() {
+        if let Ok(meta) = folder.symlink_metadata() {
+            if meta.is_dir() {
+                make_writable(&folder, meta.permissions(), true);
+            }
+        }
+        let Ok(rd) = std::fs::read_dir(&folder) else { continue };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            let Ok(meta) = path.symlink_metadata() else { continue };
+            if meta.is_dir() {
+                stack.push(path);
+            } else if meta.is_file() {
+                make_writable(&path, meta.permissions(), false);
+            }
+        }
+    }
+    if let Err(e) = std::fs::remove_dir_all(dir) {
+        eprintln!("warning: the temporary folder {} could not be removed: {e}", dir.display());
+    }
+}
+
+/// Make `path`, a folder or a file that is not a link, writable by this account.
+fn make_writable(path: &Path, mut perms: std::fs::Permissions, folder: bool) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(perms.mode() | if folder { 0o700 } else { 0o600 });
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = folder;
+        // Windows: a read-only file cannot be deleted; this only clears that mark.
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+    }
+    let _ = std::fs::set_permissions(path, perms);
 }
 
 /// The largest `ModuleConfig.xml` read, in bytes.
@@ -2128,21 +2182,21 @@ pub fn open_manual(src: &Path) -> Result<(Option<PathBuf>, PathBuf, ManFile), St
     if is_archive(src) {
         let limit = unpack_limit(src);
         if let Err(e) = extract_archive(src, &temp, limit) {
-            let _ = std::fs::remove_dir_all(&temp);
+            remove_temp(&temp);
             return Err(e);
         }
         if let Err(e) = unwrap_nested(&temp, limit) {
-            let _ = std::fs::remove_dir_all(&temp);
+            remove_temp(&temp);
             return Err(e);
         }
     } else {
         let file_name = src.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if !is_game_file(file_name) && !manual_file_ok(file_name) {
-            let _ = std::fs::remove_dir_all(&temp);
+            remove_temp(&temp);
             return Err("Drop a folder or an archive (.zip, .7z, .rar, .fomod, .tar, .gz).".into());
         }
         if let Err(e) = std::fs::copy(src, temp.join(file_name)) {
-            let _ = std::fs::remove_dir_all(&temp);
+            remove_temp(&temp);
             return Err(format!("{}: {e}", src.display()));
         }
     }
@@ -2986,6 +3040,67 @@ mod tests {
         assert!(shown[1], "small");
         assert_eq!(shown[2..].iter().filter(|s| **s).count(), 15, "the small one and fifteen of the largest fill the memory");
         assert!(!shown[full + 1], "the last of the largest is past it");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// RESDISC-003: a folder entry read-only in the archive, after a file inside it, once made
+    /// the install's temporary folder impossible to remove.
+    #[cfg(unix)]
+    #[test]
+    fn a_tar_folder_mode_is_not_kept_so_the_folder_can_be_removed() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-tar-modes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let dest = t.join("out");
+        std::fs::create_dir_all(&dest).unwrap();
+        let mut bytes = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut bytes);
+            let mut file = tar::Header::new_gnu();
+            file.set_path("d/x.esp").unwrap();
+            file.set_size(4);
+            file.set_mode(0o444);
+            file.set_entry_type(tar::EntryType::Regular);
+            file.set_cksum();
+            b.append(&file, &b"TES4"[..]).unwrap();
+            let mut dir = tar::Header::new_gnu();
+            dir.set_path("d/").unwrap();
+            dir.set_size(0);
+            dir.set_mode(0o555);
+            dir.set_entry_type(tar::EntryType::Directory);
+            dir.set_cksum();
+            b.append(&dir, &[][..]).unwrap();
+            b.finish().unwrap();
+        }
+        let bad = |e: &dyn std::fmt::Display| e.to_string();
+        unpack_tar(&bytes[..], &dest, u64::MAX, &bad).unwrap();
+        assert_eq!(std::fs::read(dest.join("d/x.esp")).unwrap(), b"TES4");
+        // A plain removal works: no mode from the archive was kept.
+        std::fs::remove_dir_all(&dest).unwrap();
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// RESDISC-004/005: an outside tool may keep read-only modes; the temporary folder is still
+    /// removed, and a link inside it is not followed.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_temporary_folder_is_still_removed_and_its_links_are_not_followed() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = std::env::temp_dir().join(format!("nvf-fomod-read-only-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let temp = t.join("temp");
+        let sub = temp.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("x.esp"), b"TES4").unwrap();
+        let outside = t.join("outside.txt");
+        std::fs::write(&outside, b"keep").unwrap();
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o444)).unwrap();
+        std::os::unix::fs::symlink(&outside, temp.join("link")).unwrap();
+        std::fs::set_permissions(sub.join("x.esp"), std::fs::Permissions::from_mode(0o444)).unwrap();
+        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o555)).unwrap();
+        remove_temp(&temp);
+        assert!(!temp.exists(), "the temporary folder is gone");
+        assert_eq!(std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777, 0o444, "the link's target was not touched");
+        assert_eq!(std::fs::read(&outside).unwrap(), b"keep");
         let _ = std::fs::remove_dir_all(&t);
     }
 }

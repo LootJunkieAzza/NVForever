@@ -1119,9 +1119,10 @@ const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
 
 /// A drop that did not come with a real path (the name only). The bytes are written
 /// aside and installed from there, so a name alone never becomes an empty mod folder.
+/// The folder is a new private one (`fomod::make_temp`), so no other user can have put a
+/// link or another file there first.
 fn write_dropped_bytes(name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join(format!("nvforever-drop-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let dir = crate::fomod::make_temp()?;
     let path = dir.join(name);
     std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
@@ -6138,6 +6139,25 @@ mod tests {
         assert_eq!(only_in_off_folders(&home, &off, &on, elsewhere), HashSet::from(["oldonly.esp".to_string()]));
         // With nothing else serving them, every plugin of a folder that is off is unticked.
         assert_eq!(only_in_off_folders(&home, &off, &HashMap::new(), |_| false).len(), 4);
+    }
+
+    /// TOCTOU-001: dropped bytes go into a new private folder, not one whose name another user
+    /// could guess and make first.
+    #[test]
+    fn dropped_bytes_go_into_a_new_private_folder() {
+        let a = write_dropped_bytes("Mod.zip", b"PK").unwrap();
+        let b = write_dropped_bytes("Mod.zip", b"PK").unwrap();
+        let (da, db) = (a.parent().unwrap().to_path_buf(), b.parent().unwrap().to_path_buf());
+        assert_ne!(da, db, "each drop gets its own folder");
+        assert!(da.file_name().unwrap().to_string_lossy().starts_with("nvforever-import-"), "{}", da.display());
+        assert_eq!(std::fs::read(&a).unwrap(), b"PK");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&da).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        let _ = std::fs::remove_dir_all(&da);
+        let _ = std::fs::remove_dir_all(&db);
     }
 }
 
