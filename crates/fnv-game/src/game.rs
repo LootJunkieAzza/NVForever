@@ -6888,10 +6888,17 @@ impl<'a> Game<'a> {
     /// Active effects advance by `seconds` at once, as if that much game-mode time had
     /// passed in one frame (a wait or a sleep, `crate::needs`): each runs one
     /// ScriptEffectUpdate with those seconds, a value changed by the second changes by
-    /// the seconds inside its duration, and the effects whose duration has passed
-    /// finish [hypothesis: aid-items.md §6].
+    /// the seconds inside its duration (a regeneration by all of them), and the effects
+    /// whose duration has passed finish [hypothesis: aid-items.md §6]. The conditions are
+    /// checked first, whatever the time since the last check: the hours of a wait pass
+    /// with the game's own time standing still, and Solar Powered would heal all night.
+    /// Known limit: they are checked once, with the clock already at the end of the
+    /// step, for all its seconds. A jump of several hours (SetGameHour, fast travel) from
+    /// 17:00 to 20:00 heals nothing with Solar Powered; from 3:00 to 9:00 it heals for all
+    /// six hours. A wait steps hour by hour.
     pub fn advance_effects(&mut self, seconds: f64) {
         if seconds > 0.0 {
+            self.condition_check_due = self.time;
             self.update_effects(seconds);
         }
     }
@@ -7540,6 +7547,8 @@ impl<'a> Game<'a> {
             tracing::info!("load: the save holds the player disabled; enabled again (doors.md §6)");
             let _ = g.world.set_enabled(FormId::PLAYER_REF, true);
         }
+        // Regenerations an older save holds as one restoration go on by the second (#3471).
+        g.renew_regenerations();
         // Crime enmities an older save holds undated start their cooldown now (#2467).
         g.date_crimes();
         // Template-scripted actors' OnLoad after a load (#3228).
