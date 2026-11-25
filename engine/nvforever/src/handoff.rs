@@ -64,7 +64,7 @@
 
 use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
+use bevy::window::{PrimaryWindow, WindowMode};
 use bevy::winit::WINIT_WINDOWS;
 #[cfg(not(target_os = "android"))]
 use bevy::winit::{UpdateMode, WinitSettings};
@@ -95,6 +95,19 @@ pub const SHOW_AFTER_SECS: f64 = 120.0;
 /// Frames the old run's loading screen is up before the new run starts
 /// [engineering choice: the screen is on screen before the long frame of starting it].
 const COVER_FRAMES: u32 = 3;
+
+/// Maximum frames `Leaving::Covered` waits for exclusive full screen to step down to
+/// borderless before spawning the new run (#3393) [design: prevents spawning the child
+/// while the old run still holds `CDS_FULLSCREEN`, without hanging if Windows refuses
+/// the mode restore].
+const LEAVE_FULLSCREEN_MAX_FRAMES: u32 = 30;
+
+/// Whether `Leaving::Covered` has waited long enough to spawn the new run: at least
+/// [`COVER_FRAMES`], and until exclusive full screen has been left (capped at
+/// [`LEAVE_FULLSCREEN_MAX_FRAMES`]) (#3393) [design].
+fn cover_wait_done(frames: u32, exclusive_fullscreen: bool) -> bool {
+    frames >= COVER_FRAMES && (!exclusive_fullscreen || frames >= LEAVE_FULLSCREEN_MAX_FRAMES)
+}
 
 /// Seconds the old run waits for the new run's start marker ([`started_marker`]) before
 /// taking it for a run that is not taking part in the handoff, and ending itself so one
@@ -163,11 +176,13 @@ struct Successor {
 #[cfg(not(target_os = "android"))]
 impl Drop for Successor {
     fn drop(&mut self) {
-        if !self.handed_over && matches!(self.child.try_wait(), Ok(None)) {
-            let _ = self.child.kill();
+        if !self.handed_over {
+            if matches!(self.child.try_wait(), Ok(None)) {
+                let _ = self.child.kill();
+            }
+            let _ = std::fs::remove_file(&self.file);
+            let _ = std::fs::remove_file(started_marker(&self.file));
         }
-        let _ = std::fs::remove_file(&self.file);
-        let _ = std::fs::remove_file(started_marker(&self.file));
     }
 }
 
@@ -210,14 +225,23 @@ enum Leaving {
     Covered(Option<LoadRequest>, u32),
     #[cfg(not(target_os = "android"))]
     Waiting(Successor),
-    /// The new run is up: this one ends after this frame's `Last` ([`EndNow`]).
-    HandedOver,
+    /// The new run is up: this one ends after this frame's `Last` ([`EndNow`]), removing
+    /// the ready file right before exiting so the new run does not take exclusive full
+    /// screen or restore its save while shutdown (telemetry, DLSS) is still running (#3393).
+    HandedOver(Option<PathBuf>),
 }
 
 /// What this run is doing, and why the load it was started for was refused
 /// (`nvf_play::save::LoadRefused`), for the new run.
 #[derive(Resource, Default)]
 pub struct Handoff(Leaving, Option<String>);
+
+impl Handoff {
+    /// Whether this run is handing over to a new run (from request until exit) (#3393).
+    pub fn leaving(&self) -> bool {
+        !matches!(self.0, Leaving::No)
+    }
+}
 
 /// The new run's arguments: this run's without those the save or the window decide
 /// (`keep`), and what to open.
@@ -321,14 +345,19 @@ pub fn leave(
     }
     match std::mem::take(h) {
         Leaving::No => {}
-        Leaving::HandedOver => *h = Leaving::HandedOver,
+        Leaving::HandedOver(file) => *h = Leaving::HandedOver(file),
         Leaving::Asked(r) if writes.busy() => *h = Leaving::Asked(r),
         Leaving::Asked(r) => {
             cover.write(CoverRequest { to: r.as_ref().and_then(|r| destination_of(r, *location)) });
             *h = Leaving::Covered(r, 0);
         }
-        Leaving::Covered(r, n) if n < COVER_FRAMES => *h = Leaving::Covered(r, n + 1),
+        Leaving::Covered(r, n) if !cover_wait_done(n, window.single().is_ok_and(|(_, w)| matches!(w.mode, WindowMode::Fullscreen(..)))) => {
+            *h = Leaving::Covered(r, n + 1);
+        }
         Leaving::Covered(r, _) => {
+            if window.single().is_ok_and(|(_, w)| matches!(w.mode, WindowMode::Fullscreen(..))) {
+                warn!("load: exclusive full screen did not step down before handoff; starting the new run anyway");
+            }
             let file = ready_file();
             let _ = std::fs::remove_file(&file);
             let _ = std::fs::remove_file(started_marker(&file));
@@ -342,7 +371,7 @@ pub fn leave(
                 args.truncate(args.len() - 2);
                 args.extend(handoff.1.iter().map(|why| format!("--load-refused={why}")));
                 match crate::android::restart(&args) {
-                    Ok(()) => { *h = Leaving::HandedOver; }
+                    Ok(()) => { *h = Leaving::HandedOver(None); }
                     Err(error) => { warn!("load: {error}; staying"); uncover.write(Uncover); }
                 }
             }
@@ -379,9 +408,10 @@ pub fn leave(
         Leaving::Waiting(mut s) => {
             if s.file.exists() {
                 info!("load: the new run is up after {:.2} s; ending this one", s.started.elapsed().as_secs_f64());
+                let file = s.file.clone();
                 s.handed_over = true;
                 exit.write(AppExit::Success);
-                *h = Leaving::HandedOver;
+                *h = Leaving::HandedOver(Some(file));
                 return;
             }
             let ended = match s.child.try_wait() {
@@ -390,9 +420,10 @@ pub fn leave(
                     if let Some(why) = give_up(waited, started_marker(&s.file).exists()) {
                         // The new run plays on with its own window: one game is left (#1903).
                         warn!("load: the new run (process {}) is running but {why} after {waited:.0} s; ending this one so one game runs", s.child.id());
+                        let file = s.file.clone();
                         s.handed_over = true;
                         exit.write(AppExit::Success);
-                        *h = Leaving::HandedOver;
+                        *h = Leaving::HandedOver(Some(file));
                         return;
                     }
                     *h = Leaving::Waiting(s);
@@ -433,9 +464,20 @@ pub fn add_end_now(app: &mut App) {
 /// the detach being the cause is [hypothesis], #2733); the process ends
 /// here, the system freeing its memory at once.
 fn end_now(world: &mut World) {
-    if matches!(world.resource::<Handoff>().0, Leaving::HandedOver) {
+    let handed_over = match &mut world.resource_mut::<Handoff>().0 {
+        Leaving::HandedOver(file) => Some(file.take()),
+        _ => None,
+    };
+    if let Some(file) = handed_over {
         crate::frame_telemetry::finish_for_exit(world);
         crate::dlss::end_now(world, "the run hands over to a new one");
+        // Remove the ready file right before exiting so the new run does not take
+        // exclusive full screen or restore its save while this run is still shutting down
+        // (#3393).
+        if let Some(file) = file {
+            let _ = std::fs::remove_file(&file);
+            let _ = std::fs::remove_file(started_marker(&file));
+        }
         // Android's private restart activity owns termination and relaunch ordering.
         #[cfg(not(target_os = "android"))]
         std::process::exit(0);
@@ -487,6 +529,12 @@ impl Hidden {
     pub fn new(file: PathBuf, maximize: bool) -> Self {
         let exit_after = std::env::var(EXIT_AID).is_ok_and(|v| v == "1");
         Hidden { file, maximize, started: Instant::now(), ready: None, shown: None, exit_after, told: false, told_at: None, released: false }
+    }
+
+    /// Whether the old run has finished handing over (or the ack wait expired), so the
+    /// new run owns the display alone (#3393).
+    pub fn is_released(&self) -> bool {
+        self.released
     }
 }
 
@@ -637,5 +685,33 @@ mod tests {
         assert_eq!(give_up(SHOW_AFTER_SECS, true), None);
         assert!(give_up(SHOW_AFTER_SECS + GIVE_UP_MARGIN_SECS, true).is_some());
         assert_eq!(started_marker(Path::new("/tmp/nvforever-handoff-1-2.ready")), PathBuf::from("/tmp/nvforever-handoff-1-2.ready.started"));
+    }
+
+    #[test]
+    fn handoff_waits_for_exclusive_full_screen_to_step_down_within_cap() {
+        // Non-exclusive: spawns after COVER_FRAMES.
+        assert!(!cover_wait_done(COVER_FRAMES - 1, false));
+        assert!(cover_wait_done(COVER_FRAMES, false));
+        // Exclusive full screen: waits past COVER_FRAMES until stepped down or cap reached (#3393).
+        assert!(!cover_wait_done(COVER_FRAMES, true));
+        assert!(!cover_wait_done(LEAVE_FULLSCREEN_MAX_FRAMES - 1, true));
+        assert!(cover_wait_done(LEAVE_FULLSCREEN_MAX_FRAMES, true));
+    }
+
+    #[test]
+    fn leaving_and_released_reflect_handoff_state() {
+        let mut h = Handoff::default();
+        assert!(!h.leaving());
+        h.0 = Leaving::Asked(None);
+        assert!(h.leaving());
+        h.0 = Leaving::Covered(None, 0);
+        assert!(h.leaving());
+        h.0 = Leaving::HandedOver(None);
+        assert!(h.leaving());
+
+        let mut hidden = Hidden::new(PathBuf::new(), false);
+        assert!(!hidden.is_released());
+        hidden.released = true;
+        assert!(hidden.is_released());
     }
 }

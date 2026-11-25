@@ -922,6 +922,10 @@ Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
   as on `Outdated` (a lost surface froze the window with nothing asking for a reconfigure),
   and `DeferredSwapchain::take_stand_in` gives each frame's stand-in once, so a window
   `prepare_windows` passed over (no camera draws to it) is not handed over a second time.
+- Issue #3393 (2026-11-25): `prepare_windows` treats `CurrentSurfaceTexture::Lost` the same
+  as `Outdated` (holding back while `HoldSurfaceReconfigure` is on, otherwise reconfiguring
+  the surface and retrying `get_current_texture`), matching `SurfaceGuard::acquire` so a lost
+  swapchain after a display-mode change does not leave the surface unconfigured.
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
 

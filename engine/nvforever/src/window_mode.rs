@@ -261,13 +261,24 @@ pub fn monitor_load(world: &mut World, text: &str) -> bool {
 /// monitor (from `OnMonitor`, for comparing against a chosen display). The modes are those
 /// of the display the window is sent to, not of the one it is on: #3334 asked the portrait
 /// display for a 1920x1080 at 160 Hz mode read from the other one.
-fn watch_monitor(windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindow>>, monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>, choice: Res<MonitorChoice>, mut modes: ResMut<MonitorModes>) {
+#[allow(clippy::too_many_arguments)]
+fn watch_monitor(
+    windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindow>>,
+    monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
+    choice: Res<MonitorChoice>,
+    full: Res<FullScreenSize>,
+    hidden: Option<Res<crate::handoff::Hidden>>,
+    mut modes: ResMut<MonitorModes>,
+) {
     let Ok((w, on)) = windows.single() else { return };
     let all = ordered(monitors.iter().map(|(e, m, primary)| MonitorInfo { name: m.name.clone().unwrap_or_default(), entity: e, size: m.physical_size(), position: m.physical_position, primary }).collect());
     let target = chosen_index(&MonitorModes { monitors: all.clone(), ..default() }, &choice).map(|i| all[i].entity);
     let monitor = target.and_then(|e| monitors.get(e).ok()).or_else(|| on.and_then(|o| monitors.get(o.0).ok())).or_else(|| monitors.iter().find(|m| m.2)).or_else(|| monitors.iter().next());
     let Some((_, m, _)) = monitor else { return };
-    let desktop = if matches!(w.mode, WindowMode::Fullscreen(..)) { modes.desktop } else { Some(m.physical_size()) };
+    // While waiting on an old run that may still hold an exclusive display mode, do not
+    // record a smaller mode as the monitor's desktop size (#3393) [design].
+    let handoff_waiting = hidden.as_ref().is_some_and(|h| !h.is_released()) && full.0.is_some();
+    let desktop = if matches!(w.mode, WindowMode::Fullscreen(..)) || handoff_waiting { modes.desktop } else { Some(m.physical_size()) };
     let current = on.map(|o| o.0);
     if modes.desktop != desktop || modes.modes != m.video_modes || modes.monitors != all || modes.current != current {
         info!("window: monitor {} {}, {} video modes", m.name.as_deref().unwrap_or("?"), desktop.map_or("?".to_string(), size_text), m.video_modes.len());
@@ -278,9 +289,35 @@ fn watch_monitor(windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindo
     }
 }
 
+/// Whether exclusive full screen is held back for a handoff: either this run is leaving
+/// (step down to borderless before spawning the successor so Windows does not restore the
+/// display mode beneath the new run's swapchain on exit) or this is the new run waiting
+/// for the old one to finish (#3393) [design].
+fn defer_exclusive(handoff: Option<&crate::handoff::Handoff>, hidden: Option<&crate::handoff::Hidden>) -> bool {
+    handoff.is_some_and(crate::handoff::Handoff::leaving) || hidden.is_some_and(|h| !h.is_released())
+}
+
+/// The window mode for the current settings and handoff state (#3393).
+fn desired_mode(window: WindowChoice, full: Option<UVec2>, defer: bool, selection: MonitorSelection, modes: &MonitorModes) -> WindowMode {
+    match (window, full, defer) {
+        (WindowChoice::Windowed, _, _) => WindowMode::Windowed,
+        (WindowChoice::Borderless, None, _) | (WindowChoice::Borderless, Some(_), true) => WindowMode::BorderlessFullscreen(selection),
+        (WindowChoice::Borderless, Some(s), false) => match modes.mode_of(s) {
+            Some(m) => WindowMode::Fullscreen(selection, VideoModeSelection::Specific(m)),
+            None => {
+                // Not known yet (or not the monitor's): borderless until it is.
+                if !modes.modes.is_empty() {
+                    warn!("window: the monitor has no video mode {}; borderless full screen instead", size_text(s));
+                }
+                WindowMode::BorderlessFullscreen(selection)
+            }
+        },
+    }
+}
+
 /// What [`apply_display`] last made the window: the mode, the window size, the full-screen
-/// size and the chosen monitor.
-type DisplayWant = (WindowChoice, String, Option<UVec2>, Option<String>);
+/// size, the chosen monitor and whether exclusive full screen was deferred for handoff.
+type DisplayWant = (WindowChoice, String, Option<UVec2>, Option<String>, bool);
 
 /// [`apply_display`]'s frame-to-frame state.
 #[derive(Default)]
@@ -445,11 +482,24 @@ mod display_check {
 /// change (and again once the monitor's modes are known, for exclusive full screen). Runs
 /// on the main thread, where winit changes the display's mode too.
 #[allow(clippy::too_many_arguments)]
-fn apply_display(args: Res<Args>, full: Res<FullScreenSize>, modes: Res<MonitorModes>, monitor: Res<MonitorChoice>, mut windows: Query<&mut Window, With<PrimaryWindow>>, mut last: Local<Option<DisplayWant>>, mut state: Local<DisplayState>, _main_thread: NonSendMarker) {
+fn apply_display(
+    args: Res<Args>,
+    full: Res<FullScreenSize>,
+    modes: Res<MonitorModes>,
+    monitor: Res<MonitorChoice>,
+    handoff: Option<Res<crate::handoff::Handoff>>,
+    hidden: Option<Res<crate::handoff::Hidden>>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut last: Local<Option<DisplayWant>>,
+    mut state: Local<DisplayState>,
+    _main_thread: NonSendMarker,
+) {
+    let defer = defer_exclusive(handoff.as_deref(), hidden.as_deref());
     // The frame after a monitor move bounced through windowed: enter the target mode.
     if let Some(mode) = state.bounce {
         if let Ok(mut w) = windows.single_mut() {
             let selection = borderless_selection(&modes, &monitor);
+            let mode = if defer && matches!(mode, WindowMode::Fullscreen(..)) { WindowMode::BorderlessFullscreen(selection) } else { mode };
             let mode = checked(w.mode, mode, selection, &modes, &mut state);
             if w.mode != mode {
                 w.mode = mode;
@@ -458,7 +508,7 @@ fn apply_display(args: Res<Args>, full: Res<FullScreenSize>, modes: Res<MonitorM
         }
         return;
     }
-    let want = (args.window, args.size.clone(), full.0, monitor.0.clone());
+    let want = (args.window, args.size.clone(), full.0, monitor.0.clone(), defer);
     let retry_due = state.restore_retry.is_some_and(|t| Instant::now() >= t);
     // Re-applied when the choice or the monitors change: a chosen monitor's entity is only
     // known after the monitors are discovered, a frame or so after the start. Also when a
@@ -469,20 +519,7 @@ fn apply_display(args: Res<Args>, full: Res<FullScreenSize>, modes: Res<MonitorM
     *last = Some(want);
     let Ok(mut w) = windows.single_mut() else { return };
     let selection = borderless_selection(&modes, &monitor);
-    let mode = match (args.window, full.0) {
-        (WindowChoice::Windowed, _) => WindowMode::Windowed,
-        (WindowChoice::Borderless, None) => WindowMode::BorderlessFullscreen(selection),
-        (WindowChoice::Borderless, Some(s)) => match modes.mode_of(s) {
-            Some(m) => WindowMode::Fullscreen(selection, VideoModeSelection::Specific(m)),
-            None => {
-                // Not known yet (or not the monitor's): borderless until it is.
-                if !modes.modes.is_empty() {
-                    warn!("window: the monitor has no video mode {}; borderless full screen instead", size_text(s));
-                }
-                WindowMode::BorderlessFullscreen(selection)
-            }
-        },
-    };
+    let mode = desired_mode(args.window, full.0, defer, selection, &modes);
     if w.mode == mode {
         // Back to the mode the window has (a refused restore no longer wanted).
         state.restore_retry = None;
@@ -653,5 +690,57 @@ mod tests {
         modes.monitors = vec![MonitorInfo { name: r"\.\DISPLAY2".to_string(), entity: e, size: UVec2::new(1920, 1080), position: IVec2::ZERO, primary: false }];
         assert_eq!(device_of(&modes, MonitorSelection::Entity(e)).as_deref(), Some(r"\.\DISPLAY2"));
         assert_eq!(device_of(&modes, MonitorSelection::Primary), None);
+    }
+
+    #[test]
+    fn exclusive_full_screen_defers_to_borderless_during_handoff() {
+        let m = VideoMode { physical_size: UVec2::new(1366, 768), bit_depth: 32, refresh_rate_millihertz: 144_000 };
+        let sel = MonitorSelection::Primary;
+        let modes = MonitorModes { desktop: Some(UVec2::new(2560, 1440)), modes: vec![m], ..default() };
+        // During handoff (old run leaving or new run waiting): borderless instead of exclusive (#3393).
+        assert_eq!(desired_mode(WindowChoice::Borderless, Some(UVec2::new(1366, 768)), true, sel, &modes), WindowMode::BorderlessFullscreen(sel));
+        // Once handoff finishes: enters the chosen exclusive video mode.
+        assert_eq!(desired_mode(WindowChoice::Borderless, Some(UVec2::new(1366, 768)), false, sel, &modes), WindowMode::Fullscreen(sel, VideoModeSelection::Specific(m)));
+        // Windowed mode stays windowed either way.
+        assert_eq!(desired_mode(WindowChoice::Windowed, Some(UVec2::new(1366, 768)), true, sel, &modes), WindowMode::Windowed);
+        // Native desktop full screen stays borderless either way.
+        assert_eq!(desired_mode(WindowChoice::Borderless, None, false, sel, &modes), WindowMode::BorderlessFullscreen(sel));
+    }
+
+    #[test]
+    fn watch_monitor_does_not_record_desktop_size_while_hidden_new_run_waits_for_exclusive() {
+        let mut world = World::new();
+        world.init_resource::<MonitorChoice>();
+        world.init_resource::<MonitorModes>();
+        world.insert_resource(FullScreenSize(Some(UVec2::new(1366, 768))));
+        world.insert_resource(crate::handoff::Hidden::new(std::path::PathBuf::new(), false));
+        let mon = world.spawn((
+            Monitor {
+                name: Some("DISPLAY2".into()),
+                physical_height: 768,
+                physical_width: 1366,
+                physical_position: IVec2::ZERO,
+                refresh_rate_millihertz: Some(144_000),
+                scale_factor: 1.0,
+                video_modes: vec![
+                    VideoMode { physical_size: UVec2::new(1366, 768), bit_depth: 32, refresh_rate_millihertz: 144_000 },
+                    VideoMode { physical_size: UVec2::new(2560, 1440), bit_depth: 32, refresh_rate_millihertz: 144_000 },
+                ],
+            },
+            PrimaryMonitor,
+        )).id();
+        world.spawn((Window { mode: WindowMode::BorderlessFullscreen(MonitorSelection::Entity(mon)), ..default() }, PrimaryWindow, OnMonitor(mon)));
+        let mut sched = Schedule::default();
+        sched.add_systems(watch_monitor);
+        sched.run(&mut world);
+        // While Hidden is not released, 1366x768 must not be recorded as the native desktop size.
+        assert_eq!(world.resource::<MonitorModes>().desktop, None);
+        // Once the old run exits and Hidden is removed (monitor back at 2560x1440), desktop is recorded.
+        world.remove_resource::<crate::handoff::Hidden>();
+        let mut m = world.get_mut::<Monitor>(mon).unwrap();
+        m.physical_width = 2560;
+        m.physical_height = 1440;
+        sched.run(&mut world);
+        assert_eq!(world.resource::<MonitorModes>().desktop, Some(UVec2::new(2560, 1440)));
     }
 }
