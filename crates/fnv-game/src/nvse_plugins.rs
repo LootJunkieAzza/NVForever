@@ -179,8 +179,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [observed: plugins1, Recipe127mm 4 inputs, the first 00140AAA; category
         // 00153621, subcategory 0013E44E]
         "getrecipeinputforms" => {
-            let ins: Vec<XVal> = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)).map(|r| r.ingredients.iter().map(|(f, _)| XVal::Ref(f.0)).collect()).unwrap_or_default();
-            list(g, ins)
+            let Some(r) = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)) else { return Some(Ok(XVal::Array(0))) };
+            let ins: Vec<XVal> = r.ingredients.iter().map(|(f, _)| XVal::Ref(f.0)).collect();
+            if ins.is_empty() { XVal::Array(0) } else { list(g, ins) }
         }
         "getrecipecategory" | "getrecipesubcategory" => {
             let f = form(args, 0).unwrap_or(FormId(0));

@@ -1,0 +1,112 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d2_lutana_list_empty_arnull",
+  "description": "Wave 6D-2 read-only probes confirming ar_Null (-1) returns on invalid/empty Lutana list getters.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_ln_nvse": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d2_lutana_arnull",
+      "title": "Wave 6D-2: Lutana list getters ar_Null returns",
+      "extender": "JIP LN NVSE 57.30",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d2p2_29_lutana_list_getters_empty_and_types",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 187,
+          "functions_tested": [
+            "GetFormRecipes",
+            "GetFormRecipeOutputs",
+            "GetRecipeInputForms",
+            "GetRecipeOutputForms",
+            "GetFormMods",
+            "GetFormCountType",
+            "GetRefsInCell",
+            "GetAllItemRefs",
+            "TempCloneForm"
+          ],
+          "claim": "Verify empty-result return types (size 0 empty Array vs -1 ar_Null; static audit SD-10) for Lutana/JIP list getters (GetFormRecipes, GetFormRecipeOutputs, GetRecipeInputForms, GetRecipeOutputForms, GetFormMods, GetCellRefs, GetAllItemRefs) and GetFormCountType.",
+          "expected": "Determine exact empty return (ar_Size 0 vs -1) for each list getter and verify GetFormMods on Weap10mmPistol vs TempCloneForm and GetFormCountType counts.",
+          "script_lines": [
+            "ref rCaps = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rRec = GetFormFromMod \"FalloutNV.esm\" \"17BA3E\"",
+            "ref rDocC = GetFormFromMod \"FalloutNV.esm\" \"103DF9\"",
+            "ref rNull = 0",
+            "array_var aFr = GetFormRecipes rCaps",
+            "array_var aFo = GetFormRecipeOutputs rCaps",
+            "array_var aRi = GetRecipeInputForms rCaps",
+            "array_var aRo = GetRecipeOutputForms rCaps",
+            "array_var aRiOk = GetRecipeInputForms rRec",
+            "array_var aFm0 = GetFormMods rNull",
+            "array_var aFm1 = GetFormMods r10",
+            "ref rCl = TempCloneForm r10",
+            "array_var aFmCl = GetFormMods rCl",
+            "array_var aCr = GetRefsInCell rDocC 40 0 0",
+            "array_var aCrE = GetRefsInCell rDocC 99 0 0",
+            "array_var aMix = ar_List r10 rCaps rRec",
+            "int cnt40 = GetFormCountType aMix 40",
+            "int cnt31 = GetFormCountType aMix 31",
+            "array_var aAir = Player.GetAllItemRefs 99",
+            "PrintToConsole \"PROBE|w6d2p2_29_lutana_list_getters_empty_and_types|emp=%g,%g,%g,%g,okIn=%g|fm=%g,%g,%g|cr=%g/%g|fct=%g,%g|airE=%g\" (ar_Size aFr) (ar_Size aFo) (ar_Size aRi) (ar_Size aRo) (ar_Size aRiOk) (ar_Size aFm0) (ar_Size aFm1) (ar_Size aFmCl) (ar_Size aCr) (ar_Size aCrE) cnt40 cnt31 (ar_Size aAir)"
+          ]
+        },
+        {
+          "id": "w6d2p5_03_form_recipe_outputs_empty",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 65,
+          "functions_tested": [
+            "GetFormRecipes",
+            "GetFormRecipeOutputs"
+          ],
+          "claim": "Verify GetFormRecipes returns empty Array (size 0) while GetFormRecipeOutputs returns ar_Null (size -1) for an item used in no recipes (0x104C0C).",
+          "expected": "fr=0, fo=-1.",
+          "script_lines": [
+            "ref rDocB = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "array_var aFr = GetFormRecipes rDocB",
+            "array_var aFo = GetFormRecipeOutputs rDocB",
+            "PrintToConsole \"PROBE|w6d2p5_03_form_recipe_outputs_empty|fr=%g,fo=%g\" (ar_Size aFr) (ar_Size aFo)"
+          ]
+        }
+      ]
+    }
+  ]
+}

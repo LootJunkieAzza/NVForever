@@ -313,7 +313,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `form`: the plugins that hold it, defining or overriding, in load order
         // [documented: GetFormMods' example].
         "getformmods" => {
-            let Some(f) = form(args, 0) else { return Some(Ok(list(g, Vec::new()))) };
+            let Some(f) = form(args, 0) else { return Some(Ok(XVal::Array(0))) };
             let names: Vec<XVal> = g.data.form_plugins(f).into_iter().map(XVal::Str).collect();
             list(g, names)
         }

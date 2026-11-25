@@ -417,17 +417,24 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // GetFormRecipeOutputs], in that order [hypothesis: lutana1 rcpe.recipeoutputs.*
         // show another order, with no rule found].
         "getformrecipes" | "getformrecipeoutputs" => {
-            let (Some(item), cat) = (form(args, 0), form(args, 1)) else { return Some(Ok(list(g, std::iter::empty()))) };
+            let is_outputs = name == "getformrecipeoutputs";
+            let (Some(item), cat) = (form(args, 0), form(args, 1)) else {
+                return Some(Ok(if is_outputs { XVal::Array(0) } else { list(g, std::iter::empty()) }));
+            };
             let mut ids: Vec<FormId> = g.data.recipes.keys().copied().collect();
             ids.sort_by_key(|f| (std::cmp::Reverse(f.0 >> 24), f.0));
             let using: Vec<&RecipeDef> = ids.iter().filter_map(|&id| recipe(g, id)).filter(|r| r.ingredients.iter().any(|e| e.0 == item) && cat.is_none_or(|c| r.listed_under(c))).collect();
-            let out: Vec<FormId> = if name == "getformrecipes" {
+            let out: Vec<FormId> = if !is_outputs {
                 using.iter().map(|r| r.form).collect()
             } else {
                 let mut seen = std::collections::HashSet::new();
                 using.iter().flat_map(|r| r.outputs.iter().map(|e| e.0)).filter(|o| seen.insert(*o)).collect()
             };
-            list(g, out.into_iter().map(|f| XVal::Ref(f.0)))
+            if is_outputs && out.is_empty() {
+                XVal::Array(0)
+            } else {
+                list(g, out.into_iter().map(|f| XVal::Ref(f.0)))
+            }
         }
         // ---- actors ----
         // `actor.ActorHasEffect effect`: an active effect of that base effect on the actor

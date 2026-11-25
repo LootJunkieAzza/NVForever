@@ -303,4 +303,9 @@ fn hotkeys_ini_writers_and_forms() {
         q(&mut g, "array_var a\nlet a := GetFormMods TestFood\nSetFunctionValue a[0]"),
         XVal::Str("Lutana2Test.esm".into())
     );
+    // GetFormMods returns ar_Null (-1) on null 0, empty array (0) on TempCloneForm;
+    // empty GetAllItemRefs returns ar_Null (-1) [observed: w6d2p2_29].
+    assert_eq!(n(&mut g, "ar_Size (GetFormMods 0)"), -1.0);
+    assert_eq!(n(&mut g, "ref rCl\nlet rCl := TempCloneForm TestFood 0\nSetFunctionValue (ar_Size (GetFormMods rCl))"), 0.0);
+    assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetAllItemRefs 99)"), -1.0);
 }

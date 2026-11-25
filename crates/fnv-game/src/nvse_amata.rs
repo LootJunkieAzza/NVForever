@@ -200,8 +200,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                     refs.push(XVal::Ref(g.temp_ref(c, it).0));
                 }
             }
-            let entries = refs.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
-            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+            if refs.is_empty() {
+                XVal::Array(0)
+            } else {
+                let entries = refs.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
+                XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+            }
         }
         // [documented: GetItemRefCurrentHealth] `[0 health | 1 fraction | 2 base]`.
         "getitemrefcurrenthealth" => {
