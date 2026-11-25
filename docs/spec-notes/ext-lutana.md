@@ -244,3 +244,11 @@ Probe questions (set `lu3`, every change put back):
 8. `setvar`: SetVariableFloat's result and the value read back (hypothesis `0 7`).
 9. `events`: OnCellEnter and OnCellExit called as functions (hypothesis `0 0`, or they
    do not compile).
+
+### `GetCombatStyle` placed actor reference argument returns `0` [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p3_35_combat_style_precedence` (`tools/capture/nvse/catalogs/wave6d6_getcombatstyle_ref_arg.json`)]: `rNpc.GetCombatStyle` returns live `SetCombatStyle` overrides (`0002A44B`, cloned `FF001342`), `GetCombatStyle rBase` returns the base's style (`0000003D`), and `GetCombatStyle rNpc` (placed actor ref argument) returns `00000000` (NULL):
+
+```text
+PROBE|w6d6p3_35_combat_style_precedence|init(ref=0000003D,base=0000003D)|setR(ref=0002A44B,arg=00000000)|cl1(ref=FF001342,arg=00000000,eq=1)|cl2(eq=1)|fin=00137AC0
+```

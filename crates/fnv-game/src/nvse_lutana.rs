@@ -482,12 +482,19 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ZNAM of its Traits source (#2138); none DefaultCombatstyle [observed: lutana1
         // actor.combatstyle.doc, actor.combatstyle.ref.docref, actor.combatstyle.player].
         "getcombatstyle" => {
-            let own = if let Some(b) = form(args, 0) {
-                traits_source(g, b).and_then(|s| g.data.actors.get(&s)).and_then(|d| d.combat_style)
+            // Passing a placed reference or non-actor base as the explicit argument
+            // returns 0 (NULL) rather than DefaultCombatstyle
+            // [observed: w6d6p3_35_combat_style_precedence].
+            if let Some(b) = form(args, 0) {
+                if !g.data.actors.contains_key(&b) {
+                    return Some(Ok(XVal::Ref(0)));
+                }
+                let own = traits_source(g, b).and_then(|s| g.data.actors.get(&s)).and_then(|d| d.combat_style);
+                reff(own.or_else(|| g.data.by_edid("DefaultCombatstyle")))
             } else {
-                subject.and_then(|r| g.combat_style_id(r))
-            };
-            reff(own.or_else(|| g.data.by_edid("DefaultCombatstyle")))
+                let own = subject.and_then(|r| g.combat_style_id(r));
+                reff(own.or_else(|| g.data.by_edid("DefaultCombatstyle")))
+            }
         }
         // ---- perks ----
         // [documented: IsTrait] PERK DATA Trait, `Game::perk_def` first (`SetPerkFlag`).
