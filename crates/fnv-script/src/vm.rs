@@ -3464,7 +3464,7 @@ impl Vm<'_, '_> {
             // 1 when the expression evaluates without an error.
             "testexpr" => {
                 let ok = match c.args.first() {
-                    Some(e) => self.xeval(e).and_then(|v| v.value().map(|_| ())).is_ok(),
+                    Some(e) => self.xeval(e).is_ok(),
                     None => false,
                 };
                 Ok(XVal::Num(f64::from(u8::from(ok))))

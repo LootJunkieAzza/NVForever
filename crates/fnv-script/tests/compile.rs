@@ -2563,3 +2563,17 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn testexpr_succeeds_on_valid_string_expressions() {
+    let h = run(
+        "string_var svVal\nstring_var svEmp\nstring_var svUninit\nstring_var svAssign\n         array_var aMap\nint tLit\nint tSv\nint tMapS\nint tMapM\nint tAsgn\nint tDiv0\n         begin GameMode\n         let svVal := \"hello\"\n         let svEmp := \"\"\n         let svAssign := \"before\"\n         let aMap := ar_Map \"strKey\"::\"world\", \"numKey\"::42\n         let tLit := TestExpr \"abc\"\n         let tSv := TestExpr svVal\n         let tMapS := TestExpr aMap[\"strKey\"]\n         let tMapM := TestExpr aMap[\"missing\"]\n         let tAsgn := TestExpr (svAssign = \"after\")\n         let tDiv0 := TestExpr (10 / 0)\n         end",
+    );
+    assert_eq!(h.0[&6], Value::Num(1.0), "TestExpr string literal");
+    assert_eq!(h.0[&7], Value::Num(1.0), "TestExpr string_var");
+    assert_eq!(h.0[&8], Value::Num(1.0), "TestExpr string map lookup");
+    assert_eq!(h.0[&9], Value::Num(0.0), "TestExpr missing map key");
+    assert_eq!(h.0[&10], Value::Num(1.0), "TestExpr string assignment");
+    assert_eq!(h.text(4), "after");
+    assert_eq!(h.0[&11], Value::Num(0.0), "TestExpr div0");
+}

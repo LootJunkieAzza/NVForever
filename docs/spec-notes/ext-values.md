@@ -164,3 +164,7 @@ What a string_var holds under vanilla `set`; an unset string_var read as text; i
 string↔number conversion; `$` of floats and arrays; truth of a string or array under
 `eval`; case of string `==`; mixed-kind comparisons; the result of a line that raised an
 error.
+
+### Wave 6D-5 observation: `TestExpr` on string expressions
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_11_testexpr_strings_arrays_sideeffects` (`tools/capture/nvse/catalogs/wave6d5_testexpr_strings.json`); zero DLL, PDB, or third-party source consulted] `TestExpr` returns `1` for valid string literals (`"abc"`, `""`), initialized/empty/uninitialized `string_var`s, string-valued map lookups (`aMap["strKey"]`), side-effect string assignments (`svAssign = "after"`), arrays, and past-end list appends (`aList[5] = 99`), and returns `0` for missing map keys (`aMap["missing"]`), division by zero (`10 / 0`), and out-of-bounds list reads (`aList[99]`): `PROBE|w6d5_11_testexpr_strings_arrays_sideeffects|str(lit=1,litE=1,sv=1,svE=1,svU=1)|map(s=1,n=1,m=0)|asgn(1:[after])|arr=1|err(div0=0,oob=0,past=1,sz=3)`.
