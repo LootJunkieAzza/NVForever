@@ -150,3 +150,6 @@ each over 63063063, read back; GetImpactDataTrait 17 on every impact without DOD
   set [hypothesis]. Without one they read the defaults above.
 - **Probe side effect:** setting the colour back to 255320535 (past 255255255) set nothing,
   so the bat impact kept 1256 for the rest of that game session. Nothing was saved.
+
+### Wave 6D-7 Live Observation (2026-11-25)
+- **`RemoveAllTypedItems` code `0`, quest items, and non-playable items** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7_34_remove_all_typed_items_and_quest_nonplayable`]: type code `0` is a no-op (`code0=1`), NPC removal strips quest items while keeping non-playable items (`npc(l=0,q=0,np=1,w=1,dstL=1,dstQ=1)`), and player removal preserves both quest and non-playable items (`pl(q=1,np=1)`).

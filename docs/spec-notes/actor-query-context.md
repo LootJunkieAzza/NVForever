@@ -60,3 +60,6 @@ also admits references carried by LVLN/LVLC after selecting their actual actor
 with the runtime template resolver. This changes receiver admission only: player
 perception and self-perception remain excluded, and querying does not remeasure
 or change the cache.
+
+### Wave 6D-7 Live Observations (2026-11-25)
+- **Grab, package target, and merchant container CRUD** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probes `w6d7_45_actor_query_context_grab_pkg_target_merchant` and `w6d7p3_45b_remove_merchant_container_ref`]: `GetPlayerGrabbedRef` (`0`), `GetPackageTarget` (`0` for idle actors), vanilla `GetMerchantContainer` (`doc=1, chet=1`), and spawned NPC `SetMerchantContainer` / `GetMerchantContainer` / `rNpc.RemoveMerchantContainer` (`npcMc(0->1->0)`).

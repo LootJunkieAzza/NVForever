@@ -274,3 +274,6 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
 - The Pip-Boy's own radiation readout beyond the Rads value it lists.
 - Damaging water's camera shake and hurt sound; damaging water for NPCs.
 - Explosions' radiation zones in saves.
+
+### Wave 6D-7 Live Observations (2026-11-25)
+- **Marker overlap, NPC `GetRadiationLevelAlt`, and `RESIST_CAP = 85%`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probes `w6d7_26_radiation_level_resist_cap_and_marker_overlap` and `w6d7p2_26_rad_resist_cap_settled`]: overlapping markers take the maximum (`ov=9.48`), NPC `GetRadiationLevelAlt` reads `4.50`, `SetRadiationExtraData` sets `20.0` (`mkEd=20.0`), and settled `RadResist` sweeps confirm the `85%` cap (`rr(0=4.935,50=2.433,85=0.720,95=0.709,100=0.699)`).

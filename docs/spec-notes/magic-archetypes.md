@@ -122,3 +122,6 @@ tags as in the charter.
   effect on the player ending, run out or dispelled).
 - Unit tests: `crates/fnv-game/tests/magic_archetypes.rs` (built records, no game data).
 - Smoke: `magic-archetypes` in `tools/smoke/scenarios.toml`.
+
+### Wave 6D-7 Live Observations (2026-11-25)
+- **Poison cure, Paralysis, Turbo, and Rad-X** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probes `w6d7_19_antivenom_poison_and_magic_archetypes` and `w6d7p2_19_poison_paralysis_radaway_settled`]: `NVAntivenom` clears `BarkScorpionPoison` (`poi(1->0)`), `Paralysis` reads `1.0`, `Turbo` reads `1.0`, and `Rad-X` boosts `RadResist` (`8.0 -> 55.0`).

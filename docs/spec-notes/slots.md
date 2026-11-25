@@ -169,3 +169,7 @@ observed: the five casinos]:
 - The words of the buttons, the info rows and the status line (a screenshot of the
   slot menu, one of a win and one of the payout list would settle them).
 - Whether Bet Max also spins.
+
+### Wave 6D-7 Live Observations (2026-11-25)
+- **Partial biped slot overlap replacement** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7p2_27_biped_slot_overlap_settled`]: equipping overlapping multi-slot headgear replaces only conflicting pieces (`s1(h=1,g=1,m=20042)|ban(h=0,b=1,g=1)|reb(g=0,r=1,b=1)|hlm(b=0,r=0,hl=1,m=20043)`).
+- **`GetEquippedObject` 0..19 parity and OOB observation** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7p2_30_get_equipped_object_settled`]: slots `0..=19` match `GetOccupiedEquipSlots` bit-for-bit (`mask=20078|slotBits=20078|cnt=9|m(s1=1,s2=1,s5=1,s11=1)`). Note: original FNV returned `00025B83` (Pip-Boy) for OOB slots `-1` and `20`, while NVForever keeps safe `0` for out-of-range slots.

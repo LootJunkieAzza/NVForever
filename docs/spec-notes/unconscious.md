@@ -440,3 +440,6 @@ Five pushes: force 10 three times (the session restarted twice for a plugin faul
 - Not measured: an explosion's knockdown (`BLAST_KNOCKDOWN_SPEED` and its lift stay
   design), the distance a body slides on open ground (every push here ended at a wall or
   inside the gas station), a negative force.
+
+### Wave 6D-7 Live Observation (2026-11-25)
+- **`GetLifeState` and `SetUnconscious 1` on dead actors** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7_40_set_unconscious_dead_and_get_life_state_all`]: `GetLifeState` returns `0` alive, `2` dead, and `3` unconscious; calling `SetUnconscious 1` on a dead actor transitions it into unconscious state (`dU=1/3`) and `Resurrect 0` restores alive state (`ls(init=0,u=3/1,a=0,d=2,td=0.0000,dU=1/3,res=0/0/d=0)`).
