@@ -1817,10 +1817,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Radio and the three add-ons' broadcasts; not the radius stations nor the
         // everywhere stations off the Pip-Boy (Gomorrah's lounge music, EDE's frequency);
         // hypothesis: the order, which was not FormID order].
+        // Works both as Player.GetAvailableRadios and as a bare call without a calling
+        // reference [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
+        // w6d9_20_radio_broadcast_state_and_station_lists: isRad(1,0)|bcast(rnv=0->0->0,emg=0)|all=29|avail(pl=1,bare=1)].
         "getavailableradios" => {
-            if subject.is_none() {
-                return Some(Ok(zero));
-            }
             let mut found: Vec<u32> = g
                 .gaps
                 .radio_sites
@@ -2023,3 +2023,7 @@ mod tests {
         assert_eq!(gaps.take_player_equipped_model_reload(), EQUIP_SLOT_WEAPON_BIT);
     }
 }
+
+#[cfg(test)]
+#[path = "w6d9_getavailableradios_tests.rs"]
+mod w6d9_getavailableradios_tests;
