@@ -74,14 +74,17 @@ pub fn get_should_attack(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     yes(g.would_attack(r, target))
 }
 
-/// `actor.ForceFlee [cell] [reference]`: the actor assesses the threats and flees from
-/// one if there is one; with none it goes on with its package; a conversation it is in
-/// ends at once [documented: catalogue summary and notes]. The threat is its combat
-/// target, else the first of its foes ([`Game::foes_of`]) [engineering choice]. The
-/// flight is the combat AI's ([`Game::start_flight`]); given a reference, its spot is
-/// that reference's place, flown to as Away [hypothesis: the AI runs there rather than
-/// to a door or cover]; a cell is not used (the AI picks the spot) [engineering choice:
-/// no way to a cell yet]. Whether the actor stops at the spot is the AI's.
+/// `actor.ForceFlee [cell] [reference]`: ends any conversation the actor is in at once
+/// [documented: catalogue summary and notes] and starts fleeing (`IsFleeing == 1`,
+/// `GetCurrentAIProcedure == 16` `FLEE`) even outside combat [observed: 2026-11-25,
+/// Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730),
+/// `w6d8_21_forceflee_and_isfleeing_fleenotcombat`]. The threat is its combat target,
+/// else the first of its foes ([`Game::foes_of`]), else `FormId::PLAYER_REF` when no
+/// combat threat or foe is present [design]. The flight is the combat AI's
+/// ([`Game::start_flight`]); given a reference, its spot is that reference's place,
+/// flown to as Away [hypothesis: the AI runs there rather than to a door or cover]; a
+/// cell is not used (the AI picks the spot) [engineering choice: no way to a cell yet].
+/// Whether the actor stops at the spot is the AI's.
 pub fn force_flee(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if r == FormId::PLAYER_REF {
