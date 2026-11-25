@@ -42,11 +42,11 @@ pub const LIMB_CONDITIONS: std::ops::RangeInclusive<u16> = 25..=31;
 
 /// The share of a Value And Parts restore (the Stimpak's "Restore Health & Conditions")
 /// that each limb gets when the item is used on the whole body: Health gets the whole
-/// amount, each limb this share of it [design: owner's request 2026-10-23, "a small
-/// amount of limb health across all limbs"; the share is not in the data (no setting in
-/// FalloutNV.esm names it), so this number stands until the formula is found]. Used on
-/// one limb from the Pip-Boy (`Mods::limb`), that limb gets the whole amount.
-pub const PARTS_LIMB_SHARE: f64 = 1.0 / 6.0;
+/// amount, each limb this share of it (`0.1`, 10% of Health restored) [observed
+/// 2026-11-25: w6d7_12_stimpak_superstimpak_drbag_limb_restore, nhStim(dHp=69.00,
+/// dHd=6.90, dLg=6.90)]. Used on one limb from the Pip-Boy (`Mods::limb`), that
+/// limb gets the whole amount.
+pub const PARTS_LIMB_SHARE: f64 = 0.1;
 
 /// The settings of potency and addiction, with the GECK wiki's defaults [documented:
 /// Ingestible Settings, Addiction Formula].

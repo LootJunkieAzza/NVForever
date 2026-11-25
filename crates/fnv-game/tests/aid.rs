@@ -1137,3 +1137,8 @@ fn grab_triggers_theft_respects_min_value_and_stack_count() {
     assert!(g.grab_triggers_theft(FormId(VAL5), 2));
     assert!(g.grab_triggers_theft(FormId(VAL15), 1));
 }
+
+#[test]
+fn stimpak_whole_body_limb_restore_share_is_one_tenth() {
+    assert!((fnv_game::aid::PARTS_LIMB_SHARE - 0.1).abs() < 1e-12);
+}

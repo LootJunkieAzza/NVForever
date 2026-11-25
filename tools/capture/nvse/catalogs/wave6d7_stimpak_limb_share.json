@@ -1,0 +1,137 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_stimpak_limb_share",
+  "description": "Wave 6D-7 read-only console probe for Stimpak whole-body 10% limb restore share, Doctor's Bag, and Hardcore Stimpak.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_stimpak_limb_share",
+      "title": "Wave 6D-7: Stimpak whole-body limb restore share (0.1)",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_12_stimpak_superstimpak_drbag_limb_restore",
+          "bucket": "aid_healing_limbs",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/aid-items.md",
+          "spec_line": 70,
+          "functions_tested": [
+            "EquipItem",
+            "SetHardcore",
+            "DamageAV",
+            "ResetHealth",
+            "GetAV",
+            "Dispel"
+          ],
+          "claim": "SD-06: Measure Stimpak (15169), NVSuperStimpak (CCEF2), NVDoctorBag (CB05C), and NVHydra (13B2C3) HP and limb restoration (PARTS_LIMB_SHARE=1/6 vs original) in non-Hardcore vs Hardcore.",
+          "expected": "Record exact Health and PerceptionCondition/LeftMobilityCondition gains for each item in non-Hardcore and Hardcore.",
+          "script_lines": [
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rSuper = GetFormFromMod \"FalloutNV.esm\" \"CCEF2\"",
+            "ref rBag = GetFormFromMod \"FalloutNV.esm\" \"CB05C\"",
+            "int iHc0 = IsHardcore",
+            "float fMed0 = Player.GetBaseAV Medicine",
+            "Player.AuxVarSetFlt \"*w6d712_hc\" iHc0",
+            "Player.AuxVarSetFlt \"*w6d712_med\" fMed0",
+            "SetHardcore 0",
+            "Player.SetAV Medicine 50",
+            "Player.ResetHealth",
+            "Player.DamageAV Health 80",
+            "Player.DamageAV PerceptionCondition 60",
+            "Player.DamageAV LeftMobilityCondition 60",
+            "float fHpA = Player.GetAV Health",
+            "float fHdA = Player.GetAV PerceptionCondition",
+            "Player.AddItem rStim 1 1",
+            "Player.EquipItem rStim 0 1",
+            "float fHpB = Player.GetAV Health",
+            "float fHdB = Player.GetAV PerceptionCondition",
+            "float fLgB = Player.GetAV LeftMobilityCondition",
+            "Player.AuxVarSetFlt \"*w6d712_dHpNH\" (fHpB - fHpA)",
+            "Player.AuxVarSetFlt \"*w6d712_dHdNH\" (fHdB - fHdA)",
+            "Player.AuxVarSetFlt \"*w6d712_dLgNH\" (fLgB - 40)",
+            "Player.ResetHealth",
+            "Player.DamageAV Health 80",
+            "Player.DamageAV PerceptionCondition 60",
+            "Player.DamageAV LeftMobilityCondition 60",
+            "Player.AddItem rBag 1 1",
+            "Player.EquipItem rBag 0 1",
+            "Player.AuxVarSetFlt \"*w6d712_bagHd\" (Player.GetAV PerceptionCondition)",
+            "Player.AuxVarSetFlt \"*w6d712_bagLg\" (Player.GetAV LeftMobilityCondition)",
+            "SetHardcore 1",
+            "Player.ResetHealth",
+            "Player.DamageAV Health 80",
+            "Player.DamageAV PerceptionCondition 60",
+            "Player.AuxVarSetFlt \"*w6d712_hpHC0\" (Player.GetAV Health)",
+            "Player.AddItem rStim 1 1",
+            "Player.EquipItem rStim 0 1",
+            "Player.AddItem rSuper 1 1",
+            "Player.EquipItem rSuper 0 1"
+          ],
+          "wait_ticks_after": 6,
+          "extra_steps": [
+            {
+              "suffix": "s1_read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+                "ref rSuper = GetFormFromMod \"FalloutNV.esm\" \"CCEF2\"",
+                "float fHpHC1 = Player.GetAV Health",
+                "float fHdHC1 = Player.GetAV PerceptionCondition",
+                "float fDHpNH = Player.AuxVarGetFlt \"*w6d712_dHpNH\"",
+                "float fDHdNH = Player.AuxVarGetFlt \"*w6d712_dHdNH\"",
+                "float fDLgNH = Player.AuxVarGetFlt \"*w6d712_dLgNH\"",
+                "float fBagHd = Player.AuxVarGetFlt \"*w6d712_bagHd\"",
+                "float fBagLg = Player.AuxVarGetFlt \"*w6d712_bagLg\"",
+                "float fHpHC0 = Player.AuxVarGetFlt \"*w6d712_hpHC0\"",
+                "int iHc0 = Player.AuxVarGetFlt \"*w6d712_hc\"",
+                "float fMed0 = Player.AuxVarGetFlt \"*w6d712_med\"",
+                "Player.Dispel rStim",
+                "Player.Dispel rSuper",
+                "SetHardcore iHc0",
+                "Player.SetAV Medicine fMed0",
+                "Player.ResetHealth",
+                "Player.AuxVarErase \"*w6d712_hc\"",
+                "Player.AuxVarErase \"*w6d712_med\"",
+                "Player.AuxVarErase \"*w6d712_dHpNH\"",
+                "Player.AuxVarErase \"*w6d712_dHdNH\"",
+                "Player.AuxVarErase \"*w6d712_dLgNH\"",
+                "Player.AuxVarErase \"*w6d712_bagHd\"",
+                "Player.AuxVarErase \"*w6d712_bagLg\"",
+                "Player.AuxVarErase \"*w6d712_hpHC0\"",
+                "string_var sOut = sv_Construct \"PROBE|w6d7_12_stimpak_superstimpak_drbag_limb_restore|nhStim(dHp=%.2f,dHd=%.2f,dLg=%.2f)|drBag(hd=%.2f,lg=%.2f)|hcStimSuper(hp=%.2f->%.2f,hd=%.2f)\" fDHpNH fDHdNH fDLgNH fBagHd fBagLg fHpHC0 fHpHC1 fHdHC1",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

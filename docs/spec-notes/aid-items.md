@@ -108,7 +108,7 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   can increase dehydration" (§11).
 - **Value And Parts** ("Restore Health & Conditions", the normal Stimpak and Super
   Stimpak) restores the value by the whole amount and each limb condition by
-  `fnv_game::aid::PARTS_LIMB_SHARE` (1/6) of it [design: owner's request 2026-10-23, "a
+  `fnv_game::aid::PARTS_LIMB_SHARE` (1/10 = `0.1`) of it [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_12_stimpak_superstimpak_drbag_limb_restore` in `tools/capture/nvse/catalogs/wave6d7_stimpak_limb_share.json`: `nhStim(dHp=69.00,dHd=6.90,dLg=6.90)`; replacing earlier design placeholder 1/6 from owner's request 2026-10-23, "a
   small amount of limb health across all limbs"; the share is in no record or setting of
   FalloutNV.esm, so the number stands until the formula is found]. Used on one limb from
   the Pip-Boy's CND page (pipboy.md §5.1, `Game::ingest_on`), that limb gets the whole
