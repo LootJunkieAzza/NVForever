@@ -712,10 +712,14 @@ fn read_input(
 }
 
 /// Actors walked by another system whose moves are planned on the compute pool when at
-/// least this many move, in chunks of [`MOVE_CHUNK`] [engineering choice: fewer are
-/// cheaper on this thread].
-const PARALLEL_MOVES: usize = 8;
-const MOVE_CHUNK: usize = 4;
+/// least this many move, one actor a task ([`MOVE_CHUNK`]). A plan costs far more than a
+/// task on the pool: about 0.44 ms on a Steam Deck in Novac (parry's hull queries against
+/// the town's collision), where 6.3 actors were walked a step and, from 8 in chunks of 4,
+/// all planned in turn on this thread: `phys::npc_plan` 2.76 ms a frame, 1.66 ms from 1
+/// actor in chunks of 1, 1.76 ms in chunks of 2 [observed, #3924]. One actor a task also
+/// keeps a slow move (#1797) from holding others in its chunk [design].
+const PARALLEL_MOVES: usize = 2;
+const MOVE_CHUNK: usize = 1;
 
 /// While the player aims (Block held with a weapon out) they move at walking speed, not
 /// running, and the body walks [design: the owner's wish, playtest of 2026-10-11, "reduced
