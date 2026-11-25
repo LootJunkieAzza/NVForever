@@ -38,9 +38,11 @@ fn unit<const N: usize>(v: [f64; N]) -> [f64; N] {
 /// `w6d4p2_37b_anh_scancode_punct_numpad` (`wave6d4_anh_scancode.json`): full modifier,
 /// punctuation, numpad (`NUM0`..`NUM9`, `NUM *`, `NUM Minus`, `NUM Plus`, `NUM Period`,
 /// `NUM Enter`, `NUM_Slash`), navigation (`Home`, `PgUp`, `Left Arrow`, `Right Arrow`,
-/// `End`, `Down Arrow`, `PgDown`, `Insert`, `Delete`), mouse (`256..=265`), and unmapped
-/// raw `0x1D` byte (`o183=29,o219=29`); zero DLL, PDB, or third-party source consulted].
-/// Remaining unprobed scan codes delegating to `KEY_NAMES` remain [hypothesis].
+/// `End`, `Down Arrow`, `PgDown`, `Insert`, `Delete`), mouse (`256..=265`), unmapped
+/// raw `0x1D` byte (`183`, `197`, `219`, with `o183=29,o219=29`), and prior `w4d_29`
+/// 1-byte non-printable codes (`0`, `220`, `221`, `255`, `999`, `-1`); zero DLL, PDB,
+/// or third-party source consulted]. Raw `0x1D` for `266+` (outside `999`) and remaining
+/// unprobed scan codes delegating to `KEY_NAMES` remain [hypothesis].
 fn scancode_name(code: i64) -> &'static str {
     match code {
         1 => return "Escape",
