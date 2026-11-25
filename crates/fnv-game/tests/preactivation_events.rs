@@ -279,8 +279,8 @@ fn callback_filter_snapshot_survives_unregister_until_dispatch_finishes() {
     assert!(g.default_activation_by_hand(trader).unwrap().is_some());
     assert_eq!(
         num(&mut g, "owned.later"),
-        1.0,
-        "retained filtered dispatch snapshot still runs after unregister"
+        0.0,
+        "unregistered later callback is skipped in the same dispatch"
     );
     assert_eq!(
         g.ext.arrays.len(),
@@ -288,8 +288,35 @@ fn callback_filter_snapshot_survives_unregister_until_dispatch_finishes() {
         "dispatch releases its final array-filter hold"
     );
     assert!(g.default_activation_by_hand(trader).unwrap().is_some());
-    assert_eq!(num(&mut g, "owned.later"), 1.0);
+    assert_eq!(num(&mut g, "owned.later"), 0.0);
     no_errors(&g);
+}
+
+#[test]
+fn expression_lambda_veto_and_mid_dispatch_unregister_on_pre_scripted_activate() {
+    let f = fixture(true);
+    let mut g = game(&f);
+    query(
+        &mut g,
+        "SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" ({ref actor, int blockFlag, int allowed} => 0) \"priority\"::2",
+    );
+    let trader = target(&mut g, "owned.trader");
+    let res = g.activate(FormId::PLAYER_REF, trader, ActMode::Block).unwrap();
+    assert_eq!(res["result"], "prevented", "expression-only lambda => 0 must veto");
+    assert_eq!(num(&mut g, "owned.block"), 0.0);
+
+    let f2 = fixture(true);
+    let mut g2 = game(&f2);
+    query(
+        &mut g2,
+        "SetEventHandlerAlt \"ShowOff:OnPreScriptedActivate\" ({ref actor, int blockFlag, int allowed} => 1) \"priority\"::2",
+    );
+    let trader2 = target(&mut g2, "owned.trader");
+    let res2 = g2.activate(FormId::PLAYER_REF, trader2, ActMode::Block).unwrap();
+    assert_eq!(res2["result"], "script", "expression-only lambda => 1 must allow");
+    assert_eq!(num(&mut g2, "owned.block"), 1.0);
+    no_errors(&g);
+    no_errors(&g2);
 }
 
 #[test]
@@ -509,6 +536,26 @@ End) 0::player 1::OwnedAid"#,
     // Unvetoed weapon EquipItem succeeds.
     query(&mut g, "player.EquipItem OwnedWeap");
     assert_eq!(query(&mut g, "SetFunctionValue (player.GetEquipped OwnedWeap)"), XVal::Num(1.0));
+
+    // Scripted UnequipItem dispatches ShowOff:OnPreActivateInventoryItemAlt (bEquipping=1) and respects veto.
+    query(
+        &mut g,
+        r#"SetModLocalData "inv.un_veto_flag" 1
+SetEventHandlerAlt "ShowOff:OnPreActivateInventoryItemAlt" (Begin Function {ref itemBase, ref itemRef, int allowed, int key, int eq}
+SetModLocalData "inv.un_calls" ((GetModLocalData "inv.un_calls") + 1)
+SetModLocalData "inv.un_beq" eq
+if eval (GetModLocalData "inv.un_veto_flag")
+SetFunctionValue 0
+endif
+End) 0::player 1::OwnedWeap"#,
+    );
+    query(&mut g, "player.UnequipItem OwnedWeap");
+    assert_eq!(query(&mut g, "SetFunctionValue (player.GetEquipped OwnedWeap)"), XVal::Num(1.0), "vetoed UnequipItem must keep weapon equipped");
+    assert_eq!(num(&mut g, "inv.un_calls"), 1.0);
+    assert_eq!(num(&mut g, "inv.un_beq"), 1.0);
+    query(&mut g, "SetModLocalData \"inv.un_veto_flag\" 0\nplayer.UnequipItem OwnedWeap");
+    assert_eq!(query(&mut g, "SetFunctionValue (player.GetEquipped OwnedWeap)"), XVal::Num(0.0), "unvetoed UnequipItem succeeds");
+    assert_eq!(num(&mut g, "inv.un_calls"), 2.0);
     no_errors(&g);
 }
 

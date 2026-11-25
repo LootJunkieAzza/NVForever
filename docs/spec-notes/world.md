@@ -166,6 +166,28 @@ apart and the last row/column coincides with the neighbour's first.
   [engine rule, `nvf_assets::nif_material::sort_first`]: a blended mesh has no depth,
   so a layer drawn after one would paint the ground behind it over it (seen on the
   Goodsprings corn rows, docs/spec-notes/nif.md §6 "Alpha").
+- **Landscape layers: the diffuse's alpha** (#3789). A layer covers by its painted opacity
+  alone; its diffuse texture's alpha has no part in it. [observed: FalloutNV.exe 1.4.0.525,
+  native 1920 x 1080 pictures of its window, Goodsprings (-71552, 2892) heading 0 at noon,
+  pitch 25 and 50 down, the lower half, mean absolute difference of 255] The 61 DXT1 files of
+  `textures\landscape` in `Fallout - Textures.bsa` and `Fallout - Textures2.bsa` that are no
+  normal map or LOD, as DXT5 with the same colour blocks and a 40/255 checkerboard of
+  16 texels in the alpha draw as without it: 0.002 and 0.013, where two runs with the game's
+  own differ by 0.002 and 0.002; solid magenta in their place (the control) differs by 66.6
+  and 91.1. The test was jojokengly's first [observed: jojokengly, #3486,
+  FalloutNV.exe 1.4.0.525, unmodified shader packages, Goodsprings (-71552, 2892) at noon, the
+  game's 512 x 288 save-header picture, mean absolute difference of the ground half] The
+  game's own ground textures with a 40/255 checkerboard put in their alpha draw as without it
+  (0.11 of 255, plants moving), and Sandstone Desert 3.00 as shipped (DXT5, alpha about 0.41)
+  as the same colours in opaque DXT1 (0.05); Sandstone Desert against the game's own is 14.4.
+  All 69 landscape diffuses the base game ships that FalloutNV.esm's LTEX records name are
+  opaque DXT1 [observed: jojokengly, the same comment], so only texture packs show the
+  difference: several keep a height map in that alpha. Until #3789 `nvforever` multiplied the
+  opacity by it. Now none of its landscape draws read it: the folded layers with or without
+  height blending, anti-tiling and parallax, the layers drawn on their own, the mesh terrain
+  blend's copies of both, and the generated LOD (which never did). Road strips and other NIF
+  shapes keep their alpha. Smoke: `terrain-layer-alpha`, `terrain-layer-alpha-parallax` and
+  `terrain-layer-alpha-separate`.
 - **Alpha grid orientation** [observed]: VTXT position = row × 17 + column, rows south →
   north, columns west → east. Neighbouring quadrants share an edge of the grid; for a
   texture layered on both sides, the edge opacities agree (within 1/255) for 38,039 of

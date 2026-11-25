@@ -110,6 +110,7 @@
 //!   unless [`HitMarks`] says so: a cross at each impact and a line from the muzzle
 //!   along each hitscan shot.
 
+use fnv_util::words::tr;
 use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Phase, Timing};
 use fnv_combat::condition::{self, Wear, Zone};
@@ -1225,8 +1226,9 @@ pub struct Combat {
     /// Blows that have knocked someone back so far ([`Knockback::blow`]).
     blows: u32,
     /// Explosions to set off this frame (impacts, detonations, destruction stages), with
-    /// who set each off and an optional impact normal for blast visibility.
-    boom: Vec<(FormId, V3, Option<Cause>, Option<V3>)>,
+    /// who set each off, an optional impact normal for blast visibility, and an optional
+    /// script caller source actor (for `PlaceAtMe` blasts without a weapon `Cause`).
+    boom: Vec<QueuedBlast>,
     /// The explosions Meltdown gives off, for the No Self Meltdown Damage tweak [design: docs/design/tweaks.md].
     meltdowns: HashSet<FormId>,
     /// Debris of destroyed objects for the engine to throw (nvforever `dismember.rs`).
@@ -1498,7 +1500,7 @@ impl Combat {
         f.p.alive = false;
         let (explosion, at) = (f.p.explosion, f.p.pos);
         if let Some(x) = explosion {
-            self.boom.push((x, at, Some(Cause { actor: by.0, weapon: by.1 }), None));
+            self.boom.push(QueuedBlast { id: x, at, cause: Some(Cause { actor: by.0, weapon: by.1 }), normal: None, source: None });
         }
         Some(explosion.is_some())
     }
@@ -1522,8 +1524,18 @@ impl Combat {
     /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
     /// `by` (the actor who put it down and that weapon), when someone did.
     pub(crate) fn mine_explodes(&mut self, explosion: FormId, at: V3, by: Option<(FormId, FormId)>) {
-        self.boom.push((explosion, at, by.map(|(actor, weapon)| Cause { actor, weapon }), None));
+        self.boom.push(QueuedBlast { id: explosion, at, cause: by.map(|(actor, weapon)| Cause { actor, weapon }), normal: None, source: None });
     }
+}
+
+/// An explosion queued for detonation this frame.
+#[derive(Clone, Copy, Debug)]
+struct QueuedBlast {
+    id: FormId,
+    at: V3,
+    cause: Option<Cause>,
+    normal: Option<V3>,
+    source: Option<FormId>,
 }
 
 /// A thrown weapon whose projectile ended (`crate::thrown`): the weapon it was, its PROJ,
@@ -1739,10 +1751,10 @@ impl Combat {
     /// reloading or jammed, a round loaded; a melee or unarmed weapon (the Fists too); a
     /// grenade or thrown weapon (not a mine), one carried.
     pub fn vats_weapon(&self, sim: &SimState, gravity: f32) -> Result<VatsWeapon, &'static str> {
-        const NO_GUN: &str = "VATS mode needs a weapon to aim.";
+        let no_gun = tr("VATS mode needs a weapon to aim.");
         use fnv_combat::vats::{shot_ap_cost, throw_reach, AttackStyle};
-        let id = self.weapon.ok_or(NO_GUN)?;
-        let w = &self.player_stats(id).ok_or(NO_GUN)?;
+        let id = self.weapon.ok_or(no_gun)?;
+        let w = &self.player_stats(id).ok_or(no_gun)?;
         let cost = shot_ap_cost(w, &self.rules.ap_attack);
         let edid = w.edid.clone().unwrap_or_else(|| id.to_string());
         if self.melee {
@@ -1762,13 +1774,13 @@ impl Combat {
         }
         // A gun needs to be equipped: the Fists are melee.
         if self.equipped.flatten() != Some(id) || self.player_weapon_is_mine() {
-            return Err(NO_GUN);
+            return Err(no_gun);
         }
-        let proj = self.forms.chain(id, self.ammo).and_then(|ch| ch.projectile).ok_or(NO_GUN)?;
+        let proj = self.forms.chain(id, self.ammo).and_then(|ch| ch.projectile).ok_or(no_gun)?;
         if self.self_ammo {
             let carried = player_count(sim, Some(id));
             if carried == 0 {
-                return Err("Out of ammo.");
+                return Err(tr("Out of ammo."));
             }
             let p = self.forms.projectiles.get(&proj);
             let range = p.map_or(0.0, |p| if p.range > 0.0 { p.range } else { crate::vats_mode::REACH });
@@ -1776,11 +1788,11 @@ impl Combat {
             return Ok(VatsWeapon { id, edid, cost, style: AttackStyle::Thrown, rounds_per_shot: 1, rounds: carried, reach: range.min(lob), melee_reach: 0.0, classic_reach: None });
         }
         if AttackKind::of(w) != AttackKind::Gun {
-            return Err(NO_GUN);
+            return Err(no_gun);
         }
-        let cy = self.cycle.as_ref().ok_or(NO_GUN)?;
+        let cy = self.cycle.as_ref().ok_or(no_gun)?;
         if cy.reloading() || cy.jammed() {
-            return Err("Not while reloading.");
+            return Err(tr("Not while reloading."));
         }
         let style = AttackStyle::of(w, false, false);
         // God mode keeps the magazine full (the shots take nothing).
@@ -1794,7 +1806,7 @@ impl Combat {
             cy.magazine
         };
         if !free && rounds < cy.ammo_use {
-            return Err("Out of ammo.");
+            return Err(tr("Out of ammo."));
         }
         let range = self.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
         Ok(VatsWeapon {
@@ -4838,7 +4850,7 @@ fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, i
         stats.player_died = true;
         info!("combat: the player died, killed by {by}");
         if let Some(h) = hud {
-            h.show("You are dead.".to_string());
+            h.show(tr("You are dead.").to_string());
         }
     }
     Some(r)
@@ -5253,7 +5265,7 @@ fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &Destruction
         if ch.explosions.is_empty() { String::new() } else { format!(", {} explosion(s)", ch.explosions.len()) }
     );
     if let Some(at) = at {
-        c.boom.extend(ch.explosions.iter().map(|&e| (e, at, cause, None)));
+        c.boom.extend(ch.explosions.iter().map(|&id| QueuedBlast { id, at, cause, normal: None, source: None }));
         // Its stages' debris, thrown by the engine (nvforever `dismember.rs`).
         c.debris.extend(ch.debris.iter().map(|&(d, n)| ObjectDebris { reference: r, at, debris: d, count: n }));
     }
@@ -5763,8 +5775,8 @@ fn fly(
                     }
                     continue;
                 }
-                CombatRequest::Explode { explosion, at } => {
-                    c.boom.push((explosion, at, None, None));
+                CombatRequest::Explode { explosion, at, source } => {
+                    c.boom.push(QueuedBlast { id: explosion, at, cause: None, normal: None, source });
                     continue;
                 }
                 CombatRequest::Dismember { actor, location, by, explode } => {
@@ -5779,7 +5791,7 @@ fn fly(
             let mut n = 0;
             for f in c.flying.iter_mut().filter(|f| f.p.shooter == shooter) {
                 if let Some(ProjEvent::Explode { explosion, point, normal }) = f.p.detonate() {
-                    c.boom.push((explosion, point, Some(Cause::of(&f.by)), normal));
+                    c.boom.push(QueuedBlast { id: explosion, at: point, cause: Some(Cause::of(&f.by)), normal, source: None });
                     n += 1;
                 }
             }
@@ -5791,7 +5803,7 @@ fn fly(
                     continue;
                 }
                 effects.5.write(crate::RefChanged::new(id.0));
-                c.boom.push((explosion, pos, Some(Cause { actor, weapon }), None));
+                c.boom.push(QueuedBlast { id: explosion, at: pos, cause: Some(Cause { actor, weapon }), normal: None, source: None });
                 n += 1;
             }
             info!("combat: {actor} detonates placed explosives: {n}");
@@ -6029,7 +6041,9 @@ fn fly(
                         }
                     }
                     // A harmless shot sets nothing off [design].
-                    ProjEvent::Explode { explosion, point, normal } if !f.by.harmless => c.boom.push((explosion, point, Some(Cause::of(&f.by)), normal)),
+                    ProjEvent::Explode { explosion, point, normal } if !f.by.harmless => {
+                        c.boom.push(QueuedBlast { id: explosion, at: point, cause: Some(Cause::of(&f.by)), normal, source: None });
+                    }
                     ProjEvent::Explode { .. } => {}
                     ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
                     ProjEvent::Splash { point, dir } => {
@@ -6152,11 +6166,12 @@ fn fly(
     }));
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
-    while let Some((id, at, cause, normal)) = c.boom.pop() {
+    while let Some(blast_req) = c.boom.pop() {
+        let QueuedBlast { id, at, cause, normal, source } = blast_req;
         n += 1;
         if n > MAX_EXPLOSIONS_PER_FRAME {
             warn!("combat: more than {MAX_EXPLOSIONS_PER_FRAME} explosions in one frame; {} left for the next", c.boom.len() + 1);
-            c.boom.push((id, at, cause, normal));
+            c.boom.push(blast_req);
             break;
         }
         stats.explosions += 1;
@@ -6218,10 +6233,11 @@ fn fly(
         // The blast's live reference for the scripts (ShowOff's GetExplosionRefRadius and
         // GetExplosionRefSource, and JIP's GetHitProjectile), gone after the frame
         // (`fnv_game::nvse_showoff5`).
+        let source_actor = cause.map(|c| c.actor).or(source);
         let expl_ref = script
             .as_deref_mut()
             .and_then(|s| s.rt.as_mut())
-            .and_then(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.explosion_placed(id, cause.map(|c| c.actor), at, x.radius)));
+            .and_then(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.explosion_placed(id, source_actor, at, x.radius)));
         let hits = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
             blast(&world, &c.tuning, &x, at, normal)
@@ -6241,7 +6257,9 @@ fn fly(
             }
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             // ShowOff:OnExplosionHit's handlers may change the blast's damage first.
-            let raw = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(b.damage, |rt| rt.game.explosion_hit(target, f64::from(b.damage)) as f32);
+            let raw = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(b.damage, |rt| {
+                rt.game.explosion_hit_with_context(expl_ref, target, source_actor, f64::from(b.damage)) as f32
+            });
             let (ap, tp) = blast_perks(script.as_deref_mut(), &mut sim, cause, target);
             let d = damage::blast_hit(&c.rules, &c.tuning, raw, dt_v, dr, &ap, &tp);
             log_blast_perks(cause, target, &ap, &tp, &d);

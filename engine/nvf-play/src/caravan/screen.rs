@@ -7,6 +7,7 @@
 //! [observed]; the fonts, lines and help
 //! box are the lockpicking menu's (`crate::lockpick::screen`).
 
+use fnv_util::words::{tr, trf};
 use super::{CaravanInput, CaravanScreen, Pick, Session, Stage};
 use crate::interface::{amber, at, u};
 use crate::lockpick::screen::{Ctx, FontKind, Kit};
@@ -251,7 +252,7 @@ fn bet(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     let b = amber(255.0);
     let (x, y, w, h) = BET_BRACKET;
     bracket(p, c, x, y, w, h);
-    let rows = [(s.opponent_name.clone(), s.bet.bid), ("Current Ante:".into(), s.bet.ante), ("Total Funds:".into(), s.bet.funds)];
+    let rows = [(s.opponent_name.clone(), s.bet.bid), (tr("Current Ante:").into(), s.bet.ante), (tr("Total Funds:").into(), s.bet.funds)];
     for ((title, value), y) in rows.iter().zip(BET_ROWS) {
         c.text_in(p, FontKind::Menu, title, BET_X.0, y, false, b);
         c.text_in(p, FontKind::Menu, &value.to_string(), BET_X.1, y, true, b);
@@ -303,21 +304,21 @@ fn deck(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
             }
         }
     }
-    c.text_in(p, FontKind::Menu, "Caravan Deck", 87.0, 395.0, false, b);
+    c.text_in(p, FontKind::Menu, tr("Caravan Deck"), 87.0, 395.0, false, b);
     c.text_in(p, FontKind::Menu, &s.deck.len().to_string(), 507.0, 395.0, true, b);
-    button(p, c, "Randomize Caravan Deck", &s.hint(&[KeyCode::KeyS]), 1380.0, 395.0, CaravanInput::Randomize, true);
+    button(p, c, tr("Randomize Caravan Deck"), &s.hint(&[KeyCode::KeyS]), 1380.0, 395.0, CaravanInput::Randomize, true);
     c.image(p, "interface\\shared\\line\\solid.dds", at(33.0, 480.0, FRAME_W - 66.0, THICK), b);
     c.text_in(p, FontKind::Menu, "<", 33.0, 462.0, false, b);
     c.text_in(p, FontKind::Menu, ">", FRAME_W - 33.0, 462.0, true, b);
     p.spawn((Button, CaravanButton(CaravanInput::Step(-1)), at(20.0, 455.0, 50.0, 50.0)));
     p.spawn((Button, CaravanButton(CaravanInput::Step(1)), at(FRAME_W - 70.0, 455.0, 50.0, 50.0)));
-    c.text_in(p, FontKind::Menu, "Total Cards:", 87.0, 515.0, false, b);
+    c.text_in(p, FontKind::Menu, tr("Total Cards:"), 87.0, 515.0, false, b);
     c.text_in(p, FontKind::Menu, &s.owned.len().to_string(), 507.0, 515.0, true, b);
-    c.text_in(p, FontKind::Menu, "All Cards", 965.0, 527.0, false, b);
+    c.text_in(p, FontKind::Menu, tr("All Cards"), 965.0, 527.0, false, b);
     let here = s.owned.get(s.cursor).copied();
-    button(p, c, "Add", &s.hint(&[KeyCode::KeyW]), 600.0, 862.0, CaravanInput::Add, here.is_some_and(|f| !s.in_deck(f)));
-    button(p, c, "Remove", &s.hint(&[KeyCode::KeyA]), 1330.0, 862.0, CaravanInput::Remove, here.is_some_and(|f| s.in_deck(f)));
-    button(p, c, "Play Caravan", &s.hint(&[KeyCode::KeyF]), BUTTONS_RIGHT, 862.0, CaravanInput::PlayDeck, s.deck.len() >= fnv_game::caravan::MIN_DECK);
+    button(p, c, tr("Add"), &s.hint(&[KeyCode::KeyW]), 600.0, 862.0, CaravanInput::Add, here.is_some_and(|f| !s.in_deck(f)));
+    button(p, c, tr("Remove"), &s.hint(&[KeyCode::KeyA]), 1330.0, 862.0, CaravanInput::Remove, here.is_some_and(|f| s.in_deck(f)));
+    button(p, c, tr("Play Caravan"), &s.hint(&[KeyCode::KeyF]), BUTTONS_RIGHT, 862.0, CaravanInput::PlayDeck, s.deck.len() >= fnv_game::caravan::MIN_DECK);
     if let Some(desc) = active_face_description(s) {
         c.text_in(p, FontKind::Menu, desc, 40.0, 915.0, false, b);
     }
@@ -504,13 +505,13 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
         marks(p, c, s, g);
     }
     // The top right rows.
-    let rows = [("Ante Pot:", s.bet.pot().to_string()), ("Net Total:", s.record.net().to_string()), ("Win/Loss:", format!("{}/{}", s.record.won, s.record.lost))];
+    let rows = [(tr("Ante Pot:"), s.bet.pot().to_string()), (tr("Net Total:"), s.record.net().to_string()), (tr("Win/Loss:"), format!("{}/{}", s.record.won, s.record.lost))];
     for ((title, value), y) in rows.iter().zip(INFO_Y) {
         c.text_in(p, FontKind::Menu, title, INFO_X.0, y, false, b);
         c.text_in(p, FontKind::Menu, value, INFO_X.1, y, true, b);
     }
     if g.phase != Phase::Over && !mine && s.help.is_none() {
-        c.text_in(p, FontKind::Menu, &format!("{} is thinking…", s.opponent_name), BUTTONS_RIGHT, 660.0, true, amber(180.0));
+        c.text_in(p, FontKind::Menu, &trf("{name} is thinking…", &[("name", &s.opponent_name)]), BUTTONS_RIGHT, 660.0, true, amber(180.0));
     }
     for ((label, key, cmd, on), top) in s.buttons().into_iter().zip(PLAY_BUTTONS) {
         button(p, c, label, &key, BUTTONS_RIGHT, top, cmd, on);
@@ -524,13 +525,13 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
 fn results(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     sign(p, c, dim);
     let b = amber(255.0);
-    c.text_in(p, FontKind::Menu, "Press Any Button to Continue", 436.0, 233.0, false, b);
+    c.text_in(p, FontKind::Menu, tr("Press Any Button to Continue"), 436.0, 233.0, false, b);
     let r = &s.record;
     let rows = [
-        ("Winnings to Date:", r.winnings.to_string()),
-        ("Losses to Date:", r.losses.to_string()),
-        ("Win/Loss Totals:", format!("{}/{}", r.won, r.lost)),
-        ("Biggest Ante Pot Won:", r.biggest_pot.to_string()),
+        (tr("Winnings to Date:"), r.winnings.to_string()),
+        (tr("Losses to Date:"), r.losses.to_string()),
+        (tr("Win/Loss Totals:"), format!("{}/{}", r.won, r.lost)),
+        (tr("Biggest Ante Pot Won:"), r.biggest_pot.to_string()),
     ];
     for (i, (title, value)) in rows.iter().enumerate() {
         let y = 333.0 + 45.0 * i as f32;

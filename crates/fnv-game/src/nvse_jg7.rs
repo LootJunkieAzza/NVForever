@@ -340,8 +340,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // `reputation tier path`: 1 when set [documented: SetCustomReputationChangeIcon];
-        // a tier outside 1-4 or a form that is no REPU gives 0 [hypothesis].
+        // `reputation tier path`: 1 when set for tiers 1 and 4 on a `REPU`, and 0 for tiers
+        // 0 and 5 or a non-`REPU` form [documented: SetCustomReputationChangeIcon; observed:
+        // `b3_jg7_01_ui_sound_and_rep_icon_bounds` (`wave4b_extenders.json`) and
+        // `w4c_b3_05_jg7_bounds_heap` (`wave4c_extenders.json`), see
+        // docs/spec-notes/ext-jg7.md §1]; tiers 2 and 3 (and other out-of-range tiers beyond
+        // 0 and 5) remain [hypothesis].
         "setcustomreputationchangeicon" => {
             let (r, t, p) = (form(args, 0).filter(|&f| g.data.sig(f) == Some(*b"REPU")), int(args, 1).filter(|t| (1..=4).contains(t)), text(args, 2));
             match (r, t, p) {

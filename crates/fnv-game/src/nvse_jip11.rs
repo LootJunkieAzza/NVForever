@@ -440,13 +440,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             XVal::Num(1.0)
         }
         // `x y z [local]`: the velocity on the world axes, or the actor's own (x right,
-        // y forward) [documented]; the actor is followed from now on, as GetActorVelocity
-        // follows it, so the first call reads 0 (see docs/spec-notes/jip-actors-11.md §2).
+        // y forward) [documented; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // JIP LN 57.30, 2026-11-24, `w6_t1_05_velocities_jip`
+        // (`tools/capture/nvse/catalogs/wave6_t1_jip_velocities.json`, `jip-actors-11.md`
+        // §2): `act0=1(0.0,0.0,0.0)|act1=1(0.0,0.0,0.0)`]; the actor is followed from now
+        // on, as GetActorVelocity follows it, so the first call reads 0 (see docs/spec-notes/jip-actors-11.md §2).
+        // Note: `Vm::out_call` strips output params `[0, 1, 2]` before dispatch, so
+        // optional `getLocal` arrives at `args[0]`.
         "getactorvelocityalt" => {
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let Some((here, rot)) = g.ref_pos_rot(a) else { return Some(Ok(XVal::Num(0.0))) };
             let v = g.jip2.velocity.entry(a).or_insert((here, [0.0; 3])).1;
-            let local = num(args, 3).is_some_and(|x| x != 0.0);
+            let local = num(args, 0).is_some_and(|x| x != 0.0);
             let out = if local {
                 let (s, c) = (f64::from(rot[2]).sin(), f64::from(rot[2]).cos());
                 let (x, y) = (f64::from(v[0]), f64::from(v[1]));
