@@ -75,6 +75,16 @@ use model::{Command, Model, Refusal, RefusalWords, Words, JUMP, MAX_HOURS};
 /// not captured; a full day takes twelve seconds].
 pub const HOUR_SECONDS: f32 = 0.5;
 
+/// Real seconds between two hours passing under Faster Sleep and Wait (`bFasterSleepWait`)
+/// [design: 24 hours pass in 3.6 seconds instead of 12 seconds].
+pub const FASTER_HOUR_SECONDS: f32 = 0.15;
+
+/// Active seconds per hour for the Sleep / Wait countdown (`HOUR_SECONDS` when disabled,
+/// `FASTER_HOUR_SECONDS` when `bFasterSleepWait` is enabled) [design].
+pub const fn hour_seconds(faster: bool) -> f32 {
+    if faster { FASTER_HOUR_SECONDS } else { HOUR_SECONDS }
+}
+
 /// Seconds the screen takes to go black when a sleep is accepted, and to come back
 /// after it [design].
 pub const FADE_SECONDS: f32 = 1.0;
@@ -735,9 +745,11 @@ fn pass_hours(
     mut next: ResMut<NextState<PlayState>>,
     mut passed: MessageWriter<HourPassed>,
     mut script: Option<ResMut<ScriptState>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(m) = menu.0.as_mut() else { return };
-    if m.passing.is_none() || !m.tick(time.delta_secs_f64() as f32, HOUR_SECONDS) {
+    let pace = hour_seconds(tweaks.as_ref().is_some_and(|t| t.game.faster_sleep_wait));
+    if m.passing.is_none() || !m.tick(time.delta_secs_f64() as f32, pace) {
         return;
     }
     let p = m.passing.expect("an hour passed");
@@ -1249,5 +1261,25 @@ mod tests {
         // The end marks stand inside the line's ends.
         let last = MARK_X0 + MARK_STEP * (MAX_HOURS + 1) as f32;
         assert!(MARK_X0 > 65.0 && last < 65.0 + 516.0);
+    }
+
+    #[test]
+    fn faster_sleep_wait_shortens_hour_countdown_only_when_enabled() {
+        assert_eq!(hour_seconds(false), HOUR_SECONDS);
+        assert_eq!(hour_seconds(true), FASTER_HOUR_SECONDS);
+        const { assert!(FASTER_HOUR_SECONDS > 0.0 && FASTER_HOUR_SECONDS < HOUR_SECONDS); }
+
+        let mut vanilla = Model::open(false);
+        vanilla.apply(Command::Hours(3));
+        vanilla.apply(Command::Accept);
+        assert!(!vanilla.tick(FASTER_HOUR_SECONDS, hour_seconds(false)), "vanilla pace has not reached 0.5 s yet");
+        assert!(vanilla.tick(HOUR_SECONDS - FASTER_HOUR_SECONDS + 0.01, hour_seconds(false)));
+        assert_eq!(vanilla.marker(), 2);
+
+        let mut faster = Model::open(true);
+        faster.apply(Command::Hours(3));
+        faster.apply(Command::Accept);
+        assert!(faster.tick(FASTER_HOUR_SECONDS, hour_seconds(true)), "faster pace passes an hour at FASTER_HOUR_SECONDS");
+        assert_eq!(faster.marker(), 2);
     }
 }

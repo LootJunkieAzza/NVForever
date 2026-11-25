@@ -672,7 +672,7 @@ impl Plugin for SsaoPlugin {
 /// The camera's projection into the uniform (the aspect follows the window), and the
 /// strength and remedies of the placement that runs this frame: on the picture until the
 /// lighting hook is in place (or for good if it failed), then the lighting's.
-fn follow_projection(mut cams: Query<(&Projection, &mut AmbientOcclusion), With<FlyCam>>) {
+pub(crate) fn follow_projection(mut cams: Query<(&Projection, &mut AmbientOcclusion), With<FlyCam>>) {
     let lighting = AO_DEBUG.in_lighting_now();
     for (proj, mut ao) in &mut cams {
         let Projection::Perspective(p) = proj else { continue };
@@ -790,7 +790,7 @@ pub(crate) struct AoLightingGpu {
 
 /// Whether the main camera's view takes the occlusion in the lighting this frame: asked for
 /// in its settings, and the lighting hook in place. A failed hook keeps the post placement.
-fn in_lighting(settings: &AmbientOcclusion, hook: HookState) -> bool {
+pub(crate) fn in_lighting(settings: &AmbientOcclusion, hook: HookState) -> bool {
     settings.wants_lighting() && hook == HookState::Installed
 }
 

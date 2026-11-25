@@ -736,7 +736,9 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
 
 
 def missing_requirements(s: Scenario) -> list[str]:
-    return [r for r in s.requires if not os.environ.get(r)]
+    """The `requires` entries not met: a variable that is unset or empty, or a `!variable`
+    that is set."""
+    return [r for r in s.requires if bool(os.environ.get(r.removeprefix("!"))) == r.startswith("!")]
 
 
 def platform_name() -> str:
