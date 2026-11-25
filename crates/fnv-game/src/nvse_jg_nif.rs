@@ -273,19 +273,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(code.map_or(-1.0, f64::from))
         }
         // The engine updates every drawn node each frame, so there is nothing to bring up
-        // to date [decision]. 1 on a reference [observed: jgnif.refresh], 0 without one
-        // [hypothesis].
-        "updatescenegraph" => XVal::Num(f64::from(u8::from(on.is_some()))),
+        // to date [decision]. Returns 1 for type >= 0 (including bare calls without a
+        // calling reference) and 0 for negative type [observed: w6d3_07].
+        "updatescenegraph" => XVal::Num(f64::from(u8::from(num(args, 0, 0.0) >= 0.0))),
         // `flags`: 1 the model, 2 the skin, 4 the head, 8 the face drawn again (an NPC's
         // through the appearance changes the engine draws, `crate::appearance`); 16 scale,
         // 32 lights and 64 position the engine takes each frame [documented: the flag
-        // table; decision: those need no request].
+        // table; decision: those need no request]. Returns 0 when flags == 0, else 1
+        // (including bare calls with non-zero flags) [observed: w6d3_07].
         "update3dalt" => {
-            let Some(r) = on else { return Some(Ok(zero)) };
-            if num(args, 0, 0.0) as i64 & 0xF != 0 {
-                g.appearance_changes.push(crate::appearance::AppearanceChange { actor: r, reset: false });
+            let flags = num(args, 0, 0.0) as i64;
+            if flags == 0 {
+                return Some(Ok(zero));
             }
-            // 1 [observed: jgnif.refresh, flags 32 on the player].
+            if let Some(r) = on {
+                if flags & 0xF != 0 {
+                    g.appearance_changes.push(crate::appearance::AppearanceChange { actor: r, reset: false });
+                }
+            }
             XVal::Num(1.0)
         }
         // ---- the camera

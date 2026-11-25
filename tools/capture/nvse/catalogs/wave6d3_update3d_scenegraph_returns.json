@@ -1,0 +1,73 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-update3d-scenegraph-returns",
+  "description": "Read-only clean-room probe verifying Update3DAlt and UpdateScenegraph return values for 0, negative, non-zero, and bare calls.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_update3d_scenegraph_returns",
+      "title": "Wave 6D-3: Update3DAlt & UpdateScenegraph return values",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_07_update3d_alt_and_scenegraph_flags",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
+          "spec_line": 17,
+          "functions_tested": [
+            "Update3DAlt",
+            "UpdateScenegraph"
+          ],
+          "claim": "Verify Update3DAlt across flag bits 0/1/16/32/64/-1 on actor (Doc Mitchell), non-actor placed ref (dresser 0x103E37), and without calling ref; verify UpdateScenegraph types 0/1/2/-1 on ref vs bare.",
+          "expected": "Resolve nvse_jg_nif.rs:277-289 hypotheses: return value without calling reference (0 vs 1), non-actor behavior, and UpdateScenegraph types.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "int u0 = rDoc.Update3DAlt 0",
+            "int u16 = rDoc.Update3DAlt 16",
+            "int u32 = rDoc.Update3DAlt 32",
+            "int u64 = rDoc.Update3DAlt 64",
+            "int uNeg = rDoc.Update3DAlt -1",
+            "int uDr = rDr.Update3DAlt 32",
+            "int uBare = Update3DAlt 32",
+            "int sg0 = rDoc.UpdateScenegraph 0",
+            "int sg1 = rDoc.UpdateScenegraph 1",
+            "int sg2 = rDoc.UpdateScenegraph 2",
+            "int sgNeg = rDoc.UpdateScenegraph -1",
+            "int sgDr = rDr.UpdateScenegraph 0",
+            "int sgBare = UpdateScenegraph 0",
+            "PrintToConsole \"PROBE|w6d3_07_update3d_alt_and_scenegraph_flags|u3d=%g,%g,%g,%g,%g,dr=%g,bare=%g|sg=%g,%g,%g,%g,dr=%g,bare=%g\" u0 u16 u32 u64 uNeg uDr uBare sg0 sg1 sg2 sgNeg sgDr sgBare"
+          ]
+        }
+      ]
+    }
+  ]
+}

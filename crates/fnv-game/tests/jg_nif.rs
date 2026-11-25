@@ -149,7 +149,12 @@ fn particles_properties_and_switches() {
     q(&mut g, "PlayerREF.Update3DAlt 1");
     assert_eq!(g.take_appearance_changes().len(), 1);
     assert_eq!(n(&mut g, "PlayerREF.UpdateScenegraph 0"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.UpdateScenegraph -1"), 0.0);
+    assert_eq!(n(&mut g, "UpdateScenegraph 0"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.Update3DAlt 0"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.Update3DAlt 32"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.Update3DAlt -1"), 1.0);
+    assert_eq!(n(&mut g, "Update3DAlt 32"), 1.0);
     // Standing (nothing told): Idle (0) in slot 0, nothing in slot 4.
     assert_eq!(n(&mut g, "PlayerREF.GetSequenceAnimGroup 0"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.GetSequenceAnimGroup 4"), -1.0);
