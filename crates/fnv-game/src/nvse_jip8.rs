@@ -372,7 +372,7 @@ impl Game<'_> {
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
-    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(f) == Some(*sig));
+    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*sig));
     let is_actor = |g: &Game, f: FormId| matches!(g.data.sig(f).as_ref(), Some(b"NPC_" | b"CREA"));
     // `[baseActor]` at `k`, else the calling reference's base [documented: the pages'
     // `ref.F` and `F … baseForm` forms].
@@ -642,7 +642,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "weaponhasmodtype" => {
             let t = num(args, 1, 0.0);
             let w = of_sig(g, form(args, 0).map(|f| base(g, f)), b"WEAP");
-            XVal::Num(w.filter(|_| t >= 1.0).and_then(|w| (1..=3u8).find(|k| g.num_field8(w, "DNAM", &format!("effect_mod{k}")) == t.trunc())).map_or(0.0, f64::from))
+            // A slot only counts when its WMI{k} form is populated
+            // [observed: w6d6_27_weapon_has_mod_type_and_item_mod_getters].
+            XVal::Num(
+                w.filter(|_| t >= 1.0)
+                    .and_then(|w| {
+                        (1..=3u8).find(|k| {
+                            as_ref(crate::nvse::record_value(g, w, &format!("WMI{k}"), "")).is_some_and(|m| m.0 != 0)
+                                && g.num_field8(w, "DNAM", &format!("effect_mod{k}")) == t.trunc()
+                        })
+                    })
+                    .map_or(0.0, f64::from),
+            )
         }
         // `ref.F type`: one of the attached mods (the equipped weapon's mod bits 1, 2, 4)
         // has the type [documented].

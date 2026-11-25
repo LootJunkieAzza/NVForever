@@ -367,9 +367,20 @@ fn weapons() {
     assert_eq!(n(&mut g, "GetWeaponItemModEffect 3 TestGun"), 11.0);
     q(&mut g, "SetWeaponItemModEffect TestGun 1 15");
     assert_eq!(n(&mut g, "GetWeaponItemModEffect 1 TestGun"), 15.0);
-    // The slot with the type [documented: WeaponHasModType].
+    // WeaponHasModType requires WMI{k} to be populated [observed: w6d6_27].
+    assert_eq!(n(&mut g, "WeaponHasModType TestGun 11"), 0.0, "effect without WMI3 returns 0");
+    q(&mut g, "SetWeaponItemMod TestGun 3 TestMod");
     assert_eq!(n(&mut g, "WeaponHasModType TestGun 11"), 3.0);
     assert_eq!(n(&mut g, "WeaponHasModType TestGun 3"), 0.0);
+    // TempCloneForm WEAPs work with SetWeaponItemMod* and WeaponHasModType [observed: w6d6_27, w6d6_28].
+    let clone_slot = match q(
+        &mut g,
+        "ref rCl\nlet rCl := TempCloneForm TestGun\nSetWeaponItemMod rCl 2 TestMod\nSetWeaponItemModEffect rCl 2 1\nSetWeaponItemModValue rCl 2 25\nSetFunctionValue (WeaponHasModType rCl 1)",
+    ) {
+        XVal::Num(v) => v,
+        other => panic!("expected Num, got {other:?}"),
+    };
+    assert_eq!(clone_slot, 2.0);
     // On hit, semi-auto delays, models, reload animation; read by the VM's getters.
     q(&mut g, "SetWeaponOnHitSetting TestGun 2");
     assert_eq!(n(&mut g, "GetWeaponOnHitSetting TestGun"), 2.0);

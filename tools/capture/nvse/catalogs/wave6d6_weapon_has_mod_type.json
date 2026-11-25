@@ -1,0 +1,187 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_weapon_has_mod_type",
+  "description": "Wave 6D-6 read-only probes verifying WeaponHasModType requires populated WMI{k} and works on TempCloneForm WEAPs.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_weapon_has_mod_type",
+      "title": "WeaponHasModType WMI gate and TempCloneForm WEAP support",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_27_weapon_has_mod_type_and_item_mod_getters",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-8.md",
+          "spec_line": 58,
+          "functions_tested": [
+            "WeaponHasModType",
+            "EquippedWeaponHasModType",
+            "GetWeaponItemMod",
+            "GetWeaponItemModEffect",
+            "GetWeaponItemModValue1",
+            "GetWeaponItemModValue2",
+            "SetWeaponItemModEffect",
+            "TempCloneForm"
+          ],
+          "claim": "SD-09: Test WeaponHasModType on TempCloneForm WEAP, OOB modTypes (0, 17, -1), weapon with effect_mod set via SetWeaponItemModEffect without WMI form, and GetWeaponItemMod/Value1/Value2 on slots 0..4.",
+          "expected": "Verify whether WeaponHasModType works on cloned WEAPs (nvse_jip8.rs:580 omits unclone) and whether missing WMI form still matches effect_mod.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+            "ref rCl10 = TempCloneForm r10",
+            "ref rClKn = TempCloneForm rKn",
+            "int iClHas2 = WeaponHasModType rCl10 2",
+            "int iClHas11 = WeaponHasModType rCl10 11",
+            "int iOob0 = WeaponHasModType r10 0",
+            "int iOob17 = WeaponHasModType r10 17",
+            "int iOobNeg = WeaponHasModType r10 -1",
+            "SetWeaponItemModEffect rClKn 1 11",
+            "int iKnEff = GetWeaponItemModEffect 1 rClKn",
+            "int iKnHas11 = WeaponHasModType rClKn 11",
+            "ref rM0 = GetWeaponItemMod 0 r10",
+            "ref rM1 = GetWeaponItemMod 1 r10",
+            "ref rM3 = GetWeaponItemMod 3 r10",
+            "ref rM4 = GetWeaponItemMod 4 r10",
+            "float fV1_0 = GetWeaponItemModValue1 0 r10",
+            "float fV1_1 = GetWeaponItemModValue1 1 r10",
+            "float fV1_4 = GetWeaponItemModValue1 4 r10",
+            "float fV2_1 = GetWeaponItemModValue2 1 r10",
+            "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+            "float fLasV1 = GetWeaponItemModValue1 3 rLas",
+            "float fLasV2 = GetWeaponItemModValue2 3 rLas",
+            "PrintToConsole \"PROBE|w6d6_27_weapon_has_mod_type_and_item_mod_getters|clHas(2,11)=%g,%g|oob(0,17,-1)=%g,%g,%g|knNoWmi(eff=%g,has11=%g)|m(0,1,3,4)=%i,%i,%i,%i|v1(0,1,4)=%.2f,%.2f,%.2f|v2=%.2f|las3(v1,v2)=%.2f,%.2f\" iClHas2 iClHas11 iOob0 iOob17 iOobNeg iKnEff iKnHas11 rM0 rM1 rM3 rM4 fV1_0 fV1_1 fV1_4 fV2_1 fLasV1 fLasV2"
+          ]
+        },
+        {
+          "id": "w6d6_28_set_weapon_item_mod_value_effect_clone",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-8.md",
+          "spec_line": 58,
+          "functions_tested": [
+            "TempCloneForm",
+            "SetWeaponItemMod",
+            "SetWeaponItemModEffect",
+            "SetWeaponItemModValue",
+            "GetWeaponItemMod",
+            "GetWeaponItemModEffect",
+            "GetWeaponItemModValue1",
+            "GetCalculatedWeaponDamage"
+          ],
+          "claim": "SD-09: Verify SetWeaponItemMod, SetWeaponItemModEffect (0 clear vs 1 Increase Damage vs 17 OOB), and SetWeaponItemModValue (+25.0) on TempCloneForm WEAP, isolation from stock WEAP, and live propagation to GetCalculatedWeaponDamage.",
+          "expected": "Record before/after mod form, effect, value1, stock isolation, and calculated damage with mod flag 1 attached.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rMod = GetFormFromMod \"FalloutNV.esm\" \"10C869\"",
+            "ref rCl = TempCloneForm r10",
+            "float fOG = Player.GetBaseAV Guns",
+            "Player.SetAV Guns 100",
+            "SetWeaponItemMod rCl 1 rMod",
+            "SetWeaponItemModEffect rCl 1 1",
+            "SetWeaponItemModValue rCl 1 25.0",
+            "ref rClM1 = GetWeaponItemMod 1 rCl",
+            "int iClE1 = GetWeaponItemModEffect 1 rCl",
+            "float fClV1 = GetWeaponItemModValue1 1 rCl",
+            "ref rStM1 = GetWeaponItemMod 1 r10",
+            "int iStE1 = GetWeaponItemModEffect 1 r10",
+            "Player.AddItemHealthPercent rCl 1 1.0",
+            "Player.EquipItem rCl 0 1",
+            "Player.SetEquippedWeaponModFlags 0",
+            "float fD0 = Player.GetCalculatedWeaponDamage",
+            "Player.SetEquippedWeaponModFlags 1",
+            "float fD1 = Player.GetCalculatedWeaponDamage",
+            "SetWeaponItemModEffect rCl 1 0",
+            "int iClE0 = GetWeaponItemModEffect 1 rCl",
+            "Player.UnequipItem rCl 0 1",
+            "Player.RemoveItem rCl 1 1",
+            "Player.SetAV Guns fOG",
+            "PrintToConsole \"PROBE|w6d6_28_set_weapon_item_mod_value_effect_clone|cl(m=%i,e=%g,v=%.1f)|st(m=%i,e=%g)|dmg(0,1)=%.2f,%.2f|clrE0=%g\" rClM1 iClE1 fClV1 rStM1 iStE1 fD0 fD1 iClE0"
+          ]
+        },
+        {
+          "id": "w6d6p3_28_set_item_mod_clone_invref",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records-8.md",
+          "spec_line": 58,
+          "functions_tested": [
+            "TempCloneForm",
+            "SetWeaponItemMod",
+            "SetWeaponItemModEffect",
+            "SetWeaponItemModValue",
+            "GetInvRefsForItem",
+            "SetWeaponRefModFlags",
+            "GetCalculatedWeaponDamage"
+          ],
+          "claim": "SD-09: Verify SetWeaponItemMod/Effect/Value (+25 dmg) on cloned 10mm Pistol propagates into rInv.GetCalculatedWeaponDamage for flags 0 vs 1.",
+          "expected": "Record 22.00 -> 47.00 via invref.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rMod = GetFormFromMod \"FalloutNV.esm\" \"10C869\"",
+            "ref rCl = TempCloneForm r10",
+            "float fOG = Player.GetBaseAV Guns",
+            "Player.SetAV Guns 100",
+            "SetWeaponItemMod rCl 1 rMod",
+            "SetWeaponItemModEffect rCl 1 1",
+            "SetWeaponItemModValue rCl 1 25.0",
+            "Player.AddItemHealthPercent rCl 1 1.0",
+            "array_var aR = Player.GetInvRefsForItem rCl",
+            "ref rI = aR[0]",
+            "rI.SetWeaponRefModFlags 0",
+            "float fD0 = rI.GetCalculatedWeaponDamage",
+            "rI.SetWeaponRefModFlags 1",
+            "float fD1 = rI.GetCalculatedWeaponDamage",
+            "Player.RemoveItem rCl 99 1",
+            "Player.SetAV Guns fOG",
+            "PrintToConsole \"PROBE|w6d6p3_28_set_item_mod_clone_invref|dmg(0,1)=%.2f,%.2f\" fD0 fD1"
+          ]
+        }
+      ]
+    }
+  ]
+}

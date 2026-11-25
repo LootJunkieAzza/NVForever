@@ -103,3 +103,13 @@ jip8]. NVForever gives the record's 0 [decision: no record value to give].
   on-hit setting, delays and sound level as loaded; the idle player its loop counts;
   dismemberment its limb models; the level calculation ACBS as loaded; drinking-water
   radiation (`radiation::water_rads`) the record's effect.
+
+### `WeaponHasModType` `WMI{k}` gate and `TempCloneForm` WEAP support [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted), `w6d6_27_weapon_has_mod_type_and_item_mod_getters`, `w6d6_28_set_weapon_item_mod_value_effect_clone`, and `w6d6p3_28_set_item_mod_clone_invref` (`tools/capture/nvse/catalogs/wave6d6_weapon_has_mod_type.json`)]: `WeaponHasModType` and `SetWeaponItemMod*` operate on `TempCloneForm` weapons (`clHas(2,11)=1,3`, `dmg(0,1)=22.00,47.00`), and `WeaponHasModType` returns `0` if a slot has an effect ID (`eff=11`) without a populated `WMI{k}` item mod (`knNoWmi(eff=11,has11=0)`):
+
+```text
+PROBE|w6d6_27_weapon_has_mod_type_and_item_mod_getters|clHas(2,11)=1,3|oob(0,17,-1)=0,0,0|knNoWmi(eff=11,has11=0)|m(0,1,3,4)=00000000,0010C858,00129878,00000000|v1(0,1,4)=0.00,4.00,0.00|v2=0.00|las3(v1,v2)=3.00,0.00
+PROBE|w6d6_28_set_weapon_item_mod_value_effect_clone|cl(m=0010C869,e=1,v=25.0)|st(m=0010C858,e=2)|dmg(0,1)=0.00,0.00|clrE0=1
+PROBE|w6d6p3_28_set_item_mod_clone_invref|dmg(0,1)=22.00,47.00
+```
