@@ -40,7 +40,7 @@ runs on Lanius, NVMissFortuneGunSpellScript and DisguiseFactionPulseScript on th
   1,170; DisguiseFactionPulseActorEffect's 25 (533) one at 147 and not one at 899].
 - **The caster** gets an area spell it casts on itself [observed: esmfx1, IsSpellTarget 1
   on the player after `player.CIOS` of both spells].
-- **Spread from**: a spell cast on oneself (CastImmediateOnSelf) from the caster; a
+- **Spread from**: a spell cast on oneself (`CastImmediateOnSelf`) or via JIP `CastImmediate` from the centre [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_03_cios_vs_castimmediate_and_area_spread` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `cios(p=1,d=1)|ci(p=1,d=1,cDoc=0,cPl=0,c=00000000)|bad(en=11,al=11)`; no DLL or source consulted]; a
   weapon's object effect (its own or an unarmed attack's) from the actor hit. A blast's
   object effect does not spread: the explosion's radius picks who it catches (1024 feet
   for Euclid's C-Finder would cover everything loaded).

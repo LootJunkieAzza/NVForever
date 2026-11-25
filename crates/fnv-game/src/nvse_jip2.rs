@@ -77,6 +77,10 @@ fn form(args: &[XVal], k: usize) -> Option<FormId> {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d12_castimmediate_area_tests.rs"]
+mod w6d12_castimmediate_area_tests;
+
 fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
     match args.get(k) {
         Some(XVal::Num(x)) => *x,
@@ -467,6 +471,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (Some(r), Some(s)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
             let caster = form(args, 1).or(Some(r));
             g.apply_magic_item(r, s, caster, false);
+            g.spread_area(r, s, caster, false);
             zero
         }
         // Back to where the record placed it [observed: Chet back in his cell; the player
