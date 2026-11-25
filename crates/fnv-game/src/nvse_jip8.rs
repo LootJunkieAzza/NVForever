@@ -139,6 +139,10 @@ const WATER_TRAITS: [&str; 49] = [
 /// documented: SetEmbeddedWeaponAV's example, BrainCondition].
 const PERCEPTION_CONDITION: u16 = 25;
 
+#[cfg(test)]
+#[path = "w6d12_addiction_effect_tests.rs"]
+mod w6d12_addiction_effect_tests;
+
 impl Game<'_> {
     /// A base actor's actor effects (SPLO), the record's last first [observed: jip8,
     /// the Super Mutant's two in reverse record order], AddBaseEffectListEffect's and
@@ -509,12 +513,15 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         "getaddictioneffect" => XVal::Ref(form(args, 0).and_then(|a| g.ingestible_def(a)).and_then(|d| d.withdrawal).map_or(0, |f| f.0)),
         "setaddictioneffect" => {
-            // An actor effect; none is ignored [documented: "actorEffect"; observed: jip8,
-            // none leaves Cateye's effect].
-            let alch = form(args, 0).filter(|&a| g.data.sig(g.unclone(a)) == Some(*b"ALCH"));
-            let spel = form(args, 1).filter(|&e| g.data.sig(g.unclone(e)) == Some(*b"SPEL"));
-            if let (Some(a), Some(e)) = (alch, spel) {
-                g.set_field8(a, "ENIT", "withdrawal_effect", XVal::Ref(e.0));
+            // Explicit null (`0`) / omitted leaves the effect unchanged [observed: jip8],
+            // while a non-null non-SPEL form clears ENIT/withdrawal_effect to 0 [observed:
+            // w6d12_07_addiction_chance_effect_and_consume_sound_edges].
+            if let (Some(a), Some(e)) = (
+                form(args, 0).filter(|&a| g.data.sig(g.unclone(a)) == Some(*b"ALCH")),
+                form(args, 1),
+            ) {
+                let next = if g.data.sig(g.unclone(e)) == Some(*b"SPEL") { e.0 } else { 0 };
+                g.set_field8(a, "ENIT", "withdrawal_effect", XVal::Ref(next));
             }
             zero
         }
