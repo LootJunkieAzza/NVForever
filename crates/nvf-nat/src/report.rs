@@ -84,6 +84,20 @@ impl Nat {
         }
     }
 
+    /// The other side's NAT, from the candidates the service passed on: two or more
+    /// server-reflexive ports on one address is a hard NAT (as `ice`'s birthday punch reads
+    /// it), exactly one an easy one; none says nothing.
+    pub fn from_candidates(cands: &[Candidate]) -> Nat {
+        let srflx: Vec<_> = cands.iter().filter(|c| c.kind == Kind::ServerReflexive).map(|c| c.addr).collect();
+        if srflx.iter().any(|a| srflx.iter().filter(|b| b.ip() == a.ip() && b.port() != a.port()).count() >= 1) {
+            Nat::Hard
+        } else if srflx.is_empty() {
+            Nat::Unknown
+        } else {
+            Nat::Easy
+        }
+    }
+
     pub fn word(self) -> &'static str {
         match self {
             Nat::Easy => "easy",
@@ -149,6 +163,17 @@ mod tests {
         assert_eq!(Nat::from_gather(&g(vec![(s, seen)], Mapping::Unknown)), Nat::Unknown);
         assert_eq!(Nat::from_gather(&g(vec![(s, seen), (s, seen)], Mapping::EndpointIndependent)), Nat::Easy);
         assert_eq!(Nat::from_gather(&g(vec![(s, seen), (s, seen)], Mapping::EndpointDependent)), Nat::Hard);
+    }
+
+    #[test]
+    fn nat_from_candidates() {
+        let host = c(Kind::Host, "192.168.1.2:47960");
+        assert_eq!(Nat::from_candidates(&[host]), Nat::Unknown);
+        assert_eq!(Nat::from_candidates(&[host, c(Kind::ServerReflexive, "203.0.113.4:47960")]), Nat::Easy);
+        let hard = [host, c(Kind::ServerReflexive, "203.0.113.4:1797"), c(Kind::ServerReflexive, "203.0.113.4:55757")];
+        assert_eq!(Nat::from_candidates(&hard), Nat::Hard);
+        // Two addresses, one port each (IPv4 and IPv6, say): easy.
+        assert_eq!(Nat::from_candidates(&[c(Kind::ServerReflexive, "203.0.113.4:1"), c(Kind::ServerReflexive, "[2001:db8::1]:1")]), Nat::Easy);
     }
 
     #[test]
