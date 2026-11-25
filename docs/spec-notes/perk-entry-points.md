@@ -503,3 +503,11 @@ condition, if any, is the record's (not looked at beyond its entry).
 
 Checks: `fnv-game` `aid::tests::better_healing_multiplies_restored_health_only` (the
 captured figures); smoke `perk-better-healing`.
+
+### `GetCalculatedAPCost` EP 40 perk integration and float return [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6_20_calc_ap_cost_with_perks` (`tools/capture/nvse/catalogs/wave6d6_calc_ap_cost_perks.json`)]: `GetCalculatedAPCost` applies EP 40 (`Action Point Cost`) perks (`MathWrath x0.9`, `FastShot x0.8`, `TriggerDiscipline x1.2`, `PlasmaSpaz x0.8`, `LooseCannon x0.7`) and returns an unrounded float (`15.30`, `12.24`, `18.36`, `16.80`):
+
+```text
+PROBE|w6d6_20_calc_ap_cost_with_perks|10(0,mw,mwfs,mwtd)=17.00,15.30,12.24,18.36|pl(0,ps)=30.00,24.00|gr(0,lc)=24.00,16.80
+```

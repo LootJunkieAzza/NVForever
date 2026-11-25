@@ -595,7 +595,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 1 | 2 => 0.0,
                 _ => own(),
             };
-            XVal::Num(ap.round())
+            let ap = if ap > 0.0 {
+                g.entry_point_with(FormId::PLAYER_REF, crate::perks::ACTION_POINT_COST, &[Some(w)], ap).0.max(0.0)
+            } else {
+                0.0
+            };
+            XVal::Num(ap)
         }
         // fVATSMaxEngageDistance [documented: GetVATSMaxEngageDistance; the Tweaks
         // setting is not NVForever's]; 5000 when no plugin sets it [observed 2026-11-08:

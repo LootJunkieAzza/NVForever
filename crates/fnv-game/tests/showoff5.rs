@@ -444,3 +444,40 @@ fn show_perk_menu_menu_guard_allows_none_and_levelup_only() {
         );
     }
 }
+
+#[test]
+fn calculated_ap_cost_applies_action_point_cost_perks_without_rounding() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(n(&mut g, "GetCalculatedAPCost 0 TestPistol"), 20.0);
+    // Inject a MathWrath-like EP 40 (x0.9) perk edit onto the player.
+    let perk_id = FormId(0x99_0040);
+    g.lu3.perk_edits.insert(
+        perk_id,
+        fnv_game::data::PerkDef {
+            name: "MathWrathTest".into(),
+            playable: true,
+            min_level: 1,
+            ranks: 1,
+            entries: vec![fnv_game::data::PerkEntry {
+                effect: fnv_game::data::PerkEffect::EntryPoint(fnv_game::data::EntryPointDef {
+                    point: fnv_game::perks::ACTION_POINT_COST,
+                    function: fnv_game::perks::MULTIPLY_VALUE,
+                    value: Some(0.85),
+                    param_type: Some(1),
+                    conditions: Some(vec![]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    );
+    g.player.perks.insert(perk_id, 1);
+    // 20 * 0.85 = 17.0; also test fractional result 20 * 0.765 = 15.3 (unrounded).
+    assert!((n(&mut g, "GetCalculatedAPCost 0 TestPistol") - 17.0).abs() < 1e-5);
+    if let fnv_game::data::PerkEffect::EntryPoint(ep) = &mut g.lu3.perk_edits.get_mut(&perk_id).unwrap().entries[0].effect {
+        ep.value = Some(0.765);
+    }
+    assert!((n(&mut g, "GetCalculatedAPCost 0 TestPistol") - 15.3).abs() < 1e-4);
+}

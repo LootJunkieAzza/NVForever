@@ -1,0 +1,88 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_calc_ap_cost_perks",
+  "description": "Wave 6D-6 read-only probe verifying GetCalculatedAPCost applies EP 40 perks and returns unrounded floats.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184"
+  },
+  "batches": [
+    {
+      "id": "w6d6_calc_ap_cost_perks",
+      "title": "GetCalculatedAPCost EP 40 perks and float return",
+      "extender": "JIP LN NVSE / ShowOffNVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ShowOffNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_20_calc_ap_cost_with_perks",
+          "bucket": "perk_vats_ap",
+          "extender": "ShowOffNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 412,
+          "functions_tested": [
+            "GetCalculatedAPCost",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "SD-18: Verify whether GetCalculatedAPCost reflects EP 40 perks (MathWrath x0.9, FastShot x0.8, TriggerDiscipline x1.2, PlasmaSpaz x0.8, LooseCannon x0.7) on Pistol, PlasmaRifle, and FragGrenade.",
+          "expected": "Record GetCalculatedAPCost(0) before and after each perk (nvse_showoff5.rs:567-599 checks whether ShowOff applies EP 40).",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rPl = GetFormFromMod \"FalloutNV.esm\" \"4344\"",
+            "ref rGr = GetFormFromMod \"FalloutNV.esm\" \"4330\"",
+            "ref rMw = GetFormFromMod \"FalloutNV.esm\" \"135EC3\"",
+            "ref rFs = GetFormFromMod \"FalloutNV.esm\" \"135EC7\"",
+            "ref rTd = GetFormFromMod \"FalloutNV.esm\" \"135EC8\"",
+            "ref rPs = GetFormFromMod \"FalloutNV.esm\" \"165AEF\"",
+            "ref rLc = GetFormFromMod \"FalloutNV.esm\" \"164ED1\"",
+            "float f10_0 = Player.GetCalculatedAPCost 0 r10",
+            "float fPl_0 = Player.GetCalculatedAPCost 0 rPl",
+            "float fGr_0 = Player.GetCalculatedAPCost 0 rGr",
+            "Player.AddPerk rMw",
+            "float f10_mw = Player.GetCalculatedAPCost 0 r10",
+            "Player.AddPerk rFs",
+            "float f10_mwfs = Player.GetCalculatedAPCost 0 r10",
+            "Player.RemovePerk rFs",
+            "Player.AddPerk rTd",
+            "float f10_mwtd = Player.GetCalculatedAPCost 0 r10",
+            "Player.RemovePerk rTd",
+            "Player.RemovePerk rMw",
+            "Player.AddPerk rPs",
+            "float fPl_ps = Player.GetCalculatedAPCost 0 rPl",
+            "Player.RemovePerk rPs",
+            "Player.AddPerk rLc",
+            "float fGr_lc = Player.GetCalculatedAPCost 0 rGr",
+            "Player.RemovePerk rLc",
+            "PrintToConsole \"PROBE|w6d6_20_calc_ap_cost_with_perks|10(0,mw,mwfs,mwtd)=%.2f,%.2f,%.2f,%.2f|pl(0,ps)=%.2f,%.2f|gr(0,lc)=%.2f,%.2f\" f10_0 f10_mw f10_mwfs f10_mwtd fPl_0 fPl_ps fGr_0 fGr_lc"
+          ]
+        }
+      ]
+    }
+  ]
+}
