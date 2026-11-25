@@ -615,6 +615,8 @@ pub fn weapon_anim_code(record_type: i64) -> i64 {
         5 | 7 => 5,
         6 => 6,
         8..=12 => record_type - 1,
+        // OneHandThrown shares 9 with OneHandGrenade [observed: w6d6p3_30_get_weapon_anim_type_all_14].
+        13 => 9,
         _ => 0,
     }
 }
@@ -1572,4 +1574,17 @@ pub fn get_sandman(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> 
 pub fn has_been_eaten(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     yes(g.extra.get(&r).is_some_and(|e| e.eaten))
+}
+
+#[cfg(test)]
+mod weapon_anim_code_tests {
+    use super::weapon_anim_code;
+
+    #[test]
+    fn weapon_anim_code_maps_thrown_to_9_and_matches_all_observed_dnam_types() {
+        let got: Vec<i64> = (0..=13).map(weapon_anim_code).collect();
+        assert_eq!(got, vec![1, 2, 3, 4, 4, 5, 6, 5, 7, 8, 9, 10, 11, 9]);
+        assert_eq!(weapon_anim_code(-1), 0);
+        assert_eq!(weapon_anim_code(14), 0);
+    }
 }

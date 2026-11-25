@@ -1,0 +1,301 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_weapon_anim_type",
+  "description": "Wave 6D-6 read-only probe verifying GetWeaponAnimType across DNAM animation_type codes 0..=13 including OneHandThrown -> 9.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_weapon_anim_type",
+      "title": "GetWeaponAnimType DNAM code mapping",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p3_30_get_weapon_anim_type_all_14",
+          "bucket": "weapon_anim_type",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 229,
+          "functions_tested": [
+            "GetWeaponAnimType",
+            "GetWeaponType",
+            "EquipItem",
+            "UnequipItem"
+          ],
+          "claim": "SD-14: Probe Player.GetWeaponAnimType alongside GetWeaponType across ALL 14 WEAP DNAM animation_type codes (0..=13) plus unarmed.",
+          "expected": "Record exact (GetWeaponType:GetWeaponAnimType) for every code 0..=13.",
+          "script_lines": [
+            "ref rEq0 = Player.GetEquippedObject 5",
+            "if rEq0 != 0",
+            "  Player.UnequipItem rEq0 0 1",
+            "endif",
+            "Player.AuxVarSetFlt \"*p330_un\" (Player.GetWeaponAnimType)"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": [
+            {
+              "suffix": "eq_0",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4347\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_1",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a0\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4347\"",
+                "Player.AuxVarSetFlt \"*p330_t0\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_2",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a1\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+                "Player.AuxVarSetFlt \"*p330_t1\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4351\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_3",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a2\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4351\"",
+                "Player.AuxVarSetFlt \"*p330_t2\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_4",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a3\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*p330_t3\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4343\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_5",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a4\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4343\"",
+                "Player.AuxVarSetFlt \"*p330_t4\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4333\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_6",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a5\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4333\"",
+                "Player.AuxVarSetFlt \"*p330_t5\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4321\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_7",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a6\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4321\"",
+                "Player.AuxVarSetFlt \"*p330_t6\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_8",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a7\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "Player.AuxVarSetFlt \"*p330_t7\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"433F\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_9",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a8\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"433F\"",
+                "Player.AuxVarSetFlt \"*p330_t8\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4340\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_10",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a9\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4340\"",
+                "Player.AuxVarSetFlt \"*p330_t9\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"4330\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_11",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a10\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"4330\"",
+                "Player.AuxVarSetFlt \"*p330_t10\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"433C\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_12",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a11\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"433C\"",
+                "Player.AuxVarSetFlt \"*p330_t11\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"433A\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "eq_13",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a12\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"433A\"",
+                "Player.AuxVarSetFlt \"*p330_t12\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "ref rCur = GetFormFromMod \"FalloutNV.esm\" \"161246\"",
+                "Player.AddItemHealthPercent rCur 1 1.0",
+                "Player.EquipItem rCur 0 1"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p330_a13\" (Player.GetWeaponAnimType)",
+                "ref rPrev = GetFormFromMod \"FalloutNV.esm\" \"161246\"",
+                "Player.AuxVarSetFlt \"*p330_t13\" (GetWeaponType rPrev)",
+                "Player.UnequipItem rPrev 0 1",
+                "Player.RemoveItem rPrev 1 1",
+                "int iUn = Player.AuxVarGetFlt \"*p330_un\"",
+                "int iA0 = Player.AuxVarGetFlt \"*p330_a0\"",
+                "int iT0 = Player.AuxVarGetFlt \"*p330_t0\"",
+                "int iA1 = Player.AuxVarGetFlt \"*p330_a1\"",
+                "int iT1 = Player.AuxVarGetFlt \"*p330_t1\"",
+                "int iA2 = Player.AuxVarGetFlt \"*p330_a2\"",
+                "int iT2 = Player.AuxVarGetFlt \"*p330_t2\"",
+                "int iA3 = Player.AuxVarGetFlt \"*p330_a3\"",
+                "int iT3 = Player.AuxVarGetFlt \"*p330_t3\"",
+                "int iA4 = Player.AuxVarGetFlt \"*p330_a4\"",
+                "int iT4 = Player.AuxVarGetFlt \"*p330_t4\"",
+                "int iA5 = Player.AuxVarGetFlt \"*p330_a5\"",
+                "int iT5 = Player.AuxVarGetFlt \"*p330_t5\"",
+                "int iA6 = Player.AuxVarGetFlt \"*p330_a6\"",
+                "int iT6 = Player.AuxVarGetFlt \"*p330_t6\"",
+                "int iA7 = Player.AuxVarGetFlt \"*p330_a7\"",
+                "int iT7 = Player.AuxVarGetFlt \"*p330_t7\"",
+                "int iA8 = Player.AuxVarGetFlt \"*p330_a8\"",
+                "int iT8 = Player.AuxVarGetFlt \"*p330_t8\"",
+                "int iA9 = Player.AuxVarGetFlt \"*p330_a9\"",
+                "int iT9 = Player.AuxVarGetFlt \"*p330_t9\"",
+                "int iA10 = Player.AuxVarGetFlt \"*p330_a10\"",
+                "int iT10 = Player.AuxVarGetFlt \"*p330_t10\"",
+                "int iA11 = Player.AuxVarGetFlt \"*p330_a11\"",
+                "int iT11 = Player.AuxVarGetFlt \"*p330_t11\"",
+                "int iA12 = Player.AuxVarGetFlt \"*p330_a12\"",
+                "int iT12 = Player.AuxVarGetFlt \"*p330_t12\"",
+                "int iA13 = Player.AuxVarGetFlt \"*p330_a13\"",
+                "int iT13 = Player.AuxVarGetFlt \"*p330_t13\"",
+                "string_var svA = sv_Construct \"%g:%g,%g:%g,%g:%g,%g:%g,%g:%g,%g:%g,%g:%g\" iT0 iA0 iT1 iA1 iT2 iA2 iT3 iA3 iT4 iA4 iT5 iA5 iT6 iA6",
+                "string_var svB = sv_Construct \"%g:%g,%g:%g,%g:%g,%g:%g,%g:%g,%g:%g,%g:%g\" iT7 iA7 iT8 iA8 iT9 iA9 iT10 iA10 iT11 iA11 iT12 iA12 iT13 iA13",
+                "PrintToConsole \"PROBE|w6d6p3_30_get_weapon_anim_type_all_14|un=%g|0..6=%z|7..13=%z\" iUn svA svB"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

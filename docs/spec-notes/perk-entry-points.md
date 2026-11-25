@@ -503,3 +503,11 @@ condition, if any, is the record's (not looked at beyond its entry).
 
 Checks: `fnv-game` `aid::tests::better_healing_multiplies_restored_health_only` (the
 captured figures); smoke `perk-better-healing`.
+
+### `GetWeaponAnimType` mapping across `DNAM.animation_type` [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p3_30_get_weapon_anim_type_all_14` (`tools/capture/nvse/catalogs/wave6d6_weapon_anim_type.json`)]: Unarmed returns `1`, codes `0..=5` and `7..=12` map to `1,2,3,4,4,5` and `5,7,8,9,10,11`, and code `13` (`OneHandThrown`, `ThrowingKnife` `0x161246`) returns **`9`** (same as `OneHandGrenade` `10`); code `6` (`TwoHandAutomatic`) remains `[hypothesis: 6]`:
+
+```text
+PROBE|w6d6p3_30_get_weapon_anim_type_all_14|un=1|0..6=0:1,1:2,2:3,3:4,4:4,5:5,3:4|7..13=7:5,8:7,9:8,10:9,11:10,12:11,13:9
+```
