@@ -131,6 +131,16 @@ fn handlers_hear_the_game() {
     let before = g.other.jg8.handlers.len();
     q(&mut g, "ref h\nlet h := (begin function {int m}\nlet TestGlobal := TestGlobal + 99\nend)\nSetOnKBCTrlUIDeltaHandler 1 h 0 1002\nSetOnKBCTrlUIDeltaHandler 0 h 0 1002");
     assert_eq!(g.other.jg8.handlers.len(), before);
+    // [observed: w6d3p3_17c_npc_av_trunc_multitick & w6d3_17_npc_av_change_trunc_and_xmarker]
+    // flag & 1 == 0 truncates toward zero (64.40 -> 63.80 reports 64.0 -> 63.0, not 64 -> 64),
+    // and XMarker (0x3B) acts as a wildcard on form filter slots while still skipping the player.
+    q(&mut g, "let TestGlobal := 0\nSetOnNPCActorValueChangeEventHandler 1 (begin function {ref rA, int iAv, float fOld, float fNew}\nlet TestGlobal := fOld * 1000 + fNew\nend) 0 59 16");
+    g.jg8_fire(
+        fnv_game::nvse_jg8::Ev::NpcActorValue,
+        &[XVal::Ref(MISC_A), XVal::Num(16.0)],
+        vec![XVal::Ref(MISC_A), XVal::Num(16.0), XVal::Num(64.4), XVal::Num(63.8)],
+    );
+    assert_eq!(global(&mut g), 64_063.0, "integer mode truncates 64.40->64 and 63.80->63 via XMarker wildcard");
 }
 
 #[test]
