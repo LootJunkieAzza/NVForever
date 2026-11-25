@@ -1317,6 +1317,10 @@ fn hex_prefix(h: &str) -> f64 {
     i64::from_str_radix(&h[..n], 16).map_or(0.0, |v| v as f64)
 }
 
+#[cfg(test)]
+#[path = "w6d11_sv_getchar_tests.rs"]
+mod w6d11_sv_getchar_tests;
+
 /// The widest field and the most digits a format code writes; a larger width or precision
 /// is cut to this, so a mod's `%.4000000000f` cannot build a huge string [design: as #1134
 /// asks of the message formatter].
@@ -2858,7 +2862,8 @@ impl Vm<'_, '_> {
             "sv_getchar" => {
                 let s = text(val(self, 0)?).unwrap_or_default();
                 let p = val(self, 1)?.num()?;
-                XVal::Num(position(p, s.chars().count()).and_then(|p| s.chars().nth(p)).map_or(-1.0, |ch| ch as u32 as f64))
+                let ch = if p < 0.0 || !p.is_finite() { None } else { s.chars().nth(p as usize) };
+                XVal::Num(ch.map_or(-1.0, |ch| ch as u32 as f64))
             }
             // [documented: NumToHex] upper-case hex, zero-padded to the width (default 8, at
             // most 8), `0x` with the flag.

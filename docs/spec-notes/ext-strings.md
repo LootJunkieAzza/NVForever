@@ -183,7 +183,13 @@ from 0 throughout [documented: Sv Length; Sv Find].
 - **Result**: int, the ASCII code (0–127) of that character.
 - **Edge cases**: a subscript `s[i]` is the newer way to read one character (as a
   string, not a code). A position outside the string, or a character above 127: open.
-- **Evidence**: [documented: Sv GetChar].
+- **Evidence**: [documented: Sv GetChar]; negative indices (`-1`, `-10`), out-of-range
+  indices (`99`), and empty strings all return `-1` [observed: 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10
+  official base masters, read-only `PrintToConsole` probe
+  `w6d11_29_sv_tonumeric_and_sv_getchar_edges`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `gc(0=65,2=67,m1=-1,m10=-1,99=-1,e=-1)`; no DLL or source consulted].
 
 ### Sv_Split
 
