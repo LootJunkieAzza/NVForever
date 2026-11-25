@@ -580,8 +580,9 @@ SetWeapon1stPersonModel TestGun 0"#);
     assert_eq!(back.weapon_model_stamp(), empty);
 }
 
-/// `SetWeaponModel` accepts `TempCloneForm` `WEAP` clones and isolates overrides from the
-/// original weapon [observed: `w6d2p3_02_weapon_model_paths_and_clone`].
+/// `SetWeaponModel` accepts `TempCloneForm` `WEAP` clones (`cl=[weapons\w6d2_clone.nif]`)
+/// [observed: `w6d2p3_02_weapon_model_paths_and_clone`]; isolating clone overrides from the
+/// original weapon is [hypothesis]/[design] (`origEq=0` in the probe reflected literal `"s0"`).
 #[test]
 fn set_weapon_model_accepts_tempclone_and_isolates_original() {
     let f = fixture();
