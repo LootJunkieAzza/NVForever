@@ -74,13 +74,30 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             })
         }
         "clamp" => XVal::Num(num(args, 0, 0.0).clamp(num(args, 1, 0.0), num(args, 2, 0.0).max(num(args, 1, 0.0)))),
-        // [documented: GetDistance3D (LU); observed: Doc's door to his dresser 828.363]
-        // the straight-line distance from the calling reference to another; FLT_MAX when
-        // either is missing [documented].
+        // [documented: GetDistance3D (LU); observed: Doc's door to his dresser 828.363;
+        // observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 +
+        // JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters,
+        // `w6d10_02_distance_same_cell_cross_int_and_ext_sentinels`
+        // (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+        // `same(665.1,665.1,665.1)|self(0.0,0.0,0.0)|dres(857.0,851.3,857.0)|xInt(gt=1:340282346638528859811704183484516925440.0,gt2=1:340282346638528859811704183484516925440.0,gt3=1:340282346638528859811704183484516925440.0)|xExt(gt=1:340282346638528859811704183484516925440.0,gt2=1:340282346638528859811704183484516925440.0,gt3=1:340282346638528859811704183484516925440.0)`;
+        // cross-interior and interior-vs-exterior pairs return `f32::MAX`].
         "getdistance3d" => {
-            let pos = |g: &mut Game, r: Option<FormId>| r.and_then(|r| g.ref_pos_rot(r)).map(|(p, _)| p);
-            match (pos(g, subject), pos(g, form(args, 0))) {
-                (Some(p), Some(q)) => XVal::Num(f64::from(((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt())),
+            let (Some(a), Some(b)) = (subject, form(args, 0)) else {
+                return Some(Ok(XVal::Num(f64::from(f32::MAX))));
+            };
+            let same = match (g.cell_of(a), g.cell_of(b)) {
+                (Some(x), Some(y)) => {
+                    x == y
+                        || (g.world.placed.world_of(x).is_some()
+                            && g.world.placed.world_of(x) == g.world.placed.world_of(y))
+                }
+                _ => false,
+            };
+            match (same, g.ref_pos_rot(a), g.ref_pos_rot(b)) {
+                (true, Some((p, _)), Some((q, _))) => XVal::Num(f64::from(
+                    ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt(),
+                )),
                 _ => XVal::Num(f64::from(f32::MAX)),
             }
         }
@@ -161,3 +178,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_getdistance3d_tests.rs"]
+mod w6d10_getdistance3d_tests;

@@ -318,3 +318,15 @@ identity, script key replacement without changing access or level, own-lock
 precedence, save restoration, prompts and navigation. Smoke
 `repconn-load-door-lock` exercises the reported tunnel door; it was written without
 running the game.
+
+## 6. Spatial Distance & Cell Space Boundaries (Wave 6D-10)
+
+- `GetDistance`, `GetDistance2D`, and `GetDistance3D` all require both references to share
+  the same space (same interior cell or same exterior worldspace), returning `f32::MAX`
+  (`340282346638528859811704183484516925440.0`) for cross-interior and interior-vs-exterior
+  pairs [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE
+  57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  read-only console probe `w6d10_02_distance_same_cell_cross_int_and_ext_sentinels`
+  (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+  `PROBE|w6d10_02_distance_same_cell_cross_int_and_ext_sentinels|same(665.1,665.1,665.1)|self(0.0,0.0,0.0)|dres(857.0,851.3,857.0)|xInt(gt=1:340282346638528859811704183484516925440.0,gt2=1:340282346638528859811704183484516925440.0,gt3=1:340282346638528859811704183484516925440.0)|xExt(gt=1:340282346638528859811704183484516925440.0,gt2=1:340282346638528859811704183484516925440.0,gt3=1:340282346638528859811704183484516925440.0)`;
+  zero DLL, PDB, or third-party source consulted].
