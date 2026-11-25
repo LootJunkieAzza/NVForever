@@ -1288,12 +1288,12 @@ pub enum LineLook {
     Both,
     /// Nobody turns: a conversation between actors started with `headTrack` 0
     /// [documented: GECK wiki StartConversation: "Enter 0 to disable" head tracking
-    /// during the conversation], and a SayTo line with `noTargetLookFlag` 1
-    /// [hypothesis, observer check 218, #2796] (`functions::misc::say_to`). Until #2796
-    /// that flag only kept the listener still (a variant `Speaker`); a game saved while
-    /// such a line was said reads it as this one.
-    #[serde(alias = "Speaker")]
+    /// during the conversation].
     Nobody,
+    /// The speaker turns to the listener, the listener is not made to look at the
+    /// speaker: a SayTo line with `noTargetLookFlag` 1 (`functions::misc::say_to`)
+    /// [observed: observer check 218, base game 2026-11-25, #3989].
+    Speaker,
 }
 
 impl LineLook {
@@ -1772,6 +1772,10 @@ pub struct Game<'a> {
     /// References Rotate turned or SetScale resized in the latest [`Game::tick`], for the
     /// engine to draw at their new angle and size. Not saved.
     pub turned: BTreeSet<FormId>,
+    /// The NPCs the save had seated, each with its furniture reference, for the engine to
+    /// put back on at once (`Game::stand_everyone_up`, #3991). Filled by a load, taken once
+    /// by the engine; not saved.
+    pub saved_seats: BTreeMap<FormId, FormId>,
     /// Actors whose OnStartCombat block was fired and whose OnCombatEnd was not yet
     /// (`Game::combat_blocks`). Saved with the combat states, so that a load runs no block
     /// for a fight already going [documented: GECK wiki event handler table, OnStartCombat
@@ -2797,6 +2801,7 @@ impl<'a> Game<'a> {
             teleported: BTreeSet::new(),
             rotations: BTreeMap::new(),
             turned: BTreeSet::new(),
+            saved_seats: BTreeMap::new(),
             cell_resets: Vec::new(),
             level_news: Vec::new(),
             resurrections: Vec::new(),
@@ -3916,6 +3921,41 @@ impl<'a> Game<'a> {
     /// Exact record/owned-handle identity, shared by dispatch and arity admission.
     fn callable_script(&self, id: u32) -> Option<&'a Compiled> {
         self.data.script(FormId(id)).or_else(|| self.compiled_slots.get(&id).and_then(|&i| self.compiled_files.get(i).copied()))
+    }
+
+    /// Human-readable identifier for a script callable (FormID-backed UDF, compiled-file
+    /// UDF, or lambda) used to enrich runtime error units such as delayed calls [design].
+    /// Returns `None` when `f` does not resolve to a known script unit so unresolved
+    /// handles keep their existing error unit and deduplication key.
+    pub(crate) fn callable_label(&self, f: &fnv_script::vm::XVal) -> Option<String> {
+        let id = match f {
+            fnv_script::vm::XVal::Ref(id) => *id,
+            fnv_script::vm::XVal::Num(x) => *x as u32,
+            _ => return None,
+        };
+        if let Some(&index) = self.lambda_slots.get(&id) {
+            let key = crate::jip_provenance::Text::new(&self.lambdas[index].key).single_line();
+            return Some(format!("{key} lambda"));
+        }
+        if let Some(unit) = self.data.script(FormId(id)) {
+            let key = crate::jip_provenance::Text::new(unit.shared_key()).single_line();
+            return Some(match self.data.edid_of.get(&FormId(id)) {
+                Some(edid) if !edid.is_empty() => format!("{key} {}", crate::jip_provenance::Text::new(edid).single_line()),
+                _ => key,
+            });
+        }
+        if self.compiled_slots.contains_key(&id) {
+            let file = match self.compiled_origins.get(id) {
+                Some(crate::jip_provenance::CompiledOrigin::File(file)) => Some(file.single_line()),
+                Some(crate::jip_provenance::CompiledOrigin::Dynamic) => None,
+                None => self.compiled_paths.iter().find_map(|(path, &cid)| (cid == id).then(|| crate::jip_provenance::Text::new(path).single_line())),
+            };
+            return Some(match file {
+                Some(path) => format!("CompileScript {path} 0x{id:08X}"),
+                None => format!("CompileScript 0x{id:08X}"),
+            });
+        }
+        None
     }
 
     pub(crate) fn free_callable_handle(&self, start: u32, end: u32) -> Option<u32> {
@@ -5553,8 +5593,8 @@ impl<'a> Game<'a> {
     ///   "forced to look at the speaker" unless `noTargetLookFlag`]: its head only for a
     ///   SayTo line [design], head and body in a conversation between actors, where it
     ///   speaks next [design, as `fnv_ai` has turned both since it started them];
-    /// - nobody, when the line's [`LineLook`] says so (StartConversation's `headTrack` 0,
-    ///   SayTo's `noTargetLookFlag` 1).
+    /// - nobody, when the line's [`LineLook`] says so (StartConversation's `headTrack` 0);
+    ///   the speaker alone for SayTo's `noTargetLookFlag` 1.
     ///
     /// A line said to nobody (Say) turns nobody. Whether the engine can turn a body (one
     /// on furniture or on its way cannot) is the engine's. A line said through a talking
@@ -5570,6 +5610,9 @@ impl<'a> Game<'a> {
                 continue;
             }
             out.push(Facing { who: speaker, to, body: true, speaking: true, info: s.info });
+            if s.look == LineLook::Speaker {
+                continue;
+            }
             out.push(Facing { who: to, to: speaker, body: s.conversation.is_some(), speaking: false, info: s.info });
         }
         out
@@ -5712,11 +5755,14 @@ impl<'a> Game<'a> {
     /// to it, no conversation: [`Speech::greeting`]). The engine keeps it where it
     /// stands, turned to the player, until the line is over; its package goes on after
     /// [owner statement 2026-10-27, the Goodsprings settler's water line: "make her stop
-    /// and look at the player"; docs/design/dialogue-play.md §1]. Not once it is in a
-    /// combat state (Alert, Combat, Lost): the line then ends as if said to the end
-    /// (`Game::update_speech_of`) and it fights.
+    /// and look at the player"; docs/design/dialogue-play.md §1]. Not once it is fighting
+    /// (`State::Combat`, #883): the line then ends as if said to the end
+    /// (`Game::update_speech_of`) and it fights. An actor that is merely searching
+    /// (`State::Alert` or `State::Lost`, #3663) still pauses to finish its greeting
+    /// [hypothesis: a searching NPC can be talked to].
     pub fn greets_player(&self, actor: FormId) -> bool {
-        !self.awareness.state(actor).in_combat() && self.speech.iter().any(|s| s.speaker == actor && s.greeting && s.target == Some(FormId::PLAYER_REF))
+        self.awareness.state(actor) != crate::awareness::State::Combat
+            && self.speech.iter().any(|s| s.speaker == actor && s.greeting && s.target == Some(FormId::PLAYER_REF))
     }
 
     /// One frame of dialogue (game time only, like script time [hypothesis: a line does
@@ -5746,12 +5792,15 @@ impl<'a> Game<'a> {
             // be (`crate::talking_activators`); the actor's death still cuts the line.
             let place = s.place();
             let here = self.world.peek(place).is_none_or(|w| !w.deleted()) && self.world.is_enabled(place).unwrap_or(false);
-            // A Goodbye greeting at the player whose speaker is drawn into a fight ends at
-            // once as if said to the end (`Game::cut_line`, `Game::greets_player`) [owner
-            // statement 2026-10-27: "skip to the end of the line as if she finished
-            // speaking", "all the code runs"]; so does a farewell ([`Speech::farewell`])
-            // [hypothesis, as in `Game::cut_line`].
-            let fights = s.goodbye_at_player() && self.awareness.state(s.speaker).in_combat();
+            // A Goodbye greeting at the player whose speaker is drawn into a fight
+            // (`State::Combat`, #883) ends at once as if said to the end (`Game::cut_line`,
+            // `Game::greets_player`) [owner statement 2026-10-27: "skip to the end of the
+            // line as if she finished speaking", "all the code runs"]; so does a farewell
+            // ([`Speech::farewell`]) [hypothesis, as in `Game::cut_line`]. Searching states
+            // (`State::Alert` / `State::Lost`, #3663) do not end the line prematurely so a
+            // Goodbye greeting started while searching is heard rather than discarded in
+            // the same frame [hypothesis: a searching NPC can be talked to].
+            let fights = s.goodbye_at_player() && self.awareness.state(s.speaker) == crate::awareness::State::Combat;
             if !here || (self.extra.get(&s.speaker).is_some_and(|e| e.dead) && Some(s.topic) != death) {
                 cut.push(s.speaker);
             } else if s.remaining <= 1e-9 || fights {
@@ -6544,10 +6593,18 @@ impl<'a> Game<'a> {
     /// script (0 begin, 1 end, 2 change) and the actor's OnPackageStart / OnPackageDone /
     /// OnPackageChange blocks.
     pub fn package_event(&mut self, actor: FormId, package: FormId, which: usize) {
-        let data = self.data;
         if which != 1 {
             self.extra.entry(actor).or_default().current_package = Some(package);
         }
+        self.run_package_event(actor, package, which);
+    }
+
+    /// Run a package's event hooks (result script, topic, idle, and actor script block)
+    /// without mutating `current_package`. Used by [`Game::set_package`] so an outgoing
+    /// package's Change script (`which == 2`) sees the already-updated `current_package`
+    /// and cannot re-enter itself via `EvaluatePackage`.
+    pub(crate) fn run_package_event(&mut self, actor: FormId, package: FormId, which: usize) {
+        let data = self.data;
         if let Some(Some(u)) = data.packages.get(&package).map(|p| p[which]) {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
             self.run_result(u, RunCtx { self_ref: Some(actor), ..Default::default() });

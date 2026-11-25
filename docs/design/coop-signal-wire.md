@@ -71,7 +71,9 @@ Every non-2xx answer has the body `{"error": "<code>", "message": "<text for the
 | `bye` | either | none | Leaving. From the host, this ends the lobby. |
 
 A candidate is `{"kind":"host"|"mapped"|"srflx"|"prflx"|"relay","addr":"203.0.113.5:47960"}`, or
-`"[2001:db8::5]:47960"` for IPv6. `relay` is a relay a player hosts (`nvf-relay`, issue #3880). A receiver skips kinds it does not know.
+`"[2001:db8::5]:47960"` for IPv6. `relay` is a relay a player hosts (`nvf-relay`, issues #3880
+and #3908; UDP wire version 2 with a Challenge/cookie return check before forwarding, specified
+in `docs/spec-notes/nat-traversal.md`, "Hosted relay"). A receiver skips kinds it does not know.
 
 ## Socket messages, service to game
 

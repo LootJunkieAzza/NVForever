@@ -245,7 +245,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             outputs(g, 0.0, &[x, y])
         }
         // `xOut yOut request`: this frame's movement (0) or the last (1), only in a menu
-        // [documented: GetMouseMovement]; 0 0 out of menus [hypothesis]. The VM leaves
+        // [documented: GetMouseMovement]; 0 0 out of menus (see docs/spec-notes/ext-sup6.md §1). The VM leaves
         // the two output variables out of `args`: the request is the first left.
         "getmousemovement" => {
             let m = g.sup.mouse;
@@ -298,7 +298,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `trait [start [end [duration [mode]]]]`: no more than the trait stops the
         // change where it is [documented: "SetCursorTraitGradual 0 Will stop"]; a start
-        // alone sets it [hypothesis: as SetUIFloatGradual]. Modes over 3 read 0.
+        // alone sets it (see docs/spec-notes/ext-sup6.md §2). Modes over 3 read 0.
         "setcursortraitgradual" => {
             let k = num(args, 0, -1.0);
             if (0.0..CURSOR_TRAITS as f64).contains(&k) {
