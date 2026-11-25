@@ -153,8 +153,9 @@ const COLORS: [[f32; 4]; 4] = [[0.5, 2.0, -1.0, 0.25], [f32::NAN, 0.0, 0.3, 0.75
 const LIST: Corners = Corners::List(&[0, 1, 2, 1, 3, 2]);
 
 /// The model: shapes that the loader leaves out before all that it draws, so that neither the
-/// file's order nor a list's gives a drawn one's number. With the names of the drawn ones.
-fn room() -> (Vec<u8>, [&'static str; 7]) {
+/// file's order nor a list's gives a drawn one's number. With the names of the drawn ones; `gone`
+/// are the flags of the one whose triangles are.
+fn room(gone: u32) -> (Vec<u8>, [&'static str; 7]) {
     let mut nif = Nif::default();
     nif.add("BSFadeNode", vec![]);
     let (plain, faded, dark) = (lit(&mut nif, 0), lit(&mut nif, 1 << 3), unlit(&mut nif));
@@ -172,7 +173,7 @@ fn room() -> (Vec<u8>, [&'static str; 7]) {
     let rejected = nif.shape("Rejected:0", 14, &[plain], none, NONE);
     // Each of its triangles has a corner that is not there.
     let data = corners(&mut nif, 9.0, true, None, Corners::List(&[0, 1, 9, 8, 2, 1]));
-    let gone = nif.shape("Gone:0", 15, &[plain], data, NONE);
+    let gone = nif.shape("Gone:0", gone, &[plain], data, NONE);
 
     // Hidden, and shown by a controller of its own: the rig's alone.
     let data = corners(&mut nif, 3.0, true, Some(COLORS), LIST);
@@ -246,7 +247,8 @@ impl Game {
         let dir = std::env::temp_dir().join(format!("nvf-read-again-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("meshes")).unwrap();
-        std::fs::write(dir.join("meshes/room.nif"), room().0).unwrap();
+        std::fs::write(dir.join("meshes/room.nif"), room(15).0).unwrap();
+        std::fs::write(dir.join("meshes/gone.nif"), room(14).0).unwrap();
         std::fs::create_dir_all(dir.join("textures")).unwrap();
         std::fs::write(dir.join("textures/wall.dds"), wall()).unwrap();
         let schema = fnv_nif::Schema::load_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
@@ -344,7 +346,7 @@ fn again(g: &Geometry) -> Bits {
 #[test]
 fn a_shapes_arrays_are_the_loaders() {
     let _turn = turn();
-    let (_, names) = room();
+    let (_, names) = room(15);
     for (way, load) in [("Stores", Game::stores as fn(&mut Game) -> Arc<PreparedModel>), ("Deferred", Game::deferred)] {
         let mut game = Game::new(way);
         let model = load(&mut game);
@@ -411,8 +413,12 @@ fn every_variant_names_the_same_blocks() {
 #[test]
 fn what_is_not_there_is_an_error() {
     let _turn = turn();
-    let game = Game::new("errors");
-    let (bytes, _) = room();
+    let mut game = Game::new("errors");
+    // Where it shows, the loader takes the shape without triangles and draws it empty.
+    let model = game.ctx(|c| c.model(r"meshes\gone.nif")).expect("the model loads");
+    let gone = model.shapes.iter().find(|s| s.name.as_deref() == Some("Gone:0")).expect("taken");
+    assert!(drawn(game.mesh(gone.mesh.id()))[4].is_empty() && game.read(&[(gone.block, "Gone:0")]).is_err());
+    let (bytes, _) = room(15);
     let file = fnv_nif::NifFile::parse(&bytes, None).unwrap();
     let dec = fnv_nif::scene::Decoded::new(&file, &bytes, &game.world.resource::<GameData>().schema);
     let block = |name: &str| dec.blocks.iter().position(|b| b.as_ref().is_ok_and(|s| s.text("name") == Some(name))).unwrap() as u32;

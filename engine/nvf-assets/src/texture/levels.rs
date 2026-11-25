@@ -104,7 +104,9 @@ fn levels_unguarded(bytes: &[u8], usage: TextureUsage, drawn: &Drawn, tested: bo
     let mips = dds.levels[0].len() as u32;
     colour_shape_ok(&dds, mips).map_err(Lost::Broken)?;
     let (width, height) = (dds.header.width, dds.header.height);
-    if (width, height, mips) != (drawn.width, drawn.height, drawn.mips) || !drawn_as(dds.format, usage, drawn.format) {
+    // The GPU takes blocks only where both sides are multiples of 4 (`dds_image_unguarded`).
+    let blocks = !drawn.format.is_compressed() || (width.is_multiple_of(4) && height.is_multiple_of(4));
+    if (width, height, mips) != (drawn.width, drawn.height, drawn.mips) || !blocks || !drawn_as(dds.format, usage, drawn.format) {
         return Err(Lost::Broken(format!("{} {width}x{height}, {mips} levels; drawn for {usage:?} as {drawn:?}", dds.format.name())));
     }
     if matches!(dds.format, Format::Bc7 | Format::Bc4U | Format::Bc4S | Format::Bc5U | Format::Bc5S) {
@@ -129,7 +131,7 @@ fn levels_unguarded(bytes: &[u8], usage: TextureUsage, drawn: &Drawn, tested: bo
 }
 
 /// Whether the loader makes a texture of this format from such a file for this usage
-/// (`dds_image_unguarded`).
+/// (`dds_image_unguarded`), at sides that allow it.
 fn drawn_as(file: Format, usage: TextureUsage, drawn: TextureFormat) -> bool {
     use TextureFormat::*;
     use TextureUsage::{Linear, Normal, NormalTwoChannel};
@@ -245,6 +247,12 @@ mod tests {
             out[at..at + 4].copy_from_slice(&v.to_le_bytes());
         }
         out
+    }
+
+    /// BC7 of at most two blocks.
+    fn bc7(w: u32, h: u32) -> Vec<u8> {
+        let header = [98u32, 3, 0, 1, 0].map(u32::to_le_bytes);
+        dds(b"DX10", w, h, 1, &[header.as_flattened(), &[0; 32]].concat())
     }
 
     fn drawn(bytes: &[u8], bc: bool) -> Drawn {
@@ -373,36 +381,41 @@ mod tests {
         cube[112..116].copy_from_slice(&0xFE00u32.to_le_bytes());
         assert!(broken(&cube, &drawn(&chain(b"DXT1", 4, 4, 1), true)));
         // Formats without a decoder here, as the GPU has them.
-        let mut bc7 = dds(b"DX10", 4, 4, 1, &[]);
-        for v in [98u32, 3, 0, 1, 0] {
-            bc7.extend(v.to_le_bytes());
-        }
-        bc7.extend([0; 16]);
+        let bc7 = bc7(4, 4);
         assert_eq!(levels(&bc7, &drawn(&bc7, true), true).unwrap_err(), Lost::Undecoded(Format::Bc7));
         assert!(broken(&bc7, &drawn(&chain(b"DXT1", 4, 4, 1), true)), "drawn as another");
     }
 
-    /// BC4 and BC5: undecoded in exactly the formats the loader makes of them for a usage; in
+    /// Every block format at sides on and off the block grid: taken (BC1 to BC3) or undecoded in
+    /// exactly the formats the loader makes of it for a usage, with and without BC support; in
     /// any other, and for a usage it refuses, not what was drawn.
     #[test]
-    fn one_and_two_channels_are_undecoded_only_as_they_were_drawn() {
+    fn blocks_are_taken_only_as_they_were_drawn() {
         use TextureFormat::*;
-        let formats = [Bc4RUnorm, Bc4RSnorm, R8Unorm, R8Snorm, Bc5RgUnorm, Bc5RgSnorm, Rg8Unorm, Rg8Snorm, Rgba8Unorm, Rgba8UnormSrgb, Bc3RgbaUnorm, Bc3RgbaUnormSrgb];
-        let mut undecoded = 0;
-        for (tag, file, size) in [(b"BC4U", Format::Bc4U, 8), (b"BC4S", Format::Bc4S, 8), (b"ATI2", Format::Bc5U, 16), (b"BC5S", Format::Bc5S, 16)] {
-            let bytes = dds(tag, 4, 4, 1, &vec![0; size]);
-            for usage in super::super::TEXTURE_USAGES {
-                let made = [true, false].map(|bc| dds_texture(&bytes, usage, bc, false).ok().map(|t| t.image.texture_descriptor.format));
+        let formats = [Bc4RUnorm, Bc4RSnorm, R8Unorm, R8Snorm, Bc5RgUnorm, Bc5RgSnorm, Rg8Unorm, Rg8Snorm, Rgba8Unorm, Rgba8UnormSrgb, Bc1RgbaUnorm, Bc1RgbaUnormSrgb, Bc2RgbaUnorm, Bc2RgbaUnormSrgb, Bc3RgbaUnorm, Bc3RgbaUnormSrgb, Bc7RgbaUnorm, Bc7RgbaUnormSrgb];
+        let (mut undecoded, mut taken) = (0, 0);
+        for (w, h) in [(4, 4), (5, 4), (4, 5)] {
+            let two = |tag| dds(tag, w, h, 1, &[0; 32]);
+            let files = [two(b"DXT1"), two(b"DXT3"), two(b"DXT5"), two(b"BC4U"), two(b"BC4S"), two(b"ATI2"), two(b"BC5S"), bc7(w, h)];
+            for (bytes, usage) in files.iter().flat_map(|f| super::super::TEXTURE_USAGES.map(|u| (f, u))) {
+                let file = Dds::parse(bytes).unwrap().format;
+                let made = [true, false].map(|bc| dds_texture(bytes, usage, bc, false).ok().map(|t| t.image.texture_descriptor.format));
                 for format in formats {
-                    let d = Drawn { format, width: 4, height: 4, mips: 1, wrap: [Wrap::Repeat; 2] };
-                    let lost = super::levels(&bytes, usage, &d, true).unwrap_err();
-                    let is = made.contains(&Some(format));
-                    assert!(if is { lost == Lost::Undecoded(file) } else { matches!(lost, Lost::Broken(_)) }, "{usage:?} {format:?}: {lost:?}");
-                    undecoded += usize::from(is);
+                    let d = Drawn { format, width: w, height: h, mips: 1, wrap: [Wrap::Repeat; 2] };
+                    let is = match super::levels(bytes, usage, &d, true) {
+                        Ok(_) => Some(&mut taken),
+                        Err(Lost::Undecoded(f)) if f == file => Some(&mut undecoded),
+                        Err(Lost::Broken(_)) => None,
+                        Err(lost) => panic!("{lost:?}"),
+                    };
+                    assert_eq!(is.is_some(), made.contains(&Some(format)), "{w}x{h} {file:?} {usage:?} {format:?}");
+                    *is.unwrap_or(&mut 0) += 1;
                 }
             }
         }
-        assert_eq!(undecoded, 2 + 2 + (2 + 1 + 2) + (2 + 1 + 1));
+        // BC4 and BC5 on the grid (2 + 2 + 5 + 4) and off it (1 + 1 + 3 + 3), BC7 on it; BC1 to
+        // BC3 as blocks or decoded, off the grid decoded alone.
+        assert_eq!((undecoded, taken), (13 + 2 * 8 + 4, 3 * 4 * (2 + 1 + 1)));
     }
 
     /// Out of the mounted files: the drawn image's own file, one that is gone and one over the
