@@ -78,8 +78,8 @@ which marker's music plays (`nvf-play` music.rs `script_markers`).
 |---|---|
 | AudioMarkerGetController (AMKGetCtrl) | the marker's media location controller [documented] |
 | AudioMarkerGetCurrent (AMKGetCur) | the marker whose music plays now [documented] |
-| AudioMarkerGetProperty (AMKGetProp) `n` | 0 radius, 1 layer 2 trigger %, 2 layer 3 trigger % [documented]; the triggers as stored, fractions [hypothesis] |
-| AudioMarkerSetController (AMKSetCtrl) `controller`, AudioMarkerSetProperty (AMKSetProp) `n value` | for the session; the music picks from the changed markers from then on |
+| AudioMarkerGetProperty (AMKGetProp) `n` | 0 radius, 1 layer 2 trigger %, 2 layer 3 trigger % [documented]; layer 2/3 triggers read back as stored fractions (`0.33`, `0.67`) and OOB `3` reads `1.0` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d3_audio_marker_setter_returns_zero.json`, `w6d3p2_38_jg9_audio_markers_and_holotapes`: `curZ=1,ctrl0=001694BB\|p=2500.0,0.33,0.67,1.0\|sp=0->1234.5,oob=0\|sc=0(eq=1)\|ht=0,1,st=1,1\|rtm=0`, no DLL or source consulted] |
+| AudioMarkerSetController (AMKSetCtrl) `controller`, AudioMarkerSetProperty (AMKSetProp) `n value` | for the session; the music picks from the changed markers from then on; both setters return `0` even on success while applying the mutation [observed: `w6d3p2_38_jg9_audio_markers_and_holotapes`: `sp=0->1234.5,oob=0\|sc=0(eq=1)`] |
 
 A loaded game starts with the plugins' values again (a script's changes last the
 session, as the other batches' state). Without the engine (fnvtool) no marker is known.

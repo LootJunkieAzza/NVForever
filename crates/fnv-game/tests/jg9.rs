@@ -174,8 +174,11 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "AudioMarkerGetCurrent"), f64::from(FormId::PLAYER_REF.0));
     assert_eq!(n(&mut g, "player.AudioMarkerGetProperty 0"), 1500.0);
     assert!((n(&mut g, "player.AMKGetProp 2") - 0.67).abs() < 1e-6);
-    assert_eq!(n(&mut g, "player.AudioMarkerSetProperty 0 900"), 1.0);
+    // Both setters return 0 on success while applying the edit [observed: w6d3p2_38].
+    assert_eq!(n(&mut g, "player.AudioMarkerSetProperty 0 900"), 0.0);
     assert_eq!(n(&mut g, "player.AudioMarkerGetProperty 0"), 900.0);
+    assert_eq!(n(&mut g, "player.AudioMarkerSetController TestSound"), 0.0);
+    assert_eq!(n(&mut g, "player.AudioMarkerGetController"), f64::from(SOUN));
     assert!(g.other.jg9.markers_changed);
     assert_eq!(n(&mut g, "player.AudioMarkerSetProperty 3 1"), 0.0, "no property 3");
     // The moves, for the engine.

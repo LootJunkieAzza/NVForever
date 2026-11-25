@@ -365,13 +365,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // ref.AudioMarkerSetController (AMKSetCtrl) controller [documented]: an ALOC, for
         // the session; the engine's music picks from it.
+        // Both setters return 0 even on success [observed: w6d3p2_38].
         "audiomarkersetcontroller" | "amksetctrl" => {
             let (Some(r), Some(c)) = (subject, form(args, 0)) else { return Some(Ok(yes(false))) };
             let Some(mut m) = g.marker_values(r) else { return Some(Ok(yes(false))) };
             m.controller = Some(c);
             g.other.jg9.marker_edits.insert(r, m);
             g.other.jg9.markers_changed = true;
-            yes(true)
+            yes(false)
         }
         // ref.AudioMarkerSetProperty (AMKSetProp) n value [documented].
         "audiomarkersetproperty" | "amksetprop" => {
@@ -386,7 +387,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             g.other.jg9.marker_edits.insert(r, m);
             g.other.jg9.markers_changed = true;
-            yes(true)
+            yes(false)
         }
         // actor.Jump: the actor jumps [documented], the engine's jump: the player's
         // Jump key, a person's ledge hop (taken standing on the ground).

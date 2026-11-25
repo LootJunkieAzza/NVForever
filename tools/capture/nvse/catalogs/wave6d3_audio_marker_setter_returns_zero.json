@@ -1,0 +1,88 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-audio-marker-setter-returns-zero",
+  "description": "Read-only clean-room probe verifying AudioMarkerSetProperty and AudioMarkerSetController return 0 on success and confirming layer 2/3 fraction units.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_audio_marker_setter_returns_zero",
+      "title": "Wave 6D-3: AudioMarkerSetProperty / SetController return 0",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_38_jg9_audio_markers_and_holotapes",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg9.md",
+          "spec_line": 82,
+          "functions_tested": [
+            "AudioMarkerGetController",
+            "AudioMarkerGetCurrent",
+            "AudioMarkerGetProperty",
+            "AudioMarkerSetController",
+            "AudioMarkerSetProperty",
+            "PlayHolotape",
+            "StopHolotape",
+            "RefreshTerminalMenu"
+          ],
+          "claim": "Verify AudioMarkerGet/Set* on in-room AudioMarker (0x174A8B), Play/StopHolotape return values, and RefreshTerminalMenu return.",
+          "expected": "Resolve AudioMarker property 1/2 units (fraction vs percent) and holotape/terminal returns.",
+          "script_lines": [
+            "ref rMk = GetFormFromMod \"FalloutNV.esm\" \"174A8B\"",
+            "ref rAloc = GetFormFromMod \"FalloutNV.esm\" \"14E8AD\"",
+            "ref rNote = GetFormFromMod \"FalloutNV.esm\" \"842E0\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rCur = AudioMarkerGetCurrent",
+            "ref rCtrl0 = rMk.AudioMarkerGetController",
+            "float fP0 = rMk.AudioMarkerGetProperty 0",
+            "float fP1 = rMk.AudioMarkerGetProperty 1",
+            "float fP2 = rMk.AudioMarkerGetProperty 2",
+            "float fP3 = rMk.AudioMarkerGetProperty 3",
+            "int iSp0 = rMk.AudioMarkerSetProperty 0 1234.5",
+            "float fP0A = rMk.AudioMarkerGetProperty 0",
+            "int iSpOob = rMk.AudioMarkerSetProperty 3 1.0",
+            "rMk.AudioMarkerSetProperty 0 fP0",
+            "int iSc1 = rMk.AudioMarkerSetController rAloc",
+            "ref rCtrl1 = rMk.AudioMarkerGetController",
+            "if rCtrl0",
+            "  rMk.AudioMarkerSetController rCtrl0",
+            "endif",
+            "int iHtBad = PlayHolotape rSt 0",
+            "int iHtOk = PlayHolotape rNote 0",
+            "int iHtSt1 = StopHolotape 0",
+            "int iHtSt2 = StopHolotape 0",
+            "int iRtm = RefreshTerminalMenu",
+            "PrintToConsole \"PROBE|w6d3p2_38_jg9_audio_markers_and_holotapes|curZ=%g,ctrl0=%z|p=%.1f,%.2f,%.2f,%.1f|sp=%g->%.1f,oob=%g|sc=%g(eq=%g)|ht=%g,%g,st=%g,%g|rtm=%g\" (rCur == 0) (GetFormIDString rCtrl0) fP0 fP1 fP2 fP3 iSp0 fP0A iSpOob iSc1 (rCtrl1 == rAloc) iHtBad iHtOk iHtSt1 iHtSt2 iRtm"
+          ]
+        }
+      ]
+    }
+  ]
+}
