@@ -43,8 +43,8 @@
           "mutates_state": true,
           "requires_fixture": null,
           "requires_isolated_staging": false,
-          "spec_file": "docs/spec-notes/perk-entry-points.md",
-          "spec_line": 412,
+          "spec_file": "docs/spec-notes/ext-showoff.md",
+          "spec_line": 235,
           "functions_tested": [
             "GetCalculatedAPCost",
             "AddPerk",
