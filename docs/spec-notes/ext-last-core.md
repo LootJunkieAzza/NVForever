@@ -73,13 +73,19 @@ Probe sets `rules1` and `rules2` (`tools/capture/jip_probes.py`, run from the ow
 nvfairport; goldens private). They read to eight or ten decimals, more than the lab's sets.
 
 - **SetNthPackage** `ref.SetNthPackage package index` (the page gives no arguments): the
-  package at `index` (or the last entry when `index == -1`) of the actor's base list is
-  replaced, for the AI too, returning the replaced package; out-of-bounds indices and
-  non-`PACK` forms return `00000000` without mutating the list [observed: Doc's 9
-  packages (`rules1`/`rules2`); Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30, probe
-  `w6d4p7_08_set_nth_package_isolated` (`tools/capture/nvse/catalogs/wave6d4_set_nth_package.json`):
+  package at the index of the actor's base list is replaced, for the AI too, and the result
+  is the package it replaced; an index past the end changes nothing [observed: Doc's 9
+  packages, index 0 15ED62 became 10B756 and back, the count stayed 9; index 99 left 9;
+  the result 15ED62]. Index `-1` replaces the last entry of a non-empty list and returns the
+  replaced package, and non-`PACK` forms return `00000000` without mutating the list
+  [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging
+  copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL,
+  PDB, or third-party source consulted, probe `w6d4p7_08_set_nth_package_isolated`
+  (`tools/capture/nvse/catalogs/wave6d4_set_nth_package.json`):
   `PROBE|w6d4p7_08_set_nth_package_isolated|cnt=9|ok(m=1,old=1)|oob=00000000|neg(oldEqLast=1,newEq=1)|bad(ret=00000000,kept=1)`].
-  Negative indices `< -1` returning `0` remain [hypothesis]; omitting the index argument
+  Negative indices `< -1` and index `-1` on an empty package list returning `0` remain
+  [hypothesis]; omitting the index argument or passing a non-finite (`NaN`/`inf`) index
   returning `0` without mutating is [design]. Only `let x := ref.SetNthPackage p i`
   compiled in the game; the statement forms did not. The catalogue takes its parameters
   from `PARAM_FIXES` (`tools/capture/script_functions.py`).

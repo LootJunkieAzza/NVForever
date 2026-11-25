@@ -91,13 +91,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
             // `w6d4p7_08_set_nth_package_isolated` (`wave6d4_set_nth_package.json`):
             // `cnt=9|ok(m=1,old=1)|oob=00000000|neg(oldEqLast=1,newEq=1)|bad(ret=00000000,kept=1)`;
-            // hypothesis: negative indices < -1 return 0; design: missing index arg returns 0].
+            // hypothesis: negative indices < -1 and empty-list -1 return 0; design: missing
+            // or non-finite index arg returns 0 without mutating].
             if g.data.sig(g.unclone(p)) != Some(*b"PACK") {
                 return Some(Ok(XVal::Ref(0)));
             }
             let Some(b) = crate::functions::base_of(g, actor) else { return Some(Ok(XVal::Ref(0))) };
             let mut list = g.package_list(actor);
-            let raw = num(args, 1, -2.0).trunc() as i64;
+            let idx_f = num(args, 1, -2.0);
+            if !idx_f.is_finite() {
+                return Some(Ok(XVal::Ref(0)));
+            }
+            let raw = idx_f.trunc() as i64;
             let idx = if raw == -1 {
                 list.len().checked_sub(1)
             } else {

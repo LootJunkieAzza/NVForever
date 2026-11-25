@@ -5534,6 +5534,18 @@ fn set_nth_package_validates_pack_and_supports_neg_one() {
     assert_eq!(q(&mut g, "SetFunctionValue (PkgNpcRef.GetNthPackage 0)"), XVal::Ref(P1));
     assert_eq!(q(&mut g, "let r := PkgNpcRef.SetNthPackage PkgThree -1\nSetFunctionValue r"), XVal::Ref(P2));
     assert_eq!(q(&mut g, "SetFunctionValue (PkgNpcRef.GetNthPackage 1)"), XVal::Ref(P3));
+    // Empty package list with -1 returns 0 without panicking or mutating.
+    assert_eq!(q(&mut g, "let r := PlayerREF.SetNthPackage PkgThree -1\nSetFunctionValue r"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.GetPackageCount)"), XVal::Num(0.0));
+    // Non-finite index returns 0 without mutating [design].
+    let nan_res = g
+        .run_query(
+            "float f\nref r\nBegin Function { }\nlet f := IsNumberNAN\nlet r := PkgNpcRef.SetNthPackage PkgOne f\nSetFunctionValue r\nEnd\n",
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(nan_res, XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (PkgNpcRef.GetNthPackage 0)"), XVal::Ref(P1));
 }
 
 #[path = "common/jip_callback_clock.rs"]
