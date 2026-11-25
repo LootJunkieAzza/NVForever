@@ -372,7 +372,7 @@ impl Game<'_> {
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
-    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(f) == Some(*sig));
+    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*sig));
     let is_actor = |g: &Game, f: FormId| matches!(g.data.sig(f).as_ref(), Some(b"NPC_" | b"CREA"));
     // `[baseActor]` at `k`, else the calling reference's base [documented: the pages'
     // `ref.F` and `F … baseForm` forms].

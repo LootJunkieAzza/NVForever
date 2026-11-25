@@ -579,3 +579,17 @@ SetWeapon1stPersonModel TestGun 0"#);
     assert!(back.weapon_model_changes().is_empty());
     assert_eq!(back.weapon_model_stamp(), empty);
 }
+
+/// `SetWeaponModel` accepts `TempCloneForm` `WEAP` clones and isolates overrides from the
+/// original weapon [observed: `w6d2p3_02_weapon_model_paths_and_clone`].
+#[test]
+fn set_weapon_model_accepts_tempclone_and_isolates_original() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, r#"SetWeaponModel TestGun 0 "weapons\orig_test.nif""#);
+    let XVal::Ref(cl) = q(&mut g, "SetFunctionValue (TempCloneForm TestGun 0)") else { panic!("clone ref") };
+    assert_ne!(cl, 0);
+    q(&mut g, &format!(r#"SetWeaponModel (StringToRef "{cl:08X}") 0 "weapons\w6d2_clone.nif""#));
+    assert_eq!(q(&mut g, &format!(r#"SetFunctionValue (GetWeaponModel (StringToRef "{cl:08X}") 0)"#)), XVal::Str("weapons\\w6d2_clone.nif".into()));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetWeaponModel TestGun 0)"), XVal::Str("weapons\\orig_test.nif".into()));
+}
