@@ -93,7 +93,8 @@ fn text(args: &[XVal], k: usize) -> String {
 /// The handlers matching GetEventHandlers' filters: event name (any case; "" for all),
 /// handler (0 for any), priority (0 for any).
 fn matching(g: &Game, args: &[XVal]) -> Vec<Handler> {
-    let event = text(args, 0).to_ascii_lowercase();
+    let raw = text(args, 0);
+    let event = if raw.is_empty() { String::new() } else { crate::game::canonical_event_name(&raw) };
     let func = args.get(1).filter(|v| !matches!(v, XVal::Num(x) if *x == 0.0) && !matches!(v, XVal::Ref(0)));
     let prio = match args.get(2) {
         Some(XVal::Num(x)) => *x as i32,
@@ -110,7 +111,7 @@ fn matching(g: &Game, args: &[XVal]) -> Vec<Handler> {
 /// The handler `args[1]` of event `args[0]` at priority `args[2]`, and the others of that
 /// event (`args[3..]`, the scripts and plugins to ignore, are not kept apart here).
 fn around(g: &Game, args: &[XVal]) -> Option<(Handler, Vec<Handler>)> {
-    let event = text(args, 0).to_ascii_lowercase();
+    let event = crate::game::canonical_event_name(&text(args, 0));
     let func = args.get(1)?;
     let prio = match args.get(2) {
         Some(XVal::Num(x)) => *x as i32,
@@ -130,7 +131,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             let event = text(args, 0);
             let prio_filtered = matches!(args.get(2), Some(XVal::Num(x)) if *x != 0.0);
             if !event.is_empty() {
-                let lower = event.to_ascii_lowercase();
+                let lower = crate::game::canonical_event_name(&event);
                 if hs.is_empty() && !KNOWN.contains(&lower.as_str()) && !g.handlers.iter().any(|h| h.event == lower) {
                     XVal::Array(0)
                 } else if prio_filtered {

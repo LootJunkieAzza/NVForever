@@ -40,8 +40,8 @@ order (and the targets of the `"first"`/`"second"` filters, §3).
 | Event | First | Second | Notes |
 |---|---|---|---|
 | OnActivate | the activated reference | the activating reference | **Does not block activation**, unlike an OnActivate block; runs **before** the object's OnActivate block, and even when activation will be refused (a locked or inaccessible door) |
-| OnActorEquip (alias OnEquip) | the actor | the item (base form) | runs before the item counts as equipped, just after whatever held the same slots is unequipped |
-| OnActorUnequip (alias OnUnequip) | the actor | the item (base form) | not when equipped ammo is dropped |
+| OnActorEquip (alias OnEquip) | the actor | the item (base form) | shares one canonical handler list (`onactorequip`) with `OnEquip`; runs with `GetSelfAlt == 0` [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_on_actor_equip_unequip_alias.json` probe `w6d1_08_on_actor_equip_unequip_aliases`: `alias(g=1/1,rem=1/1)\|eq(n=1,in=1,same=0,tick=1,s0=1,sP=0,nm=onactorequip)`; no DLL, PDB, or third-party source consulted] |
+| OnActorUnequip (alias OnUnequip) | the actor | the item (base form) | shares one canonical handler list (`onactorunequip`) with `OnUnequip`; fires PRE-unequip (`GetEquipped == 1` inside callback) with `GetSelfAlt == 0` [observed: `w6d1_08_on_actor_equip_unequip_aliases`: `alias(g=1/1,rem=1/1)\|un(n=1,in=1,s0=1,sP=0,nm=onactorunequip)`]; not when equipped ammo is dropped |
 | OnAdd | the item (world reference) | the container | only when picking up from the world |
 | OnClose, OnOpen | the reference | the same reference | |
 | OnCombatEnd | target (actor) | ender (actor) | |

@@ -221,8 +221,14 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     if g.world.equip_lock(actor, item) == Some(EquipLock::NoUnequip) {
         g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }
+    // xNVSE OnActorUnequip / OnUnequip fires PRE-unequip (`GetEquipped == 1`) with null
+    // calling reference (`GetSelfAlt == 0`) [observed: `w6d1_08_on_actor_equip_unequip_aliases`].
+    let was_equipped = g.world.get(actor).ok().and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item));
+    if was_equipped {
+        g.dispatch_event("onactorunequip", vec![fnv_script::vm::XVal::Ref(actor.0), fnv_script::vm::XVal::Ref(item.0)], None);
+    }
     if g.world.unequip(actor, item).map_err(|e| e.to_string())? {
-        g.item_event(actor, item, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
+        g.item_block_only(actor, item, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }
     if hide_flag(a, 1) {
         g.world.lock_equip(actor, item, Some(EquipLock::NoEquip)).map_err(|e| e.to_string())?;
