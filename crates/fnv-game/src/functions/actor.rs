@@ -1439,6 +1439,14 @@ pub fn same_sex(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     yes(is_female(g, r) == is_female(g, other))
 }
 
+/// `actor.SameSexAsPC`: 1 when the calling actor is the same sex as the player
+/// [documented: GECK wiki SameSexAsPC, "Returns 1 if the calling actor is the same sex as
+/// the player"]; as [`same_sex`] with the player as the other actor (#3787).
+pub fn same_sex_as_pc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(is_female(g, r) == is_female(g, FormId::PLAYER_REF))
+}
+
 /// The disposition HasFriendDisposition counts as a friend's. The GECK wiki names a
 /// "friend disposition game setting" without naming it, and no game setting in the
 /// shipped master is one (`fFightFriendDispBase`, -25, is a fight base) [observed:

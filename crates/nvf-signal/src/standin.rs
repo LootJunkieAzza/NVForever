@@ -15,7 +15,8 @@ use std::time::{Duration, Instant};
 
 use crate::code::Code;
 use crate::wire::{
-    is_key, CreateLobby, ErrorBody, FromService, LobbyCreated, LobbyInfo, PeerNo, ToService, WIRE_VERSION,
+    is_key, key_fingerprint, wire_supported, BrowseAnswer, BrowseQuery, BrowseRow, CreateLobby, ErrorBody, FromService,
+    Listing, LobbyCreated, LobbyInfo, PeerNo, Report, ToService,
 };
 
 pub type ConnId = u64;
@@ -73,6 +74,45 @@ struct Lobby {
     host_gone: Option<Instant>,
     guests: BTreeMap<PeerNo, Guest>,
     next_peer: PeerNo,
+    /// The browser listing (wire 2), texts already cut and cleaned.
+    listing: Listing,
+    /// The password's hash; with `listing.locked` and none yet, every join is declined.
+    password: Option<String>,
+    created: Instant,
+    /// Who reported it (an IP on the service; whatever the caller passes here).
+    reports: std::collections::BTreeSet<String>,
+}
+
+impl Lobby {
+    fn locked(&self) -> bool {
+        self.listing.locked || self.password.is_some()
+    }
+    fn players(&self) -> u8 {
+        1 + self.guests.values().filter(|g| g.accepted).count() as u8
+    }
+}
+
+/// Page size of `GET /v1/browse`.
+pub const BROWSE_PAGE: usize = 100;
+/// Reports from this many reporters hide a lobby from browse (owner decision 2026-11-25).
+pub const REPORTS_TO_HIDE: usize = 5;
+
+/// A listing text cut to `max` characters, control characters dropped, and lowered when it is
+/// all capitals (`docs/design/coop-lobby-browser.md` section 6). The word filter is the
+/// Worker's; the stand-in has none.
+pub fn clean_text(s: &str, max: usize) -> String {
+    let t: String = s.chars().filter(|c| !c.is_control()).take(max).collect();
+    let t = t.trim().to_string();
+    let letters = t.chars().filter(|c| c.is_alphabetic()).count();
+    if letters >= 2 && t.chars().filter(|c| c.is_alphabetic()).all(|c| c.is_uppercase()) {
+        t.to_lowercase()
+    } else {
+        t
+    }
+}
+
+fn clean_listing(l: &Listing) -> Listing {
+    Listing { title: clean_text(&l.title, 40), place: clean_text(&l.place, 32), ..l.clone() }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,8 +166,8 @@ impl StandIn {
         let Ok(req) = serde_json::from_str::<CreateLobby>(body) else {
             return (400, error_body("bad_request", "not a lobby request"));
         };
-        if req.wire != WIRE_VERSION {
-            return (400, error_body("wire_version", "this service speaks wire version 1"));
+        if !wire_supported(req.wire) {
+            return (400, error_body("wire_version", "this service speaks wire versions 1 and 2"));
         }
         if req.protocol < self.cfg.min_protocol {
             return (403, error_body("protocol", "this game version can no longer host; update NVForever"));
@@ -148,7 +188,22 @@ impl StandIn {
             stun: self.cfg.stun.clone(),
             expires: unix_now + self.cfg.grace.as_secs(),
         };
-        self.lobbies.insert(code, Lobby { secret, req, host: None, host_gone: Some(now), guests: BTreeMap::new(), next_peer: 1 });
+        let listing = req.listing.as_ref().map(clean_listing).unwrap_or_default();
+        self.lobbies.insert(
+            code,
+            Lobby {
+                secret,
+                req,
+                host: None,
+                host_gone: Some(now),
+                guests: BTreeMap::new(),
+                next_peer: 1,
+                listing,
+                password: None,
+                created: now,
+                reports: Default::default(),
+            },
+        );
         (200, json(&created))
     }
 
@@ -165,6 +220,7 @@ impl StandIn {
             players,
             max_players: l.req.max_players,
             full: players >= l.req.max_players,
+            locked: l.locked(),
         };
         (200, json(&info))
     }
@@ -207,8 +263,8 @@ impl StandIn {
         }
         match (role, msg) {
             (Role::Unbound, ToService::Host { wire, host_secret }) => {
-                if wire != WIRE_VERSION {
-                    self.fail(&mut out, conn, "wire_version", "this service speaks wire version 1", true);
+                if !wire_supported(wire) {
+                    self.fail(&mut out, conn, "wire_version", "this service speaks wire versions 1 and 2", true);
                     return out;
                 }
                 let lobby = self.lobbies.get_mut(&code).unwrap();
@@ -226,9 +282,9 @@ impl StandIn {
                 self.conns.get_mut(&conn).unwrap().role = Role::Host;
                 Self::send(&mut out, conn, &FromService::Hosting { code, peers });
             }
-            (Role::Unbound, ToService::Join { wire, name, key, candidates }) => {
-                if wire != WIRE_VERSION {
-                    self.fail(&mut out, conn, "wire_version", "this service speaks wire version 1", true);
+            (Role::Unbound, ToService::Join { wire, name, key, candidates, password }) => {
+                if !wire_supported(wire) {
+                    self.fail(&mut out, conn, "wire_version", "this service speaks wire versions 1 and 2", true);
                     return out;
                 }
                 if !is_key(&key) {
@@ -236,6 +292,16 @@ impl StandIn {
                     return out;
                 }
                 let lobby = self.lobbies.get_mut(&code).unwrap();
+                // A locked lobby with no password yet is never open by accident.
+                let wrong = match &lobby.password {
+                    Some(h) => password.as_deref() != Some(h.as_str()),
+                    None => lobby.listing.locked,
+                };
+                if wrong {
+                    out.push(Out { conn, text: json(&FromService::Declined { reason: "bad_password".into() }), close: true });
+                    self.conns.remove(&conn);
+                    return out;
+                }
                 let Some(host) = lobby.host else {
                     self.fail(&mut out, conn, "host_away", "the host is reconnecting; try again shortly", true);
                     return out;
@@ -344,6 +410,19 @@ impl StandIn {
                 }
             }
             (Role::Host, ToService::Connected { .. }) => {}
+            (Role::Host, ToService::Listing { public, title, place, friendly_fire }) => {
+                let lobby = self.lobbies.get_mut(&code).unwrap();
+                lobby.listing = clean_listing(&Listing { public, title, place, friendly_fire, ..lobby.listing.clone() });
+            }
+            (Role::Host, ToService::Password { hash }) => {
+                let lobby = self.lobbies.get_mut(&code).unwrap();
+                if hash.is_empty() {
+                    lobby.password = None;
+                    lobby.listing.locked = false;
+                } else {
+                    lobby.password = Some(hash.chars().take(128).collect());
+                }
+            }
             (Role::Host, ToService::Bye) => out.extend(self.end_lobby(&code, "host_left")),
             (Role::Guest(_), ToService::Bye) => {
                 out.extend(self.close(conn, now));
@@ -427,6 +506,68 @@ impl StandIn {
             .map(|(c, _)| c.clone())
             .collect();
         expired.iter().flat_map(|c| self.end_lobby(c, "expired")).collect()
+    }
+
+    /// `GET /v1/browse` with its query string (wire 2): (status, body). Lists public lobbies
+    /// whose host is connected and that fewer than [`REPORTS_TO_HIDE`] have reported, newest
+    /// first, [`BROWSE_PAGE`] a page. `km` and `region` stay empty: the stand-in has no
+    /// data-centre locations.
+    pub fn browse(&self, query: &str, now: Instant) -> (u16, String) {
+        let q = BrowseQuery::parse(query);
+        let needle = q.q.as_deref().map(str::to_lowercase);
+        let mut rows: Vec<BrowseRow> = self
+            .lobbies
+            .iter()
+            .filter(|(_, l)| l.listing.public && l.host.is_some() && l.reports.len() < REPORTS_TO_HIDE)
+            .map(|(code, l)| BrowseRow {
+                code: code.clone(),
+                title: if l.listing.title.is_empty() { format!("{}'s game", l.req.name) } else { l.listing.title.clone() },
+                host_name: clean_text(&l.req.name, 24),
+                host_fp: key_fingerprint(&l.req.host_key),
+                place: l.listing.place.clone(),
+                players: l.players(),
+                max_players: l.req.max_players,
+                locked: l.locked(),
+                friendly_fire: l.listing.friendly_fire,
+                plugins: l.listing.plugins,
+                region: String::new(),
+                km: None,
+                age: now.saturating_duration_since(l.created).as_secs(),
+                protocol: l.req.protocol,
+                build: l.req.build.clone(),
+                load_order_hash: l.req.load_order_hash.clone(),
+            })
+            .filter(|r| q.protocol.is_none_or(|p| r.protocol == p))
+            .filter(|r| q.load_order.as_ref().is_none_or(|h| &r.load_order_hash == h))
+            .filter(|r| !(q.hide_empty && r.players <= 1))
+            .filter(|r| !(q.hide_full && r.players >= r.max_players))
+            .filter(|r| {
+                needle.as_ref().is_none_or(|n| {
+                    [&r.title, &r.host_name, &r.place].iter().any(|t| t.to_lowercase().contains(n.as_str()))
+                })
+            })
+            .collect();
+        rows.sort_by(|a, b| a.age.cmp(&b.age).then_with(|| a.code.cmp(&b.code)));
+        let total = rows.len() as u32;
+        let start: usize = q.cursor.as_deref().and_then(|c| c.parse().ok()).unwrap_or(0).min(rows.len());
+        let end = (start + BROWSE_PAGE).min(rows.len());
+        let cursor = (end < rows.len()).then(|| end.to_string());
+        let lobbies = rows.drain(start..end).collect();
+        (200, json(&BrowseAnswer { lobbies, cursor, total }))
+    }
+
+    /// `POST /v1/lobbies/{code}/report` from `reporter` (the service passes the IP): (status,
+    /// body). Each reporter counts once; at [`REPORTS_TO_HIDE`] the lobby leaves browse (still
+    /// joinable by code). Kept only while the lobby lives.
+    pub fn report(&mut self, code: &str, reporter: &str, body: &str) -> (u16, String) {
+        if !body.trim().is_empty() && serde_json::from_str::<Report>(body).is_err() {
+            return (400, error_body("bad_request", "a report is {} or {\"reason\": \"...\"}"));
+        }
+        let Some(l) = Code::parse(code).and_then(|c| self.lobbies.get_mut(&c.compact())) else {
+            return (404, error_body("not_found", "no lobby with that code"));
+        };
+        l.reports.insert(reporter.chars().take(64).collect());
+        (200, "{\"ok\":true}".to_string())
     }
 
     /// Lobbies alive, for tests and a self-hoster's status page.

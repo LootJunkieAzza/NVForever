@@ -208,8 +208,10 @@ turns the named victim (or, with the player named, the first present member of t
 faction given) on the player and makes it say Assault [documented]. With a faction given
 and no member present and alive, nobody turns and no crime is counted: the calling actor
 is no member of the faction, so it is never the stand-in [documented: the wiki's "it will
-pick an NPC in the … faction"; hypothesis: the original does nothing then, observer
-check 241]. Only the form with no faction falls back to the calling actor [design,
+pick an NPC in the … faction"; observed 2026-11-25, observer check 241: in Techatticup
+with all 17 members killed, nobody went into combat for 10 s and the second hostage's box
+still opened]. With members alive the original turned every member within about 1,900
+units on the player (9 of 17, within 1.5 s), not one [observed, same check]. Only the form with no faction falls back to the calling actor [design,
 #2926]; a freed Techatticup hostage's `SendAssaultAlarm Player
 CaesarsLegionTechMineFaction` turned the hostage itself before.
 

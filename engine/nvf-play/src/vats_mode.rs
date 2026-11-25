@@ -949,6 +949,21 @@ impl VatsMode {
         }
     }
 
+    /// The clock's speed the mode's sounds follow (`audio_out::slowed_sound` of it): the
+    /// clock's own, but while targets are chosen no slower than firing's [design, #3784: at
+    /// marking's near stop every voice and shot played at the 0.4 floor for as long as the
+    /// player took, 17 s in a player's report, and read as broken sound; at
+    /// [`FIRE_SCALE`] they stay drawn out and lower, the owner's "like the base game",
+    /// and can still be made out].
+    pub fn sound_scale(&self) -> f32 {
+        let clock = self.time_scale();
+        if self.phase == Phase::Marking {
+            clock.max(FIRE_SCALE)
+        } else {
+            clock
+        }
+    }
+
     /// The look for the image-space pass (§5): the swipe's edge (a share of the screen
     /// width; graded to its left), the band on the edge, the wash over the screen, the
     /// grade's strength.
@@ -3869,6 +3884,24 @@ mod tests {
         assert_eq!(v.time_scale(), 1.0);
         v.phase = Phase::Off;
         assert_eq!(v.time_scale(), 1.0);
+    }
+
+    /// #3784: sounds slow while targets are chosen only as far as while firing.
+    #[test]
+    fn marking_slows_sound_no_more_than_firing() {
+        let mut v = VatsMode { phase: Phase::Marking, entered_at: Some(0.0), now: 5.0, style: VatsStyle::DeadEye, ..Default::default() };
+        assert_eq!(v.sound_scale(), FIRE_SCALE);
+        // Early in the swipe the clock is still faster: the sound follows it.
+        v.now = 0.0;
+        assert_eq!(v.sound_scale(), 1.0);
+        // The classic style's full stop too.
+        v.style = VatsStyle::Classic;
+        v.classic.scale = 0.0;
+        assert_eq!(v.sound_scale(), FIRE_SCALE);
+        v.phase = Phase::Firing;
+        assert_eq!(v.sound_scale(), FIRE_SCALE);
+        v.phase = Phase::Off;
+        assert_eq!(v.sound_scale(), 1.0);
     }
 
     #[test]
