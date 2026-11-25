@@ -36,14 +36,20 @@ const OWN_ROWS: &str = "the tab's own rows";
 /// Whether `rule` holds for its row's INI value `value` (its choice's name `name`), the row
 /// of kind `kind` (`None`: built in, by the value).
 pub(crate) fn rule_holds(rule: &menu::Rule, kind: Option<&menu::Kind>, value: &str, name: &str) -> bool {
+    let switch_on = || !(value.is_empty() || value == "0" || value.eq_ignore_ascii_case("off"));
     if !rule.choices.is_empty() {
+        // A switch's choices are "On" and "Off" (nvf-settings-layout `Rule`).
+        if matches!(kind, Some(menu::Kind::Switch)) {
+            let name = if switch_on() { "On" } else { "Off" };
+            return rule.choices.iter().any(|c| c.eq_ignore_ascii_case(name));
+        }
         return rule.choices.iter().any(|c| c.eq_ignore_ascii_case(name));
     }
     match kind {
         Some(menu::Kind::List { choices }) => choices.first().is_none_or(|c| c.name != name),
         Some(menu::Kind::Slider { .. }) => value.parse::<f32>().is_ok_and(|v| v >= 0.5),
         // A switch, or a row with no kind (built in): off as `0`, a list's Off, or no value.
-        _ => !(value.is_empty() || value == "0" || value.eq_ignore_ascii_case("off")),
+        _ => switch_on(),
     }
 }
 
@@ -301,6 +307,17 @@ pub fn list_value(key: &str, value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A rule on a switch's choices ("On", "Off"): the volumetric rows greyed while Physical
+    /// lighting is on.
+    #[test]
+    fn a_switch_parent_holds_its_on_or_off_choice() {
+        let rule = menu::Rule { parent: "physical-pbr".into(), choices: vec!["Off".into()], why: String::new() };
+        let switch = menu::Kind::Switch;
+        assert!(rule_holds(&rule, Some(&switch), "0", ""));
+        assert!(rule_holds(&rule, Some(&switch), "", ""));
+        assert!(!rule_holds(&rule, Some(&switch), "1", ""));
+    }
+
     use super::*;
 
     #[test]

@@ -324,6 +324,19 @@ pub const KEYS: [&str; 33] = [
 ];
 
 impl Graphics {
+    /// The Volumetric clouds row as it runs: off under Physical lighting, which it does not
+    /// work with yet (graphics-enhanced.md §3.25; the page greys the row, settings_layout
+    /// `NEEDS_CHOICE`). The row's saved value is kept.
+    pub fn volumetric_clouds_run(&self) -> bool {
+        self.volumetric_clouds && !nvf_assets::authored::physical_pbr()
+    }
+
+    /// The Volumetric light row as it runs: off under Physical lighting, as
+    /// [`Self::volumetric_clouds_run`].
+    pub fn volumetric_light_run(&self) -> bool {
+        self.volumetric_light && !nvf_assets::authored::physical_pbr()
+    }
+
     /// FSR's quality when FSR is the requested upscaler; `None` for off and for DLSS (FSR's
     /// code treats a DLSS request as no FSR).
     pub fn fsr(&self) -> Option<FsrQuality> {
@@ -515,8 +528,8 @@ impl Graphics {
             (!self.authored_reflections, "no authored reflections"),
             (self.full_detail != crate::full_detail::FullDetail::Off, self.full_detail.describe()),
             (self.distant_objects != crate::distant_objects::DistantObjects::Off, self.distant_objects.describe()),
-            (self.volumetric_clouds, "volumetric clouds"),
-            (self.volumetric_light, "volumetric light"),
+            (self.volumetric_clouds_run(), "volumetric clouds"),
+            (self.volumetric_light_run(), "volumetric light"),
             (self.aerial_perspective, "aerial perspective"),
             (self.night_sky_detail, "night sky detail"),
             (self.physical_pbr, "physical PBR lighting"),
@@ -1112,7 +1125,7 @@ fn apply(
         // tonemapping (medium.rs, volumetric_clouds.rs), so its row keeps the view HDR whatever
         // the glow and the upscaler say [design, #3032 decision 10]; the light in the air of
         // stage 3 likewise.
-        if temporal || g.volumetric_clouds || crate::hdr::on() || air {
+        if temporal || g.volumetric_clouds_run() || crate::hdr::on() || air {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
