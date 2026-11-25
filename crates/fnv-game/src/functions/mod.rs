@@ -362,6 +362,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x11AB, "GetIsVoiceType", Impl(actor::get_is_voice_type)),
             (0x1046, "GetIsSex", Impl(actor::get_is_sex)),
             (0x102C, "SameSex", Impl(actor::same_sex)),
+            (0x1087, "SameSexAsPC", Impl(actor::same_sex_as_pc)),
             (0x102A, "SameFaction", Impl(actor::same_faction)),
             (0x1193, "HasFriendDisposition", Impl(actor::has_friend_disposition)),
             (0x1080, "GetFatiguePercentage", Impl(actor::get_fatigue_percentage)),
