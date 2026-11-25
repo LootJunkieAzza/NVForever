@@ -472,8 +472,15 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     {
         return none();
     }
-    let limb_before = if crate::actor_values::LIMB_CONDITIONS.contains(&code) { Some(actor_value(g, r, code)?) } else { None };
-    let d = damage(g, r, code) + amount;
+    let is_limb = crate::actor_values::LIMB_CONDITIONS.contains(&code);
+    let limb_before = if is_limb { Some(actor_value(g, r, code)?) } else { None };
+    let mut d = damage(g, r, code) + amount;
+    // Limb conditions floor at 0 under DamageAV [observed 2026-11-25:
+    // w6d7_07_thresholded_av_and_negative_temp_floor, limb(0.0/0.0)].
+    if is_limb && amount > 0.0 {
+        let cap = (permanent(g, r, code)? + temporary(g, r, code)).max(0.0);
+        d = d.min(cap);
+    }
     set_damage(g, r, code, d);
     // JIP's health-damage handlers see DamageAV too, with no source [documented:
     // SetOnHealthDamageEventHandler; observed: ev.amount -1, ev.source.type].

@@ -525,3 +525,12 @@ fn speed_mult_scales_the_players_speed() {
     call(&mut g, MOD, PLAYER, &[code(av::SPEED_MULTIPLIER), n(-500.0)]);
     assert_eq!(g.move_speed_mult(p), 0.0);
 }
+
+#[test]
+fn damage_actor_value_floors_limb_condition_at_zero() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, DAMAGE, GUARD_REF, &[code(25), n(150.0)]);
+    assert_eq!(get(&mut g, GUARD_REF, 25), 0.0, "PerceptionCondition floors at 0.0");
+    assert_eq!(fnv_game::functions::actor_value_capped(&mut g, FormId(GUARD_REF), 25), 0.0);
+}
