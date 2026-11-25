@@ -215,3 +215,8 @@ fn is_object_type_reads_the_references_base() {
     assert_eq!(n(&mut g, "BoxRef.GetIsObjectType Container"), 1.0);
     assert_eq!(n(&mut g, "MemberARef.GetIsObjectType Container"), 0.0);
 }
+
+#[test]
+fn friend_disposition_threshold_is_fifty() {
+    assert_eq!(crate::functions::actor::FRIEND_DISPOSITION, 50.0);
+}

@@ -1447,12 +1447,9 @@ pub fn same_sex_as_pc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
     yes(is_female(g, r) == is_female(g, FormId::PLAYER_REF))
 }
 
-/// The disposition HasFriendDisposition counts as a friend's. The GECK wiki names a
-/// "friend disposition game setting" without naming it, and no game setting in the
-/// shipped master is one (`fFightFriendDispBase`, -25, is a fight base) [observed:
-/// FalloutNV.esm GMSTs with "Friend" or "Disp" in their names]; 70 is NVForever's
-/// [hypothesis: observer check 292 measures it].
-pub const FRIEND_DISPOSITION: f64 = 70.0;
+/// The disposition HasFriendDisposition counts as a friend's: 50 [observed 2026-11-25:
+/// w6d7p3_44b_friend_disposition_sweep, fd(49=0, 50=1); w6d7_44, fd(65=1..75=1)].
+pub const FRIEND_DISPOSITION: f64 = 50.0;
 
 /// `actor.HasFriendDisposition`: 1 when the actor's disposition towards the player is at
 /// or above the friend level [documented: GECK wiki HasFriendDisposition, "equal or
