@@ -337,12 +337,25 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             XVal::Num(0.0)
         }
-        // The actor's equipped armour [observed: rest5.equippedarmor.*, 3 for the player,
-        // 1 for Doc; hypothesis: the original's inventory references are the base forms here].
+        // The actor's equipped armour as temporary inventory references (`0xFFxxxxxx`),
+        // including equipped `TempCloneForm` armor [observed: rest5.equippedarmor.*,
+        // jip_53_equipped_armor_refs_kind (`2,FF001342`), and 2026-11-25,
+        // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // JIP LN 57.30, `w6d4_18_hit_node_collision_nodes_cloned_armor`
+        // (`wave6d4_equipped_armor_refs.json`): `eqArm(sz=2,id=FF00131F,isBase=0)`].
         "getequippedarmorrefs" => {
-            let worn = subject.and_then(|a| g.world.inventory_mut(a).ok().map(|inv| inv.equipped())).unwrap_or_default();
-            let armour: Vec<FormId> = worn.into_iter().filter(|&f| g.data.sig(f) == Some(*b"ARMO")).collect();
-            let entries = armour.into_iter().enumerate().map(|(i, f)| (fnv_script::vm::XKey::Num(i as f64), XVal::Ref(f.0))).collect();
+            let entries: Vec<_> = match subject {
+                Some(a) => {
+                    let worn = g.world.inventory_mut(a).ok().map(|inv| inv.equipped()).unwrap_or_default();
+                    let armour: Vec<FormId> = worn.into_iter().filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"ARMO")).collect();
+                    armour
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, f)| (fnv_script::vm::XKey::Num(i as f64), XVal::Ref(g.temp_ref(a, f).0)))
+                        .collect()
+                }
+                None => Vec::new(),
+            };
             XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
         }
         // `array index`: the element; 0 for no array [observed: rest5.arrayvalue 20 of

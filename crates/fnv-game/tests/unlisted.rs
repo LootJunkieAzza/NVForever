@@ -679,3 +679,44 @@ fn update_player_3d_queues_one_shot_and_is_transient() {
     assert!(!g.update_player_3d_pending());
     assert!(!g.take_update_player_3d(), "one-shot");
 }
+
+#[test]
+fn get_equipped_armor_refs_returns_inv_refs_including_cloned_armor() {
+    const ARMO_BODY: u32 = 0x990;
+    const ARMO_HAT: u32 = 0x991;
+    // BMDT: biped_flags (u32) + general_flags (u8) + pad[3]: slot 2 (upper body) and slot 0 (head).
+    let bmdt = |mask: u32| [mask.to_le_bytes().to_vec(), vec![0, 0, 0, 0]].concat();
+    let armos = [
+        edid(b"ARMO", ARMO_BODY, "TestBodyArmor", &[sub(b"BMDT", bmdt(1 << 2))]),
+        edid(b"ARMO", ARMO_HAT, "TestHatArmor", &[sub(b"BMDT", bmdt(1 << 0))]),
+    ].concat();
+    let raw = [plugin_bytes(), top(b"ARMO", &armos)].concat();
+    let plugins = vec![Plugin::parse(&raw, "UnlistedArmor.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    let XVal::Str(out) = g.run_query(
+        "ref rCl\narray_var a\nref r0\nref r1\nBegin Function { }\nPlayerREF.AddItem TestBodyArmor 1\nPlayerREF.EquipItem TestBodyArmor 0 1\nlet rCl := TempCloneForm TestHatArmor\nPlayerREF.AddItem rCl 1\nPlayerREF.EquipItem rCl 0 1\nlet a := PlayerREF.GetEquippedArmorRefs\nlet r0 := a[0]\nlet r1 := a[1]\nSetFunctionValue (sv_Construct \"%g|%i|%i|%i|%i|%i\" (ar_Size a) r0 (r0.GetBaseObject) r1 (r1.GetBaseObject) rCl)\nEnd\n",
+        RunCtx::default(),
+    ).unwrap() else { panic!("expected string") };
+    let parts: Vec<&str> = out.split('|').collect();
+    assert_eq!(parts[0], "2", "both vanilla and cloned armor listed: {out}");
+    let r0 = u32::from_str_radix(parts[1], 16).unwrap();
+    let b0 = u32::from_str_radix(parts[2], 16).unwrap();
+    let r1 = u32::from_str_radix(parts[3], 16).unwrap();
+    let b1 = u32::from_str_radix(parts[4], 16).unwrap();
+    let cl = u32::from_str_radix(parts[5], 16).unwrap();
+    assert!(g.temp_item(FormId(r0)).is_some(), "r0 is an inventory ref: {out}");
+    assert!(g.temp_item(FormId(r1)).is_some(), "r1 is an inventory ref: {out}");
+    assert_ne!(r0, b0);
+    assert_ne!(r1, b1);
+    let bases = [b0, b1];
+    assert!(bases.contains(&ARMO_BODY) && bases.contains(&cl), "bases={bases:X?} expected {ARMO_BODY:X} and {cl:X}");
+}

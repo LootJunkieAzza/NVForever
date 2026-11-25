@@ -305,11 +305,17 @@ commands that touch the menus, the sky or the minimap ran one per launch].
   1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room
   script probe jip_52_race_age_voice_setters (GetRaceAgeRace/SetRaceAgeRace/GetRaceVoice/SetRaceVoice):
   0,1,000042C2; no DLL or source consulted].
-- **GetEquippedArmorRefs**: the actor's equipped armour, 3 for the player and 1 for Doc.
-  The original returns inventory references (`FFxxxxxx`) [observed: Fallout: New Vegas
-  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room
-  script probe jip_53_equipped_armor_refs_kind (GetEquippedArmorRefs): 2,FF001342; no DLL
-  or source consulted]; NVForever currently lists the base forms [design: follow-up].
+- **GetEquippedArmorRefs**: returns the actor's equipped armour as temporary inventory
+  references (`g.temp_ref`; `0xFFxxxxxx` in original FNV, NOT base forms), including
+  equipped `TempCloneForm` armor
+  (`g.unclone(f)` resolves `ARMO` signature) [observed: Fallout: New Vegas 1.4.0.525 +
+  xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, `rest5.equippedarmor.*`,
+  `jip_53_equipped_armor_refs_kind` (`2,FF001342`), and 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), isolated clean-room staging copy (read-only `PrintToConsole` probe; zero
+  writes to game install or Saves), `w6d4_18_hit_node_collision_nodes_cloned_armor`
+  (`tools/capture/nvse/catalogs/wave6d4_equipped_armor_refs.json`):
+  `PROBE|w6d4_18_hit_node_collision_nodes_cloned_armor|hn(d=[NULL],p=[NULL])|col(sz=18,n0=[Bip01 NonAccum])|eqArm(sz=2,id=FF00131F,isBase=0)`;
+  zero DLL, PDB, or third-party source consulted].
 - **GetArrayValue** `array index`: the element (20 for index 1 of [10 20 30]); 0 for a
   reference given instead of an array.
 - **SetContainerOpenSound / SetContainerCloseSound** `sound [container]`: the container's
