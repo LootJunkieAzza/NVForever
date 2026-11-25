@@ -1360,6 +1360,14 @@ end",
     assert_eq!(h.text(35), "\x1d");
     assert_eq!(h.text(36), "\x1d");
     assert_eq!(h.text(37), "\x1d");
+
+    // V3CrossproductAlt computes B x A [observed: w6d4p2_39_anh_vectors_fixed,
+    // w6d4p6_21_stewie_sup_anh_hnvse].
+    let c = run(
+        "array_var aA\narray_var aB\narray_var aC\nfloat c0\nfloat c1\nfloat c2\nfloat z0\nbegin GameMode\nlet aA := ar_List 1, 0, 0\nlet aB := ar_List 0, 1, 0\nlet aC := V3CrossproductAlt aA aB\nlet z0 := aC[2]\nlet aA := ar_List 1, 2, 3\nlet aB := ar_List 4, 5, 6\nlet aC := V3CrossproductAlt aA aB\nlet c0 := aC[0]\nlet c1 := aC[1]\nlet c2 := aC[2]\nend",
+    );
+    assert_eq!(c.0[&7], Value::Num(-1.0), "[1,0,0] x [0,1,0] -> z=-1");
+    assert_eq!((c.0[&4], c.0[&5], c.0[&6]), (Value::Num(3.0), Value::Num(-6.0), Value::Num(3.0)), "[1,2,3] x [4,5,6] -> [3,-6,3]");
 }
 
 #[test]

@@ -149,9 +149,13 @@ impl Vm<'_, '_> {
                 let a = v3(self, 0)?;
                 return self.number_list(&unit(a)).map(Some);
             }
+            // AnhNVSE 131 computes B x A (left-handed sign relative to A x B) [observed:
+            // 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+            // xNVSE 6.4.9 + AnhNVSE 131, `w6d4p2_39_anh_vectors_fixed` (`crZ=-1.0`) and
+            // `w6d4p6_21_stewie_sup_anh_hnvse` (`cr(3,-6,3)`; `wave6d4_anh_v3_crossproduct.json`)].
             "v3crossproductalt" => {
                 let (a, b) = (v3(self, 0)?, v3(self, 1)?);
-                return self.number_list(&[a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]).map(Some);
+                return self.number_list(&[b[1] * a[2] - b[2] * a[1], b[2] * a[0] - b[0] * a[2], b[0] * a[1] - b[1] * a[0]]).map(Some);
             }
             // Vector3 linear interpolation a + (b - a) * t without clamping t [observed:
             // 2026-11-23, GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas 1.4.0.525
