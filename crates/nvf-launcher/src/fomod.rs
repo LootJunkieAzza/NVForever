@@ -673,8 +673,8 @@ pub fn draw(ctx: &egui::Context, w: &mut Wizard) -> Option<Decision> {
         if !w.note.is_empty() {
             ui.label(RichText::new(&w.note).small().color(ui.visuals().weak_text_color()));
         }
-        if let Some(path) = &w.image {
-            ui.add(egui::Image::from_uri(file_uri(path)).max_height(120.0));
+        if let Some(uri) = w.image.as_deref().and_then(file_uri) {
+            ui.add(egui::Image::from_uri(uri).max_height(120.0));
         }
         if ids.is_empty() {
             ui.label("Nothing to choose. The files that always install can be copied.");
@@ -775,14 +775,23 @@ fn option_body(ui: &mut egui::Ui, plug: &Plug) {
     if !plug.description.is_empty() {
         ui.label(RichText::new(&plug.description).small().color(ui.visuals().weak_text_color()));
     }
-    if let Some(path) = &plug.image {
-        ui.add(egui::Image::from_uri(file_uri(path)).max_height(100.0));
+    if let Some(uri) = plug.image.as_deref().and_then(file_uri) {
+        ui.add(egui::Image::from_uri(uri).max_height(100.0));
     }
 }
 
-fn file_uri(path: &Path) -> String {
-    let s = path.display().to_string().replace('%', "%25").replace(' ', "%20").replace('#', "%23");
-    format!("file://{s}")
+/// The URI the window loads the picture at `path` from: `path` itself, unescaped. The window's
+/// file loader reads that exact path first and only falls back to a %-decoded form when it is
+/// missing, so an escaped name could load another file than the one checked. A path that is not
+/// UTF-8, or holds `%`, `#` or `?`, gets no URI and its picture is not shown. On Windows the loader
+/// drops one `/` after `file://` and reads anything else as a network path (`\\…`), so the path
+/// there follows `file:///`.
+fn file_uri(path: &Path) -> Option<String> {
+    let s = path.to_str()?;
+    if s.contains(['%', '#', '?']) {
+        return None;
+    }
+    Some(if cfg!(windows) { format!("file:///{s}") } else { format!("file://{s}") })
 }
 
 impl TypeSpec {
@@ -927,7 +936,7 @@ impl Wizard {
         let mut keep = |image: &mut Option<PathBuf>| {
             if let Some(path) = image.clone() {
                 if !kept.contains(&path) {
-                    if image_fits(&path, &mut left) {
+                    if file_uri(&path).is_some() && image_fits(&path, &mut left) {
                         kept.insert(path);
                     } else {
                         *image = None;
@@ -949,7 +958,9 @@ impl Wizard {
     pub fn forget_images(&self, ctx: &egui::Context) {
         let plugs = self.steps.iter().flat_map(|s| &s.groups).flat_map(|g| &g.plugins);
         for path in self.image.iter().chain(plugs.filter_map(|p| p.image.as_ref())) {
-            ctx.forget_image(&file_uri(path));
+            if let Some(uri) = file_uri(path) {
+                ctx.forget_image(&uri);
+            }
         }
     }
 }
@@ -3120,6 +3131,47 @@ mod tests {
         // A line break would have made `-Two` a second, turned-off row of the mod list.
         assert_eq!(plan.name, "Line-Two");
         assert_eq!(clean_name("\n\t"), Err("That name cannot be used.".to_string()));
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// LOSSYSTR-001: the window loads a picture from the exact path that was checked, never
+    /// from an escaped name another file in the mod could carry.
+    #[test]
+    fn a_picture_is_loaded_from_the_path_that_was_checked() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-picture-uri-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let root = t.join("Uri");
+        std::fs::create_dir_all(root.join("fomod")).unwrap();
+        std::fs::create_dir_all(root.join("img")).unwrap();
+        let png = |name: &str| image::RgbaImage::new(2, 2).save_with_format(root.join("img").join(name), image::ImageFormat::Png).unwrap();
+        png("a b.png");
+        png("a%20b.png");
+        let option = |name: &str, picture: &str| format!(r#"<plugin name="{name}"><description/><image path="img/{picture}"/><typeDescriptor><type name="Optional"/></typeDescriptor></plugin>"#);
+        let plugins = option("Space", "a b.png") + &option("Percent", "a%20b.png");
+        let xml = format!(r#"<config><moduleName>Uri</moduleName><installSteps><installStep name="One"><optionalFileGroups><group name="Pick" type="SelectAny"><plugins>{plugins}</plugins></group></optionalFileGroups></installStep></installSteps></config>"#);
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), xml).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Wizard(w) = stage(&root, facts).unwrap() else { panic!("an installer with a choice opens its window") };
+        let plugs = &w.steps[0].groups[0].plugins;
+        let space = plugs[0].image.as_deref().unwrap();
+        let uri = file_uri(space).unwrap();
+        assert!(uri.ends_with("a b.png") && !uri.contains("%20"), "{uri}");
+        assert!(plugs[1].image.is_none(), "a name with % could stand for another file once decoded");
+        // The window's own loader reads exactly that file from the URI, on Windows too.
+        let ctx = egui::Context::default();
+        egui_extras::install_image_loaders(&ctx);
+        let mut loaded = None;
+        for _ in 0..500 {
+            match ctx.try_load_bytes(&uri) {
+                Ok(egui::load::BytesPoll::Ready { bytes, .. }) => {
+                    loaded = Some(bytes.to_vec());
+                    break;
+                }
+                Ok(egui::load::BytesPoll::Pending { .. }) => std::thread::sleep(std::time::Duration::from_millis(10)),
+                Err(e) => panic!("{uri}: {e}"),
+            }
+        }
+        assert_eq!(loaded.as_deref(), Some(std::fs::read(space).unwrap().as_slice()), "{uri}");
         let _ = std::fs::remove_dir_all(&t);
     }
 }

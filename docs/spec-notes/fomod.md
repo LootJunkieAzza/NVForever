@@ -58,7 +58,10 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
   the stack [design; `copy_items`, `copy_children`].
 - An installer's pictures are shown only up to 8 MiB a file and 2048 pixels each way (by the
   picture's header), and up to 256 MiB for all of them once decoded; a picture past that is not
-  shown. They are let go when the installer closes [design; `image_fits`, `forget_images`].
+  shown. They are let go when the installer closes [design; `image_fits`, `forget_images`]. A
+  picture is loaded from exactly the path that was checked; one whose path holds `%`, `#` or `?`,
+  or is not UTF-8, is not shown, since a loader could read another file for it [design;
+  `file_uri`].
 - The mod's folder is named from `moduleName` (else the archive's name): its last path part,
   without control characters (a line break would split a line of the mod list) or the
   characters Windows does not allow in names [design; `clean_name`].
