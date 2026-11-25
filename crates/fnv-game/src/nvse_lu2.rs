@@ -212,14 +212,31 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "getradioradius" => XVal::Num(subject.and_then(|r| g.radio_data(r)).map_or(0.0, |d| f64::from(d.radius))),
         "getradiostatic" => XVal::Num(subject.and_then(|r| g.radio_data(r)).map_or(0.0, |d| f64::from(d.static_percent))),
         "getradioposref" => XVal::Ref(subject.and_then(|r| g.radio_data(r)).and_then(|d| d.position_ref).map_or(0, |p| p.0)),
+        // Out-of-range broadcast types outside 0..=4 and negative radius/static values
+        // leave the field unchanged (not clamped), and SetRadioStatic accepts values > 100
+        // unclamped [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+        // w6d9_21_radio_xrdo_radius_static_type_posref_bounds: ty(1,5=1,-1=1)|rad(0.0,500=0.0,-100=0.0)|st(0.0,150=0.0,-10=0.0)|pos(set=0,rest=1);
+        // w6d9p2_20_radio_xrdo_radius_mode: ty(1->0:0->2:2)|rad(500=500.0,-100=500.0)|st(50=50.0,150=150.0,-10=150.0)|pos=1].
         "setradiobroadcasttype" | "setradioradius" | "setradiostatic" | "setradioposref" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let x = num(args, 0, 0.0);
             let pos = form(args, 0);
             g.set_radio(r, |d| match name {
-                "setradiobroadcasttype" => d.range = x.clamp(0.0, 4.0) as u32,
-                "setradioradius" => d.radius = x.max(0.0) as f32,
-                "setradiostatic" => d.static_percent = x.clamp(0.0, 100.0) as f32,
+                "setradiobroadcasttype" => {
+                    if x.is_finite() && (0.0..=4.0).contains(&x) {
+                        d.range = x as u32;
+                    }
+                }
+                "setradioradius" => {
+                    if x.is_finite() && x >= 0.0 {
+                        d.radius = x as f32;
+                    }
+                }
+                "setradiostatic" => {
+                    if x.is_finite() && x >= 0.0 {
+                        d.static_percent = x as f32;
+                    }
+                }
                 _ => d.position_ref = pos,
             });
             zero
@@ -321,3 +338,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_radio_xrdo_bounds_tests.rs"]
+mod w6d9_radio_xrdo_bounds_tests;
