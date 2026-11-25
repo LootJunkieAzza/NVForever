@@ -1,0 +1,117 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_melee_damage_floor",
+  "description": "Wave 6D-7 read-only console probe for MeleeDamage floor truncation and damaged-SPECIAL derived stats.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_melee_damage_floor",
+      "title": "Wave 6D-7: MeleeDamage floor truncation",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_05_derived_stats_damaged_special_and_heal_rate",
+          "bucket": "actor_values_derived",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 119,
+          "functions_tested": [
+            "GetAV",
+            "GetBaseAV",
+            "SetAV",
+            "ModAV",
+            "DamageAV",
+            "RestoreAV",
+            "EquipItem",
+            "Dispel"
+          ],
+          "claim": "SD-02(a,b): Measure HealRate (AV 15) across Endurance 1/5/6/8/10, and test whether DamageAV vs ModAV vs Buffout temp SPECIAL changes derived ActionPoints, CritChance, MeleeDamage, UnarmedDamage, Health, RadResist, and PoisonResist.",
+          "expected": "Pin HealRate formula (vs NVForever hardcoded 0.0) and whether derived stats read base, perm, or current (damaged/temp) SPECIAL.",
+          "script_lines": [
+            "ref rBuff = GetFormFromMod \"FalloutNV.esm\" \"15163\"",
+            "float fEnd0 = Player.GetBaseAV Endurance",
+            "float fAgi0 = Player.GetBaseAV Agility",
+            "float fLck0 = Player.GetBaseAV Luck",
+            "float fStr0 = Player.GetBaseAV Strength",
+            "Player.SetAV Endurance 1",
+            "float fHr1 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 5",
+            "float fHr5 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 6",
+            "float fHr6 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 8",
+            "float fHr8 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 10",
+            "float fHr10 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 6",
+            "float fHpB = Player.GetBaseAV Health",
+            "float fRadB = Player.GetAV RadResist",
+            "float fPoiB = Player.GetAV PoisonResist",
+            "Player.DamageAV Endurance 3",
+            "float fHpDmg = Player.GetBaseAV Health",
+            "float fRadDmg = Player.GetAV RadResist",
+            "float fPoiDmg = Player.GetAV PoisonResist",
+            "Player.RestoreAV Endurance 3",
+            "Player.SetAV Agility 6",
+            "float fApB = Player.GetAV ActionPoints",
+            "Player.DamageAV Agility 3",
+            "float fApDmg = Player.GetAV ActionPoints",
+            "Player.RestoreAV Agility 3",
+            "Player.SetAV Luck 6",
+            "float fCcB = Player.GetAV CritChance",
+            "Player.DamageAV Luck 3",
+            "float fCcDmg = Player.GetAV CritChance",
+            "Player.RestoreAV Luck 3",
+            "Player.SetAV Strength 6",
+            "float fMdB = Player.GetAV MeleeDamage",
+            "Player.DamageAV Strength 3",
+            "float fMdDmg = Player.GetAV MeleeDamage",
+            "Player.RestoreAV Strength 3",
+            "Player.ModAV Strength 2",
+            "float fMdMod = Player.GetAV MeleeDamage",
+            "Player.ModAV Strength -2",
+            "Player.AddItem rBuff 1 1",
+            "Player.EquipItem rBuff 0 1",
+            "float fMdTmp = Player.GetAV MeleeDamage",
+            "float fRadTmp = Player.GetAV RadResist",
+            "Player.Dispel rBuff",
+            "Player.SetAV Endurance fEnd0",
+            "Player.SetAV Agility fAgi0",
+            "Player.SetAV Luck fLck0",
+            "Player.SetAV Strength fStr0",
+            "string_var sOut = sv_Construct \"PROBE|w6d7_05_derived_stats_damaged_special_and_heal_rate|hr(e1=%.2f,e5=%.2f,e6=%.2f,e8=%.2f,e10=%.2f)\" fHr1 fHr5 fHr6 fHr8 fHr10",
+            "let sOut += sv_Construct \"|endDmg(hp=%.1f->%.1f,rad=%.1f->%.1f,poi=%.1f->%.1f)|ap(%.1f->%.1f)|cc(%.1f->%.1f)|md(%.1f->d=%.1f,m=%.1f,t=%.1f,rT=%.1f)\" fHpB fHpDmg fRadB fRadDmg fPoiB fPoiDmg fApB fApDmg fCcB fCcDmg fMdB fMdDmg fMdMod fMdTmp fRadTmp",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        }
+      ]
+    }
+  ]
+}

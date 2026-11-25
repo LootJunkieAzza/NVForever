@@ -525,3 +525,13 @@ fn speed_mult_scales_the_players_speed() {
     call(&mut g, MOD, PLAYER, &[code(av::SPEED_MULTIPLIER), n(-500.0)]);
     assert_eq!(g.move_speed_mult(p), 0.0);
 }
+
+#[test]
+fn melee_damage_floors_odd_strength_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    for (str_v, want) in [(1.0, 0.0), (2.0, 1.0), (3.0, 1.0), (5.0, 2.0), (6.0, 3.0), (7.0, 3.0), (9.0, 4.0), (10.0, 5.0)] {
+        call(&mut g, SET, PLAYER, &[code(av::STRENGTH), n(str_v)]);
+        assert_eq!(get(&mut g, PLAYER, av::MELEE_DAMAGE), want, "Strength {str_v}");
+    }
+}

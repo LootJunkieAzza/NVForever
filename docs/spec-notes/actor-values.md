@@ -173,7 +173,7 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 | 14 | Critical Chance | `fAVDCritLuckBase` (0) + `fAVDCritLuckMult` (1) × Luck | [documented: Critical Hit Chance Formula] |
 | 15 | Heal Rate | 0 | [hypothesis]; the masters hold `fAVDHealRateEndurance6Bonus` to `…10Bonus` (5, 5, 5, 10, 10) [observed], unread |
 | 16 | Health | the maximum health of combat-rules.md §9 | as there |
-| 17 | Melee Damage | `fAVDMeleeDamageStrengthMult` (0.5) × (`fAVDMeleeDamageStrengthOffset` (0) + Strength) | [documented: Weapon Damage Formula] |
+| 17 | Melee Damage | `floor(fAVDMeleeDamageStrengthMult (0.5) × (fAVDMeleeDamageStrengthOffset (0) + Strength))` | [documented: Weapon Damage Formula; observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_05_derived_stats_damaged_special_and_heal_rate` in `tools/capture/nvse/catalogs/wave6d7_melee_damage_floor.json`: `md(3.0->d=1.0,m=4.0,t=4.0,rT=16.0)`] |
 | 56 | Unarmed Damage | `fAVDUnarmedDamageBase` (0.5) + `fAVDUnarmedDamageMult` (0.05) × Unarmed | [documented: Weapon Damage Formula] |
 | 19 | Poison Resistance | (Endurance − 1) × 5 | "derived from Endurance" [documented: Stats Tab - NPC]; the figures [documented: the Fallout Wiki's derived statistics table, END × 5 − 5; no setting in the masters] |
 | 20 | Rad Resistance | (Endurance − 1) × 2 | as Poison Resistance (the table: END × 2 − 2) |

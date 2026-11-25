@@ -477,9 +477,10 @@ impl<'a> Game<'a> {
             CARRY_WEIGHT => setting(self, "fAVDCarryWeightsBase", 150.0) + setting(self, "fAVDCarryWeightMult", 10.0) * self.formula_input(r, STRENGTH),
             // [documented: GECK wiki Critical Hit Chance Formula.]
             CRITICAL_CHANCE => setting(self, "fAVDCritLuckBase", 0.0) + setting(self, "fAVDCritLuckMult", 1.0) * self.formula_input(r, LUCK),
-            // [documented: GECK wiki Weapon Damage Formula.]
+            // [documented: GECK wiki Weapon Damage Formula; observed 2026-11-25:
+            // w6d7_05_derived_stats_damaged_special_and_heal_rate, floor(0.5 * STR): STR 3 -> 1.0.]
             MELEE_DAMAGE => {
-                setting(self, "fAVDMeleeDamageStrengthMult", 0.5) * (setting(self, "fAVDMeleeDamageStrengthOffset", 0.0) + self.formula_input(r, STRENGTH))
+                (setting(self, "fAVDMeleeDamageStrengthMult", 0.5) * (setting(self, "fAVDMeleeDamageStrengthOffset", 0.0) + self.formula_input(r, STRENGTH))).floor()
             }
             UNARMED_DAMAGE => setting(self, "fAVDUnarmedDamageBase", 0.5) + setting(self, "fAVDUnarmedDamageMult", 0.05) * self.formula_input(r, UNARMED),
             // [documented: GECK wiki Stats Tab - NPC, both derive from Endurance;
