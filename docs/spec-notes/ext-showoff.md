@@ -12,10 +12,18 @@ ran.
 - The event fires when an item reaches a container. With a stimpak AddItem'd to the player,
   a two-argument handler got the item's base form (type 47) first and the player second; a
   handler taking no arguments ran as well [observed].
+- Inside the handler, the calling reference (`GetSelfAlt` / `ThisAlt`) is the physical
+  world item reference when the item was picked up directly from the game world, and `0`
+  (null) when added via `AddItem` or an inventory transfer [documented: GECK wiki
+  [ShowOff:OnAdd](https://geckwiki.com/index.php?title=ShowOff:OnAdd), "May be null if a
+  world item wasn't picked up directly from the environment"; no ShowOff DLL or source
+  consulted].
 - Inside the handler, `GetAddedItemRefShowOff` gives a reference whose base is the stimpak
   [observed: IsReference 1, base type 47]; the page says a world item reference or an
-  inventory reference [documented]. NVForever gives an inventory reference to the item in
-  the container. Outside a handler it gives none.
+  inventory reference [documented: ShowOff:OnAdd, "Contains either a world item ref or an
+  InventoryRef"]. NVForever gives the picked-up world reference on direct world pickup
+  (`Game::run_default_activation` `Outcome::PickedUp`) and an inventory reference to the
+  item in the container otherwise. Outside a handler it gives none.
 - NVForever fires it wherever its script OnAdd block would run for an item reaching a
   container (AddItem and its variants, RemoveAllItems into a container, picking up).
 

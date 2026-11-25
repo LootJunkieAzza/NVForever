@@ -17,7 +17,7 @@ pub const INTRO_KEY: &str = "sIntroMovie";
 pub const TTW_QUEST: &str = "001FFFF8";
 
 /// The card's fields.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct Fields {
     /// `sCharGenQuest` (a FormID or an Editor ID); empty: no line, the New Vegas opening.
     pub quest: String,
@@ -67,6 +67,17 @@ impl Fields {
     }
 }
 
+/// The card's warning when the fields name TTW's start quest but TTW's master is off
+/// (`Some(false)`) or not in the load order at all (`None`, TTW removed with its lines
+/// left in, #3229): New Game then starts the New Vegas opening instead.
+pub fn ttw_missing(fields: &Fields, ttw_active: Option<bool>) -> Option<String> {
+    if !fields.quest.trim().eq_ignore_ascii_case(TTW_QUEST) || ttw_active == Some(true) {
+        return None;
+    }
+    let state = if ttw_active.is_some() { "is off in the list below" } else { "is not in the load order" };
+    Some(format!("{TTW_PLUGIN} {state}: New Game starts the New Vegas opening instead. Turn it on, or Clear these lines."))
+}
+
 /// `text` without the `key=` lines of `[section]` (names without case); every other line kept.
 fn ini_remove(text: &str, section: &str, key: &str) -> String {
     let mut in_section = false;
@@ -99,6 +110,17 @@ mod tests {
         }
         // The game's own test reads TTW's lines as its quest and no film.
         assert!(src.contains("SCharGenQuest=001FFFF8\\nSIntroMovie=\\n"));
+    }
+
+    #[test]
+    fn ttws_quest_without_ttw_is_flagged() {
+        assert_eq!(ttw_missing(&ttw(), Some(true)), None);
+        assert!(ttw_missing(&ttw(), Some(false)).unwrap().contains("is off in the list below"));
+        assert!(ttw_missing(&ttw(), None).unwrap().contains("is not in the load order"));
+        // The quest alone, with the default film, is still TTW's.
+        let quest_only = Fields { quest: "001fffF8".into(), ..Fields::default() };
+        assert!(ttw_missing(&quest_only, None).is_some());
+        assert_eq!(ttw_missing(&Fields::default(), None), None);
     }
 
     #[test]

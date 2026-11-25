@@ -21,6 +21,13 @@ issues; [outstanding.md](outstanding.md) is a snapshot of 2026-10-25, not kept u
   original game can settle in [observer-checks](handoff/observer-checks.md) and
   [its folder](handoff/observer-checks/README.md), and every guess is still in its spec note.
 
+Experimental Android port (#2436): **Partly** — ARM64 APK, read-only SAF game import,
+in-app HTTPS/checksum/signature-verified updater, process restart, touch controls with
+layout editor, Mobile settings tab, and Android controller/dialogue/menu adaptations
+([design](design/android.md); full build instructions and validation log in
+[android.md](android.md)). Desktop builds are unchanged; full physical-device
+gameplay, lifecycle, and performance qualification remain open.
+
 Qualified private CPU host: [explicitly cleared cloned form-list JIP
 wildcards](spec-notes/jip-cloned-list-wildcard.md). Exact f30 original/candidate
 production and identical six authored fixtures gave
@@ -393,9 +400,10 @@ intendedFAIL, candidate120PASS, all120once/0ignored. Overallcontrollerfalse is
 retained for an unknown post-Cargo descendant terminated during boundedcleanup;
 this is not whole-run qualification. Engine callback/draw-piece,
 native/originalMCM/rendered acceptance remain open. Independent raw/source review
-confirmed those bounded case results and the false overall flag. The accepted-main
-060d union retains the tested fnv-ui Rust/fixtures; whole-graph qualification stays
-bound to its exact executed source, separately from the c264 comparison.
+confirmed those bounded case results and the false overall flag. Accepted Main
+`f5cb523f` contains the RGB fnv-ui Rust/fixtures alongside the named-source lookup
+index; the earlier `060d69dd` and `a0ebe1c5` checkpoints do not. Whole-graph
+qualification stays bound to its exact executed source, separately from the c264 comparison.
 Contract: [MCM integer RGB consumers](spec-notes/mcm-rgb-integer-consumers.md).
 
 - String game-setting source setter/readback and the existing talk-prompt consumer:

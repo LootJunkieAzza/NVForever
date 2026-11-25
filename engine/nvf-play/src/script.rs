@@ -312,6 +312,9 @@ pub struct Runtime {
     wake_talk: Option<(FormId, f64)>,
     /// The quest the opening starts (`crate::game_start`).
     start: GameStart,
+    /// The corner message of a New Game whose `sCharGenQuest` named no quest of the load
+    /// order (#3229), taken by `crate::game_start::notice`.
+    pub opening_notice: Option<String>,
     /// Where the player was last frame, and frames left whose time does not count (a
     /// door's loading screen).
     location: Option<Location>,
@@ -722,6 +725,7 @@ impl Runtime {
             new_game_files: false,
             wake_talk: None,
             start: GameStart::default(),
+            opening_notice: None,
             location: None,
             frozen_frames: 0,
             came_through: false,
@@ -817,7 +821,20 @@ impl Runtime {
                 let at = if state.stages_done.contains(&0) { " at stage 0" } else { "" };
                 info!("new game: {name} started{at} (now at stage {})", state.stage());
             }
-            Err(e) => warn!("new game: {}={}: {e}; no opening quest started", crate::game_start::CHARGEN_KEY, self.start.chargen_quest),
+            Err(e) => {
+                warn!("new game: {}={}: {e}", crate::game_start::CHARGEN_KEY, self.start.chargen_quest);
+                // #3229: never a silent empty start; the New Vegas opening instead, with a
+                // notice naming the setting.
+                let fallback = GameStart { chargen_quest: crate::game_start::DEFAULT_CHARGEN_QUEST.into(), ..self.start.clone() };
+                match fallback.quest(g) {
+                    Ok(q) if g.start_chargen_quest(q) => {
+                        info!("new game: falling back to {}: the New Vegas opening starts", crate::game_start::DEFAULT_CHARGEN_QUEST);
+                        self.opening_notice = Some(crate::game_start::fallback_notice(&self.start.chargen_quest));
+                    }
+                    Ok(_) => warn!("new game: {} did not start; no opening quest started", crate::game_start::DEFAULT_CHARGEN_QUEST),
+                    Err(e) => warn!("new game: {}: {e}; no opening quest started", crate::game_start::DEFAULT_CHARGEN_QUEST),
+                }
+            }
         }
     }
 
@@ -1625,6 +1642,10 @@ impl std::io::Write for TraceFile {
     fn flush(&mut self) -> std::io::Result<()> {
         self.0.flush()
     }
+
+    fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        self.0.write_vectored(bufs)
+    }
 }
 
 impl Drop for TraceFile {
@@ -1835,6 +1856,33 @@ mod trace_ownership_tests {
         drop(next);
         let next_bytes = std::fs::read_to_string(&path).unwrap();
         assert!(next_bytes.contains("next-run") && !next_bytes.contains("parent-before-child"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn finished_trace_releases_ownership_while_a_duplicated_handle_remains_open() {
+        let root = std::env::temp_dir().join(format!("nvf-duplicated-trace-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let path = root.join("script-trace.jsonl");
+        let mut parent = TraceLog::create(&path).unwrap();
+        parent.write(&serde_json::json!({"kind":"finished-owner"}));
+        let duplicate = parent.out.get_ref().try_clone().unwrap();
+        let overlap = TraceLog::create(&path).unwrap();
+        assert_ne!(overlap.path, path, "an active writer retains its lock despite duplication");
+        drop(overlap);
+        drop(parent);
+        let mut next = TraceLog::create(&path).unwrap();
+        assert_eq!(next.path, path, "a finished writer must not leave its lock with a duplicated handle");
+        next.write(&serde_json::json!({"kind":"next-owner"}));
+        drop(duplicate);
+        let overlap = TraceLog::create(&path).unwrap();
+        assert_ne!(overlap.path, path, "closing an old duplicate must not release the new writer's lock");
+        drop((overlap, next));
+        let bytes = std::fs::read_to_string(&path).unwrap();
+        let rows: Vec<serde_json::Value> = bytes.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["format"], "nvforever.play.script_log/1");
+        assert_eq!(rows[1]["kind"], "next-owner");
+        assert!(!bytes.contains("finished-owner") && !bytes.contains('\0'));
         std::fs::remove_dir_all(root).unwrap();
     }
 }
@@ -2950,7 +2998,7 @@ pub fn asks_nothing(buttons: usize) -> bool {
     buttons <= 1
 }
 
-#[cfg(any(test, feature = "test-support", feature = "report-test-support"))]
+#[cfg(any(test, feature = "test-support", feature = "report-test-support", feature = "test-fixtures"))]
 impl ScriptState {
     /// A runtime over an empty load order, for tests of what works the open menu: nothing
     /// has run, no menu is open.
@@ -2985,6 +3033,7 @@ impl ScriptState {
             new_game_files: false,
             wake_talk: None,
             start: GameStart::default(),
+            opening_notice: None,
             location: None,
             frozen_frames: 0,
             came_through: false,
@@ -3007,6 +3056,16 @@ impl ScriptState {
     #[cfg(test)]
     pub(crate) fn answered(&self) -> bool {
         self.rt.as_ref().is_some_and(|rt| rt.closing.is_some())
+    }
+}
+
+// Shared only with the wrapper's dev-dependency: private Runtime fields and the
+// actual authored constructor stay owned by this module.
+#[cfg(feature = "test-fixtures")]
+#[doc(hidden)]
+pub mod fixtures {
+    pub fn over_plugins(plugins: &[fnv_esm::Plugin]) -> super::ScriptState {
+        super::ScriptState::over_plugins(plugins)
     }
 }
 

@@ -287,6 +287,7 @@ impl StatsView {
     pub fn list_most(&self, tab: usize) -> usize {
         self.lens[tab].saturating_sub(self.rows_shown[tab])
     }
+    pub fn list_page(&self, tab: usize) -> usize { self.rows_shown.get(tab).copied().unwrap_or(1) }
 
     /// How many rows the view that draws a tab's list shows at once: each view gives its own, as
     /// with the description's bound, and what is scrolled stays within it.
@@ -389,6 +390,8 @@ pub struct Sources<'w> {
 pub struct Input<'w, 's> {
     keys: crate::pad::ActionButtons<'w, KeyCode>,
     wheel: MessageReader<'w, 's, MouseWheel>,
+    touch_wheel: Option<Res<'w,super::touch_scroll::WheelFrame>>,
+    physical:Option<Res<'w,super::touch_scroll::PhysicalPriority>>,
     time: crate::pause::AidTime<'w>,
     asks: MessageWriter<'w, UseHint>,
     tiles: Option<Res<'w, crate::tiles::stats_menu::StatsTiles>>,
@@ -505,7 +508,10 @@ pub fn prepare(
         if let Some(a) = ask {
             input.asks.write(a);
         }
-        let pointer = screen.as_ref().and_then(|s| s.pointer);
+        let touch_lines=if input.physical.as_ref().is_some_and(|p|p.active) {0.0} else {input.touch_wheel.as_ref().map_or(0.0,|w|w.lines(&pip))};
+        let pointer = input.touch_wheel.as_ref().filter(|_|touch_lines!=0.0).and_then(|w|w.at)
+            .or_else(||screen.as_ref().and_then(|s|s.pointer));
+        mem.wheel+=touch_lines;
         for w in input.wheel.read() {
             mem.wheel += match w.unit {
                 MouseScrollUnit::Line => w.y,
@@ -1073,6 +1079,9 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, ro
         }
         spots.push((up, Spot::ListUp));
         spots.push((down, Spot::ListDown));
+        super::scrollbar::hits(p, Page::Stats, tab, Rect::from_corners(up.min, down.max),
+            Rect::new(r.min.x,up.max.y,r.min.x+ARROW.x,down.min.y),
+            Rect::new(r.min.x,my,r.min.x+ARROW.x,my+mh),Vec2::ZERO);
     }
 }
 

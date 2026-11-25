@@ -16,6 +16,8 @@ pub mod game_files;
 pub mod activate;
 pub mod aid;
 pub mod aim_zoom;
+pub mod touch_action_presentation;
+pub mod touch_movement;
 pub mod ambient;
 pub mod audio_out;
 pub mod bindings;
@@ -29,9 +31,11 @@ pub mod combat;
 pub mod compass;
 pub mod compass_strip;
 pub mod console;
+pub mod soft_keyboard;
 pub mod editor;
 pub mod container_anim;
 pub mod control;
+pub mod controller_aim;
 pub mod corner_messages;
 pub mod crafting;
 pub mod cursor;
@@ -40,6 +44,11 @@ pub mod dialogue;
 pub mod dialogue_look;
 pub mod dialogue_zoom;
 pub mod dialogue_menu;
+pub mod dialogue_device;
+pub mod dialogue_touch;
+pub mod dialogue_split;
+pub mod touch_safe_area;
+pub mod touch_ui_options;
 pub mod difficulty;
 pub mod hardcore;
 pub mod dismember;
@@ -71,6 +80,7 @@ pub mod intro;
 pub mod levelup;
 pub mod hotkeys;
 pub mod hud;
+pub mod hud_readability;
 pub mod hud_breath;
 pub mod hud_limbs;
 pub mod heartbeat;
@@ -85,6 +95,7 @@ pub mod loading;
 pub mod loading_look;
 pub mod main_menu;
 pub mod menu_scale;
+pub mod menu_readability;
 pub mod location_markers;
 pub mod lockpick;
 pub mod roulette;
@@ -124,6 +135,7 @@ pub mod radiation;
 pub mod radio;
 pub mod reverb;
 pub mod repair;
+pub mod maintenance_touch;
 pub mod repeat;
 pub mod reputation;
 pub mod quick_loot;
@@ -487,7 +499,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(caravan::CaravanPlugin)
             .add_plugins(poker::PokerPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin, after_combat::AfterCombatPlugin))
-            .add_plugins(console::ConsolePlugin)
+            .add_plugins((console::ConsolePlugin, soft_keyboard::SoftKeyboardPlugin))
             .add_plugins(editor::EditorPlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(collision_view::CollisionViewPlugin)

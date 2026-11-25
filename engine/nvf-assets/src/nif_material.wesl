@@ -328,9 +328,16 @@ fn tony_inverse(y: f32) -> f32 {
 // (window light rays, white × 1 under a warm emittance colour) and the dark parts of a
 // glow map keep the tonemapper; the lantern glass (× 10) and neon (× 25) burn.
 fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
-    let d = min(lit + e, vec3(HOT_MAX));
-    let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
-    var out = mix(lit + e, hot, smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b))));
+    let hot_share = smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b)));
+    // No hot share (the brightest emitted channel at 0.8 or less, nearly every lit pixel):
+    // the mix below gives `lit + e`, so the three walks of the inverse table are skipped
+    // (#2868). No derivatives here, so the branch may differ between fragments.
+    var out = lit + e;
+    if hot_share > 0.0 {
+        let d = min(lit + e, vec3(HOT_MAX));
+        let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
+        out = mix(lit + e, hot, hot_share);
+    }
     // HDR output (nvforever hdr.rs): the SDR picture up to white, and above white the light
     // the shape really emits (its emissive multiplier: lantern glass x 10, neon x 25), so
     // the HDR pass shows a neon tube brighter than a lantern. Clipped at 1 per channel, as
@@ -392,20 +399,24 @@ fn blend_colour_scale(a: f32) -> f32 {
 // fragment, falling from 1 at `distance` in front of the opaque surface behind it (the
 // depth prepass) to 0 on it. Not faded where the shape lies along that surface (the two
 // facings, from screen derivatives, within about 25 degrees), nor in front of the sky,
-// nor without a prepass. Called in uniform control flow (screen derivatives).
+// nor without a prepass. Called in uniform control flow (screen derivatives). Compiled only
+// into the main pass of shapes with a soft distance (NVF_SOFT_FADE); 1 for every other shape,
+// as the select below gives for a distance of 0, without the prepass read (#2868).
 @if(!PREPASS_PIPELINE) fn soft_fade(frag_coord: vec4<f32>, world_pos: vec3<f32>, distance: f32) -> f32 {
     // A first-person shape's depth as it was before it was squeezed, so the fade is
     // measured against where it is (nif_material.rs "First-person depth").
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let depth = first_person_depth::unsqueeze(prepass_utils::prepass_depth(frag_coord, 0u));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let scene = position_ndc_to_world(frag_coord_to_ndc(vec4(frag_coord.xy, max(depth, 1e-7), 1.0)));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let scene_n = cross(dpdx(scene), dpdy(scene));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let own_n = cross(dpdx(world_pos), dpdy(world_pos));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let lengths = length(scene_n) * length(own_n);
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let along = select(0.0, abs(dot(scene_n, own_n)) / lengths, lengths > 1e-12);
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let gap = depth_ndc_to_view_z(frag_coord.z) - depth_ndc_to_view_z(max(depth, 1e-7));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let fade = mix(saturate(gap / max(distance, 1e-3)), 1.0, smoothstep(0.85, 0.95, along));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) return select(fade, 1.0, distance <= 0.0 || depth <= 0.0);
-    @if(!PREPASS_PIPELINE && !DEPTH_PREPASS) return 1.0;
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let depth = first_person_depth::unsqueeze(prepass_utils::prepass_depth(frag_coord, 0u));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let scene = position_ndc_to_world(frag_coord_to_ndc(vec4(frag_coord.xy, max(depth, 1e-7), 1.0)));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let scene_n = cross(dpdx(scene), dpdy(scene));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let own_n = cross(dpdx(world_pos), dpdy(world_pos));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let lengths = length(scene_n) * length(own_n);
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let along = select(0.0, abs(dot(scene_n, own_n)) / lengths, lengths > 1e-12);
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let gap = depth_ndc_to_view_z(frag_coord.z) - depth_ndc_to_view_z(max(depth, 1e-7));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let fade = mix(saturate(gap / max(distance, 1e-3)), 1.0, smoothstep(0.85, 0.95, along));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) return select(fade, 1.0, distance <= 0.0 || depth <= 0.0);
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && !DEPTH_PREPASS) return 1.0;
+    // A shape without a soft distance (NifSurfaceKey::soft, #2868): the fade above is 1.
+    @if(!PREPASS_PIPELINE && !NVF_SOFT_FADE) return 1.0;
 }
 
 // How far past the plane through the eye, square to the sun, a past-body shadow lookup

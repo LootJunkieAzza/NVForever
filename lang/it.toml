@@ -642,3 +642,5 @@ name = "Italiano"
 "{name} ({count}) added" = "{name} ({count}) aggiunti"
 "Map marker added" = "Indicatore mappa aggiunto"
 "Map marker added: {name}" = "Indicatore mappa aggiunto: {name}"
+# [design, #3229; engine/nvf-play/src/game_start.rs] The start quest is missing from the load order.
+"The start quest {value} (sCharGenQuest in NVForever.ini) is not in the load order: the New Vegas opening starts instead." = "La missione iniziale {value} (sCharGenQuest in NVForever.ini) non è nell'ordine di caricamento: al suo posto parte l'inizio di New Vegas."

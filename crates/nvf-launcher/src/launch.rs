@@ -5,6 +5,24 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
+pub(crate) fn game_from_ini(text: &str) -> Option<fnv_install::GameInstall> {
+    fnv_install::Config::from_ini(text).game_dir.and_then(|path| fnv_install::GameInstall::open(path).ok())
+}
+
+/// Apply an edit to the current INI, not an older UI snapshot.
+pub(crate) fn write_ini(path: &Path, edit: impl FnOnce(String) -> String) -> Result<(), String> {
+    let now = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.to_string()),
+    };
+    fnv_install::guard_write(path, game_from_ini(&now).as_ref()).map_err(|e| e.to_string())?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    fnv_install::write_whole(path, edit(now).as_bytes()).map_err(|e| e.to_string())
+}
+
 #[cfg(windows)]
 pub const GAME_EXE: &str = "nvforever.exe";
 #[cfg(not(windows))]

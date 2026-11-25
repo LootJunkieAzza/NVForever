@@ -385,7 +385,9 @@ pub fn heading_title(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str) -> 
     if c.kit.screen {
         return x0 + LEAD_LINE;
     }
-    let w = c.text(p, 4, title, x0 + TITLE_X, y0 - base(&c.kit.face(4).font) + THICK, Align::Left, c.bright());
+    let top=y0-base(&c.kit.face(4).font)+THICK;
+    let w = c.text(p, 4, title, x0 + TITLE_X, top, Align::Left, c.bright());
+    p.spawn((at(x0+TITLE_X,top,w,c.line_height(4)),super::tab_swipe::Strip(super::tab_swipe::Kind::Sections),Pickable::IGNORE));
     x0 + TITLE_X + w + TITLE_GAP
 }
 
@@ -531,7 +533,7 @@ fn tab_line(p: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page, current: usiz
         let top = r.min.y + (r.height() - text_h) / 2.0 + BOX_TEXT_DROP;
         c.text(p, 2, name, r.min.x + TAB_HORBUF / 2.0, top, Align::Left, bright);
         // The tab's box takes the pointer.
-        p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), Clickable(PipBoyInput::Tab(i)), Pickable::default()))
+        p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), Clickable(PipBoyInput::Tab(i)), super::tab_swipe::Strip(super::tab_swipe::Kind::Subtabs), Pickable::default()))
             .observe(super::on_click)
             .observe(on_tab_over)
             .observe(on_tab_out);
@@ -684,7 +686,7 @@ fn header(r: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page) {
         let face = c.kit.face(HEADER_FONT);
         let rise = name.glyphs.iter().map(|g| face.font.bitmap_glyph(g).ascent).fold(0.0, f32::max);
         let (x, base) = ((b.width() - name.width) / 2.0, (b.height() + rise) / 2.0);
-        r.spawn((at(b.min.x, b.min.y, b.width(), b.height()), Clickable(PipBoyInput::Page(p)), Pickable::default()))
+        r.spawn((at(b.min.x, b.min.y, b.width(), b.height()), Clickable(PipBoyInput::Page(p)), super::tab_swipe::Strip(super::tab_swipe::Kind::Sections), Pickable::default()))
             .with_children(|n| {
                 if selected {
                     c.boxed(n, local, line, Some(amber(FILL.0).with_alpha(FILL.1 / 255.0)));

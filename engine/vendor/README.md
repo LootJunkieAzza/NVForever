@@ -22,6 +22,11 @@ cursor is inside the client area before a warp, even without a motion event. The
 query itself changes neither focus nor cursor position. Every pre-existing
 module retains `forbid`; the rest of the new cursor consumer inherits `deny`.
 
+In `bevy_winit/src/winit_windows.rs`, `attempt_grab` is a no-op returning
+`Ok(())` on `target_os = "android"`, because Android `NativeActivity` has no
+desktop cursor-grab API and winit otherwise logs `Unable to ungrab cursor` and
+`Could not set cursor grab mode` during initial `CursorOptions` sync.
+
 Source: crates.io `bevy_winit` 0.20.1, archive SHA-256
 `397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`.
 
@@ -136,6 +141,21 @@ HDR output: `src/msaa_writeback.rs` fills `BlitPipelineKey`'s two new fields (`f
 `false`), as the vendored bevy_core_pipeline's key needs them.
 
 ## bevy_pbr 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Skinning storage-buffer wrapping and normal hardening in `src/render/skinning.wesl`:
+storage `joint_matrices` and `prev_joint_matrices` are wrapped in
+`struct StorageJointMatrices`, an exactly singular skin matrix (`det == 0.0` in
+`inverse_transpose_3x3m`) uses an identity normal transform, and an exactly zero
+transformed normal in `skin_normals` uses `+Z`.
+Finite zero-scale animation and unweighted vertices can reach these cases; WGSL leaves
+runtime divide-by-zero and zero normalization indeterminate
+([WGSL floating point evaluation](https://www.w3.org/TR/WGSL/#floating-point-evaluation)).
+Nondegenerate inverse-transpose/normalization arithmetic, positions, skin weights,
+CURRENT/PREVIOUS storage layouts, buffer selection and morph gates are unchanged.
+This defines previously undefined normal directions; it does not establish a device-loss
+or Android visual-corruption cause. CPU production-WESL controls and GPU qualification
+are separate; remove/reconcile this patch when upstream provides equivalent guards.
+
 
 Bevy's 3D passes, for FSR upscaling (docs/design/fsr-upscaling.md), which draws the main
 passes at a lower resolution through `MainPassResolutionOverride`. Two changes, each marked
@@ -1230,3 +1250,25 @@ and prebuilt binaries.
   `MaterialBindlessSlab::get_bindless_index_table`, reversed in 0.19.1, which kept freed
   `ExtendedMaterial`s' textures in the slabs. Fixed upstream (bevyengine/bevy#25848);
   Bevy 0.20 has the fix, in `bevy_render::material_bind_groups` (#934).
+
+## winit 0.30.13 (Apache-2.0; rust-windowing contributors)
+
+Android controller admission only, marked `NVForever controller admission` in
+`src/platform/android.rs` and `src/platform_impl/android/mod.rs`: an optional
+application handler runs before the single native queue consumer translates input into
+window events. Unhandled inputs use the upstream path. NVForever copies controller
+samples into its own bounded queue, then uses Bevy's ordinary RawGamepadEvent route.
+No other platform backend changes. The upstream crate archive checksum was matched to
+Cargo.lock and its source files matched the installed registry before copying; upstream
+licences remain beside the source. Drop this patch when winit exposes equivalent native
+controller admission or provides a complete controller-event backend.
+
+## rapier3d 0.36.1 (Apache-2.0, Dimforge)
+
+Vendored at the repository root (`vendor/rapier3d/`) and wired via `[patch.crates-io]`
+in both `Cargo.toml` and `engine/Cargo.toml` so both workspaces resolve the exact same
+physics crate. Carries two bounded zero-dt collision-query refresh fixes in
+`src/pipeline/physics_pipeline/substep.rs` (deferred BVH optimization join before
+`dt <= 0.0` return) and `src/dynamics/island_manager/manager.rs`
+(`commit_sleeping_chunks` after persistent sleep bootstrap). Full baseline SHA-256,
+rationale, and test notes are in `vendor/rapier3d/README.nvforever.md`.

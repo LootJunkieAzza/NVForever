@@ -665,3 +665,5 @@ name = "Русский"
 "{name} ({count}) added" = "{name} ({count}): получено"
 "Map marker added" = "Метка на карте добавлена"
 "Map marker added: {name}" = "Метка на карте добавлена: {name}"
+# [design, #3229; engine/nvf-play/src/game_start.rs] The start quest is missing from the load order.
+"The start quest {value} (sCharGenQuest in NVForever.ini) is not in the load order: the New Vegas opening starts instead." = "Начальный квест {value} (sCharGenQuest в NVForever.ini) отсутствует в порядке загрузки: вместо него начинается вступление New Vegas."

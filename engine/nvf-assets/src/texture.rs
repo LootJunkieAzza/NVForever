@@ -274,8 +274,8 @@ pub fn sampler() -> ImageSampler {
     })
 }
 
-/// Build a GPU image from DDS bytes; `None` for cube maps, unsupported formats, or BC
-/// textures the device cannot sample.
+/// Build a GPU image from DDS bytes. DXT1/3/5 are decoded to RGBA when the device
+/// cannot sample BC; cube maps and unsupported formats still return an error.
 pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
     // A panic while decoding is this texture's failure, not the game's (guard.rs).
     dds_texture(bytes, TextureUsage::from_srgb(srgb), bc_supported, false).map(|d| d.image)
@@ -307,17 +307,16 @@ fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, to
     // dds.md §6): legacy files state none, and the hint is only reported.
     let (format, data) = match dds.format {
         Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
-            if !aligned {
-                // Such a texture (a mod's 179×196 DXT5, dds.md §3) is decoded here
-                // instead [#2164].
+            if !bc_supported || !aligned {
+                // Reuse the bounded DDS decoder when BC sampling is unavailable, or
+                // dimensions cannot use a block texture (dds.md §3, #2164). Keep all
+                // parsed mip levels and the caller's diffuse/linear colour intent.
                 let mut out = Vec::new();
                 for (m, l) in levels.iter().enumerate() {
                     let (lw, lh) = dds.header.level_dims(m as u32);
                     out.extend(fnv_dds::decode_blocks(dds.format, lw, lh, l).ok_or("block data too short")?);
                 }
                 (if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm }, out)
-            } else if !bc_supported {
-                return Err("GPU lacks BC texture support".into());
             } else {
                 let f = match (dds.format, srgb) {
                     (Format::Dxt1, true) => TextureFormat::Bc1RgbaUnormSrgb,
@@ -1483,6 +1482,135 @@ mod tests {
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\LaserRifle02.dds", exists), None);
         // Already a first-person texture: kept.
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\1stPersonLaserRifle01.dds", |_| true), None);
+    }
+    // Authored BC blocks, not game data: colour index zero selects the first RGB565
+    // endpoint. DXT3 uses explicit 8/15 alpha, DXT5 endpoint96, DXT1 opaque colour.
+    fn colour_block(fourcc: &[u8; 4], rgb565: u16) -> Vec<u8> {
+        let mut colour = vec![0u8; 8];
+        colour[..2].copy_from_slice(&rgb565.to_le_bytes());
+        match fourcc {
+            b"DXT1" => colour,
+            b"DXT3" => { let mut block = vec![0x88; 8]; block.extend(colour); block }
+            b"DXT5" => { let mut block = vec![96, 96, 0, 0, 0, 0, 0, 0]; block.extend(colour); block }
+            _ => unreachable!(),
+        }
+    }
+    fn alpha_for(fourcc: &[u8; 4]) -> u8 {
+        match fourcc { b"DXT1" => 255, b"DXT3" => 136, b"DXT5" => 96, _ => unreachable!() }
+    }
+    fn mip_fixture(fourcc: &[u8; 4]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let mut payload = Vec::new();
+        let mut expected = Vec::new();
+        let mut top = Vec::new();
+        for (size, colour, rgb) in [(8u32, 0xf800, [255, 0, 0]), (4, 0x07e0, [0, 255, 0]), (2, 0x001f, [0, 0, 255]), (1, 0xffff, [255, 255, 255])] {
+            for _ in 0..size.div_ceil(4).pow(2) { payload.extend(colour_block(fourcc, colour)); }
+            let pixel = [rgb[0], rgb[1], rgb[2], alpha_for(fourcc)];
+            for _ in 0..size*size { expected.extend(pixel); if size == 8 { top.extend(pixel); } }
+        }
+        let mut bytes = dds(fourcc, 8, 8, &payload);
+        bytes[8..12].copy_from_slice(&0x0002_1007u32.to_le_bytes());
+        bytes[28..32].copy_from_slice(&4u32.to_le_bytes());
+        bytes[108..112].copy_from_slice(&0x0040_1008u32.to_le_bytes());
+        (bytes, expected, top)
+    }
+
+    #[test]
+    fn aligned_bc_textures_without_bc_support_keep_colour_alpha_mips_and_colour_space() {
+        for fourcc in [b"DXT1", b"DXT3", b"DXT5"] {
+            let (bytes, expected, _) = mip_fixture(fourcc);
+            for srgb in [false, true] {
+                let image = dds_image(&bytes, srgb, false).unwrap();
+                assert_eq!((image.width(), image.height(), image.texture_descriptor.mip_level_count), (8, 8, 4));
+                assert_eq!(image.texture_descriptor.format, if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm });
+                assert_eq!(image.data.as_ref().unwrap(), &expected);
+                assert_eq!(expected.len(), (8*8 + 4*4 + 2*2 + 1)*4);
+            }
+        }
+    }
+    #[test]
+    fn dxt1_cutout_transparency_survives_the_non_bc_fallback() {
+        // Equal black endpoints plus colour index3: the authored BC1 transparent entry.
+        let block = [0, 0, 0, 0, 255, 255, 255, 255];
+        for srgb in [false, true] {
+            let image = dds_image(&dds(b"DXT1", 4, 4, &block), srgb, false).unwrap();
+            assert_eq!(image.data.unwrap(), vec![0; 4 * 4 * 4]);
+        }
+    }
+    #[test]
+    fn top_only_bc_fallback_decodes_only_the_requested_largest_level() {
+        for fourcc in [b"DXT1", b"DXT3", b"DXT5"] {
+            let (bytes, _, expected) = mip_fixture(fourcc);
+            for srgb in [false, true] {
+                let image = super::dds_image_top(&bytes, srgb, false).unwrap();
+                assert_eq!(image.texture_descriptor.mip_level_count, 1);
+                assert_eq!((image.width(), image.height()), (8, 8));
+                assert_eq!(image.texture_descriptor.format, if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm });
+                assert_eq!(image.data.as_ref().unwrap(), &expected);
+            }
+        }
+    }
+    #[test]
+    fn bc_capable_aligned_textures_keep_compressed_format_bytes_and_mips() {
+        for (fourcc, linear, srgb_format) in [(b"DXT1", TextureFormat::Bc1RgbaUnorm, TextureFormat::Bc1RgbaUnormSrgb), (b"DXT3", TextureFormat::Bc2RgbaUnorm, TextureFormat::Bc2RgbaUnormSrgb), (b"DXT5", TextureFormat::Bc3RgbaUnorm, TextureFormat::Bc3RgbaUnormSrgb)] {
+            let (bytes, _, _) = mip_fixture(fourcc);
+            for srgb in [false, true] {
+                let image = dds_image(&bytes, srgb, true).unwrap();
+                assert_eq!(image.texture_descriptor.format, if srgb { srgb_format } else { linear });
+                assert_eq!((image.width(), image.height(), image.texture_descriptor.mip_level_count), (8, 8, 4));
+                assert_eq!(image.data.as_ref().unwrap(), &bytes[128..]);
+                let top = super::dds_image_top(&bytes, srgb, true).unwrap();
+                assert_eq!(top.texture_descriptor.mip_level_count, 1);
+                let length = if fourcc == b"DXT1" { 32 } else { 64 };
+                assert_eq!(top.data.as_ref().unwrap(), &bytes[128..128+length]);
+            }
+        }
+    }
+    #[test]
+    fn npot_bc_fallback_crops_edge_blocks_identically_with_and_without_bc_support() {
+        for fourcc in [b"DXT1", b"DXT3", b"DXT5"] {
+            let mut payload = Vec::new();
+            for colour in [0xf800, 0x07e0, 0x001f, 0xffff] { payload.extend(colour_block(fourcc, colour)); }
+            let bytes = dds(fourcc, 6, 5, &payload);
+            let colours = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]];
+            for srgb in [false, true] {
+                let cpu = dds_image(&bytes, srgb, false).unwrap();
+                let supported = dds_image(&bytes, srgb, true).unwrap();
+                assert_eq!(cpu.data, supported.data);
+                assert_eq!(cpu.texture_descriptor.format, supported.texture_descriptor.format);
+                assert_eq!((cpu.width(), cpu.height()), (6, 5));
+                let pixels = cpu.data.as_ref().unwrap();
+                for y in 0..5usize { for x in 0..6usize {
+                    let rgb = colours[(y/4)*2+x/4];
+                    assert_eq!(&pixels[(y*6+x)*4..(y*6+x)*4+4], &[rgb[0], rgb[1], rgb[2], alpha_for(fourcc)]);
+                }}
+            }
+        }
+    }
+    #[test]
+    fn unsupported_or_malformed_dds_remains_an_error_in_both_capability_paths() {
+        for bc in [false, true] {
+            assert!(dds_image(&dds(b"ATI2", 4, 4, &[0; 16]), true, bc).is_err());
+            assert!(dds_image(&dds(b"DX10", 4, 4, &[0; 16]), true, bc).is_err());
+            assert!(dds_image(&dds(b"DXT1", 4, 4, &[0; 7]), true, bc).is_err());
+            assert!(dds_image(&dds(b"DXT5", 0, 4, &[0; 16]), false, bc).is_err());
+            assert!(dds_image(&dds(b"DXT5", super::MAX_TEXTURE_SIDE + 4, 4, &[0; 16]), false, bc).is_err());
+            let mut cube = dds(b"DXT1", 4, 4, &[0; 48]);
+            cube[112..116].copy_from_slice(&0x0000_fe00u32.to_le_bytes());
+            assert!(dds_image(&cube, true, bc).unwrap_err().contains("cube map"));
+        }
+    }
+
+    #[test]
+    fn checked_image_keeps_validated_multi_level_rgba_data() {
+        // Authored bytes for an 8x8, 4x4, 2x2, 1x1 chain. Image::new's debug-only
+        // base-level assertion must not reject this valid 340-byte payload.
+        let data: Vec<u8> = (0..340).map(|i| (i % 251) as u8).collect();
+        for format in [TextureFormat::Rgba8Unorm, TextureFormat::Rgba8UnormSrgb] {
+            let image = super::checked_image(8, 8, 4, format, data.clone()).unwrap();
+            assert_eq!((image.width(), image.height(), image.texture_descriptor.mip_level_count), (8, 8, 4));
+            assert_eq!(image.texture_descriptor.format, format);
+            assert_eq!(image.data.as_ref().unwrap(), &data);
+        }
     }
 
     /// A legacy 32-bit `A8R8G8B8` DDS file with `mips` levels, optionally flagged as a

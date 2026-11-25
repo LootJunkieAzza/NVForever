@@ -320,7 +320,7 @@ impl Plugin for CompassPlugin {
             .init_resource::<CompassRise>()
             .init_resource::<CompassNear>()
             .add_systems(Update, place.after(PlaySet::Physics).before(PlaySet::Activation))
-            .add_systems(Update, (discover, crate::challenges::notices, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet))
+            .add_systems(Update, (discover, crate::challenges::notices, crate::game_start::notice, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet))
             .add_systems(Update, crate::pipboy::data::refresh_quest_targets.in_set(PlaySet::Ui));
         crate::save::add_save_hook(app, SAVE_HOOK);
     }

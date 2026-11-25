@@ -6369,7 +6369,7 @@ impl<'a> Game<'a> {
             Outcome::PickedUp { item, count, .. } => {
                 item_added_event = Some(self.events.len());
                 self.emit(EventKind::ItemAdded { to: actor, item, count, silent: false });
-                self.item_event(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)));
+                self.item_event_with(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)), Some(target));
             }
             Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
                 self.arrived_through(target, cell);
@@ -6438,6 +6438,17 @@ impl<'a> Game<'a> {
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the
     /// item's script runs in an instance per holder and item [hypothesis].
     pub fn item_event(&mut self, holder: FormId, item: FormId, ev: u16, subject: Option<Value>) -> bool {
+        self.item_event_with(holder, item, ev, subject, None)
+    }
+
+    fn item_event_with(
+        &mut self,
+        holder: FormId,
+        item: FormId,
+        ev: u16,
+        subject: Option<Value>,
+        world_ref: Option<FormId>,
+    ) -> bool {
         // The extender's OnEquip and OnUnequip (and OnActorUnequip with it): the holder and
         // the item [observed: nvse-events, (player, pistol) for all three]. Not OnAdd:
         // AddItem of a base form did not fire it [observed]; OnDrop is sent by Drop with
@@ -6446,7 +6457,7 @@ impl<'a> Game<'a> {
             self.ext_event(ev, holder, Some(Value::Ref(item.0)));
         }
         if ev == event::ON_ADD {
-            self.showoff_on_add(holder, item);
+            self.showoff_on_add(holder, item, world_ref);
         }
         if ev == event::ON_UNEQUIP {
             use fnv_script::vm::XVal;

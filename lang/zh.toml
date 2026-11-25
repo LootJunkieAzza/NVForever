@@ -1887,3 +1887,5 @@ name = "简体中文"
 "{name} ({count}) added" = "已获得 {name}（{count}）"
 "Map marker added" = "已添加地图标记"
 "Map marker added: {name}" = "已添加地图标记：{name}"
+# [design, #3229; engine/nvf-play/src/game_start.rs] The start quest is missing from the load order.
+"The start quest {value} (sCharGenQuest in NVForever.ini) is not in the load order: the New Vegas opening starts instead." = "起始任务 {value}（NVForever.ini 中的 sCharGenQuest）不在加载顺序中：将改为开始 New Vegas 的开场。"

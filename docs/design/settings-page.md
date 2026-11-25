@@ -6,6 +6,11 @@ setting (`engine/nvf-play/src/settings.rs`) and the controls of
 from a table that only says where each row is drawn. This note is the page's model; the
 code's module notes say the same at their own level.
 
+On a normal Android launcher start, borderless and one MSAA sample are platform
+defaults, not command-line overrides of settings rows. The defaults carry across
+in-app restarts. Explicit row switches still prevent exporting `settings-menu.json`,
+as does a reduced registry when a full export from the same build already exists.
+
 ## 0. Adding or changing a row: the rules (the menu overhaul, 2026-11-15)
 
 The owner reorganised the page on 2026-11-15, tab by tab (the menu overhaul). Every row
@@ -197,6 +202,50 @@ the Tweaks tab filled (88fbce1c4) and still catches a row another tab's table fo
 throughout today. The later change gives Tweaks rows a placement `Tweaks › <group> ›
 <heading>` in `SECTIONS` and draws the groups in place of the rail; neither the
 registrations nor `resolve_layout`'s interface change for it.
+
+### Android mobile organization
+
+[design] Android uses the same dynamic settings page, adding **Mobile** after Controls.
+Desktop keeps its eight tabs and existing placements. This changes presentation only:
+the settings retain their registration order, keys, callbacks, saved values and defaults.
+Missing optional rows and empty headings stay omitted. Search, Changed,
+keyboard/controller navigation and row identity use the existing page implementation.
+
+| Mobile heading | Existing controls |
+| --- | --- |
+| Touch layout and guide | Safe practice, icon family, adaptive Aim/Block presentation |
+| Movement and gestures | Analog movement, fire drag look, run lock, optional VATS gesture |
+| Gyroscope | Enable, sensitivity, ADS, hold/toggle, ADS-only, recenter |
+| Inventory and quick access | Hotbar enable/count/size/tray, bottom swipe enable/target/distance |
+| Dialogue | Touch dialogue, choice/subtitle text size, tap-selection policy |
+| Lockpicking | Touch scheme and scale |
+| Interface size | Existing menu/UI scale and canonical health/AP/compass sizes |
+
+Preset, FPS, resolution and opt-in thermal response stay in **Display > Mobile
+performance**. The preset changes the frame limit and render resolution, not Graphics.
+
+The four Android-specific controller rows are in **Controls > Controller**. The four
+shared controller rows keep their **Controls > Input** and **Controls > Aim Assist**
+placements. Hardware bindings and Input Device remain in Controls; changing devices
+keeps the existing hidden-row projection and remapping behavior.
+The existing transactional layout editor opens from **Pause > Settings > Mobile >
+Touch layout and guide** on Android: Style / profiles
+for appearance, Save to keep changes, Cancel to restore them. The practice note points
+to this route; there is no second editor or new persistence schema.
+
+The shared crate's `MOBILE_SECTIONS` takes precedence over `SECTIONS` only on
+Android. The same profile determines the exported menu's layout stamp and the
+launcher's acceptance of that export. The launcher shows the in-game titles,
+choices and dependencies for its editable subset; game-only actions (such as
+the layout editor) stay in Pause. Before a normal Android start exports the
+catalogue, the launcher uses its smaller built-in settings copy.
+
+Dependencies on stored rows live in `NEEDS` and `NEEDS_CHOICE`. For example,
+turning off Touch dialogue, Gyroscope or Touch hotbar leaves its dependent
+settings visible with their saved value and reason. Renderer or hardware
+availability still comes from the live engine. See the
+[Android settings reference](../settings-reference-android.md) for placements
+and compatibility rows.
 
 ## 3. What the page lists (`settings_view.rs`)
 

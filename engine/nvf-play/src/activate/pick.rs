@@ -125,6 +125,82 @@ pub fn choose_precise_first(
     choose(hit, all.iter().map(|b| (b.0, b.1)), reach, accept)
 }
 
+/// One render box along the view: the reference, where the ray enters it and where it
+/// leaves it (game units from the eye), and whether the box is only rough
+/// ([`choose_precise_first`]).
+pub type BoxSpan = (u32, f32, f32, bool);
+
+/// [`choose_precise_first`], then what is inside the target wins over it: while the target
+/// has a render box, an activatable reference the ray reaches within that box takes its
+/// place, the nearest such first. "Within" is the other reference's collision hit lying
+/// between the box's entry and exit, or its own precise box lying wholly between them
+/// (rough boxes do not count: an actor is not inside a doorway's box in any useful sense).
+/// What a collision hit hides stays hidden ([`choose`]'s limit), so a closed door or lid
+/// still covers what is behind it. Only a target that `holds` things (a container) gives
+/// way, as only a bed does in [`set_aside_enclosing`]; `raw` is the first collision hit as
+/// the ray met it (not a door promoted from behind it), so nothing behind a wall counts.
+///
+/// [design, #3351] An open locker in the Sloan barracks (0x000E7610,
+/// `clutter\lockercabinet02.nif`, a container) holds a first aid kit on its upper shelf
+/// (0x000E7612, a container with collision of its own) and books on the lower one
+/// (0x000E7613 and others). The locker's collision is hollow: a ray into the open half
+/// hits the kit at 132.5 units or the back wall at 149 [observed: `fnvtool phys cell
+/// --ray`, FalloutNV.esm]. But the ray enters the locker's own render box at its front,
+/// before anything inside it, and the nearest candidate wins, so the locker was the
+/// target wherever the crosshair pointed [observed: player reports R-BHSP2X8C and
+/// R-C6VJTJFT, `target 0x000E7610 Locker … by Bounds at 140`]. What the original does at
+/// such a spot is not captured; that the things on an open shelf can be taken is the
+/// reports' expectation.
+pub fn choose_inside(
+    hit: Option<RayHit>,
+    raw: Option<RayHit>,
+    boxes: impl IntoIterator<Item = BoxSpan>,
+    reach: f32,
+    holds: impl Fn(u32) -> bool,
+    mut accept: impl FnMut(u32) -> bool,
+) -> Option<Pick> {
+    let all: Vec<BoxSpan> = boxes.into_iter().collect();
+    let mut picked = choose_precise_first(hit, all.iter().map(|b| (b.0, b.1, b.3)), reach, &mut accept)?;
+    let limit = raw.map_or(reach, |h| (h.distance + SURFACE_SLACK).min(reach));
+    // Each step goes to a reference inside the last one; a reference is taken once.
+    let mut seen = vec![picked.form_id];
+    loop {
+        // Only something that holds things gives way (a container: the open locker); a
+        // chair or a switch panel keeps priority over what its box encloses (#3323).
+        if !holds(picked.form_id) {
+            return Some(picked);
+        }
+        // The target's boxes as one stretch of the ray.
+        let span = all.iter().filter(|b| b.0 == picked.form_id).fold(None, |s: Option<(f32, f32)>, b| Some(s.map_or((b.1, b.2), |(from, to)| (from.min(b.1), to.max(b.2)))));
+        let Some((from, to)) = span else { return Some(picked) };
+        let mut inner: Option<Pick> = None;
+        if let Some((id, d)) = hit.and_then(|h| Some((h.form_id?, h.distance))) {
+            if !seen.contains(&id) && (from..=to).contains(&d) && d <= reach && accept(id) {
+                inner = Some(Pick { form_id: id, distance: d, source: Source::Collision });
+            }
+        }
+        for &(id, entry, exit, rough) in &all {
+            if rough || seen.contains(&id) || entry < from || exit > to || !(0.0..=limit).contains(&entry) {
+                continue;
+            }
+            // Nearer wins; the collision hit's own box does not take its place.
+            if inner.is_some_and(|i| i.distance <= entry || i.form_id == id) {
+                continue;
+            }
+            if accept(id) {
+                inner = Some(Pick { form_id: id, distance: entry, source: Source::Bounds });
+            }
+        }
+        match inner {
+            Some(i) => {
+                seen.push(i.form_id);
+                picked = i;
+            }
+            None => return Some(picked),
+        }
+    }
+}
+
 /// Render boxes (reference, entry, exit, rough) without those of a bed (`bed`: furniture
 /// to sleep on) when one of its boxes holds, along the ray, the whole stretch through
 /// another reference's precise box (not an actor's rough one, [`choose_precise_first`])
@@ -144,8 +220,8 @@ pub fn choose_precise_first(
 /// begin a hair past its collision (the Bison Steve suitcase: hit at 98.15, box from
 /// 98.2). Two boxes over the same stretch both stay; a sleeper's rough box
 /// sets no bed's aside, so [`to_occupant`] still sees the bed; nor does another bed's box
-/// (two beds never set each other aside). The result is
-/// [`choose_precise_first`]'s input.
+/// (two beds never set each other aside). The kept references' boxes are
+/// [`choose_inside`]'s input.
 pub fn set_aside_enclosing(
     hit: Option<RayHit>,
     boxes: &[(u32, f32, f32, bool)],
@@ -211,10 +287,11 @@ pub fn box_distance(p: Vec3, to_world: &Affine3A, center: Vec3, half: Vec3) -> O
 /// given in an entity's own space (`center`, `half` extents) placed by `to_world`. `None`
 /// when the ray misses, the box is behind, or `origin` is inside the box.
 pub fn ray_box(origin: Vec3, dir: Vec3, to_world: &Affine3A, center: Vec3, half: Vec3) -> Option<f32> {
-    ray_box_span(origin, dir, to_world, center, half).map(|s| s.0)
+    ray_box_span(origin, dir, to_world, center, half).map(|(entry, _)| entry)
 }
 
-/// [`ray_box`]'s entry distance and the distance at which the ray leaves the box.
+/// [`ray_box`] with where the ray leaves the box as well: (entry, exit), distances along
+/// the ray. `None` in the same cases.
 pub fn ray_box_span(origin: Vec3, dir: Vec3, to_world: &Affine3A, center: Vec3, half: Vec3) -> Option<(f32, f32)> {
     if to_world.matrix3.determinant().abs() < 1e-12 {
         return None;
@@ -342,6 +419,70 @@ mod tests {
         let actor = RayHit { form_id: Some(8), distance: 70.0 };
         let p = choose_precise_first(Some(actor), [(8, 65.0, true)], REACH, ANY).unwrap();
         assert_eq!((p.form_id, p.source), (8, Source::Collision));
+    }
+
+    /// #3351: the open locker in the Sloan barracks. The ray enters the locker's box (10)
+    /// at 114 and leaves it at 151; inside it are a first aid kit (12, with collision) and
+    /// a book (13, a box only).
+    #[test]
+    fn what_is_inside_an_open_container_wins_over_it() {
+        let locker = (10, 114.0, 151.0, false);
+        // Aimed at the kit: its collision is hit at 132.5, inside the locker's box.
+        let kit = RayHit { form_id: Some(12), distance: 132.5 };
+        let p = choose_inside(Some(kit), Some(kit), [locker, (12, 131.0, 141.0, false)], REACH, ANY, ANY).unwrap();
+        assert_eq!(p, Pick { form_id: 12, distance: 132.5, source: Source::Collision });
+        // The rule before: the locker's box, entered first, won.
+        assert_eq!(choose_precise_first(Some(kit), [(10, 114.0, false), (12, 131.0, false)], REACH, ANY).unwrap().form_id, 10);
+        // Aimed at the book: the ray goes on to the locker's back wall at 149; the book's
+        // box lies inside the locker's.
+        let back = RayHit { form_id: Some(10), distance: 149.0 };
+        let p = choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, ANY, ANY).unwrap();
+        assert_eq!(p, Pick { form_id: 13, distance: 128.0, source: Source::Bounds });
+        // Aimed at an empty shelf: the locker.
+        let p = choose_inside(Some(back), Some(back), [locker], REACH, ANY, ANY).unwrap();
+        assert_eq!((p.form_id, p.source), (10, Source::Collision));
+        // Two things inside: the nearer.
+        let p = choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false), (14, 120.0, 126.0, false)], REACH, ANY, ANY).unwrap();
+        assert_eq!(p.form_id, 14);
+        // One that cannot be taken does not stand in the other's way, nor in the locker's.
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false), (14, 120.0, 126.0, false)], REACH, ANY, |id| id != 14).unwrap().form_id, 13);
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, ANY, |id| id != 13).unwrap().form_id, 10);
+        // The closed half: the door's collision at 114.6 hides what is behind it, and the
+        // locked locker stays the target.
+        let door = RayHit { form_id: Some(11), distance: 114.6 };
+        let p = choose_inside(Some(door), Some(door), [(11, 114.0, 151.0, false), (13, 128.0, 133.0, false)], REACH, ANY, ANY).unwrap();
+        assert_eq!((p.form_id, p.source), (11, Source::Collision));
+        // A wall between: nothing behind it, inside a box or not.
+        let wall = RayHit { form_id: None, distance: 100.0 };
+        assert!(choose_inside(Some(wall), Some(wall), [locker, (13, 128.0, 133.0, false)], REACH, ANY, ANY).is_none());
+        // Something that only sticks into the locker's box, or pokes out of its back, is
+        // not inside it: the nearest wins as before.
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (15, 100.0, 120.0, false)], REACH, ANY, ANY).unwrap().form_id, 15);
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (16, 140.0, 160.0, false)], REACH, ANY, ANY).unwrap().form_id, 10);
+        // An actor's rough box inside a box does not take the target.
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (8, 120.0, 140.0, true)], REACH, ANY, ANY).unwrap().form_id, 10);
+        // A box inside a box inside a box: the innermost.
+        let p = choose_inside(None, None, [(20, 50.0, 140.0, false), (21, 60.0, 120.0, false), (22, 70.0, 80.0, false)], REACH, ANY, ANY).unwrap();
+        assert_eq!(p.form_id, 22);
+        // Without boxes it is `choose_precise_first`.
+        assert_eq!(choose_inside(Some(kit), Some(kit), [], REACH, ANY, ANY), Some(Pick { form_id: 12, distance: 132.5, source: Source::Collision }));
+        assert!(choose_inside(None, None, [], REACH, ANY, ANY).is_none());
+        // Only a holder gives way: a locker that is not a container (a chair, a panel) keeps
+        // the crosshair over what its box encloses (#3323).
+        assert_eq!(choose_inside(Some(back), Some(back), [locker, (13, 128.0, 133.0, false)], REACH, |id| id != 10, ANY).unwrap().form_id, 10);
+        // The cutoff is the raw hit: a wall at 125 hides the book at 128 even when a door
+        // behind the wall was promoted to `hit`.
+        let wall_at = RayHit { form_id: None, distance: 125.0 };
+        assert_eq!(choose_inside(Some(back), Some(wall_at), [locker, (13, 128.0, 133.0, false)], REACH, ANY, ANY).unwrap().form_id, 10);
+    }
+
+    #[test]
+    fn a_ray_s_span_through_a_box() {
+        let unit = Affine3A::IDENTITY;
+        let span = ray_box_span(Vec3::new(-5.0, 0.0, 0.0), Vec3::X, &unit, Vec3::ZERO, Vec3::splat(1.0)).unwrap();
+        assert!((span.0 - 4.0).abs() < 1e-5 && (span.1 - 6.0).abs() < 1e-5, "{span:?}");
+        assert_eq!(ray_box(Vec3::new(-5.0, 0.0, 0.0), Vec3::X, &unit, Vec3::ZERO, Vec3::splat(1.0)), Some(span.0));
+        assert!(ray_box_span(Vec3::new(-5.0, 3.0, 0.0), Vec3::X, &unit, Vec3::ZERO, Vec3::splat(1.0)).is_none());
     }
 
     /// #3231: Elder Lyons asleep in his bed. The ray enters the bed's box (20) before

@@ -33,6 +33,27 @@ const REFERENCE: &str = include_str!("../../../docs/settings-reference.md");
 /// `[Controls]`, not `[Settings]`): the launcher stops there.
 const OWN_ROWS: &str = "the tab's own rows";
 
+/// Whether `rule` holds for its row's INI value `value` (its choice's name `name`), the row
+/// of kind `kind` (`None`: built in, by the value).
+pub(crate) fn rule_holds(rule: &menu::Rule, kind: Option<&menu::Kind>, value: &str, name: &str) -> bool {
+    if !rule.choices.is_empty() {
+        return rule.choices.iter().any(|c| c.eq_ignore_ascii_case(name));
+    }
+    match kind {
+        Some(menu::Kind::List { choices }) => choices.first().is_none_or(|c| c.name != name),
+        Some(menu::Kind::Slider { .. }) => value.parse::<f32>().is_ok_and(|v| v >= 0.5),
+        // A switch, or a row with no kind (built in): off as `0`, a list's Off, or no value.
+        _ => !(value.is_empty() || value == "0" || value.eq_ignore_ascii_case("off")),
+    }
+}
+
+pub(crate) fn with_edits(mut text: String, changes: &std::collections::BTreeMap<String, String>) -> String {
+    for (key, value) in changes {
+        text = fnv_install::ini_set(&text, "Settings", key, value);
+    }
+    text
+}
+
 /// One row of the settings page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
@@ -70,22 +91,35 @@ impl Catalog {
     /// The game's menu beside `ini` when it is this launcher's version and table, else the
     /// built-in one.
     pub fn load(ini: Option<&Path>) -> Catalog {
+        Self::load_tabs(ini, &LAUNCHER_TABS, nvf_settings_layout::layout_stamp)
+    }
+
+    #[cfg(any(feature = "mobile", test))]
+    pub(crate) fn load_mobile(ini: Option<&Path>, tabs: &[&str]) -> Catalog {
+        Self::load_tabs(ini, tabs, nvf_settings_layout::mobile_layout_stamp)
+    }
+
+    fn load_tabs(ini: Option<&Path>, tabs: &[&str], stamp: fn() -> String) -> Catalog {
         ini.and_then(|p| std::fs::read_to_string(p.with_file_name(menu::MENU_FILE)).ok())
             .and_then(|t| Menu::parse(&t))
-            .and_then(|m| Catalog::from_menu(&m, env!("CARGO_PKG_VERSION")))
+            .and_then(|m| Catalog::from_menu_tabs(&m, env!("CARGO_PKG_VERSION"), tabs, stamp))
             .unwrap_or_else(Catalog::built_in)
     }
 
     /// The game's menu `m`, when it is version `version`'s and of this launcher's table
     /// (`nvf_settings_layout::layout_stamp`).
     pub fn from_menu(m: &Menu, version: &str) -> Option<Catalog> {
+        Self::from_menu_tabs(m, version, &LAUNCHER_TABS, nvf_settings_layout::layout_stamp)
+    }
+
+    fn from_menu_tabs(m: &Menu, version: &str, tabs: &[&str], stamp: fn() -> String) -> Option<Catalog> {
         // Not this version's, another build's table (or a file from before the stamp), or
         // with no row (a broken write): the built-in copy.
-        if m.version != version || m.layout != nvf_settings_layout::layout_stamp() || m.rows().next().is_none() {
+        if m.version != version || m.layout != stamp() || m.rows().next().is_none() {
             return None;
         }
         let mut rows = Vec::new();
-        let tabs: Vec<&menu::Tab> = m.tabs.iter().filter(|t| LAUNCHER_TABS.contains(&t.name.as_str())).collect();
+        let tabs: Vec<&menu::Tab> = m.tabs.iter().filter(|t| tabs.contains(&t.name.as_str())).collect();
         for t in &tabs {
             for c in &t.categories {
                 let heading = match (&c.group, &c.heading) {

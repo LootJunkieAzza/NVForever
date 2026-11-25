@@ -105,17 +105,19 @@ fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
 
 impl Game<'_> {
     /// ShowOff:OnAdd, after an item reached a container: the handlers get the item's base
-    /// and the container, and GetAddedItemRefShowOff gives an inventory reference to it
-    /// [observed: showoff1, a stimpak AddItem'd to the player: a reference whose base is
-    /// type 47; the two-argument handler got the base (47) and the player; a handler
-    /// taking no arguments runs too].
-    pub(crate) fn showoff_on_add(&mut self, to: FormId, item: FormId) {
+    /// and the container, with the picked-up world reference (or null for `AddItem` /
+    /// inventory transfers) as the calling reference (`GetSelfAlt` / `ThisAlt`), and
+    /// `GetAddedItemRefShowOff` gives that world reference or an inventory reference
+    /// [documented: GECK wiki ShowOff:OnAdd; observed: showoff1, a stimpak AddItem'd to
+    /// the player: a reference whose base is type 47; the two-argument handler got the
+    /// base (47) and the player; a handler taking no arguments runs too].
+    pub(crate) fn showoff_on_add(&mut self, to: FormId, item: FormId, world_ref: Option<FormId>) {
         if !self.handled(ON_ADD) {
             return;
         }
-        let r = self.temp_ref(to, item);
+        let r = world_ref.unwrap_or_else(|| self.temp_ref(to, item));
         let before = self.showoff.added.replace(r);
-        self.dispatch_event("ShowOff:OnAdd", vec![XVal::Ref(item.0), XVal::Ref(to.0)], Some(to));
+        self.dispatch_event("ShowOff:OnAdd", vec![XVal::Ref(item.0), XVal::Ref(to.0)], world_ref);
         self.showoff.added = before;
     }
 

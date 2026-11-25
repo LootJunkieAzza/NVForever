@@ -1213,9 +1213,15 @@ impl Plugin for TweaksPlugin {
             .add_systems(Startup, read_help_console_label)
             .add_systems(PostStartup, apply_modular_stewie_inis.before(crate::settings::apply_stored))
             .add_systems(Update, remember_item_places.after(crate::menu::MenuSystems))
-            .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song, toggle_device).in_set(crate::PlaySet::Input))
-            .add_systems(Update, (objectives_on_arrival, revive_companions_on_arrival).in_set(crate::PlaySet::Ui))
+            .add_systems(Update, sync.in_set(crate::PlaySet::Input)
+                .before(crate::player::read_input).before(crate::control::read_controls))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (objectives_on_arrival, revive_companions_on_arrival).in_set(crate::PlaySet::Ui));
+        #[cfg(not(target_os = "android"))]
+        app.add_systems(Update, toggle_device.in_set(crate::PlaySet::Input));
+        app
+            // On Android, Switch Device by Pressing is admitted by pad::device::automatic,
+            // through the same consumed edge/cancellation/save path as the selector.
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         sound_list!(app, "discovered-sound", "Location Discovered Sound", "The sound a newly discovered place plays: the game's own, or another of its interface sounds. (Stewie's Tweaks bCustomLocationDiscoveredSound)", discovered_sound);
@@ -2562,6 +2568,7 @@ fn place_marker_here(
 /// working the controls, a controller's A switches them to the controller; with the
 /// controller, a left click switches them back. Written to the INI only with the controls'
 /// next save (`crate::bindings::with_controls`) [design: docs/design/tweaks.md].
+#[cfg(not(target_os = "android"))]
 fn toggle_device(tweaks: Res<TweakSettings>, mouse: Res<ButtonInput<MouseButton>>, pads: Query<&Gamepad>, bindings: Option<ResMut<crate::bindings::Bindings>>, listening: Option<Res<crate::pause::Listening>>) {
     use crate::bindings::InputDevice;
     let Some(mut b) = bindings else { return };
@@ -3198,7 +3205,7 @@ fn apply_modular_stewie_inis(mut tweaks: ResMut<TweakSettings>) {
 /// Hand the game's part to the running game when it differs, and log the change.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
-fn sync(
+pub(crate) fn sync(
     tweaks: Res<TweakSettings>,
     mut script: Option<ResMut<ScriptState>>,
     quests: Option<ResMut<crate::quest_messages::QuestMessages>>,

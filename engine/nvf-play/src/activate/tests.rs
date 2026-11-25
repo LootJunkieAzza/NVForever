@@ -185,7 +185,7 @@ fn boxed(half: f32) -> CollisionObject {
 
 /// The player at the origin looking east (+x) at eye height 100; references with
 /// collision boxes at the given x (half size 10, at eye height).
-fn scene(colliding: &[(u32, f32)]) -> App {
+pub(crate) fn scene(colliding: &[(u32, f32)]) -> App {
     let mut world = PhysWorld::new(PhysParams::default());
     for &(id, x) in colliding {
         world.add_ref(&RefPose { form_id: id, position: [x, 0.0, 100.0], rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 }, &[boxed(10.0)]);

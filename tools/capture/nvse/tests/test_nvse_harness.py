@@ -172,14 +172,15 @@ class TestCatalogValidation(unittest.TestCase):
                 "wave4e_mods.json",
                 "wave4g_f2_extenders.json",
                 "wave4h_reconcile.json",
+                "wave6_point_raycast.json",
             ],
         )
         self.assertFalse((nvse_harness.DEFAULT_CATALOG_DIR / "persistence_matrix.json").exists())
         errors, counts = nvse_harness.validate_catalogs(paths)
         self.assertEqual(errors, [], f"Catalog validation errors: {errors[:5]}")
-        self.assertEqual(counts["catalogs"], 8)
-        self.assertEqual(counts["probe_batches"], 26)
-        self.assertEqual(counts["probes"], 538)
+        self.assertEqual(counts["catalogs"], 9)
+        self.assertEqual(counts["probe_batches"], 27)
+        self.assertEqual(counts["probes"], 541)
         self.assertEqual(counts["persistence_items"], 0)
 
         # Verify Wave 1 parity probe IDs and corrected Wave 4A/4D/4E/4G/4H targeted probes are present verbatim.
@@ -213,6 +214,9 @@ class TestCatalogValidation(unittest.TestCase):
             "w4g_13_isidleplaying_and_idle_replace",
             "w4h_01_quest_added_button2_parent",
             "w4h_11_sup_lockpick_menu_tiers",
+            "w6_01_point_raycast_angles",
+            "w6_02_point_raycast_miss_and_range",
+            "w6_03_point_raycast_collision_flags",
         ):
             self.assertIn(req_id, probes_by_id)
 

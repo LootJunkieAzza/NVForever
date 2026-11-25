@@ -637,9 +637,7 @@ fn play(
     }
     // [design: player_body::show_rigs] The third-person body has no RefVisual. Its
     // overlays copy its layers; attached add-on models are not the body's own meshes.
-    if let Some((list, root)) = by_ref.get_mut(&FormId::PLAYER_REF.0).and_then(|list| {
-        body.as_deref().and_then(|b| b.roots().first().copied()).map(|root| (list, root))
-    }) {
+    if let Some((list, root)) = by_ref.get_mut(&FormId::PLAYER_REF.0).zip(body.as_deref().and_then(|b| b.roots().first().copied())) {
         let addon_parts: HashSet<Entity> = st.active.values().flat_map(|a| a.addons.iter().map(|x| x.0)).chain(st.leaving.iter().flat_map(|l| l.models.iter().map(|x| x.0))).flat_map(|h| std::iter::once(h).chain(children.iter_descendants(h))).collect();
         for e in children.iter_descendants(root) {
             if addon_parts.contains(&e) {
@@ -828,9 +826,7 @@ pub(crate) fn cover(
             list.push((e, mesh, skin, mat));
         }
     }
-    if let Some((list, root)) = by_ref.get_mut(&FormId::PLAYER_REF.0).and_then(|list| {
-        body.as_deref().and_then(|b| b.roots().first().copied()).map(|root| (list, root))
-    }) {
+    if let Some((list, root)) = by_ref.get_mut(&FormId::PLAYER_REF.0).zip(body.as_deref().and_then(|b| b.roots().first().copied())) {
         let addon_parts: HashSet<Entity> = st.active.values().flat_map(|a| a.addons.iter().map(|x| x.0))
             .chain(st.leaving.iter().flat_map(|l| l.models.iter().map(|x| x.0)))
             .flat_map(|h| std::iter::once(h).chain(children.iter_descendants(h))).collect();

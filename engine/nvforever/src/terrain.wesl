@@ -257,6 +257,54 @@ fn layer_normal(k: u32, instance_index: u32, uv: vec2<f32>) -> vec3<f32> {
     }
 }
 
+// Layer `k`'s diffuse texture at `uv` with explicit gradients (`dx`, `dy`: the coordinate's
+// screen derivatives scaled by the view's mip bias, [`layer_grads`]): the same mip level as
+// `layer_diffuse`, and a read that may sit in a branch some fragments of a quad skip (#2868).
+fn layer_diffuse_grad(k: u32, instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+    @if(BINDLESS) {
+        let slot = material_slot(instance_index);
+        let i = terrain_indices[slot];
+        var t = i.diffuse0;
+        if k == 1u { t = i.diffuse1; }
+        if k == 2u { t = i.diffuse2; }
+        if k == 3u { t = i.diffuse3; }
+        if k == 4u { t = i.diffuse4; }
+        if k == 5u { t = i.diffuse5; }
+        return textureSampleGrad(bindless_textures_2d[t], bindless_samplers_filtering[material_indices[slot].base_color_sampler], uv, dx, dy);
+    }
+    @if(!BINDLESS) {
+        if k == 1u { return textureSampleGrad(diffuse1, pbr_bindings::base_color_sampler, uv, dx, dy); }
+        if k == 2u { return textureSampleGrad(diffuse2, pbr_bindings::base_color_sampler, uv, dx, dy); }
+        if k == 3u { return textureSampleGrad(diffuse3, pbr_bindings::base_color_sampler, uv, dx, dy); }
+        if k == 4u { return textureSampleGrad(diffuse4, pbr_bindings::base_color_sampler, uv, dx, dy); }
+        if k == 5u { return textureSampleGrad(diffuse5, pbr_bindings::base_color_sampler, uv, dx, dy); }
+        return textureSampleGrad(diffuse0, pbr_bindings::base_color_sampler, uv, dx, dy);
+    }
+}
+
+// Layer `k`'s normal map at `uv` with explicit gradients, as [`layer_diffuse_grad`].
+fn layer_normal_grad(k: u32, instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec3<f32> {
+    @if(BINDLESS) {
+        let slot = material_slot(instance_index);
+        let i = terrain_indices[slot];
+        var t = i.normal0;
+        if k == 1u { t = i.normal1; }
+        if k == 2u { t = i.normal2; }
+        if k == 3u { t = i.normal3; }
+        if k == 4u { t = i.normal4; }
+        if k == 5u { t = i.normal5; }
+        return textureSampleGrad(bindless_textures_2d[t], bindless_samplers_filtering[material_indices[slot].base_color_sampler], uv, dx, dy).rgb;
+    }
+    @if(!BINDLESS) {
+        if k == 1u { return textureSampleGrad(normal1, pbr_bindings::base_color_sampler, uv, dx, dy).rgb; }
+        if k == 2u { return textureSampleGrad(normal2, pbr_bindings::base_color_sampler, uv, dx, dy).rgb; }
+        if k == 3u { return textureSampleGrad(normal3, pbr_bindings::base_color_sampler, uv, dx, dy).rgb; }
+        if k == 4u { return textureSampleGrad(normal4, pbr_bindings::base_color_sampler, uv, dx, dy).rgb; }
+        if k == 5u { return textureSampleGrad(normal5, pbr_bindings::base_color_sampler, uv, dx, dy).rgb; }
+        return textureSampleGrad(normal0, pbr_bindings::base_color_sampler, uv, dx, dy).rgb;
+    }
+}
+
 // Height blending's reads beside the ordinary ones. The base's diffuse once more, as
 // pbr_input_from_standard_material reads it (same texture, sampler, coordinate and bias:
 // texels already in cache), for its colour before the tint, which the height is taken from.
@@ -683,18 +731,37 @@ fn fragment(
         let plain = normalize(pbr_input.world_normal);
         @if(VERTEX_TANGENTS) let tbn = calculate_tbn_mikktspace(in.world_normal, in.world_tangent);
         @if(!TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) {
+            // The coordinate's screen derivatives, taken once before the loop (#2868), with the
+            // view's mip bias folded in as a scale (a gradient read takes no bias of its own):
+            // the mip level textureSampleBias(.., view.mip_bias) picks.
+            @if(!TERRAIN_PARALLAX) let bias_scale = exp2(view.mip_bias);
+            @if(!TERRAIN_PARALLAX) let uv_dx = dpdx(uv) * bias_scale;
+            @if(!TERRAIN_PARALLAX) let uv_dy = dpdy(uv) * bias_scale;
             for (var k = 0u; k < min(counts.x, 6u); k += 1u) {
-                @if(!TERRAIN_PARALLAX) let texel = layer_diffuse(k, in.instance_index, uv);
-                @if(TERRAIN_PARALLAX) let texel = layer_diffuse_antitiled(k, in.instance_index, parallax_taps, parallax_fp);
-                @if(!TERRAIN_PARALLAX) let share = saturate(opacity[k]) * texel.a;
-                @if(TERRAIN_PARALLAX) let share = saturate(opacity[k]) * parallax_alpha[k];
-                var layer_n = plain;
-                @if(VERTEX_TANGENTS) if (counts.y & (1u << k)) != 0u {
-                    @if(!TERRAIN_PARALLAX) layer_n = apply_normal_mapping(standard.flags, tbn, false, is_front, layer_normal(k, in.instance_index, uv));
-                    @if(TERRAIN_PARALLAX) layer_n = terrain_world_normal(tbn, layer_normal_antitiled(k, in.instance_index, parallax_taps, parallax_fp, terrain_two_component(standard.flags), terrain_flip_y(standard.flags)), false);
+                @if(!TERRAIN_PARALLAX) {
+                    // A layer of opacity 0 here has a share of 0, which leaves the colour and
+                    // the normal as they are: its two reads are skipped (#2868: on an integrated
+                    // GPU they were most of the ground's cost, every held layer on every pixel).
+                    let o = saturate(opacity[k]);
+                    if o > 0.0 {
+                        let texel = layer_diffuse_grad(k, in.instance_index, uv, uv_dx, uv_dy);
+                        let share = o * texel.a;
+                        var layer_n = plain;
+                        @if(VERTEX_TANGENTS) if (counts.y & (1u << k)) != 0u {
+                            layer_n = apply_normal_mapping(standard.flags, tbn, false, is_front, layer_normal_grad(k, in.instance_index, uv, uv_dx, uv_dy));
+                        }
+                        colour = mix(colour, texel.rgb * tint * standard.base_color.rgb, share);
+                        normal = mix(normal, layer_n, share);
+                    }
                 }
-                colour = mix(colour, texel.rgb * tint * standard.base_color.rgb, share);
-                normal = mix(normal, layer_n, share);
+                @if(TERRAIN_PARALLAX) let texel = layer_diffuse_antitiled(k, in.instance_index, parallax_taps, parallax_fp);
+                @if(TERRAIN_PARALLAX) let share = saturate(opacity[k]) * parallax_alpha[k];
+                @if(TERRAIN_PARALLAX) var layer_n = plain;
+                @if(TERRAIN_PARALLAX && VERTEX_TANGENTS) if (counts.y & (1u << k)) != 0u {
+                    layer_n = terrain_world_normal(tbn, layer_normal_antitiled(k, in.instance_index, parallax_taps, parallax_fp, terrain_two_component(standard.flags), terrain_flip_y(standard.flags)), false);
+                }
+                @if(TERRAIN_PARALLAX) colour = mix(colour, texel.rgb * tint * standard.base_color.rgb, share);
+                @if(TERRAIN_PARALLAX) normal = mix(normal, layer_n, share);
             }
             pbr_input.material.base_color = vec4(colour, 1.0);
             pbr_input.N = normalize(normal);

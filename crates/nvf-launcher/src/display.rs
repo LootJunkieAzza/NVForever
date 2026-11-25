@@ -148,6 +148,20 @@ pub fn frame_gen_choices() -> Vec<Choice> {
     vec![choice("Off", "off"), choice("FSR 3.1", "fsr"), choice("DLSS", "dlss")]
 }
 
+/// Shared list aliases for the values that do not depend on a display or language directory.
+pub(crate) fn common_choices(key: &str) -> Option<Vec<Choice>> {
+    match key {
+        "display-sync" => Some(sync_choices()),
+        "frame-cap" => Some(cap_choices()),
+        "physics-rate" => Some(physics_choices()),
+        "fps-counter-low" => Some(counter_low_choices()),
+        "crosshair-style" => Some(crosshair_choices()),
+        "hud-colour" | "pipboy-colour" => Some(colour_choices()),
+        "frame-generation" => Some(frame_gen_choices()),
+        k => named_choices(k),
+    }
+}
+
 /// Rows whose value the game works out from the rows under them (quality.rs): the Quality
 /// preset (the Enhanced effects row went with the settings menu overhaul, #2803). Choosing one
 /// in the game rewrites those rows (a preset from the game folder's preset files); the INI's
@@ -257,7 +271,7 @@ pub fn chosen(key: &str, choices: &[Choice], value: &str) -> Option<usize> {
 /// The displays attached to the desktop, in the game's order. Asked of Windows
 /// (EnumDisplayDevicesW / EnumDisplaySettingsW, user32): the device names are the ones winit
 /// gives the game, so `monitor=` matches.
-#[cfg(windows)]
+#[cfg(all(windows, feature = "desktop"))]
 pub fn monitors() -> Vec<Monitor> {
     use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, EnumDisplaySettingsW, DEVMODEW, DISPLAY_DEVICEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE, ENUM_CURRENT_SETTINGS};
     let wide = |w: &[u16]| String::from_utf16_lossy(&w[..w.iter().position(|c| *c == 0).unwrap_or(w.len())]);
@@ -304,7 +318,7 @@ pub fn monitors() -> Vec<Monitor> {
 
 /// Off Windows the displays are not asked (no display crate in the launcher): Resolution
 /// offers the common sizes and Monitor stays a text box.
-#[cfg(not(windows))]
+#[cfg(not(all(windows, feature = "desktop")))]
 pub fn monitors() -> Vec<Monitor> {
     Vec::new()
 }

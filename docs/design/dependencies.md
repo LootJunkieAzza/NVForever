@@ -45,8 +45,8 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | 3 | CPU BCn encode/decode (generated LOD) | **chosen**: `texpresso` 2.0 (pure Rust, MIT), engine workspace only: decodes terrain textures and encodes the generated LOD's BC1 textures (docs/design/generated-lod.md) |
 | 2 | math, viewer | **done**: Bevy 0.20.1 (its `glam`; 0.19.1 until #934), viewer in its own workspace (ADR-0001) |
 | 7 | interface CJK glyph fallback | **chosen**: `swash` 0.2.10 (MIT/Apache-2.0), engine workspace only and the version Bevy already builds: reads user-supplied or installed fonts and rasterizes missing glyphs ([fonts](../spec-notes/fonts.md#23-missing-cjk-characters)) |
-| 3 | rendering | `wgpu` (Vulkan/Metal/DX12), `winit` for windows/input |
-| 3 | Windows script cursor acknowledgement (#2883) | `bevy_winit` 0.20.1 patched (MIT/Apache-2.0, [vendor notes](../../engine/vendor/README.md#bevy_winit-0201-mit-or-apache-20-bevy)): only acknowledged script warps update both Window and the backend cache. The crate-level `unsafe_code` lint is `deny` rather than `forbid` for the function-local Win32 ownership query; pre-existing modules retain `forbid`. |
+| 3 | rendering | `wgpu` (Vulkan/Metal/DX12), `winit` 0.30.13 patched (Apache-2.0, `engine/vendor/winit`, [vendor notes](../../engine/vendor/README.md#winit-03013-apache-20-rust-windowing-contributors)) for windows/input (Android-only controller admission hook in `src/platform/android.rs` and `src/platform_impl/android/mod.rs`; desktop backends unchanged) |
+| 3 | Windows script cursor acknowledgement (#2883) & Android cursor-grab no-op (#2436) | `bevy_winit` 0.20.1 patched (MIT/Apache-2.0, [vendor notes](../../engine/vendor/README.md#bevy_winit-0201-mit-or-apache-20-bevy)): only acknowledged script warps update both Window and the backend cache. The crate-level `unsafe_code` lint is `deny` rather than `forbid` for the function-local Win32 ownership query; pre-existing modules retain `forbid`. On `target_os = "android"` only, `winit_windows.rs::attempt_grab` is a no-op returning `Ok(())` because Android `NativeActivity` has no desktop cursor-grab API; non-Android platforms are unchanged. |
 | 3 | temporal upscaling (FSR 3.1) | **chosen (2026-11-05)**: `wgpu-ffx` 0.1.0 and `wgpu-ffx-shaders-spv` 0.1.0 (MIT; the FidelityFX SDK 1.1.4 FSR 3.1.4 shaders as SPIR-V). Not on crates.io, so vendored at commit `6fe7064` with the FSR 3.1 shader sources and the compile tool (the SDK's other effects left out), and moved to wgpu 30 (engine/vendor/README.md). It turns on wgpu's `spirv` and `wgsl` and brings `pollster` 0.4 (MIT/Apache-2.0) and `termcolor` 1.4 (Unlicense/MIT, through naga's `codespan-reporting`). No AMD DLL; Vulkan only ([fsr-upscaling](fsr-upscaling.md)) |
 | 3 | scaled main passes (FSR) | `bevy_pbr` 0.20.1 patched (MIT/Apache-2.0, engine/vendor/README.md): the transmission pass and the clustered lights follow `MainPassResolutionOverride` |
 | 3 | frame generation (FSR 3.1) | **chosen (2026-11-07)**: no new crate. The vendored `wgpu-ffx` gains optical flow and frame interpolation, ported from FidelityFX SDK 1.1.4's MIT host code, with the SDK's MIT GLSL compiled to SPIR-V in `wgpu-ffx-shaders-spv` (engine/vendor/README.md). Not used: AMD's FSR SDK 2.x DLLs (binary-only licence) and its frame-generation swapchain; the frames are presented through Bevy's own window surface ([frame-generation](frame-generation.md)) |
@@ -59,7 +59,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | 3 | HDR output (#3348) | **chosen**: no new crate. `bevy_core_pipeline` 0.20.1 patched (MIT/Apache-2.0, [vendor notes](../../engine/vendor/README.md#bevy_core_pipeline-0201-mit-or-apache-20-bevy-contributors), archive SHA-256 `2463cf477b683bfe8567c43142295d00ed980f8e2a293c0a69e2f9e10e9c0aaf`): the window blit's key gains `hdr` and `hdr_gamma22` (shader defs `NVF_HDR_PAPER_WHITE`, `NVF_HDR_GAMMA22`), a third binding holds the HUD's white in nits / 80, and the upscaling pipeline's key takes the HDR statics for a window whose surface is HDR; with HDR off both are upstream's paths [documented: engine/vendor/bevy_core_pipeline src/blit/mod.rs, blit.wesl, upscaling/mod.rs] |
 | 3 | HDR output: the screen's HDR peak (#3348) | `windows` 0.62 (MIT/Apache-2.0), engine workspace, Windows only, direct dependency of `nvforever`, features `Win32_Foundation`, `Win32_Graphics_Dxgi`, `Win32_Graphics_Dxgi_Common`, `Win32_Graphics_Gdi`; the version already in the build: `IDXGIOutput6::GetDesc1` gives the monitor's colour space and peak luminance (hdr.rs) |
 | 3 | half floats (FaceGen offset textures; reflection cube texels, #3207) | **chosen**: `half` 2 (MIT/Apache-2.0), engine workspace, the version Bevy already builds (2.7.1 in the lock, no second copy): `nvforever` writes the FaceGen offset textures with it (facegen.rs) and `nvf-assets` the authored materials' reflection cube's `Rgba16Float` texels (reflection_cube.rs) |
-| 4 | physics / character controller | **chosen**: `rapier3d` 0.36 with `enhanced-determinism` (pure Rust, Apache-2.0, no Bevy coupling; Jolt bindings rejected for the C++ build and FFI, `avian3d` for its Bevy coupling; layer4.md §2.8). Used by `fnv-phys` only, which runs rapier in metres internally and exposes game units; terrain as triangle meshes (rapier's heightfield missed rays along grid lines). Pinned to `=0.36.1` (0.36.0 until the physics rate work, #2358; traces are compared bit for bit; licence Apache-2.0, its new dependencies `glamx`/`glam`/`parry3d` MIT/Apache-2.0, within deny.toml). docs/spec-notes/physics.md |
+| 4 | physics / character controller | **chosen**: `rapier3d` 0.36 with `enhanced-determinism` (pure Rust, Apache-2.0, no Bevy coupling; Jolt bindings rejected for the C++ build and FFI, `avian3d` for its Bevy coupling; layer4.md §2.8). Used by `fnv-phys` only, which runs rapier in metres internally and exposes game units; terrain as triangle meshes (rapier's heightfield missed rays along grid lines). Pinned to `=0.36.1` (0.36.0 until the physics rate work, #2358; traces are compared bit for bit; licence Apache-2.0, its new dependencies `glamx`/`glam`/`parry3d` MIT/Apache-2.0, within deny.toml). Vendored at `vendor/rapier3d/` (patched in both `Cargo.toml` and `engine/Cargo.toml` via `[patch.crates-io]`, crates.io archive SHA-256 `033e2edc815d61ab97bd74ed5d1cbea5ebe575218774a7cfedbd3551f0033317`, Apache-2.0 `LICENSE` retained; [vendor notes](../../vendor/rapier3d/README.nvforever.md)) with two bounded zero-dt query-refresh fixes: joining a deferred broad-phase BVH optimization before the `dt <= 0.0` early return (`src/pipeline/physics_pipeline/substep.rs`, matching upstream Rapier PR #1067) and committing sleeping chunks after persistent sleep-component bootstrap (`src/dynamics/island_manager/manager.rs`). docs/spec-notes/physics.md, docs/spec-notes/query-refresh-island-lifecycle.md |
 | 4 | entity model | **decided**: plain ordered maps in `fnv-sim`, no ECS in the core (layer4.md §2.2); `rand_chacha` for the seeded, reproducible RNG |
 | 5 | script runtime | in-house bytecode interpreter (no off-the-shelf fit) |
 | 7 | audio decode / playback | `symphonia` (WAV/MP3/OGG), `kira` or `cpal`. **Dialogue voice (2026-10-10)**: no new dependency. Playback uses Bevy's own audio (`bevy_audio`, already built by Bevy's default features: `rodio` with `lewton` for Ogg Vorbis; WAV, MP3 and FLAC decoding are not enabled and not needed, every voice line has an `.ogg`). File lengths come from `crates/fnv-voice`'s own header readers (Ogg pages and the Vorbis identification header, RIFF chunks), so the headless tools need no audio crate (docs/spec-notes/voice.md §5). **Music and ambient sound (2026-10-11)**: `nvf-play` depends on `rodio` 0.22 directly, the version Bevy's audio is built on (no second copy), with its `mp3`, `vorbis` and `wav` features; these bring in `symphonia` (MPL-2.0, already allowed in `deny.toml`). Music files are MP3 and many ambient sounds Ogg Vorbis; they are decoded while they play by a source of our own that mixes a media set's three layers (docs/spec-notes/audio.md §7) |
@@ -108,3 +108,63 @@ already in `engine/Cargo.lock` through the graphics stack. This avoids another c
 and hand-written loader bindings. NVML remains optional at run time; no NVIDIA SDK
 or link-time NVIDIA library is required. The library stays loaded through all calls
 and a matching `nvmlShutdown`, including initialization paths with no readable devices.
+
+## Android platform boundary (#2436)
+
+[design] The Android-only `nvforever` dependency on `jni` 0.21.1 (MIT/Apache-2.0)
+reuses the version already in engine/Cargo.lock. It attaches the engine thread to the
+VM owned by Bevy's AndroidApp and calls the private app activity for startup arguments,
+restart and exit. The `nvf-android` entry package uses the existing pinned Bevy and
+its `android-native-activity` feature. Java uses Android's platform APIs without a
+third-party runtime library. Gradle 8.11.1 and Android Gradle Plugin 8.9.2 are build tools.
+
+### Vendored forks touched or added by the Android port (#2436)
+
+All four vendored crates touched or added by `#2436` are wired through `[patch.crates-io]`
+(preserving upstream licence files and passing `cargo deny check` in both the root and
+`engine/` workspaces):
+
+- **`rapier3d` 0.36.1 (Apache-2.0)** — `vendor/rapier3d/` (introduced by `#2436`), patched
+  in both `Cargo.toml` and `engine/Cargo.toml` (crates.io archive SHA-256
+  `033e2edc815d61ab97bd74ed5d1cbea5ebe575218774a7cfedbd3551f0033317`; details in
+  [`vendor/rapier3d/README.nvforever.md`](../../vendor/rapier3d/README.nvforever.md)).
+  Only two Rust files differ from upstream `0.36.1`: joining a deferred broad-phase BVH
+  optimization before `dt <= 0.0` returns (`src/pipeline/physics_pipeline/substep.rs`,
+  same fix as Rapier PR #1067) and invoking the already-upstream
+  `IslandManager::commit_sleeping_chunks` (present unchanged in upstream `0.36.1`'s
+  `src/dynamics/island_manager/sleep.rs`) for sleeping bodies remaining in the awake
+  island after persistent sleep bootstrap (`src/dynamics/island_manager/manager.rs`).
+  Both files are active on all targets (desktop and Android).
+- **`winit` 0.30.13 (Apache-2.0)** — `engine/vendor/winit/` (introduced by `#2436`),
+  patched in `engine/Cargo.toml` (details in
+  [`engine/vendor/README.md`](../../engine/vendor/README.md#winit-03013-apache-20-rust-windowing-contributors)).
+  Carries an Android-only `NVForever controller admission` hook in
+  `src/platform/android.rs` and `src/platform_impl/android/mod.rs` so NVForever can
+  inspect native Android controller events before `NativeActivity`'s single queue
+  consumer translates them into window events; desktop backends are unchanged.
+- **`bevy_winit` 0.20.1 (MIT OR Apache-2.0)** — `engine/vendor/bevy_winit/`, already
+  vendored on `main` for Windows script cursor acknowledgement (#2883; archive SHA-256
+  `397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`; details in
+  [`engine/vendor/README.md`](../../engine/vendor/README.md#bevy_winit-0201-mit-or-apache-20-bevy)).
+  Adds a `#[cfg(target_os = "android")]` no-op in `src/winit_windows.rs::attempt_grab`
+  returning `Ok(())` because Android `NativeActivity` has no cursor-grab API; desktop
+  `attempt_grab` is unchanged.
+- **`bevy_pbr` 0.20.1 (MIT OR Apache-2.0)** — `engine/vendor/bevy_pbr/`, already vendored
+  on `main` for FSR, ALC shadows, and Pip-Boy readiness (details in
+  [`engine/vendor/README.md`](../../engine/vendor/README.md#bevy_pbr-0201-mit-or-apache-20-bevy-contributors)).
+  Adds a `+36/-19` patch in `src/render/skinning.wesl` wrapping storage `joint_matrices` /
+  `prev_joint_matrices` in `struct StorageJointMatrices` and adding zero-determinant /
+  zero-normal guards in `inverse_transpose_3x3m` and `skin_normals`. Compiles and runs on
+  **both desktop and Android** (covered by `tools/android/skinning-check`, 9 tests).
+
+## Owned Android touch SVG rasterization (#2436)
+
+[design] `nvforever` requests tiny-skia =0.11.4 directly (BSD-3-Clause), already present
+in engine/Cargo.lock via Bevy. Default features are disabled; `std`/`simd` provide the
+bounded antialiased path stroker, without enabling a PNG encoder. Owned SVGs under
+`engine/nvforever/assets/touch/` are validated and compiled into the committed
+`engine/nvforever/src/touch/icons_generated.rs` by running `tools/android/svg_icons.py`
+by hand when SVGs change (`tools/android/tests/test_svg_icons.py` verifies parity).
+`engine/nvforever/build.rs` does not invoke Python, so desktop Cargo builds need no
+Python runtime, and no runtime XML/SVG crate (`resvg`/`usvg`) is added.
+See [android-svg-icons.md](android-svg-icons.md) for bounds and pending GPU validation.

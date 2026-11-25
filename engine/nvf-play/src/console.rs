@@ -1405,6 +1405,27 @@ fn step_along(along: &[u32], current: u32, by: i32) -> Option<u32> {
     Some(along[(i as i64 + by as i64).rem_euclid(n) as usize])
 }
 
+fn console_root_node(soft_keyboard: bool) -> Node {
+    let mut node = Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(0.0),
+        width: Val::Percent(100.0),
+        flex_direction: FlexDirection::Column,
+        padding: UiRect::all(Val::Px(8.0)),
+        row_gap: Val::Px(4.0),
+        ..default()
+    };
+    if soft_keyboard {
+        // Keep the console input clear of the bottom ~50% on-screen keyboard on Android.
+        node.top = Val::Percent(4.0);
+        node.max_height = Val::Percent(42.0);
+        node.overflow = Overflow::clip();
+    } else {
+        node.bottom = Val::Px(0.0);
+    }
+    node
+}
+
 fn spawn(commands: &mut Commands, shadow: bool) {
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
     // The player's tweak: the scrollback a darker green over a faint shadow [design: docs/design/tweaks.md].
@@ -1413,16 +1434,7 @@ fn spawn(commands: &mut Commands, shadow: bool) {
     commands.spawn((
         ConsoleRoot,
         PointerState::None,
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            bottom: Val::Px(0.0),
-            width: Val::Percent(100.0),
-            flex_direction: FlexDirection::Column,
-            padding: UiRect::all(Val::Px(8.0)),
-            row_gap: Val::Px(4.0),
-            ..default()
-        },
+        console_root_node(cfg!(target_os = "android")),
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.72)),
         GlobalZIndex(120),
         children![

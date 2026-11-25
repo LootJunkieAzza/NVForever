@@ -33,6 +33,8 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md (i
 `tweak-keep-chosen-ammo` — Keep Chosen Ammo, under Tweaks › Combat › Weapons and Armour,
 off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 
+Android-specific rows and HUD compatibility are documented in [the Android settings supplement](settings-reference-android.md); they are not part of the desktop launcher's built-in table.
+
 ## Gameplay › Game
 
 ### `difficulty`: Difficulty

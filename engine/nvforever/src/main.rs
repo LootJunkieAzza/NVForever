@@ -24,6 +24,19 @@ macro_rules! eprintln {
 }
 
 mod activators;
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(any(target_os = "android", test))]
+mod touch;
+#[cfg(any(target_os = "android", test))]
+mod android_controller;
+#[cfg(any(target_os = "android", test))]
+mod android_loading;
+#[cfg(any(target_os = "android", test))]
+mod android_render_diagnostics;
+#[cfg(any(target_os = "android", test))]
+mod android_render_admission;
+mod mobile_performance;
 mod gpu_occlusion;
 mod fos_start;
 mod reports;
@@ -123,6 +136,8 @@ mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
 mod body_weapons;
+#[cfg(feature = "dialogue-model-capture")]
+pub mod dialogue_capture;
 mod terminal_view;
 mod scope_lens;
 mod scope_view;
@@ -147,6 +162,7 @@ mod object_anims;
 mod outfits;
 mod own_sounds;
 mod pipboy_arm;
+mod dialogue_pipboy;
 mod pipboy_controls;
 mod pipboy_ready;
 mod player_body;
@@ -272,6 +288,10 @@ const MASTERS: [&str; 10] = [
 #[derive(Parser, Clone, Resource)]
 #[command(name = "nvforever", version)]
 struct Args {
+    /// Carries the Android launcher's renderer defaults across an in-app restart.
+    #[cfg(any(target_os = "android", test))]
+    #[arg(id = "android_player_start", long = "android-player-start", hide = true)]
+    _android_player_start: bool,
     /// The game's folder or its Data folder (read-only). Defaults to $NVFOREVER_DATA, else
     /// the folder stored in NVForever.ini, else it is asked for (setup.rs). After start-up
     /// it is always the Data folder.
@@ -437,6 +457,7 @@ struct Args {
     /// alpha-tested shapes (plants, fences, hair, grass) are smoothed with it too, like
     /// the game's transparency multisampling; with 1 they are tested per pixel.
     #[arg(long, default_value_t = 4)]
+    #[cfg_attr(any(target_os = "android", test), arg(default_value_if("android_player_start", "true", "1")))]
     msaa: u32,
     /// Do not grow grass on the landscape (docs/spec-notes/grass.md).
     #[arg(long)]
@@ -486,6 +507,7 @@ struct Args {
     /// display chosen in Display settings, the primary display until one is chosen). With
     /// --play the settings page's Display group switches it too.
     #[arg(long, value_enum, default_value_t = window_mode::WindowChoice::Windowed)]
+    #[cfg_attr(any(target_os = "android", test), arg(default_value_if("android_player_start", "true", "borderless")))]
     window: window_mode::WindowChoice,
     /// The game's field-of-view setting in degrees (fDefaultFOV, default 75): the horizontal
     /// angle at 4:3; other aspects keep its vertical angle, so 16:9 is wider (75 → 91.3°
@@ -1084,6 +1106,15 @@ fn with_default_mode(mut args: Vec<String>) -> Vec<String> {
     args
 }
 
+#[cfg(any(target_os = "android", test))]
+fn android_startup_line(mut extra: Vec<String>) -> Vec<String> {
+    if extra.is_empty() {
+        extra.extend(["--play", "--menu", "--android-player-start"].map(String::from));
+    }
+    extra.insert(0, "nvforever".into());
+    extra
+}
+
 /// `--esm-schema` and `--nif-schema` from beside the program (the release archive:
 /// `schemas/fnv`, `schemas/nif` next to the executable) when the command line does not
 /// name them and they are there; the build's checkout otherwise (the options' defaults).
@@ -1149,12 +1180,29 @@ fn report_mo2_folders(args: &Args) -> Vec<(std::path::PathBuf, &'static str)> {
     reports::mo2_folders(&instance, layout.as_ref())
 }
 
-fn main() -> AppExit {
+/// Start the engine from the desktop command line.
+pub fn run() -> AppExit {
     // Started as this run's exit watcher (exit_watch.rs): wait for the game's process, no game.
     if exit_watch::run_if_watcher() {
         return AppExit::Success;
     }
-    let mut line = with_default_mode(std::env::args().collect());
+    run_with_args(std::env::args().collect())
+}
+
+#[cfg(target_os = "android")]
+/// Android entry point, called after Bevy has installed the NativeActivity handle.
+pub fn run_android() {
+    match android::prepare() {
+        Ok(args) => {
+            let exit = run_with_args(args);
+            android::stopped(if exit == AppExit::Success { "" } else { "The engine stopped. Check the NVForever log for details." });
+        }
+        Err(e) => { eprintln!("Android startup failed: {e}"); android::stopped(&e); }
+    }
+}
+
+fn run_with_args(line: Vec<String>) -> AppExit {
+    let mut line = with_default_mode(line);
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
         line = with_schemas_beside(line, &dir);
         let functions = dir.join("schemas").join("script").join("functions.json");
@@ -1299,7 +1347,6 @@ fn main() -> AppExit {
     }
     // The run log and crash reports in NVForever's home (crash.rs).
     crash::install(args.data(), args.handoff.is_some());
-    // Player reports: the player's choice, asked once on a player's start (reports/).
     reports::decide(developer_data, args.handoff.is_some());
     let fail = |e: String| {
         eprintln!("error: {e}");
@@ -1795,6 +1842,11 @@ fn main() -> AppExit {
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
+    #[cfg(target_os = "android")]
+    {
+        app.insert_resource(bevy::winit::WinitSettings::mobile());
+        app.add_plugins((touch::TouchControlsPlugin, android_controller::AndroidControllersPlugin::native(), android_loading::AndroidLoadingPlugin, android_render_diagnostics::AndroidRenderDiagnosticsPlugin, android_render_admission::AndroidRenderAdmissionPlugin));
+    }
     // NVF_FIXED_FRAME_TIME_MS=<ms>: every frame moves the clocks on by that much, whatever the
     // real frame took (Bevy's `TimeUpdateStrategy::ManualDuration`, set before Bevy's time
     // plugin, which keeps it), so the test aids reach the same view on the same frame in every
@@ -1860,67 +1912,73 @@ fn main() -> AppExit {
     if startup.loads_streamline() {
         app.add_plugins(dlss::DlssInitPlugin);
     }
-    app.add_plugins(
-        DefaultPlugins
-            .set(task_pools(cpu_placed.pool_threads))
-            // Bevy's own renderer plugin, with the GPU the DLSS loader checked asked for by
-            // name when it pinned one (dlss/ "Adapter pin"); otherwise `RenderPlugin::default()`.
-            .set(dlss::render_plugin())
-            .set(ImagePlugin {
-                default_sampler: ImageSamplerDescriptor {
-                    address_mode_u: ImageAddressMode::Repeat,
-                    address_mode_v: ImageAddressMode::Repeat,
-                    anisotropy_clamp: if graphics.anisotropic { 16 } else { 1 },
-                    ..ImageSamplerDescriptor::linear()
+    let default_plugins = DefaultPlugins
+        .set(task_pools(cpu_placed.pool_threads))
+        // Bevy's own renderer plugin, with the GPU the DLSS loader checked asked for by
+        // name when it pinned one (dlss/ "Adapter pin"); otherwise `RenderPlugin::default()`.
+        .set(dlss::render_plugin())
+        .set(ImagePlugin {
+            default_sampler: ImageSamplerDescriptor {
+                address_mode_u: ImageAddressMode::Repeat,
+                address_mode_v: ImageAddressMode::Repeat,
+                anisotropy_clamp: if graphics.anisotropic { 16 } else { 1 },
+                ..ImageSamplerDescriptor::linear()
+            },
+        })
+        // Sound goes through nvf_play::audio_out, which follows the output device.
+        .disable::<bevy::audio::AudioPlugin>()
+        // Parts of Bevy the game never uses: sprites and 2D text (their layout,
+        // bounds and picking), world serialization, Bevy's own animation (actors are
+        // posed by nvf_play's clips), the clipboard and the UI widgets (the menus are
+        // bevy_ui nodes with their own controls). Each adds systems that run every
+        // frame (#1381). Kept: the sprite renderer, whose resources bevy_ui_render
+        // reads, and glTF and scenes, as PbrPlugin registers a glTF extension.
+        .disable::<bevy::sprite::SpritePlugin>()
+        .disable::<bevy::world_serialization::WorldSerializationPlugin>()
+        .disable::<bevy::animation::AnimationPlugin>()
+        .disable::<bevy::clipboard::ClipboardPlugin>()
+        .disable::<bevy::ui_widgets::ButtonPlugin>()
+        .disable::<bevy::ui_widgets::CheckboxPlugin>()
+        .disable::<bevy::ui_widgets::TextInputPlugin>()
+        .disable::<bevy::ui_widgets::ListBoxPlugin>()
+        .disable::<bevy::ui_widgets::MenuPlugin>()
+        .disable::<bevy::ui_widgets::DialogPlugin>()
+        .disable::<bevy::ui_widgets::ModalDialogPlugin>()
+        .disable::<bevy::ui_widgets::popover::PopoverPlugin>()
+        .disable::<bevy::ui_widgets::RadioGroupPlugin>()
+        .disable::<bevy::ui_widgets::ScrollAreaPlugin>()
+        .disable::<bevy::ui_widgets::ScrollbarPlugin>()
+        .disable::<bevy::ui_widgets::SliderPlugin>()
+        .disable::<bevy::ui_widgets::TabPlugin>()
+        .disable::<bevy::input_focus::pointer_focus::PointerFocusPlugin>()
+        // The console's lines go to the run log too (crash.rs).
+        .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
+        .set(WindowPlugin {
+            // Desktop screenshots use exact pixels; Android UI follows its display density.
+            primary_window: Some(Window {
+                title: "NVForever".into(),
+                mode: args.window.mode(),
+                resolution: if cfg!(target_os = "android") {
+                    bevy::window::WindowResolution::new(w, h)
+                } else {
+                    bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0)
                 },
-            })
-            // Sound goes through nvf_play::audio_out, which follows the output device.
-            .disable::<bevy::audio::AudioPlugin>()
-            // Parts of Bevy the game never uses: sprites and 2D text (their layout,
-            // bounds and picking), world serialization, Bevy's own animation (actors are
-            // posed by nvf_play's clips), the clipboard and the UI widgets (the menus are
-            // bevy_ui nodes with their own controls). Each adds systems that run every
-            // frame (#1381). Kept: the sprite renderer, whose resources bevy_ui_render
-            // reads, and glTF and scenes, as PbrPlugin registers a glTF extension.
-            .disable::<bevy::sprite::SpritePlugin>()
-            .disable::<bevy::world_serialization::WorldSerializationPlugin>()
-            .disable::<bevy::animation::AnimationPlugin>()
-            .disable::<bevy::clipboard::ClipboardPlugin>()
-            .disable::<bevy::ui_widgets::ButtonPlugin>()
-            .disable::<bevy::ui_widgets::CheckboxPlugin>()
-            .disable::<bevy::ui_widgets::TextInputPlugin>()
-            .disable::<bevy::ui_widgets::ListBoxPlugin>()
-            .disable::<bevy::ui_widgets::MenuPlugin>()
-            .disable::<bevy::ui_widgets::DialogPlugin>()
-            .disable::<bevy::ui_widgets::ModalDialogPlugin>()
-            .disable::<bevy::ui_widgets::popover::PopoverPlugin>()
-            .disable::<bevy::ui_widgets::RadioGroupPlugin>()
-            .disable::<bevy::ui_widgets::ScrollAreaPlugin>()
-            .disable::<bevy::ui_widgets::ScrollbarPlugin>()
-            .disable::<bevy::ui_widgets::SliderPlugin>()
-            .disable::<bevy::ui_widgets::TabPlugin>()
-            .disable::<bevy::input_focus::pointer_focus::PointerFocusPlugin>()
-            // The console's lines go to the run log too (crash.rs).
-            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
-            .set(WindowPlugin {
-                // Scale factor 1 so screenshots are exactly --size pixels on any display.
-                primary_window: Some(Window {
-                    title: "NVForever".into(),
-                    mode: args.window.mode(),
-                    resolution: bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0),
-                    position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
-                    // Taking over a load: shown once its loading screen is up (handoff.rs).
-                    visible: args.handoff.is_none(),
-                    // Measuring frame times: not held to the display's refresh.
-                    present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
-                    // `NVF_SWAPCHAIN_LATENCY=<n>`: frames the swapchain may queue (images: n + 1;
-                    // Bevy's 2 otherwise), for measuring frame generation's pacing.
-                    desired_maximum_frame_latency: std::env::var("NVF_SWAPCHAIN_LATENCY").ok().and_then(|v| v.trim().parse::<u32>().ok()).and_then(std::num::NonZeroU32::new),
-                    ..default()
-                }),
+                position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
+                // Taking over a load: shown once its loading screen is up (handoff.rs).
+                visible: args.handoff.is_none(),
+                // Measuring frame times: not held to the display's refresh.
+                present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
+                // `NVF_SWAPCHAIN_LATENCY=<n>`: frames the swapchain may queue (images: n + 1;
+                // Bevy's 2 otherwise), for measuring frame generation's pacing.
+                desired_maximum_frame_latency: std::env::var("NVF_SWAPCHAIN_LATENCY").ok().and_then(|v| v.trim().parse::<u32>().ok()).and_then(std::num::NonZeroU32::new),
                 ..default()
             }),
-    )
+            ..default()
+        });
+    // Android handles controllers natively via ControllerDevices.java; gilrs does not support Android.
+    #[cfg(target_os = "android")]
+    let default_plugins = default_plugins.disable::<bevy::gilrs::GilrsPlugin>();
+    app.add_plugins(default_plugins)
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, hdr::HdrPlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
@@ -2114,9 +2172,12 @@ fn main() -> AppExit {
     .add_systems(PostUpdate, sky::log_sun_cascades.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(shadow_anchor::anchor_cascades))
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
-    .add_plugins(start_times::StartTimesPlugin)
-    .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), mo2_folders: report_mo2_folders(&args), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
-    .add_systems(Last, (crash::note_place, crash::test_device_lost, events_log::note_context, stray_commands::report))
+    .add_plugins(start_times::StartTimesPlugin);
+    // Android keeps local crash logs but exposes neither player-report collection nor its form.
+    if !cfg!(target_os = "android") {
+        app.add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), mo2_folders: report_mo2_folders(&args), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } });
+    }
+    app.add_systems(Last, (crash::note_place, crash::test_device_lost, events_log::note_context, stray_commands::report))
     // After Bevy's window-closed exit, which writes AppExit in Last too: before it, closing
     // the window left no clean-exit line and the run was reported as a native crash (#2203).
     .add_systems(Last, crash::report_exit.after(bevy::window::ExitSystems));
@@ -2193,7 +2254,8 @@ fn main() -> AppExit {
         // Test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: the terrain parallax's readback (#3322).
         terrain_parallax_ab::install(&mut app);
         // The terminal's monitor (terminal_view.rs).
-        app.add_plugins(terminal_view::TerminalViewPlugin);
+        app.add_plugins((terminal_view::TerminalViewPlugin, terminal_view::DialogueTerminalPlugin));
+        dialogue_pipboy::install(&mut app);
         // A weapon's scope: its picture, night vision and sway (scope_view.rs).
         app.add_plugins(scope_view::ScopeViewPlugin);
         // The poker table (poker_view.rs).

@@ -647,6 +647,24 @@ fn apply_pbr_lighting(
             shadow *= in.directional_shadow_factor;
         }
 
+        // NVForever (crown shadow, nvforever tree.wesl): SpeedTree leaf cards are no shadow
+        // receivers (in the shadow pass they face the light, in the main pass the camera, so
+        // their own cards would blacken them in mismatched blocks), yet other objects must
+        // shade them. They take the directional shadow at the point where the ray towards
+        // the light leaves the tree's crown sphere: past their own cards, before anything
+        // else in the way.
+        @if(NVF_CROWN_SHADOW)
+        if in.nvf_crown.w > 0.0
+                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u
+                && (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u {
+            let nvf_l = view_bindings::lights.directional_lights[i].direction_to_light;
+            let nvf_oc = in.world_position.xyz - in.nvf_crown.xyz;
+            let nvf_b = dot(nvf_oc, nvf_l);
+            let nvf_disc = nvf_b * nvf_b - (dot(nvf_oc, nvf_oc) - in.nvf_crown.w * in.nvf_crown.w);
+            let nvf_lift = select(0.0, max(sqrt(max(nvf_disc, 0.0)) - nvf_b, 0.0), nvf_disc > 0.0);
+            shadow = shadows::fetch_directional_shadow(i, vec4<f32>(in.world_position.xyz + nvf_l * nvf_lift, 1.0), nvf_l, view_z, in.frag_coord.xy);
+        }
+
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
         if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && shadow > 0.0 &&
                 (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u &&
