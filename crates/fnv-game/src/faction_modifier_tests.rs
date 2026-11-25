@@ -241,7 +241,7 @@ fn invalid_factions_and_explicit_empty_receiver_stop_source_without_mutation() {
 }
 
 #[test]
-fn fractional_nonfinite_and_out_of_range_deltas_refuse_without_rounding_or_mutation() {
+fn fractional_deltas_truncate_and_nonfinite_or_out_of_range_deltas_refuse_without_mutation() {
     let f = fixture(None);
     let mut g = game(&f);
     success(&mut g, "SetFactionReaction FirstFaction SecondFaction 10");

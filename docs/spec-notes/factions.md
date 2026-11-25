@@ -242,16 +242,15 @@ not state this precedence or the missing-pair value; neither is observed.
 mapping; native failure/default semantics are open. No new raw record decoder or
 native numeric opcode is introduced.
 
-[observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8p2_24_modfactionreaction_float_var`: `PROBE|w6d8p2_24_modfactionreaction_float_var|st=2 r1=16`; no DLL, PDB, or third-party source consulted] `ModFactionReaction` accepts float variable deltas without aborting (`st=2`) and truncates toward zero (starting from `15`, adding `0.5` and `1.9` yields `16`).
+[observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8p2_24_modfactionreaction_float_var`: `PROBE|w6d8p2_24_modfactionreaction_float_var|st=2 r1=16`; no DLL, PDB, or third-party source consulted] `ModFactionReaction` accepts float variable deltas without aborting (`st=2`) and truncates toward zero (starting from `15`, adding `0.5` and `1.9` yields `16`).
 
 [design] Engine design choice: ModFactionReaction truncates finite deltas representable in the existing signed 64-bit modifier storage.
-It adds with checked integer arithmetic, refusing invalid factions, fractional/
-nonfinite/out-of-range deltas or overflow before mutation with an engine error. Zero
-adds nothing and creates no override. This is an explicit partial mapping, not a
-native range or rounding rule. The documented float parameter alone does not settle
-native fractional storage, result precision or rounding; those require a permitted
-original-game probe. Source void calls return the engine's ordinary zero value;
-native return semantics are open.
+It adds with checked integer arithmetic, refusing invalid factions, nonfinite/
+out-of-range deltas or overflow before mutation with an engine error. Zero
+adds nothing and creates no override. Nonfinite/out-of-range/overflow guards and
+signed 64-bit storage bounds are NVForever's own engineering choices rather than
+observed native overflow semantics. Source void calls return the engine's ordinary
+zero value; native return semantics are open.
 
 The existing setter remains authoritative for its pair, and existing JSON snapshot
 and restore carry the same integer map. Reverse directions remain independent.
