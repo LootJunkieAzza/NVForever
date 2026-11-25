@@ -353,12 +353,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.other.jg7.dpc_hud_flags = Some(num(args, 0, 0.0).max(0.0) as u32);
             zero
         }
-        // `button on`: 0 Stats, 1 Items, 2 Data [documented: ToggleNthPipboyLight].
+        // `button on`: 0 Stats, 1 Items, 2 Data; returns 1 for valid button 0..=2 and
+        // 0 for out-of-range indices [documented: ToggleNthPipboyLight; observed: w6d3p2_22b].
         "togglenthpipboylight" => {
             if let Some(b) = int(args, 0).filter(|b| (0..3).contains(b)) {
                 g.other.jg7.pipboy_lights[b as usize] = num(args, 1, 0.0) != 0.0;
+                XVal::Num(1.0)
+            } else {
+                zero
             }
-            zero
         }
         "pushuiquesttotop" => {
             let q = form(args, 0).filter(|&f| g.data.sig(f) == Some(*b"QUST"));

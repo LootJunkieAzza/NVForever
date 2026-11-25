@@ -153,8 +153,10 @@ fn interface_settings() {
     assert_eq!(g.ui_update_sound(2), None);
     q(&mut g, "PushUIQuestToTop TestQuest");
     assert_eq!(g.top_ui_quest(), Some(fnv_sim::FormId(QUST)));
-    q(&mut g, "ToggleNthPipboyLight 1 1");
+    // [observed: w6d3p2_22b: returns 1 for valid button 0..=2 and 0 for OOB 3].
+    assert_eq!(n(&mut g, "ToggleNthPipboyLight 1 1"), 1.0);
     assert_eq!(g.other.jg7.pipboy_lights, [false, true, false]);
+    assert_eq!(n(&mut g, "ToggleNthPipboyLight 3 1"), 0.0);
     // [documented: QueueCinematicText's priority 2 clears the queue].
     q(&mut g, "QueueCinematicText \"A\" \"a\"");
     q(&mut g, "QueueCinematicText \"B\" \"b\" \"\" 1");
