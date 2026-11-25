@@ -23,6 +23,8 @@ has that part type (0 torso, 1-2 head, 3-6 arms, 7-12 legs, 13 brain, 14 weapon)
 | Get/SetBodyPartTraitForm `bpd part trait [form]` | BPND: 0-1 severable and explodable explosion, 2-3 their debris, 4-5 their impact data set [documented; observed] |
 | Get/SetBodyPartFlag `bpd part flag [value]` | BPND's flag bits 0-6 [documented: the page's table; observed: the head's flags 0-7] |
 
+`SetBodyPartTraitForm` enforces each slot's record type (`0..=1` `EXPL`, `2..=3` `DEBR`, `4..=5` `IPDS`) and clears the slot to `0` when given a wrong-type form, null, or omitted argument [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_31_bptd_trait_numeric_form_and_flags_all` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `num(t0=25.00->3.00,t1=2,t2=20,t18=0.00,t19=0.00,mis=0.00)|frm(f0=00000000->00000000,bad=00000000,nul=00000000,om=00000000|f2=00000000->00000000,f4=0002ED47->00000000,f6=00000000)|fl(b0=1,b1=1,b2=0->1,b5=1,b6=0,b7=0,m1=0)`; no DLL or source consulted].
+
 ## 2. Land textures (LTEX)
 
 | Function | NVForever |
