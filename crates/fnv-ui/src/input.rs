@@ -890,7 +890,7 @@ mod tests {
         let r = p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure);
         assert_eq!(r.over, Some((None, Some(ok))));
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/mouseover"), Some(1.0));
-        // The parent rect and the child label get none [hypothesis].
+        // The parent rect and the child label get none (see production `Pointer::step` above).
         assert_eq!(ui.get_float("TestMenu/Main/mouseover"), None);
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/label/mouseover"), None);
         // A still pointer: no change, nothing reported.
@@ -919,7 +919,7 @@ mod tests {
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/clicked"), Some(1.0));
         ui.update();
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/_times"), Some(1.0));
-        // The next frame, the button still held or not: back to 0 [hypothesis: the press].
+        // The next frame, the button still held or not: back to 0 (see production `Pointer::step` above).
         let r = p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure);
         assert!(r.clicks.is_empty());
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/clicked"), Some(0.0));

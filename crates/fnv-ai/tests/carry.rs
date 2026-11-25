@@ -1675,7 +1675,7 @@ fn arrival_heading_needs_an_existing_link() {
     assert_eq!(s.ai.agents[&FormId(R_TO_HEADING)].face_to, None);
 }
 
-// [hypothesis, #2526, observer check 213] Travel and standing Guard restore the
+// (#2526, observer check 213; see crates/fnv-ai/src/carry.rs) Travel and standing Guard restore the
 // editor heading on returning to a small editor location, using the standing turn.
 #[test]
 fn arrival_heading_at_small_editor_locations_restores_editor_rotation() {
@@ -3138,7 +3138,7 @@ fn an_actor_going_into_combat_stands_a_moment_then_turns_at_the_combat_rate() {
 #[test]
 fn a_creature_going_into_combat_turns_at_once() {
     // People only stand 1.1 s on going into combat (#1352); a creature turns to its
-    // target at once, as before [hypothesis: a creature's reaction is unmeasured].
+    // target at once, as before (see crates/fnv-ai/src/carry.rs).
     let f = fixture();
     let mut s = sim(&f, &[R_HOUND]);
     s.run(1.0);
@@ -4196,7 +4196,7 @@ fn weapon_worlds(f: &mut Fixture, sibling: bool) -> Space {
     Space::World(a.0)
 }
 
-/// [hypothesis, #2652] Only non-actor targets with a shared immediate parent project;
+/// (#2652; see crates/fnv-ai/src/goal.rs) Only non-actor targets with a shared immediate parent project;
 /// [design] ordinary place_of_ref and actor/interior space checks stay unchanged.
 #[test]
 fn weapon_target_place_projects_only_sibling_objects() {
@@ -5111,8 +5111,8 @@ fn a_cornered_fighter_with_only_an_explosive_weapon_fights_with_its_fists_until_
 }
 
 /// Stay-at locations given by an object, and a Guard that remains near what it guards
-/// (#961, `goal::stay_at`, packages.md §7.7) [hypothesis: no source says how either
-/// chooses its place]: Near Object ID walks to the nearest reference of the base (the
+/// (#961, `goal::stay_at`, see docs/spec-notes/packages.md §7.7): Near Object ID walks
+/// to the nearest reference of the base (the
 /// idle marker, 500 units off); Remain Near Reference to Guard walks to the guarded
 /// reference, within the target's distance (120), though the location is "near current".
 #[test]

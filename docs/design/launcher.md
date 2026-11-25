@@ -27,6 +27,10 @@ without the launcher is the same as before.
   file while its version and its table stamp (`nvf_settings_layout::layout_stamp`, a hash of
   the tabs, categories, rows and rules) are the launcher's (`src/catalog.rs`): dev builds
   between releases share a version, the stamp keeps one from showing another build's rows.
+  Another build's file still lends its words to the built-in copy (below): a row's label,
+  note, kind and default, and a tab's label, where the key is the same and the label is a
+  real name, not the key; the built-in rows, order and rules stay (`Catalog::load`,
+  `with_game_words`).
   Rows are hidden and greyed as the game's page does it, by
   the same tables (`nvf_settings_layout::SHOWN_WITH`, `NEEDS`, `NEEDS_CHOICE`, the
   controller's rows by `[Controls] Input Device`), live as rows are changed on the page; a
@@ -43,7 +47,9 @@ without the launcher is the same as before.
   categories and order from the game's own table (`crates/nvf-settings-layout`, `SECTIONS`,
   which the game's pause menu draws from), the labels and notes from
   `docs/settings-reference.md` (a test in the game holds the reference to the table; a
-  Tweaks row is shown there by its key, only while the INI holds it). A row with no kind
+  Tweaks row the reference does not name is shown only while the INI holds it, labelled in
+  sentence case from its key, `tweak-aiming-draws-weapon` as "Aiming draws weapon",
+  `readable_tweak`). A row with no kind
   from the game goes by the value in the INI: `1`/`0` a switch, `0.50` a
   slider (as a percentage, or the step's words for Difficulty; the words can be typed into it too), anything else text; Kill camera, V.A.T.S. style and the Display rows (Resolution as a Window and a Full screen
   list of the chosen display's sizes, Monitor from the displays Windows lists, Display sync,
