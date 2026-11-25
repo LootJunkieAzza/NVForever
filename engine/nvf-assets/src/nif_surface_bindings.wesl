@@ -557,7 +557,9 @@ struct NifSurface {
         } else {
             texel = detail_sample(instance_index, pair, diffuse_sampler, uv, ddx, ddy);
         }
-        let share = o * texel.a;
+        // The painted opacity alone, as terrain.wesl: a landscape diffuse's alpha is not a
+        // blend mask (#4489).
+        let share = o;
         if share == 0.0 {
             continue;
         }

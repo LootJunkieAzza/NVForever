@@ -325,10 +325,10 @@ fn shader_detail_transcribes_the_mesh_triangles_and_the_record_layout() {
         "m.normal += t.weights[i] * vec3(detail_snorm(w1 >> 16u), detail_snorm(w2), detail_snorm(w2 >> 16u));",
         "m.tangent += t.weights[i] * vec3(detail_snorm(w3), detail_snorm(w3 >> 16u), detail_snorm(w4));",
         "let h = 9u + k;",
-        // Ordered opacities: saturate(opacity) x the diffuse alpha, folded overlays tinted by
+        // Ordered opacities: saturate(opacity) alone (#4489), folded overlays tinted by
         // the base material's colour, overflow ones by white.
         "let o = saturate(detail_opacity(instance_index, t, k));",
-        "let share = o * texel.a;",
+        "let share = o;",
         "colour = mix(colour, texel.rgb * a.tint * select(vec3(1.0), base_rgb, k < folded), share);",
         "normal = mix(normal, layer_n, share);",
         "return TerrainDetail(colour, normalize(normal));",

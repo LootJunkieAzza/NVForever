@@ -165,7 +165,14 @@ apart and the last row/column coincides with the neighbour's first.
   layer order and before every other blended mesh of the world (after the sky)
   [engine rule, `nvf_assets::nif_material::sort_first`]: a blended mesh has no depth,
   so a layer drawn after one would paint the ground behind it over it (seen on the
-  Goodsprings corn rows, docs/spec-notes/nif.md §6 "Alpha").
+  Goodsprings corn rows, docs/spec-notes/nif.md §6 "Alpha"). A layer's share is its VTXT
+  opacity alone, not times its diffuse texture's alpha [hypothesis: base-game landscape
+  diffuses are DXT1 with no alpha, so the two agree there; replacers that are DXT5 with
+  other data in alpha (Nuclear Sunset's `rockcanyonrubbledirt01.dds`, mean 105/255)
+  otherwise paint faintly and leave a straight seam where a quadrant's base meets its
+  neighbour's layer of the same texture, observed in FadedLight's fork (#4489)]. The
+  folded layers (terrain.wesl) follow this; the separately blended draws (layers past
+  the folded ones, GPUs without bindless textures) still multiply by it.
 - **Alpha grid orientation** [observed]: VTXT position = row × 17 + column, rows south →
   north, columns west → east. Neighbouring quadrants share an edge of the grid; for a
   texture layered on both sides, the edge opacities agree (within 1/255) for 38,039 of

@@ -662,12 +662,11 @@ fn fragment(
     // every later read take the moved place (the landscape's texture transform is the
     // identity, terrain.rs tests). Never with anti-tiling (terrain.rs
     // `TerrainLayersKey`), whose reads take their place from the world, not from `in.uv`.
-    // The weights are worked out once at the plain place (the layers' alphas read there with
+    // The weights are worked out once at the plain place (the layers' texels read there with
     // the drawn reads' own gradients; with height blending its weights from those texels),
     // and both the march and the drawn blend use them: a hole in a layer stays where the march
     // saw it, a layer the height blend leaves out does not move what is drawn, and with no
     // shift the blend is the one without parallax [design, #3322 review].
-    @if(TERRAIN_PARALLAX) var parallax_alpha = array<f32, 6>(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
     @if(TERRAIN_PARALLAX) var parallax_w = array<f32, 7>(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     @if(TERRAIN_PARALLAX && VERTEX_UVS_A && VERTEX_TANGENTS) {
         let parallax_n = min(layer_counts(in.instance_index).x, 6u);
@@ -679,8 +678,8 @@ fn fragment(
         var parallax_paint = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         for (var k = 0u; k < parallax_n; k += 1u) {
             parallax_texels[k] = layer_diffuse_antitiled(k, in.instance_index, parallax_plain_taps, parallax_plain_fp);
-            parallax_alpha[k] = parallax_texels[k].a;
-            parallax_paint[k] = saturate(opacity[k]) * parallax_alpha[k];
+            // The painted opacity alone, not the diffuse's alpha (see the plain path below).
+            parallax_paint[k] = saturate(opacity[k]);
         }
         parallax_w = terrain_ordered_shares(parallax_paint, parallax_n);
         @if(TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) {
@@ -745,7 +744,14 @@ fn fragment(
                     let o = saturate(opacity[k]);
                     if o > 0.0 {
                         let texel = layer_diffuse_grad(k, in.instance_index, uv, uv_dx, uv_dy);
-                        let share = o * texel.a;
+                        // The painted opacity alone: a landscape diffuse's alpha is not a blend
+                        // mask. Nuclear Sunset's DXT5 landscape textures carry other data there
+                        // (0.41 on average in RockCanyonRubbleDirt01, "NS C NSALVO T 11.bsa"),
+                        // which hid their layers and left a hard seam where one quadrant's base
+                        // meets the neighbour's layer of it [observed 2026-11-21, Goodsprings
+                        // NW/NE edge, FadedLight's Nuclear Sunset fork (#4489); hypothesis:
+                        // the original ignores it, as vanilla DXT1 textures have none].
+                        let share = o;
                         var layer_n = plain;
                         @if(VERTEX_TANGENTS) if (counts.y & (1u << k)) != 0u {
                             layer_n = apply_normal_mapping(standard.flags, tbn, false, is_front, layer_normal_grad(k, in.instance_index, uv, uv_dx, uv_dy));
@@ -755,7 +761,7 @@ fn fragment(
                     }
                 }
                 @if(TERRAIN_PARALLAX) let texel = layer_diffuse_antitiled(k, in.instance_index, parallax_taps, parallax_fp);
-                @if(TERRAIN_PARALLAX) let share = saturate(opacity[k]) * parallax_alpha[k];
+                @if(TERRAIN_PARALLAX) let share = saturate(opacity[k]);
                 @if(TERRAIN_PARALLAX) var layer_n = plain;
                 @if(TERRAIN_PARALLAX && VERTEX_TANGENTS) if (counts.y & (1u << k)) != 0u {
                     layer_n = terrain_world_normal(tbn, layer_normal_antitiled(k, in.instance_index, parallax_taps, parallax_fp, terrain_two_component(standard.flags), terrain_flip_y(standard.flags)), false);
@@ -779,7 +785,8 @@ fn fragment(
                 @if(!TERRAIN_PARALLAX) let texel = layer_diffuse(k, in.instance_index, uv);
                 @if(TERRAIN_PARALLAX) let texel = layer_diffuse_antitiled(k, in.instance_index, parallax_taps, parallax_fp);
                 texels[k] = texel;
-                paint[k] = saturate(opacity[k]) * texel.a;
+                // The painted opacity alone (see the plain path above).
+                paint[k] = saturate(opacity[k]);
                 @if(VERTEX_TANGENTS) if (counts.y & (1u << k)) != 0u {
                     @if(!TERRAIN_PARALLAX) layer_n[k] = apply_normal_mapping(standard.flags, tbn, false, is_front, layer_normal(k, in.instance_index, uv));
                     @if(TERRAIN_PARALLAX) layer_n[k] = terrain_world_normal(tbn, layer_normal_antitiled(k, in.instance_index, parallax_taps, parallax_fp, terrain_two_component(standard.flags), terrain_flip_y(standard.flags)), false);
