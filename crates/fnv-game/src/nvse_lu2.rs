@@ -233,7 +233,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // `index item health modFlags`: SetHotkeyItem with the unit's health (-1 any) and
         // weapon mod flags [documented: SetHotkey]; keys 1-8 as SetHotkeyItem, an item the
-        // player carries [hypothesis: as SetHotkeyItem].
+        // player carries (see docs/spec-notes/ext-lutana.md §9).
         "sethotkey" => {
             let Some(k) = usize::try_from(num(args, 0, 0.0) as i64 - 1).ok().filter(|&k| k < 8) else { return Some(Ok(zero)) };
             let Some(item) = form(args, 1) else { return Some(Ok(zero)) };

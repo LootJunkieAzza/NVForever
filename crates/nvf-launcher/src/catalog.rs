@@ -264,14 +264,16 @@ pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
         ("smooth-terrain", &["off", "2x2", "4x4", "4x4-near"][..]),
         // ssao.rs `AO_CHOICES` (2026-11-19); the engine also reads its older 1/0.
         ("ambient-occlusion", &["Off", "Performance", "Quality"][..]),
+        // volumetric_clouds.rs `CLOUD_CHOICES` (2026-11-23); the engine also reads its older 1/0.
+        ("volumetric-clouds", &["Off", "Performance", "Normal", "High"][..]),
     ])
 }
 
 /// A list row's value as one of its choices ([`list_choices`]): the older values a list took
 /// over from map to the choice they stand for (the Smooth terrain row's on/off of #2149:
 /// `1`, true, on, yes are `4x4`; `0`, false, off, no are `off`; the Ambient occlusion row's
-/// switch of before 2026-11-19: `Quality` and `Off`, as the engine reads them); anything else
-/// as it is (trimmed).
+/// switch of before 2026-11-19: `Quality` and `Off`, the Volumetric clouds row's of before
+/// 2026-11-23: `Normal` and `Off`, as the engine reads them); anything else as it is (trimmed).
 pub fn list_value(key: &str, value: &str) -> String {
     let v = value.trim();
     // The Difficulty slider's part of before the menu overhaul: the nearest of the five
@@ -286,12 +288,14 @@ pub fn list_value(key: &str, value: &str) -> String {
     let (on, off) = match key {
         "smooth-terrain" => ("4x4", "off"),
         "ambient-occlusion" => ("Quality", "Off"),
+        "volumetric-clouds" => ("Normal", "Off"),
         _ => return v.to_string(),
     };
     match v.to_ascii_lowercase().as_str() {
         "1" | "true" | "on" | "yes" => on.to_string(),
         "0" | "false" | "off" | "no" => off.to_string(),
-        _ => v.to_string(),
+        // A choice written by hand in another case, which the engine takes too.
+        _ => list_choices()[key].iter().find(|c| c.eq_ignore_ascii_case(v)).unwrap_or(&v).to_string(),
     }
 }
 
@@ -453,10 +457,14 @@ mod tests {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/ssao.rs")).unwrap();
         let listed = list_choices()["ambient-occlusion"].iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
         assert!(src.contains(&format!("pub const AO_CHOICES: [&str; 3] = [{listed}];")), "ambient-occlusion: the engine's AO_CHOICES are no longer {listed}");
+        // The Volumetric clouds row's (volumetric_clouds.rs `CLOUD_CHOICES`).
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvforever/src/volumetric_clouds.rs")).unwrap();
+        let listed = list_choices()["volumetric-clouds"].iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
+        assert!(src.contains(&format!("pub const CLOUD_CHOICES: [&str; 4] = [{listed}];")), "volumetric-clouds: the engine's CLOUD_CHOICES are no longer {listed}");
     }
 
     /// The Smooth terrain row's older on/off reads as its choices (4x4 and off), the Ambient
-    /// occlusion row's as Quality and Off, so a launcher with an old INI offers the list, not
+    /// occlusion row's as Quality and Off, the Volumetric clouds row's as Normal and Off, so a launcher with an old INI offers the list, not
     /// a switch; other values stay as they are.
     #[test]
     fn older_values_map_to_list_choices() {
@@ -471,6 +479,12 @@ mod tests {
             assert_eq!(got, want, "{v}");
             assert!(choices["ambient-occlusion"].contains(&got.as_str()));
         }
+        for (v, want) in [("1", "Normal"), ("0", "Off"), ("on", "Normal"), ("false", "Off"), ("Performance", "Performance"), (" High ", "High"), ("high", "High")] {
+            let got = list_value("volumetric-clouds", v);
+            assert_eq!(got, want, "{v}");
+            assert!(choices["volumetric-clouds"].contains(&got.as_str()));
+        }
+        assert_eq!(list_value("volumetric-clouds", "ultra"), "ultra");
         assert_eq!(list_value("kill-camera", " 1 "), "1");
         for (v, want) in [("0.50", "Normal"), ("0", "Very Easy"), ("1.0", "Very Hard"), ("0.75", "Hard"), ("Custom", "Custom")] {
             assert_eq!(list_value("difficulty", v), want, "{v}");

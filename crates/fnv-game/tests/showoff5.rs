@@ -181,7 +181,7 @@ fn the_level_up_menu_and_the_pause_menu_take_the_asks() {
     assert_eq!(g.showoff.b5.levelup.page_request, Some(2));
     assert_eq!(n(&mut g, "SetLevelUpMenuCanExitEarly 1"), 1.0);
     assert!(g.showoff.b5.levelup.can_exit_early);
-    // With a menu open, no second menu [hypothesis].
+    // With a menu open, no second menu (see docs/spec-notes/ext-showoff.md).
     assert_eq!(n(&mut g, "ShowSkillMenu 5"), 0.0);
     g.close_menu();
     // ShowSkillMenu 0 0: no points and not to be shown anyway.

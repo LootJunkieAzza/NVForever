@@ -1679,11 +1679,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // CELL DATA flags bit by bit [observed: gaps3, Doc's house (Interior, Public)
         // reads 1 0 0 0].
         // 0-7 DATA, 8-16 the lighting template inherit flags (LNAM bits 0-8)
-        // [documented: the page's table; hypothesis: LNAM's order]; SetCellFlag's change
-        // first (`crate::nvse_jip8`).
+        // [documented: GECK wiki GetCellFlag; hypothesis: LNAM's order]; SetCellFlag's change
+        // first (`crate::nvse_jip8`). Require a CELL form so non-CELL records with a DATA or
+        // LNAM subrecord (such as WRLD, #3757) return 0 rather than leaking their own flags
+        // [documented: GECK wiki GetCellFlag takes `cell:ref`; hypothesis: original JIP LN
+        // return on a WRLD with bit 0 set pending runtime probe].
         "getcellflag" => {
-            let c = form(args, 0).unwrap_or(FormId(0));
+            let Some(c) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"CELL")) else {
+                return Some(Ok(zero));
+            };
             let k = num(args, 1, -1.0);
+            if !(0.0..=16.0).contains(&k) || k.fract() != 0.0 {
+                return Some(Ok(zero));
+            }
             let (sub, k) = if k >= 8.0 { ("LNAM", k - 8.0) } else { ("DATA", k) };
             let flags = crate::nvse::record_value(g, c, sub, "").and_then(|v| v.num().ok()).unwrap_or(0.0);
             bit(flags, k)
