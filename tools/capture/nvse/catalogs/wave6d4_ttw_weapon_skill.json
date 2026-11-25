@@ -1,0 +1,94 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_ttw_weapon_skill",
+  "description": "Clean-room read-only Wave 6D-4 probe proving TTW_GetEquippedWeaponSkill takes 0 arguments and returns the equipped weapon's skill actor value code.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "TTW NVSE": "333"
+  },
+  "batches": [
+    {
+      "id": "w6d4_ttw_weapon_skill",
+      "title": "Wave 6D-4: TTW_GetEquippedWeaponSkill 0-arg skill AV return",
+      "extender": "TTW NVSE",
+      "required_plugins": [
+        "ttw_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4p2_23_ttw_fixed",
+          "bucket": "small_extenders_ttw",
+          "extender": "ttw_nvse",
+          "required_plugins": [
+            "ttw_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-small.md",
+          "spec_line": 55,
+          "functions_tested": [
+            "TTW_CRC32",
+            "TTW_GetPlugins",
+            "TTW_GetEquippedWeaponSkill",
+            "TTW_EnableRadioFix"
+          ],
+          "claim": "SD-14: Verify TTW_CRC32, TTW_GetPlugins exact array structure/element values, 0-arg TTW_GetEquippedWeaponSkill (unarmed vs 10mm Pistol), and TTW_EnableRadioFix.",
+          "expected": "Confirm TTW_GetPlugins element count/type/contents and TTW_GetEquippedWeaponSkill 0-arg return.",
+          "script_lines": [
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "Player.AddItem rGun 1 1",
+            "Player.EquipItem rGun 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "int crc1 = TTW_CRC32 \"CaravanPack.esm\"",
+                "int crc2 = TTW_CRC32 \"caravanpack.esm\"",
+                "int crcMiss = TTW_CRC32 \"NoSuchW6D4.esm\"",
+                "array_var aPl = TTW_GetPlugins",
+                "int plSz = ar_Size aPl",
+                "string_var pl0Type = \"none\"",
+                "int pl0Sub = -1",
+                "string_var pl0Val = \"none\"",
+                "if plSz > 0",
+                "  let pl0Type := TypeOf (aPl[0])",
+                "  if eval (pl0Type == \"Array\")",
+                "    let pl0Sub := ar_Size (aPl[0])",
+                "  elseif eval (pl0Type == \"String\")",
+                "    let pl0Val := aPl[0]",
+                "  endif",
+                "endif",
+                "int skGun = Player.TTW_GetEquippedWeaponSkill",
+                "Player.UnequipItem rGun 0 1",
+                "Player.RemoveItem rGun 1 1",
+                "int rf0 = TTW_EnableRadioFix 0",
+                "PrintToConsole \"PROBE|w6d4p2_23_ttw_fixed|crc(eq=%g,nz=%g,miss=%g)|pl(sz=%g,t0=[%z],sub=%g,v0=[%z])|skGun=%g|rf=%g\" (crc1 == crc2) (crc1 != 0) crcMiss plSz pl0Type pl0Sub pl0Val skGun rf0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

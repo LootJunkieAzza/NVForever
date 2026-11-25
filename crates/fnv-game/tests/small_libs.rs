@@ -577,6 +577,11 @@ fn cacheui_anh_and_the_small_plugins() {
     g.close_menu();
     q(&mut g, "SetWorldspaceMapBounds TestWorld -10 20 30 -40");
     assert_eq!(g.world_map_bounds(FormId(WORLD)), Some([-10, 20, 30, -40]));
+    // TTW_GetEquippedWeaponSkill takes 0 arguments and returns WEAP DNAM/skill (38 here),
+    // or safe 0 when unarmed [observed: w6d4p2_23_ttw_fixed; design: unarmed 0].
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.TTW_GetEquippedWeaponSkill)"), n(0.0));
+    q(&mut g, "PlayerREF.AddItem TestGun 1\nPlayerREF.EquipItem TestGun 0 1");
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.TTW_GetEquippedWeaponSkill)"), n(38.0));
 }
 
 #[test]

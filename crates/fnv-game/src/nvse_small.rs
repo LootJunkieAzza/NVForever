@@ -669,15 +669,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.small.crc_cache.insert(k, v);
             XVal::Num(v)
         }
-        // `skill`: 1 when the calling actor's (else the player's) equipped weapon uses
-        // that skill (its actor value code, as GetWeaponSkill gives) [documented:
-        // TTW_GetEquippedWeaponSkill, "true if weapon skill matches that of equipped
-        // weapon"].
+        // 0-arg getter returning the calling actor's (else the player's) equipped
+        // weapon's skill actor value code (WEAP `DNAM/skill`, e.g. 41 for Guns)
+        // [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New
+        // Vegas 1.4.0.525 + xNVSE 6.4.9 + TTW NVSE 333, `w6d4p2_23_ttw_fixed`
+        // (`wave6d4_ttw_weapon_skill.json`): `crc(eq=1,nz=1,miss=-1)|pl(sz=10,t0=[Array],sub=3,v0=[none])|skGun=41|rf=0`;
+        // 1-arg calls fail runtime compilation]. Returns 0 when unarmed or missing
+        // [design: avoids `ttw_nvse.dll 333` null-weapon `0xC0000005` crash].
         "ttw_getequippedweaponskill" => {
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let w = crate::functions::items::equipped_weapon(g, a);
-            let skill = w.and_then(|w| crate::nvse::record_value(g, w, "DNAM", "skill"));
-            yes(matches!(skill, Some(XVal::Num(s)) if s == num(args, 0, -1.0)))
+            match w.and_then(|w| crate::nvse::record_value(g, w, "DNAM", "skill")) {
+                Some(XVal::Num(s)) => XVal::Num(s),
+                _ => XVal::Num(0.0),
+            }
         }
         // Each loaded plugin as [name, version, description] [documented: TTW_GetPlugins]:
         // the version is the TES4 HEDR version, as GetPluginHeaderVersion gives it
