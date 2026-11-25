@@ -151,7 +151,7 @@ fn navmeshes_and_paths() {
     assert!(g.script_nav_obstacles().contains(&FormId::PLAYER_REF));
     assert_eq!(n(&mut g, "PlayerREF.RemoveNavmeshobstacle"), 1.0);
     assert!(g.script_nav_obstacles().is_empty());
-    // No answerer (headless): an empty array [hypothesis].
+    // No answerer (headless): an empty array (see docs/spec-notes/ext-jg10.md).
     assert_eq!(n(&mut g, "Ar_Size (GetNearestNavMeshTriangle 0 0 0 1)"), 0.0);
     // [documented: x, y, z and the distance].
     let near = fnv_game::nav_ask::with_nav(&OneTriangle, || n(&mut g, "Ar_Size (GetNearestNavMeshTriangle 10 20 0 1 100)"));
@@ -200,7 +200,7 @@ fn weapons_and_scopes() {
     // With a weapon equipped: accepts poison ALCH (returns 1), clears on omitted arg
     // (returns 1), and rejects non-poison ALCH (returns 0) [observed:
     // w4h_09_apply_weapon_poison_stimpak]; non-ALCH and preserving an existing poison on
-    // rejection [hypothesis].
+    // rejection (see docs/spec-notes/ext-jg10.md).
     q(&mut g, "PlayerREF.AddItem TestScoped 1 1\nPlayerREF.EquipItem TestScoped 0 1");
     assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestPoison"), 1.0);
     assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponPoison"), f64::from(ALCH));

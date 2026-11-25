@@ -444,6 +444,7 @@ pub fn apply_modular_tweaks_to_game(overrides: &StewieIniMap, tweaks: &mut Tweak
     bool_tweak!("Tweaks", "bMenuSearch", menu_search);
     bool_tweak!("Tweaks", "bArmorConditionLabel", armor_condition);
     bool_tweak!("Tweaks", "bNoLockEncounterZoneLevels", no_lock_encounter_zone_levels);
+    bool_tweak!("Tweaks", "bFasterSleepWait", faster_sleep_wait);
 
     // Numeric [Tweaks] settings with documented domains.
     if let Some(n) = overrides.get_i32("Tweaks", "iPerksPerLevel").filter(|&n| n >= 1) {
