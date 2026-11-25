@@ -151,8 +151,9 @@ pub fn capped(code: u16, v: f64) -> f64 {
 }
 
 /// The skills a creature's Combat Skill stands for [documented: GECK wiki Stats Tab -
-/// Creatures, "Small Guns, Big Guns, Energy Weapons, Explosives, Melee Weapons"].
-const CREATURE_COMBAT_SKILLS: [u16; 5] = [BIG_GUNS, ENERGY_WEAPONS, EXPLOSIVES, MELEE_WEAPONS, GUNS];
+/// Creatures; observed 2026-11-25: w6d7_04 & w6d7p2_05b, CrRadroach reads Unarmed=25
+/// from combat_skill alongside Guns/Melee and 0.0 for non-combat/non-stealth skills].
+const CREATURE_COMBAT_SKILLS: [u16; 6] = [BIG_GUNS, ENERGY_WEAPONS, EXPLOSIVES, MELEE_WEAPONS, GUNS, UNARMED];
 
 /// Actor base configuration flags (`ACBS/flags`, `u32` bitmask)
 /// [documented: GECK wiki GetActorBaseFlagsLow, GetActorBaseFlagsHigh, ActorHasBaseFlag;
@@ -435,12 +436,14 @@ impl<'a> Game<'a> {
             let offset = d.and_then(|d| d.skill_offsets).map_or(0, |o| o[i]);
             return values[i] as f64 + offset as f64;
         }
-        let creature = d.filter(|d| &d.sig == b"CREA");
-        if let Some(v) = creature.and_then(|d| d.combat_skill).filter(|_| CREATURE_COMBAT_SKILLS.contains(&skill)) {
-            return v as f64;
-        }
-        if let Some(v) = creature.and_then(|d| d.stealth_skill).filter(|_| skill == SNEAK) {
-            return v as f64;
+        if let Some(creature) = d.filter(|d| &d.sig == b"CREA") {
+            if CREATURE_COMBAT_SKILLS.contains(&skill) {
+                return creature.combat_skill.unwrap_or(0) as f64;
+            }
+            if skill == SNEAK {
+                return creature.stealth_skill.unwrap_or(0) as f64;
+            }
+            return 0.0;
         }
         self.derived_skill(r, skill)
     }

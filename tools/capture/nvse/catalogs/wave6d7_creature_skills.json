@@ -1,0 +1,157 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_creature_skills",
+  "description": "Wave 6D-7 read-only console probes for creature Unarmed combat skill and zero non-combat skills.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_creature_skills",
+      "title": "Wave 6D-7: Creature Unarmed combat skill and non-combat zeroing",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_04_npc_and_creature_skills_offsets_and_ai_avs",
+          "bucket": "actor_values_skills",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 275,
+          "functions_tested": [
+            "GetBaseAV",
+            "GetAV",
+            "SetAV",
+            "ModAV",
+            "PlaceAtMe"
+          ],
+          "claim": "SD-02(f): Inspect NPC skill Base/Cur + SetAV raw storage, Creature (CrRadroach) skill AVs + SetAV/ModAV, and AI AVs (Aggression, Confidence, Assistance) on NPC vs Creature.",
+          "expected": "Record NPC Guns/BigGuns/Survival/AI AVs and Creature Guns/MeleeWeapons/Unarmed/AI AVs before and after SetAV/ModAV.",
+          "script_lines": [
+            "ref rWast = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rRoach = GetFormFromMod \"FalloutNV.esm\" \"1CF7C\"",
+            "ref rNpc = Player.PlaceAtMe rWast 1 120 0",
+            "ref rCre = Player.PlaceAtMe rRoach 1 140 0",
+            "float fNGun0 = rNpc.GetBaseAV Guns",
+            "float fNBg0 = rNpc.GetBaseAV BigGuns",
+            "float fNSrv0 = rNpc.GetBaseAV Survival",
+            "rNpc.SetAV Guns 45",
+            "float fNGun1 = rNpc.GetBaseAV Guns",
+            "float fNGunC1 = rNpc.GetAV Guns",
+            "float fNAgg = rNpc.GetAV Aggression",
+            "float fNCnf = rNpc.GetAV Confidence",
+            "float fNAst = rNpc.GetAV Assistance",
+            "float fCGun0 = rCre.GetBaseAV Guns",
+            "float fCMel0 = rCre.GetBaseAV MeleeWeapons",
+            "float fCUna0 = rCre.GetBaseAV Unarmed",
+            "rCre.SetAV Unarmed 40",
+            "rCre.ModAV Unarmed 5",
+            "float fCUnaB1 = rCre.GetBaseAV Unarmed",
+            "float fCUnaC1 = rCre.GetAV Unarmed",
+            "float fCAgg = rCre.GetAV Aggression",
+            "float fCCnf = rCre.GetAV Confidence",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "rCre.Disable",
+            "rCre.MarkForDelete",
+            "string_var sOut = sv_Construct \"PROBE|w6d7_04_npc_and_creature_skills_offsets_and_ai_avs|npc(gun=%.1f->%.1f/%.1f,bg=%.1f,srv=%.1f,ai=%.0f/%.0f/%.0f)\" fNGun0 fNGun1 fNGunC1 fNBg0 fNSrv0 fNAgg fNCnf fNAst",
+            "let sOut += sv_Construct \"|cre(gun=%.1f,mel=%.1f,una=%.1f->%.1f/%.1f,ai=%.0f/%.0f)\" fCGun0 fCMel0 fCUna0 fCUnaB1 fCUnaC1 fCAgg fCCnf",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        },
+        {
+          "id": "w6d7p2_05b_healrate_all_end_and_melee_dmg_odd_str",
+          "bucket": "actor_values_derived",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 174,
+          "functions_tested": [
+            "GetAV",
+            "GetBaseAV",
+            "SetAV",
+            "PlaceAtMe"
+          ],
+          "claim": "SD-02(a,b,f): Sweep HealRate across Endurance 1..10 and MeleeDamage across Strength 1..10, plus inspect CrRadroach Unarmed vs Guns/MeleeWeapons/Sneak.",
+          "expected": "Pin exact HealRate table (END 1..10), MeleeDamage truncation/formula on odd Strength, and Creature skill AVs.",
+          "script_lines": [
+            "ref rRoach = GetFormFromMod \"FalloutNV.esm\" \"1CF7C\"",
+            "float fEnd0 = Player.GetBaseAV Endurance",
+            "float fStr0 = Player.GetBaseAV Strength",
+            "Player.SetAV Endurance 5",
+            "float fH5 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 6",
+            "float fH6 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 7",
+            "float fH7 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 8",
+            "float fH8 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 9",
+            "float fH9 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 10",
+            "float fH10 = Player.GetAV HealRate",
+            "Player.SetAV Endurance fEnd0",
+            "Player.SetAV Strength 1",
+            "float fM1 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 3",
+            "float fM3 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 5",
+            "float fM5 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 6",
+            "float fM6 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 7",
+            "float fM7 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 9",
+            "float fM9 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 10",
+            "float fM10 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength fStr0",
+            "ref rCre = Player.PlaceAtMe rRoach 1 140 0",
+            "float fCEn = rCre.GetAV Endurance",
+            "float fCLk = rCre.GetAV Luck",
+            "float fCGun = rCre.GetAV Guns",
+            "float fCUna = rCre.GetAV Unarmed",
+            "float fCSnk = rCre.GetAV Sneak",
+            "float fCSci = rCre.GetAV Science",
+            "rCre.Disable",
+            "rCre.MarkForDelete",
+            "string_var sOut = sv_Construct \"PROBE|w6d7p2_05b_healrate_all_end_and_melee_dmg_odd_str|hr(5..10=%.1f,%.1f,%.1f,%.1f,%.1f,%.1f)\" fH5 fH6 fH7 fH8 fH9 fH10",
+            "let sOut += sv_Construct \"|md(1,3,5,6,7,9,10=%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f)|cre(e=%.0f,l=%.0f,g=%.1f,u=%.1f,snk=%.1f,sci=%.1f)\" fM1 fM3 fM5 fM6 fM7 fM9 fM10 fCEn fCLk fCGun fCUna fCSnk fCSci",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        }
+      ]
+    }
+  ]
+}

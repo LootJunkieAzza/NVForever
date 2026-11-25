@@ -261,12 +261,13 @@ fn a_creature_has_attributes_and_its_combat_skill() {
     for (i, want) in [8.0, 7.0, 6.0, 2.0, 3.0, 4.0, 5.0].into_iter().enumerate() {
         assert_eq!(get(&mut g, CREA_REF, av::STRENGTH + i as u16), want);
     }
-    for c in [av::BIG_GUNS, av::ENERGY_WEAPONS, av::EXPLOSIVES, av::MELEE_WEAPONS, av::GUNS] {
+    for c in [av::BIG_GUNS, av::ENERGY_WEAPONS, av::EXPLOSIVES, av::MELEE_WEAPONS, av::GUNS, av::UNARMED] {
         assert_eq!(get(&mut g, CREA_REF, c), 65.0);
     }
     assert_eq!(get(&mut g, CREA_REF, av::SNEAK), 40.0);
-    // No field: the formula. Barter from Charisma 2 and Luck 5: 2 + 4 + ⌈2.5⌉.
-    assert_eq!(get(&mut g, CREA_REF, av::BARTER), 9.0);
+    // Non-combat, non-stealth creature skills read 0.0 [observed: w6d7p2_05b].
+    assert_eq!(get(&mut g, CREA_REF, av::BARTER), 0.0);
+    assert_eq!(get(&mut g, CREA_REF, av::SCIENCE), 0.0);
     assert_eq!(get(&mut g, CREA_REF, av::HEALTH), 120.0);
     assert_eq!(get(&mut g, CREA_REF, av::FATIGUE), 80.0);
     assert_eq!(get(&mut g, CREA_REF, av::SPEED_MULTIPLIER), 150.0);

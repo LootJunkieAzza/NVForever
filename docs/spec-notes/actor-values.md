@@ -150,12 +150,17 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 
 ### 3.3 Creatures
 
-- CREA DATA "Combat Skill" is the creature's Guns, Big Guns, Energy Weapons, Explosives
-  and Melee Weapons [documented: Stats Tab - Creatures, "used for the matching skill"
-  of a creature with a weapon; not for its unarmed attack].
-- "Stealth Skill" is its Sneak [hypothesis from the field name; every creature of
-  FalloutNV.esm has 50, observed]. "Magic Skill" (50 everywhere) is not used.
-- The other skills come from the formula and the creature's attributes [hypothesis].
+- CREA DATA "Combat Skill" is the creature's Guns, Big Guns, Energy Weapons, Explosives,
+  Melee Weapons, and Unarmed [observed 2026-11-25, Fallout: New Vegas 1.4.0.525
+  (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters,
+  `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probes
+  `w6d7_04_npc_and_creature_skills_offsets_and_ai_avs` and
+  `w6d7p2_05b_healrate_all_end_and_melee_dmg_odd_str` in
+  `tools/capture/nvse/catalogs/wave6d7_creature_skills.json`: `CrRadroach` with
+  `combat_skill = 25` and `stealth_skill = 0` reads `Guns = 25.0`, `MeleeWeapons = 25.0`,
+  `Unarmed = 25.0`, `Sneak = 0.0`, `Science = 0.0`].
+- "Stealth Skill" is its Sneak (`CrRadroach` `stealth_skill = 0` reads `0.0`). "Magic Skill" is not used.
+- Other non-combat, non-stealth creature skills return `0.0` (`Science = 0.0` despite Endurance 3 / Luck 1) [observed: `w6d7p2_05b`].
 
 ### 3.4 The player
 
