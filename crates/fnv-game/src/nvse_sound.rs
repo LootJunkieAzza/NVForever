@@ -116,9 +116,10 @@ impl SoundState {
 }
 
 /// Number of addressable `SOUN` `SNDD`/`SNDX` flag bits (`0..=31`); documented wiki IDs
-/// cover `0..=13` and original FNV + JIP LN 57.30 also accepts higher bits (`14`, `15`,
-/// `16`) of the 32-bit flag field [documented: GECK wiki GetSoundFlag, SetSoundFlag;
-/// xEdit wbDefinitionsFNV.pas SOUN; observed: `w6d2_08_sound_flag_oob_and_clone`].
+/// cover `0..=13`, original FNV + JIP LN 57.30 also accepts bits `14` and `15` [documented:
+/// GECK wiki GetSoundFlag, SetSoundFlag; xEdit wbDefinitionsFNV.pas SOUN; observed:
+/// `w6d2_08_sound_flag_oob_and_clone`], and upper bits `16..=31` follow the 32-bit `u32`
+/// flag field [design].
 pub const SOUND_FLAG_COUNT: u8 = 32;
 
 impl Game<'_> {
@@ -228,8 +229,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // sound1, a PlaySound3D on the player still playing 6 frames on; hypothesis: it
         // stops only sounds the game attached to the reference itself].
         "stopsoundalt" => zero,
-        // JIP's `sound flagID [newValue]` (`0..=13`, SNDD/SNDX flags) [documented: GECK
-        // wiki GetSoundFlag, SetSoundFlag; observed: gaps4, SetSoundFlag returns 0].
+        // JIP's `sound flagID [newValue]` (`0..=31`, SNDD/SNDX flags; `0..=13` documented,
+        // `14`/`15` observed in `w6d2_08_sound_flag_oob_and_clone`, `16..=31` [design])
+        // [documented: GECK wiki GetSoundFlag, SetSoundFlag; observed: gaps4, SetSoundFlag
+        // returns 0].
         "getsoundflag" => {
             let (Some(s), Some(bit)) = (form(args, 0), flag_id(args, 1)) else { return Some(Ok(zero)) };
             yes(g.sound_flag(s, bit))

@@ -146,9 +146,9 @@ not decode yet.
   probe; zero writes to game install or Saves), `w6d2_08_sound_flag_oob_and_clone`
   (`tools/capture/nvse/catalogs/wave6d2_sound_flag_32bit.json`):
   `PROBE|w6d2_08_sound_flag_oob_and_clone|init=1,0|oob=1,1,0|bad=0|cl=1,1`; zero DLL,
-  PDB, or third-party source consulted]; upper bits `16..=31` following the 32-bit `u32`
-  field is [design]; session-only lifetime and fractional-index rejection remain
-  [hypothesis]).
+  PDB, or third-party source consulted]; upper bits `16..=31` (and `>= 32` rejection)
+  following the 32-bit `u32` field are [design]; session-only lifetime and
+  fractional-index rejection remain [hypothesis]).
 
 ### 9.1 `TempCloneForm` SOUN aliases and engine sound overrides
 
