@@ -3505,6 +3505,20 @@ fn event_handlers_are_set_dispatched_filtered_and_removed() {
 }
 
 #[test]
+fn get_explosion_hit_damage_returns_minus_one_outside_handler() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+    // SetExplosionHitDamage outside a handler is a no-op and does not change the -1.0 sentinel.
+    q(&mut g, "SetExplosionHitDamage 42");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+}
+
+#[test]
 fn get_game_loaded_and_restarted_are_true_once_per_script() {
     // [documented: GetGameLoaded; GetGameRestarted] once per script after a load / per
     // session; a session's SetEventHandler registrations carry over a load.
