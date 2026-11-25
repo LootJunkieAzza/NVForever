@@ -3149,6 +3149,7 @@ impl<'a> Game<'a> {
                     tracing::info!("quest: {q} stage {stage} completes it; its Next Quest {next} becomes the active quest");
                     self.ui.active_quest = Some(next);
                     self.ui.active_quest_count += 1;
+                    self.refresh_current_objective();
                 }
             }
             if e.flags & STAGE_FAIL != 0 {
@@ -3249,7 +3250,22 @@ impl<'a> Game<'a> {
             let silent = !d1 || self.quest(q).completed;
             self.emit(EventKind::ObjectiveCompleted { quest: q, index, on: c1, silent });
         }
+        self.refresh_current_objective();
         true
+    }
+
+    /// Update `other.last_current_objective` from the active quest's open displayed
+    /// objective whenever quest or objective state changes, retaining the last value
+    /// when no open objective remains [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN
+    /// 57.30, w6d9p2_05_getcurrentobjective_details; hypothesis: lowest-index tie-break
+    /// when multiple objectives are displayed, since `w6d9p2_05` displayed `30` then `10`
+    /// where `10` is both lowest and most-recently-displayed].
+    pub fn refresh_current_objective(&mut self) {
+        if let Some(q) = self.ui.active_quest {
+            if let Some((&i, _)) = self.quest_state(q).objectives.iter().find(|(_, o)| o.displayed && !o.completed) {
+                self.other.last_current_objective = i;
+            }
+        }
     }
 
     // ---- instances and variables -------------------------------------------------

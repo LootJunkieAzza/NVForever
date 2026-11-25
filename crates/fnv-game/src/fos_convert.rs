@@ -699,6 +699,7 @@ pub fn convert_fos(
         match map_id(raw_q) {
             Ok(qid) if data.quests.contains_key(&qid) => {
                 g.ui.active_quest = Some(qid);
+                g.refresh_current_objective();
                 engine.active_quest = Some(qid.0);
                 inc_ok("active_quest");
             }

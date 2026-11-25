@@ -429,18 +429,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             });
             XVal::Ref(hit.and_then(|h| h.form).unwrap_or(0))
         }
-        // [documented: GetCurrentObjective] the active quest's lowest displayed incomplete
-        // objective index; 0 before any active objective and retains the last active
-        // objective index after all objectives complete or ClearActiveQuest [observed:
-        // 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30, w6d9p2_05_getcurrentobjective_details:
+        // [documented: GetCurrentObjective] the active quest's open displayed objective
+        // [hypothesis: lowest-index tie-break when multiple objectives are displayed, since
+        // w6d9p2_05 displayed 30 then 10 where 10 is both lowest and most-recently-displayed];
+        // 0 before any active objective and retains the last active objective index after all
+        // objectives complete or ClearActiveQuest [observed: 2026-11-25, FNV 1.4.0.525 +
+        // JIP LN 57.30, w6d9p2_05_getcurrentobjective_details:
         // orig=00000000,co0=0|coF=10,coS=10|d30=10,all=10,clr=10].
         "getcurrentobjective" => {
-            if let Some(q) = g.ui.active_quest {
-                if let Some((&i, _)) = g.quest_state(q).objectives.iter().find(|(_, o)| o.displayed && !o.completed) {
-                    g.other.last_current_objective = i;
-                }
-            }
-            XVal::Num(f64::from(g.other.last_current_objective))
+            let cur = g
+                .ui
+                .active_quest
+                .and_then(|q| g.quest_state(q).objectives.iter().find(|(_, o)| o.displayed && !o.completed).map(|(&i, _)| i))
+                .unwrap_or(g.other.last_current_objective);
+            XVal::Num(f64::from(cur))
         }
         // [documented: GetDefaultForms; GetNthDefaultForm; SetNthDefaultForm] the DOBJ
         // list [hypothesis: the game's own systems keep reading the record's].

@@ -80,3 +80,42 @@ End
 ", RunCtx::default()).unwrap();
     assert_eq!(num_q(&mut g, "GetCurrentObjective"), 10.0);
 }
+
+#[test]
+fn getcurrentobjective_tracks_updates_without_prior_polling() {
+    let (data, forms, placed) = make_game();
+    let world = World::new(&forms, &placed, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig::default());
+
+    // Display and complete all objectives before the very first GetCurrentObjective call.
+    g.run_query(
+        "Begin Function { }
+StartQuest W6D9CurObjQ
+ForceActiveQuest W6D9CurObjQ
+SetObjectiveDisplayed W6D9CurObjQ 30 1
+SetObjectiveDisplayed W6D9CurObjQ 10 1
+SetObjectiveCompleted W6D9CurObjQ 30 1
+SetObjectiveCompleted W6D9CurObjQ 10 1
+ClearActiveQuest
+End
+",
+        RunCtx::default(),
+    ).unwrap();
+    assert_eq!(num_q(&mut g, "GetCurrentObjective"), 10.0);
+
+    // Also verify SetCurrentQuest updates sticky objective without polling before completion.
+    let (data2, forms2, placed2) = make_game();
+    let world2 = World::new(&forms2, &placed2, SimConfig::default());
+    let mut g2 = Game::new(&data2, world2, GameConfig::default());
+    g2.run_query(
+        "Begin Function { }
+StartQuest W6D9CurObjQ
+SetObjectiveDisplayed W6D9CurObjQ 30 1
+SetCurrentQuest W6D9CurObjQ
+SetObjectiveCompleted W6D9CurObjQ 30 1
+End
+",
+        RunCtx::default(),
+    ).unwrap();
+    assert_eq!(num_q(&mut g2, "GetCurrentObjective"), 30.0);
+}
