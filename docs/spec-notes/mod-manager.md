@@ -76,9 +76,9 @@ entry or a FOMOD installer names is taken as plain names under that folder
 (`fomod::rel_path`). A path is refused when it holds `..`, starts with `/` or `\`
 (a root), or holds `:` (a drive such as `C:`, or a Windows stream name). Then each
 file's folder is made and checked to be inside the mod folder once it exists, so a
-link already there cannot lead out (`fomod::place_in`). Tar and FOMOD copies go
-through both checks. A zip entry's name goes through the zip reader's own check
-(`enclosed_name`), then `place_in`. An outside program (for `.7z` and `.rar`)
+link already there cannot lead out (`fomod::place_in`). Zip, tar and FOMOD copies
+go through both checks, and a zip entry's name also through the zip reader's own
+check (`enclosed_name`). An outside program (for `.7z` and `.rar`)
 unpacks by its own rules, so it first lists the archive and every name it lists goes
 through `rel_path`; links are refused after it unpacks (`fomod::extract_external`).
 

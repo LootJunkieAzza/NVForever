@@ -1415,6 +1415,11 @@ fn extract_zip(archive: &Path, dest: &Path, limit: u64) -> Result<(), ReadFail> 
         if entry.is_symlink() {
             return Err(refused(&format!("entry {name} is a link")));
         }
+        // The same path rule as tar entries and outside tools' names: no drive, root, `..` or
+        // `:` (on Windows a `:` would write a hidden stream of another file).
+        if let Err(e) = rel_path(&name) {
+            return Err(refused(&format!("entry {name}: {e}")));
+        }
         if entry.encrypted() || !matches!(entry.compression(), zip::CompressionMethod::Stored | zip::CompressionMethod::Deflated) {
             decodable = false;
         }
@@ -2646,6 +2651,67 @@ mod tests {
             }
         }
         discard(&temp);
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_zip_entry_with_a_colon_is_refused_as_a_tar_entry_is() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-zip-colon-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let zip_path = t.join("Colon.zip");
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+            let o = zip::write::SimpleFileOptions::default();
+            z.start_file("Mod/Plugin.esp", o).unwrap();
+            z.write_all(b"TES4").unwrap();
+            // On Windows this name writes a hidden stream of `Plugin.esp`.
+            z.start_file("Mod/Plugin.esp:x", o).unwrap();
+            z.write_all(b"TES4").unwrap();
+            z.finish().unwrap();
+        }
+        // Refused either way: on Windows the zip reader's own check (`enclosed_name`) already
+        // refuses the name, elsewhere the path rule does.
+        let e = stage_error(&zip_path);
+        let by_rule = e.ends_with(&format!("entry Mod/Plugin.esp:x: {}", rel_path("a:b").unwrap_err()));
+        let by_reader = e.ends_with("entry Mod/Plugin.esp:x would land outside the folder");
+        assert!(by_rule || by_reader, "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_link_entry_stops_the_install() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-link-entry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let zip_path = t.join("Link.zip");
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+            let o = zip::write::SimpleFileOptions::default();
+            z.start_file("Mod/Plugin.esp", o).unwrap();
+            z.write_all(b"TES4").unwrap();
+            z.add_symlink("Mod/textures", "/etc", o).unwrap();
+            z.finish().unwrap();
+        }
+        let e = stage_error(&zip_path);
+        assert!(e.ends_with("entry Mod/textures is a link"), "{e}");
+        let mut tar_bytes = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut tar_bytes);
+            let mut h = tar::Header::new_gnu();
+            h.set_path("Mod/textures").unwrap();
+            h.set_link_name("/etc").unwrap();
+            h.set_size(0);
+            h.set_mode(0o777);
+            h.set_entry_type(tar::EntryType::Symlink);
+            h.set_cksum();
+            b.append(&h, &[][..]).unwrap();
+            b.finish().unwrap();
+        }
+        let tar_path = t.join("Link.tar");
+        std::fs::write(&tar_path, &tar_bytes).unwrap();
+        let e = stage_error(&tar_path);
+        assert!(e.ends_with("entry Mod/textures is not a file or folder"), "{e}");
         let _ = std::fs::remove_dir_all(&t);
     }
 }
