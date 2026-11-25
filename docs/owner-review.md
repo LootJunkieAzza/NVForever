@@ -176,6 +176,13 @@ the bullet and note the ruling in the spec it links to.
     into fights you start (they join once the other side fights back), say where.
     Observer check 217 asks the original. ([combat-ai §10.3](design/combat-ai.md))
 
+- **While VATS targets are chosen, world sounds and voices slow only as far as while
+  VATS fires (0.71 speed), no longer to 0.4 (#3784).** A player took 17 s to mark in the
+  NCRCF fight and read the voices, played more than an octave down all that time, as
+  broken sound. Your "more drawn out and lower pitch like the base game" still holds;
+  rule otherwise for the old 0.4 drone, or for silence (or ducking) while marking.
+  [docs/design/vats-mode.md](design/vats-mode.md) §4.
+
 ## Tier 2: movement and controls feel
 
 - **Harmless authored drops without Allow Falls (#2532).** [design, #2532]
@@ -341,13 +348,12 @@ the bullet and note the ruling in the spec it links to.
   a mean bone-weight share of `PART_TRIANGLE_SHARE = 0.5`, then filled at the same mask
   opacity as whole parts. A different threshold changes the boundary, not its strength;
   coarse meshes may need finer clipping. [Classic VATS §12](design/vats-classic.md#12-the-selected-part-lit-on-the-target-2026-11-10).
-- **SayTo's "no target look" flag turns nobody (#2796).** [hypothesis, #2796] A SayTo with
-  `noTargetLookFlag` 1 now turns neither the speaker nor the target, so Curtis talks into
-  his radio in the McCarran tower without turning to the player below. Without the flag
-  the speaker still turns to whom it talks (your 2026-10-11 rule). This changes the 22
-  shipped SayTo calls to the player that carry the flag (the monorail guards would warn
-  you without turning). The narrower reading, the speaker stays only when the target is
-  the player, is a one-line change. ([dialogue-play §9.2](design/dialogue-play.md))
+- **SayTo's "no target look" flag turns the speaker again (#3989).** [observed, check 218]
+  The original turns a standing speaker to its target with the flag as without it; only
+  the target is not made to look. NVForever now does the same, so Curtis may turn to the
+  player for his radio call in the McCarran tower again (#2796), until what keeps him
+  still in the original (his package or idle there, check 218's open part) is matched.
+  ([dialogue-play §9.2](design/dialogue-play.md))
 - **Hold CLAMP effect idles (#2685).** [design, #2685] `HOLD_CLAMP_EFFECT_IDLES` keeps
   a CLAMP actor idle with material/emitter tracks at its exact end until replacement or
   stop, overriding repeat counts. This keeps attached chamber effects and pod glow;

@@ -355,7 +355,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // TNAM is a u32 of seconds (xEdit MESG): a negative value, one past it, NaN or
-        // infinity is not set [hypothesis].
+        // infinity is not set (see docs/spec-notes/jip-records-6.md §3).
         "setmessagedisplaytime" => {
             let v = num(args, 1, f64::NAN).trunc();
             if let Some(m) = of_sig(g, form(args, 0), b"MESG").filter(|_| (0.0..=f64::from(u32::MAX)).contains(&v)) {

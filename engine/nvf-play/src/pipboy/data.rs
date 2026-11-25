@@ -6582,7 +6582,7 @@ mod tests {
 
         // Before discovery (#3468 check 252 + 2026-11-22 live map-marker probe for script
         // values; Pip-Boy drawing an undiscovered FNAM=3 marker as discovered with its own
-        // icon is [hypothesis]):
+        // icon follows `known_marker` above and docs/spec-notes/ext-lutana.md §9):
         // - Visible | Can Travel To (FNAM=3) is known and travelable (Some(true)).
         // - Visible alone (FNAM=1) is known as undiscovered (Some(false)).
         // - Can Travel To alone (FNAM=2) is unknown (None) and stays in unmapped_of (Hide Unmapped Places).
