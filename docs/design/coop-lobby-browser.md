@@ -6,8 +6,12 @@ the service's wire 2 (the Worker, live) and the game's side (branch `claude/coop
 host's Visibility, Title and Password; the Join screen's Code and Browse tabs; favourites in
 `coop-favourites.txt`), checked offline through `nvf-signal-server` with screenshots at 1280x720,
 1920x1080 and 1024x768. The lobby screens were redone in the bug report form's style at the
-owner's word (bordered panel and boxes, 80% of the screen's width). Not yet run: a browse and
-join between two machines on the live service.
+owner's word (bordered panel and boxes, 80% of the screen's width). Run live 2026-11-25
+[observed] on two machines on one home network through coop.nv-forever.com (build 41737f5bb):
+the desktop hosted a public lobby with a title and password; the laptop's Browse tab listed it
+(title, place, 1/6, estimated ping, region, lock) and opened its row; a join with the password
+came in (LAN path, 0 desyncs, 0 drops), as did a join by code with the password; a wrong
+password and no password were refused with their messages before the host heard of them.
 
 ## 0. In one page
 
