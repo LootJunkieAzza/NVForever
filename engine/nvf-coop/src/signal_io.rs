@@ -12,7 +12,7 @@
 use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nvf_signal::code::Code;
 use nvf_signal::wire::{CreateLobby, ErrorBody, LobbyCreated, LobbyInfo};
@@ -26,6 +26,11 @@ pub const DEFAULT_STUN: [&str; 2] = ["stun.cloudflare.com:3478", "stun.l.google.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a read on the socket waits before the thread looks at what it has to send.
 const READ_WAIT: Duration = Duration::from_millis(30);
+/// A socket that sent nothing for this long sends a WebSocket ping. Through a VPN the
+/// service's socket was closed after 60 s with nothing sent (close 1006, the VPN's idle
+/// timeout) and kept open by a ping every 20 s [observed 2026-11-25]: a host between guests,
+/// or a guest waiting for the host to let it in (up to 130 s), would lose it otherwise.
+const KEEPALIVE: Duration = Duration::from_secs(20);
 
 /// The service to use: [`SERVICE_ENV`], else the default; None when turned off.
 pub fn service() -> Option<String> {
@@ -214,11 +219,26 @@ fn run(service: &str, start: Start, out: &Sender<FromIo>, cmds: &Receiver<ToIo>)
     };
     set_read_wait(&ws);
     let _ = out.send(FromIo::Open);
+    pump(&mut ws, out, cmds, KEEPALIVE);
+}
+
+/// Pass frames both ways until either side closes, pinging after `keepalive` with nothing
+/// sent (tungstenite answers the service's pings itself).
+fn pump<S: std::io::Read + std::io::Write>(ws: &mut WebSocket<S>, out: &Sender<FromIo>, cmds: &Receiver<ToIo>, keepalive: Duration) {
+    let mut sent_at = Instant::now();
     loop {
+        if sent_at.elapsed() >= keepalive {
+            sent_at = Instant::now();
+            if ws.send(Message::Ping(Default::default())).is_err() {
+                let _ = out.send(FromIo::Closed);
+                return;
+            }
+        }
         // What the game has to send first.
         loop {
             match cmds.try_recv() {
                 Ok(ToIo::Text(t)) => {
+                    sent_at = Instant::now();
                     if ws.send(Message::text(t)).is_err() {
                         let _ = out.send(FromIo::Closed);
                         return;
@@ -338,6 +358,41 @@ fn set_read_wait(ws: &WebSocket<MaybeTlsStream<TcpStream>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A socket with nothing to send pings the service after the keepalive, and frames still
+    /// pass both ways.
+    #[test]
+    fn an_idle_socket_pings_the_service() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = listener.local_addr().unwrap();
+        let (out_tx, out_rx) = mpsc::channel();
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let client = std::thread::spawn(move || {
+            let tcp = TcpStream::connect(at).unwrap();
+            tcp.set_read_timeout(Some(READ_WAIT)).unwrap();
+            let (mut ws, _) = tungstenite::client(format!("ws://{at}/"), tcp).unwrap();
+            pump(&mut ws, &out_tx, &cmd_rx, Duration::from_millis(200));
+        });
+        let (tcp, _) = listener.accept().unwrap();
+        tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut server = tungstenite::accept(tcp).unwrap();
+        let t = Instant::now();
+        assert!(matches!(server.read().unwrap(), Message::Ping(_)), "a ping first");
+        assert!(t.elapsed() >= Duration::from_millis(150), "not before the keepalive: {:?}", t.elapsed());
+        cmd_tx.send(ToIo::Text("hello".into())).unwrap();
+        // The pong to the client's ping comes back to it on its own; the text follows.
+        let next = loop {
+            match server.read().unwrap() {
+                Message::Ping(_) => continue,
+                m => break m,
+            }
+        };
+        assert_eq!(next, Message::text("hello"));
+        server.send(Message::text("back")).unwrap();
+        assert!(matches!(out_rx.recv_timeout(Duration::from_secs(5)), Ok(FromIo::Text(t)) if t == "back"));
+        drop(cmd_tx);
+        client.join().unwrap();
+    }
 
     /// Against the live service (run by hand: `--ignored --nocapture`): fourteen lookups of a
     /// code that does not exist, past the rate limit (10 in 10 s): the ones past it wait the

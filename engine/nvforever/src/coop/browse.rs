@@ -39,6 +39,34 @@ pub(crate) fn start(q: &BrowseQuery) -> Option<BrowseJob> {
     Some(Mutex::new(rx))
 }
 
+/// A report of a public lobby, running.
+pub(crate) type ReportJob = Mutex<Receiver<Result<(), String>>>;
+
+/// Report lobby `code` to the service (docs/design/coop-lobby-browser.md §6: enough reports
+/// from enough addresses hide it from browse), on a thread. `None`: there is no service.
+pub(crate) fn report(code: &str) -> Option<ReportJob> {
+    let service = nvf_coop::signal_io::service()?;
+    let code = code.to_string();
+    let (tx, rx) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("coop-report".into())
+        .spawn(move || {
+            let r = nvf_coop::signal_io::report(&service, &code);
+            match &r {
+                Ok(()) => info!("co-op: reported public lobby {code}"),
+                Err(why) => warn!("co-op: the report of lobby {code} failed: {why}"),
+            }
+            let _ = tx.send(r);
+        })
+        .ok()?;
+    Some(Mutex::new(rx))
+}
+
+/// The report's answer, once it came.
+pub(crate) fn report_done(job: &ReportJob) -> Option<Result<(), String>> {
+    job.lock().ok()?.try_recv().ok()
+}
+
 /// The answer, once it came.
 pub(crate) fn poll(job: &BrowseJob, load_order: &str, favourites: &[String]) -> Option<Browse> {
     let r = job.lock().ok()?.try_recv().ok()?;

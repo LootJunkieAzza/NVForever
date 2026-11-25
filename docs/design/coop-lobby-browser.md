@@ -189,9 +189,11 @@ address. The browser estimates instead:
   NVForever's own list, kept in the Worker's repository. A filtered title shows as "<host
   name>'s game".
 - **Listing limits:** at most 2 public lobbies per IP. Titles in all capitals are lowered.
-- **Reports:** a row's menu has "Report this lobby". The service keeps a count of reports per
-  code in memory only; at 5 reports from 5 IPs the lobby is hidden from browse (still joinable
-  by code). No report is stored after the lobby closes.
+- **Reports:** an opened row has Report, which asks "Report this lobby to the service?"
+  (Report / Cancel) and then says in the corner whether it went through; a game reports a lobby
+  once. The service keeps a count of reports per code in memory only; at 5 reports from 5 IPs
+  the lobby is hidden from browse (still joinable by code). No report is stored after the lobby
+  closes. Built 2026-11-25 (`lobby.rs` Report, `coop/browse.rs` `report`).
 - **Ban lists stay the host's:** the host's Ban applies to keys; no account system.
 
 ## 7. What players see
@@ -222,7 +224,10 @@ lobby is locked) and **Browse**.
   | Region | `region` |
   | Lock | The lock icon |
 
-- **Sorting:** by any column; by Ping by default.
+- **Sorting:** by any column; by Ping by default. The headings Name, Location, Players, Ping
+  and Region are boxes: one sorts by it (A to Z and the nearest first; Players the fullest
+  first), again turns it round; the sorted heading is filled and marked `^` or `v`. Favourites
+  stay first whatever the sort. Built 2026-11-25.
 - **Choosing a row:** the row opens to Join (and a password field when locked), as in the
   example. Join goes on to the save choice, as a code does today.
 - **Rows this game cannot join:** greyed with the reason (another version, another load order)
@@ -252,9 +257,12 @@ lobby is locked) and **Browse**.
 | 3 | The Browse tab: table, filters, search, favourites, password row | `engine/nvf-play/src/lobby.rs` |
 | 4 | Ping estimate (data-centre table), reports, word filter | Worker; `nvf-signal` (table) |
 
-Test: the stand-in server lists lobbies offline (`nvf-signal-server`). A smoke scenario hosts
-a public lobby and browses it from a second game. A two-machine run browses and joins a
-public lobby, then a locked one.
+Test: the stand-in server lists lobbies offline (`nvf-signal-server`). The smoke scenario
+`coop-online-local-duo-browse` runs the service in the game (`NVF_COOP_SIGNAL=local`) and hosts
+a public, locked lobby; a guest with no window (`NVF_COOP_TEST_GUEST`) joins it, and the Browse
+tab lists it, sorts by Players and reports it, in one launch [design: the smoke runner starts
+one game per scenario]. A two-machine run browses and joins a public lobby, then a locked one
+(run 2026-11-25, see the status line).
 
 ## 10. Decisions (owner, 2026-11-25)
 

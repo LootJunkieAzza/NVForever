@@ -196,6 +196,7 @@ mod scene;
 mod revive;
 mod rejoin;
 mod syncing;
+mod test_service;
 
 /// The port `--join` uses when the address names none (and a code without a port means).
 pub const DEFAULT_PORT: u16 = nvf_coop::code::DEFAULT_PORT;
@@ -365,6 +366,7 @@ const GUEST_CREATED: u32 = 0xFF80_0000;
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
+        test_service::start_local_service();
         net_settings::register(app);
         let c = &self.0;
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
@@ -388,6 +390,7 @@ impl Plugin for CoopPlugin {
             host_options: Default::default(),
             join_password: String::new(),
             browse_job: None,
+            report_job: None,
             browse: Default::default(),
             favourites: browse::load_favourites(),
             place: String::new(),
@@ -654,6 +657,8 @@ pub(crate) struct Coop {
     host_options: nvf_play::lobby::HostOptions,
     join_password: String,
     browse_job: Option<browse::BrowseJob>,
+    /// A report of a public lobby, on its way to the service.
+    report_job: Option<browse::ReportJob>,
     browse: nvf_play::lobby::Browse,
     favourites: Vec<String>,
     place: String,
@@ -1203,6 +1208,10 @@ fn lobby(
                 }
                 None => coop.browse = nvf_play::lobby::Browse::Failed("The lobby browser needs the matchmaking service: Co-op connection is LAN only, or the service is turned off.".into()),
             },
+            LobbyRequest::Report { code } => match browse::report(code) {
+                Some(job) => coop.report_job = Some(job),
+                None => say("The report needs the matchmaking service.".into()),
+            },
             LobbyRequest::Favourite { host_fp, on } => {
                 browse::set_favourite(&mut coop.favourites, host_fp, *on);
                 if let nvf_play::lobby::Browse::Ready(rows) = &mut coop.browse {
@@ -1327,6 +1336,14 @@ fn lobby(
     if let Some(b) = coop.browse_job.as_ref().and_then(|j| browse::poll(j, &this_load_order(), &coop.favourites)) {
         coop.browse = b;
         coop.browse_job = None;
+    }
+    // A report's answer.
+    if let Some(r) = coop.report_job.as_ref().and_then(browse::report_done) {
+        coop.report_job = None;
+        say(match r {
+            Ok(()) => "Lobby reported. Thank you.".into(),
+            Err(why) => format!("The report did not go through: {why}"),
+        });
     }
     // The host's listing follows its place and friendly fire (the service sends at most one
     // a few seconds to the list).
@@ -2510,6 +2527,7 @@ fn online_event(coop: &mut Coop, e: nvf_coop::online::OnlineEvent, corner: &mut 
             if let Some(c) = corner.as_mut() {
                 c.push(format!("Lobby open: code {code}").into());
             }
+            test_service::join_as_test_guest(&code, &coop.host_options.password, &this_load_order());
             coop.code = Some(code);
             coop.online_pending = false;
             coop.opened = true;

@@ -34,6 +34,8 @@ nvf-play.workspace = true
 nvf-coop.workspace = true
 # Online lobby codes (coop.rs): the join forms, from the matchmaking crate (#3795).
 nvf-signal = { path = "../../crates/nvf-signal" }
+# The matchmaking service in the game for the NVF_COOP_SIGNAL=local test aid (coop/test_service.rs).
+nvf-signal-server = { path = "../../crates/nvf-signal-server" }
 fnv-actor.workspace = true
 fnv-sim.workspace = true
 fnv-combat.workspace = true

@@ -18,7 +18,8 @@
 //! `kick` / `ban` (the host's first guest), `public` (the host's lobby listed),
 //! `title=<text>`, `password=<text>` (the host's, or the join's on the Join screen), `browse`
 //! (the Join screen's Browse tab), `refresh`, `row=<n>` (open the n-th row shown, from 0),
-//! `join-row`, `search=<text>`,
+//! `join-row`, `search=<text>`, `sort=<column>` (Name, Location, Players, Ping or Region; again:
+//! the other way), `report` / `report-yes` / `report-no` (the opened row's Report),
 //! `pick=<n>` (the n-th
 //! save that can join, from 0), `shot=<file>` (a screenshot); for the Emotes menu,
 //! `emotes` (open it), `slot=<n>` (1-8: choose a slot), `equip=<emote>` (put the emote,
@@ -65,6 +66,46 @@ const MAX_TEXT: usize = 40;
 /// The Browse table's columns: heading and width (interface units), adding up to the
 /// panel's inner width.
 const COLUMNS: [&str; 7] = ["Fav", "Name", "Location", "Players", "Ping", "Region", ""];
+
+/// The Browse table's sort: a column (its heading chosen), by Ping by default (§7).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Sort {
+    Name,
+    Location,
+    Players,
+    #[default]
+    Ping,
+    Region,
+}
+
+impl Sort {
+    const ALL: [Sort; 5] = [Sort::Name, Sort::Location, Sort::Players, Sort::Ping, Sort::Region];
+
+    /// Its column in [`COLUMNS`].
+    fn column(self) -> usize {
+        match self {
+            Sort::Name => 1,
+            Sort::Location => 2,
+            Sort::Players => 3,
+            Sort::Ping => 4,
+            Sort::Region => 5,
+        }
+    }
+
+    fn by_column(i: usize) -> Option<Sort> {
+        Sort::ALL.into_iter().find(|s| s.column() == i)
+    }
+
+    /// A heading chosen first sorts this way: the fullest first for Players, A to Z and the
+    /// nearest first otherwise.
+    fn starts_descending(self) -> bool {
+        self == Sort::Players
+    }
+
+    fn by_name(n: &str) -> Option<Sort> {
+        Sort::ALL.into_iter().find(|s| COLUMNS[s.column()].eq_ignore_ascii_case(n))
+    }
+}
 
 /// The Browse table's column widths for a panel `inner` wide: Fav, Players, Ping, Region and
 /// the lock fixed, Name and Location sharing the rest (a title runs to 40 characters, a place
@@ -131,6 +172,8 @@ pub enum LobbyRequest {
     Browse(BrowseQuery),
     /// Add (`on`) or remove a host, by its key's fingerprint, from the favourites.
     Favourite { host_fp: String, on: bool },
+    /// Report a public lobby to the service (docs/design/coop-lobby-browser.md §6).
+    Report { code: String },
     /// Stop looking (or leave the host found).
     Cancel,
     /// Load this save and join the host found.
@@ -281,6 +324,13 @@ pub struct LobbyScreen {
     all_versions: bool,
     /// The row opened, by code.
     open_row: Option<String>,
+    /// The opened row asks "Report this lobby?" (Report, then Yes).
+    confirm_report: bool,
+    /// The lobbies this game reported, by code (once each).
+    reported: Vec<String>,
+    /// The Browse table's sort, and whether it runs the other way.
+    sort: Sort,
+    sort_descending: bool,
     /// The loadout and the emotes the load order has, as of this frame (from
     /// `crate::emotes`).
     loadout: [Option<usize>; crate::emotes::SLOTS],
@@ -297,6 +347,7 @@ impl LobbyScreen {
         self.emotes = None;
         self.browsing = false;
         self.open_row = None;
+        self.confirm_report = false;
         self.opened = self.frame;
     }
 
@@ -367,6 +418,12 @@ enum Act {
     Favourite,
     /// Join the opened lobby.
     JoinRow,
+    /// Sort the Browse table by this column (again: the other way).
+    Sort(Sort),
+    /// Report the opened lobby: asks first; then Yes or No.
+    Report,
+    ReportYes,
+    ReportNo,
 }
 
 /// The text fields.
@@ -444,24 +501,34 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
 fn browse_acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
     let mut v = vec![Act::ShowTab(false), Act::ShowTab(true), Act::Refresh, Act::HideEmpty, Act::HideFull, Act::AllVersions, Act::Field(FieldId::Search)];
     let rows = shown(screen, state);
+    if !rows.is_empty() {
+        v.extend(Sort::ALL.map(Act::Sort));
+    }
     for (i, l) in rows.iter().enumerate() {
         v.push(Act::Lobby(i));
         if screen.open_row.as_deref() == Some(l.code.as_str()) {
             if l.locked && l.cannot.is_none() {
                 v.push(Act::Field(FieldId::RowPassword));
             }
-            if l.cannot.is_none() {
-                v.push(Act::JoinRow);
+            if screen.confirm_report {
+                v.extend([Act::ReportYes, Act::ReportNo]);
+            } else {
+                if l.cannot.is_none() {
+                    v.push(Act::JoinRow);
+                }
+                v.push(Act::Favourite);
+                if !screen.reported.contains(&l.code) {
+                    v.push(Act::Report);
+                }
             }
-            v.push(Act::Favourite);
         }
     }
     v.push(Act::Back);
     v
 }
 
-/// The public lobbies the Browse tab shows: the filters applied, favourites first, then the
-/// nearest (estimated ping), then the fullest.
+/// The public lobbies the Browse tab shows: the filters applied, favourites first, then by the
+/// column chosen (the nearest by estimated ping by default), then the nearest and the fullest.
 fn shown<'a>(screen: &LobbyScreen, state: &'a LobbyState) -> Vec<&'a PublicLobby> {
     let Browse::Ready(all) = &state.browse else { return Vec::new() };
     let q = screen.search.trim().to_lowercase();
@@ -472,7 +539,18 @@ fn shown<'a>(screen: &LobbyScreen, state: &'a LobbyState) -> Vec<&'a PublicLobby
         .filter(|l| screen.all_versions || l.cannot.is_none())
         .filter(|l| q.is_empty() || [&l.title, &l.host_name, &l.place].iter().any(|t| t.to_lowercase().contains(&q)))
         .collect();
-    v.sort_by_key(|l| (!l.favourite, l.ping_ms.unwrap_or(u32::MAX), std::cmp::Reverse(l.players)));
+    let tie = |a: &PublicLobby, b: &PublicLobby| a.ping_ms.unwrap_or(u32::MAX).cmp(&b.ping_ms.unwrap_or(u32::MAX)).then(b.players.cmp(&a.players));
+    v.sort_by(|a, b| {
+        let by = match screen.sort {
+            Sort::Name => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+            Sort::Location => a.place.to_lowercase().cmp(&b.place.to_lowercase()),
+            Sort::Players => a.players.cmp(&b.players),
+            Sort::Ping => a.ping_ms.unwrap_or(u32::MAX).cmp(&b.ping_ms.unwrap_or(u32::MAX)),
+            Sort::Region => a.region.cmp(&b.region),
+        };
+        let by = if screen.sort_descending { by.reverse() } else { by };
+        b.favourite.cmp(&a.favourite).then(by).then_with(|| tie(a, b))
+    });
     v
 }
 
@@ -579,6 +657,11 @@ fn input(
                 Some(Mode::Join) => screen.join_password = t.to_string(),
                 _ => screen.host_password = t.to_string(),
             }
+        } else if let Some(c) = a.strip_prefix("sort=") {
+            match Sort::by_name(c) {
+                Some(by) => take(&mut screen, &state, Act::Sort(by), &mut asks, &mut loadout),
+                None => warn!("NVF_PLAY_TEST_LOBBY: sort={c}: no such column"),
+            }
         } else if let Some(t) = a.strip_prefix("search=") {
             screen.search = t.to_string();
         } else if let Some(n) = a.strip_prefix("row=").and_then(|n| n.parse::<usize>().ok()) {
@@ -627,6 +710,9 @@ fn input(
                 }
                 "refresh" => Some(Act::Refresh),
                 "join-row" => Some(Act::JoinRow),
+                "report" => Some(Act::Report),
+                "report-yes" => Some(Act::ReportYes),
+                "report-no" => Some(Act::ReportNo),
                 "admit" => state.asking.first().map(|(p, _)| Act::Admit(*p)),
                 "turn-away" => state.asking.first().map(|(p, _)| Act::TurnAway(*p)),
                 "kick" => state.guests.first().map(|(id, _)| Act::Kick(*id)),
@@ -805,6 +891,20 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
             let code = shown(screen, state).get(i).map(|l| l.code.clone());
             screen.open_row = if screen.open_row == code { None } else { code };
             screen.row_password.clear();
+            screen.confirm_report = false;
+        }
+        Act::Sort(by) => {
+            screen.sort_descending = if screen.sort == by { !screen.sort_descending } else { by.starts_descending() };
+            screen.sort = by;
+        }
+        Act::Report => screen.confirm_report = screen.open_row.as_ref().is_some_and(|c| !screen.reported.contains(c)),
+        Act::ReportNo => screen.confirm_report = false,
+        Act::ReportYes => {
+            screen.confirm_report = false;
+            if let Some(code) = screen.open_row.clone().filter(|c| !screen.reported.contains(c)) {
+                asks.write(LobbyRequest::Report { code: code.clone() });
+                screen.reported.push(code);
+            }
         }
         Act::Favourite => {
             if let Some(l) = shown(screen, state).into_iter().find(|l| Some(&l.code) == screen.open_row.as_ref()) {
@@ -880,8 +980,9 @@ enum Piece {
     Big(String),
     Button(Act, String),
     Row(Act, String, Shade),
-    /// The Browse table's heading, and a row of it: one text per column ([`COLUMNS`]).
-    Head(Vec<String>),
+    /// The Browse table's heading (one text per column, [`COLUMNS`]; the sort's column and
+    /// whether it runs the other way), and a row of it.
+    Head(Vec<String>, Sort, bool),
     Cols(Act, Vec<String>, Shade),
     /// Items side by side on one line ([`Item`]); a [`Item::Gap`] sends the rest to the right.
     Bar(Vec<Item>),
@@ -1119,7 +1220,15 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
             all.len()
         }
         Browse::Ready(all) => {
-            v.push(Head(COLUMNS.iter().map(|h| h.to_string()).collect()));
+            let heads = COLUMNS
+                .iter()
+                .enumerate()
+                .map(|(i, h)| match i == screen.sort.column() {
+                    true => format!("{h} {}", if screen.sort_descending { "v" } else { "^" }),
+                    false => h.to_string(),
+                })
+                .collect();
+            v.push(Head(heads, screen.sort, screen.sort_descending));
             used += ITEM;
             let list = acts(screen, state);
             let chosen_row = match list.get(screen.selected) {
@@ -1164,10 +1273,19 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) {
                         None => {}
                     }
                     bar.push(Item::Gap);
-                    if l.cannot.is_none() {
-                        bar.push(Item::Button(Act::JoinRow, "Join".into(), Look::Primary));
+                    if screen.confirm_report {
+                        bar.push(Item::Text("Report this lobby to the service?".into(), 0.0, Shade::Bright));
+                        bar.push(Item::Button(Act::ReportYes, "Report".into(), Look::Warning));
+                        bar.push(Item::Button(Act::ReportNo, "Cancel".into(), Look::Normal));
+                    } else {
+                        if l.cannot.is_none() {
+                            bar.push(Item::Button(Act::JoinRow, "Join".into(), Look::Primary));
+                        }
+                        bar.push(Item::Button(Act::Favourite, if l.favourite { "Unfavourite".into() } else { "Favourite".into() }, Look::Normal));
+                        if !screen.reported.contains(&l.code) {
+                            bar.push(Item::Button(Act::Report, "Report".into(), Look::Normal));
+                        }
                     }
-                    bar.push(Item::Button(Act::Favourite, if l.favourite { "Unfavourite".into() } else { "Favourite".into() }, Look::Normal));
                     v.push(Bar(bar));
                     used += BAR_H;
                     // A join from this row that failed (a wrong password): said here.
@@ -1343,7 +1461,7 @@ fn draw(
         Piece::Line(t, _) => f.small.font.lines(t, Some(inner)).len().max(1) as f32 * STEP + 6.0,
         Piece::Big(_) => ITEM + 24.0,
         Piece::Button(..) => ITEM + 6.0,
-        Piece::Row(..) | Piece::Head(_) => ITEM,
+        Piece::Row(..) | Piece::Head(..) => ITEM,
         Piece::Cols(..) => ROW_H,
         Piece::Bar(_) => BAR_H,
         Piece::Space(h) => *h,
@@ -1456,11 +1574,39 @@ fn draw(
                             x += w + gap;
                         }
                     }
-                    Piece::Head(cells) | Piece::Cols(_, cells, _) => {
-                        let (shade, act) = match piece {
-                            Piece::Cols(a, _, s) => (*s, Some(*a)),
-                            _ => (Shade::Dim, None),
-                        };
+                    Piece::Head(cells, sort, _) => {
+                        // A sortable heading is a box (the sort's column filled, as a chosen
+                        // option is); the others are words.
+                        p.spawn(at(inner, ITEM - 4.0)).with_children(|n| {
+                            let mut x = 0.0;
+                            for (i, (w, c)) in columns.iter().zip(cells).enumerate() {
+                                let cell = Node { position_type: PositionType::Absolute, left: u(x), top: u(0.0), width: u(*w - 6.0), height: u(ITEM - 6.0), overflow: Overflow::clip(), ..default() };
+                                let fitted = fit(&f.small, c, *w - 16.0);
+                                match Sort::by_column(i) {
+                                    Some(by) => {
+                                        let act = Act::Sort(by);
+                                        let cursor = Some(act) == chosen;
+                                        let on = by == *sort;
+                                        let border = amber(if cursor { BRIGHT } else if on { SOLID } else { FAINT });
+                                        let node = Node { border: UiRect::all(Val::Px(if cursor { 2.0 } else { 1.0 })), ..cell };
+                                        let mut e = n.spawn((node, BorderColor::all(border), Button, act));
+                                        if on {
+                                            e.insert(BackgroundColor(amber(SOLID)));
+                                        } else if cursor {
+                                            e.insert(BackgroundColor(amber(FILL)));
+                                        }
+                                        e.with_children(|m| text(m, &f.small, &fitted, 8.0, ITEM * 0.62, if on { dark() } else { color(Shade::Dim) }));
+                                    }
+                                    None => {
+                                        n.spawn(cell).with_children(|m| text(m, &f.small, &fitted, 8.0, ITEM * 0.62, color(Shade::Dim)));
+                                    }
+                                }
+                                x += w;
+                            }
+                        });
+                    }
+                    Piece::Cols(act, cells, shade) => {
+                        let (shade, act) = (*shade, Some(*act));
                         let on = act.is_some() && act == chosen;
                         let node = Node { border: UiRect::all(Val::Px(if act.is_some() { 1.0 } else { 0.0 })), ..at(inner, ITEM - 4.0) };
                         let mut e = p.spawn((node, BorderColor::all(amber(if on { BRIGHT } else { FAINT }))));
@@ -1603,7 +1749,7 @@ mod tests {
                 Piece::Line(t, _) => (if t.len() > 50 { 3.0 } else { 1.0 }) * STEP + 6.0,
                 Piece::Big(_) => ITEM + 24.0,
                 Piece::Button(..) => ITEM + 6.0,
-                Piece::Row(..) | Piece::Head(_) => ITEM,
+                Piece::Row(..) | Piece::Head(..) => ITEM,
                 Piece::Cols(..) => ROW_H,
                 Piece::Bar(_) => BAR_H,
                 Piece::Space(h) => *h,
@@ -1625,6 +1771,17 @@ mod tests {
         bar_item(p, act).is_some()
     }
 
+    /// [`take`] outside a running app: the requests it wrote.
+    fn take_for_test(screen: &mut LobbyScreen, state: &LobbyState, act: Act, loadout: &mut crate::emotes::EmoteSlots) -> Vec<LobbyRequest> {
+        let mut world = World::new();
+        world.init_resource::<Messages<LobbyRequest>>();
+        let mut sys = bevy::ecs::system::SystemState::<MessageWriter<LobbyRequest>>::new(&mut world);
+        let mut asks = sys.get_mut(&mut world).expect("a message writer");
+        take(screen, state, act, &mut asks, loadout);
+        sys.apply(&mut world);
+        world.resource_mut::<Messages<LobbyRequest>>().drain().collect()
+    }
+
     /// The choices the screen draws, in order (the table's rows left out).
     fn drawn_acts(p: &[Piece]) -> Vec<Act> {
         p.iter()
@@ -1634,6 +1791,7 @@ mod tests {
                     _ => None,
                 }).collect(),
                 Piece::Button(a, _) | Piece::Row(a, ..) => vec![*a],
+                Piece::Head(..) => Sort::ALL.map(Act::Sort).to_vec(),
                 _ => Vec::new(),
             })
             .collect()
@@ -1724,7 +1882,7 @@ mod tests {
         screen.open_row = Some("LCK".into());
         let a = acts(&screen, &state);
         let at = a.iter().position(|x| *x == Act::Lobby(1)).unwrap();
-        assert_eq!(a[at + 1..at + 4], [Act::Field(FieldId::RowPassword), Act::JoinRow, Act::Favourite]);
+        assert_eq!(a[at + 1..at + 5], [Act::Field(FieldId::RowPassword), Act::JoinRow, Act::Favourite, Act::Report]);
         let p = pieces(&screen, &state);
         assert!(TOP + panel_height(&p) <= 960.0, "an opened row stays on screen: {}", TOP + panel_height(&p));
         // A failed join from the row is said under it.
@@ -1740,6 +1898,49 @@ mod tests {
         // Nothing public: says so.
         let none = LobbyState { browse: Browse::Ready(Vec::new()), ..default() };
         assert!(pieces(&screen, &none).contains(&Piece::Line("No public lobbies right now. Host one, or join a friend's by code.".into(), Shade::Bright)));
+    }
+
+    /// The headings sort the table (favourites still first); a heading again turns it round.
+    /// Report asks first, sends once, and goes from the row.
+    #[test]
+    fn the_browse_tab_sorts_by_heading_and_reports_a_lobby() {
+        let mut screen = opened(Mode::Join);
+        screen.browsing = true;
+        let mut fav = lobby("ZED", 2, 90);
+        fav.favourite = true;
+        let mut a = lobby("AAA", 5, 60);
+        a.region = "EU/GB".into();
+        let state = LobbyState { browse: Browse::Ready(vec![lobby("MID", 3, 20), a, fav, lobby("BEE", 1, 40)]), ..default() };
+        let codes = |s: &LobbyScreen| shown(s, &state).iter().map(|l| l.code.clone()).collect::<Vec<_>>();
+        let (mut asks, mut loadout) = (Vec::new(), crate::emotes::EmoteSlots::default());
+        let mut go = |s: &mut LobbyScreen, act: Act| asks.extend(take_for_test(s, &state, act, &mut loadout));
+        assert_eq!(codes(&screen), ["ZED", "MID", "BEE", "AAA"], "by ping by default");
+        go(&mut screen, Act::Sort(Sort::Players));
+        assert_eq!(codes(&screen), ["ZED", "AAA", "MID", "BEE"], "the fullest first");
+        go(&mut screen, Act::Sort(Sort::Players));
+        assert_eq!(codes(&screen), ["ZED", "BEE", "MID", "AAA"], "again: the other way");
+        go(&mut screen, Act::Sort(Sort::Name));
+        assert_eq!(codes(&screen), ["ZED", "AAA", "BEE", "MID"]);
+        go(&mut screen, Act::Sort(Sort::Region));
+        assert_eq!(codes(&screen), ["ZED", "AAA", "MID", "BEE"]);
+        let p = pieces(&screen, &state);
+        assert!(p.iter().any(|x| matches!(x, Piece::Head(h, Sort::Region, false) if h[5] == "Region ^")), "{p:?}");
+        assert_eq!(drawn_acts(&p), acts(&screen, &state).into_iter().filter(|a| !matches!(a, Act::Lobby(_))).collect::<Vec<_>>());
+        // Report: asks, then sends once; the row has no Report after.
+        go(&mut screen, Act::Lobby(2));
+        assert_eq!(screen.open_row.as_deref(), Some("MID"));
+        go(&mut screen, Act::Report);
+        let p = pieces(&screen, &state);
+        assert!(bar_item(&p, Act::ReportYes).is_some_and(|i| matches!(i, Item::Button(_, _, Look::Warning))), "{p:?}");
+        assert!(!bar_has(&p, Act::JoinRow), "the question takes the row's buttons");
+        assert_eq!(drawn_acts(&p), acts(&screen, &state).into_iter().filter(|a| !matches!(a, Act::Lobby(_))).collect::<Vec<_>>());
+        assert!(TOP + panel_height(&p) <= 960.0);
+        go(&mut screen, Act::ReportYes);
+        go(&mut screen, Act::Report);
+        go(&mut screen, Act::ReportYes);
+        assert_eq!(asks, [LobbyRequest::Report { code: "MID".into() }], "sent once");
+        assert!(!bar_has(&pieces(&screen, &state), Act::Report));
+        assert!(bar_has(&pieces(&screen, &state), Act::JoinRow));
     }
 
     #[test]

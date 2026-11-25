@@ -218,6 +218,11 @@ no D1, no R2 [design].
   lobby lives.
 - WebSocket hibernation keeps an idle lobby's Durable Object asleep, so cost scales with
   joins, not playing hours.
+- The game pings its lobby socket after 20 s with nothing sent (`signal_io.rs` `KEEPALIVE`):
+  through a VPN (NordVPN) a socket idle for 60 s was closed (close 1006), and one pinging every
+  20 s stayed open; without the VPN an idle socket stayed open past 90 s, so the close was the
+  VPN's idle timeout, not the service's [observed 2026-11-25]. The service answers the pings
+  itself; no Worker change was needed.
 - This should stay inside the Workers Paid plan's included requests the reports already pay
   for.
 
@@ -375,7 +380,7 @@ The CO-OP launcher page's Steam mentions go too.
 | Unit | `stun.rs` encode and decode against RFC 8489's test vectors. `noise.rs` round trips, replay window, reordering. `ice.rs` pair sorting and its state machine on a fake clock. `code.rs` forms. |
 | Simulated NAT | A test-only `natsim` in `nvf-coop`: a userspace "router" between sockets on loopback with each NAT kind (full cone, restricted, port-restricted, symmetric, UDP blocked). The tests assert which pairs connect, directly or through a peer. This runs in `cargo test`. |
 | Service | The Rust stand-in service in-process, plus a conformance test that sends the same message script to the Worker under `wrangler dev` (NVForever-Data's tests, as `npm run dev:ingest` does for reports). |
-| Smoke | A `[[scenario]]`: two games on one PC through the stand-in service on loopback, expecting `co-op: Joined the host's game as player 2` and a `direct` path. This is the duo run of 2026-11-24 made into data. |
+| Smoke | A `[[scenario]]`: a host and a guest on one PC through the stand-in service on loopback, expecting the guest in as player 2 and a `lan` or `direct` path. This is the duo run of 2026-11-24 made into data. Built 2026-11-25 as `coop-online-local-duo-browse` (tools/smoke/scenarios.toml): the service runs in the game (`NVF_COOP_SIGNAL=local`, `nvf-signal-server` in-process) and the guest is a session with no window in the same process (`NVF_COOP_TEST_GUEST`), since the smoke runner starts one game per scenario; the guest goes through the service, join approval, the checks and the Noise session as a second game would. |
 | Field | Phase 2 build: a `co-op connect:` log line per join with the pair kind chosen, NAT kinds, and time to connect. Gathered **only** through the player reports pipeline when a player opted in (charter: player reports), never from the service. |
 | Bandwidth | Repeat the section 1 measurement on the Strip, in a big fight, and in a 6-player lobby. |
 

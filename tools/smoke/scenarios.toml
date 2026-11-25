@@ -37061,3 +37061,28 @@ forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error" },
 ]
 note = "The same start, spot search and poses as terrain-parallax-ground-pack (round 2, 2026-11-22), not yet checked by a run. The shots are saved as terrain-parallax-ground-pack-off-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png."
+
+[[scenario]]
+name = "coop-online-local-duo-browse"
+source = "#3795 section 12 (the online duo offline) and docs/design/coop-lobby-browser.md section 9 (a public host browsed): the matchmaking service in the game (NVF_COOP_SIGNAL=local) and a guest with no window (NVF_COOP_TEST_GUEST), so one launch needs no second game and no internet"
+note = "Hosts a public lobby with a password on port 27997; the test guest joins by its code through the service, is let in by the lobby's Let In (join approval), and connects on loopback; the Browse tab then lists the lobby, sorts by Players and reports it"
+areas = ["coop"]
+paths = ["engine/nvf-coop/src/**", "engine/nvforever/src/coop/browse.rs", "engine/nvforever/src/coop/test_service.rs", "engine/nvforever/src/coop/net_settings.rs", "engine/nvf-play/src/lobby.rs", "crates/nvf-signal/**", "crates/nvf-signal-server/**", "crates/nvf-nat/**"]
+env = { NVF_COOP_SIGNAL = "local", NVF_COOP_TEST_GUEST = "SmokeGuest", NVF_COOP_PUBLIC = "1", NVF_COOP_TITLE = "Smoke lobby", NVF_COOP_PASSWORD = "smoke", NVF_PLAY_TEST_LOBBY = "10:admit,13:admit,16:admit,19:admit,22:admit,25:admit,28:admit,32:browse,36:row=0,37:sort=players,38:report,39:report-yes" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--host", "27997"]
+run_seconds = 48
+expect = [
+  { re = 'co-op: test aid NVF_COOP_SIGNAL=local: the matchmaking service runs in this game at http://127\.0\.0\.1:\d+', label = "the service runs in the game" },
+  { re = 'co-op: lobby code \w{3}-\w{3}', label = "the host's lobby has an online code" },
+  { re = 'lobby: Admit\(\d+\)', label = "the host lets the guest in (join approval)" },
+  { re = "co-op connect: side=guest path=(lan|direct|ipv6) ", label = "the guest finds a direct path on loopback (IPv6 loopback counts)" },
+  { re = 'co-op test guest: SmokeGuest welcomed as player 2', label = "the guest joins as player 2" },
+  { re = '''co-op: online: guest \d+'s path: (lan|direct)''', label = "the host names the guest's path" },
+  { re = 'co-op: the lobby browser lists 1 public lobbies', label = "the Browse tab lists the public lobby" },
+  { text = "lobby: Sort(Players)", label = "the Players heading sorts the table" },
+  { re = 'co-op: reported public lobby \S+', label = "the opened row's Report reaches the service" },
+]
+forbid = [
+  { text = "panicked", label = "no panic" },
+  { text = "co-op test guest: SmokeGuest failed to join", label = "the guest is not refused" },
+]
