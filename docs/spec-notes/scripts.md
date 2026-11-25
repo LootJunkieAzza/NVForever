@@ -1556,3 +1556,7 @@ and Trudy's lines in the VCG02 / VCG03 part are still `say_info` / `say_first` i
 - The game clock: `Game::tick` does not move GameHour (the engine and `fnv-sim` own the
   clock); `L5.quest.script_order` showed the game clock advances before object scripts
   run in a frame, which matters once the runner advances it.
+
+## Wave 6D-10 Live Clean-Room FormList Base vs Placed Ref Baselines
+
+- **`IsInList` / `ListGetFormIndex` / `ListRemoveForm`:** `IsInList` matches a placed reference via its base form (`in=1`), whereas `ListGetFormIndex` matches only the exact form stored in the list (`idxB=0, idxR=-1`), and `ListRemoveForm` / `ListGetFormIndex` on absent forms return `-1` [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_43_isinlist_base_vs_placed_ref_and_listgetformindex` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_43_isinlist_base_vs_placed_ref_and_listgetformindex|rep(in=1,idxB=0,idxR=-1)|ban(in0=0,docIn=0,idxD=-1,rem=-1)|doc=0`; zero DLL, PDB, or third-party source consulted].

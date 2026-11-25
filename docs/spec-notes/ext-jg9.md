@@ -145,3 +145,7 @@ The one rerun (set at 94a702c5c, 2026-11-10): all 11 rows compiled and 7 matched
 A smoke check that AudioMarkerGetCurrent names the marker around the player at the airport (001676D0 in the original); GetRunSpeed's 339 for a standing player against the 344 units a second the engine measured running [observed both];
 Loop End points for StopSoundLooping; a node's own body for GetLinearVelocity; the voice
 channel's volume for isVoice.
+
+## 9. Wave 6D-10 Live Clean-Room Audio Marker Baselines
+
+- Indoors in `GSDocMitchellHouse`, `AudioMarkerGetCurrent` returns non-zero (`curZ=0`), `AudioMarkerGetController` returns `001582D5`, `AudioMarkerGetProperty` returns radius/layer-2/layer-3 (`10000.0/0.330/0.670`), out-of-range property index `3` returns `1.0`, and non-marker references return `0.0` [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_34_sound_traits_0_11_playmusic_and_audio_markers` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_34_sound_traits_0_11_playmusic_and_audio_markers|sndA(0=200->15,1=2800->200,2=0,3=-26.43->-7.00)|sndB(4=0,5=0,6=100,11=80,oob=0,0)|amk(curZ=0,ctrl=001582D5,p=10000.0/0.330/0.670,oob=1.0,non=2:0.0)`; zero DLL, PDB, or third-party source consulted].

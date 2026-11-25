@@ -105,3 +105,7 @@ The rule (§1's table) fits every row:
 
 Built (`nvse_sup4.rs` `near_cells`, #2039): the loaded cells are `Game::loaded_cells`; the
 sup4 `near` row is equal since.
+
+## Wave 6D-10 Live Clean-Room Near Cells, Near Markers & Cell State Baselines
+
+- Indoors in `GSDocMitchellHouse`, `GetNearCells` returns 1 cell at depths 0/1/2 (`nc(1,1,1)`), `GetNearMapMarkers` returns 0 markers (`nm(0,0,0)`), `IsCellVisited` returns `1` for current cell and `0` for unvisited/null/non-cell (`vis(1,0,0,0)`), and `IsCellBuffered` returns `1` for current cell and `0` for unbuffered/non-cell (`buf(om=1,gs=0,bad=0)`) [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + SUP NVSE Plugin 855, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_44_near_cells_near_markers_and_cell_visited_expired` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_44_near_cells_near_markers_and_cell_visited_expired|nc(1,1,1)|nm(0,0,0)|vis(1,0,0,0)|exp(-1,-1,0,0)|buf(om=1,gs=0,bad=0)`; zero DLL, PDB, or third-party source consulted].

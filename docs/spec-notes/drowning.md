@@ -83,3 +83,7 @@ already held (NVForever cuts it), NPCs and creatures drowning.
   with the drowning sound and no hit or death lines, dead after 5 s; the meter read) and
   `drowning-rebreather` (with the ability: never out of breath).
 - Open for the owner: the sound's rhythm; the meter's look against the original's.
+
+## 5. Wave 6D-10 Live Clean-Room Dry-Land Water State Baselines
+
+- On dry land in `GSDocMitchellHouse`, `IsSwimming` (`0`), `IsActorInWater` (`0`), and `GetWaterImmersionPerc` (`0.00`) all read zero for both Player and Doc Mitchell, while `WaterBreathing` actor value round-trips `0.0 -> 1.0` [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_27_swimming_submerged_water_immersion_baselines` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_27_swimming_submerged_water_immersion_baselines|sw(p=0,d=0,pc=0)|iw(p=0,d=0)|imm(p=0.00,d=0.00)|wb(0.0->1.0)`; zero DLL, PDB, or third-party source consulted].

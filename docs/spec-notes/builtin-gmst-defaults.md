@@ -51,3 +51,7 @@ Unmodded vanilla gameplay is unchanged:
 - The other six settings have no gameplay consumer reading them yet, and `FormStore::settings`
   continues to hold only loaded plugin `GMST` records.
 - Unknown setting names continue to fail cleanly (`No game setting <name>` / `0`).
+
+## Wave 6D-10 Live Clean-Room World, Time, Travel & Lighting GMST Baselines
+
+- Verified live vanilla defaults and `SetNumericGameSetting` round-trip in `GSDocMitchellHouse`: ESM-defined `fSneakLightMult` (`1.40 -> 2.25`), `fSunGlareSize` (`0.25`), `fSunXExtreme` (`800`), `fExteriorPosWeight` (`0.10`), `iXPRewardDiscoverMapMarker` (`10`), and executable-defined `fHostileActorInteriorDistance` (`2000`), `fHostileActorExteriorDistance` (`3000`), `iHoursToRespawnCell` (`72`), `iHoursToRespawnCellCleared` (`-1`), `fFastTravelSpeedMult` (`-1.00`) [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_45_world_time_travel_lighting_gmsts_and_roundtrip` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_45_world_time_travel_lighting_gmsts_and_roundtrip|esm(snk=1.40->2.25,sunG=0.25,sunX=800,expW=0.10,xpM=10)|exe(hosI=2000,hosE=3000,rsp=72,rspC=-1,ftSp=-1.00)`; zero DLL, PDB, or third-party source consulted].
