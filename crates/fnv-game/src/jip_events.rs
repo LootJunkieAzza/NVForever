@@ -242,7 +242,14 @@ fn slots(event: &str) -> &'static [Slot] {
         "hit" | "healthdamage" | "crippledlimb" | "fireweapon" | "projectileimpact" => &[Slot::On],
         "animaction" | "playgroup" => &[Slot::On, Slot::ExactArg(0)],
         "criticalhit" => &[Slot::On, Slot::Arg(0), Slot::Arg(1)],
-        "queststage" => &[Slot::Arg(0), Slot::Arg(1)],
+        // Stage 0 matches only stage 0, not every stage [observed: 2026-11-24, Fallout:
+        // New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, GSDocMitchellHouse (0x00103DF9),
+        // 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_jip_quest_stage_exact_and_dup.json` probe
+        // `w6d1_23_jip_quest_stage_and_skip_script`:
+        // `ret=1,0,1,0|n1=1,n2=0|s0=1,qOk=1,arg=10,in=10,post=10`; no DLL, PDB, or
+        // third-party source consulted].
+        "queststage" => &[Slot::Arg(0), Slot::ExactArg(1)],
         "controldown" | "controlup" | "triggerdown" | "triggerup" => &[Slot::ExactArg(0)],
         "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
         _ => &[],
@@ -313,7 +320,7 @@ impl Game<'_> {
         };
         if add {
             if self.jip.handlers.iter().any(same) {
-                return true;
+                return false;
             }
             self.jip.seq += 1;
             let seq = self.jip.seq;

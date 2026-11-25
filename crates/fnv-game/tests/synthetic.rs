@@ -3505,6 +3505,49 @@ fn event_handlers_are_set_dispatched_filtered_and_removed() {
 }
 
 #[test]
+fn jip_quest_stage_handler_exact_stage_zero_and_duplicate_return() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(
+            &format!("ref cb10\nref cb0\nint r1\nint r2\nint r3\nint r4\nBegin Function {{ }}\n{body}\nEnd\n"),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let res = q(
+        &mut g,
+        "set TestGlobal to 0
+         let cb10 := (Begin Function {ref qst, int stg}
+           if eval (GetSelfAlt == 0) && (qst == Q) && (stg == 10) && (GetStage Q == 10)
+             let TestGlobal := TestGlobal + 1
+           endif
+         End)
+         let cb0 := (Begin Function {ref qst, int stg}
+           let TestGlobal := TestGlobal + 100
+         End)
+         let r1 := SetOnQuestStageEventHandler cb10 1 Q 10
+         let r2 := SetOnQuestStageEventHandler cb10 1 Q 10
+         SetOnQuestStageEventHandler cb0 1 Q 0
+         SetStage Q 10
+         let r3 := SetOnQuestStageEventHandler cb10 0 Q 10
+         let r4 := SetOnQuestStageEventHandler cb10 0 Q 10
+         SetFunctionValue (r1 * 1000 + r2 * 100 + r3 * 10 + r4)",
+    );
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+        "unexpected script error: {:?}",
+        g.events
+    );
+    // ret=1,0,1,0 (add=1, dup=0, rem=1, miss=0)
+    assert_eq!(res, XVal::Num(1010.0));
+    // cb10 fired once with GetSelfAlt==0 & POST-update GetStage==10 (+1); cb0 (stage 0) did NOT fire on stage 10.
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 1.0);
+}
+
+#[test]
 fn get_game_loaded_and_restarted_are_true_once_per_script() {
     // [documented: GetGameLoaded; GetGameRestarted] once per script after a load / per
     // session; a session's SetEventHandler registrations carry over a load.
