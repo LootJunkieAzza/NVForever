@@ -98,3 +98,11 @@ on the ground (-0.004, the original's own residue).
 - GetActorMovementFlags: jumping, falling and sliding from the engine's character state.
 - RemoveNthEffect: the HUD still sees the record's list (the Nth-effect functions share
   one list since #2016).
+
+### `GetConditionDamagePenalty` live readback [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p3_05_cond_penalty_curve_invref` (`tools/capture/nvse/catalogs/wave6d6_condition_damage_penalty.json`)]: `SetConditionDamagePenalty` returns `0.000` and `GetConditionDamagePenalty` immediately reads back the updated multiplier (`0.670 -> 0.000 -> 1.000 -> 0.670`), scaling 10mm Pistol damage below 75% condition (`100%=22.00, 75%=22.00, 50%=18.31, 25%=14.63, 5%=11.68; penalty 0.0 at 25%=22.00`):
+
+```text
+PROBE|w6d6p3_05_cond_penalty_curve_invref|orig=0.670|set0(0.000,0.000)|set1(0.000,1.000)|rest(0.000,0.670)|dmg=22.00,22.00,18.31,14.63,11.68|p0=22.00
+```

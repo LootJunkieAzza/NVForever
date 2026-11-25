@@ -255,7 +255,14 @@ fn attach_light_adds_a_node_and_remove_takes_it() {
 fn the_rest_answer_as_observed() {
     let f = fixture();
     let mut g = game(&f);
-    assert!((n(&mut g, "GetConditionDamagePenalty") - 0.67).abs() < 1e-9);
+    assert!((n(&mut g, "GetConditionDamagePenalty") - 0.67).abs() < 1e-6);
+    // SetConditionDamagePenalty updates GetConditionDamagePenalty live [observed: w6d6p3_05_cond_penalty_curve_invref].
+    assert_eq!(n(&mut g, "SetConditionDamagePenalty 0.0"), 0.0);
+    assert!((n(&mut g, "GetConditionDamagePenalty") - 0.0).abs() < 1e-6);
+    assert_eq!(n(&mut g, "SetConditionDamagePenalty 1.0"), 0.0);
+    assert!((n(&mut g, "GetConditionDamagePenalty") - 1.0).abs() < 1e-6);
+    assert_eq!(n(&mut g, "SetConditionDamagePenalty 0.67"), 0.0);
+    assert!((n(&mut g, "GetConditionDamagePenalty") - 0.67).abs() < 1e-5);
     assert_eq!(s(&mut g, "NpcRef.GetHitNode"), "NULL");
     for call in [
         "NpcRef.RefreshAnimData",

@@ -385,7 +385,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             };
             XVal::Num(subject.and_then(|r| center_pos(g, r)).map_or(0.0, |c| f64::from(c[i])))
         }
-        "getconditiondamagepenalty" => XVal::Num(CONDITION_DAMAGE_PENALTY),
+        "getconditiondamagepenalty" => XVal::Num(f64::from(g.condition_damage_penalty())),
         // `list`: its forms in list order as an array; no array for another form
         // [observed: cmd2.listtoarray 18 of 18, first and last as ListGetNthForm;
         // listtoarray.notlist ar_Size -1] (§3.5).
