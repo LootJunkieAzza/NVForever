@@ -53,8 +53,10 @@ pub const RELAY_ENV: &str = "NVF_COOP_RELAY";
 /// Turns join approval off (`0`): the "Ask before players join" setting. On by default for
 /// an online code (docs/design/coop-networking.md §15.2, the recommended default).
 pub const ASK_ENV: &str = "NVF_COOP_ASK";
-/// A player asking to join that the host has not answered by then is turned away.
-const ASK_FOR: std::time::Duration = std::time::Duration::from_secs(60);
+/// A player asking to join that the host has not answered by then is turned away: time to
+/// open the Co-op Lobby from a corner message [observed 2026-11-25: 60 s was too short in a
+/// screenshot run; the guest's own wait was shorter still].
+pub const ASK_FOR: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Test aid: a guest ignores the host's candidates (`1`), so its direct checks fail and
 /// the peer relay is tried, as for a player whose network lets nothing in.
@@ -92,6 +94,10 @@ pub enum OnlineEvent {
     JoinAsk { peer: PeerNo, name: String },
     /// The ask of player `peer` is over (answered, timed out, or it gave up).
     JoinAskOver(PeerNo),
+    /// A guest: the host is asked to let this game in (join approval); waits for it.
+    AwaitingHost,
+    /// A guest: the host let this game in.
+    LetIn,
 }
 
 /// A player asking to join, waiting for the host's answer.
@@ -526,8 +532,10 @@ impl Online {
                         GuestEvent::Waiting { peer } => {
                             *me = Some(peer);
                             self.events.push(OnlineEvent::Note(format!("waiting for the host to let this game in (guest {peer})")));
+                            self.events.push(OnlineEvent::AwaitingHost);
                         }
                         GuestEvent::Accepted { host_key: k, host_name, candidates } => {
+                            self.events.push(OnlineEvent::LetIn);
                             *host_key = unhex32(&k);
                             self.events.push(OnlineEvent::Note(format!("{host_name}'s game let this one in")));
                             let candidates = hosted_pair(&mut self.events, *host_key, self.my_key, hosted::Side::Guest, candidates);
@@ -1246,7 +1254,7 @@ mod tests {
         // Join approval: the host is asked first, and lets this one in.
         o.on_text(&format!(r#"{{"type":"join","peer":2,"name":"Late","key":"{key}","candidates":[]}}"#), now);
         assert!(o.take_events().contains(&OnlineEvent::JoinAsk { peer: 2, name: "Late".into() }));
-        o.tick(now + Duration::from_secs(61), &[0; 32]);
+        o.tick(now + ASK_FOR + Duration::from_secs(1), &[0; 32]);
         assert!(o.take_events().contains(&OnlineEvent::JoinAskOver(2)), "unanswered: turned away");
         o.on_text(&format!(r#"{{"type":"join","peer":1,"name":"G","key":"{key}","candidates":[{{"kind":"host","addr":"192.168.1.3:50000"}}]}}"#), now);
         assert!(o.take_events().contains(&OnlineEvent::JoinAsk { peer: 1, name: "G".into() }));

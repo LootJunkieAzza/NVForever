@@ -251,6 +251,9 @@ const CODE_FILE: &str = "lobby-code.txt";
 /// A guest looking for its host gives up after this long without an answer (seconds; an
 /// online code's checks can take ten).
 const FIND_FOR: f32 = 30.0;
+/// While the host is asked to let this game in, the guest waits longer than the host's
+/// window to answer (`nvf_coop::online::ASK_FOR`), so the host's "no answer" is what ends it.
+const ASK_WAIT: f32 = 130.0;
 
 /// What the command line asked for.
 #[derive(Clone)]
@@ -394,6 +397,7 @@ impl Plugin for CoopPlugin {
             join_code: None,
             joining: Joining::Idle,
             finding_since: None,
+            awaiting_host: false,
             npcs: HashMap::new(),
             npc_attacks: HashMap::new(),
             ai_was_off: None,
@@ -663,6 +667,8 @@ pub(crate) struct Coop {
     join_code: Option<String>,
     joining: Joining,
     finding_since: Option<f32>,
+    /// The host is asked to let this game in (join approval).
+    awaiting_host: bool,
     /// A guest's: the host's NPCs as heard, by reference.
     npcs: HashMap<u32, NpcTrack>,
     /// A host's: the attacks each of its NPCs began, counted (wrapping).
@@ -1078,6 +1084,7 @@ impl Coop {
                 self.join_code = Some(at.trim().to_string());
                 self.joining = Joining::Finding;
                 self.finding_since = None;
+                self.awaiting_host = false;
             }
             Err(why) => {
                 warn!("co-op: {why}");
@@ -1304,7 +1311,7 @@ fn lobby(
         let since = *coop.finding_since.get_or_insert(now);
         if welcomed {
             coop.joining = Joining::Found;
-        } else if now - since > FIND_FOR {
+        } else if now - since > if coop.awaiting_host { ASK_WAIT } else { FIND_FOR } {
             coop.link = None;
             coop.left_lobby = true;
             coop.joining = Joining::Failed("No answer from the host: check the code, and that their lobby is open.".into());
@@ -1369,7 +1376,7 @@ fn lobby(
     // The host's guests for Kick and Ban, each with its line of the player list (its path
     // and ping): the list's lines after the host's own, in the same order (`coop.peers`).
     let guests: Vec<(u8, String)> = if coop.is_host() { coop.peers.keys().copied().zip(players.iter().skip(1).cloned()).collect() } else { Vec::new() };
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone(), guests, public: coop.host_options.public, locked: !coop.host_options.password.is_empty(), browse: coop.browse.clone() });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire, asking: coop.asking.clone(), guests, public: coop.host_options.public, locked: !coop.host_options.password.is_empty(), browse: coop.browse.clone(), awaiting_host: coop.awaiting_host && coop.joining == Joining::Finding });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
         None => "NVForever".to_string(),
@@ -2540,6 +2547,15 @@ fn online_event(coop: &mut Coop, e: nvf_coop::online::OnlineEvent, corner: &mut 
             coop.asking.push((peer, name));
         }
         OnlineEvent::JoinAskOver(peer) => coop.asking.retain(|(p, _)| *p != peer),
+        // The wait starts again: the host's answer, then the path's checks.
+        OnlineEvent::AwaitingHost => {
+            coop.awaiting_host = true;
+            coop.finding_since = None;
+        }
+        OnlineEvent::LetIn => {
+            coop.awaiting_host = false;
+            coop.finding_since = None;
+        }
         // The link opened the session itself (`Session::online_tick`); the log only.
         OnlineEvent::HostedOpen { relay, side, .. } => info!("co-op: a session on the hosted relay {relay} ({side:?} side)"),
         OnlineEvent::Note(n) => info!("co-op: online: {n}"),

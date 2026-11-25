@@ -223,6 +223,8 @@ pub struct LobbyState {
     pub locked: bool,
     /// The Browse tab's public lobbies.
     pub browse: Browse,
+    /// A guest waits for the host to let it in (join approval).
+    pub awaiting_host: bool,
 }
 
 /// A save on the guest's list.
@@ -1041,7 +1043,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     }
                 }
                 (Joining::Finding, _) | (Joining::Found, None) => {
-                    v.push(Line("Looking for the host...".into(), Shade::Bright));
+                    v.push(Line(if state.awaiting_host { "The host has been asked to let you in. Waiting for their answer (up to two minutes)..." } else { "Looking for the host..." }.into(), Shade::Bright));
                     v.push(Bar(vec![Item::Button(Act::Back, "Back".into(), Look::Normal)]));
                 }
                 (Joining::Found, Some(saves)) => {
