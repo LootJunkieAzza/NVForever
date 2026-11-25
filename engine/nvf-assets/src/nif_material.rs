@@ -523,6 +523,10 @@ pub struct NifSurface {
     /// (FSR's temporal upscaling) it is drawn alpha-tested at this cut, so it has depth
     /// and motion and is not translucent to the upscaler; otherwise blended. CPU only.
     pub blended_cutout: Option<f32>,
+    /// A blended shape whose solid texels may be drawn again as a cut-out, into the depth
+    /// prepass (`nif_spawn::solid_core`, nvforever `solid_cores.rs`); `None` on every other
+    /// shape. CPU only: nothing is drawn differently for it unless a core is made.
+    pub solid_core: Option<SolidCoreSource>,
     /// Holes (module notes, "Holes"): x the value in alpha units (0–255) at and above
     /// which the holes texture's alpha leaves a hole, negative for none; y the width of
     /// the edge band below it; z 1 turns the test round (a hole where the alpha is
@@ -593,6 +597,19 @@ pub struct NifSurface {
     /// The environment mask (texture-set slot 5); `None` when the set has none.
     #[texture(56)]
     pub env_mask: Option<Handle<Image>>,
+}
+
+/// What a blended shape's solid core ([`NifSurface::solid_core`]) is made from: its base
+/// texture as the shape names it (its alpha decides whether there is a core) and the image it
+/// loaded as. A copy of the material that draws another image (a texture swap) keeps these and
+/// so is told apart from a material the texture path describes.
+#[derive(Clone, Debug, PartialEq, Reflect)]
+pub struct SolidCoreSource {
+    pub texture: String,
+    pub image: AssetId<Image>,
+    /// The material's alpha outline was seen changing (nvforever solid_cores.rs, which marks it when
+    /// it stops following).
+    pub animated: bool,
 }
 
 /// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
@@ -694,6 +711,7 @@ impl Default for NifSurface {
             pipboy_a: Vec4::ZERO,
             pipboy_b: Vec4::ZERO,
             blended_cutout: None,
+            solid_core: None,
             holes: NO_HOLES,
             holes_edge: Vec4::ONE,
             soft: Vec4::ZERO,

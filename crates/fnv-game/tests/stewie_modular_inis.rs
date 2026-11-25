@@ -179,6 +179,7 @@ fn sorted_modular_tweak_inis_override_base_ini_and_reach_tweaks_and_stewval() {
          bNoCasinoBans = 1\n\
          bMenuSearch = 1\n\
          bNoLockEncounterZoneLevels = 1\n\
+         bFasterSleepWait = 1\n\
          bCritChanceIgnoresFireRate = 1\n\
          bHardcoreTweaks = 1\n\
          iPerksPerLevel = 3\n\
@@ -214,6 +215,7 @@ fn sorted_modular_tweak_inis_override_base_ini_and_reach_tweaks_and_stewval() {
     assert!(g.tweaks.power_armor_needs_no_training);
     assert!(g.tweaks.menu_search);
     assert!(g.tweaks.no_lock_encounter_zone_levels);
+    assert!(g.tweaks.faster_sleep_wait);
     assert!(g.tweaks.crit_ignores_fire_rate);
     assert!(g.tweaks.hardcore_tweaks);
     assert!(!g.tweaks.hardcore_ammo_weight);
@@ -240,6 +242,8 @@ fn sorted_modular_tweak_inis_override_base_ini_and_reach_tweaks_and_stewval() {
     assert_eq!(eval_expr(&mut g, r#"StewVal "bCritChanceIgnoresFireRate:Tweaks""#), XVal::Num(1.0));
     assert_eq!(eval_expr(&mut g, r#"StewVal "bNoLockEncounterZoneLevels:Tweaks""#), XVal::Num(1.0));
     assert_eq!(eval_expr(&mut g, r#"StewieGetValue "bNoLockEncounterZoneLevels:Tweaks""#), XVal::Num(1.0));
+    assert_eq!(eval_expr(&mut g, r#"StewVal "bFasterSleepWait:Tweaks""#), XVal::Num(1.0));
+    assert_eq!(eval_expr(&mut g, r#"StewieGetValue "bFasterSleepWait:Tweaks""#), XVal::Num(1.0));
     assert_eq!(eval_expr(&mut g, r#"StewieGetValue "fCriticalDamageMult:Critical Hits""#), XVal::Num(1.75));
     assert_eq!(eval_expr(&mut g, r#"StewVal "bAmmoWeight:Hardcore Tweaks""#), XVal::Num(0.0));
     assert_eq!(eval_expr(&mut g, r#"StewVal "fRate:Custom Section""#), XVal::Num(3.5));

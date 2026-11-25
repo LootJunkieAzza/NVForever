@@ -1704,7 +1704,7 @@ mod tests {
     }
 
     /// #1632: centimetres of mouse travel for a full turn at 1600 dpi, reading the
-    /// sensitivity as radians a count [hypothesis, as `MOUSE_SENSITIVITY`].
+    /// sensitivity as radians a count (see `MOUSE_SENSITIVITY` above).
     fn cm_per_turn_at_1600_dpi(m: f32) -> f32 {
         std::f32::consts::TAU / (m * MOUSE_SENSITIVITY) / 1600.0 * 2.54
     }
