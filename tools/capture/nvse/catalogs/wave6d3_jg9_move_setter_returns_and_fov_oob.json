@@ -1,0 +1,85 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-jg9-move-setter-returns-and-fov-oob",
+  "description": "Read-only clean-room probe verifying SetPlayerMovementFlags/SetVelEx return 1 and GetPlayerCamFOV OOB 3 returns active FOV.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_jg9_move_setter_returns_and_fov_oob",
+      "title": "Wave 6D-3: SetPlayerMovementFlags / SetVelEx returns & GetPlayerCamFOV OOB",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_40_jg9_engine_values_and_moves",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg9.md",
+          "spec_line": 93,
+          "functions_tested": [
+            "GetItemEffectString",
+            "GetPlayerKarmaTitle",
+            "GetPlayerCamFOV",
+            "GetCalculatedSpread",
+            "GetGrenadeHoldTime",
+            "SetAutoMove",
+            "SetPlayerMovementFlags",
+            "SetVelEx"
+          ],
+          "claim": "Verify GetItemEffectString (8 active mod calls; aid/armor/misc), GetPlayerKarmaTitle (0/1), GetPlayerCamFOV (0/1/2/3; 3 mod calls), GetCalculatedSpread, GetGrenadeHoldTime, SetAutoMove, SetPlayerMovementFlags, and SetVelEx return values.",
+          "expected": "Confirm GetItemEffectString formatting on Stimpak/Buffout/ArmorLeather/Caps001, GetPlayerCamFOV OOB 3, and return values of SetAutoMove/SetPlayerMovementFlags/SetVelEx.",
+          "script_lines": [
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rBuf = GetFormFromMod \"FalloutNV.esm\" \"15163\"",
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rCap = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "string_var esSt = GetItemEffectString rSt",
+            "string_var esBf = GetItemEffectString rBuf",
+            "string_var esAr = GetItemEffectString rLth",
+            "string_var esCp = GetItemEffectString rCap",
+            "string_var kt0 = GetPlayerKarmaTitle 0",
+            "string_var kt1 = GetPlayerKarmaTitle 1",
+            "float fov0 = Player.GetPlayerCamFOV 0",
+            "float fov1 = Player.GetPlayerCamFOV 1",
+            "float fov2 = Player.GetPlayerCamFOV 2",
+            "float fov3 = Player.GetPlayerCamFOV 3",
+            "float spr = Player.GetCalculatedSpread",
+            "float ght = GetGrenadeHoldTime",
+            "int am1 = SetAutoMove 1",
+            "int am0 = SetAutoMove 0",
+            "int pmf = SetPlayerMovementFlags 0",
+            "int vel = rDoc.SetVelEx 0 0 0",
+            "PrintToConsole \"PROBE|w6d3_40_jg9_engine_values_and_moves|ef=[%z]/[%z]/%g/%g|kt=[%z]/[%z]|fov=%.1f,%.1f,%.1f,o3=%.1f|spr=%.2f,ght=%.2f|mv=%g/%g,%g,%g\" esSt esBf (sv_Length esAr) (sv_Length esCp) kt0 kt1 fov0 fov1 fov2 fov3 spr ght am1 am0 pmf vel"
+          ]
+        }
+      ]
+    }
+  ]
+}

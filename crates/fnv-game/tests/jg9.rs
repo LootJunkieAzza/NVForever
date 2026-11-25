@@ -180,9 +180,10 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "player.AudioMarkerSetProperty 3 1"), 0.0, "no property 3");
     // The moves, for the engine.
     let _ = q(&mut g, "player.Jump");
-    let _ = q(&mut g, "SetAutoMove 1");
-    let _ = q(&mut g, "SetPlayerMovementFlags 513");
-    let _ = q(&mut g, "player.SetVelEx 10 20 300");
+    assert_eq!(n(&mut g, "SetAutoMove 1"), 1.0);
+    // [observed: w6d3_40: SetPlayerMovementFlags and SetVelEx return 1].
+    assert_eq!(n(&mut g, "SetPlayerMovementFlags 513"), 1.0);
+    assert_eq!(n(&mut g, "player.SetVelEx 10 20 300"), 1.0);
     let st = &g.other.jg9;
     assert_eq!(st.jumps, vec![FormId::PLAYER_REF]);
     assert_eq!(st.auto_move, Some(true));
@@ -208,6 +209,8 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 75.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 55.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 55.0, "first person until the engine tells");
+    // Out-of-range type 3 falls through to active camera FOV (55.0 in 1P) [observed: w6d3_40].
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 3"), 55.0);
     g.other.jg9.third_person = true;
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 75.0);
     // The settings page's values once the engine tells them (at start, then after a

@@ -409,18 +409,20 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // the movement keys would; the turn, swim, fly, fall and slide flags are the
         // engine's own].
         "setplayermovementflags" => {
+            // Returns 1 on valid flags [observed: w6d3_40_jg9_engine_values_and_moves: mv=1/1,1,1].
             let Some(f) = int_arg(args, 0).filter(|f| *f >= 0) else { return Some(Ok(XVal::Num(0.0))) };
             g.other.jg9.move_flags = Some(f as u32);
-            XVal::Num(0.0)
+            XVal::Num(1.0)
         }
-        // ref.SetVelEx x y z: the three axes of SetVel at once [documented], units/s.
+        // ref.SetVelEx x y z: the three axes of SetVel at once [documented], units/s;
+        // returns 1 on a calling reference [observed: w6d3_40: mv=1/1,1,1].
         "setvelex" => {
             let Some(r) = subject else { return Some(Ok(XVal::Num(0.0))) };
             let v = [num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32, num(args, 2, 0.0) as f32];
             if v.iter().all(|x| x.is_finite()) && g.other.jg9.velocities.len() < 256 {
                 g.other.jg9.velocities.push((r, v));
             }
-            XVal::Num(0.0)
+            XVal::Num(1.0)
         }
         // ref.GetLinearVelocity node xOut yOut zOut: "in units of 0.1 Meter/sec, or 7
         // game Units/sec" [documented]: the reference's velocity as GetActorVelocity
@@ -471,13 +473,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 None => outputs(g, 0.0, &[0.0; 3]),
             }
         }
-        // ref.GetPlayerCamFOV 0/1/2: the world FOV, the first person's, or the one the
-        // camera uses now [documented], as GetCameraFOV reads them.
+        // ref.GetPlayerCamFOV 0/1/2: 0 world FOV, 1 first-person FOV, 2 (or other OOB
+        // values such as 3) the active camera FOV [documented; observed: w6d3_40: o3=55.0].
         "getplayercamfov" => {
             let which = match int_arg(args, 0) {
+                Some(0) => 0.0,
                 Some(1) => 1.0,
-                Some(2) => f64::from(u8::from(!g.other.jg9.third_person)),
-                _ => 0.0,
+                _ => f64::from(u8::from(!g.other.jg9.third_person)),
             };
             match crate::nvse_small::call(g, &crate::game::RunCtx::default(), "getcamerafov", None, &[XVal::Num(which)]) {
                 Some(Ok(v)) => v,
