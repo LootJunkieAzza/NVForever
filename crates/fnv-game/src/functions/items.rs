@@ -173,14 +173,22 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if g.world.equip_lock(actor, item) == Some(EquipLock::NoEquip) {
         g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }
-    let e = match g.world.equip(actor, item) {
-        // Power armour on the untrained player: the game's message, as from the Pip-Boy
-        // [hypothesis: a script's EquipItem is refused as the player's own equipping is].
+    let e = match g.world.equip_scripted(actor, item) {
+        Ok(e) => e,
+        // Refused scripted EquipItem never aborts the calling script [observed 2026-11-25:
+        // w6d7p2_28_equip_pa_broken_unowned_settled & w6d7p2_29_equip_locks_settled].
         Err(fnv_sim::world::SimError::NoPowerArmorTraining(_)) => {
             super::player::refuse_power_armor(g);
-            return Err(format!("{} needs Power Armor Training", g.data.name(item)));
+            return none();
         }
-        r => r.map_err(|e| e.to_string())?,
+        Err(
+            fnv_sim::world::SimError::NotCarried { .. }
+            | fnv_sim::world::SimError::EquipLocked { .. }
+            | fnv_sim::world::SimError::NotEquippable(_)
+            | fnv_sim::world::SimError::Broken(_)
+            | fnv_sim::world::SimError::NotAnItem(_),
+        ) => return none(),
+        Err(e) => return Err(e.to_string()),
     };
     if !e.consumed && hide_flag(a, 1) {
         g.world.lock_equip(actor, item, Some(EquipLock::NoUnequip)).map_err(|e| e.to_string())?;

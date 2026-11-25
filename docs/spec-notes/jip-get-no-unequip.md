@@ -31,3 +31,6 @@
   carries multiple identical units of the same base form has not been measured
   in an original-game capture (`World::equip_locks` is currently keyed by base
   `FormId`).
+
+### Scripted `EquipItem` refusal & broken-weapon behavior (`w6d7p2_28`, `w6d7p2_29`)
+- **Non-aborting refusal and broken weapons** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probes `w6d7p2_28_equip_pa_broken_unowned_settled` and `w6d7p2_29_equip_locks_settled` in `tools/capture/nvse/catalogs/wave6d7_script_equipitem.json`]: scripted `EquipItem` never aborts the calling script (`s=2`) on untrained Power Armor (`eq0=0`, equips once `PowerArmorTraining` is added `eq1=1`), uncarried items (`eq=0, cnt=0`), or `NoUnequip`-locked slots (`ov(s=2, l=1, c=0)`), and succeeds on a `0%`-condition broken weapon (`brk(s=2, eq=1)`).
