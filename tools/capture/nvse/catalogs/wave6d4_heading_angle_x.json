@@ -1,0 +1,148 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_heading_angle_x",
+  "description": "Clean-room read-only Wave 6D-4 probes for xNVSE GetHeadingAngleX vertical pitch angle.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "JIP LN": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d4_heading_angle_x",
+      "title": "Wave 6D-4: xNVSE GetHeadingAngleX vertical pitch formula",
+      "extender": "xNVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4p3_02_heading_angle_x_placed_weap",
+          "bucket": "xnvse_core_items",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 109,
+          "functions_tested": [
+            "GetHeadingAngleX",
+            "GetHeadingAngle"
+          ],
+          "claim": "SD-06: Measure GetHeadingAngleX pitch angle using placed 10mm Pistol refs (+200 Y & +200 Z, +200 Y & -200 Z, +200 X level) and Player SetAngle X = 0, +30, -30.",
+          "expected": "Pin exact vertical pitch sign and angle formula vs horizontal yaw.",
+          "script_lines": [
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "float px = Player.GetPos X",
+            "float py = Player.GetPos Y",
+            "float pz = Player.GetPos Z",
+            "ref rUp = Player.PlaceAtMe rGun 1",
+            "ref rDn = Player.PlaceAtMe rGun 1",
+            "ref rE = Player.PlaceAtMe rGun 1",
+            "rUp.SetPos X px",
+            "rUp.SetPos Y (py + 200)",
+            "rUp.SetPos Z (pz + 200)",
+            "rDn.SetPos X px",
+            "rDn.SetPos Y (py + 200)",
+            "rDn.SetPos Z (pz - 200)",
+            "rE.SetPos X (px + 200)",
+            "rE.SetPos Y py",
+            "rE.SetPos Z pz",
+            "Player.AuxVarSetRef \"*w6_hup\" rUp",
+            "Player.AuxVarSetRef \"*w6_hdn\" rDn",
+            "Player.AuxVarSetRef \"*w6_hea\" rE"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+                "ref rUp = Player.AuxVarGetRef \"*w6_hup\"",
+                "ref rDn = Player.AuxVarGetRef \"*w6_hdn\"",
+                "ref rE = Player.AuxVarGetRef \"*w6_hea\"",
+                "float ax0 = Player.GetAngle X",
+                "float az0 = Player.GetAngle Z",
+                "float xUp0 = Player.GetHeadingAngleX rUp",
+                "float xDn0 = Player.GetHeadingAngleX rDn",
+                "float xE0 = Player.GetHeadingAngleX rE",
+                "float zUp0 = Player.GetHeadingAngle rUp",
+                "float zE0 = Player.GetHeadingAngle rE",
+                "Player.SetAngle X 30",
+                "float xUp30 = Player.GetHeadingAngleX rUp",
+                "float xDoc30 = Player.GetHeadingAngleX rDoc",
+                "Player.SetAngle X -30",
+                "float xUpM30 = Player.GetHeadingAngleX rUp",
+                "Player.SetAngle X ax0",
+                "rUp.Disable",
+                "rUp.MarkForDelete",
+                "rDn.Disable",
+                "rDn.MarkForDelete",
+                "rE.Disable",
+                "rE.MarkForDelete",
+                "PrintToConsole \"PROBE|w6d4p3_02_heading_angle_x_placed_weap|ang(%.1f,%.1f)|up(x=%.2f,z=%.2f)|dn(x=%.2f)|e(x=%.2f,z=%.2f)|p30(up=%.2f,doc=%.2f)|pm30(up=%.2f)\" ax0 az0 xUp0 zUp0 xDn0 xE0 zE0 xUp30 xDoc30 xUpM30"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d4p4_02b_heading_angle_x_exact_coords",
+          "bucket": "xnvse_core_items",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 109,
+          "functions_tested": [
+            "GetHeadingAngleX",
+            "GetHeadingAngle"
+          ],
+          "claim": "SD-06: Measure exact GetPos deltas alongside GetHeadingAngleX for DocMitchellREF, DocMitchellDresserRef, and DocMitchellChairREF to derive the exact vertical pitch formula to 0.01 deg.",
+          "expected": "Pin exact vertical elevation formula (e.g. -atan2(dz, hypot(dx, dy)) vs +atan2).",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "ref rCh = GetFormFromMod \"FalloutNV.esm\" \"1055B8\"",
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"103E61\"",
+            "float px = Player.GetPos X",
+            "float py = Player.GetPos Y",
+            "float pz = Player.GetPos Z",
+            "float hxDoc = Player.GetHeadingAngleX rDoc",
+            "float hxDr = Player.GetHeadingAngleX rDr",
+            "float hxCh = Player.GetHeadingAngleX rCh",
+            "float hxDo = Player.GetHeadingAngleX rDoor",
+            "float hxDocP = rDoc.GetHeadingAngleX Player",
+            "string_var s1 = sv_Construct \"p(%.1f,%.1f,%.1f)|doc(%.1f,%.1f,%.1f,x=%.2f,rev=%.2f)\" px py pz (rDoc.GetPos X) (rDoc.GetPos Y) (rDoc.GetPos Z) hxDoc hxDocP",
+            "string_var s2 = sv_Construct \"dr(%.1f,%.1f,%.1f,x=%.2f)|ch(%.1f,%.1f,%.1f,x=%.2f)|door(%.1f,%.1f,%.1f,x=%.2f)\" (rDr.GetPos X) (rDr.GetPos Y) (rDr.GetPos Z) hxDr (rCh.GetPos X) (rCh.GetPos Y) (rCh.GetPos Z) hxCh (rDoor.GetPos X) (rDoor.GetPos Y) (rDoor.GetPos Z) hxDo",
+            "PrintToConsole \"PROBE|w6d4p4_02b_heading_angle_x_exact_coords|%z|%z\" s1 s2"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

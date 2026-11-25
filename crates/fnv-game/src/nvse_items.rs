@@ -280,20 +280,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 _ => false,
             })
         }
-        // [documented: GetHeadingAngleX] the angle from the reference's heading to the
-        // target, -180 to 180 [hypothesis: as GetHeadingAngle, on any reference].
+        // Vertical pitch angle in degrees (`-atan2(dz, hypot(dx, dy))`, negative above,
+        // positive below, independent of the calling reference's X angle) [observed:
+        // 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9, `w6d4p3_02_heading_angle_x_placed_weap` (placed weapon ~100u above:
+        // `-44.66` at caller X=0, +30, -30) and `w6d4p4_02b_heading_angle_x_exact_coords`
+        // (`doc` dz=-0.1 -> +0.05 / rev -0.05, `dr` dz=+98.3 -> -6.59, `ch` dz=+38.0 -> -1.76,
+        // `do` dz=-0.5 -> +0.23; `wave6d4_heading_angle_x.json`); design: zero-distance
+        // self-target returns 0.0 rather than `-nan(ind)` and `+ 0.0` normalizes `-0.0`].
         "getheadinganglex" => {
             let (Some(r), Some(t)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
             let (Some(a), Some(b)) = (g.ref_pos_rot(r), g.ref_pos_rot(t)) else { return Some(Ok(XVal::Num(0.0))) };
-            let to = (b.0[0] - a.0[0]).atan2(b.0[1] - a.0[1]).to_degrees();
-            let mut d = to - a.1[2].to_degrees();
-            while d > 180.0 {
-                d -= 360.0;
-            }
-            while d < -180.0 {
-                d += 360.0;
-            }
-            XVal::Num(f64::from(d))
+            let dz = f64::from(b.0[2] - a.0[2]);
+            let horiz = f64::from(b.0[0] - a.0[0]).hypot(f64::from(b.0[1] - a.0[1]));
+            let deg = if horiz == 0.0 && dz == 0.0 { 0.0 } else { -dz.atan2(horiz).to_degrees() + 0.0 };
+            XVal::Num(deg)
         }
         // [documented: GetLevCharacterRefs; GetLevCreatureRefs] the leveled list's entries
         // as an array of forms [hypothesis: forms only, without levels].

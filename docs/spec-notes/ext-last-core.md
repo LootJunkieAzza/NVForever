@@ -106,6 +106,19 @@ name of highlighted UI component"]; nothing with none [hypothesis]. The highligh
 is the tile tree's pointer's (`Game::ui_pointer`, #957), as GetActiveUIComponentName reads
 it. The console's exact line is not documented: the name alone [hypothesis].
 
+## 5a. `GetHeadingAngleX` (`nvse_items.rs`)
+
+`ref.GetHeadingAngleX target` returns the vertical pitch angle in degrees
+`-atan2(dz, hypot(dx, dy))` (negative when the target is above the calling reference,
+positive when below), independent of the calling reference's own X angle [observed:
+Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, probes `w6d4p3_02_heading_angle_x_placed_weap` (with JIP LN 57.30) and
+`w6d4p4_02b_heading_angle_x_exact_coords` (`tools/capture/nvse/catalogs/wave6d4_heading_angle_x.json`):
+`PROBE|w6d4p3_02_heading_angle_x_placed_weap|ang(0.0,270.0)|up(x=-44.66,z=3.56)|dn(x=-24.75)|e(x=-36.99,z=11.99)|p30(up=-44.66,doc=0.07)|pm30(up=-44.66)`
+and
+`PROBE|w6d4p4_02b_heading_angle_x_exact_coords|p(2352.0,1603.6,7360.4)|doc(2285.0,2265.4,7359.7,x=0.05,rev=-0.05)|dr(2042.7,810.5,7458.7,x=-6.59)|ch(1171.6,1971.1,7398.4,x=-1.76)|door(2430.0,1536.0,7359.9,x=0.23)`].
+On a coincident/self target (`dx = dy = dz = 0`), NVForever returns `0.0` rather than
+propagating `-nan(ind)`, and normalizes `-0.0` to `0.0` [design].
+
 ## 6. Not a function
 
 - `eval` is the if-statement form (ext-syntax.md), built in the compiler; the census

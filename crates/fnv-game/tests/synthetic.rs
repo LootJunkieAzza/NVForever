@@ -5485,5 +5485,31 @@ set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestW
     assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }
 
+#[test]
+fn get_heading_angle_x_returns_vertical_pitch_independent_of_caller_angle() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let q = |g: &mut fnv_game::Game, body: &str| match g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap() {
+        XVal::Num(x) => x,
+        v => panic!("{body}: {v:?}"),
+    };
+    // Place PlayerREF at (0, 0, 0) and TestNpcREF at (100, 0, 100) -> -45 deg.
+    q(&mut g, "PlayerREF.SetPos X 0\nPlayerREF.SetPos Y 0\nPlayerREF.SetPos Z 0\nTestNpcREF.SetPos X 100\nTestNpcREF.SetPos Y 0\nTestNpcREF.SetPos Z 100");
+    for pitch in [0.0, 30.0, -30.0] {
+        q(&mut g, &format!("PlayerREF.SetAngle X {pitch}"));
+        let a = q(&mut g, "SetFunctionValue (PlayerREF.GetHeadingAngleX TestNpcREF)");
+        assert!((a - (-45.0)).abs() < 1e-3, "above at X={pitch}: {a}");
+    }
+    // Reverse (target below caller) -> +45 deg.
+    let rev = q(&mut g, "SetFunctionValue (TestNpcREF.GetHeadingAngleX PlayerREF)");
+    assert!((rev - 45.0).abs() < 1e-3, "below: {rev}");
+    // Level -> 0 deg; self-target -> safe 0.0 [design].
+    q(&mut g, "TestNpcREF.SetPos Z 0");
+    assert!(q(&mut g, "SetFunctionValue (PlayerREF.GetHeadingAngleX TestNpcREF)").abs() < 1e-6);
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.GetHeadingAngleX PlayerREF)"), 0.0);
+}
+
 #[path = "common/jip_callback_clock.rs"]
 mod jip_callback_clock_tests;
