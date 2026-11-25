@@ -316,10 +316,14 @@ fn restore_aside(aside: Option<PathBuf>, dest: &Path) {
     }
 }
 
-/// Loose-file paths a plan would write, using `/` and no drive.
+/// The most paths `plan_loose_files` lists: an installer can name one folder many times, and the
+/// list only feeds the clash warning.
+const PLAN_LIST_MAX: usize = 100_000;
+
+/// Loose-file paths a plan would write, using `/` and no drive; at most `PLAN_LIST_MAX` of them.
 pub fn plan_loose_files(plan: &Plan) -> Vec<String> {
     let mut out = Vec::new();
-    for item in &plan.items {
+    'items: for item in &plan.items {
         let Ok(rel) = rel_path(&item.source) else { continue };
         let src = plan.root.join(&rel);
         if item.folder {
@@ -336,12 +340,18 @@ pub fn plan_loose_files(plan: &Plan) -> Vec<String> {
                     if path.is_dir() {
                         stack.push((path, next));
                     } else {
+                        if out.len() >= PLAN_LIST_MAX {
+                            break 'items;
+                        }
                         let key = if item.destination.trim().is_empty() { next } else { format!("{}/{}", item.destination.trim_end_matches(['/', '\\']), next) };
                         out.push(key.replace('\\', "/"));
                     }
                 }
             }
         } else {
+            if out.len() >= PLAN_LIST_MAX {
+                break 'items;
+            }
             let named = src.file_name().unwrap_or_default().to_string_lossy();
             let key = if item.destination.trim().is_empty() { named.to_string() } else { item.destination.replace('\\', "/") };
             out.push(key);
@@ -839,6 +849,7 @@ fn file_state(file: &str, state: &str, facts: &Facts) -> bool {
 fn parse_wizard(text: &str, root: &Path, temp: Option<PathBuf>, fallback: &str, facts: Facts) -> Result<Wizard, String> {
     let doc = parse_xml(text).map_err(|e| format!("The installer could not be read: {e}"))?;
     let config = find_el(&doc, "config").ok_or("The installer has no config.")?;
+    paths_fit(config)?;
     let title = el_text(config, "moduleName").filter(|s| !s.trim().is_empty()).unwrap_or_else(|| fallback.to_string());
     let folder_name = clean_name(&title).unwrap_or_else(|_| clean_name(fallback).unwrap_or_else(|_| "mod".into()));
     let image = el_child(config, "moduleImage").and_then(|el| attr(el, "path")).and_then(|p| resolve_rel(root, p));
@@ -999,6 +1010,26 @@ fn parse_type(el: &Elem) -> TypeSpec {
         return TypeSpec::Depends { default, patterns };
     }
     TypeSpec::Fixed(Kind::Optional)
+}
+
+/// The longest `source` or `destination` a file or folder item may name, in bytes. A longer one
+/// cannot be installed on Windows anyway, and each listed path (`plan_loose_files`) repeats it.
+const ITEM_PATH_MAX: usize = 1024;
+
+/// Refuses an installer whose file or folder items name a path longer than `ITEM_PATH_MAX`.
+fn paths_fit(config: &Elem) -> Result<(), String> {
+    let mut stack = vec![config];
+    while let Some(el) = stack.pop() {
+        if el.name.eq_ignore_ascii_case("file") || el.name.eq_ignore_ascii_case("folder") {
+            for key in ["source", "destination"] {
+                if attr(el, key).is_some_and(|v| v.len() > ITEM_PATH_MAX) {
+                    return Err(format!("The installer names a path longer than {ITEM_PATH_MAX} bytes, so it was not opened."));
+                }
+            }
+        }
+        stack.extend(el.children.iter());
+    }
+    Ok(())
 }
 
 fn parse_items(el: &Elem) -> Vec<Item> {
@@ -3172,6 +3203,47 @@ mod tests {
             }
         }
         assert_eq!(loaded.as_deref(), Some(std::fs::read(space).unwrap().as_slice()), "{uri}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// RESEXHAUST-001: an installer naming one folder thousands of times does not make the
+    /// clash check list every path it would write.
+    #[test]
+    fn the_paths_listed_for_the_clash_check_are_capped() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-plan-list-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let root = t.join("Many");
+        std::fs::create_dir_all(root.join("fomod")).unwrap();
+        std::fs::create_dir_all(root.join("f")).unwrap();
+        for i in 0..100 {
+            std::fs::write(root.join("f").join(format!("{i}.txt")), b"").unwrap();
+        }
+        // 2000 destinations of 100 files: 200 000 paths.
+        let folders: String = (0..2000).map(|i| format!(r#"<folder source="f" destination="d{i}"/>"#)).collect();
+        let xml = format!("<config><moduleName>Many</moduleName><requiredInstallFiles>{folders}</requiredInstallFiles></config>");
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), xml).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Plan(plan) = stage(&root, facts).unwrap() else { panic!("an installer with no choice is a plan") };
+        assert_eq!(plan_loose_files(&plan).len(), PLAN_LIST_MAX);
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// RESEXHAUST-001 of the fourth review: a long destination, repeated in every listed path,
+    /// is refused when the installer is opened.
+    #[test]
+    fn an_installer_naming_a_very_long_path_is_refused() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-long-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let root = t.join("Long");
+        std::fs::create_dir_all(root.join("fomod")).unwrap();
+        std::fs::create_dir_all(root.join("f")).unwrap();
+        std::fs::write(root.join("f").join("a.txt"), b"a").unwrap();
+        let long = "d".repeat(ITEM_PATH_MAX + 1);
+        let xml = format!(r#"<config><moduleName>Long</moduleName><requiredInstallFiles><folder source="f" destination="{long}"/></requiredInstallFiles></config>"#);
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), xml).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Err(e) = stage(&root, facts) else { panic!("a path past the limit opens no installer") };
+        assert!(e.contains("longer than 1024 bytes"), "{e}");
         let _ = std::fs::remove_dir_all(&t);
     }
 }
