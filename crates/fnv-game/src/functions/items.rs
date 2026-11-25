@@ -160,7 +160,8 @@ pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 /// neither the actor nor the player's inventory can take it off, and nothing else goes
 /// into its slot, until UnequipItem [documented: GECK wiki EquipItem]
 /// (`fnv_sim::EquipLock`). A slot held by a locked item refuses the item [documented:
-/// same page], an error of the call.
+/// same page], silently as a non-aborting no-op [observed 2026-11-25: w6d7p2_28 &
+/// w6d7p2_29].
 pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
