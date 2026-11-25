@@ -531,11 +531,13 @@ impl Game<'_> {
 }
 
 /// Reads one JohnnyGuitar `GetStencilPropertyValue` item (`0..=7`) from packed
-/// `NiStencilProperty` `[flags, reference, mask]` [observed: `w6d3_04`, `w6d3p2_04b`]:
-/// `0` enable (`flags & 1`), `1` drawMode (`(flags >> 10) & 3`), `2` ref, `3` mask,
-/// `4` failAction (`(flags >> 1) & 7`), `5` zFailAction (`(flags >> 4) & 7`),
-/// `6` passAction (`(flags >> 7) & 7`), `7` testFunc (`(flags >> 12) & 0xF`);
-/// `None` for `item >= 8`.
+/// `NiStencilProperty` `[flags, reference, mask]`: items `1` drawMode (`(flags >> 10) & 3`),
+/// `2` ref (`u32`), `3` mask (`u32`), `6` passAction (`(flags >> 7) & 7`), `7` testFunc
+/// (`(flags >> 12) & 0xF`), and `None` (`0`) for `item >= 8` are
+/// [observed: `w6d3_04`, `w6d3p2_04b`]; exact bit positions of items `0` enable (`flags & 1`),
+/// `4` failAction (`(flags >> 1) & 7`), and `5` zFailAction (`(flags >> 4) & 7`) are
+/// [documented: nif.xml `NiStencilProperty` flags; hypothesis: all three read `0` on
+/// `BrightGlowRight:0` and were never written].
 pub fn stencil_item_get(s: [f32; 3], item: usize) -> Option<f32> {
     let flags = s[0].trunc() as i64 as u32;
     match item {
@@ -552,8 +554,11 @@ pub fn stencil_item_get(s: [f32; 3], item: usize) -> Option<f32> {
 }
 
 /// Writes one JohnnyGuitar `SetStencilPropertyValue` item (`0..=7`) into packed
-/// `NiStencilProperty` `[flags, reference, mask]`, masking each bitfield to its width;
-/// `false` for `item >= 8` [observed: `w6d3_04`, `w6d3p2_04b`].
+/// `NiStencilProperty` `[flags, reference, mask]`: probed writes for item `1` (`7->3`, 2-bit
+/// mask), item `2` (`7->7`), and item `7` (`2->2`) are [observed: `w6d3_04`, `w6d3p2_04b`];
+/// returning `false` (`0`) for `item >= 8`, bit positions for items `0`/`4`/`5`, and write
+/// bitmask widths for items `0`, `3`, `4`, `5`, `6`, `7` (plus unprobed overflow/negative
+/// values on item `2`) are [hypothesis] / [design].
 pub fn stencil_item_set(s: &mut [f32; 3], item: usize, v: f32) -> bool {
     let raw = v.trunc() as i64 as u32;
     let flags = s[0].trunc() as i64 as u32;

@@ -217,9 +217,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- a shape's alpha and stencil properties: `block item [pc]`.
         // NiAlphaProperty: 0 the flags, 1 the threshold [hypothesis].
-        // NiStencilProperty uses 8 unpacked items 0..=7 (0 enable, 1 drawMode, 2 ref,
-        // 3 mask, 4 failAction, 5 zFailAction, 6 passAction, 7 testFunc; item >= 8
-        // returns 0) [observed: `w6d3_04`, `w6d3p2_04b`, ext-jg-nif-camera.md §1].
+        // NiStencilProperty uses 8 unpacked items 0..=7 (1 drawMode, 2 ref, 3 mask,
+        // 6 passAction, 7 testFunc, getter item >= 8 -> 0, and probed writes 1/2/7
+        // [observed: `w6d3_04`, `w6d3p2_04b`, ext-jg-nif-camera.md §1]; items 0/4/5 bit
+        // positions [documented: nif.xml; hypothesis], setter item >= 8 -> 0 and write
+        // bitmask widths for items 0/3/4/5/6/7 [hypothesis] / [design]).
         // The setters keep the value for the session's reads and queue
         // `SceneEdit::AlphaProperty` / `SceneEdit::StencilProperty` for the engine to apply
         // live to the drawn shape's material (`nvforever::nif_mirror`). 0 without one.
