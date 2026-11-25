@@ -2152,7 +2152,7 @@ pub fn spawn_model(
     // holder carries the reference's RefVisual, so moving and redrawing it take them along.
     let mut boards = nvf_assets::model::BakedBillboards::default();
     // A weather-lit window-ray mesh (unlit, additive) under Physical lighting: it lights its
-    // room with a point light below (graphics-enhanced.md §3.25, part 7).
+    // room with an unshadowed point light at its centre (graphics-enhanced.md §3.25, part 7).
     let mut has_emittance_ray = false;
     for (index, s) in model.shapes.iter().enumerate() {
         let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);

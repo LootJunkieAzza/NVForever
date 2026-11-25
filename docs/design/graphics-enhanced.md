@@ -4280,7 +4280,7 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
 
 ### 3.25 Physical lighting (`physical-pbr`; off in every preset, #3827)
 
-**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion inside the physical light loop (part 2, #4287; until then the occlusion stays on the picture under this row, logged once), the canopy shading (part 3b, #4266), the window rays' room light (part 7, #4285), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
+**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion inside the physical light loop (part 2, #4287; until then the occlusion stays on the picture under this row, logged once), the canopy shading (part 3b, #4266), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
 
 **Not with the volumetric rows yet** [design: the user's decision 2026-11-25, until they and
 spooknik agree how the two work together]: under Physical lighting, Volumetric clouds and
@@ -4358,7 +4358,11 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
   this row only, so the default look is unchanged.
 - Window light rays (`IndFXLightRays*`, unlit additive meshes, weather-lit) are scaled by
   `RAY_MESH_PHYSICAL_BOOST` so thin daytime beams stay visible through AgX, and the weather
-  sources' daylight brightness is kept for the image-based light (`emittance.rs`).
+  sources' daylight brightness is kept for the image-based light (`emittance.rs`). Each
+  such mesh also lights its room: an unshadowed point light at the model's centre takes
+  the ray's weather light at 1.35 times the lamp unit, its reach and softness growing with
+  the model (world.rs; part 7, #4285) [design]. #3828's branch spawned it for every such
+  reference; here it is under this row only.
 
 | Constant | Value | Tag and basis |
 |---|---|---|
@@ -4381,6 +4385,7 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
 | `PHYSICAL_METER_FILTER` | 10-98 % | [design] the display-value meter's 10-100 % (eye_adapt.rs `METER_FILTER`) less the brightest 2 % |
 | the Punchy look (imagespace.wesl) | gain 1.05, power 1.22, saturation 1.36 | [design] |
 | `RAY_MESH_PHYSICAL_BOOST` (emittance.rs) | 1.85 | [design] |
+| window rays' room light (world.rs) | 1.35; extent 180-650 units, range 2.4 × (480-1,100), radius 0.35 × (48-140) | [design] |
 
 - **Cost**: not measured yet (to be measured as in §5, the Goodsprings and Prospector
   Saloon frames, with the row on and off).
