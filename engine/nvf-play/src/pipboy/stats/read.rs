@@ -243,7 +243,6 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             _ => None,
         })
         .collect();
-    let karma_limits = ["KarmaVeryEvil", "KarmaEvil", "KarmaGood", "KarmaVeryGood"].map(|g| sim.forms.global_by_edid(g).map(|v| v.1 as f64));
     // The lists' words do not need the game.
     s.special = SPECIALS.map(|c| av_row(forms, c)).collect();
     // A weapon skill has its mark, as a weapon has on the ITEMS page (`items::skill_badge`)
@@ -355,6 +354,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         standings.sort_by(|a, b| a.name.cmp(&b.name));
         s.hide_reputation = g.tweaks.hide_empty_reputation && standings.is_empty();
         s.standings = standings;
+        // Read live runtime Karma* globals via g.world.global(id) [design: consistent
+        // with Game::player_karma and crime::Settings::read].
+        let karma_limits = ["KarmaVeryEvil", "KarmaEvil", "KarmaGood", "KarmaVeryGood"]
+            .map(|n| g.world.forms.global_by_edid(n).and_then(|(id, _)| g.world.global(id).ok()).map(f64::from));
         if let (Some((karma, _)), [Some(ve), Some(e), Some(go), Some(vg)]) = (value(g, av::KARMA), karma_limits) {
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
             s.karma = Some((karma, word, picture));
