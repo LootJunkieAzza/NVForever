@@ -298,7 +298,7 @@ fn active_imods_preserves_non_animatable_stack_order_and_removal() {
     let expected = format!("{IMAD_HOLD_A:08X} {IMAD_HOLD_B:08X} {IMAD_HOLD_A:08X}");
     assert_eq!(ids(&mut g, "GetActiveIMODs"), expected, "same-tick non-animatable [A, B, A]");
 
-    // Retained across ticks without expiring or collapsing [hypothesis].
+    // Retained across ticks without expiring or collapsing (see docs/spec-notes/jip-world-12.md §2).
     g.frames(10);
     assert_eq!(ids(&mut g, "GetActiveIMODs"), expected, "next-tick non-animatable [A, B, A]");
 
