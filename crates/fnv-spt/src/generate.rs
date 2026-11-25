@@ -279,7 +279,8 @@ fn point_at(pts: &[V], dirs: &[V], t: f32) -> (V, V) {
 
 /// The lighting normals of NVForever's Physical lighting (#3827, part 3b) in place of
 /// [`light_leaves`]'s: a dome around the crown's core (the leaves' box centre, lowered to 35 %
-/// of its height), always pointing up by at least 18 % of the crown's reach, so a crown
+/// of its height): out from that core, with an upward part of three quarters of the leaf's
+/// height above it plus a quarter of the crown's reach, so a crown
 /// shades as a dense volume and its underside still sees the sky [design, chosen by eye on
 /// #3828's branch; speedtree.md §6]. The CNAM dimming still darkens the crown towards its
 /// bottom; this rule's upward normals keep the two from compounding into a black underside.
@@ -305,7 +306,7 @@ pub fn canopy_normals(leaves: &mut [Leaf]) {
         .max(1e-4);
     for l in leaves.iter_mut() {
         let d = sub(l.position, core);
-        let nz = (d[2].max(0.0) * 0.75 + 0.25 * max_r).max(0.18 * max_r);
+        let nz = d[2].max(0.0) * 0.75 + 0.25 * max_r;
         l.normal = norm([d[0], d[1], nz]);
     }
 }

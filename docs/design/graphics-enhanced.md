@@ -4360,6 +4360,16 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
   `RAY_MESH_PHYSICAL_BOOST` so thin daytime beams stay visible through AgX, and the weather
   sources' daylight brightness is kept for the image-based light (`emittance.rs`).
 
+- *Canopy shading* (part 3b, #4266, in progress): SpeedTree leaf normals form a dome
+  around the crown's lowered core (35 % of its height): out from that core, with an upward
+  part of three quarters of the leaf's height above it plus a quarter of the crown's reach
+  (fnv-spt `canopy_normals`, applied in tree.rs only under this row), so a crown is lit as one
+  rounded mass instead of card by card [design]. Without the row trees keep the
+  original-look rule, out of the crown and tilted up 45° (speedtree.md §6). Still to come
+  from #3828's branch: the leaf cards' core darkening and corner-bent normals, the grass
+  tufts' dome normals, grounding and colour variation, and canopy normals on placed
+  plants (which need the foliage detection of §3.24).
+
 | Constant | Value | Tag and basis |
 |---|---|---|
 | `PHYSICAL_ATTENUATION` (display_shader.rs) | `w² · 0.22 / (u + 0.09)` | [design] core of 0.30 R, matched at 0.35 R |
