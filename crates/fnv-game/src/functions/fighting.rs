@@ -216,13 +216,21 @@ pub fn get_killing_blow_limb(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 /// world's equipped flags; the condition of the armour is not counted [hypothesis].
 pub fn get_armor_rating(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let equipped = g.world.get(r).ok().and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
-    let dr: f32 = equipped
+    // Scale worn armor DR by condition and include DamageResist AV modifiers
+    // [observed: w6d6p3_10b_armor_rating_dr1000].
+    let worn: Vec<(FormId, f32)> = g
+        .world
+        .inventory_mut(r)
+        .ok()
+        .map(|inv| inv.equipped().into_iter().map(|i| (i, inv.condition_in_use(i).unwrap_or(1.0))).collect())
+        .unwrap_or_default();
+    let armor_dr: f64 = worn
         .into_iter()
-        .filter(|&i| g.world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor))
-        .filter_map(|i| g.world.effective_armor_dr(i))
+        .filter(|&(i, _)| g.world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor))
+        .filter_map(|(i, cond)| g.world.effective_armor_dr(i).map(|v| f64::from(v) * g.armor_condition_mult(cond)))
         .sum();
-    Ok(Value::Num(dr.floor() as f64))
+    let av_dr = super::actor::actor_value(g, r, crate::actor_values::DAMAGE_RESISTANCE).unwrap_or(0.0);
+    Ok(Value::Num((armor_dr + av_dr).round()))
 }
 
 /// `ref.FireWeapon weapon`: the reference fires one shot of the weapon straight ahead;

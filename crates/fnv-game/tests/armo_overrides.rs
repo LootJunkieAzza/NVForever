@@ -383,3 +383,18 @@ fn temp_clone_form_armo_is_isolated_in_both_directions_and_equippable() {
     );
     assert_eq!(g.body_armor(FormId::PLAYER_REF), Some((2.0, ArmorClass::Heavy)), "detection::body_armor reads cloned torso armor overrides");
 }
+
+#[test]
+fn get_armor_rating_scales_by_condition_and_includes_damage_resist_av() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetArmorArmorRating 1000 TestArmorA\nplayer.AddItemHealthPercent TestArmorA 1 1.0\nplayer.EquipItem TestArmorA");
+    assert_eq!(num(&mut g, "player.GetArmorRating"), 10.0);
+    // ModAV DamageResist adds onto GetArmorRating [observed: w6d6p3_10b_armor_rating_dr1000].
+    q(&mut g, "player.ModAV DamageResist 15");
+    assert_eq!(num(&mut g, "player.GetArmorRating"), 25.0);
+    q(&mut g, "player.ModAV DamageResist -15\nplayer.UnequipItem TestArmorA\nplayer.RemoveItem TestArmorA 1");
+    // At 25% condition: 10 * (1 - (0.5 - 0.25) * 1.0) = 7.5 -> rounds to 8.0 [observed: w6d6p3_10b_armor_rating_dr1000].
+    q(&mut g, "player.AddItemHealthPercent TestArmorA 1 0.25\nplayer.EquipItem TestArmorA");
+    assert_eq!(num(&mut g, "player.GetArmorRating"), 8.0);
+}

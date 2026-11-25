@@ -283,3 +283,11 @@ between portable source behavior and unmeasured native behavior are recorded in
 [player source commands](player-source-commands.md). Portable controls passed for c4
 in hosted composite `23388a32d`; revision-specific results are recorded in PR #2772.
 No additional original-game observation is claimed.
+
+### `GetArmorRating` armor condition scaling and `DamageResist` AV [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p3_10b_armor_rating_dr1000` (`tools/capture/nvse/catalogs/wave6d6_getarmorrating_condition_dr.json`)]: With `SetArmorAR 1000` (`10%` DR), `GetArmorRating` matches `GetAV DamageResist` across full condition (`10.00`), `ModAV DamageResist 15` (`25.00`), and `25%` armor condition (`8.00`; NVForever rounds `10 * armor_condition_mult(0.25) = 7.5` to `8.0`, `[hypothesis]` at other intermediate condition points):
+
+```text
+PROBE|w6d6p3_10b_armor_rating_dr1000|getAR=1000.0|100(ar=10.00,dr=10.00)|+mod15(ar=25.00,dr=25.00)|25(ar=8.00,dr=8.00)
+```
