@@ -1295,26 +1295,35 @@ pub fn number_text(x: f64) -> String {
 /// A string read as a number, as `#` and ToNumber read it: surrounding spaces ignored,
 /// `0x…` as hex, anything unreadable 0 [documented: ToNumber; the unreadable case
 /// hypothesis].
-pub fn text_number(s: &str) -> f64 {
+fn parse_text_number(s: &str) -> Option<f64> {
     let t = s.trim();
     if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        return hex_prefix(h);
+        return parse_hex_prefix(h);
     }
     // The number the text starts with: "12abc" is 12 [observed: probe strings/04].
     let mut end = t.len();
     while end > 0 {
         if let Ok(v) = t[..end].parse::<f64>() {
-            return v;
+            if v.is_finite() {
+                return Some(v);
+            }
         }
         end = t[..end].char_indices().last().map_or(0, |(i, _)| i);
     }
-    0.0
+    None
+}
+
+pub fn text_number(s: &str) -> f64 {
+    parse_text_number(s).unwrap_or(0.0)
 }
 
 /// The hex digits a text starts with, as a number.
-fn hex_prefix(h: &str) -> f64 {
+fn parse_hex_prefix(h: &str) -> Option<f64> {
     let n = h.chars().take_while(|c| c.is_ascii_hexdigit()).count();
-    i64::from_str_radix(&h[..n], 16).map_or(0.0, |v| v as f64)
+    if n == 0 {
+        return None;
+    }
+    i64::from_str_radix(&h[..n], 16).ok().map(|v| v as f64)
 }
 
 /// The widest field and the most digits a format code writes; a larger width or precision
@@ -3311,11 +3320,22 @@ impl Vm<'_, '_> {
             // observed: "1F" gives 31].
             "tonumber" => {
                 let hex = c.args.get(1).map(|a| self.xeval(a)).transpose()?.is_some_and(|v| v.truthy());
-                Ok(match arg(self, 0)? {
-                    XVal::Str(s) if hex => XVal::Num(hex_prefix(s.trim().trim_start_matches("0x").trim_start_matches("0X"))),
-                    XVal::Str(s) => XVal::Num(text_number(&s)),
-                    other => XVal::Num(other.num()?),
-                })
+                let report_error = c.args.get(2).map(|a| self.xeval(a)).transpose()?.is_some_and(|v| v.truthy());
+                match arg(self, 0)? {
+                    XVal::Str(s) => {
+                        let parsed = if hex {
+                            parse_hex_prefix(s.trim().trim_start_matches("0x").trim_start_matches("0X"))
+                        } else {
+                            parse_text_number(&s)
+                        };
+                        match parsed {
+                            Some(v) => Ok(XVal::Num(v)),
+                            None if report_error => Err(VmError::Type(format!("ToNumber could not convert {s:?}"))),
+                            None => Ok(XVal::Num(0.0)),
+                        }
+                    }
+                    other => Ok(XVal::Num(other.num()?)),
+                }
             }
             n if n.starts_with("ar_") || n == "typeof" => self.array_function(n, c),
             // `[ref.]Call udf args…` [documented: Call; User Defined Function].

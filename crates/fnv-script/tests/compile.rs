@@ -2563,3 +2563,16 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn tonumber_report_error_flag_raises_catchable_error() {
+    let h = run(
+        "int bad0\nint bad1\nint ok1\nint emp1\nint hexBad1\nfloat mix\n         begin GameMode\n         let bad0 := TestExpr (ToNumber \"abc\" 0 0)\n         let bad1 := TestExpr (ToNumber \"abc\" 0 1)\n         let ok1 := TestExpr (ToNumber \"12.5\" 0 1)\n         let emp1 := TestExpr (ToNumber \"\" 0 1)\n         let hexBad1 := TestExpr (ToNumber \"zz\" 1 1)\n         let mix := #\"  -12.5abc\"\n         end",
+    );
+    assert_eq!(h.0[&1], Value::Num(1.0));
+    assert_eq!(h.0[&2], Value::Num(0.0));
+    assert_eq!(h.0[&3], Value::Num(1.0));
+    assert_eq!(h.0[&4], Value::Num(0.0));
+    assert_eq!(h.0[&5], Value::Num(0.0));
+    assert_eq!(h.0[&6], Value::Num(-12.5));
+}
