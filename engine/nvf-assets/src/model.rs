@@ -639,7 +639,7 @@ fn material_tracks_of_own(file: &NifFile, dec: &Decoded, inactive: bool) -> Vec<
                 }
             }
             // On the shape's shader property, not its material.
-            "BSRefractionStrengthController" if file.blocks.get(prop as usize).is_some_and(|p| p.type_name == "BSShaderPPLightingProperty") => MaterialTarget::Refraction,
+            "BSRefractionStrengthController" if dec.is_a(prop as usize, "BSShaderPPLightingProperty") => MaterialTarget::Refraction,
             "BSRefractionStrengthController" => continue,
             _ if !file.blocks.get(prop as usize).is_some_and(|p| p.type_name == "NiMaterialProperty") => continue,
             "NiAlphaController" => MaterialTarget::Alpha,

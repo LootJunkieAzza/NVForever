@@ -441,3 +441,45 @@ fn a_wrong_size_table_is_ignored_when_the_blocks_decode() {
         assert!(!t.size_table_ignored && t.trailing > 0, "{} trailing", t.trailing);
     }
 }
+
+/// #3282: `Lighting30ShaderProperty` inherits `BSShaderPPLightingProperty` with no extra
+/// fields (54 bytes at bs_version 34), round-trips byte-for-byte, and satisfies `is_a`
+/// checks for both `BSShaderPPLightingProperty` and `BSShaderProperty`.
+#[test]
+fn lighting30_shader_property_decodes_round_trips_and_inherits_pplt() {
+    let s = schema();
+    let mut shader = W::default();
+    shader.u32(u32::MAX).u32(0).i32(-1); // NiObjectNET: no name, no extra data, no controller
+    shader.u16(1); // NiShadeProperty: SHADING_SMOOTH
+    shader.u32(29).u32(0x8200_0081).u32(1).f(&[1.0]); // BSShaderProperty: SHADER_LIGHTING30
+    shader.u32(3); // BSShaderLightingProperty: WRAP_S_WRAP_T
+    shader.i32(4).f(&[0.0]).i32(0).f(&[4.0, 1.0]); // BSShaderPPLightingProperty fields
+    assert_eq!(shader.0.len(), 54);
+    let mut tex = W::default();
+    tex.u32(6);
+    for p in ["textures\\a.dds", "textures\\a_n.dds", "", "", "textures\\effects\\shinybright_e.dds", "textures\\a_m.dds"] {
+        tex.sized(p);
+    }
+    let data = build(
+        &[
+            ("BSFadeNode", node(1)),
+            ("NiTriStrips", tri_strips(2)),
+            ("NiTriStripsData", strips_data()),
+            ("Lighting30ShaderProperty", shader.0),
+            ("BSShaderTextureSet", tex.0),
+        ],
+        &["Root", "Shape"],
+        &[0],
+    );
+    let f = NifFile::parse(&data, Some(&s)).unwrap();
+    assert_eq!(f.reencode_block(&s, &data, 3), Ok(true));
+    let dec = Decoded::new(&f, &data, &s);
+    assert!(dec.is_a(3, "Lighting30ShaderProperty"));
+    assert!(dec.is_a(3, "BSShaderPPLightingProperty"));
+    assert!(dec.is_a(3, "BSShaderProperty"));
+    let blk = dec.get(3).expect("Lighting30ShaderProperty decoded");
+    assert_eq!(blk.int("shader_type"), Some(29));
+    assert_eq!(blk.int("shader_flags"), Some(0x8200_0081));
+    assert_eq!(blk.block_ref("texture_set"), Some(4));
+    assert_eq!(blk.float("environment_map_scale"), Some(1.0));
+}

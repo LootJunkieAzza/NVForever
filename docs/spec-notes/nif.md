@@ -1616,10 +1616,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   Lighting30ShaderProperty, "a pixel shader 3.0 upgrade to BSShaderPPLightingProperty",
   also has its "cubemap orientation … flipped", and that it is "Used by the engine for
   decals, hair and advanced effect combinations (e.g. parallax + cube mapping)"
-  [documented: GECK wiki "NIF Shader Properties"]. No model stores that block (the schema
-  has none), but the engine may switch PPLighting shapes with parallax and a cube to it
-  at run time, flipping their cube [hypothesis]; one more reading for observer
-  check 273. Choices, each tagged, with the observer check that would settle it:
+  [documented: GECK wiki "NIF Shader Properties"]. `schemas/nif/scene.json` defines
+  `Lighting30ShaderProperty` as a fieldless subclass of `BSShaderPPLightingProperty`
+  [documented: nif.xml `<niobject name="Lighting30ShaderProperty" inherit="BSShaderPPLightingProperty">`]
+  (#3282): `Fallout - Meshes.bsa` stores 10 blocks across 4 files (all 7 shapes of
+  `weapons\1handpistol\32snubnose.nif` and 3 `scol\scolgshouse0{2,3,7}.nif` shapes), and
+  Fallout 3 / TTW archives add 15 more across 8 files (`Fallout3 - Meshes.bsa`: 3 shapes
+  of `weapons\1handpistol\mesmetron.nif` plus 5 SCOL shapes; `BrokenSteel - Main.bsa`: 4
+  SCOL shapes; `TaleOfTwoWastelands - Main.bsa`: 3 architecture shapes) [observed:
+  `fnvtool nif coverage` / `fnvtool nif decode`]. The renderers read
+  `Lighting30ShaderProperty` through `BSShaderPPLightingProperty` inheritance and keep the
+  same cube orientation for now [hypothesis]; whether its cubemap is flipped (or switched
+  at run time for parallax + cube mapping) remains part of observer check 273. Choices, each tagged, with the observer check that would settle it:
   - Strength and view: the cube read along the view reflected about the normal-mapped
     normal (world-fixed, which fits the bright patches observed), × the scale × the mask,
     added to the lit colour, as for windows [hypothesis for the lookup, the strength and

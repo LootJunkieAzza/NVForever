@@ -468,13 +468,12 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
             window: window_env_flags(flags),
             light_fade: s.int("shader_flags_2").unwrap_or(0) & (1 << 15) != 0,
         });
-    }
-    match ty {
-        "BSShaderPPLightingProperty" => {
-            let flags = s.int("shader_flags").unwrap_or(0);
+        if lit {
             p.glow = glow_map(flags, &p.textures);
             p.parallax = parallax_flag(flags);
         }
+    }
+    match ty {
         "BSShaderNoLightingProperty" => {
             p.unlit = true;
             if let Some(f) = s.text("file_name") {
@@ -2790,6 +2789,64 @@ mod tests {
         let (n, _) = shape_material_inner(&plain, &mut tri, &mut AllTextures, Tangents::Generate, &d);
         assert!(n.extension.env_cube.is_none() && n.extension.env_mask.is_none());
         assert_eq!(n.extension.env, Vec4::ZERO);
+    }
+
+    /// #3282: `Lighting30ShaderProperty` (used on all 7 shapes of `32snubnose.nif` and 3
+    /// shapes of `mesmetron.nif`) inherits `BSShaderPPLightingProperty`, so shapes carrying
+    /// it beside `NiMaterialProperty` are shaded, not dropped as helpers, and inherit env,
+    /// glow, and parallax flags.
+    #[test]
+    fn lighting30_shader_property_is_admitted_and_inherits_pplt_rules() {
+        let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+        let mut mat = vec![];
+        words(&mut mat, &[u32::MAX, 0, u32::MAX]);
+        floats(&mut mat, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 80.0, 1.0, 1.0]);
+        let mut shader = vec![];
+        words(&mut shader, &[u32::MAX, 0, u32::MAX]);
+        shader.extend(1u16.to_le_bytes());
+        // SHADER_LIGHTING30 (29), Specular | EnvMap | Parallax | ZBufferTest, ZBufferWrite.
+        let flags = 1 | (1 << 7) | (1 << 11) | (1 << 31);
+        words(&mut shader, &[29, flags, 1]);
+        floats(&mut shader, &[1.25]);
+        words(&mut shader, &[3, 4]);
+        floats(&mut shader, &[0.0]);
+        words(&mut shader, &[0]);
+        floats(&mut shader, &[4.0, 1.0]);
+        let bytes = nif(
+            &[
+                ("BSFadeNode", node(0, &[1])),
+                ("NiTriStrips", strips(1, &[2, 3], 5)),
+                ("NiMaterialProperty", mat),
+                ("Lighting30ShaderProperty", shader),
+                (
+                    "BSShaderTextureSet",
+                    texture_set_block(&[
+                        "textures\\w.dds",
+                        "textures\\w_n.dds",
+                        "textures\\w_g.dds",
+                        "textures\\w_p.dds",
+                        "textures\\effects\\shinybright_e.dds",
+                        "textures\\w_m.dds",
+                    ]),
+                ),
+                ("NiTriStripsData", square(0.0)),
+            ],
+            &["32SnubNose", "32SnubNose:0"],
+        );
+        let file = NifFile::parse(&bytes, Some(&schema)).unwrap();
+        let dec = Decoded::new(&file, &bytes, &schema);
+        assert!(shaded_model(&file, &dec), "Lighting30ShaderProperty marks the model as shaded");
+        let objects = scene_objects(&file, &dec);
+        let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+        let shape = objects.iter().find(|o| !o.is_node).expect("weapon shape");
+        let props = shape_props(&file, &dec, shape, &by_block);
+        assert!(props.shader, "Lighting30ShaderProperty counts as a shader property");
+        assert!(!props.is_helper(true), "shape must not be dropped as a helper");
+        assert!(props.specular);
+        assert!(props.parallax, "Lighting30ShaderProperty inherits parallax flag handling");
+        assert_eq!(props.glow.as_deref(), Some("textures\\w_g.dds"), "Lighting30ShaderProperty inherits glow map slot 2");
+        assert_eq!(props.env, Some(crate::env_map::EnvFlags { scale: 1.25, window: false, light_fade: false }));
+        assert_eq!(props.textures.first().map(String::as_str), Some("textures\\w.dds"));
     }
 
     /// The normal-alpha debug variant binds the game's own normal map as the mask (read by

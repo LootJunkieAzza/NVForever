@@ -2111,6 +2111,7 @@ fn ensure_body(
                     }
                     info!("player weapon model (First person): {}", if rig.sighting.is_some() { "a sighting node: aimed with the down-the-sights clips" } else { "no sighting node: aimed with the hip clips, the view zoomed" });
                 }
+                let mut shapes = 0usize;
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -2147,25 +2148,36 @@ fn ensure_body(
                     if let (None, Some(name)) = (bone, &s.name) {
                         extra.push(ExtraNode { name: name.clone(), entity: e, bind: place });
                     }
+                    shapes += 1;
                     rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), never, shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
                 rig.seen = None;
-                info!(
-                    "player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips, {}",
-                    rig.view,
-                    pm.nodes.len(),
-                    extra.len(),
-                    match &rig.muzzle {
-                        Some(p) => format!("{} {} node(s) down: shots are drawn from it", MUZZLE_NODES[0], p.len()),
-                        None => format!("no {}: shots are drawn from the eye", MUZZLE_NODES[0]),
-                    }
-                );
+                info!("{}", weapon_model_summary(rig.view, &path, pm.nodes.len(), shapes, extra.len(), rig.muzzle.as_ref().map(Vec::len)));
+                if let Some(warning) = weapon_zero_shapes_warning(rig.view, &path, shapes) {
+                    warn!("{warning}");
+                }
                 rig.animator.set_extra(extra);
             }
             None => warn!("player weapon {path}: model not loaded"),
         }
     }
+}
+
+/// Summary line logged when a player weapon model is attached (#3282).
+fn weapon_model_summary(view: View, path: &str, nodes: usize, shapes: usize, named_parts: usize, muzzle_depth: Option<usize>) -> String {
+    format!(
+        "player weapon model ({view:?} person): {path}, {nodes} nodes, {shapes} shape(s), {named_parts} named parts for the clips, {}",
+        match muzzle_depth {
+            Some(p) => format!("{p} {} node(s) down: shots are drawn from it", MUZZLE_NODES[0]),
+            None => format!("no {}: shots are drawn from the eye", MUZZLE_NODES[0]),
+        }
+    )
+}
+
+/// Warning line logged when a loaded player weapon model spawns zero drawn shapes (#3282).
+fn weapon_zero_shapes_warning(view: View, path: &str, shapes: usize) -> Option<String> {
+    (shapes == 0).then(|| format!("player weapon model ({view:?} person): {path} spawned 0 drawn shapes"))
 }
 
 /// The least time between two body rebuilds for a changed look, seconds.
@@ -5092,6 +5104,23 @@ mod tests {
         }
         app.update();
         assert_eq!(app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.clips.len(), 1);
+    }
+
+    #[test]
+    fn weapon_model_log_reports_shape_count_and_warns_when_zero() {
+        let line = weapon_model_summary(View::First, r"meshes\weapons\1handpistol\32snubnose.nif", 8, 7, 15, Some(2));
+        assert!(
+            line.contains(r"player weapon model (First person): meshes\weapons\1handpistol\32snubnose.nif, 8 nodes, 7 shape(s), 15 named parts for the clips, 2 ProjectileNode node(s) down"),
+            "{line}"
+        );
+        assert_eq!(weapon_zero_shapes_warning(View::First, r"meshes\weapons\1handpistol\32snubnose.nif", 7), None);
+
+        let empty = weapon_model_summary(View::Third, r"meshes\weapons\empty.nif", 8, 0, 8, None);
+        assert!(empty.contains("8 nodes, 0 shape(s), 8 named parts for the clips, no ProjectileNode"), "{empty}");
+        assert_eq!(
+            weapon_zero_shapes_warning(View::Third, r"meshes\weapons\empty.nif", 0).as_deref(),
+            Some(r"player weapon model (Third person): meshes\weapons\empty.nif spawned 0 drawn shapes")
+        );
     }
 }
 
