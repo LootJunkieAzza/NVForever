@@ -73,6 +73,8 @@ tests. Smoke scenario `companion-wheel-boone`. Follows `docs/design/followers.md
 
 ## 4. What each command does
 
+- **Teammate death & player guard (`SetPlayerTeammate`, `GetPlayerTeammateCount`, `GetTeammates`)** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_13_teammate_count_vs_getteammates_on_death`: `PROBE|w6d8_13_teammate_count_vs_getteammates_on_death|c0=0 a0=-1 c2=2 a2=2 tkP=0 deadA=1 tmA=0 c1=1 a1=1 cFin=0 plrTm=0 cPlr=0`; no DLL, PDB, or third-party source consulted]: killing a killable teammate clears its teammate flag (`tmA=0`), drops both `GetPlayerTeammateCount` and `GetTeammates` from `2` to `1`, and `Player.SetPlayerTeammate 1` is ignored (`plrTm=0 cPlr=0`).
+
 Every companion's command lines are lines of VNPCFollowers' topics, and their result
 scripts do the work [observed, FalloutNV.esm]:
 

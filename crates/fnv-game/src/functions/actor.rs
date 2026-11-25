@@ -825,7 +825,27 @@ pub fn set_unconscious(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     }
     Ok(done)
 }
-flag!(set_player_teammate, get_player_teammate, teammate);
+/// `actor.SetPlayerTeammate flag`: ignored on the player (`Player.SetPlayerTeammate 1`
+/// leaves `GetPlayerTeammate == 0` and `GetPlayerTeammateCount == 0`) [observed:
+/// 2026-11-25, FNV 1.4.0.525, `w6d8_13_teammate_count_vs_getteammates_on_death`:
+/// `plrTm=0 cPlr=0`].
+pub fn set_player_teammate(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    if r == FormId::PLAYER_REF {
+        return none();
+    }
+    g.extra.entry(r).or_default().teammate = a.num_or(0, 1.0) != 0.0;
+    none()
+}
+
+pub fn get_player_teammate(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(r != FormId::PLAYER_REF && g.extra.get(&r).is_some_and(|e| e.teammate))
+}
+
+#[cfg(test)]
+#[path = "../w6d8_teammates_filter_tests.rs"]
+mod w6d8_teammates_filter_tests;
 
 /// 1 for an actor whose race has the Child flag (RACE DATA) [documented: catalogue
 /// summary of IsChild].
