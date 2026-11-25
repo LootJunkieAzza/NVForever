@@ -549,8 +549,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // array of the forms by editor ID, `reverse` the other way; hypothesis: the IDs
         // compared without case, forms without one first].
         "ar_shuffle" => {
-            // Empty or invalid array returns ar_Null (ar_Size == -1)
-            // [observed: w6d3p5_15_ar_shuffle_var_one_empty: emp=-1].
+            // Empty array returns ar_Null (ar_Size == -1)
+            // [observed: w6d3p5_15_ar_shuffle_var_one_empty: emp=-1]; invalid, non-array,
+            // or ar_Null arguments also returning ar_Null (XVal::Array(0)) is
+            // [hypothesis] / [design].
             let Some(XVal::Array(id)) = args.first() else { return Some(Ok(XVal::Array(0))) };
             let mut vals: Vec<XVal> = g.ext.array(*id).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect()).unwrap_or_default();
             if vals.is_empty() {
