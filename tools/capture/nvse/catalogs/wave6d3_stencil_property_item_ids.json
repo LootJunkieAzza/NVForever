@@ -1,0 +1,141 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-stencil-property-item-ids",
+  "description": "Read-only clean-room probes verifying JohnnyGuitar GetStencilPropertyValue and SetStencilPropertyValue unpacked item IDs 0..=7 and OOB item 8.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_nvse.dll": "57.30",
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_stencil_property_item_ids",
+      "title": "Wave 6D-3: GetStencilPropertyValue / SetStencilPropertyValue item IDs 0..=7",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_04_stencil_property_live_nif_items",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
+          "spec_line": 32,
+          "functions_tested": [
+            "GetStencilPropertyValue",
+            "SetStencilPropertyValue",
+            "GetAlphaPropertyValue"
+          ],
+          "claim": "Verify GetStencilPropertyValue / SetStencilPropertyValue on placed ForceFieldRightGlow02 (0xAAE4D, forcefieldrightglow02.nif, 'BrightGlowRight:0' has NiStencilProperty + NiAlphaProperty flags=4109/thresh=0; SD-05).",
+          "expected": "Resolve exact NiStencilProperty item indices (0=flags, 1=ref, 2=mask, 3/OOB/-1), SetStencilPropertyValue return value & readback, and missing block return.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"AAE4D\"",
+            "ref rFf = Player.PlaceAtMe rBase 1 0 0",
+            "Player.AuxVarSetRef \"*w6d3_04_ff\" rFf"
+          ],
+          "wait_ticks_after": 4,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rFf = Player.AuxVarGetRef \"*w6d3_04_ff\"",
+                "int st0 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 0",
+                "int st1 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 1",
+                "int st2 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 2",
+                "int st3 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 3",
+                "int stNeg = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" -1",
+                "int stMiss = rFf.GetStencilPropertyValue \"W6D3_NoSuchBlock\" 0",
+                "int al0 = rFf.GetAlphaPropertyValue \"BrightGlowRight:0\" 0",
+                "int al1 = rFf.GetAlphaPropertyValue \"BrightGlowRight:0\" 1",
+                "int set1 = rFf.SetStencilPropertyValue \"BrightGlowRight:0\" 1 7",
+                "int st1After = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 1",
+                "int setMiss = rFf.SetStencilPropertyValue \"W6D3_NoSuchBlock\" 0 1",
+                "rFf.Disable 0",
+                "rFf.MarkForDelete",
+                "PrintToConsole \"PROBE|w6d3_04_stencil_property_live_nif_items|st=%g,%g,%g,%g,%g|miss=%g|al=%g,%g|set1=%g->%g,sMiss=%g\" st0 st1 st2 st3 stNeg stMiss al0 al1 set1 st1After setMiss"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d3p2_04b_stencil_property_all_items",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
+          "spec_line": 32,
+          "functions_tested": [
+            "GetStencilPropertyValue",
+            "SetStencilPropertyValue"
+          ],
+          "claim": "Map all GetStencilPropertyValue item IDs 0..8 on placed ForceFieldRightGlow02 'BrightGlowRight:0' and test SetStencilPropertyValue readback.",
+          "expected": "Determine exact NiStencilProperty item ID mapping for items 0..8.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"AAE4D\"",
+            "ref rFf = Player.PlaceAtMe rBase 1 0 0",
+            "Player.AuxVarSetRef \"*w6d3p2_04b_ff\" rFf"
+          ],
+          "wait_ticks_after": 4,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rFf = Player.AuxVarGetRef \"*w6d3p2_04b_ff\"",
+                "float fS0 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 0",
+                "float fS1 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 1",
+                "float fS2 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 2",
+                "float fS3 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 3",
+                "float fS4 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 4",
+                "float fS5 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 5",
+                "float fS6 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 6",
+                "float fS7 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 7",
+                "float fS8 = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 8",
+                "int iSet2 = rFf.SetStencilPropertyValue \"BrightGlowRight:0\" 2 7",
+                "float fS2A = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 2",
+                "int iSet7 = rFf.SetStencilPropertyValue \"BrightGlowRight:0\" 7 2",
+                "float fS7A = rFf.GetStencilPropertyValue \"BrightGlowRight:0\" 7",
+                "rFf.Disable 0",
+                "rFf.MarkForDelete",
+                "PrintToConsole \"PROBE|w6d3p2_04b_stencil_property_all_items|get=%g,%g,%g,%g,%g,%g,%g,%g,%g|s2=%g->%g|s7=%g->%g\" fS0 fS1 fS2 fS3 fS4 fS5 fS6 fS7 fS8 iSet2 fS2A iSet7 fS7A"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

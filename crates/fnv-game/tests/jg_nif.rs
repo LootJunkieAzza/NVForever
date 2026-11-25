@@ -126,15 +126,31 @@ fn particles_properties_and_switches() {
     let edits = g.scene.take_edits();
     assert!(edits.contains(&SceneEdit::Particle { r: P, node: "ParticleEmitter".into(), id: 20, v: 1000.0 }));
     // The properties: read, set, kept over the next tree the engine tells, and queued for the engine.
+    // Glass has NiStencilProperty flags=19840 (0x4D80: enable=0, drawMode=3, fail=0, zFail=0, pass=3, testFunc=4), ref=0, mask=0xFFFFFFFF.
     g.scene.take_edits();
     assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1"), 128.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 0"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 1"), 3.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 2"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 3"), f64::from(4_294_967_295.0f32));
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 4"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 5"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 6"), 3.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 7"), 4.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 8"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 1 64"), 1.0);
-    assert_eq!(n(&mut g, "PlayerREF.SetStencilPropertyValue \"Glass\" 1 3"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetStencilPropertyValue \"Glass\" 1 7"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetStencilPropertyValue \"Glass\" 8 1"), 0.0);
     let prop_edits = g.scene.take_edits();
     assert!(prop_edits.contains(&SceneEdit::AlphaProperty { r: P, node: "Glass".into(), item: 1, v: 64.0 }));
-    assert!(prop_edits.contains(&SceneEdit::StencilProperty { r: P, node: "Glass".into(), item: 1, v: 3.0 }));
+    assert!(prop_edits.contains(&SceneEdit::StencilProperty { r: P, node: "Glass".into(), item: 1, v: 7.0 }));
     g.scene.set_tree(P, tree());
+    // drawMode masks 7 & 3 == 3; ref (item 2) and testFunc (item 7) round-trip (w6d3_04 / w6d3p2_04b).
     assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1") * 10.0 + n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 1"), 643.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetStencilPropertyValue \"Glass\" 2 7"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 2"), 7.0);
+    assert_eq!(n(&mut g, "PlayerREF.SetStencilPropertyValue \"Glass\" 7 2"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 7"), 2.0);
     // The switch shows its second child alone.
     q(&mut g, "PlayerREF.SetSwitchNodeIndex \"Switch\" 1");
     let flags: Vec<(String, usize, u32)> = g.scene.take_edits().into_iter().filter_map(|e| match e {

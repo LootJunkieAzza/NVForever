@@ -559,7 +559,7 @@ fn pre_is_overlay_spawns_transforms_overrides_materials_and_removes() {
         1.0
     );
 
-    // Apply transform + material alpha + NiAlphaProperty (blend=4845) + NiStencilProperty (DRAW_BOTH=3<<10) in one frame.
+    // Apply transform + material alpha + NiAlphaProperty (blend=4845) + NiStencilProperty (item 1 drawMode=3 DRAW_BOTH) in one frame.
     eval(
         &mut app,
         "ref rCam\n\
@@ -567,7 +567,7 @@ fn pre_is_overlay_spawns_transforms_overrides_materials_and_removes() {
          rCam.SetNifTrans \"OverlayNode\" 0 7.5 0 2\n\
          rCam.SetMatrPropVal \"OverlayShape\" 7 0.35\n\
          rCam.SetAlphaPropertyValue \"OverlayShape\" 0 4845\n\
-         rCam.SetStencilPropertyValue \"OverlayShape\" 0 3072",
+         rCam.SetStencilPropertyValue \"OverlayShape\" 1 3",
     );
     app.update();
 
@@ -632,9 +632,9 @@ fn pre_is_overlay_spawns_transforms_overrides_materials_and_removes() {
     assert_eq!(
         num(
             &mut app,
-            "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (rCam.GetStencilPropertyValue \"OverlayShape\" 0)"
+            "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (rCam.GetStencilPropertyValue \"OverlayShape\" 1)"
         ),
-        3072.0
+        3.0
     );
 
     // Removing the attachment (mode 2) despawns its entities and clears ModelHasBlock.
@@ -1083,14 +1083,14 @@ fn stencil_draw_modes_match_at_spawn_and_after_set_stencil_property_value() {
             "spawn-time NiStencilProperty draw mode {mode} (flags {flags:#x}) must match unified mapping"
         );
 
-        // Setting the exact same flags through SetStencilPropertyValue must yield the exact
+        // Setting the exact same draw mode (item 1) through SetStencilPropertyValue must yield the exact
         // same material double_sided / cull_mode as at spawn.
         eval(
             &mut app,
             &format!(
                 "ref rCam\n\
                  let rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\n\
-                 rCam.SetStencilPropertyValue \"OverlayShape\" 0 {flags}"
+                 rCam.SetStencilPropertyValue \"OverlayShape\" 1 {mode}"
             ),
         );
         app.update();

@@ -130,7 +130,8 @@ pub enum SceneEdit {
     /// One NiAlphaProperty value of a shape (`item`: 0 flags, 1 threshold;
     /// JohnnyGuitar's SetAlphaPropertyValue, `crate::nvse_jg_nif`).
     AlphaProperty { r: FormId, node: String, item: usize, v: f32 },
-    /// One NiStencilProperty value of a shape (`item`: 0 flags, 1 reference, 2 mask;
+    /// One NiStencilProperty value of a shape (`item`: 0 enable, 1 drawMode,
+    /// 2 ref, 3 mask, 4 failAction, 5 zFailAction, 6 passAction, 7 testFunc;
     /// JohnnyGuitar's SetStencilPropertyValue, `crate::nvse_jg_nif`).
     StencilProperty { r: FormId, node: String, item: usize, v: f32 },
     /// A particle system's value by GetNiPSysModifierValue's IDs, 20 the spawn rate
@@ -529,12 +530,55 @@ impl Game<'_> {
     }
 }
 
+/// Reads one JohnnyGuitar `GetStencilPropertyValue` item (`0..=7`) from packed
+/// `NiStencilProperty` `[flags, reference, mask]` [observed: `w6d3_04`, `w6d3p2_04b`]:
+/// `0` enable (`flags & 1`), `1` drawMode (`(flags >> 10) & 3`), `2` ref, `3` mask,
+/// `4` failAction (`(flags >> 1) & 7`), `5` zFailAction (`(flags >> 4) & 7`),
+/// `6` passAction (`(flags >> 7) & 7`), `7` testFunc (`(flags >> 12) & 0xF`);
+/// `None` for `item >= 8`.
+pub fn stencil_item_get(s: [f32; 3], item: usize) -> Option<f32> {
+    let flags = s[0].trunc() as i64 as u32;
+    match item {
+        0 => Some((flags & 1) as f32),
+        1 => Some(((flags >> 10) & 3) as f32),
+        2 => Some(s[1]),
+        3 => Some(s[2]),
+        4 => Some(((flags >> 1) & 7) as f32),
+        5 => Some(((flags >> 4) & 7) as f32),
+        6 => Some(((flags >> 7) & 7) as f32),
+        7 => Some(((flags >> 12) & 0xF) as f32),
+        _ => None,
+    }
+}
+
+/// Writes one JohnnyGuitar `SetStencilPropertyValue` item (`0..=7`) into packed
+/// `NiStencilProperty` `[flags, reference, mask]`, masking each bitfield to its width;
+/// `false` for `item >= 8` [observed: `w6d3_04`, `w6d3p2_04b`].
+pub fn stencil_item_set(s: &mut [f32; 3], item: usize, v: f32) -> bool {
+    let raw = v.trunc() as i64 as u32;
+    let flags = s[0].trunc() as i64 as u32;
+    match item {
+        0 => s[0] = ((flags & !1) | (raw & 1)) as f32,
+        1 => s[0] = ((flags & !(3 << 10)) | ((raw & 3) << 10)) as f32,
+        2 => s[1] = raw as f32,
+        3 => s[2] = raw as f32,
+        4 => s[0] = ((flags & !(7 << 1)) | ((raw & 7) << 1)) as f32,
+        5 => s[0] = ((flags & !(7 << 4)) | ((raw & 7) << 4)) as f32,
+        6 => s[0] = ((flags & !(7 << 7)) | ((raw & 7) << 7)) as f32,
+        7 => s[0] = ((flags & !(0xF << 12)) | ((raw & 0xF) << 12)) as f32,
+        _ => return false,
+    }
+    true
+}
+
 /// Puts an alpha or stencil property value on a node; false when it has no such property
 /// or item.
 fn lay_prop(n: &mut SceneNode, alpha: bool, item: usize, v: f32) -> bool {
     let Some(info) = n.info.as_deref_mut() else { return false };
-    let slot = if alpha { info.alpha.as_mut().map(|a| a.as_mut_slice()) } else { info.stencil.as_mut().map(|s| s.as_mut_slice()) };
-    match slot.and_then(|s| s.get_mut(item)) {
+    if !alpha {
+        return info.stencil.as_mut().is_some_and(|s| stencil_item_set(s, item, v));
+    }
+    match info.alpha.as_mut().and_then(|a| a.get_mut(item)) {
         Some(x) => {
             *x = v;
             true

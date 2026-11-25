@@ -840,14 +840,14 @@ fn mirror_game(
             }
             // Live NiStencilProperty override (JohnnyGuitar's SetStencilPropertyValue):
             // updates the drawn shape's private NifMaterial `double_sided` / `cull_mode`
-            // when flags (item 0) change; reference/mask (items 1-2) stay mirrored.
+            // when drawMode (item 1) changes; other items (0, 2..=7) stay mirrored.
             SceneEdit::StencilProperty { node, item, v, .. } => {
-                if item >= 3 { continue; }
+                if item >= 8 { continue; }
                 let attached = entity.and_then(|e| nodes.get(e).ok()).and_then(|n| n.5).cloned();
                 let vals = if let Some(attached) = attached {
                     let Some(initial) = attached.source.stencil else { continue };
                     let values = attachment_stencil.entry(entity.expect("attached entity")).or_insert(initial);
-                    values[item] = v;
+                    if !fnv_game::nif_blocks::stencil_item_set(values, item, v) { continue; }
                     *values
                 } else {
                     if view == ModelView::FirstPerson { continue; }
@@ -857,10 +857,10 @@ fn mirror_game(
                     let base = node.split(':').next().unwrap_or(&node);
                     let Some(start) = table.get(&node).or_else(|| table.get(base)).and_then(|p| p.1) else { continue };
                     let vals = stencil_props.entry((r.0, view, node.clone())).or_insert(start);
-                    vals[item] = v;
+                    if !fnv_game::nif_blocks::stencil_item_set(vals, item, v) { continue; }
                     *vals
                 };
-                if item == 0 {
+                if item == 1 {
                     if let Some(e) = entity {
                         mutate_shape_material(e, &drawn, assets.as_deref_mut(), owned, &mut made_now, &mut commands, |m| {
                             set_stencil_property(m, &vals);
