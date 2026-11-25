@@ -40,6 +40,10 @@ fn json_num(v: Option<&Json>) -> f64 {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d12_bptd_ragdoll_tests.rs"]
+mod w6d12_bptd_ragdoll_tests;
+
 /// A body part's numeric trait 0-18 [documented: GetBodyPartTraitNumeric's table]: the
 /// BPND field.
 const PART_NUMERIC: [&str; 19] = [
@@ -121,7 +125,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }),
         "setbodypartdataragdoll" => {
             if let Some(b) = of_sig(g, form(args, 0), b"BPTD") {
-                g.field_overrides.insert((b, "RAGA/".into()), XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
+                if args.len() < 2 {
+                    g.field_overrides.insert((b, "RAGA/".into()), XVal::Ref(0));
+                } else if let Some(r) = of_sig(g, form(args, 1), b"RGDL") {
+                    g.field_overrides.insert((b, "RAGA/".into()), XVal::Ref(r.0));
+                }
             }
             zero
         }

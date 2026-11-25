@@ -17,7 +17,7 @@ has that part type (0 torso, 1-2 head, 3-6 arms, 7-12 legs, 13 brain, 14 weapon)
 | Function | NVForever |
 |---|---|
 | GetBodyPartDataHasPart `bpd part` | a group of that part type [observed: NVGecko, every ID 0-15] |
-| Get/SetBodyPartDataRagdoll `bpd [ragdoll]` | RAGA |
+| Get/SetBodyPartDataRagdoll `bpd [ragdoll]` | RAGA; setter requires `RGDL`, leaves `RAGA` unchanged on non-`RGDL` or explicit `0`, and clears to `0` when omitted [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_30_bptd_haspart_ragdoll_skeleton_and_setbodypartdata` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `has(mask=1195,m1=0,p15=0,ca=0)|raga(0=000658D6,1=000658D0,bad=000658D0,nul=000658D0,om=00000000)|skel(len0=29,eq=1)|crea(0=0005144E,1=0002931E,bad=0002931E)`; no DLL or source consulted] |
 | Get/SetBodyPartDataSkeleton `bpd [path]` | MODL |
 | Get/SetBodyPartTraitNumeric `bpd part trait [value]` | BPND: 0 actor value, 1 damage mult, 2 health percent, 3 to-hit chance, 4 tracking max angle, 5-7 severable debris count / scale / decal count, 8 explosion chance, 9 limb replacement scale, 10-12 explodable debris count / scale / decal count, 13-15 the gore effects' translation, 16-18 their rotation [documented: the page's table; observed: NVGecko's head, traits 0-18, and 19 past the table reading 0] |
 | Get/SetBodyPartTraitForm `bpd part trait [form]` | BPND: 0-1 severable and explodable explosion, 2-3 their debris, 4-5 their impact data set [documented; observed] |
