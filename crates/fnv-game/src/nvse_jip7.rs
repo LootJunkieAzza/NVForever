@@ -1214,7 +1214,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `ammo [projectile]`: omitting the 2nd argument clears to 0; passing an explicit
         // null ref (0) is a no-op leaving the current projectile unchanged [observed:
         // w4g_11_ammo_clear_and_proj_delete, tools/capture/nvse/catalogs/wave4g_f2_extenders.json].
-        // A non-null 2nd argument must be a PROJ (following TempCloneForm clones) [hypothesis].
+        // Non-PROJ forms are rejected as no-ops [observed: w6d2_11_ammo_proj_expl_clone_and_edges,
+        // tools/capture/nvse/catalogs/wave6d2_ammo_proj_ref_setters_null_noop.json]; accepting
+        // TempCloneForm PROJ clones via `unclone` is [design].
         "setammoprojectile" => {
             if let Some(a) = ammo(g, form(args, 0)) {
                 if args.len() < 2 {

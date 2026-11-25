@@ -366,3 +366,35 @@ fn set_ammo_projectile_explicit_null_is_noop_and_omitted_arg_clears() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetAmmoProjectile OwnedAmmoA)"), XVal::Ref(0));
     assert_eq!(g.ammo_traits(FormId(AMMO_A)).unwrap().projectile, None);
 }
+
+#[test]
+fn set_ammo_casing_explicit_null_is_noop_and_omitted_arg_clears() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Baseline: OwnedAmmoA has authored casing OwnedCasingA.
+    assert_eq!(q(&mut g, "SetFunctionValue (GetAmmoCasing OwnedAmmoA)"), XVal::Ref(CASING_A));
+    assert_eq!(g.ammo_traits(FormId(AMMO_A)).unwrap().casing, Some(FormId(CASING_A)));
+
+    // Explicit null ref (rNull = 0) and direct host Ref(0)/Num(0.0) are no-ops
+    // [observed: w6d2_11_ammo_proj_expl_clone_and_edges].
+    q(&mut g, "ref rNull\nlet rNull := 0\nSetAmmoCasing OwnedAmmoA rNull");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetAmmoCasing OwnedAmmoA)"), XVal::Ref(CASING_A));
+    assert_eq!(g.ammo_traits(FormId(AMMO_A)).unwrap().casing, Some(FormId(CASING_A)));
+    fnv_game::nvse::call(&mut g, &RunCtx::default(), "setammocasing", None, &[XVal::Ref(AMMO_A), XVal::Ref(0)]).unwrap().unwrap();
+    fnv_game::nvse::call(&mut g, &RunCtx::default(), "setammocasing", None, &[XVal::Ref(AMMO_A), XVal::Num(0.0)]).unwrap().unwrap();
+    assert_eq!(g.ammo_traits(FormId(AMMO_A)).unwrap().casing, Some(FormId(CASING_A)));
+
+    // Omitting the optional 2nd argument clears the casing to 0.
+    q(&mut g, "SetAmmoCasing OwnedAmmoA");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetAmmoCasing OwnedAmmoA)"), XVal::Ref(0));
+    assert_eq!(g.ammo_traits(FormId(AMMO_A)).unwrap().casing, None);
+
+    // After setting a session casing (OwnedCasingB), explicit null ref leaves it intact and omit clears.
+    q(&mut g, "SetAmmoCasing OwnedAmmoA OwnedCasingB\nref rNull\nlet rNull := 0\nSetAmmoCasing OwnedAmmoA rNull");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetAmmoCasing OwnedAmmoA)"), XVal::Ref(CASING_B));
+    assert_eq!(g.ammo_traits(FormId(AMMO_A)).unwrap().casing, Some(FormId(CASING_B)));
+    q(&mut g, "SetAmmoCasing OwnedAmmoA");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetAmmoCasing OwnedAmmoA)"), XVal::Ref(0));
+    assert_eq!(g.ammo_traits(FormId(AMMO_A)).unwrap().casing, None);
+}
