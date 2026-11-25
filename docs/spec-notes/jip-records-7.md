@@ -64,6 +64,7 @@ readers through these views).
 | SetImpactDataTraitNumeric `ipct trait value` | the same without the forms: 0-4, 5-12 the decal data, 13 the flags, 14 the colour [documented] |
 | SetImpactDataTraitForm `ipct trait form` | 0 texture set, 1 sound 1, 2 sound 2 [documented]; a form of the wrong type (a creature for a sound) sets none [observed: jip7 ipct.setform.sound1] |
 | SetImpactDataSet `weapon dataset` | WEAP INAM |
+| Get/SetImpactDataSetForm `dataset material [impact]` | IPDS DATA slot 0–11; setter requires an `IPDS` target and `IPCT` impact form, leaves the slot unchanged on non-`IPCT` or explicit `0`, and clears to `0` when omitted [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_34_impact_dataset_form_model_and_trait_setters` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `ipds(0=00019079->0006C666,bad=0006C666,nul=0006C666,om=00000000,m11=000A18F0,m12=00000000,mM1=00000000)|mod(len0=29,eq=1)|it(0=0.03->2.50,tx=00000000->0000444F/b=00000000,sn=0005FD18->0000012C/b=00000000)`; no DLL or source consulted] |
 | Get/SetImpactMaterialType `[material] [baseActor]` | NAM4 of the NPC or creature, 0-11 [documented: the table]; a number past 11 is not set |
 
 The flags combine two records' bits: 1 No Decal Data is DATA's flag bit 0, 2 Parallax, 4

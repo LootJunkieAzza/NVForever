@@ -461,6 +461,10 @@ fn run_snippet(g: &mut Game, src: &str, on: FormId) {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d12_ipds_form_tests.rs"]
+mod w6d12_ipds_form_tests;
+
 /// IPDS DATA's materials in GetImpactDataSetForm's order [observed: gaps10, the 40mm
 /// grenade's set: 0–2 stone, dirt, grass, 4 metal, 8 water, 9 hollow metal; 10 and 11
 /// none on it].
@@ -1562,7 +1566,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let f = form(args, 0).unwrap_or(FormId(0));
             let Some(m) = IMPACT_MATERIALS.get(num(args, 1, -1.0).max(-1.0) as usize).filter(|_| num(args, 1, -1.0) >= 0.0) else { return Some(Ok(XVal::Ref(0))) };
             if name == "setimpactdatasetform" {
-                g.field_overrides.insert((f, format!("DATA/{m}")), XVal::Ref(form(args, 2).map_or(0, |x| x.0)));
+                if g.data.sig(g.unclone(f)) == Some(*b"IPDS") {
+                    if args.len() < 3 {
+                        g.field_overrides.insert((f, format!("DATA/{m}")), XVal::Ref(0));
+                    } else if let Some(x) = form(args, 2).filter(|&x| g.data.sig(g.unclone(x)) == Some(*b"IPCT")) {
+                        g.field_overrides.insert((f, format!("DATA/{m}")), XVal::Ref(x.0));
+                    }
+                }
                 return Some(Ok(zero));
             }
             match crate::nvse::record_value(g, f, "DATA", m) {
