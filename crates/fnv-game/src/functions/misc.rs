@@ -245,20 +245,21 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// `speaker.SayTo target topic [forceSubtitleFlag] [noTargetLookFlag]`: the speaker
 /// says the topic's first line it can say to the target (`Game::say`,
 /// docs/spec-notes/scripts.md §7.7). The two turn to each other while it is said
-/// (`Game::facings`). With `noTargetLookFlag` 1 nobody turns, body or head
-/// (`LineLook::Nobody`): the target is not made to look at the speaker [documented: GECK
-/// wiki SayTo, owner export: "Joe is not forced to look at the speaker"] and the speaker
-/// does not turn to the target either [hypothesis, observer check 218, #2796: the name
-/// reads as "no look at the target", and 22 shipped calls pass it with the player as
-/// target, where the wiki's reading alone would do nothing; Curtis's radio call in the
-/// McCarran tower needs him to keep his back to the player]. The subtitle flag shows the
-/// subtitle even out of hearing, as Say's ForceSubtitles.
+/// (`Game::facings`). With `noTargetLookFlag` 1 the target is not made to look at the
+/// speaker [documented: GECK wiki SayTo, owner export: "Joe is not forced to look at the
+/// speaker"], and the speaker still turns to the target (`LineLook::Speaker`) [observed:
+/// observer check 218, base game 2026-11-25: a standing Ringo turned his body to the
+/// player in about 0.8 s with flag 1 as with flag 0, 3 of 3 and 2 of 2 runs; walking on
+/// his package he turned with neither; #3989]. Curtis keeping his back to the player for
+/// his radio call in the McCarran tower (#2796) is then his package's or idle's, not the
+/// flag's (still open in the check). The subtitle flag shows the subtitle even out of
+/// hearing, as Say's ForceSubtitles.
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
     if g.say_by_script(speaker, Some(target), topic, true).is_some() {
         if a.num_or(3, 0.0) != 0.0 {
-            g.set_line_look(speaker, LineLook::Nobody);
+            g.set_line_look(speaker, LineLook::Speaker);
         }
         // forceSubtitleFlag as Say's ForceSubtitles (207 shipped calls pass 1).
         g.set_line_flags(speaker, a.num_or(2, 0.0) != 0.0, false);
