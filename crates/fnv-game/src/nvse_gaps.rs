@@ -1195,7 +1195,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let refs = refs.into_iter().map(|r| XVal::Ref(r.0)).collect();
             list(g, refs)
         }
-        "isincombatwith" => yes(subject.zip(form(args, 0)).is_some_and(|(a, t)| g.combat_target_of(a) == Some(t))),
+        // True for any active combat target of `a`, not only its primary target
+        // [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+        // w6d8p2_19_combat_multi_target_active: wB=1 wC=1 priB=1 priC=0 tgtSz=2].
+        "isincombatwith" => yes(subject.zip(form(args, 0)).is_some_and(|(a, t)| {
+            g.combat_target_of(a) == Some(t)
+                || g.awareness.get(a).is_some_and(|x| x.state.in_combat() && x.targets.contains_key(&t))
+        })),
         "setactorgravitymult" => {
             if let Some(r) = subject {
                 g.gaps.gravity.insert(r, num(args, 0, 1.0));
@@ -2023,3 +2029,7 @@ mod tests {
         assert_eq!(gaps.take_player_equipped_model_reload(), EQUIP_SLOT_WEAPON_BIT);
     }
 }
+
+#[cfg(test)]
+#[path = "w6d8_isincombatwith_tests.rs"]
+mod w6d8_isincombatwith_tests;
