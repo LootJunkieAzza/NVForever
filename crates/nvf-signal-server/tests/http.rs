@@ -93,6 +93,29 @@ fn a_join_through_the_server() {
 }
 
 #[test]
+fn browse_and_report_over_http() {
+    let server = Server::start("127.0.0.1:0".parse().unwrap(), deployment_config(0, vec![])).unwrap();
+    let at = server.addr;
+    let key = format!("{:02x}", 7).repeat(32);
+    let create = serde_json::json!({"wire":2,"protocol":139,"build":"0.8.1","load_order_hash":"abc","max_players":4,"host_key":key,"name":"Courier",
+        "listing":{"public":true,"title":"Strip run","place":"The Strip","friendly_fire":false,"plugins":3,"locked":false}});
+    let lobby = json(&http(at, "POST", "/v1/lobbies", &create.to_string()).1);
+    let code = lobby["code"].as_str().unwrap().to_string();
+    // Listed once its host is connected.
+    assert_eq!(json(&http(at, "GET", "/v1/browse", "").1)["total"], 0);
+    let mut host = ws(at, &code);
+    send(&mut host, serde_json::json!({"type":"host","wire":2,"host_secret":lobby["host_secret"]}));
+    assert_eq!(next(&mut host)["type"], "hosting");
+    let (status, body) = http(at, "GET", "/v1/browse?q=strip%20run&protocol=139", "");
+    assert_eq!(status, 200, "{body}");
+    let b = json(&body);
+    assert_eq!((b["total"].as_u64(), b["lobbies"][0]["code"].as_str(), b["lobbies"][0]["host_fp"].as_str()), (Some(1), Some(code.as_str()), Some(&key[..16])));
+    assert_eq!(json(&http(at, "GET", "/v1/browse?protocol=1", "").1)["total"], 0);
+    assert_eq!(http(at, "POST", &format!("/v1/lobbies/{code}/report"), "{}"), (200, r#"{"ok":true}"#.to_string()));
+    assert_eq!(http(at, "POST", "/v1/lobbies/ZZZZZZ/report", "{}").0, 404);
+}
+
+#[test]
 fn deployment_secrets_come_from_the_os() {
     let a = nvf_signal_server::os_random();
     let b = nvf_signal_server::os_random();

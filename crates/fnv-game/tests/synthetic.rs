@@ -2727,7 +2727,7 @@ fn player_limb_losses_fit_the_10mm_capture_at_200_maximum_health() {
     let f = fixture();
     let p = FormId::PLAYER_REF;
     // [observed: o17_air limbs_10mm, check 3] The losses below; maximum Health 200
-    // remains [hypothesis], since that run did not record its base Health.
+    // remains open (see docs/spec-notes/combat-rules.md), since that run did not record its base Health.
     for (condition, share, health_damage, limb_damage, loss) in [
         (LEFT_ARM, 25.0, 16.06, 16.06, 16.06),
         (RIGHT_ARM, 25.0, 16.06, 16.06, 16.06),
@@ -2780,7 +2780,7 @@ fn limb_hits_lower_conditions_and_cripple() {
 /// torso's and the legs' condition points lost) the torso loses 1/30 of the Health
 /// damage and the legs 0.24 together, the head, arms and brain nothing [observed];
 /// nothing on a dead actor. The points come straight off the condition, whatever the
-/// actor's maximum Health [hypothesis: measured only at 5000 Health, on an NPC].
+/// actor's maximum Health (see docs/spec-notes/combat-rules.md; measured at 5000 Health, on an NPC).
 #[test]
 fn blasts_take_the_measured_limb_shares() {
     use fnv_game::combat::{blast_limb_shares, HEAD, LEFT_ARM, LEFT_MOBILITY, RIGHT_ARM, RIGHT_MOBILITY, TORSO};
@@ -2802,7 +2802,7 @@ fn blasts_take_the_measured_limb_shares() {
             assert_eq!(lost(c), 0.0, "{c} for {health}");
             assert!(!g.is_crippled(npc, c));
         }
-        // The left leg takes two thirds of the legs' share [hypothesis].
+        // The left leg takes two thirds of the legs' share (see docs/spec-notes/combat-rules.md).
         assert!((lost(LEFT_MOBILITY) - 2.0 * lost(RIGHT_MOBILITY)).abs() < 1e-9);
     }
     // A blast big enough cripples the left leg first; never an arm or the head.
@@ -3919,7 +3919,7 @@ fn activator_reads_button(g: &mut Game) -> Value {
 
 /// #2925: the Broken Mr. Handy in Black Mountain waits for button 0 after a box with no
 /// buttons. The player's OK on such a box gives the script that showed it 0, once, then
-/// −1 [hypothesis: inferred from SCPT 0x000E9483]; before, the box had no `message_box`
+/// −1 (inferred from SCPT 0x000E9483; see docs/spec-notes/scripts.md); before, the box had no `message_box`
 /// and GetButtonPressed read −1 for good.
 #[test]
 fn ok_on_a_message_box_without_buttons_gives_its_script_button_0_once() {
@@ -4677,7 +4677,7 @@ fn generic_form_lists_validate_target_type_and_past_end_index() {
     assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, 999)"), XVal::Ref(0));
     // Delete: -1, -2, -3 each remove an entry on a non-empty list (returning non-zero and
     // decrementing count 4->3->2->1; [observed: w4d_04_generic_form_neg_idx]); removing
-    // index 0 (head of the list: 0x811, 0x812, 0x813) is [hypothesis]. OOB 999 returns 0.
+    // index 0 (head of the list: 0x811, 0x812, 0x813; see docs/spec-notes/ext-console-generic.md §3 and crates/fnv-game/src/nvse_lists.rs). OOB 999 returns 0.
     assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, -1)"), XVal::Ref(0x0000_0811));
     assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, -2)"), XVal::Ref(0x0000_0812));

@@ -2348,6 +2348,10 @@ fn a_load_clears_every_actors_furniture_use() {
     assert_eq!(call(&mut h, 0x109F, Some(ADULT_REF), &[]), 0.0, "GetSitting after the load");
     assert!(!h.furniture_used_by_other(FormId::PLAYER_REF, chair), "the chair is free");
     assert!(h.extra[&npc].ai_off, "the actor's other saved state stays");
+    // #3991: the NPC's seat is kept for the engine to put it back on at once; the
+    // player's is not (#1573), nor a seat being got on or off.
+    assert_eq!(h.take_saved_seats().into_iter().collect::<Vec<_>>(), vec![(npc, chair)]);
+    assert!(h.take_saved_seats().is_empty(), "taken once");
     // The engine seats it again and says so: GetSitting follows.
     h.set_furniture_use(npc, Some(seated));
     assert_eq!(call(&mut h, 0x109F, Some(ADULT_REF), &[]), 3.0);
