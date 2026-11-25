@@ -751,7 +751,9 @@ impl Online {
                         }
                     }
                     if failed {
-                        p.agent = None;
+                        if let Some(line) = p.agent.take().and_then(|a| a.punch_summary()) {
+                            self.events.push(OnlineEvent::Note(format!("guest {peer}: {line}")));
+                        }
                         let kinds: Vec<String> = p.remotes.iter().map(|c| format!("{:?}", c.kind)).collect();
                         self.events.push(OnlineEvent::Note(format!("guest {peer}: the checks found no direct path ({} candidates: {}); it may come through another player", p.remotes.len(), kinds.join(", "))));
                     }
@@ -805,7 +807,9 @@ impl Online {
                     }
                 }
                 if done {
-                    *agent = None;
+                    if let Some(line) = agent.take().and_then(|a| a.punch_summary()) {
+                        self.events.push(OnlineEvent::Note(line));
+                    }
                 }
             }
             Side::Guest { .. } => {}
@@ -1037,7 +1041,12 @@ impl Online {
         match &mut self.side {
             Side::Host { peers, .. } => {
                 for (&peer, p) in peers.iter_mut().filter(|(_, p)| p.key == *key) {
-                    if p.agent.take().is_some_and(|a| !a.extra_sockets().is_empty()) {
+                    let Some(a) = p.agent.take() else { continue };
+                    // The host's checks end here (it never selects): what its punch did.
+                    if let Some(line) = a.punch_summary() {
+                        self.events.push(OnlineEvent::Note(format!("guest {peer}: {line}")));
+                    }
+                    if !a.extra_sockets().is_empty() {
                         self.socket_asks.push(SocketAsk::Close { owner: peer, keep: None });
                     }
                 }
