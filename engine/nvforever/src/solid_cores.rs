@@ -195,9 +195,9 @@ pub struct SolidCores {
     /// Materials whose outline changed while watched: no core as long as they are in the
     /// store, whatever wears them and however often the light is switched.
     animated: HashSet<AssetId<NifMaterial>>,
-    /// Materials that were watched and turned out to be (or became) none that can have a core: their
-    /// wearers are watched no more, and looked for again should another material come under the id.
-    dropped: HashSet<AssetId<NifMaterial>>,
+    /// Materials that can have a core and whose wearers have been looked for since they came to be
+    /// such: another material under an id changes nothing on the meshes that wear it.
+    sought: HashSet<AssetId<NifMaterial>>,
     /// Whether a texture has a solid texel, by the path the material names.
     verdicts: HashMap<String, SolidTexels>,
     /// Textures being read for it.
@@ -484,26 +484,25 @@ fn follow(
         changed_sources.extend(st.sources.keys().copied());
     }
     let events: Vec<AssetEvent<NifMaterial>> = events.read().cloned().collect();
-    // Another material, one that can have a core, came under a dropped one's id: its wearers,
-    // which nothing else changed, are found again.
-    if !st.dropped.is_empty() {
-        let mut back = false;
-        for event in &events {
-            match event {
-                AssetEvent::Added { id } | AssetEvent::Modified { id } if st.dropped.contains(id) && materials.get(*id).is_some_and(|m| m.extension.solid_core.is_some()) => {
-                    st.dropped.remove(id);
-                    back = true;
+    // A material that nothing watched came to be one that can have a core (put in anew, or another
+    // under its id): its wearers, which nothing else changed, are looked for, once.
+    let mut seek = false;
+    for event in &events {
+        match event {
+            AssetEvent::Added { id } | AssetEvent::Modified { id } | AssetEvent::LoadedWithDependencies { id } => {
+                if materials.get(*id).is_none_or(|m| m.extension.solid_core.is_none()) {
+                    st.sought.remove(id);
+                } else if st.sought.insert(*id) {
+                    seek |= !st.sources.contains_key(id);
                 }
-                // Nothing wears it any more.
-                AssetEvent::Unused { id } => {
-                    st.dropped.remove(id);
-                }
-                _ => {}
+            }
+            AssetEvent::Removed { id } | AssetEvent::Unused { id } => {
+                st.sought.remove(id);
             }
         }
-        if back {
-            look.extend(all.iter());
-        }
+    }
+    if seek {
+        look.extend(all.iter());
     }
     for &e in look.iter() {
         let source = shapes.get(e).ok().and_then(|(_, material, _, _, _, (clone, terrain), (skinned, morphs, cloaked))| {
@@ -514,14 +513,7 @@ fn follow(
                 .filter(|_| !parents.iter_ancestors(e).any(|a| rigs.contains(a)))
         });
         match source {
-            None => {
-                // Looked at for another change in the frame its material became one that can have
-                // no core: the material's own event finds no source any more.
-                if let Some(id) = st.watched.get(&e).map(|w| w.source).filter(|&id| materials.get(id).is_some_and(|m| m.extension.solid_core.is_none())) {
-                    st.dropped.insert(id);
-                }
-                st.leave(e, &mut commands);
-            }
+            None => st.leave(e, &mut commands),
             Some(id) => {
                 if st.watch(e, id) {
                     changed_sources.insert(id);
@@ -621,7 +613,6 @@ fn follow(
         if !candidate {
             // Watched before its material was in the store, or another came under its id; it can
             // have no core.
-            st.dropped.insert(id);
             for e in source.users.iter().copied().collect::<Vec<_>>() {
                 st.leave(e, &mut commands);
             }
@@ -755,7 +746,7 @@ impl SolidCores {
         self.on = false;
         self.watched.clear();
         self.sources.clear();
-        self.dropped.clear();
+        self.sought.clear();
         self.asked.clear();
         self.count = 0;
         self.log = CountLog::default();
@@ -1146,7 +1137,7 @@ pub(crate) mod tests {
     /// One wearer that nothing else changes: a candidate, a material that can have no core and a
     /// nearly whole one, one after another under one id (in place, and with the id empty between).
     #[test]
-    fn another_material_under_a_dropped_ones_id_finds_its_wearers() {
+    fn another_material_under_an_id_finds_its_wearers() {
         for empty_between in [false, true] {
             let mut app = app(None);
             app.world_mut().resource_mut::<SolidCores>().verdicts.insert(TEXTURE.into(), SolidTexels::Whole);
@@ -1169,7 +1160,6 @@ pub(crate) mod tests {
             assert!(app.world().resource::<SolidCores>().watched.is_empty());
             put(&mut app, tank());
             assert_eq!(count(&mut app), 1, "empty between: {empty_between}");
-            assert!(app.world().resource::<SolidCores>().dropped.is_empty());
         }
     }
 
@@ -1201,6 +1191,32 @@ pub(crate) mod tests {
             app.update();
             app.update();
             assert_eq!(count(&mut app), 1, "empty between: {empty_between}");
+        }
+    }
+
+    /// A wearer whose material can have no core from the start, and later one that can under the
+    /// same id, the light off: looked for then, and not in every frame the material is edited.
+    #[test]
+    fn a_plain_material_replaced_by_a_candidate_finds_its_wearers() {
+        for empty_between in [false, true] {
+            let mut app = app(None);
+            app.world_mut().resource_mut::<SolidCores>().verdicts.insert(TEXTURE.into(), SolidTexels::Whole);
+            app.insert_resource(AirDraws(false)).insert_resource(AirOpen(false));
+            let m = add(&mut app, nif_material(StandardMaterial::default()));
+            place(&mut app, &m);
+            app.update();
+            app.update();
+            assert!(app.world().resource::<SolidCores>().watched.is_empty());
+            let mut all = app.world_mut().resource_mut::<Assets<NifMaterial>>();
+            if empty_between {
+                all.remove(m.id());
+            }
+            all.insert(m.id(), tank()).unwrap();
+            app.update();
+            app.update();
+            assert_eq!(count(&mut app), 1, "empty between: {empty_between}");
+            // And none is sought again for an edit of it.
+            assert!(app.world().resource::<SolidCores>().sought.contains(&m.id()));
         }
     }
 
