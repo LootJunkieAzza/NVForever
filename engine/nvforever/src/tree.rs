@@ -384,7 +384,12 @@ fn build(
     // A broken file (an error or a panic) draws the billboard instead.
     let (spt, g) = match nvf_assets::guard::guarded(|| {
         let spt = fnv_spt::Tree::parse(&bytes).map_err(|e| e.to_string())?;
-        let g = fnv_spt::generate(&spt);
+        let mut g = fnv_spt::generate(&spt);
+        // Physical lighting: the canopy's dome normals in place of the original-look rule
+        // (fnv_spt `canopy_normals`; speedtree.md §6).
+        if nvf_assets::authored::physical_pbr() {
+            fnv_spt::canopy_normals(&mut g.leaves);
+        }
         Ok((spt, g))
     }) {
         Ok(v) => v,
