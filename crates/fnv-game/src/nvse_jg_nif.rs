@@ -147,7 +147,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let on = subject.or(ctx.self_ref);
     let v = match name {
         // ---- distances to drawn nodes, in the world [documented: the pages]; 0 without
-        // the node or its reference's 3D [hypothesis].
+        // the node or its reference's 3D (see docs/spec-notes/ext-jg-nif-camera.md §1).
         "get3ddistancebetweenninodes" => {
             let (Some(a), Some(b)) = (form(args, 0), form(args, 1)) else { return Some(Ok(zero)) };
             match (crate::nif_blocks::node_world(g, a, &text(args, 2)), crate::nif_blocks::node_world(g, b, &text(args, 3))) {
@@ -162,7 +162,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // From where the last hit on the calling reference struck, as the engine tells it
         // (`RefExtra::hit_point`) [documented: in an OnHit block or the hit's event]; 0
-        // without one [hypothesis].
+        // without one (see docs/spec-notes/ext-jg-nif-camera.md §1).
         "get3ddistancefromhittoninode" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let Some(hit) = g.extra.get(&r).and_then(|e| e.hit_point) else { return Some(Ok(zero)) };
@@ -216,9 +216,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(f64::from(u8::from(ok)))
         }
         // ---- a shape's alpha and stencil properties: `block item [pc]`, item 0 the flags,
-        // 1 the threshold; 0 the flags, 1 the reference, 2 the mask [hypothesis: the pages
-        // are incomplete; the order of the properties' fields, nif.xml NiAlphaProperty,
-        // NiStencilProperty]. The setters keep the value for the session's reads and queue
+        // 1 the threshold; 0 the flags, 1 the reference, 2 the mask (see
+        // docs/spec-notes/ext-jg-nif-camera.md §1). The setters keep the value for the session's reads and queue
         // `SceneEdit::AlphaProperty` / `SceneEdit::StencilProperty` for the engine to apply
         // live to the drawn shape's material (`nvforever::nif_mirror`). 0 without one.
         "getalphapropertyvalue" | "getstencilpropertyvalue" => {
@@ -239,7 +238,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: "Sets the active index"]; the others are hidden by their flag
         // (bit 0), each child by its place under the switch, not by its name: a switch's
         // children are often unnamed or share names (#2017). An index past the children
-        // hides them all [hypothesis].
+        // hides them all (see docs/spec-notes/ext-jg-nif-camera.md §1).
         "setswitchnodeindex" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let k = num(args, 1, -1.0) as i64;
@@ -249,7 +248,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `sequence [block] [pc]`: a sequence of that name playing on the reference: its
         // body's clip or a sequence a script played (kNVSE's list, `Game::playing_sequences`),
         // by file name without the folder and extension, or its movement group
-        // [hypothesis: the page is incomplete; the clip's name is the sequence's].
+        // (see docs/spec-notes/ext-jg-nif-camera.md §1).
         "isnisequenceactive" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let want = text(args, 0);
@@ -316,7 +315,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `override axis angle [ref]`: the third-person camera's angle about axis 1 X, 2
         // Y, 3 Z in degrees, or cleared; with a reference the camera keeps looking at it
         // [documented: "Optionally tracks a reference"]. Clearing an axis clears the
-        // tracking [hypothesis].
+        // tracking (see docs/spec-notes/ext-jg-nif-camera.md §2).
         "setcamerarotate" => {
             let axis = num(args, 1, 0.0) as i64;
             if let Ok(k @ 0..=2) = usize::try_from(axis - 1) {

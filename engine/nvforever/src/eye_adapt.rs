@@ -224,7 +224,15 @@ fn follow_target_lum(
         eye.extra = extra;
         let _ = curves.insert(&eye.handle, curve(target, extra));
     }
-    let eye_speed = hdr.map_or(BASE_EYE_ADAPT_SPEED, |h| h.v[HDR_EYE_ADAPT_SPEED]);
+    let eye_speed = match (sky.as_deref().map(|s| s.grade), hdr) {
+        // With Colour grade off (`SkyState::grade == false`), `sky.cinematic()` returns
+        // `Cinematic::default()` whose `HDR_EYE_ADAPT_SPEED` is 0; keep the base speed
+        // rather than treating disabled grading as an IMGS requesting instant adaptation
+        // (#3917) [design].
+        (Some(false), _) => BASE_EYE_ADAPT_SPEED,
+        (_, Some(h)) => h.v[HDR_EYE_ADAPT_SPEED],
+        (_, None) => BASE_EYE_ADAPT_SPEED,
+    };
     let speed = adapt_speed(eye_speed);
     if (told.2 - speed).abs() > 1e-3 {
         info!("eye adaptation: speed {speed:.2} EV/s (Eye Adapt Speed {eye_speed:.2})");
@@ -392,5 +400,86 @@ mod tests {
         let c = curve(1.4, 0.0);
         let d = format!("{c:?}");
         assert!(d.contains("min_log_lum: -16.0"), "{d}");
+    }
+
+    /// CPU mirror of `auto_exposure.wesl`'s exposure update step (#3917): exact exponential
+    /// decay clamped to `delta` so no `(speed, dt)` combination can overshoot or oscillate.
+    fn exposure_step(exposure: f32, target: f32, speed_up: f32, speed_down: f32, transition: f32, dt: f32) -> f32 {
+        let delta = target - exposure;
+        let transition = transition.max(1e-6);
+        if target > exposure {
+            let sd = (speed_down * dt).max(0.0);
+            let ed = sd / transition;
+            exposure + delta.min(sd.min(delta * (1.0 - (-ed).exp())))
+        } else {
+            let su = (speed_up * dt).max(0.0);
+            let eu = su / transition;
+            exposure + delta.max((-su).max(delta * (1.0 - (-eu).exp())))
+        }
+    }
+
+    #[test]
+    fn auto_exposure_step_never_overshoots_or_oscillates_under_high_speed_or_slow_frames() {
+        // Reproduces the #3917 playtest conditions: instant adaptation (40 EV/s) or normal
+        // adaptation (3 EV/s) under slow frames (0.05..2.0 s) and Bevy's default 1.5 EV
+        // transition distance, both brightening and darkening.
+        for &(speed, dt, start, target) in &[
+            (INSTANT_ADAPT_SPEED, 0.5, 0.0, 2.0),
+            (INSTANT_ADAPT_SPEED, 1.0, 0.0, 1.0),
+            (INSTANT_ADAPT_SPEED, 0.08, 0.0, 1.0),
+            (INSTANT_ADAPT_SPEED, 0.5, 3.0, 0.0),
+            (ADAPT_SPEED, 1.0, 0.0, 2.0),
+            (ADAPT_SPEED, 2.0, 2.5, 0.0),
+            (ADAPT_SPEED, 1.0 / 60.0, 0.0, 2.0),
+        ] {
+            let mut cur = start;
+            let increasing = target > start;
+            for frame in 0..32 {
+                let next = exposure_step(cur, target, speed, speed, 1.5, dt);
+                assert!(next.is_finite(), "speed={speed} dt={dt} frame={frame}: non-finite {next}");
+                if increasing {
+                    assert!(next >= cur - 1e-6 && next <= target + 1e-6, "overshoot brightening: cur={cur} next={next} target={target}");
+                } else {
+                    assert!(next <= cur + 1e-6 && next >= target - 1e-6, "overshoot darkening: cur={cur} next={next} target={target}");
+                }
+                cur = next;
+            }
+            if speed * dt >= 1.5 {
+                assert!((cur - target).abs() < 1e-3, "speed={speed} dt={dt}: did not converge ({cur} vs {target})");
+            }
+        }
+    }
+
+    #[test]
+    fn colour_grade_off_keeps_base_eye_adaptation_speed() {
+        let mut app = App::new();
+        app.init_resource::<Assets<AutoExposureCompensationCurve>>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<EyeCurve>()
+            .init_resource::<crate::sky::SkyState>()
+            .add_systems(Update, follow_target_lum);
+        let cam = {
+            let eye = app.world().resource::<EyeCurve>();
+            let ae = auto_exposure(eye);
+            app.world_mut().spawn(ae).id()
+        };
+        // Colour grade off: SkyState::cinematic() returns Cinematic::default() whose
+        // HDR_EYE_ADAPT_SPEED is 0.0, which must NOT trigger INSTANT_ADAPT_SPEED (40 EV/s).
+        app.world_mut().resource_mut::<crate::sky::SkyState>().grade = false;
+        app.update();
+        let ae = app.world().get::<AutoExposure>(cam).unwrap();
+        assert!((ae.speed_brighten - ADAPT_SPEED).abs() < 1e-5, "grade off kept base speed: {}", ae.speed_brighten);
+        assert!((ae.speed_darken - ADAPT_SPEED).abs() < 1e-5);
+
+        // Colour grade on with an explicit IMGS Eye Adapt Speed of 0.0 still maps to instant.
+        app.world_mut().resource_mut::<crate::sky::SkyState>().grade = true;
+        let mut zero_hdr = fnv_world::imagespace::Hdr::default();
+        zero_hdr.v[HDR_EYE_ADAPT_SPEED] = 0.0;
+        let mut mods = crate::imagespace::ScreenModifiers::default();
+        mods.set_hdr_for_test(zero_hdr, zero_hdr);
+        app.insert_resource(mods);
+        app.update();
+        let ae = app.world().get::<AutoExposure>(cam).unwrap();
+        assert!((ae.speed_brighten - INSTANT_ADAPT_SPEED).abs() < 1e-5, "explicit IMGS 0.0 speed: {}", ae.speed_brighten);
     }
 }

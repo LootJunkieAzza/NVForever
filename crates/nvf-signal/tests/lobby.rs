@@ -28,6 +28,7 @@ fn create(si: &mut StandIn, max: u8, now: Instant) -> LobbyCreated {
         max_players: max,
         host_key: key(1),
         name: "Courier".into(),
+        listing: None,
     };
     let (status, body) = si.create(&serde_json::to_string(&req).unwrap(), now, 1_000);
     assert_eq!(status, 200, "{body}");
@@ -465,6 +466,137 @@ fn relay_exchange_between_guests() {
     a.bye();
     w.send(&mut si, ac, a.take_outgoing(), t0);
     assert_eq!(last_helpers(guest_events(&mut c, &mut w, cc)), Vec::<u32>::new());
+}
+
+/// The lobby browser (wire 2, docs/design/coop-lobby-browser.md): listings, passwords, browse
+/// and reports in the stand-in.
+#[test]
+fn browser_listings_passwords_and_reports() {
+    use nvf_signal::code::Code;
+    use nvf_signal::wire::{password_hash, BrowseAnswer, Listing};
+    let t0 = Instant::now();
+    let mut si = StandIn::new(Config::default());
+    let mut w = Wires::default();
+    let make = |si: &mut StandIn, name: &str, listing: Option<Listing>| -> LobbyCreated {
+        let req = CreateLobby {
+            wire: WIRE_VERSION,
+            protocol: 139,
+            build: "0.8.1".into(),
+            load_order_hash: "abc123".into(),
+            max_players: 4,
+            host_key: key(1),
+            name: name.into(),
+            listing,
+        };
+        let (status, body) = si.create(&serde_json::to_string(&req).unwrap(), t0, 1_000);
+        assert_eq!(status, 200, "{body}");
+        serde_json::from_str(&body).unwrap()
+    };
+    let browse = |si: &StandIn, q: &str| -> BrowseAnswer { serde_json::from_str(&si.browse(q, t0 + Duration::from_secs(9)).1).unwrap() };
+
+    let public = make(&mut si, "Courier", Some(Listing { public: true, title: "STRIP RUN".into(), place: "The Strip".into(), plugins: 14, ..Listing::default() }));
+    let private = make(&mut si, "Six", None);
+    let locked = make(&mut si, "Boone", Some(Listing { public: true, locked: true, ..Listing::default() }));
+    // A lobby is listed only while its host's socket is open.
+    assert_eq!(browse(&si, "").total, 0);
+    let mut hosts = HashMap::new();
+    for l in [&public, &private, &locked] {
+        let c = si.open(&l.code).unwrap();
+        let mut h = HostClient::new(&l.host_secret);
+        w.send(&mut si, c, h.take_outgoing(), t0);
+        host_events(&mut h, &mut w, c);
+        hosts.insert(l.code.clone(), (c, h));
+    }
+    let all = browse(&si, "");
+    assert_eq!(all.total, 2, "the private lobby is not listed");
+    let row = all.lobbies.iter().find(|r| r.code == public.code).unwrap();
+    assert_eq!((row.title.as_str(), row.place.as_str(), row.plugins, row.players), ("strip run", "The Strip", 14, 1), "capitals lowered");
+    assert_eq!((row.host_fp.as_str(), row.km, row.age), (&key(1)[..16], None, 9));
+    let lrow = all.lobbies.iter().find(|r| r.code == locked.code).unwrap();
+    assert_eq!((lrow.title.as_str(), lrow.locked), ("Boone's game", true));
+    assert_eq!(browse(&si, "?q=strip").total, 1);
+    assert_eq!(browse(&si, "?q=BOONE").total, 1);
+    assert_eq!(browse(&si, "?protocol=138").total, 0);
+    assert_eq!(browse(&si, "?load_order=other").total, 0);
+    assert_eq!(browse(&si, "?empty=0").total, 0, "both have only their host");
+
+    // Locked, no password yet: every join is declined.
+    let try_join = |si: &mut StandIn, w: &mut Wires, code: &str, pw: Option<&str>| -> Vec<GuestEvent> {
+        let c = si.open(code).unwrap();
+        let mut g = GuestClient::joining("Guest", &key(9), &[], pw);
+        w.send(si, c, g.take_outgoing(), t0);
+        guest_events(&mut g, w, c)
+    };
+    let declined = vec![GuestEvent::Declined { reason: "bad_password".into() }];
+    assert_eq!(try_join(&mut si, &mut w, &locked.code, None), declined);
+    let code = Code::parse(&locked.code).unwrap();
+    let (lc, lh) = hosts.get_mut(&locked.code).unwrap();
+    lh.password(&password_hash(&code, "hunter2"));
+    let lc = *lc;
+    w.send(&mut si, lc, lh.take_outgoing(), t0);
+    assert!(serde_json::from_str::<LobbyInfo>(&si.info(&locked.code).1).unwrap().locked);
+    assert_eq!(try_join(&mut si, &mut w, &locked.code, Some(&password_hash(&code, "wrong"))), declined);
+    // The same password hashed for another lobby's code does not open this one.
+    let other = Code::parse(&public.code).unwrap();
+    assert_eq!(try_join(&mut si, &mut w, &locked.code, Some(&password_hash(&other, "hunter2"))), declined);
+    assert!(matches!(try_join(&mut si, &mut w, &locked.code, Some(&password_hash(&code, "hunter2")))[..], [GuestEvent::Waiting { .. }]));
+    // A private lobby may have a password too; an empty hash removes it.
+    let (pc, ph) = hosts.get_mut(&private.code).unwrap();
+    ph.password(&password_hash(&Code::parse(&private.code).unwrap(), "x"));
+    let pc = *pc;
+    w.send(&mut si, pc, ph.take_outgoing(), t0);
+    assert!(serde_json::from_str::<LobbyInfo>(&si.info(&private.code).1).unwrap().locked);
+    assert_eq!(try_join(&mut si, &mut w, &private.code, None), declined);
+    let (_, ph) = hosts.get_mut(&private.code).unwrap();
+    ph.password("");
+    w.send(&mut si, pc, ph.take_outgoing(), t0);
+    assert!(!serde_json::from_str::<LobbyInfo>(&si.info(&private.code).1).unwrap().locked);
+    assert!(matches!(try_join(&mut si, &mut w, &private.code, None)[..], [GuestEvent::Waiting { .. }]));
+
+    // The host's listing message: a new place, then private (off the list at once).
+    let (pubc, pubh) = hosts.get_mut(&public.code).unwrap();
+    pubh.listing(true, "Strip run", "Goodsprings", true);
+    let pubc = *pubc;
+    w.send(&mut si, pubc, pubh.take_outgoing(), t0);
+    let row = browse(&si, "?q=goodsprings").lobbies.remove(0);
+    assert_eq!((row.place.as_str(), row.friendly_fire, row.plugins), ("Goodsprings", true, 14));
+    let (_, pubh) = hosts.get_mut(&public.code).unwrap();
+    pubh.listing(false, "Strip run", "Goodsprings", true);
+    w.send(&mut si, pubc, pubh.take_outgoing(), t0);
+    assert_eq!(browse(&si, "").total, 1);
+    let (_, pubh) = hosts.get_mut(&public.code).unwrap();
+    pubh.listing(true, "Strip run", "Goodsprings", true);
+    w.send(&mut si, pubc, pubh.take_outgoing(), t0);
+
+    // Reports: once per reporter; five hide the lobby from browse, not from its code.
+    for ip in ["a", "a", "b", "c", "d"] {
+        assert_eq!(si.report(&public.code, ip, "{}").0, 200);
+    }
+    assert_eq!(browse(&si, "").total, 2, "four reporters so far");
+    assert_eq!(si.report(&public.code, "e", r#"{"reason":"spam"}"#).0, 200);
+    assert_eq!(browse(&si, "").total, 1);
+    assert_eq!(si.info(&public.code).0, 200);
+    assert_eq!(si.report("ZZZ-ZZZ", "a", "{}").0, 404);
+    assert_eq!(si.report(&public.code, "a", "not json").0, 400);
+}
+
+/// A wire-1 game (before the browser) still hosts and joins; its lobby is private.
+#[test]
+fn wire_one_still_works() {
+    let t0 = Instant::now();
+    let mut si = StandIn::new(Config::default());
+    let old = format!(r#"{{"wire":1,"protocol":138,"build":"0.8","load_order_hash":"x","max_players":2,"host_key":"{}","name":"n"}}"#, key(1));
+    let (status, body) = si.create(&old, t0, 0);
+    assert_eq!(status, 200, "{body}");
+    let lobby: LobbyCreated = serde_json::from_str(&body).unwrap();
+    let hc = si.open(&lobby.code).unwrap();
+    let mut w = Wires::default();
+    w.send(&mut si, hc, vec![format!(r#"{{"type":"host","wire":1,"host_secret":"{}"}}"#, lobby.host_secret)], t0);
+    assert!(w.take(hc)[0].contains("hosting"));
+    let gc = si.open(&lobby.code).unwrap();
+    w.send(&mut si, gc, vec![format!(r#"{{"type":"join","wire":1,"name":"g","key":"{}","candidates":[]}}"#, key(2))], t0);
+    assert!(w.take(gc)[0].contains("waiting"));
+    assert_eq!(si.browse("", t0).1, r#"{"lobbies":[],"cursor":null,"total":0}"#);
 }
 
 /// Section 8 end to end, in one process: the host and guest C are both behind symmetric NATs,
