@@ -631,7 +631,7 @@ impl Vm<'_, '_> {
                         if let Some(XExpr::Var { var, .. }) = c.args.get(1) {
                             self.write_var(var, XVal::Str(msg.clone()))?;
                         }
-                        XVal::Num(regex_error_code(&msg))
+                        XVal::Num(regex_error_code(&format!("{msg} {e:?}")))
                     }
                 }
             }
@@ -1199,23 +1199,28 @@ impl Vm<'_, '_> {
 }
 
 /// ValidateRegex's code for a pattern error [documented: ValidateRegex lists the codes;
-/// which message is which is our reading, hypothesis]: 5 brackets, 6 parentheses,
-/// 7 braces, 3 escape, 4 back-reference, 9 range, 11 repeat, else 14 (unknown).
+/// observed: `w6d11_31_validateregex_error_codes_and_outvar` (`brk=5`, `par=6`, `brc=8`
+/// for `a{3,1}`, `rng=9` for `[z-a]`, `rep=11`, `esc=3`); mapping of remaining
+/// `fancy-regex` error strings is our reading, hypothesis]: 5 brackets, 6 parentheses,
+/// 8 bad brace range, 7 other braces, 3 escape, 4 back-reference, 9 range, 11 repeat,
+/// else 14 (unknown).
 fn regex_error_code(msg: &str) -> f64 {
     let m = msg.to_ascii_lowercase();
     let has = |w: &[&str]| w.iter().any(|w| m.contains(w));
-    if has(&["class", "bracket"]) {
+    if has(&["repetitioncountinvalid", "invalid repetition count range", "repetition quantifier"]) {
+        8.0
+    } else if has(&["classrangeinvalid", "character class range", "range"]) {
+        9.0
+    } else if has(&["class", "bracket"]) {
         5.0
     } else if has(&["paren", "group"]) {
         6.0
-    } else if has(&["brace", "counted", "repetition quantifier"]) {
+    } else if has(&["brace", "counted"]) {
         7.0
     } else if has(&["backref"]) {
         4.0
-    } else if has(&["escape"]) {
+    } else if has(&["escape", "invalidhex"]) {
         3.0
-    } else if has(&["range"]) {
-        9.0
     } else if has(&["repeat", "repetition"]) {
         11.0
     } else {
@@ -1254,6 +1259,10 @@ fn fast_atan2(y: f64, x: f64) -> f64 {
     }
     f64::from(a).to_degrees()
 }
+
+#[cfg(test)]
+#[path = "w6d11_validateregex_tests.rs"]
+mod w6d11_validateregex_tests;
 
 #[cfg(test)]
 mod hit_info_tests {

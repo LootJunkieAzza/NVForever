@@ -29,7 +29,7 @@ Observed:
   gives "This blip! has a blip! as a blip!" [observed: regex.search, regex.search0,
   regex.replace]. A `\b` inside a script string reaches the regex as written: the script
   compiler does not treat it as an escape.
-- `ValidateRegex "["` gives 5 [observed: regex.validate], as documented.
+- `ValidateRegex "["` gives 5 [observed: regex.validate], as documented; extended error-code sweep: valid `^[a-z]+$` returns `0`, `[abc` returns `5`, `(abc` returns `6`, `a{3,1}` and `a{x}` return `8` (`bad brace`), `[z-a]` returns `9`, `*abc` returns `11`, and `\x` returns `3`, with the out-var error text populated on every non-zero error [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, read-only `PrintToConsole` probe `w6d11_31_validateregex_error_codes_and_outvar` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `ok=0:0|brk=5:70|par=6:70|brc=8:90|rng=9:111|rep=11:89|esc=3:103|bx=8:90`; no DLL or source consulted].
 - The target must be a string_var. A literal string there does not compile; use
   `(sv_Construct "…")` or a string_var variable [observed: jip_rx_trial, see
   xnvse-capture.md §5].
