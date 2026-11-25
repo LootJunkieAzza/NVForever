@@ -1,4 +1,4 @@
-//! Physical PBR lighting (`NVF_PHYSICAL_PBR=1`): `pbr_lighting.wesl` with OpenPBR
+//! Physical PBR lighting (the Physical lighting row): `pbr_lighting.wesl` with OpenPBR
 //! `Fd_OrenNayar` EON diffuse, reciprocal dielectric coupling, desktop 0.045 roughness
 //! floor, physical inverse-square attenuation, `pbr_functions.wesl` with procedural
 //! `ENVIRONMENT_MAP` IBL and Frostbite specular AO, and `fog.wesl` with linear

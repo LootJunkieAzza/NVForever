@@ -2670,7 +2670,7 @@ const NO_FOG_FAR: f32 = 1_000_000.0;
 const PHYSICAL_INTERIOR_FOG_MIN_NEAR: f32 = 900.0;
 const PHYSICAL_INTERIOR_FOG_COLOR_SCALE: f32 = 0.35;
 
-/// Far-only interior fog parameters under `NVF_PHYSICAL_PBR=1` so small rooms stay crisp
+/// Far-only interior fog parameters under Physical lighting so small rooms stay crisp
 /// while large vaults/caverns still receive soft distant air depth before clip.
 pub(crate) fn physical_interior_fog(l: fnv_world::lighting::CellLighting) -> (f32, f32, f32) {
     if l.fog_clip_dist > 0.0 {
