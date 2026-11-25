@@ -320,3 +320,16 @@ fn anim_sequence_frequency_semantics_and_sanitization() {
     );
     assert_eq!(g.anim_frequency(stat, "Forward"), Some(2.0));
 }
+
+#[test]
+fn projectile_ref_impact_material_returns_0_on_non_projectile_and_minus_1_on_live_shot() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Non-projectile ref returns 0 [observed: w6d6_38_proj_ref_getters_nonproj_and_live_shot].
+    assert_eq!(n(&mut g, "NpcRef.GetProjectileRefImpactMaterial"), 0.0);
+    // Live unimpacted projectile ref returns -1 [observed: w6d6p2_38_proj_ref_live_shot].
+    let r = g.projectile_fired(FormId(ACTI), FormId(NPC_REF), FormId(WEAP), 10.0, [0.0; 3]).expect("a shot");
+    let on = RunCtx { self_ref: Some(r), ..RunCtx::default() };
+    let got = g.run_query("Begin Function { }\nSetFunctionValue (GetProjectileRefImpactMaterial)\nEnd\n", on).unwrap();
+    assert_eq!(got, XVal::Num(-1.0));
+}

@@ -1,0 +1,229 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_projref_impact_material",
+  "description": "Wave 6D-6 read-only probes verifying GetProjectileRefImpactMaterial returns 0 on non-projectile refs and -1 on live unimpacted shots.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_projref_impact_material",
+      "title": "GetProjectileRefImpactMaterial non-projectile return value",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_38_proj_ref_getters_nonproj_and_live_shot",
+          "bucket": "projectile_refs",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/projectile-launch-session-traits.md",
+          "spec_line": 34,
+          "functions_tested": [
+            "GetProjectileRefDamage",
+            "SetProjectileRefDamage",
+            "GetProjectileRefSpeedMult",
+            "SetProjectileRefSpeedMult",
+            "GetProjectileRefSource",
+            "SetProjectileRefSource",
+            "GetProjectileRefWeapon",
+            "GetProjectileRefLifeTime",
+            "GetProjectileRefDistanceTraveled",
+            "GetProjectileRefImpactRef",
+            "GetProjectileRefImpactMaterial",
+            "FireWeapon",
+            "GetFirstRef"
+          ],
+          "claim": "SD-18: Verify GetProjectileRef* on non-projectile ref (Player) and on a live fired 40mm grenade projectile (GetFirstRef 51), plus SetProjectileRefDamage/SpeedMult/Source and MarkForDelete retirement.",
+          "expected": "Record non-projectile sentinel returns and live projectile damage/speed/source/weapon/lifetime/distance before and after setters.",
+          "script_lines": [
+            "float fNonD = Player.GetProjectileRefDamage",
+            "float fNonS = Player.GetProjectileRefSpeedMult",
+            "ref rNonSrc = Player.GetProjectileRefSource",
+            "ref rNonW = Player.GetProjectileRefWeapon",
+            "float fNonL = Player.GetProjectileRefLifeTime",
+            "int iNonM = Player.GetProjectileRefImpactMaterial",
+            "Player.AuxVarSetFlt \"*w6d638_nd\" fNonD",
+            "Player.AuxVarSetFlt \"*w6d638_ns\" fNonS",
+            "Player.AuxVarSetRef \"*w6d638_nsrc\" rNonSrc",
+            "Player.AuxVarSetRef \"*w6d638_nw\" rNonW",
+            "Player.AuxVarSetFlt \"*w6d638_nl\" fNonL",
+            "Player.AuxVarSetFlt \"*w6d638_nm\" iNonM",
+            "ref rGl = GetFormFromMod \"FalloutNV.esm\" \"7EA25\"",
+            "ref rA40 = GetFormFromMod \"FalloutNV.esm\" \"7EA26\"",
+            "Player.SetAngle X -45",
+            "Player.AddItemHealthPercent rGl 1 1.0",
+            "Player.AddItem rA40 10 1",
+            "Player.EquipItem rGl 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 4,
+          "extra_steps": [
+            {
+              "suffix": "fire",
+              "wait_ticks": 1,
+              "script_lines": [
+                "ref rGl = GetFormFromMod \"FalloutNV.esm\" \"7EA25\"",
+                "Player.FireWeapon rGl"
+              ]
+            },
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rP = GetFirstRef 51 1",
+                "int iFound = 0",
+                "float fD0 = -1",
+                "float fD1 = -1",
+                "float fSp0 = -1",
+                "float fSp1 = -1",
+                "float fLt = -1",
+                "float fDist = -1",
+                "ref rSrc0 = 0",
+                "ref rW0 = 0",
+                "ref rImp = 0",
+                "int iMat = -2",
+                "if rP != 0",
+                "  let iFound := 1",
+                "  let fD0 := rP.GetProjectileRefDamage",
+                "  let fSp0 := rP.GetProjectileRefSpeedMult",
+                "  let rSrc0 := rP.GetProjectileRefSource",
+                "  let rW0 := rP.GetProjectileRefWeapon",
+                "  let fLt := rP.GetProjectileRefLifeTime",
+                "  let fDist := rP.GetProjectileRefDistanceTraveled",
+                "  let rImp := rP.GetProjectileRefImpactRef",
+                "  let iMat := rP.GetProjectileRefImpactMaterial",
+                "  rP.SetProjectileRefDamage 333.0",
+                "  rP.SetProjectileRefSpeedMult 0.25",
+                "  let fD1 := rP.GetProjectileRefDamage",
+                "  let fSp1 := rP.GetProjectileRefSpeedMult",
+                "  rP.Disable",
+                "  rP.MarkForDelete",
+                "endif",
+                "ref rGl = GetFormFromMod \"FalloutNV.esm\" \"7EA25\"",
+                "ref rA40 = GetFormFromMod \"FalloutNV.esm\" \"7EA26\"",
+                "Player.UnequipItem rGl 0 1",
+                "Player.RemoveItem rGl 1 1",
+                "Player.RemoveItem rA40 10 1",
+                "Player.SetAngle X 0",
+                "float fND = Player.AuxVarGetFlt \"*w6d638_nd\"",
+                "float fNS = Player.AuxVarGetFlt \"*w6d638_ns\"",
+                "float fNL = Player.AuxVarGetFlt \"*w6d638_nl\"",
+                "int iNM = Player.AuxVarGetFlt \"*w6d638_nm\"",
+                "PrintToConsole \"PROBE|w6d6_38_proj_ref_getters_nonproj_and_live_shot|non(d=%.1f,s=%.1f,l=%.1f,m=%g)|found=%g|d=%.1f->%.1f|sp=%.2f->%.2f|src=%i|w=%i|lt=%.3f|dist=%.1f|imp=%i(m=%g)\" fND fNS fNL iNM iFound fD0 fD1 fSp0 fSp1 rSrc0 rW0 fLt fDist rImp iMat"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p2_38_proj_ref_live_shot",
+          "bucket": "projectile_refs",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/projectile-launch-session-traits.md",
+          "spec_line": 34,
+          "functions_tested": [
+            "GetProjectileRefDamage",
+            "SetProjectileRefDamage",
+            "GetProjectileRefSpeedMult",
+            "SetProjectileRefSpeedMult",
+            "GetProjectileRefSource",
+            "GetProjectileRefWeapon",
+            "GetProjectileRefLifeTime",
+            "GetProjectileRefDistanceTraveled",
+            "GetProjectileRefImpactRef",
+            "GetProjectileRefImpactMaterial",
+            "FireWeapon",
+            "GetFirstRef"
+          ],
+          "claim": "SD-18: Capture live fired 40mm grenade projectile on the same tick after FireWeapon (horizontal shot) and verify all Get/SetProjectileRef* getters & setters.",
+          "expected": "Record live projectile damage, speed, source, weapon, lifetime, distance, impact ref/material before and after setters.",
+          "script_lines": [
+            "ref rGl = GetFormFromMod \"FalloutNV.esm\" \"7EA25\"",
+            "ref rA40 = GetFormFromMod \"FalloutNV.esm\" \"7EA26\"",
+            "Player.SetAngle X 0",
+            "Player.AddItemHealthPercent rGl 1 1.0",
+            "Player.AddItem rA40 10 1",
+            "Player.EquipItem rGl 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "extra_steps": [
+            {
+              "suffix": "fire_and_read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rGl = GetFormFromMod \"FalloutNV.esm\" \"7EA25\"",
+                "ref rA40 = GetFormFromMod \"FalloutNV.esm\" \"7EA26\"",
+                "Player.FireWeapon rGl",
+                "ref rP = GetFirstRef 51 1",
+                "int iFound = 0",
+                "float fD0 = -1",
+                "float fD1 = -1",
+                "float fSp0 = -1",
+                "float fSp1 = -1",
+                "float fLt = -1",
+                "float fDist = -1",
+                "ref rSrc0 = 0",
+                "ref rW0 = 0",
+                "ref rImp = 0",
+                "int iMat = -2",
+                "if rP != 0",
+                "  let iFound := 1",
+                "  let fD0 := rP.GetProjectileRefDamage",
+                "  let fSp0 := rP.GetProjectileRefSpeedMult",
+                "  let rSrc0 := rP.GetProjectileRefSource",
+                "  let rW0 := rP.GetProjectileRefWeapon",
+                "  let fLt := rP.GetProjectileRefLifeTime",
+                "  let fDist := rP.GetProjectileRefDistanceTraveled",
+                "  let rImp := rP.GetProjectileRefImpactRef",
+                "  let iMat := rP.GetProjectileRefImpactMaterial",
+                "  rP.SetProjectileRefDamage 333.0",
+                "  rP.SetProjectileRefSpeedMult 0.25",
+                "  let fD1 := rP.GetProjectileRefDamage",
+                "  let fSp1 := rP.GetProjectileRefSpeedMult",
+                "  rP.Disable",
+                "  rP.MarkForDelete",
+                "endif",
+                "Player.UnequipItem rGl 0 1",
+                "Player.RemoveItem rGl 1 1",
+                "Player.RemoveItem rA40 10 1",
+                "PrintToConsole \"PROBE|w6d6p2_38_proj_ref_live_shot|found=%g|d=%.1f->%.1f|sp=%.2f->%.2f|src=%i|w=%i|lt=%.3f|dist=%.1f|imp=%i(m=%g)\" iFound fD0 fD1 fSp0 fSp1 rSrc0 rW0 fLt fDist rImp iMat"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

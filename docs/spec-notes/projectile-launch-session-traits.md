@@ -247,3 +247,12 @@ separate).
   `ProjectileStats::explodes`) without mutating loaded `CombatForms`/`CombatFx` caches or
   touching `DATA/flags`. Engine call-site wiring into `nvf-play` remains a separate
   engine step.
+
+### `GetProjectileRefImpactMaterial` on non-projectile vs live projectile refs [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted), `w6d6_38_proj_ref_getters_nonproj_and_live_shot` & `w6d6p2_38_proj_ref_live_shot` (`tools/capture/nvse/catalogs/wave6d6_projref_impact_material.json`)]: `GetProjectileRefImpactMaterial` returns `0` on a non-projectile reference (`Player`) and `-1` on a live unimpacted projectile (`40mm GL`):
+
+```text
+PROBE|w6d6_38_proj_ref_getters_nonproj_and_live_shot|non(d=0.0,s=0.0,l=0.0,m=0)|found=0|d=-1.0->-1.0|sp=-1.00->-1.00|src=00000000|w=00000000|lt=-1.000|dist=-1.0|imp=00000000(m=-2)
+PROBE|w6d6p2_38_proj_ref_live_shot|found=1|d=17.2->333.0|sp=1.00->0.25|src=00000014|w=0007EA25|lt=0.000|dist=0.0|imp=00000000(m=-1)
+```
