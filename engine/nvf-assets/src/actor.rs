@@ -2308,7 +2308,7 @@ mod tests {
         let mut split = split_mesh_by_weights(&cpu, &bones, |idx, j, w, names| {
             let arm_bone: Vec<bool> = names.iter().map(|n| is_arm(n)).collect();
             let (mut arm, mut body) = (Vec::new(), Vec::new());
-            for tri in idx.chunks_exact(3) {
+            for tri in idx.as_chunks::<3>().0 {
                 let mut a = 0.0f32;
                 let mut t = 0.0f32;
                 for &v in tri {

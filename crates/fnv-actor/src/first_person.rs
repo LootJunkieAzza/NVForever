@@ -207,8 +207,7 @@ pub fn partition_arm_triangles(indices: &[u32], joints: &[[u16; 4]], weights: &[
     }
     let mut arm = Vec::new();
     let mut body = Vec::new();
-    for tri in indices.chunks_exact(3) {
-        let t = [tri[0], tri[1], tri[2]];
+    for &t in indices.as_chunks::<3>().0 {
         if triangle_is_arm(t, joints, weights, &arm_bone) {
             arm.extend_from_slice(&t);
         } else {
