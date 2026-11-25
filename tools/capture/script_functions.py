@@ -626,7 +626,7 @@ PAGELESS += [
     _x("UpdateMiniMap", _J, "int", [_I("a"), _I("b", True)]), _x("ProjectUITile", _J, "int", [_S("tilePath"), _S("block"), _F("x"), _F("y"), _F("width"), _F("height")], ref="reference"),
     _x("ReloadCharController", _J, "int", ref="reference"), _x("ReloadCloudTextures", _J, "int"), _x("ResetClouds", _J, "int"),
     _x("ExecuteScript", _J, "int"), _x("ShowLevelUpMenuEx", _J, "int", [_I("mode")]),
-    _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "string_var", list(_ANY)),
+    _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "int", [_F("fZ"), _F("fY")]),
     _x("GetTranslatedPos", _J, "int", list(_ANY)), _x("GetWorldMapPosMults", _J, "int", list(_ANY)),
     _x("TransformWorldToLocal", _J, "int", list(_ANY)),
 ]

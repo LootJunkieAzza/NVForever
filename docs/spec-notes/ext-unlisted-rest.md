@@ -373,8 +373,14 @@ commands that touch the menus, the sky or the minimap ran one per launch].
   future lab result may differ. This is not renderer or native-call qualification.
 - **GetBodyPartVATSTarget** did not compile into a number; NVForever gives "".
 
+- **GetCameraMovement** `GetCameraMovement fZ fY`: returns integer `0` (not `string_var`)
+  and writes two float out-variables `(0.0, 0.0)` at rest [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30,
+  probe `w6d4_14_get_camera_movement_outvars` (`tools/capture/nvse/catalogs/wave6d4_camera_movement.json`):
+  `PROBE|w6d4_14_get_camera_movement_outvars|r=0|z=0.0000,y=0.0000`]. Live moving-camera
+  per-frame deltas are not yet wired from the renderer, so NVForever writes `(0.0, 0.0)` [design].
+
 **No argument pattern compiled**, so the shape is unknown. These get optional arguments
-and answer 0 or "": CCCTaskPackageFlags, GetCameraMovement, GetTranslatedPos,
+and answer 0 or "": CCCTaskPackageFlags, GetTranslatedPos,
 GetWorldMapPosMults, TransformWorldToLocal.
 
 ## 10. Where this leaves the catalogue

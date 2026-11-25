@@ -679,3 +679,14 @@ fn update_player_3d_queues_one_shot_and_is_transient() {
     assert!(!g.update_player_3d_pending());
     assert!(!g.take_update_player_3d(), "one-shot");
 }
+
+#[test]
+fn get_camera_movement_writes_two_float_outvars_and_returns_zero() {
+    let f = fixture();
+    let mut g = game(&f);
+    let XVal::Str(out) = g.run_query(
+        "float fZ\nfloat fY\nint iR\nBegin Function { }\nlet fZ := -9\nlet fY := -9\nlet iR := GetCameraMovement fZ fY\nSetFunctionValue (sv_Construct \"%.0f|%.4f|%.4f\" iR fZ fY)\nEnd\n",
+        RunCtx::default(),
+    ).unwrap() else { panic!("expected string") };
+    assert_eq!(out, "0|0.0000|0.0000");
+}

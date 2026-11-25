@@ -3694,6 +3694,10 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "getsystemcoloralt" | "getpixelfrombmp" => &[1, 2, 3],
         // [documented: GetLinearVelocity and GetCurrentSkyColor, three script variables].
         "getlinearvelocity" | "getcurrentskycolor" => &[1, 2, 3],
+        // [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+        // `w6d4_14_get_camera_movement_outvars` (`wave6d4_camera_movement.json`):
+        // `GetCameraMovement fZ fY` returns 0 and writes 2 float out-vars `(0.0, 0.0)` at rest].
+        "getcameramovement" => &[0, 1],
         _ => return None,
     })
 }

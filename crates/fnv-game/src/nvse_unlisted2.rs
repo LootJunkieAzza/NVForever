@@ -289,7 +289,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getactorcoverinfo" => XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::StringMap, Vec::new())),
         // No form outside a SayTo [observed: rest4.sayto.*].
         "sayto_getspeakingactor" | "sayto_getquest" => XVal::Ref(0),
-        "getnifstringbyid" | "getcameramovement" => XVal::Str(String::new()),
+        "getnifstringbyid" => XVal::Str(String::new()),
+        // `GetCameraMovement fZ fY`: returns 0 and writes two float out-vars (0.0, 0.0 at
+        // rest) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New
+        // Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, `w6d4_14_get_camera_movement_outvars`:
+        // `r=0|z=0.0000,y=0.0000`; design: live moving-camera per-frame deltas are not yet
+        // wired from the renderer, so NVForever writes `(0.0, 0.0)`].
+        "getcameramovement" => {
+            let entries = vec![
+                (fnv_script::vm::XKey::Num(0.0), XVal::Num(0.0)),
+                (fnv_script::vm::XKey::Num(1.0), XVal::Num(0.0)),
+                (fnv_script::vm::XKey::Num(2.0), XVal::Num(0.0)),
+            ];
+            XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+        }
         // The answers the original gave (§8), with what each is not known to change.
         "getactorcoverstate" | "getweapadditionalfloat" | "hudbarsetforcehide" => XVal::Num(-1.0),
         "getextraaccuracypenaltymult" | "setextraaccuracypenaltymult" | "removeextraaccuracypenaltymult" | "getcamerashotpath"
