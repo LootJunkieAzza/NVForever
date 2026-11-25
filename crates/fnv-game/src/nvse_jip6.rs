@@ -180,6 +180,10 @@ fn renumber(d: &mut DestructionDef) {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d12_dest_stage_form_tests.rs"]
+mod w6d12_dest_stage_form_tests;
+
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
@@ -213,10 +217,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setnthdestructionstagedebris" | "setnthdestructionstageexplosion" | "setnthdestructionstagereplacement" | "setnthdestructionstagetrait" => {
             let i = usize::try_from(num(args, 1, -1.0) as i64).ok();
             let (new_form, path, t, v) = (form(args, 2), text(args, 2), num(args, 2, -1.0) as i64, num(args, 3, 0.0));
+            let typed_debr = new_form.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"DEBR"));
+            let typed_expl = new_form.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"EXPL"));
             if let Some(s) = form(args, 0).map(|f| base(g, f)).and_then(|b| g.destruction_mut(b)).and_then(|d| d.stages.get_mut(i?)) {
                 match name {
-                    "setnthdestructionstagedebris" => s.debris = new_form,
-                    "setnthdestructionstageexplosion" => s.explosion = new_form,
+                    "setnthdestructionstagedebris" => s.debris = typed_debr,
+                    "setnthdestructionstageexplosion" => s.explosion = typed_expl,
                     "setnthdestructionstagereplacement" => {
                         s.model = Some(path).filter(|p| !p.is_empty());
                         // the replacement setter alone returns 1 [observed: jip6 dest.setrepl;
