@@ -593,3 +593,6 @@ An aid item's EFFECTS card (pipboy.md §5) is what using it would do to the play
   owner's screenshot, its record's instant effect 30, which fits a Medicine potency near
   1.33].
 - Without the scripts' game the record's effects are listed as before (no conditions).
+
+### `Chemist` equip-type gating (`w6d7p2_14`)
+- **Chems (ETYP 10) and Stimpak (ETYP 11)** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p2_14_chemist_durations_fixed` in `tools/capture/nvse/catalogs/wave6d7_chemist_stimpak.json`]: `Chemist` (`MODIFY_POSITIVE_CHEM_DURATION`, `x2`) doubles `Buffout` (`240.0 -> 480.0`), `StealthBoy` (`120.0 -> 240.0`), and Hardcore `Stimpak` (`6.0 -> 12.0`), while leaving `Beer` (Alcohol, `240.0 -> 240.0`) and `BrahminSteak` (Food, `15.0 -> 15.0`) unchanged (`PROBE|w6d7p2_14_chemist_durations_fixed|buf(240.0->480.0)|beer(240.0->240.0)|steak(15.0->15.0)|sb(120.0->240.0)|hcStim(6.0->12.0)`).

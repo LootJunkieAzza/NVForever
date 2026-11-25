@@ -197,8 +197,11 @@ pub fn addiction_chance(def: &IngestibleDef, usage: Option<f64>, threshold: f64)
     }
 }
 
-/// ETYP "Chems" [documented: xEdit EquipType; GECK wiki Equip Type].
+/// ETYP "Chems" and "Stimpak" [documented: xEdit EquipType; GECK wiki Equip Type;
+/// observed 2026-11-25: w6d7p2_14_chemist_durations_fixed, Chemist doubles both
+/// Chems (Buffout, StealthBoy) and Stimpak (Hardcore Stimpak 6->12 s), not Food/Alcohol].
 pub const EQUIP_CHEMS: i64 = 10;
+pub const EQUIP_STIMPAK: i64 = 11;
 
 /// What changes an ingestible's effects for one use (aid-items.md §4, §10).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -330,7 +333,7 @@ impl Game<'_> {
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
-        let duration = if def.equip_type == EQUIP_CHEMS { self.entry_point(actor, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0).0 } else { 1.0 };
+        let duration = if matches!(def.equip_type, EQUIP_CHEMS | EQUIP_STIMPAK) { self.entry_point(actor, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0).0 } else { 1.0 };
         let health = self.entry_point(actor, crate::perks::MODIFY_RECOVERED_HEALTH, 1.0).0;
         let mods = Mods { potency, duration, health, ..Mods::default() };
         let mut out: Vec<(u16, f64)> = Vec::new();
@@ -398,9 +401,9 @@ impl Game<'_> {
             perks.extend(by.iter().map(|a| (a.perk, point)));
             v
         };
-        // Chemist and the like lengthen chems only [hypothesis: the perk's "any chems you
-        // take"; the GECK wiki's entry point says "any ingestible"].
-        let duration = if def.equip_type == EQUIP_CHEMS { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
+        // Chemist lengthens Chems (ETYP 10) and Stimpak (ETYP 11), not Food/Alcohol
+        // [observed 2026-11-25: w6d7p2_14_chemist_durations_fixed].
+        let duration = if matches!(def.equip_type, EQUIP_CHEMS | EQUIP_STIMPAK) { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
         let rads = perk(self, crate::perks::MODIFY_RADIATION_CONSUMED, 1.0);
         let health = perk(self, crate::perks::MODIFY_RECOVERED_HEALTH, 1.0);
         let mods = Mods { potency, duration, rads, health, limb, ..Mods::default() };
