@@ -201,7 +201,7 @@ fn xcll_less_interior_receives_set_interior_lighting_traits_and_idempotent_write
 fn set_lighting_template_rgb_channels_truncate_and_wrap_mod_256() {
     let f = fixture();
     let mut g = game(&f);
-    // [observed: w6d3p2_27_lighting_template_and_interior_lighting_wrap: 300->44, 25.5->25, -10->246]
+    // [observed: w6d3p2_27_lighting_template_and_interior_lighting_wrap: trait 1 300->44, 25.5->25, -10->246; traits 2..=9 hypothesis]
     set(
         &mut g,
         "SetLightingTemplateTraitNumeric OwnedLightB 1 300\n         SetLightingTemplateTraitNumeric OwnedLightB 2 25.5\n         SetLightingTemplateTraitNumeric OwnedLightB 3 -10",

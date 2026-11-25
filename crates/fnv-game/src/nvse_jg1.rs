@@ -306,8 +306,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (Some(t), Some((sub, path))) = (of_sig(g, form(args, 0), b"LGTM"), lighting_trait(trait_id)) else { return Some(Ok(zero)) };
             if name.starts_with("set") {
                 let raw = num(args, 2, 0.0);
-                // RGB colour channels (traits 1..=9) truncate and wrap mod 256 as u8, matching
-                // SetInteriorLightingTraitNumeric [observed: w6d3p2_27, 300->44.0, 25.5->25.0, -10->246.0].
+                // Ambient-R (trait 1) truncates and wraps mod 256 as u8, matching
+                // SetInteriorLightingTraitNumeric [observed: w6d3p2_27, 300->44.0, 25.5->25.0,
+                // -10->246.0]; sibling RGB colour channels (traits 2..=9, sharing the LGTM DATA
+                // u8 RGB schema) apply the same mod-256 wrap [hypothesis].
                 let value = if (1..=9).contains(&(trait_id as i64)) {
                     (raw.trunc() as i64).rem_euclid(256) as f64
                 } else {
