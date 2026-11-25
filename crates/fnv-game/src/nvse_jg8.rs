@@ -528,12 +528,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 "gettexturewidth" => f64::from(w),
                 "gettextureheight" => f64::from(ht),
                 "gettexturemipmapcount" => f64::from(mips),
+                // DXT1..DXT5 return 1..5; uncompressed DDS with FourCC [0,0,0,0] returns
+                // -48 (0 - '0') [observed: w6d3_12_texture_format_dxt1_dxt3_dxt5_uncomp].
                 _ => match &cc {
                     b"DXT1" => 1.0,
                     b"DXT2" => 2.0,
                     b"DXT3" => 3.0,
                     b"DXT4" => 4.0,
                     b"DXT5" => 5.0,
+                    [0, 0, 0, 0] => -48.0,
                     _ => 0.0,
                 },
             }))

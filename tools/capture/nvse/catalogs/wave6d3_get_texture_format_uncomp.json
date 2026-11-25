@@ -1,0 +1,77 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-get-texture-format-uncomp",
+  "description": "Read-only clean-room probe verifying GetTextureFormat returns -48 for uncompressed DDS (zero FourCC) and rejects forward-slash textures/ prefix.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_get_texture_format_uncomp",
+      "title": "Wave 6D-3: GetTextureFormat uncompressed DDS (-48) and prefix handling",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_12_texture_format_dxt1_dxt3_dxt5_uncomp",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 50,
+          "functions_tested": [
+            "GetTextureWidth",
+            "GetTextureHeight",
+            "GetTextureMipMapCount",
+            "GetTextureFormat"
+          ],
+          "claim": "Verify GetTextureFormat / Width / Height / MipMapCount across all 5 vanilla BSA DDS formats (DXT1, DXT3, DXT5, uncompressed 32-bit, uncompressed 24-bit), plus textures\\ and forward-slash textures/ prefix handling (SD-03).",
+          "expected": "Confirm exact JG format codes for DXT1(1), DXT3(3), DXT5(5), uncompressed 32-bit & 24-bit (0 vs non-zero), mip counts, and whether forward-slash textures/ prefix works.",
+          "script_lines": [
+            "int w1 = GetTextureWidth \"clutter\\snowglobes\\snowglobenelisafb_d.dds\"",
+            "int h1 = GetTextureHeight \"clutter\\snowglobes\\snowglobenelisafb_d.dds\"",
+            "int m1 = GetTextureMipMapCount \"clutter\\snowglobes\\snowglobenelisafb_d.dds\"",
+            "int f1 = GetTextureFormat \"clutter\\snowglobes\\snowglobenelisafb_d.dds\"",
+            "int w3 = GetTextureWidth \"clutter\\aircraftservice\\aircraftserviceloader_d.dds\"",
+            "int f3 = GetTextureFormat \"clutter\\aircraftservice\\aircraftserviceloader_d.dds\"",
+            "int m5 = GetTextureMipMapCount \"clutter\\snowglobes\\snowglobenelisafb_n.dds\"",
+            "int f5 = GetTextureFormat \"clutter\\snowglobes\\snowglobenelisafb_n.dds\"",
+            "int w32 = GetTextureWidth \"pimpboy3billion\\pimpboy3billion_n.dds\"",
+            "int m32 = GetTextureMipMapCount \"pimpboy3billion\\pimpboy3billion_n.dds\"",
+            "int f32 = GetTextureFormat \"pimpboy3billion\\pimpboy3billion_n.dds\"",
+            "int w24 = GetTextureWidth \"interface\\hud\\hud_comp_direction_vertical.dds\"",
+            "int h24 = GetTextureHeight \"interface\\hud\\hud_comp_direction_vertical.dds\"",
+            "int f24 = GetTextureFormat \"interface\\hud\\hud_comp_direction_vertical.dds\"",
+            "int fBsl = GetTextureFormat \"textures\\clutter\\snowglobes\\snowglobenelisafb_d.dds\"",
+            "int fFsl = GetTextureFormat \"textures/clutter/snowglobes/snowglobenelisafb_d.dds\"",
+            "int fMiss = GetTextureFormat \"w6d3_no_such_tex.dds\"",
+            "PrintToConsole \"PROBE|w6d3_12_texture_format_dxt1_dxt3_dxt5_uncomp|dxt1=%gx%g(m=%g,f=%g)|dxt3=%g(f=%g)|dxt5(m=%g,f=%g)|u32=%g(m=%g,f=%g)|u24=%gx%g(f=%g)|pfx=%g/%g,miss=%g\" w1 h1 m1 f1 w3 f3 m5 f5 w32 m32 f32 w24 h24 f24 fBsl fFsl fMiss"
+          ]
+        }
+      ]
+    }
+  ]
+}
