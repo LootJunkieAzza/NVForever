@@ -375,10 +375,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     }
                 }
                 _ => {
-                    // The flags are kept whole, not only the page's two bits [observed: jg3
-                    // term.setflags.east.0.7 read 7, term.setflags.v34.4.6 read 6]; a byte, as
-                    // ANAM is [hypothesis].
-                    g.other.terminal_items.entry((t, i)).or_default().flags = Some((num(args, 2, 0.0) as i64).clamp(0, 255) as u8);
+                    // The flags are stored as the low 8 bits (masked & 0xFF, not clamped:
+                    // 300 -> 44) [observed: jg3 term.setflags.east.0.7 read 7; 2026-11-25,
+                    // FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
+                    // w6d9_26_terminal_menu_items_add_remove_text_note_flags: fl(7=7,300=44)].
+                    g.other.terminal_items.entry((t, i)).or_default().flags = Some((num(args, 2, 0.0) as i64 & 0xFF) as u8);
                 }
             }
             zero
@@ -396,3 +397,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let _ = (ctx, subject);
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_terminal_flags_mask_tests.rs"]
+mod w6d9_terminal_flags_mask_tests;
