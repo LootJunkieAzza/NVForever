@@ -2563,3 +2563,14 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn vanilla_div_and_mod_by_zero_return_dividend_while_extended_errors() {
+    let h = run(
+        "float vDiv\nfloat vMod\nint teD\nint teM\n         begin GameMode\n         set vDiv to 10 / 0\n         set vMod to 10 % 0\n         let teD := TestExpr (10 / 0)\n         let teM := TestExpr (10 % 0)\n         end",
+    );
+    assert_eq!(h.0[&1], Value::Num(10.0));
+    assert_eq!(h.0[&2], Value::Num(10.0));
+    assert_eq!(h.0[&3], Value::Num(0.0));
+    assert_eq!(h.0[&4], Value::Num(0.0));
+}

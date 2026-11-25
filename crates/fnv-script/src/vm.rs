@@ -3801,11 +3801,15 @@ fn binary(op: Op, a: Value, b: Value) -> Value {
         Op::Add => Value::Num(x + y),
         Op::Sub => Value::Num(x - y),
         Op::Mul => Value::Num(x * y),
-        Op::Div => Value::Num(if y == 0.0 { 0.0 } else { x / y }),
+        Op::Div => Value::Num(if y == 0.0 { x } else { x / y }),
         Op::Mod => {
             let (p, q) = (x.trunc() as i64, y.trunc() as i64);
-            // checked_rem: also 0 for i64::MIN % -1, which overflows (a huge operand).
-            Value::Num(p.checked_rem(q).unwrap_or(0) as f64)
+            if q == 0 {
+                Value::Num(p as f64)
+            } else {
+                // checked_rem: 0 for i64::MIN % -1, which overflows (a huge operand).
+                Value::Num(p.checked_rem(q).unwrap_or(0) as f64)
+            }
         }
         Op::Neg => Value::Num(-y),
     }
@@ -3825,7 +3829,8 @@ mod tests {
     #[test]
     fn remainder_never_overflows() {
         assert_eq!(binary(Op::Mod, Value::Num(-1e300), Value::Num(-1.0)), Value::Num(0.0));
-        assert_eq!(binary(Op::Mod, Value::Num(7.0), Value::Num(0.0)), Value::Num(0.0));
+        assert_eq!(binary(Op::Mod, Value::Num(7.0), Value::Num(0.0)), Value::Num(7.0));
+        assert_eq!(binary(Op::Div, Value::Num(10.0), Value::Num(0.0)), Value::Num(10.0));
         assert_eq!(binary(Op::Mod, Value::Num(7.5), Value::Num(2.0)), Value::Num(1.0));
     }
 }
