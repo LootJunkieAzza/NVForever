@@ -535,7 +535,10 @@ fn place(
             while non_fading > world_limit {
                 let Some(old) = st.live.iter_mut().find(|l| l.actor.is_none() && !l.fading) else { break };
                 old.fading = true;
-                commands.entity(old.entity).queue(|mut e: EntityWorldMut| {
+                // A parent cell may have unloaded earlier in the same frame before `fade`
+                // prunes dead entries from `st.live`; `queue_silenced` avoids stray-entity
+                // command errors on already-despawned decals.
+                commands.entity(old.entity).queue_silenced(|mut e: EntityWorldMut| {
                     if let Some(mut d) = e.get_mut::<Decal>() {
                         d.fading = true;
                     }
@@ -1091,5 +1094,35 @@ mod tests {
         assert_eq!(world.resource::<DecalConfig>().world_limit, 100);
         tick_fade(&mut world, 20.0);
         assert_eq!(world.resource::<Decals>().live.len(), 120, "lowering mid-game removes nothing immediately");
+    }
+
+    /// #3776: If a decal's parent cell unloaded earlier in the same frame (so the entity is
+    /// already despawned while `st.live` still holds it before `fade` runs), crossing the
+    /// world limit (`queue_silenced`) and crossing the hard ceiling (`try_despawn`) must not
+    /// trigger a stray-entity error or panic.
+    #[test]
+    fn despawned_world_decal_in_live_queue_does_not_panic_when_marked_or_evicted() {
+        let limit = 2;
+        let ceiling = hard_ceiling(limit);
+        let (_inputs, mut world) = decal_world(limit);
+        place_hits(&mut world, vec![hit_world(1.0), hit_world(2.0)]);
+        let dead = world.resource::<Decals>().live[0].entity;
+        let alive = world.resource::<Decals>().live[1].entity;
+        // Simulate parent cell unloading earlier in the same frame before `fade` prunes `st.live`.
+        world.despawn(dead);
+        assert!(world.get_entity(dead).is_err());
+
+        // 3rd placement exceeds `limit` and marks `dead` via `queue_silenced` without panicking.
+        place_hits(&mut world, vec![hit_world(3.0)]);
+        assert!(world.resource::<Decals>().live[0].fading);
+        assert!(!world.get::<Decal>(alive).unwrap().fading);
+
+        // Exceeding `hard_ceiling` evicts `dead` via `try_despawn` without panicking.
+        for batch in 0..4 {
+            let hits = (0..MAX_DECALS_PER_FRAME).map(|k| hit_world(100.0 + (batch * 10 + k) as f32 * 20.0)).collect();
+            place_hits(&mut world, hits);
+        }
+        assert_eq!(world.resource::<Decals>().live.len(), ceiling);
+        assert!(!world.resource::<Decals>().live.iter().any(|l| l.entity == dead));
     }
 }
