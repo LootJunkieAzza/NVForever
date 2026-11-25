@@ -366,7 +366,7 @@ fn spread_hit_areas(script: Option<&mut ScriptState>, sim: &mut SimState, stats:
 /// block can ask (GetArmourPenetrated, `fnv_game::nvse_jip11`).
 fn note_armour(script: Option<&mut ScriptState>, target: FormId, d: &damage::Damage) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
-        rt.game.note_armour_hit(target, f64::from(d.raw), f64::from(d.dt));
+        rt.game.note_armour_penetrated(target, d.armour_penetrated);
     }
 }
 

@@ -93,3 +93,12 @@ weapon-data-fields.md §3; NVForever applies both.
   (issue #3219). Melee, unarmed, explosions, sneak attacks, limbs other than the head and
   perks on either side were not in the matrix; `hit` keeps its earlier rules for them, and
   `blast_hit` (explosions) is unchanged.
+
+### Pure DR > 80% floor and `GetArmourPenetrated` boundary [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, Hard difficulty (`0.75x`), isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted), `w6d6_02_pure_dr_85_floor_and_armour_penetrated` & `w6d6p2_02_ap_floor_threshold` (`tools/capture/nvse/catalogs/wave6d6_armour_penetrated_floor.json`)]: Pure `DR=85%` (`DT=0`) hits the 20% damage floor (`3.300 = 22 * 0.20 * 0.75`), and `GetArmourPenetrated` returns `1` if and only if post-DT/DR damage exceeds the 20% floor (`DT=17 -> 3.750, ap=1`; `DT=18 -> 3.300, ap=0`; `DR=79% -> 3.465, ap=1`; `DR=81%/85% -> 3.300, ap=0`):
+
+```text
+PROBE|w6d6_02_pure_dr_85_floor_and_armour_penetrated|dr85=3.300(ap=0)|dt0=16.500(ap=1)|dt10=9.000(ap=1)|dt22=3.300(ap=0)|dt50=3.300(ap=0)
+PROBE|w6d6p2_02_ap_floor_threshold|dt17=3.750(ap=1)|dt18=3.300(ap=0)|dr79=3.465(ap=1)|dr81=3.300(ap=0)
+```
