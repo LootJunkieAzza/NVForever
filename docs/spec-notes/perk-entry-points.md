@@ -503,3 +503,11 @@ condition, if any, is the record's (not looked at beyond its entry).
 
 Checks: `fnv-game` `aid::tests::better_healing_multiplies_restored_health_only` (the
 captured figures); smoke `perk-better-healing`.
+
+### Player `AddPerk` rank cap at `DATA.ranks` [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p2_14_multirank_and_addperk_cap` (`tools/capture/nvse/catalogs/wave6d6_addperk_rank_cap.json`)]: Repeated `Player.AddPerk` calls cap at `PERK.DATA.ranks` (`DemolitionExpert` capped at `3` after 4 calls, `Toughness` capped at `2` after 4 calls, `BloodyMess` capped at `1` after 3 calls):
+
+```text
+PROBE|w6d6p2_14_multirank_and_addperk_cap|dem=100.0,100.0,100.0(rk=3)|tgh=0.0,0.0(rk=2)|sl=10.0,10.0|bmRk=1|npc(has=0,rk=0)
+```

@@ -254,11 +254,16 @@ pub fn apply_function(function: u8, number: f64, value: f64) -> Option<f64> {
 /// stages' scripts say "triggered by Intense Training perk rank 1" for the effect of rank
 /// 0, docs/spec-notes/levelup.md §8]. The rank the player has now.
 pub fn gain_rank(g: &mut Game, perk: FormId) -> u8 {
-    let rank = {
+    let max_ranks = g.perk_def(perk).map_or(1, |p| p.ranks.max(1));
+    let (before, rank) = {
         let r = g.player.perks.entry(perk).or_default();
-        *r = r.saturating_add(1);
-        *r
+        let before = *r;
+        *r = r.saturating_add(1).min(max_ranks);
+        (before, *r)
     };
+    if rank == before {
+        return rank;
+    }
     let data = g.data;
     let stages: Vec<(FormId, u8)> = data
         .perks

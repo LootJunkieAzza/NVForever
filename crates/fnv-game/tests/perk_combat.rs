@@ -438,3 +438,16 @@ fn set_nth_perk_entry_value1_changes_the_entry_points_value() {
     assert!((speed(&mut g) - 1.5).abs() < 1e-6, "{}", speed(&mut g));
     assert_eq!(run(&mut g, "SetFunctionValue (GetNthPerkEntryValue1 TravelLight 0)"), fnv_script::vm::XVal::Num(1.5));
 }
+
+#[test]
+fn player_add_perk_caps_at_data_ranks() {
+    let f = fixture();
+    let mut g = game(&f);
+    // BloodyMess has 1 rank, Toughness has 2 ranks [observed: w6d6p2_14_multirank_and_addperk_cap].
+    for _ in 0..4 {
+        perks::gain_rank(&mut g, FormId(BLOODY));
+        perks::gain_rank(&mut g, FormId(TOUGHNESS));
+    }
+    assert_eq!(g.player.perks.get(&FormId(BLOODY)).copied(), Some(1));
+    assert_eq!(g.player.perks.get(&FormId(TOUGHNESS)).copied(), Some(2));
+}
