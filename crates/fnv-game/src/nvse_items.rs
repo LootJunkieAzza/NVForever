@@ -239,9 +239,35 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getlocalrefindex" => XVal::Num(f64::from(form(args, 0).or(subject).map_or(0, |f| f.0 & 0x00FF_FFFF))),
         // [documented: GetSelfAlt] the calling reference, or none.
         "getselfalt" => XVal::Ref(ctx.self_ref.map_or(0, |r| r.0)),
-        // [documented: GetAgeClass; observed: nvse-fourth, -1 for Doc Mitchell and Sunny]
-        // -1 [hypothesis: the same for every actor the base game ships].
-        "getageclass" => XVal::Num(-1.0),
+        // Age class from the NPC's race `ONAM` (older) / `YNAM` (younger) chain:
+        // Child = 0 (`ONAM` only, [hypothesis]), Adult = 1 (`ONAM` & `YNAM`),
+        // Old = 2 (`YNAM` only), non-actor / ageless / CREA = -1 [observed:
+        // 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9, `w6d4_06_headparts_lev_refs_age_grids_ingrid` (`age(1,2)`) and
+        // `w6d4p3_06b_age_class_races` (`p=1,doc=2,sun=1,tru=0,dog=0,dr=-1`,
+        // `wave6d4_age_class.json`): Player/Sunny Adult=1, DocMitchell Old=2, Dresser=-1;
+        // hypothesis: Child=0 from `RACE` `ONAM`-only link, ageless/CREA=-1, optional arg].
+        "getageclass" => {
+            let target = form(args, 0).or(subject);
+            let age = target.and_then(|r| {
+                let b = base(g, r);
+                if g.data.sig(g.unclone(b)) != Some(*b"NPC_") {
+                    return None;
+                }
+                let race = g.unclone(g.actor_race(r)?);
+                let has_older = g.other.unlisted2.race_sets.contains_key(&(race, false, false))
+                    || g.data.race_older.contains_key(&race);
+                let has_younger = g.other.unlisted2.race_sets.contains_key(&(race, false, true))
+                    || g.data.race_younger.contains_key(&race);
+                match (has_older, has_younger) {
+                    (true, false) => Some(0.0),
+                    (true, true) => Some(1.0),
+                    (false, true) => Some(2.0),
+                    (false, false) => None,
+                }
+            });
+            XVal::Num(age.unwrap_or(-1.0))
+        }
         // [documented: GetHeadParts; observed: Doc 2, [0] 0B5BEA, the record's last] the
         // NPC's PNAM head parts, from the last back.
         "getheadparts" => {

@@ -1,0 +1,111 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_age_class",
+  "description": "Clean-room read-only Wave 6D-4 probes proving xNVSE GetAgeClass returns Adult=1, Old=2, and non-actor=-1 via RACE ONAM/YNAM.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d4_age_class",
+      "title": "Wave 6D-4: xNVSE GetAgeClass race age-class lookup",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d4_06_headparts_lev_refs_age_grids_ingrid",
+          "bucket": "xnvse_core_items",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 109,
+          "functions_tested": [
+            "GetHeadParts",
+            "GetLevCharacterRefs",
+            "GetLevCreatureRefs",
+            "GetAgeClass",
+            "GetGridsToLoad",
+            "GetInGridInCell"
+          ],
+          "claim": "SD-10: Verify GetHeadParts on DocMitchell vs non-NPC, GetLevCharacterRefs / GetLevCreatureRefs on real LVLN/LVLC vs non-leveled forms, GetAgeClass, GetGridsToLoad, and GetInGridInCell interior behavior.",
+          "expected": "DocMitchell has 2 PNAM head parts; verify non-NPC empty/ar_Null, LVLN/LVLC array sizes, GetAgeClass values, GetGridsToLoad default (5), and GetInGridInCell indoors.",
+          "script_lines": [
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rLvln = GetFormFromMod \"FalloutNV.esm\" \"A87\"",
+            "ref rLvlc = GetFormFromMod \"FalloutNV.esm\" \"21EBC\"",
+            "ref rCell = GetFormFromMod \"FalloutNV.esm\" \"103DF9\"",
+            "array_var aHpDoc = GetHeadParts rDocBase",
+            "array_var aHpBad = GetHeadParts rStim",
+            "array_var aLch = GetLevCharacterRefs rLvln",
+            "array_var aLchBad = GetLevCharacterRefs rStim",
+            "array_var aLcr = GetLevCreatureRefs rLvlc",
+            "array_var aLcrBad = GetLevCreatureRefs rStim",
+            "int ageP = Player.GetAgeClass",
+            "int ageD = rDoc.GetAgeClass",
+            "int grids = GetGridsToLoad",
+            "int inG0 = GetInGridInCell rCell rDoc",
+            "int inG1 = GetInGridInCell rCell rDoc 1 0",
+            "PrintToConsole \"PROBE|w6d4_06_headparts_lev_refs_age_grids_ingrid|hp(%g,%g)|lvln(%g,%g)|lvlc(%g,%g)|age(%g,%g)|grids=%g|inG(%g,%g)\" (ar_Size aHpDoc) (ar_Size aHpBad) (ar_Size aLch) (ar_Size aLchBad) (ar_Size aLcr) (ar_Size aLcrBad) ageP ageD grids inG0 inG1"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d4p3_06b_age_class_races",
+          "bucket": "xnvse_core_items",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 109,
+          "functions_tested": [
+            "GetAgeClass"
+          ],
+          "claim": "Pin GetAgeClass return values across Player (Caucasian), DocMitchellREF (CaucasianOld), SunnySmiles, Trudy, Cheyenne (CREA), and non-actor DocMitchellDresserRef.",
+          "expected": "Confirm age-class mapping vs NVForever hardcoded -1.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rSunny = GetFormFromMod \"FalloutNV.esm\" \"104E85\"",
+            "ref rTrudy = GetFormFromMod \"FalloutNV.esm\" \"104E8A\"",
+            "ref rDog = GetFormFromMod \"FalloutNV.esm\" \"104E86\"",
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "int aP = Player.GetAgeClass",
+            "int aDoc = rDoc.GetAgeClass",
+            "int aSun = rSunny.GetAgeClass",
+            "int aTru = rTrudy.GetAgeClass",
+            "int aDog = rDog.GetAgeClass",
+            "int aDr = rDr.GetAgeClass",
+            "PrintToConsole \"PROBE|w6d4p3_06b_age_class_races|p=%g,doc=%g,sun=%g,tru=%g,dog=%g,dr=%g\" aP aDoc aSun aTru aDog aDr"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

@@ -5485,5 +5485,77 @@ set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestW
     assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }
 
+#[test]
+fn get_age_class_resolves_race_onam_ynam_links() {
+    use fnv_script::vm::XVal;
+    const R_CHILD: u32 = 0x910;
+    const R_ADULT: u32 = 0x911;
+    const R_OLD: u32 = 0x912;
+    const R_AGELESS: u32 = 0x913;
+    const N_CHILD: u32 = 0x914;
+    const N_ADULT: u32 = 0x915;
+    const N_OLD: u32 = 0x916;
+    const N_AGELESS: u32 = 0x917;
+    const REF_CHILD: u32 = 0x918;
+    const REF_ADULT: u32 = 0x919;
+    const REF_OLD: u32 = 0x91A;
+    const REF_AGELESS: u32 = 0x91B;
+    const CONT_BASE: u32 = 0x91C;
+    const CONT_REF: u32 = 0x91D;
+    const CELL_ID: u32 = 0x91E;
+    let races = [
+        record(b"RACE", 0, R_CHILD, &[sub(b"EDID", z("RaceChild")), sub(b"ONAM", R_ADULT.to_le_bytes().to_vec())]),
+        record(b"RACE", 0, R_ADULT, &[sub(b"EDID", z("RaceAdult")), sub(b"ONAM", R_OLD.to_le_bytes().to_vec()), sub(b"YNAM", R_CHILD.to_le_bytes().to_vec())]),
+        record(b"RACE", 0, R_OLD, &[sub(b"EDID", z("RaceOld")), sub(b"YNAM", R_ADULT.to_le_bytes().to_vec())]),
+        record(b"RACE", 0, R_AGELESS, &[sub(b"EDID", z("RaceAgeless"))]),
+    ].concat();
+    let npcs = [
+        record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"RNAM", R_ADULT.to_le_bytes().to_vec())]),
+        record(b"NPC_", 0, N_CHILD, &[sub(b"EDID", z("NpcChild")), sub(b"RNAM", R_CHILD.to_le_bytes().to_vec())]),
+        record(b"NPC_", 0, N_ADULT, &[sub(b"EDID", z("NpcAdult")), sub(b"RNAM", R_ADULT.to_le_bytes().to_vec())]),
+        record(b"NPC_", 0, N_OLD, &[sub(b"EDID", z("NpcOld")), sub(b"RNAM", R_OLD.to_le_bytes().to_vec())]),
+        record(b"NPC_", 0, N_AGELESS, &[sub(b"EDID", z("NpcAgeless")), sub(b"RNAM", R_AGELESS.to_le_bytes().to_vec())]),
+    ].concat();
+    let cont = record(b"CONT", 0, CONT_BASE, &[sub(b"EDID", z("TestDresser"))]);
+    let cell = record(b"CELL", 0, CELL_ID, &[sub(b"EDID", z("AgeCell")), sub(b"DATA", vec![1])]);
+    let mk_ref = |sig: &[u8; 4], fid: u32, name: &str, base: u32| {
+        record(sig, 0, fid, &[sub(b"EDID", z(name)), sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])])
+    };
+    let refs_raw = [
+        mk_ref(b"ACHR", REF_CHILD, "RefChild", N_CHILD),
+        mk_ref(b"ACHR", REF_ADULT, "RefAdult", N_ADULT),
+        mk_ref(b"ACHR", REF_OLD, "RefOld", N_OLD),
+        mk_ref(b"ACHR", REF_AGELESS, "RefAgeless", N_AGELESS),
+        mk_ref(b"REFR", CONT_REF, "RefDresser", CONT_BASE),
+    ].concat();
+    let children = group(CELL_ID.to_le_bytes(), 6, &group(CELL_ID.to_le_bytes(), 9, &refs_raw));
+    let raw = [
+        tes4(),
+        top(b"RACE", &races),
+        top(b"NPC_", &npcs),
+        top(b"CONT", &cont),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+    ].concat();
+    let plugins = vec![Plugin::parse(&raw, "AgeClass.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.player_entered(Some(FormId(CELL_ID)));
+    let q = |g: &mut fnv_game::Game, expr: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({expr})\nEnd\n"), Default::default()).unwrap();
+    assert_eq!(q(&mut g, "RefChild.GetAgeClass"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "PlayerREF.GetAgeClass"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "RefAdult.GetAgeClass"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "RefOld.GetAgeClass"), XVal::Num(2.0));
+    assert_eq!(q(&mut g, "RefAgeless.GetAgeClass"), XVal::Num(-1.0));
+    assert_eq!(q(&mut g, "RefDresser.GetAgeClass"), XVal::Num(-1.0));
+}
+
 #[path = "common/jip_callback_clock.rs"]
 mod jip_callback_clock_tests;
