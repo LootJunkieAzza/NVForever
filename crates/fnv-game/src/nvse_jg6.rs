@@ -285,13 +285,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // IsCellVisited; hypothesis: every cell loaded around the player counts, kept in
         // `FormChanges::visited_cells`].
         "iscellvisited" => yes(form(args, 0).is_some_and(|c| g.forms.visited_cells.contains(&c))),
-        // `cell`: -1 not visited or the player is in it, 1 expired (ResetInterior, or left
-        // for iHoursToRespawnCell game hours and not in a zone that never resets), 0
-        // otherwise [documented: IsCellExpired; the timing: `crate::respawn`].
-        "iscellexpired" => match form(args, 0).and_then(|c| g.cell_expired(c)) {
-            None => XVal::Num(-1.0),
-            Some(e) => yes(e),
-        },
+        // `cell`: 0 for null or non-CELL forms; for a CELL, -1 not visited or the player
+        // is in it, 1 expired (ResetInterior, or left for iHoursToRespawnCell game hours
+        // and not in a zone that never resets), 0 otherwise [documented: IsCellExpired;
+        // observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE
+        // 57.30 (5730) + JohnnyGuitarNVSE 528 + SUP NVSE Plugin 855, 2026-11-25,
+        // `w6d10_44_near_cells_near_markers_and_cell_visited_expired`: `exp(-1,-1,0,0)`].
+        "iscellexpired" => {
+            let Some(c) = form(args, 0).filter(|&c| g.data.sig(c) == Some(*b"CELL") || g.data.cells.contains_key(&c)) else {
+                return Some(Ok(zero));
+            };
+            match g.cell_expired(c) {
+                None => XVal::Num(-1.0),
+                Some(e) => yes(e),
+            }
+        }
         // `template [cell]`: the cell SetLightingTemplateCell gave the lighting template,
         // 0 before [documented: Get/SetLightingTemplateCell; hypothesis: a lighting
         // template record names no cell (LGTM holds DATA and DALC only), so the link is
@@ -531,3 +539,7 @@ fn moon_climate(g: &Game) -> Option<FormId> {
                 .find(|&c| g.data.sig(g.unclone(c)) == Some(*b"CLMT"))
         })
 }
+
+#[cfg(test)]
+#[path = "w6d10_iscellexpired_tests.rs"]
+mod w6d10_iscellexpired_tests;
