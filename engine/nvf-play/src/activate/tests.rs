@@ -559,10 +559,10 @@ fn restored_unloaded_changes_are_summarised_while_live_and_drawn_changes_log_ind
     assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Inherited));
     app.world_mut().resource_mut::<SimState>().world.activate(FormId::PLAYER_REF, FormId(STIM_REF)).unwrap();
     let mut msgs = app.world_mut().resource_mut::<Messages<RefChanged>>();
-    msgs.write(RefChanged { form_id: STIM_REF, restored: true });
-    msgs.write(RefChanged { form_id: 0x0099_0001, restored: true });
-    msgs.write(RefChanged { form_id: 0x0099_0002, restored: true });
-    msgs.write(RefChanged { form_id: 0x0099_0003, restored: false });
+    msgs.write(RefChanged::restored(STIM_REF));
+    msgs.write(RefChanged::restored(0x0099_0001));
+    msgs.write(RefChanged::restored(0x0099_0002));
+    msgs.write(RefChanged::new(0x0099_0003));
     app.update();
     assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Hidden));
 }
