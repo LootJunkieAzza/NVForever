@@ -1508,17 +1508,55 @@ fn extract_tar(src: &Path, dest: &Path, gzip: bool, limit: u64) -> Result<(), Re
     }
 }
 
+/// A reader that gives at most `left` bytes. Past that it fails and sets `hit`.
+struct Capped<R> {
+    inner: R,
+    left: u64,
+    hit: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl<R: std::io::Read> std::io::Read for Capped<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 {
+            // At the cap: the stream may end here, or it is longer than allowed.
+            let mut one = [0u8; 1];
+            if self.inner.read(&mut one)? == 0 {
+                return Ok(0);
+            }
+            self.hit.set(true);
+            return Err(std::io::Error::other("the archive is longer than its limit"));
+        }
+        let most = buf.len().min(usize::try_from(self.left).unwrap_or(usize::MAX));
+        let n = self.inner.read(&mut buf[..most])?;
+        self.left = self.left.saturating_sub(n as u64);
+        Ok(n)
+    }
+}
+
 /// A failure before the first entry was read means the stream is not a tar this reader
 /// reads (`Unreadable`); every failure after that is `Refused`. At most `limit` bytes of
-/// entries are unpacked: a tar entry is exactly as long as its header says.
+/// entries are unpacked: a tar entry is exactly as long as its header says. The stream itself
+/// is read to twice that, plus 1 MiB for headers, and no further: the tar reader keeps a long
+/// name or extended header whole in memory, so this caps what one header can take.
 fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl Fn(&dyn std::fmt::Display) -> String) -> Result<(), ReadFail> {
-    let mut archive = tar::Archive::new(reader);
+    let hit = std::rc::Rc::new(std::cell::Cell::new(false));
+    let capped = Capped { inner: reader, left: limit.saturating_mul(2).saturating_add(1 << 20), hit: hit.clone() };
+    let mut archive = tar::Archive::new(capped);
     // No mode in the archive makes a file or folder writable by other users.
     archive.set_mask(0o022);
     let mut read_one = false;
     let mut total: u64 = 0;
-    let fail = |read_one: bool, e: String| if read_one { ReadFail::Refused(e) } else { ReadFail::Unreadable(e) };
-    for entry in archive.entries().map_err(|e| ReadFail::Unreadable(bad(&e)))? {
+    // Past the cap the archive is refused, whatever the tar reader made of the cut-off stream.
+    let fail = |read_one: bool, e: String| {
+        if hit.get() {
+            ReadFail::Refused(bad(&too_big()))
+        } else if read_one {
+            ReadFail::Refused(e)
+        } else {
+            ReadFail::Unreadable(e)
+        }
+    };
+    for entry in archive.entries().map_err(|e| fail(false, bad(&e)))? {
         let mut entry = entry.map_err(|e| fail(read_one, bad(&e)))?;
         read_one = true;
         let path = entry.path().map_err(|e| ReadFail::Refused(bad(&e)))?.into_owned();
@@ -1532,7 +1570,7 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl F
             return Err(ReadFail::Refused(bad(&too_big())));
         }
         let to = place_in(dest, &rel).map_err(|e| ReadFail::Refused(bad(&e)))?;
-        entry.unpack(&to).map_err(|e| ReadFail::Refused(format!("{}: {e}", to.display())))?;
+        entry.unpack(&to).map_err(|e| fail(true, format!("{}: {e}", to.display())))?;
     }
     Ok(())
 }
@@ -2806,6 +2844,44 @@ mod tests {
         let Staged::Plan(plan) = stage(&root, facts()).unwrap() else { panic!("an installer with no choice is a plan") };
         place_plan(&mods, &plan).unwrap();
         assert!(mods.join("Copies").join("copy2.bsa").is_file());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_tar_long_name_header_cannot_take_more_than_the_archive_allows() {
+        use std::io::Read as _;
+        let t = std::env::temp_dir().join(format!("nvf-fomod-long-name-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        // A GNU long-name header whose name is 32 MiB of one letter, then an empty file: the
+        // tar reader would hold the whole name in memory. It packs into a few KiB.
+        let name_len: u64 = 32 * 1024 * 1024;
+        let mut tar_bytes = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut tar_bytes);
+            let mut long = tar::Header::new_gnu();
+            long.as_gnu_mut().unwrap().name[..13].copy_from_slice(b"././@LongLink");
+            long.set_size(name_len);
+            long.set_mode(0o644);
+            long.set_entry_type(tar::EntryType::GNULongName);
+            long.set_cksum();
+            b.append(&long, std::io::repeat(b'a').take(name_len)).unwrap();
+            let mut file = tar::Header::new_gnu();
+            file.set_path("x").unwrap();
+            file.set_size(0);
+            file.set_mode(0o644);
+            file.set_entry_type(tar::EntryType::Regular);
+            file.set_cksum();
+            b.append(&file, &[][..]).unwrap();
+            b.finish().unwrap();
+        }
+        let bomb = t.join("LongName.tar.gz");
+        let mut gz = flate2::write::GzEncoder::new(std::fs::File::create(&bomb).unwrap(), flate2::Compression::best());
+        gz.write_all(&tar_bytes).unwrap();
+        gz.finish().unwrap();
+        assert!(std::fs::metadata(&bomb).unwrap().len() < 256 * 1024);
+        let e = stage_error(&bomb);
+        assert!(e.ends_with(&too_big()), "{e}");
         let _ = std::fs::remove_dir_all(&t);
     }
 }
