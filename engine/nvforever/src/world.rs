@@ -2919,6 +2919,7 @@ pub(crate) mod tests {
             external_emittance: false,
             look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
             missing_diffuse: None,
+            block: 0,
         };
         let glow = shape(Some(1), Affine3A::from_translation(glow_at) * own);
         let stick = shape(Some(0), Affine3A::IDENTITY);
