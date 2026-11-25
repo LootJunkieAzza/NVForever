@@ -90,3 +90,7 @@ The observer session ran set `jip10` on the probe save (nvfairport); lab `L5.ext
 Rows that read the save's own state (GetQuests, GetActiveObjectives, GetQuestObjectives on
 VMS01, the player's perks) cannot match a candidate that starts from the records alone; they
 show the elements are quest forms and objective indices as numbers, which NVForever gives.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Quest script variables fractional storage & case-insensitivity (`HasVariable` / `SetVariable`)** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_09_quest_script_variables_and_hasvariable`: `PROBE|w6d9_09_quest_script_variables_and_hasvariable|has(1,1,no=0,bad=0)|orig=0.00,set275=2.75,rest=0.00|missRef=0`]: confirms `HasVariable` is case-insensitive (`has(1,1,no=0,bad=0)`) and `SetVariable` stores fractional `2.75` verbatim even on a `short` quest variable.

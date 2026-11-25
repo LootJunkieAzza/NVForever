@@ -239,3 +239,7 @@ not decode yet.
 The detection state 3 (needs a fight), GetEditorPosition (does not compile at run time,
 §10), and GetIsPoisoned on a poisoned actor. The quest flag 5 rule and flag 7 are read
 from five quests only.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Quest flag bounds & post-`CompleteQuest` objective edge cases (`GetQuestFlag`)** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_12_quest_flags_and_objective_edge_indices`: `PROBE|w6d9_12_quest_flags_and_objective_edge_indices|flg(neg=0,oob=0,b3=0->1)|o999(d=0,c=0)|afterComp(d=0,c=0)`]: confirms `GetQuestFlag` returns `0` for `-1`/`8`, nonexistent objective `999` stays `0`, and `SetObjectiveDisplayed`/`SetObjectiveCompleted` after `CompleteQuest` leave `d=0,c=0`.

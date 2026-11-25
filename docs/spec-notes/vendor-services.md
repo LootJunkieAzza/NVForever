@@ -100,6 +100,7 @@ looked at, `[hypothesis]` is a reading that nothing has confirmed yet. Implement
   services now, for the record.
 - The note that the condition can crash New Vegas with a talking-activator vendor (The
   Sink) is not reproduced.
+- **Wave 6D-9 `GetOffersServicesNow` package, combat & death observation** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_37_offers_services_now_packages_combat_and_death`: `PROBE|w6d9_37_offers_services_now_packages_combat_and_death|init(0,0,1)|t2=1|cmb(in=1,svc=1)|dead=1`]: confirms `Player.GetOffersServicesNow == 0`, non-service Sandbox package returns `0`, `OFFERS_SERVICES` package returns `1`, and records that in the same-frame console probe `GetOffersServicesNow` remained `1` during combat and immediately after `KillActor` (kept as an observation without disturbing existing `vendor_services` tests).
 
 ## 4. What NVForever does
 
