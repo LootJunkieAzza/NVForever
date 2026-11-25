@@ -1633,7 +1633,10 @@ impl Vm<'_, '_> {
                 match op {
                     XUnary::Neg => XVal::Num(-v.num()?),
                     XUnary::Not => unreachable!(),
-                    XUnary::Stringize => XVal::Str(self.text_of(&v)?),
+                    XUnary::Stringize => XVal::Str(match v {
+                        XVal::Array(id) => self.stringize_array(id)?,
+                        other => self.text_of(&other)?,
+                    }),
                     XUnary::Numericize => match v {
                         XVal::Str(s) => XVal::Num(text_number(&s)),
                         other => XVal::Num(other.num()?),
@@ -1756,6 +1759,35 @@ impl Vm<'_, '_> {
     /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`. An
     /// array already being written further out is written `array #n`, as Ar_Dump writes a
     /// nested one, so an array holding itself ends (#1089).
+    /// Format an array for unary `$` (`[1, 2]`, `[1.000000: 10]`, `["k": 5]`, or
+    /// `array ID 0 (invalid)`) [observed: `w6d5p4_dollar_array_format`].
+    fn stringize_array(&mut self, id: u32) -> Result<String, VmError> {
+        self.stringize_array_in(id, &mut Vec::new())
+    }
+
+    fn stringize_array_in(&mut self, id: u32, path: &mut Vec<u32>) -> Result<String, VmError> {
+        let Some(arr) = self.store()?.array(id).cloned() else {
+            return Ok(format!("array ID {id} (invalid)"));
+        };
+        path.push(id);
+        let mut parts = Vec::new();
+        for (k, v) in &arr.entries {
+            let vt = match v {
+                XVal::Array(inner) if path.contains(inner) => format!("array #{inner}"),
+                XVal::Array(inner) => self.stringize_array_in(*inner, path)?,
+                XVal::Str(s) => format!("{s:?}"),
+                other => self.text_of(other)?,
+            };
+            parts.push(match (arr.kind, k) {
+                (ArrayKind::List, _) => vt,
+                (_, XKey::Num(x)) => format!("{x:.6}: {vt}"),
+                (_, XKey::Str(s)) => format!("{s:?}: {vt}"),
+            });
+        }
+        path.pop();
+        Ok(format!("[{}]", parts.join(", ")))
+    }
+
     fn brief_array(&mut self, id: u32) -> Result<String, VmError> {
         self.brief_array_in(id, &mut Vec::new())
     }

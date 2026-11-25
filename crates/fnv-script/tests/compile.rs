@@ -2563,3 +2563,18 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn dollar_stringize_formats_arrays_distinctly_from_tostring() {
+    let h = run(
+        "array_var aL\narray_var aN\narray_var aS\narray_var aZ\n         string_var sL\nstring_var sN\nstring_var sS\nstring_var sZ\n         string_var tL\nstring_var tN\nstring_var tS\nstring_var tZ\n         begin GameMode\n         let aL := ar_List 1, 2\n         let aN := ar_Map 1::10\n         let aS := ar_Map \"k\"::5\n         let sL := $aL\nlet sN := $aN\nlet sS := $aS\nlet sZ := $aZ\n         let tL := ToString aL\nlet tN := ToString aN\nlet tS := ToString aS\nlet tZ := ToString aZ\n         end",
+    );
+    assert_eq!(h.text(5), "[1, 2]");
+    assert_eq!(h.text(6), "[1.000000: 10]");
+    assert_eq!(h.text(7), "[\"k\": 5]");
+    assert_eq!(h.text(8), "array ID 0 (invalid)");
+    assert_eq!(h.text(9), "NULL");
+    assert_eq!(h.text(10), "NULL");
+    assert_eq!(h.text(11), "NULL");
+    assert_eq!(h.text(12), "NULL");
+}

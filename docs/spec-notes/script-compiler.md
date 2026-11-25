@@ -832,3 +832,7 @@ parity; parsing this caller does not establish B42 Optics compatibility.
   scripts, recompiled in the editor).
 - What the compiler does with a line it can't read in the middle of a block: ours writes
   nothing for that line and goes on.
+
+### Wave 6D-5 observation: unary `$` vs `ToString` on arrays
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_dollar_array_format` (`tools/capture/nvse/catalogs/wave6d5_dollar_array_format.json`); zero DLL, PDB, or third-party source consulted] `ToString` returns `"NULL"` for all arrays, while unary `$` formats lists as `[1, 2]`, numeric maps with 6-decimal keys (`[1.000000: 10]`), stringmaps with quoted keys (`["k": 5]`), and uninitialized array ID `0` as `array ID 0 (invalid)`: `PROBE|w6d5p4_dollar_array_format|list=[[1, 2]/NULL]|nmap=[[1.000000: 10]/NULL]|smap=[["k": 5]/NULL]|anull=[array ID 0 (invalid)/NULL]`.
