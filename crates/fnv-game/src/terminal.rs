@@ -183,8 +183,8 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Optio
 }
 
 /// `Lock level` on a terminal: locked at `level.clamp(0, 5)` (0 Very Easy ... 4 Very
-/// Hard, 5 Requires Key); `Lock 0` or omitted `Lock` sets level 0 (Very Easy), not the
-/// prior difficulty [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+/// Hard, 5 Requires Key); `Lock 0` sets level 0 (Very Easy), not the prior difficulty
+/// [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
 /// w6d9_25_terminal_lock_unlock_level_password_and_lockedout: tl=1|0(1,1)|50(2,5)|u(0,-1)|z(1,0);
 /// w6d9p3_25_terminal_lock_levels: l1(1,1)|l4(1,4)|l5(2,5)|l50(2,5)|l0(1,0)]. A terminal
 /// hacked before keeps its access, one locked out stays so [documented: GECK wiki Lock]:
@@ -221,14 +221,8 @@ pub fn locked(g: &Game, reference: FormId) -> u8 {
         None if locked_out => 2,
         None => {
             let base = crate::functions::base_of(g, reference);
-            let Some(t) = base.and_then(|b| g.data.terminals.get(&b)) else { return 0 };
-            if t.has(terminal_flag::UNLOCKED) {
-                0
-            } else if t.difficulty >= 5 {
-                2
-            } else {
-                1
-            }
+            let unlocked = base.and_then(|b| g.data.terminals.get(&b)).is_none_or(|t| t.has(terminal_flag::UNLOCKED));
+            (!unlocked) as u8
         }
     }
 }
