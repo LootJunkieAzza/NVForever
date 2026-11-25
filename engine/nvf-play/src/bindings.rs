@@ -95,6 +95,9 @@ pub enum Control {
     Grab,
     /// Lower or raise the drawn weapon by hand (NVForever's own; not in the game's INI).
     LowerWeapon,
+    /// Raise the Pip-Boy for a glance while walking on (NVForever's own;
+    /// `crate::pipboy::glance`).
+    PipBoyGlance,
     /// Run faster for AP while held (NVForever's own; acts only with NVF Features ›
     /// Advanced Movement › Sprint on, `crate::stance`).
     Sprint,
@@ -160,12 +163,14 @@ pub enum Control {
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
-/// Item tapped twice so a reload is not held back waiting for a second tap]; Sprint unbound,
+/// Item tapped twice so a reload is not held back waiting for a second tap]; Pip-Boy
+/// Glance unbound until the player binds it, so a single player game keeps the original's
+/// keys [design]; Sprint unbound,
 /// with no controller button either, until the player binds it [design, #3000: the
 /// maintainer's decision on #3002]; Photo Mode unbound, no key and no controller button,
 /// until the player binds it under Controls, Actions (the pause menu's Photo Mode entry
 /// opens it meanwhile) [design, #3634: the maintainer's decision].
-pub const GAME_CONTROLS: [(Control, &str, u32); 59] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 60] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -195,6 +200,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 59] = [
     (Control::QuickLoad, "QuickLoad", 0x0043FFFF),
     (Control::Grab, "Grab", 0x002CFF09),
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
+    (Control::PipBoyGlance, "Pip-Boy Glance", 0xFFFFFFFF),
     (Control::Sprint, "Sprint", 0xFFFFFFFF),
     (Control::PhotoMode, "Photo Mode", 0xFFFFFFFF),
     (Control::HolsterWeapon, "Holster Weapon", 0xFFFFFFFF),
@@ -231,7 +237,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 59] = [
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
 /// player binds it (`crate::tweaks`), but the console's and the screenshot's at the end
 /// ([`BOUND_EXTRA_CONTROLS`]), bound by default.
-pub const TWEAK_CONTROLS: usize = 31;
+pub const TWEAK_CONTROLS: usize = 32;
 
 /// The controls after the Tweaks tab's that are bound by default: the console and the
 /// screenshot ([`Control::Console`], [`Control::Screenshot`]).
@@ -640,6 +646,7 @@ pub fn label(c: Control) -> &'static str {
         QuickLoad => "Quick Load",
         Grab => "Grab",
         LowerWeapon => "Lower Weapon",
+        PipBoyGlance => "Pip-Boy Glance",
         Sprint => "Sprint",
         PhotoMode => "Photo Mode",
         HolsterWeapon => "Holster Weapon",
@@ -1345,6 +1352,8 @@ pub struct ControlInput<'w, 's> {
     pub blocked: Option<Res<'w, crate::script_input::ScriptBlocked>>,
     /// A playing kill camera holds the gameplay controls (`crate::kill_cam`).
     pub kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
+    /// The Pip-Boy glance's hold on the controls ([`ControlHold`]).
+    pub hold: Option<Res<'w, ControlHold>>,
     /// A text field has the keyboard ([`KeyboardCapture`]).
     pub capture: Option<Res<'w, KeyboardCapture>>,
     pub platform_capture: Option<Res<'w, crate::pad::PlatformInputGate>>,
@@ -1352,6 +1361,22 @@ pub struct ControlInput<'w, 's> {
     pub touch_switch: Option<Res<'w, crate::pad::TouchDeviceSwitch>>,
     /// Photo mode has the keys (`crate::photo_mode`).
     pub photo: Option<Res<'w, crate::photo_mode::PhotoMode>>,
+}
+
+/// What the Pip-Boy glance holds back from the game's controls (`crate::pipboy::glance`):
+/// while it is up on a controller, the buttons the wrist inventory takes (the D-pad, X and
+/// Y).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ControlHold {
+    pub glance_pad: bool,
+}
+
+impl ControlHold {
+    /// Whether `c` is held back now; `controller` says a controller works the controls.
+    pub fn holds(&self, c: Control, controller: bool) -> bool {
+        use Control::*;
+        self.glance_pad && controller && matches!(c, Hotkey1 | AmmoSwap | Hotkey3 | Hotkey4 | ReadyItem | Jump)
+    }
 }
 
 /// The player's Keyboard and Mouse With a Controller tweak: with the controller as the
@@ -1399,10 +1424,12 @@ impl ControlInput<'_, '_> {
     /// A playing kill camera holds `c`: every control but those that open a menu or
     /// save, so the game can still be paused or left (`crate::kill_cam`, module notes).
     pub fn held(&self, c: Control) -> bool {
-        self.kill_cam.as_ref().is_some_and(|k| k.active())
+        (self.kill_cam.as_ref().is_some_and(|k| k.active())
             && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
             // The player's tweak leaves walking and running (docs/design/tweaks.md).
-            && !(crate::kill_cam::move_during() && matches!(c, Control::Forward | Control::Back | Control::SlideLeft | Control::SlideRight | Control::Run | Control::AlwaysRun | Control::AutoMove))
+            && !(crate::kill_cam::move_during() && matches!(c, Control::Forward | Control::Back | Control::SlideLeft | Control::SlideRight | Control::Run | Control::AlwaysRun | Control::AutoMove)))
+            // The glance's own buttons on a controller ([`ControlHold`]).
+            || self.hold.as_ref().is_some_and(|h| h.holds(c, self.controller()))
     }
 
     /// A controller works the controls.
@@ -1559,6 +1586,16 @@ impl ControlInput<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pipboy_hold() {
+        let none = ControlHold::default();
+        assert!(!none.holds(Control::Forward, false) && !none.holds(Control::Hotkey1, true));
+        let pad = ControlHold { glance_pad: true };
+        assert!(pad.holds(Control::Hotkey1, true) && pad.holds(Control::Jump, true));
+        assert!(!pad.holds(Control::Hotkey1, false), "the keyboard keeps its hotkeys");
+        assert!(!pad.holds(Control::Forward, true), "the glance walks on");
+    }
 
     #[test]
     fn automatic_input_switching_round_trips_and_legacy_devices_keep_their_meaning() {
@@ -1785,17 +1822,20 @@ mod tests {
         assert_eq!(b.get(Control::AmmoSwap).key, Some(KeyCode::Digit2));
         assert_eq!(b.get(Control::QuickLoad).key, Some(KeyCode::F9));
         assert_eq!(b.get(Control::LowerWeapon).key, Some(KeyCode::KeyH));
+        // NVForever's newer controls start unbound, so single player keeps its keys.
+        for c in [Control::PipBoyGlance, Control::Sprint] {
+            assert_eq!(b.get(c), Binding::default(), "{c:?}");
+        }
         assert_eq!(Bindings::name(Control::Rest), "Rest");
         // Every control has a key or a button, but the Tweaks tab's, which start unbound;
         // the console and the screenshot at the end on their old keys.
-        // (Sprint and Photo Mode, NVForever's own, have none until the player binds them:
-        // #3000, #3634.)
-        let unbound = [Control::Sprint, Control::PhotoMode];
+        // (NVForever's own newer controls have none until the player binds them; Sprint:
+        // #3000, Photo Mode: #3634.)
+        let unbound = [Control::PipBoyGlance, Control::Sprint, Control::PhotoMode];
         for (c, _, _) in GAME_CONTROLS[..TWEAK_CONTROLS].iter().filter(|(c, _, _)| !unbound.contains(c)) {
             let x = b.get(*c);
             assert!(x.key.is_some() || x.mouse.is_some(), "{c:?}");
         }
-        assert_eq!(b.get(Control::Sprint), Binding::default());
         let extra = GAME_CONTROLS.len() - BOUND_EXTRA_CONTROLS;
         for (c, _, _) in &GAME_CONTROLS[TWEAK_CONTROLS..extra] {
             assert_eq!(b.get(*c), Binding { key: None, mouse: None }, "{c:?}");

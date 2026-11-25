@@ -308,6 +308,7 @@ struct HudTiles<'w> {
     loading: Option<Res<'w, crate::loading::Loading>>,
     bars: Option<Res<'w, crate::hud::HudView>>,
     compass: Option<Res<'w, crate::compass::CompassView>>,
+    glance: Option<Res<'w, crate::pipboy::glance::Glance>>,
 }
 
 impl HudTiles<'_> {
@@ -334,6 +335,9 @@ impl HudTiles<'_> {
         // reticle::draw: the prompt also goes under true sights/the scope, and when
         // the enemy bar names this target; only the crosshair obeys movement [design].
         let reticle = playing && !creating && !driven && !wheel && !self.sights.as_ref().is_some_and(|s| s.0) && !self.scope.as_ref().is_some_and(|s| s.on);
+        // The glance up while still playing: no crosshair (`reticle::draw`) [observed:
+        // buckallobill, in game].
+        let pip_up = crate::reticle::pipboy_hides_crosshair(self.glance.as_deref());
         let info = reticle && !locks.rollover && self.target.as_ref().and_then(|t| t.0.as_ref()).is_some_and(|t| t.prompted() && !enemy.is_some_and(|e| crate::reticle::under_bar(t, e.form_id)));
         // corner_messages::draw and quest_messages::draw [design].
         let notices = !driven && *self.state.get() != PlayState::Dialogue && !self.panel.as_ref().is_some_and(|p| p.view.is_some());
@@ -359,7 +363,7 @@ impl HudTiles<'_> {
             aiming: playing && self.zoom.as_ref().is_some_and(|z| z.aimed),
             corners,
             sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak) && !self.tweaks.as_ref().is_some_and(|t| t.no_sneak_label),
-            reticle: reticle && !locks.movement && !self.tweaks.as_ref().is_some_and(|t| t.crosshair_hidden),
+            reticle: reticle && !locks.movement && !pip_up && !self.tweaks.as_ref().is_some_and(|t| t.crosshair_hidden),
             enemy: (corners || (classic && self.bars.as_ref().is_some_and(|b| b.enemy_shown))) && enemy.is_some(),
             quests: notices && quest.is_some() && !location,
             messages: notices && self.corner.as_ref().is_some_and(|c| c.showing().is_some()),

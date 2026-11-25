@@ -114,6 +114,8 @@ const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
 /// The Pip-Boy coming up (`pipboy_arm.rs`).
 const TAG_PIPBOY: u32 = 90;
+/// The glance checked on the third-person body (`pipboy_check.rs`).
+const TAG_CHECK: u32 = 91;
 /// The Pip-Boy clip fades in over its first 8 frames [observed: its `Blend: 8` key;
 /// hypothesis: frames at 30 a second, as for idles] and out over its last 8 going down
 /// [design].
@@ -133,10 +135,24 @@ pub const PIPBOY_FOV: f32 = 47.0;
 /// screenshots, playtest list 5 item 18)].
 pub const FIRST_PERSON_FOV: f32 = 55.0;
 
+/// The field of view the arms are drawn with while the Pip-Boy glance is up, degrees as
+/// [`PIPBOY_FOV`] [design: wider than [`FIRST_PERSON_FOV`], so the raised Pip-Boy sits
+/// small in the lower left with the world over it; picked with
+/// `nvf_play::pipboy::glance::GLANCE_HOLD`].
+pub const GLANCE_FOV: f32 = 70.0;
+
 /// How much of the Pip-Boy clip shows at `t` seconds into it: up over its first
 /// [`PIPBOY_BLEND`], down over its last (smoothstep).
 pub fn pipboy_ease(t: f32) -> f32 {
     let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / PIPBOY_BLEND).clamp(0.0, 1.0);
+    e * e * (3.0 - 2.0 * e)
+}
+
+/// As [`pipboy_ease`] for the glance, whose clip is held before [`PIPBOY_BLEND`] is over:
+/// up over its way to the hold, down over the clip's last as long.
+pub fn glance_ease(t: f32) -> f32 {
+    let over = nvf_play::pipboy::glance::GLANCE_HOLD;
+    let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / over).clamp(0.0, 1.0);
     e * e * (3.0 - 2.0 * e)
 }
 
@@ -432,6 +448,8 @@ enum ClipKey {
     ReloadOpen(Stance, &'static str, &'static str),
     /// The Pip-Boy coming up (first person); a woman's.
     PipBoy(bool),
+    /// The glance checked (third person, upper body only, `pipboy_check.rs`).
+    PipBoyCheck,
     /// Weapon prefix and hand grip number: the grip clip (`1lmhandgrip1.kf`,
     /// `2hahandgrip1_plasmarifle.kf`).
     Grip(&'static str, u8),
@@ -465,6 +483,7 @@ impl ClipKey {
             // [observed: `_1stperson\locomotion\female\pipboyfemale.kf` beside the
             // male one]
             ClipKey::Grip(p, n) => vec![format!("{p}handgrip{n}.kf")],
+            ClipKey::PipBoyCheck => vec![crate::pipboy_check::GLANCE_CLIP.to_string()],
             ClipKey::PipBoy(female) => {
                 let own = if female { vec!["locomotion\\female\\pipboyfemale.kf".to_string()] } else { Vec::new() };
                 own.into_iter().chain(["locomotion\\male\\pipboy.kf".to_string()]).collect()
@@ -1095,12 +1114,14 @@ impl Rig {
         }
         let found = path.and_then(|path| {
             let clip = ctx.clip(&path)?;
+            // The check keeps to the upper body: the legs walk on.
+            let clip = if matches!(key, ClipKey::PipBoyCheck) { Arc::new(crate::pipboy_check::upper_clip(&clip)) } else { clip };
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
-            Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_) | ClipKey::PipBoyCheck) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             // Without it the arm never comes up (#1330): said where a player's log shows it.
             None if matches!(key, ClipKey::PipBoy(_)) => warn!("player {:?} rig: {key:?}: none of {:?} in {} could be read; the Pip-Boy cannot come up", self.view, key.candidates(), self.folder),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
@@ -2510,6 +2531,8 @@ struct Posed<'a> {
     pipboy_dt: f32,
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
+    /// The Pip-Boy checked (third person): what the player does and the check playing.
+    check: Option<(nvf_play::pipboy::glance::Check, &'a mut crate::pipboy_check::CheckPlay)>,
     /// The sway of the arms (first person, `view_sway.rs`).
     sway: SwayPose,
     /// True iron sights (first person, `iron_sights.rs`): how far in (0–1), and the
@@ -2546,9 +2569,32 @@ fn ease_pipboy_layer(a:&mut Animator,time:f32) {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, (transforms, parents): (&mut Query<&mut Transform>, &Query<&ChildOf>)) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, sequences, sequence_dt, pipboy_dt, pipboy, sway, sights } = posed;
+    let Posed { root, look_pitch, special, sequences, sequence_dt, pipboy_dt, pipboy, check, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
+    let check = check.filter(|_| rig.view == View::Third).and_then(|(want, play)| {
+        use nvf_play::pipboy::glance::Check;
+        let kind = play.clip_for(want);
+        let Some(c) = (kind != Check::None).then(|| rig.clip(ctx, ClipKey::PipBoyCheck)).flatten() else {
+            *play = crate::pipboy_check::CheckPlay::default();
+            return None;
+        };
+        let keys = crate::pipboy_check::CheckKeys::read(c.clip.length(), &c.clip.text_keys);
+        let before = *play;
+        let step = play.step(want, f.dt, keys);
+        if play.closing && !before.closing {
+            info!("player {:?} rig: Pip-Boy check {:?} put away {:.2} s into its clip (arm up at {:.2} s), going on from {:.2} s", rig.view, play.kind, before.t, keys.up, play.t);
+        }
+        if before.kind != play.kind {
+            if play.kind == Check::None && before.closing {
+                info!("player {:?} rig: Pip-Boy check {:?} gone {:.2} s after it was put away", rig.view, before.kind, before.out + f.dt);
+            } else {
+                info!("player {:?} rig: Pip-Boy check {:?} -> {:?}", rig.view, before.kind, play.kind);
+            }
+        }
+        let (t, w) = step?;
+        Some((c, t, w))
+    });
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
     let holster = rig.clip(ctx, ClipKey::Holster(f.stance, f.prefix));
@@ -2997,6 +3043,12 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             }
         }
     }
+    // The Pip-Boy checked: the arm's clip at its time over the upper body.
+    if let Some((c, t, _)) = &check {
+        let i = a.want(&c.clip, TAG_CHECK, 1.0, Mode::Once, 0.0);
+        let l = &mut a.layers[i];
+        (l.rate, l.time) = (0.0, *t);
+    }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
     // game matches the clip's root motion to the ground speed].
@@ -3082,6 +3134,13 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     }
     if let Some((_, t)) = pipboy {
         ease_pipboy_layer(a, t);
+    }
+    // Only the clip asked for this frame: a check layer the old body handed on at a
+    // rebuild (`continue_from`; its clip is the old cache's) fades out as any other.
+    if let Some((c, _, w)) = check {
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_CHECK && Arc::ptr_eq(&l.clip, &c.clip)) {
+            (l.weight, l.ease) = (1.0, w);
+        }
     }
     a.pose();
     // A Land Mine weapon sits turned in the first-person hand: the clips leave the frag
@@ -3559,11 +3618,11 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, vats, inertia, mut blows, photo)): (
+    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, vats, inertia, mut blows, photo)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
-        Res<nvf_play::pipboy::PipBoy>,
+        (Res<nvf_play::pipboy::PipBoy>, Res<nvf_play::pipboy::glance::Glance>, ResMut<crate::pipboy_check::PlayerCheck>),
         Query<&Projection, With<nvf_play::PlayerCamera>>,
         (Option<Res<nvf_play::free_cam::FirstPersonFov>>, Option<Res<crate::Args>>, Option<Res<nvf_play::pipboy::touch_presentation::PipBoySize>>),
         Option<Res<nvf_play::combat::PlayerLimbs>>,
@@ -3998,7 +4057,8 @@ fn drive_body(
     let (sprint_share, winded) = stance_motion.as_deref().map_or((0.0, 0.0), |s| (s.sprint_share, s.winded));
     let lean = if third_view { crate::sprint_view::lean(sprint_share) } else { Quat::IDENTITY };
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading) * lean, scale: Vec3::splat(body.scale * script_scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences: &sequences.third, sequence_dt: dt, pipboy_dt: 0.0, pipboy: None, sway: SwayPose::NONE, sights: None };
+    let want = nvf_play::pipboy::glance::Check::of(&glance);
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences: &sequences.third, sequence_dt: dt, pipboy_dt: 0.0, pipboy: None, check: Some((want, &mut check.0)), sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, (&mut transforms, &parents)).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
@@ -4017,7 +4077,9 @@ fn drive_body(
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
     }
-    let pipboy = (pip.on_arm() && pip.warming.is_none()).then_some(pip.clip_time);
+    // The arm comes up for the full Pip-Boy (its clip on the arm) and for the glance
+    // (`glance::arm_clip`), not while the Pip-Boy warms up hidden.
+    let pipboy = nvf_play::pipboy::glance::arm_clip(&pip, &glance).filter(|_| pip.warming.is_none());
     // A heavier weapon in the hand sways slower and further, with its switch on.
     let gun_weight = combat.as_deref().filter(|_| m.hands.in_hand).and_then(|c| c.forms.weapons.get(&c.player_weapon()?)).map_or(0.0, |w| w.weight);
     let weight = gun_weight;
@@ -4201,7 +4263,7 @@ fn drive_body(
     } else {
         0.0
     };
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences: &sequences.first, sequence_dt: dt.max(sequences.first_menu_dt), pipboy_dt, pipboy, sway, sights };
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences: &sequences.first, sequence_dt: dt.max(sequences.first_menu_dt), pipboy_dt, pipboy, check: None, sway, sights };
     // With movement inertia the arms' looping clips have their seams smoothed (the idle's
     // hand turned back in one frame at each loop; `nvf_assets::anim_blend` `Seams`).
     if let Some(f) = body.first.as_mut() {
@@ -4217,14 +4279,18 @@ fn drive_body(
             Projection::Perspective(p) => Some(p.fov),
             _ => None,
         });
+        // The arms' field of view (`viewmodel_fov`). The full Pip-Boy narrows the view onto
+        // the screen; the glance widens it, the arm drawn smaller and lower with the world
+        // seen past it.
         let pip_size = &first_fov.2;
         let first_fov = viewmodel_fov;
-        let k = match (pip.on_arm() && pip.warming.is_none(), vfov) {
-            (true, Some(v)) => {
+        let k = match (pipboy, vfov) {
+            (Some(t), Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
-                normal + (arms_magnification(v, pip_size.as_deref().map_or(PIPBOY_FOV, |s| s.device_fov(PIPBOY_FOV))) - normal) * pipboy_ease(pip.clip_time)
+                let (to, ease) = if pip.on_arm() { (pip_size.as_deref().map_or(PIPBOY_FOV, |s| s.device_fov(PIPBOY_FOV)), pipboy_ease(t)) } else { (GLANCE_FOV, glance_ease(t)) };
+                normal + (arms_magnification(v, to) - normal) * ease
             }
-            (false, Some(v)) => arms_magnification(v, first_fov),
+            (None, Some(v)) => arms_magnification(v, first_fov),
             _ => 1.0,
         };
         let forward = Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch));
@@ -4379,7 +4445,8 @@ fn drive_body(
     let seen = if frame.upright {
         Seen::upright(m.hands.in_hand, m.hands.phase != WeaponPhase::Holstered, pipboy.is_some())
     } else {
-        Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
+        // The glance checked: the weapon in the hand is not seen (`pipboy_check.rs`).
+        Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: !(m.hands.in_hand && check.0.hides_weapon()) }
     };
     // Through a scope the arms rig is not drawn (docs/spec-notes/weapon-scopes.md §2),
     // unless the scope is shown in its lens (3D scopes).
@@ -4425,6 +4492,18 @@ fn drive_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_glance_draws_the_arm_smaller_and_fully_so_at_its_hold() {
+        use nvf_play::pipboy::{glance::GLANCE_HOLD, CLIP_SECONDS, HOLD_SECONDS};
+        let v = 75f32.to_radians() * 0.75;
+        assert!(arms_magnification(v, GLANCE_FOV) < arms_magnification(v, FIRST_PERSON_FOV));
+        assert_eq!(glance_ease(0.0), 0.0);
+        assert_eq!(glance_ease(GLANCE_HOLD), 1.0);
+        // Put down from the hold (the clip mirrored past its `Hit`), still fully wide.
+        assert_eq!(glance_ease(2.0 * HOLD_SECONDS - GLANCE_HOLD), 1.0);
+        assert_eq!(glance_ease(CLIP_SECONDS), 0.0);
+    }
 
     #[test]
     fn the_hand_over_sets_off_softly_and_ends_at_rest() {

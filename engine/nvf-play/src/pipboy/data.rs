@@ -503,6 +503,11 @@ pub struct DataState {
     /// square without land), smoothed or stored as the run draws and collides them
     /// (`crate::smooth_terrain`, #2149), kept while one outline is made.
     outline_land: HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>,
+    /// The glance's own outline round the player (`live_map`), the landscape surfaces it
+    /// read, and its alpha once made.
+    live_outline: Option<Outline>,
+    live_land: HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>,
+    live_alpha: Option<std::sync::Arc<Vec<u8>>>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<(u32, usize, usize, usize, usize)>,
     /// The World Map's companion count at the last log.
@@ -3138,8 +3143,26 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
         st.outline_land.clear();
     }
     let Some(o) = st.outline.as_mut().filter(|o| !o.done()) else { return };
-    let lands = &mut st.outline_land;
-    let data = game.world.as_ref().filter(|_| interior.is_none()).map(|w| (w.lo, w.schema, w.index));
+    cast_outline(o, &mut st.outline_land, game, OUTLINE_BUDGET);
+    if o.done() {
+        o.image = Some(images.add(o.picture()));
+        st.outline_last = None;
+        info!(
+            "pipboy data: local map outline {}x{} samples {} apart, {} landed ({})",
+            o.size[0],
+            o.size[1],
+            o.step,
+            o.hits(),
+            if o.interior { "interior" } else { "exterior" }
+        );
+    }
+}
+
+/// Cast the outline's rays for up to `budget` (outdoors a ray landing nowhere takes the
+/// cell's landscape height, read once into `lands`).
+fn cast_outline(o: &mut Outline, lands: &mut HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>, game: &mut Game, budget: std::time::Duration) {
+    let world = o.key.1;
+    let data = game.world.as_ref().filter(|_| !o.interior).map(|w| (w.lo, w.schema, w.index));
     let grid = data.and_then(|(_, _, index)| index.worldspaces.get(&world)).map(|ws| &ws.grid);
     let mut ground = |x: f32, y: f32| -> Option<f32> {
         let ((lo, schema, index), grid) = (data?, grid?);
@@ -3159,21 +3182,82 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     let mut filter = fnv_phys::Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), no_dynamic: true, ..Default::default() };
     filter.exclude.extend(player_key);
     let started = std::time::Instant::now();
-    while !o.done() && started.elapsed() < OUTLINE_BUDGET {
+    while !o.done() && started.elapsed() < budget {
         o.advance(OUTLINE_BATCH, |p, reach| q.ray(p, [0.0, 0.0, -1.0], reach, &filter).map(|h| h.point[2]).or_else(|| ground(p[0], p[1])));
     }
-    if o.done() {
-        o.image = Some(images.add(o.picture()));
-        st.outline_last = None;
-        info!(
-            "pipboy data: local map outline {}x{} samples {} apart, {} landed ({})",
-            o.size[0],
-            o.size[1],
-            o.step,
-            o.hits(),
-            if o.interior { "interior" } else { "exterior" }
-        );
+}
+
+/// How long the glance's outline may cast rays each frame: the world goes on meanwhile.
+const LIVE_OUTLINE_BUDGET: std::time::Duration = std::time::Duration::from_millis(3);
+
+/// What the glance's live map shows (`super::glance`): its own outline round the player
+/// (made as the Local Map's is, a little each frame, and again when the player has moved
+/// a quarter of it away), the doors leading elsewhere, the known map markers and the
+/// marked quest's targets; `None` before the player is placed.
+pub(crate) fn live_map(st: &mut DataState, game: &mut Game) -> Option<super::glance::LiveMap> {
+    use super::glance::{LiveMap, LiveMark, LiveOutline, MarkKind};
+    let (loc, player) = (game.location.as_ref()?, game.player.as_ref()?);
+    let (interior, world, feet, heading) = (loc.interior, loc.world, player.feet, player.heading);
+    let scale = local_scale(interior.is_some());
+    let key = Outline::key_for(interior, world, [feet[0], feet[1]], feet[2], MAP.size(), scale);
+    if st.live_outline.as_ref().is_none_or(|o| o.key != key) {
+        st.live_outline = Some(Outline::new(interior, world, [feet[0], feet[1]], feet[2], MAP.size(), scale));
+        st.live_land.clear();
+        st.live_alpha = None;
     }
+    if let Some(mut o) = st.live_outline.take() {
+        if !o.done() {
+            cast_outline(&mut o, &mut st.live_land, game, LIVE_OUTLINE_BUDGET);
+            if o.done() {
+                st.live_alpha = Some(std::sync::Arc::new(o.alpha()));
+                info!("pipboy glance: map outline {}x{} samples {} apart, {} landed", o.size[0], o.size[1], o.step, o.hits());
+            }
+        }
+        st.live_outline = Some(o);
+    }
+    let outline = match (st.live_outline.as_ref(), st.live_alpha.clone()) {
+        (Some(o), Some(alpha)) => Some(LiveOutline { origin: o.origin, step: o.step, size: o.size, alpha }),
+        _ => None,
+    };
+    let mut marks = Vec::new();
+    let grid = ((feet[0] / model::CELL).floor() as i32, (feet[1] / model::CELL).floor() as i32);
+    let door_key = (interior, if interior.is_some() { (0, 0) } else { grid });
+    if let Entry::Vacant(e) = st.doors.entry(door_key) {
+        let doors = match (game.world.as_ref(), game.sim.as_ref()) {
+            (Some(w), Some(sim)) => {
+                let cells: Vec<u32> = match interior {
+                    Some(c) => vec![c],
+                    None => {
+                        let g = w.index.worldspaces.get(&world).map(|ws| &ws.grid);
+                        (-LOCAL_CELLS.0..=LOCAL_CELLS.0).flat_map(|dx| (-LOCAL_CELLS.1..=LOCAL_CELLS.1).map(move |dy| (grid.0 + dx, grid.1 + dy))).filter_map(|k| g.and_then(|g| g.get(&k)).copied()).collect()
+                    }
+                };
+                read::doors(w.lo, w.schema, w.index, sim.refs, &cells)
+            }
+            _ => Vec::new(),
+        };
+        e.insert(doors);
+    }
+    let enabled = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
+    for d in st.doors.get(&door_key).into_iter().flatten().filter(|d| enabled(d.form)) {
+        marks.push(LiveMark { kind: MarkKind::Door, pos: [d.pos[0], d.pos[1]] });
+    }
+    if interior.is_none() {
+        let all = markers(st, game).cloned().unwrap_or_default();
+        for mk in all.iter().filter(|mk| mk.world == world) {
+            if let Some(found) = known(st, game, mk) {
+                marks.push(LiveMark { kind: MarkKind::Place { found }, pos: [mk.pos[0], mk.pos[1]] });
+            }
+        }
+    }
+    // The quest whose targets were last evaluated (`refresh_quest_targets`: the DATA
+    // page's active quest).
+    if let Some(q) = st.target_quest {
+        for t in targets_of(st, game, q.0).into_iter().filter(|t| t.interior == interior && (t.interior.is_some() || t.world == world)) {
+            marks.push(LiveMark { kind: MarkKind::Quest, pos: [t.pos[0], t.pos[1]] });
+        }
+    }
+    Some(LiveMap { interior: interior.is_some(), feet, heading, outline, marks })
 }
 
 /// Whether two outlines' keys are of the same place and floor (the interior, the worldspace
@@ -3451,8 +3535,17 @@ pub(crate) fn refresh_quest_targets(time: Res<Time<Real>>, state: Option<ResMut<
 /// player's place that starts the way there, for the Local Map, as the compass marks it
 /// (`crate::compass`) [hypothesis: observer-checks.md question 179].
 fn quest_targets(st: &mut DataState, game: &Game) -> Vec<Target> {
+    match st.active_quest {
+        Some(q) => targets_of(st, game, q),
+        None => Vec::new(),
+    }
+}
+
+/// Where quest `q`'s targets marked now are (an interior's also by the door outdoors into
+/// it).
+fn targets_of(st: &mut DataState, game: &Game, q: u32) -> Vec<Target> {
     let mut out = Vec::new();
-    let (Some(q), Some(sim)) = (st.active_quest, game.sim.as_ref()) else { return out };
+    let Some(sim) = game.sim.as_ref() else { return out };
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return out };
     let refs = sim.refs;
     let here = game.location.as_deref().map(|l| match l.interior {

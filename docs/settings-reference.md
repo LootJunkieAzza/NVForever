@@ -101,6 +101,19 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   always full screen.
 - Registered in `engine/nvf-play/src/pipboy.rs`
 
+### `PipBoyGlance`: Pip-Boy glance
+
+- On the page: On: the Pip-Boy Glance key (bind it on the Controls tab) raises the arm as
+  you keep moving: a live map and a wrist inventory, no pause. Left/Right tabs, Up/Down
+  rows, Enter uses.
+- In full: On: the Pip-Boy Glance key raises the arm while you keep moving: a live map and
+  a wrist inventory, no menu and no pause. The key is unbound until you bind it (Controls ›
+  Additional Features). Left and Right change the tab, Up and Down the row (on the map,
+  the zoom), Enter uses the item and Backspace drops it (the D-pad, X and Y on a
+  controller). On by default; its key is unbound, so it changes nothing until the key is used.
+  Not in the original.
+- Registered in `engine/nvf-play/src/pipboy/glance.rs`
+
 ### `sound-cover`: Sounds of the world cover your noise
 
 - On the page: On: while a louder sound plays near you (machines, voices, shots, creatures),

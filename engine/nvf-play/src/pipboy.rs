@@ -50,6 +50,7 @@
 pub mod data;
 pub mod device_screen;
 pub mod frame;
+pub mod glance;
 pub mod hotkey_panel;
 pub mod items;
 pub mod touch_items;
@@ -615,8 +616,12 @@ impl Plugin for PipBoyPlugin {
             )
             .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
             .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
-            .add_systems(Update, flat_pointer.in_set(PointerSet));
-
+            .add_systems(Update, flat_pointer.in_set(PointerSet))
+            // The glance (`glance`): it gives way before the full Pip-Boy follows the
+            // menus; what it holds back is known before the frame's input is read.
+            .add_systems(Update, glance::hold_controls.before(PlaySet::Input))
+            .add_systems(Update, (glance::update.after(crate::menu::MenuSystems).before(follow_menu), glance::keys.run_if(takes_keys), glance::draw).chain().in_set(PlaySet::Ui));
+        glance::setup(app);
         test_aid::setup(app);
         crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
@@ -892,16 +897,25 @@ fn advance(time: crate::pause::AidTime, mut pip: ResMut<PipBoy>, mut control: Re
 /// The screen camera draws only while the Pip-Boy shows; in the screen menu onto a clear
 /// image, so the menus lie on the shade behind them and not on a black box; on the device
 /// onto the screen's undercoat (`device_screen.rs`).
-fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, fx: Res<device_screen::ScreenFx>, mut cams: Query<&mut Camera>) {
+fn camera_on(pip: Res<PipBoy>, glance: Res<glance::Glance>, screen: Option<Res<PipBoyScreen>>, fx: Res<device_screen::ScreenFx>, mut cams: Query<&mut Camera>) {
     let Some(screen) = screen else { return };
+    // The glance draws into the same image (`glance::draw`).
+    let on = pip.shown() || glance.shown();
     if let Ok(mut c) = cams.get_mut(screen.camera) {
-        if c.is_active != pip.shown() {
-            c.is_active = pip.shown();
+        if c.is_active != on {
+            c.is_active = on;
             if !c.is_active {
                 info!("pipboy: screen camera off");
             }
         }
-        let clear = if pip.frame == Frame::Screen { Color::NONE } else { device_screen::undercoat(fx.kept) };
+        // The glance alone (the Pip-Boy down) keeps its black ground.
+        let clear = if !pip.shown() {
+            Color::BLACK
+        } else if pip.frame == Frame::Screen {
+            Color::NONE
+        } else {
+            device_screen::undercoat(fx.kept)
+        };
         if !matches!(c.clear_color, ClearColorConfig::Custom(now) if now == clear) {
             c.clear_color = ClearColorConfig::Custom(clear);
         }
@@ -1396,6 +1410,7 @@ mod tests {
         let camera = world.spawn(Camera { is_active: false, ..default() }).id();
         world.insert_resource(PipBoyScreen { camera, image: Handle::default(), on_model: false, pointer: None, scale: 1.0 });
         world.insert_resource(device_screen::ScreenFx::default());
+        world.insert_resource(glance::Glance::default());
         world.insert_resource(PipBoy { warming: Some(warming(true, true)), ..default() });
         world.run_system_once(camera_on).unwrap();
         assert!(world.get::<Camera>(camera).unwrap().is_active);

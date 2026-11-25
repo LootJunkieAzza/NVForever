@@ -347,6 +347,14 @@ fn style_pick(w: &mut World, name: &str) -> bool {
     }
 }
 
+/// Whether the glance keeps the crosshair off the screen, anywhere from coming up to gone
+/// down. The full Pip-Boy pauses, leaves `PlayState::Playing` and takes the crosshair
+/// with it as on main; the glance never pauses, so it is asked here [observed: buckallobill,
+/// in game: the crosshair drew over the glance].
+pub fn pipboy_hides_crosshair(glance: Option<&crate::pipboy::glance::Glance>) -> bool {
+    glance.is_some_and(|g| g.shown())
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
@@ -540,7 +548,7 @@ fn draw(
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time, dynamic, control): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>, Option<Res<crate::control::PlayerControl>>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
+    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>)>,
     (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks, anim, vats): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
@@ -563,7 +571,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    texts: Query<Entity, With<Texts>>,
+    (texts, glance): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::glance::Glance>>),
 ) {
     // Record only what this drawing pass shows, including early hidden returns
     // [design: #2528, test_aid/activation_sweep.rs].
@@ -622,7 +630,17 @@ fn draw(
     if !playing || sights {
         return;
     }
-    let locks = locks.as_deref().copied().unwrap_or_default();
+    // The glance up while still playing: no crosshair; the prompt stays (the player
+    // still walks and acts).
+    let pip_up = pipboy_hides_crosshair(glance.as_deref());
+    if logged.7 != Some(pip_up) {
+        if pip_up || logged.7.is_some() {
+            info!("crosshair: {}", if pip_up { "hidden under the Pip-Boy" } else { "back from under the Pip-Boy" });
+        }
+        logged.7 = Some(pip_up);
+    }
+    let mut locks = locks.as_deref().copied().unwrap_or_default();
+    locks.movement |= pip_up;
     let aimed = target.0.as_ref().is_some_and(Targeted::prompted);
     let foe = hostile.is_some_and(|h| h.0);
     let colour = if foe || target.0.as_ref().is_some_and(|t| t.crime) { crime_colour() } else { amber(255.0) };
@@ -720,6 +738,18 @@ mod tests {
     /// Every character 17 wide: about the game's font 7.
     fn font() -> Font {
         plain_font(36.0, 17.0)
+    }
+
+    #[test]
+    fn the_glance_up_without_a_pause_hides_the_crosshair() {
+        use crate::pipboy::{glance::Glance, Phase};
+        assert!(!pipboy_hides_crosshair(None));
+        let mut glance = Glance::default();
+        assert!(!pipboy_hides_crosshair(Some(&glance)), "down");
+        for phase in [Phase::Raising, Phase::Up, Phase::Lowering] {
+            glance.phase = phase;
+            assert!(pipboy_hides_crosshair(Some(&glance)), "the glance {phase:?}");
+        }
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {

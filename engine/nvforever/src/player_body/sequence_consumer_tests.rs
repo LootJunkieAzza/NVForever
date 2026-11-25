@@ -312,6 +312,7 @@ fn pose_frame_with_pipboy_dt(
                 sequence_dt,
                 pipboy_dt,
                 pipboy,
+                check: None,
                 sway: SwayPose::NONE,
                 sights: None,
             },

@@ -37351,3 +37351,40 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error in the clustering passes" },
 ]
+
+[[scenario]]
+name = "crosshair-under-glance"
+source = "[observed: buckallobill, in game]: the crosshair still drew under the Pip-Boy glance, which opens without a pause, so the state stays Playing (`reticle::pipboy_hides_crosshair`)"
+note = "The glance's control ships unbound: the settings aid binds it to G on the Controls tab during a pause from 2 to 4 s (as sprint-run binds Sprint); the glance is raised with the real G key at 9 s and put down at 12 s"
+areas = ["hud", "pipboy"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/pipboy/glance.rs", "engine/nvf-play/src/tiles/mod.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "2:4", NVF_PLAY_TEST_SETTINGS = "3:bind:Pip-Boy Glance=G", NVF_PLAY_TEST_KEYS = "9:g,12:g", NVF_PLAY_TEST_SHOTS = "8.5:glance_before.png,10.5:glance_up.png,14:glance_down.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 15
+expect = [
+  { re = 'pipboy glance: up', label = "the glance comes up" },
+  { text = "crosshair: hidden under the Pip-Boy", label = "the crosshair goes while it is up" },
+  { text = "crosshair: back from under the Pip-Boy", label = "and comes back when it is down" },
+]
+order = [["pipboy glance: up", "crosshair: hidden under the Pip-Boy", "crosshair: back from under the Pip-Boy"]]
+manual = "glance_up.png: no crosshair over the world above the raised Pip-Boy; glance_before.png and glance_down.png have it"
+
+[[scenario]]
+name = "pipboy-check-lets-go"
+source = "[observed: buckallobill, in game]: a glance put away before 0.6 s left the third-person check's arm raised the clip's next several seconds (pipboyexamine.kf, 7.37 s, its arm up at 0.6 s); the check now goes within its out-blend however early the glance is put away"
+note = "Third person in NCR trooper armour on the Goodsprings road: G held 0.4 s and 2 s (the glance's control ships unbound: the settings aid binds it to G during a pause from 2 to 4 s, so the view switch is at 4.5 s). Each check must be gone within its out-blend: 0.5 s faded where it is before the arm is up, else the clip from AccessDown to its end (0.64 s). The full Tab Pip-Boy has no check clip (unit test `the_normal_pipboy_has_no_check`)"
+areas = ["pipboy", "animation"]
+paths = ["engine/nvforever/src/pipboy_check.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000EE692", NVF_PLAY_TEST_PAUSE = "2:4", NVF_PLAY_TEST_SETTINGS = "3:bind:Pip-Boy Glance=G", NVF_PLAY_TEST_CONTROL = "4.5:view", NVF_PLAY_TEST_KEYS = "6:g,6.4:g,11:g,13:g", NVF_PLAY_TEST_SHOTS = "5:check_before.png,6.2:check_glance_quick_up.png,7.5:check_glance_quick_after_1.1s.png,9:check_glance_quick_after_2.6s.png,12.5:check_glance_up.png,14:check_glance_after_1s.png,15.5:check_glance_after_2.5s.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+
+expect = [
+  { re = 'Third rig: Pip-Boy check Glance put away', min = 2, label = "the glance check is put away twice" },
+  { re = 'Third rig: Pip-Boy check \w+ gone (?P<n>[\d.]+) s after it was put away', range = [0, 1.3], all = true, label = "every check is gone within its out-blend (the bug: several seconds)" },
+  { re = 'Third rig: Pip-Boy check \w+ gone', min = 2, label = "both checks end" },
+]
+forbid = [
+  { text = "Pip-Boy check Full", label = "no check for the full Tab Pip-Boy" },
+]
+manual = "check_before.png: third-person body, arms down; check_glance_*after_*.png: arms down, no left arm raised to the wrist; check_*_up.png: the glance up with the weapon hidden"

@@ -52,6 +52,7 @@ fn coupled_scene_with_inertia(inertia: bool) -> Coupled {
         .init_resource::<crate::script_sequences::PlayerSequences>()
         .init_resource::<crate::furniture::BodyOverride>()
         .init_resource::<nvf_play::furniture::PlayerSeat>()
+        .init_resource::<crate::pipboy_check::PlayerCheck>()
         .init_resource::<crate::death_cam::DeathCam>()
         .init_resource::<crate::player_knockdown::PlayerKnockdown>()
         .init_resource::<crate::weapon_lower::Ahead>()
