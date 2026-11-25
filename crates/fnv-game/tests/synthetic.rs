@@ -5485,5 +5485,58 @@ set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestW
     assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }
 
+#[test]
+fn set_eyes_accepts_cloned_npc_and_rejects_non_eyes_form() {
+    use fnv_script::vm::XVal;
+    const EYE_ID: u32 = 0x940;
+    const HAIR_ID: u32 = 0x941;
+    const NPC_ID: u32 = 0x942;
+    const CELL_ID: u32 = 0x944;
+    let eyes = record(b"EYES", 0, EYE_ID, &[sub(b"EDID", z("W6d4Eye"))]);
+    let hair = record(b"HAIR", 0, HAIR_ID, &[sub(b"EDID", z("W6d4Hair"))]);
+    let npcs = [
+        record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]),
+        record(b"NPC_", 0, NPC_ID, &[sub(b"EDID", z("W6d4Npc"))]),
+    ].concat();
+    let cell = record(b"CELL", 0, CELL_ID, &[sub(b"EDID", z("W6d4Cell")), sub(b"DATA", vec![1])]);
+    let raw = [
+        tes4(),
+        top(b"EYES", &eyes),
+        top(b"HAIR", &hair),
+        top(b"NPC_", &npcs),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+    ].concat();
+    let plugins = vec![Plugin::parse(&raw, "SetEyes.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.player_entered(Some(FormId(CELL_ID)));
+    let q = |g: &mut fnv_game::Game, body: &str, ctx: fnv_game::game::RunCtx| {
+        g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), ctx).unwrap()
+    };
+    let dflt = fnv_game::game::RunCtx::default;
+    // 1. Placed actor (PlayerREF): valid EYES returns 1 and reads back; non-EYES returns 0 without mutating.
+    assert_eq!(q(&mut g, "PlayerREF.SetEyes W6d4Eye", dflt()), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "PlayerREF.GetEyes", dflt()), XVal::Ref(EYE_ID));
+    assert_eq!(q(&mut g, "PlayerREF.SetEyes W6d4Hair", dflt()), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "PlayerREF.GetEyes", dflt()), XVal::Ref(EYE_ID));
+    // 2. Placed reference whose base is a TempCloneForm NPC: SetEyes unclone resolves NPC_ and validates EYES.
+    let XVal::Ref(cl) = q(&mut g, "TempCloneForm W6d4Npc", dflt()) else { panic!("clone ref") };
+    let r_ref = g.world.place(FormId(NPC_ID), Some(FormId(CELL_ID)), [0.0; 3], [0.0; 3], 1).unwrap();
+    g.world.get(r_ref).unwrap().base = FormId(cl);
+    let cctx = || fnv_game::game::RunCtx { self_ref: Some(r_ref), ..Default::default() };
+    assert_eq!(q(&mut g, "SetEyes W6d4Eye", cctx()), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "GetEyes", cctx()), XVal::Ref(EYE_ID));
+    assert_eq!(q(&mut g, "SetEyes W6d4Hair", cctx()), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "GetEyes", cctx()), XVal::Ref(EYE_ID));
+}
+
 #[path = "common/jip_callback_clock.rs"]
 mod jip_callback_clock_tests;
