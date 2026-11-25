@@ -141,7 +141,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.snapshot_armor_overrides(f, id);
             XVal::Ref(id.0)
         }
-        "isclonedform" => yes(form(args, 0).or(subject).is_some_and(|f| g.clones.contains_key(&f))),
+        // Both the cloned base form and a placed reference whose base is a temporary clone
+        // report 1 [observed: `w6d5_28_tempcloneform_scene_bases_placeatme`, icR=1, icB=1].
+        "isclonedform" => yes(form(args, 0).or(subject).is_some_and(|f| {
+            g.clones.contains_key(&f)
+                || crate::functions::base_of(g, f).is_some_and(|b| g.clones.contains_key(&b))
+        })),
         _ => return None,
     };
     Some(Ok(v))

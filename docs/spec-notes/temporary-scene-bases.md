@@ -174,3 +174,7 @@ Documentation changes and a later current-main composition have not been
 compiled or executed by this adoption. Broader suites, strict lint, installed
 GAME scenarios, native parity, existing user-save recovery, rendered/collision
 behavior and complete B42/profile acceptance remain unqualified.
+
+### Wave 6D-5 observation: `IsClonedForm` on placed reference of cloned base & `PlaceAtMe` scene bases
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_28_tempcloneform_scene_bases_placeatme` (`tools/capture/nvse/catalogs/wave6d5_isclonedform_placed.json`); zero DLL, PDB, or third-party source consulted] Placing a `TempCloneForm` clone via `PlaceAtMe` preserves `GetBaseObject == clone`, retains pre-placement `SetModelPath`, succeeds on `STAT`/`MSTT`/`PROJ`/`ACTI`/`MISC` clones, and returns `IsClonedForm == 1` on both the placed reference (`icR=1`) and its cloned base (`icB=1`): `PROBE|w6d5_28_tempcloneform_scene_bases_placeatme|stat(ok=1,icR=1,icB=1,m=[w6d5_cl_stat.nif])|mstt=1|proj=1|acti=1|misc=1`.
