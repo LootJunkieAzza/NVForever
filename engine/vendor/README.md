@@ -628,6 +628,14 @@ uniform's free fields were used up by the desert haze, §3.16).
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
+[design, #3973] `src/camera.rs`, where an HDR view's main target format is chosen: the
+test aid `NVF_PLAY_TEST_HDR_FORMAT=rg11b10` takes `Rg11b10Ufloat` (32 bits a pixel) instead
+of `Rgba16Float` (64), read once. Nothing changes without it. With it the target has no
+alpha, so the Pip-Boy screen's mark (`imagespace.wesl` `SCREEN_MARK`) is lost and the
+screen takes the image-space grade; HDR output and the upscalers are not tested with it. It
+is there to measure the bandwidth saving (#3973: 1.1-1.5 ms a frame at 1080p on a Steam
+Deck with Light glow on) until the owner decides where the format applies.
+
 [documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]
 `RENDER_DEVICE_API_GATE` gates pipeline creation on task threads (and synchronous creation).
 Each compilation holds its read side. NVForever's device poll thread shares it;
