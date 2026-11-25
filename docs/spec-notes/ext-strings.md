@@ -83,7 +83,14 @@ from 0 throughout [documented: Sv Length; Sv Find].
 - **Arguments**: a formattable string and its values, then the target string_var.
 - **Result**: none; the target now holds the formatted text.
 - **Edge cases**: kept for old scripts; `let` does the same [documented: Sv Set].
-- **Evidence**: [documented: Sv Set].
+  Leaves an uninitialized `string_var` empty [observed: nvse-fifth], while formatting
+  and overwriting an initialized `string_var` in place (`sv_Set "val=%g" 42 sSetT`
+  writes `"val=42"`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, read-only
+  `PrintToConsole` probe `w6d11_24_sv_replace_searchlen_maxcount_and_sv_set`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `set=[val=42]`; no DLL or source consulted].
+- **Evidence**: [documented: Sv Set], [observed].
 
 ### Sv_Destruct
 

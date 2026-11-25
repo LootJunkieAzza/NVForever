@@ -570,9 +570,6 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // [documented: Sv_Set; observed: nvse-fifth, `Sv_Set "n=%g" 3 sText` leaves the
-        // string empty] it does nothing [hypothesis: the function is left over].
-        "sv_set" => zero,
         // [documented: GetSoldItemInvRef; observed: outside an OnSell 00000000; OnSell is
         // not sent yet].
         "getsolditeminvref" => XVal::Ref(0),
