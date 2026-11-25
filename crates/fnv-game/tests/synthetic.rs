@@ -5485,5 +5485,56 @@ set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestW
     assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the clone counted, the weapon not");
 }
 
+#[test]
+fn set_nth_package_validates_pack_and_supports_neg_one() {
+    use fnv_script::vm::XVal;
+    const P1: u32 = 0x930;
+    const P2: u32 = 0x931;
+    const P3: u32 = 0x932;
+    const NPC_ID: u32 = 0x933;
+    const NPC_REF: u32 = 0x934;
+    const NOT_PACK: u32 = 0x935;
+    const CELL_ID: u32 = 0x936;
+    let packs = [
+        record(b"PACK", 0, P1, &[sub(b"EDID", z("PkgOne"))]),
+        record(b"PACK", 0, P2, &[sub(b"EDID", z("PkgTwo"))]),
+        record(b"PACK", 0, P3, &[sub(b"EDID", z("PkgThree"))]),
+    ].concat();
+    let npcs = [
+        record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]),
+        record(b"NPC_", 0, NPC_ID, &[sub(b"EDID", z("PkgNpc")), sub(b"PKID", P1.to_le_bytes().to_vec()), sub(b"PKID", P2.to_le_bytes().to_vec())]),
+    ].concat();
+    let misc = record(b"MISC", 0, NOT_PACK, &[sub(b"EDID", z("NotAPkg"))]);
+    let cell = record(b"CELL", 0, CELL_ID, &[sub(b"EDID", z("PkgCell")), sub(b"DATA", vec![1])]);
+    let npc_ref = record(b"ACHR", 0, NPC_REF, &[sub(b"EDID", z("PkgNpcRef")), sub(b"NAME", NPC_ID.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let children = group(CELL_ID.to_le_bytes(), 6, &group(CELL_ID.to_le_bytes(), 9, &npc_ref));
+    let raw = [
+        tes4(),
+        top(b"PACK", &packs),
+        top(b"NPC_", &npcs),
+        top(b"MISC", &misc),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+    ].concat();
+    let plugins = vec![Plugin::parse(&raw, "SetNthPkg.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.player_entered(Some(FormId(CELL_ID)));
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("ref r\nBegin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap();
+    // OOB returns 0; non-PACK form returns 0 without mutating; -1 replaces last entry (P2 -> P3).
+    assert_eq!(q(&mut g, "let r := PkgNpcRef.SetNthPackage PkgThree 99\nSetFunctionValue r"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "let r := PkgNpcRef.SetNthPackage NotAPkg 0\nSetFunctionValue r"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (PkgNpcRef.GetNthPackage 0)"), XVal::Ref(P1));
+    assert_eq!(q(&mut g, "let r := PkgNpcRef.SetNthPackage PkgThree -1\nSetFunctionValue r"), XVal::Ref(P2));
+    assert_eq!(q(&mut g, "SetFunctionValue (PkgNpcRef.GetNthPackage 1)"), XVal::Ref(P3));
+}
+
 #[path = "common/jip_callback_clock.rs"]
 mod jip_callback_clock_tests;

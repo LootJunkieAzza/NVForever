@@ -86,10 +86,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // forms tried did not compile in the game, `let x := ref.SetNthPackage p i` did].
         "setnthpackage" => {
             let (Some(actor), Some(p)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Ref(0))) };
+            // Reject non-PACK forms without mutating, and treat index -1 as the last
+            // package entry [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+            // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+            // `w6d4p7_08_set_nth_package_isolated` (`wave6d4_set_nth_package.json`):
+            // `cnt=9|ok(m=1,old=1)|oob=00000000|neg(oldEqLast=1,newEq=1)|bad(ret=00000000,kept=1)`;
+            // hypothesis: negative indices < -1 return 0; design: missing index arg returns 0].
+            if g.data.sig(g.unclone(p)) != Some(*b"PACK") {
+                return Some(Ok(XVal::Ref(0)));
+            }
             let Some(b) = crate::functions::base_of(g, actor) else { return Some(Ok(XVal::Ref(0))) };
             let mut list = g.package_list(actor);
-            let i = num(args, 1, -1.0);
-            match usize::try_from(i as i64).ok().filter(|&i| i < list.len()) {
+            let raw = num(args, 1, -2.0).trunc() as i64;
+            let idx = if raw == -1 {
+                list.len().checked_sub(1)
+            } else {
+                usize::try_from(raw).ok().filter(|&i| i < list.len())
+            };
+            match idx {
                 Some(i) => {
                     let old = std::mem::replace(&mut list[i], p);
                     g.other.package_lists.insert(b, list);
