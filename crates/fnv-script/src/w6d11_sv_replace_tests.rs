@@ -69,10 +69,14 @@ fn sv_replace_honors_search_len_window_and_max_replacements() {
 string_var s2
 string_var s3
 string_var s4
+string_var s5
+string_var s6
 float c1
 float c2
 float c3
 float c4
+float c5
+float c6
 begin GameMode
 let s1 := "aaaaaa"
 let c1 := Sv_Replace "a|X" s1 0 3
@@ -82,11 +86,20 @@ let s3 := "aaaaaa"
 let c3 := Sv_Replace "a|X" s3 0 6 0 0
 let s4 := "aaaaaa"
 let c4 := Sv_Replace "a|X" s4 0 6 0 2
+let s5 := "aaaaaa"
+let c5 := Sv_Replace "a|X" s5 2 -1
+let s6 := "aaaaaa"
+let c6 := Sv_Replace "a|X" s6 -2 3
 end
 "#);
     assert_eq!(h.ext.text(h.vars[&1].num() as u32), Some("XXXaaa"));
     assert_eq!(h.ext.text(h.vars[&2].num() as u32), Some("aaXXXa"));
     assert_eq!(h.ext.text(h.vars[&3].num() as u32), Some("aaaaaa"));
     assert_eq!(h.ext.text(h.vars[&4].num() as u32), Some("XXaaaa"));
-    assert_eq!((h.vars[&5], h.vars[&6], h.vars[&7], h.vars[&8]), (Value::Num(3.0), Value::Num(3.0), Value::Num(0.0), Value::Num(2.0)));
+    assert_eq!(h.ext.text(h.vars[&5].num() as u32), Some("aaXXXX"));
+    assert_eq!(h.ext.text(h.vars[&6].num() as u32), Some("XXXaaa"));
+    assert_eq!(
+        (h.vars[&7], h.vars[&8], h.vars[&9], h.vars[&10], h.vars[&11], h.vars[&12]),
+        (Value::Num(3.0), Value::Num(3.0), Value::Num(0.0), Value::Num(2.0), Value::Num(4.0), Value::Num(3.0))
+    );
 }

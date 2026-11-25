@@ -145,15 +145,17 @@ from 0 throughout [documented: Sv Length; Sv Find].
   string is returned.
 - **Edge cases**: by default every occurrence in the whole string, ignoring case. An
   empty old text, or a `|` inside the new text: open.
-- **Evidence**: [documented: Sv Replace]; `searchLen` bounds the replacement window
-  (`start=0, len=3` yields `"XXXaaa"`, `start=2, len=3` yields `"aaXXXa"`), `maxReplacements=0`
-  replaces `0` occurrences, and extra `|` characters stay in the replacement text
-  (`"o|x|y"` on `"foo"` yields `"fx|yx|y"`) [observed: 2026-11-25, `GSDocMitchellHouse`
-  (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters,
-  read-only `PrintToConsole` probe `w6d11_24_sv_replace_searchlen_maxcount_and_sv_set`
+- **Evidence**: [documented: Sv Replace]; non-negative `searchLen` bounds the replacement
+  window (`start=0, len=3` yields `"XXXaaa"`, `start=2, len=3` yields `"aaXXXa"`),
+  `maxReplacements=0` replaces `0` occurrences, and extra `|` characters stay in the
+  replacement text (`"o|x|y"` on `"foo"` yields `"fx|yx|y"`) [observed: 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10
+  official base masters, read-only `PrintToConsole` probe
+  `w6d11_24_sv_replace_searchlen_maxcount_and_sv_set`
   (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
   `len1(3:[XXXaaa])|len2(3:[aaXXXa])|max0(0:[aaaaaa])|max2(2:[XXaaaa])|cs(3:[XAXAXA])|pipe(2:[fx|yx|y])`;
-  no DLL or source consulted].
+  no DLL or source consulted]. Omitted or negative `searchLen` searches through the end of
+  the string [design].
 
 ### Sv_Insert
 

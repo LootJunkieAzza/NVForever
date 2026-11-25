@@ -2735,7 +2735,7 @@ impl Vm<'_, '_> {
                 let Some(var) = self.string_var_arg(c.args.get(k))? else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
                 let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
-                let start_raw = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let search_len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let max = opt(self, k + 4)?.map(|v| v.num()).transpose()?.map(|m| m as usize);
@@ -2746,13 +2746,12 @@ impl Vm<'_, '_> {
                     self.host.script_error("Sv_Replace with an empty text to replace");
                     return Ok(Some(XVal::Num(0.0)));
                 }
-                if start_raw < 0.0 {
-                    return Ok(Some(XVal::Num(0.0)));
-                }
-                let start = start_raw as usize;
                 let chars: Vec<char> = s.chars().collect();
                 let old: Vec<char> = old.chars().collect();
                 let from = start.min(chars.len());
+                // [observed: `w6d11_24_sv_replace_searchlen_maxcount_and_sv_set`,
+                // `len1(3:[XXXaaa])|len2(3:[aaXXXa])`] non-negative `searchLen` bounds the
+                // scan window; omitted or negative `searchLen` searches to end [design].
                 let limit = match search_len {
                     Some(l) if l >= 0.0 => from.saturating_add(l as usize).min(chars.len()),
                     _ => chars.len(),
