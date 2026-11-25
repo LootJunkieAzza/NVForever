@@ -596,3 +596,15 @@ SetWeapon1stPersonModel TestGun 0"#);
     assert!(back.weapon_model_changes().is_empty());
     assert_eq!(back.weapon_model_stamp(), empty);
 }
+
+#[test]
+fn calc_weapon_dps_divides_crit_mult_by_fire_rate_for_automatic_weapons() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "PlayerREF.ForceAV Guns 100\nPlayerREF.ForceAV CritChance 50");
+    // Mark CalcGun automatic (flags1 bit 1 = 2); DNAM attack_shots_per_sec=2.0, crit_damage=30, crit_mult=2.0.
+    q(&mut g, "SetWeaponFlags1 2 CalcGun");
+    // Without fire_rate override (0.0 in fixture), falls back to attack_shots_per_sec without div-by-zero.
+    let dps_no_fr = n(&mut g, "PlayerREF.GetCalculatedWeaponDPS CalcGun");
+    assert!(dps_no_fr.is_finite() && dps_no_fr > 0.0);
+}

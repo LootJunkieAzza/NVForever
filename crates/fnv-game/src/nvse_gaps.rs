@@ -918,10 +918,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getcalculatedweapondps" => {
             let (a, w, cond, mods) = weapon_target(g, subject, args);
             let (_, rate_mult) = weapon_mod_bonuses(g, w, mods);
-            let shots = json_num(g.data.record_field(w, "DNAM", "attack_shots_per_sec")) * rate_mult;
+            let base_w = g.unclone(w);
+            let flags1 = crate::nvse::record_value(g, w, "DNAM", "flags1").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
+            let automatic = flags1 & (1 << 1) != 0;
+            let fire_rate = json_num(g.data.record_field(base_w, "DNAM", "fire_rate"));
+            let shots = if automatic && fire_rate > 0.0 {
+                fire_rate * rate_mult
+            } else {
+                json_num(g.data.record_field(base_w, "DNAM", "attack_shots_per_sec")) * rate_mult
+            };
             let chance = crate::functions::actor::actor_value(g, a, crate::actor_values::CRITICAL_CHANCE).unwrap_or(0.0).max(0.0) / 100.0;
+            let raw_mult = crate::nvse::record_value(g, w, "CRDT", "crit_percent_mult").and_then(|v| v.num().ok()).unwrap_or(0.0);
+            let crit_mult = if automatic && fire_rate > 0.0 && !g.tweaks.crit_ignores_fire_rate {
+                raw_mult / fire_rate
+            } else {
+                raw_mult
+            };
             let crit = crate::nvse::record_value(g, w, "CRDT", "critical_damage").and_then(|v| v.num().ok()).unwrap_or(0.0)
-                * crate::nvse::record_value(g, w, "CRDT", "crit_percent_mult").and_then(|v| v.num().ok()).unwrap_or(0.0)
+                * crit_mult
                 * g.tweaks.crit_damage_scale;
             XVal::Num((weapon_damage(g, a, w, cond, mods).0 + chance * crit) * shots)
         }
