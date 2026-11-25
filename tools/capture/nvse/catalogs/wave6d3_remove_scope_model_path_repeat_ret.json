@@ -1,0 +1,82 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-remove-scope-model-path-repeat-ret",
+  "description": "Read-only clean-room probe verifying RemoveScopeModelPath returns 1 on scoped WEAP (including repeated calls and TempCloneForm) and 0 on unscoped/non-WEAP.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_remove_scope_model_path_repeat_ret",
+      "title": "Wave 6D-3: RemoveScopeModelPath repeat return and TempCloneForm",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_24_scope_model_path_set_get_remove_clone",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 30,
+          "functions_tested": [
+            "GetScopeModelPath",
+            "SetScopeModelPath",
+            "RemoveScopeModelPath",
+            "TempCloneForm"
+          ],
+          "claim": "Verify Set/Get/RemoveScopeModelPath on WeapSniperRifle (0x4353), repeat remove, 10mm pistol, empty string, non-WEAP, and TempCloneForm.",
+          "expected": "Confirm RemoveScopeModelPath returns 1 when scoped, 0 when cleared/absent, and TempCloneForm isolation.",
+          "script_lines": [
+            "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "string_var sEmpty = \"\"",
+            "string_var sSn0 = GetScopeModelPath rSn",
+            "int iRmSn1 = RemoveScopeModelPath rSn",
+            "string_var sSnA = GetScopeModelPath rSn",
+            "int iRmSn2 = RemoveScopeModelPath rSn",
+            "SetScopeModelPath \"interface\\HUD\\mildotscope.NIF\" rSn",
+            "string_var sSnRest = GetScopeModelPath rSn",
+            "SetScopeModelPath \"interface\\HUD\\w6d3_scope.NIF\" r10",
+            "string_var s10Set = GetScopeModelPath r10",
+            "int iRm10 = RemoveScopeModelPath r10",
+            "string_var s10A = GetScopeModelPath r10",
+            "SetScopeModelPath sEmpty r10",
+            "int iRm10E = RemoveScopeModelPath r10",
+            "int iRmBad = RemoveScopeModelPath rSt",
+            "ref rCl = TempCloneForm rSn",
+            "string_var sCl0 = GetScopeModelPath rCl",
+            "int iRmCl = RemoveScopeModelPath rCl",
+            "string_var sClA = GetScopeModelPath rCl",
+            "string_var sSnFin = GetScopeModelPath rSn",
+            "PrintToConsole \"PROBE|w6d3p2_24_scope_model_path_set_get_remove_clone|snLen=%g,rm=%g/%g,aft=%g,rest=%g|p10=[%z],rm=%g,aft=%g,rmE=%g|bad=%g|cl=%g,%g,%g,%g\" (sv_Length sSn0) iRmSn1 iRmSn2 (sv_Length sSnA) (sv_Length sSnRest) s10Set iRm10 (sv_Length s10A) iRm10E iRmBad (sv_Length sCl0) iRmCl (sv_Length sClA) (sv_Length sSnFin)"
+          ]
+        }
+      ]
+    }
+  ]
+}

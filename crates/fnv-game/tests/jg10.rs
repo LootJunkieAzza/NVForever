@@ -191,9 +191,18 @@ fn weapons_and_scopes() {
     assert_eq!(g.script_scope().1, Some(false));
     q(&mut g, "ClearWeaponScopeUIModel");
     assert_eq!(g.script_scope(), (Some(""), Some(false)));
-    // [documented: RemoveScopeModelPath, "isSuccess"].
+    // [documented: RemoveScopeModelPath; observed: w6d3p2_24 returns 1 even on repeated
+    // remove for a scoped WEAP and works on TempCloneForm, returning 0 on non-WEAP].
     assert_eq!(n(&mut g, "RemoveScopeModelPath TestScoped"), 1.0);
-    assert_eq!(n(&mut g, "RemoveScopeModelPath TestScoped"), 0.0, "nothing left to remove");
+    assert_eq!(n(&mut g, "RemoveScopeModelPath TestScoped"), 1.0, "repeat remove on scoped weapon returns 1");
+    assert_eq!(n(&mut g, "RemoveScopeModelPath TestCap"), 0.0);
+    assert_eq!(
+        q(
+            &mut g,
+            "ref rCl\nlet rCl := TempCloneForm TestScoped\nSetFunctionValue (RemoveScopeModelPath rCl)"
+        ),
+        XVal::Num(1.0),
+    );
     // A poison only on an equipped weapon (the player has none equipped yet).
     assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestPoison"), 0.0);
     assert_eq!(g.weapon_poison(FormId::PLAYER_REF), None);
