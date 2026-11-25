@@ -1705,6 +1705,14 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl F
         if !(kind.is_file() || kind.is_dir()) {
             return Err(ReadFail::Refused(bad(&format!("entry {} is not a file or folder", path.display()))));
         }
+        // `./`, as `tar -C folder -cf mod.tar .` writes it, is the archive's top folder: the
+        // mod's folder itself, already there.
+        if rel.as_os_str().is_empty() {
+            if kind.is_dir() {
+                continue;
+            }
+            return Err(ReadFail::Refused(bad(&format!("entry {} has no name", path.display()))));
+        }
         total = total.saturating_add(entry_cost(entry.size()));
         if total > limit {
             return Err(ReadFail::Refused(bad(&too_big())));
@@ -3352,6 +3360,39 @@ mod tests {
         let e = place_plan(&mods, &plan).unwrap_err();
         assert!(e.contains("copies more than 4 times the size of its files"), "{e}");
         assert!(!mods.join("Deep").exists(), "a stopped install leaves no folder");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// A tar made with `tar -C folder -cf mod.tar .` starts with a `./` entry: it installs.
+    #[test]
+    fn a_tar_with_a_dot_slash_entry_installs() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-dot-slash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let mut bytes = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut bytes);
+            // The names go into the headers as raw bytes, as `tar` writes them.
+            let header = |name: &[u8], size: u64, kind: tar::EntryType| {
+                let mut h = tar::Header::new_gnu();
+                h.as_gnu_mut().unwrap().name[..name.len()].copy_from_slice(name);
+                h.set_size(size);
+                h.set_mode(0o755);
+                h.set_entry_type(kind);
+                h.set_cksum();
+                h
+            };
+            b.append(&header(b"./", 0, tar::EntryType::Directory), &[][..]).unwrap();
+            b.append(&header(b"./Mod/", 0, tar::EntryType::Directory), &[][..]).unwrap();
+            b.append(&header(b"./Mod/Plugin.esp", 4, tar::EntryType::Regular), &b"TES4"[..]).unwrap();
+            b.finish().unwrap();
+        }
+        let archive = t.join("Dot.tar");
+        std::fs::write(&archive, &bytes).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Tree { from, temp, .. } = stage(&archive, facts).unwrap() else { panic!("one plugin is not a choice") };
+        assert!(from.join("Plugin.esp").is_file() || from.join("Mod").join("Plugin.esp").is_file(), "{}", from.display());
+        discard(&temp);
         let _ = std::fs::remove_dir_all(&t);
     }
 }

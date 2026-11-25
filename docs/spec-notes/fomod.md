@@ -32,7 +32,9 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
   readers come first. An outside program (7z, bsdtar, unar, unrar) is used only for a format
   they do not read (`.7z`, `.rar`) or a file they cannot read as that format at all. An entry
   they refuse (one that would land outside the mod's folder, a link, a broken entry) ends the
-  install, and no outside program gets the archive after it [design; `extract_archive`].
+  install, and no outside program gets the archive after it [design; `extract_archive`]. A tar's
+  `./` entry, as `tar -C folder -cf mod.tar .` writes it, is the mod's folder itself and is
+  skipped [design; `unpack_tar`].
 - An outside program first lists the archive, and every name it lists must pass the
   launcher's path rule (`rel_path`) before it unpacks anything. A refused name, or a listing
   with no names, ends the install [design; `extract_external`].
