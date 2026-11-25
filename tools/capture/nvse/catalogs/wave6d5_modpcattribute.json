@@ -1,0 +1,106 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_modpcattribute",
+  "description": "Wave 6D-5 read-only probe verifying ModPCAttribute damage-pool preservation, fractional literal refusal, and non-SPECIAL no-op.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d5_modpcattribute",
+      "title": "ModPCAttribute damage pool and non-SPECIAL edges",
+      "extender": "xNVSE / JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d5_26_player_source_modpcattribute_edges",
+          "bucket": "player_source_commands",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/player-source-commands.md",
+          "spec_line": 33,
+          "functions_tested": [
+            "ModPCAttribute",
+            "DamageActorValue",
+            "RestoreActorValue",
+            "GetActorValue",
+            "GetBaseActorValue",
+            "CompileScript",
+            "PrintToConsole"
+          ],
+          "claim": "SD-10: Verify ModPCAttribute 0 delta, negative delta, damage-pool preservation (DamageAV Strength 2 then ModPCAttribute Strength 1), fractional literal 1.5 compilation/truncation, and non-SPECIAL Health rejection.",
+          "expected": "NVForever player_source.rs shifts base preserving damage pools [hypothesis] and rejects non-SPECIAL attributes.",
+          "script_lines": [
+            "float b0 = Player.GetBaseAV Strength",
+            "float c0 = Player.GetAV Strength",
+            "ModPCAttribute Strength 0",
+            "float bZ = Player.GetBaseAV Strength",
+            "ModPCAttribute Strength -1",
+            "float bM = Player.GetBaseAV Strength",
+            "ModPCAttribute Strength 1",
+            "Player.DamageAV Strength 2",
+            "float cDmg = Player.GetAV Strength",
+            "float bDmg = Player.GetBaseAV Strength",
+            "ModPCAttribute Strength 1",
+            "float cAfter = Player.GetAV Strength",
+            "float bAfter = Player.GetBaseAV Strength",
+            "ModPCAttribute Strength -1",
+            "Player.RestoreAV Strength 2",
+            "Player.AuxVarSetFlt \"*w6d5_26_frac\" -9",
+            "Player.AuxVarSetFlt \"*w6d5_26_nonsp\" -9",
+            "ref fFrac = CompileScript \"w6d5_26_frac.gek\"",
+            "if fFrac",
+            "  Call fFrac",
+            "endif",
+            "float bFrac = Player.GetBaseAV Strength",
+            "if bFrac != b0",
+            "  ModPCAttribute Strength (b0 - bFrac)",
+            "endif",
+            "ref fNonSp = CompileScript \"w6d5_26_nonsp.gek\"",
+            "float hp0 = Player.GetBaseAV Health",
+            "if fNonSp",
+            "  Call fNonSp",
+            "endif",
+            "float hp1 = Player.GetBaseAV Health",
+            "PrintToConsole \"PROBE|w6d5_26_player_source_modpcattribute_edges|str(b0=%.0f,c0=%.0f,bZ=%.0f,bM=%.0f|dmg:c=%.0f,b=%.0f->c=%.0f,b=%.0f)|frac(cmp=%g,ok=%g,b=%.2f)|nonsp(cmp=%g,ok=%g,hp=%.0f->%.0f)\" b0 c0 bZ bM cDmg bDmg cAfter bAfter (fFrac != 0) (Player.AuxVarGetFlt \"*w6d5_26_frac\") bFrac (fNonSp != 0) (Player.AuxVarGetFlt \"*w6d5_26_nonsp\") hp0 hp1"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_26_frac.gek": [
+              "ModPCAttribute Strength 1.5",
+              "Player.AuxVarSetFlt \"*w6d5_26_frac\" 1"
+            ],
+            "w6d5_26_nonsp.gek": [
+              "ModPCAttribute Health 5",
+              "Player.AuxVarSetFlt \"*w6d5_26_nonsp\" 1"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

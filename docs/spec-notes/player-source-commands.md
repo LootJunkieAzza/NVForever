@@ -164,3 +164,7 @@ implementation evidence, not an original-game observation or native bytecode gol
 Other game-log warnings remain; zero errors here describes the query result.
 Optimized release and performance qualification, native parameter encoding, profile
 and whole-mod acceptance remain unmeasured.
+
+### Wave 6D-5 observation: `ModPCAttribute` damage-pool preservation & non-SPECIAL no-op
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_26_player_source_modpcattribute_edges` (`tools/capture/nvse/catalogs/wave6d5_modpcattribute.json`); zero DLL, PDB, or third-party source consulted] `ModPCAttribute Strength` with `0` and `-1` shifts base cleanly (`5 -> 5 -> 4`), preserves damage pools (`DamageAV Strength 2` then `ModPCAttribute Strength 1` moves `c=3,b=5 -> c=4,b=6`), rejects fractional literal `1.5` at compile time (`cmp=0`), and treats valid non-SPECIAL `Health` as a non-aborting no-op (`cmp=1,ok=1,hp=200->200`): `PROBE|w6d5_26_player_source_modpcattribute_edges|str(b0=5,c0=5,bZ=5,bM=4|dmg:c=3,b=5->c=4,b=6)|frac(cmp=0,ok=-9,b=5.00)|nonsp(cmp=1,ok=1,hp=200->200)`.
