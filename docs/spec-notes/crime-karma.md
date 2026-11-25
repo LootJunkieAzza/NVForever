@@ -330,7 +330,7 @@ turn.
   +`fKarmaModKillingVeryEvilActor` (+2 in `FalloutNV.esm`), a Very Good NPC takes −100,
   a Good NPC takes −50 (half of `fKarmaModKillingEvilActor`, hostile or not), Evil
   creatures give 0, and a templated NPC with 0 own ACBS karma (`PrimmRubyNash`) gives 0
-  [observed: §4.1 capture o6_02 and 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8p2_31_kill_karma_all_alignments`
+  [observed: §4.1 capture o6_02 and 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8p2_31_kill_karma_all_alignments`
   (`PROBE|w6d8p2_31_kill_karma_all_alignments|vg=-100 g=-50 n=0 e=100 ve=2 cr=0 tpl=0`),
   `w6d8p3_31b_karma_gmsts_and_npc_karma` (`PROBE|w6d8p3_31b_karma_gmsts_and_npc_karma|ev=100 st=-5 min=-1000 max=1000 k=900,500,0,-500,-900`),
   `w6d8p4_31c_karma_gmsts_and_extra_kills` (`PROBE|w6d8p4_31c_karma_gmsts_and_extra_kills|gEv=100 gVEv=2 gMur=0 gMurN=0 gMurG=-1 doc(k=500,d=-50) vul(k=0,d=0) trHost(d=-50)`),
