@@ -333,7 +333,8 @@ fn armor_facegen_flags_and_icons() {
     assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 3 0"), 1.0);
     assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 0 1"), 1.0, "the female flags unchanged");
     // [documented: SetBipedIconPathAlt `path female form`, read by GetBipedIconPath;
-    // observed: w6d3p2_25 returns 1 on ARMO/clone and 0 without mutating non-ARMO].
+    // observed: w6d3p2_25 returns 1 on ARMO/clone and does not mutate non-ARMO;
+    // hypothesis: non-ARMO return 0 and source-record clone isolation].
     assert_eq!(s(&mut g, "GetBipedIconPath 1 TestArmor"), "icons\\f.dds");
     assert_eq!(n(&mut g, "SetBipedIconPathAlt \"icons\\new_f.dds\" 1 TestArmor"), 1.0);
     assert_eq!(n(&mut g, "SetBipedIconPathAlt \"icons\\new_m.dds\" 0 TestArmor"), 1.0);

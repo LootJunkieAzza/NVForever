@@ -362,8 +362,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
         }
         // `path female form`: the male (ICON) or female (ICO2) icon of an ARMO (including
-        // TempCloneForm), read by GetBipedIconPath; returns 1 on valid ARMO and 0 without
-        // mutating non-ARMO forms [documented: SetBipedIconPathAlt; observed: w6d3p2_25].
+        // TempCloneForm), read by GetBipedIconPath [documented: SetBipedIconPathAlt];
+        // returns 1 on valid ARMO/clone and does not mutate non-ARMO forms
+        // [observed: w6d3p2_25]; returning 0 on non-ARMO and source-record clone isolation
+        // are [hypothesis].
         "setbipediconpathalt" => {
             let f = form(args, 2).or(subject).map(|f| base(g, f)).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"ARMO"));
             if let (Some(path), Some(f)) = (text(args, 0), f) {
