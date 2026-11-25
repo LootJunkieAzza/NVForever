@@ -226,9 +226,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 _ => XVal::Ref(0),
             }
         }
-        // [documented: ListAddReference] ListAddForm of the calling reference.
+        // [documented: ListAddReference; observed: `w6d11_02_listaddref_and_addformtoformlist_order`,
+        // `addRef(r0=0,m2=0,m1=-1,m3=-1,big=-1,dup=-1)|n1=2,base=2`] -2 appends, 0 on an
+        // empty list or 0..len inserts, while other negatives (-1, -3), >= len (999), and
+        // non-FLST targets return -1 without mutating.
         "listaddreference" => {
             let l = form(args, 0).unwrap_or(FormId(0));
+            if g.data.sig(l) != Some(*b"FLST") {
+                return Some(Ok(XVal::Num(-1.0)));
+            }
             let Some(r) = subject else { return Some(Ok(XVal::Num(-1.0))) };
             let at = int(args, 1, -2);
             let dupes = args.get(2).is_some_and(XVal::truthy);
@@ -236,7 +242,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             if dupes && list.contains(&r) {
                 return Some(Ok(XVal::Num(-1.0)));
             }
-            let i = usize::try_from(at).ok().filter(|&i| i <= list.len()).unwrap_or(list.len());
+            let i = if at == -2 {
+                list.len()
+            } else if at == 0 && list.is_empty() {
+                0
+            } else {
+                match usize::try_from(at) {
+                    Ok(i) if i < list.len() => i,
+                    _ => return Some(Ok(XVal::Num(-1.0))),
+                }
+            };
             list.insert(i, r);
             XVal::Num(i as f64)
         }
@@ -289,3 +304,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d11_listaddref_tests.rs"]
+mod w6d11_listaddref_tests;
