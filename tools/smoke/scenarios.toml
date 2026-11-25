@@ -6582,11 +6582,11 @@ order = [["flashlight: on", "flashlight: off"]]
 
 [[scenario]]
 name = "flashlight-settings"
-source = "Tweaks > Flashlight rows (nvforever flashlight.rs, settings.rs): with the flashlight on (at 7 s, after the start scripts' ResetPipboyManager turns it off), it is the default warm white spot; Type remakes it as a point light and back as a spot, Beam width takes it to its narrowest (10 degrees across), Colour Pip-Boy gives it the Pip-Boy's amber and then the Pip-Boy colour's green; the rows are put back (its home keeps them for the next run) and the flashlight goes off; in a dark interior, with a home of its own so a player's settings are untouched"
+source = "Tweaks > Flashlight rows (nvforever flashlight.rs, settings.rs): with the flashlight on (at 7 s, after the start scripts' ResetPipboyManager turns it off; the base game's plugin alone, as a DLC's start script calls ResetPipboyManager again and puts the light off in the settings changes' time), it is the default warm white spot; Type remakes it as a point light and back as a spot, Beam width takes it to its narrowest (10 degrees across), Colour Pip-Boy gives it the Pip-Boy's amber and then the Pip-Boy colour's green; the rows are put back (its home keeps them for the next run) and the flashlight goes off; in a dark interior, with a home of its own so a player's settings are untouched"
 areas = ["flashlight", "settings"]
 paths = ["engine/nvforever/src/flashlight.rs", "engine/nvforever/src/settings.rs", "crates/nvf-settings-layout/src/lib.rs"]
 env = { NVFOREVER_HOME = "flashlight-settings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "7:flashlight,22:flashlight", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:flashlight-type=Point,13:flashlight-type=Spot,15:flashlight-beam-width=0.0625,16:flashlight-colour=Pip-Boy,17:pipboy-colour=Green,17.4:flashlight-beam-width=0.375,17.6:flashlight-colour=Warm white,17.8:pipboy-colour=Amber" }
-args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice"]
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice", "--plugins", "FalloutNV.esm"]
 run_seconds = 28
 order = [[
   "flashlight: on",
