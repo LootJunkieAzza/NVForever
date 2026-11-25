@@ -2132,3 +2132,11 @@ with `AsciiToChar 59`; exact title text, counts and references remain unchanged.
 The production getter and compiler/array/receiver policies are unchanged. These
 further corrected fixtures are unexecuted at correction authoring. The historical
 three passes are scoped to `5a61bc59`, not transferred to its successor or baseline.
+
+### `GetCalculatedWeaponDamage` GMSTs, `TempCloneForm`, and EP 0 perks [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6_06_calc_weapon_damage_dps_guns_melee_unarmed` (`tools/capture/nvse/catalogs/wave6d6_calc_weapon_damage.json`)]: `GetCalculatedWeaponDamage` resolves `TempCloneForm` weapon skills (`cl=22.00`), applies `Calculate Weapon Damage` perks (`BloodyMess` `22.00 -> 23.10`), caps skill at `100` (`g150=22.00`), and reads `fDamageWeaponMult` (`gmst2=44.00`):
+
+```text
+PROBE|w6d6_06_calc_weapon_damage_dps_guns_melee_unarmed|10mm=22.00/60.50|smg=19.00/171.00|cl=22.00|kn=13.00/24.00|bk(100,0)=24.25,19.25|pf(100,0)=46.25,41.25|g150=22.00|bm=23.10|fsFinDps=63.52|gmst2=44.00
+```

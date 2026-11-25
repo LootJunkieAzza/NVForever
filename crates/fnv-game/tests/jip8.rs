@@ -180,6 +180,14 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, cell_children].concat()))),
         top(b"WRLD", &wrld),
         top(b"WATR", &watr),
+        top(
+            b"GMST",
+            &[
+                edid(b"GMST", 0xA1E, "fDamageWeaponMult", &[sub(b"DATA", f32b(1.0))]),
+                edid(b"GMST", 0xA1F, "fDamageSkillBase", &[sub(b"DATA", f32b(0.5))]),
+            ]
+            .concat(),
+        ),
     ]
     .concat()
 }
@@ -595,4 +603,24 @@ SetWeapon1stPersonModel TestGun 0"#);
     let back = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..GameConfig::default() }, &snapshot).unwrap();
     assert!(back.weapon_model_changes().is_empty());
     assert_eq!(back.weapon_model_stamp(), empty);
+}
+
+#[test]
+fn calc_weapon_damage_reads_gmsts_unclones_and_applies_weapon_damage_perks() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "PlayerREF.ForceAV Guns 100\nPlayerREF.ForceAV CritChance 0");
+    // TempCloneForm resolves weapon_skills via unclone(w) instead of defaulting skill to 0.
+    let cloned = match q(&mut g, "ref rCl\nlet rCl := TempCloneForm CalcGun\nSetFunctionValue (PlayerREF.GetCalculatedWeaponDamage rCl)") {
+        XVal::Num(v) => v,
+        other => panic!("expected Num, got {other:?}"),
+    };
+    assert!((cloned - 20.0).abs() < 1e-5, "cloned gun uses Guns=100 -> 20.0, got {cloned}");
+    // GMST fDamageWeaponMult scales calculated weapon damage.
+    q(&mut g, "SetNumericGameSetting \"fDamageWeaponMult\" 2.0");
+    assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDamage CalcGun") - 40.0).abs() < 1e-5);
+    q(&mut g, "SetNumericGameSetting \"fDamageWeaponMult\" 1.0");
+    // GMST fDamageSkillBase scales skill=0 baseline.
+    q(&mut g, "PlayerREF.ForceAV Guns 0\nSetNumericGameSetting \"fDamageSkillBase\" 0.25");
+    assert!((n(&mut g, "PlayerREF.GetCalculatedWeaponDamage CalcGun") - 5.0).abs() < 1e-5);
 }

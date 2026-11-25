@@ -434,7 +434,10 @@ fn weapon_mod_bonuses(g: &Game, w: FormId, mods: u8) -> (f64, f64) {
 fn weapon_damage(g: &mut Game, actor: FormId, w: FormId, condition: Option<f32>, mods: u8) -> (f64, f64) {
     use crate::actor_values::{MELEE_DAMAGE, MELEE_WEAPONS, UNARMED, UNARMED_DAMAGE};
     let (mod_damage, _) = weapon_mod_bonuses(g, w, mods);
-    let mut damage = crate::nvse::record_value(g, w, "DATA", "base_damage").and_then(|v| v.num().ok()).unwrap_or(0.0) + mod_damage;
+    let weap_mult = crate::combat::setting(g, "fDamageWeaponMult", 1.0);
+    let skill_base = crate::combat::setting(g, "fDamageSkillBase", 0.5);
+    let skill_mult = crate::combat::setting(g, "fDamageSkillMult", 0.5);
+    let mut damage = (crate::nvse::record_value(g, w, "DATA", "base_damage").and_then(|v| v.num().ok()).unwrap_or(0.0) + mod_damage) * weap_mult;
     if let Some(c) = condition {
         if !g.tweaks.no_condition_damage_penalty {
             let threshold = if g.tweaks.no_condition_damage_buffer { 1.0 } else { f64::from(fnv_sim::inventory::CONDITION_DAMAGE_THRESHOLD) };
@@ -443,15 +446,18 @@ fn weapon_damage(g: &mut Game, actor: FormId, w: FormId, condition: Option<f32>,
             damage *= factor;
         }
     }
-    let skill_code = g.data.weapon_skills.get(&w).map(|&s| s as u16);
+    let base_w = g.unclone(w);
+    let skill_code = g.data.weapon_skills.get(&base_w).map(|&s| s as u16);
     let skill = skill_code.and_then(|s| crate::functions::actor::actor_value(g, actor, s).ok()).unwrap_or(0.0);
-    let scaled = damage * (0.5 + skill.clamp(0.0, 100.0) / 200.0);
-    let hit = match skill_code {
+    let scaled = damage * (skill_base + skill_mult * skill.clamp(0.0, 100.0) / 100.0);
+    let (scaled_perked, _) = g.entry_point_with(actor, crate::perks::CALCULATE_WEAPON_DAMAGE, &[Some(w)], scaled);
+    let raw_hit = match skill_code {
         Some(MELEE_WEAPONS) => scaled + crate::functions::actor::actor_value(g, actor, MELEE_DAMAGE).unwrap_or(0.0),
         Some(UNARMED) => damage + crate::functions::actor::actor_value(g, actor, UNARMED_DAMAGE).unwrap_or(0.0),
         _ => scaled,
     };
-    (scaled, hit)
+    let (hit, _) = g.entry_point_with(actor, crate::perks::CALCULATE_WEAPON_DAMAGE, &[Some(w)], raw_hit);
+    (scaled_perked, hit)
 }
 
 /// Run a snippet's lines on a reference, as the console runs a line; an error is logged.
