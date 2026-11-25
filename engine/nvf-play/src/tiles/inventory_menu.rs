@@ -1338,9 +1338,13 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             ItemsTile::Button(Button::Mod) => {
                 out.modding.write(ModInput::Open);
             }
-            // It shows inside a Misc folder, where the hand-built page's way out is `Back`.
+            // It shows only inside a Misc folder (such as a keyring), where the hand-built
+            // page's way out is `Back`. Outside a folder the button is hidden and a script's
+            // `ClickMenuButton` on it must not close the Pip-Boy [design, #3915].
             ItemsTile::Button(Button::Cancel) => {
-                out.commands.write(MenuInput(if m.folder.is_some() { Command::Back } else { Command::Close }));
+                if m.folder.is_some() {
+                    out.commands.write(MenuInput(Command::Back));
+                }
             }
             ItemsTile::Button(Button::Hotkey) => {
                 // [design, #2312] The optional tile opens the same modal as pad RB.
@@ -2566,5 +2570,81 @@ mod tests {
         let mut ui = tree_changed(missing);
         assert_eq!(built(&ui, None), Tiled::No(format!("{ICON} missing")));
         assert_eq!(run(&mut ui, Some(shown(2, 0)), &mut InventoryTiles::default()), Err(format!("{ICON} missing")));
+    }
+
+    #[test]
+    fn script_click_on_cancel_button_exits_folder_and_is_noop_outside_folder() {
+        use crate::menu::model::Folder;
+        use fnv_script::vm::XVal;
+
+        let run_click = |folder: Option<Folder>, button_name: &str| -> Vec<Command> {
+            let mut app = App::new();
+            let mut state = ScriptState::over_no_plugins();
+            let game = &mut state.rt.as_mut().unwrap().game;
+            game.ui_files = Some(Box::new(MemSource::default()));
+            game.ui_tree = tree_changed(|xml| {
+                xml.replace(
+                    r#"<image name="IM_CancelButton">"#,
+                    r#"<image name="IM_CancelButton"><id>10</id>"#,
+                )
+                .replace(
+                    r#"<image name="IM_DropButton">"#,
+                    r#"<image name="IM_DropButton"><id>11</id>"#,
+                )
+            });
+            let mut s = shown(2, 0);
+            s.keyring = folder.is_some();
+            s.repair.shown = folder.is_none();
+            let mut t = InventoryTiles::default();
+            let menu = run(&mut game.ui_tree, Some(s), &mut t).unwrap();
+            t.ready = Some(menu);
+            t.shown = Some(menu);
+
+            let cancel_vis = at(&game.ui_tree, &button_path("IM_CancelButton"), "visible");
+            assert_eq!(cancel_vis, if folder.is_some() { 1.0 } else { 0.0 });
+
+            let click_path = format!("InventoryMenu\\GLOW_BRANCH\\IM_MainRect\\IM_ButtonRect\\{button_name}");
+            let clicked = fnv_game::ui_functions::call(game, "ClickMenuButton", &[XVal::Str(click_path)])
+                .expect("ClickMenuButton handled")
+                .expect("ClickMenuButton succeeded");
+            assert_eq!(clicked, XVal::Num(1.0));
+
+            let mut model = MenuModel::empty_inventory();
+            model.folder = folder;
+            let mut pip = PipBoy::default();
+            pip.page = Page::Items;
+            pip.phase = crate::pipboy::Phase::Up;
+
+            app.insert_resource(state)
+                .insert_resource(TileMenus { inventory: true, ..Default::default() })
+                .insert_resource(pip)
+                .insert_resource(PipBoyScreen { image: Handle::default(), camera: Entity::PLACEHOLDER, on_model: true, pointer: None, scale: 1.0 })
+                .insert_resource(PipBoyAid::default())
+                .insert_resource(ActiveMenu(Some(model)))
+                .insert_resource(t)
+                .init_resource::<HotkeyHold>()
+                .init_resource::<Hotkeys>()
+                .init_resource::<crate::pipboy::KeysTaken>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<ButtonInput<KeyCode>>()
+                .add_message::<PipBoyInput>()
+                .add_message::<TabHovered>()
+                .add_message::<MenuInput>()
+                .add_message::<RepairInput>()
+                .add_message::<ModInput>()
+                .add_systems(Update, feed);
+
+            app.update();
+            let mut reader = app.world_mut().resource_mut::<Messages<MenuInput>>().get_cursor();
+            let messages = app.world().resource::<Messages<MenuInput>>();
+            reader.read(messages).map(|m| m.0).collect()
+        };
+
+        // Outside a folder (IM_CancelButton hidden): script ClickMenuButton is a no-op and must NOT close the Pip-Boy.
+        assert_eq!(run_click(None, "IM_CancelButton"), Vec::<Command>::new());
+        // Inside a folder (IM_CancelButton shown): script ClickMenuButton emits Command::Back.
+        assert_eq!(run_click(Some(Folder::Keys), "IM_CancelButton"), vec![Command::Back]);
+        // Control: hidden buttons that still have an active top-level command (e.g. Drop) keep working via ClickMenuButton.
+        assert_eq!(run_click(None, "IM_DropButton"), vec![Command::Drop]);
     }
 }

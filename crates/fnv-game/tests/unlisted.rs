@@ -539,8 +539,8 @@ fn has_action_ref_tracks_active_action_furniture_and_scripted_doors() {
     assert_eq!(n(&mut g, "ChairRef.HasActionRef"), 0.0);
     assert_eq!(n(&mut g, "BoxRef.HasActionRef"), 0.0);
 
-    // Scripted door returns 1 [hypothesis generalizing observed front door 0x00103E61 in
-    // w4c_a03d_has_action_ref_doors_actors and w4d_02_has_action_ref_triggers].
+    // Scripted door returns 1 (generalizing observed front door 0x00103E61;
+    // see docs/spec-notes/ext-unlisted-rest.md).
     assert_eq!(n(&mut g, "ScriptedDoorRef.HasActionRef"), 1.0);
 
     // Actor sitting in furniture returns 1, then returns 0 upon standing up
@@ -551,7 +551,7 @@ fn has_action_ref_tracks_active_action_furniture_and_scripted_doors() {
     assert_eq!(n(&mut g, "NpcRef.HasActionRef"), 0.0);
 
     // Freshly spawned/idle NPC transitions 0 -> 1 once an AI package becomes active
-    // [hypothesis generalizing `spawn(0,1)` in w4d_02_has_action_ref_triggers, #3802 / PR #3803],
+    // (generalizing `spawn(0,1)` in w4d_02_has_action_ref_triggers; see docs/spec-notes/ext-unlisted-rest.md),
     // while Player stays 0.
     g.extra.entry(FormId(NPC_REF)).or_default().current_package = Some(FormId(0x999));
     assert_eq!(n(&mut g, "NpcRef.HasActionRef"), 1.0);
@@ -563,7 +563,7 @@ fn has_action_ref_tracks_active_action_furniture_and_scripted_doors() {
     // retains 1 on the next tick [observed: w4d_02_has_action_ref_triggers (#3802 / PR #3803):
     // `unscr(001062AC:0,1,1)`]. Container acquires 1 upon `Activate Player 1` (in the original
     // game `cont(001062C6:0,1,0)` clears to 0 once ContainerMenu closes; NVForever's headless
-    // `action_refs` entry retains 1 until cleared [hypothesis]).
+    // `action_refs` entry retains 1 until cleared; see docs/spec-notes/ext-unlisted-rest.md).
     assert_eq!(n(&mut g, "PlainDoorRef.HasActionRef"), 0.0);
     q(&mut g, "PlainDoorRef.Activate PlayerREF 1");
     assert_eq!(n(&mut g, "PlainDoorRef.HasActionRef"), 1.0);
