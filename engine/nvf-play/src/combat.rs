@@ -4902,8 +4902,11 @@ fn melee(
     // §4): the swing takes the standing one.
     let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
     // The weapon's power attack override plays for the standing power attack.
-    let input = MeleeInput { trigger: (control.trigger || vats_tap) && !broken_in_hand(&sim, id), dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref(), instant_power: control.aiming && tweaks.as_ref().is_some_and(|t| t.power_attack_if_blocking) };
-    // (`instant_power`: the player's tweak, a power attack at once while blocking [design: docs/design/tweaks.md].)
+    // Holding Block suppresses starting a melee/unarmed swing unless Power Attack From a
+    // Block is enabled (`instant_power`, docs/design/tweaks.md; #3753).
+    let blocking = control.aiming && !vats_tap;
+    let instant_power = blocking && tweaks.as_ref().is_some_and(|t| t.power_attack_if_blocking);
+    let input = MeleeInput { trigger: (control.trigger || vats_tap) && !broken_in_hand(&sim, id), dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref(), blocking, instant_power };
     let mut strike = None;
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
         match e {
@@ -8334,6 +8337,390 @@ mod tests {
             sim.world.equip(FormId::PLAYER_REF, PISTOL).unwrap();
             equip_sync_step(&mut combat, &mut sim, &mut anim, true);
             assert_eq!(combat.magazine_for_save(), Some((PISTOL.0, 12)));
+        }
+    }
+
+    /// Issue #3753: holding Block with bare fists suppresses taps and holds through the
+    /// real player input path (`control::read_controls` -> `combat::melee`) when Power
+    /// Attack From a Block is off, resumes normally when Block ends, and preserves both
+    /// the opt-in Power Attack From a Block tweak and Scribe Counter.
+    mod unarmed_block_attack_tests {
+        use super::*;
+        use crate::bindings::Bindings;
+        use crate::control::read_controls;
+        use crate::tweaks::TweakSettings;
+        use bevy::input::mouse::AccumulatedMouseScroll;
+        use fnv_combat::fx::{FxForms, Impact, Sound, WeaponFx};
+        use fnv_esm::raw::{write_subrecords, Subrecord};
+        use fnv_game::anim_state::AnimAction;
+        use fnv_game::perks::{HAS_UNARMED_COUNTER_ATTACK, SET_VALUE};
+        use fnv_game::trace::EventKind;
+        use fnv_sim::{SimConfig, World};
+
+        const FISTS: FormId = FormId(0x0000_01F4);
+        const CELL_ID: FormId = FormId(0x0000_9100);
+        const TARGET_BASE: FormId = FormId(0x0000_9101);
+        const TARGET_REF: FormId = FormId(0x0000_9102);
+        const SCRIBE_PERK: FormId = FormId(0x0000_9103);
+        const ATTACK_TOPIC: FormId = FormId(0x0000_9104);
+        const ATTACK_INFO: FormId = FormId(0x0000_9105);
+        const HIT_SOUND: FormId = FormId(0x0000_9106);
+        const IMPACT_SET: FormId = FormId(0x0000_9110);
+        const IMPACT_ID: FormId = FormId(0x0000_9111);
+
+        fn sub(sig: &[u8; 4], data: impl Into<Vec<u8>>) -> Subrecord {
+            Subrecord { sig: *sig, data: data.into(), extended: false }
+        }
+
+        fn rec(sig: &[u8; 4], id: u32, flags: u32, subs: &[Subrecord]) -> Vec<u8> {
+            let body = write_subrecords(subs);
+            [&sig[..], &(body.len() as u32).to_le_bytes(), &flags.to_le_bytes(), &id.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &body].concat()
+        }
+
+        fn grup(label: [u8; 4], gtype: i32, body: &[u8]) -> Vec<u8> {
+            [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &label, &gtype.to_le_bytes(), &[0; 8], body].concat()
+        }
+
+        fn build_plugin(with_scribe_counter: bool) -> fnv_esm::Plugin {
+            let hedr = [1.34f32.to_le_bytes(), 0u32.to_le_bytes(), 0xA000u32.to_le_bytes()].concat();
+            let mut bytes = rec(b"TES4", 0, 1, &[sub(b"HEDR", hedr)]);
+
+            // Bare Fists weapon record.
+            let fists = rec(b"WEAP", FISTS.0, 0, &[sub(b"EDID", *b"Fists\0"), sub(b"FULL", *b"Fists\0")]);
+            bytes.extend(grup(*b"WEAP", 0, &fists));
+
+            // Target NPC with 100 Health (ACBS base health = 100 at offset 12..14? SetAV in script).
+            let npc = rec(b"NPC_", TARGET_BASE.0, 0, &[sub(b"EDID", *b"TestTarget\0"), sub(b"FULL", *b"Test Target\0"), sub(b"ACBS", [0u8; 24])]);
+            bytes.extend(grup(*b"NPC_", 0, &npc));
+
+            // Interior cell + persistent ACHR for TARGET_REF at (0, 75, 0).
+            let cell_rec = rec(b"CELL", CELL_ID.0, 0, &[sub(b"EDID", *b"TestCell\0"), sub(b"DATA", [1u8])]);
+            let mut pos = Vec::with_capacity(24);
+            for v in [0.0f32, 75.0, 0.0, 0.0, 0.0, 0.0] {
+                pos.extend(v.to_le_bytes());
+            }
+            let achr = rec(b"ACHR", TARGET_REF.0, 0x0400, &[sub(b"NAME", TARGET_BASE.0.to_le_bytes()), sub(b"DATA", pos)]);
+            let cell_children = grup(CELL_ID.0.to_le_bytes(), 6, &grup(CELL_ID.0.to_le_bytes(), 8, &achr));
+            let cell_block = grup(0u32.to_le_bytes(), 2, &grup(0u32.to_le_bytes(), 3, &[cell_rec, cell_children].concat()));
+            bytes.extend(grup(*b"CELL", 0, &cell_block));
+
+            // Attack combat dialogue topic + INFO so attack_line emits LineStarted on swings.
+            let dial = rec(b"DIAL", ATTACK_TOPIC.0, 0, &[sub(b"EDID", *b"Attack\0"), sub(b"DATA", [2u8, 0])]);
+            let mut trdt = vec![0u8; 24];
+            trdt[12] = 1;
+            let info = rec(b"INFO", ATTACK_INFO.0, 0, &[sub(b"DATA", [2u8, 0, 0]), sub(b"TRDT", trdt), sub(b"NAM1", *b"Hah!\0")]);
+            let dial_body = [dial, grup(ATTACK_TOPIC.0.to_le_bytes(), 7, &info)].concat();
+            bytes.extend(grup(*b"DIAL", 0, &dial_body));
+
+            // Optional Scribe Counter perk (entry point 64 = HAS_UNARMED_COUNTER_ATTACK, SetValue 1.0).
+            if with_scribe_counter {
+                let perk = rec(
+                    b"PERK",
+                    SCRIBE_PERK.0,
+                    0,
+                    &[
+                        sub(b"EDID", *b"ScribeCounterTest\0"),
+                        sub(b"FULL", *b"Scribe Counter\0"),
+                        sub(b"DATA", [0u8, 1, 1, 1, 0]),
+                        sub(b"PRKE", [2u8, 0, 0]),
+                        sub(b"DATA", [HAS_UNARMED_COUNTER_ATTACK, SET_VALUE, 0]),
+                        sub(b"EPFT", [1u8]),
+                        sub(b"EPFD", 1.0f32.to_le_bytes()),
+                        sub(b"PRKF", []),
+                    ],
+                );
+                bytes.extend(grup(*b"PERK", 0, &perk));
+            }
+            fnv_esm::Plugin::parse(&bytes, "UnarmedBlockTest.esm".into()).unwrap()
+        }
+
+        fn make_app(tweak_on: bool, with_scribe_counter: bool) -> App {
+            let plugin = build_plugin(with_scribe_counter);
+            let mut script = ScriptState::over_plugins(&[plugin]);
+            let (forms, refs) = {
+                let g = &script.rt.as_ref().unwrap().game;
+                (g.world.forms, g.world.placed)
+            };
+            let mut sim = SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) };
+            {
+                let rt = script.rt.as_mut().unwrap();
+                with_world(rt, &mut sim, |rt| {
+                    rt.game.world.get(FormId::PLAYER_REF).unwrap().cell = Some(CELL_ID);
+                    rt.game.player_entered(Some(CELL_ID));
+                    rt.game
+                        .run_query(
+                            &format!("Begin Function {{}}\nref t\nlet t := StringToRef \"{:08X}\"\nt.SetAV Health 100\nEnd", TARGET_REF.0),
+                            fnv_game::game::RunCtx::default(),
+                        )
+                        .unwrap();
+                    if with_scribe_counter {
+                        rt.game.player.perks.insert(SCRIBE_PERK, 1);
+                    }
+                });
+            }
+
+            let mut cforms = CombatForms::default();
+            cforms.weapons.insert(
+                FISTS,
+                WeaponStats {
+                    edid: Some("Fists".into()),
+                    base_damage: 10,
+                    reach: 1.0,
+                    anim_type: Some("Hand to Hand Melee".into()),
+                    ..Default::default()
+                },
+            );
+            let combat = Combat {
+                forms: cforms,
+                rules: Rules::defaults(),
+                tuning: CombatTuning::default(),
+                blood_rng: SplitMix(6),
+                blood_chance_logged: false,
+                weapon: Some(FISTS),
+                equipped: Some(None),
+                mods: 0,
+                silenced_logged: None,
+                fists: Some(FISTS),
+                ammo: None,
+                self_ammo: false,
+                melee: true,
+                swings: Melee::default(),
+                blows: 0,
+                boom: Vec::new(),
+                meltdowns: HashSet::new(),
+                debris: Vec::new(),
+                cycle: None,
+                kick: Kick::default(),
+                flying: Vec::new(),
+                dropped_live: Vec::new(),
+                settled: Vec::new(),
+                landed: Vec::new(),
+                fire_landed: Vec::new(),
+                splashes: Vec::new(),
+                ghosts: Vec::new(),
+                looping: None,
+                ejects_seen: 0,
+                vats_throw: None,
+                last_shot: 0.0,
+                next_visual: 0,
+                pending: Vec::new(),
+                script_shots: Vec::new(),
+                guarding: HashMap::new(),
+                blocked_blows: Vec::new(),
+                fresh_reload: false,
+                guard_down_until: 0.0,
+                marks: Vec::new(),
+                rng: SplitMix(1),
+                swing_rng: SplitMix(2),
+                time: 1.0,
+                no_spread: false,
+                tracer_hold: None,
+                load_magazine: None,
+                load_ammo: None,
+                chosen_ammo: std::collections::BTreeMap::new(),
+                crosshair_cone: None,
+                player_spread: None,
+                grenade_hold: 0.0,
+                grenade_held: false,
+                vats_cone: None,
+                vats_blast: VatsBlast::default(),
+                player_blocked_at: None,
+                special_swing: None,
+                throw_logged: None,
+                spread_perks_logged: None,
+                flinch_until: 0.0,
+                flinch_end: None,
+                flinch_rng: SplitMix(3),
+                kick_rng: SplitMix(5),
+                kick_just_settled: false,
+                kick_left: [0.0; 2],
+                kick_back_goal: [0.0; 2],
+                kick_back: [crate::ease::Spring::default(); 2],
+                spent_rng: SplitMix(4),
+            };
+
+            let mut fx_forms = FxForms::default();
+            fx_forms.weapons.insert(FISTS, WeaponFx { impact_dataset: Some(IMPACT_SET), ..WeaponFx::default() });
+            fx_forms.impact_sets.insert(IMPACT_SET, [Some(IMPACT_ID); 12]);
+            fx_forms.impacts.insert(IMPACT_ID, Impact { sound_1: Some(HIT_SOUND), ..Impact::default() });
+            fx_forms.sounds.insert(HIT_SOUND, Sound::default());
+
+            let mut phys = PhysState::default();
+            phys.world.set_actor_volume(TARGET_REF.0, crate::hitvol::volume_for([-15.0, 55.0, 0.0], [15.0, 95.0, 100.0], false));
+            phys.world.update_queries();
+
+            let control = PlayerControl { weapon_out: true, ..Default::default() };
+            let anim = WeaponAnim { ready: true, ..Default::default() };
+            let tweaks = TweakSettings { power_attack_if_blocking: tweak_on, ..Default::default() };
+
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin)
+                .insert_state(PlayState::Playing)
+                .init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<Bindings>()
+                .init_resource::<AccumulatedMouseScroll>()
+                .init_resource::<Time>()
+                .insert_resource(combat)
+                .insert_resource(sim)
+                .insert_resource(phys)
+                .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 64.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+                .insert_resource(MoveIntent::default())
+                .insert_resource(control)
+                .insert_resource(anim)
+                .insert_resource(CombatStats::default())
+                .insert_resource(script)
+                .insert_resource(HitFeedback::default())
+                .insert_resource(ActorParts::default())
+                .insert_resource(PlayerLimbs::default())
+                .insert_resource(Sfx::new(fx_forms))
+                .insert_resource(crate::dismember::Dismemberment::default())
+                .insert_resource(tweaks)
+                .add_message::<ActorHit>()
+                .add_message::<ActorPush>()
+                .add_message::<WeaponBroken>()
+                .add_message::<ForcedHitReaction>()
+                .add_message::<PlaySound>()
+                .add_message::<ImpactFx>()
+                .add_message::<Knockback>()
+                .add_systems(Update, (read_controls, melee).chain());
+            app
+        }
+
+        fn step(app: &mut App, dt_secs: f64) -> (Vec<ActorHit>, Vec<PlaySound>, Vec<ImpactFx>) {
+            app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f64(dt_secs));
+            app.world_mut().resource_mut::<Combat>().time += dt_secs as f32;
+            app.update();
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
+            let hits = app.world_mut().resource_mut::<Messages<ActorHit>>().drain().collect();
+            let sounds = app.world_mut().resource_mut::<Messages<PlaySound>>().drain().collect();
+            let impacts = app.world_mut().resource_mut::<Messages<ImpactFx>>().drain().collect();
+            (hits, sounds, impacts)
+        }
+
+        fn attack_lines(app: &App) -> usize {
+            app.world()
+                .resource::<ScriptState>()
+                .rt
+                .as_ref()
+                .unwrap()
+                .game
+                .events
+                .iter()
+                .filter(|e| matches!(e.kind, EventKind::LineStarted { speaker, info, .. } if speaker == FormId::PLAYER_REF && info == ATTACK_INFO))
+                .count()
+        }
+
+        #[test]
+        fn unarmed_block_suppresses_taps_and_holds_then_allows_attacks_after_release() {
+            let mut app = make_app(false, false);
+
+            // Hold Block (right mouse button) until the guard pose is active.
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Right);
+            let (h, s, i) = step(&mut app, 0.05);
+            assert!(h.is_empty() && s.is_empty() && i.is_empty());
+            assert!(app.world().resource::<PlayerControl>().aiming);
+            assert_eq!(
+                app.world().resource::<Combat>().player_anim_action(app.world().resource::<WeaponAnim>(), false, true, 0.05),
+                Some(AnimAction::Block)
+            );
+
+            // Tap Attack while holding Block -> no swing, no sound, no hit, no attack line.
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+            let (h1, s1, i1) = step(&mut app, 0.05);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+            let (h2, s2, i2) = step(&mut app, 0.05);
+            let (h3, s3, i3) = step(&mut app, 0.5);
+            assert!(h1.is_empty() && h2.is_empty() && h3.is_empty());
+            assert!(s1.is_empty() && s2.is_empty() && s3.is_empty());
+            assert!(i1.is_empty() && i2.is_empty() && i3.is_empty());
+            assert_eq!(app.world().resource::<CombatStats>().swings, 0);
+            assert_eq!(app.world().resource::<WeaponAnim>().attacks, 0);
+            assert_eq!(app.world().resource::<WeaponAnim>().swing, None);
+            assert_eq!(attack_lines(&app), 0);
+
+            // Hold Attack past power_hold while still holding Block -> still no swing, sound, or hit.
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+            for _ in 0..20 {
+                let (h, s, i) = step(&mut app, 0.05);
+                assert!(h.is_empty() && s.is_empty() && i.is_empty());
+            }
+            // Drop Block while still holding Attack -> suppressed hold must not fire a phantom attack.
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Right);
+            let (h4, s4, i4) = step(&mut app, 0.05);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+            let (h5, s5, i5) = step(&mut app, 0.5);
+            assert!(h4.is_empty() && h5.is_empty() && s4.is_empty() && s5.is_empty() && i4.is_empty() && i5.is_empty());
+            assert_eq!(app.world().resource::<CombatStats>().swings, 0);
+            assert_eq!(app.world().resource::<CombatStats>().power_attacks, 0);
+            assert_eq!(app.world().resource::<WeaponAnim>().attacks, 0);
+            assert_eq!(attack_lines(&app), 0);
+
+            // Now that Block has ended, a tap starts a normal unarmed swing that lands a hit and sound.
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+            step(&mut app, 0.05);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+            let mut total_hits = 0usize;
+            let mut total_sounds = 0usize;
+            for _ in 0..20 {
+                let (h, s, _) = step(&mut app, 0.05);
+                total_hits += h.len();
+                total_sounds += s.len();
+            }
+            assert_eq!(app.world().resource::<CombatStats>().swings, 1);
+            assert_eq!(app.world().resource::<CombatStats>().power_attacks, 0);
+            assert_eq!(app.world().resource::<WeaponAnim>().attacks, 1);
+            assert!(app.world().resource::<WeaponAnim>().swing.as_deref().is_some_and(|s| s.starts_with("attackright")));
+            assert_eq!(total_hits, 1, "post-block swing must land on target");
+            assert!(total_sounds >= 1, "post-block hit must play impact sound");
+            assert_eq!(attack_lines(&app), 1, "post-block swing must trigger attack line");
+        }
+
+        #[test]
+        fn power_attack_from_block_tweak_still_starts_power_attack_while_blocking() {
+            let mut app = make_app(true, false);
+
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Right);
+            step(&mut app, 0.05);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+            step(&mut app, 0.05);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+
+            assert_eq!(app.world().resource::<CombatStats>().swings, 1);
+            assert_eq!(app.world().resource::<CombatStats>().power_attacks, 1);
+            assert_eq!(app.world().resource::<WeaponAnim>().swing.as_deref(), Some("attackpower"));
+        }
+
+        #[test]
+        fn scribe_counter_fires_after_block_ends_and_is_not_consumed_while_blocking() {
+            let mut app = make_app(false, true);
+
+            // Hold Block and simulate having just blocked an enemy strike.
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Right);
+            step(&mut app, 0.05);
+            let blocked_at = app.world().resource::<Combat>().time;
+            app.world_mut().resource_mut::<Combat>().player_blocked_at = Some(blocked_at);
+
+            // Tapping Attack while Block is still held does not swing or consume the counter window.
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+            step(&mut app, 0.05);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+            step(&mut app, 0.05);
+            assert_eq!(app.world().resource::<CombatStats>().swings, 0);
+            assert_eq!(app.world().resource::<Combat>().player_blocked_at, Some(blocked_at));
+
+            // Releasing Block and tapping Attack within COUNTER_WINDOW triggers Scribe Counter.
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Right);
+            step(&mut app, 0.05);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+            step(&mut app, 0.05);
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+            step(&mut app, 0.05);
+
+            assert_eq!(app.world().resource::<CombatStats>().swings, 1);
+            assert_eq!(app.world().resource::<CombatStats>().power_attacks, 1);
+            assert_eq!(app.world().resource::<WeaponAnim>().swing.as_deref(), Some("counter"));
+            assert_eq!(app.world().resource::<Combat>().player_blocked_at, None);
         }
     }
 }

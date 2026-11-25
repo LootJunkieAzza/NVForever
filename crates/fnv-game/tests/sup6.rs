@@ -97,7 +97,7 @@ fn the_mouse() {
 fn the_cursor_traits() {
     let f = fixture();
     let mut g = game(&f);
-    // At rest: alpha 255, white, the arrow's size [hypothesis].
+    // At rest: alpha 255, white, the arrow's size (see docs/spec-notes/ext-sup6.md).
     assert_eq!(n(&mut g, "GetCursorTrait 0"), 255.0);
     assert_eq!(n(&mut g, "GetCursorTrait 1"), 32.0);
     q(&mut g, "SetCursorTrait 0 100");
