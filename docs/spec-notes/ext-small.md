@@ -101,6 +101,7 @@ override NVForever tweak settings at startup beneath `NVForever.ini` (maintainer
 | `bNoSkipDialog:Tweaks` | `Tweaks::no_skip_dialogue`; clicking does not skip spoken dialogue lines |
 | `bRestoreLockedDoorSound:Tweaks` | `1` when bound; NVForever already plays `DRSLocked` when activating a refused lock ([tweaks](../design/tweaks.md)) |
 | `bArmorConditionLabel:Tweaks` | `Tweaks::armor_condition`; shows the worn body armour's condition bar on the HUD |
+| `bFasterSleepWait:Tweaks` | `Tweaks::faster_sleep_wait`; shortens the Sleep/Wait hour countdown interval (`wait::FASTER_HOUR_SECONDS`) |
 
 [hypothesis] The ammo query retains the child choice while its parent is disabled,
 as the plugin's own file keeps both keys; not observed in the original game. Its answer
