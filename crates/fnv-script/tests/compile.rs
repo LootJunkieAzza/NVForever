@@ -984,7 +984,7 @@ string_var c
 begin GameMode
 let d := IsDigit 55
 let u := ToUpper 97
-let a := CharToAscii \"Az\"
+let a := CharToAscii \"A\"
 let b := GetBit 5, 2
 let s := SetBit 0, 3
 let x := LogicalXor 6, 3
@@ -2562,4 +2562,14 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "assignment_to_a_value").is_empty(), "{:?}", c.diags);
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
+}
+
+#[test]
+fn chartoascii_rejects_multi_character_and_empty_strings() {
+    let h = run(
+        "int a\nint ab\nint emp\n         begin GameMode\n         let a := CharToAscii \"A\"\n         let ab := CharToAscii \"AB\"\n         let emp := CharToAscii \"\"\n         end",
+    );
+    assert_eq!(h.0[&1], Value::Num(65.0));
+    assert_eq!(h.0[&2], Value::Num(-1.0));
+    assert_eq!(h.0[&3], Value::Num(-1.0));
 }

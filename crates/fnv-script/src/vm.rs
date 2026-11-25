@@ -3419,7 +3419,7 @@ impl Vm<'_, '_> {
                 })
             }
             "chartoascii" => Ok(XVal::Num(match arg(self, 0)? {
-                XVal::Str(s) => s.bytes().next().map_or(-1.0, f64::from),
+                XVal::Str(s) if s.len() == 1 => f64::from(s.as_bytes()[0]),
                 _ => -1.0,
             })),
             "asciitochar" => {

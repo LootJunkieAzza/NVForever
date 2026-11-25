@@ -1,0 +1,61 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_chartoascii",
+  "description": "Wave 6D-5 read-only probe verifying CharToAscii returns -1 on multi-character and empty strings.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d5_chartoascii",
+      "title": "CharToAscii single-character requirement",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d5p4_chartoascii_single_char",
+          "bucket": "vm_strings",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 575,
+          "functions_tested": [
+            "CharToAscii",
+            "AsciiToChar",
+            "PrintToConsole"
+          ],
+          "claim": "Isolated probe for CharToAscii on single-char literal ('A' -> 65), multi-char literal ('AB' -> -1), and empty string_var ('' -> -1).",
+          "expected": "CharToAscii returns -1 unless the input has length 1.",
+          "script_lines": [
+            "string_var svEmp = \"\"",
+            "int caA = CharToAscii \"A\"",
+            "int caAB = CharToAscii \"AB\"",
+            "int caEmp = CharToAscii svEmp",
+            "PrintToConsole \"PROBE|w6d5p4_chartoascii_single_char|A=%g|AB=%g|emp=%g\" caA caAB caEmp"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

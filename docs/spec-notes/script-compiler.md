@@ -832,3 +832,7 @@ parity; parsing this caller does not establish B42 Optics compatibility.
   scripts, recompiled in the editor).
 - What the compiler does with a line it can't read in the middle of a block: ours writes
   nothing for that line and goes on.
+
+### Wave 6D-5 observation: `CharToAscii` single-character requirement
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_chartoascii_single_char` (`tools/capture/nvse/catalogs/wave6d5_chartoascii.json`); zero DLL, PDB, or third-party source consulted] `CharToAscii` returns the ASCII code for a 1-character string (`"A" -> 65`) and `-1` for multi-character (`"AB" -> -1`) or empty (`"" -> -1`) strings: `PROBE|w6d5p4_chartoascii_single_char|A=65|AB=-1|emp=-1`.
