@@ -28,29 +28,82 @@ fn unit<const N: usize>(v: [f64; N]) -> [f64; N] {
     if n == 0.0 { v } else { v.map(|c| c / n) }
 }
 
-/// DirectInput keyboard/mouse scan code to key name for `ScancodeToChar`: uppercase
-/// letters and full key names (`1 => "Escape"`, `2 => "1"`, `14 => "Backspace"`,
-/// `15 => "Tab"`, `18 => "E"`, `28 => "Enter"`, `30 => "A"`, `57 => "Spacebar"`,
-/// `59 => "F1"`, `87 => "F11"`, `88 => "F12"`, `200 => "Up Arrow"`,
-/// `256 => "Left Mouse Button"`), while unmapped codes (`0`, `220`, `221`, `255`, `999`,
-/// `-1`) return a 1-byte non-printable string (`sv_Length=1`, `CharToAscii=-1`)
-/// [observed: 2026-11-23 & 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New
-/// Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 with the 10 official base masters,
-/// isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes to
-/// game install or Saves), `anh_03_scancode_to_char_layout` and
-/// `w4d_29_anh_scancode_table_and_zone` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
-/// #3802): `PROBE|w4d_29_anh_scancode_table_and_zone|unmap(gsLen=1,0=1/x1D:0/o=-1,220=1/x1D:0/o=-1,221=1/x1D:0,255=1/x1D:0/o=-1,256=17[Left Mouse Button],999=1/x1D:0,-1=1/x1D:0)|map(2=1,14=Backspace,15=Tab,28=Enter,57=Spacebar,87=F11,88=F12,200=Up Arrow)|zone(0->0,docZ=00000000)`;
-/// zero DLL, PDB, or third-party source consulted].
-/// The exact `0x1D` (`"\x1d"`) raw byte value for unmapped codes (NVSE `AsciiToChar 29`
-/// and `CharToAscii` only cover printable ASCII `32..126`) and unprobed scan codes
-/// (reusing `KEY_NAMES` for `2..=219` and unmapped for `257+`) remain [hypothesis].
+/// DirectInput keyboard/mouse scan code to key name for `ScancodeToChar` [observed:
+/// 2026-11-23, 2026-11-24, and 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout:
+/// New Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 with the 10 official base masters,
+/// isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to
+/// game install or Saves), `anh_03_scancode_to_char_layout`,
+/// `w4d_29_anh_scancode_table_and_zone` (`wave4d_extenders.json`, #3802), and
+/// `w6d4_37_anh_scancode_modifiers_nav_numpad`, `w6d4_38_anh_scancode_mouse_and_extended`,
+/// `w6d4p2_37b_anh_scancode_punct_numpad` (`wave6d4_anh_scancode.json`): full modifier,
+/// punctuation, numpad (`NUM0`..`NUM9`, `NUM *`, `NUM Minus`, `NUM Plus`, `NUM Period`,
+/// `NUM Enter`, `NUM_Slash`), navigation (`Home`, `PgUp`, `Left Arrow`, `Right Arrow`,
+/// `End`, `Down Arrow`, `PgDown`, `Insert`, `Delete`), mouse (`256..=265`), and unmapped
+/// raw `0x1D` byte (`o183=29,o219=29`); zero DLL, PDB, or third-party source consulted].
+/// Remaining unprobed scan codes delegating to `KEY_NAMES` remain [hypothesis].
 fn scancode_name(code: i64) -> &'static str {
     match code {
         1 => return "Escape",
+        12 => return "-",
+        13 => return "=",
+        26 => return "Left Bracket",
+        27 => return "Right Bracket",
+        29 => return "Left Control",
+        39 => return ";",
+        40 => return "'",
+        41 => return "~",
+        42 => return "Left Shift",
+        43 => return "Back Slash",
+        51 => return "Comma",
+        52 => return "Period",
+        53 => return "Forward Slash",
+        54 => return "Right Shift",
+        55 => return "NUM *",
+        56 => return "Left Alt",
         57 => return "Spacebar",
+        58 => return "Caps Lock",
+        69 => return "Num Lock",
+        70 => return "Scroll Lock",
+        71 => return "NUM7",
+        72 => return "NUM8",
+        73 => return "NUM9",
+        74 => return "NUM Minus",
+        75 => return "NUM4",
+        76 => return "NUM5",
+        77 => return "NUM6",
+        78 => return "NUM Plus",
+        79 => return "NUM1",
+        80 => return "NUM2",
+        81 => return "NUM3",
+        82 => return "NUM0",
+        83 => return "NUM Period",
+        156 => return "NUM Enter",
+        157 => return "Right Control",
+        181 => return "NUM_Slash",
+        183 => return "\x1d",
+        184 => return "Right Alt",
+        197 => return "\x1d",
+        199 => return "Home",
         200 => return "Up Arrow",
-        220 => return "\x1d",
+        201 => return "PgUp",
+        203 => return "Left Arrow",
+        205 => return "Right Arrow",
+        207 => return "End",
+        208 => return "Down Arrow",
+        209 => return "PgDown",
+        210 => return "Insert",
+        211 => return "Delete",
+        219 | 220 => return "\x1d",
         256 => return "Left Mouse Button",
+        257 => return "Right Mouse Button",
+        258 => return "Middle Mouse Button",
+        259 => return "Mouse Button 3",
+        260 => return "Mouse Button 4",
+        261 => return "Mouse Button 5",
+        262 => return "Mouse Button 6",
+        263 => return "Mouse Button 7",
+        264 => return "Mouse Wheel Up",
+        265 => return "Mouse Wheel Down",
         _ => {}
     }
     let Ok(c) = u16::try_from(code) else { return "\x1d" };

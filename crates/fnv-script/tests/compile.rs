@@ -1360,6 +1360,31 @@ end",
     assert_eq!(h.text(35), "\x1d");
     assert_eq!(h.text(36), "\x1d");
     assert_eq!(h.text(37), "\x1d");
+
+    // Wave 6D-4 AnhNVSE 131 ScancodeToChar modifiers, punctuation, numpad, nav, mouse,
+    // and unmapped 0x1D codes [observed: w6d4_37, w6d4_38, w6d4p2_37b].
+    let cases: &[(i32, &str)] = &[
+        (12, "-"), (13, "="), (26, "Left Bracket"), (27, "Right Bracket"),
+        (29, "Left Control"), (39, ";"), (40, "'"), (41, "~"),
+        (42, "Left Shift"), (43, "Back Slash"), (51, "Comma"), (52, "Period"),
+        (53, "Forward Slash"), (54, "Right Shift"), (55, "NUM *"), (56, "Left Alt"),
+        (58, "Caps Lock"), (69, "Num Lock"), (70, "Scroll Lock"),
+        (71, "NUM7"), (72, "NUM8"), (73, "NUM9"), (74, "NUM Minus"),
+        (75, "NUM4"), (76, "NUM5"), (77, "NUM6"), (78, "NUM Plus"),
+        (79, "NUM1"), (80, "NUM2"), (81, "NUM3"), (82, "NUM0"), (83, "NUM Period"),
+        (156, "NUM Enter"), (157, "Right Control"), (181, "NUM_Slash"),
+        (183, "\x1d"), (184, "Right Alt"), (197, "\x1d"),
+        (199, "Home"), (201, "PgUp"), (203, "Left Arrow"), (205, "Right Arrow"),
+        (207, "End"), (208, "Down Arrow"), (209, "PgDown"), (210, "Insert"), (211, "Delete"),
+        (219, "\x1d"), (256, "Left Mouse Button"), (257, "Right Mouse Button"),
+        (258, "Middle Mouse Button"), (259, "Mouse Button 3"), (260, "Mouse Button 4"),
+        (261, "Mouse Button 5"), (262, "Mouse Button 6"), (263, "Mouse Button 7"),
+        (264, "Mouse Wheel Up"), (265, "Mouse Wheel Down"), (266, "\x1d"),
+    ];
+    for &(code, want) in cases {
+        let r = run(&format!("string_var s\nbegin GameMode\nlet s := ScancodeToChar {code}\nend"));
+        assert_eq!(r.text(1), want, "ScancodeToChar {code}");
+    }
 }
 
 #[test]

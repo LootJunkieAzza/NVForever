@@ -1,0 +1,161 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_anh_scancode",
+  "description": "Clean-room read-only Wave 6D-4 probes for AnhNVSE 131 ScancodeToChar modifiers, punctuation, numpad, navigation, mouse, and 0x1D unmapped byte.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "AnhNVSE": "131"
+  },
+  "batches": [
+    {
+      "id": "w6d4_anh_scancode",
+      "title": "Wave 6D-4: AnhNVSE 131 ScancodeToChar complete key/mouse name table",
+      "extender": "AnhNVSE",
+      "required_plugins": [
+        "AnhNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4_37_anh_scancode_modifiers_nav_numpad",
+          "bucket": "anh_scancode_edges",
+          "extender": "AnhNVSE",
+          "required_plugins": [
+            "AnhNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": false,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-anh.md",
+          "spec_line": 20,
+          "functions_tested": [
+            "ScancodeToChar"
+          ],
+          "claim": "SD-05 (P0): Sweep unprobed modifier, lock, numpad, and navigation scancodes in 2..=219 (29, 42, 54, 56, 58, 69, 70, 71, 74, 78, 82, 83, 156, 157, 181, 183, 184, 199, 201, 203, 205, 207, 208, 209, 210, 211, 219) against anh.rs delegation to xNVSE KEY_NAMES.",
+          "expected": "anh.rs overrides only 5 codes (1, 57, 200, 220, 256) and delegates 2..219 to KEY_NAMES; arrows (203/205/208), modifiers, and numpad likely diverge.",
+          "script_lines": [
+            "string_var k29 = ScancodeToChar 29",
+            "string_var k42 = ScancodeToChar 42",
+            "string_var k54 = ScancodeToChar 54",
+            "string_var k56 = ScancodeToChar 56",
+            "string_var k58 = ScancodeToChar 58",
+            "string_var k69 = ScancodeToChar 69",
+            "string_var k70 = ScancodeToChar 70",
+            "string_var k71 = ScancodeToChar 71",
+            "string_var k74 = ScancodeToChar 74",
+            "string_var k78 = ScancodeToChar 78",
+            "string_var k82 = ScancodeToChar 82",
+            "string_var k83 = ScancodeToChar 83",
+            "string_var k156 = ScancodeToChar 156",
+            "string_var k157 = ScancodeToChar 157",
+            "string_var k181 = ScancodeToChar 181",
+            "string_var k183 = ScancodeToChar 183",
+            "string_var k184 = ScancodeToChar 184",
+            "string_var k199 = ScancodeToChar 199",
+            "string_var k201 = ScancodeToChar 201",
+            "string_var k203 = ScancodeToChar 203",
+            "string_var k205 = ScancodeToChar 205",
+            "string_var k207 = ScancodeToChar 207",
+            "string_var k208 = ScancodeToChar 208",
+            "string_var k209 = ScancodeToChar 209",
+            "string_var k210 = ScancodeToChar 210",
+            "string_var k211 = ScancodeToChar 211",
+            "string_var k219 = ScancodeToChar 219",
+            "string_var s1 = sv_Construct \"29=%z,42=%z,54=%z,56=%z,58=%z,69=%z,70=%z,71=%z,74=%z\" k29 k42 k54 k56 k58 k69 k70 k71 k74",
+            "string_var s2 = sv_Construct \"78=%z,82=%z,83=%z,156=%z,157=%z,181=%z,183=%z,184=%z,199=%z\" k78 k82 k83 k156 k157 k181 k183 k184 k199",
+            "string_var s3 = sv_Construct \"201=%z,203=%z,205=%z,207=%z,208=%z,209=%z,210=%z,211=%z,219=%z\" k201 k203 k205 k207 k208 k209 k210 k211 k219",
+            "PrintToConsole \"PROBE|w6d4_37_anh_scancode_modifiers_nav_numpad|%z|%z|%z\" s1 s2 s3"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d4_38_anh_scancode_mouse_and_extended",
+          "bucket": "anh_scancode_edges",
+          "extender": "AnhNVSE",
+          "required_plugins": [
+            "AnhNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": false,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-anh.md",
+          "spec_line": 20,
+          "functions_tested": [
+            "ScancodeToChar",
+            "CharToAscii"
+          ],
+          "claim": "SD-05 (P0): Sweep mouse & extended scancodes 256..=266 and 270 to pin every string name that anh.rs currently collapses to 0x1D.",
+          "expected": "anh.rs maps only 256=\"Left Mouse Button\" and returns 0x1D for all 257+; original AnhNVSE 131 likely names 257..265 (Right/Middle/Wheel).",
+          "script_lines": [
+            "string_var c256 = ScancodeToChar 256",
+            "string_var c257 = ScancodeToChar 257",
+            "string_var c258 = ScancodeToChar 258",
+            "string_var c259 = ScancodeToChar 259",
+            "string_var c260 = ScancodeToChar 260",
+            "string_var c261 = ScancodeToChar 261",
+            "string_var c262 = ScancodeToChar 262",
+            "string_var c263 = ScancodeToChar 263",
+            "string_var c264 = ScancodeToChar 264",
+            "string_var c265 = ScancodeToChar 265",
+            "string_var c266 = ScancodeToChar 266",
+            "string_var c270 = ScancodeToChar 270",
+            "int o265 = CharToAscii c265",
+            "int o266 = CharToAscii c266",
+            "int o270 = CharToAscii c270",
+            "string_var s1 = sv_Construct \"256=%z,257=%z,258=%z,259=%z,260=%z\" c256 c257 c258 c259 c260",
+            "string_var s2 = sv_Construct \"261=%z,262=%z,263=%z,264=%z,265=%z(o=%g),o266=%g,o270=%g\" c261 c262 c263 c264 c265 o265 o266 o270",
+            "PrintToConsole \"PROBE|w6d4_38_anh_scancode_mouse_and_extended|%z|%z\" s1 s2"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d4p2_37b_anh_scancode_punct_numpad",
+          "bucket": "anh_scancode_edges",
+          "extender": "AnhNVSE",
+          "required_plugins": [
+            "AnhNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": false,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-anh.md",
+          "spec_line": 20,
+          "functions_tested": [
+            "ScancodeToChar"
+          ],
+          "claim": "SD-05: Sweep remaining punctuation, F-keys, and numpad scancodes (12,13,26,27,39,40,41,43,51,52,53,55,72,73,75,76,77,79,80,81,183,197,219,220).",
+          "expected": "Pin exact AnhNVSE 131 ScancodeToChar strings for punctuation & numpad.",
+          "script_lines": [
+            "string_var s1 = sv_Construct \"12=%z,13=%z,26=%z,27=%z,39=%z,40=%z,41=%z,43=%z\" (ScancodeToChar 12) (ScancodeToChar 13) (ScancodeToChar 26) (ScancodeToChar 27) (ScancodeToChar 39) (ScancodeToChar 40) (ScancodeToChar 41) (ScancodeToChar 43)",
+            "string_var s2 = sv_Construct \"51=%z,52=%z,53=%z,55=%z,72=%z,73=%z,75=%z,76=%z\" (ScancodeToChar 51) (ScancodeToChar 52) (ScancodeToChar 53) (ScancodeToChar 55) (ScancodeToChar 72) (ScancodeToChar 73) (ScancodeToChar 75) (ScancodeToChar 76)",
+            "string_var s3 = sv_Construct \"77=%z,79=%z,80=%z,81=%z,197=%z,o183=%g,o219=%g\" (ScancodeToChar 77) (ScancodeToChar 79) (ScancodeToChar 80) (ScancodeToChar 81) (ScancodeToChar 197) (CharToAscii (ScancodeToChar 183)) (CharToAscii (ScancodeToChar 219))",
+            "PrintToConsole \"PROBE|w6d4p2_37b_anh_scancode_punct_numpad|%z|%z|%z\" s1 s2 s3"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}
