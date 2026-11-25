@@ -789,8 +789,9 @@ fn actors_cast_no_shadows(
 fn report(
     time: Res<Time<Real>>,
     mut w: ResMut<ProfileWindow>,
-    meshes: Query<(&Mesh3d, Option<&MeshMaterial3d<nvf_assets::NifMaterial>>, &ViewVisibility)>,
-    moved: Query<(), (With<Mesh3d>, Changed<GlobalTransform>)>,
+    // Without the light in the air's solid cores, counted on their own (solid_cores.rs).
+    meshes: Query<(&Mesh3d, Option<&MeshMaterial3d<nvf_assets::NifMaterial>>, &ViewVisibility), Without<crate::solid_cores::SolidCore>>,
+    (moved, cores): (Query<(), (With<Mesh3d>, Changed<GlobalTransform>, Without<crate::solid_cores::SolidCore>)>, Query<(), With<crate::solid_cores::SolidCore>>),
     materials: Res<Assets<nvf_assets::NifMaterial>>,
     mut last: Local<Option<Instant>>,
     loading: Option<Res<nvf_play::loading::Loading>>,
@@ -853,12 +854,16 @@ fn report(
         }
     }
     info!(
-        "profile scene: {} mesh entities ({visible} visible, {} moved this frame), {} distinct meshes, {} distinct materials in use ({} material assets)",
+        "profile scene: {} mesh entities ({visible} visible, {} moved this frame), {} distinct meshes, {} distinct materials in use ({} material assets){}",
         meshes.iter().count(),
         moved.iter().count(),
         ids.len(),
         mats.len(),
-        materials.len()
+        materials.len(),
+        match cores.iter().count() {
+            0 => String::new(),
+            n => format!("; {n} solid cores besides"),
+        }
     );
     // Shadow casters each cascade of each directional light drew this frame: whether a nearer,
     // smaller cascade really holds fewer casters than the far one.

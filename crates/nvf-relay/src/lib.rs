@@ -1,5 +1,6 @@
 //! `nvf-relay`: a co-op relay a player hosts (#3795 section 9, option 2). The state machine and
-//! wire format are `nvf_nat::hosted`; this is the sockets around it, std only.
+//! wire format are `nvf_nat::hosted`; this is the sockets around it, plus OS randomness for
+//! return-check cookie secrets (#3908).
 //!
 //! One socket per `--listen` address (an IPv4 one and an IPv6 one, say), sharing one table of
 //! sessions, so a guest on IPv6 and a host on IPv4 still meet. A packet goes out on the socket
@@ -26,9 +27,19 @@ pub struct Relay {
     threads: Vec<thread::JoinHandle<()>>,
 }
 
+/// A 256-bit secret from the operating system's random source, for return-check cookies (#3908).
+pub fn os_secret() -> [u8; 32] {
+    let mut b = [0u8; 32];
+    getrandom::fill(&mut b).expect("the operating system's random source");
+    b
+}
+
 impl Relay {
     /// Binds every address and starts one thread per socket.
-    pub fn start(listen: &[SocketAddr], cfg: ServerConfig) -> io::Result<Relay> {
+    pub fn start(listen: &[SocketAddr], mut cfg: ServerConfig) -> io::Result<Relay> {
+        if cfg.random_secret.is_none() {
+            cfg.random_secret = Some(os_secret);
+        }
         let mut sockets = Vec::new();
         for a in listen {
             let s = UdpSocket::bind(a)?;
