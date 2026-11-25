@@ -1593,8 +1593,21 @@ fn make_temp() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// The largest `ModuleConfig.xml` read, in bytes.
+const XML_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
+/// How deep the installer's elements may nest. The tree is read, searched and freed one call
+/// level an element deeper, so a deeper one is refused before it can use up the stack.
+const XML_MAX_DEPTH: usize = 64;
+
 fn read_xml(path: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut bytes = Vec::new();
+    file.take(XML_MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    if bytes.len() as u64 > XML_MAX_BYTES {
+        return Err(format!("{}: the installer is larger than {} MiB, so it is not read.", path.display(), XML_MAX_BYTES / (1024 * 1024)));
+    }
     if bytes.starts_with(&[0xFF, 0xFE]) {
         let (chunks, _) = bytes[2..].as_chunks::<2>();
         let units: Vec<u16> = chunks.iter().map(|c| u16::from_le_bytes(*c)).collect();
@@ -1655,6 +1668,11 @@ fn parse_xml(text: &str) -> Result<Elem, String> {
             let done = stack.pop().unwrap();
             stack.last_mut().unwrap().children.push(done);
         } else {
+            // `stack` holds the document root and every open element, so the new element is
+            // `stack.len()` deep.
+            if stack.len() > XML_MAX_DEPTH {
+                return Err(format!("its elements nest more than {XML_MAX_DEPTH} deep."));
+            }
             let (name, attrs) = split_tag(body)?;
             let el = Elem { name, attrs, text: String::new(), children: Vec::new() };
             if empty {
@@ -2388,6 +2406,56 @@ mod tests {
         std::fs::create_dir_all(&mcm).unwrap();
         std::fs::write(mcm.join("menu.xml"), b"<x/>").unwrap();
         assert!(data_valid(&scan_manual(&mcm)));
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn installer_elements_may_nest_64_deep_and_no_deeper() {
+        let deep = |n: usize| format!("{}{}", "<a>".repeat(n), "</a>".repeat(n));
+        assert!(parse_xml(&deep(64)).is_ok());
+        assert_eq!(parse_xml(&deep(65)).err(), Some("its elements nest more than 64 deep.".to_string()));
+        // An empty element is a level too.
+        assert!(parse_xml(&format!("{}<b/>{}", "<a>".repeat(63), "</a>".repeat(63))).is_ok());
+        assert!(parse_xml(&format!("{}<b/>{}", "<a>".repeat(64), "</a>".repeat(64))).is_err());
+    }
+
+    #[test]
+    fn an_installer_nested_too_deep_is_refused_not_a_crash() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-deep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        // Half a million levels: without the cap, reading, searching or freeing this tree runs
+        // out of stack and ends the whole process.
+        let n = 500_000;
+        let xml = format!("<config><moduleName>Deep</moduleName>{}{}</config>", "<a>".repeat(n), "</a>".repeat(n));
+        let zip_path = t.join("Deep.zip");
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+            let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            z.start_file("fomod/ModuleConfig.xml", o).unwrap();
+            z.write_all(xml.as_bytes()).unwrap();
+            z.start_file("Deep.esp", o).unwrap();
+            z.write_all(b"TES4").unwrap();
+            z.finish().unwrap();
+        }
+        assert_eq!(stage_error(&zip_path), "The installer could not be read: its elements nest more than 64 deep.");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn an_installer_over_16_mib_is_not_read() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-big-xml-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let fomod = t.join("Big").join("fomod");
+        std::fs::create_dir_all(&fomod).unwrap();
+        let xml = fomod.join("ModuleConfig.xml");
+        std::fs::File::create(&xml).unwrap().set_len(XML_MAX_BYTES + 1).unwrap();
+        let e = stage_error(&t.join("Big"));
+        assert!(e.ends_with("the installer is larger than 16 MiB, so it is not read."), "{e}");
+        // One byte less is read (and then judged as an installer, which these zeros are not).
+        std::fs::File::create(&xml).unwrap().set_len(XML_MAX_BYTES).unwrap();
+        let e = stage_error(&t.join("Big"));
+        assert!(!e.contains("larger than"), "{e}");
         let _ = std::fs::remove_dir_all(&t);
     }
 }

@@ -35,6 +35,8 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
   with no names, ends the install [design; `extract_external`].
 - The installer sits in a `fomod` folder holding `ModuleConfig.xml` (the installer) and
   `info.xml`, which has "no defined schema" [documented: S1, "Specification"].
+- The launcher reads a `ModuleConfig.xml` of at most 16 MiB, and refuses one whose elements
+  nest more than 64 deep [design; `read_xml`, `parse_xml`].
 - A C# script installer (`fomod/script.cs`) is code "that gets compiled on the user's system and
   run in the context of the mod manager" [documented: S2, "FOMOD C#"]. The launcher never
   compiles or runs one. An archive with only a script is refused; with a `ModuleConfig.xml` too,
