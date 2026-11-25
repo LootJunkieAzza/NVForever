@@ -352,8 +352,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // as the engine's music picked it.
         "audiomarkergetcurrent" | "amkgetcur" => XVal::Ref(g.other.jg9.current_marker.map_or(0, |r| r.0)),
         // ref.AudioMarkerGetProperty (AMKGetProp) n: 0 radius, 1 layer 2 trigger %, 2
-        // layer 3 trigger % [documented]; the triggers as stored, fractions [hypothesis:
-        // the page does not say percent or fraction].
+        // layer 3 trigger % [documented]; layer 2/3 triggers read back as stored fractions
+        // (0.33, 0.67) [observed: w6d3p2_38: p=2500.0,0.33,0.67,1.0]; OOB returns 0 here
+        // while original read 1.0 for property 3 [design: follow-up].
         "audiomarkergetproperty" | "amkgetprop" => {
             let m = subject.and_then(|r| g.marker_values(r));
             XVal::Num(match (m, int_arg(args, 0)) {
@@ -364,8 +365,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             })
         }
         // ref.AudioMarkerSetController (AMKSetCtrl) controller [documented]: an ALOC, for
-        // the session; the engine's music picks from it.
-        // Both setters return 0 even on success [observed: w6d3p2_38].
+        // the session; the engine's music picks from it. Returns 0 even on success while
+        // applying the edit [observed: w6d3p2_38: sc=0(eq=1)].
         "audiomarkersetcontroller" | "amksetctrl" => {
             let (Some(r), Some(c)) = (subject, form(args, 0)) else { return Some(Ok(yes(false))) };
             let Some(mut m) = g.marker_values(r) else { return Some(Ok(yes(false))) };
@@ -374,7 +375,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.other.jg9.markers_changed = true;
             yes(false)
         }
-        // ref.AudioMarkerSetProperty (AMKSetProp) n value [documented].
+        // ref.AudioMarkerSetProperty (AMKSetProp) n value [documented]; returns 0 on
+        // property 0 and OOB property 3 while applying property 0 [observed: w6d3p2_38:
+        // sp=0->1234.5,oob=0]; returning 0 for properties 1 and 2 [hypothesis].
         "audiomarkersetproperty" | "amksetprop" => {
             let Some(r) = subject else { return Some(Ok(yes(false))) };
             let Some(mut m) = g.marker_values(r) else { return Some(Ok(yes(false))) };

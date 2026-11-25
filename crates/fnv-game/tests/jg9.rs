@@ -174,7 +174,8 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "AudioMarkerGetCurrent"), f64::from(FormId::PLAYER_REF.0));
     assert_eq!(n(&mut g, "player.AudioMarkerGetProperty 0"), 1500.0);
     assert!((n(&mut g, "player.AMKGetProp 2") - 0.67).abs() < 1e-6);
-    // Both setters return 0 on success while applying the edit [observed: w6d3p2_38].
+    // AudioMarkerSetProperty (probed on prop 0 and OOB 3; props 1/2 [hypothesis]) and
+    // AudioMarkerSetController return 0 on success while applying the edit [observed: w6d3p2_38].
     assert_eq!(n(&mut g, "player.AudioMarkerSetProperty 0 900"), 0.0);
     assert_eq!(n(&mut g, "player.AudioMarkerGetProperty 0"), 900.0);
     assert_eq!(n(&mut g, "player.AudioMarkerSetController TestSound"), 0.0);
