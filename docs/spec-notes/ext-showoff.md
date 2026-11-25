@@ -408,3 +408,6 @@ RemoveAllItemsShowOff.
   [hypothesis: non-actor, melee, and god-mode edge cases unprobed in original ShowOff].
 - Free when no `ShowOff:OnFireWeapon` handler is registered (unmodded vanilla weapon
   firing is unchanged). No ShowOff DLL or source code was consulted.
+
+### `GetEquippedItems` high-bit mask & `GetNumBrokenEquippedItems` (`w6d7p2_32`)
+- **Nonzero high-bit mask returns empty list** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p2_32_showoff_equipped_items_fixed` in `tools/capture/nvse/catalogs/wave6d7_showoff_equipped_mask.json`]: `GetEquippedItems (1 << 20)` returns `0` entries (`hi20=0`), while omitted/`0` returns all playable equipped items (`all=2`) and `GetNumBrokenEquippedItems` counts `0/2/2` across thresholds `0/50/100` (`PROBE|w6d7p2_32_showoff_equipped_items_fixed|eqItems(all=2,up=1,wp=1,hi20=0)|refs(w=1,l=1)|brk(t0=0,t50=2,t100=2)|ex=0`).
