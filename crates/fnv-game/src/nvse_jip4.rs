@@ -474,6 +474,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             zero
         }
         "getlighttraitnumeric" => XVal::Num(light_trait(k).map_or(0.0, |(s, p)| get_num(g, f0, s, p))),
+        // Channel 1 (`r`) wraps modulo 256, channel 0 (`rad`) preserves signed radius, and
+        // non-`LIGH` forms are ignored [observed: `w6d2_22_light_grass_txst_traits_and_flags`];
+        // channels 2..=3 (`g`/`b`) mod-256 wrap and `.trunc()` are [hypothesis], and
+        // `raw.is_finite()` is [design].
         "setlighttraitnumeric" => {
             if g.data.sig(g.unclone(f0)) == Some(*b"LIGH") {
                 if let Some((s, p)) = light_trait(k) {

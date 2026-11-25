@@ -197,8 +197,9 @@ fn xcll_less_interior_receives_set_interior_lighting_traits_and_idempotent_write
     assert_eq!(g.session_cell_lighting(f.lo, f.schema, CELL).unwrap().fog_clip_dist, 20000.0);
 }
 
-/// `SetLightTraitNumeric` validates `LIGH`, wraps RGB channels `1..=3` modulo 256, and
-/// preserves signed radius (`0`) [observed: `w6d2_22_light_grass_txst_traits_and_flags`].
+/// `SetLightTraitNumeric` validates `LIGH`, wraps red (`1`) modulo 256, and preserves signed
+/// radius (`0`) [observed: `w6d2_22_light_grass_txst_traits_and_flags`]; channels `2..=3`
+/// (`g`/`b`) wrap and `.trunc()` are [hypothesis], and `raw.is_finite()` is [design].
 #[test]
 fn set_light_trait_numeric_wraps_rgb_and_validates_ligh() {
     let f = fixture();

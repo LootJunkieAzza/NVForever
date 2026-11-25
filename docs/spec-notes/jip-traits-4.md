@@ -72,15 +72,17 @@ FollowersCombatStyleRanged 43 reads -20, CSAD's first field; 44 reads 0; the sam
 blue (DATA radius, color.red/green/blue), 4 falloff exponent, 5 FOV (DATA), 6 fade
 (FNAM). `Get/SetLightFlag light id` [documented: IDs 0–31]: DATA flags bits. The page's
 11 and 12 (colour shift) have no schema name and read the bit all the same.
-BasementLightFillWarm: radius 200, red 177, fade 1.25. `SetLightTraitNumeric` wraps RGB
-channels `1..=3` modulo 256 (`300 -> 44`, `-10 -> 246`), preserves signed radius
-(`200 -> -50`), and ignores non-`LIGH` forms (`bad=0`) [observed: Fallout: New Vegas
-1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
-10 official base masters, isolated clean-room staging copy (read-only probe; zero writes
-to game install or Saves), `w6d2_22_light_grass_txst_traits_and_flags`
+BasementLightFillWarm: radius 200, red 177, fade 1.25. `SetLightTraitNumeric` wraps red
+channel `1` modulo 256 (`300 -> 44`, `-10 -> 246`), preserves signed radius (`0`: `200 -> -50`),
+and ignores non-`LIGH` forms (`bad=0`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+isolated clean-room staging copy (read-only probe; zero writes to game install or Saves),
+`w6d2_22_light_grass_txst_traits_and_flags`
 (`tools/capture/nvse/catalogs/wave6d2_set_light_trait_rgb_wrap.json`):
 `PROBE|w6d2_22_light_grass_txst_traits_and_flags|lt(rad=200->-50,r=177->300:44,neg:246,bad=0)|gr=30/0|txLen=36/0`;
-zero DLL, PDB, or third-party source consulted].
+zero DLL, PDB, or third-party source consulted]; applying the same modulo-256 wrap to green/blue
+channels `2..=3` and `.trunc()` truncation on integer traits `0..=3` are [hypothesis], and
+ignoring non-finite inputs (`raw.is_finite()`) is [design].
 
 ## 5. Grass (GRAS)
 
