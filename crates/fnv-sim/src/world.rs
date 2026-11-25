@@ -995,7 +995,9 @@ impl<'a> World<'a> {
             .enumerate()
             .filter_map(|(o, &i)| {
                 let it = self.resolve_item(i)?;
-                (it.kind == ItemKind::Armor).then(|| {
+                // Skip 0%-condition broken armor during NPC auto-outfitting/review
+                // [observed 2026-11-25: w6d7_33_npc_auto_outfit_and_additem_review_equipment].
+                (it.kind == ItemKind::Armor && inv.condition_in_use(i).is_some_and(|c| c > 0.0)).then(|| {
                     (
                         o,
                         i,

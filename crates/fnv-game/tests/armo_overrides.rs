@@ -383,3 +383,22 @@ fn temp_clone_form_armo_is_isolated_in_both_directions_and_equippable() {
     );
     assert_eq!(g.body_armor(FormId::PLAYER_REF), Some((2.0, ArmorClass::Heavy)), "detection::body_armor reads cloned torso armor overrides");
 }
+
+#[test]
+fn npc_default_choice_skips_broken_zero_condition_armor() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = NPC_REF;
+    // Clear existing ARMOR_B and add a 0%-condition copy: NPC must pick intact ARMOR_A (DT 10) over broken ARMOR_B (DT 12).
+    let cur_b = g.world.item_count(npc, FormId(ARMOR_B)).unwrap();
+    if cur_b > 0 {
+        g.world.remove_item(npc, FormId(ARMOR_B), cur_b).unwrap();
+    }
+    if g.world.item_count(npc, FormId(ARMOR_A)).unwrap() == 0 {
+        g.world.add_item(npc, FormId(ARMOR_A), 1).unwrap();
+    }
+    g.world.add_item_at_condition(npc, FormId(ARMOR_B), 1, Some(0.0)).unwrap();
+    let eq = g.world.equipment(npc).unwrap();
+    assert!(eq.contains(&FormId(ARMOR_A)), "intact armor selected");
+    assert!(!eq.contains(&FormId(ARMOR_B)), "0%-condition armor skipped");
+}

@@ -1,0 +1,122 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_npc_broken_armor",
+  "description": "Wave 6D-7 read-only console probe for NPC auto-outfit and AddItem equipment review skipping 0%-condition armor.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_npc_broken_armor",
+      "title": "Wave 6D-7: NPC equipment review skips 0%-condition broken armor",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_33_npc_auto_outfit_and_additem_review_equipment",
+          "bucket": "equipment_slots",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actors.md",
+          "spec_line": 390,
+          "functions_tested": [
+            "PlaceAtMe",
+            "AddItem",
+            "AddItemHealthPercent",
+            "GetEquipped",
+            "GetEquippedObject"
+          ],
+          "claim": "SD-13: Test NPC auto-outfitting and AddItem review_equipment: does NPC equip ArmorLeather (DT 6), upgrade to ArmorMetal (DT 12), ignore 0%-health ArmorCombat (DT 15), and prefer weapon with ammo?",
+          "expected": "Record NPC equipped slot 2 armor and slot 5 weapon after each AddItem across frames.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rMet = GetFormFromMod \"FalloutNV.esm\" \"3307F\"",
+            "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+            "ref rW10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 140 0",
+            "Player.AuxVarSetRef \"*w6d733_n\" rNpc",
+            "rNpc.AddItem rLth 1 1"
+          ],
+          "wait_ticks_after": 4,
+          "extra_steps": [
+            {
+              "suffix": "s1_metal",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+                "ref rMet = GetFormFromMod \"FalloutNV.esm\" \"3307F\"",
+                "ref rNpc = Player.AuxVarGetRef \"*w6d733_n\"",
+                "Player.AuxVarSetFlt \"*w6d733_eqL\" (rNpc.GetEquipped rLth)",
+                "rNpc.AddItem rMet 1 1"
+              ]
+            },
+            {
+              "suffix": "s2_brk_combat_and_wep",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rMet = GetFormFromMod \"FalloutNV.esm\" \"3307F\"",
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "ref rW10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "ref rNpc = Player.AuxVarGetRef \"*w6d733_n\"",
+                "Player.AuxVarSetFlt \"*w6d733_eqM\" (rNpc.GetEquipped rMet)",
+                "rNpc.AddItemHealthPercent rCmb 1 0.0 1",
+                "rNpc.AddItem rW10 1 1",
+                "rNpc.AddItem rA10 20 1"
+              ]
+            },
+            {
+              "suffix": "s3_report",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rMet = GetFormFromMod \"FalloutNV.esm\" \"3307F\"",
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "ref rW10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rNpc = Player.AuxVarGetRef \"*w6d733_n\"",
+                "int iEqL = Player.AuxVarGetFlt \"*w6d733_eqL\"",
+                "int iEqM = Player.AuxVarGetFlt \"*w6d733_eqM\"",
+                "int iEqM2 = rNpc.GetEquipped rMet",
+                "int iEqC = rNpc.GetEquipped rCmb",
+                "int iEqW = rNpc.GetEquipped rW10",
+                "int iObj2M = (rNpc.GetEquippedObject 2) == rMet",
+                "int iObj5W = (rNpc.GetEquippedObject 5) == rW10",
+                "rNpc.Disable",
+                "rNpc.MarkForDelete",
+                "Player.AuxVarErase \"*w6d733_n\"",
+                "Player.AuxVarErase \"*w6d733_eqL\"",
+                "Player.AuxVarErase \"*w6d733_eqM\"",
+                "string_var sOut = sv_Construct \"PROBE|w6d7_33_npc_auto_outfit_and_additem_review_equipment|lth=%g|met=%g|afterBrkCmb(m=%g,c=%g,s2=%g)|wep10(eq=%g,s5=%g)\" iEqL iEqM iEqM2 iEqC iObj2M iEqW iObj5W",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
