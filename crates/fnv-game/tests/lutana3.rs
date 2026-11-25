@@ -183,6 +183,17 @@ fn record_setters_read_back() {
     assert_eq!(n(&mut g, "GetRace TestNpcA"), f64::from(RACE_B));
     q(&mut g, "TestNpcRef.LNSetActorTemplate TestNpcB");
     assert_eq!(n(&mut g, "GetActorTemplate TestNpcA"), f64::from(NPC_B));
+    // GetActorTemplateFlag accepts explicit baseForm even without TPLT, and
+    // SetActorTemplateFlag accepts multi-bit masks within 0x3FF [observed: w6d2_28, w6d2p2_51].
+    assert_eq!(n(&mut g, "GetActorTemplateFlag 1 TestNpcB"), 0.0);
+    q(&mut g, "SetActorTemplateFlag 3 1 TestNpcB");
+    assert_eq!(n(&mut g, "GetActorTemplateFlag 1 TestNpcB"), 1.0);
+    assert_eq!(n(&mut g, "GetActorTemplateFlag 2 TestNpcB"), 1.0);
+    q(&mut g, "SetActorTemplateFlag 2 0 TestNpcB");
+    assert_eq!(n(&mut g, "GetActorTemplateFlag 3 TestNpcB"), 1.0, "partial mask matches any set bit");
+    q(&mut g, "SetActorTemplateFlag 3 0 TestNpcB");
+    assert_eq!(n(&mut g, "GetActorTemplateFlag 1 TestNpcB"), 0.0);
+    assert_eq!(n(&mut g, "GetActorTemplateFlag 2 TestNpcB"), 0.0);
 }
 
 #[test]

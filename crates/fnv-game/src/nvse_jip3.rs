@@ -238,15 +238,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // the game made, not the record, whose flags are 128) and 0 with the base given;
         // hypothesis: references placed from the plugins read their record's flags].
         "getactortemplateflag" => {
-            if form(args, 1).is_some() {
+            let Some(b) = form(args, 1).or(subject).map(|r| crate::functions::base_of(g, r).unwrap_or(r)) else { return Some(Ok(zero)) };
+            if !matches!(g.data.sig(g.unclone(b)).as_ref(), Some(b"NPC_" | b"CREA")) {
                 return Some(Ok(zero));
             }
-            let Some(b) = subject.map(|r| crate::functions::base_of(g, r).unwrap_or(r)) else { return Some(Ok(zero)) };
-            if g.data.actors.get(&b).and_then(|a| a.template).is_none_or(|t| t.0 == 0) {
+            let mask = num(args, 0, 0.0) as i64;
+            if mask <= 0 {
                 return Some(Ok(zero));
             }
             let flags = crate::nvse::record_value(g, b, "ACBS", "template_flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
-            yes(flags & (num(args, 0, 0.0) as u64) != 0)
+            yes(flags & (mask as u64) != 0)
         }
         // The base's Immobile flag (CREA ACBS bit 23) [documented: GetIsImmobile, "incapable of
         // moving"; the bit, the schema's ACBS flags].

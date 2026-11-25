@@ -235,9 +235,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: the page's table; ACBS template_flags]. One flag of the table at a
         // time [hypothesis: the IDs are single bits].
         "setactortemplateflag" => {
-            let flag = num(args, 0, 0.0) as u64;
+            let raw = num(args, 0, 0.0) as i64;
             if let Some(a) = form(args, 2).or(subject).map(|f| base(g, f)).filter(|&a| of_sig(g, a, &[b"NPC_", b"CREA"])) {
-                if flag.is_power_of_two() && flag <= 512 {
+                if raw > 0 && (raw as u64) & !0x3FF == 0 {
+                    let flag = raw as u64;
                     let old = crate::nvse::record_value(g, a, "ACBS", "template_flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
                     let new = if num(args, 1, 0.0) != 0.0 { old | flag } else { old & !flag };
                     g.field_overrides.insert((a, "ACBS/template_flags".into()), XVal::Num(new as f64));
