@@ -150,17 +150,27 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 
 ### 3.3 Creatures
 
-- CREA DATA "Combat Skill" is the creature's Guns, Big Guns, Energy Weapons, Explosives,
-  Melee Weapons, and Unarmed [observed 2026-11-25, Fallout: New Vegas 1.4.0.525
+- CREA DATA "Combat Skill" is the creature's Guns, Big Guns, Energy Weapons, Explosives
+  and Melee Weapons [documented: Stats Tab - Creatures, "used for the matching skill"
+  of a creature with a weapon; not for its unarmed attack].
+- "Stealth Skill" is its Sneak [hypothesis from the field name; every creature of
+  FalloutNV.esm has 50, observed]. "Magic Skill" (50 everywhere) is not used.
+- Earlier hypothesis: the other skills came from the formula and the creature's attributes
+  [hypothesis — superseded by the 2026-11-25 live probe below].
+- **Unarmed also reads Combat Skill (contradicting the wiki note above) and non-combat,
+  non-stealth skills return `0.0`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525
   (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters,
   `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probes
   `w6d7_04_npc_and_creature_skills_offsets_and_ai_avs` and
   `w6d7p2_05b_healrate_all_end_and_melee_dmg_odd_str` in
-  `tools/capture/nvse/catalogs/wave6d7_creature_skills.json`: `CrRadroach` with
-  `combat_skill = 25` and `stealth_skill = 0` reads `Guns = 25.0`, `MeleeWeapons = 25.0`,
-  `Unarmed = 25.0`, `Sneak = 0.0`, `Science = 0.0`].
-- "Stealth Skill" is its Sneak (`CrRadroach` `stealth_skill = 0` reads `0.0`). "Magic Skill" is not used.
-- Other non-combat, non-stealth creature skills return `0.0` (`Science = 0.0` despite Endurance 3 / Luck 1) [observed: `w6d7p2_05b`].
+  `tools/capture/nvse/catalogs/wave6d7_creature_skills.json`]:
+  - On `CrRadroach` (`combat_skill = 25`), `Unarmed` reads `25.0` alongside `Guns` and
+    `MeleeWeapons` (`cre(gun=25.0,mel=25.0,una=25.0->25.0/30.0,ai=0/1)`), contradicting
+    the Stats Tab - Creatures note that Combat Skill is not used for Unarmed.
+  - On `CrRadroach` (`Luck = 1`, where `derived_skill` would be `>= 3`), `Science` reads
+    `0.0` alongside `Sneak = 0.0` (`cre(e=3,l=1,g=25.0,u=25.0,snk=0.0,sci=0.0)`),
+    showing non-combat, non-stealth creature skills return `0.0` rather than
+    `derived_skill`.
 
 ### 3.4 The player
 
